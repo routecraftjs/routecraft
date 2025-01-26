@@ -6,6 +6,8 @@ export default routes()
   .to(log())
   .process({
     process: (exchange: Exchange<string>) => {
+      const { context: _, ...logExchange } = exchange;
+      console.log("Processing exchange", logExchange);
       return {
         ...exchange,
         body: exchange.body?.toUpperCase(),

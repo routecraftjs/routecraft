@@ -1,8 +1,11 @@
-import { type Exchange, type ExchangeHeaders } from "@routecraft/core";
+import { type CraftContext, type Exchange } from "@routecraft/core";
+
+export type Message = Pick<Exchange, "body" | "headers">;
 
 export interface Source {
   subscribe(
-    receive: (message: unknown, headers?: ExchangeHeaders) => void,
+    context: CraftContext,
+    handler: (exchange: Exchange) => void,
   ): Promise<() => void>;
 }
 
