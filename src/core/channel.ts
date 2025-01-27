@@ -1,8 +1,10 @@
+import { type Exchange } from "./exchange.ts";
+
 /**
  * MessageChannel interface for handling message streams
  * Implementations include KV, Kafka, Redis, and Google PubSub
  */
-export interface MessageChannel<T = undefined> {
+export interface MessageChannel<T = Exchange> {
   readonly namespace: string;
 
   /**
@@ -37,8 +39,7 @@ export interface MessageChannel<T = undefined> {
 /**
  * In-memory implementation for testing
  */
-export class InMemoryMessageChannel<T = undefined>
-  implements MessageChannel<T> {
+export class InMemoryMessageChannel<T = Exchange> implements MessageChannel<T> {
   private messages: T[] = [];
   readonly namespace: string;
 
@@ -69,6 +70,6 @@ export class InMemoryMessageChannel<T = undefined>
   }
 }
 
-export interface MessageChannelFactory<T = undefined> {
+export interface MessageChannelFactory<T = Exchange> {
   create(namespace: string): MessageChannel<T>;
 }

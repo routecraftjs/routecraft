@@ -1,4 +1,3 @@
-import { type Message } from "./adapter.ts";
 import {
   InMemoryMessageChannel,
   type MessageChannel,
@@ -9,7 +8,7 @@ import { Route, type RouteDefinition } from "./route.ts";
 export class CraftContext {
   private onStartup?: () => Promise<void> | void;
   private onShutdown?: () => Promise<void> | void;
-  private channelFactory?: MessageChannelFactory<Message>;
+  private channelFactory?: MessageChannelFactory;
   private routes: Route[] = [];
   private unsubscribers: Map<string, () => void> = new Map();
 
@@ -39,13 +38,13 @@ export class CraftContext {
 
   private createMessageChannel(
     namespace: string,
-  ): MessageChannel<Message> {
+  ): MessageChannel {
     return this.channelFactory
       ? this.channelFactory.create(namespace)
-      : new InMemoryMessageChannel<Message>(namespace);
+      : new InMemoryMessageChannel(namespace);
   }
 
-  setChannelFactory(factory: MessageChannelFactory<Message>): void {
+  setChannelFactory(factory: MessageChannelFactory): void {
     this.channelFactory = factory;
   }
 

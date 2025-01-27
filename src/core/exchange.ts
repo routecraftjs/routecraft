@@ -28,7 +28,6 @@ export type ExchangeHeaders =
 
 export type Exchange<T = unknown> = {
   readonly id: string;
-  readonly context: CraftContext;
   readonly headers: ExchangeHeaders;
   body: T;
 };
@@ -40,7 +39,7 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
 
   constructor(
     public readonly context: CraftContext,
-    public readonly options?: Partial<Exchange<T>>,
+    options?: Partial<Pick<Exchange<T>, "body" | "headers">>,
   ) {
     this.id = crypto.randomUUID();
     this.headers = {

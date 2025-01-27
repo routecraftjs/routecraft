@@ -5,9 +5,13 @@ import {
   type ToStepDefinition,
 } from "./step.ts";
 import { type CraftContext } from "./context.ts";
-import { type Exchange, HeadersKeys, OperationType } from "./exchange.ts";
+import {
+  DefaultExchange,
+  type Exchange,
+  HeadersKeys,
+  OperationType,
+} from "./exchange.ts";
 import { type MessageChannel } from "./channel.ts";
-import { type Message } from "./adapter.ts";
 
 export type RouteDefinition = {
   readonly id: string;
@@ -19,7 +23,7 @@ export class Route {
   constructor(
     readonly context: CraftContext,
     readonly definition: RouteDefinition,
-    readonly messageChannel: MessageChannel<Message>,
+    readonly messageChannel: MessageChannel,
   ) {
     if (!this.definition.source) {
       throw new Error("Source step is required");
@@ -33,12 +37,12 @@ export class Route {
         const message = await this.messageChannel.consume();
         if (message) {
           // Each new message is a new exchange
-          await this.onMessage({
-            id: crypto.randomUUID(),
-            body: message.body,
-            headers: message.headers,
-            context: this.context,
-          });
+          await this.onMessage(
+            new DefaultExchange(this.context, {
+              body: message.body,
+              headers: message.headers,
+            }),
+          );
 
           // Stop consuming if this was marked as the final message
           if (message.headers?.[HeadersKeys.FINAL_MESSAGE]) {
@@ -60,8 +64,7 @@ export class Route {
     this.definition.source.subscribe(
       this.context,
       async (exchange: Exchange) => {
-        const { context: _, ...messageExchange } = exchange;
-        await this.messageChannel.publish(messageExchange);
+        await this.messageChannel.publish(exchange);
       },
     ).then((unsubscribe) => {
       // Once subscribed, start consuming messages
