@@ -1,15 +1,16 @@
 import { type RouteDefinition } from "./route.ts";
 import { CraftContext } from "./context.ts";
-import { Destination, Source } from "./adapter.ts";
-import { Processor } from "./processor.ts";
+import { type Destination, type Source } from "./adapter.ts";
+import { type Processor } from "./processor.ts";
 import { OperationType } from "./exchange.ts";
 import { overloads } from "./util.ts";
-import { ProcessStepDefinition, ToStepDefinition } from "./step.ts";
+import { type ProcessStepDefinition, type ToStepDefinition } from "./step.ts";
 
 export class ContextBuilder {
   private onStartupHandler?: () => Promise<void> | void;
   private onShutdownHandler?: () => Promise<void> | void;
   private definitions: RouteDefinition[] = [];
+  private initialStores: Map<string, unknown> = new Map();
 
   constructor() {}
 
@@ -20,6 +21,11 @@ export class ContextBuilder {
 
   onShutdown(onShutdown: () => Promise<void> | void): this {
     this.onShutdownHandler = onShutdown;
+    return this;
+  }
+
+  store<T>(namespace: string, store: T): this {
+    this.initialStores.set(namespace, store);
     return this;
   }
 
@@ -44,6 +50,9 @@ export class ContextBuilder {
     if (this.onShutdownHandler) {
       ctx.setOnShutdown(this.onShutdownHandler);
     }
+    this.initialStores.forEach((store, id) => {
+      ctx.setStore(id, store);
+    });
     this.definitions.forEach((route) => ctx.registerRoute(route));
     return ctx;
   }

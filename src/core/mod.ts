@@ -1,4 +1,5 @@
 export {
+  DefaultExchange,
   type Exchange,
   type ExchangeHeaders,
   HeadersKeys,

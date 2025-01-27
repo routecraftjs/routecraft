@@ -5,19 +5,12 @@ import {
   RouteBuilder,
 } from "@routecraft/core";
 import {
+  ChannelAdapter,
+  type ChannelAdapterOptions,
   LogDestination,
   NoopDestination,
   SimpleSource,
 } from "@routecraft/adapters";
-
-export function exchange(options?: Partial<Exchange>): Exchange {
-  return {
-    id: crypto.randomUUID(),
-    headers: {},
-    body: undefined,
-    ...options,
-  };
-}
 
 export function processor(fn: (exchange: Exchange) => Exchange): Processor {
   return {
@@ -45,4 +38,11 @@ export function noop(): NoopDestination {
 
 export function log(): LogDestination {
   return new LogDestination();
+}
+
+export function channel(
+  channel: string,
+  options?: Partial<ChannelAdapterOptions>,
+): ChannelAdapter {
+  return new ChannelAdapter(channel, options);
 }
