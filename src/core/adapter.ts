@@ -1,15 +1,15 @@
 import { type CraftContext } from "./context.ts";
-import { type Exchange } from "./exchange.ts";
+import { type Exchange, type ExchangeHeaders } from "./exchange.ts";
 
-export interface Source {
+export interface Source<T = unknown> {
   subscribe(
     context: CraftContext,
-    handler: (exchange: Exchange) => void,
+    handler: (message: T, headers?: ExchangeHeaders) => Promise<void>,
   ): Promise<() => void>;
 }
 
-export interface Destination {
-  send(exchange: Exchange): Promise<void>;
+export interface Destination<T = unknown> {
+  send(exchange: Exchange<T>): Promise<void>;
 }
 
-export interface Adapter extends Source, Destination {}
+export interface Adapter<T = unknown> extends Source<T>, Destination<T> {}

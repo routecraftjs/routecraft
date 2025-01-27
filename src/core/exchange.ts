@@ -37,9 +37,9 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
 
   constructor(
     public readonly context: CraftContext,
-    options?: Partial<Pick<Exchange<T>, "body" | "headers">>,
+    options?: Partial<Exchange<T>>,
   ) {
-    this.id = crypto.randomUUID();
+    this.id = options?.id || crypto.randomUUID();
     this.headers = {
       [HeadersKeys.ROUTE_ID]: crypto.randomUUID(),
       [HeadersKeys.OPERATION]: OperationType.FROM,

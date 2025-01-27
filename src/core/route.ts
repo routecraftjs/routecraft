@@ -5,7 +5,12 @@ import {
   type ToStepDefinition,
 } from "./step.ts";
 import { type CraftContext } from "./context.ts";
-import { type Exchange, HeadersKeys, OperationType } from "./exchange.ts";
+import {
+  DefaultExchange,
+  type Exchange,
+  HeadersKeys,
+  OperationType,
+} from "./exchange.ts";
 
 export type RouteDefinition = {
   readonly id: string;
@@ -30,10 +35,29 @@ export class Route {
       resolveSubscription = resolve;
     });
 
+    const partialExchange: Partial<Exchange> = {
+      headers: {
+        [HeadersKeys.CORRELATION_ID]: crypto.randomUUID(),
+      },
+    };
+
     // Subscribe to source and handle messages directly
     this.definition.source.subscribe(
       this.context,
-      async (exchange: Exchange) => {
+      async (message, headers) => {
+        // Each message must have a new exhange
+
+        const exchange = new DefaultExchange(this.context, {
+          ...partialExchange,
+          body: message,
+          headers: {
+            ...partialExchange.headers,
+            ...headers,
+            [HeadersKeys.ROUTE_ID]: this.definition.id,
+            [HeadersKeys.OPERATION]: OperationType.FROM,
+          },
+        });
+
         // Process the exchange through the route
         await this.onMessage(exchange);
       },

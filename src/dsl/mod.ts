@@ -5,6 +5,8 @@ import {
   RouteBuilder,
 } from "@routecraft/core";
 import {
+  ChannelAdapter,
+  type ChannelAdapterOptions,
   LogDestination,
   NoopDestination,
   SimpleSource,
@@ -36,4 +38,11 @@ export function noop(): NoopDestination {
 
 export function log(): LogDestination {
   return new LogDestination();
+}
+
+export function channel(
+  channel: string,
+  options?: Partial<ChannelAdapterOptions>,
+): ChannelAdapter {
+  return new ChannelAdapter(channel, options);
 }
