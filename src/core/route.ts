@@ -1,13 +1,13 @@
 import {
-  FromStepDefinition,
-  ProcessStepDefinition,
-  StepDefinition,
-  ToStepDefinition,
+  type FromStepDefinition,
+  type ProcessStepDefinition,
+  type StepDefinition,
+  type ToStepDefinition,
 } from "./step.ts";
-import { CraftContext } from "./context.ts";
+import { type CraftContext } from "./context.ts";
 import {
-  Exchange,
-  ExchangeHeaders,
+  DefaultExchange,
+  type Exchange,
   HeadersKeys,
   OperationType,
 } from "./exchange.ts";
@@ -20,8 +20,8 @@ export type RouteDefinition = {
 
 export class Route {
   constructor(
-    public readonly context: CraftContext,
-    public readonly definition: RouteDefinition,
+    readonly context: CraftContext,
+    readonly definition: RouteDefinition,
   ) {
     if (!this.definition.source) {
       throw new Error("Source step is required");
@@ -29,24 +29,44 @@ export class Route {
   }
 
   subscribe(): Promise<() => void> {
-    const exchange = {
-      id: crypto.randomUUID(),
+    // Create a promise that resolves when subscription is done
+    let resolveSubscription: (unsubscribe: () => void) => void;
+    const subscriptionPromise = new Promise<() => void>((resolve) => {
+      resolveSubscription = resolve;
+    });
+
+    const partialExchange: Partial<Exchange> = {
       headers: {
-        [HeadersKeys.ROUTE_ID]: this.definition.id,
-        [HeadersKeys.OPERATION]: OperationType.FROM,
+        [HeadersKeys.CORRELATION_ID]: crypto.randomUUID(),
       },
-      body: undefined,
     };
 
-    const handler = (message: unknown, headers?: ExchangeHeaders) => {
-      this.onMessage({
-        ...exchange,
-        headers: { ...exchange.headers, ...headers || {} },
-        body: message,
-      });
-    };
+    // Subscribe to source and handle messages directly
+    this.definition.source.subscribe(
+      this.context,
+      async (message, headers) => {
+        // Each message must have a new exhange
 
-    return this.definition.source.subscribe(handler);
+        const exchange = new DefaultExchange(this.context, {
+          ...partialExchange,
+          body: message,
+          headers: {
+            ...partialExchange.headers,
+            ...headers,
+            [HeadersKeys.ROUTE_ID]: this.definition.id,
+            [HeadersKeys.OPERATION]: OperationType.FROM,
+          },
+        });
+
+        // Process the exchange through the route
+        await this.onMessage(exchange);
+      },
+    ).then((unsubscribe) => {
+      // When subscription is complete, resolve with the unsubscribe function
+      resolveSubscription(unsubscribe);
+    });
+
+    return subscriptionPromise;
   }
 
   private async onMessage(exchange: Exchange): Promise<void> {
