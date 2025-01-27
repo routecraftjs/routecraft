@@ -7,9 +7,9 @@ import {
 import {
   ChannelAdapter,
   type ChannelAdapterOptions,
-  LogDestination,
-  NoopDestination,
-  SimpleSource,
+  LogAdapter,
+  NoopAdapter,
+  SimpleAdapter,
 } from "@routecraft/adapters";
 
 export function processor(fn: (exchange: Exchange) => Exchange): Processor {
@@ -28,16 +28,16 @@ export function routes(): RouteBuilder {
 
 export function simple(
   producer: () => unknown | Promise<unknown>,
-): SimpleSource {
-  return new SimpleSource(producer);
+): SimpleAdapter {
+  return new SimpleAdapter(producer);
 }
 
-export function noop(): NoopDestination {
-  return new NoopDestination();
+export function noop(): NoopAdapter {
+  return new NoopAdapter();
 }
 
-export function log(): LogDestination {
-  return new LogDestination();
+export function log(): LogAdapter {
+  return new LogAdapter();
 }
 
 export function channel(

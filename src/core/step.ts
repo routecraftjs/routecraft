@@ -1,6 +1,5 @@
 import { OperationType } from "./exchange.ts";
-import { type Destination, type Source } from "./adapter.ts";
-import { type Processor } from "./processor.ts";
+import { type Destination, type Processor, type Source } from "./adapter.ts";
 
 export type StepDefinition = {
   operation: OperationType;
