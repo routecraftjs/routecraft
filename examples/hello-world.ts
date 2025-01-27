@@ -1,4 +1,4 @@
-import { type DefaultExchange, type Exchange } from "@routecraft/core";
+import { type Exchange } from "@routecraft/core";
 import { log, routes, simple } from "@routecraft/dsl";
 
 export default routes()
@@ -6,8 +6,8 @@ export default routes()
   .to(log())
   .process({
     process: (exchange: Exchange<string>) => {
-      const { context: _, ...logExchange } = exchange as DefaultExchange;
-      console.log("Processing exchange", logExchange);
+      const { id, body, headers } = exchange;
+      console.log("Processing exchange", { id, body, headers });
       return {
         ...exchange,
         body: exchange.body?.toUpperCase(),

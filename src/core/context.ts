@@ -5,7 +5,7 @@ export class CraftContext {
   private onShutdown?: () => Promise<void> | void;
   private routes: Route[] = [];
   private unsubscribers: Map<string, () => void> = new Map();
-  private store: Map<string, Record<string, unknown>> = new Map();
+  private store: Map<string, unknown> = new Map();
 
   constructor() {}
 
@@ -25,13 +25,13 @@ export class CraftContext {
     return this.routes;
   }
 
-  getStore<T>(id: string): Record<string, T> | undefined {
-    const store = this.store.get(id);
-    return store ? store as Record<string, T> : undefined;
+  getStore<T>(namespace: string): T | undefined {
+    const store = this.store.get(namespace);
+    return store ? store as T : undefined;
   }
 
-  setStore<T>(id: string, value: Record<string, T>): void {
-    this.store.set(id, value as Record<string, T>);
+  setStore<T>(namespace: string, value: T): void {
+    this.store.set(namespace, value);
   }
 
   getRouteById(id: string): Route | undefined {

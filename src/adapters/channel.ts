@@ -1,10 +1,6 @@
-import {
-  type Adapter,
-  CraftContext,
-  type DefaultExchange,
-  type Exchange,
-  type ExchangeHeaders,
-} from "@routecraft/core";
+import { Adapter } from "../core/adapter.ts";
+import { CraftContext } from "../core/context.ts";
+import { Exchange, ExchangeHeaders } from "../core/exchange.ts";
 
 export interface MessageChannel {
   /** Send a message to the channel */
@@ -13,7 +9,7 @@ export interface MessageChannel {
   /** Subscribe to a channel */
   subscribe(
     channel: string,
-    onMessage: (message: Exchange) => Promise<void>,
+    handler: (exchange: Exchange) => Promise<void>,
   ): Promise<void>;
 
   /** Unsubscribe from a channel */
@@ -31,12 +27,12 @@ class InMemoryMessageChannel implements MessageChannel {
 
   subscribe(
     channel: string,
-    onMessage: (message: Exchange) => Promise<void>,
+    handler: (message: Exchange) => Promise<void>,
   ): Promise<void> {
     if (!this.subscribers.has(channel)) {
       this.subscribers.set(channel, []);
     }
-    this.subscribers.get(channel)?.push(onMessage);
+    this.subscribers.get(channel)?.push(handler);
     return Promise.resolve();
   }
 
@@ -50,56 +46,63 @@ export type ChannelAdapterOptions = {
   messageChannel: MessageChannel;
 };
 
-export class ChannelAdapter implements Adapter {
-  private static STORE_NAMESPACE: string = "routecraft.adapter.channel";
-  private static defaultChannel = new InMemoryMessageChannel();
+export class ChannelAdapter implements Adapter<unknown> {
+  static readonly ADAPTER_CHANNEL_STORE = "routecraft.adapter.channel.store";
+
+  private channel: string;
   private messageChannel: MessageChannel;
 
-  constructor(
-    private channel: string,
-    options?: Partial<ChannelAdapterOptions>,
-  ) {
+  constructor(channel: string, options?: Partial<ChannelAdapterOptions>) {
+    this.channel = channel;
     this.messageChannel = options?.messageChannel ??
-      ChannelAdapter.defaultChannel;
+      new InMemoryMessageChannel();
   }
 
-  private safeChannel(channel: string, context: CraftContext) {
-    let store = context.getStore<MessageChannel>(
-      ChannelAdapter.STORE_NAMESPACE,
+  private getSafeChannelId(): string {
+    return this.channel.replace(/[^a-zA-Z0-9]/g, "-");
+  }
+
+  private getMessageChannel(context: CraftContext): MessageChannel | undefined {
+    const safeChannelId = this.getSafeChannelId();
+    let store = context.getStore<Map<string, MessageChannel>>(
+      ChannelAdapter.ADAPTER_CHANNEL_STORE,
     );
 
-    // Initialize the store if it doesn't exist
     if (!store) {
-      store = {};
-      context.setStore<MessageChannel>(ChannelAdapter.STORE_NAMESPACE, store);
+      store = new Map<string, MessageChannel>();
+      context.setStore(ChannelAdapter.ADAPTER_CHANNEL_STORE, store);
     }
 
-    const safeChannelId = channel.replace(/[^a-zA-Z0-9]/g, "-");
-    if (!store[safeChannelId]) {
-      store[safeChannelId] = this.messageChannel;
+    if (!store.get(safeChannelId)) {
+      store.set(safeChannelId, this.messageChannel);
     }
 
-    return store[safeChannelId];
+    return store.get(safeChannelId);
   }
 
-  send(exchange: Exchange): Promise<void> {
-    const { context } = exchange as DefaultExchange;
-    const channel = this.safeChannel(this.channel, context);
-    return channel.send(this.channel, exchange);
+  async send(exchange: Exchange & { context: CraftContext }): Promise<void> {
+    const channel = this.getMessageChannel(exchange.context);
+    if (!channel) {
+      throw new Error("Channel not found");
+    }
+    return await channel.send(this.channel, exchange);
   }
 
   subscribe(
     context: CraftContext,
     handler: (message: unknown, headers?: ExchangeHeaders) => Promise<void>,
   ): Promise<() => void> {
-    const channel = this.safeChannel(this.channel, context);
+    const channel = this.getMessageChannel(context);
+    if (!channel) {
+      throw new Error("Channel not found");
+    }
 
-    channel.subscribe(this.channel, (exchange) => {
-      return handler(exchange.body, exchange.headers);
+    channel.subscribe(this.channel, async (exchange: Exchange) => {
+      await handler(exchange.body, exchange.headers);
     });
 
-    return Promise.resolve(() => {
-      channel.unsubscribe(this.channel);
+    return Promise.resolve(async () => {
+      await channel.unsubscribe(this.channel);
     });
   }
 }
