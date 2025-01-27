@@ -1,10 +1,10 @@
 import { type RouteDefinition } from "./route.ts";
 import { CraftContext } from "./context.ts";
-import { Destination, Source } from "./adapter.ts";
-import { Processor } from "./processor.ts";
+import { type Destination, type Source } from "./adapter.ts";
+import { type Processor } from "./processor.ts";
 import { OperationType } from "./exchange.ts";
 import { overloads } from "./util.ts";
-import { ProcessStepDefinition, ToStepDefinition } from "./step.ts";
+import { type ProcessStepDefinition, type ToStepDefinition } from "./step.ts";
 
 export class ContextBuilder {
   private onStartupHandler?: () => Promise<void> | void;

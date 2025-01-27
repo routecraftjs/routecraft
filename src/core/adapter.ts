@@ -1,4 +1,5 @@
-import { type CraftContext, type Exchange } from "@routecraft/core";
+import { type CraftContext } from "./context.ts";
+import { type Exchange } from "./exchange.ts";
 
 export type Message = Pick<Exchange, "body" | "headers">;
 

@@ -1,13 +1,13 @@
 import {
-  FromStepDefinition,
-  ProcessStepDefinition,
-  StepDefinition,
-  ToStepDefinition,
+  type FromStepDefinition,
+  type ProcessStepDefinition,
+  type StepDefinition,
+  type ToStepDefinition,
 } from "./step.ts";
-import { CraftContext } from "./context.ts";
-import { Exchange, HeadersKeys, OperationType } from "./exchange.ts";
-import { MessageChannel } from "./channel.ts";
-import { Message } from "./adapter.ts";
+import { type CraftContext } from "./context.ts";
+import { type Exchange, HeadersKeys, OperationType } from "./exchange.ts";
+import { type MessageChannel } from "./channel.ts";
+import { type Message } from "./adapter.ts";
 
 export type RouteDefinition = {
   readonly id: string;

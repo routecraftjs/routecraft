@@ -1,11 +1,10 @@
+import { type Message } from "./adapter.ts";
 import {
   InMemoryMessageChannel,
-  Message,
-  MessageChannel,
-  MessageChannelFactory,
-  Route,
-  RouteDefinition,
-} from "@routecraft/core";
+  type MessageChannel,
+  type MessageChannelFactory,
+} from "./channel.ts";
+import { Route, type RouteDefinition } from "./route.ts";
 
 export class CraftContext {
   private onStartup?: () => Promise<void> | void;
