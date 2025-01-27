@@ -1,16 +1,11 @@
-import {
-  InMemoryMessageChannel,
-  type MessageChannel,
-  type MessageChannelFactory,
-} from "./channel.ts";
 import { Route, type RouteDefinition } from "./route.ts";
 
 export class CraftContext {
   private onStartup?: () => Promise<void> | void;
   private onShutdown?: () => Promise<void> | void;
-  private channelFactory?: MessageChannelFactory;
   private routes: Route[] = [];
   private unsubscribers: Map<string, () => void> = new Map();
+  private store: Map<string, Record<string, unknown>> = new Map();
 
   constructor() {}
 
@@ -23,29 +18,24 @@ export class CraftContext {
   }
 
   registerRoute(definition: RouteDefinition): void {
-    this.routes.push(
-      new Route(this, definition, this.createMessageChannel(definition.id)),
-    );
+    this.routes.push(new Route(this, definition));
   }
 
   getRoutes(): Route[] {
     return this.routes;
   }
 
+  getStore<T>(id: string): Record<string, T> | undefined {
+    const store = this.store.get(id);
+    return store ? store as Record<string, T> : undefined;
+  }
+
+  setStore<T>(id: string, value: Record<string, T>): void {
+    this.store.set(id, value as Record<string, T>);
+  }
+
   getRouteById(id: string): Route | undefined {
     return this.routes.find((route) => route.definition.id === id);
-  }
-
-  private createMessageChannel(
-    namespace: string,
-  ): MessageChannel {
-    return this.channelFactory
-      ? this.channelFactory.create(namespace)
-      : new InMemoryMessageChannel(namespace);
-  }
-
-  setChannelFactory(factory: MessageChannelFactory): void {
-    this.channelFactory = factory;
   }
 
   async start(): Promise<void> {

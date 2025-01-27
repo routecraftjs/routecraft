@@ -10,14 +10,12 @@ export enum HeadersKeys {
   OPERATION = "routecraft.operation",
   ROUTE_ID = "routecraft.route",
   CORRELATION_ID = "routecraft.correlation_id",
-  FINAL_MESSAGE = "routecraft.final_message",
 }
 
 export type RouteCraftHeaders = {
   [HeadersKeys.OPERATION]: OperationType;
   [HeadersKeys.ROUTE_ID]: string;
   [HeadersKeys.CORRELATION_ID]: string;
-  [HeadersKeys.FINAL_MESSAGE]?: boolean;
 };
 
 export type HeaderValue = string | number | boolean | undefined;

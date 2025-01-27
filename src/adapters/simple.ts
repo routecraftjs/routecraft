@@ -1,12 +1,10 @@
 import {
   type CraftContext,
   DefaultExchange,
-  Exchange,
-  HeadersKeys,
-  type Source,
+  type Exchange,
 } from "@routecraft/core";
 
-export class SimpleSource implements Source {
+export class SimpleSource {
   constructor(private producer: () => unknown | Promise<unknown>) {}
 
   async subscribe(
@@ -16,23 +14,14 @@ export class SimpleSource implements Source {
     const result = await this.producer();
 
     if (Array.isArray(result)) {
-      const lastIndex = result.length - 1;
-      for (let i = 0; i < result.length; i++) {
-        const headers = i === lastIndex
-          ? { [HeadersKeys.FINAL_MESSAGE]: true }
-          : {};
+      for (const item of result) {
         await Promise.resolve(
-          handler(new DefaultExchange(context, { body: result[i], headers })),
+          handler(new DefaultExchange(context, { body: item })),
         );
       }
     } else {
       await Promise.resolve(
-        handler(
-          new DefaultExchange(context, {
-            body: result,
-            headers: { [HeadersKeys.FINAL_MESSAGE]: true },
-          }),
-        ),
+        handler(new DefaultExchange(context, { body: result })),
       );
     }
 

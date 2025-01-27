@@ -5,13 +5,7 @@ import {
   type ToStepDefinition,
 } from "./step.ts";
 import { type CraftContext } from "./context.ts";
-import {
-  DefaultExchange,
-  type Exchange,
-  HeadersKeys,
-  OperationType,
-} from "./exchange.ts";
-import { type MessageChannel } from "./channel.ts";
+import { type Exchange, HeadersKeys, OperationType } from "./exchange.ts";
 
 export type RouteDefinition = {
   readonly id: string;
@@ -23,7 +17,6 @@ export class Route {
   constructor(
     readonly context: CraftContext,
     readonly definition: RouteDefinition,
-    readonly messageChannel: MessageChannel,
   ) {
     if (!this.definition.source) {
       throw new Error("Source step is required");
@@ -31,47 +24,22 @@ export class Route {
   }
 
   subscribe(): Promise<() => void> {
-    // Start consuming messages from the message channel
-    const consumeMessages = async () => {
-      while (true) {
-        const message = await this.messageChannel.consume();
-        if (message) {
-          // Each new message is a new exchange
-          await this.onMessage(
-            new DefaultExchange(this.context, {
-              body: message.body,
-              headers: message.headers,
-            }),
-          );
-
-          // Stop consuming if this was marked as the final message
-          if (message.headers?.[HeadersKeys.FINAL_MESSAGE]) {
-            break;
-          }
-        }
-        // Small delay to prevent tight loop
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
-    };
-
-    // Create a promise that resolves when both subscription and message processing are done
+    // Create a promise that resolves when subscription is done
     let resolveSubscription: (unsubscribe: () => void) => void;
     const subscriptionPromise = new Promise<() => void>((resolve) => {
       resolveSubscription = resolve;
     });
 
-    // Start the subscription process
+    // Subscribe to source and handle messages directly
     this.definition.source.subscribe(
       this.context,
       async (exchange: Exchange) => {
-        await this.messageChannel.publish(exchange);
+        // Process the exchange through the route
+        await this.onMessage(exchange);
       },
     ).then((unsubscribe) => {
-      // Once subscribed, start consuming messages
-      consumeMessages().then(() => {
-        // When all messages are consumed, resolve with the unsubscribe function
-        resolveSubscription(unsubscribe);
-      });
+      // When subscription is complete, resolve with the unsubscribe function
+      resolveSubscription(unsubscribe);
     });
 
     return subscriptionPromise;
