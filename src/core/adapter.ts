@@ -8,8 +8,8 @@ export type Source<T = unknown> = {
   ): Promise<() => void>;
 };
 
-export type Processor = {
-  process(exchange: Exchange): Promise<Exchange> | Exchange;
+export type Processor<T = unknown> = {
+  process(exchange: Exchange<T>): Promise<Exchange<T>> | Exchange<T>;
 };
 
 export type Destination<T = unknown> = {
