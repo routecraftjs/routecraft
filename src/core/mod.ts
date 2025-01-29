@@ -20,3 +20,5 @@ export { type FromStepDefinition, type StepDefinition } from "./step.ts";
 export { type Destination, type Processor, type Source } from "./adapter.ts";
 
 export { ContextBuilder, RouteBuilder } from "./builder.ts";
+
+export { ErrorCode, RouteCraftError } from "./error.ts";

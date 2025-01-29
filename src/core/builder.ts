@@ -4,6 +4,7 @@ import { type Destination, type Processor, type Source } from "./adapter.ts";
 import { OperationType } from "./exchange.ts";
 import { overloads } from "./util.ts";
 import { type ProcessStepDefinition, type ToStepDefinition } from "./step.ts";
+import { CraftErrors } from "./error.ts";
 
 export class ContextBuilder {
   private onStartupHandler?: () => Promise<void> | void;
@@ -102,7 +103,7 @@ export class RouteBuilder {
 
   private requireSource(): RouteDefinition {
     if (!this.currentRoute) {
-      throw new Error("Source is required, use .from() to set a source");
+      throw CraftErrors.missingFromDefinition(crypto.randomUUID());
     }
     return this.currentRoute;
   }
