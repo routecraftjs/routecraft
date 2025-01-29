@@ -1,19 +1,33 @@
 import {
   type CraftContext,
   type Destination,
+  ErrorCode,
   type Exchange,
   type ExchangeHeaders,
   type MergedOptions,
+  RouteCraftError,
   type Source,
 } from "@routecraft/core";
 
 // Extend the store registry with channel adapter types
 declare module "@routecraft/core" {
+  enum ErrorCode {
+    CHANNEL_NOT_FOUND = "CHANNEL_NOT_FOUND",
+  }
   interface StoreRegistry {
     [ChannelAdapter.ADAPTER_CHANNEL_STORE]: Map<string, MessageChannel>;
     [ChannelAdapter.ADAPTER_CHANNEL_OPTIONS]: Partial<ChannelAdapterOptions>;
   }
 }
+
+const ChannelErrors = {
+  channelNotFound: (channel: string) =>
+    new RouteCraftError({
+      code: ErrorCode.CHANNEL_NOT_FOUND,
+      message: `Channel "${channel}" not found`,
+      docs: "https://routecraft.dev/docs/adapters/channel",
+    }),
+};
 
 export interface MessageChannel {
   /** Send a message to the channel */
@@ -55,9 +69,9 @@ export class InMemoryMessageChannel implements MessageChannel {
   }
 }
 
-export type ChannelAdapterOptions = {
+export interface ChannelAdapterOptions {
   channelFactory: (channel: string) => MessageChannel;
-};
+}
 
 export class ChannelAdapter
   implements Source, Destination, MergedOptions<ChannelAdapterOptions> {
@@ -99,7 +113,7 @@ export class ChannelAdapter
   async send(exchange: Exchange & { context: CraftContext }): Promise<void> {
     const channel = this.getMessageChannel(exchange.context);
     if (!channel) {
-      throw new Error("Channel not found");
+      throw ChannelErrors.channelNotFound(this.channel);
     }
     return await channel.send(this.channel, exchange);
   }
@@ -110,7 +124,7 @@ export class ChannelAdapter
   ): Promise<() => void> {
     const channel = this.getMessageChannel(context);
     if (!channel) {
-      throw new Error("Channel not found");
+      throw ChannelErrors.channelNotFound(this.channel);
     }
 
     channel.subscribe(this.channel, async (exchange: Exchange) => {
