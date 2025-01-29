@@ -1,7 +1,6 @@
 import { type RouteDefinition } from "./route.ts";
-import { CraftContext } from "./context.ts";
-import { type Destination, type Source } from "./adapter.ts";
-import { type Processor } from "./processor.ts";
+import { CraftContext, type StoreRegistry } from "./context.ts";
+import { type Destination, type Processor, type Source } from "./adapter.ts";
 import { OperationType } from "./exchange.ts";
 import { overloads } from "./util.ts";
 import { type ProcessStepDefinition, type ToStepDefinition } from "./step.ts";
@@ -10,7 +9,10 @@ export class ContextBuilder {
   private onStartupHandler?: () => Promise<void> | void;
   private onShutdownHandler?: () => Promise<void> | void;
   private definitions: RouteDefinition[] = [];
-  private initialStores: Map<string, unknown> = new Map();
+  private initialStores = new Map<
+    keyof StoreRegistry,
+    StoreRegistry[keyof StoreRegistry]
+  >();
 
   constructor() {}
 
@@ -24,8 +26,8 @@ export class ContextBuilder {
     return this;
   }
 
-  store<T>(namespace: string, store: T): this {
-    this.initialStores.set(namespace, store);
+  store<K extends keyof StoreRegistry>(key: K, value: StoreRegistry[K]): this {
+    this.initialStores.set(key, value);
     return this;
   }
 
@@ -50,10 +52,17 @@ export class ContextBuilder {
     if (this.onShutdownHandler) {
       ctx.setOnShutdown(this.onShutdownHandler);
     }
-    this.initialStores.forEach((store, id) => {
-      ctx.setStore(id, store);
-    });
-    this.definitions.forEach((route) => ctx.registerRoute(route));
+
+    // Initialize stores with type safety
+    for (const [key, value] of this.initialStores) {
+      ctx.setStore(key, value);
+    }
+
+    // Register routes
+    for (const definition of this.definitions) {
+      ctx.registerRoute(definition);
+    }
+
     return ctx;
   }
 }

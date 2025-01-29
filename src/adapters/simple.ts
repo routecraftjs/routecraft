@@ -4,7 +4,7 @@ import {
   type Source,
 } from "@routecraft/core";
 
-export class SimpleSource implements Source {
+export class SimpleAdapter implements Source {
   constructor(private producer: () => unknown | Promise<unknown>) {}
 
   async subscribe(

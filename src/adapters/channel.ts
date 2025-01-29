@@ -1,6 +1,19 @@
-import { Adapter } from "../core/adapter.ts";
-import { CraftContext } from "../core/context.ts";
-import { Exchange, ExchangeHeaders } from "../core/exchange.ts";
+import {
+  type CraftContext,
+  type Destination,
+  type Exchange,
+  type ExchangeHeaders,
+  type MergedOptions,
+  type Source,
+} from "@routecraft/core";
+
+// Extend the store registry with channel adapter types
+declare module "@routecraft/core" {
+  interface StoreRegistry {
+    [ChannelAdapter.ADAPTER_CHANNEL_STORE]: Map<string, MessageChannel>;
+    [ChannelAdapter.ADAPTER_CHANNEL_OPTIONS]: Partial<ChannelAdapterOptions>;
+  }
+}
 
 export interface MessageChannel {
   /** Send a message to the channel */
@@ -16,7 +29,7 @@ export interface MessageChannel {
   unsubscribe(channel: string): Promise<void>;
 }
 
-class InMemoryMessageChannel implements MessageChannel {
+export class InMemoryMessageChannel implements MessageChannel {
   private subscribers: Map<string, ((message: Exchange) => Promise<void>)[]> =
     new Map();
 
@@ -43,19 +56,23 @@ class InMemoryMessageChannel implements MessageChannel {
 }
 
 export type ChannelAdapterOptions = {
-  messageChannel: MessageChannel;
+  channelFactory: (channel: string) => MessageChannel;
 };
 
-export class ChannelAdapter implements Adapter<unknown> {
-  static readonly ADAPTER_CHANNEL_STORE = "routecraft.adapter.channel.store";
+export class ChannelAdapter
+  implements Source, Destination, MergedOptions<ChannelAdapterOptions> {
+  static readonly ADAPTER_CHANNEL_STORE =
+    "routecraft.adapter.channel.store" as const;
+  static readonly ADAPTER_CHANNEL_OPTIONS =
+    "routecraft.adapter.channel.options" as const;
 
   private channel: string;
-  private messageChannel: MessageChannel;
 
-  constructor(channel: string, options?: Partial<ChannelAdapterOptions>) {
+  constructor(
+    channel: string,
+    public options: Partial<ChannelAdapterOptions> = {},
+  ) {
     this.channel = channel;
-    this.messageChannel = options?.messageChannel ??
-      new InMemoryMessageChannel();
   }
 
   private getSafeChannelId(): string {
@@ -64,17 +81,16 @@ export class ChannelAdapter implements Adapter<unknown> {
 
   private getMessageChannel(context: CraftContext): MessageChannel | undefined {
     const safeChannelId = this.getSafeChannelId();
-    let store = context.getStore<Map<string, MessageChannel>>(
-      ChannelAdapter.ADAPTER_CHANNEL_STORE,
-    );
+    let store = context.getStore(ChannelAdapter.ADAPTER_CHANNEL_STORE);
 
     if (!store) {
       store = new Map<string, MessageChannel>();
       context.setStore(ChannelAdapter.ADAPTER_CHANNEL_STORE, store);
     }
 
-    if (!store.get(safeChannelId)) {
-      store.set(safeChannelId, this.messageChannel);
+    if (!store.has(safeChannelId)) {
+      const mergedOptions = this.mergedOptions(context);
+      store.set(safeChannelId, mergedOptions.channelFactory(safeChannelId));
     }
 
     return store.get(safeChannelId);
@@ -104,5 +120,16 @@ export class ChannelAdapter implements Adapter<unknown> {
     return Promise.resolve(async () => {
       await channel.unsubscribe(this.channel);
     });
+  }
+
+  mergedOptions(context: CraftContext): ChannelAdapterOptions {
+    const store = context.getStore(ChannelAdapter.ADAPTER_CHANNEL_OPTIONS);
+    return {
+      channelFactory: (_channel) => {
+        return new InMemoryMessageChannel();
+      },
+      ...store,
+      ...this.options,
+    };
   }
 }
