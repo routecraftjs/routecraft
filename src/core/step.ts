@@ -5,6 +5,8 @@ export type StepDefinition = {
   operation: OperationType;
 };
 
-export type FromStepDefinition<T = unknown> = StepDefinition<T> & Source<T>;
-export type ToStepDefinition<T = unknown> = StepDefinition<T> & Destination<T>;
-export type ProcessStepDefinition<T = unknown> = StepDefinition<T> & Processor<T>;
+export type FromStepDefinition<T = unknown> = StepDefinition & Source<T>;
+export type ToStepDefinition<T = unknown> = StepDefinition & Destination<T>;
+export type ProcessStepDefinition<T = unknown> =
+  & StepDefinition
+  & Processor<T>;
