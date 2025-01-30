@@ -9,20 +9,19 @@ export class SimpleAdapter implements Source {
 
   async subscribe(
     _context: CraftContext,
-    handler: (message: unknown, headers?: ExchangeHeaders) => void,
-  ): Promise<() => void> {
+    handler: (message: unknown, headers?: ExchangeHeaders) => Promise<void>,
+    abortController: AbortController,
+  ): Promise<void> {
     const result = await this.producer();
 
     if (Array.isArray(result)) {
-      for (const item of result) {
-        await Promise.resolve(handler(item));
-      }
+      await Promise.all(result.map((item) => handler(item))).finally(() => {
+        abortController.abort();
+      });
     } else {
-      await Promise.resolve(
-        handler(result),
-      );
+      await handler(result).finally(() => {
+        abortController.abort();
+      });
     }
-
-    return () => {};
   }
 }

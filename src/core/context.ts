@@ -1,4 +1,4 @@
-import { Route, type RouteDefinition } from "./route.ts";
+import { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
 
 /**
  * Base store registry that can be extended by adapters
@@ -27,7 +27,7 @@ export class CraftContext {
   private onStartup?: () => Promise<void> | void;
   private onShutdown?: () => Promise<void> | void;
   private routes: Route[] = [];
-  private unsubscribers: Map<string, () => void> = new Map();
+  private controllers: Map<string, AbortController> = new Map();
   private store = new Map<
     keyof StoreRegistry,
     StoreRegistry[keyof StoreRegistry]
@@ -44,7 +44,9 @@ export class CraftContext {
   }
 
   registerRoute(definition: RouteDefinition): void {
-    this.routes.push(new Route(this, definition));
+    const controller = new AbortController();
+    this.controllers.set(definition.id, controller);
+    this.routes.push(new DefaultRoute(this, definition, controller));
   }
 
   getRoutes(): Route[] {
@@ -74,30 +76,38 @@ export class CraftContext {
       await this.onStartup();
     }
 
-    // Subscribe to all routes and store their unsubscribe functions
-    const unsubscribePromises = this.routes.map(async (route) => {
-      const unsubscribe = await route.subscribe();
-      this.unsubscribers.set(route.definition.id, unsubscribe);
-    });
-
-    // Wait for all routes to be subscribed
-    await Promise.all(unsubscribePromises);
+    // Start all routes and collect results
+    return Promise.allSettled(
+      this.routes.map(async (route) => {
+        try {
+          await route.start();
+          return { routeId: route.definition.id, success: true as const };
+        } catch (error) {
+          // Abort the controller for failed routes
+          const controller = this.controllers.get(route.definition.id);
+          controller?.abort();
+          throw error;
+        }
+      }),
+    ).catch((error) => {
+      throw error;
+    })
+      .finally(() => {
+        this.stop();
+      })
+      .then(() => {
+        return;
+      });
   }
 
   async stop(): Promise<void> {
-    // Call all unsubscribe functions and wait for them to complete
-    const unsubscribePromises = Array.from(this.unsubscribers.values()).map(
-      (unsubscribe) => Promise.resolve(unsubscribe()),
-    );
-    await Promise.all(unsubscribePromises);
+    // Abort all route controllers
+    for (const controller of this.controllers.values()) {
+      controller.abort();
+    }
 
     if (this.onShutdown) {
       await this.onShutdown();
     }
-  }
-
-  async run(): Promise<void> {
-    await this.start();
-    await this.stop();
   }
 }

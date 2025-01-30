@@ -5,40 +5,68 @@ import { ContextBuilder, type RouteDefinition } from "@routecraft/core";
 export async function runCommand(path?: string) {
   const targetPath = path ? resolve(path) : Deno.cwd();
 
+  const stat = await Deno.stat(targetPath);
+
+  const contextBuilder = new ContextBuilder();
+
+  if (stat.isDirectory) {
+    // Handle directory case - find all .ts files
+    for await (
+      const entry of walk(targetPath, {
+        exts: [".ts"],
+        includeDirs: false,
+      })
+    ) {
+      await configureRoutes(contextBuilder, entry.path);
+    }
+  } else if (stat.isFile) {
+    // Handle single file case
+    if (!targetPath.endsWith(".ts")) {
+      console.error(
+        "Error: Only TypeScript (.ts) files are supported at the moment",
+      );
+      Deno.exit(1);
+    }
+    await configureRoutes(contextBuilder, targetPath);
+  }
+
+  const context = contextBuilder.build();
+
+  // Add signal handlers for graceful shutdown
+  const ac = new AbortController();
+  const signal = ac.signal;
+
+  addEventListener("unload", () => {
+    ac.abort();
+    context.stop();
+  });
+
+  for (
+    const sig of ["SIGINT", "SIGTERM"] as const satisfies readonly Deno.Signal[]
+  ) {
+    Deno.addSignalListener(sig, () => {
+      console.log(`\nReceived ${sig}, shutting down...`);
+      ac.abort();
+      context.stop();
+      Deno.exit(0);
+    });
+  }
+
   try {
-    const stat = await Deno.stat(targetPath);
-
-    const contextBuilder = new ContextBuilder();
-
-    if (stat.isDirectory) {
-      // Handle directory case - find all .ts files
-      for await (
-        const entry of walk(targetPath, {
-          exts: [".ts"],
-          includeDirs: false,
-        })
-      ) {
-        await configureRoutes(contextBuilder, entry.path);
-      }
-    } else if (stat.isFile) {
-      // Handle single file case
-      if (!targetPath.endsWith(".ts")) {
-        console.error(
-          "Error: Only TypeScript (.ts) files are supported at the moment",
-        );
-        Deno.exit(1);
-      }
-      await configureRoutes(contextBuilder, targetPath);
+    await context.start();
+    // Only wait on abort if there are still active routes
+    if (context.getRoutes().some(route => !route.signal.aborted)) {
+      await new Promise((_, reject) => {
+        signal.addEventListener("abort", () => {
+          reject(new Error("Aborted"));
+        });
+      });
     }
-
-    await contextBuilder.build().run();
-  } catch (error: unknown) {
-    if (error instanceof Error) {
+  } catch (error) {
+    if (error instanceof Error && error.message !== "Aborted") {
       console.error(error);
-    } else {
-      console.error("An unknown error occurred");
+      Deno.exit(1);
     }
-    Deno.exit(1);
   }
 }
 
