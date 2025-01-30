@@ -16,7 +16,7 @@ Deno.test("Context loads", async () => {
       })
       .routes(routes)
       .build()
-      .run();
+      .start();
 
     // Get the actual calls, filtering out our debug messages
     const actualCalls = consoleSpy.calls

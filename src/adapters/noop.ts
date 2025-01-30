@@ -10,9 +10,11 @@ import {
 export class NoopAdapter implements Source, Destination, Processor {
   subscribe(
     _context: CraftContext,
-    _handler: (message: unknown, headers?: ExchangeHeaders) => void,
-  ): Promise<() => void> {
-    return Promise.resolve(() => {});
+    _handler: (message: unknown, headers?: ExchangeHeaders) => Promise<void>,
+    abortController: AbortController,
+  ): Promise<void> {
+    abortController.abort();
+    return Promise.resolve();
   }
   async send(_exchange: Exchange): Promise<void> {}
   process(exchange: Exchange): Promise<Exchange> {

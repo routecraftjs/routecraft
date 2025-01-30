@@ -4,7 +4,7 @@ import { type Destination, type Processor, type Source } from "./adapter.ts";
 import { OperationType } from "./exchange.ts";
 import { overloads } from "./util.ts";
 import { type ProcessStepDefinition, type ToStepDefinition } from "./step.ts";
-import { CraftErrors } from "./error.ts";
+import { ErrorCode, RouteCraftError } from "./error.ts";
 
 export class ContextBuilder {
   private onStartupHandler?: () => Promise<void> | void;
@@ -103,7 +103,11 @@ export class RouteBuilder {
 
   private requireSource(): RouteDefinition {
     if (!this.currentRoute) {
-      throw CraftErrors.missingFromDefinition(crypto.randomUUID());
+      throw new RouteCraftError({
+        code: ErrorCode.MISSING_FROM_DEFINITION,
+        message: "Missing FROM definition",
+        suggestion: "Call from() before adding steps",
+      });
     }
     return this.currentRoute;
   }
