@@ -13,7 +13,7 @@ export {
   type StoreRegistry,
 } from "./context.ts";
 
-export { Route, type RouteDefinition } from "./route.ts";
+export { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
 
 export { type FromStepDefinition, type StepDefinition } from "./step.ts";
 

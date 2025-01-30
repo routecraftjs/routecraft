@@ -80,60 +80,66 @@ export class ChannelAdapter
   static readonly ADAPTER_CHANNEL_OPTIONS =
     "routecraft.adapter.channel.options" as const;
 
-  private channel: string;
+  private _channel: string;
 
   constructor(
-    channel: string,
+    _channel: string,
     public options: Partial<ChannelAdapterOptions> = {},
   ) {
-    this.channel = channel;
+    this._channel = _channel;
   }
 
-  private getSafeChannelId(): string {
-    return this.channel.replace(/[^a-zA-Z0-9]/g, "-");
-  }
-
-  private getMessageChannel(context: CraftContext): MessageChannel | undefined {
-    const safeChannelId = this.getSafeChannelId();
-    let store = context.getStore(ChannelAdapter.ADAPTER_CHANNEL_STORE);
-
-    if (!store) {
-      store = new Map<string, MessageChannel>();
-      context.setStore(ChannelAdapter.ADAPTER_CHANNEL_STORE, store);
-    }
-
-    if (!store.has(safeChannelId)) {
-      const mergedOptions = this.mergedOptions(context);
-      store.set(safeChannelId, mergedOptions.channelFactory(safeChannelId));
-    }
-
-    return store.get(safeChannelId);
-  }
-
-  async send(exchange: Exchange & { context: CraftContext }): Promise<void> {
-    const channel = this.getMessageChannel(exchange.context);
-    if (!channel) {
-      throw ChannelErrors.channelNotFound(this.channel);
-    }
-    return await channel.send(this.channel, exchange);
+  private get channel(): string {
+    return this._channel.replace(/[^a-zA-Z0-9]/g, "-");
   }
 
   subscribe(
     context: CraftContext,
     handler: (message: unknown, headers?: ExchangeHeaders) => Promise<void>,
-  ): Promise<() => void> {
-    const channel = this.getMessageChannel(context);
+    abortController: AbortController,
+  ): Promise<void> {
+    const channel = this.messageChannel(context);
+    if (abortController.signal.aborted) {
+      return Promise.resolve();
+    }
+
+    // Return a promise that won't resolve until the subscription is cancelled
+    return new Promise<void>((resolve) => {
+      channel.subscribe(this.channel, async (exchange: Exchange) => {
+        await handler(exchange.body, exchange.headers);
+      });
+
+      abortController.signal.addEventListener("abort", async () => {
+        await channel.unsubscribe(this.channel);
+        resolve();
+      });
+    });
+  }
+
+  private messageChannel(context: CraftContext): MessageChannel {
+    let store = context.getStore(ChannelAdapter.ADAPTER_CHANNEL_STORE);
+
+    // If the store is not set, create a new one
+    if (!store) {
+      store = new Map<string, MessageChannel>();
+      context.setStore(ChannelAdapter.ADAPTER_CHANNEL_STORE, store);
+    }
+
+    // If the channel is not in the store, create a new one
+    if (!store.has(this.channel)) {
+      const mergedOptions = this.mergedOptions(context);
+      store.set(this.channel, mergedOptions.channelFactory(this.channel));
+    }
+
+    return store.get(this.channel) as MessageChannel;
+  }
+
+  async send(exchange: Exchange & { context: CraftContext }): Promise<void> {
+    const channel = this.messageChannel(exchange.context);
     if (!channel) {
       throw ChannelErrors.channelNotFound(this.channel);
     }
-
-    channel.subscribe(this.channel, async (exchange: Exchange) => {
-      await handler(exchange.body, exchange.headers);
-    });
-
-    return Promise.resolve(async () => {
-      await channel.unsubscribe(this.channel);
-    });
+    return await channel.send(this.channel, exchange);
   }
 
   mergedOptions(context: CraftContext): ChannelAdapterOptions {

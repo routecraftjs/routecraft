@@ -5,7 +5,8 @@ export type Source<T = unknown> = {
   subscribe(
     context: CraftContext,
     handler: (message: T, headers?: ExchangeHeaders) => Promise<void>,
-  ): Promise<() => void>;
+    abortController: AbortController,
+  ): Promise<void>;
 };
 
 export type Processor<T = unknown> = {
