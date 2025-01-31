@@ -1,5 +1,5 @@
 import { type Exchange } from "@routecraft/core";
-import { log, routes, simple } from "../packages/dsl/mod.ts";
+import { log, routes, simple } from "@routecraft/dsl";
 
 export default routes()
   .from(

@@ -1,4 +1,4 @@
-import { readdir } from "node:fs/promises";
+import { readdir, stat as fsStat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { ContextBuilder, type RouteDefinition } from "@routecraft/core";
 import { join } from "node:path";
@@ -18,7 +18,7 @@ async function* walkFiles(dir: string): AsyncGenerator<string> {
 export async function runCommand(path?: string) {
   const targetPath = path ? resolve(path) : process.cwd();
 
-  const stat = await Bun.file(targetPath).stat();
+  const stat = await fsStat(targetPath);
 
   const contextBuilder = new ContextBuilder();
 

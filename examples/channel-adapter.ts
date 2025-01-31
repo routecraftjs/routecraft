@@ -1,4 +1,4 @@
-import { channel, log, routes, simple } from "../packages/dsl/mod.ts";
+import { channel, log, routes, simple } from "@routecraft/dsl";
 
 export default routes()
   .from({ id: "channel-adapter-1" }, channel("my-channel-1"))
