@@ -28,6 +28,7 @@
     "husky": "^9.1.7",
     "lint-staged": "^15.4.3",
     "madge": "latest",
+    "minimatch": "^10.0.1",
     "prettier": "3.4.2",
     "typescript": "latest",
     "typescript-eslint": "^8.22.0"
@@ -42,8 +43,8 @@
   ],
   "lint-staged": {
     "*.{js,ts}": [
-      "bunx eslint --fix",
-      "bunx prettier --write"
+      "bunx prettier --write",
+      "bunx eslint --fix"
     ]
   }
 }

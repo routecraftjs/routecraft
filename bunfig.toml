@@ -1,8 +1,6 @@
 [test]
 # Enable coverage reporting
 coverage = true
-# Use lcov reporter for codecov integration
-coverageReporter = "lcov"
 
 # Coverage directory
 coverageDir = "coverage"
