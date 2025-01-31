@@ -1,0 +1,9 @@
+{
+  "name": "@routecraft/dsl",
+  "version": "0.1.0",
+  "module": "mod.ts",
+  "dependencies": {
+    "@routecraft/adapters": "workspace:*",
+    "@routecraft/core": "workspace:*"
+  }
+}

@@ -12,14 +12,19 @@ export class SimpleAdapter implements Source {
     handler: (message: unknown, headers?: ExchangeHeaders) => Promise<void>,
     abortController: AbortController,
   ): Promise<void> {
+    console.info("Producing messages");
     const result = await this.producer();
 
     if (Array.isArray(result)) {
+      console.debug(`Processing array of ${result.length} messages`);
       await Promise.all(result.map((item) => handler(item))).finally(() => {
+        console.debug("Finished processing array of messages");
         abortController.abort();
       });
     } else {
+      console.debug("Processing single message");
       await handler(result).finally(() => {
+        console.debug("Finished processing single message");
         abortController.abort();
       });
     }

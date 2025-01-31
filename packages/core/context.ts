@@ -23,6 +23,8 @@ export type MergedOptions<T> = {
   mergedOptions(context: CraftContext): T;
 };
 
+export type LogLevel = "DEBUG" | "INFO" | "WARNING" | "ERROR" | "CRITICAL";
+
 export class CraftContext {
   private onStartup?: () => Promise<void> | void;
   private onShutdown?: () => Promise<void> | void;
@@ -72,7 +74,10 @@ export class CraftContext {
   }
 
   async start(): Promise<void> {
+    console.info("Starting Routecraft context");
+
     if (this.onStartup) {
+      console.debug("Running startup handler");
       await this.onStartup();
     }
 
@@ -80,18 +85,25 @@ export class CraftContext {
     return Promise.allSettled(
       this.routes.map(async (route) => {
         try {
+          console.debug(`Starting route "${route.definition.id}"`);
           await route.start();
           return { routeId: route.definition.id, success: true as const };
         } catch (error) {
+          console.error(
+            `Failed to start route "${route.definition.id}"`,
+            error,
+          );
           // Abort the controller for failed routes
           const controller = this.controllers.get(route.definition.id);
           controller?.abort();
           throw error;
         }
       }),
-    ).catch((error) => {
-      throw error;
-    })
+    )
+      .catch((error) => {
+        console.error("Failed to start context", error);
+        throw error;
+      })
       .finally(() => {
         this.stop();
       })
@@ -101,13 +113,19 @@ export class CraftContext {
   }
 
   async stop(): Promise<void> {
+    console.info("Stopping Routecraft context");
+
     // Abort all route controllers
     for (const controller of this.controllers.values()) {
+      console.debug("Stopping route controller");
       controller.abort();
     }
 
     if (this.onShutdown) {
+      console.debug("Running shutdown handler");
       await this.onShutdown();
     }
+
+    console.info("Routecraft context stopped");
   }
 }

@@ -1,4 +1,7 @@
 node_modules/
+coverage/
+*.lcov.info
 dist/
 .DS_Store
 *.log
+.husky/_/

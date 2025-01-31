@@ -32,9 +32,7 @@ export class ContextBuilder {
     return this;
   }
 
-  routes(
-    routes: RouteDefinition | RouteDefinition[] | RouteBuilder,
-  ): this {
+  routes(routes: RouteDefinition | RouteDefinition[] | RouteBuilder): this {
     if (routes instanceof RouteBuilder) {
       this.definitions.push(...routes.build());
     } else if (Array.isArray(routes)) {
@@ -89,6 +87,7 @@ export class RouteBuilder {
         };
       },
     );
+    console.debug(`Creating route definition with id "${options.id}"`);
     this.currentRoute = {
       id: options.id,
       source: {
@@ -114,6 +113,7 @@ export class RouteBuilder {
 
   process(processor: Processor): this {
     const route = this.requireSource();
+    console.debug(`Adding process step to route "${route.id}"`);
     const step: ProcessStepDefinition = {
       operation: OperationType.PROCESS,
       process: processor.process.bind(processor),
@@ -124,6 +124,7 @@ export class RouteBuilder {
 
   to(destination: Destination): this {
     const route = this.requireSource();
+    console.debug(`Adding destination step to route "${route.id}"`);
     const step: ToStepDefinition = {
       operation: OperationType.TO,
       send: destination.send.bind(destination),
@@ -133,6 +134,7 @@ export class RouteBuilder {
   }
 
   build(): RouteDefinition[] {
+    console.debug(`Building ${this.routes.length} routes`);
     return this.routes;
   }
 }

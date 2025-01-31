@@ -22,9 +22,9 @@ export class RouteCraftError extends Error {
     private details: {
       code: ErrorCode;
       message: string;
-      suggestion?: string;
-      docs?: string;
-      cause?: unknown;
+      suggestion?: string | undefined;
+      docs?: string | undefined;
+      cause?: unknown | undefined;
     },
   ) {
     super(details.message, { cause: details.cause });
@@ -65,13 +65,11 @@ export class RouteCraftError extends Error {
     return result;
   }
 
-  static parse: (cause: unknown) => { message: string; error: Error } = (
-    cause,
-  ) => {
+  static parse(cause: unknown): { message: string; error: Error } {
     return cause instanceof Error
       ? { message: cause.message, error: cause }
       : { message: String(cause), error: new Error(String(cause)) };
-  };
+  }
 
   static create: (
     cause: unknown,

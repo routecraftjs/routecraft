@@ -1,9 +1,5 @@
-import {
-  ContextBuilder,
-  Exchange,
-  Processor,
-  RouteBuilder,
-} from "@routecraft/core";
+import type { Exchange, Processor } from "@routecraft/core";
+import { ContextBuilder, RouteBuilder } from "@routecraft/core";
 import {
   ChannelAdapter,
   type ChannelAdapterOptions,

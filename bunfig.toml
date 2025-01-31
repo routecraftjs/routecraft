@@ -1,0 +1,38 @@
+[test]
+# Enable coverage reporting
+coverage = true
+# Use lcov reporter for codecov integration
+coverageReporter = "lcov"
+
+# Coverage directory
+coverageDir = "coverage"
+
+[install]
+# Optimize installation
+cache = true
+# Freeze lockfile in CI
+frozen = true
+# Use workspaces
+workspaces = true
+
+[build]
+# Minify output
+minify = true
+# Enable tree shaking
+treeshake = true
+# Source maps for debugging
+sourcemap = "external"
+# Entry points for each package
+entrypoints = [
+  "./packages/*/mod.ts"
+]
+# Output directory
+outdir = "dist"
+
+[install.scopes]
+# Scope configuration for workspaces
+routecraft = "./packages/*"
+
+[debug]
+# Enable source maps for debugging
+sourcemap = true 

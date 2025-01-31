@@ -1,7 +1,7 @@
 export function overloads<TOptions, TMain>(
   optionsOrMain: TOptions | TMain,
   maybeMain?: TMain,
-  defaultOptions: () => TOptions = () => ({} as TOptions),
+  defaultOptions: () => TOptions = () => ({}) as TOptions,
 ): { options: TOptions; main: TMain } {
   if (maybeMain) {
     return {

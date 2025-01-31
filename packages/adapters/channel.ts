@@ -31,7 +31,7 @@ const ChannelErrors = {
 
 export interface MessageChannel {
   /** Send a message to the channel */
-  send(channel: string, message: Exchange): Promise<void>;
+  send(channel: string, exchange: Exchange): Promise<void>;
 
   /** Subscribe to a channel */
   subscribe(
@@ -47,15 +47,23 @@ export class InMemoryMessageChannel implements MessageChannel {
   private subscribers: Map<string, ((message: Exchange) => Promise<void>)[]> =
     new Map();
 
-  async send(channel: string, message: Exchange): Promise<void> {
+  async send(channel: string, exchange: Exchange): Promise<void> {
+    console.debug(`Sending message to channel "${channel}"`, {
+      exchangeId: exchange.id,
+    });
     const subscribers = this.subscribers.get(channel) || [];
-    await Promise.all(subscribers.map((subscriber) => subscriber(message)));
+    await Promise.all(subscribers.map((subscriber) => subscriber(exchange)));
+    console.debug(
+      `Message sent to ${subscribers.length} subscribers on channel "${channel}"`,
+      { exchangeId: exchange.id },
+    );
   }
 
   subscribe(
     channel: string,
-    handler: (message: Exchange) => Promise<void>,
+    handler: (exchange: Exchange) => Promise<void>,
   ): Promise<void> {
+    console.info(`New subscription to channel "${channel}"`);
     if (!this.subscribers.has(channel)) {
       this.subscribers.set(channel, []);
     }
@@ -64,6 +72,7 @@ export class InMemoryMessageChannel implements MessageChannel {
   }
 
   unsubscribe(channel: string): Promise<void> {
+    console.info(`Unsubscribing from channel "${channel}"`);
     this.subscribers.delete(channel);
     return Promise.resolve();
   }
@@ -74,7 +83,8 @@ export interface ChannelAdapterOptions {
 }
 
 export class ChannelAdapter
-  implements Source, Destination, MergedOptions<ChannelAdapterOptions> {
+  implements Source, Destination, MergedOptions<ChannelAdapterOptions>
+{
   static readonly ADAPTER_CHANNEL_STORE =
     "routecraft.adapter.channel.store" as const;
   static readonly ADAPTER_CHANNEL_OPTIONS =
@@ -98,8 +108,10 @@ export class ChannelAdapter
     handler: (message: unknown, headers?: ExchangeHeaders) => Promise<void>,
     abortController: AbortController,
   ): Promise<void> {
+    console.info(`Setting up subscription for channel "${this.channel}"`);
     const channel = this.messageChannel(context);
     if (abortController.signal.aborted) {
+      console.debug(`Subscription aborted for channel "${this.channel}"`);
       return Promise.resolve();
     }
 
@@ -135,8 +147,12 @@ export class ChannelAdapter
   }
 
   async send(exchange: Exchange & { context: CraftContext }): Promise<void> {
+    console.debug(`Preparing to send message to channel "${this.channel}"`, {
+      exchangeId: exchange.id,
+    });
     const channel = this.messageChannel(exchange.context);
     if (!channel) {
+      console.error(`Channel "${this.channel}" not found`);
       throw ChannelErrors.channelNotFound(this.channel);
     }
     return await channel.send(this.channel, exchange);
@@ -145,7 +161,7 @@ export class ChannelAdapter
   mergedOptions(context: CraftContext): ChannelAdapterOptions {
     const store = context.getStore(ChannelAdapter.ADAPTER_CHANNEL_OPTIONS);
     return {
-      channelFactory: (_channel) => {
+      channelFactory: () => {
         return new InMemoryMessageChannel();
       },
       ...store,
