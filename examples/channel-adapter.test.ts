@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { channel, context, log, routes, simple } from "../packages/dsl/mod.ts";
+import { channel, context, log, routes, simple } from "@routecraft/dsl";
 
 test("Context loads", async () => {
   const testContext = context()

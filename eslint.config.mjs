@@ -22,6 +22,14 @@ export default [
       quotes: ["error", "double"],
       semi: ["error", "always"],
       "comma-dangle": ["error", "always-multiline"],
+      // Bun restriction
+      "no-restricted-globals": [
+        "error",
+        {
+          name: "Bun",
+          message: "Avoid using Bun-specific APIs for Node.js compatibility",
+        },
+      ],
     },
   },
   pluginJs.configs.recommended,

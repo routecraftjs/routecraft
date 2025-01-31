@@ -1,7 +1,7 @@
 import { expect, test, mock } from "bun:test";
 import type { Exchange } from "@routecraft/core";
 import { HeadersKeys, OperationType } from "@routecraft/core";
-import { context } from "../packages/dsl/mod.ts";
+import { context } from "@routecraft/dsl";
 import routes from "./hello-world.ts";
 
 test("Context loads", async () => {
