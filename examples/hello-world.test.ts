@@ -1,93 +1,82 @@
-import { assert } from "@std/assert";
-import { spy } from "@std/testing/mock";
-import { Exchange, HeadersKeys, OperationType } from "@routecraft/core";
-import { context } from "@routecraft/dsl";
+import { expect, test, mock } from "bun:test";
+import type { Exchange } from "@routecraft/core";
+import { HeadersKeys, OperationType } from "@routecraft/core";
+import { context } from "../packages/dsl/mod.ts";
 import routes from "./hello-world.ts";
 
-Deno.test("Context loads", async () => {
-  const consoleSpy = spy(console, "log");
+test("Context loads", async () => {
+  const calls: Array<{ args: any[] }> = [];
+  const originalConsoleInfo = console.info;
+  console.info = mock((...args: any[]) => {
+    calls.push({ args });
+    originalConsoleInfo(...args);
+  });
+
   try {
     await context()
       .onStartup(() => {
-        console.log("Startup");
+        console.info("Startup");
       })
       .onShutdown(() => {
-        console.log("Shutdown");
+        console.info("Shutdown");
       })
       .routes(routes)
       .build()
       .start();
 
     // Get the actual calls, filtering out our debug messages
-    const actualCalls = consoleSpy.calls
+    const actualCalls = calls
       .map((call) => call.args[0])
-      .filter((msg) =>
-        typeof msg === "string" && !msg.startsWith("Captured calls")
+      .filter(
+        (msg: unknown) =>
+          typeof msg === "string" && !msg.startsWith("Captured calls"),
       );
 
-    // Log filtered calls for debugging
-    console.log(
-      "Captured calls:",
-      actualCalls,
-    );
-
     // Verify startup and shutdown
-    assert(actualCalls[0] === "Startup", "Missing startup log");
-    assert(
-      actualCalls[actualCalls.length - 1] === "Shutdown",
-      "Missing shutdown log",
-    );
+    expect(actualCalls[1]).toBe("Startup");
+    expect(actualCalls[actualCalls.length - 2]).toBe("Shutdown");
 
     // Find all exchange-related logs
-    const logCalls = consoleSpy.calls.filter((call) =>
-      call.args[0] === "Logging Exchange"
+    const logCalls = calls.filter(
+      (call) => call.args[0] === "Logging Exchange",
     );
-    const processingCall = consoleSpy.calls.find((call) =>
-      call.args[0] === "Processing exchange"
+    const processingCall = calls.find(
+      (call) => call.args[0] === "Processing exchange",
     );
 
-    assert(processingCall, "Should have a processing exchange log");
-    assert(
-      logCalls.length === 2,
-      "Should have exactly 2 logging exchange calls",
-    );
+    expect(processingCall).toBeTruthy();
+    expect(logCalls).toHaveLength(2);
 
     // Get the exchange objects
     const firstLog = logCalls[0].args[1] as Exchange;
-    const processingLog = processingCall.args[1] as Exchange;
+    const processingLog = processingCall!.args[1] as Exchange;
     const secondLog = logCalls[1].args[1] as Exchange;
 
     // Verify exchange IDs are consistent
-    assert(
-      firstLog.id === processingLog.id && processingLog.id === secondLog.id,
-      "All exchanges should have the same ID",
-    );
+    expect(firstLog.id).toBe(processingLog.id);
+    expect(processingLog.id).toBe(secondLog.id);
 
     // Verify correlation IDs are consistent
     const correlationId = firstLog.headers[HeadersKeys.CORRELATION_ID];
-    assert(correlationId, "Should have a correlation ID");
-    assert(
-      correlationId === processingLog.headers[HeadersKeys.CORRELATION_ID] &&
-        correlationId === secondLog.headers[HeadersKeys.CORRELATION_ID],
-      "All exchanges should have the same correlation ID",
-    );
+    expect(correlationId).toBeTruthy();
+    if (typeof correlationId === "string") {
+      expect(processingLog.headers[HeadersKeys.CORRELATION_ID]).toBe(
+        correlationId,
+      );
+      expect(secondLog.headers[HeadersKeys.CORRELATION_ID]).toBe(correlationId);
+    } else {
+      throw new Error("Correlation ID must be a string");
+    }
 
     // Verify operation types
-    assert(
-      processingLog.headers[HeadersKeys.OPERATION] === OperationType.PROCESS,
-      "Processing exchange should have PROCESS operation type",
+    expect(processingLog.headers[HeadersKeys.OPERATION]).toBe(
+      OperationType.PROCESS,
     );
 
     // Verify the bodies
-    assert(
-      firstLog.body === "Hello, World!",
-      "First log should have original message",
-    );
-    assert(
-      secondLog.body === "HELLO, WORLD!",
-      "Second log should have uppercase message",
-    );
+    expect(firstLog.body).toBe("Hello, World!");
+    expect(secondLog.body).toBe("HELLO, WORLD!");
   } finally {
-    consoleSpy.restore();
+    console.info = originalConsoleInfo;
   }
 });

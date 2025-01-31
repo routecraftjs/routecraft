@@ -1,31 +1,39 @@
-import { walk } from "@std/fs";
-import { resolve } from "@std/path";
+import { readdir } from "node:fs/promises";
+import { resolve } from "node:path";
 import { ContextBuilder, type RouteDefinition } from "@routecraft/core";
+import { join } from "node:path";
+
+async function* walkFiles(dir: string): AsyncGenerator<string> {
+  const files = await readdir(dir, { withFileTypes: true });
+  for (const file of files) {
+    const path = join(dir, file.name);
+    if (file.isDirectory()) {
+      yield* walkFiles(path);
+    } else if (file.name.endsWith(".ts")) {
+      yield path;
+    }
+  }
+}
 
 export async function runCommand(path?: string) {
-  const targetPath = path ? resolve(path) : Deno.cwd();
+  const targetPath = path ? resolve(path) : process.cwd();
 
-  const stat = await Deno.stat(targetPath);
+  const stat = await Bun.file(targetPath).stat();
 
   const contextBuilder = new ContextBuilder();
 
-  if (stat.isDirectory) {
+  if (stat.isDirectory()) {
     // Handle directory case - find all .ts files
-    for await (
-      const entry of walk(targetPath, {
-        exts: [".ts"],
-        includeDirs: false,
-      })
-    ) {
-      await configureRoutes(contextBuilder, entry.path);
+    for await (const filePath of walkFiles(targetPath)) {
+      await configureRoutes(contextBuilder, filePath);
     }
-  } else if (stat.isFile) {
+  } else if (stat.isFile()) {
     // Handle single file case
     if (!targetPath.endsWith(".ts")) {
       console.error(
         "Error: Only TypeScript (.ts) files are supported at the moment",
       );
-      Deno.exit(1);
+      process.exit(1);
     }
     await configureRoutes(contextBuilder, targetPath);
   }
@@ -41,21 +49,20 @@ export async function runCommand(path?: string) {
     context.stop();
   });
 
-  for (
-    const sig of ["SIGINT", "SIGTERM"] as const satisfies readonly Deno.Signal[]
-  ) {
-    Deno.addSignalListener(sig, () => {
-      console.log(`\nReceived ${sig}, shutting down...`);
+  for (const sig of ["SIGINT", "SIGTERM"] as const) {
+    process.on(sig, () => {
+      console.debug(`\nReceived ${sig}, shutting down...`);
       ac.abort();
       context.stop();
-      Deno.exit(0);
+      console.debug("RouteCraft stopped");
+      process.exit(0);
     });
   }
 
   try {
     await context.start();
     // Only wait on abort if there are still active routes
-    if (context.getRoutes().some(route => !route.signal.aborted)) {
+    if (context.getRoutes().some((route) => !route.signal.aborted)) {
       await new Promise((_, reject) => {
         signal.addEventListener("abort", () => {
           reject(new Error("Aborted"));
@@ -65,7 +72,7 @@ export async function runCommand(path?: string) {
   } catch (error) {
     if (error instanceof Error && error.message !== "Aborted") {
       console.error(error);
-      Deno.exit(1);
+      process.exit(1);
     }
   }
 }
@@ -75,7 +82,7 @@ async function configureRoutes(
   filePath: string,
 ) {
   try {
-    console.log(`Processing file: ${filePath}`);
+    console.debug(`Processing file: ${filePath}`);
     const module = await import(filePath);
 
     if (!module.default) {
@@ -95,13 +102,18 @@ async function configureRoutes(
     if (!isValidExport) {
       console.error(
         `Error: Default export in ${filePath} must be a RouteDefinition or array of RouteDefinitions`,
+        "\nPlease ensure your route file exports a valid route configuration.",
       );
       return;
     }
 
-    Array.isArray(defaultExport)
-      ? defaultExport.every((route) => contextBuilder.routes(route))
-      : contextBuilder.routes(defaultExport);
+    if (Array.isArray(defaultExport)) {
+      defaultExport.forEach((route) => contextBuilder.routes(route));
+    } else {
+      contextBuilder.routes(defaultExport);
+    }
+
+    console.info(`Successfully configured routes from ${filePath}`);
   } catch (error: unknown) {
     if (error instanceof Error) {
       console.error(`Error processing ${filePath}: ${error.message}`);

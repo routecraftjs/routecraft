@@ -6,17 +6,17 @@ import {
 
 export class LogAdapter implements Destination, Processor {
   send(exchange: Exchange): Promise<void> {
-    this.log(exchange);
+    console.info("Logging Exchange", this.baseExchange(exchange));
     return Promise.resolve();
   }
 
   process(exchange: Exchange): Promise<Exchange> {
-    this.log(exchange);
+    console.info("Logging Exchange", this.baseExchange(exchange));
     return Promise.resolve(exchange);
   }
 
-  private log(exchange: Exchange): void {
+  private baseExchange(exchange: Exchange): Exchange {
     const { id, body, headers } = exchange;
-    console.log("Logging Exchange", { id, body, headers });
+    return { id, body, headers };
   }
 }

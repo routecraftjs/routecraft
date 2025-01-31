@@ -20,9 +20,8 @@ export type RouteCraftHeaders = {
 
 export type HeaderValue = string | number | boolean | undefined;
 
-export type ExchangeHeaders =
-  & Partial<RouteCraftHeaders>
-  & Record<string, HeaderValue>;
+export type ExchangeHeaders = Partial<RouteCraftHeaders> &
+  Record<string, HeaderValue>;
 
 export type Exchange<T = unknown> = {
   readonly id: string;
