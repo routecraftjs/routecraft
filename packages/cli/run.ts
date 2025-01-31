@@ -1,30 +1,42 @@
 import { readdir, stat as fsStat } from "node:fs/promises";
-import { resolve } from "node:path";
+import { resolve, join } from "node:path";
 import { ContextBuilder, type RouteDefinition } from "@routecraft/core";
-import { join } from "node:path";
+import { minimatch } from "minimatch";
 
-async function* walkFiles(dir: string): AsyncGenerator<string> {
+async function* walkFiles(
+  dir: string,
+  excludePatterns: string[] = [],
+): AsyncGenerator<string> {
   const files = await readdir(dir, { withFileTypes: true });
   for (const file of files) {
     const path = join(dir, file.name);
+
+    // Check if the path matches any exclude pattern
+    const isExcluded = excludePatterns.some((pattern) =>
+      minimatch(path, pattern, { matchBase: true }),
+    );
+
+    if (isExcluded) {
+      console.debug(`Skipping excluded file: ${path}`);
+      continue;
+    }
+
     if (file.isDirectory()) {
-      yield* walkFiles(path);
+      yield* walkFiles(path, excludePatterns);
     } else if (file.name.endsWith(".ts")) {
       yield path;
     }
   }
 }
 
-export async function runCommand(path?: string) {
+export async function runCommand(path?: string, exclude: string[] = []) {
   const targetPath = path ? resolve(path) : process.cwd();
-
   const stat = await fsStat(targetPath);
-
   const contextBuilder = new ContextBuilder();
 
   if (stat.isDirectory()) {
-    // Handle directory case - find all .ts files
-    for await (const filePath of walkFiles(targetPath)) {
+    // Handle directory case - find all .ts files, excluding patterns
+    for await (const filePath of walkFiles(targetPath, exclude)) {
       await configureRoutes(contextBuilder, filePath);
     }
   } else if (stat.isFile()) {
@@ -35,7 +47,17 @@ export async function runCommand(path?: string) {
       );
       process.exit(1);
     }
-    await configureRoutes(contextBuilder, targetPath);
+
+    // Check if the single file should be excluded
+    const isExcluded = exclude.some((pattern) =>
+      minimatch(targetPath, pattern, { matchBase: true }),
+    );
+
+    if (!isExcluded) {
+      await configureRoutes(contextBuilder, targetPath);
+    } else {
+      console.debug(`Skipping excluded file: ${targetPath}`);
+    }
   }
 
   const context = contextBuilder.build();
