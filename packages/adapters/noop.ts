@@ -8,6 +8,7 @@ import {
 } from "@routecraft/core";
 
 export class NoopAdapter implements Source, Destination, Processor {
+  readonly adapterId = "routecraft.adapter.noop";
   subscribe(
     _context: CraftContext,
     _handler: (message: unknown, headers?: ExchangeHeaders) => Promise<void>,

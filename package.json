@@ -1,5 +1,5 @@
 {
-  "name": "@routecraft",
+  "name": "@routecraft/workspace",
   "version": "workspace",
   "private": true,
   "type": "module",
@@ -57,5 +57,8 @@
     "*.{json,yml,yaml,md}": [
       "prettier --write"
     ]
+  },
+  "engines": {
+    "node": ">=20.0.0"
   }
 }
