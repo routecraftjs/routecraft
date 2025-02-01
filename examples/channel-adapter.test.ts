@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, test } from "vitest";
 import { channel, context, log, routes, simple } from "@routecraft/dsl";
 
 test("Context loads", async () => {

@@ -66,20 +66,23 @@ export async function runCommand(path?: string, exclude: string[] = []) {
   const ac = new AbortController();
   const signal = ac.signal;
 
-  addEventListener("unload", () => {
-    ac.abort();
-    context.stop();
+  process.on("SIGINT", () => {
+    console.info("Shutting down...");
+    // Add your cleanup logic here
+    process.exit(0);
   });
 
-  for (const sig of ["SIGINT", "SIGTERM"] as const) {
-    process.on(sig, () => {
-      console.debug(`\nReceived ${sig}, shutting down...`);
-      ac.abort();
-      context.stop();
-      console.debug("RouteCraft stopped");
-      process.exit(0);
-    });
-  }
+  process.on("SIGTERM", () => {
+    console.info("Shutting down...");
+    // Add your cleanup logic here
+    process.exit(0);
+  });
+
+  // If you need to run cleanup when the process exits normally
+  process.on("exit", () => {
+    // Note: Only synchronous operations work in 'exit' handlers
+    console.info("Cleanup complete");
+  });
 
   try {
     await context.start();
