@@ -1,0 +1,49 @@
+{
+  "name": "routecraft",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "typecheck": "bunx tsc --noEmit",
+    "lint": "bunx eslint .",
+    "format": "bunx prettier --write . --ignore-path .gitignore",
+    "test": "bun test",
+    "build": "bun run build:packages",
+    "build:packages": "for dir in packages/*; do bun build \"$dir/mod.ts\" --outdir dist/$(basename \"$dir\") --format esm; done",
+    "size-limit": "bunx size-limit",
+    "prepare": "husky",
+    "craft": "bun run packages/cli/mod.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.19.0",
+    "@size-limit/preset-small-lib": "latest",
+    "@typescript-eslint/eslint-plugin": "latest",
+    "@typescript-eslint/parser": "latest",
+    "bun-types": "^1.2.1",
+    "commander": "^13.1.0",
+    "eslint": "^9.19.0",
+    "globals": "^15.14.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.4.3",
+    "madge": "latest",
+    "prettier": "3.4.2",
+    "typescript": "latest",
+    "typescript-eslint": "^8.22.0"
+  },
+  "size-limit": [
+    {
+      "path": [
+        "dist/"
+      ],
+      "limit": "10 kb"
+    }
+  ],
+  "lint-staged": {
+    "*.{js,ts}": [
+      "bunx eslint --fix",
+      "bunx prettier --write"
+    ]
+  }
+}

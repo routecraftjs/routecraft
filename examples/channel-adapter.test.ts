@@ -1,11 +1,14 @@
-import { assert } from "@std/assert";
-import { channel, context, log, routes, simple } from "@routecraft/dsl";
+import { expect, test } from "bun:test";
+import { channel, context, log, routes, simple } from "../packages/dsl/mod.ts";
 
-Deno.test("Context loads", async () => {
+test("Context loads", async () => {
   const testContext = context()
     .routes(
       routes()
-        .from({ id: "hello-world" }, simple(() => "hello-world"))
+        .from(
+          { id: "hello-world" },
+          simple(() => "hello-world"),
+        )
         .to(channel("hello-world"))
         .from(channel("hello-world"))
         .to(log()),
@@ -14,10 +17,12 @@ Deno.test("Context loads", async () => {
 
   const execution = testContext.start();
 
-  await new Promise((r) => setTimeout(r, 100)); // Shorter wait syntax
+  // Wait for execution to settle
+  await new Promise((resolve) => setTimeout(resolve, 100));
 
-  await testContext.stop(); // Await stop directly (if it returns a Promise)
-  await execution; // Ensure execution is complete
+  await testContext.stop();
+  await execution;
 
-  assert(true);
+  // If we got here without errors, the test passed
+  expect(true).toBe(true);
 });

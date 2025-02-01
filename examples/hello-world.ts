@@ -1,13 +1,16 @@
 import { type Exchange } from "@routecraft/core";
-import { log, routes, simple } from "@routecraft/dsl";
+import { log, routes, simple } from "../packages/dsl/mod.ts";
 
 export default routes()
-  .from({ id: "hello-world" }, simple(() => "Hello, World!"))
+  .from(
+    { id: "hello-world" },
+    simple(() => "Hello, World!"),
+  )
   .to(log())
   .process({
     process: (exchange: Exchange<string>) => {
       const { id, body, headers } = exchange;
-      console.log("Processing exchange", { id, body, headers });
+      console.info("Processing exchange", { id, body, headers });
       return {
         ...exchange,
         body: exchange.body?.toUpperCase(),

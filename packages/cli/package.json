@@ -1,0 +1,8 @@
+{
+  "name": "@routecraft/cli",
+  "version": "0.1.0",
+  "module": "mod.ts",
+  "dependencies": {
+    "@routecraft/core": "workspace:*"
+  }
+}

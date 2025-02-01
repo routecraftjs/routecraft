@@ -1,4 +1,3 @@
-import * as log from "@std/log";
 import {
   type FromStepDefinition,
   type ProcessStepDefinition,
@@ -47,6 +46,7 @@ export class DefaultRoute implements Route {
 
   async start(): Promise<void> {
     this.assertNotAborted();
+    console.info(`Starting route "${this.definition.id}"`);
 
     const handlerWrapper = async (
       message: unknown,
@@ -54,25 +54,34 @@ export class DefaultRoute implements Route {
     ) => {
       // Wrap the handler in a try/catch to catch individual message errors and log them as a RouteCraftError
       await this.handler(message, headers).catch((error) => {
-        log.warn(RouteCraftError.create(error, {
-          code: ErrorCode.UNKNOWN_ERROR,
-          message: `Error processing message for route "${this.definition.id}"`,
-          cause: error,
-        }));
+        console.warn(
+          `Failed to process message on route "${this.definition.id}"`,
+          {
+            error: RouteCraftError.create(error, {
+              code: ErrorCode.UNKNOWN_ERROR,
+              message: `Error processing message for route "${this.definition.id}"`,
+              cause: error,
+            }),
+          },
+        );
       });
     };
 
-    return await Promise.resolve(this.definition.source.subscribe(
-      this.context,
-      handlerWrapper,
-      this.abortController,
-    )).finally(() => {
+    return await Promise.resolve(
+      this.definition.source.subscribe(
+        this.context,
+        handlerWrapper,
+        this.abortController,
+      ),
+    ).finally(() => {
+      console.info(`Route "${this.definition.id}" started successfully`);
       // If the route ends on its own, probably the source finished processing, trigger the abort
       this.abortController.abort("Route ended on its own");
     });
   }
 
   stop(): void {
+    console.info(`Stopping route "${this.definition.id}"`);
     this.abortController.abort("Route stop() called");
   }
 
@@ -100,6 +109,9 @@ export class DefaultRoute implements Route {
     headers?: ExchangeHeaders,
   ): Promise<void> {
     let currentExchange = this.buildExchange(message, headers);
+    console.debug(
+      `Processing exchange ${currentExchange.id} on route "${this.definition.id}"`,
+    );
 
     for (const step of this.definition.steps) {
       // Update the operation type in headers for the current step
@@ -114,6 +126,7 @@ export class DefaultRoute implements Route {
       try {
         switch (step.operation) {
           case OperationType.PROCESS: {
+            console.debug(`Processing step on exchange ${currentExchange.id}`);
             const processor = step as ProcessStepDefinition;
             currentExchange = await Promise.resolve(
               processor.process(currentExchange),
@@ -121,6 +134,9 @@ export class DefaultRoute implements Route {
             break;
           }
           case OperationType.TO: {
+            console.debug(
+              `Sending exchange ${currentExchange.id} to destination`,
+            );
             const destination = step as ToStepDefinition;
             await destination.send(currentExchange);
             break;
@@ -129,6 +145,10 @@ export class DefaultRoute implements Route {
             this.assertOperation(step.operation);
         }
       } catch (error) {
+        console.error(
+          `Step ${step.operation} failed for exchange ${currentExchange.id}`,
+          error,
+        );
         switch (step.operation) {
           case OperationType.PROCESS:
             throw this.processError(
@@ -155,8 +175,7 @@ export class DefaultRoute implements Route {
     if (this.abortController?.signal.aborted) {
       throw new RouteCraftError({
         code: ErrorCode.ROUTE_COULD_NOT_START,
-        message:
-          `Route "${this.definition.id}" cannot be started because it was aborted`,
+        message: `Route "${this.definition.id}" cannot be started because it was aborted`,
         suggestion:
           "Ensure the abortController is not aborted before starting the route",
       });
@@ -167,8 +186,7 @@ export class DefaultRoute implements Route {
     if (!Object.values(OperationType).includes(operation)) {
       throw new RouteCraftError({
         code: ErrorCode.INVALID_OPERATION,
-        message:
-          `Invalid operation type "${operation}" for route "${this.definition.id}"`,
+        message: `Invalid operation type "${operation}" for route "${this.definition.id}"`,
         suggestion: "Ensure the operation is valid",
       });
     }
@@ -181,8 +199,7 @@ export class DefaultRoute implements Route {
   ): RouteCraftError {
     return new RouteCraftError({
       code: code,
-      message:
-        `Operation "${operation}" failed for route "${this.definition.id}"`,
+      message: `Operation "${operation}" failed for route "${this.definition.id}"`,
       suggestion: "Check the operation configuration and ensure it is valid",
       cause: RouteCraftError.parse(error).error,
     });

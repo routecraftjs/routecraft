@@ -7,6 +7,4 @@ export type StepDefinition = {
 
 export type FromStepDefinition<T = unknown> = StepDefinition & Source<T>;
 export type ToStepDefinition<T = unknown> = StepDefinition & Destination<T>;
-export type ProcessStepDefinition<T = unknown> =
-  & StepDefinition
-  & Processor<T>;
+export type ProcessStepDefinition<T = unknown> = StepDefinition & Processor<T>;
