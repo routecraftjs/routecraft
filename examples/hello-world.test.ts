@@ -1,4 +1,4 @@
-import { expect, test, mock } from "bun:test";
+import { expect, test, vi } from "vitest";
 import type { Exchange } from "@routecraft/core";
 import { HeadersKeys, OperationType } from "@routecraft/core";
 import { context } from "@routecraft/dsl";
@@ -7,7 +7,7 @@ import routes from "./hello-world.ts";
 test("Context loads", async () => {
   const calls: Array<{ args: any[] }> = [];
   const originalConsoleInfo = console.info;
-  console.info = mock((...args: any[]) => {
+  console.info = vi.fn((...args: any[]) => {
     calls.push({ args });
     originalConsoleInfo(...args);
   });

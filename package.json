@@ -1,50 +1,61 @@
 {
-  "name": "routecraft",
+  "name": "@routecraft",
+  "version": "workspace",
   "private": true,
   "type": "module",
-  "workspaces": [
-    "packages/*"
-  ],
   "scripts": {
-    "typecheck": "bunx tsc --noEmit",
-    "lint": "bunx eslint .",
-    "format": "bunx prettier --write . --ignore-path .gitignore",
-    "test": "bun test",
-    "build": "bun run build:packages",
-    "build:packages": "for dir in packages/*; do bun build \"$dir/mod.ts\" --outdir dist/$(basename \"$dir\") --format esm; done",
-    "size-limit": "bunx size-limit",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format:write": "prettier --write .",
+    "format": "prettier --check .",
+    "test": "vitest --run",
+    "test:coverage": "vitest --run --coverage",
+    "limit:size": "size-limit",
     "prepare": "husky",
-    "craft": "bun run packages/cli/mod.ts"
+    "craft": "node packages/cli/mod.ts",
+    "build": "pnpm -r run build",
+    "publish:all": "pnpm run build && pnpm -r publish --no-git-checks",
+    "pack:all": "pnpm run build && rm -rf dist && mkdir dist && pnpm -r exec pnpm pack --pack-destination ../../dist"
   },
   "devDependencies": {
+    "eslint": "^9.19.0",
     "@eslint/js": "^9.19.0",
-    "@size-limit/preset-small-lib": "latest",
     "@typescript-eslint/eslint-plugin": "latest",
     "@typescript-eslint/parser": "latest",
-    "bun-types": "^1.2.1",
-    "commander": "^13.1.0",
-    "eslint": "^9.19.0",
+    "size-limit": "latest",
+    "@size-limit/preset-small-lib": "latest",
+    "@size-limit/time": "latest",
+    "vitest": "^3.0.4",
+    "@vitest/coverage-v8": "^3.0.4",
     "globals": "^15.14.0",
     "husky": "^9.1.7",
     "lint-staged": "^15.4.3",
     "madge": "latest",
-    "minimatch": "^10.0.1",
     "prettier": "3.4.2",
+    "tsup": "^8.3.6",
     "typescript": "latest",
-    "typescript-eslint": "^8.22.0"
+    "typescript-eslint": "^8.22.0",
+    "@types/node": "^20.17.16"
   },
   "size-limit": [
     {
       "path": [
-        "dist/"
+        "packages/*/dist/mod.js"
       ],
-      "limit": "10 kb"
+      "limit": "10 kb",
+      "running": false,
+      "ignore": [
+        "node:*"
+      ]
     }
   ],
   "lint-staged": {
-    "*.{js,ts}": [
-      "bunx prettier --write",
-      "bunx eslint --fix"
+    "*.{js,ts,jsx,tsx,cjs,mjs}": [
+      "prettier --write",
+      "eslint --fix"
+    ],
+    "*.{json,yml,yaml,md}": [
+      "prettier --write"
     ]
   }
 }
