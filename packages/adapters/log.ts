@@ -5,6 +5,8 @@ import {
 } from "@routecraft/core";
 
 export class LogAdapter implements Destination, Processor {
+  readonly adapterId = "routecraft.adapter.log";
+
   send(exchange: Exchange): Promise<void> {
     console.info("Logging Exchange", this.baseExchange(exchange));
     return Promise.resolve();

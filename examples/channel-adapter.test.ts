@@ -1,19 +1,9 @@
 import { expect, test } from "vitest";
-import { channel, context, log, routes, simple } from "@routecraft/dsl";
+import { context } from "@routecraft/dsl";
+import routes from "./channel-adapter.ts";
 
 test("Context loads", async () => {
-  const testContext = context()
-    .routes(
-      routes()
-        .from(
-          { id: "hello-world" },
-          simple(() => "hello-world"),
-        )
-        .to(channel("hello-world"))
-        .from(channel("hello-world"))
-        .to(log()),
-    )
-    .build();
+  const testContext = context().routes(routes).build();
 
   const execution = testContext.start();
 

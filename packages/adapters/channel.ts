@@ -7,7 +7,6 @@ import {
   type Source,
 } from "@routecraft/core";
 
-// Extend the store registry with channel adapter types
 declare module "@routecraft/core" {
   interface StoreRegistry {
     [ChannelAdapter.ADAPTER_CHANNEL_STORE]: Map<string, MessageChannel>;
@@ -71,6 +70,7 @@ export interface ChannelAdapterOptions {
 export class ChannelAdapter
   implements Source, Destination, MergedOptions<ChannelAdapterOptions>
 {
+  readonly adapterId = "routecraft.adapter.channel";
   static readonly ADAPTER_CHANNEL_STORE =
     "routecraft.adapter.channel.store" as const;
   static readonly ADAPTER_CHANNEL_OPTIONS =

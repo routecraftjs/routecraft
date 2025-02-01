@@ -6,10 +6,15 @@ import {
   LogAdapter,
   NoopAdapter,
   SimpleAdapter,
+  TimerAdapter,
+  type TimerAdapterOptions,
 } from "@routecraft/adapters";
 
-export function processor(fn: (exchange: Exchange) => Exchange): Processor {
+export function processor<T>(
+  fn: (exchange: Exchange<T>) => Exchange<T>,
+): Processor {
   return {
+    adapterId: "routecraft.adapter.anonymous",
     process: fn,
   };
 }
@@ -41,4 +46,8 @@ export function channel(
   options?: Partial<ChannelAdapterOptions>,
 ): ChannelAdapter {
   return new ChannelAdapter(channel, options);
+}
+
+export function timer(options?: TimerAdapterOptions): TimerAdapter {
+  return new TimerAdapter(options);
 }
