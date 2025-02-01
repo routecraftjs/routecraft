@@ -91,6 +91,7 @@ export class RouteBuilder {
     this.currentRoute = {
       id: options.id,
       source: {
+        adapterId: source.adapterId,
         operation: OperationType.FROM,
         subscribe: source.subscribe.bind(source),
       },
@@ -115,6 +116,7 @@ export class RouteBuilder {
     const route = this.requireSource();
     console.debug(`Adding process step to route "${route.id}"`);
     const step: ProcessStepDefinition = {
+      adapterId: processor.adapterId,
       operation: OperationType.PROCESS,
       process: processor.process.bind(processor),
     };
@@ -126,6 +128,7 @@ export class RouteBuilder {
     const route = this.requireSource();
     console.debug(`Adding destination step to route "${route.id}"`);
     const step: ToStepDefinition = {
+      adapterId: destination.adapterId,
       operation: OperationType.TO,
       send: destination.send.bind(destination),
     };

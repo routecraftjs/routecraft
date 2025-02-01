@@ -81,34 +81,44 @@ export class CraftContext {
       await this.onStartup();
     }
 
-    // Start all routes and collect results
+    console.debug("Starting all routes");
     return Promise.allSettled(
       this.routes.map(async (route) => {
         try {
           console.debug(`Starting route "${route.definition.id}"`);
           await route.start();
+          console.debug(`Route "${route.definition.id}" ended.`);
           return { routeId: route.definition.id, success: true as const };
         } catch (error) {
           console.error(
             `Failed to start route "${route.definition.id}"`,
             error,
           );
-          // Abort the controller for failed routes
+          // Abort just this failing route
           const controller = this.controllers.get(route.definition.id);
           controller?.abort();
           throw error;
         }
       }),
     )
+      .then((results) => {
+        // Check if all routes completed successfully
+        const allFulfilled = results.every((r) => r.status === "fulfilled");
+        if (allFulfilled) {
+          console.info("All routes have completed. Stopping context...");
+          return this.stop();
+        } else {
+          console.info(
+            "Some routes ended or failed, but the context remains active.\n" +
+              "Call context.stop() or let other indefinite routes continue.",
+          );
+          // Do not stop automatically; let other routes run.
+          return;
+        }
+      })
       .catch((error) => {
-        console.error("Failed to start context", error);
+        console.error("Context start failed with error:", error);
         throw error;
-      })
-      .finally(() => {
-        this.stop();
-      })
-      .then(() => {
-        return;
       });
   }
 

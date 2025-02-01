@@ -7,3 +7,4 @@ export {
   InMemoryMessageChannel,
   type MessageChannel,
 } from "./channel.ts";
+export { TimerAdapter, type TimerAdapterOptions } from "./timer.ts";

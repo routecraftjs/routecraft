@@ -5,6 +5,8 @@ import {
 } from "@routecraft/core";
 
 export class SimpleAdapter implements Source {
+  readonly adapterId = "routecraft.adapter.simple";
+
   constructor(private producer: () => unknown | Promise<unknown>) {}
 
   async subscribe(
