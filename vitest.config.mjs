@@ -1,19 +1,13 @@
 import { defineConfig } from "vitest/config";
+import tsconfigPaths from "vite-tsconfig-paths";
 
 export default defineConfig({
+  plugins: [tsconfigPaths()],
   test: {
     globals: true,
     coverage: {
       provider: "v8",
       reporter: ["lcov", "text"],
-    },
-  },
-  resolve: {
-    alias: {
-      "@routecraft/core": "/packages/core/mod.ts",
-      "@routecraft/dsl": "/packages/dsl/mod.ts",
-      "@routecraft/adapters": "/packages/adapters/mod.ts",
-      "@routecraft/cli": "/packages/cli/mod.ts",
     },
   },
 });

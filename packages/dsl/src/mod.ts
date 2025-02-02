@@ -8,7 +8,7 @@ import {
   SimpleAdapter,
   TimerAdapter,
   type TimerOptions,
-} from "@routecraft/adapters";
+} from "@routecraft/adapters/src";
 
 export function processor<T>(
   fn: (exchange: Exchange<T>) => Exchange<T>,

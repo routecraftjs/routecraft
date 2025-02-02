@@ -14,7 +14,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsup mod.ts --format esm --dts",
+    "build": "tsup src/mod.ts --format esm --dts",
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {

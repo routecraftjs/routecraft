@@ -12,30 +12,31 @@
     "test:coverage": "vitest --run --coverage",
     "limit:size": "size-limit",
     "prepare": "husky",
-    "craft": "node packages/cli/mod.ts",
+    "craft": "node packages/cli/src/mod.ts",
     "build": "pnpm -r run build",
     "publish:all": "pnpm run build && pnpm -r publish --no-git-checks",
     "pack:all": "pnpm run build && rm -rf dist && mkdir dist && pnpm -r exec pnpm pack --pack-destination ../../dist"
   },
   "devDependencies": {
-    "eslint": "^9.19.0",
     "@eslint/js": "^9.19.0",
-    "@typescript-eslint/eslint-plugin": "latest",
-    "@typescript-eslint/parser": "latest",
-    "size-limit": "latest",
     "@size-limit/preset-small-lib": "latest",
     "@size-limit/time": "latest",
-    "vitest": "^3.0.4",
+    "@types/node": "^22.13.0",
+    "@typescript-eslint/eslint-plugin": "latest",
+    "@typescript-eslint/parser": "latest",
     "@vitest/coverage-v8": "^3.0.4",
+    "eslint": "^9.19.0",
     "globals": "^15.14.0",
     "husky": "^9.1.7",
     "lint-staged": "^15.4.3",
     "madge": "latest",
     "prettier": "3.4.2",
+    "size-limit": "latest",
     "tsup": "^8.3.6",
     "typescript": "latest",
     "typescript-eslint": "^8.22.0",
-    "@types/node": "^22.13.0"
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "^3.0.4"
   },
   "size-limit": [
     {
