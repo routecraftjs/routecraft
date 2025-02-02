@@ -29,7 +29,8 @@ export class RouteCraftError extends Error {
   ) {
     super(details.message, { cause: details.cause });
     this.name = "RouteCraftError";
-    this.details = details || "https://routecraft.dev/docs/getting-started";
+    this.details.docs =
+      details.docs || "https://routecraft.dev/docs/getting-started";
   }
 
   get code(): ErrorCode {

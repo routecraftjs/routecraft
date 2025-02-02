@@ -7,7 +7,7 @@ import {
   NoopAdapter,
   SimpleAdapter,
   TimerAdapter,
-  type TimerAdapterOptions,
+  type TimerOptions,
 } from "@routecraft/adapters";
 
 export function processor<T>(
@@ -48,6 +48,6 @@ export function channel(
   return new ChannelAdapter(channel, options);
 }
 
-export function timer(options?: TimerAdapterOptions): TimerAdapter {
+export function timer(options?: TimerOptions): TimerAdapter {
   return new TimerAdapter(options);
 }
