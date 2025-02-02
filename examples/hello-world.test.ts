@@ -2,7 +2,7 @@ import { expect, test, vi } from "vitest";
 import type { Exchange } from "@routecraft/core";
 import { HeadersKeys, OperationType } from "@routecraft/core";
 import { context } from "@routecraft/dsl";
-import routes from "./hello-world.ts";
+import routes from "./hello-world.mjs";
 
 test("Context loads", async () => {
   const calls: Array<{ args: any[] }> = [];

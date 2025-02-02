@@ -3,6 +3,8 @@ import { resolve, join } from "node:path";
 import { ContextBuilder, type RouteDefinition } from "@routecraft/core";
 import { minimatch } from "minimatch";
 
+const SUPPORTED_EXTENSIONS = [".ts", ".mjs", ".js", ".cjs"] as const;
+
 async function* walkFiles(
   dir: string,
   excludePatterns: string[] = [],
@@ -23,7 +25,7 @@ async function* walkFiles(
 
     if (file.isDirectory()) {
       yield* walkFiles(path, excludePatterns);
-    } else if (file.name.endsWith(".ts")) {
+    } else if (SUPPORTED_EXTENSIONS.some((ext) => file.name.endsWith(ext))) {
       yield path;
     }
   }
@@ -35,15 +37,15 @@ export async function runCommand(path?: string, exclude: string[] = []) {
   const contextBuilder = new ContextBuilder();
 
   if (stat.isDirectory()) {
-    // Handle directory case - find all .ts files, excluding patterns
+    // Handle directory case - find all supported files, excluding patterns
     for await (const filePath of walkFiles(targetPath, exclude)) {
       await configureRoutes(contextBuilder, filePath);
     }
   } else if (stat.isFile()) {
     // Handle single file case
-    if (!targetPath.endsWith(".ts")) {
+    if (!SUPPORTED_EXTENSIONS.some((ext) => targetPath.endsWith(ext))) {
       console.error(
-        "Error: Only TypeScript (.ts) files are supported at the moment",
+        `Error: Only the following file types are supported: ${SUPPORTED_EXTENSIONS.join(", ")}`,
       );
       process.exit(1);
     }
@@ -108,6 +110,15 @@ async function configureRoutes(
 ) {
   try {
     console.debug(`Processing file: ${filePath}`);
+
+    // Check if file extension is supported
+    if (!SUPPORTED_EXTENSIONS.some((ext) => filePath.endsWith(ext))) {
+      throw new Error(
+        `Unsupported file type. Supported extensions are: ${SUPPORTED_EXTENSIONS.join(", ")}`,
+      );
+    }
+
+    // Use dynamic import for all supported files
     const module = await import(filePath);
 
     if (!module.default) {
@@ -145,5 +156,6 @@ async function configureRoutes(
     } else {
       console.error(`Error processing ${filePath}: An unknown error occurred`);
     }
+    throw error; // Re-throw to ensure the process exits with an error code
   }
 }

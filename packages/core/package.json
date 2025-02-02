@@ -6,8 +6,9 @@
   "types": "./dist/mod.d.ts",
   "exports": {
     ".": {
+      "types": "./dist/mod.d.ts",
       "import": "./dist/mod.js",
-      "types": "./dist/mod.d.ts"
+      "require": "./dist/mod.cjs"
     }
   },
   "files": [

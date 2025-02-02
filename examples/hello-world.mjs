@@ -1,4 +1,3 @@
-import { type Exchange } from "@routecraft/core";
 import { log, routes, simple, processor } from "@routecraft/dsl";
 
 export default routes()
@@ -8,7 +7,7 @@ export default routes()
   )
   .to(log())
   .process(
-    processor((exchange: Exchange<string>) => {
+    processor((exchange) => {
       const { id, body, headers } = exchange;
       console.info("Processing exchange", { id, body, headers });
       return {
