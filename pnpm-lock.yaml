@@ -11,6 +11,18 @@ importers:
       '@eslint/js':
         specifier: ^9.19.0
         version: 9.19.0
+      '@routecraft/adapters':
+        specifier: workspace:*
+        version: link:packages/adapters
+      '@routecraft/cli':
+        specifier: workspace:*
+        version: link:packages/cli
+      '@routecraft/core':
+        specifier: workspace:*
+        version: link:packages/core
+      '@routecraft/dsl':
+        specifier: workspace:*
+        version: link:packages/dsl
       '@size-limit/preset-small-lib':
         specifier: latest
         version: 11.1.6(size-limit@11.1.6)
@@ -29,6 +41,9 @@ importers:
       '@vitest/coverage-v8':
         specifier: ^3.0.4
         version: 3.0.4(vitest@3.0.4(@types/node@22.13.0)(jiti@2.4.2)(yaml@2.7.0))
+      comment-parser:
+        specifier: ^1.4.1
+        version: 1.4.1
       eslint:
         specifier: ^9.19.0
         version: 9.19.0(jiti@2.4.2)
@@ -872,6 +887,10 @@ packages:
   commander@7.2.0:
     resolution: {integrity: sha512-QrWXB+ZQSVPmIWIhtEO9H+gwHaMGYiF5ChvoJ+K9ZGHG/sVsa6yiesAD1GC/x46sET00Xlwo1u49RVVVzvcSkw==}
     engines: {node: '>= 10'}
+
+  comment-parser@1.4.1:
+    resolution: {integrity: sha512-buhp5kePrmda3vhc5B9t7pUQXAb2Tnd0qgpkIhPhkHXxJpiPJ11H0ZEU0oBpJ2QztSbzG/ZxMj/CHsYJqRHmyg==}
+    engines: {node: '>= 12.0.0'}
 
   commondir@1.0.1:
     resolution: {integrity: sha512-W9pAhw0ja1Edb5GVdIF1mjZw/ASI0AlShXM83UUGe2DVr5TdAPEA1OA8m/g8zWp9x6On7gqufY+FatDbC3MDQg==}
@@ -3049,6 +3068,8 @@ snapshots:
   commander@4.1.1: {}
 
   commander@7.2.0: {}
+
+  comment-parser@1.4.1: {}
 
   commondir@1.0.1: {}
 
