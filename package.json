@@ -18,10 +18,6 @@
     "pack:all": "pnpm run build && rm -rf dist && mkdir dist && pnpm -r exec pnpm pack --pack-destination ../../dist"
   },
   "devDependencies": {
-    "@routecraft/adapters": "workspace:*",
-    "@routecraft/core": "workspace:*",
-    "@routecraft/dsl": "workspace:*",
-    "@routecraft/cli": "workspace:*",
     "@eslint/js": "^9.19.0",
     "@size-limit/preset-small-lib": "latest",
     "@size-limit/time": "latest",

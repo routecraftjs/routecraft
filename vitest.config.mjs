@@ -9,5 +9,10 @@ export default defineConfig({
       provider: "v8",
       reporter: ["lcov", "text"],
     },
+    alias: {
+      "@routecraft/core": "/packages/core/src/mod.ts",
+      "@routecraft/dsl": "/packages/dsl/src/mod.ts",
+      "@routecraft/adapters": "/packages/adapters/src/mod.ts",
+    },
   },
 });

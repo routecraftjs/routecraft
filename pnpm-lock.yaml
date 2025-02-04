@@ -11,18 +11,6 @@ importers:
       '@eslint/js':
         specifier: ^9.19.0
         version: 9.19.0
-      '@routecraft/adapters':
-        specifier: workspace:*
-        version: link:packages/adapters
-      '@routecraft/cli':
-        specifier: workspace:*
-        version: link:packages/cli
-      '@routecraft/core':
-        specifier: workspace:*
-        version: link:packages/core
-      '@routecraft/dsl':
-        specifier: workspace:*
-        version: link:packages/dsl
       '@size-limit/preset-small-lib':
         specifier: latest
         version: 11.1.6(size-limit@11.1.6)
