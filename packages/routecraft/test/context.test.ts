@@ -1,7 +1,12 @@
-import { describe, test, expect, afterEach } from "vitest";
-import { context, processor, routes, simple } from "@routecraft/dsl";
-import type { CraftContext } from "@routecraft/core";
-import { NoopAdapter } from "@routecraft/adapters";
+import { describe, test, expect, afterEach, vi } from "vitest";
+import {
+  context,
+  processor,
+  routes,
+  simple,
+  type CraftContext,
+  NoopAdapter,
+} from "routecraft";
 
 describe("CraftContext", () => {
   let testContext: CraftContext;

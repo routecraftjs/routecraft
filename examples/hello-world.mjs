@@ -1,4 +1,4 @@
-import { log, routes, simple, processor } from "@routecraft/dsl";
+import { log, routes, simple, processor } from "routecraft";
 
 export default routes()
   .from(

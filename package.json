@@ -12,7 +12,6 @@
     "test:coverage": "vitest --run --coverage",
     "limit:size": "size-limit",
     "prepare": "husky",
-    "craft": "node packages/cli/src/mod.ts",
     "build": "pnpm -r run build",
     "publish:all": "pnpm run build && pnpm -r publish --no-git-checks",
     "pack:all": "pnpm run build && rm -rf dist && mkdir dist && pnpm -r exec pnpm pack --pack-destination ../../dist"
@@ -54,8 +53,7 @@
   "lint-staged": {
     "*.{js,ts,jsx,tsx,cjs,mjs}": [
       "prettier --write",
-      "eslint --fix",
-      "tsc --noEmit"
+      "eslint --fix"
     ],
     "*.{json,yml,yaml,md}": [
       "prettier --write"

@@ -1,4 +1,4 @@
-import { log, routes, timer } from "@routecraft/dsl";
+import { log, routes, timer } from "routecraft";
 
 export default routes()
   .from(timer({ intervalMs: 5000 }))
