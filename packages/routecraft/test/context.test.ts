@@ -27,9 +27,6 @@ describe("CraftContext", () => {
     testContext = context().build();
     const execution = testContext.start();
 
-    // Allow context to initialize
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
     await testContext.stop();
     await execution;
 
@@ -260,9 +257,6 @@ describe("Route Independence", () => {
     // Start the context. The working route should process and eventually
     // trigger the destination adapter's send() from the "to" step.
     await testContext.start();
-
-    // Allow a small delay so any async processing can occur.
-    await new Promise((resolve) => setTimeout(resolve, 50));
 
     // Assert that the NoopAdapter's send method was called.
     expect(sendSpy).toHaveBeenCalled();

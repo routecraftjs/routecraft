@@ -1,6 +1,6 @@
 import { log, routes, timer } from "routecraft";
 
 export default routes()
-  .from(timer({ intervalMs: 5000 }))
+  .from({ id: "timer-adapter" }, timer({ intervalMs: 50 }))
   .to(log())
   .build();
