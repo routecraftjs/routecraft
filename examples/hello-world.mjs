@@ -1,4 +1,4 @@
-import { log, routes, simple, processor } from "routecraft";
+import { log, routes, simple, processor, logger } from "routecraft";
 
 export default routes()
   .from(
@@ -9,7 +9,7 @@ export default routes()
   .process(
     processor((exchange) => {
       const { id, body, headers } = exchange;
-      console.info("Processing exchange", { id, body, headers });
+      logger.log("Processing exchange", { id, body, headers });
       return {
         ...exchange,
         body: exchange.body?.toUpperCase(),

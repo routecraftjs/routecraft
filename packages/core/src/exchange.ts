@@ -1,4 +1,5 @@
 import { CraftContext } from "./context.ts";
+import { type Logger, createLogger } from "./logger.ts";
 
 export enum OperationType {
   /** The exchange was created from a source */
@@ -36,12 +37,14 @@ export type Exchange<T = unknown> = {
   readonly id: string;
   readonly headers: ExchangeHeaders;
   body: T;
+  logger: Logger;
 };
 
 export class DefaultExchange<T = unknown> implements Exchange<T> {
   readonly id: string;
   readonly headers: ExchangeHeaders;
   body: T;
+  public readonly logger: Logger;
 
   constructor(
     public readonly context: CraftContext,
@@ -55,5 +58,6 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
       ...(options?.headers || {}),
     };
     this.body = options?.body || ({} as T);
+    this.logger = createLogger(this);
   }
 }

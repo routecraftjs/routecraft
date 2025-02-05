@@ -13,6 +13,7 @@ import {
   OperationType,
 } from "./exchange.ts";
 import { ErrorCode, RouteCraftError } from "./error.ts";
+import { createLogger, type Logger } from "./logger.ts";
 
 export type RouteDefinition = {
   readonly id: string;
@@ -26,10 +27,12 @@ export interface Route {
   readonly signal: AbortSignal;
   start(): Promise<void>;
   stop(): void;
+  logger: Logger;
 }
 
 export class DefaultRoute implements Route {
   private abortController: AbortController;
+  public readonly logger: Logger;
 
   constructor(
     public readonly context: CraftContext,
@@ -38,6 +41,7 @@ export class DefaultRoute implements Route {
   ) {
     this.assertNotAborted();
     this.abortController = abortController ?? new AbortController();
+    this.logger = createLogger(this);
   }
 
   get signal(): AbortSignal {
@@ -46,7 +50,7 @@ export class DefaultRoute implements Route {
 
   async start(): Promise<void> {
     this.assertNotAborted();
-    console.info(`Starting route "${this.definition.id}"`);
+    this.logger.info(`Starting route "${this.definition.id}"`);
 
     const handlerWrapper = async (
       message: unknown,
@@ -54,7 +58,7 @@ export class DefaultRoute implements Route {
     ) => {
       // Wrap the handler in a try/catch to catch individual message errors and log them as a RouteCraftError
       await this.handler(message, headers).catch((error) => {
-        console.warn(
+        this.logger.warn(
           `Failed to process message on route "${this.definition.id}"`,
           {
             error: RouteCraftError.create(error, {
@@ -74,14 +78,14 @@ export class DefaultRoute implements Route {
         this.abortController,
       ),
     ).finally(() => {
-      console.info(`Route "${this.definition.id}" started successfully`);
+      this.logger.info(`Route "${this.definition.id}" started successfully`);
       // If the route ends on its own, probably the source finished processing, trigger the abort
       this.abortController.abort("Route ended on its own");
     });
   }
 
   stop(): void {
-    console.info(`Stopping route "${this.definition.id}"`);
+    this.logger.info(`Stopping route "${this.definition.id}"`);
     this.abortController.abort("Route stop() called");
   }
 
@@ -110,7 +114,7 @@ export class DefaultRoute implements Route {
     headers?: ExchangeHeaders,
   ): Promise<void> {
     let currentExchange = this.buildExchange(message, headers);
-    console.debug(
+    currentExchange.logger.debug(
       `Processing exchange ${currentExchange.id} on route "${this.definition.id}"`,
     );
 
@@ -124,14 +128,16 @@ export class DefaultRoute implements Route {
         },
       };
 
-      console.debug(
+      currentExchange.logger.debug(
         `Processing step on exchange ${currentExchange.id} with operation ${step.operation}`,
       );
 
       try {
         switch (step.operation) {
           case OperationType.PROCESS: {
-            console.debug(`Processing step on exchange ${currentExchange.id}`);
+            currentExchange.logger.debug(
+              `Processing step on exchange ${currentExchange.id}`,
+            );
             const processor = step as ProcessStepDefinition;
             currentExchange = await Promise.resolve(
               processor.process(currentExchange),
@@ -139,7 +145,7 @@ export class DefaultRoute implements Route {
             break;
           }
           case OperationType.TO: {
-            console.debug(
+            currentExchange.logger.debug(
               `Sending exchange ${currentExchange.id} to destination`,
             );
             const destination = step as ToStepDefinition;
@@ -150,7 +156,7 @@ export class DefaultRoute implements Route {
             this.assertOperation(step.operation);
         }
       } catch (error) {
-        console.error(
+        currentExchange.logger.error(
           `Step ${step.operation} failed for exchange ${currentExchange.id}`,
           error,
         );
