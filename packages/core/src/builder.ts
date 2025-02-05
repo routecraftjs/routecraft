@@ -1,9 +1,14 @@
 import { type RouteDefinition } from "./route.ts";
 import { CraftContext, type StoreRegistry } from "./context.ts";
-import { type Destination, type Processor, type Source } from "./adapter.ts";
+import {
+  type Destination,
+  type Processor,
+  type Source,
+  type Splitter,
+  type StepDefinition,
+} from "./adapter.ts";
 import { OperationType } from "./exchange.ts";
 import { overloads } from "./util.ts";
-import { type ProcessStepDefinition, type ToStepDefinition } from "./step.ts";
 import { ErrorCode, RouteCraftError } from "./error.ts";
 import { logger } from "./logger.ts";
 
@@ -118,7 +123,7 @@ export class RouteBuilder {
     logger.info(
       `Adding process step to route "${route.id}" processor "${processor.adapterId}"`,
     );
-    const step: ProcessStepDefinition = {
+    const step: StepDefinition<unknown, "process"> = {
       adapterId: processor.adapterId,
       operation: OperationType.PROCESS,
       process: processor.process.bind(processor),
@@ -132,10 +137,24 @@ export class RouteBuilder {
     logger.info(
       `Adding destination step to route "${route.id}" destination "${destination.adapterId}"`,
     );
-    const step: ToStepDefinition = {
+    const step: StepDefinition<unknown, "to"> = {
       adapterId: destination.adapterId,
       operation: OperationType.TO,
       send: destination.send.bind(destination),
+    };
+    route.steps.push(step);
+    return this;
+  }
+
+  split(splitter: Splitter): this {
+    const route = this.requireSource();
+    logger.info(
+      `Adding split step to route "${route.id}" splitter "${splitter.adapterId}"`,
+    );
+    const step: StepDefinition<unknown, "split"> = {
+      adapterId: "routecraft.adapter.split",
+      operation: OperationType.SPLIT,
+      split: splitter.split.bind(splitter),
     };
     route.steps.push(step);
     return this;

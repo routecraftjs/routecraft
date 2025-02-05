@@ -7,6 +7,7 @@ import {
   type CraftContext,
   NoopAdapter,
   logger,
+  type Exchange,
 } from "routecraft";
 
 const logSpy = {
@@ -111,6 +112,7 @@ describe("Route Behavior", () => {
    * @expectedResult Should continue running and log error
    */
   test("handles processor errors gracefully", async () => {
+    // @ts-expect-error Mocking logger.child
     vi.spyOn(logger, "child").mockReturnValue(logSpy);
     const noop = new NoopAdapter();
     const sendSpy = vi.spyOn(noop, "send");
@@ -135,7 +137,7 @@ describe("Route Behavior", () => {
 
     expect(logSpy.warn).toHaveBeenCalled();
     expect(sendSpy).not.toHaveBeenCalled();
-    expect(logSpy.warn.mock.calls[0][0]).toMatch(/Failed to process message/);
+    expect(logSpy.warn.mock.calls[0][1]).toMatch(/Failed to process message/);
   });
 
   /**
@@ -187,6 +189,7 @@ describe("Route Behavior", () => {
    * @expectedResult Should continue processing subsequent messages
    */
   test("continues processing after message failure", async () => {
+    // @ts-expect-error Mocking logger.child
     vi.spyOn(logger, "child").mockReturnValue(logSpy);
     const messages = ["success1", "fail", "success2"];
     let processedCount = 0;
@@ -222,7 +225,7 @@ describe("Route Behavior", () => {
 
     // Verify error was logged for failed message
     expect(logSpy.warn).toHaveBeenCalled();
-    expect(logSpy.warn.mock.calls[0][0]).toMatch(/Failed to process message/);
+    expect(logSpy.warn.mock.calls[0][1]).toMatch(/Failed to process message/);
 
     // Verify successful messages were processed
     expect(processedCount).toBe(2); // Both success1 and success2 should be processed
@@ -401,5 +404,148 @@ describe("Route Behavior", () => {
     await testContext.start();
 
     expect(results[0]).toBe("processed-1");
+  });
+
+  /**
+   * @testCase TC-0023
+   * @description Verifies that split step correctly splits a message into multiple exchanges.
+   * @preconditions A message to split.
+   * @expectedResult The message is split, processed, and all split exchanges (with new IDs) are sent downstream.
+   */
+  test("splits message into multiple exchanges", async () => {
+    const capturedBodies: string[] = [];
+    const capturedIds: string[] = [];
+    const capturedCorrelationIds: string[] = [];
+
+    const splitter = {
+      adapterId: "test.split",
+      split: (exchange: any) => {
+        // For a string message with '-' delimiter, split into parts.
+        const parts =
+          typeof exchange.body === "string" ? exchange.body.split("-") : [];
+        return parts.map((part) => ({ ...exchange, body: part }));
+      },
+    };
+
+    testContext = context()
+      .routes(
+        routes()
+          .from(
+            { id: "split-test" },
+            simple(() => "hello-world"),
+          )
+          .split(splitter)
+          .process(
+            processor((exchange: Exchange<string>) => {
+              capturedBodies.push(exchange.body);
+              capturedIds.push(exchange.id);
+              capturedCorrelationIds.push(
+                exchange.headers["routecraft.correlation_id"] as string,
+              );
+              return exchange;
+            }),
+          )
+          .to({
+            adapterId: "capture",
+            send: async (exchange: Exchange<string>) => {
+              capturedBodies.push(exchange.body);
+              capturedIds.push(exchange.id);
+              capturedCorrelationIds.push(
+                exchange.headers["routecraft.correlation_id"] as string,
+              );
+            },
+          }),
+      )
+      .build();
+
+    await testContext.start();
+
+    // Expect the original "hello-world" to be split into two parts: "hello" and "world".
+    expect(capturedBodies).toEqual(expect.arrayContaining(["hello", "world"]));
+    // There should be at least two distinct exchange IDs (i.e. each split gets a new ID).
+    expect(new Set(capturedIds).size).toBeGreaterThan(1);
+    // All captured correlation IDs should be identical.
+    expect(new Set(capturedCorrelationIds).size).toBe(1);
+  });
+
+  /**
+   * @testCase TC-0024
+   * @description Verifies that a split step returning no exchanges leads to no downstream processing.
+   * @preconditions A message to split.
+   * @expectedResult No exchanges are sent to the destination.
+   */
+  test("handles empty split output gracefully", async () => {
+    const sendSpy = vi.fn();
+
+    const splitter = {
+      adapterId: "test.split",
+      split: () => {
+        // Always return an empty array.
+        return [];
+      },
+    };
+
+    testContext = context()
+      .routes(
+        routes()
+          .from(
+            { id: "empty-split-test" },
+            simple(() => "unused-message"),
+          )
+          .split(splitter)
+          .to({
+            adapterId: "capture",
+            send: sendSpy,
+          }),
+      )
+      .build();
+
+    await testContext.start();
+    // Since splitter returns an empty array, send should not be called.
+    expect(sendSpy).not.toHaveBeenCalled();
+  });
+
+  /**
+   * @testCase TC-0025
+   * @description Verifies that the correlation header is maintained across split exchanges.
+   * @preconditions A message to split.
+   * @expectedResult All exchanges produced by the split step have the same correlation ID.
+   */
+  test("maintains correlation ID across split exchanges", async () => {
+    const capturedCorrelation: string[] = [];
+
+    const splitter = {
+      adapterId: "test.split",
+      split: (exchange: any) => {
+        // Using a comma as a delimiter.
+        const parts =
+          typeof exchange.body === "string" ? exchange.body.split(",") : [];
+        return parts.map((part) => ({ ...exchange, body: part }));
+      },
+    };
+
+    testContext = context()
+      .routes(
+        routes()
+          .from(
+            { id: "correlation-split-test" },
+            simple(() => "part1,part2"),
+          )
+          .split(splitter)
+          .process(
+            processor((exchange) => {
+              capturedCorrelation.push(
+                exchange.headers["routecraft.correlation_id"] as string,
+              );
+              return exchange;
+            }),
+          )
+          .to(new NoopAdapter()),
+      )
+      .build();
+
+    await testContext.start();
+    expect(capturedCorrelation.length).toBe(2);
+    expect(new Set(capturedCorrelation).size).toBe(1);
   });
 });

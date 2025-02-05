@@ -8,6 +8,8 @@ export enum OperationType {
   PROCESS = "process",
   /** The exchange was sent to a destination */
   TO = "to",
+  /** The exchange was split into multiple exchanges */
+  SPLIT = "split",
 }
 
 export enum HeadersKeys {
