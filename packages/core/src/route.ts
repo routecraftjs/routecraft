@@ -124,6 +124,10 @@ export class DefaultRoute implements Route {
         },
       };
 
+      console.debug(
+        `Processing step on exchange ${currentExchange.id} with operation ${step.operation}`,
+      );
+
       try {
         switch (step.operation) {
           case OperationType.PROCESS: {

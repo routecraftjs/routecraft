@@ -30,8 +30,10 @@
     // Add these
     "types": ["node", "vitest/globals"],
     "paths": {
-      "@routecraft/*": ["./packages/*/mod.ts"]
+      "@routecraft/*": ["packages/*/src/mod.ts"],
+      "routecraft": ["packages/routecraft/src/mod.ts"]
     },
     "baseUrl": "."
-  }
+  },
+  "include": ["packages/*/src/**/*", "tests/**/*"]
 }

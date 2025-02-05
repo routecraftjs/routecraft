@@ -58,9 +58,7 @@ export class ContextBuilder {
     }
 
     // Register routes
-    for (const definition of this.definitions) {
-      ctx.registerRoute(definition);
-    }
+    ctx.registerRoutes(...this.definitions);
 
     return ctx;
   }

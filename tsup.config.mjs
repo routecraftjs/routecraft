@@ -26,6 +26,7 @@ export default defineConfig({
     /^node:/,
     // Workspace packages (let them be resolved at runtime)
     /^@routecraft\/.*/,
+    /^routecraft.*/,
   ],
 
   // Development

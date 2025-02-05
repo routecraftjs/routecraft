@@ -8,12 +8,12 @@ export class LogAdapter implements Destination, Processor {
   readonly adapterId = "routecraft.adapter.log";
 
   send(exchange: Exchange): Promise<void> {
-    console.info("Logging Exchange", this.baseExchange(exchange));
+    console.log("Logging Exchange", this.baseExchange(exchange));
     return Promise.resolve();
   }
 
   process(exchange: Exchange): Promise<Exchange> {
-    console.info("Logging Exchange", this.baseExchange(exchange));
+    console.log("Logging Exchange", this.baseExchange(exchange));
     return Promise.resolve(exchange);
   }
 

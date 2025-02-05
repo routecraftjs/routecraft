@@ -11,7 +11,7 @@ import {
 } from "@routecraft/adapters";
 
 export function processor<T>(
-  fn: (exchange: Exchange<T>) => Exchange<T>,
+  fn: (exchange: Exchange<T>) => Promise<Exchange<T>> | Exchange<T>,
 ): Processor {
   return {
     adapterId: "routecraft.adapter.anonymous",

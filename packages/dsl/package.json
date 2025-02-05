@@ -6,15 +6,16 @@
   "types": "./dist/mod.d.ts",
   "exports": {
     ".": {
+      "types": "./dist/mod.d.ts",
       "import": "./dist/mod.js",
-      "types": "./dist/mod.d.ts"
+      "require": "./dist/mod.cjs"
     }
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsup mod.ts --format esm --dts",
+    "build": "tsup src/mod.ts --format esm --dts",
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
