@@ -69,6 +69,21 @@ importers:
         specifier: ^3.0.4
         version: 3.0.4(@types/node@22.13.0)(jiti@2.4.2)(yaml@2.7.0)
 
+  examples:
+    devDependencies:
+      '@routecraft/adapters':
+        specifier: workspace:*
+        version: link:../packages/adapters
+      '@routecraft/core':
+        specifier: workspace:*
+        version: link:../packages/core
+      '@routecraft/dsl':
+        specifier: workspace:*
+        version: link:../packages/dsl
+      routecraft:
+        specifier: workspace:*
+        version: link:../packages/routecraft
+
   packages/adapters:
     dependencies:
       '@routecraft/core':
