@@ -5,6 +5,7 @@ import { OperationType } from "./exchange.ts";
 import { overloads } from "./util.ts";
 import { type ProcessStepDefinition, type ToStepDefinition } from "./step.ts";
 import { ErrorCode, RouteCraftError } from "./error.ts";
+import { logger } from "./logger.ts";
 
 export class ContextBuilder {
   private onStartupHandler?: () => Promise<void> | void;
@@ -85,7 +86,9 @@ export class RouteBuilder {
         };
       },
     );
-    console.debug(`Creating route definition with id "${options.id}"`);
+    logger.info(
+      `Creating route definition with id "${options.id}" source "${source.adapterId}"`,
+    );
     this.currentRoute = {
       id: options.id,
       source: {
@@ -112,7 +115,9 @@ export class RouteBuilder {
 
   process(processor: Processor): this {
     const route = this.requireSource();
-    console.debug(`Adding process step to route "${route.id}"`);
+    logger.info(
+      `Adding process step to route "${route.id}" processor "${processor.adapterId}"`,
+    );
     const step: ProcessStepDefinition = {
       adapterId: processor.adapterId,
       operation: OperationType.PROCESS,
@@ -124,7 +129,9 @@ export class RouteBuilder {
 
   to(destination: Destination): this {
     const route = this.requireSource();
-    console.debug(`Adding destination step to route "${route.id}"`);
+    logger.info(
+      `Adding destination step to route "${route.id}" destination "${destination.adapterId}"`,
+    );
     const step: ToStepDefinition = {
       adapterId: destination.adapterId,
       operation: OperationType.TO,
@@ -135,7 +142,7 @@ export class RouteBuilder {
   }
 
   build(): RouteDefinition[] {
-    console.debug(`Building ${this.routes.length} routes`);
+    logger.info(`Building ${this.routes.length} routes`);
     return this.routes;
   }
 }

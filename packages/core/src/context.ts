@@ -1,6 +1,6 @@
 import { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
 import { RouteCraftError, ErrorCode } from "./error.ts";
-
+import { createLogger, type Logger } from "./logger.ts";
 /**
  * Base store registry that can be extended by adapters
  *
@@ -27,6 +27,7 @@ export type MergedOptions<T> = {
 export type LogLevel = "DEBUG" | "INFO" | "WARNING" | "ERROR" | "CRITICAL";
 
 export class CraftContext {
+  public readonly contextId: string = crypto.randomUUID();
   private onStartup?: () => Promise<void> | void;
   private onShutdown?: () => Promise<void> | void;
   private routes: Route[] = [];
@@ -35,8 +36,11 @@ export class CraftContext {
     keyof StoreRegistry,
     StoreRegistry[keyof StoreRegistry]
   >();
+  public readonly logger: Logger;
 
-  constructor() {}
+  constructor() {
+    this.logger = createLogger(this);
+  }
 
   setOnStartup(fn: () => Promise<void> | void): void {
     this.onStartup = fn;
@@ -108,23 +112,23 @@ export class CraftContext {
   }
 
   async start(): Promise<void> {
-    console.info("Starting Routecraft context");
+    this.logger.info("Starting Routecraft context");
 
     if (this.onStartup) {
-      console.debug("Running startup handler");
+      this.logger.debug("Running startup handler");
       await this.onStartup();
     }
 
-    console.debug("Starting all routes");
+    this.logger.info("Starting all routes");
     return Promise.allSettled(
       this.routes.map(async (route) => {
         try {
-          console.debug(`Starting route "${route.definition.id}"`);
+          this.logger.debug(`Starting route "${route.definition.id}"`);
           await route.start();
-          console.debug(`Route "${route.definition.id}" ended.`);
+          this.logger.debug(`Route "${route.definition.id}" ended.`);
           return { routeId: route.definition.id, success: true as const };
         } catch (error) {
-          console.error(
+          this.logger.error(
             `Failed to start route "${route.definition.id}"`,
             error,
           );
@@ -139,10 +143,10 @@ export class CraftContext {
         // Check if all routes completed successfully
         const allFulfilled = results.every((r) => r.status === "fulfilled");
         if (allFulfilled) {
-          console.info("All routes have completed. Stopping context...");
+          this.logger.info("All routes have completed. Stopping context...");
           return this.stop();
         } else {
-          console.info(
+          this.logger.info(
             "Some routes ended or failed, but the context remains active.\n" +
               "Call context.stop() or let other indefinite routes continue.",
           );
@@ -151,25 +155,25 @@ export class CraftContext {
         }
       })
       .catch((error) => {
-        console.error("Context start failed with error:", error);
+        this.logger.error("Context start failed with error:", error);
         throw error;
       });
   }
 
   async stop(): Promise<void> {
-    console.info("Stopping Routecraft context");
+    this.logger.info("Stopping Routecraft context");
 
     // Abort all route controllers
     for (const controller of this.controllers.values()) {
-      console.debug("Stopping route controller");
+      this.logger.debug("Stopping route controller");
       controller.abort();
     }
 
     if (this.onShutdown) {
-      console.debug("Running shutdown handler");
+      this.logger.debug("Running shutdown handler");
       await this.onShutdown();
     }
 
-    console.info("Routecraft context stopped");
+    this.logger.info("Routecraft context stopped");
   }
 }

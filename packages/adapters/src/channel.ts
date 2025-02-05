@@ -20,12 +20,13 @@ export interface MessageChannel {
 
   /** Subscribe to a channel */
   subscribe(
+    context: CraftContext,
     channel: string,
     handler: (exchange: Exchange) => Promise<void>,
   ): Promise<void>;
 
   /** Unsubscribe from a channel */
-  unsubscribe(channel: string): Promise<void>;
+  unsubscribe(context: CraftContext, channel: string): Promise<void>;
 }
 
 export class InMemoryMessageChannel implements MessageChannel {
@@ -33,22 +34,23 @@ export class InMemoryMessageChannel implements MessageChannel {
     new Map();
 
   async send(channel: string, exchange: Exchange): Promise<void> {
-    console.debug(`Sending message to channel "${channel}"`, {
+    exchange.logger.debug(`Sending message to channel "${channel}"`, {
       exchangeId: exchange.id,
     });
     const subscribers = this.subscribers.get(channel) || [];
     await Promise.all(subscribers.map((subscriber) => subscriber(exchange)));
-    console.debug(
+    exchange.logger.debug(
       `Message sent to ${subscribers.length} subscribers on channel "${channel}"`,
       { exchangeId: exchange.id },
     );
   }
 
   subscribe(
+    context: CraftContext,
     channel: string,
     handler: (exchange: Exchange) => Promise<void>,
   ): Promise<void> {
-    console.info(`New subscription to channel "${channel}"`);
+    context.logger.info(`New subscription to channel "${channel}"`);
     if (!this.subscribers.has(channel)) {
       this.subscribers.set(channel, []);
     }
@@ -56,8 +58,8 @@ export class InMemoryMessageChannel implements MessageChannel {
     return Promise.resolve();
   }
 
-  unsubscribe(channel: string): Promise<void> {
-    console.info(`Unsubscribing from channel "${channel}"`);
+  unsubscribe(context: CraftContext, channel: string): Promise<void> {
+    context.logger.info(`Unsubscribing from channel "${channel}"`);
     this.subscribers.delete(channel);
     return Promise.resolve();
   }
@@ -94,21 +96,25 @@ export class ChannelAdapter
     handler: (message: unknown, headers?: ExchangeHeaders) => Promise<void>,
     abortController: AbortController,
   ): Promise<void> {
-    console.info(`Setting up subscription for channel "${this.channel}"`);
+    context.logger.info(
+      `Setting up subscription for channel "${this.channel}"`,
+    );
     const channel = this.messageChannel(context);
     if (abortController.signal.aborted) {
-      console.debug(`Subscription aborted for channel "${this.channel}"`);
+      context.logger.debug(
+        `Subscription aborted for channel "${this.channel}"`,
+      );
       return Promise.resolve();
     }
 
     // Return a promise that won't resolve until the subscription is cancelled
     return new Promise<void>((resolve) => {
-      channel.subscribe(this.channel, async (exchange: Exchange) => {
+      channel.subscribe(context, this.channel, async (exchange: Exchange) => {
         await handler(exchange.body, exchange.headers);
       });
 
       abortController.signal.addEventListener("abort", async () => {
-        await channel.unsubscribe(this.channel);
+        await channel.unsubscribe(context, this.channel);
         resolve();
       });
     });
@@ -133,9 +139,9 @@ export class ChannelAdapter
   }
 
   async send(exchange: Exchange & { context: CraftContext }): Promise<void> {
-    console.debug(`Preparing to send message to channel "${this.channel}"`, {
-      exchangeId: exchange.id,
-    });
+    exchange.logger.debug(
+      `Preparing to send message to channel "${this.channel}"`,
+    );
     const channel = this.messageChannel(exchange.context);
     return await channel.send(this.channel, exchange);
   }

@@ -1,4 +1,4 @@
-import { describe, test, expect, afterEach, vi } from "vitest";
+import { describe, test, expect, afterEach, vi, beforeEach } from "vitest";
 import {
   context,
   processor,
@@ -10,6 +10,10 @@ import {
 
 describe("CraftContext", () => {
   let testContext: CraftContext;
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
 
   afterEach(async () => {
     if (testContext) {

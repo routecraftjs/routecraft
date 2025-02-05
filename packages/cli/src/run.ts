@@ -1,6 +1,6 @@
 import { readdir, stat as fsStat } from "node:fs/promises";
 import { resolve, join } from "node:path";
-import { ContextBuilder, type RouteDefinition } from "@routecraft/core";
+import { ContextBuilder, type RouteDefinition, logger } from "@routecraft/core";
 import { minimatch } from "minimatch";
 
 const SUPPORTED_EXTENSIONS = [".ts", ".mjs", ".js", ".cjs"] as const;
@@ -19,7 +19,7 @@ async function* walkFiles(
     );
 
     if (isExcluded) {
-      console.debug(`Skipping excluded file: ${path}`);
+      logger.debug(`Skipping excluded file: ${path}`);
       continue;
     }
 
@@ -44,7 +44,7 @@ export async function runCommand(path?: string, exclude: string[] = []) {
   } else if (stat.isFile()) {
     // Handle single file case
     if (!SUPPORTED_EXTENSIONS.some((ext) => targetPath.endsWith(ext))) {
-      console.error(
+      logger.error(
         `Error: Only the following file types are supported: ${SUPPORTED_EXTENSIONS.join(", ")}`,
       );
       process.exit(1);
@@ -58,7 +58,7 @@ export async function runCommand(path?: string, exclude: string[] = []) {
     if (!isExcluded) {
       await configureRoutes(contextBuilder, targetPath);
     } else {
-      console.debug(`Skipping excluded file: ${targetPath}`);
+      logger.debug(`Skipping excluded file: ${targetPath}`);
     }
   }
 
@@ -69,13 +69,13 @@ export async function runCommand(path?: string, exclude: string[] = []) {
   const signal = ac.signal;
 
   process.on("SIGINT", () => {
-    console.info("Shutting down...");
+    context.logger.info("Shutting down...");
     // Add your cleanup logic here
     process.exit(0);
   });
 
   process.on("SIGTERM", () => {
-    console.info("Shutting down...");
+    context.logger.info("Shutting down...");
     // Add your cleanup logic here
     process.exit(0);
   });
@@ -83,7 +83,7 @@ export async function runCommand(path?: string, exclude: string[] = []) {
   // If you need to run cleanup when the process exits normally
   process.on("exit", () => {
     // Note: Only synchronous operations work in 'exit' handlers
-    console.info("Cleanup complete");
+    context.logger.info("Cleanup complete");
   });
 
   try {
@@ -98,7 +98,7 @@ export async function runCommand(path?: string, exclude: string[] = []) {
     }
   } catch (error) {
     if (error instanceof Error && error.message !== "Aborted") {
-      console.error(error);
+      context.logger.error(error);
       process.exit(1);
     }
   }
@@ -109,7 +109,7 @@ async function configureRoutes(
   filePath: string,
 ) {
   try {
-    console.debug(`Processing file: ${filePath}`);
+    logger.debug(`Processing file: ${filePath}`);
 
     // Check if file extension is supported
     if (!SUPPORTED_EXTENSIONS.some((ext) => filePath.endsWith(ext))) {
@@ -122,7 +122,7 @@ async function configureRoutes(
     const module = await import(filePath);
 
     if (!module.default) {
-      console.warn(`Warning: No default export found in ${filePath}`);
+      logger.warn(`Warning: No default export found in ${filePath}`);
       return;
     }
 
@@ -136,7 +136,7 @@ async function configureRoutes(
       : isRouteDefinition(defaultExport);
 
     if (!isValidExport) {
-      console.error(
+      logger.error(
         `Error: Default export in ${filePath} must be a RouteDefinition or array of RouteDefinitions`,
         "\nPlease ensure your route file exports a valid route configuration.",
       );
@@ -149,12 +149,12 @@ async function configureRoutes(
       contextBuilder.routes(defaultExport);
     }
 
-    console.info(`Successfully configured routes from ${filePath}`);
+    logger.info(`Successfully configured routes from ${filePath}`);
   } catch (error: unknown) {
     if (error instanceof Error) {
-      console.error(`Error processing ${filePath}: ${error.message}`);
+      logger.error(`Error processing ${filePath}: ${error.message}`);
     } else {
-      console.error(`Error processing ${filePath}: An unknown error occurred`);
+      logger.error(`Error processing ${filePath}: An unknown error occurred`);
     }
     throw error; // Re-throw to ensure the process exits with an error code
   }
