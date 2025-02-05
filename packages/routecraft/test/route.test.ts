@@ -1,4 +1,4 @@
-import { describe, test, expect, afterEach, vi } from "vitest";
+import { describe, test, expect, afterEach, vi, beforeEach } from "vitest";
 import {
   context,
   routes,
@@ -6,10 +6,22 @@ import {
   processor,
   type CraftContext,
   NoopAdapter,
+  logger,
 } from "routecraft";
+
+const logSpy = {
+  warn: vi.fn(),
+  info: vi.fn(),
+  debug: vi.fn(),
+  error: vi.fn(),
+};
 
 describe("Route Behavior", () => {
   let testContext: CraftContext;
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
 
   afterEach(async () => {
     if (testContext) {
@@ -99,7 +111,7 @@ describe("Route Behavior", () => {
    * @expectedResult Should continue running and log error
    */
   test("handles processor errors gracefully", async () => {
-    const errorSpy = vi.spyOn(console, "warn");
+    vi.spyOn(logger, "child").mockReturnValue(logSpy);
     const noop = new NoopAdapter();
     const sendSpy = vi.spyOn(noop, "send");
 
@@ -121,9 +133,9 @@ describe("Route Behavior", () => {
 
     await testContext.start();
 
-    expect(errorSpy).toHaveBeenCalled();
+    expect(logSpy.warn).toHaveBeenCalled();
     expect(sendSpy).not.toHaveBeenCalled();
-    expect(errorSpy.mock.calls[0][0]).toMatch(/Failed to process message/);
+    expect(logSpy.warn.mock.calls[0][0]).toMatch(/Failed to process message/);
   });
 
   /**
@@ -175,6 +187,7 @@ describe("Route Behavior", () => {
    * @expectedResult Should continue processing subsequent messages
    */
   test("continues processing after message failure", async () => {
+    vi.spyOn(logger, "child").mockReturnValue(logSpy);
     const messages = ["success1", "fail", "success2"];
     let processedCount = 0;
 
@@ -205,12 +218,11 @@ describe("Route Behavior", () => {
       )
       .build();
 
-    const errorSpy = vi.spyOn(console, "warn");
     await testContext.start();
 
     // Verify error was logged for failed message
-    expect(errorSpy).toHaveBeenCalled();
-    expect(errorSpy.mock.calls[0][0]).toMatch(/Failed to process message/);
+    expect(logSpy.warn).toHaveBeenCalled();
+    expect(logSpy.warn.mock.calls[0][0]).toMatch(/Failed to process message/);
 
     // Verify successful messages were processed
     expect(processedCount).toBe(2); // Both success1 and success2 should be processed

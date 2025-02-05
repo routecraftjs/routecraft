@@ -24,7 +24,7 @@ export default [
     },
     rules: {
       // General rules
-      "no-console": ["warn", { allow: ["info", "warn", "error", "debug"] }],
+      "no-console": "error",
       "prefer-const": "warn",
       quotes: ["error", "double"],
       semi: ["error", "always"],
@@ -42,15 +42,7 @@ export default [
   pluginJs.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ["**/*.test.ts"],
-    rules: {
-      // Relaxed rules for test files
-      "@typescript-eslint/no-explicit-any": "off",
-      "no-console": "off",
-    },
-  },
-  {
-    files: ["**/*.test.js", "**/*.test.ts", "**/*.spec.js", "**/*.spec.ts"],
+    files: ["**/*.test.{js,ts,mjs,cjs}", "**/*.spec.{js,ts,mjs,cjs}"],
     plugins: {
       custom: {
         rules: {
@@ -59,6 +51,8 @@ export default [
       },
     },
     rules: {
+      // Relaxed rules for test files
+      "@typescript-eslint/no-explicit-any": "off",
       "custom/testcase-doc": "error",
     },
   },

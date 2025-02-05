@@ -27,3 +27,5 @@ export {
 export { ContextBuilder, RouteBuilder } from "./builder.ts";
 
 export { ErrorCode, RouteCraftError } from "./error.ts";
+
+export { logger, createLogger, type Logger } from "./logger.ts";
