@@ -1,7 +1,13 @@
 import { expect, test } from "vitest";
-import { context } from "@routecraft/dsl";
-import routes from "./channel-adapter.ts";
+import { context } from "routecraft";
+import routes from "./channel-adapter.mjs";
 
+/**
+ * @testCase TC-0020
+ * @description Verifies that channel adapter can send and receive messages
+ * @preconditions Channel adapter with two channels
+ * @expectedResult Should send and receive messages between channels
+ */
 test("Context loads", async () => {
   const testContext = context().routes(routes).build();
 

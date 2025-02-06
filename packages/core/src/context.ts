@@ -1,4 +1,5 @@
 import { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
+import { RouteCraftError, ErrorCode } from "./error.ts";
 
 /**
  * Base store registry that can be extended by adapters
@@ -45,10 +46,43 @@ export class CraftContext {
     this.onShutdown = fn;
   }
 
-  registerRoute(definition: RouteDefinition): void {
-    const controller = new AbortController();
-    this.controllers.set(definition.id, controller);
-    this.routes.push(new DefaultRoute(this, definition, controller));
+  registerRoutes(...definitions: RouteDefinition[]): void {
+    // 1) Gather all IDs from the new route definitions
+    const allIDs = definitions.map((def) => def.id);
+
+    // 2) Check for duplicates within the new route definitions
+    const hasInternalDuplicates = allIDs.some(
+      (id, idx) => allIDs.indexOf(id) !== idx,
+    );
+
+    // 3) Check for duplicates against existing routes
+    const conflictWithExistingRoutes = definitions.some((def) =>
+      this.routes.some((r) => r.definition.id === def.id),
+    );
+
+    // 4) If either case has duplicates, throw the error
+    if (hasInternalDuplicates || conflictWithExistingRoutes) {
+      // Identify any one duplicate ID
+      const duplicateId =
+        allIDs.find((id, idx) => allIDs.indexOf(id) !== idx) ??
+        definitions.find((def) =>
+          this.routes.some((r) => r.definition.id === def.id),
+        )?.id ??
+        "unknown";
+
+      throw new RouteCraftError({
+        code: ErrorCode.DUPLICATE_ROUTE_DEFINITION,
+        message: `Duplicate route ID found: ${duplicateId}`,
+        suggestion: "Ensure all route IDs are unique",
+      });
+    }
+
+    // 5) Register each definition now that there's no duplication
+    for (const definition of definitions) {
+      const controller = new AbortController();
+      this.controllers.set(definition.id, controller);
+      this.routes.push(new DefaultRoute(this, definition, controller));
+    }
   }
 
   getRoutes(): Route[] {

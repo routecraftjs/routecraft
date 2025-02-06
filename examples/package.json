@@ -1,0 +1,12 @@
+{
+  "name": "examples",
+  "version": "workspace",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "routecraft": "workspace:*",
+    "@routecraft/core": "workspace:*",
+    "@routecraft/dsl": "workspace:*",
+    "@routecraft/adapters": "workspace:*"
+  }
+}

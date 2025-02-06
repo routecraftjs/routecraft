@@ -170,7 +170,9 @@ jobs:
           craft --version
 
       - name: Run hello-world example
-        run: craft run examples/hello-world.ts
+        working-directory: ./examples
+        run: craft run hello-world.mjs
 
       - name: Run channel-adapter example
-        run: craft run examples/channel-adapter.ts
+        working-directory: ./examples
+        run: craft run channel-adapter.mjs
