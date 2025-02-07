@@ -1,11 +1,24 @@
 import { type RouteDefinition } from "./route.ts";
 import { CraftContext, type StoreRegistry } from "./context.ts";
-import { type Destination, type Processor, type Source } from "./adapter.ts";
+import {
+  type Destination,
+  type Processor,
+  type Source,
+  type Splitter,
+  type Aggregator,
+  type Adapter,
+} from "./adapter.ts";
 import { OperationType } from "./exchange.ts";
 import { overloads } from "./util.ts";
-import { type ProcessStepDefinition, type ToStepDefinition } from "./step.ts";
 import { ErrorCode, RouteCraftError } from "./error.ts";
 import { logger } from "./logger.ts";
+import {
+  ProcessStep,
+  ToStep,
+  SplitStep,
+  AggregateStep,
+  type StepDefinition,
+} from "./step.ts";
 
 export class ContextBuilder {
   private onStartupHandler?: () => Promise<void> | void;
@@ -113,18 +126,17 @@ export class RouteBuilder {
     return this.currentRoute;
   }
 
-  process(processor: Processor): this {
+  private addStep<T extends Adapter>(step: StepDefinition<T>): this {
     const route = this.requireSource();
     logger.info(
-      `Adding process step to route "${route.id}" processor "${processor.adapterId}"`,
+      `Adding ${step.operation} step to route "${route.id}" step "${step.adapterId}"`,
     );
-    const step: ProcessStepDefinition = {
-      adapterId: processor.adapterId,
-      operation: OperationType.PROCESS,
-      process: processor.process.bind(processor),
-    };
     route.steps.push(step);
     return this;
+  }
+
+  process(processor: Processor): this {
+    return this.addStep(new ProcessStep(processor.adapterId, processor));
   }
 
   to(destination: Destination): this {
@@ -132,12 +144,25 @@ export class RouteBuilder {
     logger.info(
       `Adding destination step to route "${route.id}" destination "${destination.adapterId}"`,
     );
-    const step: ToStepDefinition = {
-      adapterId: destination.adapterId,
-      operation: OperationType.TO,
-      send: destination.send.bind(destination),
-    };
-    route.steps.push(step);
+    route.steps.push(new ToStep(destination.adapterId, destination));
+    return this;
+  }
+
+  split(splitter: Splitter): this {
+    const route = this.requireSource();
+    logger.info(
+      `Adding split step to route "${route.id}" splitter "${splitter.adapterId}"`,
+    );
+    route.steps.push(new SplitStep(splitter.adapterId, splitter));
+    return this;
+  }
+
+  aggregate(aggregator: Aggregator): this {
+    const route = this.requireSource();
+    logger.info(
+      `Adding aggregate step to route "${route.id}" aggregator "${aggregator.adapterId}"`,
+    );
+    route.steps.push(new AggregateStep(aggregator.adapterId, aggregator));
     return this;
   }
 

@@ -8,6 +8,10 @@ export enum OperationType {
   PROCESS = "process",
   /** The exchange was sent to a destination */
   TO = "to",
+  /** The exchange was split into multiple exchanges */
+  SPLIT = "split",
+  /** The exchange was aggregated from multiple exchanges */
+  AGGREGATE = "aggregate",
 }
 
 export enum HeadersKeys {
@@ -19,6 +23,8 @@ export enum HeadersKeys {
   CORRELATION_ID = "routecraft.correlation_id",
   /** The adapter name */
   ADAPTER = "routecraft.adapter",
+  /** The hierarchy of split groups this exchange belongs to */
+  SPLIT_HIERARCHY = "routecraft.split_hierarchy",
 }
 
 export interface RouteCraftHeaders {
@@ -26,9 +32,10 @@ export interface RouteCraftHeaders {
   [HeadersKeys.ROUTE_ID]: string;
   [HeadersKeys.CORRELATION_ID]: string;
   [HeadersKeys.ADAPTER]: string;
+  [HeadersKeys.SPLIT_HIERARCHY]?: string[];
 }
 
-export type HeaderValue = string | number | boolean | undefined;
+export type HeaderValue = string | number | boolean | undefined | string[];
 
 export type ExchangeHeaders = Partial<RouteCraftHeaders> &
   Record<string, HeaderValue>;

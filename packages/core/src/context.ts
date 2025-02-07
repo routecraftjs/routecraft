@@ -129,8 +129,8 @@ export class CraftContext {
           return { routeId: route.definition.id, success: true as const };
         } catch (error) {
           this.logger.error(
-            `Failed to start route "${route.definition.id}"`,
             error,
+            `Failed to start route "${route.definition.id}"`,
           );
           // Abort just this failing route
           const controller = this.controllers.get(route.definition.id);
@@ -155,7 +155,7 @@ export class CraftContext {
         }
       })
       .catch((error) => {
-        this.logger.error("Context start failed with error:", error);
+        this.logger.error(error, "Context start failed");
         throw error;
       });
   }

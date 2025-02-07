@@ -14,7 +14,8 @@
     "prepare": "husky",
     "build": "pnpm -r run build",
     "publish:all": "pnpm run build && pnpm -r publish --no-git-checks",
-    "pack:all": "pnpm run build && rm -rf dist && mkdir dist && pnpm -r exec pnpm pack --pack-destination ../../dist"
+    "pack:all": "pnpm run build && rm -rf dist && mkdir dist && pnpm -r exec pnpm pack --pack-destination ../../dist",
+    "craft": "node packages/cli/dist/mod.js"
   },
   "devDependencies": {
     "@eslint/js": "^9.19.0",

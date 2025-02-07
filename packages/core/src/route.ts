@@ -1,9 +1,3 @@
-import {
-  type FromStepDefinition,
-  type ProcessStepDefinition,
-  type StepDefinition,
-  type ToStepDefinition,
-} from "./step.ts";
 import { type CraftContext } from "./context.ts";
 import {
   DefaultExchange,
@@ -14,11 +8,13 @@ import {
 } from "./exchange.ts";
 import { ErrorCode, RouteCraftError } from "./error.ts";
 import { createLogger, type Logger } from "./logger.ts";
+import { type StepDefinition } from "./step.ts";
+import { type Adapter, type Source } from "./adapter.ts";
 
 export type RouteDefinition = {
   readonly id: string;
-  readonly source: FromStepDefinition;
-  readonly steps: StepDefinition[];
+  readonly source: Source & { operation: OperationType };
+  readonly steps: StepDefinition<Adapter>[];
 };
 
 export interface Route {
@@ -59,14 +55,12 @@ export class DefaultRoute implements Route {
       // Wrap the handler in a try/catch to catch individual message errors and log them as a RouteCraftError
       await this.handler(message, headers).catch((error) => {
         this.logger.warn(
+          RouteCraftError.create(error, {
+            code: ErrorCode.UNKNOWN_ERROR,
+            message: `Error processing message for route "${this.definition.id}"`,
+            cause: error,
+          }),
           `Failed to process message on route "${this.definition.id}"`,
-          {
-            error: RouteCraftError.create(error, {
-              code: ErrorCode.UNKNOWN_ERROR,
-              message: `Error processing message for route "${this.definition.id}"`,
-              cause: error,
-            }),
-          },
         );
       });
     };
@@ -113,71 +107,47 @@ export class DefaultRoute implements Route {
     message: unknown,
     headers?: ExchangeHeaders,
   ): Promise<void> {
-    let currentExchange = this.buildExchange(message, headers);
-    currentExchange.logger.debug(
-      `Processing exchange ${currentExchange.id} on route "${this.definition.id}"`,
+    const initialExchange = this.buildExchange(message, headers);
+    initialExchange.logger.debug(
+      `Processing initial exchange ${initialExchange.id} on route "${this.definition.id}"`,
     );
 
-    for (const step of this.definition.steps) {
-      // Update the operation type in headers for the current step
-      currentExchange = {
-        ...currentExchange,
+    // Use a queue to process the steps in FIFO order.
+    const queue: { exchange: Exchange; steps: StepDefinition<Adapter>[] }[] = [
+      { exchange: initialExchange, steps: [...this.definition.steps] },
+    ];
+
+    while (queue.length > 0) {
+      const { exchange, steps } = queue.shift()!;
+      if (steps.length === 0) continue;
+
+      const [step, ...remainingSteps] = steps;
+
+      // Update operation type in headers for the current step
+      const updatedExchange: Exchange = {
+        ...exchange,
         headers: {
-          ...currentExchange.headers,
+          ...exchange.headers,
           [HeadersKeys.OPERATION]: step.operation,
         },
       };
 
-      currentExchange.logger.debug(
-        `Processing step on exchange ${currentExchange.id} with operation ${step.operation}`,
+      updatedExchange.logger.debug(
+        `Processing step ${step.operation} on exchange ${updatedExchange.id}`,
       );
 
       try {
-        switch (step.operation) {
-          case OperationType.PROCESS: {
-            currentExchange.logger.debug(
-              `Processing step on exchange ${currentExchange.id}`,
-            );
-            const processor = step as ProcessStepDefinition;
-            currentExchange = await Promise.resolve(
-              processor.process(currentExchange),
-            );
-            break;
-          }
-          case OperationType.TO: {
-            currentExchange.logger.debug(
-              `Sending exchange ${currentExchange.id} to destination`,
-            );
-            const destination = step as ToStepDefinition;
-            await destination.send(currentExchange);
-            break;
-          }
-          default:
-            this.assertOperation(step.operation);
-        }
+        await step.execute(updatedExchange, remainingSteps, queue);
       } catch (error) {
-        currentExchange.logger.error(
-          `Step ${step.operation} failed for exchange ${currentExchange.id}`,
+        const err = this.processError(
+          step.operation,
+          ErrorCode.PROCESS_ERROR,
           error,
         );
-        switch (step.operation) {
-          case OperationType.PROCESS:
-            throw this.processError(
-              step.operation,
-              ErrorCode.PROCESS_ERROR,
-              error,
-            );
-          case OperationType.TO:
-            throw this.processError(step.operation, ErrorCode.TO_ERROR, error);
-          default:
-            throw new RouteCraftError({
-              code: ErrorCode.UNKNOWN_ERROR,
-              message: `Unknown error for route "${this.definition.id}"`,
-              suggestion:
-                "Check the operation configuration and ensure it is valid",
-              cause: error,
-            });
-        }
+        updatedExchange.logger.warn(
+          err,
+          `Step ${step.operation} failed for exchange ${updatedExchange.id}`,
+        );
       }
     }
   }
@@ -189,16 +159,6 @@ export class DefaultRoute implements Route {
         message: `Route "${this.definition.id}" cannot be started because it was aborted`,
         suggestion:
           "Ensure the abortController is not aborted before starting the route",
-      });
-    }
-  }
-
-  private assertOperation(operation: OperationType): void {
-    if (!Object.values(OperationType).includes(operation)) {
-      throw new RouteCraftError({
-        code: ErrorCode.INVALID_OPERATION,
-        message: `Invalid operation type "${operation}" for route "${this.definition.id}"`,
-        suggestion: "Ensure the operation is valid",
       });
     }
   }
