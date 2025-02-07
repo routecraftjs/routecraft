@@ -19,7 +19,7 @@ export class SimpleAdapter implements Source {
     try {
       result = await this.producer();
     } catch (error) {
-      context.logger.error("Failed to produce messages", error);
+      context.logger.error(error, "Failed to produce messages");
       abortController.abort();
       throw error;
     }
@@ -30,7 +30,7 @@ export class SimpleAdapter implements Source {
         await Promise.all(
           result.map((item) =>
             handler(item).catch((error) => {
-              context.logger.error("Failed to process message", { error });
+              context.logger.error(error, "Failed to process message");
               throw error;
             }),
           ),
@@ -44,7 +44,7 @@ export class SimpleAdapter implements Source {
       try {
         await handler(result);
       } catch (error) {
-        context.logger.error("Failed to process message", { error });
+        context.logger.error(error, "Failed to process message");
         throw error;
       } finally {
         context.logger.debug("Finished processing single message");
