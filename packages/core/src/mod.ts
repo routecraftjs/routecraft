@@ -20,10 +20,11 @@ export {
   type Processor,
   type Source,
   type Adapter,
-  type StepDefinition,
   type Splitter,
   type Aggregator,
 } from "./adapter.ts";
+
+export { type StepDefinition } from "./step.ts";
 
 export { ContextBuilder, RouteBuilder } from "./builder.ts";
 

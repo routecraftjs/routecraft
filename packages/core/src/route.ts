@@ -8,12 +8,13 @@ import {
 } from "./exchange.ts";
 import { ErrorCode, RouteCraftError } from "./error.ts";
 import { createLogger, type Logger } from "./logger.ts";
-import { type StepDefinition } from "./adapter.ts";
+import { type StepDefinition } from "./step.ts";
+import { type Adapter, type Source } from "./adapter.ts";
 
 export type RouteDefinition = {
   readonly id: string;
-  readonly source: StepDefinition<unknown, "from">;
-  readonly steps: StepDefinition[];
+  readonly source: Source & { operation: OperationType };
+  readonly steps: StepDefinition<Adapter>[];
 };
 
 export interface Route {
@@ -112,7 +113,7 @@ export class DefaultRoute implements Route {
     );
 
     // Use a queue to process the steps in FIFO order.
-    const queue: { exchange: Exchange; steps: StepDefinition[] }[] = [
+    const queue: { exchange: Exchange; steps: StepDefinition<Adapter>[] }[] = [
       { exchange: initialExchange, steps: [...this.definition.steps] },
     ];
 
@@ -136,111 +137,7 @@ export class DefaultRoute implements Route {
       );
 
       try {
-        switch (step.operation) {
-          case OperationType.PROCESS: {
-            const processor = step as StepDefinition<unknown, "process">;
-            const newExchange = await Promise.resolve(
-              processor.process(updatedExchange),
-            );
-            // Push the result with the remaining steps back on the queue.
-            queue.push({ exchange: newExchange, steps: remainingSteps });
-            break;
-          }
-          case OperationType.TO: {
-            const destination = step as StepDefinition<unknown, "to">;
-            await destination.send(updatedExchange);
-            // Continue processing subsequent steps after a "to" step.
-            queue.push({ exchange: updatedExchange, steps: remainingSteps });
-            break;
-          }
-          case OperationType.SPLIT: {
-            const splitter = step as StepDefinition<unknown, "split">;
-            const splits = await Promise.resolve(
-              splitter.split(updatedExchange),
-            );
-            const groupId = crypto.randomUUID();
-
-            // Get existing split hierarchy and add new group
-            const existingHierarchy =
-              (updatedExchange.headers[
-                HeadersKeys.SPLIT_HIERARCHY
-              ] as string[]) || [];
-            const splitHierarchy = [...existingHierarchy, groupId];
-
-            splits.forEach((exch) => {
-              const postProcessedExchange = {
-                ...exch,
-                id: crypto.randomUUID(),
-                headers: {
-                  ...exch.headers,
-                  [HeadersKeys.SPLIT_HIERARCHY]: splitHierarchy,
-                },
-              };
-              postProcessedExchange.logger.debug(
-                `Pushing split exchange ${postProcessedExchange.id} to queue, splitHierarchy: ${postProcessedExchange.headers[HeadersKeys.SPLIT_HIERARCHY]}`,
-              );
-              queue.push({
-                exchange: postProcessedExchange,
-                steps: remainingSteps,
-              });
-            });
-            break;
-          }
-          case OperationType.AGGREGATE: {
-            const aggregator = step as StepDefinition<unknown, "aggregate">;
-            const splitHierarchy = updatedExchange.headers[
-              HeadersKeys.SPLIT_HIERARCHY
-            ] as string[];
-
-            // If there's no split hierarchy, just aggregate the single exchange
-            if (!splitHierarchy) {
-              const aggregatedExchange = await Promise.resolve(
-                aggregator.aggregate([updatedExchange]),
-              );
-              queue.push({
-                exchange: aggregatedExchange,
-                steps: remainingSteps,
-              });
-              break;
-            }
-
-            const currentGroupId = splitHierarchy[splitHierarchy.length - 1]; // Get most recent split group
-
-            // Find all exchanges with matching current group ID
-            const aggregationGroup: Exchange[] = [updatedExchange];
-
-            for (let i = 0; i < queue.length; ) {
-              const item = queue[i];
-              const itemHierarchy = item.exchange.headers[
-                HeadersKeys.SPLIT_HIERARCHY
-              ] as string[];
-              if (itemHierarchy?.at(-1) === currentGroupId) {
-                aggregationGroup.push(item.exchange);
-                queue.splice(i, 1);
-              } else {
-                i++;
-              }
-            }
-
-            const aggregatedExchange = await Promise.resolve(
-              aggregator.aggregate(aggregationGroup),
-            );
-
-            // Remove the current group from hierarchy after aggregation
-            const remainingHierarchy = splitHierarchy.slice(0, -1);
-            if (remainingHierarchy.length > 0) {
-              aggregatedExchange.headers[HeadersKeys.SPLIT_HIERARCHY] =
-                remainingHierarchy;
-            } else {
-              delete aggregatedExchange.headers[HeadersKeys.SPLIT_HIERARCHY];
-            }
-
-            queue.push({ exchange: aggregatedExchange, steps: remainingSteps });
-            break;
-          }
-          default:
-            this.assertOperation(step.operation);
-        }
+        await step.execute(updatedExchange, remainingSteps, queue);
       } catch (error) {
         const err = this.processError(
           step.operation,
@@ -262,16 +159,6 @@ export class DefaultRoute implements Route {
         message: `Route "${this.definition.id}" cannot be started because it was aborted`,
         suggestion:
           "Ensure the abortController is not aborted before starting the route",
-      });
-    }
-  }
-
-  private assertOperation(operation: OperationType): void {
-    if (!Object.values(OperationType).includes(operation)) {
-      throw new RouteCraftError({
-        code: ErrorCode.INVALID_OPERATION,
-        message: `Invalid operation type "${operation}" for route "${this.definition.id}"`,
-        suggestion: "Ensure the operation is valid",
       });
     }
   }
