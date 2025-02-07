@@ -22,6 +22,7 @@ export {
   type Adapter,
   type StepDefinition,
   type Splitter,
+  type Aggregator,
 } from "./adapter.ts";
 
 export { ContextBuilder, RouteBuilder } from "./builder.ts";

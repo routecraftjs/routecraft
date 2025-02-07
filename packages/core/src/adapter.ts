@@ -9,12 +9,16 @@ export interface Adapter {
   readonly adapterId: string;
 }
 
+export type Aggregator<T = unknown, R = unknown> = Adapter & {
+  aggregate(exchanges: Exchange<T>[]): Promise<Exchange<R>> | Exchange<R>;
+};
+
 export type Source<T = unknown> = Adapter & {
   subscribe(
     context: CraftContext,
     handler: (message: T, headers?: ExchangeHeaders) => Promise<void>,
     abortController: AbortController,
-  ): Promise<void>;
+  ): Promise<void> | void;
 };
 
 export type Processor<T = unknown> = Adapter & {
@@ -31,11 +35,12 @@ export type Splitter<T = unknown, R = unknown> = Adapter & {
 
 export type StepDefinition<
   T = unknown,
-  K extends "from" | "to" | "process" | "split" =
+  K extends "from" | "to" | "process" | "split" | "aggregate" =
     | "from"
     | "to"
     | "process"
-    | "split",
+    | "split"
+    | "aggregate",
 > = {
   operation: OperationType;
 } & (K extends "from"
@@ -46,4 +51,6 @@ export type StepDefinition<
       ? Processor<T>
       : K extends "split"
         ? Splitter<T>
-        : never);
+        : K extends "aggregate"
+          ? Aggregator<T>
+          : never);

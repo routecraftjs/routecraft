@@ -6,6 +6,7 @@ import {
   type Source,
   type Splitter,
   type StepDefinition,
+  type Aggregator,
 } from "./adapter.ts";
 import { OperationType } from "./exchange.ts";
 import { overloads } from "./util.ts";
@@ -155,6 +156,20 @@ export class RouteBuilder {
       adapterId: "routecraft.adapter.split",
       operation: OperationType.SPLIT,
       split: splitter.split.bind(splitter),
+    };
+    route.steps.push(step);
+    return this;
+  }
+
+  aggregate(aggregator: Aggregator): this {
+    const route = this.requireSource();
+    logger.info(
+      `Adding aggregate step to route "${route.id}" aggregator "${aggregator.adapterId}"`,
+    );
+    const step: StepDefinition<unknown, "aggregate"> = {
+      adapterId: aggregator.adapterId,
+      operation: OperationType.AGGREGATE,
+      aggregate: aggregator.aggregate.bind(aggregator),
     };
     route.steps.push(step);
     return this;

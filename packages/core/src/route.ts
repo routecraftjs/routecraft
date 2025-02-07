@@ -111,13 +111,13 @@ export class DefaultRoute implements Route {
       `Processing initial exchange ${initialExchange.id} on route "${this.definition.id}"`,
     );
 
-    // Use a stack to process the steps in a single method.
-    const stack: { exchange: Exchange; steps: StepDefinition[] }[] = [
+    // Use a queue to process the steps in FIFO order.
+    const queue: { exchange: Exchange; steps: StepDefinition[] }[] = [
       { exchange: initialExchange, steps: [...this.definition.steps] },
     ];
 
-    while (stack.length > 0) {
-      const { exchange, steps } = stack.pop()!;
+    while (queue.length > 0) {
+      const { exchange, steps } = queue.shift()!;
       if (steps.length === 0) continue;
 
       const [step, ...remainingSteps] = steps;
@@ -142,13 +142,15 @@ export class DefaultRoute implements Route {
             const newExchange = await Promise.resolve(
               processor.process(updatedExchange),
             );
-            // Push the result with the remaining steps back on the stack.
-            stack.push({ exchange: newExchange, steps: remainingSteps });
+            // Push the result with the remaining steps back on the queue.
+            queue.push({ exchange: newExchange, steps: remainingSteps });
             break;
           }
           case OperationType.TO: {
             const destination = step as StepDefinition<unknown, "to">;
             await destination.send(updatedExchange);
+            // Continue processing subsequent steps after a "to" step.
+            queue.push({ exchange: updatedExchange, steps: remainingSteps });
             break;
           }
           case OperationType.SPLIT: {
@@ -156,46 +158,99 @@ export class DefaultRoute implements Route {
             const splits = await Promise.resolve(
               splitter.split(updatedExchange),
             );
-            // For each split exchange, assign a new ID while preserving
-            // the correlation and other header values.
+            const groupId = crypto.randomUUID();
+
+            // Get existing split hierarchy and add new group
+            const existingHierarchy =
+              (updatedExchange.headers[
+                HeadersKeys.SPLIT_HIERARCHY
+              ] as string[]) || [];
+            const splitHierarchy = [...existingHierarchy, groupId];
+
             splits.forEach((exch) => {
-              const newExchange = { ...exch, id: crypto.randomUUID() };
-              stack.push({ exchange: newExchange, steps: remainingSteps });
+              const postProcessedExchange = {
+                ...exch,
+                id: crypto.randomUUID(),
+                headers: {
+                  ...exch.headers,
+                  [HeadersKeys.SPLIT_HIERARCHY]: splitHierarchy,
+                },
+              };
+              postProcessedExchange.logger.debug(
+                `Pushing split exchange ${postProcessedExchange.id} to queue, splitHierarchy: ${postProcessedExchange.headers[HeadersKeys.SPLIT_HIERARCHY]}`,
+              );
+              queue.push({
+                exchange: postProcessedExchange,
+                steps: remainingSteps,
+              });
             });
+            break;
+          }
+          case OperationType.AGGREGATE: {
+            const aggregator = step as StepDefinition<unknown, "aggregate">;
+            const splitHierarchy = updatedExchange.headers[
+              HeadersKeys.SPLIT_HIERARCHY
+            ] as string[];
+
+            // If there's no split hierarchy, just aggregate the single exchange
+            if (!splitHierarchy) {
+              const aggregatedExchange = await Promise.resolve(
+                aggregator.aggregate([updatedExchange]),
+              );
+              queue.push({
+                exchange: aggregatedExchange,
+                steps: remainingSteps,
+              });
+              break;
+            }
+
+            const currentGroupId = splitHierarchy[splitHierarchy.length - 1]; // Get most recent split group
+
+            // Find all exchanges with matching current group ID
+            const aggregationGroup: Exchange[] = [updatedExchange];
+
+            for (let i = 0; i < queue.length; ) {
+              const item = queue[i];
+              const itemHierarchy = item.exchange.headers[
+                HeadersKeys.SPLIT_HIERARCHY
+              ] as string[];
+              if (itemHierarchy?.at(-1) === currentGroupId) {
+                aggregationGroup.push(item.exchange);
+                queue.splice(i, 1);
+              } else {
+                i++;
+              }
+            }
+
+            const aggregatedExchange = await Promise.resolve(
+              aggregator.aggregate(aggregationGroup),
+            );
+
+            // Remove the current group from hierarchy after aggregation
+            const remainingHierarchy = splitHierarchy.slice(0, -1);
+            if (remainingHierarchy.length > 0) {
+              aggregatedExchange.headers[HeadersKeys.SPLIT_HIERARCHY] =
+                remainingHierarchy;
+            } else {
+              delete aggregatedExchange.headers[HeadersKeys.SPLIT_HIERARCHY];
+            }
+
+            queue.push({ exchange: aggregatedExchange, steps: remainingSteps });
             break;
           }
           default:
             this.assertOperation(step.operation);
         }
       } catch (error) {
-        updatedExchange.logger.error(
+        const err = this.processError(
+          step.operation,
+          ErrorCode.PROCESS_ERROR,
           error,
+        );
+        updatedExchange.logger.warn(
+          err,
           `Step ${step.operation} failed for exchange ${updatedExchange.id}`,
         );
-        switch (step.operation) {
-          case OperationType.PROCESS:
-            throw this.processError(
-              step.operation,
-              ErrorCode.PROCESS_ERROR,
-              error,
-            );
-          case OperationType.TO:
-            throw this.processError(step.operation, ErrorCode.TO_ERROR, error);
-          case OperationType.SPLIT:
-            throw this.processError(
-              step.operation,
-              ErrorCode.SPLIT_ERROR,
-              error,
-            );
-          default:
-            throw new RouteCraftError({
-              code: ErrorCode.UNKNOWN_ERROR,
-              message: `Unknown error for route "${this.definition.id}"`,
-              suggestion:
-                "Check the operation configuration and ensure it is valid",
-              cause: error,
-            });
-        }
       }
     }
   }
