@@ -1,10 +1,7 @@
 import { log, routes, simple, processor, logger } from "routecraft";
 
 export default routes()
-  .from(
-    { id: "hello-world" },
-    simple(() => "Hello, World!"),
-  )
+  .from([{ id: "hello-world" }, simple("Hello, World!")])
   .to(log())
   .process(
     processor((exchange) => {

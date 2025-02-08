@@ -27,47 +27,51 @@ export function routes(): RouteBuilder {
   return new RouteBuilder();
 }
 
-export function simple(
-  producer: () => unknown | Promise<unknown>,
-): SimpleAdapter {
-  return new SimpleAdapter(producer);
+export function simple<T = unknown>(
+  producer: (() => T | Promise<T>) | T,
+): SimpleAdapter<T> {
+  return new SimpleAdapter<T>(
+    typeof producer === "function"
+      ? (producer as () => T | Promise<T>)
+      : () => producer,
+  );
 }
 
-export function noop(): NoopAdapter {
-  return new NoopAdapter();
+export function noop<T = unknown>(): NoopAdapter<T> {
+  return new NoopAdapter<T>();
 }
 
-export function log(): LogAdapter {
-  return new LogAdapter();
+export function log<T = unknown>(): LogAdapter<T> {
+  return new LogAdapter<T>();
 }
 
-export function channel(
+export function channel<T = unknown>(
   channel: string,
   options?: Partial<ChannelAdapterOptions>,
-): ChannelAdapter {
-  return new ChannelAdapter(channel, options);
+): ChannelAdapter<T> {
+  return new ChannelAdapter<T>(channel, options);
 }
 
 export function timer(options?: TimerOptions): TimerAdapter {
   return new TimerAdapter(options);
 }
 
-export function source<T>(
+export function source<T = unknown>(
   fn: (
     context: CraftContext,
     handler: (message: T, headers?: ExchangeHeaders) => Promise<void>,
     abortController: AbortController,
   ) => void | Promise<void>,
-): Source {
+): Source<T> {
   return {
     adapterId: "routecraft.adapter.anonymous.source",
     subscribe: fn,
   };
 }
 
-export function processor<T>(
+export function processor<T = unknown>(
   fn: (exchange: Exchange<T>) => Promise<Exchange<T>> | Exchange<T>,
-): Processor {
+): Processor<T> {
   return {
     adapterId: "routecraft.adapter.anonymous.processor",
     process: fn,
@@ -93,9 +97,9 @@ export function aggregator<T = unknown, R = unknown>(
   };
 }
 
-export function destination<T>(
+export function destination<T = unknown>(
   fn: (exchange: Exchange<T>) => Promise<void> | void,
-): Destination {
+): Destination<T> {
   return {
     adapterId: "routecraft.adapter.anonymous.destination",
     send: fn,

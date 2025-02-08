@@ -4,14 +4,14 @@ import {
   type Source,
 } from "@routecraft/core";
 
-export class SimpleAdapter implements Source {
+export class SimpleAdapter<T = unknown> implements Source<T> {
   readonly adapterId = "routecraft.adapter.simple";
 
-  constructor(private producer: () => unknown | Promise<unknown>) {}
+  constructor(private producer: () => T | Promise<T>) {}
 
   async subscribe(
     context: CraftContext,
-    handler: (message: unknown, headers?: ExchangeHeaders) => Promise<void>,
+    handler: (message: T, headers?: ExchangeHeaders) => Promise<void>,
     abortController: AbortController,
   ): Promise<void> {
     context.logger.info("Producing messages");

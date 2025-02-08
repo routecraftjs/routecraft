@@ -9,7 +9,6 @@ import {
   type Adapter,
 } from "./adapter.ts";
 import { OperationType } from "./exchange.ts";
-import { overloads } from "./util.ts";
 import { ErrorCode, RouteCraftError } from "./error.ts";
 import { logger } from "./logger.ts";
 import {
@@ -21,10 +20,10 @@ import {
 } from "./step.ts";
 
 export class ContextBuilder {
-  private onStartupHandler?: () => Promise<void> | void;
-  private onShutdownHandler?: () => Promise<void> | void;
-  private definitions: RouteDefinition[] = [];
-  private initialStores = new Map<
+  protected onStartupHandler?: () => Promise<void> | void;
+  protected onShutdownHandler?: () => Promise<void> | void;
+  protected definitions: RouteDefinition[] = [];
+  protected initialStores = new Map<
     keyof StoreRegistry,
     StoreRegistry[keyof StoreRegistry]
   >();
@@ -79,38 +78,36 @@ export class ContextBuilder {
 }
 
 export class RouteBuilder {
-  private currentRoute?: RouteDefinition;
-  private routes: RouteDefinition[] = [];
+  protected currentRoute?: RouteDefinition;
+  protected routes: RouteDefinition[] = [];
 
   constructor() {}
 
-  from(options: Pick<RouteDefinition, "id">, source: Source): this;
-  from(source: Source): this;
-  from(
-    optionsOrSource: Pick<RouteDefinition, "id"> | Source,
-    maybeSource?: Source,
-  ): this {
-    const { options, main: source } = overloads(
-      optionsOrSource,
-      maybeSource,
-      () => {
-        return {
-          id: crypto.randomUUID().toString(),
+  from(optionsOrMain: Source | [Pick<RouteDefinition, "id">, Source]): this {
+    const { options, main: source } = Array.isArray(optionsOrMain)
+      ? { options: optionsOrMain[0], main: optionsOrMain[1] }
+      : {
+          options: { id: crypto.randomUUID().toString() },
+          main: optionsOrMain,
         };
-      },
-    );
+
     logger.info(
       `Creating route definition with id "${options.id}" source "${source.adapterId}"`,
     );
+
     this.currentRoute = {
       id: options.id,
       source: {
         adapterId: source.adapterId,
         operation: OperationType.FROM,
-        subscribe: source.subscribe.bind(source),
+        subscribe:
+          typeof source === "object" && source.constructor !== Object
+            ? source.subscribe.bind(source)
+            : source.subscribe,
       },
       steps: [],
     };
+
     this.routes.push(this.currentRoute);
     return this;
   }

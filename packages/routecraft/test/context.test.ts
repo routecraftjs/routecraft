@@ -6,6 +6,7 @@ import {
   simple,
   type CraftContext,
   NoopAdapter,
+  source,
 } from "routecraft";
 
 describe("CraftContext", () => {
@@ -45,12 +46,7 @@ describe("CraftContext", () => {
    */
   test("Registers routes correctly", async () => {
     testContext = context()
-      .routes(
-        routes().from(
-          { id: "test-route" },
-          simple(() => "test"),
-        ),
-      )
+      .routes(routes().from([{ id: "test-route" }, simple("test")]))
       .build();
 
     await testContext.start();
@@ -126,14 +122,8 @@ describe("Route Management", () => {
   test("Rejects duplicate route IDs", () => {
     const builder = context().routes(
       routes()
-        .from(
-          { id: "duplicate" },
-          simple(() => "test"),
-        )
-        .from(
-          { id: "duplicate" },
-          simple(() => "test"),
-        ),
+        .from([{ id: "duplicate" }, simple("test")])
+        .from([{ id: "duplicate" }, simple("test")]),
     );
 
     expect(() => builder.build()).toThrow(/duplicate/i);
@@ -149,10 +139,7 @@ describe("Route Management", () => {
     const testRoutes = [1, 2, 3]
       .map((n) =>
         routes()
-          .from(
-            { id: `route-${n}` },
-            simple(() => n),
-          )
+          .from([{ id: `route-${n}` }, simple(n)])
           .build(),
       )
       .flat();
@@ -230,30 +217,24 @@ describe("Route Independence", () => {
     testContext = context()
       .routes(
         routes()
-          .from(
+          .from([
             { id: "failing-route" },
             simple(() => {
               throw new Error("Simulated route failure");
             }),
-          )
-          .from(
+          ])
+          .from([
             { id: "failing-route2" },
-            {
-              adapterId: "routecraft.adapter.error",
-              subscribe: async () => {
-                throw new Error("Simulated route failure");
-              },
-            },
-          )
+            source(() => {
+              throw new Error("Simulated route failure");
+            }),
+          ])
           .process(
             processor(() => {
               throw new Error("Simulated route failure");
             }),
           )
-          .from(
-            { id: "working-route" },
-            simple(() => "work"),
-          )
+          .from([{ id: "working-route" }, simple("work")])
           .to(noop),
       )
       .build();

@@ -7,11 +7,13 @@ import {
   type Source,
 } from "@routecraft/core";
 
-export class NoopAdapter implements Source, Destination, Processor {
+export class NoopAdapter<T = unknown>
+  implements Source<T>, Destination<T>, Processor<T>
+{
   readonly adapterId = "routecraft.adapter.noop";
   subscribe(
     context: CraftContext,
-    _handler: (message: unknown, headers?: ExchangeHeaders) => Promise<void>,
+    _handler: (message: T, headers?: ExchangeHeaders) => Promise<void>,
     abortController: AbortController,
   ): Promise<void> {
     context.logger.debug("Aborting subscription immediately");
@@ -19,12 +21,12 @@ export class NoopAdapter implements Source, Destination, Processor {
     return Promise.resolve();
   }
 
-  send(exchange: Exchange): Promise<void> {
+  send(exchange: Exchange<T>): Promise<void> {
     exchange.logger.info("Discarding message", { id: exchange.id });
     return Promise.resolve();
   }
 
-  process(exchange: Exchange): Promise<Exchange> {
+  process(exchange: Exchange<T>): Promise<Exchange<T>> {
     exchange.logger.info("Passing through exchange", { id: exchange.id });
     return Promise.resolve(exchange);
   }
