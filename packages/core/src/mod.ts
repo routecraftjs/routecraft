@@ -16,6 +16,9 @@ export {
 export { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
 
 export {
+  type CallableProcessor,
+  type CallableSplitter,
+  type CallableAggregator,
   type Destination,
   type Processor,
   type Source,

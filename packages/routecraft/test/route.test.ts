@@ -3,15 +3,12 @@ import {
   context,
   routes,
   simple,
-  processor,
   splitter,
   type CraftContext,
   NoopAdapter,
   logger,
-  type Exchange,
   aggregator,
   log,
-  destination,
 } from "routecraft";
 
 const logSpy = {
@@ -49,7 +46,7 @@ describe("Route Behavior", () => {
       .routes(
         routes()
           .from([{ id: "test-pipeline" }, simple("test-message")])
-          .process(processor(processorSpy))
+          .process(processorSpy)
           .to(noop),
       )
       .build();
@@ -81,7 +78,7 @@ describe("Route Behavior", () => {
           .from([{ id: "test-route" }, simple("test-message")])
           .to(noop)
           .to(noop2)
-          .process(processor(processorSpy)),
+          .process(processorSpy),
       )
       .build();
 
@@ -107,7 +104,6 @@ describe("Route Behavior", () => {
           .from([
             { id: "continuous-route" },
             {
-              adapterId: "test.continuous",
               subscribe: async (_, handler, controller) => {
                 // Keep track of messages processed
                 let messageCount = 0;
@@ -120,7 +116,7 @@ describe("Route Behavior", () => {
               },
             },
           ])
-          .process(processor(processorSpy))
+          .process(processorSpy)
           .to(new NoopAdapter()),
       )
       .build();
@@ -152,11 +148,9 @@ describe("Route Behavior", () => {
       .routes(
         routes()
           .from([{ id: "error-route" }, simple("test")])
-          .process(
-            processor(() => {
-              throw new Error("Processor error");
-            }),
-          )
+          .process(() => {
+            throw new Error("Processor error");
+          })
           .to(noop),
       )
       .build();
@@ -183,22 +177,18 @@ describe("Route Behavior", () => {
       .routes(
         routes()
           .from([{ id: "correlation-test" }, simple("test")])
-          .process(
-            processor((exchange) => {
-              capturedCorrelationIds.push(
-                exchange.headers["routecraft.correlation_id"] as string,
-              );
-              return exchange;
-            }),
-          )
-          .process(
-            processor((exchange) => {
-              capturedCorrelationIds.push(
-                exchange.headers["routecraft.correlation_id"] as string,
-              );
-              return exchange;
-            }),
-          )
+          .process((exchange) => {
+            capturedCorrelationIds.push(
+              exchange.headers["routecraft.correlation_id"] as string,
+            );
+            return exchange;
+          })
+          .process((exchange) => {
+            capturedCorrelationIds.push(
+              exchange.headers["routecraft.correlation_id"] as string,
+            );
+            return exchange;
+          })
           .to(new NoopAdapter()),
       )
       .build();
@@ -229,7 +219,6 @@ describe("Route Behavior", () => {
           .from([
             { id: "fail-continue-route" },
             {
-              adapterId: "test.sequence",
               subscribe: async (_, handler) => {
                 for (const msg of messages) {
                   await handler(msg);
@@ -237,15 +226,13 @@ describe("Route Behavior", () => {
               },
             },
           ])
-          .process(
-            processor((exchange) => {
-              if (exchange.body === "fail") {
-                throw new Error("Simulated failure");
-              }
-              processedCount++;
-              return exchange;
-            }),
-          )
+          .process((exchange) => {
+            if (exchange.body === "fail") {
+              throw new Error("Simulated failure");
+            }
+            processedCount++;
+            return exchange;
+          })
           .to(noop),
       )
       .build();
@@ -278,24 +265,19 @@ describe("Route Behavior", () => {
           .from([
             { id: "headers-test" },
             {
-              adapterId: "test.headers",
               subscribe: async (_, handler) => {
                 await handler("test", { "custom.header": "test-value" });
               },
             },
           ])
-          .process(
-            processor((exchange) => {
-              capturedHeaders.push({ ...exchange.headers });
-              exchange.headers["processor.header"] = "added-value";
-              return exchange;
-            }),
-          )
-          .to(
-            destination((exchange) => {
-              capturedHeaders.push({ ...exchange.headers });
-            }),
-          ),
+          .process((exchange) => {
+            capturedHeaders.push({ ...exchange.headers });
+            exchange.headers["processor.header"] = "added-value";
+            return exchange;
+          })
+          .to((exchange) => {
+            capturedHeaders.push({ ...exchange.headers });
+          }),
       )
       .build();
 
@@ -318,19 +300,15 @@ describe("Route Behavior", () => {
       .routes(
         routes()
           .from([{ id: "async-test" }, simple("test")])
-          .process(
-            processor(async (exchange) => {
-              await new Promise((resolve) => setTimeout(resolve, 10));
-              processingOrder.push("first");
-              return exchange;
-            }),
-          )
-          .process(
-            processor(async (exchange) => {
-              processingOrder.push("second");
-              return exchange;
-            }),
-          )
+          .process(async (exchange) => {
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            processingOrder.push("first");
+            return exchange;
+          })
+          .process(async (exchange) => {
+            processingOrder.push("second");
+            return exchange;
+          })
           .to(new NoopAdapter()),
       )
       .build();
@@ -353,29 +331,23 @@ describe("Route Behavior", () => {
       .routes(
         routes()
           .from([{ id: "transform-test" }, simple(() => ({ value: 1 }))])
-          .process(
-            processor((exchange) => {
-              transformedBodies.push(exchange.body);
-              exchange.body = {
-                value: (exchange.body as { value: number }).value + 1,
-              };
-              return exchange;
-            }),
-          )
-          .process(
-            processor((exchange) => {
-              transformedBodies.push(exchange.body);
-              exchange.body = {
-                value: (exchange.body as { value: number }).value * 2,
-              };
-              return exchange;
-            }),
-          )
-          .to(
-            destination((exchange) => {
-              transformedBodies.push(exchange.body);
-            }),
-          ),
+          .process((exchange) => {
+            transformedBodies.push(exchange.body);
+            exchange.body = {
+              value: (exchange.body as { value: number }).value + 1,
+            };
+            return exchange;
+          })
+          .process((exchange) => {
+            transformedBodies.push(exchange.body);
+            exchange.body = {
+              value: (exchange.body as { value: number }).value * 2,
+            };
+            return exchange;
+          })
+          .to((exchange) => {
+            transformedBodies.push(exchange.body);
+          }),
       )
       .build();
 
@@ -401,23 +373,17 @@ describe("Route Behavior", () => {
       .routes(
         routes()
           .from([{ id: "processor-returns" }, simple(() => ({ num: 1 }))])
-          .process(
-            processor((exchange) => {
-              exchange.body = (exchange.body as { num: number }).num.toString();
-              return exchange;
-            }),
-          )
-          .process(
-            processor((exchange) => {
-              exchange.body = `processed-${exchange.body}`;
-              return exchange;
-            }),
-          )
-          .to(
-            destination((exchange) => {
-              results.push(exchange.body);
-            }),
-          ),
+          .process((exchange) => {
+            exchange.body = (exchange.body as { num: number }).num.toString();
+            return exchange;
+          })
+          .process((exchange) => {
+            exchange.body = `processed-${exchange.body}`;
+            return exchange;
+          })
+          .to((exchange) => {
+            results.push(exchange.body);
+          }),
       )
       .build();
 
@@ -452,25 +418,21 @@ describe("Route Behavior", () => {
         routes()
           .from([{ id: "split-test" }, simple("hello-world")])
           .split(splitter)
-          .process(
-            processor((exchange: Exchange<string>) => {
-              capturedBodies.push(exchange.body);
-              capturedIds.push(exchange.id);
-              capturedCorrelationIds.push(
-                exchange.headers["routecraft.correlation_id"] as string,
-              );
-              return exchange;
-            }),
-          )
-          .to(
-            destination<string>((exchange) => {
-              capturedBodies.push(exchange.body);
-              capturedIds.push(exchange.id);
-              capturedCorrelationIds.push(
-                exchange.headers["routecraft.correlation_id"] as string,
-              );
-            }),
-          ),
+          .process<string>((exchange) => {
+            capturedBodies.push(exchange.body);
+            capturedIds.push(exchange.id);
+            capturedCorrelationIds.push(
+              exchange.headers["routecraft.correlation_id"] as string,
+            );
+            return exchange;
+          })
+          .to((exchange) => {
+            capturedBodies.push(exchange.body);
+            capturedIds.push(exchange.id);
+            capturedCorrelationIds.push(
+              exchange.headers["routecraft.correlation_id"] as string,
+            );
+          }),
       )
       .build();
 
@@ -507,7 +469,6 @@ describe("Route Behavior", () => {
           .from([{ id: "empty-split-test" }, simple("unused-message")])
           .split(splitter)
           .to({
-            adapterId: "capture",
             send: sendSpy,
           }),
       )
@@ -542,14 +503,12 @@ describe("Route Behavior", () => {
         routes()
           .from([{ id: "correlation-split-test" }, simple("part1,part2")])
           .split(splitter)
-          .process(
-            processor((exchange) => {
-              capturedCorrelation.push(
-                exchange.headers["routecraft.correlation_id"] as string,
-              );
-              return exchange;
-            }),
-          )
+          .process<string>((exchange) => {
+            capturedCorrelation.push(
+              exchange.headers["routecraft.correlation_id"] as string,
+            );
+            return exchange;
+          })
           .to(new NoopAdapter()),
       )
       .build();
@@ -586,7 +545,7 @@ describe("Route Behavior", () => {
         routes()
           .from([{ id: "aggregate-test" }, simple("a-b-c")])
           .split(split)
-          .process(processor(processorSpy))
+          .process<string>(processorSpy)
           .aggregate(agg)
           .to(noop),
       )
@@ -651,7 +610,6 @@ describe("Route Behavior", () => {
           .from([
             { id: "split-headers-test" },
             {
-              adapterId: "test.headers",
               subscribe: async (_, handler) => {
                 await handler("one-two", { "custom.header": "test-value" });
               },
@@ -664,12 +622,10 @@ describe("Route Behavior", () => {
                 .map((part) => ({ ...exchange, body: part })),
             ),
           )
-          .process(
-            processor((exchange) => {
-              capturedHeaders.push({ ...exchange.headers });
-              return exchange;
-            }),
-          )
+          .process<string>((exchange) => {
+            capturedHeaders.push({ ...exchange.headers });
+            return exchange;
+          })
           .to(new NoopAdapter()),
       )
       .build();
@@ -703,13 +659,11 @@ describe("Route Behavior", () => {
                 .map((part) => ({ ...exchange, body: parseInt(part) })),
             ),
           )
-          .process(
-            processor<number>((exchange) => {
-              // Double each number
-              exchange.body = exchange.body * 2;
-              return exchange;
-            }),
-          )
+          .process<number>((exchange) => {
+            // Double each number
+            exchange.body = exchange.body * 2;
+            return exchange;
+          })
           .aggregate(
             aggregator<string, string>((exchanges) => {
               // Join the processed numbers
@@ -757,14 +711,12 @@ describe("Route Behavior", () => {
                 .map((part) => ({ ...exchange, body: part })),
             ),
           )
-          .process(
-            processor((exchange) => {
-              if (exchange.body === "error") {
-                throw new Error("Simulated processing error");
-              }
-              return exchange;
-            }),
-          )
+          .process<string>((exchange) => {
+            if (exchange.body === "error") {
+              throw new Error("Simulated processing error");
+            }
+            return exchange;
+          })
           .aggregate(
             aggregator<string, string>((exchanges) => {
               const aggregatedBody = exchanges.map((e) => e.body).join(",");
@@ -825,7 +777,7 @@ describe("Route Behavior", () => {
                 .map((part) => ({ ...exchange, body: part })),
             ),
           )
-          .process(processor(processorSpy))
+          .process<string>(processorSpy)
           .split(
             splitter<string, string>((exchange) =>
               // Then split by :
@@ -834,7 +786,7 @@ describe("Route Behavior", () => {
                 .map((part) => ({ ...exchange, body: part })),
             ),
           )
-          .process(processor(processorSpy2))
+          .process<string>(processorSpy2)
           .split(
             splitter<string, string>((exchange) =>
               // Finally split by -
@@ -843,18 +795,16 @@ describe("Route Behavior", () => {
                 .map((part) => ({ ...exchange, body: part })),
             ),
           )
-          .process(processor(processorSpy3))
-          .process(
-            processor<string>((exchange) => {
-              capturedBodies.push(exchange.body);
-              capturedCorrelationIds.add(
-                exchange.headers["routecraft.correlation_id"] as string,
-              );
-              return exchange;
-            }),
-          )
+          .process<string>(processorSpy3)
+          .process<string>((exchange) => {
+            capturedBodies.push(exchange.body);
+            capturedCorrelationIds.add(
+              exchange.headers["routecraft.correlation_id"] as string,
+            );
+            return exchange;
+          })
           .aggregate(agg)
-          .process(processor(processorSpy4))
+          .process<string>(processorSpy4)
           .aggregate(agg2)
           .to(noop),
       )

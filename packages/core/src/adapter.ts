@@ -1,30 +1,47 @@
 import { type CraftContext } from "./context.ts";
 import { type Exchange, type ExchangeHeaders } from "./exchange.ts";
 
-export interface Adapter {
-  readonly adapterId: string;
-}
+// eslint-disable-next-line
+export interface Adapter {}
 
-export interface Aggregator<T = unknown, R = unknown> extends Adapter {
-  aggregate(exchanges: Exchange<T>[]): Promise<Exchange<R>> | Exchange<R>;
-}
+export type CallableSource<T = unknown> = (
+  context: CraftContext,
+  handler: (message: T, headers?: ExchangeHeaders) => Promise<void>,
+  abortController: AbortController,
+) => Promise<void> | void;
 
 export interface Source<T = unknown> extends Adapter {
-  subscribe(
-    context: CraftContext,
-    handler: (message: T, headers?: ExchangeHeaders) => Promise<void>,
-    abortController: AbortController,
-  ): Promise<void> | void;
+  subscribe: CallableSource<T>;
 }
+
+export type CallableProcessor<T = unknown> = (
+  exchange: Exchange<T>,
+) => Promise<Exchange<T>> | Exchange<T>;
 
 export interface Processor<T = unknown> extends Adapter {
-  process(exchange: Exchange<T>): Promise<Exchange<T>> | Exchange<T>;
+  process: CallableProcessor<T>;
 }
+
+export type CallableDestination<T = unknown> = (
+  exchange: Exchange<T>,
+) => Promise<void> | void;
 
 export interface Destination<T = unknown> extends Adapter {
-  send(exchange: Exchange<T>): Promise<void> | void;
+  send: CallableDestination<T>;
 }
 
+export type CallableSplitter<T = unknown, R = unknown> = (
+  exchange: Exchange<T>,
+) => Promise<Exchange<R>[]> | Exchange<R>[];
+
 export interface Splitter<T = unknown, R = unknown> extends Adapter {
-  split(exchange: Exchange<T>): Promise<Exchange<R>[]> | Exchange<R>[];
+  split: CallableSplitter<T, R>;
+}
+
+export type CallableAggregator<T = unknown, R = unknown> = (
+  exchanges: Exchange<T>[],
+) => Promise<Exchange<R>> | Exchange<R>;
+
+export interface Aggregator<T = unknown, R = unknown> extends Adapter {
+  aggregate: CallableAggregator<T, R>;
 }

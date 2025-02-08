@@ -1,7 +1,6 @@
 import { describe, test, expect, afterEach, vi, beforeEach } from "vitest";
 import {
   context,
-  processor,
   routes,
   simple,
   type CraftContext,
@@ -229,11 +228,9 @@ describe("Route Independence", () => {
               throw new Error("Simulated route failure");
             }),
           ])
-          .process(
-            processor(() => {
-              throw new Error("Simulated route failure");
-            }),
-          )
+          .process(() => {
+            throw new Error("Simulated route failure");
+          })
           .from([{ id: "working-route" }, simple("work")])
           .to(noop),
       )

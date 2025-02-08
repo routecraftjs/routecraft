@@ -21,8 +21,6 @@ export enum HeadersKeys {
   ROUTE_ID = "routecraft.route",
   /** The correlation id */
   CORRELATION_ID = "routecraft.correlation_id",
-  /** The adapter name */
-  ADAPTER = "routecraft.adapter",
   /** The hierarchy of split groups this exchange belongs to */
   SPLIT_HIERARCHY = "routecraft.split_hierarchy",
 }
@@ -31,7 +29,6 @@ export interface RouteCraftHeaders {
   [HeadersKeys.OPERATION]: OperationType;
   [HeadersKeys.ROUTE_ID]: string;
   [HeadersKeys.CORRELATION_ID]: string;
-  [HeadersKeys.ADAPTER]: string;
   [HeadersKeys.SPLIT_HIERARCHY]?: string[];
 }
 
