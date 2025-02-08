@@ -5,12 +5,13 @@ import {
   type Splitter,
   type Aggregator,
   type Adapter,
+  type CallableProcessor,
+  type CallableDestination,
 } from "./adapter.ts";
 import { type Exchange, HeadersKeys } from "./exchange.ts";
 
 export interface StepDefinition<T extends Adapter> {
   operation: OperationType;
-  adapterId: string;
   adapter: T;
 
   execute(
@@ -22,12 +23,11 @@ export interface StepDefinition<T extends Adapter> {
 
 export class ProcessStep<T = unknown> implements StepDefinition<Processor<T>> {
   operation: OperationType = OperationType.PROCESS;
-  adapterId: string;
   adapter: Processor<T>;
 
-  constructor(adapterId: string, adapter: Processor<T>) {
-    this.adapterId = adapterId;
-    this.adapter = adapter;
+  constructor(adapter: Processor<T> | CallableProcessor<T>) {
+    this.adapter =
+      typeof adapter === "function" ? { process: adapter } : adapter;
   }
 
   async execute(
@@ -42,12 +42,10 @@ export class ProcessStep<T = unknown> implements StepDefinition<Processor<T>> {
 
 export class ToStep<T = unknown> implements StepDefinition<Destination<T>> {
   operation: OperationType = OperationType.TO;
-  adapterId: string;
   adapter: Destination<T>;
 
-  constructor(adapterId: string, adapter: Destination<T>) {
-    this.adapterId = adapterId;
-    this.adapter = adapter;
+  constructor(adapter: Destination<T> | CallableDestination<T>) {
+    this.adapter = typeof adapter === "function" ? { send: adapter } : adapter;
   }
 
   async execute(
@@ -62,11 +60,9 @@ export class ToStep<T = unknown> implements StepDefinition<Destination<T>> {
 
 export class SplitStep<T = unknown> implements StepDefinition<Splitter<T>> {
   operation: OperationType = OperationType.SPLIT;
-  adapterId: string;
   adapter: Splitter<T>;
 
-  constructor(adapterId: string, adapter: Splitter<T>) {
-    this.adapterId = adapterId;
+  constructor(adapter: Splitter<T>) {
     this.adapter = adapter;
   }
 
@@ -106,11 +102,9 @@ export class AggregateStep<T = unknown>
   implements StepDefinition<Aggregator<T>>
 {
   operation: OperationType = OperationType.AGGREGATE;
-  adapterId: string;
   adapter: Aggregator<T>;
 
-  constructor(adapterId: string, adapter: Aggregator<T>) {
-    this.adapterId = adapterId;
+  constructor(adapter: Aggregator<T>) {
     this.adapter = adapter;
   }
 

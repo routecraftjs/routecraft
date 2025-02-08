@@ -98,7 +98,6 @@ export class DefaultRoute implements Route {
         ...headers,
         [HeadersKeys.ROUTE_ID]: this.definition.id,
         [HeadersKeys.OPERATION]: OperationType.FROM,
-        [HeadersKeys.ADAPTER]: this.definition.source.adapterId,
       },
     });
   }

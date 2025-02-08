@@ -5,6 +5,7 @@ import {
   type ExchangeHeaders,
   type MergedOptions,
   type Source,
+  DefaultExchange,
 } from "@routecraft/core";
 
 declare module "@routecraft/core" {
@@ -138,12 +139,14 @@ export class ChannelAdapter<T = unknown>
     return store.get(this.channel) as MessageChannel;
   }
 
-  async send(exchange: Exchange<T> & { context: CraftContext }): Promise<void> {
-    exchange.logger.debug(
+  async send(exchange: Exchange<T>): Promise<void> {
+    // Cast exchange to require the context
+    const defaultExchange = exchange as DefaultExchange<T>;
+    defaultExchange.logger.debug(
       `Preparing to send message to channel "${this.channel}"`,
     );
-    const channel = this.messageChannel(exchange.context);
-    return await channel.send(this.channel, exchange);
+    const channel = this.messageChannel(defaultExchange.context);
+    return await channel.send(this.channel, defaultExchange);
   }
 
   mergedOptions(context: CraftContext): ChannelAdapterOptions {

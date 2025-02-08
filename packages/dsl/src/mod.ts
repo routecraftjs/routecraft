@@ -1,11 +1,11 @@
 import type {
-  Exchange,
-  Processor,
   Splitter,
-  Destination,
   Source,
   CraftContext,
   ExchangeHeaders,
+  CallableSplitter,
+  CallableAggregator,
+  Aggregator,
 } from "@routecraft/core";
 import { ContextBuilder, RouteBuilder } from "@routecraft/core";
 import {
@@ -17,7 +17,6 @@ import {
   TimerAdapter,
   type TimerOptions,
 } from "@routecraft/adapters";
-import { OperationType } from "@routecraft/core";
 
 export function context(): ContextBuilder {
   return new ContextBuilder();
@@ -64,44 +63,20 @@ export function source<T = unknown>(
   ) => void | Promise<void>,
 ): Source<T> {
   return {
-    adapterId: "routecraft.adapter.anonymous.source",
     subscribe: fn,
   };
 }
 
-export function processor<T = unknown>(
-  fn: (exchange: Exchange<T>) => Promise<Exchange<T>> | Exchange<T>,
-): Processor<T> {
+export function splitter<T, R>(fn: CallableSplitter<T, R>): Splitter<T, R> {
   return {
-    adapterId: "routecraft.adapter.anonymous.processor",
-    process: fn,
-  };
-}
-
-export function splitter<T, R>(
-  fn: (exchange: Exchange<T>) => Promise<Exchange<R>[]> | Exchange<R>[],
-): Splitter {
-  return {
-    adapterId: "routecraft.adapter.anonymous.splitter",
     split: fn,
   };
 }
 
 export function aggregator<T = unknown, R = unknown>(
-  fn: (exchanges: Exchange<T>[]) => Promise<Exchange<R>> | Exchange<R>,
-) {
+  fn: CallableAggregator<T, R>,
+): Aggregator<T, R> {
   return {
-    adapterId: "routecraft.adapter.anonymous.aggregator",
-    operation: OperationType.AGGREGATE,
     aggregate: fn,
-  };
-}
-
-export function destination<T = unknown>(
-  fn: (exchange: Exchange<T>) => Promise<void> | void,
-): Destination<T> {
-  return {
-    adapterId: "routecraft.adapter.anonymous.destination",
-    send: fn,
   };
 }
