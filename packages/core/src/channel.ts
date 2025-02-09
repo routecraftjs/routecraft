@@ -24,7 +24,20 @@ export class InMemoryMessageChannel<T = unknown> implements MessageChannel<T> {
 
   async send(channel: string, message: T): Promise<void> {
     const subscribers = this.subscribers.get(channel) || [];
-    await Promise.all(subscribers.map((subscriber) => subscriber(message)));
+    const errors: Error[] = [];
+
+    await Promise.all(
+      subscribers.map(async (subscriber) => {
+        try {
+          await subscriber(message);
+        } catch (error) {
+          const err = error instanceof Error ? error : new Error(String(error));
+          logger.warn(`Error in channel "${channel}" subscriber:`, err);
+          errors.push(err);
+        }
+      }),
+    );
+
     logger.debug(
       `Message sent to ${subscribers.length} subscribers on channel "${channel}"`,
     );
