@@ -1,9 +1,4 @@
-import {
-  ContextBuilder,
-  RouteBuilder,
-  type ChannelAdapterOptions,
-  type Exchange,
-} from "@routecraft/core";
+import { ContextBuilder, RouteBuilder } from "@routecraft/core";
 import {
   ChannelAdapter,
   LogAdapter,
@@ -11,6 +6,7 @@ import {
   SimpleAdapter,
   TimerAdapter,
   type TimerOptions,
+  type ChannelAdapterOptions,
 } from "@routecraft/adapters";
 
 export function context(): ContextBuilder {
@@ -41,7 +37,7 @@ export function log<T = unknown>(): LogAdapter<T> {
 
 export function channel<T = unknown>(
   channel: string,
-  options?: Partial<ChannelAdapterOptions<Exchange<T>>>,
+  options?: Partial<ChannelAdapterOptions>,
 ): ChannelAdapter<T> {
   return new ChannelAdapter<T>(channel, options);
 }
