@@ -1,6 +1,8 @@
 import { CraftContext } from "./context.ts";
 import { logger } from "./logger.ts";
 
+export type ChannelType<T extends MessageChannel> = new (channel: string) => T;
+
 export interface MessageChannel<T = unknown> {
   /** Send a message to the channel */
   send(channel: string, message: T): Promise<void>;
@@ -46,8 +48,4 @@ export class InMemoryMessageChannel<T = unknown> implements MessageChannel<T> {
     this.subscribers.delete(channel);
     return Promise.resolve();
   }
-}
-
-export interface ChannelAdapterOptions<T = unknown> {
-  channelFactory: (channel: string) => MessageChannel<T>;
 }
