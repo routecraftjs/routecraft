@@ -1,21 +1,26 @@
 import { type CraftContext } from "./context.ts";
-import { type Exchange, HeadersKeys, OperationType } from "./exchange.ts";
+import {
+  type Exchange,
+  HeadersKeys,
+  OperationType,
+  type ExchangeHeaders,
+  DefaultExchange,
+} from "./exchange.ts";
 import { ErrorCode, RouteCraftError } from "./error.ts";
 import { createLogger, type Logger } from "./logger.ts";
 import { type StepDefinition } from "./step.ts";
 import { type Adapter, type Source } from "./adapter.ts";
 import { InMemoryMessageChannel, type MessageChannel } from "./channel.ts";
-import { type Message, type Consumer } from "./consumer.ts";
+import { type Message, type Consumer, type ConsumerType } from "./consumer.ts";
 
 export type RouteDefinition<T = unknown> = {
   readonly id: string;
   readonly source: Source<T>;
   readonly steps: StepDefinition<Adapter>[];
-  readonly consumerFactory: (
-    context: CraftContext,
-    channel: MessageChannel<Message>,
-    definition: RouteDefinition,
-  ) => Consumer;
+  readonly consumer: {
+    type: ConsumerType<Consumer>;
+    options: unknown;
+  };
 };
 
 export interface Route {
@@ -42,10 +47,11 @@ export class DefaultRoute implements Route {
     this.abortController = abortController ?? new AbortController();
     this.logger = createLogger(this);
     this.messageChannel = new InMemoryMessageChannel<Message>();
-    this.consumer = this.definition.consumerFactory(
+    this.consumer = new this.definition.consumer.type(
       this.context,
-      this.messageChannel,
       this.definition,
+      this.messageChannel,
+      this.definition.consumer.options,
     );
   }
 
@@ -53,13 +59,27 @@ export class DefaultRoute implements Route {
     return this.abortController.signal;
   }
 
+  private buildExchange(message: unknown, headers?: ExchangeHeaders): Exchange {
+    return new DefaultExchange(this.context, {
+      body: message,
+      headers: {
+        ...headers,
+        [HeadersKeys.CORRELATION_ID]: crypto.randomUUID(),
+        [HeadersKeys.ROUTE_ID]: this.definition.id,
+        [HeadersKeys.OPERATION]: OperationType.FROM,
+      },
+    });
+  }
+
   async start(): Promise<void> {
     this.assertNotAborted();
     this.logger.info(`Starting route "${this.definition.id}"`);
 
     // Start consuming messages from the message channel
-    this.consumer.register((exchange) => {
-      return Promise.resolve(this.handler(exchange));
+    this.consumer.register((message, headers) => {
+      return Promise.resolve(
+        this.handler(this.buildExchange(message, headers)),
+      );
     });
 
     // Subscribe to the source and send messages to the message channel

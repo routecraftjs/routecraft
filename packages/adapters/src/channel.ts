@@ -8,7 +8,7 @@ import {
   DefaultExchange,
   InMemoryMessageChannel,
   type MessageChannel,
-  type ChannelAdapterOptions,
+  type ChannelType,
 } from "@routecraft/core";
 
 declare module "@routecraft/core" {
@@ -17,17 +17,16 @@ declare module "@routecraft/core" {
       string,
       MessageChannel<Exchange>
     >;
-    [ChannelAdapter.ADAPTER_CHANNEL_OPTIONS]: Partial<
-      ChannelAdapterOptions<Exchange>
-    >;
+    [ChannelAdapter.ADAPTER_CHANNEL_OPTIONS]: Partial<ChannelAdapterOptions>;
   }
 }
 
+export interface ChannelAdapterOptions {
+  channelType?: ChannelType<MessageChannel>;
+}
+
 export class ChannelAdapter<T = unknown>
-  implements
-    Source<T>,
-    Destination<T>,
-    MergedOptions<ChannelAdapterOptions<Exchange<T>>>
+  implements Source<T>, Destination<T>, MergedOptions<ChannelAdapterOptions>
 {
   readonly adapterId = "routecraft.adapter.channel";
   static readonly ADAPTER_CHANNEL_STORE =
@@ -39,7 +38,7 @@ export class ChannelAdapter<T = unknown>
 
   constructor(
     _channel: string,
-    public options: Partial<ChannelAdapterOptions<Exchange<T>>> = {},
+    public options: Partial<ChannelAdapterOptions> = {},
   ) {
     this._channel = _channel;
   }
@@ -95,7 +94,11 @@ export class ChannelAdapter<T = unknown>
     // If the channel is not in the store, create a new one
     if (!store.has(this.channel)) {
       const mergedOptions = this.mergedOptions(context);
-      store.set(this.channel, mergedOptions.channelFactory(this.channel));
+      const MyChannelType = mergedOptions.channelType ?? InMemoryMessageChannel;
+      store.set(
+        this.channel,
+        new MyChannelType(this._channel) as MessageChannel<Exchange<T>>,
+      );
     }
 
     return store.get(this.channel) as MessageChannel<Exchange<T>>;
@@ -111,16 +114,11 @@ export class ChannelAdapter<T = unknown>
     return await channel.send(this.channel, defaultExchange);
   }
 
-  mergedOptions(context: CraftContext): ChannelAdapterOptions<Exchange<T>> {
+  mergedOptions(context: CraftContext): ChannelAdapterOptions {
     const store = context.getStore(ChannelAdapter.ADAPTER_CHANNEL_OPTIONS) as
-      | Partial<ChannelAdapterOptions<Exchange<T>>>
+      | Partial<ChannelAdapterOptions>
       | undefined;
     return {
-      channelFactory: (): MessageChannel<Exchange<T>> => {
-        return new InMemoryMessageChannel<Exchange<T>>() as MessageChannel<
-          Exchange<T>
-        >;
-      },
       ...store,
       ...this.options,
     };

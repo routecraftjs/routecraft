@@ -22,7 +22,11 @@ import {
   AggregateStep,
   type StepDefinition,
 } from "./step.ts";
-import { SimpleConsumer } from "./consumer.ts";
+import {
+  SimpleConsumer,
+  type Consumer,
+  type ConsumerType,
+} from "./consumer.ts";
 
 export class ContextBuilder {
   protected onStartupHandler?: () => Promise<void> | void;
@@ -82,7 +86,7 @@ export class ContextBuilder {
   }
 }
 
-export type RouteOptions = Pick<RouteDefinition, "id" | "consumerFactory">;
+export type RouteOptions = Pick<RouteDefinition, "id" | "consumer">;
 
 export class RouteBuilder {
   protected currentRoute?: RouteDefinition;
@@ -108,10 +112,12 @@ export class RouteBuilder {
       id: options.id,
       source: typeof source === "function" ? { subscribe: source } : source,
       steps: [],
-      consumerFactory:
-        options.consumerFactory ||
-        ((context, channel, definition) =>
-          new SimpleConsumer(context, definition, channel)),
+      consumer: {
+        type:
+          options.consumer?.type ||
+          (SimpleConsumer as unknown as ConsumerType<Consumer>),
+        options: options.consumer?.options,
+      },
     };
 
     this.routes.push(this.currentRoute);
