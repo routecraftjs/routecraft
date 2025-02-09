@@ -7,6 +7,8 @@ import {
   type Adapter,
   type CallableProcessor,
   type CallableDestination,
+  type CallableSplitter,
+  type CallableAggregator,
 } from "./adapter.ts";
 import { type Exchange, HeadersKeys } from "./exchange.ts";
 
@@ -58,18 +60,20 @@ export class ToStep<T = unknown> implements StepDefinition<Destination<T>> {
   }
 }
 
-export class SplitStep<T = unknown> implements StepDefinition<Splitter<T>> {
+export class SplitStep<T = unknown, R = unknown>
+  implements StepDefinition<Splitter<T, R>>
+{
   operation: OperationType = OperationType.SPLIT;
-  adapter: Splitter<T>;
+  adapter: Splitter<T, R>;
 
-  constructor(adapter: Splitter<T>) {
-    this.adapter = adapter;
+  constructor(adapter: Splitter<T, R> | CallableSplitter<T, R>) {
+    this.adapter = typeof adapter === "function" ? { split: adapter } : adapter;
   }
 
   async execute(
     exchange: Exchange<T>,
     remainingSteps: StepDefinition<Adapter>[],
-    queue: { exchange: Exchange<T>; steps: StepDefinition<Adapter>[] }[],
+    queue: { exchange: Exchange<R>; steps: StepDefinition<Adapter>[] }[],
   ): Promise<void> {
     const splits = await Promise.resolve(this.adapter.split(exchange));
     const groupId = crypto.randomUUID();
@@ -91,27 +95,28 @@ export class SplitStep<T = unknown> implements StepDefinition<Splitter<T>> {
         `Pushing split exchange ${postProcessedExchange.id} to queue, splitHierarchy: ${postProcessedExchange.headers[HeadersKeys.SPLIT_HIERARCHY]}`,
       );
       queue.push({
-        exchange: postProcessedExchange as Exchange<T>,
+        exchange: postProcessedExchange,
         steps: remainingSteps,
       });
     });
   }
 }
 
-export class AggregateStep<T = unknown>
-  implements StepDefinition<Aggregator<T>>
+export class AggregateStep<T = unknown, R = unknown>
+  implements StepDefinition<Aggregator<T, R>>
 {
   operation: OperationType = OperationType.AGGREGATE;
-  adapter: Aggregator<T>;
+  adapter: Aggregator<T, R>;
 
-  constructor(adapter: Aggregator<T>) {
-    this.adapter = adapter;
+  constructor(adapter: Aggregator<T, R> | CallableAggregator<T, R>) {
+    this.adapter =
+      typeof adapter === "function" ? { aggregate: adapter } : adapter;
   }
 
   async execute(
     exchange: Exchange<T>,
     remainingSteps: StepDefinition<Adapter>[],
-    queue: { exchange: Exchange<T>; steps: StepDefinition<Adapter>[] }[],
+    queue: { exchange: Exchange<R>; steps: StepDefinition<Adapter>[] }[],
   ): Promise<void> {
     const splitHierarchy = exchange.headers[
       HeadersKeys.SPLIT_HIERARCHY
@@ -123,7 +128,7 @@ export class AggregateStep<T = unknown>
         this.adapter.aggregate([exchange]),
       );
       queue.push({
-        exchange: aggregatedExchange as Exchange<T>,
+        exchange: aggregatedExchange,
         steps: remainingSteps,
       });
       return;
@@ -159,7 +164,7 @@ export class AggregateStep<T = unknown>
     }
 
     queue.push({
-      exchange: aggregatedExchange as Exchange<T>,
+      exchange: aggregatedExchange,
       steps: remainingSteps,
     });
   }

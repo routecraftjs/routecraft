@@ -1,12 +1,3 @@
-import type {
-  Splitter,
-  Source,
-  CraftContext,
-  ExchangeHeaders,
-  CallableSplitter,
-  CallableAggregator,
-  Aggregator,
-} from "@routecraft/core";
 import { ContextBuilder, RouteBuilder } from "@routecraft/core";
 import {
   ChannelAdapter,
@@ -53,30 +44,4 @@ export function channel<T = unknown>(
 
 export function timer(options?: TimerOptions): TimerAdapter {
   return new TimerAdapter(options);
-}
-
-export function source<T = unknown>(
-  fn: (
-    context: CraftContext,
-    handler: (message: T, headers?: ExchangeHeaders) => Promise<void>,
-    abortController: AbortController,
-  ) => void | Promise<void>,
-): Source<T> {
-  return {
-    subscribe: fn,
-  };
-}
-
-export function splitter<T, R>(fn: CallableSplitter<T, R>): Splitter<T, R> {
-  return {
-    split: fn,
-  };
-}
-
-export function aggregator<T = unknown, R = unknown>(
-  fn: CallableAggregator<T, R>,
-): Aggregator<T, R> {
-  return {
-    aggregate: fn,
-  };
 }

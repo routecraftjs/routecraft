@@ -5,7 +5,6 @@ import {
   simple,
   type CraftContext,
   NoopAdapter,
-  source,
 } from "routecraft";
 
 describe("CraftContext", () => {
@@ -224,9 +223,9 @@ describe("Route Independence", () => {
           ])
           .from([
             { id: "failing-route2" },
-            source(() => {
+            () => {
               throw new Error("Simulated route failure");
-            }),
+            },
           ])
           .process(() => {
             throw new Error("Simulated route failure");
