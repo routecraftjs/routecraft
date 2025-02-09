@@ -106,16 +106,6 @@ export class BatchConsumer implements Consumer<BatchOptions> {
   }
 }
 
-export interface Consumer<O = unknown> {
-  context: CraftContext;
-  channel: MessageChannel<Message>;
-  definition: RouteDefinition;
-  options: O;
-  register(
-    handler: (message: unknown, headers?: ExchangeHeaders) => Promise<void>,
-  ): void;
-}
-
 export class SimpleConsumer implements Consumer<never> {
   constructor(
     public readonly context: CraftContext,
