@@ -13,7 +13,6 @@ import {
   type CallableAggregator,
   type CallableSource,
 } from "./adapter.ts";
-import { OperationType } from "./exchange.ts";
 import { ErrorCode, RouteCraftError } from "./error.ts";
 import { logger } from "./logger.ts";
 import {
@@ -23,6 +22,7 @@ import {
   AggregateStep,
   type StepDefinition,
 } from "./step.ts";
+import { SimpleConsumer } from "./consumer.ts";
 
 export class ContextBuilder {
   protected onStartupHandler?: () => Promise<void> | void;
@@ -82,6 +82,8 @@ export class ContextBuilder {
   }
 }
 
+export type RouteOptions = Pick<RouteDefinition, "id" | "consumerFactory">;
+
 export class RouteBuilder {
   protected currentRoute?: RouteDefinition;
   protected routes: RouteDefinition[] = [];
@@ -91,7 +93,7 @@ export class RouteBuilder {
   from<T>(
     optionsOrMain:
       | (Source<T> | CallableSource<T>)
-      | [Pick<RouteDefinition, "id">, Source<T> | CallableSource<T>],
+      | [RouteOptions, Source<T> | CallableSource<T>],
   ): this {
     const { options, main: source } = Array.isArray(optionsOrMain)
       ? { options: optionsOrMain[0], main: optionsOrMain[1] }
@@ -102,20 +104,14 @@ export class RouteBuilder {
 
     logger.info(`Creating route definition with id "${options.id}"`);
 
-    const subscribe =
-      typeof source === "function"
-        ? (source as CallableSource<T>)
-        : typeof source === "object" && source?.subscribe
-          ? (source.subscribe.bind(source) as unknown as CallableSource<T>)
-          : (source as unknown as CallableSource<T>);
-
     this.currentRoute = {
       id: options.id,
-      source: {
-        operation: OperationType.FROM,
-        subscribe,
-      },
+      source: typeof source === "function" ? { subscribe: source } : source,
       steps: [],
+      consumerFactory:
+        options.consumerFactory ||
+        ((context, channel, definition) =>
+          new SimpleConsumer(context, definition, channel)),
     };
 
     this.routes.push(this.currentRoute);

@@ -7,7 +7,7 @@ export type { Logger };
 const isDev = process.env["NODE_ENV"] !== "production";
 
 const base = pino({
-  level: process.env["LOG_LEVEL"] || "info", // Support dynamic log levels
+  level: process.env["LOG_LEVEL"] || "warn", // Support dynamic log levels
   formatters: {
     level: (label) => ({ level: label.toUpperCase() }), // Ensure consistent casing
   },
