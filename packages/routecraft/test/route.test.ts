@@ -48,10 +48,7 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         routes()
-          .from(
-            { id: "test-pipeline" },
-            simple(() => "test-message"),
-          )
+          .from([{ id: "test-pipeline" }, simple("test-message")])
           .process(processor(processorSpy))
           .to(noop),
       )
@@ -81,10 +78,7 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         routes()
-          .from(
-            { id: "test-route" },
-            simple(() => "test-message"),
-          )
+          .from([{ id: "test-route" }, simple("test-message")])
           .to(noop)
           .to(noop2)
           .process(processor(processorSpy)),
@@ -110,7 +104,7 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         routes()
-          .from(
+          .from([
             { id: "continuous-route" },
             {
               adapterId: "test.continuous",
@@ -125,7 +119,7 @@ describe("Route Behavior", () => {
                 }
               },
             },
-          )
+          ])
           .process(processor(processorSpy))
           .to(new NoopAdapter()),
       )
@@ -157,10 +151,7 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         routes()
-          .from(
-            { id: "error-route" },
-            simple(() => "test"),
-          )
+          .from([{ id: "error-route" }, simple("test")])
           .process(
             processor(() => {
               throw new Error("Processor error");
@@ -191,10 +182,7 @@ describe("Route Behavior", () => {
     const testContext = context()
       .routes(
         routes()
-          .from(
-            { id: "correlation-test" },
-            simple(() => "test"),
-          )
+          .from([{ id: "correlation-test" }, simple("test")])
           .process(
             processor((exchange) => {
               capturedCorrelationIds.push(
@@ -238,7 +226,7 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         routes()
-          .from(
+          .from([
             { id: "fail-continue-route" },
             {
               adapterId: "test.sequence",
@@ -248,7 +236,7 @@ describe("Route Behavior", () => {
                 }
               },
             },
-          )
+          ])
           .process(
             processor((exchange) => {
               if (exchange.body === "fail") {
@@ -287,7 +275,7 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         routes()
-          .from(
+          .from([
             { id: "headers-test" },
             {
               adapterId: "test.headers",
@@ -295,7 +283,7 @@ describe("Route Behavior", () => {
                 await handler("test", { "custom.header": "test-value" });
               },
             },
-          )
+          ])
           .process(
             processor((exchange) => {
               capturedHeaders.push({ ...exchange.headers });
@@ -329,10 +317,7 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         routes()
-          .from(
-            { id: "async-test" },
-            simple(() => "test"),
-          )
+          .from([{ id: "async-test" }, simple("test")])
           .process(
             processor(async (exchange) => {
               await new Promise((resolve) => setTimeout(resolve, 10));
@@ -367,10 +352,7 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         routes()
-          .from(
-            { id: "transform-test" },
-            simple(() => ({ value: 1 })),
-          )
+          .from([{ id: "transform-test" }, simple(() => ({ value: 1 }))])
           .process(
             processor((exchange) => {
               transformedBodies.push(exchange.body);
@@ -418,10 +400,7 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         routes()
-          .from(
-            { id: "processor-returns" },
-            simple(() => ({ num: 1 })),
-          )
+          .from([{ id: "processor-returns" }, simple(() => ({ num: 1 }))])
           .process(
             processor((exchange) => {
               exchange.body = (exchange.body as { num: number }).num.toString();
@@ -471,10 +450,7 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         routes()
-          .from(
-            { id: "split-test" },
-            simple(() => "hello-world"),
-          )
+          .from([{ id: "split-test" }, simple("hello-world")])
           .split(splitter)
           .process(
             processor((exchange: Exchange<string>) => {
@@ -528,10 +504,7 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         routes()
-          .from(
-            { id: "empty-split-test" },
-            simple(() => "unused-message"),
-          )
+          .from([{ id: "empty-split-test" }, simple("unused-message")])
           .split(splitter)
           .to({
             adapterId: "capture",
@@ -567,10 +540,7 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         routes()
-          .from(
-            { id: "correlation-split-test" },
-            simple(() => "part1,part2"),
-          )
+          .from([{ id: "correlation-split-test" }, simple("part1,part2")])
           .split(splitter)
           .process(
             processor((exchange) => {
@@ -614,10 +584,7 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         routes()
-          .from(
-            { id: "aggregate-test" },
-            simple(() => "a-b-c"),
-          )
+          .from([{ id: "aggregate-test" }, simple("a-b-c")])
           .split(split)
           .process(processor(processorSpy))
           .aggregate(agg)
@@ -648,10 +615,7 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         routes()
-          .from(
-            { id: "aggregate-direct-test" },
-            simple(() => "original"),
-          )
+          .from([{ id: "aggregate-direct-test" }, simple("original")])
           .to(log())
           .aggregate(
             aggregator<string, string>((exchanges) => {
@@ -684,7 +648,7 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         routes()
-          .from(
+          .from([
             { id: "split-headers-test" },
             {
               adapterId: "test.headers",
@@ -692,7 +656,7 @@ describe("Route Behavior", () => {
                 await handler("one-two", { "custom.header": "test-value" });
               },
             },
-          )
+          ])
           .split(
             splitter<string, string>((exchange) =>
               exchange.body
@@ -731,10 +695,7 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         routes()
-          .from(
-            { id: "split-process-aggregate" },
-            simple(() => "1-2-3"),
-          )
+          .from([{ id: "split-process-aggregate" }, simple("1-2-3")])
           .split(
             splitter<string, number>((exchange) =>
               exchange.body
@@ -785,10 +746,10 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         routes()
-          .from(
+          .from([
             { id: "split-error-aggregate" },
-            simple(() => "success1-error-success2"),
-          )
+            simple("success1-error-success2"),
+          ])
           .split(
             splitter<string, string>((exchange) =>
               exchange.body
@@ -855,10 +816,7 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         routes()
-          .from(
-            { id: "nested-split-test" },
-            simple(() => "A:1-2|B:3-4"),
-          )
+          .from([{ id: "nested-split-test" }, simple("A:1-2|B:3-4")])
           .split(
             splitter<string, string>((exchange) =>
               // First split by |

@@ -71,13 +71,13 @@ export interface TimerOptions {
   jitterMs?: number;
 }
 
-export class TimerAdapter implements Source {
+export class TimerAdapter implements Source<undefined> {
   readonly adapterId = "routecraft.adapter.timer";
   constructor(private options?: TimerOptions) {}
 
   subscribe(
     _context: CraftContext,
-    handler: (message: unknown, headers?: ExchangeHeaders) => Promise<void>,
+    handler: (message: undefined, headers?: ExchangeHeaders) => Promise<void>,
     abortController: AbortController,
   ): Promise<void> {
     const {
@@ -173,7 +173,7 @@ export class TimerAdapter implements Source {
           };
 
           // Trigger the handler for this timer tick.
-          await handler(null, headers);
+          await handler(undefined, headers);
         }
         resolve();
       };

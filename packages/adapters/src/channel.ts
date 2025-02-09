@@ -69,8 +69,8 @@ export interface ChannelAdapterOptions {
   channelFactory: (channel: string) => MessageChannel;
 }
 
-export class ChannelAdapter
-  implements Source, Destination, MergedOptions<ChannelAdapterOptions>
+export class ChannelAdapter<T = unknown>
+  implements Source<T>, Destination<T>, MergedOptions<ChannelAdapterOptions>
 {
   readonly adapterId = "routecraft.adapter.channel";
   static readonly ADAPTER_CHANNEL_STORE =
@@ -93,7 +93,7 @@ export class ChannelAdapter
 
   subscribe(
     context: CraftContext,
-    handler: (message: unknown, headers?: ExchangeHeaders) => Promise<void>,
+    handler: (message: T, headers?: ExchangeHeaders) => Promise<void>,
     abortController: AbortController,
   ): Promise<void> {
     context.logger.info(
@@ -110,7 +110,7 @@ export class ChannelAdapter
     // Return a promise that won't resolve until the subscription is cancelled
     return new Promise<void>((resolve) => {
       channel.subscribe(context, this.channel, async (exchange: Exchange) => {
-        await handler(exchange.body, exchange.headers);
+        await handler(exchange.body as T, exchange.headers);
       });
 
       abortController.signal.addEventListener("abort", async () => {
@@ -138,7 +138,7 @@ export class ChannelAdapter
     return store.get(this.channel) as MessageChannel;
   }
 
-  async send(exchange: Exchange & { context: CraftContext }): Promise<void> {
+  async send(exchange: Exchange<T> & { context: CraftContext }): Promise<void> {
     exchange.logger.debug(
       `Preparing to send message to channel "${this.channel}"`,
     );
