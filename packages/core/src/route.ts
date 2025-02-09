@@ -1,20 +1,21 @@
 import { type CraftContext } from "./context.ts";
-import {
-  DefaultExchange,
-  type Exchange,
-  type ExchangeHeaders,
-  HeadersKeys,
-  OperationType,
-} from "./exchange.ts";
+import { type Exchange, HeadersKeys, OperationType } from "./exchange.ts";
 import { ErrorCode, RouteCraftError } from "./error.ts";
 import { createLogger, type Logger } from "./logger.ts";
 import { type StepDefinition } from "./step.ts";
 import { type Adapter, type Source } from "./adapter.ts";
+import { InMemoryMessageChannel, type MessageChannel } from "./channel.ts";
+import { type Message, type Consumer } from "./consumer.ts";
 
-export type RouteDefinition = {
+export type RouteDefinition<T = unknown> = {
   readonly id: string;
-  readonly source: Source & { operation: OperationType };
+  readonly source: Source<T>;
   readonly steps: StepDefinition<Adapter>[];
+  readonly consumerFactory: (
+    context: CraftContext,
+    channel: MessageChannel<Message>,
+    definition: RouteDefinition,
+  ) => Consumer;
 };
 
 export interface Route {
@@ -29,6 +30,8 @@ export interface Route {
 export class DefaultRoute implements Route {
   private abortController: AbortController;
   public readonly logger: Logger;
+  private messageChannel: MessageChannel<Message>;
+  private consumer: Consumer;
 
   constructor(
     public readonly context: CraftContext,
@@ -38,6 +41,12 @@ export class DefaultRoute implements Route {
     this.assertNotAborted();
     this.abortController = abortController ?? new AbortController();
     this.logger = createLogger(this);
+    this.messageChannel = new InMemoryMessageChannel<Message>();
+    this.consumer = this.definition.consumerFactory(
+      this.context,
+      this.messageChannel,
+      this.definition,
+    );
   }
 
   get signal(): AbortSignal {
@@ -48,72 +57,38 @@ export class DefaultRoute implements Route {
     this.assertNotAborted();
     this.logger.info(`Starting route "${this.definition.id}"`);
 
-    const handlerWrapper = async (
-      message: unknown,
-      headers?: ExchangeHeaders,
-    ) => {
-      // Wrap the handler in a try/catch to catch individual message errors and log them as a RouteCraftError
-      await this.handler(message, headers).catch((error) => {
-        this.logger.warn(
-          RouteCraftError.create(error, {
-            code: ErrorCode.UNKNOWN_ERROR,
-            message: `Error processing message for route "${this.definition.id}"`,
-            cause: error,
-          }),
-          `Failed to process message on route "${this.definition.id}"`,
-        );
-      });
-    };
-
-    return await Promise.resolve(
-      this.definition.source.subscribe(
-        this.context,
-        handlerWrapper,
-        this.abortController,
-      ),
-    ).finally(() => {
-      this.logger.info(`Route "${this.definition.id}" started successfully`);
-      // If the route ends on its own, probably the source finished processing, trigger the abort
-      this.abortController.abort("Route ended on its own");
+    // Start consuming messages from the message channel
+    this.consumer.register((exchange) => {
+      return Promise.resolve(this.handler(exchange));
     });
+
+    // Subscribe to the source and send messages to the message channel
+    return this.definition.source.subscribe(
+      this.context,
+      (message, headers) => {
+        return this.messageChannel.send("internal", {
+          message,
+          headers: headers ?? {},
+        });
+      },
+      this.abortController,
+    );
   }
 
   stop(): void {
     this.logger.info(`Stopping route "${this.definition.id}"`);
+    this.messageChannel.unsubscribe(this.context, "internal");
     this.abortController.abort("Route stop() called");
   }
 
-  private buildExchange(message: unknown, headers?: ExchangeHeaders): Exchange {
-    const partialExchange: Partial<Exchange> = {
-      headers: {
-        [HeadersKeys.CORRELATION_ID]: crypto.randomUUID(),
-      },
-    };
-
-    return new DefaultExchange(this.context, {
-      ...partialExchange,
-      body: message,
-      headers: {
-        ...partialExchange.headers,
-        ...headers,
-        [HeadersKeys.ROUTE_ID]: this.definition.id,
-        [HeadersKeys.OPERATION]: OperationType.FROM,
-      },
-    });
-  }
-
-  private async handler(
-    message: unknown,
-    headers?: ExchangeHeaders,
-  ): Promise<void> {
-    const initialExchange = this.buildExchange(message, headers);
-    initialExchange.logger.debug(
-      `Processing initial exchange ${initialExchange.id} on route "${this.definition.id}"`,
+  private async handler(exchange: Exchange): Promise<void> {
+    exchange.logger.debug(
+      `Processing initial exchange ${exchange.id} on route "${this.definition.id}"`,
     );
 
     // Use a queue to process the steps in FIFO order.
     const queue: { exchange: Exchange; steps: StepDefinition<Adapter>[] }[] = [
-      { exchange: initialExchange, steps: [...this.definition.steps] },
+      { exchange: exchange, steps: [...this.definition.steps] },
     ];
 
     while (queue.length > 0) {

@@ -6,72 +6,28 @@ import {
   type MergedOptions,
   type Source,
   DefaultExchange,
+  InMemoryMessageChannel,
+  type MessageChannel,
+  type ChannelAdapterOptions,
 } from "@routecraft/core";
 
 declare module "@routecraft/core" {
   interface StoreRegistry {
-    [ChannelAdapter.ADAPTER_CHANNEL_STORE]: Map<string, MessageChannel>;
-    [ChannelAdapter.ADAPTER_CHANNEL_OPTIONS]: Partial<ChannelAdapterOptions>;
+    [ChannelAdapter.ADAPTER_CHANNEL_STORE]: Map<
+      string,
+      MessageChannel<Exchange>
+    >;
+    [ChannelAdapter.ADAPTER_CHANNEL_OPTIONS]: Partial<
+      ChannelAdapterOptions<Exchange>
+    >;
   }
-}
-
-export interface MessageChannel {
-  /** Send a message to the channel */
-  send(channel: string, exchange: Exchange): Promise<void>;
-
-  /** Subscribe to a channel */
-  subscribe(
-    context: CraftContext,
-    channel: string,
-    handler: (exchange: Exchange) => Promise<void>,
-  ): Promise<void>;
-
-  /** Unsubscribe from a channel */
-  unsubscribe(context: CraftContext, channel: string): Promise<void>;
-}
-
-export class InMemoryMessageChannel implements MessageChannel {
-  private subscribers: Map<string, ((message: Exchange) => Promise<void>)[]> =
-    new Map();
-
-  async send(channel: string, exchange: Exchange): Promise<void> {
-    exchange.logger.debug(`Sending message to channel "${channel}"`, {
-      exchangeId: exchange.id,
-    });
-    const subscribers = this.subscribers.get(channel) || [];
-    await Promise.all(subscribers.map((subscriber) => subscriber(exchange)));
-    exchange.logger.debug(
-      `Message sent to ${subscribers.length} subscribers on channel "${channel}"`,
-      { exchangeId: exchange.id },
-    );
-  }
-
-  subscribe(
-    context: CraftContext,
-    channel: string,
-    handler: (exchange: Exchange) => Promise<void>,
-  ): Promise<void> {
-    context.logger.info(`New subscription to channel "${channel}"`);
-    if (!this.subscribers.has(channel)) {
-      this.subscribers.set(channel, []);
-    }
-    this.subscribers.get(channel)?.push(handler);
-    return Promise.resolve();
-  }
-
-  unsubscribe(context: CraftContext, channel: string): Promise<void> {
-    context.logger.info(`Unsubscribing from channel "${channel}"`);
-    this.subscribers.delete(channel);
-    return Promise.resolve();
-  }
-}
-
-export interface ChannelAdapterOptions {
-  channelFactory: (channel: string) => MessageChannel;
 }
 
 export class ChannelAdapter<T = unknown>
-  implements Source<T>, Destination<T>, MergedOptions<ChannelAdapterOptions>
+  implements
+    Source<T>,
+    Destination<T>,
+    MergedOptions<ChannelAdapterOptions<Exchange<T>>>
 {
   readonly adapterId = "routecraft.adapter.channel";
   static readonly ADAPTER_CHANNEL_STORE =
@@ -83,7 +39,7 @@ export class ChannelAdapter<T = unknown>
 
   constructor(
     _channel: string,
-    public options: Partial<ChannelAdapterOptions> = {},
+    public options: Partial<ChannelAdapterOptions<Exchange<T>>> = {},
   ) {
     this._channel = _channel;
   }
@@ -110,9 +66,13 @@ export class ChannelAdapter<T = unknown>
 
     // Return a promise that won't resolve until the subscription is cancelled
     return new Promise<void>((resolve) => {
-      channel.subscribe(context, this.channel, async (exchange: Exchange) => {
-        await handler(exchange.body as T, exchange.headers);
-      });
+      channel.subscribe(
+        context,
+        this.channel,
+        async (exchange: Exchange<T>) => {
+          await handler(exchange.body as T, exchange.headers);
+        },
+      );
 
       abortController.signal.addEventListener("abort", async () => {
         await channel.unsubscribe(context, this.channel);
@@ -121,12 +81,14 @@ export class ChannelAdapter<T = unknown>
     });
   }
 
-  private messageChannel(context: CraftContext): MessageChannel {
-    let store = context.getStore(ChannelAdapter.ADAPTER_CHANNEL_STORE);
+  private messageChannel(context: CraftContext): MessageChannel<Exchange<T>> {
+    let store = context.getStore(ChannelAdapter.ADAPTER_CHANNEL_STORE) as
+      | Map<string, MessageChannel<Exchange<T>>>
+      | undefined;
 
     // If the store is not set, create a new one
     if (!store) {
-      store = new Map<string, MessageChannel>();
+      store = new Map<string, MessageChannel<Exchange<T>>>();
       context.setStore(ChannelAdapter.ADAPTER_CHANNEL_STORE, store);
     }
 
@@ -136,7 +98,7 @@ export class ChannelAdapter<T = unknown>
       store.set(this.channel, mergedOptions.channelFactory(this.channel));
     }
 
-    return store.get(this.channel) as MessageChannel;
+    return store.get(this.channel) as MessageChannel<Exchange<T>>;
   }
 
   async send(exchange: Exchange<T>): Promise<void> {
@@ -149,11 +111,15 @@ export class ChannelAdapter<T = unknown>
     return await channel.send(this.channel, defaultExchange);
   }
 
-  mergedOptions(context: CraftContext): ChannelAdapterOptions {
-    const store = context.getStore(ChannelAdapter.ADAPTER_CHANNEL_OPTIONS);
+  mergedOptions(context: CraftContext): ChannelAdapterOptions<Exchange<T>> {
+    const store = context.getStore(ChannelAdapter.ADAPTER_CHANNEL_OPTIONS) as
+      | Partial<ChannelAdapterOptions<Exchange<T>>>
+      | undefined;
     return {
-      channelFactory: () => {
-        return new InMemoryMessageChannel();
+      channelFactory: (): MessageChannel<Exchange<T>> => {
+        return new InMemoryMessageChannel<Exchange<T>>() as MessageChannel<
+          Exchange<T>
+        >;
       },
       ...store,
       ...this.options,

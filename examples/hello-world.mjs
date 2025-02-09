@@ -5,7 +5,7 @@ export default routes()
   .to(log())
   .process((exchange) => {
     const { id, body, headers } = exchange;
-    logger.log("Processing exchange", { id, body, headers });
+    logger.info("Processing exchange", { id, body, headers });
     return {
       ...exchange,
       body: exchange.body?.toUpperCase(),

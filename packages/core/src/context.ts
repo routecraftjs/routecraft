@@ -83,6 +83,13 @@ export class CraftContext {
 
     // 5) Register each definition now that there's no duplication
     for (const definition of definitions) {
+      if (!definition.source || !definition.source.subscribe) {
+        throw new RouteCraftError({
+          code: ErrorCode.INVALID_ROUTE_DEFINITION,
+          message: `Route "${definition.id}" has no source`,
+        });
+      }
+
       const controller = new AbortController();
       this.controllers.set(definition.id, controller);
       this.routes.push(new DefaultRoute(this, definition, controller));

@@ -29,8 +29,14 @@ export {
 
 export { type StepDefinition } from "./step.ts";
 
-export { ContextBuilder, RouteBuilder } from "./builder.ts";
+export { ContextBuilder, RouteBuilder, type RouteOptions } from "./builder.ts";
 
 export { ErrorCode, RouteCraftError } from "./error.ts";
 
 export { logger, createLogger, type Logger } from "./logger.ts";
+
+export {
+  InMemoryMessageChannel,
+  type MessageChannel,
+  type ChannelAdapterOptions,
+} from "./channel.ts";
