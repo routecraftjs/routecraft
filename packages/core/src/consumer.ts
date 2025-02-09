@@ -80,8 +80,15 @@ export class BatchConsumer implements Consumer<BatchOptions> {
 
     const flushBatch = async () => {
       if (batch.length > 0) {
-        const merged = this.options.merge!(batch);
-        await handler(merged.message, merged.headers);
+        try {
+          const merged = this.options.merge!(batch);
+          await handler(merged.message, merged.headers);
+        } catch (error) {
+          this.context.logger.warn(
+            `Error in batch consumer for route "${this.definition.id}":`,
+            error,
+          );
+        }
         batch = [];
       }
       if (timer) {
@@ -94,6 +101,9 @@ export class BatchConsumer implements Consumer<BatchOptions> {
       batch.push(message);
 
       if (batch.length === 1) {
+        if (timer) {
+          clearTimeout(timer);
+        }
         timer = setTimeout(async () => {
           await flushBatch();
         }, this.options.time!);
