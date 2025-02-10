@@ -16,6 +16,8 @@ export enum OperationType {
   TRANSFORM = "transform",
   /** Tap an exchange without modifying it */
   TAP = "tap",
+  /** Filter an exchange based on a condition and reject the message if the condition is not met */
+  FILTER = "filter",
 }
 
 export enum HeadersKeys {
