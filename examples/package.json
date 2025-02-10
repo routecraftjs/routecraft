@@ -1,6 +1,6 @@
 {
   "name": "examples",
-  "version": "workspace",
+  "version": "workspace:*",
   "private": true,
   "type": "module",
   "devDependencies": {

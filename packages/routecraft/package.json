@@ -1,6 +1,6 @@
 {
   "name": "routecraft",
-  "version": "0.1.0",
+  "version": "workspace:*",
   "type": "module",
   "main": "./dist/mod.js",
   "types": "./dist/mod.d.ts",
@@ -28,6 +28,7 @@
     "registry": "https://npm.pkg.github.com/"
   },
   "devDependencies": {
-    "arktype": "^2.0.4"
+    "arktype": "^2.0.4",
+    "pino-pretty": "^13.0.0"
   }
 }
