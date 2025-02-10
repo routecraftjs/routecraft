@@ -45,3 +45,9 @@ export type CallableAggregator<T = unknown, R = unknown> = (
 export interface Aggregator<T = unknown, R = unknown> extends Adapter {
   aggregate: CallableAggregator<T, R>;
 }
+
+export type CallableTransformer<T = unknown> = (message: T) => Promise<T> | T;
+
+export interface Transformer<T = unknown> extends Adapter {
+  transform: CallableTransformer<T>;
+}

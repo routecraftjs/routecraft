@@ -12,6 +12,8 @@ import {
   type CallableSplitter,
   type CallableAggregator,
   type CallableSource,
+  type CallableTransformer,
+  type Transformer,
 } from "./adapter.ts";
 import { ErrorCode, RouteCraftError } from "./error.ts";
 import { logger } from "./logger.ts";
@@ -20,6 +22,7 @@ import {
   ToStep,
   SplitStep,
   AggregateStep,
+  TransformStep,
   type StepDefinition,
 } from "./step.ts";
 import {
@@ -86,7 +89,9 @@ export class ContextBuilder {
   }
 }
 
-export type RouteOptions = Pick<RouteDefinition, "id" | "consumer">;
+export type RouteOptions = Partial<Pick<RouteDefinition, "consumer">> & {
+  id: string;
+};
 
 export class RouteBuilder {
   protected currentRoute?: RouteDefinition;
@@ -172,5 +177,9 @@ export class RouteBuilder {
   build(): RouteDefinition[] {
     logger.info(`Building ${this.routes.length} routes`);
     return this.routes;
+  }
+
+  transform<T>(transformer: Transformer<T> | CallableTransformer<T>): this {
+    return this.addStep(new TransformStep<T>(transformer));
   }
 }
