@@ -59,3 +59,11 @@ export type CallableTap<T = unknown> = (
 export interface Tap<T = unknown> extends Adapter {
   tap: CallableTap<T>;
 }
+
+export type CallableFilter<T = unknown> = (
+  exchange: Exchange<T>,
+) => Promise<boolean> | boolean;
+
+export interface Filter<T = unknown> extends Adapter {
+  filter: CallableFilter<T>;
+}

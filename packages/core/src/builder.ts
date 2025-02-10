@@ -16,6 +16,8 @@ import {
   type Transformer,
   type Tap,
   type CallableTap,
+  type CallableFilter,
+  type Filter,
 } from "./adapter.ts";
 import { ErrorCode, RouteCraftError } from "./error.ts";
 import { logger } from "./logger.ts";
@@ -27,6 +29,7 @@ import {
   TransformStep,
   TapStep,
   type StepDefinition,
+  FilterStep,
 } from "./step.ts";
 import {
   SimpleConsumer,
@@ -188,5 +191,9 @@ export class RouteBuilder {
 
   tap<T>(tap: Tap<T> | CallableTap<T>): this {
     return this.addStep(new TapStep<T>(tap));
+  }
+
+  filter<T>(filter: Filter<T> | CallableFilter<T>): this {
+    return this.addStep(new FilterStep<T>(filter));
   }
 }
