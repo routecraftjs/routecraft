@@ -15,6 +15,7 @@ import {
   type CallableTap,
 } from "./adapter.ts";
 import { type Exchange, HeadersKeys } from "./exchange.ts";
+import { RouteCraftError, ErrorCode } from "./error.ts";
 
 export interface StepDefinition<T extends Adapter> {
   operation: OperationType;
@@ -223,9 +224,15 @@ export class TapStep<T = unknown> implements StepDefinition<Tap<T>> {
     try {
       // Tap is not considered a critical step, so we don't want to throw an error
       await this.adapter.tap(exchangeCopy);
-    } catch (error) {
+    } catch (error: unknown) {
+      const err = RouteCraftError.create(error, {
+        code: ErrorCode.TAP_ERROR,
+        message: `Error tapping exchange ${exchangeCopy.id}`,
+        suggestion:
+          "Check the tap function for any errors or wrap it in a try/catch block.",
+      });
       exchangeCopy.logger.info(
-        error,
+        err,
         `Error tapping exchange ${exchangeCopy.id}`,
       );
     }
