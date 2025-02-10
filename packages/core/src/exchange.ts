@@ -12,6 +12,8 @@ export enum OperationType {
   SPLIT = "split",
   /** The exchange was aggregated from multiple exchanges */
   AGGREGATE = "aggregate",
+  /** The exchange was transformed */
+  TRANSFORM = "transform",
 }
 
 export enum HeadersKeys {
