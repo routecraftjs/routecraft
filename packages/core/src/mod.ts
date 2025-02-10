@@ -25,6 +25,10 @@ export {
   type Adapter,
   type Splitter,
   type Aggregator,
+  type Transformer,
+  type Tap,
+  type CallableTap,
+  type CallableTransformer,
 } from "./adapter.ts";
 
 export { type StepDefinition } from "./step.ts";

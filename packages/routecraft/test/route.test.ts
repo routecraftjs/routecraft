@@ -7,6 +7,7 @@ import {
   NoopAdapter,
   logger,
   log,
+  noop,
 } from "routecraft";
 
 const logSpy = {
@@ -115,7 +116,7 @@ describe("Route Behavior", () => {
             },
           ])
           .process(processorSpy)
-          .to(new NoopAdapter()),
+          .to(noop()),
       )
       .build();
 
@@ -181,13 +182,12 @@ describe("Route Behavior", () => {
             );
             return exchange;
           })
-          .process((exchange) => {
+          .tap((exchange) => {
             capturedCorrelationIds.push(
               exchange.headers["routecraft.correlation_id"] as string,
             );
-            return exchange;
           })
-          .to(new NoopAdapter()),
+          .to(noop()),
       )
       .build();
 
@@ -303,11 +303,10 @@ describe("Route Behavior", () => {
             processingOrder.push("first");
             return exchange;
           })
-          .process(async (exchange) => {
+          .tap(() => {
             processingOrder.push("second");
-            return exchange;
           })
-          .to(new NoopAdapter()),
+          .to(noop()),
       )
       .build();
 
@@ -374,9 +373,8 @@ describe("Route Behavior", () => {
             exchange.body = (exchange.body as { num: number }).num.toString();
             return exchange;
           })
-          .process((exchange) => {
-            exchange.body = `processed-${exchange.body}`;
-            return exchange;
+          .transform((body) => {
+            return `processed-${body}`;
           })
           .to((exchange) => {
             results.push(exchange.body);
@@ -410,13 +408,12 @@ describe("Route Behavior", () => {
               typeof exchange.body === "string" ? exchange.body.split("-") : [];
             return parts.map((part) => ({ ...exchange, body: part }));
           })
-          .process<string>((exchange) => {
+          .tap<string>((exchange) => {
             capturedBodies.push(exchange.body);
             capturedIds.push(exchange.id);
             capturedCorrelationIds.push(
               exchange.headers["routecraft.correlation_id"] as string,
             );
-            return exchange;
           })
           .to<string>((exchange) => {
             capturedBodies.push(exchange.body);
@@ -485,13 +482,12 @@ describe("Route Behavior", () => {
               typeof exchange.body === "string" ? exchange.body.split(",") : [];
             return parts.map((part) => ({ ...exchange, body: part }));
           })
-          .process<string>((exchange) => {
+          .tap<string>((exchange) => {
             capturedCorrelation.push(
               exchange.headers["routecraft.correlation_id"] as string,
             );
-            return exchange;
           })
-          .to(new NoopAdapter()),
+          .to(noop()),
       )
       .build();
 
@@ -560,7 +556,7 @@ describe("Route Behavior", () => {
       .routes(
         routes()
           .from([{ id: "aggregate-direct-test" }, simple("original")])
-          .to(log())
+          .tap(log())
           .aggregate((exchanges) => {
             return {
               ...exchanges[0],
@@ -603,9 +599,8 @@ describe("Route Behavior", () => {
               .split("-")
               .map((part) => ({ ...exchange, body: part })),
           )
-          .process((exchange) => {
+          .tap((exchange) => {
             capturedHeaders.push({ ...exchange.headers });
-            return exchange;
           })
           .to(new NoopAdapter()),
       )
@@ -772,12 +767,11 @@ describe("Route Behavior", () => {
               .map((part) => ({ ...exchange, body: part })),
           )
           .process(processorSpy3)
-          .process<string>((exchange) => {
+          .tap<string>((exchange) => {
             capturedBodies.push(exchange.body);
             capturedCorrelationIds.add(
               exchange.headers["routecraft.correlation_id"] as string,
             );
-            return exchange;
           })
           .aggregate(agg)
           .process(processorSpy4)
