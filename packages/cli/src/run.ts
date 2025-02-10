@@ -1,6 +1,6 @@
 import { readdir, stat as fsStat } from "node:fs/promises";
 import { resolve, join } from "node:path";
-import { ContextBuilder, type RouteDefinition, logger } from "@routecraft/core";
+import { ContextBuilder, type RouteDefinition, logger } from "routecraft";
 import { minimatch } from "minimatch";
 
 const SUPPORTED_EXTENSIONS = [".ts", ".mjs", ".js", ".cjs"] as const;
