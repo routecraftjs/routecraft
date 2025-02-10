@@ -9,6 +9,9 @@ import {
   type Adapter,
   type CallableProcessor,
   type CallableDestination,
+  type CallableSplitter,
+  type CallableAggregator,
+  type CallableSource,
 } from "./adapter.ts";
 import { OperationType } from "./exchange.ts";
 import { ErrorCode, RouteCraftError } from "./error.ts";
@@ -86,7 +89,9 @@ export class RouteBuilder {
   constructor() {}
 
   from<T>(
-    optionsOrMain: Source<T> | [Pick<RouteDefinition, "id">, Source<T>],
+    optionsOrMain:
+      | (Source<T> | CallableSource<T>)
+      | [Pick<RouteDefinition, "id">, Source<T> | CallableSource<T>],
   ): this {
     const { options, main: source } = Array.isArray(optionsOrMain)
       ? { options: optionsOrMain[0], main: optionsOrMain[1] }
@@ -97,14 +102,18 @@ export class RouteBuilder {
 
     logger.info(`Creating route definition with id "${options.id}"`);
 
+    const subscribe =
+      typeof source === "function"
+        ? (source as CallableSource<T>)
+        : typeof source === "object" && source?.subscribe
+          ? (source.subscribe.bind(source) as unknown as CallableSource<T>)
+          : (source as unknown as CallableSource<T>);
+
     this.currentRoute = {
       id: options.id,
       source: {
         operation: OperationType.FROM,
-        subscribe:
-          typeof source === "object" && source.constructor !== Object
-            ? source.subscribe.bind(source)
-            : source.subscribe,
+        subscribe,
       },
       steps: [],
     };
@@ -142,17 +151,19 @@ export class RouteBuilder {
     return this;
   }
 
-  split<T>(splitter: Splitter<T>): this {
+  split<T, R>(splitter: Splitter<T, R> | CallableSplitter<T, R>): this {
     const route = this.requireSource();
     logger.info(`Adding split step to route "${route.id}"`);
-    route.steps.push(new SplitStep<T>(splitter));
+    route.steps.push(new SplitStep<T, R>(splitter));
     return this;
   }
 
-  aggregate<T>(aggregator: Aggregator<T>): this {
+  aggregate<T, R>(
+    aggregator: Aggregator<T, R> | CallableAggregator<T, R>,
+  ): this {
     const route = this.requireSource();
     logger.info(`Adding aggregate step to route "${route.id}"`);
-    route.steps.push(new AggregateStep(aggregator));
+    route.steps.push(new AggregateStep<T, R>(aggregator));
     return this;
   }
 

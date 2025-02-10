@@ -3,11 +3,9 @@ import {
   context,
   routes,
   simple,
-  splitter,
   type CraftContext,
   NoopAdapter,
   logger,
-  aggregator,
   log,
 } from "routecraft";
 
@@ -403,21 +401,16 @@ describe("Route Behavior", () => {
     const capturedIds: string[] = [];
     const capturedCorrelationIds: string[] = [];
 
-    const splitter = {
-      adapterId: "test.split",
-      split: (exchange: any) => {
-        // For a string message with '-' delimiter, split into parts.
-        const parts =
-          typeof exchange.body === "string" ? exchange.body.split("-") : [];
-        return parts.map((part) => ({ ...exchange, body: part }));
-      },
-    };
-
     testContext = context()
       .routes(
         routes()
           .from([{ id: "split-test" }, simple("hello-world")])
-          .split(splitter)
+          .split((exchange: any) => {
+            // For a string message with '-' delimiter, split into parts.
+            const parts =
+              typeof exchange.body === "string" ? exchange.body.split("-") : [];
+            return parts.map((part) => ({ ...exchange, body: part }));
+          })
           .process<string>((exchange) => {
             capturedBodies.push(exchange.body);
             capturedIds.push(exchange.id);
@@ -426,7 +419,7 @@ describe("Route Behavior", () => {
             );
             return exchange;
           })
-          .to((exchange) => {
+          .to<string>((exchange) => {
             capturedBodies.push(exchange.body);
             capturedIds.push(exchange.id);
             capturedCorrelationIds.push(
@@ -455,19 +448,14 @@ describe("Route Behavior", () => {
   test("handles empty split output gracefully", async () => {
     const sendSpy = vi.fn();
 
-    const splitter = {
-      adapterId: "test.split",
-      split: () => {
-        // Always return an empty array.
-        return [];
-      },
-    };
-
     testContext = context()
       .routes(
         routes()
           .from([{ id: "empty-split-test" }, simple("unused-message")])
-          .split(splitter)
+          .split(() => {
+            // Always return an empty array.
+            return [];
+          })
           .to({
             send: sendSpy,
           }),
@@ -488,21 +476,16 @@ describe("Route Behavior", () => {
   test("maintains correlation ID across split exchanges", async () => {
     const capturedCorrelation: string[] = [];
 
-    const splitter = {
-      adapterId: "test.split",
-      split: (exchange: any) => {
-        // Using a comma as a delimiter.
-        const parts =
-          typeof exchange.body === "string" ? exchange.body.split(",") : [];
-        return parts.map((part) => ({ ...exchange, body: part }));
-      },
-    };
-
     testContext = context()
       .routes(
         routes()
           .from([{ id: "correlation-split-test" }, simple("part1,part2")])
-          .split(splitter)
+          .split((exchange: any) => {
+            // Using a comma as a delimiter.
+            const parts =
+              typeof exchange.body === "string" ? exchange.body.split(",") : [];
+            return parts.map((part) => ({ ...exchange, body: part }));
+          })
           .process<string>((exchange) => {
             capturedCorrelation.push(
               exchange.headers["routecraft.correlation_id"] as string,
@@ -527,17 +510,20 @@ describe("Route Behavior", () => {
   test("aggregates split exchanges correctly", async () => {
     const noop = new NoopAdapter();
     const sendSpy = vi.spyOn(noop, "send");
-    const split = splitter<string, string>((exchange) =>
-      exchange.body
-        .split("-")
-        .map((part: string) => ({ ...exchange, body: part })),
-    );
+    const split = {
+      split: (exchange) =>
+        exchange.body
+          .split("-")
+          .map((part: string) => ({ ...exchange, body: part })),
+    };
     const splitSpy = vi.spyOn(split, "split");
     const processorSpy = vi.fn((exchange) => exchange);
-    const agg = aggregator<string, string>((exchanges) => {
-      const aggregatedBody = exchanges.map((e) => e.body).join(",");
-      return { ...exchanges[0], body: aggregatedBody };
-    });
+    const agg = {
+      aggregate: (exchanges) => {
+        const aggregatedBody = exchanges.map((e) => e.body).join(",");
+        return { ...exchanges[0], body: aggregatedBody };
+      },
+    };
     const aggSpy = vi.spyOn(agg, "aggregate");
 
     testContext = context()
@@ -545,7 +531,7 @@ describe("Route Behavior", () => {
         routes()
           .from([{ id: "aggregate-test" }, simple("a-b-c")])
           .split(split)
-          .process<string>(processorSpy)
+          .process(processorSpy)
           .aggregate(agg)
           .to(noop),
       )
@@ -576,14 +562,12 @@ describe("Route Behavior", () => {
         routes()
           .from([{ id: "aggregate-direct-test" }, simple("original")])
           .to(log())
-          .aggregate(
-            aggregator<string, string>((exchanges) => {
-              return {
-                ...exchanges[0],
-                body: exchanges[0].body + "-aggregated",
-              };
-            }),
-          )
+          .aggregate((exchanges) => {
+            return {
+              ...exchanges[0],
+              body: exchanges[0].body + "-aggregated",
+            };
+          })
           .to(noop),
       )
       .build();
@@ -615,14 +599,12 @@ describe("Route Behavior", () => {
               },
             },
           ])
-          .split(
-            splitter<string, string>((exchange) =>
-              exchange.body
-                .split("-")
-                .map((part) => ({ ...exchange, body: part })),
-            ),
+          .split<string, string>((exchange) =>
+            exchange.body
+              .split("-")
+              .map((part) => ({ ...exchange, body: part })),
           )
-          .process<string>((exchange) => {
+          .process((exchange) => {
             capturedHeaders.push({ ...exchange.headers });
             return exchange;
           })
@@ -652,28 +634,24 @@ describe("Route Behavior", () => {
       .routes(
         routes()
           .from([{ id: "split-process-aggregate" }, simple("1-2-3")])
-          .split(
-            splitter<string, number>((exchange) =>
-              exchange.body
-                .split("-")
-                .map((part) => ({ ...exchange, body: parseInt(part) })),
-            ),
+          .split<string, number>((exchange) =>
+            exchange.body
+              .split("-")
+              .map((part) => ({ ...exchange, body: parseInt(part) })),
           )
           .process<number>((exchange) => {
             // Double each number
             exchange.body = exchange.body * 2;
             return exchange;
           })
-          .aggregate(
-            aggregator<string, string>((exchanges) => {
-              // Join the processed numbers
-              const aggregatedBody = exchanges
-                .map((e) => e.body)
-                .sort()
-                .join(",");
-              return { ...exchanges[0], body: aggregatedBody };
-            }),
-          )
+          .aggregate((exchanges) => {
+            // Join the processed numbers
+            const aggregatedBody = exchanges
+              .map((e) => e.body)
+              .sort()
+              .join(",");
+            return { ...exchanges[0], body: aggregatedBody };
+          })
           .to(noop),
       )
       .build();
@@ -704,25 +682,21 @@ describe("Route Behavior", () => {
             { id: "split-error-aggregate" },
             simple("success1-error-success2"),
           ])
-          .split(
-            splitter<string, string>((exchange) =>
-              exchange.body
-                .split("-")
-                .map((part) => ({ ...exchange, body: part })),
-            ),
+          .split<string, string>((exchange) =>
+            exchange.body
+              .split("-")
+              .map((part) => ({ ...exchange, body: part })),
           )
-          .process<string>((exchange) => {
+          .process((exchange) => {
             if (exchange.body === "error") {
               throw new Error("Simulated processing error");
             }
             return exchange;
           })
-          .aggregate(
-            aggregator<string, string>((exchanges) => {
-              const aggregatedBody = exchanges.map((e) => e.body).join(",");
-              return { ...exchanges[0], body: aggregatedBody };
-            }),
-          )
+          .aggregate((exchanges) => {
+            const aggregatedBody = exchanges.map((e) => e.body).join(",");
+            return { ...exchanges[0], body: aggregatedBody };
+          })
           .to(noop),
       )
       .build();
@@ -756,46 +730,50 @@ describe("Route Behavior", () => {
     const processorSpy2 = vi.fn((exchange) => exchange);
     const processorSpy3 = vi.fn((exchange) => exchange);
     const processorSpy4 = vi.fn((exchange) => exchange);
-    const agg = aggregator<string, string>((exchanges) => {
-      return { ...exchanges[0], body: exchanges.map((e) => e.body).join(",") };
-    });
+    const agg = {
+      aggregate: (exchanges) => {
+        return {
+          ...exchanges[0],
+          body: exchanges.map((e) => e.body).join(","),
+        };
+      },
+    };
     const aggSpy = vi.spyOn(agg, "aggregate");
-    const agg2 = aggregator<string, string>((exchanges) => {
-      return { ...exchanges[0], body: exchanges.map((e) => e.body).join(",") };
-    });
+    const agg2 = {
+      aggregate: (exchanges) => {
+        return {
+          ...exchanges[0],
+          body: exchanges.map((e) => e.body).join(","),
+        };
+      },
+    };
     const aggSpy2 = vi.spyOn(agg2, "aggregate");
 
     testContext = context()
       .routes(
         routes()
           .from([{ id: "nested-split-test" }, simple("A:1-2|B:3-4")])
-          .split(
-            splitter<string, string>((exchange) =>
-              // First split by |
-              exchange.body
-                .split("|")
-                .map((part) => ({ ...exchange, body: part })),
-            ),
+          .split<string, string>((exchange) =>
+            // First split by |
+            exchange.body
+              .split("|")
+              .map((part) => ({ ...exchange, body: part })),
           )
-          .process<string>(processorSpy)
-          .split(
-            splitter<string, string>((exchange) =>
-              // Then split by :
-              exchange.body
-                .split(":")
-                .map((part) => ({ ...exchange, body: part })),
-            ),
+          .process(processorSpy)
+          .split<string, string>((exchange) =>
+            // Then split by :
+            exchange.body
+              .split(":")
+              .map((part) => ({ ...exchange, body: part })),
           )
-          .process<string>(processorSpy2)
-          .split(
-            splitter<string, string>((exchange) =>
-              // Finally split by -
-              exchange.body
-                .split("-")
-                .map((part) => ({ ...exchange, body: part })),
-            ),
+          .process(processorSpy2)
+          .split<string, string>((exchange) =>
+            // Finally split by -
+            exchange.body
+              .split("-")
+              .map((part) => ({ ...exchange, body: part })),
           )
-          .process<string>(processorSpy3)
+          .process(processorSpy3)
           .process<string>((exchange) => {
             capturedBodies.push(exchange.body);
             capturedCorrelationIds.add(
@@ -804,7 +782,7 @@ describe("Route Behavior", () => {
             return exchange;
           })
           .aggregate(agg)
-          .process<string>(processorSpy4)
+          .process(processorSpy4)
           .aggregate(agg2)
           .to(noop),
       )
