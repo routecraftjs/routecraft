@@ -11,6 +11,8 @@ import {
   type CallableAggregator,
   type CallableTransformer,
   type Transformer,
+  type Tap,
+  type CallableTap,
 } from "./adapter.ts";
 import { type Exchange, HeadersKeys } from "./exchange.ts";
 
@@ -195,5 +197,38 @@ export class TransformStep<T = unknown>
       exchange: { ...exchange, body: newBody },
       steps: remainingSteps,
     });
+  }
+}
+
+export class TapStep<T = unknown> implements StepDefinition<Tap<T>> {
+  operation: OperationType = OperationType.TAP;
+  adapter: Tap<T>;
+
+  constructor(adapter: Tap<T> | CallableTap<T>) {
+    this.adapter = typeof adapter === "function" ? { tap: adapter } : adapter;
+  }
+
+  async execute(
+    exchange: Exchange<T>,
+    remainingSteps: StepDefinition<Adapter>[],
+    queue: { exchange: Exchange<T>; steps: StepDefinition<Adapter>[] }[],
+  ): Promise<void> {
+    // Create a deep copy of the exchange for the tap
+    const exchangeCopy: Exchange<T> = {
+      ...exchange,
+      body: structuredClone(exchange.body),
+      headers: structuredClone(exchange.headers),
+    };
+
+    try {
+      // Tap is not considered a critical step, so we don't want to throw an error
+      await this.adapter.tap(exchangeCopy);
+    } catch (error) {
+      exchangeCopy.logger.info(
+        error,
+        `Error tapping exchange ${exchangeCopy.id}`,
+      );
+    }
+    queue.push({ exchange, steps: remainingSteps });
   }
 }

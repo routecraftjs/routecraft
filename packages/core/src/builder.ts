@@ -14,6 +14,8 @@ import {
   type CallableSource,
   type CallableTransformer,
   type Transformer,
+  type Tap,
+  type CallableTap,
 } from "./adapter.ts";
 import { ErrorCode, RouteCraftError } from "./error.ts";
 import { logger } from "./logger.ts";
@@ -23,6 +25,7 @@ import {
   SplitStep,
   AggregateStep,
   TransformStep,
+  TapStep,
   type StepDefinition,
 } from "./step.ts";
 import {
@@ -181,5 +184,9 @@ export class RouteBuilder {
 
   transform<T>(transformer: Transformer<T> | CallableTransformer<T>): this {
     return this.addStep(new TransformStep<T>(transformer));
+  }
+
+  tap<T>(tap: Tap<T> | CallableTap<T>): this {
+    return this.addStep(new TapStep<T>(tap));
   }
 }
