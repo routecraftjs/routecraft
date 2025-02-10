@@ -18,6 +18,8 @@ export enum OperationType {
   TAP = "tap",
   /** Filter an exchange based on a condition and reject the message if the condition is not met */
   FILTER = "filter",
+  /** Validate the exchange against a schema and reject the message if the schema is not met */
+  VALIDATE = "validate",
 }
 
 export enum HeadersKeys {

@@ -15,23 +15,30 @@ export {
 
 export { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
 
-export {
-  type CallableProcessor,
-  type CallableSplitter,
-  type CallableAggregator,
-  type Destination,
-  type Processor,
-  type Source,
-  type Adapter,
-  type Splitter,
-  type Aggregator,
-  type Transformer,
-  type Tap,
-  type CallableTap,
-  type CallableTransformer,
-} from "./adapter.ts";
+export { type Source, type CallableSource } from "./operations/from.ts";
 
-export { type StepDefinition } from "./step.ts";
+export {
+  type Processor,
+  type CallableProcessor,
+} from "./operations/process.ts";
+
+export { type Destination, type CallableDestination } from "./operations/to.ts";
+
+export { type Splitter, type CallableSplitter } from "./operations/split.ts";
+
+export {
+  type Aggregator,
+  type CallableAggregator,
+} from "./operations/aggregate.ts";
+
+export {
+  type Transformer,
+  type CallableTransformer,
+} from "./operations/transform.ts";
+
+export { type Tap, type CallableTap } from "./operations/tap.ts";
+
+export { type Filter, type CallableFilter } from "./operations/filter.ts";
 
 export { ContextBuilder, RouteBuilder, type RouteOptions } from "./builder.ts";
 
@@ -40,16 +47,17 @@ export { ErrorCode, RouteCraftError } from "./error.ts";
 export { logger, createLogger, type Logger } from "./logger.ts";
 
 export {
-  InMemoryMessageChannel,
+  type Adapter,
+  type StepDefinition,
   type MessageChannel,
   type ChannelType,
-} from "./channel.ts";
-
-export {
   type Consumer,
   type ConsumerType,
   type Message,
-  SimpleConsumer,
-  type BatchOptions,
-  BatchConsumer,
-} from "./consumer.ts";
+} from "./types.ts";
+
+export { InMemoryMessageChannel } from "./channels/memory.ts";
+
+export { SimpleConsumer } from "./consumers/simple.ts";
+
+export { BatchConsumer, type BatchOptions } from "./consumers/batch.ts";

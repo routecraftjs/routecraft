@@ -1,22 +1,6 @@
-import { CraftContext } from "./context.ts";
-import { logger } from "./logger.ts";
-
-export type ChannelType<T extends MessageChannel> = new (channel: string) => T;
-
-export interface MessageChannel<T = unknown> {
-  /** Send a message to the channel */
-  send(channel: string, message: T): Promise<void>;
-
-  /** Subscribe to a channel */
-  subscribe(
-    context: CraftContext,
-    channel: string,
-    handler: (message: T) => Promise<void>,
-  ): Promise<void>;
-
-  /** Unsubscribe from a channel */
-  unsubscribe(context: CraftContext, channel: string): Promise<void>;
-}
+import { CraftContext } from "../context.ts";
+import { logger } from "../logger.ts";
+import { type MessageChannel } from "../types.ts";
 
 export class InMemoryMessageChannel<T = unknown> implements MessageChannel<T> {
   private subscribers: Map<string, ((message: T) => Promise<void>)[]> =

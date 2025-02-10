@@ -1,42 +1,48 @@
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { type RouteDefinition } from "./route.ts";
 import { CraftContext, type StoreRegistry } from "./context.ts";
-import {
-  type Destination,
-  type Processor,
-  type Source,
-  type Splitter,
-  type Aggregator,
-  type Adapter,
-  type CallableProcessor,
-  type CallableDestination,
-  type CallableSplitter,
-  type CallableAggregator,
-  type CallableSource,
-  type CallableTransformer,
-  type Transformer,
-  type Tap,
-  type CallableTap,
-  type CallableFilter,
-  type Filter,
-} from "./adapter.ts";
 import { ErrorCode, RouteCraftError } from "./error.ts";
 import { logger } from "./logger.ts";
+import { SimpleConsumer } from "./consumers/simple.ts";
+import { type Source, type CallableSource } from "./operations/from.ts";
 import {
-  ProcessStep,
-  ToStep,
-  SplitStep,
-  AggregateStep,
-  TransformStep,
-  TapStep,
+  type Adapter,
   type StepDefinition,
-  FilterStep,
-} from "./step.ts";
-import {
-  SimpleConsumer,
   type Consumer,
   type ConsumerType,
-} from "./consumer.ts";
-
+} from "./types.ts";
+import {
+  type Processor,
+  type CallableProcessor,
+  ProcessStep,
+} from "./operations/process.ts";
+import {
+  type Destination,
+  type CallableDestination,
+  ToStep,
+} from "./operations/to.ts";
+import {
+  type Splitter,
+  type CallableSplitter,
+  SplitStep,
+} from "./operations/split.ts";
+import {
+  type Aggregator,
+  type CallableAggregator,
+  AggregateStep,
+} from "./operations/aggregate.ts";
+import {
+  type Transformer,
+  type CallableTransformer,
+  TransformStep,
+} from "./operations/transform.ts";
+import { type Tap, type CallableTap, TapStep } from "./operations/tap.ts";
+import {
+  type CallableFilter,
+  type Filter,
+  FilterStep,
+} from "./operations/filter.ts";
+import { ValidateStep } from "./operations/validate.ts";
 export class ContextBuilder {
   protected onStartupHandler?: () => Promise<void> | void;
   protected onShutdownHandler?: () => Promise<void> | void;
@@ -195,5 +201,9 @@ export class RouteBuilder {
 
   filter<T>(filter: Filter<T> | CallableFilter<T>): this {
     return this.addStep(new FilterStep<T>(filter));
+  }
+
+  validate(schema: StandardSchemaV1): this {
+    return this.addStep(new ValidateStep(schema));
   }
 }

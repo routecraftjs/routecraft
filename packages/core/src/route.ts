@@ -8,10 +8,16 @@ import {
 } from "./exchange.ts";
 import { ErrorCode, RouteCraftError } from "./error.ts";
 import { createLogger, type Logger } from "./logger.ts";
-import { type StepDefinition } from "./step.ts";
-import { type Adapter, type Source } from "./adapter.ts";
-import { InMemoryMessageChannel, type MessageChannel } from "./channel.ts";
-import { type Message, type Consumer, type ConsumerType } from "./consumer.ts";
+import { type Source } from "./operations/from.ts";
+import {
+  type Adapter,
+  type StepDefinition,
+  type MessageChannel,
+  type Consumer,
+  type ConsumerType,
+  type Message,
+} from "./types.ts";
+import { InMemoryMessageChannel } from "./channels/memory.ts";
 
 export type RouteDefinition<T = unknown> = {
   readonly id: string;

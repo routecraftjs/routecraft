@@ -1,3 +1,4 @@
+import { type } from "arktype";
 import { describe, test, expect, afterEach, vi, beforeEach } from "vitest";
 import {
   context,
@@ -837,5 +838,33 @@ describe("Route Behavior", () => {
     // Verify each sent exchange had an even number
     const sentBodies = sendSpy.mock.calls.map((call) => call[0].body);
     expect(sentBodies).toEqual([2, 4, 6]);
+  });
+
+  /**
+   * @testCase TC-0034
+   * @description Verifies that validate step correctly validates message types
+   * @preconditions A route with a validate step using arktype
+   * @expectedResult Only messages that match the type definition should reach the destination
+   */
+  test("validates messages using arktype", async () => {
+    const messages = ["valid string", 123, "another string", { key: "value" }];
+    const capturedMessages: unknown[] = [];
+
+    testContext = context()
+      .routes(
+        routes()
+          .from([{ id: "validate-test" }, simple(messages)])
+          .validate(type("string"))
+          .tap((exchange) => {
+            capturedMessages.push(exchange.body);
+          })
+          .to(noop()),
+      )
+      .build();
+
+    await testContext.start();
+
+    // Should only have string messages
+    expect(capturedMessages).toEqual(["valid string", "another string"]);
   });
 });
