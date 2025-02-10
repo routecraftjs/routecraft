@@ -36,7 +36,7 @@ describe("Route Behavior", () => {
    * @expectedResult Message should flow through entire pipeline
    */
   test("processes messages through pipeline", async () => {
-    const processorSpy = vi.fn((exchange) => exchange);
+    const transformerSpy = vi.fn((body) => body);
     const noop = new NoopAdapter();
     const sendSpy = vi.spyOn(noop, "send");
 
@@ -44,14 +44,14 @@ describe("Route Behavior", () => {
       .routes(
         routes()
           .from([{ id: "test-pipeline" }, simple("test-message")])
-          .process(processorSpy)
+          .transform(transformerSpy)
           .to(noop),
       )
       .build();
 
     await testContext.start();
 
-    expect(processorSpy).toHaveBeenCalled();
+    expect(transformerSpy).toHaveBeenCalled();
     expect(sendSpy).toHaveBeenCalled();
     const sentExchange = sendSpy.mock.calls[0][0];
     expect(sentExchange.body).toBe("test-message");
@@ -329,12 +329,11 @@ describe("Route Behavior", () => {
       .routes(
         routes()
           .from([{ id: "transform-test" }, simple(() => ({ value: 1 }))])
-          .process((exchange) => {
-            transformedBodies.push(exchange.body);
-            exchange.body = {
-              value: (exchange.body as { value: number }).value + 1,
+          .transform((body) => {
+            transformedBodies.push(body);
+            return {
+              value: (body as { value: number }).value + 1,
             };
-            return exchange;
           })
           .process((exchange) => {
             transformedBodies.push(exchange.body);
@@ -639,10 +638,9 @@ describe("Route Behavior", () => {
               .split("-")
               .map((part) => ({ ...exchange, body: parseInt(part) })),
           )
-          .process<number>((exchange) => {
+          .transform<number>((body) => {
             // Double each number
-            exchange.body = exchange.body * 2;
-            return exchange;
+            return body * 2;
           })
           .aggregate((exchanges) => {
             // Join the processed numbers
