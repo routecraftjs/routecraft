@@ -1,19 +1,7 @@
-import { type ExchangeHeaders, type HeaderValue } from "./exchange.ts";
-import { type CraftContext } from "./context.ts";
-import { type MessageChannel } from "./channel.ts";
-import { type RouteDefinition } from "./route.ts";
-
-export type ConsumerType<T extends Consumer, O = unknown> = new (
-  context: CraftContext,
-  definition: RouteDefinition,
-  channel: MessageChannel<Message>,
-  options: O,
-) => T;
-
-export type Message = {
-  message: unknown;
-  headers?: ExchangeHeaders;
-};
+import { CraftContext } from "../context.ts";
+import { type RouteDefinition } from "../route.ts";
+import { type MessageChannel, type Message, type Consumer } from "../types.ts";
+import { type ExchangeHeaders, type HeaderValue } from "../exchange.ts";
 
 export type BatchOptions = {
   /**
@@ -32,16 +20,6 @@ export type BatchOptions = {
     headers?: ExchangeHeaders;
   };
 };
-
-export interface Consumer<O = unknown> {
-  context: CraftContext;
-  channel: MessageChannel<Message>;
-  definition: RouteDefinition;
-  options: O;
-  register(
-    handler: (message: unknown, headers?: ExchangeHeaders) => Promise<void>,
-  ): void;
-}
 
 export class BatchConsumer implements Consumer<BatchOptions> {
   public readonly options: BatchOptions;
@@ -112,23 +90,6 @@ export class BatchConsumer implements Consumer<BatchOptions> {
       if (batch.length >= this.options.size!) {
         await flushBatch();
       }
-    });
-  }
-}
-
-export class SimpleConsumer implements Consumer<never> {
-  constructor(
-    public readonly context: CraftContext,
-    public readonly definition: RouteDefinition,
-    public readonly channel: MessageChannel<Message>,
-    public readonly options: never,
-  ) {}
-
-  async register(
-    handler: (message: unknown, headers?: ExchangeHeaders) => Promise<void>,
-  ): Promise<void> {
-    this.channel.subscribe(this.context, "internal", async (message) => {
-      await handler(message.message, message.headers);
     });
   }
 }

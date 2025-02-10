@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "devDependencies": {
-    "routecraft": "workspace:*",
+    "@routecraft/adapters": "workspace:*",
     "@routecraft/core": "workspace:*",
     "@routecraft/dsl": "workspace:*",
-    "@routecraft/adapters": "workspace:*"
+    "routecraft": "workspace:*"
   }
 }

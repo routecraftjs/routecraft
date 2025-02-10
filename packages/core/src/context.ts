@@ -1,6 +1,7 @@
 import { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
 import { RouteCraftError, ErrorCode } from "./error.ts";
 import { createLogger, type Logger } from "./logger.ts";
+
 /**
  * Base store registry that can be extended by adapters
  *
