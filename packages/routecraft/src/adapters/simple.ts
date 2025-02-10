@@ -2,7 +2,7 @@ import {
   type CraftContext,
   type ExchangeHeaders,
   type Source,
-} from "@routecraft/core";
+} from "routecraft";
 
 export class SimpleAdapter<T = unknown> implements Source<T> {
   readonly adapterId = "routecraft.adapter.simple";

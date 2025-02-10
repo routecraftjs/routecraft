@@ -5,7 +5,7 @@ import {
   type ExchangeHeaders,
   type Processor,
   type Source,
-} from "@routecraft/core";
+} from "routecraft";
 
 export class NoopAdapter<T = unknown>
   implements Source<T>, Destination<T>, Processor<T>

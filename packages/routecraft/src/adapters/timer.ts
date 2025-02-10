@@ -2,9 +2,9 @@ import {
   type CraftContext,
   type ExchangeHeaders,
   type Source,
-} from "@routecraft/core";
+} from "routecraft";
 
-declare module "@routecraft/core" {
+declare module "routecraft" {
   interface RouteCraftHeaders {
     [TimerHeadersKeys.TIMER_TIME]?: string;
     [TimerHeadersKeys.TIMER_FIRED_TIME]?: string;
