@@ -19,9 +19,9 @@
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
-    "@routecraft/adapters": "workspace:*",
-    "@routecraft/core": "workspace:*",
-    "@routecraft/dsl": "workspace:*"
+    "@standard-schema/spec": "^1.0.0",
+    "pino": "^9.6.0",
+    "routecraft": "workspace:*"
   },
   "publishConfig": {
     "access": "public",

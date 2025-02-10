@@ -8,7 +8,7 @@ import { createLogger, type Logger } from "./logger.ts";
  * @example
  * ```typescript
  * // Extend the store registry with channel adapter types
- * declare module "@routecraft/core" {
+ * declare module "routecraft" {
  *   interface StoreRegistry {
  *     "routecraft.adapter.channel.store": Map<string, MessageChannel>;
  *     "routecraft.adapter.channel.config" Partial<ChannelAdapterOptions>;

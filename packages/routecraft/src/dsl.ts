@@ -1,13 +1,12 @@
-import { ContextBuilder, RouteBuilder } from "@routecraft/core";
+import { ContextBuilder, RouteBuilder } from "./builder.ts";
+import { SimpleAdapter } from "./adapters/simple.ts";
+import { LogAdapter } from "./adapters/log.ts";
+import { NoopAdapter } from "./adapters/noop.ts";
 import {
   ChannelAdapter,
-  LogAdapter,
-  NoopAdapter,
-  SimpleAdapter,
-  TimerAdapter,
-  type TimerOptions,
   type ChannelAdapterOptions,
-} from "@routecraft/adapters";
+} from "./adapters/channel.ts";
+import { TimerAdapter, type TimerOptions } from "./adapters/timer.ts";
 
 export function context(): ContextBuilder {
   return new ContextBuilder();

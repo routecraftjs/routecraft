@@ -3,7 +3,7 @@ import {
   type Exchange,
   type Processor,
   type Tap,
-} from "@routecraft/core";
+} from "routecraft";
 
 export class LogAdapter<T = unknown>
   implements Destination<T>, Processor<T>, Tap<T>

@@ -9,9 +9,9 @@ import {
   InMemoryMessageChannel,
   type MessageChannel,
   type ChannelType,
-} from "@routecraft/core";
+} from "routecraft";
 
-declare module "@routecraft/core" {
+declare module "routecraft" {
   interface StoreRegistry {
     [ChannelAdapter.ADAPTER_CHANNEL_STORE]: Map<
       string,

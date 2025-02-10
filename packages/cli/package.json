@@ -18,14 +18,9 @@
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
-    "@routecraft/core": "workspace:*",
+    "routecraft": "workspace:*",
     "commander": "^13.1.0",
     "minimatch": "^10.0.1"
-  },
-  "devDependencies": {
-    "routecraft": "workspace:*",
-    "@routecraft/dsl": "workspace:*",
-    "@routecraft/adapters": "workspace:*"
   },
   "publishConfig": {
     "access": "public",
