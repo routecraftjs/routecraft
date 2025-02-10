@@ -31,6 +31,16 @@ export enum HeadersKeys {
   CORRELATION_ID = "routecraft.correlation_id",
   /** The hierarchy of split groups this exchange belongs to */
   SPLIT_HIERARCHY = "routecraft.split_hierarchy",
+  /** The exact timestamp when the timer fired. ISO 8601 format   */
+  TIMER_TIME = "routecraft.timer.time",
+  /**The timestamp when the exchange was created. ISO 8601 format */
+  TIMER_FIRED_TIME = "routecraft.timer.firedTime",
+  /** The period in milliseconds between timer firings */
+  TIMER_PERIOD_MS = "routecraft.timer.periodMs",
+  /** The number of times the timer has fired */
+  TIMER_COUNTER = "routecraft.timer.counter",
+  /** The next timestamp when the timer will fire. ISO 8601 format */
+  TIMER_NEXT_RUN = "routecraft.timer.nextRun",
 }
 
 export interface RouteCraftHeaders {
@@ -38,6 +48,11 @@ export interface RouteCraftHeaders {
   [HeadersKeys.ROUTE_ID]: string;
   [HeadersKeys.CORRELATION_ID]: string;
   [HeadersKeys.SPLIT_HIERARCHY]?: string[];
+  [HeadersKeys.TIMER_TIME]?: string;
+  [HeadersKeys.TIMER_FIRED_TIME]?: string;
+  [HeadersKeys.TIMER_PERIOD_MS]?: number;
+  [HeadersKeys.TIMER_COUNTER]?: number;
+  [HeadersKeys.TIMER_NEXT_RUN]?: string;
 }
 
 export type HeaderValue = string | number | boolean | undefined | string[];

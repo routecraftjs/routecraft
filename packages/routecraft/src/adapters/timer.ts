@@ -1,31 +1,6 @@
-import {
-  type CraftContext,
-  type ExchangeHeaders,
-  type Source,
-} from "routecraft";
-
-declare module "routecraft" {
-  interface RouteCraftHeaders {
-    [TimerHeadersKeys.TIMER_TIME]?: string;
-    [TimerHeadersKeys.TIMER_FIRED_TIME]?: string;
-    [TimerHeadersKeys.TIMER_PERIOD_MS]?: number;
-    [TimerHeadersKeys.TIMER_COUNTER]?: number;
-    [TimerHeadersKeys.TIMER_NEXT_RUN]?: string;
-  }
-}
-
-export enum TimerHeadersKeys {
-  /** The exact timestamp when the timer fired. ISO 8601 format   */
-  TIMER_TIME = "routecraft.timer.time",
-  /**The timestamp when the exchange was created. ISO 8601 format */
-  TIMER_FIRED_TIME = "routecraft.timer.firedTime",
-  /** The period in milliseconds between timer firings */
-  TIMER_PERIOD_MS = "routecraft.timer.periodMs",
-  /** The number of times the timer has fired */
-  TIMER_COUNTER = "routecraft.timer.counter",
-  /** The next timestamp when the timer will fire. ISO 8601 format */
-  TIMER_NEXT_RUN = "routecraft.timer.nextRun",
-}
+import { HeadersKeys, type ExchangeHeaders } from "../exchange";
+import { type Source } from "../operations/from";
+import { CraftContext } from "../context";
 
 export interface TimerOptions {
   /**
@@ -161,13 +136,13 @@ export class TimerAdapter implements Source<undefined> {
 
           // Prepare timer-based headers
           const headers: ExchangeHeaders = {
-            [TimerHeadersKeys.TIMER_TIME]: firedTime.toISOString(),
-            [TimerHeadersKeys.TIMER_FIRED_TIME]: firedTime.toISOString(),
-            [TimerHeadersKeys.TIMER_PERIOD_MS]: exactTime
+            [HeadersKeys.TIMER_TIME]: firedTime.toISOString(),
+            [HeadersKeys.TIMER_FIRED_TIME]: firedTime.toISOString(),
+            [HeadersKeys.TIMER_PERIOD_MS]: exactTime
               ? 24 * 60 * 60 * 1000
               : intervalMs,
-            [TimerHeadersKeys.TIMER_COUNTER]: count,
-            [TimerHeadersKeys.TIMER_NEXT_RUN]: new Date(
+            [HeadersKeys.TIMER_COUNTER]: count,
+            [HeadersKeys.TIMER_NEXT_RUN]: new Date(
               nextScheduledTime,
             ).toISOString(),
           };

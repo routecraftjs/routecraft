@@ -71,33 +71,33 @@ importers:
 
   examples:
     devDependencies:
-      routecraft:
+      '@routecraftjs/routecraft':
         specifier: workspace:*
         version: link:../packages/routecraft
 
   packages/cli:
     dependencies:
+      '@routecraftjs/routecraft':
+        specifier: workspace:*
+        version: link:../routecraft
       commander:
         specifier: ^13.1.0
         version: 13.1.0
       minimatch:
         specifier: ^10.0.1
         version: 10.0.1
-      routecraft:
-        specifier: workspace:*
-        version: link:../routecraft
 
   packages/routecraft:
     dependencies:
+      '@routecraftjs/routecraft':
+        specifier: workspace:*
+        version: 'link:'
       '@standard-schema/spec':
         specifier: ^1.0.0
         version: 1.0.0
       pino:
         specifier: ^9.6.0
         version: 9.6.0
-      routecraft:
-        specifier: workspace:*
-        version: 'link:'
     devDependencies:
       arktype:
         specifier: ^2.0.4

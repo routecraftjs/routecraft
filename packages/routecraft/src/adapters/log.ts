@@ -1,9 +1,7 @@
-import {
-  type Destination,
-  type Exchange,
-  type Processor,
-  type Tap,
-} from "routecraft";
+import { type Destination } from "../operations/to";
+import { type Processor } from "../operations/process";
+import { type Tap } from "../operations/tap";
+import { type Exchange } from "../exchange";
 
 export class LogAdapter<T = unknown>
   implements Destination<T>, Processor<T>, Tap<T>

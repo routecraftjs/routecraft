@@ -71,8 +71,4 @@ export {
   ChannelAdapter,
   type ChannelAdapterOptions,
 } from "./adapters/channel.ts";
-export {
-  TimerAdapter,
-  type TimerOptions,
-  TimerHeadersKeys,
-} from "./adapters/timer.ts";
+export { TimerAdapter, type TimerOptions } from "./adapters/timer.ts";

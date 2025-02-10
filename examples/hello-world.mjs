@@ -1,4 +1,4 @@
-import { log, routes, simple, logger } from "routecraft";
+import { log, routes, simple, logger } from "@routecraftjs/routecraft";
 
 export default routes()
   .from([{ id: "hello-world" }, simple("Hello, World!")])

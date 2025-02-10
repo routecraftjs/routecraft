@@ -1,25 +1,13 @@
 import {
-  type CraftContext,
-  type Destination,
-  type Exchange,
   type ExchangeHeaders,
-  type MergedOptions,
-  type Source,
-  DefaultExchange,
-  InMemoryMessageChannel,
-  type MessageChannel,
-  type ChannelType,
-} from "routecraft";
-
-declare module "routecraft" {
-  interface StoreRegistry {
-    [ChannelAdapter.ADAPTER_CHANNEL_STORE]: Map<
-      string,
-      MessageChannel<Exchange>
-    >;
-    [ChannelAdapter.ADAPTER_CHANNEL_OPTIONS]: Partial<ChannelAdapterOptions>;
-  }
-}
+  type Exchange,
+  type DefaultExchange,
+} from "../exchange";
+import { type Source } from "../operations/from";
+import { CraftContext, type MergedOptions } from "../context";
+import { type Destination } from "../operations/to";
+import { type MessageChannel, type ChannelType } from "../types";
+import { InMemoryMessageChannel } from "../channels/memory";
 
 export interface ChannelAdapterOptions {
   channelType?: ChannelType<MessageChannel>;
