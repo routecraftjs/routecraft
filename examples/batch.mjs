@@ -13,5 +13,5 @@ export default routes()
     },
     timer({ intervalMs: 100, repeatCount: 10 }),
   ])
-  .to(log())
+  .tap(log())
   .build();

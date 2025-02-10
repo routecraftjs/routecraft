@@ -51,3 +51,11 @@ export type CallableTransformer<T = unknown> = (message: T) => Promise<T> | T;
 export interface Transformer<T = unknown> extends Adapter {
   transform: CallableTransformer<T>;
 }
+
+export type CallableTap<T = unknown> = (
+  exchange: Exchange<T>,
+) => Promise<void> | void;
+
+export interface Tap<T = unknown> extends Adapter {
+  tap: CallableTap<T>;
+}
