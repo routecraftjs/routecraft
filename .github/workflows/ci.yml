@@ -13,6 +13,8 @@ on:
       - "**.md"
       - "docs/**"
       - ".github/ISSUE_TEMPLATE/**"
+  release:
+    types: [created]
 
 env:
   PNPM_VERSION: latest
@@ -172,3 +174,50 @@ jobs:
       - name: Run all examples
         working-directory: ./examples
         run: craft run . --exclude "*.test.ts"
+
+  publish:
+    needs: [build, cli-test]
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: "https://npm.pkg.github.com"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Restore node_modules
+        uses: actions/cache@v4
+        with:
+          path: "**/node_modules"
+          key: ${{ runner.os }}-modules-${{ hashFiles('**/pnpm-lock.yaml') }}
+
+      - name: Restore build artifacts
+        uses: actions/cache@v4
+        with:
+          path: "**/dist"
+          key: build-${{ github.sha }}
+
+      - name: Check package version
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          RELEASE_VERSION=${GITHUB_REF#refs/tags/v}
+          if [ "$PKG_VERSION" != "$RELEASE_VERSION" ]; then
+            echo "Package version ($PKG_VERSION) does not match release version ($RELEASE_VERSION)"
+            exit 1
+          fi
+
+      - name: Publish package
+        run: pnpm publish --no-git-checks --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
