@@ -1,11 +1,9 @@
-import {
-  type CraftContext,
-  type Destination,
-  type Exchange,
-  type ExchangeHeaders,
-  type Processor,
-  type Source,
-} from "routecraft";
+import { type Source } from "../operations/from";
+import { type ExchangeHeaders } from "../exchange";
+import { type Destination } from "../operations/to";
+import { type Processor } from "../operations/process";
+import { type Exchange } from "../exchange";
+import { CraftContext } from "../context";
 
 export class NoopAdapter<T = unknown>
   implements Source<T>, Destination<T>, Processor<T>

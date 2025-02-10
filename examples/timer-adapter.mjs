@@ -1,4 +1,4 @@
-import { log, routes, timer } from "routecraft";
+import { log, routes, timer } from "@routecraftjs/routecraft";
 
 export default routes()
   .from([{ id: "timer-adapter" }, timer({ intervalMs: 50, repeatCount: 10 })])

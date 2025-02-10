@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { context } from "routecraft";
+import { context } from "@routecraftjs/routecraft";
 import routes from "./hello-world.mjs";
 
 /**

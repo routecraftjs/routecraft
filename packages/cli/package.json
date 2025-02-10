@@ -1,6 +1,7 @@
 {
-  "name": "@routecraft/cli",
+  "name": "@routecraftjs/cli",
   "version": "workspace:*",
+  "private": false,
   "type": "module",
   "main": "./dist/mod.js",
   "types": "./dist/mod.d.ts",
@@ -18,7 +19,7 @@
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
-    "routecraft": "workspace:*",
+    "@routecraftjs/routecraft": "workspace:*",
     "commander": "^13.1.0",
     "minimatch": "^10.0.1"
   },
@@ -26,6 +27,7 @@
     "access": "public",
     "registry": "https://npm.pkg.github.com/"
   },
+  "repository": "https://github.com/routecraftjs/routecraft",
   "bin": {
     "craft": "./dist/mod.js"
   }

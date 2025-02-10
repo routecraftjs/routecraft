@@ -1,4 +1,4 @@
-import { channel, log, routes, simple } from "routecraft";
+import { channel, log, routes, simple } from "@routecraftjs/routecraft";
 
 export default routes()
   .from([{ id: "channel-adapter-1" }, channel("my-channel-1")])

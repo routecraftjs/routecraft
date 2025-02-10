@@ -217,6 +217,7 @@ jobs:
             echo "Package version ($PKG_VERSION) does not match release version ($RELEASE_VERSION)"
             exit 1
           fi
+          pnpm -r exec -- pnpm version $RELEASE_VERSION --no-git-tag-version
 
       - name: Publish package
         run: pnpm publish --no-git-checks --access public

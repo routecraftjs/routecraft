@@ -1,5 +1,5 @@
 import { describe, test, expect, vi, beforeEach } from "vitest";
-import { context, logger } from "routecraft";
+import { context, logger } from "@routecraftjs/routecraft";
 import timerRoutes from "./timer-adapter.mjs";
 
 describe("Timer Adapter", () => {

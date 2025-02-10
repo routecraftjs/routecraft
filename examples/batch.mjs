@@ -1,4 +1,4 @@
-import { log, routes, timer, BatchConsumer } from "routecraft";
+import { log, routes, timer, BatchConsumer } from "@routecraftjs/routecraft";
 
 export default routes()
   .from([
