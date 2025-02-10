@@ -71,15 +71,6 @@ importers:
 
   examples:
     devDependencies:
-      '@routecraft/adapters':
-        specifier: workspace:*
-        version: link:../packages/adapters
-      '@routecraft/core':
-        specifier: workspace:*
-        version: link:../packages/core
-      '@routecraft/dsl':
-        specifier: workspace:*
-        version: link:../packages/dsl
       routecraft:
         specifier: workspace:*
         version: link:../packages/routecraft
