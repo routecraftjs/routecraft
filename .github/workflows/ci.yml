@@ -169,10 +169,6 @@ jobs:
           pnpm link --global
           craft --version
 
-      - name: Run hello-world example
+      - name: Run all examples
         working-directory: ./examples
-        run: craft run hello-world.mjs
-
-      - name: Run channel-adapter example
-        working-directory: ./examples
-        run: craft run channel-adapter.mjs
+        run: craft run . --exclude "*.test.ts"
