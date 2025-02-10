@@ -803,4 +803,39 @@ describe("Route Behavior", () => {
 
     expect(sendSpy).toHaveBeenCalledTimes(2);
   });
+
+  /**
+   * @testCase TC-0033
+   * @description Verifies that filter step correctly filters out unwanted messages
+   * @preconditions A route with a filter step
+   * @expectedResult Only messages that pass the filter condition should reach the destination
+   */
+  test("filters messages based on condition", async () => {
+    const noop = new NoopAdapter();
+    const sendSpy = vi.spyOn(noop, "send");
+    const numbers = [1, 2, 3, 4, 5, 6];
+    const capturedNumbers: number[] = [];
+
+    testContext = context()
+      .routes(
+        routes()
+          .from([{ id: "filter-test" }, simple(numbers)])
+          .filter<number>((exchange) => exchange.body % 2 === 0) // Only allow even numbers
+          .tap<number>((exchange) => {
+            capturedNumbers.push(exchange.body);
+          })
+          .to(noop),
+      )
+      .build();
+
+    await testContext.start();
+
+    // Should only have even numbers
+    expect(capturedNumbers).toEqual([2, 4, 6]);
+    expect(sendSpy).toHaveBeenCalledTimes(3);
+
+    // Verify each sent exchange had an even number
+    const sentBodies = sendSpy.mock.calls.map((call) => call[0].body);
+    expect(sentBodies).toEqual([2, 4, 6]);
+  });
 });
