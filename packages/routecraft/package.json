@@ -28,7 +28,7 @@
     "registry": "https://npm.pkg.github.com"
   },
   "devDependencies": {
-    "arktype": "^2.0.4",
+    "arktype": "^2.1.2",
     "pino-pretty": "^13.0.0"
   },
   "repository": "https://github.com/routecraftjs/routecraft"
