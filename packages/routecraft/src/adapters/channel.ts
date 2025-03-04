@@ -9,6 +9,16 @@ import { type Destination } from "../operations/to";
 import { type MessageChannel, type ChannelType } from "../types";
 import { InMemoryMessageChannel } from "../channels/memory";
 
+declare module "@routecraftjs/routecraft" {
+  interface StoreRegistry {
+    [ChannelAdapter.ADAPTER_CHANNEL_STORE]: Map<
+      string,
+      MessageChannel<Exchange>
+    >;
+    [ChannelAdapter.ADAPTER_CHANNEL_OPTIONS]: Partial<ChannelAdapterOptions>;
+  }
+}
+
 export interface ChannelAdapterOptions {
   channelType?: ChannelType<MessageChannel>;
 }

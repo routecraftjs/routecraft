@@ -11,6 +11,7 @@ export {
   CraftContext,
   type MergedOptions,
   type StoreRegistry,
+  type CraftConfig,
 } from "./context.ts";
 
 export { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
