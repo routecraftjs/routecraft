@@ -1,6 +1,10 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { type RouteDefinition } from "./route.ts";
-import { CraftContext, type StoreRegistry } from "./context.ts";
+import {
+  CraftContext,
+  type StoreRegistry,
+  type CraftConfig,
+} from "./context.ts";
 import { ErrorCode, RouteCraftError } from "./error.ts";
 import { logger } from "./logger.ts";
 import { SimpleConsumer } from "./consumers/simple.ts";
@@ -43,7 +47,9 @@ import {
   FilterStep,
 } from "./operations/filter.ts";
 import { ValidateStep } from "./operations/validate.ts";
+
 export class ContextBuilder {
+  protected config?: CraftConfig;
   protected onStartupHandler?: () => Promise<void> | void;
   protected onShutdownHandler?: () => Promise<void> | void;
   protected definitions: RouteDefinition[] = [];
@@ -53,6 +59,11 @@ export class ContextBuilder {
   >();
 
   constructor() {}
+
+  with(config: CraftConfig): this {
+    this.config = config;
+    return this;
+  }
 
   onStartup(onStartup: () => Promise<void> | void): this {
     this.onStartupHandler = onStartup;
@@ -69,19 +80,30 @@ export class ContextBuilder {
     return this;
   }
 
-  routes(routes: RouteDefinition | RouteDefinition[] | RouteBuilder): this {
-    if (routes instanceof RouteBuilder) {
+  routes(
+    routes: RouteDefinition[] | RouteBuilder[] | RouteDefinition | RouteBuilder,
+  ): this {
+    if (Array.isArray(routes)) {
+      // Handle array of RouteDefinitions or RouteBuilders
+      routes.forEach((route) => {
+        if (route instanceof RouteBuilder) {
+          this.definitions.push(...route.build());
+        } else {
+          this.definitions.push(route);
+        }
+      });
+    } else if (routes instanceof RouteBuilder) {
+      // Handle single RouteBuilder
       this.definitions.push(...routes.build());
-    } else if (Array.isArray(routes)) {
-      this.definitions.push(...routes);
     } else {
+      // Handle single RouteDefinition
       this.definitions.push(routes);
     }
     return this;
   }
 
   build(): CraftContext {
-    const ctx = new CraftContext();
+    const ctx = new CraftContext(this.config);
     if (this.onStartupHandler) {
       ctx.setOnStartup(this.onStartupHandler);
     }

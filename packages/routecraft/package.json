@@ -1,6 +1,6 @@
 {
   "name": "@routecraftjs/routecraft",
-  "version": "workspace:*",
+  "version": "0.1.0",
   "type": "module",
   "main": "./dist/mod.js",
   "types": "./dist/mod.d.ts",
@@ -20,8 +20,7 @@
   },
   "dependencies": {
     "@standard-schema/spec": "^1.0.0",
-    "pino": "^9.6.0",
-    "@routecraftjs/routecraft": "workspace:*"
+    "pino": "^9.6.0"
   },
   "publishConfig": {
     "access": "public",

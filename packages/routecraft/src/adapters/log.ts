@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 import { type Destination } from "../operations/to";
 import { type Processor } from "../operations/process";
 import { type Tap } from "../operations/tap";
@@ -9,17 +10,17 @@ export class LogAdapter<T = unknown>
   readonly adapterId = "routecraft.adapter.log";
 
   send(exchange: Exchange<T>): Promise<void> {
-    exchange.logger.info(this.baseExchange(exchange), "Logging Exchange");
+    console.log(this.baseExchange(exchange));
     return Promise.resolve();
   }
 
   process(exchange: Exchange<T>): Promise<Exchange<T>> {
-    exchange.logger.info(this.baseExchange(exchange), "Logging Exchange");
+    console.log(this.baseExchange(exchange));
     return Promise.resolve(exchange);
   }
 
   tap(exchange: Exchange<T>): Promise<void> {
-    exchange.logger.info(this.baseExchange(exchange), "Logging Exchange");
+    console.log(this.baseExchange(exchange));
     return Promise.resolve();
   }
 

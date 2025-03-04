@@ -8,7 +8,7 @@ import { createLogger, type Logger } from "./logger.ts";
  * @example
  * ```typescript
  * // Extend the store registry with channel adapter types
- * declare module "routecraft" {
+ * declare module "@routecraftjs/routecraft" {
  *   interface StoreRegistry {
  *     "routecraft.adapter.channel.store": Map<string, MessageChannel>;
  *     "routecraft.adapter.channel.config" Partial<ChannelAdapterOptions>;
@@ -25,7 +25,11 @@ export type MergedOptions<T> = {
   mergedOptions(context: CraftContext): T;
 };
 
-export type LogLevel = "DEBUG" | "INFO" | "WARNING" | "ERROR" | "CRITICAL";
+export type CraftConfig = {
+  routes: RouteDefinition | RouteDefinition[];
+  onStartup?: () => Promise<void> | void;
+  onShutdown?: () => Promise<void> | void;
+};
 
 export class CraftContext {
   public readonly contextId: string = crypto.randomUUID();
@@ -39,8 +43,24 @@ export class CraftContext {
   >();
   public readonly logger: Logger;
 
-  constructor() {
+  constructor(config?: CraftConfig) {
     this.logger = createLogger(this);
+    if (config) {
+      if (config.onStartup) {
+        this.onStartup = config.onStartup;
+      }
+      if (config.onShutdown) {
+        this.onShutdown = config.onShutdown;
+      }
+      if (config.routes) {
+        this.routes = [];
+        if (Array.isArray(config.routes)) {
+          this.registerRoutes(...config.routes);
+        } else {
+          this.registerRoutes(config.routes);
+        }
+      }
+    }
   }
 
   setOnStartup(fn: () => Promise<void> | void): void {

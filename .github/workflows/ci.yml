@@ -8,7 +8,7 @@ on:
       - "**.md"
       - "docs/**"
       - ".github/ISSUE_TEMPLATE/**"
-  pull_request:
+  pull_request_target:
     branches: ["main"]
     paths-ignore:
       - "**.md"
@@ -19,13 +19,16 @@ on:
 
 env:
   PNPM_VERSION: latest
-  NODE_VERSION: 20
+  NODE_VERSION: 22
 
 jobs:
   setup:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -63,7 +66,11 @@ jobs:
     needs: setup
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
+
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -88,7 +95,11 @@ jobs:
     needs: setup
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
+
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -116,7 +127,11 @@ jobs:
     needs: [validate, test]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
+
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -146,7 +161,11 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
+
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -176,6 +195,47 @@ jobs:
         working-directory: ./examples
         run: craft run . --exclude "*.test.ts"
 
+  approve:
+    name: Approve Dependabot PR
+    runs-on: ubuntu-latest
+    needs: [build, cli-test]
+    if: github.event_name == 'pull_request_target' && github.actor == 'dependabot[bot]' && success()
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Approve PR
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.pulls.createReview({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              event: 'APPROVE'
+            })
+
+  merge:
+    name: Merge Dependabot PR
+    runs-on: ubuntu-latest
+    needs: [approve]
+    if: github.event_name == 'pull_request_target' && github.actor == 'dependabot[bot]' && success()
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Merge PR
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.pulls.merge({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              merge_method: 'squash'
+            })
+
   publish:
     needs: [build, cli-test]
     if: github.event_name == 'release'
@@ -203,12 +263,6 @@ jobs:
           path: "**/node_modules"
           key: ${{ runner.os }}-modules-${{ hashFiles('**/pnpm-lock.yaml') }}
 
-      - name: Restore build artifacts
-        uses: actions/cache@v4
-        with:
-          path: "**/dist"
-          key: build-${{ github.sha }}
-
       - name: Check package version
         run: |
           PKG_VERSION=$(node -p "require('./package.json').version")
@@ -219,7 +273,10 @@ jobs:
           fi
           pnpm -r exec -- pnpm version $RELEASE_VERSION --no-git-tag-version
 
+      - name: Build packages
+        run: pnpm run build
+
       - name: Publish package
-        run: pnpm publish --no-git-checks --access public
+        run: pnpm publish --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
