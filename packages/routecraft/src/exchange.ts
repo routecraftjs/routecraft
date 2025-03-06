@@ -20,6 +20,8 @@ export enum OperationType {
   FILTER = "filter",
   /** Validate the exchange against a schema and reject the message if the schema is not met */
   VALIDATE = "validate",
+  /** Enrich the exchange with data from another exchange */
+  ENRICH = "enrich",
 }
 
 export enum HeadersKeys {
