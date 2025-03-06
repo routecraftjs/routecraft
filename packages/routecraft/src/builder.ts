@@ -47,6 +47,12 @@ import {
   FilterStep,
 } from "./operations/filter.ts";
 import { ValidateStep } from "./operations/validate.ts";
+import {
+  type EnrichAggregator,
+  EnrichStep,
+  type Enricher,
+  type CallableEnricher,
+} from "./operations/enrich.ts";
 
 export class ContextBuilder {
   protected config?: CraftConfig;
@@ -213,8 +219,10 @@ export class RouteBuilder {
     return this.routes;
   }
 
-  transform<T>(transformer: Transformer<T> | CallableTransformer<T>): this {
-    return this.addStep(new TransformStep<T>(transformer));
+  transform<T, R>(
+    transformer: Transformer<T, R> | CallableTransformer<T, R>,
+  ): this {
+    return this.addStep(new TransformStep<T, R>(transformer));
   }
 
   tap<T>(tap: Tap<T> | CallableTap<T>): this {
@@ -227,5 +235,12 @@ export class RouteBuilder {
 
   validate(schema: StandardSchemaV1): this {
     return this.addStep(new ValidateStep(schema));
+  }
+
+  enrich<T, R>(
+    enricher: Enricher<T, R> | CallableEnricher<T, R>,
+    aggregator?: EnrichAggregator<T, R>,
+  ): this {
+    return this.addStep(new EnrichStep(enricher, aggregator));
   }
 }
