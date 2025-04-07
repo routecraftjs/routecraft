@@ -1,7 +1,7 @@
 import { type Adapter, type StepDefinition } from "../types.ts";
 import { type Exchange, OperationType, HeadersKeys } from "../exchange.ts";
 
-export type CallableAggregator<T = unknown, R = unknown> = (
+export type CallableAggregator<T = unknown, R = T> = (
   exchanges: Exchange<T>[],
 ) => Promise<Exchange<R>> | Exchange<R>;
 

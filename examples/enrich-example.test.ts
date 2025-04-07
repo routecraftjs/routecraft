@@ -43,9 +43,5 @@ describe("Enrich Example", () => {
     expect(result.body).toHaveProperty("additional");
     expect(result.body.original).toBe("Original message");
     expect(result.body.additional).toBe("Additional data");
-
-    // Verify that headers from the enricher are included
-    expect(result.headers).toHaveProperty("enriched-by");
-    expect(result.headers["enriched-by"]).toBe("example-enricher");
   });
 });

@@ -18,7 +18,6 @@ on:
     types: [created]
 
 env:
-  PNPM_VERSION: latest
   NODE_VERSION: 22
 
 jobs:
@@ -37,8 +36,6 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
 
       - name: Get pnpm store directory
         shell: bash
@@ -75,8 +72,6 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
       - uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
 
       - name: Restore node_modules
         uses: actions/cache@v4
@@ -104,8 +99,6 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
       - uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
 
       - name: Restore node_modules
         uses: actions/cache@v4
@@ -136,8 +129,6 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
       - uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
 
       - name: Restore node_modules
         uses: actions/cache@v4
@@ -170,8 +161,6 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
       - uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
 
       - name: Restore node_modules
         uses: actions/cache@v4
@@ -196,7 +185,7 @@ jobs:
         run: craft run . --exclude "*.test.ts"
 
   approve:
-    name: Approve Dependabot PR
+    name: approve
     runs-on: ubuntu-latest
     needs: [build, cli-test]
     if: github.event_name == 'pull_request_target' && github.actor == 'dependabot[bot]' && success()
@@ -216,7 +205,7 @@ jobs:
             })
 
   merge:
-    name: Merge Dependabot PR
+    name: merge
     runs-on: ubuntu-latest
     needs: [approve]
     if: github.event_name == 'pull_request_target' && github.actor == 'dependabot[bot]' && success()
@@ -254,8 +243,6 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
 
       - name: Restore node_modules
         uses: actions/cache@v4

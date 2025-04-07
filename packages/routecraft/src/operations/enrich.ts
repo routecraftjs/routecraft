@@ -1,22 +1,14 @@
 import { type Adapter, type StepDefinition } from "../types.ts";
-import { type Exchange, type ExchangeHeaders } from "../exchange.ts";
+import { type Exchange } from "../exchange.ts";
 import { OperationType } from "../exchange.ts";
 
 /**
- * Represents the result of an enrichment operation
- * Can be either just the body or an object with body and optional headers
- */
-export type EnrichResult<R = unknown> =
-  | R
-  | { body: R; headers?: ExchangeHeaders };
-
-/**
  * Function that produces enrichment data based on the original exchange
- * Specifically designed for the enrich operation
+ * Returns only the enriched data (body)
  */
 export type CallableEnricher<T = unknown, R = unknown> = (
   exchange: Exchange<T>,
-) => Promise<EnrichResult<R>> | EnrichResult<R>;
+) => Promise<R> | R;
 
 /**
  * Interface for an adapter that can produce enrichment data
@@ -28,41 +20,54 @@ export interface Enricher<T = unknown, R = unknown> extends Adapter {
 }
 
 /**
- * Function that aggregates the original exchange with the enrichment exchange
+ * Function that aggregates the original exchange with the enrichment data
  * Similar to CallableAggregator but specifically for the enrich operation
  */
 export type EnrichAggregator<T = unknown, R = unknown> = (
   original: Exchange<T>,
-  enrichment: Exchange<R>,
+  enrichmentData: R,
 ) => Promise<Exchange<T>> | Exchange<T>;
 
 /**
- * Default aggregator that merges the body and headers of the enrichment exchange into the original exchange
+ * Default aggregator that merges the enrichment data with the original exchange body.
+ *
+ * This aggregator:
+ * 1. Converts the original body to an object if it's not already one (using {value: originalBody})
+ * 2. Converts the enrichment data to an object if it's not already one (using {value: enrichmentData})
+ * 3. Merges these objects using spread syntax ({...originalBody, ...enrichmentObject})
+ *
+ * Note: If both the original body and enrichment data have a 'value' property,
+ * the enrichment data's 'value' will overwrite the original's 'value'.
  */
 export const defaultEnrichAggregator = <T = unknown, R = unknown>(
   original: Exchange<T>,
-  enrichment: Exchange<R>,
+  enrichmentData: R,
 ): Exchange<T> => {
-  // Create a new body by merging the original body with the enrichment body
-  const newBody = {
-    ...original.body,
-    ...enrichment.body,
-  } as T;
+  // Convert original body to object if it's not already
+  const originalBody =
+    typeof original.body === "object" && original.body !== null
+      ? original.body
+      : { value: original.body };
 
-  // Create new headers by merging the original headers with the enrichment headers
-  const newHeaders: ExchangeHeaders = {
-    ...original.headers,
-    ...enrichment.headers,
-  };
+  // Convert enrichment data to object if it's not already
+  const enrichmentObject =
+    typeof enrichmentData === "object" && enrichmentData !== null
+      ? enrichmentData
+      : { value: enrichmentData };
 
-  // Return the original exchange with the new body and headers
+  // Merge the objects
   return {
     ...original,
-    body: newBody,
-    headers: newHeaders,
+    body: {
+      ...originalBody,
+      ...enrichmentObject,
+    } as T,
   };
 };
 
+/**
+ * Step that enriches the exchange with additional data
+ */
 export class EnrichStep<T = unknown, R = unknown>
   implements StepDefinition<Enricher<T, R>>
 {
@@ -78,7 +83,7 @@ export class EnrichStep<T = unknown, R = unknown>
       typeof adapter === "function"
         ? {
             enrich: adapter,
-            adapterId: "routecraft.adapter.callable-enricher",
+            adapterId: crypto.randomUUID(),
           }
         : adapter;
     this.aggregator = aggregator;
@@ -89,55 +94,18 @@ export class EnrichStep<T = unknown, R = unknown>
     remainingSteps: StepDefinition<Adapter>[],
     queue: { exchange: Exchange; steps: StepDefinition<Adapter>[] }[],
   ): Promise<void> {
-    try {
-      // Produce the enrichment data
-      const enrichmentResult = await Promise.resolve(
-        this.adapter.enrich(exchange),
-      );
+    // Get the enrichment data
+    const enrichmentData = await Promise.resolve(this.adapter.enrich(exchange));
 
-      // Determine if the result has body and headers or is just the body
-      let enrichmentBody: R;
-      let enrichmentHeaders: ExchangeHeaders = {};
+    // Use the provided aggregator or the default one
+    const aggregator = this.aggregator || defaultEnrichAggregator;
 
-      if (
-        enrichmentResult !== null &&
-        typeof enrichmentResult === "object" &&
-        "body" in enrichmentResult
-      ) {
-        // Result has a body property (it's an EnrichResult with body and headers)
-        enrichmentBody = (enrichmentResult as { body: R }).body;
-        // If headers are provided, use them
-        if ("headers" in enrichmentResult && enrichmentResult.headers) {
-          enrichmentHeaders = (enrichmentResult as { headers: ExchangeHeaders })
-            .headers;
-        }
-      } else {
-        // Result is just the body (it's an EnrichResult that's just the value)
-        enrichmentBody = enrichmentResult as R;
-      }
+    // Aggregate the original exchange with the enrichment data
+    const newExchange = await Promise.resolve(
+      aggregator(exchange, enrichmentData),
+    );
 
-      // Create an enrichment exchange
-      const enrichmentExchange: Exchange<R> = {
-        id: crypto.randomUUID(),
-        headers: enrichmentHeaders,
-        body: enrichmentBody,
-        logger: exchange.logger,
-      };
-
-      // Use the aggregator to combine the original and enrichment exchanges
-      const actualAggregator = this.aggregator || defaultEnrichAggregator;
-      const enrichedExchange = await Promise.resolve(
-        actualAggregator(exchange, enrichmentExchange),
-      );
-
-      // Continue with the enriched exchange
-      queue.push({
-        exchange: enrichedExchange as Exchange,
-        steps: remainingSteps,
-      });
-    } catch (error) {
-      exchange.logger.error(error, "Failed to enrich exchange");
-      throw error;
-    }
+    // Push the new exchange to the queue
+    queue.push({ exchange: newExchange, steps: remainingSteps });
   }
 }
