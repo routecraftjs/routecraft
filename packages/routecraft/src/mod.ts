@@ -70,16 +70,7 @@ export { SimpleConsumer } from "./consumers/simple.ts";
 
 export { BatchConsumer, type BatchOptions } from "./consumers/batch.ts";
 
-export {
-  context,
-  routes,
-  simple,
-  noop,
-  log,
-  channel,
-  timer,
-  mapper,
-} from "./dsl.ts";
+export { context, routes, simple, noop, log, channel, timer } from "./dsl.ts";
 
 export { SimpleAdapter } from "./adapters/simple.ts";
 export { LogAdapter } from "./adapters/log.ts";

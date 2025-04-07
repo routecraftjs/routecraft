@@ -20,29 +20,95 @@ export interface StoreRegistry {
   [key: `${string}.${string}.${string}`]: unknown;
 }
 
+/**
+ * Options with merged configuration support.
+ * This type is used for adapters that support both direct options and
+ * options that can be merged with context configuration.
+ */
 export type MergedOptions<T> = {
+  /** Direct options for configuration */
   options: Partial<T>;
+
+  /**
+   * Function to merge options with context configuration
+   * @param context The CraftContext instance
+   * @returns Merged options
+   */
   mergedOptions(context: CraftContext): T;
 };
 
+/**
+ * Configuration options for creating a CraftContext.
+ */
 export type CraftConfig = {
+  /** Routes to register with the context */
   routes: RouteDefinition | RouteDefinition[];
+
+  /** Optional function to run when the context starts */
   onStartup?: () => Promise<void> | void;
+
+  /** Optional function to run when the context shuts down */
   onShutdown?: () => Promise<void> | void;
 };
 
+/**
+ * The main context for running and managing routes.
+ *
+ * CraftContext is the central runtime environment that:
+ * - Manages the lifecycle of routes
+ * - Provides a storage system for adapters
+ * - Handles startup and shutdown of the application
+ *
+ * @example
+ * ```typescript
+ * // Create a context with routes
+ * const context = new CraftContext({
+ *   routes: [myRoute1, myRoute2],
+ *   onStartup: async () => {
+ *     console.log('Starting application');
+ *   },
+ *   onShutdown: async () => {
+ *     console.log('Shutting down application');
+ *   }
+ * });
+ *
+ * // Start processing routes
+ * await context.start();
+ *
+ * // Later, stop all routes
+ * await context.stop();
+ * ```
+ */
 export class CraftContext {
+  /** Unique identifier for this context instance */
   public readonly contextId: string = crypto.randomUUID();
+
+  /** Handler called during context startup */
   private onStartup?: () => Promise<void> | void;
+
+  /** Handler called during context shutdown */
   private onShutdown?: () => Promise<void> | void;
+
+  /** Routes registered with this context */
   private routes: Route[] = [];
+
+  /** Abort controllers for each route */
   private controllers: Map<string, AbortController> = new Map();
+
+  /** Storage for adapter configuration and state */
   private store = new Map<
     keyof StoreRegistry,
     StoreRegistry[keyof StoreRegistry]
   >();
+
+  /** Logger for this context */
   public readonly logger: Logger;
 
+  /**
+   * Create a new CraftContext instance.
+   *
+   * @param config Optional configuration for the context
+   */
   constructor(config?: CraftConfig) {
     this.logger = createLogger(this);
     if (config) {
@@ -63,14 +129,39 @@ export class CraftContext {
     }
   }
 
+  /**
+   * Set the function to be called when the context starts.
+   *
+   * @param fn Function to call during startup
+   */
   setOnStartup(fn: () => Promise<void> | void): void {
     this.onStartup = fn;
   }
 
+  /**
+   * Set the function to be called when the context stops.
+   *
+   * @param fn Function to call during shutdown
+   */
   setOnShutdown(fn: () => Promise<void> | void): void {
     this.onShutdown = fn;
   }
 
+  /**
+   * Register routes with this context.
+   *
+   * @param definitions Route definitions to register
+   * @throws {RouteCraftError} If there are duplicate route IDs or invalid route definitions
+   *
+   * @example
+   * ```typescript
+   * // Register a single route
+   * context.registerRoutes(myRoute);
+   *
+   * // Register multiple routes
+   * context.registerRoutes(route1, route2, route3);
+   * ```
+   */
   registerRoutes(...definitions: RouteDefinition[]): void {
     // 1) Gather all IDs from the new route definitions
     const allIDs = definitions.map((def) => def.id);
@@ -117,10 +208,28 @@ export class CraftContext {
     }
   }
 
+  /**
+   * Get all routes registered with this context.
+   *
+   * @returns Array of routes
+   */
   getRoutes(): Route[] {
     return this.routes;
   }
 
+  /**
+   * Get a value from the context store.
+   *
+   * @template K Store key type
+   * @param key The store key to retrieve
+   * @returns The stored value or undefined if not found
+   *
+   * @example
+   * ```typescript
+   * // Get channel store
+   * const channelStore = context.getStore('routecraft.adapter.channel.store');
+   * ```
+   */
   getStore<K extends keyof StoreRegistry>(
     key: K,
   ): StoreRegistry[K] | undefined {
@@ -128,6 +237,19 @@ export class CraftContext {
     return value as StoreRegistry[K] | undefined;
   }
 
+  /**
+   * Set a value in the context store.
+   *
+   * @template K Store key type
+   * @param key The store key
+   * @param value The value to store
+   *
+   * @example
+   * ```typescript
+   * // Set channel store
+   * context.setStore('routecraft.adapter.channel.store', new Map());
+   * ```
+   */
   setStore<K extends keyof StoreRegistry>(
     key: K,
     value: StoreRegistry[K],
@@ -135,10 +257,38 @@ export class CraftContext {
     this.store.set(key, value);
   }
 
+  /**
+   * Find a route by its ID.
+   *
+   * @param id The route ID to find
+   * @returns The matching route or undefined if not found
+   */
   getRouteById(id: string): Route | undefined {
     return this.routes.find((route) => route.definition.id === id);
   }
 
+  /**
+   * Start all routes registered with this context.
+   *
+   * This will:
+   * 1. Run the onStartup handler if defined
+   * 2. Start all routes in parallel
+   * 3. Wait for all routes to complete if they're not indefinite
+   * 4. Automatically stop the context if all routes complete
+   *
+   * @returns A promise that resolves when all routes have started
+   * @throws If any route fails to start
+   *
+   * @example
+   * ```typescript
+   * try {
+   *   await context.start();
+   *   console.log('All routes started successfully');
+   * } catch (error) {
+   *   console.error('Failed to start routes:', error);
+   * }
+   * ```
+   */
   async start(): Promise<void> {
     this.logger.info("Starting Routecraft context");
 
@@ -188,6 +338,25 @@ export class CraftContext {
       });
   }
 
+  /**
+   * Stop all routes and shut down the context.
+   *
+   * This will:
+   * 1. Abort all route controllers
+   * 2. Run the onShutdown handler if defined
+   *
+   * @returns A promise that resolves when all shutdown operations complete
+   *
+   * @example
+   * ```typescript
+   * // Handle shutdown signals
+   * process.on('SIGINT', async () => {
+   *   console.log('Shutting down...');
+   *   await context.stop();
+   *   process.exit(0);
+   * });
+   * ```
+   */
   async stop(): Promise<void> {
     this.logger.info("Stopping Routecraft context");
 
