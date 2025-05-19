@@ -20,7 +20,7 @@
   },
   "dependencies": {
     "@routecraftjs/routecraft": "workspace:*",
-    "commander": "^13.1.0",
+    "commander": "^14.0.0",
     "minimatch": "^10.0.1"
   },
   "publishConfig": {
