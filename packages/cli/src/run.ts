@@ -6,6 +6,11 @@ import {
   logger,
 } from "@routecraftjs/routecraft";
 import { minimatch } from "minimatch";
+import {
+  loadModuleWithDefaultExport,
+  registerContextSignalHandlers,
+} from "./util";
+import chokidar, { FSWatcher } from "chokidar";
 
 const SUPPORTED_EXTENSIONS = [".ts", ".mjs", ".js", ".cjs"] as const;
 
@@ -35,75 +40,85 @@ async function* walkFiles(
   }
 }
 
-export async function runCommand(path?: string, exclude: string[] = []) {
-  const targetPath = path ? resolve(path) : process.cwd();
-  const stat = await fsStat(targetPath);
-  const contextBuilder = new ContextBuilder();
+export async function runCommand(
+  path?: string,
+  exclude: string[] = [],
+  watch = false,
+) {
+  const absTargetPath = path ? resolve(process.cwd(), path) : process.cwd();
+  let context: ReturnType<ContextBuilder["build"]> | undefined;
+  let watcher: FSWatcher | undefined;
+  let watchedFiles: string[] = [];
 
-  if (stat.isDirectory()) {
-    // Handle directory case - find all supported files, excluding patterns
-    for await (const filePath of walkFiles(targetPath, exclude)) {
-      await configureRoutes(contextBuilder, filePath);
-    }
-  } else if (stat.isFile()) {
-    // Handle single file case
-    if (!SUPPORTED_EXTENSIONS.some((ext) => targetPath.endsWith(ext))) {
-      logger.error(
-        `Error: Only the following file types are supported: ${SUPPORTED_EXTENSIONS.join(", ")}`,
+  async function buildContextAndFiles(cacheBuster?: string) {
+    const stat = await fsStat(absTargetPath);
+    const contextBuilder = new ContextBuilder();
+    watchedFiles = [];
+
+    if (stat.isDirectory()) {
+      // Handle directory case - find all supported files, excluding patterns
+      for await (const filePath of walkFiles(absTargetPath, exclude)) {
+        await configureRoutes(contextBuilder, filePath, cacheBuster);
+        watchedFiles.push(filePath);
+      }
+    } else if (stat.isFile()) {
+      // Handle single file case
+      if (!SUPPORTED_EXTENSIONS.some((ext) => absTargetPath.endsWith(ext))) {
+        logger.error(
+          `Error: Only the following file types are supported: ${SUPPORTED_EXTENSIONS.join(", ")}`,
+        );
+        process.exit(1);
+      }
+
+      // Check if the single file should be excluded
+      const isExcluded = exclude.some((pattern) =>
+        minimatch(absTargetPath, pattern, { matchBase: true }),
       );
-      process.exit(1);
+
+      if (!isExcluded) {
+        await configureRoutes(contextBuilder, absTargetPath, cacheBuster);
+        watchedFiles.push(absTargetPath);
+      } else {
+        logger.debug(`Skipping excluded file: ${absTargetPath}`);
+      }
     }
 
-    // Check if the single file should be excluded
-    const isExcluded = exclude.some((pattern) =>
-      minimatch(targetPath, pattern, { matchBase: true }),
-    );
+    context = contextBuilder.build();
+  }
 
-    if (!isExcluded) {
-      await configureRoutes(contextBuilder, targetPath);
-    } else {
-      logger.debug(`Skipping excluded file: ${targetPath}`);
+  async function startContext(cacheBuster?: string) {
+    await buildContextAndFiles(cacheBuster);
+    registerContextSignalHandlers(context!);
+    await context!.start();
+  }
+
+  async function stopContext() {
+    if (context) {
+      await context.stop();
+      context = undefined;
     }
   }
 
-  const context = contextBuilder.build();
-
-  // Add signal handlers for graceful shutdown
-  const ac = new AbortController();
-  const signal = ac.signal;
-
-  process.on("SIGINT", () => {
-    context.logger.info("Shutting down...");
-    // Add your cleanup logic here
-    process.exit(0);
-  });
-
-  process.on("SIGTERM", () => {
-    context.logger.info("Shutting down...");
-    // Add your cleanup logic here
-    process.exit(0);
-  });
-
-  // If you need to run cleanup when the process exits normally
-  process.on("exit", () => {
-    // Note: Only synchronous operations work in 'exit' handlers
-    context.logger.info("Cleanup complete");
-  });
-
-  try {
-    await context.start();
+  if (watch) {
+    await buildContextAndFiles();
+    watcher = chokidar.watch(watchedFiles, { ignoreInitial: true });
+    watcher.on("change", async (changedPath: string) => {
+      logger.info(`Detected change in ${changedPath}, restarting context...`);
+      await stopContext();
+      // Use a cache-busting query string to force ESM reload
+      await startContext(`?update=${Date.now()}`);
+    });
+    logger.info(`Watching files for changes...\n${watchedFiles.join("\n")}`);
+    await startContext();
+  } else {
+    await startContext();
     // Only wait on abort if there are still active routes
-    if (context.getRoutes().some((route) => !route.signal.aborted)) {
+    if (context!.getRoutes().some((route) => !route.signal.aborted)) {
       await new Promise((_, reject) => {
-        signal.addEventListener("abort", () => {
-          reject(new Error("Aborted"));
-        });
+        // No abort controller here, but could be added for symmetry
+        process.on("SIGINT", () => reject(new Error("Aborted")));
+        process.on("SIGTERM", () => reject(new Error("Aborted")));
       });
-    }
-  } catch (error) {
-    if (error instanceof Error && error.message !== "Aborted") {
-      context.logger.error(error);
-      process.exit(1);
     }
   }
 }
@@ -111,27 +126,16 @@ export async function runCommand(path?: string, exclude: string[] = []) {
 async function configureRoutes(
   contextBuilder: ContextBuilder,
   filePath: string,
+  cacheBuster?: string,
 ) {
   try {
     logger.debug(`Processing file: ${filePath}`);
 
-    // Check if file extension is supported
-    if (!SUPPORTED_EXTENSIONS.some((ext) => filePath.endsWith(ext))) {
-      throw new Error(
-        `Unsupported file type. Supported extensions are: ${SUPPORTED_EXTENSIONS.join(", ")}`,
-      );
-    }
-
-    // Use dynamic import for all supported files
-    const module = await import(filePath);
-
-    if (!module.default) {
-      logger.warn(`Warning: No default export found in ${filePath}`);
-      return;
-    }
+    // Use shared utility to load the default export, with cache busting if needed
+    const importPath = cacheBuster ? `${filePath}${cacheBuster}` : filePath;
+    const defaultExport = await loadModuleWithDefaultExport(importPath);
 
     // Verify the type of the default export
-    const defaultExport = module.default;
     const isRouteDefinition = (obj: unknown): obj is RouteDefinition =>
       typeof obj === "object" && obj !== null && "id" in obj;
 
@@ -150,7 +154,7 @@ async function configureRoutes(
     if (Array.isArray(defaultExport)) {
       defaultExport.forEach((route) => contextBuilder.routes(route));
     } else {
-      contextBuilder.routes(defaultExport);
+      contextBuilder.routes(defaultExport as RouteDefinition);
     }
 
     logger.info(`Successfully configured routes from ${filePath}`);

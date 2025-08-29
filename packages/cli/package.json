@@ -20,7 +20,9 @@
   },
   "dependencies": {
     "@routecraftjs/routecraft": "workspace:*",
+    "chokidar": "^4.0.3",
     "commander": "^13.1.0",
+    "dotenv": "^16.4.5",
     "minimatch": "^10.0.1"
   },
   "publishConfig": {
