@@ -5,11 +5,22 @@ import { type MessageChannel } from "../types.ts";
 export class InMemoryMessageChannel<T = unknown> implements MessageChannel<T> {
   private subscribers: Map<string, ((message: T) => Promise<void>)[]> =
     new Map();
+  private buffers: Map<string, T[]> = new Map();
 
   async send(channel: string, message: T): Promise<void> {
     const subscribers = this.subscribers.get(channel) || [];
-    const errors: Error[] = [];
+    if (subscribers.length === 0) {
+      // Buffer when no subscribers yet
+      const q = this.buffers.get(channel) ?? [];
+      q.push(message);
+      this.buffers.set(channel, q);
+      logger.debug(
+        `Buffered message on channel "${channel}" (no subscribers yet)`,
+      );
+      return;
+    }
 
+    const errors: Error[] = [];
     await Promise.all(
       subscribers.map(async (subscriber) => {
         try {
@@ -37,6 +48,22 @@ export class InMemoryMessageChannel<T = unknown> implements MessageChannel<T> {
       this.subscribers.set(channel, []);
     }
     this.subscribers.get(channel)?.push(handler);
+    // Flush any buffered messages in FIFO order
+    const q = this.buffers.get(channel);
+    if (q && q.length > 0) {
+      context.logger.debug(
+        `Flushing ${q.length} buffered messages on channel "${channel}"`,
+      );
+      // Deliver sequentially to preserve order
+      const deliver = async () => {
+        while (q.length > 0) {
+          const msg = q.shift() as T;
+          await handler(msg);
+        }
+      };
+      void deliver();
+      this.buffers.delete(channel);
+    }
     return Promise.resolve();
   }
 

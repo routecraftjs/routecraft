@@ -1,6 +1,6 @@
 import { CraftContext } from "../context.ts";
 import { type RouteDefinition } from "../route.ts";
-import { type MessageChannel, type Message, type Consumer } from "../types.ts";
+import { type ProcessingQueue, type Message, type Consumer } from "../types.ts";
 import { type ExchangeHeaders, type HeaderValue } from "../exchange.ts";
 
 export type BatchOptions = {
@@ -27,7 +27,7 @@ export class BatchConsumer implements Consumer<BatchOptions> {
   constructor(
     public readonly context: CraftContext,
     public readonly definition: RouteDefinition,
-    public readonly channel: MessageChannel<Message>,
+    public readonly channel: ProcessingQueue<Message>,
     options: BatchOptions,
   ) {
     this.options = {
@@ -75,7 +75,7 @@ export class BatchConsumer implements Consumer<BatchOptions> {
       }
     };
 
-    this.channel.subscribe(this.context, "internal", async (message) => {
+    this.channel.setHandler(async (message) => {
       batch.push(message);
 
       if (batch.length === 1) {

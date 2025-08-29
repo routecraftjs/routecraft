@@ -3,9 +3,10 @@ import {
   context,
   routes,
   simple,
+  log,
   type CraftContext,
   NoopAdapter,
-} from "routecraft";
+} from "@routecraftjs/routecraft";
 
 describe("CraftContext", () => {
   let testContext: CraftContext;
@@ -48,6 +49,8 @@ describe("CraftContext", () => {
       .build();
 
     await testContext.start();
+    // Ensure all asynchronous logs have flushed
+    await new Promise((r) => setTimeout(r, 0));
 
     expect(testContext.getRoutes()).toHaveLength(1);
     expect(testContext.getRouteById("test-route")).toBeDefined();
@@ -241,5 +244,49 @@ describe("Route Independence", () => {
 
     // Assert that the NoopAdapter's send method was called.
     expect(sendSpy).toHaveBeenCalled();
+  });
+});
+
+describe("Binder Registration", () => {
+  let testContext: CraftContext;
+
+  afterEach(async () => {
+    if (testContext) {
+      await testContext.stop();
+    }
+  });
+
+  /**
+   * @testCase TC-0036
+   * @description Uses custom log binder from context and routes logs to console.error
+   * @preconditions Context registers a custom binder for kind "log"
+   * @expectedResult console.error is called and console.log is not called
+   */
+  test("uses custom log binder from context and calls console.error not console.log", async () => {
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined as unknown as void);
+    const logSpy = vi
+      .spyOn(console, "log")
+      .mockImplementation(() => undefined as unknown as void);
+
+    const customLogBinder = {
+      name: "log:test",
+      type: "log" as const,
+      log(message?: unknown, ...optionalParams: unknown[]): void {
+        // eslint-disable-next-line no-console
+        console.error(message, ...(optionalParams as []));
+      },
+    };
+
+    testContext = context()
+      .binders(customLogBinder)
+      .routes(routes().from(simple("hello")).to(log()).build())
+      .build();
+
+    await testContext.start();
+
+    expect(errorSpy).toHaveBeenCalled();
+    expect(logSpy).not.toHaveBeenCalled();
   });
 });
