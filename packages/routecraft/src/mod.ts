@@ -57,14 +57,13 @@ export { logger, createLogger, type Logger } from "./logger.ts";
 export {
   type Adapter,
   type StepDefinition,
-  type MessageChannel,
-  type ChannelType,
   type Consumer,
   type ConsumerType,
   type Message,
 } from "./types.ts";
 
-export { InMemoryMessageChannel } from "./channels/memory.ts";
+// channel binders
+export { InMemoryChannelBinder } from "./binders/channel-memory.ts";
 
 export { SimpleConsumer } from "./consumers/simple.ts";
 
@@ -78,6 +77,8 @@ export { NoopAdapter } from "./adapters/noop.ts";
 export {
   ChannelAdapter,
   type ChannelAdapterOptions,
+  type MessageChannel,
+  type ChannelType,
 } from "./adapters/channel.ts";
 export { TimerAdapter, type TimerOptions } from "./adapters/timer.ts";
 

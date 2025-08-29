@@ -3,7 +3,6 @@ import { type Processor } from "../operations/process";
 import { type Tap } from "../operations/tap";
 import { type Exchange } from "../exchange";
 import { type Binder, BinderBackedAdapter } from "../types";
-import { ConsoleLogBinder } from "../binders/log-console";
 
 export class LogAdapter<T = unknown>
   extends BinderBackedAdapter<LogBinder>
@@ -11,9 +10,6 @@ export class LogAdapter<T = unknown>
 {
   readonly adapterId = "routecraft.adapter.log";
   static readonly binderKind = "log";
-  protected defaultBinder(): LogBinder {
-    return new ConsoleLogBinder();
-  }
 
   send(exchange: Exchange<T>): Promise<void> {
     this.binder.log(this.baseExchange(exchange));
