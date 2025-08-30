@@ -80,3 +80,6 @@ export {
   type ChannelAdapterOptions,
 } from "./adapters/channel.ts";
 export { TimerAdapter, type TimerOptions } from "./adapters/timer.ts";
+
+export { type Binder } from "./types.ts";
+export { ConsoleLogBinder } from "./binders/log-console.ts";

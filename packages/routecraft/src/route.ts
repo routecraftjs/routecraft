@@ -12,12 +12,12 @@ import { type Source } from "./operations/from.ts";
 import {
   type Adapter,
   type StepDefinition,
-  type MessageChannel,
   type Consumer,
   type ConsumerType,
   type Message,
+  type ProcessingQueue,
 } from "./types.ts";
-import { InMemoryMessageChannel } from "./channels/memory.ts";
+import { InMemoryProcessingQueue } from "./queue.ts";
 
 /**
  * Defines the configuration for a route including its source, steps, and consumer.
@@ -91,8 +91,8 @@ export class DefaultRoute implements Route {
   /** Logger for this route */
   public readonly logger: Logger;
 
-  /** Channel for passing messages between the source and consumer */
-  private messageChannel: MessageChannel<Message>;
+  /** Internal queue for passing messages between the source and consumer */
+  private messageChannel: ProcessingQueue<Message>;
 
   /** Processes messages from the message channel */
   private consumer: Consumer;
@@ -112,7 +112,7 @@ export class DefaultRoute implements Route {
     this.assertNotAborted();
     this.abortController = abortController ?? new AbortController();
     this.logger = createLogger(this);
-    this.messageChannel = new InMemoryMessageChannel<Message>();
+    this.messageChannel = new InMemoryProcessingQueue<Message>();
     this.consumer = new this.definition.consumer.type(
       this.context,
       this.definition,
@@ -162,18 +162,18 @@ export class DefaultRoute implements Route {
     this.assertNotAborted();
     this.logger.info(`Starting route "${this.definition.id}"`);
 
-    // Start consuming messages from the message channel
+    // Start consuming messages from the internal processing queue
     this.consumer.register((message, headers) => {
       return Promise.resolve(
         this.handler(this.buildExchange(message, headers)),
       );
     });
 
-    // Subscribe to the source and send messages to the message channel
+    // Subscribe to the source and enqueue messages to the internal processing queue
     return this.definition.source.subscribe(
       this.context,
       (message, headers) => {
-        return this.messageChannel.send("internal", {
+        return this.messageChannel.enqueue({
           message,
           headers: headers ?? {},
         });
@@ -186,12 +186,12 @@ export class DefaultRoute implements Route {
    * Stop processing data on this route.
    *
    * This method:
-   * 1. Unsubscribes from the message channel
+   * 1. Unsubscribes from the internal processing queue
    * 2. Aborts the route's controller
    */
   stop(): void {
     this.logger.info(`Stopping route "${this.definition.id}"`);
-    this.messageChannel.unsubscribe(this.context, "internal");
+    this.messageChannel.clear();
     this.abortController.abort("Route stop() called");
   }
 

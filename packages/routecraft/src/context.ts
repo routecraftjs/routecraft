@@ -1,6 +1,7 @@
 import { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
 import { RouteCraftError, ErrorCode } from "./error.ts";
 import { createLogger, type Logger } from "./logger.ts";
+import { type Binder } from "./types.ts";
 
 /**
  * Base store registry that can be extended by adapters
@@ -130,6 +131,29 @@ export class CraftContext {
   }
 
   /**
+   * Register a binder by kind. Adapters can declare a static binderKind
+   * and will be hydrated with the matching binder during route registration.
+   */
+  setBinder(kind: string, binder: Binder): void {
+    let reg = this.getStore(
+      "routecraft.binders.registry" as keyof StoreRegistry,
+    ) as Map<string, Binder> | undefined;
+    if (!reg) {
+      reg = new Map<string, Binder>();
+      this.setStore("routecraft.binders.registry" as keyof StoreRegistry, reg);
+    }
+    reg.set(kind, binder);
+  }
+
+  /** Get a binder by kind */
+  getBinder<T extends Binder = Binder>(kind: string): T | undefined {
+    const reg = this.getStore(
+      "routecraft.binders.registry" as keyof StoreRegistry,
+    ) as Map<string, Binder> | undefined;
+    return (reg?.get(kind) as T) || undefined;
+  }
+
+  /**
    * Set the function to be called when the context starts.
    *
    * @param fn Function to call during startup
@@ -200,6 +224,41 @@ export class CraftContext {
           code: ErrorCode.INVALID_ROUTE_DEFINITION,
           message: `Route "${definition.id}" has no source`,
         });
+      }
+
+      // Hydrate adapter binders for all steps in this route
+      for (const step of definition.steps) {
+        const stepAsUnknown = step as unknown as { adapter?: unknown };
+        const adapter = stepAsUnknown.adapter as
+          | { binder?: unknown; setBinder?: (b: unknown) => void }
+          | undefined;
+        const ctor = (adapter as object | undefined)?.constructor as
+          | { binderKind?: string; defaultBinder?: unknown }
+          | undefined;
+        const kind: string | undefined = (
+          ctor as { binderKind?: string } | undefined
+        )?.binderKind;
+        if (kind && adapter) {
+          const bound = this.getBinder(kind) as unknown;
+          const def = (ctor as { defaultBinder?: unknown } | undefined)
+            ?.defaultBinder;
+          const finalBinder = bound ?? def;
+          if (finalBinder) {
+            const specialSetterName = `set${kind
+              .charAt(0)
+              .toUpperCase()}${kind.slice(1)}Binder`;
+            const maybeSpecial = (adapter as Record<string, unknown>)[
+              specialSetterName
+            ];
+            if (typeof maybeSpecial === "function") {
+              (maybeSpecial as (b: unknown) => void)(finalBinder);
+            } else if (typeof adapter.setBinder === "function") {
+              adapter.setBinder(finalBinder);
+            } else {
+              (adapter as { binder?: unknown }).binder = finalBinder;
+            }
+          }
+        }
       }
 
       const controller = new AbortController();
