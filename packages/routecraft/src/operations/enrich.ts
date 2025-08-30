@@ -3,16 +3,18 @@ import { type Exchange } from "../exchange.ts";
 import { OperationType } from "../exchange.ts";
 
 /**
- * Function that produces enrichment data based on the original exchange
- * Returns only the enriched data (body)
+ * Function that produces enrichment data based on the original exchange.
+ * Returns only the enrichment payload (body) which will be combined with the
+ * original exchange by the aggregator.
  */
 export type CallableEnricher<T = unknown, R = unknown> = (
   exchange: Exchange<T>,
 ) => Promise<R> | R;
 
 /**
- * Interface for an adapter that can produce enrichment data
- * Specifically designed for the enrich operation
+ * Enricher: produce data to merge into the existing exchange.
+ * - Does not return a new Exchange; only the enrichment payload
+ * - Combine with default or custom aggregator in `.enrich(adapter, aggregator)`
  */
 export interface Enricher<T = unknown, R = unknown> extends Adapter {
   enrich: CallableEnricher<T, R>;

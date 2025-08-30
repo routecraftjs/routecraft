@@ -7,6 +7,7 @@ import {
   type ChannelAdapterOptions,
 } from "./adapters/channel.ts";
 import { TimerAdapter, type TimerOptions } from "./adapters/timer.ts";
+import { FetchAdapter, type FetchOptions } from "./adapters/fetch.ts";
 
 /**
  * Create a new context builder.
@@ -185,4 +186,14 @@ export function channel<T = unknown>(
  */
 export function timer(options?: TimerOptions): TimerAdapter {
   return new TimerAdapter(options);
+}
+
+/**
+ * Create an HTTP client adapter for making requests.
+ * Acts as processor, enricher, or destination depending on usage site.
+ */
+export function fetch<T = unknown, R = unknown>(
+  options: FetchOptions<T>,
+): FetchAdapter<T, R> {
+  return new FetchAdapter<T, R>(options);
 }

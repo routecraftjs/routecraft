@@ -1,0 +1,227 @@
+---
+description: "Adapter authoring: best practices, anti-patterns, and skeletons"
+globs:
+  [
+    "examples/**/*",
+    "packages/routecraft/src/adapters/**/*",
+    "packages/routecraft/src/*.ts*",
+    "packages/routecraft/test/**/*",
+  ]
+alwaysApply: false
+---
+
+### Adapters: best practices, anti-patterns, and skeletons
+
+These rules align with RouteCraft's public DSL and adapter interfaces exported from `@routecraftjs/routecraft` (`Source`, `Destination`, `Processor`, `Transformer`, etc.) and the concrete adapters under `packages/routecraft/src/adapters/*`.
+
+#### Goals
+
+- Keep adapters minimal, focused, and composable.
+- Implement only the operation interface(s) you need: `Source.subscribe`, `Destination.send`, `Processor.process`, `Transformer.transform`, `Enricher.enrich`, etc. Adapters may implement multiple interfaces when it serves a clear purpose (e.g., log adapter implements destination, processor, and tap).
+- Use `CraftContext` stores for shared state; merge options via `MergedOptions` when relevant.
+- Prefer pure functions for transform-like behavior; keep side effects in `.to(...)` destinations.
+
+#### Naming and identification
+
+- Provide a stable `adapterId` string (e.g., `"routecraft.adapter.my-adapter"`).
+- Log with the route or exchange logger from `CraftContext`/`DefaultExchange` for consistency.
+
+#### Options and configuration
+
+- Use a single constructor with a minimal options object: `myAdapter(options?: Partial<MyOptions>)`.
+- For adapters that need context-level config, implement `MergedOptions<T>`: expose `options` and a `mergedOptions(context)` method that reads from a typed `StoreRegistry` key.
+- Extend `StoreRegistry` via declaration merging to type your store keys.
+
+#### Source adapters
+
+- Signature: `subscribe(context, handler, abortController)` and return a Promise that resolves when the source completes or is aborted.
+- Respect `abortController.signal.aborted`; add an abort listener to clean up subscriptions.
+- For indefinite sources (e.g., channel subscriptions), resolve the returned Promise only on abort/unsubscribe.
+- Prefer backpressure-friendly approaches; for arrays, `Promise.all` is fine for small, known batches (see `SimpleAdapter`).
+
+#### Destination adapters
+
+- Signature: `send(exchange)` and return a Promise when side effects complete.
+- Pull context from `DefaultExchange.context` if needed for stores or loggers.
+
+#### Processor/Transformer/Enricher adapters
+
+- Processor: `process(exchange) => Exchange` (can change headers, body, or logger).
+- Transformer: `transform(body) => newBody` (pure, body-only change); the framework will write back to the exchange body.
+- Keep these pure where possible; avoid external effects—use `.to(...)` instead.
+- Enricher: `enrich(exchange) => enrichmentData` to be combined with the original exchange by the enrich aggregator (use the default aggregator or a custom one in `.enrich(adapter, aggregator)`).
+
+##### Which to implement when
+
+- Implement `Transformer` for reusable, pure body mapping with options.
+- Implement `Processor` only if you need headers or to replace the exchange, or to package reusable read-IO with standard behavior (timeouts, retries). Otherwise prefer function processors.
+- Implement `Enricher` when the adapter’s responsibility is to fetch/compute supplemental data, leaving merging to the aggregator.
+
+#### Error handling
+
+- Catch and log external I/O failures with `context.logger.error(error, message)` or `exchange.logger.error(...)`.
+- Abort only the route you own by calling `abortController.abort()` inside sources when unrecoverable.
+
+#### Anti-patterns
+
+- Avoid public DSL verbs inside adapters (service-specific config belongs in adapter options, not chained DSL).
+- Avoid hidden side effects in sources; produce messages only. Use `.to(...)` for outputs.
+- Avoid coupling via globals; use `CraftContext` stores or channels.
+- Avoid mixing responsibilities (e.g., transforming and sending in one step).
+
+#### Store usage (typed)
+
+```ts
+// Example: add adapter-scoped store entries
+declare module "@routecraftjs/routecraft" {
+  interface StoreRegistry {
+    "routecraft.adapter.example.store": Map<string, unknown>;
+    "routecraft.adapter.example.options": Partial<ExampleOptions>;
+  }
+}
+```
+
+#### Skeletons (TypeScript)
+
+Source adapter:
+
+```ts
+import {
+  type Source,
+  type ExchangeHeaders,
+  CraftContext,
+} from "@routecraftjs/routecraft";
+
+export interface MySourceOptions {
+  pollIntervalMs?: number;
+}
+
+export class MySourceAdapter<T = unknown> implements Source<T> {
+  readonly adapterId = "routecraft.adapter.my-source";
+  constructor(private options: Partial<MySourceOptions> = {}) {}
+
+  async subscribe(
+    context: CraftContext,
+    handler: (message: T, headers?: ExchangeHeaders) => Promise<void>,
+    abortController: AbortController
+  ): Promise<void> {
+    const { pollIntervalMs = 1000 } = this.options;
+    context.logger.info("Starting my-source subscription");
+
+    return new Promise<void>((resolve) => {
+      const tick = async () => {
+        if (abortController.signal.aborted) return;
+        try {
+          const data = undefined as unknown as T; // produce or fetch your message
+          await handler(data);
+        } catch (error) {
+          context.logger.error(error, "my-source handler failed");
+          // Decide whether to abort this route
+          abortController.abort();
+          resolve();
+          return;
+        }
+        setTimeout(tick, pollIntervalMs);
+      };
+
+      abortController.signal.addEventListener("abort", () => {
+        context.logger.debug("my-source aborted");
+        resolve();
+      });
+
+      tick();
+    });
+  }
+}
+```
+
+Destination adapter:
+
+```ts
+import { type Destination, type Exchange } from "@routecraftjs/routecraft";
+
+export interface MyDestinationOptions {
+  url: string;
+}
+
+export class MyDestinationAdapter<T = unknown> implements Destination<T> {
+  readonly adapterId = "routecraft.adapter.my-destination";
+  constructor(private options: MyDestinationOptions) {}
+
+  async send(exchange: Exchange<T>): Promise<void> {
+    const { url } = this.options;
+    exchange.logger.info("Sending message", { url });
+    // perform side-effect using exchange.body / headers
+  }
+}
+```
+
+Processor adapter:
+
+```ts
+import { type Processor, type Exchange } from "@routecraftjs/routecraft";
+
+export class MyProcessorAdapter<T = unknown, R = T> implements Processor<T, R> {
+  readonly adapterId = "routecraft.adapter.my-processor";
+  async process(exchange: Exchange<T>): Promise<Exchange<R>> {
+    // clone or create a new exchange with updated body/headers
+    const newBody = exchange.body as unknown as R; // transform
+    return { ...exchange, body: newBody };
+  }
+}
+```
+
+Transformer adapter (pure):
+
+```ts
+import { type Transformer } from "@routecraftjs/routecraft";
+
+export class MyTransformerAdapter<T = unknown, R = T>
+  implements Transformer<T, R>
+{
+  readonly adapterId = "routecraft.adapter.my-transformer";
+  async transform(body: T): Promise<R> {
+    // compute new body
+    return body as unknown as R;
+  }
+}
+```
+
+Enricher adapter:
+
+```ts
+import { type Enricher, type Exchange } from "@routecraftjs/routecraft";
+
+export class MyEnricherAdapter<T = unknown, R = unknown>
+  implements Enricher<T, R>
+{
+  readonly adapterId = "routecraft.adapter.my-enricher";
+  async enrich(exchange: Exchange<T>): Promise<R> {
+    // produce enrichment data from the exchange
+    return undefined as unknown as R;
+  }
+}
+```
+
+#### Logging
+
+- Use `context.logger` in sources and `exchange.logger` in processors/destinations.
+- Prefer structured logs with a descriptive message and metadata object.
+
+#### Testing
+
+- Add example routes in `examples/*` to exercise new adapters.
+- Use `pnpm test` for unit tests; prefer testing behavior via routes.
+- When adding or changing adapters, also update or add tests under `packages/routecraft/test/**/*` for core behavior and invariants.
+  - Sources: cover abort/unsubscribe behavior, header propagation, timing/repeat logic, and error-to-abort semantics.
+  - Destinations: verify side effects are invoked once per exchange and errors surface correctly.
+  - Processor/Transformer: assert purity (no side effects) and correct body/headers shaping.
+- Suggested naming: `<adapter-name>.test.ts` in `examples/` for integration-style route coverage; add unit-level tests in `packages/routecraft/test/` only when core engine assertions are needed.
+
+#### Checklist
+
+- Provide `adapterId`.
+- Follow single-responsibility.
+- Respect `AbortController` in sources.
+- Keep transforms pure; side effects only in destinations.
+- Use typed `StoreRegistry` and `MergedOptions` if reading from context.

@@ -2,6 +2,13 @@ import { type Adapter, type StepDefinition } from "../types.ts";
 import { type Exchange } from "../exchange.ts";
 import { OperationType } from "../exchange.ts";
 
+/**
+ * Processor: mutate or derive a new Exchange from the current one.
+ * - May change body, headers, and type
+ * - Prefer pure logic; avoid side effects (use `.to(...)` for IO)
+ * - Use when you need access to headers or want to replace the whole exchange
+ */
+
 export type CallableProcessor<T = unknown, R = T> = (
   exchange: Exchange<T>,
 ) => Promise<Exchange<R>> | Exchange<R>;

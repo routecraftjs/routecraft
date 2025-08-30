@@ -1,10 +1,14 @@
-import { log, craft, simple, logger } from "@routecraftjs/routecraft";
+import { log, craft, simple, fetch } from "@routecraftjs/routecraft";
 
 export default craft()
-  .from([{ id: "hello-world" }, simple("Hello, World!")])
-  .tap(log())
-  .transform((body) => {
-    logger.info("Transforming exchange", { body });
-    return body.toUpperCase();
-  })
+  .from([{ id: "hello-world" }, simple({ userId: 1 })])
+  .process(
+    fetch({
+      method: "GET",
+      url: (ex) =>
+        `https://jsonplaceholder.typicode.com/users/${ex.body.userId}`,
+    }),
+  )
+  .transform((res) => JSON.parse(res.body))
+  .transform((user) => `Hello, ${user.name}!`)
   .to(log());

@@ -1,0 +1,133 @@
+---
+description: "Consumers: behavior, batching, and ProcessingQueue best practices"
+globs:
+  [
+    "packages/routecraft/src/consumers/**/*",
+    "packages/routecraft/src/*.ts",
+    "packages/routecraft/test/**/*",
+    "examples/**/*",
+  ]
+alwaysApply: false
+---
+
+## Consumers: guidelines and patterns
+
+Consumers are responsible for pulling messages off the internal ProcessingQueue and invoking the route's terminal handler. RouteCraft ships with `SimpleConsumer` and `BatchConsumer`.
+
+### APIs and types
+
+- `Consumer<O>`
+  - Properties: `context`, `definition`, `channel` (ProcessingQueue), `options: O`
+  - Method: `register(handler)` → set the queue handler; call `handler(message, headers)`
+- `ProcessingQueue<T>`
+  - Methods: `enqueue`, `setHandler`, `clear`
+- Builder integration
+  - Route options: pass `{ consumer: { type, options } }` via `.from([{ id, consumer }, source])`
+
+### Built-in consumers
+
+- `SimpleConsumer`
+  - Forwards each `Message` immediately: `handler(message.message, message.headers)`
+  - Use for low-latency, one-by-one processing
+
+- `BatchConsumer` with `BatchOptions`
+  - `size` (default 1000): max messages per batch
+  - `time` (default 10_000 ms): max time window
+  - `merge(messages)` (default merges headers and arrays body)
+  - Behavior: buffers, flushes on size or time, calls `handler(merged.message, merged.headers)`
+
+### Best practices
+
+- Prefer `SimpleConsumer` unless you need batching; complexity comes with buffering and timing.
+- Keep `merge` deterministic and side-effect free; avoid external I/O inside `merge`.
+- Ensure `register` sets exactly one handler; avoid reassigning during runtime.
+- Log warnings on handler errors but do not crash the process; surface failures to context logs.
+- Tune `size` and `time` based on throughput and latency SLAs; document rationale in code reviews.
+
+### Anti-patterns
+
+- Performing side effects in `merge` or during queue handling beyond invoking the route handler.
+- Storing unbounded state inside the consumer; use `CraftContext` stores for shared state if required.
+- Silent error swallowing; at minimum, `context.logger.warn` with route id and error.
+
+### Examples
+
+Select consumer in a route:
+
+```ts
+import {
+  craft,
+  simple,
+  log,
+  type ConsumerType,
+  SimpleConsumer,
+  BatchConsumer,
+} from "@routecraftjs/routecraft";
+
+// Simple (default) consumer
+export const simpleRoute = craft()
+  .from([{ id: "simple-route" }, simple([1, 2, 3])])
+  .to(log());
+
+// Batch consumer with custom options
+export const batchRoute = craft()
+  .from([
+    {
+      id: "batch-route",
+      consumer: {
+        type: BatchConsumer as unknown as ConsumerType<any>,
+        options: { size: 500, time: 2000 },
+      },
+    },
+    simple([1, 2, 3, 4, 5]),
+  ])
+  .to(log());
+```
+
+Custom consumer skeleton:
+
+```ts
+import {
+  type Consumer,
+  type ProcessingQueue,
+  type Message,
+  type ExchangeHeaders,
+  CraftContext,
+  type RouteDefinition,
+} from "@routecraftjs/routecraft";
+
+export interface MyConsumerOptions {
+  /* tuning knobs */
+}
+
+export class MyConsumer implements Consumer<MyConsumerOptions> {
+  constructor(
+    public readonly context: CraftContext,
+    public readonly definition: RouteDefinition,
+    public readonly channel: ProcessingQueue<Message>,
+    public readonly options: MyConsumerOptions
+  ) {}
+
+  async register(
+    handler: (message: unknown, headers?: ExchangeHeaders) => Promise<void>
+  ): Promise<void> {
+    this.channel.setHandler(async (msg) => {
+      // Optionally buffer/throttle here
+      await handler(msg.message, msg.headers);
+    });
+  }
+}
+```
+
+### Testing guidance
+
+- Use `packages/routecraft/test/**/*` for core behavior (e.g., batch flush on size/time, header merging, error logging).
+- Prefer `examples/*` to demonstrate consumer selection in routes and end-to-end flow.
+- For batching: cover both size-based and time-based flushes; test `merge` determinism.
+
+### Future additions
+
+- Parallel consumer with bounded concurrency
+- Retry/backoff strategies per consumer
+- Dead-letter channel integration
+- Metrics hooks (e.g., on flush, on error)

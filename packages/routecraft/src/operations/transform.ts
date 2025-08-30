@@ -1,6 +1,13 @@
 import { type Adapter, type StepDefinition } from "../types.ts";
 import { type Exchange, OperationType } from "../exchange.ts";
 
+/**
+ * Transform: body-only pure conversion.
+ * - Returns a new body; headers and metadata remain unchanged
+ * - Prefer this for simple mapping/scalar conversions
+ * - Use `.process` instead if you need to modify headers or other Exchange fields
+ */
+
 export type CallableTransformer<T = unknown, R = T> = (
   message: T,
 ) => Promise<R> | R;

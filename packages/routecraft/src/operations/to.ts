@@ -1,6 +1,13 @@
 import { type Adapter, type StepDefinition } from "../types.ts";
 import { type Exchange, OperationType } from "../exchange.ts";
 
+/**
+ * To (Destination): side effects/output only.
+ * - Sends or persists the current exchange
+ * - Must not modify the message; downstream continues unchanged
+ * - Use for IO boundaries (DB writes, HTTP emits, queues)
+ */
+
 export type CallableDestination<T = unknown> = (
   exchange: Exchange<T>,
 ) => Promise<void> | void;
