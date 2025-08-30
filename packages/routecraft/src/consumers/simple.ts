@@ -1,7 +1,7 @@
 import { CraftContext } from "../context.ts";
 import { type RouteDefinition } from "../route.ts";
 import { type ProcessingQueue, type Message, type Consumer } from "../types.ts";
-import { type ExchangeHeaders } from "../exchange.ts";
+import { type Exchange, type ExchangeHeaders } from "../exchange.ts";
 
 export class SimpleConsumer implements Consumer<never> {
   constructor(
@@ -12,10 +12,10 @@ export class SimpleConsumer implements Consumer<never> {
   ) {}
 
   async register(
-    handler: (message: unknown, headers?: ExchangeHeaders) => Promise<void>,
+    handler: (message: unknown, headers?: ExchangeHeaders) => Promise<Exchange>,
   ): Promise<void> {
     this.channel.setHandler(async (message) => {
-      await handler(message.message, message.headers);
+      return await handler(message.message, message.headers);
     });
   }
 }

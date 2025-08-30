@@ -1,4 +1,5 @@
 import { type ProcessingQueue } from "./types.ts";
+import { type Exchange } from "./exchange.ts";
 // no-op
 
 /**
@@ -9,18 +10,19 @@ import { type ProcessingQueue } from "./types.ts";
 export class InMemoryProcessingQueue<T = unknown>
   implements ProcessingQueue<T>
 {
-  private handler: ((message: T) => Promise<void>) | undefined;
+  private handler: ((message: T) => Promise<Exchange>) | undefined;
   private buffer: T[] = [];
 
-  async enqueue(message: T): Promise<void> {
+  async enqueue(message: T): Promise<Exchange> {
     if (!this.handler) {
       this.buffer.push(message);
-      return;
+      // Resolve immediately when no handler; tests don't use return value here
+      return Promise.resolve({} as Exchange);
     }
-    await this.handler(message);
+    return await this.handler(message);
   }
 
-  setHandler(handler: (message: T) => Promise<void>): Promise<void> | void {
+  setHandler(handler: (message: T) => Promise<Exchange>): Promise<void> | void {
     this.handler = handler;
 
     const q = this.buffer;

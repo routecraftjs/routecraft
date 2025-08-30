@@ -1,7 +1,11 @@
 import { CraftContext } from "../context.ts";
 import { type RouteDefinition } from "../route.ts";
 import { type ProcessingQueue, type Message, type Consumer } from "../types.ts";
-import { type ExchangeHeaders, type HeaderValue } from "../exchange.ts";
+import {
+  type Exchange,
+  type ExchangeHeaders,
+  type HeaderValue,
+} from "../exchange.ts";
 
 export type BatchOptions = {
   /**
@@ -51,23 +55,36 @@ export class BatchConsumer implements Consumer<BatchOptions> {
   }
 
   async register(
-    handler: (message: unknown, headers?: ExchangeHeaders) => Promise<void>,
+    handler: (message: unknown, headers?: ExchangeHeaders) => Promise<Exchange>,
   ): Promise<void> {
     let batch: Message[] = [];
+    let resolvers: {
+      resolve: (ex: Exchange) => void;
+      reject: (e: unknown) => void;
+    }[] = [];
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     const flushBatch = async () => {
       if (batch.length > 0) {
+        const currentBatch = batch;
+        const currentResolvers = resolvers;
+        batch = [];
+        resolvers = [];
         try {
-          const merged = this.options.merge!(batch);
-          await handler(merged.message, merged.headers);
+          const merged = this.options.merge!(currentBatch);
+          const finalExchange = await handler(merged.message, merged.headers);
+          for (const { resolve } of currentResolvers) {
+            resolve(finalExchange);
+          }
         } catch (error) {
           this.context.logger.warn(
             `Error in batch consumer for route "${this.definition.id}":`,
             error,
           );
+          for (const { reject } of currentResolvers) {
+            reject(error);
+          }
         }
-        batch = [];
       }
       if (timer) {
         clearTimeout(timer);
@@ -76,7 +93,10 @@ export class BatchConsumer implements Consumer<BatchOptions> {
     };
 
     this.channel.setHandler(async (message) => {
-      batch.push(message);
+      const promise = new Promise<Exchange>((resolve, reject) => {
+        batch.push(message);
+        resolvers.push({ resolve, reject });
+      });
 
       if (batch.length === 1) {
         if (timer) {
@@ -90,6 +110,7 @@ export class BatchConsumer implements Consumer<BatchOptions> {
       if (batch.length >= this.options.size!) {
         await flushBatch();
       }
+      return promise;
     });
   }
 }

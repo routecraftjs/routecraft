@@ -1,4 +1,4 @@
-import { HeadersKeys, type ExchangeHeaders } from "../exchange";
+import { HeadersKeys, type Exchange, type ExchangeHeaders } from "../exchange";
 import { type Source } from "../operations/from";
 import { CraftContext } from "../context";
 
@@ -52,7 +52,10 @@ export class TimerAdapter implements Source<undefined> {
 
   subscribe(
     _context: CraftContext,
-    handler: (message: undefined, headers?: ExchangeHeaders) => Promise<void>,
+    handler: (
+      message: undefined,
+      headers?: ExchangeHeaders,
+    ) => Promise<Exchange>,
     abortController: AbortController,
   ): Promise<void> {
     const {

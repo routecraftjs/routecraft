@@ -164,9 +164,7 @@ export class DefaultRoute implements Route {
 
     // Start consuming messages from the internal processing queue
     this.consumer.register((message, headers) => {
-      return Promise.resolve(
-        this.handler(this.buildExchange(message, headers)),
-      );
+      return this.handler(this.buildExchange(message, headers));
     });
 
     // Subscribe to the source and enqueue messages to the internal processing queue
@@ -207,7 +205,7 @@ export class DefaultRoute implements Route {
    * @returns A promise that resolves when processing is complete
    * @private
    */
-  private async handler(exchange: Exchange): Promise<void> {
+  private async handler(exchange: Exchange): Promise<Exchange> {
     exchange.logger.debug(
       `Processing initial exchange ${exchange.id} on route "${this.definition.id}"`,
     );
@@ -217,9 +215,15 @@ export class DefaultRoute implements Route {
       { exchange: exchange, steps: [...this.definition.steps] },
     ];
 
+    let lastProcessedExchange: Exchange = exchange;
+
     while (queue.length > 0) {
       const { exchange, steps } = queue.shift()!;
-      if (steps.length === 0) continue;
+      if (steps.length === 0) {
+        // No more steps; this is a completed exchange for this branch.
+        lastProcessedExchange = exchange;
+        continue;
+      }
 
       const [step, ...remainingSteps] = steps;
 
@@ -250,6 +254,7 @@ export class DefaultRoute implements Route {
         );
       }
     }
+    return lastProcessedExchange;
   }
 
   /**
