@@ -54,9 +54,7 @@ import {
   type Enricher,
   type CallableEnricher,
 } from "./operations/enrich.ts";
-import { type Binder } from "./types.ts";
-import { ConsoleLogBinder } from "./binders/log-console.ts";
-import { InMemoryChannelBinder } from "./binders/channel-memory.ts";
+// Binder mechanism removed
 
 /**
  * Builder for creating a RouteCraft context with routes and configuration.
@@ -89,7 +87,7 @@ export class ContextBuilder {
     keyof StoreRegistry,
     StoreRegistry[keyof StoreRegistry]
   >();
-  protected registeredBinders = new Map<string, Binder>();
+  // Binder registry removed
 
   constructor() {}
 
@@ -115,16 +113,7 @@ export class ContextBuilder {
     return this;
   }
 
-  /**
-   * Register runtime binders (first-class support).
-   * Each binder is registered by its type, ensuring only one binder per type.
-   */
-  binders(...entries: Binder[]): this {
-    for (const binder of entries) {
-      this.registeredBinders.set(binder.type, binder);
-    }
-    return this;
-  }
+  // binders(...) API removed
 
   /**
    * Set a handler to be called when the context shuts down.
@@ -228,20 +217,7 @@ export class ContextBuilder {
       ctx.setStore(key, value);
     }
 
-    // Register binders before routes
-    if (this.registeredBinders.size > 0) {
-      for (const [kind, binder] of this.registeredBinders) {
-        ctx.setBinder(kind, binder);
-      }
-    }
-
-    // Ensure required default binders exist if not provided explicitly
-    if (!ctx.getBinder("log")) {
-      ctx.setBinder("log", new ConsoleLogBinder());
-    }
-    if (!ctx.getBinder("channel")) {
-      ctx.setBinder("channel", new InMemoryChannelBinder());
-    }
+    // Binder registration removed
 
     // Register routes
     ctx.registerRoutes(...this.definitions);

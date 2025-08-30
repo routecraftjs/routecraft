@@ -97,6 +97,24 @@ importers:
         specifier: ^10.0.1
         version: 10.0.1
 
+  packages/nextjs:
+    dependencies:
+      '@routecraftjs/routecraft':
+        specifier: workspace:*
+        version: link:../routecraft
+      chokidar:
+        specifier: ^4.0.3
+        version: 4.0.3
+      commander:
+        specifier: ^13.1.0
+        version: 13.1.0
+      dotenv:
+        specifier: ^16.4.5
+        version: 16.5.0
+      minimatch:
+        specifier: ^10.0.1
+        version: 10.0.1
+
   packages/routecraft:
     dependencies:
       '@standard-schema/spec':

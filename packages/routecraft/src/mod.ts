@@ -62,9 +62,6 @@ export {
   type Message,
 } from "./types.ts";
 
-// channel binders
-export { InMemoryChannelBinder } from "./binders/channel-memory.ts";
-
 export { SimpleConsumer } from "./consumers/simple.ts";
 
 export { BatchConsumer, type BatchOptions } from "./consumers/batch.ts";
@@ -81,6 +78,3 @@ export {
   type ChannelType,
 } from "./adapters/channel.ts";
 export { TimerAdapter, type TimerOptions } from "./adapters/timer.ts";
-
-export { type Binder } from "./types.ts";
-export { ConsoleLogBinder } from "./binders/log-console.ts";

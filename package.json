@@ -64,7 +64,7 @@
   "engines": {
     "node": ">=22.0.0"
   },
-  "repository": "https://github.com/routecraftjs/routecraft",
+  "repository": "https://github.com/devoptix-labs/routecraft",
   "publishConfig": {
     "registry": "https://npm.pkg.github.com",
     "access": "restricted"
