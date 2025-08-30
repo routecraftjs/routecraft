@@ -57,7 +57,7 @@ export class ChannelAdapter<T = unknown>
 
   subscribe(
     context: CraftContext,
-    handler: (message: T, headers?: ExchangeHeaders) => Promise<void>,
+    handler: (message: T, headers?: ExchangeHeaders) => Promise<Exchange>,
     abortController: AbortController,
   ): Promise<void> {
     context.logger.info(

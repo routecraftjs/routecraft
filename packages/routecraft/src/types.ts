@@ -37,13 +37,13 @@ export interface Consumer<O = unknown> {
   definition: RouteDefinition;
   options: O;
   register(
-    handler: (message: unknown, headers?: ExchangeHeaders) => Promise<void>,
+    handler: (message: unknown, headers?: ExchangeHeaders) => Promise<Exchange>,
   ): void;
 }
 
 // ProcessingQueue is an internal queue API for route source→consumer flow
 export interface ProcessingQueue<T = unknown> {
-  enqueue(message: T): Promise<void>;
-  setHandler(handler: (message: T) => Promise<void>): Promise<void> | void;
+  enqueue(message: T): Promise<Exchange>;
+  setHandler(handler: (message: T) => Promise<Exchange>): Promise<void> | void;
   clear(): Promise<void> | void;
 }

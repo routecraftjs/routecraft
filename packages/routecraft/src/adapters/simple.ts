@@ -1,5 +1,5 @@
 import { type Source } from "../operations/from";
-import { type ExchangeHeaders } from "../exchange";
+import { type Exchange, type ExchangeHeaders } from "../exchange";
 import { CraftContext } from "../context";
 
 export class SimpleAdapter<T = unknown> implements Source<T> {
@@ -9,7 +9,7 @@ export class SimpleAdapter<T = unknown> implements Source<T> {
 
   async subscribe(
     context: CraftContext,
-    handler: (message: T, headers?: ExchangeHeaders) => Promise<void>,
+    handler: (message: T, headers?: ExchangeHeaders) => Promise<Exchange>,
     abortController: AbortController,
   ): Promise<void> {
     context.logger.info("Producing messages");

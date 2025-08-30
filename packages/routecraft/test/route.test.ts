@@ -165,6 +165,86 @@ describe("Route Behavior", () => {
   });
 
   /**
+   * @testCase TC-0037
+   * @description Returns final exchange to the source when route has multiple steps including a to step
+   * @preconditions Custom source awaiting handler result
+   * @expectedResult Source receives the final exchange after all steps complete
+   */
+  test("returns final exchange to source (with to)", async () => {
+    let finalFromSource: any | undefined;
+    const noop = new NoopAdapter();
+
+    testContext = context()
+      .routes(
+        craft()
+          .from([
+            { id: "return-final-with-to" },
+            {
+              subscribe: async (_ctx, handler, controller) => {
+                try {
+                  finalFromSource = await handler("hello");
+                } finally {
+                  controller.abort();
+                }
+              },
+            },
+          ])
+          .transform((body: string) => body.toUpperCase())
+          .to(noop)
+          .process((exchange) => {
+            exchange.body = `${exchange.body}!`;
+            return exchange;
+          })
+          .transform((body: string) => `${body} DONE`),
+      )
+      .build();
+
+    await testContext.start();
+
+    expect(finalFromSource).toBeDefined();
+    expect(finalFromSource.body).toBe("HELLO! DONE");
+  });
+
+  /**
+   * @testCase TC-0038
+   * @description Returns final exchange to the source when route has no to step
+   * @preconditions Custom source awaiting handler result
+   * @expectedResult Source receives the final exchange after all steps complete
+   */
+  test("returns final exchange to source (without to)", async () => {
+    let finalFromSource: any | undefined;
+
+    testContext = context()
+      .routes(
+        craft()
+          .from([
+            { id: "return-final-no-to" },
+            {
+              subscribe: async (_ctx, handler, controller) => {
+                try {
+                  finalFromSource = await handler("start");
+                } finally {
+                  controller.abort();
+                }
+              },
+            },
+          ])
+          .transform((body: string) => `${body}-a`)
+          .process((exchange) => {
+            exchange.body = `${exchange.body}-b`;
+            return exchange;
+          })
+          .transform((body: string) => `${body}-c`),
+      )
+      .build();
+
+    await testContext.start();
+
+    expect(finalFromSource).toBeDefined();
+    expect(finalFromSource.body).toBe("start-a-b-c");
+  });
+
+  /**
    * @testCase TC-0013
    * @description Verifies that route properly maintains message correlation
    * @preconditions Route with multiple processors

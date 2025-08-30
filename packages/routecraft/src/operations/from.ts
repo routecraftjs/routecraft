@@ -1,10 +1,10 @@
 import { type CraftContext } from "../context.ts";
-import { type ExchangeHeaders } from "../exchange.ts";
+import { type Exchange, type ExchangeHeaders } from "../exchange.ts";
 import { type Adapter } from "../types.ts";
 
 export type CallableSource<T = unknown> = (
   context: CraftContext,
-  handler: (message: T, headers?: ExchangeHeaders) => Promise<void>,
+  handler: (message: T, headers?: ExchangeHeaders) => Promise<Exchange>,
   abortController: AbortController,
 ) => Promise<void> | void;
 
