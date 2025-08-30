@@ -55,6 +55,8 @@ import {
   type CallableEnricher,
 } from "./operations/enrich.ts";
 import { type Binder } from "./types.ts";
+import { ConsoleLogBinder } from "./binders/log-console.ts";
+import { InMemoryChannelBinder } from "./binders/channel-memory.ts";
 
 /**
  * Builder for creating a RouteCraft context with routes and configuration.
@@ -231,6 +233,14 @@ export class ContextBuilder {
       for (const [kind, binder] of this.registeredBinders) {
         ctx.setBinder(kind, binder);
       }
+    }
+
+    // Ensure required default binders exist if not provided explicitly
+    if (!ctx.getBinder("log")) {
+      ctx.setBinder("log", new ConsoleLogBinder());
+    }
+    if (!ctx.getBinder("channel")) {
+      ctx.setBinder("channel", new InMemoryChannelBinder());
     }
 
     // Register routes

@@ -6,8 +6,19 @@ import {
 import { type Source } from "../operations/from";
 import { CraftContext, type MergedOptions } from "../context";
 import { type Destination } from "../operations/to";
-import { type MessageChannel, type ChannelType } from "../types";
-import { InMemoryMessageChannel } from "../channels/memory";
+import { type Binder, BinderBackedAdapter } from "../types";
+
+export type ChannelType<T extends MessageChannel> = new (channel: string) => T;
+
+export interface MessageChannel<T = unknown> {
+  send(channel: string, message: T): Promise<void>;
+  subscribe(
+    context: CraftContext,
+    channel: string,
+    handler: (message: T) => Promise<void>,
+  ): Promise<void>;
+  unsubscribe(context: CraftContext, channel: string): Promise<void>;
+}
 
 declare module "@routecraftjs/routecraft" {
   interface StoreRegistry {
@@ -23,10 +34,17 @@ export interface ChannelAdapterOptions {
   channelType?: ChannelType<MessageChannel>;
 }
 
+export interface ChannelBinder extends Binder {
+  readonly type: "channel";
+  createMessageChannel<T>(channelName: string): MessageChannel<T>;
+}
+
 export class ChannelAdapter<T = unknown>
+  extends BinderBackedAdapter<ChannelBinder>
   implements Source<T>, Destination<T>, MergedOptions<ChannelAdapterOptions>
 {
   readonly adapterId = "routecraft.adapter.channel";
+  static readonly binderKind = "channel";
   static readonly ADAPTER_CHANNEL_STORE =
     "routecraft.adapter.channel.store" as const;
   static readonly ADAPTER_CHANNEL_OPTIONS =
@@ -38,6 +56,7 @@ export class ChannelAdapter<T = unknown>
     _channel: string,
     public options: Partial<ChannelAdapterOptions> = {},
   ) {
+    super();
     this._channel = _channel;
   }
 
@@ -92,11 +111,17 @@ export class ChannelAdapter<T = unknown>
     // If the channel is not in the store, create a new one
     if (!store.has(this.channel)) {
       const mergedOptions = this.mergedOptions(context);
-      const MyChannelType = mergedOptions.channelType ?? InMemoryMessageChannel;
-      store.set(
-        this.channel,
-        new MyChannelType(this._channel) as MessageChannel<Exchange<T>>,
-      );
+      if (mergedOptions.channelType) {
+        const MyChannelType = mergedOptions.channelType;
+        store.set(
+          this.channel,
+          new MyChannelType(this._channel) as MessageChannel<Exchange<T>>,
+        );
+      } else {
+        // Prefer binder-created channel
+        const ch = this.binder.createMessageChannel<Exchange<T>>(this._channel);
+        store.set(this.channel, ch);
+      }
     }
 
     return store.get(this.channel) as MessageChannel<Exchange<T>>;

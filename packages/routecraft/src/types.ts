@@ -13,10 +13,10 @@ export interface BinderSupport<TBinder extends Binder = Binder> {
 }
 
 /**
- * Abstract base that provides binder plumbing with a default fallback.
- * Adapters that need a binder can extend this and implement defaultBinder().
+ * Base that provides binder plumbing without implicit defaults.
+ * The runtime (context) is responsible for injecting the binder.
  */
-export abstract class BinderBackedAdapter<TBinder extends Binder>
+export class BinderBackedAdapter<TBinder extends Binder>
   implements BinderSupport<TBinder>
 {
   private _binder?: TBinder;
@@ -26,11 +26,13 @@ export abstract class BinderBackedAdapter<TBinder extends Binder>
   }
 
   get binder(): TBinder {
-    return this._binder ?? this.defaultBinder();
+    if (!this._binder) {
+      throw new Error(
+        "Binder has not been injected. Ensure the context registered a default and injection ran.",
+      );
+    }
+    return this._binder;
   }
-
-  /** Provide a sane default binder when none is registered/overridden */
-  protected abstract defaultBinder(): TBinder;
 }
 
 // eslint-disable-next-line
@@ -47,22 +49,7 @@ export interface StepDefinition<T extends Adapter> {
   ): Promise<void>;
 }
 
-export type ChannelType<T extends MessageChannel> = new (channel: string) => T;
-
-export interface MessageChannel<T = unknown> {
-  /** Send a message to the channel */
-  send(channel: string, message: T): Promise<void>;
-
-  /** Subscribe to a channel */
-  subscribe(
-    context: CraftContext,
-    channel: string,
-    handler: (message: T) => Promise<void>,
-  ): Promise<void>;
-
-  /** Unsubscribe from a channel */
-  unsubscribe(context: CraftContext, channel: string): Promise<void>;
-}
+// MessageChannel lives with channel adapter now
 
 export type ConsumerType<T extends Consumer, O = unknown> = new (
   context: CraftContext,
