@@ -30,5 +30,5 @@
     "arktype": "^2.0.4",
     "pino-pretty": "^13.0.0"
   },
-  "repository": "https://github.com/routecraftjs/routecraft"
+  "repository": "https://github.com/devoptix-labs/routecraft"
 }

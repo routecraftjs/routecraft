@@ -3,38 +3,6 @@ import { type OperationType } from "./exchange.ts";
 import { CraftContext } from "./context.ts";
 import { type RouteDefinition } from "./route.ts";
 
-export interface Binder {
-  readonly type: string;
-  readonly name: string;
-}
-
-export interface BinderSupport<TBinder extends Binder = Binder> {
-  readonly binder: TBinder;
-}
-
-/**
- * Base that provides binder plumbing without implicit defaults.
- * The runtime (context) is responsible for injecting the binder.
- */
-export class BinderBackedAdapter<TBinder extends Binder>
-  implements BinderSupport<TBinder>
-{
-  private _binder?: TBinder;
-
-  setBinder(binder: TBinder): void {
-    this._binder = binder;
-  }
-
-  get binder(): TBinder {
-    if (!this._binder) {
-      throw new Error(
-        "Binder has not been injected. Ensure the context registered a default and injection ran.",
-      );
-    }
-    return this._binder;
-  }
-}
-
 // eslint-disable-next-line
 export interface Adapter {}
 

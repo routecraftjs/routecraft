@@ -6,7 +6,6 @@ import {
 import { type Source } from "../operations/from";
 import { CraftContext, type MergedOptions } from "../context";
 import { type Destination } from "../operations/to";
-import { type Binder, BinderBackedAdapter } from "../types";
 
 export type ChannelType<T extends MessageChannel> = new (channel: string) => T;
 
@@ -34,17 +33,10 @@ export interface ChannelAdapterOptions {
   channelType?: ChannelType<MessageChannel>;
 }
 
-export interface ChannelBinder extends Binder {
-  readonly type: "channel";
-  createMessageChannel<T>(channelName: string): MessageChannel<T>;
-}
-
 export class ChannelAdapter<T = unknown>
-  extends BinderBackedAdapter<ChannelBinder>
   implements Source<T>, Destination<T>, MergedOptions<ChannelAdapterOptions>
 {
   readonly adapterId = "routecraft.adapter.channel";
-  static readonly binderKind = "channel";
   static readonly ADAPTER_CHANNEL_STORE =
     "routecraft.adapter.channel.store" as const;
   static readonly ADAPTER_CHANNEL_OPTIONS =
@@ -56,7 +48,6 @@ export class ChannelAdapter<T = unknown>
     _channel: string,
     public options: Partial<ChannelAdapterOptions> = {},
   ) {
-    super();
     this._channel = _channel;
   }
 
@@ -118,9 +109,8 @@ export class ChannelAdapter<T = unknown>
           new MyChannelType(this._channel) as MessageChannel<Exchange<T>>,
         );
       } else {
-        // Prefer binder-created channel
-        const ch = this.binder.createMessageChannel<Exchange<T>>(this._channel);
-        store.set(this.channel, ch);
+        // Fallback to a default in-memory implementation
+        store.set(this.channel, new InMemoryMessageChannel<Exchange<T>>());
       }
     }
 
@@ -145,5 +135,28 @@ export class ChannelAdapter<T = unknown>
       ...store,
       ...this.options,
     };
+  }
+}
+
+class InMemoryMessageChannel<T> implements MessageChannel<T> {
+  private subscribers = new Map<string, (message: T) => Promise<void>>();
+
+  async send(channel: string, message: T): Promise<void> {
+    const handler = this.subscribers.get(channel);
+    if (handler) {
+      await handler(message);
+    }
+  }
+
+  async subscribe(
+    _context: CraftContext,
+    channel: string,
+    handler: (message: T) => Promise<void>,
+  ): Promise<void> {
+    this.subscribers.set(channel, handler);
+  }
+
+  async unsubscribe(_context: CraftContext, channel: string): Promise<void> {
+    this.subscribers.delete(channel);
   }
 }

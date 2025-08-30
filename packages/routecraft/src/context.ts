@@ -1,7 +1,6 @@
 import { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
 import { RouteCraftError, ErrorCode } from "./error.ts";
 import { createLogger, type Logger } from "./logger.ts";
-import { type Binder } from "./types.ts";
 
 /**
  * Base store registry that can be extended by adapters
@@ -130,84 +129,7 @@ export class CraftContext {
     }
   }
 
-  /**
-   * Inject a binder into an adapter if it declares a binderKind.
-   * Warns when a binder is missing for the declared kind. Throws when a binder
-   * exists but no compatible setter is exposed on the adapter.
-   */
-  private injectBinderIfSupported(
-    target: unknown,
-    role: "source" | "step",
-    routeId: string,
-  ): void {
-    const adapter = target as
-      | { setBinder?: (b: unknown) => void }
-      | Record<string, unknown>
-      | undefined;
-    const ctor = (adapter as object | undefined)?.constructor as
-      | { binderKind?: string }
-      | undefined;
-    const kind: string | undefined = (
-      ctor as { binderKind?: string } | undefined
-    )?.binderKind;
-    if (!kind || !adapter) return;
-
-    const bound = this.getBinder(kind) as unknown;
-    if (!bound) {
-      this.logger.warn(
-        `No binder registered for kind "${kind}" on ${role} adapter in route "${routeId}"`,
-      );
-      return;
-    }
-
-    const specialSetterName = `set${kind.charAt(0).toUpperCase()}${kind.slice(
-      1,
-    )}Binder`;
-    const maybeSpecial = (adapter as Record<string, unknown>)[
-      specialSetterName
-    ];
-    if (typeof maybeSpecial === "function") {
-      (maybeSpecial as (b: unknown) => void)(bound);
-      return;
-    }
-
-    if (
-      typeof (adapter as { setBinder?: (b: unknown) => void }).setBinder ===
-      "function"
-    ) {
-      (adapter as { setBinder: (b: unknown) => void }).setBinder(bound);
-      return;
-    }
-
-    throw new Error(
-      `Adapter for route "${routeId}" (${role}) declares binderKind "${kind}" but exposes no setter (set${kind
-        .charAt(0)
-        .toUpperCase()}${kind.slice(1)}Binder or setBinder).`,
-    );
-  }
-
-  /**
-   * Register a binder by kind. Adapters can declare a static binderKind
-   * and will be hydrated with the matching binder during route registration.
-   */
-  setBinder(kind: string, binder: Binder): void {
-    let reg = this.getStore(
-      "routecraft.binders.registry" as keyof StoreRegistry,
-    ) as Map<string, Binder> | undefined;
-    if (!reg) {
-      reg = new Map<string, Binder>();
-      this.setStore("routecraft.binders.registry" as keyof StoreRegistry, reg);
-    }
-    reg.set(kind, binder);
-  }
-
-  /** Get a binder by kind */
-  getBinder<T extends Binder = Binder>(kind: string): T | undefined {
-    const reg = this.getStore(
-      "routecraft.binders.registry" as keyof StoreRegistry,
-    ) as Map<string, Binder> | undefined;
-    return (reg?.get(kind) as T) || undefined;
-  }
+  // Binder mechanism removed
 
   /**
    * Set the function to be called when the context starts.
@@ -282,18 +204,7 @@ export class CraftContext {
         });
       }
 
-      // Hydrate binder for the source adapter if applicable
-      this.injectBinderIfSupported(
-        definition.source as unknown,
-        "source",
-        definition.id,
-      );
-
-      // Hydrate adapter binders for all steps in this route
-      for (const step of definition.steps) {
-        const adapter = (step as unknown as { adapter?: unknown }).adapter;
-        this.injectBinderIfSupported(adapter, "step", definition.id);
-      }
+      // Binder injection removed
 
       const controller = new AbortController();
       this.controllers.set(definition.id, controller);
