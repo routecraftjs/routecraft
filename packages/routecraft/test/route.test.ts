@@ -2,14 +2,14 @@ import { type } from "arktype";
 import { describe, test, expect, afterEach, vi, beforeEach } from "vitest";
 import {
   context,
-  routes,
+  craft,
   simple,
   type CraftContext,
   NoopAdapter,
   logger,
   log,
   noop,
-} from "routecraft";
+} from "@routecraftjs/routecraft";
 
 const logSpy = {
   warn: vi.fn(),
@@ -44,7 +44,7 @@ describe("Route Behavior", () => {
 
     testContext = context()
       .routes(
-        routes()
+        craft()
           .from([{ id: "test-pipeline" }, simple("test-message")])
           .transform(transformerSpy)
           .to(noop),
@@ -74,7 +74,7 @@ describe("Route Behavior", () => {
 
     testContext = context()
       .routes(
-        routes()
+        craft()
           .from([{ id: "test-route" }, simple("test-message")])
           .to(noop)
           .to(noop2)
@@ -100,7 +100,7 @@ describe("Route Behavior", () => {
 
     testContext = context()
       .routes(
-        routes()
+        craft()
           .from([
             { id: "continuous-route" },
             {
@@ -146,7 +146,7 @@ describe("Route Behavior", () => {
 
     testContext = context()
       .routes(
-        routes()
+        craft()
           .from([{ id: "error-route" }, simple("test")])
           .process(() => {
             throw new Error("Processor error");
@@ -175,7 +175,7 @@ describe("Route Behavior", () => {
 
     const testContext = context()
       .routes(
-        routes()
+        craft()
           .from([{ id: "correlation-test" }, simple("test")])
           .process((exchange) => {
             capturedCorrelationIds.push(
@@ -191,7 +191,6 @@ describe("Route Behavior", () => {
           .to(noop()),
       )
       .build();
-
     await testContext.start();
 
     expect(capturedCorrelationIds[0]).toBeDefined();
@@ -214,7 +213,7 @@ describe("Route Behavior", () => {
 
     testContext = context()
       .routes(
-        routes()
+        craft()
           .from([
             { id: "fail-continue-route" },
             {
@@ -260,7 +259,7 @@ describe("Route Behavior", () => {
 
     testContext = context()
       .routes(
-        routes()
+        craft()
           .from([
             { id: "headers-test" },
             {
@@ -297,7 +296,7 @@ describe("Route Behavior", () => {
 
     testContext = context()
       .routes(
-        routes()
+        craft()
           .from([{ id: "async-test" }, simple("test")])
           .process(async (exchange) => {
             await new Promise((resolve) => setTimeout(resolve, 10));
@@ -327,7 +326,7 @@ describe("Route Behavior", () => {
 
     testContext = context()
       .routes(
-        routes()
+        craft()
           .from([{ id: "transform-test" }, simple(() => ({ value: 1 }))])
           .transform((body) => {
             transformedBodies.push(body);
@@ -368,7 +367,7 @@ describe("Route Behavior", () => {
 
     testContext = context()
       .routes(
-        routes()
+        craft()
           .from([{ id: "processor-returns" }, simple(() => ({ num: 1 }))])
           .process((exchange) => {
             exchange.body = (exchange.body as { num: number }).num.toString();
@@ -401,7 +400,7 @@ describe("Route Behavior", () => {
 
     testContext = context()
       .routes(
-        routes()
+        craft()
           .from([{ id: "split-test" }, simple("hello-world")])
           .split((exchange: any) => {
             // For a string message with '-' delimiter, split into parts.
@@ -447,7 +446,7 @@ describe("Route Behavior", () => {
 
     testContext = context()
       .routes(
-        routes()
+        craft()
           .from([{ id: "empty-split-test" }, simple("unused-message")])
           .split(() => {
             // Always return an empty array.
@@ -475,7 +474,7 @@ describe("Route Behavior", () => {
 
     testContext = context()
       .routes(
-        routes()
+        craft()
           .from([{ id: "correlation-split-test" }, simple("part1,part2")])
           .split((exchange: any) => {
             // Using a comma as a delimiter.
@@ -524,7 +523,7 @@ describe("Route Behavior", () => {
 
     testContext = context()
       .routes(
-        routes()
+        craft()
           .from([{ id: "aggregate-test" }, simple("a-b-c")])
           .split(split)
           .process(processorSpy)
@@ -555,7 +554,7 @@ describe("Route Behavior", () => {
 
     testContext = context()
       .routes(
-        routes()
+        craft()
           .from([{ id: "aggregate-direct-test" }, simple("original")])
           .tap(log())
           .aggregate((exchanges) => {
@@ -586,7 +585,7 @@ describe("Route Behavior", () => {
 
     testContext = context()
       .routes(
-        routes()
+        craft()
           .from([
             { id: "split-headers-test" },
             {
@@ -627,7 +626,7 @@ describe("Route Behavior", () => {
 
     testContext = context()
       .routes(
-        routes()
+        craft()
           .from([{ id: "split-process-aggregate" }, simple("1-2-3")])
           .split<string, number>((exchange) =>
             exchange.body
@@ -671,7 +670,7 @@ describe("Route Behavior", () => {
 
     testContext = context()
       .routes(
-        routes()
+        craft()
           .from([
             { id: "split-error-aggregate" },
             simple("success1-error-success2"),
@@ -745,7 +744,7 @@ describe("Route Behavior", () => {
 
     testContext = context()
       .routes(
-        routes()
+        craft()
           .from([{ id: "nested-split-test" }, simple("A:1-2|B:3-4")])
           .split<string, string>((exchange) =>
             // First split by |
@@ -819,7 +818,7 @@ describe("Route Behavior", () => {
 
     testContext = context()
       .routes(
-        routes()
+        craft()
           .from([{ id: "filter-test" }, simple(numbers)])
           .filter<number>((exchange) => exchange.body % 2 === 0) // Only allow even numbers
           .tap<number>((exchange) => {
@@ -852,7 +851,7 @@ describe("Route Behavior", () => {
 
     testContext = context()
       .routes(
-        routes()
+        craft()
           .from([{ id: "validate-test" }, simple(messages)])
           .validate(type("string"))
           .tap((exchange) => {

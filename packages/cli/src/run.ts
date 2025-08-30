@@ -4,6 +4,7 @@ import {
   ContextBuilder,
   type RouteDefinition,
   logger,
+  RouteBuilder,
 } from "@routecraftjs/routecraft";
 import { minimatch } from "minimatch";
 import {
@@ -113,7 +114,7 @@ export async function runCommand(
   } else {
     await startContext();
     // Only wait on abort if there are still active routes
-    if (context!.getRoutes().some((route) => !route.signal.aborted)) {
+    if (context!.getcraft().some((route) => !route.signal.aborted)) {
       await new Promise((_, reject) => {
         // No abort controller here, but could be added for symmetry
         process.on("SIGINT", () => reject(new Error("Aborted")));
@@ -139,22 +140,32 @@ async function configureRoutes(
     const isRouteDefinition = (obj: unknown): obj is RouteDefinition =>
       typeof obj === "object" && obj !== null && "id" in obj;
 
+    const isRouteBuilder = (obj: unknown): obj is RouteBuilder<unknown> =>
+      obj instanceof RouteBuilder;
+
     const isValidExport = Array.isArray(defaultExport)
-      ? defaultExport.every(isRouteDefinition)
-      : isRouteDefinition(defaultExport);
+      ? defaultExport.every(
+          (item) => isRouteDefinition(item) || isRouteBuilder(item),
+        )
+      : isRouteDefinition(defaultExport) || isRouteBuilder(defaultExport);
 
     if (!isValidExport) {
-      logger.error(
-        `Error: Default export in ${filePath} must be a RouteDefinition or array of RouteDefinitions`,
-        "\nPlease ensure your route file exports a valid route configuration.",
+      logger.warn(
+        `Skipping ${filePath}: default export must be a RouteDefinition, RouteBuilder, or array of those.`,
       );
       return;
     }
 
     if (Array.isArray(defaultExport)) {
-      defaultExport.forEach((route) => contextBuilder.routes(route));
+      defaultExport.forEach((routeOrBuilder) =>
+        contextBuilder.routes(
+          routeOrBuilder as RouteDefinition | RouteBuilder<unknown>,
+        ),
+      );
     } else {
-      contextBuilder.routes(defaultExport as RouteDefinition);
+      contextBuilder.routes(
+        defaultExport as RouteDefinition | RouteBuilder<unknown>,
+      );
     }
 
     logger.info(`Successfully configured routes from ${filePath}`);

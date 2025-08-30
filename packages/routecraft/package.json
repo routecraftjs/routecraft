@@ -2,7 +2,8 @@
   "name": "@routecraftjs/routecraft",
   "version": "0.1.0",
   "type": "module",
-  "main": "./dist/mod.js",
+  "main": "./dist/mod.cjs",
+  "module": "./dist/mod.js",
   "types": "./dist/mod.d.ts",
   "exports": {
     ".": {
@@ -15,7 +16,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsup src/mod.ts --format esm --dts",
+    "build": "tsup src/mod.ts --format esm,cjs --dts",
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {

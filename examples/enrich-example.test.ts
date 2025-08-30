@@ -14,11 +14,8 @@ describe("Enrich Example", () => {
    * @expectedResult The exchange body should contain both original and additional data
    */
   it("should enrich an exchange with additional data", async () => {
-    // Create a context
-    const ctx = context().build();
-
-    // Register the route
-    ctx.registerRoutes(...enrichExample);
+    // Create a context with the route builder
+    const ctx = context().routes(enrichExample).build();
 
     // Spy on console.log to capture the output
     const logSpy = vi.spyOn(console, "log");

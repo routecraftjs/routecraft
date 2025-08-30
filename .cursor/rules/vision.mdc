@@ -1,0 +1,62 @@
+---
+description: "RouteCraft Vision: DSL, isolation, runtimes, and future direction"
+globs: ["**/*"]
+alwaysApply: true
+---
+
+## RouteCraft Vision
+
+- RouteCraft is a developer-first automation and integration framework. You author small, focused routes with a fluent DSL and run them across multiple runtimes.
+- Routes are isolated units. Each route has its own source, steps, and consumer. A failing route does not stop others; each route has its own AbortController.
+- Multiple runtimes:
+  - CLI: execute individual files or folders of routes; watch mode restarts on change.
+  - Node.js: programmatic `CraftContext` controls start/stop of many routes.
+  - Next.js: integrate a single context into the Next lifecycle, skipping production build.
+  - Future: Cloud runtimes (serverless/long-lived workers), BUN/Deno ports.
+- "Start" experience should feel like a light Docker/Docker Compose for routes: start many, list running, stop individually, tail logs per route id.
+
+## Public DSL shape (from source)
+
+- Entry points: `context() -> ContextBuilder`, `craft() -> RouteBuilder`.
+- Source: `.from(adapterOrCallable | [RouteOptions, adapterOrCallable])`.
+- Steps: `.process`, `.to`, `.split`, `.aggregate`, `.transform`, `.map`, `.tap`, `.filter`, `.validate`, `.enrich`.
+- Provide configuration as a single options object or a single adapter instance. Service-specific verbs belong inside adapter options, not the public DSL.
+
+## Adapters in repo
+
+- `simple`, `channel`, `timer`; utilities: `log`, `noop`.
+- Consumers: `SimpleConsumer` (default), `BatchConsumer`.
+
+## Runtimes in repo
+
+- CLI:
+  - `craft run <pathOrDir> [--exclude pattern] [--watch]` builds a context from route files. Restarts in watch mode.
+  - `craft start <configPath> [--watch]` loads a `CraftConfig` default export and starts a `CraftContext`.
+- Node.js: `context().routes(...).onStartup(...).onShutdown(...).build().start()`.
+- Next.js: `createRoutecraft(config)` wraps Next config, starts one context in dev phases, skips during `next build`.
+
+## Future (explicitly aspirational)
+
+- CLI: interactive commands such as `craft log <routeId>`, list/stop routes.
+- Cloud embeddings: adapters/wrappers for serverless or worker-style deployments.
+- Next.js inbound adapters (API/page/router) that bind requests into RouteCraft routes.
+
+## Pointers to source (truth)
+
+- Context: `packages/routecraft/src/context.ts`
+- Builder/DSL: `packages/routecraft/src/builder.ts`, `packages/routecraft/src/dsl.ts`
+- CLI: `packages/cli/src/run.ts`, `packages/cli/src/start.ts`
+- Next.js: `packages/nextjs/src/plugin.ts`
+
+## Inspirations and guiding principles
+
+- Primary inspiration: Apache Camel. When uncertain about naming or composition, prefer Camel-like patterns: adapters implement operation interfaces, routes remain linear and focused, and configuration lives in options rather than public DSL verbs.
+- Additional inspiration: Pipedream, Make, Zapier – easy composition of sources, steps, and destinations with clear boundaries.
+- Origin story: started as automation for repetitive tasks; with AI/agents, we assume fewer tasks are truly repetitive and design for smart, dynamic flows while keeping type safety and isolation.
+
+## AI and agents roadmap (vision)
+
+- MCP (Model Context Protocol) support: adapters and/or processors that expose/consume MCP tools to orchestrate model-grounded operations.
+- OpenAI model usage: first-class adapters/utilities to call models (responses routed as exchanges), with validation and transform steps.
+- OpenAI Agents API: optional integration with the official JavaScript agent library to run agent loops within routes safely (respecting AbortController, backpressure via consumers).
+- Guardrails: schema validation with `.validate`, deterministic fan-out/in with `.split`/`.aggregate`, and clear side-effect boundaries with `.to`.

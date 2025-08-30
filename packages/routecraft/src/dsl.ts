@@ -21,7 +21,6 @@ import { TimerAdapter, type TimerOptions } from "./adapters/timer.ts";
  * const ctx = context()
  *   .routes(myRoute)
  *   .onStartup(() => console.log('Starting...'))
- *   .build();
  *
  * // Start processing
  * await ctx.start();
@@ -41,14 +40,13 @@ export function context(): ContextBuilder {
  * @example
  * ```typescript
  * // Define a route that processes data
- * const myRoute = routes()
+ * const myRoute = craft()
  *   .from(simple("Hello, World!"))
  *   .transform(data => data.toUpperCase())
  *   .to(log())
- *   .build();
  * ```
  */
-export function routes(): RouteBuilder {
+export function craft(): RouteBuilder {
   return new RouteBuilder();
 }
 
@@ -64,13 +62,13 @@ export function routes(): RouteBuilder {
  * @example
  * ```typescript
  * // Static data
- * routes().from(simple("Hello, World!"))
+ * craft().from(simple("Hello, World!"))
  *
  * // Dynamic data from a function
- * routes().from(simple(() => new Date().toISOString()))
+ * craft().from(simple(() => new Date().toISOString()))
  *
  * // Dynamic data from an async function
- * routes().from(simple(async () => {
+ * craft().from(simple(async () => {
  *   const response = await fetch('https://api.example.com/data');
  *   return response.json();
  * }))
@@ -97,7 +95,7 @@ export function simple<T = unknown>(
  * @example
  * ```typescript
  * // Send to a no-op destination during development
- * routes()
+ * craft()
  *   .from(source)
  *   .to(process.env.PROD ? realDestination() : noop())
  * ```
@@ -117,7 +115,7 @@ export function noop<T = unknown>(): NoopAdapter<T> {
  * @example
  * ```typescript
  * // Log data at different points in the route
- * routes()
+ * craft()
  *   .from(source)
  *   .tap(log()) // Log input data
  *   .transform(data => processData(data))
@@ -143,19 +141,17 @@ export function log<T = unknown>(): LogAdapter<T> {
  * @example
  * ```typescript
  * // Producer route sends to a channel
- * const producerRoute = routes()
+ * const producerRoute = craft()
  *   .from(source)
  *   .to(channel('my-channel'))
- *   .build();
  *
  * // Consumer route reads from the same channel
- * const consumerRoute = routes()
+ * const consumerRoute = craft()
  *   .from(channel('my-channel'))
  *   .to(destination)
- *   .build();
  *
  * // Register both routes with the context
- * context().routes([producerRoute, consumerRoute]).build();
+ * context().routes([producerRoute, consumerRoute]);
  * ```
  */
 export function channel<T = unknown>(
@@ -177,16 +173,14 @@ export function channel<T = unknown>(
  * @example
  * ```typescript
  * // Run every 5 seconds
- * routes()
+ * craft()
  *   .from(timer({ intervalMs: 5000 }))
  *   .to(periodicTask)
- *   .build();
  *
  * // Run 10 times, once per second
- * routes()
+ * craft()
  *   .from(timer({ intervalMs: 1000, repeatCount: 10 }))
  *   .to(batchTask)
- *   .build();
  * ```
  */
 export function timer(options?: TimerOptions): TimerAdapter {

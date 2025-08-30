@@ -1,9 +1,8 @@
-import { log, routes, simple } from "@routecraftjs/routecraft";
+import { log, craft, simple } from "@routecraftjs/routecraft";
 
-export default routes()
+export default craft()
   .from([{ id: "enrich-example" }, simple({ original: "Original message" })])
   .enrich(() => ({
     additional: "Additional data",
   }))
-  .to(log())
-  .build();
+  .to(log());

@@ -14,7 +14,14 @@ describe("Timer Adapter", () => {
    * @expectedResult Should emit multiple messages before being stopped
    */
   test("emits messages at specified interval", async () => {
-    const childLogger = { info: vi.fn(), debug: vi.fn() };
+    const childLogger = {
+      info: vi.fn(),
+      debug: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      level: "info",
+      child: vi.fn().mockReturnThis(),
+    } as any;
     vi.spyOn(logger, "child").mockReturnValue(childLogger);
 
     const ctx = context().routes(timerRoutes).build();
