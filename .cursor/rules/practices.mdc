@@ -8,6 +8,7 @@ alwaysApply: true
 
 - Prefer real symbols and exact APIs from the repository. When in doubt, open the source.
 - Keep routes small, composable, and isolated. If you need multiple flows, start another `.from` in the same builder or create a new builder.
+- Avoid `any`: use precise types or generics. Prefer `unknown` plus narrowing when necessary.
 
 ### Adapter authoring: good vs bad
 

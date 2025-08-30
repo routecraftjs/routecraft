@@ -66,11 +66,25 @@ export { SimpleConsumer } from "./consumers/simple.ts";
 
 export { BatchConsumer, type BatchOptions } from "./consumers/batch.ts";
 
-export { context, craft, simple, noop, log, channel, timer } from "./dsl.ts";
+export {
+  context,
+  craft,
+  simple,
+  noop,
+  log,
+  channel,
+  timer,
+  fetch,
+} from "./dsl.ts";
 
 export { SimpleAdapter } from "./adapters/simple.ts";
 export { LogAdapter } from "./adapters/log.ts";
 export { NoopAdapter } from "./adapters/noop.ts";
+export {
+  FetchAdapter,
+  type FetchOptions,
+  type FetchResult,
+} from "./adapters/fetch.ts";
 export {
   ChannelAdapter,
   type ChannelAdapterOptions,
