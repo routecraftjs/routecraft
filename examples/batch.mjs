@@ -1,6 +1,6 @@
-import { log, routes, timer, BatchConsumer } from "@routecraftjs/routecraft";
+import { log, craft, timer, BatchConsumer } from "@routecraftjs/routecraft";
 
-export default routes()
+export default craft()
   .from([
     {
       id: "batch-2",
@@ -13,5 +13,4 @@ export default routes()
     },
     timer({ intervalMs: 100, repeatCount: 10 }),
   ])
-  .tap(log())
-  .build();
+  .tap(log());

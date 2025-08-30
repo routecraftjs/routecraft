@@ -1,7 +1,7 @@
 import { describe, test, expect, afterEach, vi, beforeEach } from "vitest";
 import {
   context,
-  routes,
+  craft,
   simple,
   type CraftContext,
   NoopAdapter,
@@ -33,7 +33,7 @@ describe("CraftContext", () => {
     await testContext.stop();
     await execution;
 
-    expect(testContext.getRoutes()).toHaveLength(0);
+    expect(testContext.getcraft()).toHaveLength(0);
   });
 
   /**
@@ -44,14 +44,14 @@ describe("CraftContext", () => {
    */
   test("Registers routes correctly", async () => {
     testContext = context()
-      .routes(routes().from([{ id: "test-route" }, simple("test")]))
+      .routes(craft().from([{ id: "test-route" }, simple("test")]))
       .build();
 
     await testContext.start();
     // Ensure all asynchronous logs have flushed
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(testContext.getRoutes()).toHaveLength(1);
+    expect(testContext.getcraft()).toHaveLength(1);
     expect(testContext.getRouteById("test-route")).toBeDefined();
   });
 
@@ -121,7 +121,7 @@ describe("Route Management", () => {
    */
   test("Rejects duplicate route IDs", () => {
     const builder = context().routes(
-      routes()
+      craft()
         .from([{ id: "duplicate" }, simple("test")])
         .from([{ id: "duplicate" }, simple("test")]),
     );
@@ -138,7 +138,7 @@ describe("Route Management", () => {
   test("Manages multiple routes correctly", async () => {
     const testRoutes = [1, 2, 3]
       .map((n) =>
-        routes()
+        craft()
           .from([{ id: `route-${n}` }, simple(n)])
           .build(),
       )
@@ -146,7 +146,7 @@ describe("Route Management", () => {
 
     testContext = context().routes(testRoutes).build();
 
-    expect(testContext.getRoutes()).toHaveLength(3);
+    expect(testContext.getcraft()).toHaveLength(3);
     expect(testContext.getRouteById("route-2")).toBeDefined();
     expect(testContext.getRouteById("missing")).toBeUndefined();
   });
@@ -216,7 +216,7 @@ describe("Route Independence", () => {
     // Create context with failing and working routes.
     testContext = context()
       .routes(
-        routes()
+        craft()
           .from([
             { id: "failing-route" },
             simple(() => {

@@ -1,6 +1,6 @@
-import { channel, log, routes, simple } from "@routecraftjs/routecraft";
+import { channel, log, craft, simple } from "@routecraftjs/routecraft";
 
-export default routes()
+export default craft()
   .from([{ id: "channel-adapter-2" }, channel("my-channel-2")])
   .tap(log())
   .from([{ id: "channel-adapter-1" }, channel("my-channel-1")])
@@ -9,5 +9,4 @@ export default routes()
   .to(channel("my-channel-2"))
   .from([{ id: "simple" }, simple("Hello, World!")])
   .tap(log())
-  .to(channel("my-channel-1"))
-  .build();
+  .to(channel("my-channel-1"));

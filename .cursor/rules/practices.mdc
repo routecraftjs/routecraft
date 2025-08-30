@@ -1,0 +1,113 @@
+---
+description: "RouteCraft Contributor Practices: adapters, operations, routes, build/test"
+globs: ["**/*"]
+alwaysApply: true
+---
+
+## Contributor Practices
+
+- Prefer real symbols and exact APIs from the repository. When in doubt, open the source.
+- Keep routes small, composable, and isolated. If you need multiple flows, start another `.from` in the same builder or create a new builder.
+
+### Adapter authoring: good vs bad
+
+- Good
+  - One constructor with a minimal options object: `myAdapter(options?: Partial<MyOptions>)`.
+  - Implement the operation interface(s) needed:
+    - Source: `subscribe(context, handler, abortController)`
+    - Destination: `send(exchange)`
+    - Processor: `process(exchange)`
+  - Use `CraftContext` store for shared state. Extend `StoreRegistry` with typed keys via declaration merging.
+  - Provide a clear `adapterId`, log with `logger`.
+- Bad
+  - Public DSL with chained, service-specific verbs.
+  - Implicit globals or cross-route coupling. Use `channel(...)` or typed stores.
+  - Adapters mixing unrelated responsibilities.
+
+### Operation authoring: guidelines
+
+- One function per step; accept a single options object or one adapter instance.
+- Prefer purity for `.transform`, `.process`, `.filter`, `.tap`.
+- Validate external inputs with `.validate(schema)`.
+- Use `.split` and `.aggregate` for fan-out/in patterns.
+
+### Explicit anti-patterns (avoid)
+
+- Service-specific verbs in the public DSL
+  - Bad: `api.get("/users").map(...).to(db())`
+  - Better: `craft().from([ { id }, api({ method: "GET", path: "/users" })]).map(...).to(db())`
+- Overloaded adapter constructors that hide behavior
+  - Bad: `Api("/users")` implying GET by default
+  - Better: `api({ method: "GET", path: "/users" })`
+- Coupled cross-route state via globals
+  - Bad: `global.currentUser = ...` inside a step
+  - Better: pass data through exchanges or use `channel("name")` for inter-route messaging; use typed `StoreRegistry` keys for context-level state.
+- Steps that both transform and side-effect
+  - Bad: `.process(ex => { ex.body = doThing(ex.body); sendToKafka(ex); return ex; })`
+  - Better: `.transform(doThing).to(kafkaProducer())`
+- Hidden implicit sources/destinations
+  - Bad: `.from(httpServer()).to(log())` where `httpServer` also writes to a DB
+  - Better: keep sources only as sources; push side effects into `.to(...)` destinations explicitly.
+
+### Route authoring checklist
+
+- Set a stable `id` in the first `.from([{ id }, source ])` call.
+- Keep a clear, single responsibility.
+- Apply `.to` only for side effects/output destinations.
+
+### Build and test flow
+
+- Use pnpm workspace scripts:
+  - Build: `pnpm build`
+  - Test: `pnpm test`
+  - Lint: `pnpm lint`
+  - Typecheck: `pnpm typecheck`
+- Run example routes:
+  - `pnpm craft run ./examples/hello-world.mjs`
+  - `pnpm craft run ./examples --exclude "*.test.ts"`
+  - `pnpm craft start ./path/to/config.ts`
+
+### Next.js usage
+
+- Wrap Next config:
+
+```js
+import { createRoutecraft } from "@routecraftjs/nextjs";
+export const withRoutecraft = createRoutecraft({ routes: myRoutes });
+export default withRoutecraft({
+  /* your next config */
+});
+```
+
+- Dev-only start; skipped in `next build`. Single global context to handle HMR.
+
+### Examples
+
+- Hello World
+
+```ts
+import { log, craft, simple, logger } from "@routecraftjs/routecraft";
+export default craft()
+  .from([{ id: "hello-world" }, simple("Hello, World!")])
+  .tap(log())
+  .transform((body) => {
+    logger.info("Transforming exchange", { body });
+    return body.toUpperCase();
+  })
+  .to(log());
+```
+
+- Enrich
+
+```ts
+import { log, craft, simple } from "@routecraftjs/routecraft";
+export default craft()
+  .from([{ id: "enrich-example" }, simple({ original: "Original message" })])
+  .enrich(() => ({ additional: "Additional data" }))
+  .to(log());
+```
+
+### Notes
+
+- Source of truth lives under `packages/routecraft/src/*`, `packages/cli/src/*`, and `packages/nextjs/src/*`.
+- If compiled docs or coverage HTML differ, prefer the source files.

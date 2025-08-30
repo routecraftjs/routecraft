@@ -217,7 +217,7 @@ export class CraftContext {
    *
    * @returns Array of routes
    */
-  getRoutes(): Route[] {
+  getcraft(): Route[] {
     return this.routes;
   }
 

@@ -72,7 +72,6 @@ import {
  *   .store('routecraft.adapter.channel.store', new Map())
  *   .routes(routes1)
  *   .routes([routes2, routes3])
- *   .build();
  *
  * // Start the context to begin processing
  * await context.start();
@@ -163,7 +162,7 @@ export class ContextBuilder {
    *
    * // Add a route builder
    * builder.routes(
-   *   routes()
+   *   craft()
    *     .from(simple("hello"))
    *     .to(log())
    * );
@@ -250,11 +249,10 @@ export type RouteOptions = Partial<Pick<RouteDefinition, "consumer">> & {
  * @example
  * ```typescript
  * // Create a simple route that processes a string
- * const route = routes()
+ * const route = craft()
  *   .from(simple("Hello, World!"))
  *   .transform(msg => msg.toUpperCase())
  *   .to(log())
- *   .build();
  * ```
  */
 export class RouteBuilder<CurrentType = unknown> {
@@ -666,12 +664,11 @@ export class RouteBuilder<CurrentType = unknown> {
    * @returns An array of RouteDefinition objects
    * @example
    * // Define a complete route and build it
-   * const route = routes()
+   * const route = craft()
    *   .from<string[]>(source)
    *   .split()
    *   .process((exchange) => ({ ...exchange, body: exchange.body.toUpperCase() }))
    *   .to(destination)
-   *   .build();
    *
    * // Add the route to a context
    * context()
