@@ -1,4 +1,5 @@
-import { Fragment } from 'react'
+'use client'
+import { Fragment, useState } from 'react'
 import Image from 'next/image'
 import clsx from 'clsx'
 import { Highlight } from 'prism-react-renderer'
@@ -8,18 +9,18 @@ import { HeroBackground } from '@/components/HeroBackground'
 import blurCyanImage from '@/images/blur-cyan.png'
 import blurIndigoImage from '@/images/blur-indigo.png'
 
-const codeLanguage = 'javascript'
-const code = `export default {
-  strategy: 'predictive',
-  engine: {
-    cpus: 12,
-    backups: ['./storage/cache.wtf'],
-  },
-}`
+const codeLanguage = 'typescript'
+const routeCode = `import { craft, simple, log } from '@routecraftjs/routecraft'
 
-const tabs = [
-  { name: 'cache-advance.config.js', isActive: true },
-  { name: 'package.json', isActive: false },
+export default craft()
+  .from([{ id: 'hero-hello' }, simple('Hello, RouteCraft!')])
+  .transform((msg) => msg.toUpperCase())
+  .to(log())`
+
+type CodeTab = { name: string; code: string }
+const tabs: CodeTab[] = [
+  { name: 'stc/routes/hello-world.mjs', code: routeCode },
+  { name: 'package.json', code: '' },
 ]
 
 function TrafficLightsIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
@@ -33,6 +34,9 @@ function TrafficLightsIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
 }
 
 export function Hero() {
+  const [activeTab, setActiveTab] = useState<string>('routes/hello-world.mjs')
+  const active = tabs.find((t) => t.name === activeTab) ?? tabs[0]
+  const code = active.code
   return (
     <div className="overflow-hidden bg-slate-900 dark:-mt-19 dark:-mb-32 dark:pt-19 dark:pb-32">
       <div className="py-16 sm:px-2 lg:relative lg:px-0 lg:py-20">
@@ -49,15 +53,18 @@ export function Hero() {
             />
             <div className="relative">
               <p className="inline bg-linear-to-r from-indigo-200 via-sky-400 to-indigo-200 bg-clip-text font-display text-5xl tracking-tight text-transparent">
-                Never miss the cache again.
+                Craft your routes. Control your flow.
               </p>
               <p className="mt-3 text-2xl tracking-tight text-slate-400">
-                Cache every single thing your app could ever do ahead of time,
-                so your code never even has to run at all.
+                A developer‑first automation and integration framework with a
+                fluent DSL.
               </p>
               <div className="mt-8 flex gap-4 md:justify-center lg:justify-start">
-                <Button href="/">Get started</Button>
-                <Button href="/" variant="secondary">
+                <Button href="/docs/introduction">Get started</Button>
+                <Button
+                  href="https://github.com/devoptix-labs/routecraft"
+                  variant="secondary"
+                >
                   View on GitHub
                 </Button>
               </div>
@@ -94,26 +101,35 @@ export function Hero() {
                 <div className="pt-4 pl-4">
                   <TrafficLightsIcon className="h-2.5 w-auto stroke-slate-500/30" />
                   <div className="mt-4 flex space-x-2 text-xs">
-                    {tabs.map((tab) => (
-                      <div
-                        key={tab.name}
-                        className={clsx(
-                          'flex h-6 rounded-full',
-                          tab.isActive
-                            ? 'bg-linear-to-r from-sky-400/30 via-sky-400 to-sky-400/30 p-px font-medium text-sky-300'
-                            : 'text-slate-500',
-                        )}
-                      >
-                        <div
+                    {tabs.map((tab) => {
+                      const isActive = activeTab === tab.name
+                      const isDisabled = !tab.code
+                      return (
+                        <button
+                          key={tab.name}
+                          onClick={() => {
+                            if (!isDisabled) setActiveTab(tab.name)
+                          }}
+                          disabled={isDisabled}
                           className={clsx(
-                            'flex items-center rounded-full px-2.5',
-                            tab.isActive && 'bg-slate-800',
+                            'flex h-6 rounded-full',
+                            isActive
+                              ? 'bg-linear-to-r from-sky-400/30 via-sky-400 to-sky-400/30 p-px font-medium text-sky-300'
+                              : 'text-slate-500',
+                            isDisabled && 'cursor-not-allowed opacity-50',
                           )}
                         >
-                          {tab.name}
-                        </div>
-                      </div>
-                    ))}
+                          <span
+                            className={clsx(
+                              'flex items-center rounded-full px-2.5',
+                              isActive && 'bg-slate-800',
+                            )}
+                          >
+                            {tab.name}
+                          </span>
+                        </button>
+                      )
+                    })}
                   </div>
                   <div className="mt-6 flex items-start px-1 text-sm">
                     <div
