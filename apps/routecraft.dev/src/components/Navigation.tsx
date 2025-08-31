@@ -18,9 +18,19 @@ export function Navigation({
       <ul role="list" className="space-y-9">
         {navigation.map((section) => (
           <li key={section.title}>
-            <h2 className="font-display font-medium text-slate-900 dark:text-white">
-              {section.title}
-            </h2>
+            {section.href ? (
+              <Link
+                href={section.href}
+                onClick={onLinkClick}
+                className="font-display font-medium text-slate-900 hover:text-slate-700 dark:text-white dark:hover:text-slate-300"
+              >
+                {section.title}
+              </Link>
+            ) : (
+              <h2 className="font-display font-medium text-slate-900 dark:text-white">
+                {section.title}
+              </h2>
+            )}
             <ul
               role="list"
               className="mt-2 space-y-2 border-l-2 border-slate-100 lg:mt-4 lg:space-y-4 lg:border-slate-200 dark:border-slate-800"
