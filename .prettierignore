@@ -1,5 +1,4 @@
 # Dependencies
-node_modules/
 **/node_modules/
 
 # Build outputs
@@ -14,5 +13,6 @@ coverage/
 **/.cache/
 
 # Next.js build output
-apps/routecraft.dev/.next/
 **/.next/
+
+*.md
