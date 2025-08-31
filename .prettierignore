@@ -1,2 +1,18 @@
-.gitignore
-pnpm-lock.yaml
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build outputs
+.dist/
+**/dist/
+**/build/
+
+# Coverage and caches
+coverage/
+**/coverage/
+**/.turbo/
+**/.cache/
+
+# Next.js build output
+apps/routecraft.dev/.next/
+**/.next/
