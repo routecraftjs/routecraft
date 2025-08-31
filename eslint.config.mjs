@@ -12,6 +12,8 @@ export default [
       "coverage/**",
       ".husky/_/**",
       "pnpm-lock.yaml",
+      "**/.next/**",
+      "apps/routecraft.dev/**",
     ],
   },
   {
