@@ -3,7 +3,7 @@ export const navigation = [
     title: 'Introduction',
     href: '/docs/introduction',
     links: [
-      { title: 'Getting started', href: '/docs/introduction' },
+      { title: 'Getting started', href: '/' },
       { title: 'Installation', href: '/docs/introduction/installation' },
       {
         title: 'Project structure',
@@ -21,12 +21,14 @@ export const navigation = [
     links: [
       { title: 'Adapters', href: '/docs/reference/adapters' },
       { title: 'Operations', href: '/docs/reference/operations' },
+      { title: 'Events', href: '/docs/reference/events' },
       { title: 'Configuration', href: '/docs/reference/configuration' },
       { title: 'CLI', href: '/docs/reference/cli' },
       {
         title: 'Create RouteCraft',
         href: '/docs/reference/cli/create-routecraft',
       },
+      { title: 'Plugins', href: '/docs/reference/plugins' },
       { title: 'Errors', href: '/docs/reference/errors' },
     ],
   },

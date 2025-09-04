@@ -50,7 +50,13 @@ export {
 
 export { ContextBuilder, RouteBuilder, type RouteOptions } from "./builder.ts";
 
-export { ErrorCode, RouteCraftError } from "./error.ts";
+export {
+  RouteCraftError,
+  type RCCode,
+  type RCMeta,
+  error,
+  RC,
+} from "./error.ts";
 
 export { logger, createLogger, type Logger } from "./logger.ts";
 

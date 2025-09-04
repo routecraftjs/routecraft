@@ -1,6 +1,6 @@
 import { type Adapter, type StepDefinition } from "../types.ts";
 import { type Exchange, OperationType } from "../exchange.ts";
-import { RouteCraftError, ErrorCode } from "../error.ts";
+import { error as rcError } from "../error.ts";
 
 export type CallableFilter<T = unknown> = (
   exchange: Exchange<T>,
@@ -31,10 +31,8 @@ export class FilterStep<T = unknown> implements StepDefinition<Filter<T>> {
         return;
       }
     } catch (error: unknown) {
-      const err = RouteCraftError.create(error, {
-        code: ErrorCode.FILTER_ERROR,
+      const err = rcError("RC5008", error, {
         message: `Error filtering exchange ${exchange.id}`,
-        docs: "https://routecraft.dev/docs/reference/errors#filter-error",
       });
       exchange.logger.warn(err, `Error filtering exchange ${exchange.id}`);
     }

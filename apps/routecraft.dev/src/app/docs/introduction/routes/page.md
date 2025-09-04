@@ -9,12 +9,11 @@ Build focused data processing pipelines with a fluent DSL. {% .lead %}
 Routes are isolated data processing pipelines that flow from a **source** through **processing steps** to one or more **destinations**, with the final exchange returned to the source. Each route has a single responsibility and runs independently from other routes.
 
 ```ts
-// src/routes/user-processor.route.ts
 import { craft, http, log } from '@routecraftjs/routecraft'
 
 export default craft()
   .id('user-processor')
-  .from(http({ port: 3000, path: '/users' }))
+  .from(http({ path: '/users', method: 'POST' }))
   .process(request => ({
     id: Date.now(),
     name: request.name,
@@ -41,8 +40,8 @@ Define where data comes from:
 
 ```ts
   .from(timer({ intervalMs: 5000 }))  // Timer source
-  .from(http({ port: 8080 }))         // HTTP server
-  .from(csv({ path: './data.csv' }))  // CSV file source
+  .from(http({ path: '/webhook', method: 'POST' })) // HTTP endpoint
+  .from(channel('jobs'))              // Channel source
 ```
 
 ### 3. Processing pipeline
@@ -72,10 +71,7 @@ Routes follow a predictable lifecycle within a context:
 The key to understanding RouteCraft routes is the **exchange flow pattern**: data flows from source → processing → destinations → back to source.
 
 ```
-┌─────────┐    ┌──────────────┐    ┌──────────────┐    ┌─────────┐
-│ Source  │───▶│  Processing  │───▶│ Destinations │───▶│ Source  │
-│ (HTTP)  │    │  Pipeline    │    │   (Log/DB)   │    │Response │
-└─────────┘    └──────────────┘    └──────────────┘    └─────────┘
+Source → Operations → Destination
 ```
 
 This pattern is especially important for **request-response** sources like HTTP servers, where the final exchange becomes the response sent back to the client.
@@ -84,15 +80,13 @@ This pattern is especially important for **request-response** sources like HTTP 
 
 Different source types handle the final exchange differently:
 
-**Request-Response Sources** (need the final exchange):
-- `http()` - Final exchange body becomes HTTP response
-- `rpc()` - Final exchange used for RPC reply
-- Custom interactive sources
+**HTTP routes (pathful)**: Accept requests at a `path` and `method`. The final exchange body becomes the HTTP response.
+– `http({ path, method })`
 
-**Fire-and-Forget Sources** (don't need the final exchange):
-- `timer()` - Triggers processing, ignores final exchange
-- `csv()` - Reads data, final exchange has no effect on file
-- `channel()` - Receives messages, doesn't send responses back
+**Pathless routes**: Triggered by timers, channels, watchers, or jobs. They do not return a response to a caller.
+– `timer()` – scheduled jobs
+– `channel(name)` – inter-route messaging
+– file watchers, queues, or custom sources
 
 **Subscription Sources** (long-running connections):
 - `queue()` - Maintains connection to message queue until shutdown
@@ -100,29 +94,25 @@ Different source types handle the final exchange differently:
 - Custom streaming sources
 
 ```ts
-// HTTP route: Final exchange becomes response (ends after response)
+// HTTP route: final exchange becomes response
 craft()
   .id('api-endpoint')
-  .from(http({ port: 3000, path: '/users' }))
+  .from(http({ path: '/users', method: 'GET' }))
   .process(() => ({ users: [...] }))
-  // { users: [...] } sent as HTTP response, connection closes
 
-// Timer route: Final exchange ignored (runs until manually stopped)
+// Timer route: scheduled job, no response
 craft()
   .id('periodic-task')
   .from(timer({ intervalMs: 60000 }))
-  .process(() => processData())
-  .to(database({ operation: 'save' }))
-  // Continues running every 60 seconds until context stops
+  .process(processData)
+  .to(log())
 
-// Queue route: Subscription source (runs indefinitely)
+// Channel route: message-driven, runs until shutdown
 craft()
   .id('message-processor')
-  .from(queue({ name: 'tasks' }))
+  .from(channel('tasks'))
   .process(async (task) => await processTask(task))
-  .to(database({ operation: 'save' }))
-  // Stays connected to queue, processes messages as they arrive
-  // Only stops when context shuts down or queue connection fails
+  .to(log())
 ```
 
 ### Route execution patterns
@@ -131,23 +121,18 @@ Understanding how different sources behave is crucial for route design:
 
 **One-Shot Execution** (process once and complete):
 - `simple()` with static data
-- `csv()` reading a single file
 - Custom sources that produce finite data
 
 **Request-Driven Execution** (process per request):
 - `http()` server endpoints
-- `rpc()` service calls
-- WebSocket message handlers
 
 **Scheduled Execution** (process on schedule):
 - `timer()` with intervals or exact times
-- `cron()` expressions
 - Custom time-based triggers
 
 **Continuous Execution** (process until shutdown):
-- `queue()` message consumers
-- `websocket()` connection listeners
-- `csv()` with watch mode
+- `channel()` consumers
+- WebSocket or queue consumers (custom adapters)
 
 ```ts
 // One-shot: Processes once then stops

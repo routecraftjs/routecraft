@@ -4,33 +4,15 @@ title: Reference
 
 Single reference hub for the DSL, Adapters, and Errors. {% .lead %}
 
-## Adapters
+{% quick-links %}
 
-Sources, destinations, and processors that integrate with systems.
+{% quick-link title="Adapters" icon="plugins" href="/docs/reference/adapters" description="Sources, destinations, and processors." /%}
+{% quick-link title="Operations" icon="plugins" href="/docs/reference/operations" description="Fluent operators to build routes." /%}
+{% quick-link title="Configuration" icon="presets" href="/docs/reference/configuration" description="Contexts, routes, lifecycle handlers." /%}
+{% quick-link title="CLI" icon="installation" href="/docs/reference/cli" description="Develop, run, and build routes." /%}
+{% quick-link title="Errors" icon="warning" href="/docs/reference/errors" description="RC error codes and fixes." /%}
+{% quick-link title="Plugins" icon="plugins" href="/docs/reference/plugins" description="Extend the context with hooks and stores." /%}
+{% quick-link title="Events" icon="theming" href="/docs/reference/events" description="Lifecycle and runtime events." /%}
 
-- See Adapters: [/docs/reference/adapters](/docs/reference/adapters)
-
-## Operations
-
-The fluent operators you use to build routes.
-
-- See Operations: [/docs/reference/operations](/docs/reference/operations)
-
-## Configuration
-
-Configure contexts, routes, and lifecycle handlers.
-
-- See Configuration: [/docs/reference/configuration](/docs/reference/configuration)
-
-## CLI
-
-Command-line interface for development and deployment.
-
-- See CLI: [/docs/reference/cli](/docs/reference/cli)
-
-## Errors
-
-Common error types and suggestions.
-
-- See Errors: [/docs/reference/errors](/docs/reference/errors)
+{% /quick-links %}
 

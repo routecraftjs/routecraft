@@ -6,7 +6,7 @@ import {
   type ExchangeHeaders,
   DefaultExchange,
 } from "./exchange.ts";
-import { ErrorCode, RouteCraftError } from "./error.ts";
+import { error as rcError, RouteCraftError, RC } from "./error.ts";
 import { createLogger, type Logger } from "./logger.ts";
 import { type Source } from "./operations/from.ts";
 import {
@@ -243,11 +243,7 @@ export class DefaultRoute implements Route {
       try {
         await step.execute(updatedExchange, remainingSteps, queue);
       } catch (error) {
-        const err = this.processError(
-          step.operation,
-          ErrorCode.PROCESS_ERROR,
-          error,
-        );
+        const err = this.processError(step.operation, error);
         updatedExchange.logger.warn(
           err,
           `Step ${step.operation} failed for exchange ${updatedExchange.id}`,
@@ -265,12 +261,8 @@ export class DefaultRoute implements Route {
    */
   private assertNotAborted(): void {
     if (this.abortController?.signal.aborted) {
-      throw new RouteCraftError({
-        code: ErrorCode.ROUTE_COULD_NOT_START,
-        message: `Route "${this.definition.id}" cannot be started because it was aborted`,
-        suggestion:
-          "Ensure the abortController is not aborted before starting the route",
-        docs: "https://routecraft.dev/docs/reference/errors#route-could-not-start",
+      throw rcError("RC3001", undefined, {
+        message: `${RC["RC3001"].message}: ${this.definition.id}`,
       });
     }
   }
@@ -286,15 +278,11 @@ export class DefaultRoute implements Route {
    */
   private processError(
     operation: OperationType,
-    code: ErrorCode,
     error: unknown,
   ): RouteCraftError {
-    return new RouteCraftError({
-      code: code,
-      message: `Operation "${operation}" failed for route "${this.definition.id}"`,
-      suggestion: "Check the operation configuration and ensure it is valid",
-      docs: this.getDocsUrlForOperationError(code),
-      cause: RouteCraftError.parse(error).error,
+    const rc = "RC5002" as const; // Processing step threw
+    return rcError(rc, error, {
+      message: `${RC[rc].message}: op=${operation} route=${this.definition.id}`,
     });
   }
 
@@ -305,29 +293,5 @@ export class DefaultRoute implements Route {
    * @returns The documentation URL
    * @private
    */
-  private getDocsUrlForOperationError(code: ErrorCode): string {
-    const baseUrl = "https://routecraft.dev/docs/reference/errors";
-    switch (code) {
-      case ErrorCode.FROM_ERROR:
-        return `${baseUrl}#source-error`;
-      case ErrorCode.PROCESS_ERROR:
-        return `${baseUrl}#processing-error`;
-      case ErrorCode.TO_ERROR:
-        return `${baseUrl}#destination-error`;
-      case ErrorCode.SPLIT_ERROR:
-        return `${baseUrl}#splitting-error`;
-      case ErrorCode.AGGREGATE_ERROR:
-        return `${baseUrl}#aggregation-error`;
-      case ErrorCode.TRANSFORM_ERROR:
-        return `${baseUrl}#transforming-error`;
-      case ErrorCode.TAP_ERROR:
-        return `${baseUrl}#tapping-error`;
-      case ErrorCode.FILTER_ERROR:
-        return `${baseUrl}#filter-error`;
-      case ErrorCode.VALIDATE_ERROR:
-        return `${baseUrl}#validate-error`;
-      default:
-        return `${baseUrl}#unknown-error`;
-    }
-  }
+  // Docs URL is sourced from the RC registry; no per-operation mapping required.
 }
