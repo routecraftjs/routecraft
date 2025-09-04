@@ -5,7 +5,7 @@ import {
   type StoreRegistry,
   type CraftConfig,
 } from "./context.ts";
-import { ErrorCode, RouteCraftError } from "./error.ts";
+import { error as rcError } from "./error.ts";
 import { logger } from "./logger.ts";
 import { SimpleConsumer } from "./consumers/simple.ts";
 import { type Source, type CallableSource } from "./operations/from.ts";
@@ -338,12 +338,7 @@ export class RouteBuilder<CurrentType = unknown> {
    */
   private requireSource(): RouteDefinition {
     if (!this.currentRoute) {
-      throw new RouteCraftError({
-        code: ErrorCode.MISSING_FROM_DEFINITION,
-        message: "Missing FROM definition",
-        suggestion: "Call from() before adding steps",
-        docs: "https://routecraft.dev/docs/reference/errors#missing-from-definition",
-      });
+      throw rcError("RC2002");
     }
     return this.currentRoute;
   }
@@ -447,12 +442,10 @@ export class RouteBuilder<CurrentType = unknown> {
       ) => {
         // Check if the body is an array
         if (!Array.isArray(exchange.body)) {
-          throw new RouteCraftError({
-            code: ErrorCode.INVALID_OPERATION,
+          throw rcError("RC2001", undefined, {
             message: "Default splitter can only be used with arrays",
             suggestion:
               "Provide a custom splitter or ensure the input is an array",
-            docs: "https://routecraft.dev/docs/reference/errors#invalid-operation-type",
           });
         }
 

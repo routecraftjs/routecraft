@@ -23,7 +23,7 @@ Commands:
 
 | Command | Description |
 | --- | --- |
-| [dev](#dev) | Start the development server (hot-reload, Inspect UI) |
+| [dev](#dev) | Start development mode (watch, hot reload, admin portal) |
 | [build](#build) | Build for production and emit a routes manifest |
 | [start <config>](#start) | Start a RouteCraft context from a config file |
 | [run <path>](#run) | Execute routes from a file or directory once and exit |
@@ -31,7 +31,7 @@ Commands:
 
 ### Dev
 
-Start the development server with hot-reload and Inspect UI.
+Start development mode with file watching, hot reload, and the admin portal.
 
 Status: planned
 
@@ -44,9 +44,8 @@ Options:
 | Option | Description |
 | --- | --- |
 | --env <path> | Load environment variables from a .env file |
-| --port <number> | Port for the dev server and Inspect UI |
-| --open | Open Inspect UI in the default browser |
-| --no-ui | Start without the Inspect UI |
+| --open | Open admin portal in the default browser |
+| --no-ui | Start without the admin portal |
 
 ### Build
 
@@ -66,7 +65,7 @@ Options:
 
 ### Start
 
-Start a RouteCraft context from a config file.
+Start a RouteCraft context from a config file. The admin portal can be enabled via configuration.
 
 ```bash
 craft start <config> [--env <.env path>]
@@ -78,6 +77,8 @@ Options:
 | --- | --- |
 | <config> | Path to a config file exporting a CraftConfig |
 | --env <path> | Load environment variables from a .env file |
+| --open | Open admin portal in the default browser |
+| --no-ui | Start without the admin portal |
 
 ### Run
 

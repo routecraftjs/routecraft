@@ -1,5 +1,5 @@
 import { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
-import { RouteCraftError, ErrorCode } from "./error.ts";
+import { error as rcError, RC } from "./error.ts";
 import { createLogger, type Logger } from "./logger.ts";
 
 /**
@@ -186,23 +186,16 @@ export class CraftContext {
         )?.id ??
         "unknown";
 
-      throw new RouteCraftError({
-        code: ErrorCode.DUPLICATE_ROUTE_DEFINITION,
-        message: `Duplicate route ID found: ${duplicateId}`,
-        suggestion: "Ensure all route IDs are unique",
-        docs: "https://routecraft.dev/docs/reference/errors#duplicate-route-definition",
+      throw rcError("RC1002", undefined, {
+        message: `${RC["RC1002"].message}: ${duplicateId}`,
       });
     }
 
     // 5) Register each definition now that there's no duplication
     for (const definition of definitions) {
       if (!definition.source || !definition.source.subscribe) {
-        throw new RouteCraftError({
-          code: ErrorCode.INVALID_ROUTE_DEFINITION,
-          message: `Route "${definition.id}" has no source`,
-          suggestion:
-            "Ensure every route has a valid source by calling .from(adapter)",
-          docs: "https://routecraft.dev/docs/reference/errors#invalid-route-definition",
+        throw rcError("RC1001", undefined, {
+          message: `${RC["RC1001"].message}: ${definition.id}`,
         });
       }
 

@@ -19,13 +19,13 @@ export default {
 
 ## Configuration fields
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `routes` | `RouteDefinition \| RouteDefinition[]` | Yes | Single route or array of routes to register |
-| `on` | `<E>(event: E, handler: (payload) => void) => () => void` | No | Subscribe to context and route lifecycle events |
-| `plugins` | `Plugin[] \| PluginFactory[]` | No | Plugins to register with the context for extended functionality |
-| `adminPortal` | `AdminPortalConfig \| boolean` | No | Enable admin portal with monitoring and tracing tools |
-| `store` | `Map<string, unknown>` | No | Initial values for the context store |
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `routes` | `RouteDefinition \| RouteDefinition[]` | Yes | — | Single route or array of routes to register |
+| `plugins` | `Plugin[] \| PluginFactory[]` | No | `[]` | Plugins registered on context startup |
+| `adminPortal` | `AdminPortalConfig \| boolean` | No | `false` | Enables admin portal with monitoring and tracing tools |
+| `store` | `Map<string, unknown>` | No | `new Map()` | Initial values for the context store |
+| `on` | `<E>(event: E, handler: (payload) => void) => () => void` | No | — | Subscribe to context and route lifecycle events (also available at runtime via context) |
 
 ## Environment variables
 
@@ -36,6 +36,11 @@ RouteCraft automatically loads environment variables from `.env` files when usin
 LOG_LEVEL=debug
 NODE_ENV=development
 ```
+
+## Adapters and plugins
+
+- Adapters are not auto-loaded. Import and instantiate them explicitly in routes (e.g., `from(timer(...))`, `to(log())`).
+- Plugins are auto-loaded if present under a `plugins/` directory when using the CLI. You can also pass plugins explicitly via the `plugins` field. Plugins can extend the context (e.g., add stores, register event hooks).
 
 ## Admin portal
 
@@ -67,7 +72,7 @@ export default {
 } satisfies CraftConfig
 ```
 
-Plugins can be functions or objects with lifecycle hooks. They receive the context instance for setup.
+Plugins can be functions or objects with a `register` method and lifecycle hooks. They receive the context instance for setup and can extend context stores or subscribe to events.
 
 ## Context store
 
@@ -103,64 +108,6 @@ const adapter = createAdapter({
 
 This pattern allows adapters to inherit global configuration while maintaining local overrides.
 
-## Event handling
+## Events
 
-Subscribe to context and route lifecycle events using the `on` method:
-
-```ts
-import { context } from '@routecraftjs/routecraft'
-import routes from './routes'
-
-const ctx = context()
-  .routes(routes)
-  .build()
-
-// Subscribe to events
-ctx.on('contextStarting', ({ ts, context }) => {
-  console.log('Context starting at', ts)
-})
-
-ctx.on('routeStarted', ({ ts, context, details: { route } }) => {
-  console.log(`Route ${route.definition.id} started`)
-})
-
-ctx.on('error', ({ ts, context, details: { error, route, exchange } }) => {
-  console.error('Error occurred:', error)
-})
-
-await ctx.start()
-```
-
-### Event signature
-
-All events follow the signature: `{ ts, context, details }` where:
-- `ts` - ISO timestamp string for when the event occurred
-- `context` - The CraftContext instance
-- `details` - Event-specific data (structure varies by event)
-
-### Context events
-
-| Event | Description | Details Structure |
-|-------|-------------|-------------------|
-| `contextStarting` | Context is beginning startup | `{}` |
-| `contextStarted` | Context has completed startup | `{}` |
-| `contextStopping` | Context is beginning shutdown | `{ reason }` |
-| `contextStopped` | Context has fully stopped | `{}` |
-
-### Route events
-
-| Event | Description | Details Structure |
-|-------|-------------|-------------------|
-| `routeRegistered` | Route has been registered | `{ route }` |
-| `routeStarting` | Route is about to start | `{ route }` |
-| `routeStarted` | Route has started successfully | `{ route }` |
-| `routeStopping` | Route is stopping | `{ route, reason, exchange }` |
-| `routeStopped` | Route has stopped | `{ route, exchange }` |
-
-### System events
-
-| Event | Description | Details Structure |
-|-------|-------------|-------------------|
-| `error` | Any error occurred in the system | `{ error, route?, exchange? }` |
-
-For practical monitoring examples and plugin patterns, see the [Monitoring](/docs/introduction/monitoring) guide.
+See the dedicated Events reference for details, signatures, and examples: [/docs/reference/events](/docs/reference/events)

@@ -2,241 +2,204 @@
 title: Errors
 ---
 
-Error policy, codes, and docsUrl contract. {% .lead %}
+Short, actionable RC error codes used across RouteCraft. {% .lead %}
 
-Codes live in `packages/routecraft/src/error.ts` as `ErrorCode`.
+Each error includes a code, message, a brief suggestion, and underlyting error. Codes follow RCcnnn where c is category and nnn is the number.
 
-docsUrl contract: every thrown `RouteCraftError` should include a `docs` URL pointing to an anchor explaining the fix.
+| Code | Category | Message |
+| --- | --- | --- |
+| [RC1001](#rc-1001) | Definition | Route definition failed validation |
+| [RC1002](#rc-1002) | Definition | Duplicate route id |
+| [RC2001](#rc-2001) | DSL | Invalid operation type |
+| [RC2002](#rc-2002) | DSL | Missing from step |
+| [RC3001](#rc-3001) | Lifecycle | Route failed to start |
+| [RC3002](#rc-3002) | Lifecycle | Context failed to start |
+| [RC5001](#rc-5001) | Adapter | Source adapter threw |
+| [RC5002](#rc-5002) | Adapter | Processing step threw |
+| [RC5003](#rc-5003) | Adapter | Destination adapter threw |
+| [RC5004](#rc-5004) | Adapter | Split operation failed |
+| [RC5005](#rc-5005) | Adapter | Aggregation operation failed |
+| [RC5006](#rc-5006) | Adapter | Transform function threw |
+| [RC5007](#rc-5007) | Adapter | Tap step threw |
+| [RC5008](#rc-5008) | Adapter | Filter predicate threw |
+| [RC5009](#rc-5009) | Adapter | Validation failed |
+| [RC9901](#rc-9901) | Runtime | Unknown error |
 
-## Error format
+---
 
-All RouteCraft errors follow this format:
+## RC1001
+Route definition failed validation
 
-```
-[ERROR_CODE] Error message
-Suggestion: How to fix the issue
-Docs: https://routecraft.dev/docs/reference/errors#anchor
-Caused by: Original error (if any)
-```
+**Why it happens**  
+The route is missing required fields, most commonly a source.
 
-## Route definition errors
+**Suggestion**  
+Ensure a source is defined: start with `from(adapter)` and then add steps.
 
-### INVALID_ROUTE_DEFINITION {#invalid-route-definition}
-
-Thrown when a route has no source adapter configured.
-
-**Fix:** Ensure every route has a valid source by calling `.from(adapter)`.
-
+**Example**
 ```ts
-// ❌ Bad: No source defined
-craft().id('my-route').to(log())
-
-// ✅ Good: Source defined
-craft().id('my-route').from(timer()).to(log())
+craft().id('my-route').from(timer())
 ```
 
-### DUPLICATE_ROUTE_DEFINITION {#duplicate-route-definition}
+## RC1002
+Duplicate route id
 
-Thrown when multiple routes have the same ID within a context.
+**Why it happens**  
+Two or more routes share the same id.
 
-**Fix:** Ensure all route IDs are unique across your application.
+**Suggestion**  
+Ensure each route id is unique or set `routeOptions.id`.
 
+**Example**
 ```ts
-// ❌ Bad: Duplicate IDs
-craft().id('processor').from(source1).to(dest1)
-craft().id('processor').from(source2).to(dest2)
-
-// ✅ Good: Unique IDs
-craft().id('user-processor').from(source1).to(dest1)
-craft().id('order-processor').from(source2).to(dest2)
+craft().from(timer()).id('users');
+craft().from(timer()).id('orders');
 ```
 
-### MISSING_FROM_DEFINITION {#missing-from-definition}
+## RC2001
+Invalid operation type
 
-Thrown when route operations are called before defining a source.
+**Why it happens**  
+The step received unsupported input.
 
-**Fix:** Call `.from(adapter)` before adding processing steps.
+**Suggestion**  
+Use a supported operator and verify the step name.
 
+**Example**
 ```ts
-// ❌ Bad: Transform before source
-craft().transform(x => x).from(timer())
+// split requires an array
+craft().from(simple(['a','b'])).split()
+```
 
-// ✅ Good: Source first
+## RC2002
+Missing from step
+
+**Why it happens**  
+Steps were added before defining a source.
+
+**Suggestion**  
+Start the route with `from` and a valid source adapter.
+
+**Example**
+```ts
 craft().from(timer()).transform(x => x)
 ```
 
-### INVALID_OPERATION_TYPE {#invalid-operation-type}
+## RC3001
+Route failed to start
 
-Thrown when an operation receives invalid input data.
+**Why it happens**  
+The route's abort controller was already aborted or an adapter could not initialize.
 
-**Fix:** Ensure data types match operation requirements (e.g., arrays for split operation).
+**Suggestion**  
+Ensure the route isn't aborted before `start()`. Verify adapter configuration.
 
+**Example**
 ```ts
-// ❌ Bad: Non-array passed to split()
-craft().from(simple('string')).split().to(log())
-
-// ✅ Good: Array passed to split()
-craft().from(simple(['a', 'b', 'c'])).split().to(log())
+const ctx = context().routes(myRoute).build();
+await ctx.start();
 ```
 
-## Runtime operation errors
+## RC3002
+Context failed to start
 
-### SOURCE_ERROR {#source-error}
+**Why it happens**  
+Invalid configuration, duplicate ids, or missing sources.
 
-Thrown when a source adapter fails during subscription or message production.
+**Suggestion**  
+Validate plugin exports and global configuration.
 
-**Fix:** Check source adapter configuration and ensure external dependencies (databases, APIs, files) are accessible.
-
+**Example**
 ```ts
-// Common causes:
-// - File not found for file() adapter
-// - Network issues for http() adapter
-// - Invalid connection strings for database adapters
+context().routes(validRoutes).build().start()
 ```
 
-### PROCESSING_ERROR {#processing-error}
+## RC5001
+Source adapter threw
 
-Thrown when a processor adapter fails during exchange processing.
+**Why it happens**  
+Source failed during subscription or production.
 
-**Fix:** Check processor logic and ensure input data is valid.
+**Suggestion**  
+Verify connectivity and adapter options.
 
-### DESTINATION_ERROR {#destination-error}
+## RC5002
+Processing step threw
 
-Thrown when a destination adapter fails to send data.
+**Why it happens**  
+Processor logic threw or rejected.
 
-**Fix:** Verify destination configuration and connectivity.
+**Suggestion**  
+Add guards to transforms and processors.
 
-```ts
-// Common causes:
-// - Permission issues writing files
-// - Network problems sending HTTP requests
-// - Database connection failures
-```
+## RC5003
+Destination adapter threw
 
-### SPLITTING_ERROR {#splitting-error}
+**Why it happens**  
+Destination failed to send data.
 
-Thrown when split operations fail to process exchanges.
+**Suggestion**  
+Verify destination connectivity and options.
 
-**Fix:** Ensure split function handles input data correctly and returns valid arrays.
+## RC5004
+Split operation failed
 
-```ts
-// ❌ Bad: Split function throws
-.split((data) => data.invalidProperty.split(','))
+**Why it happens**  
+Split function threw or input was not iterable.
 
-// ✅ Good: Safe split function
-.split((data) => data?.items || [])
-```
+**Suggestion**  
+Ensure the input is iterable and guarded.
 
-### AGGREGATION_ERROR {#aggregation-error}
+## RC5005
+Aggregation operation failed
 
-Thrown when aggregate operations fail to combine exchanges.
+**Why it happens**  
+Aggregation logic threw or shapes mismatched.
 
-**Fix:** Check aggregation logic and ensure it can handle the expected data types.
+**Suggestion**  
+Validate partial shapes and defaults.
 
-### TRANSFORMING_ERROR {#transforming-error}
+## RC5006
+Transform function threw
 
-Thrown when transform operations fail to process exchanges.
+**Why it happens**  
+Transform logic threw or accessed missing properties.
 
-**Fix:** Ensure transform functions handle all possible input values gracefully.
+**Suggestion**  
+Narrow input types and add guards.
 
-```ts
-// ❌ Bad: Transform assumes structure
-.transform((data) => data.user.name.toUpperCase())
+## RC5007
+Tap step threw
 
-// ✅ Good: Safe transform
-.transform((data) => data?.user?.name?.toUpperCase() || 'Unknown')
-```
+**Why it happens**  
+Side-effect function threw.
 
-### TAPPING_ERROR {#tapping-error}
+**Suggestion**  
+Keep tap side effects resilient.
 
-Thrown when tap operations (side effects) fail.
+## RC5008
+Filter predicate threw
 
-**Fix:** Ensure tap functions don't throw errors that would interrupt the main flow.
+**Why it happens**  
+Predicate accessed missing fields or threw.
 
-```ts
-// ✅ Good: Error handling in tap
-.tap(async (data) => {
-  try {
-    await sendNotification(data)
-  } catch (error) {
-    logger.warn('Notification failed', { error })
-  }
-})
-```
+**Suggestion**  
+Guard against missing properties and unexpected shapes.
 
-### FILTER_ERROR {#filter-error}
+## RC5009
+Validation failed
 
-Thrown when filter predicate functions fail.
+**Why it happens**  
+Schema failed or validator threw.
 
-**Fix:** Ensure filter functions handle all input types and return boolean values.
+**Suggestion**  
+Adjust the schema or coerce input.
 
-```ts
-// ❌ Bad: Filter can throw
-.filter((data) => data.status === 'active')
+## RC9901
+Unknown error
 
-// ✅ Good: Safe filter
-.filter((data) => data?.status === 'active')
-```
+**Why it happens**  
+Unexpected failure without a specific code.
 
-### VALIDATE_ERROR {#validate-error}
-
-Thrown when validation schemas fail or validation functions throw errors.
-
-**Fix:** Ensure validation schemas match your data structure and handle validation failures gracefully.
-
-```ts
-import { z } from 'zod'
-
-// ✅ Good: Proper schema definition
-const userSchema = z.object({
-  id: z.string(),
-  email: z.string().email(),
-  age: z.number().min(0).optional()
-})
-
-.validate(userSchema)
-```
-
-## Runtime and lifecycle errors
-
-### ROUTE_COULD_NOT_START {#route-could-not-start}
-
-Thrown when a route fails to start, typically due to being aborted before startup.
-
-**Fix:** Ensure routes are not aborted before starting them.
-
-```ts
-// ❌ Bad: Route aborted before start
-const ctx = context().routes(myRoute).build()
-await ctx.stop() // This aborts routes
-await ctx.start() // This will throw ROUTE_COULD_NOT_START
-
-// ✅ Good: Clean startup
-const ctx = context().routes(myRoute).build()
-await ctx.start()
-```
-
-### CONTEXT_COULD_NOT_START {#context-could-not-start}
-
-Thrown when the context fails to start due to configuration or route issues.
-
-**Fix:** Check context configuration and ensure all routes are valid before starting.
-
-```ts
-// Common causes:
-// - Invalid route definitions
-// - Duplicate route IDs
-// - Missing route sources
-// - Resource conflicts (e.g., port already in use)
-```
-
-### UNKNOWN_ERROR {#unknown-error}
-
-Fallback error code for unexpected errors that don't match specific error types.
-
-**Fix:** Check the underlying error details and stack trace to identify the root cause.
-
-```ts
-// This error includes the original error as 'cause'
-// Check error.cause for the underlying issue
-```
+**Suggestion**  
+Check logs and enable debug level.

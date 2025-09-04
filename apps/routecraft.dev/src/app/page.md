@@ -6,7 +6,7 @@ Build small, focused routes with a fluent DSL and run them anywhere. {% .lead %}
 
 ## What is RouteCraft?
 
-RouteCraft is a developer-first framework for building automation and integration flows. You use its fluent DSL to define routes, connecting sources, processors, and destinations.
+RouteCraft is a developer-first framework for building automation and integration flows. You use its fluent DSL to define routes, connecting sources, processors, and destinations. RouteCraft is inspired by Apache Camel, designed for modern JavaScript developers.
 
 It takes care of the low-level plumbing like wiring, execution, and lifecycle, so you can focus on composing clear routes instead of boilerplate code.
 
