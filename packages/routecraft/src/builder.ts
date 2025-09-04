@@ -342,6 +342,7 @@ export class RouteBuilder<CurrentType = unknown> {
         code: ErrorCode.MISSING_FROM_DEFINITION,
         message: "Missing FROM definition",
         suggestion: "Call from() before adding steps",
+        docs: "https://routecraft.dev/docs/reference/errors#missing-from-definition",
       });
     }
     return this.currentRoute;
@@ -451,6 +452,7 @@ export class RouteBuilder<CurrentType = unknown> {
             message: "Default splitter can only be used with arrays",
             suggestion:
               "Provide a custom splitter or ensure the input is an array",
+            docs: "https://routecraft.dev/docs/reference/errors#invalid-operation-type",
           });
         }
 

@@ -39,6 +39,7 @@ export class TapStep<T = unknown> implements StepDefinition<Tap<T>> {
         message: `Error tapping exchange ${exchangeCopy.id}`,
         suggestion:
           "Check the tap function for any errors or wrap it in a try/catch block.",
+        docs: "https://routecraft.dev/docs/reference/errors#tapping-error",
       });
       exchangeCopy.logger.info(
         err,
