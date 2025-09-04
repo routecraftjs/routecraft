@@ -34,6 +34,7 @@ export class FilterStep<T = unknown> implements StepDefinition<Filter<T>> {
       const err = RouteCraftError.create(error, {
         code: ErrorCode.FILTER_ERROR,
         message: `Error filtering exchange ${exchange.id}`,
+        docs: "https://routecraft.dev/docs/reference/errors#filter-error",
       });
       exchange.logger.warn(err, `Error filtering exchange ${exchange.id}`);
     }

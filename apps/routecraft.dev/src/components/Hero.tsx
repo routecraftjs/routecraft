@@ -13,7 +13,8 @@ const codeLanguage = 'typescript'
 const routeCode = `import { craft, simple, log } from '@routecraftjs/routecraft'
 
 export default craft()
-  .from([{ id: 'hero-hello' }, simple('Hello, RouteCraft!')])
+  .id('hero-hello')
+  .from(simple('Hello, RouteCraft!'))
   .transform((msg) => msg.toUpperCase())
   .to(log())`
 

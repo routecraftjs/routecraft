@@ -270,6 +270,7 @@ export class DefaultRoute implements Route {
         message: `Route "${this.definition.id}" cannot be started because it was aborted`,
         suggestion:
           "Ensure the abortController is not aborted before starting the route",
+        docs: "https://routecraft.dev/docs/reference/errors#route-could-not-start",
       });
     }
   }
@@ -292,7 +293,41 @@ export class DefaultRoute implements Route {
       code: code,
       message: `Operation "${operation}" failed for route "${this.definition.id}"`,
       suggestion: "Check the operation configuration and ensure it is valid",
+      docs: this.getDocsUrlForOperationError(code),
       cause: RouteCraftError.parse(error).error,
     });
+  }
+
+  /**
+   * Get the documentation URL for operation error codes.
+   *
+   * @param code The error code
+   * @returns The documentation URL
+   * @private
+   */
+  private getDocsUrlForOperationError(code: ErrorCode): string {
+    const baseUrl = "https://routecraft.dev/docs/reference/errors";
+    switch (code) {
+      case ErrorCode.FROM_ERROR:
+        return `${baseUrl}#source-error`;
+      case ErrorCode.PROCESS_ERROR:
+        return `${baseUrl}#processing-error`;
+      case ErrorCode.TO_ERROR:
+        return `${baseUrl}#destination-error`;
+      case ErrorCode.SPLIT_ERROR:
+        return `${baseUrl}#splitting-error`;
+      case ErrorCode.AGGREGATE_ERROR:
+        return `${baseUrl}#aggregation-error`;
+      case ErrorCode.TRANSFORM_ERROR:
+        return `${baseUrl}#transforming-error`;
+      case ErrorCode.TAP_ERROR:
+        return `${baseUrl}#tapping-error`;
+      case ErrorCode.FILTER_ERROR:
+        return `${baseUrl}#filter-error`;
+      case ErrorCode.VALIDATE_ERROR:
+        return `${baseUrl}#validate-error`;
+      default:
+        return `${baseUrl}#unknown-error`;
+    }
   }
 }

@@ -2,111 +2,63 @@
 title: Project structure
 ---
 
-Nuxt‑style discovery with a clear folder layout. {% .lead %}
+A clear folder layout that scales from small apps to larger codebases. The tables below show the recommended structure and what each directory/file is for. {% .lead %}
 
-```text
-.
-├─ routecraft.config.ts
-├─ src/
-│  ├─ routes/
-│  │  ├─ index.route.ts
-│  │  ├─ users/
-│  │  │  ├─ [userId].route.ts
-│  │  │  └─ list.route.ts
-│  │  ├─ cron/
-│  │  │  └─ hourly.route.ts
-│  │  └─ channel/
-│  │     └─ audit.route.ts
-│  ├─ adapters/
-│  ├─ plugins/
-│  ├─ workers/
-│  ├─ env/
-│  └─ app.ts
-└─ tests/
-```
+## Top-level folders
 
-See discovery rules in the CLI page and dynamic params in Routes.
+| Folder | Purpose |
+| --- | --- |
+| `routes` | Discovered routes. Files ending in `.route.ts` or `.route.mjs` are loaded by `craft run` and `craft start`. |
+| `adapters` | Custom adapters implementing operation interfaces (`subscribe`, `send`, `process`). Keep concerns isolated. |
+| `plugins` | Cross‑cutting helpers (logging, metrics, tracing). |
+| `src` | Optional wrapper folder. If chosen, place the folders above inside `src`. If omitted, keep them at the project root. |
 
 ---
 
-## title: Project structure
+## Top-level files
 
-Recommended layout, discovery rules, route ids, and parameters. {% .lead %}
+These files can live at the project root or inside `src` if you opt into a source directory.
 
-## Recommended layout
+| File | Purpose |
+| --- | --- |
+| `craft.config.ts` | Entry for `craft start`. Exports a `CraftConfig` with `routes`, optional `onStartup`, `onShutdown`. |
+| `package.json` | Scripts and dependencies. Add `craft` scripts for convenience. |
+| `tsconfig.json` | TypeScript configuration. |
+| `.gitignore` | VCS ignores. Ensure build outputs and environment files are ignored. |
+| `.env`, `.env.local`, etc. | Environment variables. You can pass a file with `--env` in supported CLI commands. |
+
+---
+
+## Organizing your project
+
+Routecraft recommends a clear, consistent structure to keep projects maintainable. Use the layout below as your baseline and adjust as needed.
+
+### Src folder
+Routecraft supports storing application code inside an optional `src` folder. This separates application code from project configuration files which mostly live in the root of a project.
+
+### Route file types
+
+- You can author routes in TypeScript or JavaScript: `.ts`, `.js`, `.mjs`, `.cjs`.
+- Naming with a `.route.*` suffix is a recommended convention to make route files easy to identify.
+
+### Suggested folder layout
+
+Use either a flat layout at the project root or colocate under `src`.
 
 ```text
-.
-├─ routecraft.config.ts
-├─ src/
-│  ├─ routes/
-│  │  ├─ index.route.ts
-│  │  ├─ users/
-│  │  │  ├─ [userId].route.ts
-│  │  │  └─ list.route.ts
-│  │  ├─ cron/
-│  │  │  └─ hourly.route.ts
-│  │  └─ channel/
-│  │     └─ audit.route.ts
-│  ├─ adapters/            # custom adapters live here
-│  │  ├─ http.ts
-│  │  └─ mysql.ts
-│  ├─ plugins/             # cross cutting helpers, logging, metrics
-│  │  └─ observability.ts
-│  ├─ workers/             # optional long-running workers
-│  │  └─ user-enricher.worker.ts
-│  ├─ env/                 # env schema and loader
-│  │  └─ index.ts
-│  └─ app.ts               # optional programmatic entry
-└─ tests/
-   └─ routes/
-      └─ index.route.test.ts
-└─ scripts/
-   └─ build.ts
+my-app
+├── craft.config.ts
+├── routes
+│   ├── file-to-http.route.ts
+│   ├── metrics.route.ts
+│   └── users
+│       └── api.route.ts
+├── adapters
+│   ├── kafka.ts
+│   └── google-sheets.ts
+├── plugins
+│   └── logger.ts
+├── package.json
+├── tsconfig.json
+└── .env
 ```
-
-{% callout title="Why this mirrors Nuxt nicely" %}
-Convention over configuration; dynamic segments via bracket names; default config filename with override when needed; plugins folder for cross-cutting features; zero glue to boot in common cases.
-{% /callout %}
-
-## Route id derivation
-
-- Prefer setting an explicit id: `.from([{ id: 'hello-world' }, source])`
-- If omitted, a UUID is generated in `RouteBuilder.from()`.
-
-```ts
-import { craft, simple } from '@routecraftjs/routecraft'
-
-export default craft().from([{ id: 'my-job' }, simple('payload')])
-```
-
-## Bracket params and path-derived values
-
-Planned: HTTP inbound adapters populate `headers.params` from bracket segments like `users/[userId].route.ts` or `/users/:userId`.
-
-## Headers carry params and request metadata
-
-Headers model context like params, query, method, url, and cookies.
-
-```ts
-import type { ExchangeHeaders } from '@routecraftjs/routecraft'
-
-function useHeaders(h: ExchangeHeaders) {
-  // h may include keys like method, url, query, cookies when provided by a source
-}
-```
-
-## Discovery rules for the CLI
-
-- Default root is `src/routes`
-- Files ending with `.route.ts` or `.route.mjs` are discovered
-- Folders compose the route id; file name before `.route` is the tail
-- `index.route.ts` becomes the id of its folder
-- Bracket segments define params: `users/[userId].route.ts`
-- Files ending with `.test.ts` are ignored
-- Files/folders starting with underscore are ignored
-- `routecraft.config.ts` can change include/exclude
-
-{% callout type="note" title="Current CLI behavior" %}
-`craft run` walks supported files in a file or directory and loads default exports if they are a `RouteBuilder`/`RouteDefinition` or arrays thereof. Discovery by `.route.*` and param derivation is the convention; future versions may enforce it. See `packages/cli/src/run.ts`.
-{% /callout %}
