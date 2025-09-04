@@ -1,7 +1,7 @@
 import { type StandardSchemaV1 } from "@standard-schema/spec";
 import { FilterStep } from "./filter.ts";
 import { OperationType } from "../exchange.ts";
-import { RouteCraftError, ErrorCode } from "../error.ts";
+import { error as rcError } from "../error.ts";
 
 export class ValidateStep<T = unknown> extends FilterStep<T> {
   override operation: OperationType = OperationType.VALIDATE;
@@ -12,10 +12,8 @@ export class ValidateStep<T = unknown> extends FilterStep<T> {
 
       // if the `issues` field exists, the validation failed
       if (result.issues) {
-        const err = RouteCraftError.create(result.issues, {
-          code: ErrorCode.VALIDATE_ERROR,
+        const err = rcError("RC5009", result.issues, {
           message: `Error validating exchange ${exchange.id}`,
-          docs: "https://routecraft.dev/docs/reference/errors#validate-error",
         });
         exchange.logger.debug(err, `Error validating exchange ${exchange.id}`);
         return false;

@@ -106,13 +106,16 @@ Trigger routes at regular intervals or specific times. Produces `undefined` as t
 .from(timer({ intervalMs: 1000, jitterMs: 200 }))
 ```
 
-**Options:**
-- `intervalMs` - Time between executions (default: 1000ms)
-- `delayMs` - Delay before first execution (default: 0ms)
-- `repeatCount` - Number of executions before stopping (default: Infinity)
-- `fixedRate` - Execute at exact intervals ignoring processing time (default: false)
-- `exactTime` - Execute at specific time of day in "HH:mm:ss" format
-- `jitterMs` - Add random delay to prevent synchronized spikes (default: 0ms)
+Options:
+
+| Field | Type | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `intervalMs` | `number` | `1000` | No | Time between executions in milliseconds |
+| `delayMs` | `number` | `0` | No | Delay before first execution in milliseconds |
+| `repeatCount` | `number` | `Infinity` | No | Number of executions before stopping |
+| `fixedRate` | `boolean` | `false` | No | Execute at exact intervals ignoring processing time |
+| `exactTime` | `string` | — | No | Execute daily at time of day `HH:mm:ss` (fires once/day) |
+| `jitterMs` | `number` | `0` | No | Random jitter added to each scheduled run |
 
 **Headers added:** Timer metadata including fired time, counter, period, and next run time
 
@@ -190,14 +193,16 @@ Make HTTP requests. Can be used as an enricher with `.enrich()` or destination w
 }))
 ```
 
-**Options:**
-- `method` - HTTP method (default: 'GET')
-- `url` - URL string or function that returns URL
-- `headers` - Static headers or function that returns headers
-- `query` - Query parameters as object or function
-- `body` - Request body as value or function
-- `timeoutMs` - Request timeout in milliseconds
-- `throwOnHttpError` - Throw on non-2xx responses (default: true)
+Options:
+
+| Field | Type | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `method` | `HttpMethod` | `'GET'` | No | HTTP method to use |
+| `url` | `string \| (exchange) => string` | — | Yes | Target URL (string or derived from exchange) |
+| `headers` | `Record<string,string> \| (exchange) => Record<string,string>` | `{}` | No | Request headers |
+| `query` | `Record<string,string|number|boolean> \| (exchange) => Query` | `{}` | No | Query parameters appended to URL |
+| `body` | `unknown \| (exchange) => unknown` | — | No | Request body (JSON serialized when not string/binary) |
+| `throwOnHttpError` | `boolean` | `true` | No | Throw when response is non-2xx |
 
 **Returns:** `FetchResult` object with `status`, `headers`, `body`, and `url`
 
@@ -266,8 +271,6 @@ expect(enrichSpy.calls.enrich).toBe(1)
 **Use cases:** Testing, debugging, development verification
 
 **Behavior:** Logs that message was discarded, then resolves immediately
-
-## File adapters
 
 ### file
 
@@ -402,63 +405,34 @@ Read and write CSV files with configurable parsing options.
 - **Source**: Emits one exchange per CSV row (object if headers=true, array if headers=false)
 - **Destination**: Writes exchange body as CSV row
 
-## HTTP adapters
-
 ### http
 
-```ts
-http(options: HttpOptions): HttpAdapter
-```
-
-HTTP server using Node.js built-in HTTP module. Creates endpoints that can receive requests.
+Standard signature: `http({ path, method, ...options })`.
 
 ```ts
 // Simple webhook endpoint
 .id('webhook-receiver')
-.from(http({ port: 3000, path: '/webhook' }))
-
-// POST endpoint with JSON parsing
-.id('user-api')
-.from(http({ 
-  port: 8080, 
-  path: '/api/users',
-  method: 'POST',
-  parseJson: true
-}))
+.from(http({ path: '/webhook', method: 'POST' }))
 
 // Multiple methods on same path
 .id('data-api')
-.from(http({ 
-  port: 3000, 
-  path: '/api/data',
-  method: ['GET', 'POST', 'PUT']
-}))
-
-// With custom request handling
-.id('file-upload')
-.from(http({ 
-  port: 3000, 
-  path: '/upload',
-  method: 'POST',
-  parseJson: false, // Handle raw body
-  maxBodySize: '10mb'
-}))
+.from(http({ path: '/api/data', method: ['GET', 'POST', 'PUT'] }))
 ```
 
-**Options:**
-- `port` - Server port (required)
-- `path` - URL path pattern (default: '/')
-- `method` - HTTP method(s) to accept (default: 'POST')
-- `parseJson` - Auto-parse JSON request bodies (default: true)
-- `maxBodySize` - Maximum request body size (default: '1mb')
-- `cors` - Enable CORS headers (default: false)
-- `timeout` - Request timeout in ms (default: 30000)
+| Option | Type | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `path` | `string` | `'/'` | No | URL path to mount |
+| `method` | `HttpMethod \| HttpMethod[]` | `'POST'` | No | Accepted HTTP methods |
+ 
 
-**Exchange body:** Request object with `{ method, url, headers, body, query, params }`
+Exchange body: `{ method, url, headers, body, query, params }`.
+The final exchange becomes the HTTP response; no explicit `.to()` step is required.
 
-**Response:** Use `.to()` destination to send HTTP responses, or responses default to 200 OK
+Response behavior:
 
-## Email adapters
+- The final exchange is returned to the HTTP client. If the final body is an object with optional fields `{ status?: number, headers?: Record<string,string>, body?: unknown }`, those fields are used to build the response.
+- If `status` or `headers` are not provided, RouteCraft returns the body with `200` status and no additional headers.
+- For serialization and setting `Content-Type`, use a formatting step in your route (e.g., a `.format(...)` or `.transform(...)` that sets appropriate headers). If you set a response content type header in your pipeline, it will be used.
 
 ### smtp
 
@@ -517,6 +491,26 @@ Send emails via SMTP protocol. Focused implementation for SMTP servers only.
 - `attachments` - Attachments array or function returning attachments
 
 **Attachment format:** `{ filename: string, content: Buffer | string, contentType?: string }`
+
+## Best practices
+
+- **Provide a DSL factory for adapters**: expose a function that returns the adapter instance so routes read naturally and avoid `new`.
+
+```ts
+// ✅ Prefer: DSL factory function
+import { xyz } from '@acme/routecraft-xyz'
+
+export default craft()
+  .id('uses-xyz')
+  .from(xyz({ /* options */ }))
+
+// ❌ Avoid: direct class instantiation in routes
+import { XyzAdapter } from '@acme/routecraft-xyz'
+
+export default craft()
+  .id('uses-xyz')
+  .from(new XyzAdapter({ /* options */ }))
+```
 
 ## Custom adapters
 

@@ -1,68 +1,145 @@
-export enum ErrorCode {
-  // Definitions
-  INVALID_ROUTE_DEFINITION = "INVALID_ROUTE_DEFINITION",
-  DUPLICATE_ROUTE_DEFINITION = "DUPLICATE_ROUTE_DEFINITION",
-  INVALID_OPERATION = "INVALID_OPERATION_TYPE",
-  MISSING_FROM_DEFINITION = "MISSING_FROM_DEFINITION",
+export type RCCode =
+  | "RC1001"
+  | "RC1002"
+  | "RC2001"
+  | "RC2002"
+  | "RC3001"
+  | "RC3002"
+  | "RC5001"
+  | "RC5002"
+  | "RC5003"
+  | "RC5004"
+  | "RC5005"
+  | "RC5006"
+  | "RC5007"
+  | "RC5008"
+  | "RC5009"
+  | "RC9901";
 
-  // Lifecycle Errors
-  ROUTE_COULD_NOT_START = "ROUTE_COULD_NOT_START",
-  CONTEXT_COULD_NOT_START = "CONTEXT_COULD_NOT_START",
+export type RCMeta = {
+  category: "Definition" | "DSL" | "Lifecycle" | "Adapter" | "Runtime";
+  message: string;
+  suggestion?: string;
+  docs: string;
+};
 
-  // Generic Adapter Runtime Errors
-  FROM_ERROR = "SOURCE_ERROR",
-  PROCESS_ERROR = "PROCESSING_ERROR",
-  TO_ERROR = "DESTINATION_ERROR",
-  SPLIT_ERROR = "SPLITTING_ERROR",
-  AGGREGATE_ERROR = "AGGREGATION_ERROR",
-  TRANSFORM_ERROR = "TRANSFORMING_ERROR",
-  TAP_ERROR = "TAPPING_ERROR",
-  FILTER_ERROR = "FILTER_ERROR",
-  VALIDATE_ERROR = "VALIDATE_ERROR",
-  // Generic Runtime Error
-  UNKNOWN_ERROR = "UNKNOWN_ERROR",
-}
+export const DOCS_BASE = "https://routecraft.dev/docs/reference/errors";
+
+export const RC: Record<RCCode, RCMeta> = {
+  RC1001: {
+    category: "Definition",
+    message: "Route definition failed validation",
+    suggestion: "Ensure a source is defined: start with from(adapter)",
+    docs: `${DOCS_BASE}#rc-1001`,
+  },
+  RC1002: {
+    category: "Definition",
+    message: "Duplicate route id",
+    suggestion: "Ensure each route id is unique or set routeOptions.id",
+    docs: `${DOCS_BASE}#rc-1002`,
+  },
+  RC2001: {
+    category: "DSL",
+    message: "Invalid operation type",
+    suggestion: "Use a supported operator and verify the step name",
+    docs: `${DOCS_BASE}#rc-2001`,
+  },
+  RC2002: {
+    category: "DSL",
+    message: "Missing from step",
+    suggestion: "Start the route with from and a valid source adapter",
+    docs: `${DOCS_BASE}#rc-2002`,
+  },
+  RC3001: {
+    category: "Lifecycle",
+    message: "Route failed to start",
+    suggestion: "Ensure the route is not aborted and adapters are configured",
+    docs: `${DOCS_BASE}#rc-3001`,
+  },
+  RC3002: {
+    category: "Lifecycle",
+    message: "Context failed to start",
+    suggestion: "Validate plugin exports and global configuration",
+    docs: `${DOCS_BASE}#rc-3002`,
+  },
+  RC5001: {
+    category: "Adapter",
+    message: "Source adapter threw",
+    suggestion: "Verify connectivity and adapter options",
+    docs: `${DOCS_BASE}#rc-5001`,
+  },
+  RC5002: {
+    category: "Adapter",
+    message: "Processing step threw",
+    suggestion: "Add guards to transforms and processors",
+    docs: `${DOCS_BASE}#rc-5002`,
+  },
+  RC5003: {
+    category: "Adapter",
+    message: "Destination adapter threw",
+    suggestion: "Verify destination connectivity and options",
+    docs: `${DOCS_BASE}#rc-5003`,
+  },
+  RC5004: {
+    category: "Adapter",
+    message: "Split operation failed",
+    suggestion: "Ensure the input is iterable and guarded",
+    docs: `${DOCS_BASE}#rc-5004`,
+  },
+  RC5005: {
+    category: "Adapter",
+    message: "Aggregation operation failed",
+    suggestion: "Validate partial shapes and defaults",
+    docs: `${DOCS_BASE}#rc-5005`,
+  },
+  RC5006: {
+    category: "Adapter",
+    message: "Transform function threw",
+    suggestion: "Narrow input types and add guards",
+    docs: `${DOCS_BASE}#rc-5006`,
+  },
+  RC5007: {
+    category: "Adapter",
+    message: "Tap step threw",
+    suggestion: "Keep tap side effects resilient",
+    docs: `${DOCS_BASE}#rc-5007`,
+  },
+  RC5008: {
+    category: "Adapter",
+    message: "Filter predicate threw",
+    suggestion: "Guard against missing properties and unexpected shapes",
+    docs: `${DOCS_BASE}#rc-5008`,
+  },
+  RC5009: {
+    category: "Adapter",
+    message: "Validation failed",
+    suggestion: "Adjust the schema or coerce input",
+    docs: `${DOCS_BASE}#rc-5009`,
+  },
+  RC9901: {
+    category: "Runtime",
+    message: "Unknown error",
+    suggestion: "Check logs and enable debug level",
+    docs: `${DOCS_BASE}#rc-9901`,
+  },
+};
 
 export class RouteCraftError extends Error {
   constructor(
-    private details: {
-      code: ErrorCode;
-      message: string;
-      suggestion?: string | undefined;
-      docs?: string | undefined;
-      cause?: unknown | undefined;
-    },
+    public readonly rc: RCCode,
+    public readonly meta: RCMeta,
+    cause?: unknown,
   ) {
-    super(details.message, { cause: details.cause });
+    super(meta.message, { cause });
     this.name = "RouteCraftError";
-    this.details.docs =
-      details.docs || "https://routecraft.dev/docs/reference/errors";
-  }
-
-  get code(): ErrorCode {
-    return this.details.code;
-  }
-
-  get suggestion(): string | undefined {
-    return this.details.suggestion;
-  }
-
-  get docs(): string | undefined {
-    return this.details.docs;
-  }
-
-  override get cause(): unknown {
-    return this.details.cause;
   }
 
   override toString(): string {
-    let result = `[${this.details.code}] ${this.message}`;
-    if (this.details.suggestion) {
-      result += `\nSuggestion: ${this.details.suggestion}`;
+    let result = `[${this.rc}] ${this.meta.message}`;
+    if (this.meta.suggestion) {
+      result += `\nSuggestion, ${this.meta.suggestion}`;
     }
-    if (this.details.docs) {
-      result += `\nDocs: ${this.details.docs}`;
-    }
+    result += `\nDocs, ${this.meta.docs}`;
     if (this.cause instanceof Error) {
       result += `\nCaused by: ${this.cause.message}`;
       if (this.cause.stack) {
@@ -77,20 +154,19 @@ export class RouteCraftError extends Error {
       ? { message: cause.message, error: cause }
       : { message: String(cause), error: new Error(String(cause)) };
   }
+}
 
-  static create: (
-    cause: unknown,
-    options?: Partial<RouteCraftError>,
-  ) => RouteCraftError = (cause, options?) => {
-    const parsedError = RouteCraftError.parse(cause);
-    if (parsedError.error instanceof RouteCraftError) {
-      return parsedError.error;
-    }
-    return new RouteCraftError({
-      code: ErrorCode.UNKNOWN_ERROR,
-      message: String(cause),
-      cause,
-      ...options,
-    });
+export function error(
+  rc: RCCode,
+  cause?: unknown,
+  overrides?: Partial<Pick<RCMeta, "message" | "suggestion" | "docs">>,
+): RouteCraftError {
+  const base = RC[rc];
+  const meta: RCMeta = {
+    ...base,
+    ...(overrides || {}),
+    docs: overrides?.docs ?? base.docs,
   };
+  const parsed = cause ? RouteCraftError.parse(cause).error : undefined;
+  return new RouteCraftError(rc, meta, parsed);
 }
