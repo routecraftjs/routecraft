@@ -129,8 +129,6 @@ export class CraftContext {
     }
   }
 
-  // Binder mechanism removed
-
   /**
    * Set the function to be called when the context starts.
    *
@@ -192,6 +190,7 @@ export class CraftContext {
         code: ErrorCode.DUPLICATE_ROUTE_DEFINITION,
         message: `Duplicate route ID found: ${duplicateId}`,
         suggestion: "Ensure all route IDs are unique",
+        docs: "https://routecraft.dev/docs/reference/errors#duplicate-route-definition",
       });
     }
 
@@ -201,6 +200,9 @@ export class CraftContext {
         throw new RouteCraftError({
           code: ErrorCode.INVALID_ROUTE_DEFINITION,
           message: `Route "${definition.id}" has no source`,
+          suggestion:
+            "Ensure every route has a valid source by calling .from(adapter)",
+          docs: "https://routecraft.dev/docs/reference/errors#invalid-route-definition",
         });
       }
 

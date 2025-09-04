@@ -1,5 +1,6 @@
 import { Callout } from '@/components/Callout'
 import { QuickLink, QuickLinks } from '@/components/QuickLinks'
+import { CodeTabs, CodeTab } from '@/components/CodeTabs'
 
 const tags = {
   callout: {
@@ -40,6 +41,58 @@ const tags = {
       description: { type: String },
       icon: { type: String },
       href: { type: String },
+    },
+  },
+  'code-tabs': {
+    render: CodeTabs,
+  },
+  'code-tab': {
+    // Flatten inner Fence into plain props so CodeTabs can read strings
+    render: ({ label, language, children }) => {
+      function extractCode(input) {
+        if (typeof input === 'string') return input
+        if (Array.isArray(input)) {
+          for (let item of input) {
+            if (typeof item === 'string') return item
+            if (
+              item?.props?.children &&
+              typeof item.props.children === 'string'
+            ) {
+              return item.props.children
+            }
+          }
+        }
+        if (
+          children?.props?.children &&
+          typeof children.props.children === 'string'
+        ) {
+          return children.props.children
+        }
+        return ''
+      }
+
+      function extractLanguage(input, fallback) {
+        if (Array.isArray(input)) {
+          for (let item of input) {
+            if (item?.props?.language) return item.props.language
+          }
+        }
+        if (input?.props?.language) return input.props.language
+        return fallback
+      }
+
+      const code = extractCode(children)
+      const lang = extractLanguage(children, language)
+
+      return (
+        <CodeTab label={label} language={lang}>
+          {code}
+        </CodeTab>
+      )
+    },
+    attributes: {
+      label: { type: String },
+      language: { type: String },
     },
   },
 }

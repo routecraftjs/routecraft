@@ -15,6 +15,7 @@ export class ValidateStep<T = unknown> extends FilterStep<T> {
         const err = RouteCraftError.create(result.issues, {
           code: ErrorCode.VALIDATE_ERROR,
           message: `Error validating exchange ${exchange.id}`,
+          docs: "https://routecraft.dev/docs/reference/errors#validate-error",
         });
         exchange.logger.debug(err, `Error validating exchange ${exchange.id}`);
         return false;

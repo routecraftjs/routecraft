@@ -4,6 +4,7 @@ import yaml from 'js-yaml'
 
 import { DocsLayout } from '@/components/DocsLayout'
 import { Fence } from '@/components/Fence'
+import { InlineCode } from '@/components/InlineCode'
 
 let documentSlugifyMap = new Map()
 
@@ -22,6 +23,14 @@ const nodes = {
         },
         node.transformChildren(config),
       )
+    },
+  },
+  code: {
+    ...defaultNodes.code,
+    render: InlineCode,
+    transform(node) {
+      const content = node.attributes.content ?? ''
+      return new Tag(this.render, {}, [content])
     },
   },
   heading: {

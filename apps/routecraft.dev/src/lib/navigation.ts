@@ -3,7 +3,7 @@ export const navigation = [
     title: 'Introduction',
     href: '/docs/introduction',
     links: [
-      { title: 'Getting started', href: '/' }, // what is RouteCraft? Core Concepts, Inspiration
+      { title: 'Getting started', href: '/docs/introduction' },
       { title: 'Installation', href: '/docs/introduction/installation' },
       {
         title: 'Project structure',
@@ -19,18 +19,27 @@ export const navigation = [
     title: 'Reference',
     href: '/docs/reference',
     links: [
-      { title: 'Operations', href: '/docs/reference/operations' },
       { title: 'Adapters', href: '/docs/reference/adapters' },
+      { title: 'Operations', href: '/docs/reference/operations' },
       { title: 'Configuration', href: '/docs/reference/configuration' },
-      { title: 'Consumers', href: '/docs/reference/consumers' },
       { title: 'CLI', href: '/docs/reference/cli' },
+      {
+        title: 'Create RouteCraft',
+        href: '/docs/reference/cli/create-routecraft',
+      },
       { title: 'Errors', href: '/docs/reference/errors' },
     ],
   },
   {
     title: 'Examples',
     href: '/docs/examples',
-    links: [{ title: 'Hello World', href: '/docs/examples/hello-world' }],
+    links: [
+      { title: 'File to HTTP', href: '/docs/examples/api-sync' },
+      { title: 'Sample Metrics', href: '/docs/examples/metrics-collector' },
+      { title: 'Webhook Router', href: '/docs/examples/webhook-processor' },
+      { title: 'HTTP Server', href: '/docs/examples/http-api' },
+      { title: 'Batch Processing', href: '/docs/examples/batch-processing' },
+    ],
   },
   {
     title: 'Community',
