@@ -8,6 +8,7 @@ import {
 import { error as rcError } from "./error.ts";
 import { logger } from "./logger.ts";
 import { SimpleConsumer } from "./consumers/simple.ts";
+import { BatchConsumer } from "./consumers/batch.ts";
 import { type Source, type CallableSource } from "./operations/from.ts";
 import {
   type Adapter,
@@ -259,6 +260,17 @@ export class RouteBuilder<CurrentType = unknown> {
   protected currentRoute?: RouteDefinition;
   protected routes: RouteDefinition[] = [];
 
+  // Pending options set via .id() / .batch() before .from()
+  protected pendingOptions?:
+    | {
+        id?: string;
+        consumer?: {
+          type: ConsumerType<Consumer>;
+          options?: unknown;
+        };
+      }
+    | undefined;
+
   constructor() {}
 
   /**
@@ -276,21 +288,45 @@ export class RouteBuilder<CurrentType = unknown> {
   }
 
   /**
+   * Set the route id for the next route to be created.
+   * This stages the id and does not affect the current route if one exists.
+   */
+  id(id: string): this {
+    this.pendingOptions = { ...(this.pendingOptions ?? {}), id };
+    logger.info(`Staging route id "${id}" for next route`);
+    return this;
+  }
+
+  /**
+   * Configure batch processing for the next route to be created.
+   * This stages the batch consumer and does not affect the current route if one exists.
+   */
+  batch(options?: { size?: number; flushIntervalMs?: number }): this {
+    const mapped = {
+      size: options?.size,
+      time: options?.flushIntervalMs,
+    } as unknown;
+    this.pendingOptions = {
+      ...(this.pendingOptions ?? {}),
+      consumer: {
+        type: BatchConsumer as unknown as ConsumerType<Consumer>,
+        options: mapped,
+      },
+    };
+    logger.info("Staging batch processing for next route");
+    return this;
+  }
+
+  /**
    * Define the source of data for this route.
    * This is typically the first step in defining a route.
    *
    * @template T The type of data produced by the source
-   * @param optionsOrMain Either a source adapter/function or a tuple of [options, source]
+   * @param source A source adapter or function
    * @returns A RouteBuilder with the specified type T
    * @example
    * // Simple source with inferred type
    * .from<string[]>(httpServer({ path: '/api/data' }))
-   *
-   * // Source with route options
-   * .from([
-   *   { id: 'user-import-job' },
-   *   timer({ intervalMs: 60 * 60 * 1000 }) // Run hourly
-   * ])
    *
    * // Source with callable function
    * .from<User[]>(async () => {
@@ -298,31 +334,27 @@ export class RouteBuilder<CurrentType = unknown> {
    *   return response.json();
    * })
    */
-  from<T>(
-    optionsOrMain:
-      | (Source<T> | CallableSource<T>)
-      | [RouteOptions, Source<T> | CallableSource<T>],
-  ): RouteBuilder<T> {
-    const { options, main: source } = Array.isArray(optionsOrMain)
-      ? { options: optionsOrMain[0], main: optionsOrMain[1] }
-      : {
-          options: { id: crypto.randomUUID().toString() },
-          main: optionsOrMain,
-        };
+  from<T>(source: Source<T> | CallableSource<T>): RouteBuilder<T> {
+    const id = this.pendingOptions?.id ?? crypto.randomUUID().toString();
+    const consumer = this.pendingOptions?.consumer ?? {
+      type: SimpleConsumer as unknown as ConsumerType<Consumer>,
+      options: undefined,
+    };
 
-    logger.info(`Creating route definition with id "${options.id}"`);
+    logger.info(`Creating route definition with id "${id}"`);
 
     this.currentRoute = {
-      id: options.id,
+      id,
       source: typeof source === "function" ? { subscribe: source } : source,
       steps: [],
       consumer: {
-        type:
-          options.consumer?.type ||
-          (SimpleConsumer as unknown as ConsumerType<Consumer>),
-        options: options.consumer?.options,
+        type: consumer.type,
+        options: consumer.options ?? undefined,
       },
     };
+
+    // Clear staged options once used
+    this.pendingOptions = undefined;
 
     this.routes.push(this.currentRoute);
     return this.withType<T>();

@@ -110,8 +110,18 @@ export default {
             return;
           }
 
-          // Check uniqueness
+          // Enforce format: TC-[A-Z0-9]{4}
           const testCaseId = docTags.testCase;
+          const format = /^TC-[A-Z0-9]{4}$/;
+          if (!format.test(testCaseId)) {
+            context.report({
+              node,
+              message: `@testCase must match TC-[A-Z0-9]{4}. Received: ${testCaseId}`,
+            });
+            return;
+          }
+
+          // Check uniqueness
           if (globalTestCaseIds.has(testCaseId)) {
             context.report({
               node,

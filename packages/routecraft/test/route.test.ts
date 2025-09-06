@@ -32,7 +32,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-0010
+   * @testCase TC-J1K2
    * @description Verifies that a route processes messages through its pipeline
    * @preconditions Route with source, processor, and destination
    * @expectedResult Message should flow through entire pipeline
@@ -45,7 +45,8 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         craft()
-          .from([{ id: "test-pipeline" }, simple("test-message")])
+          .id("test-pipeline")
+          .from(simple("test-message"))
           .transform(transformerSpy)
           .to(noop),
       )
@@ -60,7 +61,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-0028
+   * @testCase TC-L3M4
    * @description Verifies that a route can continue after a to step has been called.
    * @preconditions A route with a processor step after the to step.
    * @expectedResult The route can continue after the to step has been called.
@@ -75,7 +76,8 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         craft()
-          .from([{ id: "test-route" }, simple("test-message")])
+          .id("test-route")
+          .from(simple("test-message"))
           .to(noop)
           .to(noop2)
           .process(processorSpy),
@@ -90,7 +92,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-0011
+   * @testCase TC-N5P6
    * @description Verifies that route stops when context is stopped
    * @preconditions Active route with continuous source
    * @expectedResult Route should stop processing when context stops
@@ -101,21 +103,19 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         craft()
-          .from([
-            { id: "continuous-route" },
-            {
-              subscribe: async (_, handler, controller) => {
-                // Keep track of messages processed
-                let messageCount = 0;
-                while (!controller.signal.aborted && messageCount < 3) {
-                  await handler("test");
-                  messageCount++;
-                  // Smaller delay to speed up test
-                  await new Promise((resolve) => setTimeout(resolve, 1));
-                }
-              },
+          .id("continuous-route")
+          .from({
+            subscribe: async (_, handler, controller) => {
+              // Keep track of messages processed
+              let messageCount = 0;
+              while (!controller.signal.aborted && messageCount < 3) {
+                await handler("test");
+                messageCount++;
+                // Smaller delay to speed up test
+                await new Promise((resolve) => setTimeout(resolve, 1));
+              }
             },
-          ])
+          })
           .process(processorSpy)
           .to(noop()),
       )
@@ -133,7 +133,7 @@ describe("Route Behavior", () => {
   }, 1000); // Increase timeout slightly but keep it reasonable
 
   /**
-   * @testCase TC-0012
+   * @testCase TC-Q7R8
    * @description Verifies that route properly handles processor errors
    * @preconditions Route with failing processor
    * @expectedResult Should continue running and log error
@@ -147,7 +147,8 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         craft()
-          .from([{ id: "error-route" }, simple("test")])
+          .id("error-route")
+          .from(simple("test"))
           .process(() => {
             throw new Error("Processor error");
           })
@@ -165,7 +166,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-0037
+   * @testCase TC-S9T0
    * @description Returns final exchange to the source when route has multiple steps including a to step
    * @preconditions Custom source awaiting handler result
    * @expectedResult Source receives the final exchange after all steps complete
@@ -177,18 +178,16 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         craft()
-          .from([
-            { id: "return-final-with-to" },
-            {
-              subscribe: async (_ctx, handler, controller) => {
-                try {
-                  finalFromSource = await handler("hello");
-                } finally {
-                  controller.abort();
-                }
-              },
+          .id("return-final-with-to")
+          .from({
+            subscribe: async (_ctx, handler, controller) => {
+              try {
+                finalFromSource = await handler("hello");
+              } finally {
+                controller.abort();
+              }
             },
-          ])
+          })
           .transform((body: string) => body.toUpperCase())
           .to(noop)
           .process((exchange) => {
@@ -206,7 +205,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-0038
+   * @testCase TC-U1V2
    * @description Returns final exchange to the source when route has no to step
    * @preconditions Custom source awaiting handler result
    * @expectedResult Source receives the final exchange after all steps complete
@@ -217,18 +216,16 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         craft()
-          .from([
-            { id: "return-final-no-to" },
-            {
-              subscribe: async (_ctx, handler, controller) => {
-                try {
-                  finalFromSource = await handler("start");
-                } finally {
-                  controller.abort();
-                }
-              },
+          .id("return-final-no-to")
+          .from({
+            subscribe: async (_ctx, handler, controller) => {
+              try {
+                finalFromSource = await handler("start");
+              } finally {
+                controller.abort();
+              }
             },
-          ])
+          })
           .transform((body: string) => `${body}-a`)
           .process((exchange) => {
             exchange.body = `${exchange.body}-b`;
@@ -245,7 +242,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-0013
+   * @testCase TC-W3X4
    * @description Verifies that route properly maintains message correlation
    * @preconditions Route with multiple processors
    * @expectedResult Correlation ID should remain consistent through pipeline
@@ -256,7 +253,8 @@ describe("Route Behavior", () => {
     const testContext = context()
       .routes(
         craft()
-          .from([{ id: "correlation-test" }, simple("test")])
+          .id("correlation-test")
+          .from(simple("test"))
           .process((exchange) => {
             capturedCorrelationIds.push(
               exchange.headers["routecraft.correlation_id"] as string,
@@ -278,7 +276,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-0014
+   * @testCase TC-Y5Z6
    * @description Verifies that route continues processing after a message fails
    * @preconditions Route with processor that fails for specific message
    * @expectedResult Should continue processing subsequent messages
@@ -294,16 +292,14 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         craft()
-          .from([
-            { id: "fail-continue-route" },
-            {
-              subscribe: async (_, handler) => {
-                for (const msg of messages) {
-                  await handler(msg);
-                }
-              },
+          .from({
+            subscribe: async (_, handler) => {
+              for (const msg of messages) {
+                await handler(msg);
+              }
             },
-          ])
+          })
+          .id("fail-continue-route")
           .process((exchange) => {
             if (exchange.body === "fail") {
               throw new Error("Simulated failure");
@@ -329,7 +325,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-0015
+   * @testCase TC-A7C8
    * @description Verifies that route headers are properly propagated through pipeline
    * @preconditions Route with custom headers in source
    * @expectedResult Headers should be available at each step
@@ -340,14 +336,12 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         craft()
-          .from([
-            { id: "headers-test" },
-            {
-              subscribe: async (_, handler) => {
-                await handler("test", { "custom.header": "test-value" });
-              },
+          .from({
+            subscribe: async (_, handler) => {
+              await handler("test", { "custom.header": "test-value" });
             },
-          ])
+          })
+          .id("headers-test")
           .process((exchange) => {
             capturedHeaders.push({ ...exchange.headers });
             exchange.headers["processor.header"] = "added-value";
@@ -366,7 +360,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-0016
+   * @testCase TC-D9E0
    * @description Verifies that route properly handles async processors
    * @preconditions Route with async processor operations
    * @expectedResult Should wait for async operations to complete
@@ -377,7 +371,8 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         craft()
-          .from([{ id: "async-test" }, simple("test")])
+          .id("async-test")
+          .from(simple("test"))
           .process(async (exchange) => {
             await new Promise((resolve) => setTimeout(resolve, 10));
             processingOrder.push("first");
@@ -396,7 +391,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-0017
+   * @testCase TC-F1G2
    * @description Verifies that route properly handles body transformations
    * @preconditions Route with processors that transform message body
    * @expectedResult Body should be correctly transformed through pipeline
@@ -407,7 +402,8 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         craft()
-          .from([{ id: "transform-test" }, simple(() => ({ value: 1 }))])
+          .id("transform-test")
+          .from(simple(() => ({ value: 1 })))
           .transform((body) => {
             transformedBodies.push(body);
             return {
@@ -437,7 +433,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-0018
+   * @testCase TC-H3I4
    * @description Verifies that route properly handles processor return values
    * @preconditions Route with processors returning different types
    * @expectedResult Should maintain type safety and handle transformations
@@ -448,7 +444,8 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         craft()
-          .from([{ id: "processor-returns" }, simple(() => ({ num: 1 }))])
+          .id("processor-returns")
+          .from(simple(() => ({ num: 1 })))
           .process((exchange) => {
             exchange.body = (exchange.body as { num: number }).num.toString();
             return exchange;
@@ -468,7 +465,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-0023
+   * @testCase TC-J5K6
    * @description Verifies that split step correctly splits a message into multiple exchanges.
    * @preconditions A message to split.
    * @expectedResult The message is split, processed, and all split exchanges (with new IDs) are sent downstream.
@@ -481,7 +478,8 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         craft()
-          .from([{ id: "split-test" }, simple("hello-world")])
+          .id("split-test")
+          .from(simple("hello-world"))
           .split((exchange: any) => {
             // For a string message with '-' delimiter, split into parts.
             const parts =
@@ -516,7 +514,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-0024
+   * @testCase TC-L7M8
    * @description Verifies that a split step returning no exchanges leads to no downstream processing.
    * @preconditions A message to split.
    * @expectedResult No exchanges are sent to the destination.
@@ -527,7 +525,8 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         craft()
-          .from([{ id: "empty-split-test" }, simple("unused-message")])
+          .id("empty-split-test")
+          .from(simple("unused-message"))
           .split(() => {
             // Always return an empty array.
             return [];
@@ -544,7 +543,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-0025
+   * @testCase TC-N9P0
    * @description Verifies that the correlation header is maintained across split exchanges.
    * @preconditions A message to split.
    * @expectedResult All exchanges produced by the split step have the same correlation ID.
@@ -555,7 +554,8 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         craft()
-          .from([{ id: "correlation-split-test" }, simple("part1,part2")])
+          .id("correlation-split-test")
+          .from(simple("part1,part2"))
           .split((exchange: any) => {
             // Using a comma as a delimiter.
             const parts =
@@ -577,7 +577,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-0026
+   * @testCase TC-Q1R2
    * @description Verifies that the aggregate step correctly aggregates multiple exchanges.
    * @preconditions A message is split into multiple exchanges.
    * @expectedResult The split exchanges are aggregated into a single exchange with the expected aggregated body.
@@ -604,7 +604,8 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         craft()
-          .from([{ id: "aggregate-test" }, simple("a-b-c")])
+          .id("aggregate-test")
+          .from(simple("a-b-c"))
           .split(split)
           .process(processorSpy)
           .aggregate(agg)
@@ -623,7 +624,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-0027
+   * @testCase TC-S3T4
    * @description Verifies that the aggregate step works correctly even if no preceding split occurs.
    * @preconditions A route with an aggregate step immediately following the source.
    * @expectedResult The aggregator receives a single exchange and modifies its body accordingly.
@@ -635,7 +636,8 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         craft()
-          .from([{ id: "aggregate-direct-test" }, simple("original")])
+          .id("aggregate-direct-test")
+          .from(simple("original"))
           .tap(log())
           .aggregate((exchanges) => {
             return {
@@ -655,7 +657,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-0029
+   * @testCase TC-U5V6
    * @description Verifies that split exchanges maintain custom headers from original exchange
    * @preconditions A message with custom headers to split
    * @expectedResult All split exchanges should contain the original custom headers
@@ -666,14 +668,12 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         craft()
-          .from([
-            { id: "split-headers-test" },
-            {
-              subscribe: async (_, handler) => {
-                await handler("one-two", { "custom.header": "test-value" });
-              },
+          .id("split-headers-test")
+          .from({
+            subscribe: async (_, handler) => {
+              await handler("one-two", { "custom.header": "test-value" });
             },
-          ])
+          })
           .split<string, string>((exchange) =>
             exchange.body
               .split("-")
@@ -695,7 +695,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-0030
+   * @testCase TC-W7X8
    * @description Verifies that split exchanges can be processed independently and aggregated correctly
    * @preconditions Split exchanges with individual processing
    * @expectedResult Aggregated result should reflect individual processing
@@ -707,7 +707,8 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         craft()
-          .from([{ id: "split-process-aggregate" }, simple("1-2-3")])
+          .id("split-process-aggregate")
+          .from(simple("1-2-3"))
           .split<string, number>((exchange) =>
             exchange.body
               .split("-")
@@ -737,7 +738,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-0031
+   * @testCase TC-Y9Z0
    * @description Verifies that aggregation handles errors in individual exchanges correctly
    * @preconditions Split exchanges where some processing fails
    * @expectedResult Failed exchanges should not prevent aggregation of successful ones
@@ -751,10 +752,8 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         craft()
-          .from([
-            { id: "split-error-aggregate" },
-            simple("success1-error-success2"),
-          ])
+          .id("split-error-aggregate")
+          .from(simple("success1-error-success2"))
           .split<string, string>((exchange) =>
             exchange.body
               .split("-")
@@ -789,7 +788,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-0032
+   * @testCase TC-A1D2
    * @description Verifies that nested split operations work correctly with aggreattion at each level
    * @preconditions A route with multiple split steps
    * @expectedResult Messages should be split correctly at each level and maintain correlation while aggregating into groups
@@ -825,7 +824,8 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         craft()
-          .from([{ id: "nested-split-test" }, simple("A:1-2|B:3-4")])
+          .id("nested-split-test")
+          .from(simple("A:1-2|B:3-4"))
           .split<string, string>((exchange) =>
             // First split by |
             exchange.body
@@ -885,7 +885,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-0033
+   * @testCase TC-E3F4
    * @description Verifies that filter step correctly filters out unwanted messages
    * @preconditions A route with a filter step
    * @expectedResult Only messages that pass the filter condition should reach the destination
@@ -899,7 +899,8 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         craft()
-          .from([{ id: "filter-test" }, simple(numbers)])
+          .id("filter-test")
+          .from(simple(numbers))
           .filter<number>((exchange) => exchange.body % 2 === 0) // Only allow even numbers
           .tap<number>((exchange) => {
             capturedNumbers.push(exchange.body);
@@ -920,7 +921,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-0034
+   * @testCase TC-G5H6
    * @description Verifies that validate step correctly validates message types
    * @preconditions A route with a validate step using arktype
    * @expectedResult Only messages that match the type definition should reach the destination
@@ -932,7 +933,8 @@ describe("Route Behavior", () => {
     testContext = context()
       .routes(
         craft()
-          .from([{ id: "validate-test" }, simple(messages)])
+          .id("validate-test")
+          .from(simple(messages))
           .validate(type("string"))
           .tap((exchange) => {
             capturedMessages.push(exchange.body);
