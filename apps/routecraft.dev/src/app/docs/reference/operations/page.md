@@ -42,9 +42,19 @@ DSL operators with signatures and examples. {% .lead %}
 | [`tap`](#tap) | Side Effect | Execute side effects without changing data |
 | [`to`](#to) | Destination | Send data to destination |
 
+### Operation scope and ordering
+
+- **Route operations** (e.g. `id`, `batch`) configure the route itself and apply to the entire route. They configure the **next** route created by `from()`.
+  - Place them before `from()`.
+  - If called after a route already exists in the chain, they are staged and will apply to the next `from()` (they do not change the current route).
+
+- **Wrapper operations** (e.g. `retry`, `throttle`, `timeout`, `delay`, `onError`) wrap the **next operation only**.
+  - Place them immediately before the operation they should affect.
+  - Multiple wrappers can be stacked; they will all apply to the next single operation.
+
 ## Route operations
 
-Route operations configure the route itself and must be called before `from()`.
+Route operations configure the route itself and apply to the entire route. They configure the next route created by `from()`. Place them before `from()`. If called after an existing route, they are staged for the next `from()`.
 
 ### id
 
@@ -52,7 +62,7 @@ Route operations configure the route itself and must be called before `from()`.
 id(routeId: string): RouteBuilder<Current>
 ```
 
-Set the unique identifier for the route. Can be called before or after `from()`, but conventionally placed at the start.
+Set the unique identifier for the next route. Place before `from()`. If called after a route already exists, it is staged and applies to the next `from()` (it does not rename the current route).
 
 ```ts
 craft()
@@ -60,16 +70,16 @@ craft()
   .from(source)
   .to(destination)
 
-// Can also be placed after from()
+// If called after an existing route, id() is staged for the next route
+// (does not change the current route)
 craft()
   .from(source)
-  .id('data-processor')
+  .id('next-route-id')
+  .from(otherSource)
   .to(destination)
 ```
 
 If no ID is specified, a random UUID will be generated automatically.
-
-## Route operations
 
 ### batch
 

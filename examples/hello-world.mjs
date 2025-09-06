@@ -1,7 +1,8 @@
 import { log, craft, simple, fetch } from "@routecraftjs/routecraft";
 
 export default craft()
-  .from([{ id: "hello-world" }, simple({ userId: 1 })])
+  .id("hello-world")
+  .from(simple({ userId: 1 }))
   .enrich(
     fetch({
       method: "GET",

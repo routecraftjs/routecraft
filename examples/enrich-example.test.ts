@@ -8,7 +8,7 @@ describe("Enrich Example", () => {
   });
 
   /**
-   * @testCase TC-0035
+   * @testCase TC-C9D0
    * @description Tests that the enrich example correctly adds additional data to the original exchange
    * @preconditions A route with an enrich operation that adds additional data
    * @expectedResult The exchange body should contain both original and additional data
