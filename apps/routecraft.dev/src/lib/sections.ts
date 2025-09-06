@@ -50,15 +50,53 @@ function getNodeText(node: Node) {
   return text
 }
 
+function extractHeadingContent(node: Node): {
+  title: string
+  badges: Array<{ text: string; color?: string }>
+} {
+  let title = ''
+  let badges: Array<{ text: string; color?: string }> = []
+
+  for (let child of node.children ?? []) {
+    if (child.type === 'text') {
+      title += String((child as any).attributes?.content ?? '')
+      continue
+    }
+
+    const isTag = child.type === 'tag'
+    const tagName = isTag
+      ? ((child as any).name ?? (child as any).tag)
+      : undefined
+
+    if (isTag && tagName === 'badge') {
+      // Extract inner text for badge label, do not include in title
+      const inner = extractHeadingContent(child)
+      const color = (child as any).attributes?.color as string | undefined
+      const text = inner.title.trim()
+      if (text) badges.push({ text, color })
+      continue
+    }
+
+    // Recurse into other inline nodes (e.g., emphasis, code)
+    const inner = extractHeadingContent(child)
+    if (inner.title) title += inner.title
+    if (inner.badges.length) badges.push(...inner.badges)
+  }
+
+  return { title: title.trim(), badges }
+}
+
 export type Subsection = H3Node['attributes'] & {
   id: string
   title: string
+  badges?: Array<{ text: string; color?: string }>
   children?: undefined
 }
 
 export type Section = H2Node['attributes'] & {
   id: string
   title: string
+  badges?: Array<{ text: string; color?: string }>
   children: Array<Subsection>
 }
 
@@ -70,7 +108,7 @@ export function collectSections(
 
   for (let node of nodes) {
     if (isH2Node(node) || isH3Node(node)) {
-      let title = getNodeText(node)
+      const { title, badges } = extractHeadingContent(node)
       if (title) {
         let id = slugify(title)
         if (isH3Node(node)) {
@@ -83,9 +121,10 @@ export function collectSections(
             ...node.attributes,
             id,
             title,
+            badges,
           })
         } else {
-          sections.push({ ...node.attributes, id, title, children: [] })
+          sections.push({ ...node.attributes, id, title, badges, children: [] })
         }
       }
     }

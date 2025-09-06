@@ -1,4 +1,5 @@
 import { Callout } from '@/components/Callout'
+import { Badge } from '@/components/Badge'
 import { QuickLink, QuickLinks } from '@/components/QuickLinks'
 import { CodeTabs, CodeTab } from '@/components/CodeTabs'
 
@@ -94,6 +95,12 @@ const tags = {
       label: { type: String },
       language: { type: String },
     },
+  },
+  badge: {
+    attributes: {
+      color: { type: String, default: 'yellow' },
+    },
+    render: Badge,
   },
 }
 
