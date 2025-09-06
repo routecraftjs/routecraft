@@ -21,7 +21,7 @@ describe("CraftContext", () => {
   });
 
   /**
-   * @testCase TC-0001
+   * @testCase TC-A0B1
    * @description Verifies context initialization with minimal configuration
    * @preconditions None
    * @expectedResult Context should start and stop without errors
@@ -37,14 +37,14 @@ describe("CraftContext", () => {
   });
 
   /**
-   * @testCase TC-0002
+   * @testCase TC-C2D3
    * @description Validates route registration functionality
    * @preconditions Simple route definition exists
    * @expectedResult Context should contain exactly 1 registered route
    */
   test("Registers routes correctly", async () => {
     testContext = context()
-      .routes(craft().from([{ id: "test-route" }, simple("test")]))
+      .routes(craft().id("test-route").from(simple("test")))
       .build();
 
     await testContext.start();
@@ -56,7 +56,7 @@ describe("CraftContext", () => {
   });
 
   /**
-   * @testCase TC-0003
+   * @testCase TC-E4F5
    * @description Verifies lifecycle hooks execution
    * @preconditions Context with startup/shutdown handlers
    * @expectedResult Both handlers should be called exactly once
@@ -88,7 +88,7 @@ describe("Error Handling", () => {
   });
 
   /**
-   * @testCase TC-0004
+   * @testCase TC-G6H7
    * @description Verifies error handling in startup sequence
    * @preconditions Context with failing startup handler
    * @expectedResult Context should throw error and shutdown
@@ -114,7 +114,7 @@ describe("Route Management", () => {
   });
 
   /**
-   * @testCase TC-0005
+   * @testCase TC-J8K9
    * @description Validates duplicate route ID prevention
    * @preconditions Two routes with same ID
    * @expectedResult Should throw error during context creation
@@ -122,26 +122,24 @@ describe("Route Management", () => {
   test("Rejects duplicate route IDs", () => {
     const builder = context().routes(
       craft()
-        .from([{ id: "duplicate" }, simple("test")])
-        .from([{ id: "duplicate" }, simple("test")]),
+        .id("duplicate")
+        .from(simple("test"))
+        .id("duplicate")
+        .from(simple("test")),
     );
 
     expect(() => builder.build()).toThrow(/duplicate/i);
   });
 
   /**
-   * @testCase TC-0006
+   * @testCase TC-L1M2
    * @description Verifies route retrieval behavior
    * @preconditions Context with multiple routes
    * @expectedResult Correct route retrieval and undefined for missing
    */
   test("Manages multiple routes correctly", async () => {
     const testRoutes = [1, 2, 3]
-      .map((n) =>
-        craft()
-          .from([{ id: `route-${n}` }, simple(n)])
-          .build(),
-      )
+      .map((n) => craft().id(`route-${n}`).from(simple(n)).build())
       .flat();
 
     testContext = context().routes(testRoutes).build();
@@ -162,7 +160,7 @@ describe("Lifecycle Management", () => {
   });
 
   /**
-   * @testCase TC-0007
+   * @testCase TC-N3P4
    * @description Verifies idempotent stop behavior
    * @preconditions Active context
    * @expectedResult Subsequent stop calls are no-ops
@@ -178,7 +176,7 @@ describe("Lifecycle Management", () => {
   });
 
   /**
-   * @testCase TC-0008
+   * @testCase TC-Q5R6
    * @description Validates store initialization
    * @preconditions Context with custom store
    * @expectedResult Store should be available in context
@@ -204,7 +202,7 @@ describe("Route Independence", () => {
   });
 
   /**
-   * @testCase TC-0009
+   * @testCase TC-S7T8
    * @description Verifies that failed routes don't prevent others from processing and calls destination adapter
    * @preconditions Context with failing and working routes
    * @expectedResult Working route should process and eventually call destination adapter
@@ -217,22 +215,21 @@ describe("Route Independence", () => {
     testContext = context()
       .routes(
         craft()
-          .from([
-            { id: "failing-route" },
+          .id("failing-route")
+          .from(
             simple(() => {
               throw new Error("Simulated route failure");
             }),
-          ])
-          .from([
-            { id: "failing-route2" },
-            () => {
-              throw new Error("Simulated route failure");
-            },
-          ])
+          )
+          .id("failing-route2")
+          .from(() => {
+            throw new Error("Simulated route failure");
+          })
           .process(() => {
             throw new Error("Simulated route failure");
           })
-          .from([{ id: "working-route" }, simple("work")])
+          .id("working-route")
+          .from(simple("work"))
           .to(noop),
       )
       .build();

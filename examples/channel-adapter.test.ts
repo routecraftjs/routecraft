@@ -3,7 +3,7 @@ import { context } from "@routecraftjs/routecraft";
 import routes from "./channel-adapter.mjs";
 
 /**
- * @testCase TC-0020
+ * @testCase TC-M4N5
  * @description Verifies that channel adapter can send and receive messages
  * @preconditions Channel adapter with two channels
  * @expectedResult Should send and receive messages between channels

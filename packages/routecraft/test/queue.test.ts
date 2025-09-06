@@ -3,7 +3,7 @@ import { InMemoryProcessingQueue } from "../src/queue.ts";
 
 describe("InMemoryProcessingQueue", () => {
   /**
-   * @testCase TC-0100
+   * @testCase TC-U9V0
    * @description Buffers messages enqueued before handler and flushes them in order when handler is set
    * @preconditions No handler set; two messages enqueued
    * @expectedResult Handler receives ["a", "b"] in order after being set
@@ -26,7 +26,7 @@ describe("InMemoryProcessingQueue", () => {
   });
 
   /**
-   * @testCase TC-0101
+   * @testCase TC-W1X2
    * @description Delivers messages enqueued after handler is set immediately to the handler
    * @preconditions Handler set; two messages enqueued
    * @expectedResult Handler receives [1, 2]
@@ -45,7 +45,7 @@ describe("InMemoryProcessingQueue", () => {
   });
 
   /**
-   * @testCase TC-0102
+   * @testCase TC-Y3Z4
    * @description Clearing removes handler and buffer; subsequent enqueues are buffered until a new handler is set
    * @preconditions Handler set, one message enqueued then queue cleared
    * @expectedResult Only first message delivered; second remains buffered until a new handler is set
