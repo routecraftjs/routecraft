@@ -1,6 +1,11 @@
 import { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
 import { error as rcError, RC } from "./error.ts";
 import { createLogger, type Logger } from "./logger.ts";
+import {
+  type EventHandler,
+  type EventName,
+  type EventPayload,
+} from "./types.ts";
 
 /**
  * Base store registry that can be extended by adapters
@@ -43,12 +48,6 @@ export type MergedOptions<T> = {
 export type CraftConfig = {
   /** Routes to register with the context */
   routes: RouteDefinition | RouteDefinition[];
-
-  /** Optional function to run when the context starts */
-  onStartup?: () => Promise<void> | void;
-
-  /** Optional function to run when the context shuts down */
-  onShutdown?: () => Promise<void> | void;
 };
 
 /**
@@ -83,12 +82,6 @@ export class CraftContext {
   /** Unique identifier for this context instance */
   public readonly contextId: string = crypto.randomUUID();
 
-  /** Handler called during context startup */
-  private onStartup?: () => Promise<void> | void;
-
-  /** Handler called during context shutdown */
-  private onShutdown?: () => Promise<void> | void;
-
   /** Routes registered with this context */
   private routes: Route[] = [];
 
@@ -104,6 +97,10 @@ export class CraftContext {
   /** Logger for this context */
   public readonly logger: Logger;
 
+  /** Registered event handlers */
+  private readonly handlers: Map<EventName, Set<EventHandler<EventName>>> =
+    new Map();
+
   /**
    * Create a new CraftContext instance.
    *
@@ -112,12 +109,6 @@ export class CraftContext {
   constructor(config?: CraftConfig) {
     this.logger = createLogger(this);
     if (config) {
-      if (config.onStartup) {
-        this.onStartup = config.onStartup;
-      }
-      if (config.onShutdown) {
-        this.onShutdown = config.onShutdown;
-      }
       if (config.routes) {
         this.routes = [];
         if (Array.isArray(config.routes)) {
@@ -130,22 +121,48 @@ export class CraftContext {
   }
 
   /**
-   * Set the function to be called when the context starts.
+   * Subscribe to lifecycle and system events.
    *
-   * @param fn Function to call during startup
+   * Handlers receive payloads with shape { ts, context, details }.
    */
-  setOnStartup(fn: () => Promise<void> | void): void {
-    this.onStartup = fn;
+  on<K extends EventName>(event: K, handler: EventHandler<K>): () => void {
+    const set = this.handlers.get(event) ?? new Set();
+    // Force type casting at storage time; retrieval re-casts on emit
+    set.add(handler as unknown as EventHandler<EventName>);
+    this.handlers.set(event, set);
+    return () => {
+      set.delete(handler as unknown as EventHandler<EventName>);
+    };
   }
 
   /**
-   * Set the function to be called when the context stops.
-   *
-   * @param fn Function to call during shutdown
+   * Emit an event to registered handlers. Public for internal use by routes/adapters.
    */
-  setOnShutdown(fn: () => Promise<void> | void): void {
-    this.onShutdown = fn;
+  emit<K extends EventName>(
+    event: K,
+    details: EventPayload<K>["details"],
+  ): void {
+    const payload: EventPayload<K> = {
+      ts: new Date().toISOString(),
+      context: this,
+      details,
+    } as EventPayload<K>;
+    const set = this.handlers.get(event);
+    if (!set || set.size === 0) return;
+    for (const handler of Array.from(set)) {
+      try {
+        void (handler as unknown as EventHandler<K>)(payload);
+      } catch (err) {
+        // Swallow handler errors but log them and emit system error
+        this.logger.warn(err as Error, "Event handler threw");
+        if (event !== "error") {
+          this.emit("error", { error: err });
+        }
+      }
+    }
   }
+
+  // onStartup/onShutdown removed in favor of event listeners
 
   /**
    * Register routes with this context.
@@ -203,7 +220,10 @@ export class CraftContext {
 
       const controller = new AbortController();
       this.controllers.set(definition.id, controller);
-      this.routes.push(new DefaultRoute(this, definition, controller));
+      const route = new DefaultRoute(this, definition, controller);
+      this.routes.push(route);
+      // Event: routeRegistered
+      this.emit("routeRegistered", { route });
     }
   }
 
@@ -290,17 +310,15 @@ export class CraftContext {
    */
   async start(): Promise<void> {
     this.logger.info("Starting Routecraft context");
-
-    if (this.onStartup) {
-      this.logger.debug("Running startup handler");
-      await this.onStartup();
-    }
+    this.emit("contextStarting", {});
 
     this.logger.info("Starting all routes");
+    this.emit("contextStarted", {});
     return Promise.allSettled(
       this.routes.map(async (route) => {
         try {
           this.logger.debug(`Starting route "${route.definition.id}"`);
+          this.emit("routeStarting", { route });
           await route.start();
           this.logger.debug(`Route "${route.definition.id}" ended.`);
           return { routeId: route.definition.id, success: true as const };
@@ -309,6 +327,7 @@ export class CraftContext {
             error,
             `Failed to start route "${route.definition.id}"`,
           );
+          this.emit("error", { error, route });
           // Abort just this failing route
           const controller = this.controllers.get(route.definition.id);
           controller?.abort();
@@ -333,6 +352,7 @@ export class CraftContext {
       })
       .catch((error) => {
         this.logger.error(error, "Context start failed");
+        this.emit("error", { error });
         throw error;
       });
   }
@@ -358,18 +378,16 @@ export class CraftContext {
    */
   async stop(): Promise<void> {
     this.logger.info("Stopping Routecraft context");
+    this.emit("contextStopping", { reason: undefined });
 
-    // Abort all route controllers
-    for (const controller of this.controllers.values()) {
+    // Abort all route controllers (route emits handled by route abort listener)
+    for (const route of this.routes) {
       this.logger.debug("Stopping route controller");
-      controller.abort();
-    }
-
-    if (this.onShutdown) {
-      this.logger.debug("Running shutdown handler");
-      await this.onShutdown();
+      const controller = this.controllers.get(route.definition.id);
+      controller?.abort("context.stop()");
     }
 
     this.logger.info("Routecraft context stopped");
+    this.emit("contextStopped", {});
   }
 }

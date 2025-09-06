@@ -7,6 +7,7 @@ import {
 } from "./context.ts";
 import { error as rcError } from "./error.ts";
 import { logger } from "./logger.ts";
+import { type EventHandler, type EventName } from "./types.ts";
 import { SimpleConsumer } from "./consumers/simple.ts";
 import { BatchConsumer } from "./consumers/batch.ts";
 import { type Source, type CallableSource } from "./operations/from.ts";
@@ -68,8 +69,7 @@ import {
  * // Create a context with routes and handlers
  * const context = new ContextBuilder()
  *   .with({ routes: [] })
- *   .onStartup(() => console.log('Starting up'))
- *   .onShutdown(() => console.log('Shutting down'))
+ *   .on('contextStarting', ({ ts }) => console.log('Starting at', ts))
  *   .store('routecraft.adapter.channel.store', new Map())
  *   .routes(routes1)
  *   .routes([routes2, routes3])
@@ -80,13 +80,12 @@ import {
  */
 export class ContextBuilder {
   protected config?: CraftConfig;
-  protected onStartupHandler?: () => Promise<void> | void;
-  protected onShutdownHandler?: () => Promise<void> | void;
   protected definitions: RouteDefinition[] = [];
   protected initialStores = new Map<
     keyof StoreRegistry,
     StoreRegistry[keyof StoreRegistry]
   >();
+  protected eventHandlers = new Map<EventName, Set<EventHandler<EventName>>>();
   // Binder registry removed
 
   constructor() {}
@@ -102,27 +101,15 @@ export class ContextBuilder {
     return this;
   }
 
-  /**
-   * Set a handler to be called when the context starts.
-   *
-   * @param onStartup A function to be called during context startup
-   * @returns This builder instance for method chaining
-   */
-  onStartup(onStartup: () => Promise<void> | void): this {
-    this.onStartupHandler = onStartup;
-    return this;
-  }
-
   // binders(...) API removed
 
   /**
-   * Set a handler to be called when the context shuts down.
-   *
-   * @param onShutdown A function to be called during context shutdown
-   * @returns This builder instance for method chaining
+   * Register an event listener to be attached to the built context.
    */
-  onShutdown(onShutdown: () => Promise<void> | void): this {
-    this.onShutdownHandler = onShutdown;
+  on<K extends EventName>(event: K, handler: EventHandler<K>): this {
+    const set = this.eventHandlers.get(event) ?? new Set();
+    set.add(handler as unknown as EventHandler<EventName>);
+    this.eventHandlers.set(event, set);
     return this;
   }
 
@@ -205,12 +192,6 @@ export class ContextBuilder {
    */
   build(): CraftContext {
     const ctx = new CraftContext(this.config);
-    if (this.onStartupHandler) {
-      ctx.setOnStartup(this.onStartupHandler);
-    }
-    if (this.onShutdownHandler) {
-      ctx.setOnShutdown(this.onShutdownHandler);
-    }
 
     // Initialize stores with type safety
     for (const [key, value] of this.initialStores) {
@@ -218,6 +199,13 @@ export class ContextBuilder {
     }
 
     // Binder registration removed
+
+    // Attach event handlers BEFORE registering routes so routeRegistered can be observed
+    for (const [event, handlers] of this.eventHandlers.entries()) {
+      for (const handler of handlers) {
+        ctx.on(event as EventName, handler as EventHandler<EventName>);
+      }
+    }
 
     // Register routes
     ctx.registerRoutes(...this.definitions);

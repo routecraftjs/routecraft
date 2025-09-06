@@ -119,6 +119,18 @@ export class DefaultRoute implements Route {
       this.messageChannel,
       this.definition.consumer.options,
     );
+
+    // Emit routeStopping/routeStopped when the controller is aborted externally
+    this.abortController.signal.addEventListener("abort", (event) => {
+      try {
+        this.context.emit("routeStopping", {
+          route: this,
+          reason: (event as unknown as { reason?: unknown })?.reason,
+        });
+      } finally {
+        this.context.emit("routeStopped", { route: this });
+      }
+    });
   }
 
   /**
@@ -166,6 +178,9 @@ export class DefaultRoute implements Route {
     this.consumer.register((message, headers) => {
       return this.handler(this.buildExchange(message, headers));
     });
+
+    // Signal that the route has started successfully (consumer registered)
+    this.context.emit("routeStarted", { route: this });
 
     // Subscribe to the source and enqueue messages to the internal processing queue
     return this.definition.source.subscribe(
@@ -248,6 +263,11 @@ export class DefaultRoute implements Route {
           err,
           `Step ${step.operation} failed for exchange ${updatedExchange.id}`,
         );
+        this.context.emit("error", {
+          error: err,
+          route: this,
+          exchange: updatedExchange,
+        });
       }
     }
     return lastProcessedExchange;
