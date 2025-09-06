@@ -1,4 +1,4 @@
-import { type Adapter, type StepDefinition } from "../types.ts";
+import { type Adapter, type Step } from "../types.ts";
 import { type Exchange, OperationType } from "../exchange.ts";
 import { error as rcError } from "../error.ts";
 
@@ -10,7 +10,7 @@ export interface Filter<T = unknown> extends Adapter {
   filter: CallableFilter<T>;
 }
 
-export class FilterStep<T = unknown> implements StepDefinition<Filter<T>> {
+export class FilterStep<T = unknown> implements Step<Filter<T>> {
   operation: OperationType = OperationType.FILTER;
   adapter: Filter<T>;
 
@@ -21,8 +21,8 @@ export class FilterStep<T = unknown> implements StepDefinition<Filter<T>> {
 
   async execute(
     exchange: Exchange<T>,
-    remainingSteps: StepDefinition<Adapter>[],
-    queue: { exchange: Exchange<T>; steps: StepDefinition<Adapter>[] }[],
+    remainingSteps: Step<Adapter>[],
+    queue: { exchange: Exchange<T>; steps: Step<Adapter>[] }[],
   ): Promise<void> {
     try {
       const result = await Promise.resolve(this.adapter.filter(exchange));

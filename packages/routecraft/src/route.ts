@@ -11,7 +11,7 @@ import { createLogger, type Logger } from "./logger.ts";
 import { type Source } from "./operations/from.ts";
 import {
   type Adapter,
-  type StepDefinition,
+  type Step,
   type Consumer,
   type ConsumerType,
   type Message,
@@ -35,7 +35,7 @@ export type RouteDefinition<T = unknown> = {
   readonly source: Source<T>;
 
   /** Processing steps that transform, filter, or direct the data */
-  readonly steps: StepDefinition<Adapter>[];
+  readonly steps: Step<Adapter>[];
 
   /** Consumer configuration that determines how data is processed */
   readonly consumer: {
@@ -226,7 +226,7 @@ export class DefaultRoute implements Route {
     );
 
     // Use a queue to process the steps in FIFO order.
-    const queue: { exchange: Exchange; steps: StepDefinition<Adapter>[] }[] = [
+    const queue: { exchange: Exchange; steps: Step<Adapter>[] }[] = [
       { exchange: exchange, steps: [...this.definition.steps] },
     ];
 

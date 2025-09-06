@@ -1,4 +1,4 @@
-import { type Adapter, type StepDefinition } from "../types.ts";
+import { type Adapter, type Step } from "../types.ts";
 import { type Exchange, OperationType, HeadersKeys } from "../exchange.ts";
 
 export type CallableSplitter<T = unknown, R = unknown> = (
@@ -10,7 +10,7 @@ export interface Splitter<T = unknown, R = unknown> extends Adapter {
 }
 
 export class SplitStep<T = unknown, R = unknown>
-  implements StepDefinition<Splitter<T, R>>
+  implements Step<Splitter<T, R>>
 {
   operation: OperationType = OperationType.SPLIT;
   adapter: Splitter<T, R>;
@@ -21,8 +21,8 @@ export class SplitStep<T = unknown, R = unknown>
 
   async execute(
     exchange: Exchange<T>,
-    remainingSteps: StepDefinition<Adapter>[],
-    queue: { exchange: Exchange<R>; steps: StepDefinition<Adapter>[] }[],
+    remainingSteps: Step<Adapter>[],
+    queue: { exchange: Exchange<R>; steps: Step<Adapter>[] }[],
   ): Promise<void> {
     const splits = await Promise.resolve(this.adapter.split(exchange));
     const groupId = crypto.randomUUID();

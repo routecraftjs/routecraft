@@ -7,14 +7,14 @@ import { type Route } from "./route.ts";
 // eslint-disable-next-line
 export interface Adapter {}
 
-export interface StepDefinition<T extends Adapter> {
+export interface Step<T extends Adapter> {
   operation: OperationType;
   adapter: T;
 
   execute(
     exchange: Exchange,
-    remainingSteps: StepDefinition<Adapter>[],
-    queue: { exchange: Exchange; steps: StepDefinition<Adapter>[] }[],
+    remainingSteps: Step<Adapter>[],
+    queue: { exchange: Exchange; steps: Step<Adapter>[] }[],
   ): Promise<void>;
 }
 

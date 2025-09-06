@@ -26,6 +26,8 @@ export enum OperationType {
   VALIDATE = "validate",
   /** Enrich the exchange with data from another exchange */
   ENRICH = "enrich",
+  /** Set or override a header on the exchange */
+  HEADER = "header",
 }
 
 /**
