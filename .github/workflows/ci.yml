@@ -193,7 +193,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Approve PR
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -214,7 +214,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Merge PR
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
