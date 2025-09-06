@@ -1,4 +1,4 @@
-import { type Adapter, type StepDefinition } from "../types.ts";
+import { type Adapter, type Step } from "../types.ts";
 import { type Exchange, OperationType } from "../exchange.ts";
 import { error as rcError } from "../error.ts";
 
@@ -10,7 +10,7 @@ export interface Tap<T = unknown> extends Adapter {
   tap: CallableTap<T>;
 }
 
-export class TapStep<T = unknown> implements StepDefinition<Tap<T>> {
+export class TapStep<T = unknown> implements Step<Tap<T>> {
   operation: OperationType = OperationType.TAP;
   adapter: Tap<T>;
 
@@ -20,8 +20,8 @@ export class TapStep<T = unknown> implements StepDefinition<Tap<T>> {
 
   async execute(
     exchange: Exchange<T>,
-    remainingSteps: StepDefinition<Adapter>[],
-    queue: { exchange: Exchange<T>; steps: StepDefinition<Adapter>[] }[],
+    remainingSteps: Step<Adapter>[],
+    queue: { exchange: Exchange<T>; steps: Step<Adapter>[] }[],
   ): Promise<void> {
     // Create a deep copy of the exchange for the tap
     const exchangeCopy: Exchange<T> = {

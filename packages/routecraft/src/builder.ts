@@ -13,7 +13,7 @@ import { BatchConsumer } from "./consumers/batch.ts";
 import { type Source, type CallableSource } from "./operations/from.ts";
 import {
   type Adapter,
-  type StepDefinition,
+  type Step,
   type Consumer,
   type ConsumerType,
 } from "./types.ts";
@@ -56,6 +56,8 @@ import {
   type Enricher,
   type CallableEnricher,
 } from "./operations/enrich.ts";
+import { HeaderStep } from "./operations/header.ts";
+import { type HeaderValue } from "./exchange.ts";
 // Binder mechanism removed
 
 /**
@@ -372,9 +374,7 @@ export class RouteBuilder<CurrentType = unknown> {
    * @returns The current RouteBuilder instance
    * @private
    */
-  private addStep<T extends Adapter>(
-    step: StepDefinition<T>,
-  ): RouteBuilder<CurrentType> {
+  private addStep<T extends Adapter>(step: Step<T>): RouteBuilder<CurrentType> {
     const route = this.requireSource();
     logger.info(`Adding ${step.operation} step to route "${route.id}"`);
     route.steps.push(step);
@@ -527,6 +527,35 @@ export class RouteBuilder<CurrentType = unknown> {
   ): RouteBuilder<NextType> {
     this.addStep(new TransformStep<CurrentType, NextType>(transformer));
     return this.withType<NextType>();
+  }
+
+  /**
+   * Set or override a header on the current exchange.
+   * The body type remains unchanged.
+   *
+   * @param key Header key to set
+   * @param valueOrFn A static value or a function returning the value from exchange data
+   * @returns A RouteBuilder with the same type
+   * @example
+   * // Static value
+   * .header('x-env', 'prod')
+   *
+   * // Derived from body
+   * .header('user.id', (exchange) => exchange.body.id)
+   *
+   * // Derived from headers
+   * .header('correlation', (exchange) => exchange.headers['x-request-id'])
+   */
+  header(
+    key: string,
+    valueOrFn:
+      | HeaderValue
+      | ((
+          exchange: Exchange<CurrentType>,
+        ) => HeaderValue | Promise<HeaderValue>),
+  ): RouteBuilder<CurrentType> {
+    this.addStep(new HeaderStep<CurrentType>(key, valueOrFn));
+    return this.withType<CurrentType>();
   }
 
   /**

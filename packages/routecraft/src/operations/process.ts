@@ -1,4 +1,4 @@
-import { type Adapter, type StepDefinition } from "../types.ts";
+import { type Adapter, type Step } from "../types.ts";
 import { type Exchange } from "../exchange.ts";
 import { OperationType } from "../exchange.ts";
 
@@ -17,9 +17,7 @@ export interface Processor<T = unknown, R = T> extends Adapter {
   process: CallableProcessor<T, R>;
 }
 
-export class ProcessStep<T = unknown, R = T>
-  implements StepDefinition<Processor<T, R>>
-{
+export class ProcessStep<T = unknown, R = T> implements Step<Processor<T, R>> {
   operation: OperationType = OperationType.PROCESS;
   adapter: Processor<T, R>;
 
@@ -30,8 +28,8 @@ export class ProcessStep<T = unknown, R = T>
 
   async execute(
     exchange: Exchange<T>,
-    remainingSteps: StepDefinition<Adapter>[],
-    queue: { exchange: Exchange<R>; steps: StepDefinition<Adapter>[] }[],
+    remainingSteps: Step<Adapter>[],
+    queue: { exchange: Exchange<R>; steps: Step<Adapter>[] }[],
   ): Promise<void> {
     const newExchange = await Promise.resolve(this.adapter.process(exchange));
     queue.push({ exchange: newExchange, steps: remainingSteps });

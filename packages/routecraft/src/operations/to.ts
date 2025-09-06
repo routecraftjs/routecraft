@@ -1,4 +1,4 @@
-import { type Adapter, type StepDefinition } from "../types.ts";
+import { type Adapter, type Step } from "../types.ts";
 import { type Exchange, OperationType } from "../exchange.ts";
 
 /**
@@ -16,7 +16,7 @@ export interface Destination<T = unknown> extends Adapter {
   send: CallableDestination<T>;
 }
 
-export class ToStep<T = unknown> implements StepDefinition<Destination<T>> {
+export class ToStep<T = unknown> implements Step<Destination<T>> {
   operation: OperationType = OperationType.TO;
   adapter: Destination<T>;
 
@@ -26,8 +26,8 @@ export class ToStep<T = unknown> implements StepDefinition<Destination<T>> {
 
   async execute(
     exchange: Exchange<T>,
-    remainingSteps: StepDefinition<Adapter>[],
-    queue: { exchange: Exchange<T>; steps: StepDefinition<Adapter>[] }[],
+    remainingSteps: Step<Adapter>[],
+    queue: { exchange: Exchange<T>; steps: Step<Adapter>[] }[],
   ): Promise<void> {
     await this.adapter.send(exchange);
     queue.push({ exchange, steps: remainingSteps });

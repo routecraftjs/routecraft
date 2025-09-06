@@ -1,4 +1,4 @@
-import { type Adapter, type StepDefinition } from "../types.ts";
+import { type Adapter, type Step } from "../types.ts";
 import { type Exchange, OperationType, HeadersKeys } from "../exchange.ts";
 
 export type CallableAggregator<T = unknown, R = T> = (
@@ -10,7 +10,7 @@ export interface Aggregator<T = unknown, R = unknown> extends Adapter {
 }
 
 export class AggregateStep<T = unknown, R = unknown>
-  implements StepDefinition<Aggregator<T, R>>
+  implements Step<Aggregator<T, R>>
 {
   operation: OperationType = OperationType.AGGREGATE;
   adapter: Aggregator<T, R>;
@@ -22,8 +22,8 @@ export class AggregateStep<T = unknown, R = unknown>
 
   async execute(
     exchange: Exchange<T>,
-    remainingSteps: StepDefinition<Adapter>[],
-    queue: { exchange: Exchange<R>; steps: StepDefinition<Adapter>[] }[],
+    remainingSteps: Step<Adapter>[],
+    queue: { exchange: Exchange<R>; steps: Step<Adapter>[] }[],
   ): Promise<void> {
     const splitHierarchy = exchange.headers[
       HeadersKeys.SPLIT_HIERARCHY
