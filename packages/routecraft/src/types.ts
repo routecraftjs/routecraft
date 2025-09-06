@@ -1,7 +1,8 @@
 import { type Exchange, type ExchangeHeaders } from "./exchange.ts";
 import { type OperationType } from "./exchange.ts";
-import { CraftContext } from "./context.ts";
+import { type CraftContext } from "./context.ts";
 import { type RouteDefinition } from "./route.ts";
+import { type Route } from "./route.ts";
 
 // eslint-disable-next-line
 export interface Adapter {}
@@ -47,3 +48,50 @@ export interface ProcessingQueue<T = unknown> {
   setHandler(handler: (message: T) => Promise<Exchange>): Promise<void> | void;
   clear(): Promise<void> | void;
 }
+
+// Events API
+
+export type ContextEventName =
+  | "contextStarting"
+  | "contextStarted"
+  | "contextStopping"
+  | "contextStopped";
+
+export type RouteEventName =
+  | "routeRegistered"
+  | "routeStarting"
+  | "routeStarted"
+  | "routeStopping"
+  | "routeStopped";
+
+export type SystemEventName = "error";
+
+export type EventName = ContextEventName | RouteEventName | SystemEventName;
+
+export type EventDetailsMapping = {
+  // Context
+  contextStarting: Record<string, never>;
+  contextStarted: Record<string, never>;
+  contextStopping: { reason?: unknown };
+  contextStopped: Record<string, never>;
+
+  // Route
+  routeRegistered: { route: Route };
+  routeStarting: { route: Route };
+  routeStarted: { route: Route };
+  routeStopping: { route: Route; reason?: unknown; exchange?: Exchange };
+  routeStopped: { route: Route; exchange?: Exchange };
+
+  // System
+  error: { error: unknown; route?: Route; exchange?: Exchange };
+};
+
+export type EventPayload<K extends EventName> = {
+  ts: string;
+  context: CraftContext;
+  details: EventDetailsMapping[K];
+};
+
+export type EventHandler<K extends EventName> = (
+  payload: EventPayload<K>,
+) => void | Promise<void>;

@@ -54,8 +54,8 @@ All events follow `{ ts, context, details }` where:
 | `routeRegistered` | Route has been registered | `{ route }` |
 | `routeStarting` | Route is about to start | `{ route }` |
 | `routeStarted` | Route has started successfully | `{ route }` |
-| `routeStopping` | Route is stopping | `{ route, reason, exchange }` |
-| `routeStopped` | Route has stopped | `{ route, exchange }` |
+| `routeStopping` | Route is stopping | `{ route, reason, exchange? }` |
+| `routeStopped` | Route has stopped | `{ route, exchange? }` |
 
 ## System events
 

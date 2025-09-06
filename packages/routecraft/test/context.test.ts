@@ -61,20 +61,25 @@ describe("CraftContext", () => {
    * @preconditions Context with startup/shutdown handlers
    * @expectedResult Both handlers should be called exactly once
    */
-  test("Executes lifecycle hooks", async () => {
-    const startupMock = vi.fn();
-    const shutdownMock = vi.fn();
+  test("Executes lifecycle events", async () => {
+    const contextStarting = vi.fn();
+    const contextStarted = vi.fn();
+    const contextStopping = vi.fn();
+    const contextStopped = vi.fn();
 
     testContext = context()
-      .onStartup(startupMock)
-      .onShutdown(shutdownMock)
+      .on("contextStarting", contextStarting)
+      .on("contextStarted", contextStarted)
+      .on("contextStopping", contextStopping)
+      .on("contextStopped", contextStopped)
       .build();
 
     await testContext.start();
 
-    expect(startupMock).toHaveBeenCalledTimes(1);
-    // Stop is automatically called when the context has nothing more to do
-    expect(shutdownMock).toHaveBeenCalledTimes(1);
+    expect(contextStarting).toHaveBeenCalledTimes(1);
+    expect(contextStarted).toHaveBeenCalledTimes(1);
+    expect(contextStopping).toHaveBeenCalledTimes(1);
+    expect(contextStopped).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -95,12 +100,18 @@ describe("Error Handling", () => {
    */
   test("Handles startup errors", async () => {
     const errorMessage = "Simulated startup failure";
-    const startupMock = vi.fn().mockRejectedValue(new Error(errorMessage));
+    testContext = context()
+      .on("contextStarting", () => {
+        throw new Error(errorMessage);
+      })
+      .build();
 
-    testContext = context().onStartup(startupMock).build();
-
-    await expect(testContext.start()).rejects.toThrow(errorMessage);
-    expect(startupMock).toHaveBeenCalledTimes(1);
+    // Start won't reject because we emit errors and continue; verify error event fires
+    const errSpy = vi.fn();
+    testContext.on("error", errSpy);
+    await testContext.start();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(errSpy).toHaveBeenCalled();
   });
 });
 
