@@ -8,11 +8,14 @@ import { collectSections } from '@/lib/sections'
 
 export function DocsLayout({
   children,
-  frontmatter: { title },
+  frontmatter: { title, titleBadges },
   nodes,
 }: {
   children: React.ReactNode
-  frontmatter: { title?: string }
+  frontmatter: {
+    title?: string
+    titleBadges?: Array<{ text: string; color?: string }>
+  }
   nodes: Array<Node>
 }) {
   let tableOfContents = collectSections(nodes)
@@ -21,7 +24,7 @@ export function DocsLayout({
     <>
       <div className="max-w-2xl min-w-0 flex-auto px-4 py-16 lg:max-w-none lg:pr-0 lg:pl-8 xl:px-16">
         <article>
-          <DocsHeader title={title} />
+          <DocsHeader title={title} titleBadges={titleBadges} />
           <Prose>{children}</Prose>
         </article>
         <PrevNextLinks />

@@ -29,7 +29,7 @@ Commands:
 | [run <path>](#run) | Execute routes from a file or directory once and exit |
 | [info](#info) | Display version, environment, and diagnostics |
 
-### Dev
+### Dev {% badge %}wip{% /badge %}
 
 Start development mode with file watching, hot reload, and the admin portal.
 
@@ -47,7 +47,7 @@ Options:
 | --open | Open admin portal in the default browser |
 | --no-ui | Start without the admin portal |
 
-### Build
+### Build {% badge %}wip{% /badge %}
 
 Build for production and emit a routes manifest.
 
@@ -96,7 +96,7 @@ Options:
 | --exclude <glob...> | Glob patterns to exclude (e.g., "*.test.ts") |
 | --env <path> | Load environment variables from a .env file |
 
-### Info
+### Info {% badge %}wip{% /badge %}
 
 Display version, environment, and diagnostic information.
 

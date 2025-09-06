@@ -3,8 +3,15 @@
 import { usePathname } from 'next/navigation'
 
 import { navigation } from '@/lib/navigation'
+import { Badge } from '@/components/Badge'
 
-export function DocsHeader({ title }: { title?: string }) {
+export function DocsHeader({
+  title,
+  titleBadges,
+}: {
+  title?: string
+  titleBadges?: Array<{ text: string; color?: string }>
+}) {
   let pathname = usePathname()
   let section = navigation.find((section) =>
     section.links.find((link) => link.href === pathname),
@@ -23,7 +30,14 @@ export function DocsHeader({ title }: { title?: string }) {
       )}
       {title && (
         <h1 className="font-display text-3xl tracking-tight text-slate-900 dark:text-white">
-          {title}
+          <span className="inline-flex items-center gap-2">
+            <span>{title}</span>
+            {titleBadges?.map((b, i) => (
+              <Badge key={i} color={(b.color as any) ?? 'yellow'}>
+                {b.text}
+              </Badge>
+            ))}
+          </span>
         </h1>
       )}
     </header>

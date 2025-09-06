@@ -42,7 +42,7 @@ NODE_ENV=development
 - Adapters are not auto-loaded. Import and instantiate them explicitly in routes (e.g., `from(timer(...))`, `to(log())`).
 - Plugins are auto-loaded if present under a `plugins/` directory when using the CLI. You can also pass plugins explicitly via the `plugins` field. Plugins can extend the context (e.g., add stores, register event hooks).
 
-## Admin portal
+## Admin portal {% badge %}wip{% /badge %}
 
 Enable a web-based admin portal for monitoring and debugging:
 
@@ -55,7 +55,7 @@ export default {
 
 Access the portal at `http://localhost:3000/admin` (or your configured base URL + `/admin`) for real-time monitoring, tracing, and debugging tools.
 
-## Plugins configuration
+## Plugins configuration {% badge %}wip{% /badge %}
 
 Register plugins when manually bootstrapping contexts:
 

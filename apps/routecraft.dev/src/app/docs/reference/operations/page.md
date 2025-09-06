@@ -106,7 +106,7 @@ craft()
 
 Wrapper operations modify the behavior of the next operation in the chain. They create a wrapper around the subsequent step to add cross-cutting concerns.
 
-### retry
+### retry {% badge %}wip{% /badge %}
 
 ```ts
 retry(attempts: number, options?: { backoffMs?: number; exponential?: boolean }): RouteBuilder<Current>
@@ -128,7 +128,7 @@ craft()
 - `backoffMs` - Base delay between retries (default: 1000ms)
 - `exponential` - Use exponential backoff (default: false)
 
-### throttle
+### throttle {% badge %}wip{% /badge %}
 
 ```ts
 throttle(options: { requestsPerSecond: number } | { requestsPerMinute: number }): RouteBuilder<Current>
@@ -145,7 +145,7 @@ craft()
   .to(destination)
 ```
 
-### timeout
+### timeout {% badge %}wip{% /badge %}
 
 ```ts
 timeout(timeoutMs: number): RouteBuilder<Current>
@@ -162,7 +162,7 @@ craft()
   .to(destination)
 ```
 
-### delay
+### delay {% badge %}wip{% /badge %}
 
 ```ts
 delay(delayMs: number): RouteBuilder<Current>
@@ -179,7 +179,7 @@ craft()
   .to(destination)
 ```
 
-### onError
+### onError {% badge %}wip{% /badge %}
 
 ```ts
 onError(handler: (error: Error, exchange: Exchange<Current>) => Exchange<Current> | void): RouteBuilder<Current>
@@ -263,7 +263,7 @@ Set or override a header on the exchange. The body remains unchanged.
 .header('x-env', 'staging')
 ```
 
-### map
+### map {% badge %}wip{% /badge %}
 
 ```ts
 map<Next>(fieldMappings: Record<keyof Next, (src: Current) => Next[keyof Next]>): RouteBuilder<Next>
@@ -348,7 +348,7 @@ const userSchema = z.object({
 .validate(userSchema)
 ```
 
-### choice
+### choice {% badge %}wip{% /badge %}
 
 ```ts
 choice<T = Current>(routes: Array<{ when: (body: Current) => boolean; then: RouteBuilder<T> }>): RouteBuilder<T>
@@ -405,7 +405,7 @@ Combine multiple exchanges into a single result. Useful after `split` to recombi
 }))
 ```
 
-### multicast
+### multicast {% badge %}wip{% /badge %}
 
 ```ts
 multicast(destinations: Array<RouteBuilder<any>>): RouteBuilder<Current>
@@ -422,7 +422,7 @@ Send the same exchange to multiple destinations simultaneously. Each destination
 ```
 
 
-### loop
+### loop {% badge %}wip{% /badge %}
 
 ```ts
 loop(condition: (body: Current, iteration: number) => boolean, maxIterations?: number): RouteBuilder<Current>
@@ -439,7 +439,7 @@ Repeat the subsequent operations while the condition remains true. Includes safe
 .process(fetchNextPage)
 ```
 
-### sample
+### sample {% badge %}wip{% /badge %}
 
 ```ts
 sample(options: { every?: number; intervalMs?: number }): RouteBuilder<Current>
@@ -461,7 +461,7 @@ Take every Nth exchange or sample at time intervals. Useful for reducing data vo
 .to(database({ operation: 'save' }))
 ```
 
-### debounce
+### debounce {% badge %}wip{% /badge %}
 
 ```ts
 debounce(options: { quietMs: number }): RouteBuilder<Current>

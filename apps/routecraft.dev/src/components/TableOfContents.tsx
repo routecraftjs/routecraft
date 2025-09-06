@@ -5,6 +5,7 @@ import Link from 'next/link'
 import clsx from 'clsx'
 
 import { type Section, type Subsection } from '@/lib/sections'
+import { Badge } from '@/components/Badge'
 
 export function TableOfContents({
   tableOfContents,
@@ -75,7 +76,7 @@ export function TableOfContents({
             <ol role="list" className="mt-4 space-y-3 text-sm">
               {tableOfContents.map((section) => (
                 <li key={section.id}>
-                  <h3>
+                  <h3 className="flex items-center gap-2">
                     <Link
                       href={`#${section.id}`}
                       className={clsx(
@@ -86,6 +87,11 @@ export function TableOfContents({
                     >
                       {section.title}
                     </Link>
+                    {section.badges?.map((b, i) => (
+                      <Badge key={i} color={(b.color as any) ?? 'yellow'}>
+                        {b.text}
+                      </Badge>
+                    ))}
                   </h3>
                   {section.children.length > 0 && (
                     <ol
@@ -94,16 +100,26 @@ export function TableOfContents({
                     >
                       {section.children.map((subSection) => (
                         <li key={subSection.id}>
-                          <Link
-                            href={`#${subSection.id}`}
-                            className={
-                              isActive(subSection)
-                                ? 'text-sky-500'
-                                : 'hover:text-slate-600 dark:hover:text-slate-300'
-                            }
-                          >
-                            {subSection.title}
-                          </Link>
+                          <div className="flex items-center gap-2">
+                            <Link
+                              href={`#${subSection.id}`}
+                              className={
+                                isActive(subSection)
+                                  ? 'text-sky-500'
+                                  : 'hover:text-slate-600 dark:hover:text-slate-300'
+                              }
+                            >
+                              {subSection.title}
+                            </Link>
+                            {subSection.badges?.map((b, i) => (
+                              <Badge
+                                key={i}
+                                color={(b.color as any) ?? 'yellow'}
+                              >
+                                {b.text}
+                              </Badge>
+                            ))}
+                          </div>
                         </li>
                       ))}
                     </ol>

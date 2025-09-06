@@ -222,7 +222,7 @@ A no-operation adapter that discards messages. Useful for testing, development, 
 .to(noop()) // Messages are discarded but logged
 ```
 
-### spy
+### spy {% badge %}wip{% /badge %}
 
 ```ts
 spy<T>(): SpyAdapter<T>
@@ -272,7 +272,7 @@ expect(enrichSpy.calls.enrich).toBe(1)
 
 **Behavior:** Logs that message was discarded, then resolves immediately
 
-### file
+### file {% badge %}wip{% /badge %}
 
 ```ts
 file(options: FileOptions): FileAdapter
@@ -310,7 +310,7 @@ Read and write files as strings. For structured data, use `json` or `csv` adapte
 - `watch` - Watch for file changes (source only, default: false)
 - `createDirs` - Create parent directories if needed (default: false)
 
-### json
+### json {% badge %}wip{% /badge %}
 
 ```ts
 json(options: JsonOptions): JsonAdapter
@@ -352,7 +352,7 @@ Read and write JSON files with automatic parsing/stringification.
 - **Source**: Parses JSON and emits the parsed object
 - **Destination**: Stringifies exchange body to JSON
 
-### csv
+### csv {% badge %}wip{% /badge %}
 
 ```ts
 csv(options: CsvOptions): CsvAdapter
@@ -405,7 +405,7 @@ Read and write CSV files with configurable parsing options.
 - **Source**: Emits one exchange per CSV row (object if headers=true, array if headers=false)
 - **Destination**: Writes exchange body as CSV row
 
-### http
+### http {% badge %}wip{% /badge %}
 
 Standard signature: `http({ path, method, ...options })`.
 
@@ -434,7 +434,7 @@ Response behavior:
 - If `status` or `headers` are not provided, RouteCraft returns the body with `200` status and no additional headers.
 - For serialization and setting `Content-Type`, use a formatting step in your route (e.g., a `.format(...)` or `.transform(...)` that sets appropriate headers). If you set a response content type header in your pipeline, it will be used.
 
-### smtp
+### smtp {% badge %}wip{% /badge %}
 
 ```ts
 smtp(options: SmtpOptions): SmtpAdapter
