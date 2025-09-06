@@ -1,4 +1,4 @@
-import { type Adapter, type StepDefinition } from "../types.ts";
+import { type Adapter, type Step } from "../types.ts";
 import { type Exchange } from "../exchange.ts";
 import { OperationType } from "../exchange.ts";
 
@@ -71,7 +71,7 @@ export const defaultEnrichAggregator = <T = unknown, R = unknown>(
  * Step that enriches the exchange with additional data
  */
 export class EnrichStep<T = unknown, R = unknown>
-  implements StepDefinition<Enricher<T, R>>
+  implements Step<Enricher<T, R>>
 {
   operation: OperationType = OperationType.ENRICH;
   adapter: Enricher<T, R>;
@@ -93,8 +93,8 @@ export class EnrichStep<T = unknown, R = unknown>
 
   async execute(
     exchange: Exchange<T>,
-    remainingSteps: StepDefinition<Adapter>[],
-    queue: { exchange: Exchange; steps: StepDefinition<Adapter>[] }[],
+    remainingSteps: Step<Adapter>[],
+    queue: { exchange: Exchange; steps: Step<Adapter>[] }[],
   ): Promise<void> {
     // Get the enrichment data
     const enrichmentData = await Promise.resolve(this.adapter.enrich(exchange));

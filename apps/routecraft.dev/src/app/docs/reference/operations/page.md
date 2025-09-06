@@ -31,6 +31,7 @@ DSL operators with signatures and examples. {% .lead %}
 | [`transform`](#transform) | Transform | Transform data using a function (body only) |
 | [`map`](#map) | Transform | Map fields from source to target object |
 | [`process`](#process) | Transform | Process data with full exchange access |
+| [`header`](#header) | Transform | Set or override an exchange header |
 | [`enrich`](#enrich) | Transform | Add additional data to current data |
 | [`filter`](#filter) | Flow Control | Filter data based on predicate |
 | [`validate`](#validate) | Flow Control | Validate data against schema |
@@ -235,6 +236,31 @@ Transform the exchange body using a function. The function receives only the bod
 ```ts
 .transform((body: string) => body.toUpperCase())
 .transform(async (user) => await enrichUserData(user))
+```
+
+### header
+
+```ts
+header(key: string, valueOrFn: HeaderValue | ((exchange: Exchange<Current>) => HeaderValue | Promise<HeaderValue>)): RouteBuilder<Current>
+```
+
+Set or override a header on the exchange. The body remains unchanged.
+
+```ts
+// Static header
+.header('x-env', 'prod')
+
+// Derived from body
+.header('user.id', (exchange) => exchange.body.id)
+
+// Derived from headers
+.header('correlation', (exchange) => exchange.headers['x-request-id'])
+
+// Async derived value
+.header('request.trace', async (exchange) => await computeTrace(exchange.body))
+
+// Override an existing header later in the chain
+.header('x-env', 'staging')
 ```
 
 ### map

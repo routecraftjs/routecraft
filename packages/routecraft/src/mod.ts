@@ -62,7 +62,7 @@ export { logger, createLogger, type Logger } from "./logger.ts";
 
 export {
   type Adapter,
-  type StepDefinition,
+  type Step,
   type Consumer,
   type ConsumerType,
   type Message,

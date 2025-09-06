@@ -1,4 +1,4 @@
-import { type Adapter, type StepDefinition } from "../types.ts";
+import { type Adapter, type Step } from "../types.ts";
 import { type Exchange, OperationType } from "../exchange.ts";
 
 /**
@@ -17,7 +17,7 @@ export interface Transformer<T = unknown, R = T> extends Adapter {
 }
 
 export class TransformStep<T = unknown, R = T>
-  implements StepDefinition<Transformer<T, R>>
+  implements Step<Transformer<T, R>>
 {
   operation: OperationType = OperationType.TRANSFORM;
   adapter: Transformer<T, R>;
@@ -29,8 +29,8 @@ export class TransformStep<T = unknown, R = T>
 
   async execute(
     exchange: Exchange<T>,
-    remainingSteps: StepDefinition<Adapter>[],
-    queue: { exchange: Exchange<R>; steps: StepDefinition<Adapter>[] }[],
+    remainingSteps: Step<Adapter>[],
+    queue: { exchange: Exchange<R>; steps: Step<Adapter>[] }[],
   ): Promise<void> {
     const newBody = await Promise.resolve(
       this.adapter.transform(exchange.body),
