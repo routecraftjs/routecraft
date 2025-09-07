@@ -17,9 +17,6 @@ on:
   release:
     types: [created]
 
-env:
-  NODE_VERSION: 22
-
 jobs:
   setup:
     runs-on: ubuntu-latest
@@ -29,26 +26,14 @@ jobs:
         with:
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - name: Setup pnpm
+      - name: Install pnpm
         uses: pnpm/action-setup@v4
 
-      - name: Get pnpm store directory
-        shell: bash
-        run: |
-          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
-
-      - name: Setup pnpm cache
-        uses: actions/cache@v4
+      - name: Use Node.js from .nvmrc
+        uses: actions/setup-node@v5
         with:
-          path: ${{ env.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
+          node-version-file: ".nvmrc"
+          cache: "pnpm"
 
       - name: Install dependencies
         run: pnpm install
@@ -68,10 +53,14 @@ jobs:
         with:
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
 
-      - uses: actions/setup-node@v4
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Use Node.js from .nvmrc
+        uses: actions/setup-node@v5
         with:
-          node-version: ${{ env.NODE_VERSION }}
-      - uses: pnpm/action-setup@v4
+          node-version-file: ".nvmrc"
+          cache: "pnpm"
 
       - name: Restore node_modules
         uses: actions/cache@v4
@@ -125,10 +114,14 @@ jobs:
         with:
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
 
-      - uses: actions/setup-node@v4
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Use Node.js from .nvmrc
+        uses: actions/setup-node@v5
         with:
-          node-version: ${{ env.NODE_VERSION }}
-      - uses: pnpm/action-setup@v4
+          node-version-file: ".nvmrc"
+          cache: "pnpm"
 
       - name: Restore node_modules
         uses: actions/cache@v4
@@ -157,10 +150,14 @@ jobs:
         with:
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
 
-      - uses: actions/setup-node@v4
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Use Node.js from .nvmrc
+        uses: actions/setup-node@v5
         with:
-          node-version: ${{ env.NODE_VERSION }}
-      - uses: pnpm/action-setup@v4
+          node-version-file: ".nvmrc"
+          cache: "pnpm"
 
       - name: Restore node_modules
         uses: actions/cache@v4
@@ -235,14 +232,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          registry-url: "https://npm.pkg.github.com"
-
-      - name: Setup pnpm
+      - name: Install pnpm
         uses: pnpm/action-setup@v4
+
+      - name: Use Node.js from .nvmrc
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: ".nvmrc"
+          cache: "pnpm"
 
       - name: Restore node_modules
         uses: actions/cache@v4
