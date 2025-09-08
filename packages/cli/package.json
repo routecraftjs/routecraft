@@ -21,9 +21,9 @@
   "dependencies": {
     "@routecraftjs/routecraft": "workspace:*",
     "chokidar": "^4.0.3",
-    "commander": "^13.1.0",
-    "dotenv": "^16.4.5",
-    "minimatch": "^10.0.1"
+    "commander": "^14.0.0",
+    "dotenv": "^17.2.2",
+    "minimatch": "^10.0.3"
   },
   "publishConfig": {
     "access": "public",
