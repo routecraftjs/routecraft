@@ -55,12 +55,15 @@
     }
   ],
   "lint-staged": {
-    "*.{js,ts,jsx,tsx,cjs,mjs}": [
-      "prettier --write",
+    "*.{js,jsx,ts,tsx,cjs,mjs,cts,mts}": [
+      "prettier --write --ignore-unknown",
       "eslint --fix"
     ],
-    "*.{json,yml,yaml,md}": [
-      "prettier --write"
+    "*.{md,mdx,json,yml,yaml}": [
+      "prettier --write --ignore-unknown"
+    ],
+    "*.{css,scss,less,html,svg}": [
+      "prettier --write --ignore-unknown"
     ]
   },
   "engines": {

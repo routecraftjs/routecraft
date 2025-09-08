@@ -12,7 +12,7 @@ alwaysApply: false
 
 ### Adapters: best practices, anti-patterns, and skeletons
 
-These rules align with RouteCraft's public DSL and adapter interfaces exported from `@routecraftjs/routecraft` (`Source`, `Destination`, `Processor`, `Transformer`, etc.) and the concrete adapters under `packages/routecraft/src/adapters/*`.
+These rules align with RouteCraft's public DSL and adapter interfaces exported from `@routecraftjs/routecraft` (`Source`, `Destination`, `Processor`, `Transformer`, etc.) and the concrete adapters under `packages/routecraft/src/adapters/*`. See user‑facing docs: `apps/routecraft.dev/src/app/docs/reference/adapters/page.md`.
 
 #### Goals
 
@@ -23,7 +23,7 @@ These rules align with RouteCraft's public DSL and adapter interfaces exported f
 
 #### Naming and identification
 
-- Provide a stable `adapterId` string (e.g., `"routecraft.adapter.my-adapter"`).
+- Provide a stable `adapterId` string (e.g., "routecraft.adapter.my-adapter").
 - Log with the route or exchange logger from `CraftContext`/`DefaultExchange` for consistency.
 
 #### Options and configuration
@@ -210,13 +210,13 @@ export class MyEnricherAdapter<T = unknown, R = unknown>
 
 #### Testing
 
-- Add example routes in `examples/*` to exercise new adapters.
-- Use `pnpm test` for unit tests; prefer testing behavior via routes.
-- When adding or changing adapters, also update or add tests under `packages/routecraft/test/**/*` for core behavior and invariants.
-  - Sources: cover abort/unsubscribe behavior, header propagation, timing/repeat logic, and error-to-abort semantics.
-  - Destinations: verify side effects are invoked once per exchange and errors surface correctly.
-  - Processor/Transformer: assert purity (no side effects) and correct body/headers shaping.
-- Suggested naming: `<adapter-name>.test.ts` in `examples/` for integration-style route coverage; add unit-level tests in `packages/routecraft/test/` only when core engine assertions are needed.
+Refer to central testing guidance and examples:
+
+- @.cursor/rules/testing.mdc
+- @packages/routecraft/test/route.test.ts
+- @packages/routecraft/test/queue.test.ts
+- @packages/routecraft/test/events.test.ts
+- @apps/routecraft.dev/src/app/docs/introduction/testing/page.md
 
 #### Checklist
 

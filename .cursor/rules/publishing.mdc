@@ -1,0 +1,17 @@
+---
+description: "Publishing packages: versioning, access, and registries"
+globs: ["packages/**/package.json"]
+alwaysApply: false
+---
+
+## Publishing guidance
+
+- Core and CLI packages use `tsup` build outputs; ensure `main/module/types/exports` match dist files.
+- Use `prepublishOnly` to build before publish.
+- Registry configuration currently points to GitHub Packages. Confirm access before publishing.
+
+References:
+
+@packages/routecraft/package.json
+@packages/cli/package.json
+@README.md

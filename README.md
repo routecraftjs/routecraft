@@ -1,123 +1,88 @@
-# Routecraft
+<div align="center">
 
-A modern, type-safe routing and integration framework for TypeScript/Node.js. Routecraft makes it easy to define, compose, and run data pipelines, event-driven flows, and integrations—locally or in production.
+  <img src="./routecraft.svg" alt="Routecraft Logo" width="200" />
+
+  <p><strong>A type-safe integration and automation framework for TypeScript/Node.js</strong></p>
+  <p>Brought to you by <a href="https://devoptix.nl">DevOptix</a></p>
+
+  <a href="https://github.com/devoptix-labs/routecraft/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/devoptix-labs/routecraft/actions/workflows/ci.yml/badge.svg"></a>
+  <img alt="Node.js" src="https://img.shields.io/badge/Node.js-22%2B-3c873a?logo=node.js">
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5.9%2B-3178c6?logo=typescript">
+  <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/License-Apache%202.0-blue"></a>
+  <a href="https://github.com/devoptix-labs/routecraft/issues"><img alt="Issues" src="https://img.shields.io/github/issues/devoptix-labs/routecraft"></a>
+  <a href="https://github.com/devoptix-labs/routecraft/pulls"><img alt="PRs" src="https://img.shields.io/badge/PRs-welcome-brightgreen"></a>
+
+</div>
+
+## About
+
+Routecraft lets you author small, focused routes with a fluent DSL and run them across multiple runtimes. It is inspired by Apache Camel and designed for clear boundaries: sources, pure processing steps, and explicit destinations.
+
+## Key Features
+
+- Type-safe DSL: `craft().from(...).transform(...).to(...)`
+- Isolated routes with their own `AbortController` and backpressure-aware consumers
+- Built-in adapters: `simple`, `timer`, `channel`; utilities: `log`, `noop`
+- Runtimes: CLI and Node.js programmatic API
+- First-class testing with Vitest and example routes
 
 ## Monorepo Structure
 
-- **`packages/routecraft`** – Core library (routing engine, context, adapters, etc.)
-- **`packages/cli`** – Command-line interface for running and managing Routecraft projects
-- **`examples/`** – Example routes, adapters, and test cases
-
-## Requirements
-
-- **Node.js v22+** (see `package.json` and `.nvmrc` if present)
-- [pnpm](https://pnpm.io/) (recommended for workspace management)
+- `packages/routecraft` – Core library (builder, DSL, context, adapters, consumers)
+- `packages/cli` – CLI to run files or folders of routes and start contexts
+- `apps/routecraft.dev` – Documentation site (docs, examples, guides)
+- `examples/` – Runnable example routes and tests
 
 ## Quick Start (Development)
 
-1. **Clone the repo:**
+1. Clone and install
 
    ```sh
-   git clone https://github.com/routecraftjs/routecraft.git
+   git clone https://github.com/devoptix-labs/routecraft.git
    cd routecraft
-   ```
-
-2. **Install dependencies:**
-
-   ```sh
    pnpm install
    ```
 
-3. **Build all packages:**
+2. Build, check, and test
 
    ```sh
    pnpm build
-   ```
-
-4. **Run lint and type checks:**
-
-   ```sh
    pnpm lint
    pnpm typecheck
+   pnpm test
    ```
 
-5. **Run tests:**
+3. Run examples
+
    ```sh
-   pnpm test
+   pnpm craft run ./examples/hello-world.mjs
+   pnpm craft run ./examples --exclude "*.test.ts"
    ```
 
 ## CLI Usage
 
-The CLI is available as `craft` (see `packages/cli`).
-
-### Development Usage (Workspace)
-
-For development within this repository, use the workspace script:
+Run routes from a file or directory, or start a context from a config file.
 
 ```sh
-pnpm craft run ./examples/hello-world.mjs
-pnpm craft run ./examples --exclude "*.test.ts"
-pnpm craft start ./path/to/your-config.ts
+craft run ./examples/hello-world.mjs
+craft run ./examples --exclude "*.test.ts"
+craft start ./path/to/your-config.ts
 ```
 
-### Global Installation
-
-To install the CLI globally for use anywhere:
-
-1. **Build the CLI:**
-
-   ```sh
-   pnpm build
-   ```
-
-2. **Install globally:**
-
-   ```sh
-   npm install -g ./packages/cli
-   ```
-
-3. **Use the `craft` command globally:**
-   ```sh
-   craft run ./examples/hello-world.mjs
-   craft start ./path/to/your-config.ts
-   ```
-
-**Note:** If you encounter issues with the global installation, uninstall and reinstall:
-
-```sh
-npm uninstall -g @routecraftjs/cli
-npm install -g ./packages/cli
-```
-
-### CLI Commands
-
-- **Run routes from a file or directory:**
-
-  ```sh
-  craft run ./examples/hello-world.mjs
-  craft run ./examples --exclude "*.test.ts"
-  ```
-
-- **Start a context from a config file:**
-
-  ```sh
-  craft start ./path/to/your-config.ts
-  ```
-
-- The config file should export a `CraftConfig` as its default export.
+- The config file should export a `CraftConfig` default export.
 - See `packages/routecraft/src/context.ts` for the config shape.
 
-## Adding Your Own Routes/Configs
 
-- Create a TypeScript or JavaScript file exporting a valid Routecraft route or config.
-- Use the CLI to run or start your context as shown above.
-- See the `examples/` directory for inspiration.
 
 ## Examples
 
 - Browse the [`examples/`](./examples) directory for ready-to-run sample routes and tests.
 - Try: `pnpm craft run ./examples/hello-world.mjs`
 
+## Contributing
+
+Contributions are welcome! Please read our contribution guide at https://routecraft.dev/docs/community/contribution-guide for guidelines on how to propose changes, add adapters, and write routes.
+
 ## License
 
-This project is licensed under the [Apache 2.0 License](./LICENSE).
+Licensed under the [Apache 2.0 License](./LICENSE).
