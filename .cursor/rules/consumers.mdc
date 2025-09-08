@@ -12,7 +12,7 @@ alwaysApply: false
 
 ## Consumers: guidelines and patterns
 
-Consumers are responsible for pulling messages off the internal ProcessingQueue and invoking the route's terminal handler. RouteCraft ships with `SimpleConsumer` and `BatchConsumer`.
+Consumers are responsible for pulling messages off the internal ProcessingQueue and invoking the route's terminal handler. RouteCraft ships with `SimpleConsumer` and `BatchConsumer`. See docs: `apps/routecraft.dev/src/app/docs/reference/operations/page.md#batch`.
 
 ### APIs and types
 

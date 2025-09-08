@@ -1,0 +1,26 @@
+---
+description: "Errors, logging, and eventing: consistent patterns"
+globs:
+  [
+    "packages/routecraft/src/error.ts",
+    "packages/routecraft/src/logger.ts",
+    "packages/routecraft/src/context.ts",
+    "packages/routecraft/src/**/*.ts",
+  ]
+alwaysApply: false
+---
+
+## Errors and logging
+
+- Use `rcError(code, cause?, details?)` from `@packages/routecraft/src/error.ts` for framework errors.
+- Log with `context.logger` in sources and `exchange.logger` in steps/destinations.
+- Prefer structured logs: `logger.info(message, { meta })`.
+- Emit and observe context events for lifecycle and errors.
+
+References:
+
+@packages/routecraft/src/error.ts
+@packages/routecraft/src/logger.ts
+@packages/routecraft/src/context.ts
+@apps/routecraft.dev/src/app/docs/reference/errors/page.md
+@apps/routecraft.dev/src/app/docs/introduction/monitoring/page.md

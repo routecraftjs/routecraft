@@ -1,0 +1,18 @@
+---
+description: "CLI authoring and usage: align with implemented commands and docs"
+globs: ["packages/cli/src/**/*", "packages/cli/package.json"]
+alwaysApply: false
+---
+
+## CLI guidelines
+
+- Implement and document only `run` and `start` commands for now.
+- Follow Commander usage patterns as in the existing entry points.
+- Keep env loading via `dotenv` optional and explicit via flags.
+
+References:
+
+@packages/cli/src/mod.ts
+@packages/cli/src/run.ts
+@packages/cli/src/start.ts
+@apps/routecraft.dev/src/app/docs/reference/cli/page.md

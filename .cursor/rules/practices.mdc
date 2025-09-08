@@ -68,47 +68,20 @@ alwaysApply: true
   - `pnpm craft run ./examples --exclude "*.test.ts"`
   - `pnpm craft start ./path/to/config.ts`
 
-### Next.js usage
+### Examples (references)
 
-- Wrap Next config:
+- Hello World: @examples/hello-world.mjs
+- Enrich: @examples/enrich-example.mjs
 
-```js
-import { createRoutecraft } from "@routecraftjs/nextjs";
-export const withRoutecraft = createRoutecraft({ routes: myRoutes });
-export default withRoutecraft({
-  /* your next config */
-});
-```
+### Documentation pointers
 
-- Dev-only start; skipped in `next build`. Single global context to handle HMR.
-
-### Examples
-
-- Hello World
-
-```ts
-import { log, craft, simple, logger } from "@routecraftjs/routecraft";
-export default craft()
-  .from([{ id: "hello-world" }, simple("Hello, World!")])
-  .tap(log())
-  .transform((body) => {
-    logger.info("Transforming exchange", { body });
-    return body.toUpperCase();
-  })
-  .to(log());
-```
-
-- Enrich
-
-```ts
-import { log, craft, simple } from "@routecraftjs/routecraft";
-export default craft()
-  .from([{ id: "enrich-example" }, simple({ original: "Original message" })])
-  .enrich(() => ({ additional: "Additional data" }))
-  .to(log());
-```
+- Getting started: @apps/routecraft.dev/src/app/docs/introduction/installation/page.md
+- Project structure: @apps/routecraft.dev/src/app/docs/introduction/project-structure/page.md
+- Routes overview: @apps/routecraft.dev/src/app/docs/introduction/routes/page.md
+- Testing: @apps/routecraft.dev/src/app/docs/introduction/testing/page.md
+- CLI reference: @apps/routecraft.dev/src/app/docs/reference/cli/page.md
 
 ### Notes
 
-- Source of truth lives under `packages/routecraft/src/*`, `packages/cli/src/*`, and `packages/nextjs/src/*`.
+- Source of truth lives under `packages/routecraft/src/*` and `packages/cli/src/*`.
 - If compiled docs or coverage HTML differ, prefer the source files.

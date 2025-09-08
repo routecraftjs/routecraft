@@ -1,0 +1,20 @@
+---
+description: "Docs: keep developer docs aligned with source of truth"
+globs: ["apps/routecraft.dev/src/app/docs/**/*"]
+alwaysApply: false
+---
+
+## Documentation guidance
+
+- Prefer source files under `packages/routecraft/src/*` and `packages/cli/src/*` as truth.
+- When editing docs, cross-check examples with `examples/*` and tests.
+- Link to specific files using `@` references where helpful.
+
+Key pages to keep updated:
+
+@apps/routecraft.dev/src/app/docs/introduction/installation/page.md
+@apps/routecraft.dev/src/app/docs/introduction/project-structure/page.md
+@apps/routecraft.dev/src/app/docs/introduction/routes/page.md
+@apps/routecraft.dev/src/app/docs/reference/operations/page.md
+@apps/routecraft.dev/src/app/docs/reference/cli/page.md
+@apps/routecraft.dev/src/app/docs/reference/adapters/page.md

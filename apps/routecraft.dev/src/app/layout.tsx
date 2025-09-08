@@ -28,6 +28,9 @@ export const metadata: Metadata = {
   },
   description:
     'A developer-first automation and integration framework with a fluent DSL for sources, steps, and destinations.',
+  icons: {
+    icon: '/icon.svg',
+  },
 }
 
 export default function RootLayout({

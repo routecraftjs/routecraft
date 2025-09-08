@@ -12,7 +12,7 @@ alwaysApply: false
 
 ## Operations (DSL) guidelines and Camel mapping
 
-This document maps RouteCraft operations to Apache Camel Enterprise Integration Patterns (EIPs) where applicable, and sets guidelines for authoring steps. Prefer Camel-like naming and behavior when uncertain.
+This document maps RouteCraft operations to Apache Camel Enterprise Integration Patterns (EIPs) where applicable, and sets guidelines for authoring steps. Prefer Camel-like naming and behavior when uncertain. Refer to the docs under `apps/routecraft.dev/src/app/docs/reference/operations/page.md` for end‑user documentation.
 
 ### RouteCraft operations (from source)
 
@@ -28,9 +28,10 @@ This document maps RouteCraft operations to Apache Camel Enterprise Integration 
   - Camel: Transform / Message Translator
   - Notes: Body-only change. Framework writes result back to `exchange.body`.
 
-- `.map((body) => newBody)`
-  - Camel: Transform (functional shortcut)
-  - Notes: Thin wrapper over transform semantics for convenience.
+{% badge %}implemented{% /badge %} `.map((body) => newBody)`
+
+- Camel: Transform (functional shortcut)
+- Notes: Thin wrapper over transform semantics for convenience.
 
 - `.tap(adapter | (exchange) => void)`
   - Camel: Wire Tap (lightweight)
@@ -80,7 +81,7 @@ This document maps RouteCraft operations to Apache Camel Enterprise Integration 
 - Track operation in `routecraft.operation` header.
 - Maintain correlation via `routecraft.correlation_id`.
 - Preserve split lineage in `routecraft.split_hierarchy` for fan-in.
-- Timer sources should set timer headers (`routecraft.timer.*`).
+  - Timer sources set timer headers (`routecraft.timer.*`). See `packages/routecraft/src/adapters/timer.ts`.
 
 ### Testing guidance
 

@@ -1,0 +1,23 @@
+---
+description: "Testing patterns for routes, adapters, and consumers"
+globs:
+  [
+    "packages/routecraft/test/**/*",
+    "examples/**/*.{ts,mjs}",
+    "**/vitest.config.*",
+  ]
+alwaysApply: false
+---
+
+## Testing guidance
+
+- Prefer end-to-end examples in `examples/*` for step behavior.
+- Use `packages/routecraft/test/*` for engine invariants and event ordering.
+- Deterministic inputs; assert on headers/body after each operation where meaningful.
+
+Useful references:
+
+@packages/routecraft/test/route.test.ts
+@packages/routecraft/test/queue.test.ts
+@packages/routecraft/test/events.test.ts
+@apps/routecraft.dev/src/app/docs/introduction/testing/page.md
