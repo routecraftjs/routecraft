@@ -40,8 +40,7 @@ export function Badge({
     amber:
       'bg-yellow-100 text-yellow-800 dark:bg-yellow-400/10 dark:text-yellow-500',
     sky: 'bg-sky-100 text-sky-700 dark:bg-sky-400/10 dark:text-sky-400',
-    slate:
-      'bg-slate-100 text-slate-700 dark:bg-slate-400/10 dark:text-slate-400',
+    slate: 'bg-gray-100 text-gray-700 dark:bg-gray-400/10 dark:text-gray-400',
     rose: 'bg-rose-100 text-rose-700 dark:bg-rose-400/10 dark:text-rose-400',
   }
 

@@ -37,9 +37,9 @@ function Header() {
   return (
     <header
       className={clsx(
-        'sticky top-0 z-50 flex flex-none flex-wrap items-center justify-between bg-white px-4 py-5 shadow-md shadow-slate-900/5 transition duration-500 sm:px-6 lg:px-8 dark:shadow-none',
+        'sticky top-0 z-50 flex flex-none flex-wrap items-center justify-between bg-white px-4 py-5 shadow-md shadow-gray-950/5 transition duration-500 sm:px-6 lg:px-8 dark:shadow-none',
         isScrolled
-          ? 'dark:bg-slate-900/95 dark:backdrop-blur-sm dark:[@supports(backdrop-filter:blur(0))]:bg-slate-900/75'
+          ? 'dark:bg-gray-950/95 dark:backdrop-blur-sm dark:[@supports(backdrop-filter:blur(0))]:bg-gray-950/75'
           : 'dark:bg-transparent',
       )}
     >
@@ -68,7 +68,7 @@ function Header() {
           className="group"
           aria-label="GitHub"
         >
-          <GitHubIcon className="h-6 w-6 fill-slate-400 group-hover:fill-slate-500 dark:group-hover:fill-slate-300" />
+          <GitHubIcon className="h-6 w-6 fill-gray-400 group-hover:fill-gray-500 dark:group-hover:fill-gray-300" />
         </Link>
       </div>
     </header>
@@ -87,9 +87,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
       <div className="relative mx-auto flex w-full max-w-8xl flex-auto justify-center sm:px-2 lg:px-8 xl:px-12">
         <div className="hidden lg:relative lg:block lg:flex-none">
-          <div className="absolute inset-y-0 right-0 w-[50vw] bg-slate-50 dark:hidden" />
-          <div className="absolute top-16 right-0 bottom-0 hidden h-12 w-px bg-linear-to-t from-slate-800 dark:block" />
-          <div className="absolute top-28 right-0 bottom-0 hidden w-px bg-slate-800 dark:block" />
+          <div className="absolute inset-y-0 right-0 w-[50vw] bg-gray-50 dark:hidden" />
+          <div className="absolute top-16 right-0 bottom-0 hidden h-12 w-px bg-linear-to-t from-gray-800 dark:block" />
+          <div className="absolute top-28 right-0 bottom-0 hidden w-px bg-gray-800 dark:block" />
           <div className="sticky top-19 -ml-0.5 h-[calc(100vh-4.75rem)] w-64 overflow-x-hidden overflow-y-auto py-16 pr-8 pl-0.5 xl:w-72 xl:pr-16">
             <Navigation />
           </div>

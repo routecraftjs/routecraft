@@ -29,7 +29,7 @@ export function DocsHeader({
         </p>
       )}
       {title && (
-        <h1 className="font-display text-3xl tracking-tight text-slate-900 dark:text-white">
+        <h1 className="font-display text-3xl tracking-tight text-gray-900 dark:text-white">
           <span className="inline-flex items-center gap-2">
             <span>{title}</span>
             {titleBadges?.map((b, i) => (
