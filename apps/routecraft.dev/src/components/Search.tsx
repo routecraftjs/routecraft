@@ -170,7 +170,7 @@ function SearchResult({
 
   return (
     <li
-      className="group block cursor-default rounded-lg px-3 py-2 aria-selected:bg-slate-100 dark:aria-selected:bg-slate-700/30"
+      className="group block cursor-default rounded-lg px-3 py-2 aria-selected:bg-gray-100 dark:aria-selected:bg-gray-700/30"
       aria-labelledby={`${id}-hierarchy ${id}-title`}
       {...autocomplete.getItemProps({
         item: result,
@@ -180,7 +180,7 @@ function SearchResult({
       <div
         id={`${id}-title`}
         aria-hidden="true"
-        className="text-sm text-slate-700 group-aria-selected:text-sky-600 dark:text-slate-300 dark:group-aria-selected:text-sky-400"
+        className="text-sm text-gray-700 group-aria-selected:text-sky-600 dark:text-gray-300 dark:group-aria-selected:text-sky-400"
       >
         <HighlightQuery text={result.title} query={query} />
       </div>
@@ -188,7 +188,7 @@ function SearchResult({
         <div
           id={`${id}-hierarchy`}
           aria-hidden="true"
-          className="mt-0.5 truncate text-xs whitespace-nowrap text-slate-500 dark:text-slate-400"
+          className="mt-0.5 truncate text-xs whitespace-nowrap text-gray-500 dark:text-gray-400"
         >
           {hierarchy.map((item, itemIndex, items) => (
             <Fragment key={itemIndex}>
@@ -197,7 +197,7 @@ function SearchResult({
                 className={
                   itemIndex === items.length - 1
                     ? 'sr-only'
-                    : 'mx-2 text-slate-300 dark:text-slate-700'
+                    : 'mx-2 text-gray-300 dark:text-gray-700'
                 }
               >
                 /
@@ -221,9 +221,9 @@ function SearchResults({
 }) {
   if (collection.items.length === 0) {
     return (
-      <p className="px-4 py-8 text-center text-sm text-slate-700 dark:text-slate-400">
+      <p className="px-4 py-8 text-center text-sm text-gray-700 dark:text-gray-400">
         No results for &ldquo;
-        <span className="break-words text-slate-900 dark:text-white">
+        <span className="break-words text-gray-900 dark:text-white">
           {query}
         </span>
         &rdquo;
@@ -258,12 +258,12 @@ const SearchInput = forwardRef<
 
   return (
     <div className="group relative flex h-12">
-      <SearchIcon className="pointer-events-none absolute top-0 left-4 h-full w-5 fill-slate-400 dark:fill-slate-500" />
+      <SearchIcon className="pointer-events-none absolute top-0 left-4 h-full w-5 fill-gray-400 dark:fill-gray-500" />
       <input
         ref={inputRef}
         data-autofocus
         className={clsx(
-          'flex-auto appearance-none bg-transparent pl-12 text-slate-900 outline-hidden placeholder:text-slate-400 focus:w-full focus:flex-none sm:text-sm dark:text-white [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden [&::-webkit-search-results-button]:hidden [&::-webkit-search-results-decoration]:hidden',
+          'flex-auto appearance-none bg-transparent pl-12 text-gray-900 outline-hidden placeholder:text-gray-400 focus:w-full focus:flex-none sm:text-sm dark:text-white [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden [&::-webkit-search-results-button]:hidden [&::-webkit-search-results-decoration]:hidden',
           autocompleteState.status === 'stalled' ? 'pr-11' : 'pr-4',
         )}
         {...inputProps}
@@ -287,7 +287,7 @@ const SearchInput = forwardRef<
       />
       {autocompleteState.status === 'stalled' && (
         <div className="absolute inset-y-0 right-3 flex items-center">
-          <LoadingIcon className="h-6 w-6 animate-spin stroke-slate-200 text-slate-400 dark:stroke-slate-700 dark:text-slate-500" />
+          <LoadingIcon className="h-6 w-6 animate-spin stroke-gray-200 text-gray-400 dark:stroke-gray-700 dark:text-gray-500" />
         </div>
       )}
     </div>
@@ -367,10 +367,10 @@ function SearchDialog({
         onClose={() => close(autocomplete)}
         className={clsx('fixed inset-0 z-50', className)}
       >
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm" />
+        <div className="fixed inset-0 bg-gray-900/50 backdrop-blur-sm" />
 
         <div className="fixed inset-0 overflow-y-auto px-4 py-4 sm:px-6 sm:py-20 md:py-32 lg:px-8 lg:py-[15vh]">
-          <DialogPanel className="mx-auto transform-gpu overflow-hidden rounded-xl bg-white shadow-xl sm:max-w-xl dark:bg-slate-800 dark:ring-1 dark:ring-slate-700">
+          <DialogPanel className="mx-auto transform-gpu overflow-hidden rounded-xl bg-white shadow-xl sm:max-w-xl dark:bg-gray-800 dark:ring-1 dark:ring-gray-700">
             <div {...autocomplete.getRootProps({})}>
               <form
                 ref={formRef}
@@ -386,7 +386,7 @@ function SearchDialog({
                 />
                 <div
                   ref={panelRef}
-                  className="border-t border-slate-200 bg-white px-2 py-3 empty:hidden dark:border-slate-400/10 dark:bg-slate-800"
+                  className="border-t border-gray-200 bg-white px-2 py-3 empty:hidden dark:border-gray-400/10 dark:bg-gray-800"
                   {...autocomplete.getPanelProps({})}
                 >
                   {autocompleteState.isOpen && (
@@ -444,15 +444,15 @@ export function Search() {
     <>
       <button
         type="button"
-        className="group flex h-6 w-6 items-center justify-center sm:justify-start md:h-auto md:w-80 md:flex-none md:rounded-lg md:py-2.5 md:pr-3.5 md:pl-4 md:text-sm md:ring-1 md:ring-slate-200 md:hover:ring-slate-300 lg:w-96 dark:md:bg-slate-800/75 dark:md:ring-white/5 dark:md:ring-inset dark:md:hover:bg-slate-700/40 dark:md:hover:ring-slate-500"
+        className="group flex h-6 w-6 items-center justify-center sm:justify-start md:h-auto md:w-80 md:flex-none md:rounded-lg md:py-2.5 md:pr-3.5 md:pl-4 md:text-sm md:ring-1 md:ring-gray-200 md:hover:ring-gray-300 lg:w-96 dark:md:bg-gray-800/75 dark:md:ring-white/5 dark:md:ring-inset dark:md:hover:bg-gray-700/40 dark:md:hover:ring-gray-500"
         {...buttonProps}
       >
-        <SearchIcon className="h-5 w-5 flex-none fill-slate-400 group-hover:fill-slate-500 md:group-hover:fill-slate-400 dark:fill-slate-500" />
-        <span className="sr-only md:not-sr-only md:ml-2 md:text-slate-500 md:dark:text-slate-400">
+        <SearchIcon className="h-5 w-5 flex-none fill-gray-400 group-hover:fill-gray-500 md:group-hover:fill-gray-400 dark:fill-gray-500" />
+        <span className="sr-only md:not-sr-only md:ml-2 md:text-gray-500 md:dark:text-gray-400">
           Search docs
         </span>
         {modifierKey && (
-          <kbd className="ml-auto hidden font-medium text-slate-400 md:block dark:text-slate-500">
+          <kbd className="ml-auto hidden font-medium text-gray-400 md:block dark:text-gray-500">
             <kbd className="font-sans">{modifierKey}</kbd>
             <kbd className="font-sans">K</kbd>
           </kbd>

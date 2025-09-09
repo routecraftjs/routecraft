@@ -56,7 +56,7 @@ export function Fence({
         type="button"
         onClick={handleCopy}
         aria-label="Copy code"
-        className="absolute top-3 right-3 rounded-md bg-slate-700/70 px-2 py-1 text-xs font-medium text-slate-200 opacity-0 transition group-hover:opacity-100 dark:bg-slate-700/60"
+        className="absolute top-3 right-3 rounded-md bg-gray-700/70 px-2 py-1 text-xs font-medium text-gray-200 opacity-0 transition group-hover:opacity-100 dark:bg-gray-700/60"
       >
         <span className="sr-only">{copied ? 'Copied' : 'Copy'}</span>
         {copied ? (

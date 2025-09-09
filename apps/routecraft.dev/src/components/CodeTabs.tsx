@@ -21,8 +21,8 @@ export function CodeTabs({ children }: { children: React.ReactNode }) {
                 clsx(
                   'rounded-md px-3 py-1 text-xs font-medium backdrop-blur-sm',
                   selected
-                    ? 'bg-slate-700/90 text-white dark:bg-slate-700'
-                    : 'bg-slate-800/60 text-slate-300 hover:bg-slate-700/70 dark:bg-slate-800/40',
+                    ? 'bg-gray-700/90 text-white dark:bg-gray-700'
+                    : 'bg-gray-800/60 text-gray-300 hover:bg-gray-700/70 dark:bg-gray-800/40',
                 )
               }
             >

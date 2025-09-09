@@ -18,7 +18,7 @@ const icons = {
 }
 
 const iconStyles = {
-  blue: '[--icon-foreground:var(--color-slate-900)] [--icon-background:var(--color-white)]',
+  blue: '[--icon-foreground:var(--color-gray-900)] [--icon-background:var(--color-white)]',
   amber:
     '[--icon-foreground:var(--color-amber-900)] [--icon-background:var(--color-amber-100)]',
 }
