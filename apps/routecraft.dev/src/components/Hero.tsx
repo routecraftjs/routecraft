@@ -16,11 +16,11 @@ export default craft()
   .id('hero-hello')
   .from(simple('Hello, RouteCraft!'))
   .transform((msg) => msg.toUpperCase())
-  .to(log())`
+  .to(log()) // HELLO, ROUTECRAFT!`
 
 type CodeTab = { name: string; code: string }
 const tabs: CodeTab[] = [
-  { name: 'stc/routes/hello-world.mjs', code: routeCode },
+  { name: 'src/routes/hello-world.mjs', code: routeCode },
   { name: 'package.json', code: '' },
 ]
 
