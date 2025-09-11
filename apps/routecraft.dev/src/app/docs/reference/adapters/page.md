@@ -14,7 +14,6 @@ Catalog of adapters and authoring guidance. {% .lead %}
 | [`channel`](#channel) | Core | Inter-route communication | `Source`, `Destination` |
 | [`fetch`](#fetch) | Core | HTTP client requests | `Destination`, `Enricher` |
 | [`noop`](#noop) | Core | No-operation placeholder | `Destination` |
-| [`spy`](#spy) | Core | Testing adapter that records interactions | `Destination`, `Processor`, `Enricher`, `Tap` |
 | [`file`](#file) | File | Read/write text files | `Source`, `Destination`, `Enricher` |
 | [`json`](#json) | File | JSON file handling with parsing | `Source`, `Destination`, `Enricher` |
 | [`csv`](#csv) | File | CSV file processing | `Source`, `Destination`, `Enricher` |
@@ -222,55 +221,75 @@ A no-operation adapter that discards messages. Useful for testing, development, 
 .to(noop()) // Messages are discarded but logged
 ```
 
-### spy {% badge %}wip{% /badge %}
+## Testing
+
+RouteCraft uses standard Vitest mocking for testing. No special spy adapters needed!
+
+### Testing Destinations
 
 ```ts
-spy<T>(): SpyAdapter<T>
+import { context, craft, simple } from '@routecraftjs/routecraft'
+
+const destSpy = vi.fn()
+
+const ctx = context()
+  .routes(
+    craft()
+      .from(simple('test-data'))
+      .to(destSpy)
+  )
+  .build()
+
+await ctx.start()
+
+// Standard Vitest assertions
+expect(destSpy).toHaveBeenCalledTimes(1)
+const sentExchange = destSpy.mock.calls[0][0]
+expect(sentExchange.body).toBe('test-data')
+expect(sentExchange.headers['x-test']).toBe('value')
 ```
 
-A testing adapter that records all interactions and provides assertion helpers. Implements multiple interfaces so it can be used anywhere in a route.
+### Testing Processors
 
 ```ts
-// Test destinations
-const spyDest = spy()
-.id('test-route')
-.from(simple('data'))
-.to(spyDest)
+const processorSpy = vi.fn((exchange) => {
+  // Your processor logic here
+  return exchange
+})
 
-expect(spyDest.received).toHaveLength(1)
-expect(spyDest.receivedBodies()).toEqual(['data'])
+const ctx = context()
+  .routes(
+    craft()
+      .from(simple('input'))
+      .process(processorSpy)
+      .to(vi.fn())
+  )
+  .build()
 
-// Test processors
-const processSpy = spy()
-.from(simple('input'))
-.process(processSpy)
-.to(spy())
+await ctx.start()
 
-expect(processSpy.calls.process).toBe(1)
-
-// Test enrichers
-const enrichSpy = spy()
-.from(simple({ name: 'John' }))
-.enrich(enrichSpy)
-.to(spy())
-
-expect(enrichSpy.calls.enrich).toBe(1)
+expect(processorSpy).toHaveBeenCalled()
 ```
 
-**Available properties:**
-- `received: Exchange[]` - All exchanges received
-- `calls.send: number` - Number of send() calls
-- `calls.process: number` - Number of process() calls  
-- `calls.enrich: number` - Number of enrich() calls
+### Helper Functions for Common Patterns
 
-**Available methods:**
-- `reset()` - Clear all recorded data
-- `lastReceived()` - Get most recent exchange
-- `receivedBodies()` - Get array of body values
+```ts
+// Helper to get all received bodies
+function getReceivedBodies(spy: any) {
+  return spy.mock.calls.map(call => call[0].body)
+}
 
-**Use cases:** Testing, debugging, development verification
+// Helper to get all received headers
+function getReceivedHeaders(spy: any, headerName: string) {
+  return spy.mock.calls.map(call => call[0].headers[headerName])
+}
 
-**Behavior:** Logs that message was discarded, then resolves immediately
+const destSpy = vi.fn()
+await ctx.start()
+
+expect(getReceivedBodies(destSpy)).toEqual(['test-data'])
+expect(getReceivedHeaders(destSpy, 'x-test')).toEqual(['value'])
+```
 
 ### file {% badge %}wip{% /badge %}
 
