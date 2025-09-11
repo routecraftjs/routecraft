@@ -54,19 +54,19 @@ export function Hero() {
             />
             <div className="relative">
               <p className="inline bg-linear-to-r from-indigo-200 via-sky-400 to-indigo-200 bg-clip-text font-display text-5xl tracking-tight text-transparent">
-                Craft your routes. Control your flow.
+                Automation without limits
               </p>
               <p className="mt-3 text-2xl tracking-tight text-gray-400">
-                A developer‑first automation and integration framework with a
-                fluent DSL.
+                Automation should feel like writing code, not dragging boxes.
+                RouteCraft is developer first, open source, and AI native, with
+                features designed for developers and agents alike.
               </p>
               <div className="mt-8 flex gap-4 md:justify-center lg:justify-start">
-                <Button href="/docs/introduction">Get started</Button>
-                <Button
-                  href="https://github.com/devoptix-labs/routecraft"
-                  variant="secondary"
-                >
-                  View on GitHub
+                <Button href="https://github.com/devoptix-labs/routecraft">
+                  Star on GitHub
+                </Button>
+                <Button href="/docs/introduction" variant="secondary">
+                  Get started
                 </Button>
               </div>
             </div>

@@ -1,7 +1,7 @@
 ---
 description: "RouteCraft Contributor Practices: adapters, operations, routes, build/test"
 globs: ["**/*"]
-alwaysApply: true
+alwaysApply: false
 ---
 
 ## Contributor Practices
