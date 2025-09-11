@@ -4,7 +4,6 @@ import {
   craft,
   simple,
   type CraftContext,
-  NoopAdapter,
 } from "@routecraftjs/routecraft";
 
 describe("CraftContext", () => {
@@ -219,8 +218,7 @@ describe("Route Independence", () => {
    * @expectedResult Working route should process and eventually call destination adapter
    */
   test("Failed route does not prevent others from processing and calls destination adapter", async () => {
-    const noop = new NoopAdapter();
-    const sendSpy = vi.spyOn(noop, "send");
+    const sendSpy = vi.fn();
 
     // Create context with failing and working routes.
     testContext = context()
@@ -241,7 +239,7 @@ describe("Route Independence", () => {
           })
           .id("working-route")
           .from(simple("work"))
-          .to(noop),
+          .to(sendSpy),
       )
       .build();
 
