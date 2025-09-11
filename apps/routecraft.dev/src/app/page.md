@@ -6,11 +6,16 @@ Build small, focused routes with a fluent DSL and run them anywhere. {% .lead %}
 
 ## What is RouteCraft?
 
-RouteCraft is a developer-first framework for building automation and integration flows. You use its fluent DSL to define routes, connecting sources, processors, and destinations. RouteCraft is inspired by Apache Camel, designed for modern JavaScript developers.
+RouteCraft is an open source automation and integration framework for TypeScript. It is built for developers who prefer writing code instead of wiring together boxes in a UI. Workflows should feel like part of your codebase, simple, readable, and under version control.
 
-It takes care of the low-level plumbing like wiring, execution, and lifecycle, so you can focus on composing clear routes instead of boilerplate code.
+Unlike black box automation tools, RouteCraft is transparent. Every route is just TypeScript, so you can test it, commit it, and run it anywhere from your laptop to the cloud.
 
-Whether you’re automating a single task, integrating multiple systems, or wiring in AI agents and MCP, RouteCraft helps you build reliable, reusable flows quickly.
+RouteCraft is AI native. That means three things:
+1. You can call AI models and agents inside your routes as first class steps.
+2. You can expose a route to an agent as a tool or as an MCP server.
+3. The DSL is predictable and repeatable, which makes it easy for generative AI to create and maintain routes you can trust and verify.
+
+In short, RouteCraft combines the reliability of code with the flexibility of automation. It makes AI a collaborator rather than a mystery box.
 
 ---
 
