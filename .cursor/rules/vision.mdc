@@ -1,7 +1,7 @@
 ---
 description: "RouteCraft Vision: DSL, isolation, runtimes, and future direction"
 globs: ["**/*"]
-alwaysApply: true
+alwaysApply: false
 ---
 
 ## RouteCraft Vision
