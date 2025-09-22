@@ -21,15 +21,15 @@
   },
   "dependencies": {
     "@standard-schema/spec": "^1.0.0",
-    "pino": "^9.6.0"
+    "pino": "^9.11.0"
   },
   "publishConfig": {
     "access": "public",
     "registry": "https://npm.pkg.github.com"
   },
   "devDependencies": {
-    "arktype": "^2.0.4",
-    "pino-pretty": "^13.0.0"
+    "arktype": "^2.1.22",
+    "pino-pretty": "^13.1.1"
   },
   "repository": "https://github.com/devoptix-labs/routecraft"
 }
