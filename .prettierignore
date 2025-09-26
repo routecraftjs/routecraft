@@ -16,3 +16,5 @@ coverage/
 **/.next/
 
 *.md
+
+**/pnpm-lock.yaml
