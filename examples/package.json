@@ -4,6 +4,6 @@
   "private": true,
   "type": "module",
   "devDependencies": {
-    "@routecraftjs/routecraft": "workspace:*"
+    "@routecraftjs/routecraft": "workspace:^0.1.0"
   }
 }
