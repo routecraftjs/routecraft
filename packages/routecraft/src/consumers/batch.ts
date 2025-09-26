@@ -78,8 +78,8 @@ export class BatchConsumer implements Consumer<BatchOptions> {
           }
         } catch (error) {
           this.context.logger.warn(
-            `Error in batch consumer for route "${this.definition.id}":`,
             error,
+            `Error in batch consumer for route "${this.definition.id}":`,
           );
           for (const { reject } of currentResolvers) {
             reject(error);

@@ -17,7 +17,7 @@ const base = pino({
   formatters: {
     level: (label) => ({ level: label.toUpperCase() }), // Ensure consistent casing
   },
-  timestamp: pino.stdTimeFunctions.isoTime, // Use ISO timestamp format
+  timestamp: () => `,"time":"${new Date().toISOString()}"`, // Use ISO timestamp format
   ...(isDev
     ? {
         transport: {
