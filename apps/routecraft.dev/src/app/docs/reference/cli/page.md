@@ -23,7 +23,7 @@ Commands:
 
 | Command | Description |
 | --- | --- |
-| [run <path>](#run) | Execute routes from a file or directory once and exit |
+| [run <file>](#run) | Execute routes from a single JavaScript file. |
 | [dev](#dev) | Start development mode (watch, hot reload, admin portal) |
 | [build](#build) | Build for production and emit a routes manifest |
 | [start <config>](#start) | Start a RouteCraft context from a config file |
@@ -31,7 +31,7 @@ Commands:
 
 ### Run
 
-Execute routes from a single file once and exit.
+Execute routes from a single JavaScript file once and exit once all routes have completed.
 
 ```bash
 craft run <file> [--env <.env path>]
@@ -41,7 +41,7 @@ Options:
 
 | Option | Description |
 | --- | --- |
-| <file> | File containing routes to execute |
+| <file> | JavaScript file (.mjs/.js/.cjs) containing routes to execute |
 | --env <path> | Load environment variables from a .env file |
 
 ### Dev {% badge %}wip{% /badge %}
