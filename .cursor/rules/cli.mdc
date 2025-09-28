@@ -6,13 +6,14 @@ alwaysApply: false
 
 ## CLI guidelines
 
-- Implement and document only `run` and `start` commands for now.
+- Implement and document only `run` command for now. `dev`, `build`, and `start` commands are planned.
 - Follow Commander usage patterns as in the existing entry points.
 - Keep env loading via `dotenv` optional and explicit via flags.
 
 References:
 
-@packages/cli/src/mod.ts
+@packages/cli/src/cli.ts
+@packages/cli/src/index.ts
 @packages/cli/src/run.ts
-@packages/cli/src/start.ts
+@packages/cli/src/util.ts
 @apps/routecraft.dev/src/app/docs/reference/cli/page.md

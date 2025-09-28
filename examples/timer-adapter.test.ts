@@ -8,8 +8,7 @@ describe("Timer Adapter", () => {
   });
 
   /**
-   * @testCase TC-E1F2
-   * @description Verifies that timer emits messages at specified interval
+   * @case Verifies that timer emits messages at specified interval
    * @preconditions Timer route with 50ms interval
    * @expectedResult Should emit multiple messages before being stopped
    */
@@ -40,8 +39,7 @@ describe("Timer Adapter", () => {
   });
 
   /**
-   * @testCase TC-G3H4
-   * @description Verifies that timer stops when context is stopped
+   * @case Verifies that timer stops when context is stopped
    * @preconditions Active timer route
    * @expectedResult Should stop emitting after context stop
    */

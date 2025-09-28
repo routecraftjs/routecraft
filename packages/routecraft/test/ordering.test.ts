@@ -8,8 +8,7 @@ import {
 
 describe("Route and Wrapper semantics - ordering", () => {
   /**
-   * @testCase TC-A1B2
-   * @description id() stages the identifier for the next route and does not rename the current route
+   * @case id() stages the identifier for the next route and does not rename the current route
    * @preconditions No routes created before first id(); call id() again after first from()
    * @expectedResult First route keeps first id; second route gets second id
    */
@@ -28,8 +27,7 @@ describe("Route and Wrapper semantics - ordering", () => {
   });
 
   /**
-   * @testCase TC-C3D4
-   * @description batch() config applies to the next route and is cleared for subsequent routes
+   * @case batch() config applies to the next route and is cleared for subsequent routes
    * @preconditions Stage batch() before first from(); do not stage before second from()
    * @expectedResult First route uses BatchConsumer with mapped options; second uses SimpleConsumer
    */
@@ -56,8 +54,7 @@ describe("Route and Wrapper semantics - ordering", () => {
   });
 
   /**
-   * @testCase TC-E5F6
-   * @description batch() staged after a route affects only the following route
+   * @case batch() staged after a route affects only the following route
    * @preconditions Create first route, then call batch() and set id for next route
    * @expectedResult First route remains non-batch; second route uses BatchConsumer
    */

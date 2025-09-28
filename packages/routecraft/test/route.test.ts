@@ -31,8 +31,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-J1K2
-   * @description Verifies that a route processes messages through its pipeline
+   * @case Verifies that a route processes messages through its pipeline
    * @preconditions Route with source, processor, and destination
    * @expectedResult Message should flow through entire pipeline
    */
@@ -59,8 +58,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-L3M4
-   * @description Verifies that a route can continue after a to step has been called.
+   * @case Verifies that a route can continue after a to step has been called.
    * @preconditions A route with a processor step after the to step.
    * @expectedResult The route can continue after the to step has been called.
    */
@@ -88,8 +86,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-N5P6
-   * @description Verifies that route stops when context is stopped
+   * @case Verifies that route stops when context is stopped
    * @preconditions Active route with continuous source
    * @expectedResult Route should stop processing when context stops
    */
@@ -129,8 +126,7 @@ describe("Route Behavior", () => {
   }, 1000); // Increase timeout slightly but keep it reasonable
 
   /**
-   * @testCase TC-Q7R8
-   * @description Verifies that route properly handles processor errors
+   * @case Verifies that route properly handles processor errors
    * @preconditions Route with failing processor
    * @expectedResult Should continue running and log error
    */
@@ -161,8 +157,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-S9T0
-   * @description Returns final exchange to the source when route has multiple steps including a to step
+   * @case Returns final exchange to the source when route has multiple steps including a to step
    * @preconditions Custom source awaiting handler result
    * @expectedResult Source receives the final exchange after all steps complete
    */
@@ -199,8 +194,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-U1V2
-   * @description Returns final exchange to the source when route has no to step
+   * @case Returns final exchange to the source when route has no to step
    * @preconditions Custom source awaiting handler result
    * @expectedResult Source receives the final exchange after all steps complete
    */
@@ -236,8 +230,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-W3X4
-   * @description Verifies that route properly maintains message correlation
+   * @case Verifies that route properly maintains message correlation
    * @preconditions Route with multiple processors
    * @expectedResult Correlation ID should remain consistent through pipeline
    */
@@ -270,8 +263,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-Y5Z6
-   * @description Verifies that route continues processing after a message fails
+   * @case Verifies that route continues processing after a message fails
    * @preconditions Route with processor that fails for specific message
    * @expectedResult Should continue processing subsequent messages
    */
@@ -318,8 +310,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-A7C8
-   * @description Verifies that route headers are properly propagated through pipeline
+   * @case Verifies that route headers are properly propagated through pipeline
    * @preconditions Route with custom headers in source
    * @expectedResult Headers should be available at each step
    */
@@ -353,8 +344,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-D9E0
-   * @description Verifies that route properly handles async processors
+   * @case Verifies that route properly handles async processors
    * @preconditions Route with async processor operations
    * @expectedResult Should wait for async operations to complete
    */
@@ -384,8 +374,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-F1G2
-   * @description Verifies that route properly handles body transformations
+   * @case Verifies that route properly handles body transformations
    * @preconditions Route with processors that transform message body
    * @expectedResult Body should be correctly transformed through pipeline
    */
@@ -419,8 +408,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-H3I4
-   * @description Verifies that route properly handles processor return values
+   * @case Verifies that route properly handles processor return values
    * @preconditions Route with processors returning different types
    * @expectedResult Should maintain type safety and handle transformations
    */
@@ -450,8 +438,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-J5K6
-   * @description Verifies that split step correctly splits a message into multiple exchanges.
+   * @case Verifies that split step correctly splits a message into multiple exchanges.
    * @preconditions A message to split.
    * @expectedResult The message is split, processed, and all split exchanges (with new IDs) are sent downstream.
    */
@@ -498,8 +485,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-L7M8
-   * @description Verifies that a split step returning no exchanges leads to no downstream processing.
+   * @case Verifies that a split step returning no exchanges leads to no downstream processing.
    * @preconditions A message to split.
    * @expectedResult No exchanges are sent to the destination.
    */
@@ -525,8 +511,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-N9P0
-   * @description Verifies that the correlation header is maintained across split exchanges.
+   * @case Verifies that the correlation header is maintained across split exchanges.
    * @preconditions A message to split.
    * @expectedResult All exchanges produced by the split step have the same correlation ID.
    */
@@ -558,8 +543,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-Q1R2
-   * @description Verifies that the aggregate step correctly aggregates multiple exchanges.
+   * @case Verifies that the aggregate step correctly aggregates multiple exchanges.
    * @preconditions A message is split into multiple exchanges.
    * @expectedResult The split exchanges are aggregated into a single exchange with the expected aggregated body.
    */
@@ -604,8 +588,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-S3T4
-   * @description Verifies that the aggregate step works correctly even if no preceding split occurs.
+   * @case Verifies that the aggregate step works correctly even if no preceding split occurs.
    * @preconditions A route with an aggregate step immediately following the source.
    * @expectedResult The aggregator receives a single exchange and modifies its body accordingly.
    */
@@ -636,8 +619,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-U5V6
-   * @description Verifies that split exchanges maintain custom headers from original exchange
+   * @case Verifies that split exchanges maintain custom headers from original exchange
    * @preconditions A message with custom headers to split
    * @expectedResult All split exchanges should contain the original custom headers
    */
@@ -672,8 +654,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-W7X8
-   * @description Verifies that split exchanges can be processed independently and aggregated correctly
+   * @case Verifies that split exchanges can be processed independently and aggregated correctly
    * @preconditions Split exchanges with individual processing
    * @expectedResult Aggregated result should reflect individual processing
    */
@@ -714,8 +695,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-Y9Z0
-   * @description Verifies that aggregation handles errors in individual exchanges correctly
+   * @case Verifies that aggregation handles errors in individual exchanges correctly
    * @preconditions Split exchanges where some processing fails
    * @expectedResult Failed exchanges should not prevent aggregation of successful ones
    */
@@ -763,8 +743,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-A1D2
-   * @description Verifies that nested split operations work correctly with aggreattion at each level
+   * @case Verifies that nested split operations work correctly with aggreattion at each level
    * @preconditions A route with multiple split steps
    * @expectedResult Messages should be split correctly at each level and maintain correlation while aggregating into groups
    */
@@ -857,8 +836,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-E3F4
-   * @description Verifies that filter step correctly filters out unwanted messages
+   * @case Verifies that filter step correctly filters out unwanted messages
    * @preconditions A route with a filter step
    * @expectedResult Only messages that pass the filter condition should reach the destination
    */
@@ -889,8 +867,7 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @testCase TC-G5H6
-   * @description Verifies that validate step correctly validates message types
+   * @case Verifies that validate step correctly validates message types
    * @preconditions A route with a validate step using arktype
    * @expectedResult Only messages that match the type definition should reach the destination
    */

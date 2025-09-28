@@ -183,7 +183,7 @@ jobs:
 
       - name: Run all examples
         working-directory: ./examples
-        run: craft run . --exclude "*.test.ts"
+        run: craft run hello-world.mjs
 
   approve:
     name: approve

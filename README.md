@@ -55,22 +55,8 @@ Routecraft lets you author small, focused routes with a fluent DSL and run them 
 3. Run examples
 
    ```sh
-   pnpm craft run ./examples/hello-world.mjs
-   pnpm craft run ./examples --exclude "*.test.ts"
-   ```
-
-## CLI Usage
-
-Run routes from a file or directory, or start a context from a config file.
-
-```sh
-craft run ./examples/hello-world.mjs
-craft run ./examples --exclude "*.test.ts"
-craft start ./path/to/your-config.ts
+pnpm craft run ./examples/hello-world.mjs
 ```
-
-- The config file should export a `CraftConfig` default export.
-- See `packages/routecraft/src/context.ts` for the config shape.
 
 
 

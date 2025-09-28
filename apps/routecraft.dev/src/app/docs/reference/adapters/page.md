@@ -11,7 +11,7 @@ Catalog of adapters and authoring guidance. {% .lead %}
 | [`simple`](#simple) | Core | Static or dynamic data sources | `Source` |
 | [`log`](#log) | Core | Console logging for debugging | `Destination`, `Tap` |
 | [`timer`](#timer) | Core | Scheduled/recurring execution | `Source` |
-| [`channel`](#channel) | Core | Inter-route communication | `Source`, `Destination` |
+| [`direct`](#direct) | Core | Synchronous inter-route communication | `Source`, `Destination` |
 | [`fetch`](#fetch) | Core | HTTP client requests | `Destination`, `Enricher` |
 | [`noop`](#noop) | Core | No-operation placeholder | `Destination` |
 | [`file`](#file) | File | Read/write text files | `Source`, `Destination`, `Enricher` |
@@ -118,43 +118,59 @@ Options:
 
 **Headers added:** Timer metadata including fired time, counter, period, and next run time
 
-### channel
+### direct
 
 ```ts
-channel<T>(name: string, options?: Partial<ChannelAdapterOptions>): ChannelAdapter<T>
+direct<T>(endpoint: string, options?: Partial<DirectAdapterOptions>): DirectAdapter<T>
 ```
 
-Enable inter-route communication. Routes can send messages to channels and other routes can consume from the same channels.
+Enable synchronous inter-route communication with single consumer semantics. Perfect for composable route architectures where you need request-response patterns.
 
 ```ts
-// Producer route
+// Producer route that sends to direct endpoint
 craft()
   .id('data-producer')
   .from(source)
   .transform(processData)
-  .to(channel('processed-data'))
+  .to(direct('processed-data'))
 
-// Consumer route
+// Consumer route that receives from direct endpoint
 craft()
   .id('data-consumer')
-  .from(channel('processed-data'))
+  .from(direct('processed-data'))
+  .process(businessLogic)
   .to(destination)
 
-// Bidirectional communication
+// HTTP API with direct routing
 craft()
-  .id('request-handler')
-  .from(channel('requests'))
-  .transform(handleRequest)
-  .to(channel('responses'))
+  .id('api-endpoint')
+  .from(httpServer('/api/orders'))
+  .to(direct('order-processing')) // Synchronous call
+
+craft()
+  .id('order-processor')
+  .from(direct('order-processing'))
+  .process(validateOrder)
+  .process(saveOrder)
+  .transform(() => ({ status: 'created', orderId: '12345' }))
+  // Response goes back to HTTP client automatically
 ```
 
 **Options:**
-- `channelType` - Custom channel implementation (default: in-memory)
+- `channelType` - Custom direct channel implementation (default: in-memory)
 
-**Features:**
-- Automatic channel name sanitization (special chars become dashes)
-- Context store integration for shared channels
-- Pluggable channel implementations (Redis, message queues, etc.)
+**Key characteristics:**
+- **Synchronous**: Calling route waits for response from consuming route
+- **Single consumer**: Only one route can consume from each endpoint (last one wins)
+- **Request-response**: Perfect for HTTP APIs and composable route architectures
+- **Apache Camel style**: Similar to Camel's `direct:` component
+- **Automatic endpoint name sanitization**: Special chars become dashes
+
+**Perfect for:**
+- Breaking large routes into smaller, composable pieces
+- HTTP request-response patterns
+- Synchronous business logic orchestration
+- Testing individual route segments in isolation
 
 ### fetch
 

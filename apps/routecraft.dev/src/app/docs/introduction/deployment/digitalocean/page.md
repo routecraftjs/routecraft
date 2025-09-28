@@ -13,8 +13,8 @@ Deploy RouteCraft to DigitalOcean App Platform. {% .lead %}
 - Create App → connect repo → pick root directory.
 - If using Dockerfile, App Platform will auto-detect. Otherwise set:
   - Runtime: Node 20
-  - Build command: `pnpm install --frozen-lockfile && pnpm build`
-  - Run command: `pnpm craft start ./craft.config.ts`
+  - Build command: `pnpm build`
+  - Run command: `pnpm start`
 
 3) Environment
 - Set `NODE_ENV=production` and any adapter secrets (e.g., API keys).

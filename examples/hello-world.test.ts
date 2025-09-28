@@ -3,8 +3,7 @@ import { context } from "@routecraftjs/routecraft";
 import routes from "./hello-world.mjs";
 
 /**
- * @testCase TC-A7B8
- * @description Verifies that the context loads
+ * @case Verifies that the context loads
  * @preconditions Routes are defined
  * @expectedResult Should load context without errors
  */

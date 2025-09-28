@@ -17,7 +17,8 @@
     "publish:all": "pnpm run build && pnpm -r publish --no-git-checks",
     "pack:all": "pnpm run build && rm -rf dist && mkdir dist && pnpm -r exec pnpm pack --pack-destination ../../dist",
     "craft": "node packages/cli/dist/mod.js",
-    "docs": "pnpm --filter routecraft.dev dev"
+    "docs": "pnpm --filter routecraft.dev dev",
+    "all": "pnpm format:write && pnpm lint --fix && pnpm typecheck && pnpm build && pnpm test"
   },
   "devDependencies": {
     "@eslint/js": "^9.36.0",
@@ -31,7 +32,7 @@
     "eslint": "^9.36.0",
     "globals": "^16.4.0",
     "husky": "^9.1.7",
-    "lint-staged": "^16.2.1",
+    "lint-staged": "^16.2.3",
     "madge": "^8.0.0",
     "prettier": "^3.6.2",
     "prettier-plugin-tailwindcss": "^0.6.14",
