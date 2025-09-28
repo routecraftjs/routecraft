@@ -6,7 +6,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@routecraftjs/routecraft": new URL(
-        "../packages/routecraft/src/index.ts",
+        "../routecraft/src/index.ts",
         import.meta.url,
       ).pathname,
     },
@@ -16,5 +16,6 @@ export default defineConfig({
       provider: "v8",
       reporter: ["lcov", "text"],
     },
+    environment: "node",
   },
 });

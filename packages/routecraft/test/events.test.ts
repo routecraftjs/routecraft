@@ -17,8 +17,7 @@ describe("Events API", () => {
   });
 
   /**
-   * @testCase TC-EV01
-   * @description Fires all context and route lifecycle events for a completing route
+   * @case Fires all context and route lifecycle events for a completing route
    * @preconditions Context with simple array source and log destination
    * @expectedResult All start/stop lifecycle events are emitted in the run
    */
@@ -77,8 +76,7 @@ describe("Events API", () => {
   });
 
   /**
-   * @testCase TC-EV02
-   * @description Emits routeRegistered when a route is registered after build
+   * @case Emits routeRegistered when a route is registered after build
    * @preconditions Empty context; route registered via registerRoutes()
    * @expectedResult routeRegistered event fires exactly once
    */
@@ -99,8 +97,7 @@ describe("Events API", () => {
   });
 
   /**
-   * @testCase TC-EV03
-   * @description Emits error events for failing startup, failing source, and failing step
+   * @case Emits error events for failing startup, failing source, and failing step
    * @preconditions Separate contexts setup to induce each failure mode
    * @expectedResult Error handlers receive all three failure types
    */

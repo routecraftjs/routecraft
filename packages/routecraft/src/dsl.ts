@@ -2,10 +2,7 @@ import { ContextBuilder, RouteBuilder } from "./builder.ts";
 import { SimpleAdapter } from "./adapters/simple.ts";
 import { NoopAdapter } from "./adapters/noop.ts";
 import { LogAdapter } from "./adapters/log.ts";
-import {
-  ChannelAdapter,
-  type ChannelAdapterOptions,
-} from "./adapters/channel.ts";
+import { DirectAdapter, type DirectAdapterOptions } from "./adapters/direct.ts";
 import { TimerAdapter, type TimerOptions } from "./adapters/timer.ts";
 import { FetchAdapter, type FetchOptions } from "./adapters/fetch.ts";
 
@@ -129,37 +126,37 @@ export function log<T = unknown>(): LogAdapter<T> {
 }
 
 /**
- * Create a channel adapter for inter-route communication.
+ * Create a direct adapter for synchronous inter-route communication.
  *
- * Channel adapters allow routes to communicate with each other
- * by sending and receiving messages on named channels.
+ * Direct adapters allow routes to communicate with each other
+ * synchronously with single consumer semantics (Apache Camel style).
  *
  * @template T The type of data this adapter processes
- * @param channel The name of the channel to use
- * @param options Optional configuration for the channel adapter
- * @returns A ChannelAdapter instance
+ * @param endpoint The name of the direct endpoint to use
+ * @param options Optional configuration for the direct adapter
+ * @returns A DirectAdapter instance
  *
  * @example
  * ```typescript
- * // Producer route sends to a channel
+ * // Producer route sends to a direct endpoint
  * const producerRoute = craft()
  *   .from(source)
- *   .to(channel('my-channel'))
+ *   .to(direct('my-endpoint'))
  *
- * // Consumer route reads from the same channel
+ * // Consumer route reads from the same endpoint
  * const consumerRoute = craft()
- *   .from(channel('my-channel'))
+ *   .from(direct('my-endpoint'))
  *   .to(destination)
  *
  * // Register both routes with the context
  * context().routes([producerRoute, consumerRoute]);
  * ```
  */
-export function channel<T = unknown>(
-  channel: string,
-  options?: Partial<ChannelAdapterOptions>,
-): ChannelAdapter<T> {
-  return new ChannelAdapter<T>(channel, options);
+export function direct<T = unknown>(
+  endpoint: string,
+  options?: Partial<DirectAdapterOptions>,
+): DirectAdapter<T> {
+  return new DirectAdapter<T>(endpoint, options);
 }
 
 /**

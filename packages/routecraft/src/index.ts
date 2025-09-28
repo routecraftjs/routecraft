@@ -78,7 +78,7 @@ export {
   simple,
   noop,
   log,
-  channel,
+  direct,
   timer,
   fetch,
 } from "./dsl.ts";
@@ -92,9 +92,9 @@ export {
   type FetchResult,
 } from "./adapters/fetch.ts";
 export {
-  ChannelAdapter,
-  type ChannelAdapterOptions,
-  type MessageChannel,
-  type ChannelType,
-} from "./adapters/channel.ts";
+  DirectAdapter,
+  type DirectAdapterOptions,
+  type DirectChannel,
+  type DirectChannelType,
+} from "./adapters/direct.ts";
 export { TimerAdapter, type TimerOptions } from "./adapters/timer.ts";

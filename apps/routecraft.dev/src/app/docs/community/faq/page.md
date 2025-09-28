@@ -11,7 +11,7 @@ RouteCraft is a developer-first automation and integration framework that lets y
 ## How do I run examples?
 
 ```bash
-pnpm craft run ./examples
+pnpm craft run ./examples/hello-world.mjs
 ```
 
 ## What's the difference between a route and a context?
@@ -20,19 +20,19 @@ A **route** is a single data processing pipeline with a source, steps, and desti
 
 ## Can routes communicate with each other?
 
-Yes! Use the `channel()` adapter to send data between routes:
+Yes! Use the `direct()` adapter to send data between routes:
 
 ```ts
 // Producer route
 craft()
   .id('producer')
   .from(source)
-  .to(channel('my-channel'))
+  .to(direct('my-channel'))
 
 // Consumer route  
 craft()
   .id('consumer')
-  .from(channel('my-channel'))
+  .from(direct('my-channel'))
   .to(destination)
 ```
 

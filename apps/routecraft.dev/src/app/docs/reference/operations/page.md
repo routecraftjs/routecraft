@@ -456,7 +456,7 @@ Take every Nth exchange or sample at time intervals. Useful for reducing data vo
 
 // Typical use: Reduce high-frequency data
 .id('metrics-sampling')
-.from(channel('high-frequency-metrics'))
+.from(direct('high-frequency-metrics'))
 .sample({ every: 100 }) // Only process 1% of metrics
 .to(database({ operation: 'save' }))
 ```
@@ -488,18 +488,26 @@ Only pass exchanges after a specified quiet period with no new exchanges. Useful
 tap(fn: Tap<Current> | CallableTap<Current> | RouteBuilder<any>): RouteBuilder<Current>
 ```
 
-Execute side effects without changing the exchange. Can take a function for simple side effects or a route builder for complex processing pipelines.
+Execute side effects without changing the exchange. The tap operation receives a **deep copy** of the exchange and runs **non-blocking** - errors in the tap won't affect the main route. Perfect for logging, auditing, notifications, or any fire-and-forget side effects.
 
 ```ts
 // Simple function-based tapping
 .tap(log()) // Built-in logging
-.tap((body) => console.log('Processing:', body))
-.tap(async (user) => await sendNotification(user))
+.tap((exchange) => console.log('Processing:', exchange.body))
+.tap(async (exchange) => await sendNotification(exchange.body))
 
-// Route-based tapping for complex side effects
-.tap(craft().transform(formatForAudit).to(auditLog))
-.tap(craft().filter(isImportant).to(alertSystem))
+// Multiple taps for different concerns
+.tap(analytics())
+.tap(monitoring())
+.to(primaryDestination)
 ```
+
+**Key behaviors:**
+- **Non-blocking**: Main route doesn't wait for tap to complete and continues even if tap fails
+- **Copy semantics**: Tap receives a deep copy, not the original exchange
+- **Error isolation**: Errors in tap don't affect the main route (they're logged but not thrown)
+- **Perfect for**: Logging, auditing, notifications, analytics, monitoring
+
 
 ## Destination operations
 
