@@ -46,7 +46,7 @@
   "size-limit": [
     {
       "path": [
-        "packages/routecraft/dist/mod.js"
+        "packages/routecraft/dist/index.js"
       ],
       "limit": "10 kb",
       "running": false,
