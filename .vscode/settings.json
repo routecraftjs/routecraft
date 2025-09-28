@@ -2,6 +2,6 @@
   "terminal.integrated.shellIntegration.enabled": false,
   "terminal.integrated.defaultProfile.osx": "zsh",
   "terminal.integrated.automationProfile.osx": {
-    "path": "/bin/zsh"
+    "path": "/bin/bash"
   }
 }
