@@ -4,6 +4,7 @@
 
 import { mkdir, writeFile, readFile, readdir, stat } from "node:fs/promises";
 import { join, resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { existsSync, readFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { input, select, confirm } from "@inquirer/prompts";
@@ -41,7 +42,7 @@ function getRoutecraftVersion(): string {
   try {
     // Try to read the package.json of the routecraft package
     const packagePath = join(
-      dirname(import.meta.url.replace("file://", "")),
+      dirname(fileURLToPath(import.meta.url)),
       "../../routecraft/package.json",
     );
     if (existsSync(packagePath)) {

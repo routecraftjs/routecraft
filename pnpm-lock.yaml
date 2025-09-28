@@ -190,9 +190,6 @@ importers:
       dotenv:
         specifier: ^17.2.2
         version: 17.2.2
-      tsx:
-        specifier: ^4.20.6
-        version: 4.20.6
 
   packages/create-routecraft:
     dependencies:

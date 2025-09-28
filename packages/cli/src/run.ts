@@ -8,7 +8,7 @@ import {
 } from "@routecraftjs/routecraft";
 import { registerContextSignalHandlers } from "./util";
 
-const SUPPORTED_EXTENSIONS = [".ts", ".tsx", ".mjs", ".js", ".cjs"] as const;
+const SUPPORTED_EXTENSIONS = [".mjs", ".js", ".cjs"] as const;
 
 type RunResult =
   | { success: true }
@@ -29,20 +29,14 @@ export async function runCommand(filePath: string): Promise<RunResult> {
     };
   }
 
-  // Enable TypeScript support if needed
+  // Reject TypeScript files explicitly
   if (ext === ".ts" || ext === ".tsx") {
-    try {
-      // Loaded dynamically to avoid hard runtime dependency
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await import("tsx/esm" as any);
-    } catch {
-      return {
-        success: false,
-        code: 1,
-        message:
-          "TypeScript files require the 'tsx' runtime.\nInstall it with: npm i -D tsx (or pnpm add -D tsx)",
-      };
-    }
+    return {
+      success: false,
+      code: 1,
+      message:
+        "TypeScript files are not supported by 'craft run'. Compile to .js or use .mjs/.js/.cjs.",
+    };
   }
 
   try {
@@ -92,7 +86,10 @@ function configureRoutes(
 
   const isRouteBuilder = (
     obj: unknown,
-  ): obj is InstanceType<typeof RouteBuilder> => obj instanceof RouteBuilder;
+  ): obj is InstanceType<typeof RouteBuilder> =>
+    typeof obj === "object" &&
+    obj !== null &&
+    typeof (obj as { build?: unknown }).build === "function";
 
   if (!defaultExport) {
     logger.error("No default export found. Expected routes as default export.");

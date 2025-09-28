@@ -2,7 +2,7 @@ import { defineConfig } from "tsup";
 
 export default defineConfig({
   // Input
-  entry: ["mod.ts"],
+  entry: ["index.ts"],
 
   // Output configuration
   clean: true,
