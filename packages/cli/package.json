@@ -23,8 +23,7 @@
   "dependencies": {
     "@routecraftjs/routecraft": "workspace:^0.1.0",
     "commander": "^14.0.1",
-    "dotenv": "^17.2.2",
-    "tsx": "^4.20.6"
+    "dotenv": "^17.2.2"
   },
   "publishConfig": {
     "access": "public",

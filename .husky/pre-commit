@@ -1,3 +1,4 @@
 #!/usr/bin/env sh
 set -e
-npx lint-staged
+pnpm lint-staged
+pnpm typecheck

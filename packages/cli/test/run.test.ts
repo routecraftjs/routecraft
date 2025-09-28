@@ -3,8 +3,7 @@ import { writeFile, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// Avoid requiring a real tsx runtime in tests
-vi.mock("tsx/esm", () => ({}));
+// No TypeScript runtime mocking needed; CLI no longer supports running .ts files directly
 
 // Silence logger output
 vi.mock("@routecraftjs/routecraft", async () => {
@@ -41,7 +40,9 @@ describe("CLI run command", () => {
     const { runCommand } = await import("../src/run");
     const res = await runCommand("file.py");
     expect(res.success).toBe(false);
-    expect(res.message).toContain("file types are supported");
+    if (res.success === false) {
+      expect(res.message).toContain("file types are supported");
+    }
   });
 
   /**
@@ -76,7 +77,9 @@ describe("CLI run command", () => {
     const { runCommand } = await import("../src/run");
     const res = await runCommand("no-default.js");
     expect(res.success).toBe(false);
-    expect(res.message).toContain("No default export found");
+    if (res.success === false) {
+      expect(res.message).toContain("No default export found");
+    }
   });
 
   /**
@@ -89,7 +92,9 @@ describe("CLI run command", () => {
     const { runCommand } = await import("../src/run");
     const res = await runCommand("invalid.js");
     expect(res.success).toBe(false);
-    expect(res.message).toContain("Invalid default export");
+    if (res.success === false) {
+      expect(res.message).toContain("Invalid default export");
+    }
   });
 
   /**
@@ -111,28 +116,5 @@ describe("CLI run command", () => {
     expect(res.success === true || res.success === false).toBe(true);
   });
 
-  /**
-   * @case Verifies that TypeScript files without tsx runtime fail gracefully
-   * @preconditions A .ts file when tsx runtime is not available
-   * @expectedResult runCommand should return failure with helpful tsx installation message
-   */
-  test("TypeScript file without tsx runtime fails gracefully", async () => {
-    // Mock tsx import to fail
-    vi.doMock("tsx/esm", () => {
-      throw new Error("tsx not available");
-    });
-
-    await writeFile(
-      "test.ts",
-      `
-      import { craft, simple, log } from "@routecraftjs/routecraft";
-      export default craft().id("x").from(simple("y")).to(log());
-    `,
-    );
-
-    const { runCommand } = await import("../src/run");
-    const res = await runCommand("test.ts");
-    expect(res.success).toBe(false);
-    expect(res.message).toContain("tsx");
-  });
+  // Intentionally no test for .ts runtime; CLI rejects .ts/.tsx inputs
 });

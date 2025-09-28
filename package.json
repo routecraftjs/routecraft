@@ -16,9 +16,9 @@
     "build": "pnpm -r run build",
     "publish:all": "pnpm run build && pnpm -r publish --no-git-checks",
     "pack:all": "pnpm run build && rm -rf dist && mkdir dist && pnpm -r exec pnpm pack --pack-destination ../../dist",
-    "craft": "node packages/cli/dist/mod.js",
+    "craft": "node packages/cli/dist/index.js",
     "docs": "pnpm --filter routecraft.dev dev",
-    "all": "pnpm format:write && pnpm lint --fix && pnpm typecheck && pnpm build && pnpm test"
+    "all": " pnpm lint --fix && pnpm format:write && pnpm typecheck && pnpm build && pnpm test"
   },
   "devDependencies": {
     "@eslint/js": "^9.36.0",
@@ -65,9 +65,6 @@
     ],
     "*.{css,scss,less,html,svg}": [
       "prettier --write --ignore-unknown"
-    ],
-    "*.{ts,tsx}": [
-      "tsc --noEmit"
     ]
   },
   "engines": {

@@ -163,10 +163,6 @@ export default craft()
   .to(log());
 ```
 
-**Note:** Running `.ts` route files with the CLI requires the `tsx` runtime in your project:
-
-```bash
-npm i -D tsx    # or: pnpm add -D tsx
-```
+**Note:** The CLI `run` command executes only JavaScript route files (.mjs/.js/.cjs). If you author routes in TypeScript, compile them to JavaScript before running.
 
 Run it with the CLI (recommended), or execute within your own Node app using `CraftContext`.
