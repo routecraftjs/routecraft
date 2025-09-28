@@ -65,6 +65,9 @@
     ],
     "*.{css,scss,less,html,svg}": [
       "prettier --write --ignore-unknown"
+    ],
+    "*.{ts,tsx}": [
+      "tsc --noEmit"
     ]
   },
   "engines": {
