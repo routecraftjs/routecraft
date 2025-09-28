@@ -1,14 +1,13 @@
 import { expect, test, vi } from "vitest";
 import { context } from "@routecraftjs/routecraft";
-import routes from "./channel-adapter.mjs";
+import routes from "./direct-adapter.mjs";
 
 /**
- * @testCase TC-M4N5
- * @description Verifies that channel adapter can send and receive messages
- * @preconditions Channel adapter with two channels
- * @expectedResult Should send and receive messages between channels
+ * @case Verifies that direct adapter can send and receive messages
+ * @preconditions Channel adapter with two directs
+ * @expectedResult Should send and receive messages between directs
  */
-test("receives 'Hello, World!' on my-channel-1 and logs it", async () => {
+test("receives 'Hello, World!' on my-direct-1 and logs it", async () => {
   const logSpy = vi
     .spyOn(console, "log")
     .mockImplementation(() => undefined as unknown as void);
@@ -17,7 +16,7 @@ test("receives 'Hello, World!' on my-channel-1 and logs it", async () => {
 
   const execution = testContext.start();
 
-  // Allow time for the simple route to emit and channels to propagate
+  // Allow time for the simple route to emit and directs to propagate
   await new Promise((resolve) => setTimeout(resolve, 150));
 
   await testContext.stop();
@@ -28,7 +27,7 @@ test("receives 'Hello, World!' on my-channel-1 and logs it", async () => {
     { headers?: Record<string, unknown>; body?: unknown } | unknown
   >;
 
-  // Filter logs for the consumer route that subscribes to my-channel-1
+  // Filter logs for the consumer route that subscribes to my-direct-1
   const logsForChannel1Route = calls.filter(
     (arg) =>
       typeof arg === "object" &&
@@ -36,7 +35,7 @@ test("receives 'Hello, World!' on my-channel-1 and logs it", async () => {
       "headers" in arg &&
       (arg as { headers?: Record<string, unknown> }).headers?.[
         "routecraft.route"
-      ] === "channel-adapter-1",
+      ] === "direct-adapter-1",
   ) as Array<{ headers?: Record<string, unknown>; body?: unknown }>;
 
   // Ensure we saw at least one log for that route
@@ -46,7 +45,7 @@ test("receives 'Hello, World!' on my-channel-1 and logs it", async () => {
   const bodies = logsForChannel1Route.map((x) => x.body);
   expect(bodies).toContain("Hello, World!");
 
-  // Also verify second channel route logs transformed content
+  // Also verify second direct route logs transformed content
   const logsForChannel2Route = calls.filter(
     (arg) =>
       typeof arg === "object" &&
@@ -54,7 +53,7 @@ test("receives 'Hello, World!' on my-channel-1 and logs it", async () => {
       "headers" in arg &&
       (arg as { headers?: Record<string, unknown> }).headers?.[
         "routecraft.route"
-      ] === "channel-adapter-2",
+      ] === "direct-adapter-2",
   ) as Array<{ headers?: Record<string, unknown>; body?: unknown }>;
 
   expect(logsForChannel2Route.length > 0).toBe(true);

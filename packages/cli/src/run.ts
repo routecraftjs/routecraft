@@ -1,180 +1,149 @@
-import { readdir, stat as fsStat } from "node:fs/promises";
-import { resolve, join } from "node:path";
+import { resolve, extname } from "node:path";
 import {
   ContextBuilder,
   type RouteDefinition,
+  type CraftConfig,
   logger,
   RouteBuilder,
 } from "@routecraftjs/routecraft";
-import { minimatch } from "minimatch";
-import {
-  loadModuleWithDefaultExport,
-  registerContextSignalHandlers,
-} from "./util";
-import chokidar, { FSWatcher } from "chokidar";
+import { registerContextSignalHandlers } from "./util";
 
-const SUPPORTED_EXTENSIONS = [".ts", ".mjs", ".js", ".cjs"] as const;
+const SUPPORTED_EXTENSIONS = [".ts", ".tsx", ".mjs", ".js", ".cjs"] as const;
 
-async function* walkFiles(
-  dir: string,
-  excludePatterns: string[] = [],
-): AsyncGenerator<string> {
-  const files = await readdir(dir, { withFileTypes: true });
-  for (const file of files) {
-    const path = join(dir, file.name);
+type RunResult =
+  | { success: true }
+  | { success: false; code?: number; message: string };
 
-    // Check if the path matches any exclude pattern
-    const isExcluded = excludePatterns.some((pattern) =>
-      minimatch(path, pattern, { matchBase: true }),
-    );
+export async function runCommand(filePath: string): Promise<RunResult> {
+  const absFilePath = resolve(process.cwd(), filePath);
+  const ext = extname(absFilePath);
 
-    if (isExcluded) {
-      logger.debug(`Skipping excluded file: ${path}`);
-      continue;
-    }
-
-    if (file.isDirectory()) {
-      yield* walkFiles(path, excludePatterns);
-    } else if (SUPPORTED_EXTENSIONS.some((ext) => file.name.endsWith(ext))) {
-      yield path;
-    }
-  }
-}
-
-export async function runCommand(
-  path?: string,
-  exclude: string[] = [],
-  watch = false,
-) {
-  const absTargetPath = path ? resolve(process.cwd(), path) : process.cwd();
-  let context: ReturnType<ContextBuilder["build"]> | undefined;
-  let watcher: FSWatcher | undefined;
-  let watchedFiles: string[] = [];
-
-  async function buildContextAndFiles(cacheBuster?: string) {
-    const stat = await fsStat(absTargetPath);
-    const contextBuilder = new ContextBuilder();
-    watchedFiles = [];
-
-    if (stat.isDirectory()) {
-      // Handle directory case - find all supported files, excluding patterns
-      for await (const filePath of walkFiles(absTargetPath, exclude)) {
-        await configureRoutes(contextBuilder, filePath, cacheBuster);
-        watchedFiles.push(filePath);
-      }
-    } else if (stat.isFile()) {
-      // Handle single file case
-      if (!SUPPORTED_EXTENSIONS.some((ext) => absTargetPath.endsWith(ext))) {
-        logger.error(
-          `Error: Only the following file types are supported: ${SUPPORTED_EXTENSIONS.join(", ")}`,
-        );
-        process.exit(1);
-      }
-
-      // Check if the single file should be excluded
-      const isExcluded = exclude.some((pattern) =>
-        minimatch(absTargetPath, pattern, { matchBase: true }),
-      );
-
-      if (!isExcluded) {
-        await configureRoutes(contextBuilder, absTargetPath, cacheBuster);
-        watchedFiles.push(absTargetPath);
-      } else {
-        logger.debug(`Skipping excluded file: ${absTargetPath}`);
-      }
-    }
-
-    context = contextBuilder.build();
+  // Validate file extension
+  if (
+    !SUPPORTED_EXTENSIONS.includes(ext as (typeof SUPPORTED_EXTENSIONS)[number])
+  ) {
+    return {
+      success: false,
+      code: 1,
+      message: `Error: Only the following file types are supported: ${SUPPORTED_EXTENSIONS.join(", ")}`,
+    };
   }
 
-  async function startContext(cacheBuster?: string) {
-    await buildContextAndFiles(cacheBuster);
-    registerContextSignalHandlers(context!);
-    await context!.start();
-  }
-
-  async function stopContext() {
-    if (context) {
-      await context.stop();
-      context = undefined;
+  // Enable TypeScript support if needed
+  if (ext === ".ts" || ext === ".tsx") {
+    try {
+      // Loaded dynamically to avoid hard runtime dependency
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await import("tsx/esm" as any);
+    } catch {
+      return {
+        success: false,
+        code: 1,
+        message:
+          "TypeScript files require the 'tsx' runtime.\nInstall it with: npm i -D tsx (or pnpm add -D tsx)",
+      };
     }
   }
 
-  if (watch) {
-    await buildContextAndFiles();
-    watcher = chokidar.watch(watchedFiles, { ignoreInitial: true });
-    watcher.on("change", async (changedPath: string) => {
-      logger.info(`Detected change in ${changedPath}, restarting context...`);
-      await stopContext();
-      // Use a cache-busting query string to force ESM reload
-      await startContext(`?update=${Date.now()}`);
-    });
-    logger.info(`Watching files for changes...\n${watchedFiles.join("\n")}`);
-    await startContext();
-  } else {
-    await startContext();
-    // Only wait on abort if there are still active routes
-    if (context!.getcraft().some((route) => !route.signal.aborted)) {
-      await new Promise((_, reject) => {
-        // No abort controller here, but could be added for symmetry
-        process.on("SIGINT", () => reject(new Error("Aborted")));
-        process.on("SIGTERM", () => reject(new Error("Aborted")));
-      });
-    }
-  }
-}
-
-async function configureRoutes(
-  contextBuilder: ContextBuilder,
-  filePath: string,
-  cacheBuster?: string,
-) {
   try {
-    logger.debug(`Processing file: ${filePath}`);
+    logger.info(`Loading file: ${absFilePath}`);
 
-    // Use shared utility to load the default export, with cache busting if needed
-    const importPath = cacheBuster ? `${filePath}${cacheBuster}` : filePath;
-    const defaultExport = await loadModuleWithDefaultExport(importPath);
+    // Load the module with both default and named exports
+    const module = await import(absFilePath);
 
-    // Verify the type of the default export
-    const isRouteDefinition = (obj: unknown): obj is RouteDefinition =>
-      typeof obj === "object" && obj !== null && "id" in obj;
+    // Create context builder
+    const contextBuilder = new ContextBuilder();
 
-    const isRouteBuilder = (obj: unknown): obj is RouteBuilder<unknown> =>
-      obj instanceof RouteBuilder;
-
-    const isValidExport = Array.isArray(defaultExport)
-      ? defaultExport.every(
-          (item) => isRouteDefinition(item) || isRouteBuilder(item),
-        )
-      : isRouteDefinition(defaultExport) || isRouteBuilder(defaultExport);
-
-    if (!isValidExport) {
-      logger.warn(
-        `Skipping ${filePath}: default export must be a RouteDefinition, RouteBuilder, or array of those.`,
-      );
-      return;
+    // Check for optional craftConfig named export
+    if (module.craftConfig) {
+      logger.info("Found craftConfig export, applying configuration");
+      contextBuilder.with(module.craftConfig as CraftConfig);
     }
 
-    if (Array.isArray(defaultExport)) {
-      defaultExport.forEach((routeOrBuilder) =>
-        contextBuilder.routes(
-          routeOrBuilder as RouteDefinition | RouteBuilder<unknown>,
-        ),
-      );
-    } else {
-      contextBuilder.routes(
-        defaultExport as RouteDefinition | RouteBuilder<unknown>,
-      );
+    // Handle routes from the default export
+    const configured = configureRoutes(contextBuilder, module.default);
+    if (!configured.success) {
+      return configured;
     }
 
-    logger.info(`Successfully configured routes from ${filePath}`);
+    // Build and start the context
+    const context = contextBuilder.build();
+    registerContextSignalHandlers(context);
+    await context.start();
+
+    return { success: true };
   } catch (error: unknown) {
     if (error instanceof Error) {
-      logger.error(`Error processing ${filePath}: ${error.message}`);
-    } else {
-      logger.error(`Error processing ${filePath}: An unknown error occurred`);
+      logger.error(`Failed to run ${absFilePath}: ${error.message}`);
+      return { success: false, code: 1, message: error.message };
     }
-    throw error; // Re-throw to ensure the process exits with an error code
+    logger.error(`Failed to run ${absFilePath}: Unknown error occurred`);
+    return { success: false, code: 1, message: "Unknown error" };
   }
+}
+
+function configureRoutes(
+  contextBuilder: InstanceType<typeof ContextBuilder>,
+  defaultExport: unknown,
+): RunResult {
+  // Type guards
+  const isRouteDefinition = (obj: unknown): obj is RouteDefinition =>
+    typeof obj === "object" && obj !== null && "id" in obj;
+
+  const isRouteBuilder = (
+    obj: unknown,
+  ): obj is InstanceType<typeof RouteBuilder> => obj instanceof RouteBuilder;
+
+  if (!defaultExport) {
+    logger.error("No default export found. Expected routes as default export.");
+    return { success: false, code: 1, message: "No default export found" };
+  }
+
+  // Handle single route or RouteBuilder
+  if (isRouteDefinition(defaultExport) || isRouteBuilder(defaultExport)) {
+    contextBuilder.routes(
+      defaultExport as RouteDefinition | InstanceType<typeof RouteBuilder>,
+    );
+    logger.info("Loaded single route from default export");
+    return { success: true };
+  }
+
+  // Handle array of routes
+  if (Array.isArray(defaultExport)) {
+    if (
+      !defaultExport.every(
+        (item) => isRouteDefinition(item) || isRouteBuilder(item),
+      )
+    ) {
+      logger.error(
+        "All items in default export array must be RouteDefinition or RouteBuilder",
+      );
+      return {
+        success: false,
+        code: 1,
+        message: "Invalid items in default export array",
+      };
+    }
+
+    defaultExport.forEach((routeOrBuilder) =>
+      contextBuilder.routes(
+        routeOrBuilder as RouteDefinition | InstanceType<typeof RouteBuilder>,
+      ),
+    );
+    logger.info(
+      `Loaded ${defaultExport.length} routes from default export array`,
+    );
+    return { success: true };
+  }
+
+  // Invalid default export
+  logger.error(
+    "Invalid default export. Expected: RouteDefinition, RouteBuilder, or array of those.",
+  );
+  return {
+    success: false,
+    code: 1,
+    message:
+      "Invalid default export. Expected: RouteDefinition, RouteBuilder, or array of those.",
+  };
 }

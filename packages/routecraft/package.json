@@ -2,21 +2,23 @@
   "name": "@routecraftjs/routecraft",
   "version": "0.1.0",
   "type": "module",
-  "main": "./dist/mod.cjs",
-  "module": "./dist/mod.js",
-  "types": "./dist/mod.d.ts",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/mod.d.ts",
-      "import": "./dist/mod.js",
-      "require": "./dist/mod.cjs"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
     }
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsup src/mod.ts --format esm,cjs --dts",
+    "build": "tsup src/index.ts --format esm,cjs --dts",
+    "test": "vitest",
+    "test:coverage": "vitest --coverage",
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {

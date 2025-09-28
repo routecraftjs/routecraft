@@ -283,7 +283,7 @@ export class RouteBuilder<CurrentType = unknown> {
    */
   id(id: string): this {
     this.pendingOptions = { ...(this.pendingOptions ?? {}), id };
-    logger.info(`Staging route id "${id}" for next route`);
+    logger.debug(`Staging route id "${id}" for next route`);
     return this;
   }
 
@@ -303,7 +303,7 @@ export class RouteBuilder<CurrentType = unknown> {
         options: mapped,
       },
     };
-    logger.info("Staging batch processing for next route");
+    logger.debug("Staging batch processing for next route");
     return this;
   }
 
@@ -331,7 +331,7 @@ export class RouteBuilder<CurrentType = unknown> {
       options: undefined,
     };
 
-    logger.info(`Creating route definition with id "${id}"`);
+    logger.debug(`Creating route definition with id "${id}"`);
 
     this.currentRoute = {
       id,
@@ -376,7 +376,7 @@ export class RouteBuilder<CurrentType = unknown> {
    */
   private addStep<T extends Adapter>(step: Step<T>): RouteBuilder<CurrentType> {
     const route = this.requireSource();
-    logger.info(`Adding ${step.operation} step to route "${route.id}"`);
+    logger.debug(`Adding ${step.operation} step to route "${route.id}"`);
     route.steps.push(step);
     return this.withType<CurrentType>();
   }
@@ -422,7 +422,7 @@ export class RouteBuilder<CurrentType = unknown> {
     destination: Destination<CurrentType> | CallableDestination<CurrentType>,
   ): RouteBuilder<CurrentType> {
     const route = this.requireSource();
-    logger.info(`Adding destination step to route "${route.id}"`);
+    logger.debug(`Adding destination step to route "${route.id}"`);
     route.steps.push(new ToStep<CurrentType>(destination));
     return this.withType<CurrentType>();
   }
@@ -452,7 +452,7 @@ export class RouteBuilder<CurrentType = unknown> {
       | CallableSplitter<CurrentType, ItemType>,
   ): RouteBuilder<ItemType> {
     const route = this.requireSource();
-    logger.info(`Adding split step to route "${route.id}"`);
+    logger.debug(`Adding split step to route "${route.id}"`);
 
     // If no splitter is provided and CurrentType is an array, use default array splitter
     if (!splitter) {
@@ -720,7 +720,7 @@ export class RouteBuilder<CurrentType = unknown> {
    *   .build();
    */
   build(): RouteDefinition[] {
-    logger.info(`Building ${this.routes.length} routes`);
+    logger.debug(`Building ${this.routes.length} routes`);
     return this.routes;
   }
 }

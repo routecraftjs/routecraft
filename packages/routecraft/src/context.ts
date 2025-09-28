@@ -232,7 +232,7 @@ export class CraftContext {
    *
    * @returns Array of routes
    */
-  getcraft(): Route[] {
+  getRoutes(): Route[] {
     return this.routes;
   }
 

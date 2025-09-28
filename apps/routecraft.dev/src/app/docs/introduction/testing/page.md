@@ -284,7 +284,6 @@ Use the CLI to run compiled route files/folders as an integration check:
 
 ```bash
 pnpm craft run ./examples/hello-world.mjs
-pnpm craft run ./examples --exclude "*.test.ts"
 ```
 
 ## Troubleshooting

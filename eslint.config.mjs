@@ -1,7 +1,7 @@
 import globals from "globals";
 import pluginJs from "@eslint/js";
 import tseslint from "typescript-eslint";
-import testcaseDoc from "./.eslint-rules/testcase-doc.mjs";
+import testCaseDoc from "./.eslint-rules/test-case-doc.mjs";
 
 /** @type {import('eslint').Linter.Config[]} */
 export default [
@@ -48,14 +48,14 @@ export default [
     plugins: {
       custom: {
         rules: {
-          "testcase-doc": testcaseDoc,
+          "test-case-doc": testCaseDoc,
         },
       },
     },
     rules: {
       // Relaxed rules for test files
       "@typescript-eslint/no-explicit-any": "off",
-      "custom/testcase-doc": "error",
+      "custom/test-case-doc": "error",
     },
   },
 ];

@@ -48,11 +48,6 @@ bunx create-routecraft <project-name>
 ```
 {% /code-tab %}
 
-{% code-tab label="deno" language="bash" %}
-```bash
-deno run -A npm:create-routecraft <project-name>
-```
-{% /code-tab %}
 {% /code-tabs %}
 
 Open your project folder in Visual Studio Code:
@@ -90,11 +85,6 @@ bun run dev
 ```
 {% /code-tab %}
 
-{% code-tab label="deno" language="bash" %}
-```bash
-deno task dev
-```
-{% /code-tab %}
 {% /code-tabs %}
 
 You should see your routes start and log output in your terminal.
@@ -128,11 +118,6 @@ bun run build && bun run start
 ```
 {% /code-tab %}
 
-{% code-tab label="deno" language="bash" %}
-```bash
-deno task build && deno task start
-```
-{% /code-tab %}
 {% /code-tabs %}
 
 ## Manual installation
@@ -164,11 +149,6 @@ bun add @routecraftjs/routecraft
 ```
 {% /code-tab %}
 
-{% code-tab label="deno" language="bash" %}
-```bash
-deno add npm:@routecraftjs/routecraft
-```
-{% /code-tab %}
 {% /code-tabs %}
 
 Create your first route:
@@ -181,6 +161,12 @@ export default craft()
   .id("my-first-route")
   .from(simple("Hello, RouteCraft!"))
   .to(log());
+```
+
+**Note:** Running `.ts` route files with the CLI requires the `tsx` runtime in your project:
+
+```bash
+npm i -D tsx    # or: pnpm add -D tsx
 ```
 
 Run it with the CLI (recommended), or execute within your own Node app using `CraftContext`.

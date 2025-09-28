@@ -36,7 +36,6 @@ pnpm test
 
 # Run example routes
 pnpm craft run ./examples/hello-world.mjs
-pnpm craft run ./examples --exclude "*.test.ts"
 
 # Run docs site locally
 pnpm docs
@@ -85,7 +84,7 @@ refactor(builder): simplify type inference for map()
 - One function per step; accept a single options object or one adapter instance.
 - Validate external inputs with `.validate(schema)`.
 - Prefer purity for `.transform`, `.process`, `.filter`, `.tap`.
-- Avoid cross-route globals; use `channel(...)` or `CraftContext` store.
+- Avoid cross-route globals; use `direct(...)` or `CraftContext` store.
 - Match existing formatting and structure; keep functions short and readable.
 
 ## Testing

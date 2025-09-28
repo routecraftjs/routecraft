@@ -1,5 +1,5 @@
 import { describe, test, expect, afterEach, vi } from "vitest";
-import { context, craft, simple } from "../src/mod.ts";
+import { context, craft, simple } from "../src/index.ts";
 
 describe("Header operation", () => {
   let testContext: any;
@@ -11,8 +11,7 @@ describe("Header operation", () => {
   });
 
   /**
-   * @testCase TC-HDR1
-   * @description Verifies that header operation can set static header values
+   * @case Verifies that header operation can set static header values
    * @preconditions Route with static header value
    * @expectedResult Header should be set with the static value
    */
@@ -37,8 +36,7 @@ describe("Header operation", () => {
   });
 
   /**
-   * @testCase TC-HDR2
-   * @description Verifies that header operation can derive values from exchange body
+   * @case Verifies that header operation can derive values from exchange body
    * @preconditions Route with header derived from body data
    * @expectedResult Header should contain value derived from body
    */

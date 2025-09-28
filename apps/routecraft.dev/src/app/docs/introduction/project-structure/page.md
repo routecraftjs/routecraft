@@ -8,7 +8,7 @@ A clear folder layout that scales from small apps to larger codebases. The table
 
 | Folder | Purpose |
 | --- | --- |
-| `routes` | Discovered routes. Files ending in `.route.ts` or `.route.mjs` are loaded by `craft run` and `craft start`. |
+| `routes` | Discovered routes. Files ending in `.route.ts` or `.route.mjs` are loaded by `craft dev` and `craft start`. |
 | `adapters` | Custom adapters implementing operation interfaces (`subscribe`, `send`, `process`). Keep concerns isolated. |
 | `plugins` | Cross‑cutting helpers (logging, metrics, tracing). |
 | `src` | Optional wrapper folder. If chosen, place the folders above inside `src`. If omitted, keep them at the project root. |
@@ -21,7 +21,7 @@ These files can live at the project root or inside `src` if you opt into a sourc
 
 | File | Purpose |
 | --- | --- |
-| `craft.config.ts` | Entry for `craft start`. Exports a `CraftConfig` with `routes`, optional `onStartup`, `onShutdown`. |
+| `craft.config.ts` | Exports a `CraftConfig` with `routes`. Use context events for lifecycle handling. |
 | `package.json` | Scripts and dependencies. Add `craft` scripts for convenience. |
 | `tsconfig.json` | TypeScript configuration. |
 | `.gitignore` | VCS ignores. Ensure build outputs and environment files are ignored. |

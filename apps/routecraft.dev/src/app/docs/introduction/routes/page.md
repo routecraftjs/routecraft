@@ -41,7 +41,7 @@ Define where data comes from:
 ```ts
   .from(timer({ intervalMs: 5000 }))  // Timer source
   .from(http({ path: '/webhook', method: 'POST' })) // HTTP endpoint
-  .from(channel('jobs'))              // Channel source
+  .from(direct('jobs'))              // Channel source
 ```
 
 ### 3. Processing pipeline
@@ -85,7 +85,7 @@ Different source types handle the final exchange differently:
 
 **Pathless routes**: Triggered by timers, channels, watchers, or jobs. They do not return a response to a caller.
 – `timer()` – scheduled jobs
-– `channel(name)` – inter-route messaging
+– `direct(name)` – inter-route messaging
 – file watchers, queues, or custom sources
 
 **Subscription Sources** (long-running connections):
@@ -110,7 +110,7 @@ craft()
 // Channel route: message-driven, runs until shutdown
 craft()
   .id('message-processor')
-  .from(channel('tasks'))
+  .from(direct('tasks'))
   .process(async (task) => await processTask(task))
   .to(log())
 ```
@@ -131,7 +131,7 @@ Understanding how different sources behave is crucial for route design:
 - Custom time-based triggers
 
 **Continuous Execution** (process until shutdown):
-- `channel()` consumers
+- `direct()` consumers
 - WebSocket or queue consumers (custom adapters)
 
 ```ts
@@ -244,12 +244,12 @@ craft()
   .id('data-producer')
   .from(source)
   .transform(processData)
-  .to(channel('processed-data'))
+  .to(direct('processed-data'))
 
 // Consumer route
 craft()
   .id('data-consumer')
-  .from(channel('processed-data'))
+  .from(direct('processed-data'))
   .transform(enrichData)
   .to(destination)
 ```
