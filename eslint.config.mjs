@@ -2,6 +2,7 @@ import globals from "globals";
 import pluginJs from "@eslint/js";
 import tseslint from "typescript-eslint";
 import testCaseDoc from "./.eslint-rules/test-case-doc.mjs";
+import eslintConfigPrettier from "eslint-config-prettier";
 
 /** @type {import('eslint').Linter.Config[]} */
 export default [
@@ -28,9 +29,10 @@ export default [
       // General rules
       "no-console": "error",
       "prefer-const": "warn",
-      quotes: ["error", "double"],
-      semi: ["error", "always"],
-      "comma-dangle": ["error", "always-multiline"],
+      // Defer formatting to Prettier
+      quotes: "off",
+      semi: "off",
+      "comma-dangle": "off",
       // Bun restriction
       "no-restricted-globals": [
         "error",
@@ -58,4 +60,6 @@ export default [
       "custom/test-case-doc": "error",
     },
   },
+  // Disable formatting-related rules that might conflict with Prettier
+  eslintConfigPrettier,
 ];
