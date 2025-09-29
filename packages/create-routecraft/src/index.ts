@@ -593,7 +593,7 @@ async function initializeGit(projectDir: string) {
   try {
     execSync("git init", { cwd: projectDir, stdio: "inherit" });
     execSync("git add .", { cwd: projectDir, stdio: "inherit" });
-    execSync("git commit -m \"Initial commit\"", {
+    execSync('git commit -m "Initial commit"', {
       cwd: projectDir,
       stdio: "inherit",
     });
