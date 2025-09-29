@@ -88,7 +88,7 @@ describe("CLI run command", () => {
    * @expectedResult runCommand should return failure indicating invalid default export
    */
   test("invalid default export fails", async () => {
-    await writeFile("invalid.js", "export default \"nope\";");
+    await writeFile("invalid.js", 'export default "nope";');
     const { runCommand } = await import("../src/run");
     const res = await runCommand("invalid.js");
     expect(res.success).toBe(false);

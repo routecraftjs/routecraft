@@ -57,8 +57,8 @@
   ],
   "lint-staged": {
     "*.{js,jsx,ts,tsx,cjs,mjs,cts,mts}": [
-      "prettier --write --ignore-unknown",
-      "eslint --fix"
+      "eslint --fix",
+      "prettier --write --ignore-unknown"
     ],
     "*.{md,mdx,json,yml,yaml}": [
       "prettier --write --ignore-unknown"
