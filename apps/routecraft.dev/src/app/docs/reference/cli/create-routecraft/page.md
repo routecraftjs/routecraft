@@ -59,38 +59,46 @@ Install dependencies now:  Yes / No
 
 ### Next steps
 
-Open in your editor and start the dev server:
+Build and start your RouteCraft project:
 
 {% code-tabs %}
 {% code-tab label="npm" language="bash" %}
 ```bash
 cd my-app
-npm run dev
+npm run build
+npm run start
 ```
 {% /code-tab %}
 
 {% code-tab label="yarn" language="bash" %}
 ```bash
 cd my-app
-yarn dev
+yarn build
+yarn start
 ```
 {% /code-tab %}
 
 {% code-tab label="pnpm" language="bash" %}
 ```bash
 cd my-app
-pnpm dev
+pnpm build
+pnpm start
 ```
 {% /code-tab %}
 
 {% code-tab label="bun" language="bash" %}
 ```bash
 cd my-app
-bun run dev
+bun run build
+bun run start
 ```
 {% /code-tab %}
 
 {% /code-tabs %}
+
+{% callout type="note" %}
+A `dev` command with hot-reload capabilities is coming soon in a future release.
+{% /callout %}
 
 ### Examples
 

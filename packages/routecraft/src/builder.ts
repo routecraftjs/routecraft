@@ -235,7 +235,7 @@ export type RouteOptions = Partial<Pick<RouteDefinition, "consumer">> & {
  * The type parameter tracks the data type flowing through the route
  * at each step, providing type safety throughout the route definition.
  *
- * @template CurrentType The type of data currently flowing through the route
+ * @template Current The type of data currently flowing through the route
  *
  * @example
  * ```typescript
@@ -246,7 +246,7 @@ export type RouteOptions = Partial<Pick<RouteDefinition, "consumer">> & {
  *   .to(log())
  * ```
  */
-export class RouteBuilder<CurrentType = unknown> {
+export class RouteBuilder<Current = unknown> {
   protected currentRoute?: RouteDefinition;
   protected routes: RouteDefinition[] = [];
 
@@ -374,32 +374,30 @@ export class RouteBuilder<CurrentType = unknown> {
    * @returns The current RouteBuilder instance
    * @private
    */
-  private addStep<T extends Adapter>(step: Step<T>): RouteBuilder<CurrentType> {
+  private addStep<T extends Adapter>(step: Step<T>): RouteBuilder<Current> {
     const route = this.requireSource();
     logger.debug(`Adding ${step.operation} step to route "${route.id}"`);
     route.steps.push(step);
-    return this.withType<CurrentType>();
+    return this.withType<Current>();
   }
 
   /**
    * Process the data with a custom function.
    *
-   * @template NextType The resulting type after processing (defaults to CurrentType if not specified)
-   * @param processor A function that transforms the current exchange to a new exchange with the NextType
-   * @returns A RouteBuilder with the new type NextType
+   * @template Return The resulting type after processing (defaults to Current if not specified)
+   * @param processor A function that transforms the current exchange to a new exchange with the Return
+   * @returns A RouteBuilder with the new type Return
    * @example
    * // Transform string data to number
    * .process<number>((exchange) => {
    *   return { ...exchange, body: parseInt(exchange.body) };
    * })
    */
-  process<NextType = CurrentType>(
-    processor:
-      | Processor<CurrentType, NextType>
-      | CallableProcessor<CurrentType, NextType>,
-  ): RouteBuilder<NextType> {
-    this.addStep(new ProcessStep<CurrentType, NextType>(processor));
-    return this.withType<NextType>();
+  process<Return = Current>(
+    processor: Processor<Current, Return> | CallableProcessor<Current, Return>,
+  ): RouteBuilder<Return> {
+    this.addStep(new ProcessStep<Current, Return>(processor));
+    return this.withType<Return>();
   }
 
   /**
@@ -419,12 +417,12 @@ export class RouteBuilder<CurrentType = unknown> {
    * .to(kafkaProducer({ topic: 'processed-data' }))
    */
   to(
-    destination: Destination<CurrentType> | CallableDestination<CurrentType>,
-  ): RouteBuilder<CurrentType> {
+    destination: Destination<Current> | CallableDestination<Current>,
+  ): RouteBuilder<Current> {
     const route = this.requireSource();
     logger.debug(`Adding destination step to route "${route.id}"`);
-    route.steps.push(new ToStep<CurrentType>(destination));
-    return this.withType<CurrentType>();
+    route.steps.push(new ToStep<Current>(destination));
+    return this.withType<Current>();
   }
 
   /**
@@ -446,18 +444,18 @@ export class RouteBuilder<CurrentType = unknown> {
    *   return exchange.body.users.map(user => ({ ...exchange, body: user }));
    * })
    */
-  split<ItemType = CurrentType extends Array<infer U> ? U : never>(
+  split<ItemType = Current extends Array<infer U> ? U : never>(
     splitter?:
-      | Splitter<CurrentType, ItemType>
-      | CallableSplitter<CurrentType, ItemType>,
+      | Splitter<Current, ItemType>
+      | CallableSplitter<Current, ItemType>,
   ): RouteBuilder<ItemType> {
     const route = this.requireSource();
     logger.debug(`Adding split step to route "${route.id}"`);
 
-    // If no splitter is provided and CurrentType is an array, use default array splitter
+    // If no splitter is provided and Current is an array, use default array splitter
     if (!splitter) {
       // Create a default array splitter
-      const defaultSplitter: CallableSplitter<CurrentType, ItemType> = (
+      const defaultSplitter: CallableSplitter<Current, ItemType> = (
         exchange,
       ) => {
         // Check if the body is an array
@@ -476,9 +474,9 @@ export class RouteBuilder<CurrentType = unknown> {
         })) as Exchange<ItemType>[];
       };
 
-      route.steps.push(new SplitStep<CurrentType, ItemType>(defaultSplitter));
+      route.steps.push(new SplitStep<Current, ItemType>(defaultSplitter));
     } else {
-      route.steps.push(new SplitStep<CurrentType, ItemType>(splitter));
+      route.steps.push(new SplitStep<Current, ItemType>(splitter));
     }
 
     return this.withType<ItemType>();
@@ -502,10 +500,10 @@ export class RouteBuilder<CurrentType = unknown> {
    */
   aggregate<ResultType>(
     aggregator:
-      | Aggregator<CurrentType, ResultType>
-      | CallableAggregator<CurrentType, ResultType>,
+      | Aggregator<Current, ResultType>
+      | CallableAggregator<Current, ResultType>,
   ): RouteBuilder<ResultType> {
-    this.addStep(new AggregateStep<CurrentType, ResultType>(aggregator));
+    this.addStep(new AggregateStep<Current, ResultType>(aggregator));
     return this.withType<ResultType>();
   }
 
@@ -513,20 +511,20 @@ export class RouteBuilder<CurrentType = unknown> {
    * Transform the current data to a new type using a transformer function.
    * Unlike process, this operates only on the body of the exchange, not the entire exchange.
    *
-   * @template NextType The resulting type after transformation
-   * @param transformer A function that transforms the current body to a new body of type NextType
-   * @returns A RouteBuilder with the new type NextType
+   * @template Return The resulting type after transformation
+   * @param transformer A function that transforms the current body to a new body of type Return
+   * @returns A RouteBuilder with the new type Return
    * @example
    * // Transform a string to an object
    * .transform<{ value: string }>((str) => ({ value: str }))
    */
-  transform<NextType>(
+  transform<Return>(
     transformer:
-      | Transformer<CurrentType, NextType>
-      | CallableTransformer<CurrentType, NextType>,
-  ): RouteBuilder<NextType> {
-    this.addStep(new TransformStep<CurrentType, NextType>(transformer));
-    return this.withType<NextType>();
+      | Transformer<Current, Return>
+      | CallableTransformer<Current, Return>,
+  ): RouteBuilder<Return> {
+    this.addStep(new TransformStep<Current, Return>(transformer));
+    return this.withType<Return>();
   }
 
   /**
@@ -550,12 +548,10 @@ export class RouteBuilder<CurrentType = unknown> {
     key: string,
     valueOrFn:
       | HeaderValue
-      | ((
-          exchange: Exchange<CurrentType>,
-        ) => HeaderValue | Promise<HeaderValue>),
-  ): RouteBuilder<CurrentType> {
-    this.addStep(new HeaderStep<CurrentType>(key, valueOrFn));
-    return this.withType<CurrentType>();
+      | ((exchange: Exchange<Current>) => HeaderValue | Promise<HeaderValue>),
+  ): RouteBuilder<Current> {
+    this.addStep(new HeaderStep<Current>(key, valueOrFn));
+    return this.withType<Current>();
   }
 
   /**
@@ -563,10 +559,10 @@ export class RouteBuilder<CurrentType = unknown> {
    * This is a specialized transformer that creates a new object by mapping fields
    * from the source object.
    *
-   * @template NextType The resulting type after mapping
+   * @template Return The resulting type after mapping
    * @param fieldMappings An object where keys are field names in the output type and values are
    *                      functions that extract the corresponding values from the source
-   * @returns A RouteBuilder with the new type NextType
+   * @returns A RouteBuilder with the new type Return
    * @example
    * // Map from API response to database model
    * .map<DbUser>({
@@ -575,30 +571,27 @@ export class RouteBuilder<CurrentType = unknown> {
    *   email: (apiUser) => apiUser.emailAddress
    * })
    */
-  map<NextType>(
-    fieldMappings: Record<
-      keyof NextType,
-      (src: CurrentType) => NextType[keyof NextType]
-    >,
-  ): RouteBuilder<NextType> {
+  map<Return>(
+    fieldMappings: Record<keyof Return, (src: Current) => Return[keyof Return]>,
+  ): RouteBuilder<Return> {
     // Create a transformer function from the field mappings
-    const transformer: CallableTransformer<CurrentType, NextType> = (
-      message: CurrentType,
-    ): NextType => {
-      const result = {} as NextType;
+    const transformer: CallableTransformer<Current, Return> = (
+      message: Current,
+    ): Return => {
+      const result = {} as Return;
 
       for (const [targetField, mapperFn] of Object.entries(fieldMappings) as [
-        keyof NextType,
-        (src: CurrentType) => NextType[keyof NextType],
+        keyof Return,
+        (src: Current) => Return[keyof Return],
       ][]) {
-        result[targetField as keyof NextType] = mapperFn(message);
+        result[targetField as keyof Return] = mapperFn(message);
       }
 
       return result;
     };
 
     // Use the transform method with our created transformer
-    return this.transform<NextType>(transformer);
+    return this.transform<Return>(transformer);
   }
 
   /**
@@ -618,11 +611,9 @@ export class RouteBuilder<CurrentType = unknown> {
    *   metrics.gauge('item_size', JSON.stringify(exchange.body).length);
    * })
    */
-  tap(
-    tap: Tap<CurrentType> | CallableTap<CurrentType>,
-  ): RouteBuilder<CurrentType> {
-    this.addStep(new TapStep<CurrentType>(tap));
-    return this.withType<CurrentType>();
+  tap(tap: Tap<Current> | CallableTap<Current>): RouteBuilder<Current> {
+    this.addStep(new TapStep<Current>(tap));
+    return this.withType<Current>();
   }
 
   /**
@@ -639,10 +630,10 @@ export class RouteBuilder<CurrentType = unknown> {
    * .filter((user) => user.age >= 18 && user.status === 'active')
    */
   filter(
-    filter: Filter<CurrentType> | CallableFilter<CurrentType>,
-  ): RouteBuilder<CurrentType> {
-    this.addStep(new FilterStep<CurrentType>(filter));
-    return this.withType<CurrentType>();
+    filter: Filter<Current> | CallableFilter<Current>,
+  ): RouteBuilder<Current> {
+    this.addStep(new FilterStep<Current>(filter));
+    return this.withType<Current>();
   }
 
   /**
@@ -662,16 +653,16 @@ export class RouteBuilder<CurrentType = unknown> {
    *   required: ['name', 'age']
    * })
    */
-  validate(schema: StandardSchemaV1): RouteBuilder<CurrentType> {
+  validate(schema: StandardSchemaV1): RouteBuilder<Current> {
     this.addStep(new ValidateStep(schema));
-    return this.withType<CurrentType>();
+    return this.withType<Current>();
   }
 
   /**
    * Enrich the current data with additional information.
    * This is useful for adding context or fetching related data.
    *
-   * @template R The resulting type after enrichment (defaults to CurrentType if not specified)
+   * @template R The resulting type after enrichment (defaults to Current if not specified)
    * @param enricher Function that returns additional data to be merged
    * @param aggregator Optional function to control how data is combined
    * @returns A RouteBuilder with the combined type
@@ -691,11 +682,11 @@ export class RouteBuilder<CurrentType = unknown> {
    *   })
    * )
    */
-  enrich<R = CurrentType>(
+  enrich<R = Current>(
     enricher:
-      | Enricher<CurrentType, Partial<R>>
-      | CallableEnricher<CurrentType, Partial<R>>,
-    aggregator?: EnrichAggregator<CurrentType, Partial<R>>,
+      | Enricher<Current, Partial<R>>
+      | CallableEnricher<Current, Partial<R>>,
+    aggregator?: EnrichAggregator<Current, Partial<R>>,
   ): RouteBuilder<R> {
     this.addStep(new EnrichStep(enricher, aggregator));
     return this.withType<R>();

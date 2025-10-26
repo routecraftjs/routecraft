@@ -70,9 +70,8 @@ const NODE_TEMPLATE = {
           private: true,
           type: "module",
           scripts: {
-            dev: "craft dev",
-            build: "craft build",
-            start: "craft start",
+            build: "tsc",
+            start: "craft run dist/index.js",
             lint: "eslint .",
           },
           dependencies: {
@@ -84,7 +83,8 @@ const NODE_TEMPLATE = {
             eslint: "^9.36.0",
             "@eslint/js": "^9.36.0",
             "typescript-eslint": "^8.44.1",
-            "@routecraft/eslint-plugin-routecraft": "^0.1.0",
+            "@routecraft/eslint-plugin-routecraft": getRoutecraftVersion(),
+            "@routecraft/cli": getRoutecraftVersion(),
           },
         },
         null,
@@ -98,17 +98,18 @@ const NODE_TEMPLATE = {
           target: "ES2022",
           module: "ESNext",
           moduleResolution: "bundler",
+          outDir: "./dist",
+          rootDir: ".",
           allowSyntheticDefaultImports: true,
           esModuleInterop: true,
           allowJs: true,
           strict: true,
-          noEmit: true,
           skipLibCheck: true,
           isolatedModules: true,
           resolveJsonModule: true,
         },
         include: ["**/*.ts", "**/*.js"],
-        exclude: ["node_modules"],
+        exclude: ["node_modules", "dist"],
       },
       null,
       2,
@@ -149,6 +150,13 @@ dist/
 *.log
 .DS_Store`,
   },
+  "index.ts": {
+    content: `export { default as craftConfig } from './craft.config.js';
+import helloWorldRoute from './routes/hello-world.route.js';
+
+// Export all routes as default for craft run
+export default [helloWorldRoute];`,
+  },
 };
 
 /**
@@ -157,22 +165,21 @@ dist/
 const EXAMPLES = {
   "hello-world": {
     "routes/hello-world.route.ts": {
-      content: `import { log, craft, simple, fetch } from "@routecraft/routecraft";
+      content: `import { log, craft, simple, fetch, FetchResult } from "@routecraft/routecraft";
 
 export default craft()
   .id("hello-world")
   .from(simple({ userId: 1 }))
-  .enrich(
+  .enrich<FetchResult>(
     fetch({
       method: "GET",
       url: (ex) =>
         \`https://jsonplaceholder.typicode.com/users/\${ex.body.userId}\`,
     }),
   )
-  .transform((res) => JSON.parse(res.body))
+  .transform<{ name: string }>((enriched) => JSON.parse(enriched.body))
   .transform((user) => \`Hello, \${user.name}!\`)
-  .to(log());
-`,
+  .to(log());`,
     },
   },
 };
@@ -395,8 +402,8 @@ async function initCommand(
 
 Next steps:
   cd ${answers.projectName}
-  ${answers.skipInstall ? `${getPackageManagerCommand(answers.packageManager)} install` : ""}
-  ${getPackageManagerCommand(answers.packageManager)} run dev
+  ${answers.skipInstall ? `${getPackageManagerCommand(answers.packageManager)} install\n  ` : ""}${getPackageManagerCommand(answers.packageManager)} run build
+  ${getPackageManagerCommand(answers.packageManager)} run start
 
 For more information, visit: https://routecraft.dev
     `);
@@ -598,9 +605,8 @@ async function generateProjectStructure(
     const packageJson = JSON.parse(await readFile(packageJsonPath, "utf-8"));
     packageJson.scripts = {
       ...packageJson.scripts,
-      dev: "craft dev --src",
-      build: "craft build --src",
-      start: "craft start --src",
+      build: "tsc",
+      start: "craft run dist/src/index.js",
     };
     await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2));
   }
