@@ -263,19 +263,35 @@ Set or override a header on the exchange. The body remains unchanged.
 .header('x-env', 'staging')
 ```
 
-### map {% badge %}wip{% /badge %}
+### map
 
 ```ts
-map<Next>(fieldMappings: Record<keyof Next, (src: Current) => Next[keyof Next]>): RouteBuilder<Next>
+map<Return>(fieldMappings: Record<keyof Return, (src: Current) => Return[keyof Return]>): RouteBuilder<Return>
 ```
 
-Map fields from the source object to a target object structure.
+Map fields from the current data to create a new object of a specified type. This is a specialized transformer that creates a new object by mapping fields from the source object.
 
 ```ts
-.map({
+// Map from API response to database model
+.map<DbUser>({
+  id: (apiUser) => apiUser.userId,
+  name: (apiUser) => apiUser.fullName,
+  email: (apiUser) => apiUser.emailAddress
+})
+
+// Transform with computed fields
+.map<Summary>({
   fullName: (user) => `${user.firstName} ${user.lastName}`,
-  email: (user) => user.emailAddress,
-  isActive: (user) => user.status === 'active'
+  isActive: (user) => user.status === 'active',
+  displayEmail: (user) => user.email.toLowerCase()
+})
+
+// Map complex nested data
+.map<OrderSummary>({
+  orderId: (order) => order.id,
+  customerName: (order) => order.customer.name,
+  totalAmount: (order) => order.items.reduce((sum, item) => sum + item.price, 0),
+  itemCount: (order) => order.items.length
 })
 ```
 
