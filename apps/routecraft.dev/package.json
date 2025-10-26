@@ -15,7 +15,7 @@
     "@markdoc/markdoc": "^0.5.4",
     "@markdoc/next.js": "^0.5.0",
     "@sindresorhus/slugify": "^3.0.0",
-    "@tailwindcss/postcss": "^4.1.14",
+    "@tailwindcss/postcss": "^4.1.16",
     "@tailwindcss/typography": "^0.5.19",
     "@types/react-highlight-words": "^0.20.0",
     "clsx": "^2.1.1",
@@ -29,11 +29,11 @@
     "react-dom": "^19.2.0",
     "react-highlight-words": "^0.21.0",
     "simple-functional-loader": "^1.2.1",
-    "tailwindcss": "^4.1.14",
+    "tailwindcss": "^4.1.16",
     "typescript": "^5.9.3"
   },
   "devDependencies": {
-    "@types/node": "^24.8.1",
+    "@types/node": "^24.9.1",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
     "eslint": "^9.38.0",
