@@ -1,6 +1,7 @@
 {
   "name": "@routecraft/cli",
   "version": "0.1.0",
+  "description": "CLI for running RouteCraft routes",
   "private": false,
   "type": "module",
   "main": "./dist/index.js",
@@ -32,5 +33,15 @@
   "repository": "https://github.com/devoptix-labs/routecraft",
   "bin": {
     "craft": "./dist/index.js"
-  }
+  },
+  "keywords": [
+    "routecraft",
+    "cli",
+    "routes",
+    "automation",
+    "typescript"
+  ],
+  "author": "DevOptix Labs",
+  "license": "Apache-2.0",
+  "homepage": "https://routecraft.dev"
 }
