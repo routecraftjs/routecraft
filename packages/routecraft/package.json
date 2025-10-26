@@ -1,6 +1,7 @@
 {
   "name": "@routecraft/routecraft",
   "version": "0.1.0",
+  "description": "Type-safe integration and automation framework for TypeScript/Node.js",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -33,5 +34,20 @@
     "arktype": "^2.1.23",
     "pino-pretty": "^13.1.2"
   },
-  "repository": "https://github.com/devoptix-labs/routecraft"
+  "repository": "https://github.com/devoptix-labs/routecraft",
+  "keywords": [
+    "integration",
+    "automation",
+    "routes",
+    "dsl",
+    "typescript",
+    "camel",
+    "data-processing",
+    "workflow",
+    "middleware"
+  ],
+  "author": "DevOptix Labs",
+  "license": "Apache-2.0",
+  "homepage": "https://routecraft.dev",
+  "bugs": "https://github.com/devoptix-labs/routecraft/issues"
 }
