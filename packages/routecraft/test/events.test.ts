@@ -5,7 +5,7 @@ import {
   simple,
   log,
   type CraftContext,
-} from "@routecraftjs/routecraft";
+} from "@routecraft/routecraft";
 
 describe("Events API", () => {
   let ctx: CraftContext;

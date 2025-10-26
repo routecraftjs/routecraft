@@ -172,7 +172,7 @@ importers:
 
   examples:
     devDependencies:
-      '@routecraftjs/routecraft':
+      '@routecraft/routecraft':
         specifier: workspace:^0.1.0
         version: link:../packages/routecraft
       tsx:
@@ -184,7 +184,7 @@ importers:
 
   packages/cli:
     dependencies:
-      '@routecraftjs/routecraft':
+      '@routecraft/routecraft':
         specifier: workspace:^0.1.0
         version: link:../routecraft
       commander:

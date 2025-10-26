@@ -9,7 +9,7 @@ Build focused data processing pipelines with a fluent DSL. {% .lead %}
 Routes are isolated data processing pipelines that flow from a **source** through **processing steps** to one or more **destinations**, with the final exchange returned to the source. Each route has a single responsibility and runs independently from other routes.
 
 ```ts
-import { craft, http, log } from '@routecraftjs/routecraft'
+import { craft, http, log } from '@routecraft/routecraft'
 
 export default craft()
   .id('user-processor')

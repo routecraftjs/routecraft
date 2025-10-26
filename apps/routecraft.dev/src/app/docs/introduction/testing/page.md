@@ -8,7 +8,7 @@ Test your custom RouteCraft routes with fast unit tests and optional E2E runs. {
 
 ```ts
 import { describe, it, expect, vi } from "vitest";
-import { context } from "@routecraftjs/routecraft";
+import { context } from "@routecraft/routecraft";
 import helloRoute from "../routes/hello-world.route";
 
 describe("hello route", () => {
@@ -46,7 +46,7 @@ export default defineConfig({
 Build a `CraftContext`, start it, give it time to run, then stop and await completion:
 
 ```ts
-import { context } from "@routecraftjs/routecraft";
+import { context } from "@routecraft/routecraft";
 import routes from "../routes/hello-world.route"; // your route builder export
 
 const testContext = context().routes(routes).build();
@@ -69,7 +69,7 @@ Checklist:
 The `spy()` adapter is purpose-built for testing. It records all interactions and provides convenient assertion methods:
 
 ```ts
-import { spy } from "@routecraftjs/routecraft";
+import { spy } from "@routecraft/routecraft";
 
 const spyAdapter = spy();
 
@@ -88,7 +88,7 @@ spyAdapter.receivedBodies() // Get array of just the body values
 ### Spy on destinations to assert outputs
 
 ```ts
-import { craft, simple, spy, context } from "@routecraftjs/routecraft";
+import { craft, simple, spy, context } from "@routecraft/routecraft";
 import { expect } from "vitest";
 
 const spyAdapter = spy();
@@ -107,7 +107,7 @@ expect(spyAdapter.calls.send).toBe(1);
 For routes that use `.to(log())`, spy on `console.log` to verify logging behavior:
 
 ```ts
-import { craft, simple, log, context } from "@routecraftjs/routecraft";
+import { craft, simple, log, context } from "@routecraft/routecraft";
 import { vi, expect } from "vitest";
 
 test('logs messages correctly', async () => {
@@ -135,7 +135,7 @@ Mock child logger for timer-heavy tests:
 
 ```ts
 import { vi } from "vitest";
-import { logger } from "@routecraftjs/routecraft";
+import { logger } from "@routecraft/routecraft";
 
 const childLogger = { info: vi.fn(), debug: vi.fn(), warn: vi.fn(), error: vi.fn(), level: "info", child: vi.fn().mockReturnThis() } as any;
 vi.spyOn(logger, "child").mockReturnValue(childLogger);
@@ -152,7 +152,7 @@ const logsForRoute = calls.filter(
 ### Test custom sources that await the final exchange
 
 ```ts
-import { craft, context, spy } from "@routecraftjs/routecraft";
+import { craft, context, spy } from "@routecraft/routecraft";
 
 let observed: any;
 const spyAdapter = spy();

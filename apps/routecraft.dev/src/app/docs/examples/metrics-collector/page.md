@@ -5,7 +5,7 @@ title: Sample Metrics
 Collect system metrics every second but only save every 10th one. {% .lead %}
 
 ```ts
-import { craft, timer, json } from '@routecraftjs/routecraft'
+import { craft, timer, json } from '@routecraft/routecraft'
 
 export default craft()
   .id('sample-metrics')

@@ -127,25 +127,25 @@ Add the core library:
 {% code-tabs %}
 {% code-tab label="npm" language="bash" %}
 ```bash
-npm install @routecraftjs/routecraft
+npm install @routecraft/routecraft
 ```
 {% /code-tab %}
 
 {% code-tab label="yarn" language="bash" %}
 ```bash
-yarn add @routecraftjs/routecraft
+yarn add @routecraft/routecraft
 ```
 {% /code-tab %}
 
 {% code-tab label="pnpm" language="bash" %}
 ```bash
-pnpm add @routecraftjs/routecraft
+pnpm add @routecraft/routecraft
 ```
 {% /code-tab %}
 
 {% code-tab label="bun" language="bash" %}
 ```bash
-bun add @routecraftjs/routecraft
+bun add @routecraft/routecraft
 ```
 {% /code-tab %}
 
@@ -155,7 +155,7 @@ Create your first route:
 
 ```ts
 // routes/my-route.ts
-import { craft, simple, log } from "@routecraftjs/routecraft";
+import { craft, simple, log } from "@routecraft/routecraft";
 
 export default craft()
   .id("my-first-route")

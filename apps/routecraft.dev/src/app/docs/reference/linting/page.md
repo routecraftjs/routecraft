@@ -4,11 +4,11 @@ title: Linting
 
 Enforce RouteCraft best practices with ESLint. {% .lead %}
 
-## @routecraftjs/eslint-plugin-routecraft
+## @routecraft/eslint-plugin-routecraft
 
 An official ESLint plugin that provides rules for RouteCraft projects.
 
-- Package: `@routecraftjs/eslint-plugin-routecraft`
+- Package: `@routecraft/eslint-plugin-routecraft`
 - Config: ESLint Flat Config
 
 ### Install
@@ -16,25 +16,25 @@ An official ESLint plugin that provides rules for RouteCraft projects.
 {% code-tabs %}
 {% code-tab label="npm" language="bash" %}
 ```bash
-npm install -D eslint @eslint/js typescript-eslint @routecraftjs/eslint-plugin-routecraft
+npm install -D eslint @eslint/js typescript-eslint @routecraft/eslint-plugin-routecraft
 ```
 {% /code-tab %}
 
 {% code-tab label="yarn" language="bash" %}
 ```bash
-yarn add -D eslint @eslint/js typescript-eslint @routecraftjs/eslint-plugin-routecraft
+yarn add -D eslint @eslint/js typescript-eslint @routecraft/eslint-plugin-routecraft
 ```
 {% /code-tab %}
 
 {% code-tab label="pnpm" language="bash" %}
 ```bash
-pnpm add -D eslint @eslint/js typescript-eslint @routecraftjs/eslint-plugin-routecraft
+pnpm add -D eslint @eslint/js typescript-eslint @routecraft/eslint-plugin-routecraft
 ```
 {% /code-tab %}
 
 {% code-tab label="bun" language="bash" %}
 ```bash
-bun add -d eslint @eslint/js typescript-eslint @routecraftjs/eslint-plugin-routecraft
+bun add -d eslint @eslint/js typescript-eslint @routecraft/eslint-plugin-routecraft
 ```
 {% /code-tab %}
 
@@ -46,7 +46,7 @@ bun add -d eslint @eslint/js typescript-eslint @routecraftjs/eslint-plugin-route
 // eslint.config.mjs
 import pluginJs from '@eslint/js'
 import tseslint from 'typescript-eslint'
-import routecraftPlugin from '@routecraftjs/eslint-plugin-routecraft'
+import routecraftPlugin from '@routecraft/eslint-plugin-routecraft'
 
 /** @type {import('eslint').Linter.Config[]} */
 export default [
@@ -54,7 +54,7 @@ export default [
   ...tseslint.configs.recommended,
   {
     files: ['**/*.{js,mjs,cjs,ts}'],
-    plugins: { '@routecraftjs/routecraft': routecraftPlugin },
+    plugins: { '@routecraft/routecraft': routecraftPlugin },
     ...routecraftPlugin.configs.recommended,
   },
 ]
@@ -103,10 +103,10 @@ export default [
   // ... other configs
   {
     files: ['**/*.{js,mjs,cjs,ts}'],
-    plugins: { '@routecraftjs/routecraft': routecraftPlugin },
+    plugins: { '@routecraft/routecraft': routecraftPlugin },
     rules: {
       // Warn instead of error
-      '@routecraftjs/routecraft/require-named-route': 'warn',
+      '@routecraft/routecraft/require-named-route': 'warn',
     },
   },
 ]
@@ -118,9 +118,9 @@ export default [
   // ... other configs
   {
     files: ['**/*.{js,mjs,cjs,ts}'],
-    plugins: { '@routecraftjs/routecraft': routecraftPlugin },
+    plugins: { '@routecraft/routecraft': routecraftPlugin },
     rules: {
-      '@routecraftjs/routecraft/require-named-route': 'off',
+      '@routecraft/routecraft/require-named-route': 'off',
     },
   },
 ]

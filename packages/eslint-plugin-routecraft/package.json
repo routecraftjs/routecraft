@@ -1,5 +1,5 @@
 {
-  "name": "@routecraftjs/eslint-plugin-routecraft",
+  "name": "@routecraft/eslint-plugin-routecraft",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",

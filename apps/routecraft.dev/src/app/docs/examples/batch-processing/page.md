@@ -5,7 +5,7 @@ title: Batch Processing
 Process items in groups instead of one at a time. {% .lead %}
 
 ```ts
-import { craft, simple, json } from '@routecraftjs/routecraft'
+import { craft, simple, json } from '@routecraft/routecraft'
 
 export default craft()
   .id('batch-processing')

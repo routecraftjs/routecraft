@@ -1,4 +1,4 @@
-import { log, craft, timer } from "@routecraftjs/routecraft";
+import { log, craft, timer } from "@routecraft/routecraft";
 
 export default craft()
   .id("batch-2")

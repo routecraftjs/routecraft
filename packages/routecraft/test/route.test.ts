@@ -8,7 +8,7 @@ import {
   logger,
   log,
   noop,
-} from "@routecraftjs/routecraft";
+} from "@routecraft/routecraft";
 
 const logSpy = {
   warn: vi.fn(),

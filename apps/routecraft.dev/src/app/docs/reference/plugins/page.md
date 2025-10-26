@@ -36,7 +36,7 @@ Function style:
 
 ```ts
 // plugins/logger.ts
-import { type CraftContext } from '@routecraftjs/routecraft'
+import { type CraftContext } from '@routecraft/routecraft'
 
 export default async function loggerPlugin(context: CraftContext) {
   context.on('routeStarted', ({ details: { route } }) => {
@@ -49,7 +49,7 @@ Object style:
 
 ```ts
 // plugins/metrics.ts
-import { type CraftContext } from '@routecraftjs/routecraft'
+import { type CraftContext } from '@routecraft/routecraft'
 
 export default {
   async register(context: CraftContext) {
@@ -77,7 +77,7 @@ Plugins are a great place to set configuration defaults that adapters can consum
 
 ```ts
 // plugins/defaults.ts
-import { type CraftContext } from '@routecraftjs/routecraft'
+import { type CraftContext } from '@routecraft/routecraft'
 
 export default function defaults(context: CraftContext) {
   context.setStore('db.config', {
@@ -95,7 +95,7 @@ Adapters can read these defaults via the context. If an adapter implements a mer
 
 ```ts
 // Example adapter merging store defaults
-import { type CraftContext, type MergedOptions } from '@routecraftjs/routecraft'
+import { type CraftContext, type MergedOptions } from '@routecraft/routecraft'
 
 interface DbOptions { connectionString: string; poolSize?: number }
 
@@ -129,7 +129,7 @@ craft()
 
 ```ts
 // plugins/simple-logger.ts
-import { type CraftContext } from '@routecraftjs/routecraft'
+import { type CraftContext } from '@routecraft/routecraft'
 
 export default function simpleLogger(context: CraftContext) {
   context.on('error', ({ details: { error } }) => {

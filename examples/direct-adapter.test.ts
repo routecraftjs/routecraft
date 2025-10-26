@@ -1,5 +1,5 @@
 import { expect, test, vi } from "vitest";
-import { context } from "@routecraftjs/routecraft";
+import { context } from "@routecraft/routecraft";
 import routes from "./direct-adapter.mjs";
 
 /**

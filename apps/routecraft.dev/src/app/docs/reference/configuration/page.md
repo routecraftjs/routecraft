@@ -9,7 +9,7 @@ Configure RouteCraft contexts with routes and lifecycle handlers. {% .lead %}
 The main configuration object for creating a CraftContext.
 
 ```ts
-import { type CraftConfig } from '@routecraftjs/routecraft'
+import { type CraftConfig } from '@routecraft/routecraft'
 import routes from './routes'
 
 export default {

@@ -36,7 +36,7 @@ interface InitOptions {
 }
 
 /**
- * Get the current version of @routecraftjs/routecraft from package.json
+ * Get the current version of @routecraft/routecraft from package.json
  */
 function getRoutecraftVersion(): string {
   try {
@@ -76,7 +76,7 @@ const NODE_TEMPLATE = {
             lint: "eslint .",
           },
           dependencies: {
-            "@routecraftjs/routecraft": getRoutecraftVersion(),
+            "@routecraft/routecraft": getRoutecraftVersion(),
           },
           devDependencies: {
             "@types/node": "^20.0.0",
@@ -84,7 +84,7 @@ const NODE_TEMPLATE = {
             eslint: "^9.36.0",
             "@eslint/js": "^9.36.0",
             "typescript-eslint": "^8.44.1",
-            "@routecraftjs/eslint-plugin-routecraft": "^0.1.0",
+            "@routecraft/eslint-plugin-routecraft": "^0.1.0",
           },
         },
         null,
@@ -117,7 +117,7 @@ const NODE_TEMPLATE = {
   "eslint.config.mjs": {
     content: `import pluginJs from "@eslint/js";
 import tseslint from "typescript-eslint";
-import routecraftPlugin from "@routecraftjs/eslint-plugin-routecraft";
+import routecraftPlugin from "@routecraft/eslint-plugin-routecraft";
 
 /** @type {import('eslint').Linter.Config[]} */
 export default [
@@ -125,14 +125,14 @@ export default [
   ...tseslint.configs.recommended,
   {
     files: ["routes/**/*.{ts,js}", "**/*.route.{ts,js}", "**/*.{ts,js}"],
-    plugins: { "@routecraftjs/routecraft": routecraftPlugin },
+    plugins: { "@routecraft/routecraft": routecraftPlugin },
     ...routecraftPlugin.configs.recommended,
   },
 ];
 `,
   },
   "craft.config.ts": {
-    content: `import type { CraftConfig } from "@routecraftjs/routecraft";
+    content: `import type { CraftConfig } from "@routecraft/routecraft";
 
 const config: CraftConfig = {
   routes: [], // Add your routes here
@@ -157,7 +157,7 @@ dist/
 const EXAMPLES = {
   "hello-world": {
     "routes/hello-world.route.ts": {
-      content: `import { log, craft, simple, fetch } from "@routecraftjs/routecraft";
+      content: `import { log, craft, simple, fetch } from "@routecraft/routecraft";
 
 export default craft()
   .id("hello-world")
