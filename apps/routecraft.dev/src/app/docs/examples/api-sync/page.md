@@ -4,6 +4,10 @@ title: File to HTTP
 
 Read CSV file and send each row to an API. {% .lead %}
 
+{% callout type="warning" %}
+This example uses the `csv()` adapter which is planned for a future release. It serves as a reference for the intended API design. Check the [Adapters documentation](/docs/reference/adapters) for currently available adapters.
+{% /callout %}
+
 ```ts
 import { craft, csv, fetch } from '@routecraft/routecraft'
 

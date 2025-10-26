@@ -4,6 +4,10 @@ title: Batch Processing
 
 Process items in groups instead of one at a time. {% .lead %}
 
+{% callout type="warning" %}
+This example uses the `json()` adapter which is planned for a future release. It serves as a reference for the intended API design. Check the [Adapters documentation](/docs/reference/adapters) for currently available adapters.
+{% /callout %}
+
 ```ts
 import { craft, simple, json } from '@routecraft/routecraft'
 

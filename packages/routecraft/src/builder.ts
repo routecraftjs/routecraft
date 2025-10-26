@@ -100,6 +100,32 @@ export class ContextBuilder {
    */
   with(config: CraftConfig): this {
     this.config = config;
+
+    // Extract store entries if provided
+    if (config.store) {
+      for (const [key, value] of config.store.entries()) {
+        this.initialStores.set(key, value);
+      }
+    }
+
+    // Extract event handlers if provided
+    if (config.on) {
+      for (const [event, handler] of Object.entries(config.on)) {
+        const eventName = event as EventName;
+        if (Array.isArray(handler)) {
+          handler.forEach((h) => {
+            const set = this.eventHandlers.get(eventName) ?? new Set();
+            set.add(h as EventHandler<EventName>);
+            this.eventHandlers.set(eventName, set);
+          });
+        } else if (handler) {
+          const set = this.eventHandlers.get(eventName) ?? new Set();
+          set.add(handler as EventHandler<EventName>);
+          this.eventHandlers.set(eventName, set);
+        }
+      }
+    }
+
     return this;
   }
 
@@ -195,21 +221,24 @@ export class ContextBuilder {
   build(): CraftContext {
     const ctx = new CraftContext(this.config);
 
-    // Initialize stores with type safety
+    // Add stores from builder (config stores already added in constructor)
     for (const [key, value] of this.initialStores) {
-      ctx.setStore(key, value);
-    }
-
-    // Binder registration removed
-
-    // Attach event handlers BEFORE registering routes so routeRegistered can be observed
-    for (const [event, handlers] of this.eventHandlers.entries()) {
-      for (const handler of handlers) {
-        ctx.on(event as EventName, handler as EventHandler<EventName>);
+      if (!this.config?.store?.has(key)) {
+        ctx.setStore(key, value);
       }
     }
 
-    // Register routes
+    // Attach event handlers from builder (config handlers already added in constructor)
+    for (const [event, handlers] of this.eventHandlers.entries()) {
+      const configHasHandler = this.config?.on?.[event];
+      if (!configHasHandler) {
+        for (const handler of handlers) {
+          ctx.on(event as EventName, handler as EventHandler<EventName>);
+        }
+      }
+    }
+
+    // Register all routes from builder
     ctx.registerRoutes(...this.definitions);
 
     return ctx;

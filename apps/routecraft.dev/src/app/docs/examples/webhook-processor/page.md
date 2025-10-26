@@ -4,6 +4,10 @@ title: Webhook Router
 
 Receive webhooks and route different events to different destinations. {% .lead %}
 
+{% callout type="warning" %}
+This example uses the `http()` adapter and `choice()` operation which are planned for a future release. It serves as a reference for the intended API design. Check the [Adapters documentation](/docs/reference/adapters) and [Operations documentation](/docs/reference/operations) for currently available features.
+{% /callout %}
+
 ```ts
 import { craft, http, log, fetch } from '@routecraft/routecraft'
 

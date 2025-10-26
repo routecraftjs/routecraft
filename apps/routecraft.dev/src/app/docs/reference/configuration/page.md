@@ -2,18 +2,22 @@
 title: Configuration
 ---
 
-Configure RouteCraft contexts with routes and lifecycle handlers. {% .lead %}
+Configure RouteCraft contexts with store and event handlers. {% .lead %}
 
 ## CraftConfig
 
-The main configuration object for creating a CraftContext.
+The main configuration object for context settings. Routes are provided separately via file exports or the ContextBuilder.
 
 ```ts
 import { type CraftConfig } from '@routecraft/routecraft'
-import routes from './routes'
 
-export default {
-  routes: routes,
+export const craftConfig = {
+  store: new Map([
+    ['my.adapter.config', { apiKey: 'xyz' }]
+  ]),
+  on: {
+    contextStarting: ({ ts }) => console.log('Starting at', ts)
+  }
 } satisfies CraftConfig
 ```
 
@@ -21,11 +25,84 @@ export default {
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `routes` | `RouteDefinition \| RouteDefinition[]` | Yes | — | Single route or array of routes to register |
-| `plugins` | `Plugin[] \| PluginFactory[]` | No | `[]` | Plugins registered on context startup |
-| `adminPortal` | `AdminPortalConfig \| boolean` | No | `false` | Enables admin portal with monitoring and tracing tools |
-| `store` | `Map<string, unknown>` | No | `new Map()` | Initial values for the context store |
-| `on` | `<E>(event: E, handler: (payload) => void) => () => void` | No | — | Subscribe to context and route lifecycle events (also available at runtime via context) |
+| `store` | `Map<keyof StoreRegistry, StoreRegistry[keyof StoreRegistry]>` | No | — | Initial values for the context store |
+| `on` | `Partial<Record<EventName, EventHandler \| EventHandler[]>>` | No | — | Event handlers to register on context creation |
+
+## Usage patterns
+
+### Using CraftConfig in files
+
+When using `craft run`, export your config as a named export and routes as the default:
+
+```ts
+// my-route.mjs
+import { craft, timer, log } from '@routecraft/routecraft'
+
+// Default export: routes
+export default craft()
+  .id('my-route')
+  .from(timer({ intervalMs: 1000 }))
+  .to(log())
+
+// Named export: config (optional)
+export const craftConfig = {
+  store: new Map([
+    ['my.adapter.config', { apiKey: 'xyz' }],
+    ['cache.users', new Map()]
+  ]),
+  on: {
+    contextStarting: ({ ts }) => console.log('Starting at', ts),
+    error: ({ details }) => console.error('Error:', details.error)
+  }
+}
+```
+
+Then run: `craft run my-route.mjs`
+
+### Using ContextBuilder programmatically
+
+The ContextBuilder provides a fluent API and can consume a CraftConfig:
+
+```ts
+import { context } from '@routecraft/routecraft'
+import { myRoutes } from './routes'
+
+const ctx = context()
+  .with({
+    store: new Map([['my.key', { value: 123 }]]),
+    on: {
+      contextStarting: () => console.log('Starting')
+    }
+  })
+  .routes(myRoutes)
+  .build()
+
+await ctx.start()
+```
+
+Or build from scratch without a config object:
+
+```ts
+const ctx = context()
+  .routes(myRoutes)
+  .store('my.adapter.config', { apiKey: 'xyz' })
+  .on('contextStarting', () => console.log('Starting'))
+  .on('error', ({ details }) => console.error(details.error))
+  .build()
+
+await ctx.start()
+```
+
+You can also combine both approaches:
+
+```ts
+const ctx = context()
+  .with(craftConfig)                    // Apply config
+  .routes(additionalRoutes)             // Add more routes
+  .store('another.key', { value: 456 }) // Add more stores
+  .on('routeStarted', ({ details }) => console.log('Route started'))
+  .build()
+```
 
 ## Environment variables
 
@@ -37,59 +114,52 @@ LOG_LEVEL=debug
 NODE_ENV=development
 ```
 
-## Adapters and plugins
+## Adapters
 
-- Adapters are not auto-loaded. Import and instantiate them explicitly in routes (e.g., `from(timer(...))`, `to(log())`).
-- Plugins are auto-loaded if present under a `plugins/` directory when using the CLI. You can also pass plugins explicitly via the `plugins` field. Plugins can extend the context (e.g., add stores, register event hooks).
-
-## Admin portal {% badge %}wip{% /badge %}
-
-Enable a web-based admin portal for monitoring and debugging:
+Adapters are not auto-loaded. Import and instantiate them explicitly in routes:
 
 ```ts
-export default {
-  routes: myRoutes,
-  adminPortal: true, // Enables portal at /admin
-} satisfies CraftConfig
+import { craft, timer, fetch, log } from '@routecraft/routecraft'
+
+export default craft()
+  .from(timer({ intervalMs: 5000 }))
+  .enrich(fetch({ url: 'https://api.example.com/data' }))
+  .to(log())
 ```
 
-Access the portal at `http://localhost:3000/admin` (or your configured base URL + `/admin`) for real-time monitoring, tracing, and debugging tools.
-
-## Plugins configuration {% badge %}wip{% /badge %}
-
-Register plugins when manually bootstrapping contexts:
-
-```ts
-import observabilityPlugin from './plugins/observability'
-import metricsPlugin from './plugins/metrics'
-
-export default {
-  routes: myRoutes,
-  plugins: [
-    observabilityPlugin,
-    metricsPlugin,
-  ],
-} satisfies CraftConfig
-```
-
-Plugins can be functions or objects with a `register` method and lifecycle hooks. They receive the context instance for setup and can extend context stores or subscribe to events.
+See the [Adapters reference](/docs/reference/adapters) for all available adapters.
 
 ## Context store
 
-Provide initial values for the shared context store:
+The store provides shared state accessible to all routes and adapters. Initialize it via config or builder:
 
 ```ts
-export default {
-  routes: myRoutes,
+// Via config
+export const craftConfig = {
   store: new Map([
     ['app.config', { version: '1.0.0' }],
     ['cache.users', new Map()],
-    ['metrics.counters', { requests: 0 }],
-  ]),
-} satisfies CraftConfig
+    ['metrics.counters', { requests: 0 }]
+  ])
+}
+
+// Via builder
+const ctx = context()
+  .store('app.config', { version: '1.0.0' })
+  .store('cache.users', new Map())
+  .routes(myRoutes)
+  .build()
 ```
 
-The store is accessible to all routes and adapters via `context.getStore()` and `context.setStore()`.
+Access the store in routes and adapters via `context.getStore()` and `context.setStore()`:
+
+```ts
+// In an adapter
+async send(exchange) {
+  const config = exchange.context.getStore('app.config')
+  // Use config...
+}
+```
 
 ## Merged options
 
@@ -110,4 +180,34 @@ This pattern allows adapters to inherit global configuration while maintaining l
 
 ## Events
 
-See the dedicated Events reference for details, signatures, and examples: [/docs/reference/events](/docs/reference/events)
+Subscribe to lifecycle events via config or builder. See the [Events reference](/docs/reference/events) for all available events, signatures, and examples.
+
+```ts
+// Via config
+export const craftConfig = {
+  on: {
+    contextStarting: ({ ts }) => console.log('Starting at', ts),
+    contextStopped: () => console.log('Stopped'),
+    error: ({ details }) => console.error('Error:', details.error)
+  }
+}
+
+// Via builder
+const ctx = context()
+  .on('contextStarting', ({ ts }) => console.log('Starting at', ts))
+  .on('error', ({ details }) => console.error(details.error))
+  .routes(myRoutes)
+  .build()
+```
+
+## Planned features
+
+The following features are planned for future releases:
+
+### Plugins {% badge %}wip{% /badge %}
+
+Plugin system for extending context functionality with custom stores, event hooks, and middleware.
+
+### Admin Portal {% badge %}wip{% /badge %}
+
+Web-based monitoring and debugging UI for real-time route inspection, tracing, and metrics visualization.

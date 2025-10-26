@@ -4,6 +4,10 @@ title: HTTP Server
 
 Create a simple REST API endpoint that processes requests. {% .lead %}
 
+{% callout type="warning" %}
+This example uses the `http()` adapter which is planned for a future release. It serves as a reference for the intended API design. Check the [Adapters documentation](/docs/reference/adapters) for currently available adapters.
+{% /callout %}
+
 ```ts
 import { craft, http, log } from '@routecraft/routecraft'
 

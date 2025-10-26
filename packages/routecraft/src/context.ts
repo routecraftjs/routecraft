@@ -46,8 +46,12 @@ export type MergedOptions<T> = {
  * Configuration options for creating a CraftContext.
  */
 export type CraftConfig = {
-  /** Routes to register with the context */
-  routes: RouteDefinition | RouteDefinition[];
+  /** Initial values for the context store */
+  store?: Map<keyof StoreRegistry, StoreRegistry[keyof StoreRegistry]>;
+  /** Event handlers to register on context creation */
+  on?: Partial<
+    Record<EventName, EventHandler<EventName> | EventHandler<EventName>[]>
+  >;
 };
 
 /**
@@ -109,12 +113,21 @@ export class CraftContext {
   constructor(config?: CraftConfig) {
     this.logger = createLogger(this);
     if (config) {
-      if (config.routes) {
-        this.routes = [];
-        if (Array.isArray(config.routes)) {
-          this.registerRoutes(...config.routes);
-        } else {
-          this.registerRoutes(config.routes);
+      // Initialize store from config
+      if (config.store) {
+        for (const [key, value] of config.store.entries()) {
+          this.store.set(key, value);
+        }
+      }
+
+      // Register event handlers from config
+      if (config.on) {
+        for (const [event, handler] of Object.entries(config.on)) {
+          if (Array.isArray(handler)) {
+            handler.forEach((h) => this.on(event as EventName, h));
+          } else if (handler) {
+            this.on(event as EventName, handler);
+          }
         }
       }
     }

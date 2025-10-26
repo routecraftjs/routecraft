@@ -4,6 +4,10 @@ title: Sample Metrics
 
 Collect system metrics every second but only save every 10th one. {% .lead %}
 
+{% callout type="warning" %}
+This example uses the `json()` adapter and `sample()` operation which are planned for a future release. It serves as a reference for the intended API design. Check the [Adapters documentation](/docs/reference/adapters) and [Operations documentation](/docs/reference/operations) for currently available features.
+{% /callout %}
+
 ```ts
 import { craft, timer, json } from '@routecraft/routecraft'
 
