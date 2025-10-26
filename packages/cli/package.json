@@ -22,7 +22,7 @@
   },
   "dependencies": {
     "@routecraftjs/routecraft": "workspace:^0.1.0",
-    "commander": "^14.0.1",
+    "commander": "^14.0.2",
     "dotenv": "^17.2.3"
   },
   "publishConfig": {

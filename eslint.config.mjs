@@ -3,6 +3,7 @@ import pluginJs from "@eslint/js";
 import tseslint from "typescript-eslint";
 import testCaseDoc from "./.eslint-rules/test-case-doc.mjs";
 import eslintConfigPrettier from "eslint-config-prettier";
+import routecraftPlugin from "./packages/eslint-plugin-routecraft/dist/index.js";
 
 /** @type {import('eslint').Linter.Config[]} */
 export default [
@@ -45,6 +46,12 @@ export default [
   },
   pluginJs.configs.recommended,
   ...tseslint.configs.recommended,
+  // RouteCraft rules only for examples
+  {
+    files: ["examples/**/*.{js,mjs}"],
+    plugins: { "@routecraftjs/routecraft": routecraftPlugin },
+    ...routecraftPlugin.configs.recommended,
+  },
   {
     files: ["**/*.test.{js,ts,mjs,cjs}", "**/*.spec.{js,ts,mjs,cjs}"],
     plugins: {
