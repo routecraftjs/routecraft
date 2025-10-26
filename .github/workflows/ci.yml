@@ -35,8 +35,39 @@ jobs:
           node-version-file: ".nvmrc"
           cache: "pnpm"
 
+      - name: Checkout PR branch for lockfile update
+        if: ${{ github.event_name == 'pull_request_target' && github.actor == 'dependabot[bot]' }}
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Update lockfile
+        if: ${{ github.event_name == 'pull_request_target' && github.actor == 'dependabot[bot]' }}
+        run: |
+          pnpm install --lockfile-only --no-frozen-lockfile
+
+      - name: Commit lockfile changes
+        if: ${{ github.event_name == 'pull_request_target' && github.actor == 'dependabot[bot]' }}
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add pnpm-lock.yaml
+          if git diff --cached --quiet; then
+            echo "No lockfile changes needed"
+          else
+            git commit --amend --no-edit
+            git push --force-with-lease
+          fi
+
       - name: Install dependencies
-        run: pnpm install
+        run: |
+          if [ "${{ github.actor }}" = "dependabot[bot]" ]; then
+            pnpm install --no-frozen-lockfile
+          else
+            pnpm install --frozen-lockfile
+          fi
 
       - name: Cache node_modules
         uses: actions/cache@v4
