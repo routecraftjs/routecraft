@@ -5,7 +5,7 @@ title: HTTP Server
 Create a simple REST API endpoint that processes requests. {% .lead %}
 
 ```ts
-import { craft, http, log } from '@routecraftjs/routecraft'
+import { craft, http, log } from '@routecraft/routecraft'
 
 export default craft()
   .id('http-server')

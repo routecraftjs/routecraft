@@ -5,7 +5,7 @@ import {
   type CraftConfig,
   logger,
   RouteBuilder,
-} from "@routecraftjs/routecraft";
+} from "@routecraft/routecraft";
 import { registerContextSignalHandlers } from "./util";
 
 const SUPPORTED_EXTENSIONS = [".mjs", ".js", ".cjs"] as const;

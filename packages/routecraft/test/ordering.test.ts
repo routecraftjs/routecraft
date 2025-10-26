@@ -4,7 +4,7 @@ import {
   simple,
   BatchConsumer,
   type RouteDefinition,
-} from "@routecraftjs/routecraft";
+} from "@routecraft/routecraft";
 
 describe("Route and Wrapper semantics - ordering", () => {
   /**

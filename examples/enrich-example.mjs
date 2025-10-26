@@ -1,4 +1,4 @@
-import { log, craft, simple } from "@routecraftjs/routecraft";
+import { log, craft, simple } from "@routecraft/routecraft";
 
 export default craft()
   .id("enrich-example")

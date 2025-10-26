@@ -1,4 +1,4 @@
-import { log, craft, simple, fetch } from "@routecraftjs/routecraft";
+import { log, craft, simple, fetch } from "@routecraft/routecraft";
 
 export default craft()
   .id("hello-world")

@@ -25,7 +25,7 @@ export default defineConfig({
     // Node.js built-ins
     /^node:/,
     // Workspace packages (let them be resolved at runtime)
-    /^@routecraftjs\/.*/,
+    /^@routecraft\/.*/,
   ],
 
   // Development

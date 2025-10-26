@@ -21,7 +21,7 @@ describe("require-named-route", () => {
         // Basic valid case
         {
           code: `
-            import { craft, simple, log } from "@routecraftjs/routecraft";
+            import { craft, simple, log } from "@routecraft/routecraft";
             export default craft()
               .id("user-processor")
               .from(simple({ userId: 1 }))

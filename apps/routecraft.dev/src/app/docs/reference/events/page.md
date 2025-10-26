@@ -9,7 +9,7 @@ Lifecycle and runtime events for contexts and routes. {% .lead %}
 Use `context.on(event, handler)` to subscribe. Handlers receive `{ ts, context, details }`.
 
 ```ts
-import { context } from '@routecraftjs/routecraft'
+import { context } from '@routecraft/routecraft'
 import routes from './routes'
 
 const ctx = context()

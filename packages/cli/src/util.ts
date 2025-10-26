@@ -1,4 +1,4 @@
-import { logger, CraftContext } from "@routecraftjs/routecraft";
+import { logger, CraftContext } from "@routecraft/routecraft";
 import { resolve } from "node:path";
 import { config as loadDotenv } from "dotenv";
 

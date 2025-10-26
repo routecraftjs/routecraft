@@ -6,8 +6,8 @@ import { join } from "node:path";
 // No TypeScript runtime mocking needed; CLI no longer supports running .ts files directly
 
 // Silence logger output
-vi.mock("@routecraftjs/routecraft", async () => {
-  const actual = await vi.importActual<any>("@routecraftjs/routecraft");
+vi.mock("@routecraft/routecraft", async () => {
+  const actual = await vi.importActual<any>("@routecraft/routecraft");
   return {
     ...actual,
     logger: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() },
@@ -56,7 +56,7 @@ describe("CLI run command", () => {
       await writeFile(
         f,
         `
-        import { craft, simple, log } from "@routecraftjs/routecraft";
+        import { craft, simple, log } from "@routecraft/routecraft";
         export default craft().id("x").from(simple("y")).to(log());
       `,
       );
@@ -106,7 +106,7 @@ describe("CLI run command", () => {
     await writeFile(
       "with-config.js",
       `
-      import { craft, simple, log } from "@routecraftjs/routecraft";
+      import { craft, simple, log } from "@routecraft/routecraft";
       export const craftConfig = { routes: [] };
       export default craft().id("x").from(simple("y")).to(log());
     `,

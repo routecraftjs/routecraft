@@ -5,7 +5,7 @@ title: File to HTTP
 Read CSV file and send each row to an API. {% .lead %}
 
 ```ts
-import { craft, csv, fetch } from '@routecraftjs/routecraft'
+import { craft, csv, fetch } from '@routecraft/routecraft'
 
 export default craft()
   .id('file-to-http')

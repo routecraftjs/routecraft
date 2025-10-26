@@ -13,7 +13,7 @@ import {
  * @example
  * ```typescript
  * // Extend the store registry with channel adapter types
- * declare module "@routecraftjs/routecraft" {
+ * declare module "@routecraft/routecraft" {
  *   interface StoreRegistry {
  *     "routecraft.adapter.channel.store": Map<string, import("./adapters/channel.ts").MessageChannel>;
  *     "routecraft.adapter.channel.config" Partial<ChannelAdapterOptions>;

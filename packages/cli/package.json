@@ -1,5 +1,5 @@
 {
-  "name": "@routecraftjs/cli",
+  "name": "@routecraft/cli",
   "version": "0.1.0",
   "private": false,
   "type": "module",
@@ -21,7 +21,7 @@
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
-    "@routecraftjs/routecraft": "workspace:^0.1.0",
+    "@routecraft/routecraft": "workspace:^0.1.0",
     "commander": "^14.0.2",
     "dotenv": "^17.2.3"
   },

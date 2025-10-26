@@ -8,12 +8,12 @@ export const rules: Record<string, Rule.RuleModule> = {
 export const configs = {
   all: {
     rules: {
-      "@routecraftjs/routecraft/require-named-route": "error",
+      "@routecraft/routecraft/require-named-route": "error",
     },
   },
   recommended: {
     rules: {
-      "@routecraftjs/routecraft/require-named-route": "error",
+      "@routecraft/routecraft/require-named-route": "error",
     },
   },
 };

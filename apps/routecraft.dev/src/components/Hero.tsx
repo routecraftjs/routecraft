@@ -10,7 +10,7 @@ import blurCyanImage from '@/images/blur-cyan.png'
 import blurIndigoImage from '@/images/blur-indigo.png'
 
 const codeLanguage = 'typescript'
-const routeCode = `import { craft, simple, log } from '@routecraftjs/routecraft'
+const routeCode = `import { craft, simple, log } from '@routecraft/routecraft'
 
 export default craft()
   .id('hero-hello')

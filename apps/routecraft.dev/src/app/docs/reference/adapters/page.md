@@ -244,7 +244,7 @@ RouteCraft uses standard Vitest mocking for testing. No special spy adapters nee
 ### Testing Destinations
 
 ```ts
-import { context, craft, simple } from '@routecraftjs/routecraft'
+import { context, craft, simple } from '@routecraft/routecraft'
 
 const destSpy = vi.fn()
 
@@ -554,7 +554,7 @@ Adapters implement operation interfaces and can use the context store for shared
 ### Basic adapter structure
 
 ```ts
-import { Source, Destination, Processor } from '@routecraftjs/routecraft'
+import { Source, Destination, Processor } from '@routecraft/routecraft'
 
 class MyAdapter implements Source<string> {
   readonly adapterId = 'my.custom.adapter'
@@ -582,7 +582,7 @@ class MyDestination implements Destination<any> {
 
 ```ts
 // Extend StoreRegistry for type safety
-declare module '@routecraftjs/routecraft' {
+declare module '@routecraft/routecraft' {
   interface StoreRegistry {
     'my.adapter.config': { apiKey: string }
     'my.adapter.cache': Map<string, any>
@@ -604,7 +604,7 @@ class ConfigurableAdapter implements Destination<any> {
 ### Merged options pattern
 
 ```ts
-import { MergedOptions } from '@routecraftjs/routecraft'
+import { MergedOptions } from '@routecraft/routecraft'
 
 interface MyAdapterOptions {
   timeout: number

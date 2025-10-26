@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [tsconfigPaths()],
   resolve: {
     alias: {
-      "@routecraftjs/routecraft": new URL("./src/index.ts", import.meta.url)
+      "@routecraft/routecraft": new URL("./src/index.ts", import.meta.url)
         .pathname,
       routecraft: new URL("./src/index.ts", import.meta.url).pathname,
     },

@@ -9,7 +9,7 @@ Log and observe routes. {% .lead %}
 Use `tap(log())` anywhere in a route to emit structured logs of the current exchange without changing it. You can also use `to(log())` as a destination to log the final exchange.
 
 ```ts
-import { craft, simple, log } from '@routecraftjs/routecraft'
+import { craft, simple, log } from '@routecraft/routecraft'
 
 export default craft()
   .id('monitoring-demo')
@@ -27,7 +27,7 @@ Each log includes trace-friendly fields like `contextId`, `routeId`, and for exc
 Subscribe to context and route lifecycle events for metrics, monitoring, and observability.
 
 ```ts
-import { context, logger } from '@routecraftjs/routecraft'
+import { context, logger } from '@routecraft/routecraft'
 import routes from './routes'
 
 const ctx = context()
@@ -73,7 +73,7 @@ Keep observability concerns modular by authoring small plugins that receive the 
 
 ```ts
 // plugins/observability.ts
-import { logger, type CraftContext } from '@routecraftjs/routecraft'
+import { logger, type CraftContext } from '@routecraft/routecraft'
 
 // Optional: control initialization order (lower runs earlier)
 export const order = 100

@@ -4,7 +4,7 @@ import {
   craft,
   simple,
   type CraftContext,
-} from "@routecraftjs/routecraft";
+} from "@routecraft/routecraft";
 
 describe("CraftContext", () => {
   let testContext: CraftContext;

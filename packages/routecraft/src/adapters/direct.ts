@@ -33,7 +33,7 @@ export interface DirectAdapterOptions {
   channelType?: DirectChannelType<DirectChannel>;
 }
 
-declare module "@routecraftjs/routecraft" {
+declare module "@routecraft/routecraft" {
   interface StoreRegistry {
     [DirectAdapter.ADAPTER_DIRECT_STORE]: Map<string, DirectChannel<Exchange>>;
     [DirectAdapter.ADAPTER_DIRECT_OPTIONS]: Partial<DirectAdapterOptions>;

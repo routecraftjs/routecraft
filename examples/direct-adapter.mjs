@@ -1,4 +1,4 @@
-import { direct, log, craft, simple } from "@routecraftjs/routecraft";
+import { direct, log, craft, simple } from "@routecraft/routecraft";
 
 export default craft()
   .id("direct-adapter-2")

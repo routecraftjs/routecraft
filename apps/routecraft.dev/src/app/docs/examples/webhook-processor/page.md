@@ -5,7 +5,7 @@ title: Webhook Router
 Receive webhooks and route different events to different destinations. {% .lead %}
 
 ```ts
-import { craft, http, log, fetch } from '@routecraftjs/routecraft'
+import { craft, http, log, fetch } from '@routecraft/routecraft'
 
 export default craft()
   .id('webhook-router')
