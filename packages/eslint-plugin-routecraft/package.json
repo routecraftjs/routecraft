@@ -1,0 +1,25 @@
+{
+  "name": "@routecraftjs/eslint-plugin-routecraft",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts",
+    "prepublishOnly": "pnpm run build",
+    "test": "vitest"
+  },
+  "peerDependencies": {
+    "eslint": ">=9"
+  },
+  "devDependencies": {
+    "@types/eslint": "^9.6.1",
+    "typescript": "^5.9.2",
+    "tsup": "^8.5.0",
+    "vitest": "^3.2.4"
+  },
+  "repository": "https://github.com/devoptix-labs/routecraft"
+}
