@@ -5,12 +5,12 @@
   <p><strong>A type-safe integration and automation framework for TypeScript/Node.js</strong></p>
   <p>Brought to you by <a href="https://devoptix.nl">DevOptix</a></p>
 
-  <a href="https://github.com/devoptix-labs/routecraft/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/devoptix-labs/routecraft/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/routecraftjs/routecraft/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/routecraftjs/routecraft/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Node.js" src="https://img.shields.io/badge/Node.js-22%2B-3c873a?logo=node.js">
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5.9%2B-3178c6?logo=typescript">
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/License-Apache%202.0-blue"></a>
-  <a href="https://github.com/devoptix-labs/routecraft/issues"><img alt="Issues" src="https://img.shields.io/github/issues/devoptix-labs/routecraft"></a>
-  <a href="https://github.com/devoptix-labs/routecraft/pulls"><img alt="PRs" src="https://img.shields.io/badge/PRs-welcome-brightgreen"></a>
+  <a href="https://github.com/routecraftjs/routecraft/issues"><img alt="Issues" src="https://img.shields.io/github/issues/routecraftjs/routecraft"></a>
+  <a href="https://github.com/routecraftjs/routecraft/pulls"><img alt="PRs" src="https://img.shields.io/badge/PRs-welcome-brightgreen"></a>
 
 </div>
 

@@ -10,7 +10,7 @@ If you want to try RouteCraft in your browser without installing anything, open 
 
 {% quick-links %}
 
-{% quick-link title="Open on CodeSandbox" icon="installation" href="https://codesandbox.io/p/sandbox/github/devoptix-labs/routecraft?file=/examples" description="Play around with RouteCraft in your browser." /%}
+{% quick-link title="Open on CodeSandbox" icon="installation" href="https://codesandbox.io/p/sandbox/github/routecraftjs/routecraft?file=/examples" description="Play around with RouteCraft in your browser." /%}
 
 {% /quick-links %}
 
