@@ -70,11 +70,12 @@ import { type HeaderValue } from "./exchange.ts";
  * ```typescript
  * // Create a context with routes and handlers
  * const context = new ContextBuilder()
- *   .with({ routes: [] })
+ *   .with({ store: new Map() })
  *   .on('contextStarting', ({ ts }) => console.log('Starting at', ts))
  *   .store('routecraft.adapter.channel.store', new Map())
  *   .routes(routes1)
  *   .routes([routes2, routes3])
+ *   .build();
  *
  * // Start the context to begin processing
  * await context.start();

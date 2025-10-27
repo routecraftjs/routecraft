@@ -136,7 +136,6 @@ export default [
     content: `import type { CraftConfig } from "@routecraft/routecraft";
 
 const config: CraftConfig = {
-  routes: [], // Add your routes here
 };
 
 export default config;`,
