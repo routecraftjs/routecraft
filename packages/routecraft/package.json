@@ -34,7 +34,7 @@
     "arktype": "^2.1.23",
     "pino-pretty": "^13.1.2"
   },
-  "repository": "https://github.com/devoptix-labs/routecraft",
+  "repository": "https://github.com/routecraftjs/routecraft",
   "keywords": [
     "integration",
     "automation",
@@ -46,8 +46,8 @@
     "workflow",
     "middleware"
   ],
-  "author": "DevOptix Labs",
+  "author": "routecraftjs",
   "license": "Apache-2.0",
   "homepage": "https://routecraft.dev",
-  "bugs": "https://github.com/devoptix-labs/routecraft/issues"
+  "bugs": "https://github.com/routecraftjs/routecraft/issues"
 }

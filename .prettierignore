@@ -5,6 +5,7 @@
 .dist/
 **/dist/
 **/build/
+**/out/
 
 # Coverage and caches
 coverage/

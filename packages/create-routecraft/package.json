@@ -23,7 +23,7 @@
     "access": "public",
     "registry": "https://npm.pkg.github.com/"
   },
-  "repository": "https://github.com/devoptix-labs/routecraft",
+  "repository": "https://github.com/routecraftjs/routecraft",
   "keywords": [
     "routecraft",
     "create-routecraft",
@@ -31,6 +31,6 @@
     "template",
     "boilerplate"
   ],
-  "author": "DevOptix Labs",
+  "author": "routecraftjs",
   "license": "Apache-2.0"
 }

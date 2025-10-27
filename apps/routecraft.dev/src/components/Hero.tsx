@@ -62,7 +62,7 @@ export function Hero() {
                 features designed for developers and agents alike.
               </p>
               <div className="mt-8 flex gap-4 md:justify-center lg:justify-start">
-                <Button href="https://github.com/devoptix-labs/routecraft">
+                <Button href="https://github.com/routecraftjs/routecraft">
                   Star on GitHub
                 </Button>
                 <Button href="/docs/introduction" variant="secondary">

@@ -24,7 +24,7 @@ We recommend using Cursor as your editor. This repository includes Cursor rules 
 
 ```bash
 # Clone and install
-git clone https://github.com/devoptix-labs/routecraft.git
+git clone https://github.com/routecraftjs/routecraft.git
 cd routecraft
 pnpm install
 

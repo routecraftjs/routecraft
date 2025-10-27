@@ -237,76 +237,6 @@ A no-operation adapter that discards messages. Useful for testing, development, 
 .to(noop()) // Messages are discarded but logged
 ```
 
-## Testing
-
-RouteCraft uses standard Vitest mocking for testing. No special spy adapters needed!
-
-### Testing Destinations
-
-```ts
-import { context, craft, simple } from '@routecraft/routecraft'
-
-const destSpy = vi.fn()
-
-const ctx = context()
-  .routes(
-    craft()
-      .from(simple('test-data'))
-      .to(destSpy)
-  )
-  .build()
-
-await ctx.start()
-
-// Standard Vitest assertions
-expect(destSpy).toHaveBeenCalledTimes(1)
-const sentExchange = destSpy.mock.calls[0][0]
-expect(sentExchange.body).toBe('test-data')
-expect(sentExchange.headers['x-test']).toBe('value')
-```
-
-### Testing Processors
-
-```ts
-const processorSpy = vi.fn((exchange) => {
-  // Your processor logic here
-  return exchange
-})
-
-const ctx = context()
-  .routes(
-    craft()
-      .from(simple('input'))
-      .process(processorSpy)
-      .to(vi.fn())
-  )
-  .build()
-
-await ctx.start()
-
-expect(processorSpy).toHaveBeenCalled()
-```
-
-### Helper Functions for Common Patterns
-
-```ts
-// Helper to get all received bodies
-function getReceivedBodies(spy: any) {
-  return spy.mock.calls.map(call => call[0].body)
-}
-
-// Helper to get all received headers
-function getReceivedHeaders(spy: any, headerName: string) {
-  return spy.mock.calls.map(call => call[0].headers[headerName])
-}
-
-const destSpy = vi.fn()
-await ctx.start()
-
-expect(getReceivedBodies(destSpy)).toEqual(['test-data'])
-expect(getReceivedHeaders(destSpy, 'x-test')).toEqual(['value'])
-```
-
 ### file {% badge %}wip{% /badge %}
 
 ```ts
@@ -527,24 +457,74 @@ Send emails via SMTP protocol. Focused implementation for SMTP servers only.
 
 **Attachment format:** `{ filename: string, content: Buffer | string, contentType?: string }`
 
-## Best practices
+## Testing
 
-- **Provide a DSL factory for adapters**: expose a function that returns the adapter instance so routes read naturally and avoid `new`.
+RouteCraft uses standard Vitest mocking for testing. No special spy adapters needed!
+
+### Testing Destinations
 
 ```ts
-// ✅ Prefer: DSL factory function
-import { xyz } from '@acme/routecraft-xyz'
+import { context, craft, simple } from '@routecraft/routecraft'
 
-export default craft()
-  .id('uses-xyz')
-  .from(xyz({ /* options */ }))
+const destSpy = vi.fn()
 
-// ❌ Avoid: direct class instantiation in routes
-import { XyzAdapter } from '@acme/routecraft-xyz'
+const ctx = context()
+  .routes(
+    craft()
+      .from(simple('test-data'))
+      .to(destSpy)
+  )
+  .build()
 
-export default craft()
-  .id('uses-xyz')
-  .from(new XyzAdapter({ /* options */ }))
+await ctx.start()
+
+// Standard Vitest assertions
+expect(destSpy).toHaveBeenCalledTimes(1)
+const sentExchange = destSpy.mock.calls[0][0]
+expect(sentExchange.body).toBe('test-data')
+expect(sentExchange.headers['x-test']).toBe('value')
+```
+
+### Testing Processors
+
+```ts
+const processorSpy = vi.fn((exchange) => {
+  // Your processor logic here
+  return exchange
+})
+
+const ctx = context()
+  .routes(
+    craft()
+      .from(simple('input'))
+      .process(processorSpy)
+      .to(vi.fn())
+  )
+  .build()
+
+await ctx.start()
+
+expect(processorSpy).toHaveBeenCalled()
+```
+
+### Helper Functions for Common Patterns
+
+```ts
+// Helper to get all received bodies
+function getReceivedBodies(spy: any) {
+  return spy.mock.calls.map(call => call[0].body)
+}
+
+// Helper to get all received headers
+function getReceivedHeaders(spy: any, headerName: string) {
+  return spy.mock.calls.map(call => call[0].headers[headerName])
+}
+
+const destSpy = vi.fn()
+await ctx.start()
+
+expect(getReceivedBodies(destSpy)).toEqual(['test-data'])
+expect(getReceivedHeaders(destSpy, 'x-test')).toEqual(['value'])
 ```
 
 ## Custom adapters
@@ -642,3 +622,23 @@ class MyAdapter implements Destination<any>, MergedOptions<MyAdapterOptions> {
 | `Tap<T>` | `tap(exchange)` | Side effects without changing exchange |
 
 For detailed type definitions, see `packages/routecraft/src/types.ts` and operation files in `packages/routecraft/src/operations/`.
+
+### Best practices
+
+- **Provide a DSL factory for adapters**: expose a function that returns the adapter instance so routes read naturally and avoid `new`.
+
+```ts
+// ✅ Prefer: DSL factory function
+import { xyz } from '@acme/routecraft-xyz'
+
+export default craft()
+  .id('uses-xyz')
+  .from(xyz({ /* options */ }))
+
+// ❌ Avoid: direct class instantiation in routes
+import { XyzAdapter } from '@acme/routecraft-xyz'
+
+export default craft()
+  .id('uses-xyz')
+  .from(new XyzAdapter({ /* options */ }))
+```
