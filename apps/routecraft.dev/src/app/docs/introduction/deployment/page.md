@@ -17,9 +17,8 @@ Routecraft can be deployed to any provider that supports Node.js. Ensure your `p
 ```json
 {
   "scripts": {
-    "dev": "craft dev",
-    "build": "craft build",
-    "start": "craft start"
+    "build": "tsc",
+    "start": "craft run ./routes/index.mjs"
   }
 }
 ```
@@ -57,7 +56,7 @@ COPY package.json pnpm-lock.yaml ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 
-CMD ["pnpm", "craft", "start", "./craft.config.ts"]
+CMD ["pnpm", "craft", "run", "./routes/index.mjs"]
 ```
 
 ## Providers

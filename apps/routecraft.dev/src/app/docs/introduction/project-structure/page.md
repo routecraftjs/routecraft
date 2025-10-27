@@ -8,7 +8,7 @@ A clear folder layout that scales from small apps to larger codebases. The table
 
 | Folder | Purpose |
 | --- | --- |
-| `routes` | Discovered routes. Files ending in `.route.ts` or `.route.mjs` are loaded by `craft dev` and `craft start`. |
+| `routes` | Application routes should end in `.route.ts` or `.route.mjs` |
 | `adapters` | Custom adapters implementing operation interfaces (`subscribe`, `send`, `process`). Keep concerns isolated. |
 | `plugins` | Cross‑cutting helpers (logging, metrics, tracing). |
 | `src` | Optional wrapper folder. If chosen, place the folders above inside `src`. If omitted, keep them at the project root. |
