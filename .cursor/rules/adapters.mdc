@@ -12,7 +12,7 @@ alwaysApply: false
 
 ### Adapters: best practices, anti-patterns, and skeletons
 
-These rules align with RouteCraft's public DSL and adapter interfaces exported from `@routecraftjs/routecraft` (`Source`, `Destination`, `Processor`, `Transformer`, etc.) and the concrete adapters under `packages/routecraft/src/adapters/*`. See user‑facing docs: `apps/routecraft.dev/src/app/docs/reference/adapters/page.md`.
+These rules align with RouteCraft's public DSL and adapter interfaces exported from `@routecraft/routecraft` (`Source`, `Destination`, `Processor`, `Transformer`, etc.) and the concrete adapters under `packages/routecraft/src/adapters/*`. See user‑facing docs: `apps/routecraft.dev/src/app/docs/reference/adapters/page.md`.
 
 #### Goals
 
@@ -73,7 +73,7 @@ These rules align with RouteCraft's public DSL and adapter interfaces exported f
 
 ```ts
 // Example: add adapter-scoped store entries
-declare module "@routecraftjs/routecraft" {
+declare module "@routecraft/routecraft" {
   interface StoreRegistry {
     "routecraft.adapter.example.store": Map<string, unknown>;
     "routecraft.adapter.example.options": Partial<ExampleOptions>;
@@ -90,7 +90,7 @@ import {
   type Source,
   type ExchangeHeaders,
   CraftContext,
-} from "@routecraftjs/routecraft";
+} from "@routecraft/routecraft";
 
 export interface MySourceOptions {
   pollIntervalMs?: number;
@@ -138,7 +138,7 @@ export class MySourceAdapter<T = unknown> implements Source<T> {
 Destination adapter:
 
 ```ts
-import { type Destination, type Exchange } from "@routecraftjs/routecraft";
+import { type Destination, type Exchange } from "@routecraft/routecraft";
 
 export interface MyDestinationOptions {
   url: string;
@@ -159,7 +159,7 @@ export class MyDestinationAdapter<T = unknown> implements Destination<T> {
 Processor adapter:
 
 ```ts
-import { type Processor, type Exchange } from "@routecraftjs/routecraft";
+import { type Processor, type Exchange } from "@routecraft/routecraft";
 
 export class MyProcessorAdapter<T = unknown, R = T> implements Processor<T, R> {
   readonly adapterId = "routecraft.adapter.my-processor";
@@ -174,7 +174,7 @@ export class MyProcessorAdapter<T = unknown, R = T> implements Processor<T, R> {
 Transformer adapter (pure):
 
 ```ts
-import { type Transformer } from "@routecraftjs/routecraft";
+import { type Transformer } from "@routecraft/routecraft";
 
 export class MyTransformerAdapter<T = unknown, R = T>
   implements Transformer<T, R>
@@ -190,7 +190,7 @@ export class MyTransformerAdapter<T = unknown, R = T>
 Enricher adapter:
 
 ```ts
-import { type Enricher, type Exchange } from "@routecraftjs/routecraft";
+import { type Enricher, type Exchange } from "@routecraft/routecraft";
 
 export class MyEnricherAdapter<T = unknown, R = unknown>
   implements Enricher<T, R>

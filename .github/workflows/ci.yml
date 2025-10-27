@@ -209,7 +209,7 @@ jobs:
       - name: Install CLI globally
         working-directory: ./packages/cli
         run: |
-          pnpm link --global
+          npm link
           craft --version
 
       - name: Run all examples
