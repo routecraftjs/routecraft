@@ -73,6 +73,7 @@ const NODE_TEMPLATE = {
             dev: "craft dev",
             build: "craft build",
             start: "craft start",
+            lint: "eslint .",
           },
           dependencies: {
             "@routecraftjs/routecraft": getRoutecraftVersion(),
@@ -80,6 +81,10 @@ const NODE_TEMPLATE = {
           devDependencies: {
             "@types/node": "^20.0.0",
             typescript: "^5.0.0",
+            eslint: "^9.36.0",
+            "@eslint/js": "^9.36.0",
+            "typescript-eslint": "^8.44.1",
+            "@routecraftjs/eslint-plugin-routecraft": "^0.1.0",
           },
         },
         null,
@@ -108,6 +113,23 @@ const NODE_TEMPLATE = {
       null,
       2,
     ),
+  },
+  "eslint.config.mjs": {
+    content: `import pluginJs from "@eslint/js";
+import tseslint from "typescript-eslint";
+import routecraftPlugin from "@routecraftjs/eslint-plugin-routecraft";
+
+/** @type {import('eslint').Linter.Config[]} */
+export default [
+  pluginJs.configs.recommended,
+  ...tseslint.configs.recommended,
+  {
+    files: ["routes/**/*.{ts,js}", "**/*.route.{ts,js}", "**/*.{ts,js}"],
+    plugins: { "@routecraftjs/routecraft": routecraftPlugin },
+    ...routecraftPlugin.configs.recommended,
+  },
+];
+`,
   },
   "craft.config.ts": {
     content: `import type { CraftConfig } from "@routecraftjs/routecraft";
