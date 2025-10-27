@@ -107,7 +107,7 @@ describe("CLI run command", () => {
       "with-config.js",
       `
       import { craft, simple, log } from "@routecraft/routecraft";
-      export const craftConfig = { routes: [] };
+      export const craftConfig = { };
       export default craft().id("x").from(simple("y")).to(log());
     `,
     );

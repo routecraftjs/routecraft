@@ -19,6 +19,7 @@ import { FetchAdapter, type FetchOptions } from "./adapters/fetch.ts";
  * const ctx = context()
  *   .routes(myRoute)
  *   .on('contextStarting', () => console.log('Starting...'))
+ *   .build();
  *
  * // Start processing
  * await ctx.start();

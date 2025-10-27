@@ -64,16 +64,20 @@ export type CraftConfig = {
  *
  * @example
  * ```typescript
- * // Create a context with routes
+ * // Create a context with routes and event handlers
  * const context = new CraftContext({
- *   routes: [myRoute1, myRoute2],
- *   onStartup: async () => {
- *     console.log('Starting application');
- *   },
- *   onShutdown: async () => {
- *     console.log('Shutting down application');
+ *   on: {
+ *     contextStarting: async () => {
+ *       console.log('Starting application');
+ *     },
+ *     contextStopping: async () => {
+ *       console.log('Shutting down application');
+ *     }
  *   }
  * });
+ *
+ * // Register routes
+ * context.registerRoutes(myRoute1, myRoute2);
  *
  * // Start processing routes
  * await context.start();
