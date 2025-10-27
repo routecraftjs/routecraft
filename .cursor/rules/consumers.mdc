@@ -62,7 +62,7 @@ import {
   type ConsumerType,
   SimpleConsumer,
   BatchConsumer,
-} from "@routecraftjs/routecraft";
+} from "@routecraft/routecraft";
 
 // Simple (default) consumer
 export const simpleRoute = craft()
@@ -94,7 +94,7 @@ import {
   type ExchangeHeaders,
   CraftContext,
   type RouteDefinition,
-} from "@routecraftjs/routecraft";
+} from "@routecraft/routecraft";
 
 export interface MyConsumerOptions {
   /* tuning knobs */
