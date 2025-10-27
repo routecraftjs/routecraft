@@ -230,11 +230,8 @@ export class ContextBuilder {
 
     // Attach event handlers from builder (config handlers already added in constructor)
     for (const [event, handlers] of this.eventHandlers.entries()) {
-      const configHasHandler = this.config?.on?.[event];
-      if (!configHasHandler) {
-        for (const handler of handlers) {
-          ctx.on(event as EventName, handler as EventHandler<EventName>);
-        }
+      for (const handler of handlers) {
+        ctx.on(event as EventName, handler as EventHandler<EventName>);
       }
     }
 
