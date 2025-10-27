@@ -1,6 +1,6 @@
 <div align="center">
 
-  <img src="./routecraft-sticker.svg" alt="Routecraft" width="200" />
+  <img src="./routecraft-sticker.svg" alt="Routecraft" width="300" />
 
   <p><strong>A type-safe integration and automation framework for TypeScript/Node.js</strong></p>
 
