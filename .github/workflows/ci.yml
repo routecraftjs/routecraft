@@ -164,6 +164,19 @@ jobs:
           path: "**/node_modules"
           key: ${{ runner.os }}-modules-${{ hashFiles('**/pnpm-lock.yaml') }}
 
+      - name: Setup Pages
+        id: configure-pages
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/configure-pages@v5
+        with:
+          static_site_generator: next
+
+      - name: Export Pages base path env
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          echo "NEXT_PUBLIC_BASE_PATH=${{ steps.configure-pages.outputs.base_path }}" >> $GITHUB_ENV
+          echo "NEXT_PUBLIC_ASSET_PREFIX=${{ steps.configure-pages.outputs.asset_base_url }}" >> $GITHUB_ENV
+
       - name: Build packages
         run: pnpm run build
 
@@ -175,6 +188,14 @@ jobs:
         with:
           path: "**/dist"
           key: build-${{ github.sha }}
+
+      - name: Upload docs export artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-export
+          path: apps/routecraft.dev/out
+          if-no-files-found: error
 
   cli-test:
     needs: [validate, test, build]
@@ -299,3 +320,34 @@ jobs:
         run: pnpm publish --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  deploy-pages:
+    name: Deploy docs site to Pages
+    needs: [build, cli-test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    steps:
+      - name: Download docs export artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: docs-export
+          path: docs-export
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs-export
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
