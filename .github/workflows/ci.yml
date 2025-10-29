@@ -179,6 +179,9 @@ jobs:
 
       - name: Build packages
         run: pnpm run build
+        env:
+          NEXT_PUBLIC_POSTHOG_KEY: ${{ secrets.NEXT_PUBLIC_POSTHOG_KEY }}
+          NEXT_PUBLIC_POSTHOG_HOST: ${{ secrets.NEXT_PUBLIC_POSTHOG_HOST }}
 
       - name: Check bundle size
         run: pnpm run limit:size
@@ -315,6 +318,9 @@ jobs:
 
       - name: Build packages
         run: pnpm run build
+        env:
+          NEXT_PUBLIC_POSTHOG_KEY: ${{ secrets.NEXT_PUBLIC_POSTHOG_KEY }}
+          NEXT_PUBLIC_POSTHOG_HOST: ${{ secrets.NEXT_PUBLIC_POSTHOG_HOST }}
 
       - name: Publish package
         run: pnpm publish --no-git-checks
