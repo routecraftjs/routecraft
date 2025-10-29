@@ -314,7 +314,7 @@ jobs:
             echo "Package version ($PKG_VERSION) does not match release version ($RELEASE_VERSION)"
             exit 1
           fi
-          pnpm -r exec -- pnpm version $RELEASE_VERSION --no-git-tag-version
+          pnpm version $RELEASE_VERSION --no-git-tag-version --allow-same-version
 
       - name: Build packages
         run: pnpm run build
@@ -322,10 +322,14 @@ jobs:
           NEXT_PUBLIC_POSTHOG_KEY: ${{ secrets.NEXT_PUBLIC_POSTHOG_KEY }}
           NEXT_PUBLIC_POSTHOG_HOST: ${{ secrets.NEXT_PUBLIC_POSTHOG_HOST }}
 
-      - name: Publish package
-        run: pnpm publish --no-git-checks
+      - name: Setup .npmrc
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > ~/.npmrc
+
+      - name: Publish packages to npm
+        run: pnpm -r publish --no-git-checks --access public
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   deploy-pages:
     name: Deploy docs site to Pages

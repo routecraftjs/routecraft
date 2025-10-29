@@ -27,8 +27,7 @@
     "pino": "^10.1.0"
   },
   "publishConfig": {
-    "access": "public",
-    "registry": "https://npm.pkg.github.com"
+    "access": "public"
   },
   "devDependencies": {
     "arktype": "^2.1.23",

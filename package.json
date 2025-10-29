@@ -72,10 +72,6 @@
     "node": ">=22.0.0"
   },
   "repository": "https://github.com/routecraftjs/routecraft",
-  "publishConfig": {
-    "registry": "https://npm.pkg.github.com",
-    "access": "restricted"
-  },
   "dependencies": {
     "chokidar": "^4.0.3"
   }

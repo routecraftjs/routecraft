@@ -27,8 +27,7 @@
     "dotenv": "^17.2.3"
   },
   "publishConfig": {
-    "access": "public",
-    "registry": "https://npm.pkg.github.com/"
+    "access": "public"
   },
   "repository": "https://github.com/routecraftjs/routecraft",
   "bin": {
