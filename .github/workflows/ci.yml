@@ -5,15 +5,15 @@ on:
   push:
     branches: ["main"]
     paths-ignore:
-      - "**.md"
-      - "docs/**"
+      - "**/README.md"
       - ".github/ISSUE_TEMPLATE/**"
+      - ".cursor/**"
   pull_request_target:
     branches: ["main"]
     paths-ignore:
-      - "**.md"
-      - "docs/**"
+      - "**/README.md"
       - ".github/ISSUE_TEMPLATE/**"
+      - ".cursor/**"
   release:
     types: [created]
 
@@ -332,7 +332,6 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   deploy-pages:
-    name: Deploy docs site to Pages
     needs: [build, cli-test]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest

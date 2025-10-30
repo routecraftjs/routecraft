@@ -4,15 +4,15 @@ title: Installation
 
 Install via the CLI or manually add packages. {% .lead %}
 
-<!-- ## Play Online
+## Play Online
 
 If you want to try RouteCraft in your browser without installing anything, open our examples:
 
 {% quick-links %}
 
-{% quick-link title="Open on CodeSandbox" icon="installation" href="https://codesandbox.io/p/sandbox/github/routecraftjs/routecraft?file=/examples" description="Play around with RouteCraft in your browser." /%}
+{% quick-link title="Open on CodeSandbox" icon="installation" href="https://codesandbox.io/p/sandbox/github/routecraftjs/craft-playground?file=%2Froutes%2Fhello-world.route.ts" description="Play around with RouteCraft in your browser." /%}
 
-{% /quick-links %} -->
+{% /quick-links %}
 
 ## System requirements
 
