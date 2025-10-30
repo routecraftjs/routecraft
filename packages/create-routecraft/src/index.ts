@@ -85,6 +85,7 @@ const NODE_TEMPLATE = {
             "typescript-eslint": "^8.44.1",
             "@routecraft/eslint-plugin-routecraft": getRoutecraftVersion(),
             "@routecraft/cli": getRoutecraftVersion(),
+            "pino-pretty": "^13.1.2",
           },
         },
         null,

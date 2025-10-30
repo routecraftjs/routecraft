@@ -8,8 +8,22 @@ export type { Logger };
 const isDev = process.env["NODE_ENV"] !== "production";
 
 /**
+ * Check if pino-pretty is available (installed as a devDependency)
+ */
+function hasPinoPretty(): boolean {
+  try {
+    // Try to resolve pino-pretty - if it's installed, this won't throw
+    // We use a dynamic import check rather than actually importing it
+    import.meta.resolve?.("pino-pretty");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Base logger configuration with reasonable defaults.
- * In development, uses pino-pretty for readable logs.
+ * In development, uses pino-pretty for readable logs if available.
  * In production, uses standard JSON format for machine processing.
  */
 const base = pino({
@@ -18,7 +32,7 @@ const base = pino({
     level: (label) => ({ level: label.toUpperCase() }), // Ensure consistent casing
   },
   timestamp: () => `,"time":"${new Date().toISOString()}"`, // Use ISO timestamp format
-  ...(isDev
+  ...(isDev && hasPinoPretty()
     ? {
         transport: {
           target: "pino-pretty",
