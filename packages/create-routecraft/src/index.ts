@@ -58,6 +58,13 @@ function getRoutecraftVersion(): string {
 }
 
 /**
+ * Template file configuration
+ */
+interface TemplateFileConfig {
+  content: string | ((arg: string) => string) | ((arg: boolean) => string);
+}
+
+/**
  * Default project structure template for Node.js package managers
  */
 const NODE_TEMPLATE = {
@@ -151,11 +158,17 @@ dist/
 .DS_Store`,
   },
   "index.ts": {
-    content: `export { default as craftConfig } from './craft.config.js';
+    content: (hasExample: boolean) =>
+      hasExample
+        ? `export { default as craftConfig } from './craft.config.js';
 import helloWorldRoute from './routes/hello-world.route.js';
 
 // Export all routes as default for craft run
-export default [helloWorldRoute];`,
+export default [helloWorldRoute];`
+        : `export { default as craftConfig } from './craft.config.js';
+
+// Export all routes as default for craft run
+export default [];`,
   },
 };
 
@@ -437,17 +450,26 @@ async function getUserInput(
     example:
       (options["example"] as ExampleType) ||
       (skipPrompts
-        ? "hello-world"
-        : await input({
-            message: "Example (optional):",
+        ? "none"
+        : await select<string>({
+            message: "Choose an example:",
+            choices: [
+              { name: "None - empty project", value: "none" },
+              { name: "Hello World - basic example", value: "hello-world" },
+              { name: "Custom URL (GitHub)", value: "custom-url" },
+            ],
             default: "none",
-            validate: (value: string) => {
-              if (value === "none") return true;
-              if (isUrl(value)) return true;
-              const validExamples = ["hello-world"];
-              if (validExamples.includes(value)) return true;
-              return `Must be "none", a built-in example (${validExamples.join(", ")}), or a GitHub URL`;
-            },
+          }).then(async (choice) => {
+            if (choice === "custom-url") {
+              return await input({
+                message: "Enter GitHub URL:",
+                validate: (value: string) => {
+                  if (isUrl(value)) return true;
+                  return "Must be a valid GitHub URL";
+                },
+              });
+            }
+            return choice;
           })),
 
     packageManager:
@@ -536,15 +558,27 @@ async function generateProjectStructure(
   await mkdir(join(baseDir, "plugins"), { recursive: true });
 
   // Generate template files
-  const template = NODE_TEMPLATE;
+  const template = NODE_TEMPLATE as Record<string, TemplateFileConfig>;
+  const hasExample = options.example !== "none";
+
   for (const [filePath, fileConfig] of Object.entries(template)) {
     const fullPath = join(projectDir, filePath);
     await mkdir(dirname(fullPath), { recursive: true });
 
-    const content =
-      typeof fileConfig.content === "function"
-        ? fileConfig.content(options.projectName)
-        : fileConfig.content;
+    let content: string;
+    if (typeof fileConfig.content === "function") {
+      // Special handling for index.ts which needs hasExample parameter
+      if (filePath === "index.ts") {
+        content = (fileConfig.content as (arg: boolean) => string)(hasExample);
+      } else {
+        // Other files like package.json need projectName
+        content = (fileConfig.content as (arg: string) => string)(
+          options.projectName,
+        );
+      }
+    } else {
+      content = fileConfig.content;
+    }
 
     await writeFile(fullPath, content);
     console.log(`Created file: ${filePath}`);

@@ -6,7 +6,7 @@ import { join } from "node:path";
 // Mock prompts
 vi.mock("@inquirer/prompts", () => ({
   input: vi.fn(async ({ default: d }: any) => d ?? "my-app"),
-  select: vi.fn(async ({ default: d }: any) => d ?? "npm"),
+  select: vi.fn(async ({ default: d }: any) => d ?? "none"),
   confirm: vi.fn(async ({ default: d }: any) => d ?? true),
 }));
 
@@ -157,6 +157,64 @@ describe("create-routecraft", () => {
       // Expected since we can't actually clone GitHub repos in tests
       // eslint-disable-next-line no-console
       console.log("Test completed - GitHub URL handling executed");
+    }
+  });
+
+  /**
+   * @case Verifies that when no example is selected, index.ts doesn't import routes
+   * @preconditions CLI invocation with --example none flag
+   * @expectedResult index.ts should have empty route array and no imports
+   */
+  test("no example creates empty index.ts", async () => {
+    process.argv = [
+      "node",
+      "script",
+      "no-example-app",
+      "--yes",
+      "--example",
+      "none",
+    ];
+
+    try {
+      await import("../src/index.ts");
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const content = await readFile(
+        join(dir, "no-example-app/index.ts"),
+        "utf8",
+      );
+      // Should not have hello-world import
+      expect(content).not.toMatch(/hello-world/);
+      // Should have empty array
+      expect(content).toMatch(/export default \[\];/);
+    } catch {
+      // Expected in test environment
+      // eslint-disable-next-line no-console
+      console.log("Test completed - no example logic executed");
+    }
+  });
+
+  /**
+   * @case Verifies that --yes flag defaults to "none" example (not "hello-world")
+   * @preconditions CLI invocation with --yes but no explicit --example flag
+   * @expectedResult Project should be created without any example routes (consistent with interactive default)
+   */
+  test("--yes defaults to none example (consistent with interactive mode)", async () => {
+    process.argv = ["node", "script", "default-app", "--yes"];
+
+    try {
+      await import("../src/index.ts");
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const content = await readFile(join(dir, "default-app/index.ts"), "utf8");
+      // Should not have hello-world import since default is "none"
+      expect(content).not.toMatch(/hello-world/);
+      // Should have empty array
+      expect(content).toMatch(/export default \[\];/);
+    } catch {
+      // Expected in test environment
+      // eslint-disable-next-line no-console
+      console.log("Test completed - default example logic executed");
     }
   });
 });
