@@ -5,15 +5,23 @@ import { type Exchange } from "../exchange";
 export class LogAdapter<T = unknown> implements Destination<T>, Tap<T> {
   readonly adapterId = "routecraft.adapter.log";
 
+  constructor(
+    private readonly formatter?: (exchange: Exchange<T>) => unknown,
+  ) {}
+
   send(exchange: Exchange<T>): Promise<void> {
     // eslint-disable-next-line no-console
-    console.log(this.baseExchange(exchange));
+    console.log(
+      this.formatter ? this.formatter(exchange) : this.baseExchange(exchange),
+    );
     return Promise.resolve();
   }
 
   tap(exchange: Exchange<T>): Promise<void> {
     // eslint-disable-next-line no-console
-    console.log(this.baseExchange(exchange));
+    console.log(
+      this.formatter ? this.formatter(exchange) : this.baseExchange(exchange),
+    );
     return Promise.resolve();
   }
 

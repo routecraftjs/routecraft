@@ -5,6 +5,7 @@ import { LogAdapter } from "./adapters/log.ts";
 import { DirectAdapter, type DirectAdapterOptions } from "./adapters/direct.ts";
 import { TimerAdapter, type TimerOptions } from "./adapters/timer.ts";
 import { FetchAdapter, type FetchOptions } from "./adapters/fetch.ts";
+import { type Exchange } from "./exchange.ts";
 
 /**
  * Create a new context builder.
@@ -109,6 +110,8 @@ export function noop<T = unknown>(): NoopAdapter<T> {
  * This is useful for debugging and monitoring data flow in routes.
  *
  * @template T The type of data this adapter processes
+ * @param formatter Optional function that takes an exchange and returns the value to log.
+ *                  If not provided, logs exchange ID, body, and headers.
  * @returns A LogAdapter instance
  *
  * @example
@@ -120,10 +123,19 @@ export function noop<T = unknown>(): NoopAdapter<T> {
  *   .transform(data => processData(data))
  *   .tap(log()) // Log transformed data
  *   .to(destination)
+ *
+ * // Log with custom formatter
+ * craft()
+ *   .from(source)
+ *   .tap(log((ex) => `Exchange with id: ${ex.id}`))
+ *   .tap(log((ex) => `Body: ${JSON.stringify(ex.body)}`))
+ *   .to(destination)
  * ```
  */
-export function log<T = unknown>(): LogAdapter<T> {
-  return new LogAdapter<T>();
+export function log<T = unknown>(
+  formatter?: (exchange: Exchange<T>) => unknown,
+): LogAdapter<T> {
+  return new LogAdapter<T>(formatter);
 }
 
 /**

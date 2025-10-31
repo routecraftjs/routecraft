@@ -56,20 +56,27 @@ Create a static or dynamic data source. Can produce a single value, an array of 
 ### log
 
 ```ts
-log<T>(): LogAdapter<T>
+log<T>(formatter?: (exchange: Exchange<T>) => unknown): LogAdapter<T>
 ```
 
 Log messages to the console. Can be used as a destination with `.to()` or for side effects with `.tap()`.
 
 ```ts
-// Log final result
+// Log final result (default: logs exchange ID, body, and headers)
 .to(log())
 
 // Log intermediate data without changing flow
 .tap(log())
+
+// Log with custom formatter function
+.tap(log((ex) => `Exchange with id: ${ex.id}`))
+.tap(log((ex) => `Body: ${JSON.stringify(ex.body)}`))
+.tap(log((ex) => `Exchange with uuid: ${ex.headers.uuid}`))
 ```
 
-**Output format:** Logs exchange ID, body, and headers in a clean format
+**Output format:** 
+- Without formatter: Logs exchange ID, body, and headers in a clean format
+- With formatter: Logs the value returned by the formatter function
 
 ### timer
 
