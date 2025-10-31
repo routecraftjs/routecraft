@@ -5,24 +5,53 @@ import { config as loadDotenv } from "dotenv";
 /**
  * Loads environment variables from .env files
  *
- * @param path Optional path to .env file. If not specified, looks for .env in current directory
+ * @param path Optional path to .env file. If not specified, loads .env and .env.local (if they exist)
  * @returns The parsed dotenv config result
  */
 export function loadEnvFile(path?: string) {
-  const envPath = path ? resolve(process.cwd(), path) : undefined;
-  const result = loadDotenv(envPath ? { path: envPath } : {});
+  if (path) {
+    // Explicit path provided - load that file only
+    const envPath = resolve(process.cwd(), path);
+    const result = loadDotenv({ path: envPath });
 
-  if (result.error) {
-    logger.warn(
-      `Error loading .env file${path ? ` from ${path}` : ""}: ${result.error.message}`,
-    );
-  } else if (result.parsed) {
+    if (result.error) {
+      logger.info(
+        `Could not load .env file from ${path}: ${result.error.message}`,
+      );
+    } else if (result.parsed) {
+      logger.debug(
+        `Loaded ${Object.keys(result.parsed).length} environment variables from ${path}`,
+      );
+    }
+
+    return result;
+  }
+
+  // No path provided - load .env, then .env.local (with override)
+  let lastResult;
+
+  // Load .env first
+  lastResult = loadDotenv({ path: resolve(process.cwd(), ".env") });
+  if (lastResult.parsed) {
     logger.debug(
-      `Loaded ${Object.keys(result.parsed).length} environment variables${path ? ` from ${path}` : ""}`,
+      `Loaded ${Object.keys(lastResult.parsed).length} environment variables from .env`,
+    );
+  } else if (lastResult.error) {
+    logger.debug(`No .env file found`);
+  }
+
+  // Load .env.local next, allowing it to override .env values
+  lastResult = loadDotenv({
+    path: resolve(process.cwd(), ".env.local"),
+    override: true,
+  });
+  if (lastResult.parsed) {
+    logger.debug(
+      `Loaded ${Object.keys(lastResult.parsed).length} environment variables from .env.local`,
     );
   }
 
-  return result;
+  return lastResult;
 }
 
 /**
