@@ -28,7 +28,7 @@ export interface FetchOptions<T = unknown> {
 export type FetchResult = {
   status: number;
   headers: Record<string, string>;
-  body: string;
+  body: string | unknown;
   url: string;
 };
 
@@ -105,10 +105,22 @@ export class FetchAdapter<T = unknown, R = FetchResult>
 
       const bodyText = await res.text();
 
+      // Auto-parse JSON based on Content-Type
+      let parsedBody: string | unknown = bodyText;
+      const contentType = headersRecord["content-type"]?.toLowerCase() || "";
+      if (contentType.includes("application/json")) {
+        try {
+          parsedBody = JSON.parse(bodyText);
+        } catch {
+          // Parse failed, keep as string
+          parsedBody = bodyText;
+        }
+      }
+
       return {
         status: res.status,
         headers: headersRecord,
-        body: bodyText,
+        body: parsedBody,
         url: res.url || finalUrl,
       } satisfies FetchResult;
     } finally {

@@ -10,6 +10,5 @@ export default craft()
         `https://jsonplaceholder.typicode.com/users/${ex.body.userId}`,
     }),
   )
-  .transform((res) => JSON.parse(res.body))
   .transform((user) => `Hello, ${user.name}!`)
   .to(log());
