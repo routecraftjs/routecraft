@@ -392,18 +392,31 @@ Route exchanges to different processing paths based on conditions. Like a switch
 ### split
 
 ```ts
-split<Item = Current extends Array<infer U> ? U : never>(fn?: Splitter<Current, Item> | CallableSplitter<Current, Item>): RouteBuilder<Item>
+split<Item = Current extends Array<infer U> ? U : never>(fn?: (body: Current) => Item[]): RouteBuilder<Item>
 ```
 
-Split arrays into individual items. Each item becomes a separate exchange.
+Split arrays into individual items. Each item becomes a separate exchange with a new UUID and copied headers from the original exchange.
+
+Similar to Apache Camel's Splitter EIP, the split function receives the message body and returns an array of items. The framework automatically creates exchanges for each item.
 
 ```ts
 // Split array automatically
 .split() // [1, 2, 3] becomes three exchanges: 1, 2, 3
 
-// Custom splitting logic
-.split((batch) => batch.items)
+// Extract nested array
+.split((body) => body.items)
+
+// Split string by delimiter
+.split((body) => body.split(","))
+
+// Transform items during split
+.split((body) => body.users.map(u => u.id))
 ```
+
+**Key behaviors:**
+- Each split item gets a new exchange with a unique UUID
+- Headers from the original exchange are copied to all split exchanges
+- Split hierarchy is tracked automatically for aggregation
 
 ### aggregate
 

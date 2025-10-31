@@ -2,8 +2,8 @@ import { type Adapter, type Step } from "../types.ts";
 import { type Exchange, OperationType, HeadersKeys } from "../exchange.ts";
 
 export type CallableSplitter<T = unknown, R = unknown> = (
-  exchange: Exchange<T>,
-) => Promise<Exchange<R>[]> | Exchange<R>[];
+  body: T,
+) => Promise<R[]> | R[];
 
 export interface Splitter<T = unknown, R = unknown> extends Adapter {
   split: CallableSplitter<T, R>;
@@ -24,19 +24,22 @@ export class SplitStep<T = unknown, R = unknown>
     remainingSteps: Step<Adapter>[],
     queue: { exchange: Exchange<R>; steps: Step<Adapter>[] }[],
   ): Promise<void> {
-    const splits = await Promise.resolve(this.adapter.split(exchange));
+    const splitBodies = await Promise.resolve(
+      this.adapter.split(exchange.body),
+    );
     const groupId = crypto.randomUUID();
 
     const existingHierarchy =
       (exchange.headers[HeadersKeys.SPLIT_HIERARCHY] as string[]) || [];
     const splitHierarchy = [...existingHierarchy, groupId];
 
-    splits.forEach((exch) => {
-      const postProcessedExchange = {
-        ...exch,
+    splitBodies.forEach((body) => {
+      const postProcessedExchange: Exchange<R> = {
+        ...exchange,
         id: crypto.randomUUID(),
+        body,
         headers: {
-          ...exch.headers,
+          ...exchange.headers,
           [HeadersKeys.SPLIT_HIERARCHY]: splitHierarchy,
         },
       };
