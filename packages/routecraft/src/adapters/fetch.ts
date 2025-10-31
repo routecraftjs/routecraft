@@ -25,10 +25,10 @@ export interface FetchOptions<T = unknown> {
   throwOnHttpError?: boolean;
 }
 
-export type FetchResult = {
+export type FetchResult<T = string | unknown> = {
   status: number;
   headers: Record<string, string>;
-  body: string | unknown;
+  body: T;
   url: string;
 };
 

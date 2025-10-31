@@ -373,14 +373,7 @@ describe("Fetch Adapter", () => {
           .id("test-split-integration")
           .from(simple("trigger"))
           .enrich(fetch({ url: "https://api.example.com/items" }))
-          .split((exchange: any) =>
-            Array.isArray(exchange.body.body)
-              ? exchange.body.body.map((item: any) => ({
-                  ...exchange,
-                  body: item,
-                }))
-              : [],
-          )
+          .split((body: any) => (Array.isArray(body.body) ? body.body : []))
           .to(destSpy),
       )
       .build();

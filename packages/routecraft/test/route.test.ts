@@ -451,11 +451,9 @@ describe("Route Behavior", () => {
         craft()
           .id("split-test")
           .from(simple("hello-world"))
-          .split((exchange: any) => {
+          .split((body: any) => {
             // For a string message with '-' delimiter, split into parts.
-            const parts =
-              typeof exchange.body === "string" ? exchange.body.split("-") : [];
-            return parts.map((part) => ({ ...exchange, body: part }));
+            return typeof body === "string" ? body.split("-") : [];
           })
           .tap(spyTap)
           .to(spyDest),
@@ -523,11 +521,9 @@ describe("Route Behavior", () => {
         craft()
           .id("correlation-split-test")
           .from(simple("part1,part2"))
-          .split((exchange: any) => {
+          .split((body: any) => {
             // Using a comma as a delimiter.
-            const parts =
-              typeof exchange.body === "string" ? exchange.body.split(",") : [];
-            return parts.map((part) => ({ ...exchange, body: part }));
+            return typeof body === "string" ? body.split(",") : [];
           })
           .tap(spyTap)
           .to(noop()),
@@ -550,10 +546,7 @@ describe("Route Behavior", () => {
   test("aggregates split exchanges correctly", async () => {
     const spyDest = vi.fn();
     const split = {
-      split: (exchange) =>
-        exchange.body
-          .split("-")
-          .map((part: string) => ({ ...exchange, body: part })),
+      split: (body) => body.split("-"),
     };
     const splitSpy = vi.spyOn(split, "split");
     const processorSpy = vi.fn((exchange) => exchange);
@@ -635,11 +628,7 @@ describe("Route Behavior", () => {
               await handler("one-two", { "custom.header": "test-value" });
             },
           })
-          .split<string, string>((exchange) =>
-            exchange.body
-              .split("-")
-              .map((part) => ({ ...exchange, body: part })),
-          )
+          .split<string, string>((body) => body.split("-"))
           .tap(spyTap)
           .to(noop()),
       )
@@ -666,10 +655,8 @@ describe("Route Behavior", () => {
         craft()
           .id("split-process-aggregate")
           .from(simple("1-2-3"))
-          .split<string, number>((exchange) =>
-            exchange.body
-              .split("-")
-              .map((part) => ({ ...exchange, body: parseInt(part) })),
+          .split<string, number>((body) =>
+            body.split("-").map((part) => parseInt(part)),
           )
           .transform<number>((body) => {
             // Double each number
@@ -709,11 +696,7 @@ describe("Route Behavior", () => {
         craft()
           .id("split-error-aggregate")
           .from(simple("success1-error-success2"))
-          .split<string, string>((exchange) =>
-            exchange.body
-              .split("-")
-              .map((part) => ({ ...exchange, body: part })),
-          )
+          .split<string, string>((body) => body.split("-"))
           .process((exchange) => {
             if (exchange.body === "error") {
               throw new Error("Simulated processing error");
@@ -778,25 +761,19 @@ describe("Route Behavior", () => {
         craft()
           .id("nested-split-test")
           .from(simple("A:1-2|B:3-4"))
-          .split<string, string>((exchange) =>
+          .split<string, string>((body) =>
             // First split by |
-            exchange.body
-              .split("|")
-              .map((part) => ({ ...exchange, body: part })),
+            body.split("|"),
           )
           .process(processorSpy)
-          .split<string, string>((exchange) =>
+          .split<string, string>((body) =>
             // Then split by :
-            exchange.body
-              .split(":")
-              .map((part) => ({ ...exchange, body: part })),
+            body.split(":"),
           )
           .process(processorSpy2)
-          .split<string, string>((exchange) =>
+          .split<string, string>((body) =>
             // Finally split by -
-            exchange.body
-              .split("-")
-              .map((part) => ({ ...exchange, body: part })),
+            body.split("-"),
           )
           .process(processorSpy3)
           .tap(spyTap)

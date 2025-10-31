@@ -454,22 +454,27 @@ export class RouteBuilder<Current = unknown> {
 
   /**
    * Split an array into individual items for processing.
+   * Each item becomes a separate exchange with a new UUID and copied headers.
    * If no splitter is provided and the current data is an array, it will automatically
    * split the array into individual items.
    *
+   * Similar to Apache Camel's Splitter EIP: accepts body, returns array of body items.
+   * The framework automatically creates new exchanges for each item.
+   *
    * @template ItemType The type of items in the array (inferred from array if not specified)
-   * @param splitter Optional function to control how the array is split
+   * @param splitter Optional function that receives the body and returns an array of items
    * @returns A RouteBuilder with the item type
    * @example
    * // Automatically split an array of numbers
    * .from<number[]>(source)
    * .split() // ItemType is inferred as number
    *
-   * // Explicitly specify the item type
+   * // Custom splitting logic - extract nested array
    * .from(source)
-   * .split<User>((exchange) => {
-   *   return exchange.body.users.map(user => ({ ...exchange, body: user }));
-   * })
+   * .split<User>((body) => body.users)
+   *
+   * // Split a string by delimiter
+   * .split<string>((body) => body.split(","))
    */
   split<ItemType = Current extends Array<infer U> ? U : never>(
     splitter?:
@@ -482,11 +487,9 @@ export class RouteBuilder<Current = unknown> {
     // If no splitter is provided and Current is an array, use default array splitter
     if (!splitter) {
       // Create a default array splitter
-      const defaultSplitter: CallableSplitter<Current, ItemType> = (
-        exchange,
-      ) => {
+      const defaultSplitter: CallableSplitter<Current, ItemType> = (body) => {
         // Check if the body is an array
-        if (!Array.isArray(exchange.body)) {
+        if (!Array.isArray(body)) {
           throw rcError("RC2001", undefined, {
             message: "Default splitter can only be used with arrays",
             suggestion:
@@ -495,10 +498,7 @@ export class RouteBuilder<Current = unknown> {
         }
 
         // Split the array into individual items
-        return exchange.body.map((item) => ({
-          ...exchange,
-          body: item,
-        })) as Exchange<ItemType>[];
+        return body as ItemType[];
       };
 
       route.steps.push(new SplitStep<Current, ItemType>(defaultSplitter));
