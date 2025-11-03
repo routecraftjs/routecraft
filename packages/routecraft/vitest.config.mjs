@@ -11,6 +11,9 @@ export default defineConfig({
     },
   },
   test: {
+    env: {
+      LOG_LEVEL: "silent",
+    },
     coverage: {
       provider: "v8",
       reporter: ["lcov", "text"],
