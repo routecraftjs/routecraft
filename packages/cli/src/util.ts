@@ -28,30 +28,38 @@ export function loadEnvFile(path?: string) {
   }
 
   // No path provided - load .env, then .env.local (with override)
-  let lastResult;
-
   // Load .env first
-  lastResult = loadDotenv({ path: resolve(process.cwd(), ".env") });
-  if (lastResult.parsed) {
+  const envResult = loadDotenv({ path: resolve(process.cwd(), ".env") });
+  if (envResult.parsed) {
     logger.debug(
-      `Loaded ${Object.keys(lastResult.parsed).length} environment variables from .env`,
+      `Loaded ${Object.keys(envResult.parsed).length} environment variables from .env`,
     );
-  } else if (lastResult.error) {
+  } else if (envResult.error) {
     logger.debug(`No .env file found`);
   }
 
   // Load .env.local next, allowing it to override .env values
-  lastResult = loadDotenv({
+  const envLocalResult = loadDotenv({
     path: resolve(process.cwd(), ".env.local"),
     override: true,
   });
-  if (lastResult.parsed) {
+  if (envLocalResult.parsed) {
     logger.debug(
-      `Loaded ${Object.keys(lastResult.parsed).length} environment variables from .env.local`,
+      `Loaded ${Object.keys(envLocalResult.parsed).length} environment variables from .env.local`,
     );
   }
 
-  return lastResult;
+  // Return the most successful result:
+  // - If .env.local loaded successfully, return it
+  // - If .env loaded successfully but .env.local failed (doesn't exist), return .env result
+  // - If both failed, return the last error (from .env.local)
+  if (envLocalResult.parsed) {
+    return envLocalResult;
+  }
+  if (envResult.parsed) {
+    return envResult;
+  }
+  return envLocalResult;
 }
 
 /**
