@@ -1,6 +1,6 @@
 {
   "name": "create-routecraft",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Create a new RouteCraft project",
   "type": "module",
   "main": "./dist/index.js",

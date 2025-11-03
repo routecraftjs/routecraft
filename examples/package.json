@@ -1,6 +1,6 @@
 {
   "name": "examples",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,7 +8,7 @@
     "test:coverage": "vitest --coverage"
   },
   "devDependencies": {
-    "@routecraft/routecraft": "workspace:^0.1.0",
+    "@routecraft/routecraft": "workspace:^0.1.1",
     "tsx": "^4.20.6",
     "vitest": "^3.2.4"
   }

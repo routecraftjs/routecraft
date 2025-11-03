@@ -1,6 +1,6 @@
 {
   "name": "@routecraft/cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "CLI for running RouteCraft routes",
   "private": false,
   "type": "module",
@@ -22,7 +22,7 @@
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
-    "@routecraft/routecraft": "workspace:^0.1.0",
+    "@routecraft/routecraft": "workspace:^0.1.1",
     "commander": "^14.0.2",
     "dotenv": "^17.2.3"
   },
