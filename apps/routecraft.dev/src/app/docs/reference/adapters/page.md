@@ -215,6 +215,36 @@ Make HTTP requests. Can be used as an enricher with `.enrich()` or destination w
 }))
 ```
 
+// Direct the fetch result into a specific field (custom aggregator)
+```ts
+.enrich(
+  fetch({
+    url: 'https://api.example.com/items'
+  }),
+  (original, enrichment) => ({
+    ...original,
+    body: {
+      ...original.body,
+      api: enrichment // place the full FetchResult on a field
+    }
+  })
+)
+
+// Or only keep the response body
+.enrich(
+  fetch({
+    url: (exchange) => `https://api.example.com/users/${exchange.body.userId}`
+  }),
+  (original, enrichment) => ({
+    ...original,
+    body: {
+      ...original.body,
+      userData: enrichment.body
+    }
+  })
+)
+```
+
 Options:
 
 | Field | Type | Default | Required | Description |

@@ -39,15 +39,15 @@ export type FetchResult<T = string | unknown> = {
  * - send: performs request as side effect (ignores body)
  */
 export class FetchAdapter<T = unknown, R = FetchResult>
-  implements Enricher<T, R>, Destination<T>
+  implements Enricher<T, FetchResult<R>>, Destination<T>
 {
   readonly adapterId = "routecraft.adapter.fetch";
 
   constructor(private readonly options: FetchOptions<T>) {}
 
-  async enrich(exchange: Exchange<T>): Promise<R> {
+  async enrich(exchange: Exchange<T>): Promise<FetchResult<R>> {
     const result = await this.performFetch(exchange);
-    return result as unknown as R;
+    return result as FetchResult<R>;
   }
 
   async send(exchange: Exchange<T>): Promise<void> {

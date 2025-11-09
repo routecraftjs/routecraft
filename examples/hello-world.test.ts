@@ -1,23 +1,79 @@
-import { expect, test } from "vitest";
-import { context } from "@routecraft/routecraft";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { context, type CraftContext } from "@routecraft/routecraft";
 import routes from "./hello-world.mjs";
 
-/**
- * @case Verifies that the context loads
- * @preconditions Routes are defined
- * @expectedResult Should load context without errors
- */
-test("Context loads", async () => {
-  const testContext = context().routes(routes).build();
+describe("Hello World Route", () => {
+  let testContext: CraftContext;
+  let fetchMock: ReturnType<typeof vi.fn>;
 
-  const execution = testContext.start();
+  beforeEach(() => {
+    // Mock globalThis.fetch to prevent real API calls
+    fetchMock = vi.fn();
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+  });
 
-  // Wait for execution to settle
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  afterEach(async () => {
+    if (testContext) {
+      await testContext.stop();
+    }
+    vi.restoreAllMocks();
+  });
 
-  await testContext.stop();
-  await execution;
+  /**
+   * @case Verifies that the route fetches user data and greets the person by name
+   * @preconditions Route is imported and fetch is mocked
+   * @expectedResult Route should fetch user and output "Hello, [name]!"
+   */
+  it("should fetch user and greet by name", async () => {
+    // Mock user data from JSON Placeholder
+    const mockUser = {
+      id: 1,
+      name: "Leanne Graham",
+      username: "Bret",
+      email: "Sincere@april.biz",
+    };
 
-  // If we got here without errors, the test passed
-  expect(true).toBe(true);
+    // Mock the fetch response
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Map([["content-type", "application/json"]]),
+      text: async () => JSON.stringify(mockUser),
+      url: "https://jsonplaceholder.typicode.com/users/1",
+    });
+
+    // Spy on console.log to capture the output
+    const logSpy = vi.spyOn(console, "log");
+
+    // Create context with imported route
+    testContext = context().routes(routes).build();
+
+    // Start the context
+    await testContext.start();
+
+    // Wait for the exchange to be processed
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // Stop the context
+    await testContext.stop();
+
+    // Verify fetch was called with the correct URL
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://jsonplaceholder.typicode.com/users/1",
+      expect.objectContaining({
+        method: "GET",
+      }),
+    );
+
+    // Verify the log was called (route completed)
+    expect(logSpy).toHaveBeenCalled();
+
+    // Get the last call arguments (the transformed exchange)
+    const result = logSpy.mock.calls[logSpy.mock.calls.length - 1][0];
+
+    // Assert the greeting message
+    expect(result).toBeDefined();
+    expect(result.body).toBe("Hello, Leanne Graham!");
+  });
 });

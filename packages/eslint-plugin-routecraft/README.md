@@ -33,6 +33,7 @@ export default [
     },
     rules: {
       'routecraft/require-named-route': 'error',
+      'routecraft/batch-before-from': 'warn',
     },
   },
 ];
@@ -40,7 +41,34 @@ export default [
 
 ## Rules
 
-- [`routecraft/require-named-route`](https://routecraft.dev/docs/reference/eslint-rules#require-named-route) - Enforces that all routes have a `.routeId()` for better debuggability
+- `routecraft/require-named-route` — Enforce `.id(<non-empty string>)` before `.from()` in a `craft()` chain
+- `routecraft/batch-before-from` — Enforce `batch()` is used as a route-level operation before `.from()`
+
+### routecraft/require-named-route
+
+```ts
+// ✅ Good
+craft().id('user-processor').from(source).to(dest)
+
+// ❌ Bad
+craft().from(source).to(dest)
+```
+
+### routecraft/batch-before-from
+
+```ts
+// ✅ Good: batch() before from()
+craft()
+  .batch({ size: 50 })
+  .from(source)
+  .to(dest)
+
+// ❌ Bad: batch() after from()
+craft()
+  .from(source)
+  .batch({ size: 50 })
+  .to(dest)
+```
 
 ## Recommended Configuration
 
@@ -52,6 +80,7 @@ export default [
     },
     rules: {
       'routecraft/require-named-route': 'warn',
+      'routecraft/batch-before-from': 'warn',
     },
   },
 ];

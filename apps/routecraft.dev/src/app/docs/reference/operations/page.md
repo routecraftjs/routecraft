@@ -102,6 +102,10 @@ craft()
 - `size` - Maximum exchanges per batch (default: 100)
 - `flushIntervalMs` - Maximum wait time before flushing partial batch (default: 5000ms)
 
+{% callout type="note" title="Linting: route-level positioning" %}
+Use the ESLint rule `@routecraft/routecraft/batch-before-from` to ensure `batch()` is placed **before** `.from()`. See [Linting Rules](/docs/reference/linting#batch-before-from).
+{% /callout %}
+
 ## Wrapper operations
 
 Wrapper operations modify the behavior of the next operation in the chain. They create a wrapper around the subsequent step to add cross-cutting concerns.
@@ -337,12 +341,27 @@ Add additional data to the current exchange body by calling an enricher function
 filter(fn: Filter<Current> | CallableFilter<Current>): RouteBuilder<Current>
 ```
 
-Filter exchanges based on a predicate. Only exchanges that return `true` continue through the route.
+Filter exchanges based on a predicate. The predicate receives the full `Exchange` object, allowing you to filter based on headers, body, or other exchange properties. Only exchanges that return `true` continue through the route.
 
 ```ts
-.filter((user) => user.isActive)
-.filter(async (order) => await isValidOrder(order))
+// Filter based on body properties
+.filter((exchange) => exchange.body.isActive)
+.filter(async (exchange) => await isValidOrder(exchange.body))
+
+// Filter based on headers
+.filter((exchange) => exchange.headers['x-priority'] === 'high')
+.filter((exchange) => exchange.headers['user-role'] === 'admin')
+
+// Filter based on multiple criteria
+.filter((exchange) => 
+  exchange.body.status === 'active' && 
+  exchange.headers['x-environment'] === 'production'
+)
 ```
+
+{% callout type="note" title="Filter vs Transform" %}
+Unlike `.transform()` which receives only the body, `.filter()` receives the full `Exchange` object. This allows filtering based on headers, correlation IDs, or other exchange metadata, not just the message body. This aligns with Apache Camel's Filter EIP behavior.
+{% /callout %}
 
 ### validate
 

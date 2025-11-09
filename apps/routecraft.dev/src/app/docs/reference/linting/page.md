@@ -93,6 +93,33 @@ export default craft()
   .from(timer({ intervalMs: 5000 }))
 ```
 
+#### batch-before-from
+
+- **Action**: Warn (default)
+- **Description**: `batch()` is a route-level operation and must be configured before `.from()`. Using `batch()` after `.from()` is ambiguous and won’t affect the current route.
+- **Options**: None
+- **Autofix**: None
+
+Examples:
+
+```ts
+// ✅ Good: batch before from
+craft()
+  .id('bulk')
+  .batch({ size: 50, flushIntervalMs: 5000 })
+  .from(timer({ intervalMs: 1000 }))
+  .to(database({ operation: 'bulkInsert' }))
+```
+
+```ts
+// ❌ Bad: batch after from (will be staged for the next route, not this one)
+craft()
+  .id('bulk')
+  .from(timer({ intervalMs: 1000 }))
+  .batch({ size: 50 })
+  .to(database({ operation: 'bulkInsert' }))
+```
+
 ### Customizing Rule Severity
 
 You can change the severity or disable rules in your ESLint config:
@@ -107,6 +134,8 @@ export default [
     rules: {
       // Warn instead of error
       '@routecraft/routecraft/require-named-route': 'warn',
+      // Elevate to error
+      '@routecraft/routecraft/batch-before-from': 'error',
     },
   },
 ]
@@ -121,6 +150,7 @@ export default [
     plugins: { '@routecraft/routecraft': routecraftPlugin },
     rules: {
       '@routecraft/routecraft/require-named-route': 'off',
+      '@routecraft/routecraft/batch-before-from': 'off',
     },
   },
 ]
@@ -133,5 +163,9 @@ The plugin provides two pre-configured rule sets:
 - `routecraftPlugin.configs.recommended` - Recommended rules for all RouteCraft projects
 - `routecraftPlugin.configs.all` - All available rules enabled
 
-Both configs currently enable `require-named-route` as an error. More rules will be added in future releases.
+The recommended config enables:
+- `require-named-route` as error
+- `batch-before-from` as warn
+
+The all config enables both rules as errors.
 
