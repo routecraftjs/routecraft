@@ -646,15 +646,20 @@ export class RouteBuilder<Current = unknown> {
   /**
    * Filter data based on a predicate function.
    * Exchanges that don't match the predicate will be dropped.
+   * The predicate receives the full Exchange object, allowing filtering based on
+   * headers, body, or other exchange properties.
    *
-   * @param filter A function that returns true to keep the exchange, false to drop it
+   * @param filter A function that receives the Exchange and returns true to keep it, false to drop it
    * @returns A RouteBuilder with the same type
    * @example
-   * // Keep only numbers greater than 10
-   * .filter((num) => num > 10)
+   * // Filter based on body value
+   * .filter((exchange) => exchange.body > 10)
    *
-   * // Filter based on a complex condition
-   * .filter((user) => user.age >= 18 && user.status === 'active')
+   * // Filter based on body properties
+   * .filter((exchange) => exchange.body.age >= 18 && exchange.body.status === 'active')
+   *
+   * // Filter based on headers
+   * .filter((exchange) => exchange.headers['x-priority'] === 'high')
    */
   filter(
     filter: Filter<Current> | CallableFilter<Current>,
