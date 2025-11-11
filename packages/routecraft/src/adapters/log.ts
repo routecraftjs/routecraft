@@ -10,18 +10,18 @@ export class LogAdapter<T = unknown> implements Destination<T>, Tap<T> {
   ) {}
 
   send(exchange: Exchange<T>): Promise<void> {
-    // eslint-disable-next-line no-console
-    console.log(
-      this.formatter ? this.formatter(exchange) : this.baseExchange(exchange),
-    );
+    const logData = this.formatter
+      ? this.formatter(exchange)
+      : this.baseExchange(exchange);
+    exchange.logger.info(logData, "LogAdapter output");
     return Promise.resolve();
   }
 
   tap(exchange: Exchange<T>): Promise<void> {
-    // eslint-disable-next-line no-console
-    console.log(
-      this.formatter ? this.formatter(exchange) : this.baseExchange(exchange),
-    );
+    const logData = this.formatter
+      ? this.formatter(exchange)
+      : this.baseExchange(exchange);
+    exchange.logger.info(logData, "LogAdapter tap");
     return Promise.resolve();
   }
 

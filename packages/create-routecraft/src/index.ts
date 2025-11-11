@@ -73,7 +73,7 @@ const NODE_TEMPLATE = {
       JSON.stringify(
         {
           name: projectName,
-          version: "0.1.1",
+          version: "0.1.2",
           private: true,
           type: "module",
           scripts: {

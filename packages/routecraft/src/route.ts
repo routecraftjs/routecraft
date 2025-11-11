@@ -172,7 +172,7 @@ export class DefaultRoute implements Route {
    */
   async start(): Promise<void> {
     this.assertNotAborted();
-    this.logger.info(`Starting route "${this.definition.id}"`);
+    this.logger.debug(`Starting route "${this.definition.id}"`);
 
     // Start consuming messages from the internal processing queue
     this.consumer.register((message, headers) => {
@@ -203,7 +203,7 @@ export class DefaultRoute implements Route {
    * 2. Aborts the route's controller
    */
   stop(): void {
-    this.logger.info(`Stopping route "${this.definition.id}"`);
+    this.logger.debug(`Stopping route "${this.definition.id}"`);
     this.messageChannel.clear();
     this.abortController.abort("Route stop() called");
   }

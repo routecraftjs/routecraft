@@ -27,7 +27,7 @@ function hasPinoPretty(): boolean {
  * In production, uses standard JSON format for machine processing.
  */
 const base = pino({
-  level: process.env["LOG_LEVEL"] || "warn", // Support dynamic log levels
+  level: process.env["LOG_LEVEL"] || "info", // Default to info level for better visibility
   formatters: {
     level: (label) => ({ level: label.toUpperCase() }), // Ensure consistent casing
   },
@@ -38,8 +38,10 @@ const base = pino({
           target: "pino-pretty",
           options: {
             colorize: true,
-            ignore: "pid,hostname",
-            translateTime: "SYS:standard",
+            ignore: "pid,hostname,contextId,exchangeId,correlationId,routeId", // Hide verbose metadata in compact mode
+            translateTime: "HH:MM:ss.l", // Compact timestamp with milliseconds
+            // Compact format: [routeId] message (shows "context" if no routeId via formatter)
+            messageFormat: "[{routeId}] {msg}",
           },
         },
       }

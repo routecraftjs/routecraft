@@ -1,6 +1,6 @@
 {
   "name": "@routecraft/routecraft",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Type-safe integration and automation framework for TypeScript/Node.js",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -27,7 +27,8 @@
     "pino": "^10.1.0"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "registry": "http://localhost:4873/"
   },
   "devDependencies": {
     "arktype": "^2.1.25",

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { context } from "@routecraft/routecraft";
+import { context, logger } from "@routecraft/routecraft";
 import enrichExample from "./enrich-example.mjs";
 
 describe("Enrich Example", () => {
@@ -16,8 +16,8 @@ describe("Enrich Example", () => {
     // Create a context with the route builder
     const ctx = context().routes(enrichExample).build();
 
-    // Spy on console.log to capture the output
-    const logSpy = vi.spyOn(console, "log");
+    // Spy on logger.info to capture the output
+    const logSpy = vi.spyOn(logger, "info");
 
     // Start the context
     await ctx.start();
@@ -31,8 +31,10 @@ describe("Enrich Example", () => {
     // Verify the result
     expect(logSpy).toHaveBeenCalled();
 
-    // Get the last call arguments (the enriched exchange)
-    const result = logSpy.mock.calls[logSpy.mock.calls.length - 1][0];
+    // Get the last call arguments (the logged data)
+    // pino.info() is called with (object, message) format
+    const lastCall = logSpy.mock.calls[logSpy.mock.calls.length - 1];
+    const result = lastCall[0]; // First argument is the logged object
 
     expect(result).toBeDefined();
     expect(result.body).toHaveProperty("original");

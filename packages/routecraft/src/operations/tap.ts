@@ -39,7 +39,7 @@ export class TapStep<T = unknown> implements Step<Tap<T>> {
         suggestion:
           "Check the tap function for any errors or wrap it in a try/catch block.",
       });
-      exchangeCopy.logger.info(
+      exchangeCopy.logger.warn(
         err,
         `Error tapping exchange ${exchangeCopy.id}`,
       );
