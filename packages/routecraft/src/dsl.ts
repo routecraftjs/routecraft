@@ -145,28 +145,39 @@ export function log<T = unknown>(
  * synchronously with single consumer semantics (Apache Camel style).
  *
  * @template T The type of data this adapter processes
- * @param endpoint The name of the direct endpoint to use
+ * @param endpoint The name of the direct endpoint (string) or a function that
+ *                 returns the endpoint name based on the exchange
  * @param options Optional configuration for the direct adapter
  * @returns A DirectAdapter instance
  *
  * @example
  * ```typescript
- * // Producer route sends to a direct endpoint
- * const producerRoute = craft()
- *   .from(source)
- *   .to(direct('my-endpoint'))
+ * // Static endpoint
+ * craft()
+ *   .from(simple({ orderId: '123' }))
+ *   .to(direct('order-processing'))
  *
- * // Consumer route reads from the same endpoint
- * const consumerRoute = craft()
- *   .from(direct('my-endpoint'))
+ * // Dynamic endpoint based on exchange body
+ * craft()
+ *   .from(simple({ orderId: '123', priority: 'high' }))
+ *   .to(direct((ex) => `orders-${ex.body.priority}`))
+ *
+ * // Dynamic endpoint based on headers
+ * craft()
+ *   .from(simple({ data: 'test' }))
+ *   .to(direct((ex) => {
+ *     const region = ex.headers['region'] || 'default';
+ *     return `processing-${region}`;
+ *   }))
+ *
+ * // Consumer route (must use static endpoint)
+ * craft()
+ *   .from(direct('order-processing'))
  *   .to(destination)
- *
- * // Register both routes with the context
- * context().routes([producerRoute, consumerRoute]);
  * ```
  */
 export function direct<T = unknown>(
-  endpoint: string,
+  endpoint: string | ((exchange: Exchange<T>) => string),
   options?: Partial<DirectAdapterOptions>,
 ): DirectAdapter<T> {
   return new DirectAdapter<T>(endpoint, options);

@@ -128,10 +128,10 @@ Options:
 ### direct
 
 ```ts
-direct<T>(endpoint: string, options?: Partial<DirectAdapterOptions>): DirectAdapter<T>
+direct<T>(endpoint: string | ((exchange: Exchange<T>) => string), options?: Partial<DirectAdapterOptions>): DirectAdapter<T>
 ```
 
-Enable synchronous inter-route communication with single consumer semantics. Perfect for composable route architectures where you need request-response patterns.
+Enable synchronous inter-route communication with single consumer semantics. Perfect for composable route architectures where you need request-response patterns. Supports dynamic endpoint names based on exchange data for destinations.
 
 ```ts
 // Producer route that sends to direct endpoint
@@ -161,6 +161,32 @@ craft()
   .process(saveOrder)
   .transform(() => ({ status: 'created', orderId: '12345' }))
   // Response goes back to HTTP client automatically
+
+// Dynamic endpoint based on message content
+craft()
+  .id('dynamic-router')
+  .from(source)
+  .to(direct((ex) => `handler-${ex.body.type}`))
+
+// Route messages to different handlers based on priority
+craft()
+  .id('priority-router')
+  .from(source)
+  .to(direct((ex) => {
+    const priority = ex.headers['priority'] || 'normal';
+    return `processing-${priority}`;
+  }))
+
+// Consumer routes (static endpoints required)
+craft()
+  .id('high-priority-handler')
+  .from(direct('processing-high'))
+  .to(urgentProcessor)
+
+craft()
+  .id('normal-priority-handler')
+  .from(direct('processing-normal'))
+  .to(standardProcessor)
 ```
 
 **Options:**
@@ -172,6 +198,8 @@ craft()
 - **Request-response**: Perfect for HTTP APIs and composable route architectures
 - **Apache Camel style**: Similar to Camel's `direct:` component
 - **Automatic endpoint name sanitization**: Special chars become dashes
+- **Dynamic routing**: Endpoint names can be determined at runtime using exchange data (destination only)
+- **Static sources**: Source endpoints (`.from()`) must use static strings; dynamic functions only work with `.to()` and `.tap()`
 
 **Perfect for:**
 - Breaking large routes into smaller, composable pieces
