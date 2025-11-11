@@ -67,7 +67,7 @@ export class DirectAdapter<T = unknown>
     handler: (message: T, headers?: ExchangeHeaders) => Promise<Exchange>,
     abortController: AbortController,
   ): Promise<void> {
-    context.logger.info(
+    context.logger.debug(
       `Setting up subscription for direct endpoint "${this.sanitizedEndpoint}"`,
     );
     const channel = this.directChannel(context);

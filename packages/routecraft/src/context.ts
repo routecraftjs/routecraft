@@ -326,10 +326,10 @@ export class CraftContext {
    * ```
    */
   async start(): Promise<void> {
-    this.logger.info("Starting Routecraft context");
+    this.logger.debug("Starting Routecraft context");
     this.emit("contextStarting", {});
 
-    this.logger.info("Starting all routes");
+    this.logger.debug("Starting all routes");
     this.emit("contextStarted", {});
     return Promise.allSettled(
       this.routes.map(async (route) => {
@@ -356,10 +356,10 @@ export class CraftContext {
         // Check if all routes completed successfully
         const allFulfilled = results.every((r) => r.status === "fulfilled");
         if (allFulfilled) {
-          this.logger.info("All routes have completed. Stopping context...");
+          this.logger.debug("All routes have completed. Stopping context...");
           return this.stop();
         } else {
-          this.logger.info(
+          this.logger.debug(
             "Some routes ended or failed, but the context remains active.\n" +
               "Call context.stop() or let other indefinite routes continue.",
           );
@@ -394,7 +394,7 @@ export class CraftContext {
    * ```
    */
   async stop(): Promise<void> {
-    this.logger.info("Stopping Routecraft context");
+    this.logger.debug("Stopping Routecraft context");
     this.emit("contextStopping", { reason: undefined });
 
     // Abort all route controllers (route emits handled by route abort listener)
@@ -404,7 +404,7 @@ export class CraftContext {
       controller?.abort("context.stop()");
     }
 
-    this.logger.info("Routecraft context stopped");
+    this.logger.debug("Routecraft context stopped");
     this.emit("contextStopped", {});
   }
 }

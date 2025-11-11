@@ -12,7 +12,7 @@ export class SimpleAdapter<T = unknown> implements Source<T> {
     handler: (message: T, headers?: ExchangeHeaders) => Promise<Exchange>,
     abortController: AbortController,
   ): Promise<void> {
-    context.logger.info("Producing messages");
+    context.logger.debug("Producing messages");
     let result;
     try {
       result = await this.producer();

@@ -1,5 +1,5 @@
 import { expect, test, vi } from "vitest";
-import { context } from "@routecraft/routecraft";
+import { context, logger } from "@routecraft/routecraft";
 import routes from "./direct-adapter.mjs";
 
 /**
@@ -8,9 +8,7 @@ import routes from "./direct-adapter.mjs";
  * @expectedResult Should send and receive messages between directs
  */
 test("receives 'Hello, World!' on my-direct-1 and logs it", async () => {
-  const logSpy = vi
-    .spyOn(console, "log")
-    .mockImplementation(() => undefined as unknown as void);
+  const logSpy = vi.spyOn(logger, "info");
 
   const testContext = context().routes(routes).build();
 
@@ -23,6 +21,7 @@ test("receives 'Hello, World!' on my-direct-1 and logs it", async () => {
   await execution;
 
   // Collect logged exchanges (LogAdapter logs base exchange: { id, body, headers })
+  // pino.info() is called with (object, message) format - first arg is the data
   const calls = logSpy.mock.calls.map((c) => c[0]) as Array<
     { headers?: Record<string, unknown>; body?: unknown } | unknown
   >;
@@ -59,6 +58,4 @@ test("receives 'Hello, World!' on my-direct-1 and logs it", async () => {
   expect(logsForChannel2Route.length > 0).toBe(true);
   const bodies2 = logsForChannel2Route.map((x) => x.body);
   expect(bodies2).toContain("Hello, World! 2");
-
-  logSpy.mockRestore();
 });

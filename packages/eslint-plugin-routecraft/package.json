@@ -1,6 +1,6 @@
 {
   "name": "@routecraft/eslint-plugin-routecraft",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -22,7 +22,8 @@
     "vitest": "^4.0.6"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "registry": "http://localhost:4873/"
   },
   "repository": "https://github.com/routecraftjs/routecraft",
   "keywords": [

@@ -5,7 +5,7 @@ export class NoopAdapter<T = unknown> implements Destination<T> {
   readonly adapterId = "routecraft.adapter.noop";
 
   send(exchange: Exchange<T>): Promise<void> {
-    exchange.logger.info({ id: exchange.id }, "Discarding message");
+    exchange.logger.debug({ id: exchange.id }, "Discarding message");
     return Promise.resolve();
   }
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { context, type CraftContext } from "@routecraft/routecraft";
+import { context, type CraftContext, logger } from "@routecraft/routecraft";
 import routes from "./hello-world.mjs";
 
 describe("Hello World Route", () => {
@@ -42,8 +42,8 @@ describe("Hello World Route", () => {
       url: "https://jsonplaceholder.typicode.com/users/1",
     });
 
-    // Spy on console.log to capture the output
-    const logSpy = vi.spyOn(console, "log");
+    // Spy on logger.info to capture the output
+    const logSpy = vi.spyOn(logger, "info");
 
     // Create context with imported route
     testContext = context().routes(routes).build();
@@ -69,8 +69,10 @@ describe("Hello World Route", () => {
     // Verify the log was called (route completed)
     expect(logSpy).toHaveBeenCalled();
 
-    // Get the last call arguments (the transformed exchange)
-    const result = logSpy.mock.calls[logSpy.mock.calls.length - 1][0];
+    // Get the last call arguments (the logged data and message)
+    // pino.info() is called with (object, message) format
+    const lastCall = logSpy.mock.calls[logSpy.mock.calls.length - 1];
+    const result = lastCall[0]; // First argument is the logged object
 
     // Assert the greeting message
     expect(result).toBeDefined();
