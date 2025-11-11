@@ -14,6 +14,7 @@ export type RCCode =
   | "RC5007"
   | "RC5008"
   | "RC5009"
+  | "RC5010"
   | "RC9901";
 
 export type RCMeta = {
@@ -115,6 +116,13 @@ export const RC: Record<RCCode, RCMeta> = {
     message: "Validation failed",
     suggestion: "Adjust the schema or coerce input",
     docs: `${DOCS_BASE}#rc-5009`,
+  },
+  RC5010: {
+    category: "Adapter",
+    message: "Dynamic endpoints cannot be used as source",
+    suggestion:
+      'Direct adapter with function endpoint can only be used with .to() or .tap(), not .from(). Use a static string endpoint for .from(direct("endpoint")).',
+    docs: `${DOCS_BASE}#rc-5010`,
   },
   RC9901: {
     category: "Runtime",

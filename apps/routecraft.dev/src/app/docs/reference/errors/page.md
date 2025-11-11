@@ -23,6 +23,7 @@ Each error includes a code, message, a brief suggestion, and underlyting error. 
 | [RC5007](#rc-5007) | Adapter | Tap step threw |
 | [RC5008](#rc-5008) | Adapter | Filter predicate threw |
 | [RC5009](#rc-5009) | Adapter | Validation failed |
+| [RC5010](#rc-5010) | Adapter | Dynamic endpoints cannot be used as source |
 | [RC9901](#rc-9901) | Runtime | Unknown error |
 
 ---
@@ -194,6 +195,32 @@ Schema failed or validator threw.
 
 **Suggestion**  
 Adjust the schema or coerce input.
+
+## RC5010
+Dynamic endpoints cannot be used as source
+
+**Why it happens**  
+A direct adapter with a function endpoint was used with `.from()`. Dynamic endpoints require an exchange to evaluate, but sources don't have incoming exchanges.
+
+**Suggestion**  
+Use a static string endpoint for `.from(direct('endpoint'))`. Dynamic endpoints only work with `.to()` and `.tap()`.
+
+**Example**
+```ts
+// ✅ Correct: static endpoint for source
+craft()
+  .from(direct('my-endpoint'))
+  .to(destination)
+
+// ✅ Correct: dynamic endpoint for destination
+craft()
+  .from(source)
+  .to(direct((ex) => `endpoint-${ex.body.type}`))
+
+// ❌ Wrong: dynamic endpoint for source
+craft()
+  .from(direct((ex) => 'endpoint')) // throws RC5010
+```
 
 ## RC9901
 Unknown error
