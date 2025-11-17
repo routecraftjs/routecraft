@@ -612,6 +612,36 @@ describe("Route Behavior", () => {
   });
 
   /**
+   * @case Verifies that the default aggregator collects bodies into an array
+   * @preconditions A split operation followed by aggregate without arguments
+   * @expectedResult The default aggregator collects all exchange bodies into an array
+   */
+  test("default aggregate collects bodies into array", async () => {
+    const spyDest = vi.fn();
+
+    testContext = context()
+      .routes(
+        craft()
+          .id("default-aggregate-test")
+          .from(simple([[1, 2, 3]]))
+          .split<number>()
+          .process((exchange) => ({
+            ...exchange,
+            body: exchange.body * 2,
+          }))
+          .aggregate<number[]>() // No aggregator provided - use default
+          .to(spyDest),
+      )
+      .build();
+
+    await testContext.start();
+
+    expect(spyDest).toHaveBeenCalledTimes(1);
+    const receivedBodies = spyDest.mock.calls.map((call) => call[0].body);
+    expect(receivedBodies).toEqual([[2, 4, 6]]);
+  });
+
+  /**
    * @case Verifies that split exchanges maintain custom headers from original exchange
    * @preconditions A message with custom headers to split
    * @expectedResult All split exchanges should contain the original custom headers

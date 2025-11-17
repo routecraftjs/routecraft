@@ -17,6 +17,10 @@ on:
   release:
     types: [created]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   setup:
     runs-on: ubuntu-latest
@@ -230,6 +234,9 @@ jobs:
           path: "**/dist"
           key: build-${{ github.sha }}
 
+      - name: Fetch tags
+        run: git fetch --force --tags
+
       - name: Install CLI globally
         working-directory: ./packages/cli
         run: |
@@ -239,6 +246,84 @@ jobs:
       - name: Run all examples
         working-directory: ./examples
         run: craft run hello-world.mjs
+
+  publish-canary:
+    needs: [build, cli-test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: publish-canary-${{ github.ref }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Use Node.js from .nvmrc
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: ".nvmrc"
+          cache: "pnpm"
+
+      - name: Restore node_modules
+        uses: actions/cache@v4
+        with:
+          path: "**/node_modules"
+          key: ${{ runner.os }}-modules-${{ hashFiles('**/pnpm-lock.yaml') }}
+
+      - name: Restore build artifacts
+        uses: actions/cache@v4
+        with:
+          path: "**/dist"
+          key: build-${{ github.sha }}
+
+      - name: Determine canary version
+        id: canary_version
+        run: |
+          set -eo pipefail
+
+          BASE_VERSION=$(node -p "require('./packages/routecraft/package.json').version")
+          echo "Base version: $BASE_VERSION"
+
+          # Query npm for the highest canary build number for this base version
+          LATEST_CANARY=$(npm view @routecraft/routecraft versions --json 2>/dev/null | \
+            jq -r ".[] | select(startswith(\"${BASE_VERSION}-canary.\"))" | \
+            sed -n "s/^${BASE_VERSION}-canary\.\([0-9]*\)$/\1/p" | \
+            sort -nr | head -n1)
+
+          if [[ -n "$LATEST_CANARY" ]]; then
+            BUILD_NUMBER=$((LATEST_CANARY + 1))
+            echo "Latest canary build: $LATEST_CANARY, next: $BUILD_NUMBER"
+          else
+            BUILD_NUMBER=1
+            echo "No canary found for $BASE_VERSION, starting at 1"
+          fi
+
+          CANARY_VERSION="${BASE_VERSION}-canary.${BUILD_NUMBER}"
+          echo "Computed canary version: $CANARY_VERSION"
+
+          {
+            echo "canary_version=$CANARY_VERSION"
+            echo "base_version=$BASE_VERSION"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Update package versions
+        run: |
+          pnpm -r --filter "./packages/*" version "${{ steps.canary_version.outputs.canary_version }}" --no-git-tag-version --allow-same-version
+
+      - name: Setup .npmrc
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > ~/.npmrc
+
+      - name: Publish canary to npm
+        run: pnpm -r publish --tag canary --no-git-checks --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   approve:
     name: approve

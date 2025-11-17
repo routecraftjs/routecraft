@@ -106,6 +106,12 @@ craft()
 Use the ESLint rule `@routecraft/routecraft/batch-before-from` to ensure `batch()` is placed **before** `.from()`. See [Linting Rules](/docs/reference/linting#batch-before-from).
 {% /callout %}
 
+{% callout type="warning" title="Incompatible with synchronous sources" %}
+The `batch()` operation only works with asynchronous message sources like `timer()`. It **cannot** be used with `direct()` sources because direct endpoints are synchronous and blocking—each sender waits for the consumer to fully process a message before the next can be sent, preventing message accumulation.
+
+If you need to combine multiple messages from split branches, use the `aggregate()` operation instead.
+{% /callout %}
+
 ## Wrapper operations
 
 Wrapper operations modify the behavior of the next operation in the chain. They create a wrapper around the subsequent step to add cross-cutting concerns.
@@ -440,12 +446,20 @@ Similar to Apache Camel's Splitter EIP, the split function receives the message 
 ### aggregate
 
 ```ts
-aggregate<R>(fn: Aggregator<Current, R> | CallableAggregator<Current, R>): RouteBuilder<R>
+aggregate<R>(fn?: Aggregator<Current, R> | CallableAggregator<Current, R>): RouteBuilder<R>
 ```
 
 Combine multiple exchanges into a single result. Useful after `split` to recombine processed items.
 
+If no aggregator is provided, exchange bodies are automatically collected into an array.
+
 ```ts
+// Automatically collect bodies into an array
+.split()
+.process((exchange) => ({ ...exchange, body: exchange.body * 2 }))
+.aggregate() // Returns array of processed items
+
+// Custom aggregation logic
 .aggregate((items) => ({
   totalCount: items.length,
   processedAt: new Date().toISOString(),

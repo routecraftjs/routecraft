@@ -27,8 +27,7 @@
     "pino": "^10.1.0"
   },
   "publishConfig": {
-    "access": "public",
-    "registry": "http://localhost:4873/"
+    "access": "public"
   },
   "devDependencies": {
     "arktype": "^2.1.25",

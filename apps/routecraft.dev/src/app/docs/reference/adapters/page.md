@@ -207,6 +207,9 @@ craft()
 - Synchronous business logic orchestration
 - Testing individual route segments in isolation
 
+**Limitations:**
+- **Not compatible with `batch()`**: Because `direct()` is synchronous and blocking, each sender waits for the consumer route to fully process the message before the next message can be sent. This prevents the batch consumer from accumulating multiple messages. If you need to batch messages from multiple sources or split branches, use the `aggregate()` operation instead.
+
 ### fetch
 
 ```ts

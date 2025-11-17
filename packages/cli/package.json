@@ -27,8 +27,7 @@
     "dotenv": "^17.2.3"
   },
   "publishConfig": {
-    "access": "public",
-    "registry": "http://localhost:4873/"
+    "access": "public"
   },
   "repository": "https://github.com/routecraftjs/routecraft",
   "bin": {

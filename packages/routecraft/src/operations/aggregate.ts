@@ -1,9 +1,35 @@
 import { type Adapter, type Step } from "../types.ts";
 import { type Exchange, OperationType, HeadersKeys } from "../exchange.ts";
+import { error as rcError } from "../error.ts";
 
 export type CallableAggregator<T = unknown, R = T> = (
   exchanges: Exchange<T>[],
 ) => Promise<Exchange<R>> | Exchange<R>;
+
+/**
+ * Default aggregator that collects exchange bodies into an array.
+ * Preserves the metadata from the first exchange and collects all body values.
+ *
+ * @template T The type of items in the exchanges
+ * @param exchanges - Array of exchanges to aggregate
+ * @returns Single exchange with array of bodies
+ */
+export const defaultAggregate = <T>(
+  exchanges: Exchange<T>[],
+): Exchange<T[]> => {
+  if (exchanges.length === 0) {
+    throw rcError("RC2002", undefined, {
+      message: "Aggregator received empty array of exchanges",
+      suggestion:
+        "Ensure at least one exchange is available before aggregation",
+    });
+  }
+
+  return {
+    ...exchanges[0],
+    body: exchanges.map((x) => x.body),
+  };
+};
 
 export interface Aggregator<T = unknown, R = unknown> extends Adapter {
   aggregate: CallableAggregator<T, R>;
