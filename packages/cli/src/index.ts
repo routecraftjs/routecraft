@@ -18,7 +18,7 @@ const program = new Command();
 program
   .name("craft")
   .description("A modern routing framework for TypeScript")
-  .version("0.1.2")
+  .version("0.2.0")
   .showSuggestionAfterError()
   .showHelpAfterError()
   .exitOverride((err) => {

@@ -313,8 +313,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Update package versions
-        run: |
-          pnpm -r --filter "./packages/*" version "${{ steps.canary_version.outputs.canary_version }}" --no-git-tag-version --allow-same-version
+        run: pnpm run version:set "${{ steps.canary_version.outputs.canary_version }}"
 
       - name: Setup .npmrc
         run: |

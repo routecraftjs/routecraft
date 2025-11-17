@@ -1,6 +1,6 @@
 {
   "name": "@routecraft/routecraft",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Type-safe integration and automation framework for TypeScript/Node.js",
   "type": "module",
   "main": "./dist/index.cjs",

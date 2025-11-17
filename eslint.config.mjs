@@ -16,6 +16,7 @@ export default [
       "pnpm-lock.yaml",
       "**/.next/**",
       "apps/routecraft.dev/**",
+      ".github/scripts/**",
     ],
   },
   {

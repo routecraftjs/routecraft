@@ -1,6 +1,6 @@
 {
   "name": "@routecraft/workspace",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.17.1",
@@ -14,6 +14,7 @@
     "limit:size": "size-limit",
     "prepare": "husky",
     "build": "pnpm -r run build",
+    "version:set": "node .github/scripts/set-version.mjs",
     "publish:all": "pnpm run build && pnpm -r publish --no-git-checks",
     "pack:all": "pnpm run build && rm -rf dist && mkdir dist && pnpm -r exec pnpm pack --pack-destination ../../dist",
     "craft": "node packages/cli/dist/index.js",
