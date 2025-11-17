@@ -30,6 +30,7 @@ export { type Splitter, type CallableSplitter } from "./operations/split.ts";
 export {
   type Aggregator,
   type CallableAggregator,
+  defaultAggregate,
 } from "./operations/aggregate.ts";
 
 export {

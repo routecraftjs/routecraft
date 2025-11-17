@@ -37,6 +37,7 @@ import {
   type Aggregator,
   type CallableAggregator,
   AggregateStep,
+  defaultAggregate,
 } from "./operations/aggregate.ts";
 import {
   type Transformer,
@@ -512,25 +513,38 @@ export class RouteBuilder<Current = unknown> {
   /**
    * Aggregate multiple items into a single result.
    * This is often used after a split operation to collect and combine the results.
+   * If no aggregator is provided, items are collected into an array.
    *
    * @template ResultType The resulting type after aggregation
-   * @param aggregator A function that combines multiple items into a single result
+   * @param aggregator Optional function that combines multiple items into a single result
    * @returns A RouteBuilder with the new aggregated type
    * @example
-   * // Aggregate an array of numbers into a sum
-   * .split() // Working with individual numbers
-   * .process((exchange) => ({ ...exchange, body: exchange.body * 2 })) // Double each number
+   * // Automatically collect items into an array
+   * .split()
+   * .process((exchange) => ({ ...exchange, body: exchange.body * 2 }))
+   * .aggregate() // Returns array of processed items
+   *
+   * // Custom aggregation logic
    * .aggregate<number>((exchanges) => {
    *   const sum = exchanges.reduce((acc, ex) => acc + ex.body, 0);
    *   return { body: sum, headers: exchanges[0].headers };
    * })
    */
-  aggregate<ResultType>(
-    aggregator:
+  aggregate<ResultType = Current[]>(
+    aggregator?:
       | Aggregator<Current, ResultType>
       | CallableAggregator<Current, ResultType>,
   ): RouteBuilder<ResultType> {
-    this.addStep(new AggregateStep<Current, ResultType>(aggregator));
+    if (!aggregator) {
+      // Use default aggregator which collects bodies into an array
+      this.addStep(
+        new AggregateStep<Current, ResultType>(
+          defaultAggregate as CallableAggregator<Current, ResultType>,
+        ),
+      );
+    } else {
+      this.addStep(new AggregateStep<Current, ResultType>(aggregator));
+    }
     return this.withType<ResultType>();
   }
 
