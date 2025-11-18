@@ -7,16 +7,36 @@ export type CallableAggregator<T = unknown, R = T> = (
 ) => Promise<Exchange<R>> | Exchange<R>;
 
 /**
+ * Helper type to extract the element type from an array type, or return the type itself.
+ */
+type ExtractArrayElement<T> = T extends Array<infer U> ? U : T;
+
+/**
+ * Helper type to determine the result type after flattening.
+ * If T is an array type, extract its element type; otherwise use T itself.
+ * The result is always an array of the flattened element type.
+ */
+type FlattenedAggregateResult<T> = T extends Array<infer U> ? U[] : T[];
+
+/**
  * Default aggregator that collects exchange bodies into an array.
- * Preserves the metadata from the first exchange and collects all body values.
+ * If any body is an array, all arrays are flattened ONE LEVEL and combined with scalar values.
+ * Preserves the metadata from the first exchange.
  *
  * @template T The type of items in the exchanges
  * @param exchanges - Array of exchanges to aggregate
- * @returns Single exchange with array of bodies
+ * @returns Single exchange with array of bodies (flattened if any body was an array)
+ *
+ * @example
+ * // All scalar values: [1, 2, 3]
+ * // Mixed arrays and scalars: [1, 2, 3, 4, 5] (arrays flattened, scalars added)
+ * // All arrays: [1, 2, 3, 4, 5] (all arrays flattened)
+ * // Empty arrays are flattened away: [[], 1, []] → [1]
+ * // Only one level deep: [[[1]], 2] → [[1], 2]
  */
 export const defaultAggregate = <T>(
   exchanges: Exchange<T>[],
-): Exchange<T[]> => {
+): Exchange<FlattenedAggregateResult<T>> => {
   if (exchanges.length === 0) {
     throw rcError("RC2002", undefined, {
       message: "Aggregator received empty array of exchanges",
@@ -25,9 +45,29 @@ export const defaultAggregate = <T>(
     });
   }
 
+  // Check if any body is an array
+  const hasArrayBody = exchanges.some((x) => Array.isArray(x.body));
+
+  if (hasArrayBody) {
+    // Flatten arrays and combine with scalar values
+    const flattened: ExtractArrayElement<T>[] = [];
+    for (const exchange of exchanges) {
+      if (Array.isArray(exchange.body)) {
+        flattened.push(...(exchange.body as ExtractArrayElement<T>[]));
+      } else {
+        flattened.push(exchange.body as ExtractArrayElement<T>);
+      }
+    }
+    return {
+      ...exchanges[0],
+      body: flattened as FlattenedAggregateResult<T>,
+    };
+  }
+
+  // No arrays found, return array of bodies (original behavior)
   return {
     ...exchanges[0],
-    body: exchanges.map((x) => x.body),
+    body: exchanges.map((x) => x.body) as FlattenedAggregateResult<T>,
   };
 };
 
