@@ -8,7 +8,10 @@ import {
   logger,
   log,
   noop,
+  defaultAggregate,
+  DefaultExchange,
 } from "@routecraft/routecraft";
+import type { Exchange } from "@routecraft/routecraft";
 
 const logSpy = {
   warn: vi.fn(),
@@ -639,6 +642,69 @@ describe("Route Behavior", () => {
     expect(spyDest).toHaveBeenCalledTimes(1);
     const receivedBodies = spyDest.mock.calls.map((call) => call[0].body);
     expect(receivedBodies).toEqual([[2, 4, 6]]);
+  });
+
+  /**
+   * @case Verifies that the default aggregator flattens arrays when any body is an array
+   * @preconditions Multiple exchanges where some bodies are arrays
+   * @expectedResult Arrays are flattened and combined with scalar values into a single array
+   */
+  test("default aggregate flattens arrays when any body is an array", () => {
+    // Test the aggregator function directly
+    const directTestContext = context().build();
+    const exchange1 = new DefaultExchange(directTestContext, { body: 1 });
+    const exchange2 = new DefaultExchange(directTestContext, { body: [2, 3] });
+    const exchange3 = new DefaultExchange(directTestContext, { body: 4 });
+    const exchange4 = new DefaultExchange(directTestContext, {
+      body: [5, 6, 7],
+    });
+
+    const result = defaultAggregate([
+      exchange1,
+      exchange2,
+      exchange3,
+      exchange4,
+    ] as Exchange<number | number[]>[]);
+
+    expect(result.body).toEqual([1, 2, 3, 4, 5, 6, 7]);
+  });
+
+  /**
+   * @case Verifies that the default aggregator flattens multiple arrays
+   * @preconditions Multiple exchanges where all bodies are arrays
+   * @expectedResult All arrays are flattened into a single combined array
+   */
+  test("default aggregate flattens multiple arrays", () => {
+    const directTestContext = context().build();
+    const exchange1 = new DefaultExchange(directTestContext, { body: [1, 2] });
+    const exchange2 = new DefaultExchange(directTestContext, { body: [3, 4] });
+    const exchange3 = new DefaultExchange(directTestContext, { body: [5, 6] });
+
+    const result = defaultAggregate([exchange1, exchange2, exchange3]);
+
+    expect(result.body).toEqual([1, 2, 3, 4, 5, 6]);
+  });
+
+  /**
+   * @case Verifies that the default aggregator handles single array with scalar values
+   * @preconditions One array and multiple scalar values
+   * @expectedResult Array is flattened and scalar values are added to the result
+   */
+  test("default aggregate handles single array with scalars", () => {
+    const directTestContext = context().build();
+    const exchange1 = new DefaultExchange(directTestContext, {
+      body: [1, 2, 3],
+    });
+    const exchange2 = new DefaultExchange(directTestContext, { body: 4 });
+    const exchange3 = new DefaultExchange(directTestContext, { body: 5 });
+
+    const result = defaultAggregate([
+      exchange1,
+      exchange2,
+      exchange3,
+    ] as Exchange<number[] | number>[]);
+
+    expect(result.body).toEqual([1, 2, 3, 4, 5]);
   });
 
   /**
