@@ -30,7 +30,7 @@
     "access": "public"
   },
   "devDependencies": {
-    "arktype": "^2.1.25",
+    "arktype": "^2.1.27",
     "pino-pretty": "^13.1.2"
   },
   "repository": "https://github.com/routecraftjs/routecraft",
