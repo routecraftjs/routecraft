@@ -10,17 +10,21 @@ import blurCyanImage from '@/images/blur-cyan.png'
 import blurIndigoImage from '@/images/blur-indigo.png'
 
 const codeLanguage = 'typescript'
-const routeCode = `import { craft, simple, log } from '@routecraft/routecraft'
+const routeCode = `import { craft, simple, fetch, log } from '@routecraft/routecraft'
 
 export default craft()
-  .id('hero-hello')
-  .from(simple('Hello, RouteCraft!'))
-  .transform((msg) => msg.toUpperCase())
-  .to(log()) // HELLO, ROUTECRAFT!`
+  .id('hello-world')
+  .from(simple({ userId: 1 }))
+  .enrich(fetch({
+    method: 'GET',
+    url: (ex) => \`https://jsonplaceholder.typicode.com/users/\${ex.body.userId}\`,
+  }))
+  .transform((result) => \`Hello, \${result.body.name}!\`)
+  .to(log())`
 
 type CodeTab = { name: string; code: string }
 const tabs: CodeTab[] = [
-  { name: 'src/routes/hello-world.mjs', code: routeCode },
+  { name: 'routes/hello-world.route.ts', code: routeCode },
   { name: 'package.json', code: '' },
 ]
 
