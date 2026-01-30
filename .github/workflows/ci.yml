@@ -317,7 +317,11 @@ jobs:
         run: pnpm run version:set "${{ steps.canary_version.outputs.canary_version }}"
 
       - name: Publish canary to npm
-        run: pnpm -r publish --tag canary --no-git-checks --access public --provenance
+        run: |
+          for pkg in packages/routecraft packages/cli packages/create-routecraft packages/eslint-plugin-routecraft; do
+            echo "Publishing $pkg..."
+            npm publish "./$pkg" --tag canary --access public --provenance
+          done
 
   approve:
     name: approve
@@ -403,7 +407,11 @@ jobs:
           pnpm version $RELEASE_VERSION --no-git-tag-version --allow-same-version
 
       - name: Publish packages to npm
-        run: pnpm -r publish --no-git-checks --access public --provenance
+        run: |
+          for pkg in packages/routecraft packages/cli packages/create-routecraft packages/eslint-plugin-routecraft; do
+            echo "Publishing $pkg..."
+            npm publish "./$pkg" --access public --provenance
+          done
 
   deploy-pages:
     needs: [build, cli-test]
