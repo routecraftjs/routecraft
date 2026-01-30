@@ -9,9 +9,9 @@ export interface Splitter<T = unknown, R = unknown> extends Adapter {
   split: CallableSplitter<T, R>;
 }
 
-export class SplitStep<T = unknown, R = unknown>
-  implements Step<Splitter<T, R>>
-{
+export class SplitStep<T = unknown, R = unknown> implements Step<
+  Splitter<T, R>
+> {
   operation: OperationType = OperationType.SPLIT;
   adapter: Splitter<T, R>;
 

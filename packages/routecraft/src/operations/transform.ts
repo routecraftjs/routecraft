@@ -16,9 +16,9 @@ export interface Transformer<T = unknown, R = T> extends Adapter {
   transform: CallableTransformer<T, R>;
 }
 
-export class TransformStep<T = unknown, R = T>
-  implements Step<Transformer<T, R>>
-{
+export class TransformStep<T = unknown, R = T> implements Step<
+  Transformer<T, R>
+> {
   operation: OperationType = OperationType.TRANSFORM;
   adapter: Transformer<T, R>;
 

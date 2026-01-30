@@ -70,9 +70,9 @@ export const defaultEnrichAggregator = <T = unknown, R = unknown>(
 /**
  * Step that enriches the exchange with additional data
  */
-export class EnrichStep<T = unknown, R = unknown>
-  implements Step<Enricher<T, R>>
-{
+export class EnrichStep<T = unknown, R = unknown> implements Step<
+  Enricher<T, R>
+> {
   operation: OperationType = OperationType.ENRICH;
   adapter: Enricher<T, R>;
   aggregator: EnrichAggregator<T, R> | undefined;

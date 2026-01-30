@@ -75,9 +75,9 @@ export interface Aggregator<T = unknown, R = unknown> extends Adapter {
   aggregate: CallableAggregator<T, R>;
 }
 
-export class AggregateStep<T = unknown, R = unknown>
-  implements Step<Aggregator<T, R>>
-{
+export class AggregateStep<T = unknown, R = unknown> implements Step<
+  Aggregator<T, R>
+> {
   operation: OperationType = OperationType.AGGREGATE;
   adapter: Aggregator<T, R>;
 

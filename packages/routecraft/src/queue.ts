@@ -7,9 +7,9 @@ import { type Exchange } from "./exchange.ts";
  * messages from the source to the consumer. It's intentionally
  * simpler than the public message channel used by ChannelAdapter.
  */
-export class InMemoryProcessingQueue<T = unknown>
-  implements ProcessingQueue<T>
-{
+export class InMemoryProcessingQueue<
+  T = unknown,
+> implements ProcessingQueue<T> {
   private handler: ((message: T) => Promise<Exchange>) | undefined;
   private buffer: T[] = [];
 
