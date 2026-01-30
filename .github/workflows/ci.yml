@@ -269,6 +269,7 @@ jobs:
         with:
           node-version-file: ".nvmrc"
           cache: "pnpm"
+          registry-url: "https://registry.npmjs.org"
 
       - name: Restore node_modules
         uses: actions/cache@v4
@@ -314,9 +315,6 @@ jobs:
 
       - name: Update package versions
         run: pnpm run version:set "${{ steps.canary_version.outputs.canary_version }}"
-
-      - name: Setup npm registry
-        run: npm config set registry https://registry.npmjs.org/
 
       - name: Publish canary to npm
         run: pnpm -r publish --tag canary --no-git-checks --access public --provenance
@@ -380,6 +378,7 @@ jobs:
         with:
           node-version-file: ".nvmrc"
           cache: "pnpm"
+          registry-url: "https://registry.npmjs.org"
 
       - name: Restore node_modules
         uses: actions/cache@v4
@@ -402,9 +401,6 @@ jobs:
             exit 1
           fi
           pnpm version $RELEASE_VERSION --no-git-tag-version --allow-same-version
-
-      - name: Setup npm registry
-        run: npm config set registry https://registry.npmjs.org/
 
       - name: Publish packages to npm
         run: pnpm -r publish --no-git-checks --access public --provenance
