@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
 
@@ -41,7 +41,7 @@ jobs:
 
       - name: Checkout PR branch for lockfile update
         if: ${{ github.event_name == 'pull_request_target' && github.actor == 'dependabot[bot]' }}
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.head.ref }}
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -84,7 +84,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
 
@@ -115,7 +115,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
 
@@ -149,7 +149,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
 
@@ -209,7 +209,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
 
@@ -259,7 +259,7 @@ jobs:
       id-token: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -372,7 +372,7 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
