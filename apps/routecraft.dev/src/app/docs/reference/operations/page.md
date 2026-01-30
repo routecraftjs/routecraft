@@ -23,9 +23,10 @@ DSL operators with signatures and examples. {% .lead %}
 | [`from`](#from) | Source | Define the source of data for the route |
 | [`retry`](#retry) | Wrapper | Retry the next operation on failure |
 | [`throttle`](#throttle) | Wrapper | Rate limit the next operation |
+| [`cache`](#cache) | Wrapper | Cache and reuse results of the next operation |
 | [`sample`](#sample) | Transform | Take every Nth exchange or time-based sampling |
 | [`debounce`](#debounce) | Transform | Only pass exchanges after a quiet period |
-| [`timeout`](#timeout) | Wrapper | Add timeout to the next operation |
+| [`timeout`](#timeout) | Wrapper | Cancel the next operation if it exceeds a duration |
 | [`delay`](#delay) | Wrapper | Add delay before the next operation |
 | [`onError`](#onError) | Wrapper | Handle errors from the next operation |
 | [`transform`](#transform) | Transform | Transform data using a function (body only) |
@@ -35,6 +36,7 @@ DSL operators with signatures and examples. {% .lead %}
 | [`enrich`](#enrich) | Transform | Add additional data to current data |
 | [`filter`](#filter) | Flow Control | Filter data based on predicate |
 | [`validate`](#validate) | Flow Control | Validate data against schema |
+| [`dedupe`](#dedupe) | Flow Control | Suppress duplicate exchanges based on a key |
 | [`choice`](#choice) | Flow Control | Route to different paths based on conditions |
 | [`split`](#split) | Flow Control | Split arrays into individual items |
 | [`aggregate`](#aggregate) | Flow Control | Combine multiple items into single result |
@@ -51,7 +53,8 @@ DSL operators with signatures and examples. {% .lead %}
 
 - **Wrapper operations** (e.g. `retry`, `throttle`, `timeout`, `delay`, `onError`) wrap the **next operation only**.
   - Place them immediately before the operation they should affect.
-  - Multiple wrappers can be stacked; they will all apply to the next single operation.
+  - Multiple wrappers can be stacked; they apply in **outside-in order** (first wrapper listed is the outermost).
+  - Example: `.retry().timeout().process()` means retry wraps timeout wraps process—a timeout triggers a retry.
 
 ## Route operations
 
@@ -116,10 +119,66 @@ If you need to combine multiple messages from split branches, use the `aggregate
 
 Wrapper operations modify the behavior of the next operation in the chain. They create a wrapper around the subsequent step to add cross-cutting concerns.
 
+### Chaining wrappers
+
+Multiple wrappers can be chained together. They apply in **outside-in order**—the first wrapper listed is the outermost, wrapping all subsequent wrappers and the operation.
+
+```ts
+// retry wraps timeout wraps process
+.retry({ maxAttempts: 3 })
+.timeout(5000)
+.process(op)
+```
+
+The **order matters** and determines behavior:
+
+```ts
+// Each retry attempt gets a fresh 5s timeout
+craft()
+  .id('retry-wraps-timeout')
+  .from(source)
+  .retry({ maxAttempts: 3 })
+  .timeout(5000)
+  .process(slowOp)
+  .to(destination)
+
+// Total 30s budget shared across all retry attempts
+craft()
+  .id('timeout-wraps-retry')
+  .from(source)
+  .timeout(30000)
+  .retry({ maxAttempts: 3 })
+  .process(flakyOp)
+  .to(destination)
+
+// Fallback on any error, including timeout
+craft()
+  .id('error-wraps-timeout')
+  .from(source)
+  .onError((err, ex) => ({ ...ex, body: { fallback: true } }))
+  .timeout(5000)
+  .process(slowOp)
+  .to(destination)
+
+// Rate limit with retry on failure
+craft()
+  .id('throttle-with-retry')
+  .from(source)
+  .retry({ maxAttempts: 3 })
+  .throttle({ requestsPerSecond: 10 })
+  .process(apiCall)
+  .to(destination)
+```
+
 ### retry {% badge %}wip{% /badge %}
 
 ```ts
-retry(attempts: number, options?: { backoffMs?: number; exponential?: boolean }): RouteBuilder<Current>
+retry(options?: {
+  maxAttempts?: number;
+  backoffMs?: number;
+  exponential?: boolean;
+  retryOn?: (error: Error) => boolean;
+}): RouteBuilder<Current>
 ```
 
 Retry the next operation on failure. The retry logic wraps whatever operation comes next.
@@ -128,15 +187,58 @@ Retry the next operation on failure. The retry logic wraps whatever operation co
 craft()
   .id('resilient-processor')
   .from(source)
-  .retry(3, { backoffMs: 1000, exponential: true })
+  .retry({ maxAttempts: 3, backoffMs: 1000, exponential: true })
   .transform(unreliableTransformation) // This transform will be retried
   .to(destination)
 ```
 
 **Parameters:**
-- `attempts` - Maximum retry attempts
+- `maxAttempts` - Maximum retry attempts (default: 3)
 - `backoffMs` - Base delay between retries (default: 1000ms)
 - `exponential` - Use exponential backoff (default: false)
+- `retryOn` - Predicate to determine if an error should trigger a retry (see default behavior below)
+
+#### Default retry behavior
+
+By default, `retry` checks the error's `retryable` property:
+
+```ts
+// Default retryOn logic
+(error) => {
+  if (error instanceof RouteCraftError && error.retryable === false) {
+    return false;
+  }
+  return true;
+}
+```
+
+This means:
+- Errors with `retryable: false` are **not retried** (e.g., validation errors, timeout errors)
+- Errors with `retryable: true` or no `retryable` property **are retried**
+- Unknown/third-party errors **are retried** (optimistic default)
+
+See the [errors reference](/docs/reference/errors) for which errors are retryable by default.
+
+Override with a custom predicate when needed:
+
+```ts
+// Retry everything, including non-retryable errors
+craft()
+  .id('retry-all')
+  .from(source)
+  .retry({ maxAttempts: 3, retryOn: () => true })
+  .process(operation)
+  .to(destination)
+
+// Retry only timeout errors
+craft()
+  .id('retry-timeout-only')
+  .from(source)
+  .retry({ maxAttempts: 3, retryOn: (e) => e.name === 'TimeoutError' })
+  .timeout(5000)
+  .process(slowOp)
+  .to(destination)
+```
 
 ### throttle {% badge %}wip{% /badge %}
 
@@ -171,6 +273,8 @@ craft()
   .process(slowOperation) // Throws TimeoutError if slowOperation exceeds 5 seconds
   .to(destination)
 ```
+
+See [chaining wrappers](#chaining-wrappers) for combining with `retry` or `onError`.
 
 ### delay {% badge %}wip{% /badge %}
 
@@ -208,6 +312,37 @@ craft()
   .transform(riskyOperation) // Errors from this transform will be handled
   .to(destination)
 ```
+
+### cache {% badge %}wip{% /badge %}
+
+```ts
+cache(keyFn: (exchange: Exchange<Current>) => string, options?: CacheOptions): RouteBuilder<Current>
+```
+
+Cache and reuse the result of an expensive operation. When a cached value exists for the derived key, it replaces the body and the wrapped operation is skipped. Only successful executions are cached.
+
+**Mental model:** A wrapper around the next operation. Similar to `retry`, but driven by duplicate input rather than failure.
+
+```ts
+craft()
+  .id('llm-processor')
+  .from(source)
+  .cache(e => e.headers[HeadersKeys.FILE_CONTENT_HASH] as string)
+  .process(expensiveOperation) // Result is cached per content hash
+  .to(destination)
+```
+
+**Parameters:**
+- `keyFn` - Function to derive the cache key from the exchange
+
+**Options:**
+- `ttl` - Time to live in milliseconds. After expiry, the next execution recomputes the value
+- `scope` - What to cache: `'body'` (default) or `'exchange'` (body plus selected headers)
+- `namespace` - Version string for cache invalidation when logic changes. Changing the namespace invalidates old entries without clearing the store
+
+{% callout type="note" title="cache vs dedupe" %}
+Use `cache` when duplicates should return the same result. Use `dedupe` when duplicates should do nothing. See the [dedupe](#dedupe) operation for suppressing duplicate exchanges entirely.
+{% /callout %}
 
 ## Source operations
 
@@ -388,6 +523,45 @@ const userSchema = z.object({
 
 .validate(userSchema)
 ```
+
+### dedupe {% badge %}wip{% /badge %}
+
+```ts
+dedupe(keyFn: (exchange: Exchange<Current>) => string, options?: DedupeOptions): RouteBuilder<Current>
+```
+
+Suppress duplicate exchanges based on a key. Duplicate exchanges do not continue downstream - no result is returned and no side effects occur.
+
+**Mental model:** A persistent, stateful filter. Similar to `filter`, but maintains state across runs to track which keys have been processed.
+
+```ts
+craft()
+  .id('file-processor')
+  .from(fileWatcher())
+  .dedupe(e => e.headers[HeadersKeys.FILE_CONTENT_HASH] as string) // Skip files already processed
+  .process(expensiveProcessing)
+  .to(destination)
+```
+
+**Parameters:**
+- `keyFn` - Function to derive the deduplication key from the exchange
+
+**Semantics:**
+- Key is reserved immediately (single-flight behavior)
+- If the key is already reserved or committed, the exchange is dropped
+- Key is committed only after the full route completes successfully
+- On failure, the reservation is released or expires
+
+**Purpose:**
+- Skip unchanged files
+- Prevent duplicate work
+- Prevent duplicate side effects
+
+{% callout type="note" title="dedupe vs filter vs cache" %}
+`filter` is stateless - each exchange is evaluated independently based on a predicate. `dedupe` is stateful across runs - duplicates are dropped entirely. `cache` is also stateful across runs - duplicates return the cached result instead of being dropped.
+
+Use `dedupe` when duplicates should do nothing. Use `cache` when duplicates should return the same result.
+{% /callout %}
 
 ### choice {% badge %}wip{% /badge %}
 
