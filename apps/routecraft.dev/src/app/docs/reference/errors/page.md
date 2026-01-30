@@ -4,27 +4,31 @@ title: Errors
 
 Short, actionable RC error codes used across RouteCraft. {% .lead %}
 
-Each error includes a code, message, a brief suggestion, and underlyting error. Codes follow RCcnnn where c is category and nnn is the number.
+Each error includes a code, message, a brief suggestion, and underlying error. Codes follow RCcnnn where c is category and nnn is the number.
 
-| Code | Category | Message |
-| --- | --- | --- |
-| [RC1001](#rc-1001) | Definition | Route definition failed validation |
-| [RC1002](#rc-1002) | Definition | Duplicate route id |
-| [RC2001](#rc-2001) | DSL | Invalid operation type |
-| [RC2002](#rc-2002) | DSL | Missing from step |
-| [RC3001](#rc-3001) | Lifecycle | Route failed to start |
-| [RC3002](#rc-3002) | Lifecycle | Context failed to start |
-| [RC5001](#rc-5001) | Adapter | Source adapter threw |
-| [RC5002](#rc-5002) | Adapter | Processing step threw |
-| [RC5003](#rc-5003) | Adapter | Destination adapter threw |
-| [RC5004](#rc-5004) | Adapter | Split operation failed |
-| [RC5005](#rc-5005) | Adapter | Aggregation operation failed |
-| [RC5006](#rc-5006) | Adapter | Transform function threw |
-| [RC5007](#rc-5007) | Adapter | Tap step threw |
-| [RC5008](#rc-5008) | Adapter | Filter predicate threw |
-| [RC5009](#rc-5009) | Adapter | Validation failed |
-| [RC5010](#rc-5010) | Adapter | Dynamic endpoints cannot be used as source |
-| [RC9901](#rc-9901) | Runtime | Unknown error |
+## Retryable errors
+
+The `retryable` property indicates whether the [`retry`](/docs/reference/operations#retry) wrapper will retry this error by default. Errors marked as non-retryable typically represent permanent failures (bad input, configuration errors) that won't succeed on retry.
+
+| Code | Category | Message | Retryable |
+| --- | --- | --- | :---: |
+| [RC1001](#rc-1001) | Definition | Route definition failed validation | No |
+| [RC1002](#rc-1002) | Definition | Duplicate route id | No |
+| [RC2001](#rc-2001) | DSL | Invalid operation type | No |
+| [RC2002](#rc-2002) | DSL | Missing from step | No |
+| [RC3001](#rc-3001) | Lifecycle | Route failed to start | No |
+| [RC3002](#rc-3002) | Lifecycle | Context failed to start | No |
+| [RC5001](#rc-5001) | Adapter | Source adapter threw | Yes |
+| [RC5002](#rc-5002) | Adapter | Processing step threw | Yes |
+| [RC5003](#rc-5003) | Adapter | Destination adapter threw | Yes |
+| [RC5004](#rc-5004) | Adapter | Split operation failed | No |
+| [RC5005](#rc-5005) | Adapter | Aggregation operation failed | No |
+| [RC5006](#rc-5006) | Adapter | Transform function threw | No |
+| [RC5007](#rc-5007) | Adapter | Tap step threw | Yes |
+| [RC5008](#rc-5008) | Adapter | Filter predicate threw | No |
+| [RC5009](#rc-5009) | Adapter | Validation failed | No |
+| [RC5010](#rc-5010) | Adapter | Dynamic endpoints cannot be used as source | No |
+| [RC9901](#rc-9901) | Runtime | Unknown error | Yes |
 
 ---
 
