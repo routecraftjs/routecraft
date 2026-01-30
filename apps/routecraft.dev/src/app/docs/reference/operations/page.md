@@ -161,14 +161,14 @@ craft()
 timeout(timeoutMs: number): RouteBuilder<Current>
 ```
 
-Add a timeout to the next operation. If the operation takes longer than specified, it will be cancelled.
+Wrap the next operation with a timeout. If the operation does not complete within the specified duration, it will be cancelled and a `TimeoutError` will be thrown.
 
 ```ts
 craft()
   .id('timeout-protected')
   .from(source)
   .timeout(5000)
-  .process(slowOperation) // Operation will timeout after 5 seconds
+  .process(slowOperation) // Throws TimeoutError if slowOperation exceeds 5 seconds
   .to(destination)
 ```
 
