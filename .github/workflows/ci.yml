@@ -315,14 +315,11 @@ jobs:
       - name: Update package versions
         run: pnpm run version:set "${{ steps.canary_version.outputs.canary_version }}"
 
-      - name: Setup .npmrc
-        run: |
-          echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > ~/.npmrc
+      - name: Setup npm registry
+        run: npm config set registry https://registry.npmjs.org/
 
       - name: Publish canary to npm
-        run: pnpm -r publish --tag canary --no-git-checks --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: pnpm -r publish --tag canary --no-git-checks --access public --provenance
 
   approve:
     name: approve
@@ -370,8 +367,8 @@ jobs:
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
     permissions:
+      id-token: write
       contents: read
-      packages: write
     steps:
       - uses: actions/checkout@v5
 
@@ -406,14 +403,11 @@ jobs:
           fi
           pnpm version $RELEASE_VERSION --no-git-tag-version --allow-same-version
 
-      - name: Setup .npmrc
-        run: |
-          echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > ~/.npmrc
+      - name: Setup npm registry
+        run: npm config set registry https://registry.npmjs.org/
 
       - name: Publish packages to npm
-        run: pnpm -r publish --no-git-checks --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: pnpm -r publish --no-git-checks --access public --provenance
 
   deploy-pages:
     needs: [build, cli-test]
@@ -426,9 +420,9 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     permissions:
+      id-token: write
       contents: read
       pages: write
-      id-token: write
     steps:
       - name: Download docs export artifact
         uses: actions/download-artifact@v4
