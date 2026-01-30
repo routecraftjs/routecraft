@@ -2,84 +2,74 @@
 title: Getting started
 ---
 
-Build small, focused routes with a fluent DSL and run them anywhere. {% .lead %}
+Get up and running with RouteCraft in 60 seconds. {% .lead %}
 
-## What is RouteCraft?
+## Play Online
 
-RouteCraft is an open source automation and integration framework for TypeScript. It is built for developers who prefer writing code instead of wiring together boxes in a UI. Workflows should feel like part of your codebase, simple, readable, and under version control.
+Try RouteCraft in your browser without installing anything:
 
-Unlike black box automation tools, RouteCraft is transparent. Every route is just TypeScript, so you can test it, commit it, and run it anywhere from your laptop to the cloud.
+{% quick-links %}
 
-RouteCraft is AI native. That means three things:
-1. You can call AI models and agents inside your routes as first class steps.
-2. You can expose a route to an agent as a tool or as an MCP server.
-3. The DSL is predictable and repeatable, which makes it easy for generative AI to create and maintain routes you can trust and verify.
+{% quick-link title="Open on CodeSandbox" icon="installation" href="https://codesandbox.io/p/sandbox/github/routecraftjs/craft-playground?file=%2Froutes%2Fhello-world.route.ts" description="Play around with RouteCraft in your browser." /%}
 
-In short, RouteCraft combines the reliability of code with the flexibility of automation. It makes AI a collaborator rather than a mystery box.
+{% /quick-links %}
 
----
+## Create a new project
 
-## Core Concepts
+{% code-tabs %}
+{% code-tab label="npm" language="bash" %}
+```bash
+npm create routecraft@latest my-app
+```
+{% /code-tab %}
 
-Before diving into installation and examples, it helps to understand the core building blocks of RouteCraft. These concepts give you a high-level map of how everything fits together.
+{% code-tab label="yarn" language="bash" %}
+```bash
+yarn create routecraft my-app
+```
+{% /code-tab %}
 
-### Routes
+{% code-tab label="pnpm" language="bash" %}
+```bash
+pnpm create routecraft@latest my-app
+```
+{% /code-tab %}
 
-A **route** is the heart of RouteCraft. It connects a **source** to one or more **steps** (operations, processors, or adapters), and eventually to a **destination**. Think of a route as a small, focused workflow, like “fetch data from an API, transform it, then log the result.”
+{% code-tab label="bun" language="bash" %}
+```bash
+bunx create-routecraft my-app
+```
+{% /code-tab %}
 
-### The DSL
+{% /code-tabs %}
 
-RouteCraft uses a **fluent DSL (Domain-Specific Language)** to define routes.  
-It reads like a pipeline:
+## Start the development server
 
-```ts
-craft()
-  .from(source)
-  .transform(fn)
-  .to(destination)
+```bash
+cd my-app
+npm run dev
 ```
 
-This makes routes easy to write, easy to read, and easy to extend.
+You should see your routes start and log output in your terminal.
 
-### Operations
+## Your first route
 
-Operations are the **steps inside a route**. They can transform data, filter messages, enrich with external calls, or split and aggregate streams. They are the verbs of the DSL, like `transform`, `filter`, `enrich`, and `to`.
+The starter project includes a hello world route at `routes/hello-world.route.ts` (shown above). It demonstrates the core flow:
 
-### Adapters
+1. **Start with data** - `.from(simple({ userId: 1 }))` creates an exchange with a user ID
+2. **Enrich from an API** - `.enrich(fetch(...))` calls an external API and merges the result
+3. **Transform** - `.transform(...)` shapes the data into a greeting
+4. **Output** - `.to(log())` logs the final result to the console
 
-Adapters are **connectors** that let your routes interact with the outside world.  
-They come in different types:
+This pattern (source, transform, destination) is the foundation of every RouteCraft route.
 
-- **Sources**: where data enters (HTTP requests, timers, files).
-- **Processors**: steps that modify or enrich the exchange.
-- **Destinations**: side effects, where the data ends up (logs, databases, APIs).
-- **Taps**: like logging or metrics, without changing the flow.
+## Next steps
 
-Adapters make RouteCraft extendable. You can use built-ins or create your own.
+{% quick-links %}
 
-### Exchange
+{% quick-link title="Introduction" icon="lightbulb" href="/docs/introduction" description="Learn what RouteCraft is and understand the core concepts." /%}
+{% quick-link title="Installation" icon="installation" href="/docs/introduction/installation" description="System requirements, production builds, and manual setup." /%}
+{% quick-link title="Routes" icon="plugins" href="/docs/introduction/routes" description="Author small, focused routes using the DSL." /%}
+{% quick-link title="Operations" icon="presets" href="/docs/reference/operations" description="All the steps you can use in your routes." /%}
 
-Every step in a route passes along an **exchange**. An exchange carries the **body** (the main data) and **headers** (metadata like IDs, params, or context). It’s the message envelope that moves through your route from start to finish.
-
-### Context
-
-The **RouteCraft context** is the runtime that manages your routes.  
-It knows how to:
-
-- Load routes.
-- Start and stop them.
-- Handle hot reload in development.
-- Run a route once for jobs or tests.
-
-You can run a context with the CLI, or embed it programmatically in your own app.
-
-### How it all fits
-
-- **Routes** are the workflows.
-- **DSL** is how you describe them.
-- **Operations** are the steps.
-- **Adapters** connect to the outside world.
-- **Exchange** is the data that flows through.
-- **Context** is the engine that runs everything.
-
-Together, these concepts make RouteCraft a **developer-first automation and integration framework** that is simple to start with but powerful to extend.
+{% /quick-links %}
