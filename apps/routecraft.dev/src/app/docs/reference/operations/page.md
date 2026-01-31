@@ -316,7 +316,7 @@ craft()
 ### cache {% badge %}wip{% /badge %}
 
 ```ts
-cache(keyFn: (exchange: Exchange<Current>) => string, options?: CacheOptions): RouteBuilder<Current>
+cache(options?: CacheOptions): RouteBuilder<Current>
 ```
 
 Cache and reuse the result of an expensive operation. When a cached value exists for the derived key, it replaces the body and the wrapped operation is skipped. Only successful executions are cached.
@@ -324,25 +324,43 @@ Cache and reuse the result of an expensive operation. When a cached value exists
 **Mental model:** A wrapper around the next operation. Similar to `retry`, but driven by duplicate input rather than failure.
 
 ```ts
+// Default: key derived from body hash
 craft()
-  .id('llm-processor')
+  .id('document-processor')
   .from(source)
-  .cache(e => e.headers[HeadersKeys.FILE_CONTENT_HASH] as string)
-  .process(expensiveOperation) // Result is cached per content hash
+  .cache()
+  .process(expensiveOperation) // Result is cached per body content
+  .to(destination)
+
+// With TTL (key still derived from body)
+craft()
+  .id('document-processor')
+  .from(source)
+  .cache({ ttl: 3600000 })
+  .process(expensiveOperation) // Cached for 1 hour
+  .to(destination)
+
+// Explicit key function for stable identity
+craft()
+  .id('file-processor')
+  .from(fileWatcher())
+  .cache({ key: e => e.headers[HeadersKeys.FILE_CONTENT_HASH] as string })
+  .process(expensiveOperation) // Result is cached per file content hash
+  .to(destination)
+
+// Both key and TTL
+craft()
+  .id('file-processor')
+  .from(fileWatcher())
+  .cache({ key: e => e.headers[HeadersKeys.FILE_CONTENT_HASH] as string, ttl: 3600000 })
+  .process(expensiveOperation) // Cached for 1 hour per file content hash
   .to(destination)
 ```
 
-**Parameters:**
-- `keyFn` - Function to derive the cache key from the exchange
-
 **Options:**
+- `key` (optional) - Function to derive the cache key from the exchange. If omitted, a key is derived by hashing the exchange body. See [default key derivation](#default-key-derivation).
 - `ttl` - Time to live in milliseconds. After expiry, the next execution recomputes the value
 - `scope` - What to cache: `'body'` (default) or `'exchange'` (body plus selected headers)
-- `namespace` - Version string for cache invalidation when logic changes. Changing the namespace invalidates old entries without clearing the store
-
-{% callout type="note" title="cache vs dedupe" %}
-Use `cache` when duplicates should return the same result. Use `dedupe` when duplicates should do nothing. See the [dedupe](#dedupe) operation for suppressing duplicate exchanges entirely.
-{% /callout %}
 
 ## Source operations
 
@@ -527,7 +545,7 @@ const userSchema = z.object({
 ### dedupe {% badge %}wip{% /badge %}
 
 ```ts
-dedupe(keyFn: (exchange: Exchange<Current>) => string, options?: DedupeOptions): RouteBuilder<Current>
+dedupe(options?: DedupeOptions): RouteBuilder<Current>
 ```
 
 Suppress duplicate exchanges based on a key. Duplicate exchanges do not continue downstream - no result is returned and no side effects occur.
@@ -535,16 +553,25 @@ Suppress duplicate exchanges based on a key. Duplicate exchanges do not continue
 **Mental model:** A persistent, stateful filter. Similar to `filter`, but maintains state across runs to track which keys have been processed.
 
 ```ts
+// Default: key derived from body hash
+craft()
+  .id('event-processor')
+  .from(eventSource())
+  .dedupe() // Skip duplicate events based on body content
+  .process(handleEvent)
+  .to(destination)
+
+// Explicit key function for stable identity
 craft()
   .id('file-processor')
   .from(fileWatcher())
-  .dedupe(e => e.headers[HeadersKeys.FILE_CONTENT_HASH] as string) // Skip files already processed
-  .process(expensiveProcessing)
+  .dedupe({ key: e => e.headers[HeadersKeys.FILE_CONTENT_HASH] as string })
+  .process(expensiveProcessing) // Skip files already processed
   .to(destination)
 ```
 
-**Parameters:**
-- `keyFn` - Function to derive the deduplication key from the exchange
+**Options:**
+- `key` (optional) - Function to derive the deduplication key from the exchange. If omitted, a key is derived by hashing the exchange body. See [default key derivation](#default-key-derivation).
 
 **Semantics:**
 - Key is reserved immediately (single-flight behavior)
@@ -561,6 +588,39 @@ craft()
 `filter` is stateless - each exchange is evaluated independently based on a predicate. `dedupe` is stateful across runs - duplicates are dropped entirely. `cache` is also stateful across runs - duplicates return the cached result instead of being dropped.
 
 Use `dedupe` when duplicates should do nothing. Use `cache` when duplicates should return the same result.
+{% /callout %}
+
+### Default key derivation
+
+When `dedupe` or `cache` is called without a `keyFn`, a key is derived automatically by hashing the exchange body:
+
+```
+key = sha256(encode(body))
+```
+
+The key is computed from the body at the moment the operation executes. If the body changes at different points in the route, the derived key will differ.
+
+**Supported body types:**
+
+| Type | Encoding |
+|------|----------|
+| `Buffer`, `Uint8Array`, `ArrayBuffer` | Hash raw bytes directly |
+| `string` | UTF-8 encode, then hash |
+| Object or array | Canonicalize (sort keys lexicographically at every level), then hash as JSON |
+| Scalars (`string`, `boolean`, `null`, finite `number`) | Hash as JSON |
+
+**Unsupported types (will throw an error):**
+
+- `NaN`, `Infinity`, `-Infinity`
+- Functions, symbols, `BigInt`
+- `Date` or class instances (unless pre-converted to JSON-safe primitives)
+- Circular references
+- Streams (must be materialized to bytes/string/JSON first, or provide a `keyFn`)
+
+When the body contains an unsupported type, a `RouteCraftError` is thrown indicating that a `keyFn` is required.
+
+{% callout type="note" title="When to provide a keyFn" %}
+Use an explicit `keyFn` when you need stable identity across body changes. For example, if the body is enriched or transformed before `dedupe`/`cache`, but identity should be based on a header set earlier by an adapter.
 {% /callout %}
 
 ### choice {% badge %}wip{% /badge %}
