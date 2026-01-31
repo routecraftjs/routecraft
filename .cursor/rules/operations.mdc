@@ -61,11 +61,11 @@ This document maps RouteCraft operations to Apache Camel Enterprise Integration 
   - Camel: To (endpoint producer)
   - Notes: Side effects/output only. Keep idempotency and error surfacing clear.
 
-{% badge %}wip{% /badge %} `.dedupe(keyFn)`
-  - Notes: Stateful filter that suppresses duplicate exchanges based on a derived key. Duplicates are dropped entirely - no downstream processing, no result returned. Key is reserved immediately (single-flight), committed on route success, released on failure. Use for skipping unchanged files or preventing duplicate side effects.
+{% badge %}wip{% /badge %} `.dedupe(options?)`
+  - Notes: Stateful filter that suppresses duplicate exchanges based on a derived key. Duplicates are dropped entirely - no downstream processing, no result returned. Key is reserved immediately (single-flight), committed on route success, released on failure. Options: `{ key?: (e) => string }`. If key is omitted, derived by hashing the exchange body (sha256). Use for skipping unchanged files or preventing duplicate side effects.
 
-{% badge %}wip{% /badge %} `.cache(keyFn)`
-  - Notes: Wrapper operation that caches the result of the next operation. If a cached value exists, it replaces the body and the wrapped step is skipped. Only successful executions are cached. Use for expensive operations like LLM calls where duplicates should return the same result.
+{% badge %}wip{% /badge %} `.cache(options?)`
+  - Notes: Wrapper operation that caches the result of the next operation. If a cached value exists, it replaces the body and the wrapped step is skipped. Only successful executions are cached. Options: `{ key?: (e) => string, ttl?: number, scope?: 'body' | 'exchange' }`. If key is omitted, derived by hashing the exchange body (sha256) before executing the wrapped step. Use for expensive operations where duplicates should return the same result.
 
 ### dedupe vs cache distinction
 
