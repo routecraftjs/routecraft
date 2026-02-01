@@ -175,6 +175,9 @@ importers:
 
   examples:
     devDependencies:
+      '@routecraft/cli':
+        specifier: workspace:^0.2.0
+        version: link:../packages/cli
       '@routecraft/routecraft':
         specifier: workspace:^0.2.0
         version: link:../packages/routecraft

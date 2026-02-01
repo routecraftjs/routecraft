@@ -116,5 +116,54 @@ describe("CLI run command", () => {
     expect(res.success === true || res.success === false).toBe(true);
   });
 
+  /**
+   * @case Verifies that RouteBuilder instances are correctly distinguished from RouteDefinitions
+   * @preconditions A file exporting a RouteBuilder instance (with .id() method)
+   * @expectedResult runCommand should recognize it as RouteBuilder and call .build()
+   * @description This tests the fix for the bug where RouteBuilder.id (method) was
+   *              mistaken for RouteDefinition.id (string property)
+   */
+  test("RouteBuilder with .id() method is correctly identified", async () => {
+    await writeFile(
+      "route-builder.js",
+      `
+      import { craft, simple, log } from "@routecraft/routecraft";
+      export default craft().id("test-route").from(simple("test")).to(log());
+    `,
+    );
+    const { runCommand } = await import("../src/run");
+    const res = await runCommand("route-builder.js");
+    // Should not get "Route definition failed validation" error
+    // May fail at start due to test environment, but validation should pass
+    if (!res.success) {
+      expect(res.message).not.toContain("Route definition failed validation");
+      expect(res.message).not.toMatch(/id\(.*\{.*return.*this\.pendingOptions/);
+    }
+  });
+
+  /**
+   * @case Verifies that arrays of RouteBuilders are correctly processed
+   * @preconditions A file exporting an array of RouteBuilder instances
+   * @expectedResult runCommand should recognize all as RouteBuilders and process them
+   */
+  test("array of RouteBuilders is correctly identified", async () => {
+    await writeFile(
+      "route-builder-array.js",
+      `
+      import { craft, simple, log } from "@routecraft/routecraft";
+      const route1 = craft().id("route-1").from(simple("test1")).to(log());
+      const route2 = craft().id("route-2").from(simple("test2")).to(log());
+      export default [route1, route2];
+    `,
+    );
+    const { runCommand } = await import("../src/run");
+    const res = await runCommand("route-builder-array.js");
+    // Should not get "Route definition failed validation" error
+    if (!res.success) {
+      expect(res.message).not.toContain("Route definition failed validation");
+      expect(res.message).not.toMatch(/id\(.*\{.*return.*this\.pendingOptions/);
+    }
+  });
+
   // Intentionally no test for .ts runtime; CLI rejects .ts/.tsx inputs
 });

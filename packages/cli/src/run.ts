@@ -81,9 +81,6 @@ function configureRoutes(
   defaultExport: unknown,
 ): RunResult {
   // Type guards
-  const isRouteDefinition = (obj: unknown): obj is RouteDefinition =>
-    typeof obj === "object" && obj !== null && "id" in obj;
-
   const isRouteBuilder = (
     obj: unknown,
   ): obj is InstanceType<typeof RouteBuilder> =>
@@ -91,25 +88,40 @@ function configureRoutes(
     obj !== null &&
     typeof (obj as { build?: unknown }).build === "function";
 
+  const isRouteDefinition = (obj: unknown): obj is RouteDefinition =>
+    typeof obj === "object" &&
+    obj !== null &&
+    "id" in obj &&
+    typeof obj.id === "string" && // Ensure id is a string, not a method
+    "source" in obj &&
+    "steps" in obj &&
+    "consumer" in obj;
+
   if (!defaultExport) {
     logger.error("No default export found. Expected routes as default export.");
     return { success: false, code: 1, message: "No default export found" };
   }
 
-  // Handle single route or RouteBuilder
-  if (isRouteDefinition(defaultExport) || isRouteBuilder(defaultExport)) {
-    contextBuilder.routes(
-      defaultExport as RouteDefinition | InstanceType<typeof RouteBuilder>,
-    );
+  // Handle single RouteBuilder or RouteDefinition
+  // Check RouteBuilder first since it also has an 'id' property (as a method)
+  if (isRouteBuilder(defaultExport)) {
+    contextBuilder.routes(defaultExport);
+    logger.info("Loaded single RouteBuilder from default export");
+    return { success: true };
+  }
+
+  if (isRouteDefinition(defaultExport)) {
+    contextBuilder.routes(defaultExport);
     logger.info("Loaded single route from default export");
     return { success: true };
   }
 
   // Handle array of routes
   if (Array.isArray(defaultExport)) {
+    // Check each item, prioritizing RouteBuilder check
     if (
       !defaultExport.every(
-        (item) => isRouteDefinition(item) || isRouteBuilder(item),
+        (item) => isRouteBuilder(item) || isRouteDefinition(item),
       )
     ) {
       logger.error(
