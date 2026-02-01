@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "test": "vitest",
+    "start": "craft run index.mjs",
     "test:coverage": "vitest --coverage"
   },
   "devDependencies": {
