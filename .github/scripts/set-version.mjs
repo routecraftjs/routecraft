@@ -57,7 +57,8 @@ function updatePackage(pkgPath) {
             const depValue = pkg[depType][depName];
             // Only update if it's a workspace protocol
             if (depValue.startsWith("workspace:")) {
-              pkg[depType][depName] = `workspace:^${version}`;
+              // Replace workspace protocol with real version for npm publish compatibility
+              pkg[depType][depName] = `^${version}`;
             }
           }
         }
