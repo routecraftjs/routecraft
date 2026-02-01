@@ -9,6 +9,7 @@
     "test:coverage": "vitest --coverage"
   },
   "devDependencies": {
+    "@routecraft/cli": "workspace:^0.2.0",
     "@routecraft/routecraft": "workspace:^0.2.0",
     "tsx": "^4.21.0",
     "vitest": "^4.0.18"
