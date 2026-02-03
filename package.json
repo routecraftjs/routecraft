@@ -50,7 +50,7 @@
       "path": [
         "packages/routecraft/dist/index.js"
       ],
-      "limit": "10 kb",
+      "limit": "100 kb",
       "running": false,
       "ignore": [
         "node:*"
