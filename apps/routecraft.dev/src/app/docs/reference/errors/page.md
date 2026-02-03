@@ -28,6 +28,7 @@ The `retryable` property indicates whether the [`retry`](/docs/reference/operati
 | [RC5008](#rc-5008) | Adapter | Filter predicate threw | No |
 | [RC5009](#rc-5009) | Adapter | Validation failed | No |
 | [RC5010](#rc-5010) | Adapter | Dynamic endpoints cannot be used as source | No |
+| [RC5011](#rc-5011) | Adapter | Direct route schema validation failed | No |
 | [RC9901](#rc-9901) | Runtime | Unknown error | Yes |
 
 ---
@@ -224,6 +225,46 @@ craft()
 // ❌ Wrong: dynamic endpoint for source
 craft()
   .from(direct((ex) => 'endpoint')) // throws RC5010
+```
+
+## RC5011
+Direct route schema validation failed
+
+**Why it happens**  
+Message body or headers don't match the schema defined in direct adapter options.
+
+**Suggestion**  
+Check message structure matches schema. For Zod: use `.strip()` (default) to remove extras, `.passthrough()` to keep them, or `.strict()` to reject them.
+
+**Example**
+```ts
+import { z } from 'zod'
+
+// Default: strips extra fields
+craft()
+  .from(direct('endpoint', {
+    schema: z.object({ id: z.string() })
+  }))
+  .to(handler)
+// Pass: { id: '123' }
+// Pass: { id: '123', extra: 'field' } (extra removed)
+
+// Strict: rejects extra fields
+craft()
+  .from(direct('endpoint', {
+    schema: z.object({ id: z.string() }).strict()
+  }))
+  .to(handler)
+// Pass: { id: '123' }
+// Fail: { id: '123', extra: 'field' } ← RC5011
+
+// Passthrough: keeps extra fields
+craft()
+  .from(direct('endpoint', {
+    schema: z.object({ id: z.string() }).passthrough()
+  }))
+  .to(handler)
+// Pass: { id: '123', extra: 'field' } (extra preserved)
 ```
 
 ## RC9901

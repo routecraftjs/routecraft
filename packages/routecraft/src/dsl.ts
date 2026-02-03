@@ -152,28 +152,63 @@ export function log<T = unknown>(
  *
  * @example
  * ```typescript
- * // Static endpoint
- * craft()
- *   .from(simple({ orderId: '123' }))
- *   .to(direct('order-processing'))
+ * // Basic validation with Zod (strips extra fields by default)
+ * import { z } from 'zod'
  *
- * // Dynamic endpoint based on exchange body
  * craft()
- *   .from(simple({ orderId: '123', priority: 'high' }))
- *   .to(direct((ex) => `orders-${ex.body.priority}`))
- *
- * // Dynamic endpoint based on headers
- * craft()
- *   .from(simple({ data: 'test' }))
- *   .to(direct((ex) => {
- *     const region = ex.headers['region'] || 'default';
- *     return `processing-${region}`;
+ *   .from(direct('user-processor', {
+ *     schema: z.object({
+ *       userId: z.string().uuid(),
+ *       action: z.enum(['create', 'update', 'delete'])
+ *     })
  *   }))
+ *   .process(processUser)
+ * ```
  *
- * // Consumer route (must use static endpoint)
+ * @example
+ * ```typescript
+ * // Strict validation - fail on extra fields
  * craft()
- *   .from(direct('order-processing'))
- *   .to(destination)
+ *   .from(direct('user-processor', {
+ *     schema: z.object({
+ *       userId: z.string().uuid(),
+ *       action: z.enum(['create', 'update', 'delete'])
+ *     }).strict()  // Use .strict() to reject extras
+ *   }))
+ *   .process(processUser)
+ * ```
+ *
+ * @example
+ * ```typescript
+ * // Header validation
+ * craft()
+ *   .from(direct('api-handler', {
+ *     headerSchema: z.object({
+ *       'x-tenant-id': z.string().uuid(),
+ *       'x-trace-id': z.string().optional(),
+ *     }).passthrough()  // Allow other headers through
+ *   }))
+ *   .process(handleRequest)
+ * ```
+ *
+ * @example
+ * ```typescript
+ * // Discoverable route with metadata
+ * craft()
+ *   .from(direct('fetch-content', {
+ *     description: 'Fetch and summarize web content from URL',
+ *     schema: z.object({ url: z.string().url() }),
+ *     keywords: ['fetch', 'web', 'scrape', 'summarize']
+ *   }))
+ *   .process(fetchAndSummarize)
+ * ```
+ *
+ * @example
+ * ```typescript
+ * // Dynamic endpoint (destination only)
+ * craft()
+ *   .from(source)
+ *   .to(direct((ex) => `handler-${ex.body.type}`))
  * ```
  */
 export function direct<T = unknown>(

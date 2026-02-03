@@ -15,6 +15,7 @@ export type RCCode =
   | "RC5008"
   | "RC5009"
   | "RC5010"
+  | "RC5011"
   | "RC9901";
 
 export type RCMeta = {
@@ -145,6 +146,14 @@ export const RC: Record<RCCode, RCMeta> = {
       'Direct adapter with function endpoint can only be used with .to() or .tap(), not .from(). Use a static string endpoint for .from(direct("endpoint")).',
     docs: `${DOCS_BASE}#rc-5010`,
     retryable: false, // Config error - won't change on retry
+  },
+  RC5011: {
+    category: "Adapter",
+    message: "Direct route schema validation failed",
+    suggestion:
+      "Check that message body and headers match the schema. For Zod, use z.object().strip() to remove extra fields or z.object().strict() to reject them.",
+    docs: `${DOCS_BASE}#rc-5011`,
+    retryable: false, // Bad input - same data will fail again
   },
   RC9901: {
     category: "Runtime",

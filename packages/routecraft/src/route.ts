@@ -289,6 +289,7 @@ export class DefaultRoute implements Route {
 
   /**
    * Create a RouteCraftError from an operation error.
+   * If the error is already a RouteCraftError, preserve it.
    *
    * @param operation The operation that caused the error
    * @param code The error code
@@ -300,6 +301,10 @@ export class DefaultRoute implements Route {
     operation: OperationType,
     error: unknown,
   ): RouteCraftError {
+    // If already a RouteCraftError, preserve the original error code
+    if (error instanceof RouteCraftError) {
+      return error;
+    }
     const rc = "RC5002" as const; // Processing step threw
     return rcError(rc, error, {
       message: `${RC[rc].message}: op=${operation} route=${this.definition.id}`,

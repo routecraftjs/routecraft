@@ -1,3 +1,4 @@
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   type ExchangeHeaders,
   type Exchange,
@@ -6,7 +7,7 @@ import {
 import { type Source } from "../operations/from";
 import { CraftContext, type MergedOptions } from "../context";
 import { type Destination } from "../operations/to";
-import { error } from "../error";
+import { error as rcError } from "../error";
 
 export type DirectChannelType<T extends DirectChannel> = new (
   endpoint: string,
@@ -34,14 +35,56 @@ export interface DirectChannel<T = unknown> {
   unsubscribe(context: CraftContext, endpoint: string): Promise<void>;
 }
 
+/**
+ * Metadata for a discoverable direct route.
+ * Routes with descriptions are registered in the context store.
+ */
+export interface DirectRouteMetadata {
+  endpoint: string;
+  description?: string;
+  schema?: StandardSchemaV1;
+  headerSchema?: StandardSchemaV1;
+  keywords?: string[];
+}
+
 export interface DirectAdapterOptions {
+  /** Custom channel implementation */
   channelType?: DirectChannelType<DirectChannel>;
+
+  /**
+   * Body validation schema. Behavior depends on schema library:
+   * - Zod: strips extra fields by default, use z.object().strict() to reject them
+   * - Valibot: similar behavior, check library docs
+   * - ArkType: check library docs
+   */
+  schema?: StandardSchemaV1;
+
+  /**
+   * Header validation schema. Validates the headers object.
+   * Use z.object().passthrough() to allow extra headers through.
+   * @example
+   * z.object({
+   *   'x-tenant-id': z.string().uuid(),
+   *   'x-trace-id': z.string().optional(),
+   * }).passthrough()
+   */
+  headerSchema?: StandardSchemaV1;
+
+  /**
+   * Human-readable description of what this route does.
+   * Makes route discoverable and queryable from context store.
+   */
+  description?: string;
+
+  /** Keywords to help with route discovery and categorization */
+  keywords?: string[];
 }
 
 declare module "@routecraft/routecraft" {
   interface StoreRegistry {
     [DirectAdapter.ADAPTER_DIRECT_STORE]: Map<string, DirectChannel<Exchange>>;
     [DirectAdapter.ADAPTER_DIRECT_OPTIONS]: Partial<DirectAdapterOptions>;
+    [DirectAdapter.ADAPTER_DIRECT_REGISTRY]: Map<string, DirectRouteMetadata>;
   }
 }
 
@@ -53,6 +96,8 @@ export class DirectAdapter<T = unknown>
     "routecraft.adapter.direct.store" as const;
   static readonly ADAPTER_DIRECT_OPTIONS =
     "routecraft.adapter.direct.options" as const;
+  static readonly ADAPTER_DIRECT_REGISTRY =
+    "routecraft.adapter.direct.registry" as const;
 
   private rawEndpoint: DirectEndpoint<T>;
 
@@ -77,7 +122,7 @@ export class DirectAdapter<T = unknown>
     abortController: AbortController,
   ): Promise<void> {
     if (typeof this.rawEndpoint === "function") {
-      throw error("RC5010", undefined, {
+      throw rcError("RC5010", undefined, {
         message: "Dynamic endpoints cannot be used as source",
         suggestion:
           'Direct adapter with function endpoint can only be used with .to() or .tap(), not .from(). Use a static string endpoint for .from(direct("endpoint")).',
@@ -86,6 +131,9 @@ export class DirectAdapter<T = unknown>
 
     // At this point we know rawEndpoint is a string
     const endpoint = this.rawEndpoint.replace(/[^a-zA-Z0-9]/g, "-");
+
+    // Register route in the registry
+    this.registerRoute(context, endpoint);
 
     context.logger.debug(
       `Setting up subscription for direct endpoint "${endpoint}"`,
@@ -98,16 +146,16 @@ export class DirectAdapter<T = unknown>
       return;
     }
 
+    // Wrap handler with validation if schema provided
+    const wrappedHandler = this.hasValidation()
+      ? this.createValidatedHandler(handler, endpoint)
+      : async (exchange: Exchange<T>) => {
+          const result = await handler(exchange.body as T, exchange.headers);
+          return result as Exchange<T>;
+        };
+
     // Set up the subscription
-    await channel.subscribe(
-      context,
-      endpoint,
-      async (exchange: Exchange<T>) => {
-        // Call handler and return the result
-        const result = await handler(exchange.body as T, exchange.headers);
-        return result as Exchange<T>;
-      },
-    );
+    await channel.subscribe(context, endpoint, wrappedHandler);
 
     // Set up cleanup on abort
     abortController.signal.addEventListener("abort", async () => {
@@ -177,6 +225,119 @@ export class DirectAdapter<T = unknown>
     return {
       ...store,
       ...this.options,
+    };
+  }
+
+  /**
+   * Check if this adapter has validation configured
+   */
+  private hasValidation(): boolean {
+    return !!(this.options.schema || this.options.headerSchema);
+  }
+
+  /**
+   * Register route metadata in context store for discovery
+   */
+  private registerRoute(context: CraftContext, endpoint: string): void {
+    let registry = context.getStore(DirectAdapter.ADAPTER_DIRECT_REGISTRY) as
+      | Map<string, DirectRouteMetadata>
+      | undefined;
+
+    if (!registry) {
+      registry = new Map<string, DirectRouteMetadata>();
+      context.setStore(DirectAdapter.ADAPTER_DIRECT_REGISTRY, registry);
+    }
+
+    const metadata: DirectRouteMetadata = { endpoint };
+    if (this.options.description !== undefined) {
+      metadata.description = this.options.description;
+    }
+    if (this.options.schema !== undefined) {
+      metadata.schema = this.options.schema;
+    }
+    if (this.options.headerSchema !== undefined) {
+      metadata.headerSchema = this.options.headerSchema;
+    }
+    if (this.options.keywords !== undefined) {
+      metadata.keywords = this.options.keywords;
+    }
+    registry.set(endpoint, metadata);
+
+    context.logger.debug(
+      `Registered direct route "${endpoint}" in discoverable registry`,
+    );
+  }
+
+  /**
+   * Create handler that validates body and headers before calling actual handler.
+   * Uses validated/coerced values if schema transforms them.
+   */
+  private createValidatedHandler(
+    handler: (message: T, headers?: ExchangeHeaders) => Promise<Exchange>,
+    endpoint: string,
+  ): (exchange: Exchange<T>) => Promise<Exchange<T>> {
+    return async (exchange: Exchange<T>) => {
+      let validatedBody = exchange.body;
+      const validatedHeaders = { ...exchange.headers };
+
+      // Validate body if schema provided
+      if (this.options.schema) {
+        let result = this.options.schema["~standard"].validate(exchange.body);
+        if (result instanceof Promise) result = await result;
+
+        if (result.issues) {
+          const err = rcError("RC5011", result.issues, {
+            message: `Body validation failed for direct route "${endpoint}"`,
+          });
+          exchange.logger.debug(
+            err,
+            `Validation error on endpoint "${endpoint}"`,
+          );
+          throw err;
+        }
+
+        // Use validated/coerced value if schema transformed it
+        if (result.value !== undefined) {
+          validatedBody = result.value as T;
+        }
+      }
+
+      // Validate headers if headerSchema provided
+      if (this.options.headerSchema) {
+        let result = this.options.headerSchema["~standard"].validate(
+          exchange.headers,
+        );
+        if (result instanceof Promise) result = await result;
+
+        if (result.issues) {
+          const err = rcError("RC5011", result.issues, {
+            message: `Header validation failed for direct route "${endpoint}"`,
+          });
+          exchange.logger.debug(
+            err,
+            `Header validation error on endpoint "${endpoint}"`,
+          );
+          throw err;
+        }
+
+        // Use validated/coerced headers if schema transformed them
+        if (result.value !== undefined) {
+          Object.assign(validatedHeaders, result.value);
+        }
+      }
+
+      // Create exchange with validated values
+      const validatedExchange = {
+        ...exchange,
+        body: validatedBody,
+        headers: validatedHeaders,
+      } as Exchange<T>;
+
+      // Call original handler with validated data
+      return handler(
+        validatedExchange.body as T,
+        validatedExchange.headers,
+      ) as Promise<Exchange<T>>;
     };
   }
 }

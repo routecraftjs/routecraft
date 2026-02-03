@@ -191,6 +191,10 @@ craft()
 
 **Options:**
 - `channelType` - Custom direct channel implementation (default: in-memory)
+- `schema` - Body validation schema (StandardSchema compatible: Zod, Valibot, ArkType)
+- `headerSchema` - Header validation schemas (can be optional/required)
+- `description` - Human-readable description for route discovery
+- `keywords` - Keywords for route categorization
 
 **Key characteristics:**
 - **Synchronous**: Calling route waits for response from consuming route
@@ -209,6 +213,129 @@ craft()
 
 **Limitations:**
 - **Not compatible with `batch()`**: Because `direct()` is synchronous and blocking, each sender waits for the consumer route to fully process the message before the next message can be sent. This prevents the batch consumer from accumulating multiple messages. If you need to batch messages from multiple sources or split branches, use the `aggregate()` operation instead.
+
+#### Schema Validation
+
+Direct routes support StandardSchema validation for type safety. Behavior depends on your schema library:
+
+**Default Behavior (Zod)**
+
+Zod strips extra fields by default:
+
+```ts
+import { z } from 'zod'
+
+const schema = z.object({
+  userId: z.string().uuid(),
+  action: z.enum(['create', 'update', 'delete'])
+})
+
+craft()
+  .from(direct('user-processor', { schema }))
+  .process(processUser)
+
+// Passes: { userId: '...', action: 'create' }
+// Passes: { userId: '...', action: 'create', extra: 'field' }
+//    Extra fields are silently removed
+// RC5011: { userId: '...', missing: 'action' }
+```
+
+**Strict Mode**
+
+Reject extra fields with an error:
+
+```ts
+craft()
+  .from(direct('user-processor', {
+    schema: z.object({
+      userId: z.string().uuid(),
+      action: z.enum(['create', 'update'])
+    }).strict()  // Use .strict() to reject extras
+  }))
+  .process(processUser)
+
+// Passes: { userId: '...', action: 'create' }
+// RC5011: { userId: '...', action: 'create', extra: 'field' }
+```
+
+**Passthrough Mode**
+
+Preserve extra fields:
+
+```ts
+craft()
+  .from(direct('user-processor', {
+    schema: z.object({
+      userId: z.string().uuid(),
+      action: z.enum(['create', 'update'])
+    }).passthrough()  // Preserve all fields
+  }))
+  .process(processUser)
+
+// Passes: { userId: '...', action: 'create', extra: 'field' }
+//    All fields preserved including extra
+```
+
+**Header Validation**
+
+Validate headers as an object schema:
+
+```ts
+craft()
+  .from(direct('api-handler', {
+    headerSchema: z.object({
+      'x-tenant-id': z.string().uuid(),
+      'x-trace-id': z.string().optional(),
+    }).passthrough()  // Allow other headers through
+  }))
+  .process(handleRequest)
+```
+
+**Schema Coercion**
+
+Validated values are used (schemas can transform data):
+
+```ts
+const schema = z.object({
+  userId: z.string(),
+  createdAt: z.coerce.date()  // Transforms string to Date
+})
+
+craft()
+  .from(direct('processor', { schema }))
+  .process((data) => {
+    // data.createdAt is Date, not string
+    console.log(data.createdAt.getFullYear())
+  })
+```
+
+**Validation occurs on consumer side only.** Producers send data unchanged; consumers validate on receive.
+
+#### Route Registry
+
+All direct routes are registered and can be queried. Routes with descriptions and keywords are more discoverable:
+
+```ts
+import { DirectAdapter } from '@routecraft/routecraft'
+
+craft()
+  .from(direct('fetch-content', {
+    description: 'Fetch and summarize web content from URL',
+    schema: z.object({ url: z.string().url() }),
+    keywords: ['fetch', 'web', 'scrape']
+  }))
+  .process(fetchAndSummarize)
+
+// Later, query discoverable routes from context
+const ctx = context().routes(...).build()
+await ctx.start()
+
+const registry = ctx.getStore(DirectAdapter.ADAPTER_DIRECT_REGISTRY)
+const routes = registry ? Array.from(registry.values()) : []
+// [{ endpoint: 'fetch-content', description: '...', schema, keywords }]
+```
+
+Useful for runtime introspection, documentation generation, and building dynamic routing systems.
 
 ### fetch
 
