@@ -64,3 +64,51 @@ class MyAdapter implements Source<string> {
   }
 }
 ```
+
+## When should I use direct adapter validation vs `.validate()` operation?
+
+**Use direct adapter validation when:**
+- Defining consumer contracts (what the endpoint accepts)
+- Building discoverable routes (schema is metadata)
+- Validating at route boundaries (inter-route communication)
+- Protecting the route itself from invalid input
+
+**Use `.validate()` operation when:**
+- Protecting downstream systems from invalid data
+- Validating before sending to external destinations
+- Multiple validation steps at different stages
+- Filtering invalid messages mid-pipeline
+
+**The key distinction:**
+
+| | Protects | Use case |
+|---|----------|-----------|
+| `schema` on adapter | The consumer route itself | "I only accept valid data" |
+| `.validate()` | Downstream destinations | "Only send valid data out" |
+
+**Example:**
+
+```ts
+import { z } from 'zod'
+
+const OrderSchema = z.object({
+  orderId: z.string(),
+  items: z.array(z.object({ productId: z.string(), quantity: z.number() }))
+})
+
+const PaymentSchema = z.object({
+  method: z.enum(['card', 'bank']),
+  amount: z.number().positive()
+})
+
+// Direct adapter: protect this route from bad input
+craft()
+  .from(direct('orders', {
+    schema: OrderSchema  // Reject invalid orders at entry
+  }))
+  .transform(order => calculatePayment(order))
+  .validate(PaymentSchema)  // Protect payment gateway from bad data
+  .to(paymentGateway)
+```
+
+Direct adapter validation is about **self-protection** (contract enforcement), while `.validate()` is about **protecting downstream systems** before sending data out.
