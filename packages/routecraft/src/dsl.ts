@@ -1,7 +1,7 @@
 import { ContextBuilder, RouteBuilder } from "./builder.ts";
 import { SimpleAdapter } from "./adapters/simple.ts";
 import { NoopAdapter } from "./adapters/noop.ts";
-import { LogAdapter } from "./adapters/log.ts";
+import { LogAdapter, type LogAdapterOptions } from "./adapters/log.ts";
 import {
   DirectAdapter,
   type DirectAdapterOptions,
@@ -116,7 +116,8 @@ export function noop<T = unknown>(): NoopAdapter<T> {
  *
  * @template T The type of data this adapter processes
  * @param formatter Optional function that takes an exchange and returns the value to log.
- *                  If not provided, logs exchange ID, body, and headers.
+ *   If omitted, logs exchange ID, body, and headers.
+ * @param options Optional configuration object with `level` (defaults to "info").
  * @returns A LogAdapter instance
  *
  * @example
@@ -135,12 +136,44 @@ export function noop<T = unknown>(): NoopAdapter<T> {
  *   .tap(log((ex) => `Exchange with id: ${ex.id}`))
  *   .tap(log((ex) => `Body: ${JSON.stringify(ex.body)}`))
  *   .to(destination)
+ *
+ * // Log at debug level
+ * craft().from(source).tap(log(undefined, { level: 'debug' })).to(destination)
+ *
+ * // Log at warn level with formatter
+ * craft().from(source).to(log((ex) => ex.body, { level: 'warn' }))
+ *
+ * // For convenience, use level-specific helpers: debug(), warn(), error(), etc.
+ * craft().from(source).tap(debug()).to(destination)
  * ```
  */
 export function log<T = unknown>(
   formatter?: (exchange: Exchange<T>) => unknown,
+  options?: LogAdapterOptions,
 ): LogAdapter<T> {
-  return new LogAdapter<T>(formatter);
+  return new LogAdapter<T>(formatter, options);
+}
+
+/**
+ * Create a logging adapter that logs at DEBUG level.
+ * Convenience wrapper for log() with level pre-set to "debug".
+ *
+ * @template T The type of data this adapter processes
+ * @param formatter Optional function that takes an exchange and returns the value to log
+ * @param options Optional configuration (level is fixed to "debug")
+ * @returns A LogAdapter instance
+ *
+ * @example
+ * ```typescript
+ * craft().from(source).tap(debug()).to(destination)
+ * craft().from(source).tap(debug((ex) => ex.body)).to(destination)
+ * ```
+ */
+export function debug<T = unknown>(
+  formatter?: (exchange: Exchange<T>) => unknown,
+  options?: Omit<LogAdapterOptions, "level">,
+): LogAdapter<T> {
+  return new LogAdapter<T>(formatter, { ...options, level: "debug" });
 }
 
 /**

@@ -56,13 +56,13 @@ Create a static or dynamic data source. Can produce a single value, an array of 
 ### log
 
 ```ts
-log<T>(formatter?: (exchange: Exchange<T>) => unknown): LogAdapter<T>
+log<T>(formatter?: (exchange: Exchange<T>) => unknown, options?: { level?: LogLevel }): LogAdapter<T>
 ```
 
 Log messages to the console. Can be used as a destination with `.to()` or for side effects with `.tap()`.
 
 ```ts
-// Log final result (default: logs exchange ID, body, and headers)
+// Log final result (default: logs exchange ID, body, and headers at info level)
 .to(log())
 
 // Log intermediate data without changing flow
@@ -72,11 +72,50 @@ Log messages to the console. Can be used as a destination with `.to()` or for si
 .tap(log((ex) => `Exchange with id: ${ex.id}`))
 .tap(log((ex) => `Body: ${JSON.stringify(ex.body)}`))
 .tap(log((ex) => `Exchange with uuid: ${ex.headers.uuid}`))
+
+// Log at different levels
+.tap(log(undefined, { level: 'debug' }))
+.tap(log((ex) => ex.body, { level: 'warn' }))
+.tap(log((ex) => ex.body, { level: 'error' }))
+
+// For debug logging, use the convenience helper
+.tap(debug())
+.tap(debug((ex) => ex.body))
 ```
+
+**Log Levels:**
+- `trace` - Most verbose
+- `debug` - Development/debugging (use `debug()` helper)
+- `info` - Default level
+- `warn` - Warnings
+- `error` - Errors
+- `fatal` - Critical failures
 
 **Output format:** 
 - Without formatter: Logs exchange ID, body, and headers in a clean format
 - With formatter: Logs the value returned by the formatter function
+
+### debug
+
+```ts
+debug<T>(formatter?: (exchange: Exchange<T>) => unknown): LogAdapter<T>
+```
+
+Convenience helper for debug-level logging. Equivalent to `log(formatter, { level: 'debug' })`.
+
+```ts
+// Log at debug level (default format)
+.tap(debug())
+
+// Log with custom formatter at debug level
+.tap(debug((ex) => `Debug: ${JSON.stringify(ex.body)}`))
+.tap(debug((ex) => ({ id: ex.id, bodySize: JSON.stringify(ex.body).length })))
+
+// Use throughout development workflow
+craft().from(source).tap(debug((ex) => `Input: ${ex.body}`)).transform(processData).tap(debug((ex) => `Processed: ${ex.body}`)).to(destination)
+```
+
+**Use cases:** Development debugging, verbose logging during troubleshooting
 
 ### timer
 
