@@ -216,79 +216,112 @@ craft()
 
 #### Schema Validation
 
-Direct routes support StandardSchema validation for type safety. Behavior depends on your schema library:
+Direct routes support StandardSchema validation for type safety. Behavior depends on your schema library.
 
-**Default Behavior (Zod)**
+**No Schema (Default)**
 
-Zod strips extra fields by default:
+Without a schema, all data passes through unchanged:
+
+```ts
+craft()
+  .from(direct('user-processor'))  // No schema - all data passes through
+  .process(processUser)
+```
+
+**Zod 4 Object Types**
+
+Zod 4 uses different object constructors to control extra field handling:
+
+| Constructor | Extra fields | Use case |
+|-------------|--------------|----------|
+| `z.object()` | Stripped (default) | Strict contracts, clean data |
+| `z.looseObject()` | Preserved | Flexible schemas, passthrough |
+| `z.strictObject()` | Error (RC5011) | Reject unexpected fields |
 
 ```ts
 import { z } from 'zod'
 
-const schema = z.object({
+// z.object() - strips extra fields (default behavior)
+const strictSchema = z.object({
   userId: z.string().uuid(),
   action: z.enum(['create', 'update', 'delete'])
 })
 
 craft()
-  .from(direct('user-processor', { schema }))
+  .from(direct('user-processor', { schema: strictSchema }))
   .process(processUser)
 
 // Passes: { userId: '...', action: 'create' }
 // Passes: { userId: '...', action: 'create', extra: 'field' }
-//    Extra fields are silently removed
+//    Extra fields silently removed from result
 // RC5011: { userId: '...', missing: 'action' }
 ```
 
-**Strict Mode**
-
-Reject extra fields with an error:
-
 ```ts
+// z.looseObject() - preserves extra fields
+const looseSchema = z.looseObject({
+  userId: z.string().uuid(),
+  action: z.enum(['create', 'update'])
+})
+
 craft()
-  .from(direct('user-processor', {
-    schema: z.object({
-      userId: z.string().uuid(),
-      action: z.enum(['create', 'update'])
-    }).strict()  // Use .strict() to reject extras
-  }))
-  .process(processUser)
-
-// Passes: { userId: '...', action: 'create' }
-// RC5011: { userId: '...', action: 'create', extra: 'field' }
-```
-
-**Passthrough Mode**
-
-Preserve extra fields:
-
-```ts
-craft()
-  .from(direct('user-processor', {
-    schema: z.object({
-      userId: z.string().uuid(),
-      action: z.enum(['create', 'update'])
-    }).passthrough()  // Preserve all fields
-  }))
+  .from(direct('user-processor', { schema: looseSchema }))
   .process(processUser)
 
 // Passes: { userId: '...', action: 'create', extra: 'field' }
 //    All fields preserved including extra
 ```
 
+```ts
+// z.strictObject() - rejects extra fields with error
+const veryStrictSchema = z.strictObject({
+  userId: z.string().uuid(),
+  action: z.enum(['create', 'update'])
+})
+
+craft()
+  .from(direct('user-processor', { schema: veryStrictSchema }))
+  .process(processUser)
+
+// Passes: { userId: '...', action: 'create' }
+// RC5011: { userId: '...', action: 'create', extra: 'field' }
+```
+
 **Header Validation**
 
-Validate headers as an object schema:
+Without `headerSchema`, all headers pass through unchanged. When specified, the same Zod 4 rules apply:
 
 ```ts
+// No headerSchema - all headers pass through unchanged
+craft()
+  .from(direct('api-handler', {
+    schema: z.object({ id: z.string() })
+    // headerSchema not specified - all headers preserved
+  }))
+  .process(handleRequest)
+
+// z.looseObject() - validate required headers, keep extras
+craft()
+  .from(direct('api-handler', {
+    headerSchema: z.looseObject({
+      'x-tenant-id': z.string().uuid(),
+      'x-trace-id': z.string().optional(),
+    })
+  }))
+  .process(handleRequest)
+
+// Passes: { 'x-tenant-id': '...', 'x-other': '...' } (validates x-tenant-id, keeps x-other)
+
+// z.object() - validate and strip extra headers
 craft()
   .from(direct('api-handler', {
     headerSchema: z.object({
       'x-tenant-id': z.string().uuid(),
-      'x-trace-id': z.string().optional(),
-    }).passthrough()  // Allow other headers through
+    })
   }))
   .process(handleRequest)
+
+// Passes: { 'x-tenant-id': '...', 'x-other': '...' } (x-other stripped from result)
 ```
 
 **Schema Coercion**

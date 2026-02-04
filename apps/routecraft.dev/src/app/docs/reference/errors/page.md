@@ -234,13 +234,13 @@ Direct route schema validation failed
 Message body or headers don't match the schema defined in direct adapter options.
 
 **Suggestion**  
-Check message structure matches schema. For Zod: use `.strip()` (default) to remove extras, `.passthrough()` to keep them, or `.strict()` to reject them.
+Check message structure matches schema. For Zod 4: use `z.object()` (strips extras), `z.looseObject()` (keeps extras), or `z.strictObject()` (rejects extras).
 
 **Example**
 ```ts
 import { z } from 'zod'
 
-// Default: strips extra fields
+// z.object() - strips extra fields (default)
 craft()
   .from(direct('endpoint', {
     schema: z.object({ id: z.string() })
@@ -249,19 +249,19 @@ craft()
 // Pass: { id: '123' }
 // Pass: { id: '123', extra: 'field' } (extra removed)
 
-// Strict: rejects extra fields
+// z.strictObject() - rejects extra fields
 craft()
   .from(direct('endpoint', {
-    schema: z.object({ id: z.string() }).strict()
+    schema: z.strictObject({ id: z.string() })
   }))
   .to(handler)
 // Pass: { id: '123' }
 // Fail: { id: '123', extra: 'field' } ← RC5011
 
-// Passthrough: keeps extra fields
+// z.looseObject() - keeps extra fields
 craft()
   .from(direct('endpoint', {
-    schema: z.object({ id: z.string() }).passthrough()
+    schema: z.looseObject({ id: z.string() })
   }))
   .to(handler)
 // Pass: { id: '123', extra: 'field' } (extra preserved)

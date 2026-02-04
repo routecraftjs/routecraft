@@ -151,7 +151,7 @@ export const RC: Record<RCCode, RCMeta> = {
     category: "Adapter",
     message: "Direct route schema validation failed",
     suggestion:
-      "Check that message body and headers match the schema. For Zod, use z.object().strip() to remove extra fields or z.object().strict() to reject them.",
+      "Check that message body and headers match the schema. For Zod 4: z.object() strips extras, z.looseObject() keeps them, z.strictObject() rejects them.",
     docs: `${DOCS_BASE}#rc-5011`,
     retryable: false, // Bad input - same data will fail again
   },
