@@ -1,6 +1,6 @@
 {
   "name": "@routecraft/ai",
-  "version": "0.2.0-canary.6",
+  "version": "0.2.0",
   "description": "AI and MCP integrations for RouteCraft",
   "type": "module",
   "main": "./dist/index.cjs",
