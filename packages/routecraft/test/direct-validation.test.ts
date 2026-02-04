@@ -428,11 +428,11 @@ describe("Direct adapter validation", () => {
     });
 
     /**
-     * @case Zod .strip() removes extra fields (default behavior)
+     * @case z.object() removes extra fields (default Zod 4 behavior)
      * @preconditions Body has extra fields
      * @expectedResult Extra fields removed from validated body
      */
-    test("zod strip removes extra fields by default", async () => {
+    test("z.object removes extra fields by default", async () => {
       const schema = z.object({
         id: z.string(),
       });
@@ -463,20 +463,18 @@ describe("Direct adapter validation", () => {
   });
 
   // ============================================================
-  // Group 2: Zod-Specific Behaviors (6 tests)
+  // Group 2: Zod 4 Object Behaviors (6 tests)
   // ============================================================
-  describe("Zod-specific behaviors", () => {
+  describe("Zod 4 object behaviors", () => {
     /**
-     * @case Zod .strict() rejects extra fields with RC5011
-     * @preconditions Schema uses .strict() and body has extra fields
+     * @case z.strictObject() rejects extra fields with RC5011
+     * @preconditions Schema uses z.strictObject() and body has extra fields
      * @expectedResult RC5011 error thrown
      */
-    test("zod strict rejects extra fields", async () => {
-      const schema = z
-        .object({
-          id: z.string(),
-        })
-        .strict();
+    test("strictObject rejects extra fields", async () => {
+      const schema = z.strictObject({
+        id: z.string(),
+      });
 
       const errorHandler = vi.fn();
 
@@ -503,16 +501,14 @@ describe("Direct adapter validation", () => {
     });
 
     /**
-     * @case Zod .passthrough() preserves extra fields
-     * @preconditions Schema uses .passthrough() and body has extra fields
+     * @case z.looseObject() preserves extra fields
+     * @preconditions Schema uses z.looseObject() and body has extra fields
      * @expectedResult Extra fields preserved in validated body
      */
-    test("zod passthrough preserves extra fields", async () => {
-      const schema = z
-        .object({
-          id: z.string(),
-        })
-        .passthrough();
+    test("looseObject preserves extra fields", async () => {
+      const schema = z.looseObject({
+        id: z.string(),
+      });
 
       const consumer = vi.fn();
 
@@ -539,16 +535,14 @@ describe("Direct adapter validation", () => {
     });
 
     /**
-     * @case Zod .strip() removes extras silently (explicit)
-     * @preconditions Schema explicitly uses .strip()
+     * @case z.object() removes extras silently (default Zod 4 behavior)
+     * @preconditions Schema uses z.object() with extra fields in input
      * @expectedResult Extra fields removed without error
      */
-    test("zod explicit strip removes extras silently", async () => {
-      const schema = z
-        .object({
-          name: z.string(),
-        })
-        .strip();
+    test("object removes extras silently", async () => {
+      const schema = z.object({
+        name: z.string(),
+      });
 
       const consumer = vi.fn();
 
@@ -716,11 +710,9 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                headerSchema: z
-                  .object({
-                    "x-tenant-id": z.string().startsWith("tenant-"),
-                  })
-                  .passthrough(),
+                headerSchema: z.looseObject({
+                  "x-tenant-id": z.string().startsWith("tenant-"),
+                }),
               }),
             )
             .to(consumer),
@@ -731,6 +723,121 @@ describe("Direct adapter validation", () => {
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       expect(consumer).toHaveBeenCalledTimes(1);
+    });
+
+    /**
+     * @case Extra headers are stripped by default (like body validation)
+     * @preconditions Headers contain extra fields not in schema
+     * @expectedResult Extra headers removed from validated exchange
+     */
+    test("extra headers stripped by default", async () => {
+      const consumer = vi.fn();
+
+      ctx = context()
+        .routes([
+          craft()
+            .id("producer")
+            .from(simple("test"))
+            .header("x-tenant-id", "tenant-123")
+            .header("x-extra-header", "should-be-stripped")
+            .to(direct("endpoint")),
+          craft()
+            .id("consumer")
+            .from(
+              direct("endpoint", {
+                headerSchema: z.object({
+                  "x-tenant-id": z.string(),
+                }),
+                // z.object() strips extras by default in Zod 4
+              }),
+            )
+            .to(consumer),
+        ])
+        .build();
+
+      await ctx.start();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      expect(consumer).toHaveBeenCalledTimes(1);
+      const headers = consumer.mock.calls[0][0].headers;
+      expect(headers["x-tenant-id"]).toBe("tenant-123");
+      expect(headers["x-extra-header"]).toBeUndefined();
+    });
+
+    /**
+     * @case looseObject preserves extra headers (Zod 4)
+     * @preconditions Headers contain extra fields + z.looseObject()
+     * @expectedResult Extra headers preserved in validated exchange
+     */
+    test("looseObject preserves extra headers", async () => {
+      const consumer = vi.fn();
+
+      ctx = context()
+        .routes([
+          craft()
+            .id("producer")
+            .from(simple("test"))
+            .header("x-tenant-id", "tenant-123")
+            .header("x-extra-header", "should-be-preserved")
+            .to(direct("endpoint")),
+          craft()
+            .id("consumer")
+            .from(
+              direct("endpoint", {
+                headerSchema: z.looseObject({
+                  "x-tenant-id": z.string(),
+                }),
+              }),
+            )
+            .to(consumer),
+        ])
+        .build();
+
+      await ctx.start();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      expect(consumer).toHaveBeenCalledTimes(1);
+      const headers = consumer.mock.calls[0][0].headers;
+      expect(headers["x-tenant-id"]).toBe("tenant-123");
+      expect(headers["x-extra-header"]).toBe("should-be-preserved");
+    });
+
+    /**
+     * @case strictObject rejects extra headers (Zod 4)
+     * @preconditions Headers contain extra fields + z.strictObject()
+     * @expectedResult RC5011 error thrown
+     */
+    test("strictObject rejects extra headers", async () => {
+      const errorHandler = vi.fn();
+
+      ctx = context()
+        .on("error", errorHandler)
+        .routes([
+          craft()
+            .id("producer")
+            .from(simple("test"))
+            .header("x-tenant-id", "tenant-123")
+            .header("x-extra-header", "should-cause-error")
+            .to(direct("endpoint")),
+          craft()
+            .id("consumer")
+            .from(
+              direct("endpoint", {
+                headerSchema: z.strictObject({
+                  "x-tenant-id": z.string(),
+                }),
+              }),
+            )
+            .to(vi.fn()),
+        ])
+        .build();
+
+      await ctx.start();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      expect(errorHandler).toHaveBeenCalled();
+      const error = errorHandler.mock.calls[0][0].details.error;
+      expect(error.rc).toBe("RC5011");
     });
 
     /**
@@ -753,11 +860,9 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                headerSchema: z
-                  .object({
-                    "x-count": z.coerce.number(),
-                  })
-                  .passthrough(),
+                headerSchema: z.looseObject({
+                  "x-count": z.coerce.number(),
+                }),
               }),
             )
             .to(vi.fn()),
@@ -788,11 +893,9 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                headerSchema: z
-                  .object({
-                    "x-required-header": z.string(),
-                  })
-                  .passthrough(),
+                headerSchema: z.looseObject({
+                  "x-required-header": z.string(),
+                }),
               }),
             )
             .to(vi.fn()),
@@ -822,11 +925,9 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                headerSchema: z
-                  .object({
-                    "x-optional": z.string().optional(),
-                  })
-                  .passthrough(),
+                headerSchema: z.looseObject({
+                  "x-optional": z.string().optional(),
+                }),
               }),
             )
             .to(consumer),
@@ -859,11 +960,9 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                headerSchema: z
-                  .object({
-                    "x-optional": z.coerce.number().optional(),
-                  })
-                  .passthrough(),
+                headerSchema: z.looseObject({
+                  "x-optional": z.coerce.number().optional(),
+                }),
               }),
             )
             .to(vi.fn()),
@@ -899,13 +998,11 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                headerSchema: z
-                  .object({
-                    "x-tenant": z.string(),
-                    "x-version": z.coerce.number(),
-                    "x-region": z.enum(["us-east", "us-west", "eu-west"]),
-                  })
-                  .passthrough(),
+                headerSchema: z.looseObject({
+                  "x-tenant": z.string(),
+                  "x-version": z.coerce.number(),
+                  "x-region": z.enum(["us-east", "us-west", "eu-west"]),
+                }),
               }),
             )
             .to(consumer),
@@ -937,11 +1034,9 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                headerSchema: z
-                  .object({
-                    "x-count": z.coerce.number(),
-                  })
-                  .passthrough(),
+                headerSchema: z.looseObject({
+                  "x-count": z.coerce.number(),
+                }),
               }),
             )
             .to(consumer),
@@ -984,11 +1079,9 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                headerSchema: z
-                  .object({
-                    "x-token": asyncTokenSchema,
-                  })
-                  .passthrough(),
+                headerSchema: z.looseObject({
+                  "x-token": asyncTokenSchema,
+                }),
               }),
             )
             .to(consumer),
@@ -1026,9 +1119,7 @@ describe("Direct adapter validation", () => {
             .from(
               direct("endpoint", {
                 schema: z.object({ id: z.string() }),
-                headerSchema: z
-                  .object({ "x-tenant": z.string() })
-                  .passthrough(),
+                headerSchema: z.looseObject({ "x-tenant": z.string() }),
               }),
             )
             .to(consumer),
@@ -1062,9 +1153,7 @@ describe("Direct adapter validation", () => {
             .from(
               direct("endpoint", {
                 schema: z.object({ id: z.string() }),
-                headerSchema: z
-                  .object({ "x-count": z.coerce.number() })
-                  .passthrough(),
+                headerSchema: z.looseObject({ "x-count": z.coerce.number() }),
               }),
             )
             .to(vi.fn()),
@@ -1100,9 +1189,7 @@ describe("Direct adapter validation", () => {
             .from(
               direct("endpoint", {
                 schema: z.object({ id: z.string() }),
-                headerSchema: z
-                  .object({ "x-tenant": z.string() })
-                  .passthrough(),
+                headerSchema: z.looseObject({ "x-tenant": z.string() }),
               }),
             )
             .to(vi.fn()),
@@ -1138,9 +1225,7 @@ describe("Direct adapter validation", () => {
             .from(
               direct("endpoint", {
                 schema: z.object({ count: z.coerce.number() }),
-                headerSchema: z
-                  .object({ "x-limit": z.coerce.number() })
-                  .passthrough(),
+                headerSchema: z.looseObject({ "x-limit": z.coerce.number() }),
               }),
             )
             .to(consumer),
@@ -1605,11 +1690,9 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                headerSchema: z
-                  .object({
-                    "x-nullable": z.null(),
-                  })
-                  .passthrough(),
+                headerSchema: z.looseObject({
+                  "x-nullable": z.null(),
+                }),
               }),
             )
             .to(consumer),
