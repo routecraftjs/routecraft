@@ -17,7 +17,8 @@ These rules align with RouteCraft's public DSL and adapter interfaces exported f
 #### Goals
 
 - Keep adapters minimal, focused, and composable.
-- Implement only the operation interface(s) you need: `Source.subscribe`, `Destination.send`, `Processor.process`, `Transformer.transform`, `Enricher.enrich`, etc. Adapters may implement multiple interfaces when it serves a clear purpose (e.g., log adapter implements destination, processor, and tap).
+- Implement only the operation interface(s) you need: `Source.subscribe`, `Destination.send`, `Processor.process`, `Transformer.transform`, `Tap.tap`, etc. Adapters may implement multiple interfaces when it serves a clear purpose (e.g., log adapter implements destination and tap).
+- **Note:** The `Enricher` interface has been removed. Use `Destination<T, R>` for both `.to()` and `.enrich()` operations. Return the result from `send()` - it will be ignored by `.to()` (default) or merged by `.enrich()` (default).
 - Use `CraftContext` stores for shared state; merge options via `MergedOptions` when relevant.
 - Prefer pure functions for transform-like behavior; keep side effects in `.to(...)` destinations.
 
@@ -41,21 +42,43 @@ These rules align with RouteCraft's public DSL and adapter interfaces exported f
 
 #### Destination adapters
 
-- Signature: `send(exchange)` and return a Promise when side effects complete.
+- Signature: `send(exchange): Promise<R>` where R is the result type (use `void` if no result).
+- Return meaningful data when possible (e.g., database IDs, HTTP status, API responses).
+- The same adapter works with both `.to()` and `.enrich()`:
+  - `.to()` ignores the result by default (side-effect only)
+  - `.enrich()` merges the result into the body by default
 - Pull context from `DefaultExchange.context` if needed for stores or loggers.
+
+**Examples:**
+
+```ts
+// Adapter that returns void (pure side-effect)
+class LogAdapter implements Destination<T, void> {
+  async send(exchange: Exchange<T>): Promise<void> {
+    console.log(exchange.body);
+  }
+}
+
+// Adapter that returns data
+class FetchAdapter implements Destination<T, FetchResult> {
+  async send(exchange: Exchange<T>): Promise<FetchResult> {
+    const result = await fetch(/* ... */);
+    return { status: result.status, body: await result.json() };
+  }
+}
+```
 
 #### Processor/Transformer/Enricher adapters
 
 - Processor: `process(exchange) => Exchange` (can change headers, body, or logger).
 - Transformer: `transform(body) => newBody` (pure, body-only change); the framework will write back to the exchange body.
 - Keep these pure where possible; avoid external effects—use `.to(...)` instead.
-- Enricher: `enrich(exchange) => enrichmentData` to be combined with the original exchange by the enrich aggregator (use the default aggregator or a custom one in `.enrich(adapter, aggregator)`).
 
 ##### Which to implement when
 
 - Implement `Transformer` for reusable, pure body mapping with options.
 - Implement `Processor` only if you need headers or to replace the exchange, or to package reusable read-IO with standard behavior (timeouts, retries). Otherwise prefer function processors.
-- Implement `Enricher` when the adapter’s responsibility is to fetch/compute supplemental data, leaving merging to the aggregator.
+- Implement `Destination<T, R>` when the adapter produces data that can be used for both side-effects (`.to()`) and enrichment (`.enrich()`). The return type `R` will be automatically handled based on the operation.
 
 #### Error handling
 
@@ -135,7 +158,7 @@ export class MySourceAdapter<T = unknown> implements Source<T> {
 }
 ```
 
-Destination adapter:
+Destination adapter (no return value):
 
 ```ts
 import { type Destination, type Exchange } from "@routecraft/routecraft";
@@ -144,7 +167,7 @@ export interface MyDestinationOptions {
   url: string;
 }
 
-export class MyDestinationAdapter<T = unknown> implements Destination<T> {
+export class MyDestinationAdapter<T = unknown> implements Destination<T, void> {
   readonly adapterId = "routecraft.adapter.my-destination";
   constructor(private options: MyDestinationOptions) {}
 
@@ -152,6 +175,42 @@ export class MyDestinationAdapter<T = unknown> implements Destination<T> {
     const { url } = this.options;
     exchange.logger.info("Sending message", { url });
     // perform side-effect using exchange.body / headers
+  }
+}
+```
+
+Destination adapter (with return value - works with both `.to()` and `.enrich()`):
+
+```ts
+import { type Destination, type Exchange } from "@routecraft/routecraft";
+
+export interface MyApiOptions {
+  endpoint: string;
+}
+
+export interface ApiResult {
+  id: string;
+  status: number;
+}
+
+export class MyApiAdapter<T = unknown> implements Destination<T, ApiResult> {
+  readonly adapterId = "routecraft.adapter.my-api";
+  constructor(private options: MyApiOptions) {}
+
+  async send(exchange: Exchange<T>): Promise<ApiResult> {
+    const { endpoint } = this.options;
+    exchange.logger.info("Calling API", { endpoint });
+    
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      body: JSON.stringify(exchange.body)
+    });
+    
+    // Return result - available to both .to() and .enrich()
+    return {
+      id: response.headers.get('x-request-id'),
+      status: response.status
+    };
   }
 }
 ```
@@ -187,21 +246,7 @@ export class MyTransformerAdapter<T = unknown, R = T>
 }
 ```
 
-Enricher adapter:
-
-```ts
-import { type Enricher, type Exchange } from "@routecraft/routecraft";
-
-export class MyEnricherAdapter<T = unknown, R = unknown>
-  implements Enricher<T, R>
-{
-  readonly adapterId = "routecraft.adapter.my-enricher";
-  async enrich(exchange: Exchange<T>): Promise<R> {
-    // produce enrichment data from the exchange
-    return undefined as unknown as R;
-  }
-}
-```
+**Note:** The `Enricher` interface has been removed. Use `Destination<T, R>` instead (see examples above). The same adapter can be used with both `.to()` and `.enrich()` - the only difference is the default aggregator behavior.
 
 #### Logging
 

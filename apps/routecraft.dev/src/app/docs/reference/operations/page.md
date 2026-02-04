@@ -480,17 +480,60 @@ Process the exchange with full access to headers, body, and context. Use when yo
 ### enrich
 
 ```ts
-enrich<R = Current>(enricher: Enricher<Current, Partial<R>> | CallableEnricher<Current, Partial<R>>, aggregator?: EnrichAggregator<Current, Partial<R>>): RouteBuilder<R>
+enrich<R = Current>(
+  destination: Destination<Current, Partial<R>> | CallableDestination<Current, Partial<R>>,
+  aggregator?: (original: Exchange<Current>, result: Partial<R>) => Exchange<R>
+): RouteBuilder<R>
 ```
 
-Add additional data to the current exchange body by calling an enricher function.
+Enrich the exchange with additional data from a destination adapter. Uses the same adapters as `.to()` but with a merge-by-default aggregator that combines the result with the original body.
+
+**Default behavior (merge result into body):**
 
 ```ts
-.enrich(async (user) => ({
-  profile: await fetchUserProfile(user.id),
-  permissions: await getUserPermissions(user.id)
+// Enrich with inline function
+.enrich(async (exchange) => ({
+  profile: await fetchUserProfile(exchange.body.userId),
+  permissions: await getUserPermissions(exchange.body.userId)
 }))
+
+// Enrich using fetch adapter
+.enrich(fetch({ 
+  url: (ex) => `https://api.example.com/users/${ex.body.userId}` 
+}))
+
+// Enrich using any destination adapter
+.enrich(database.lookup({ table: 'users', key: 'userId' }))
 ```
+
+**Custom aggregation:**
+
+```ts
+// Store result under specific key
+.enrich(
+  fetch({ url: 'https://api.example.com/profile' }),
+  (original, result) => ({
+    ...original,
+    body: { ...original.body, profileData: result.body }
+  })
+)
+
+// Only extract specific fields
+.enrich(
+  fetch({ url: 'https://api.example.com/user' }),
+  (original, result) => ({
+    ...original,
+    body: { ...original.body, userName: result.body.name }
+  })
+)
+```
+
+**Key difference from `.to()`:**
+
+- `.to()` ignores the result by default (side-effect only)
+- `.enrich()` merges the result into the body by default
+
+Both operations use the same `Destination` adapters - the difference is only in the default aggregator behavior.
 
 ## Flow control operations
 
@@ -818,13 +861,51 @@ Execute side effects without changing the exchange. The tap operation receives a
 ### to
 
 ```ts
-to(dest: Destination<Current> | CallableDestination<Current>): RouteBuilder<Current>
+to<R = void>(
+  destination: Destination<Current, R> | CallableDestination<Current, R>,
+  aggregator?: (original: Exchange<Current>, result: R) => Exchange<Current>
+): RouteBuilder<Current>
 ```
 
-Send the exchange to a destination. This is typically the final operation in a route.
+Send the exchange to a destination. By default, the result is ignored and the original exchange continues unchanged (side-effect only). Optionally provide an aggregator to capture and merge the result into the exchange.
+
+**Default behavior (side-effect only):**
 
 ```ts
 .to(log()) // Log the final result
-.to(database.insert()) // Insert into database
-.to(async (data) => await sendToWebhook(data))
+.to(database.insert()) // Insert into database (result ignored)
+.to(async (exchange) => await sendToWebhook(exchange)) // Send webhook
+```
+
+**Capture result with custom aggregator:**
+
+```ts
+// Capture HTTP status from API call
+.to(
+  fetch({ method: 'POST', url: 'https://api.example.com/save' }),
+  (original, result) => ({
+    ...original,
+    body: { ...original.body, httpStatus: result.status }
+  })
+)
+
+// Capture database ID from insert
+.to(
+  database.insert(),
+  (original, result) => ({
+    ...original,
+    body: { ...original.body, savedId: result.id }
+  })
+)
+```
+
+**Multiple .to() calls:**
+
+When using multiple `.to()` operations without aggregators, the body remains unchanged:
+
+```ts
+.to(saveToDatabase())     // Side-effect: save to DB
+.to(sendToQueue())        // Side-effect: publish to queue  
+.to(logResult())          // Side-effect: log
+// Body unchanged through all steps
 ```

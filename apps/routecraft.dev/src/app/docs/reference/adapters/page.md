@@ -415,10 +415,12 @@ Useful for runtime introspection, documentation generation, and building dynamic
 fetch<T, R>(options: FetchOptions<T>): FetchAdapter<T, R>
 ```
 
-Make HTTP requests. Can be used as an enricher with `.enrich()` or destination with `.to()`.
+Make HTTP requests. Returns a `Destination` adapter that works with both `.to()` and `.enrich()`.
+
+**With `.enrich()` (merge result into body):**
 
 ```ts
-// Static GET request as enricher
+// Static GET request - result merged into body
 .enrich(fetch({ 
   method: 'GET',
   url: 'https://api.example.com/users'
@@ -430,49 +432,43 @@ Make HTTP requests. Can be used as an enricher with `.enrich()` or destination w
   url: (exchange) => `https://api.example.com/users/${exchange.body.userId}`
 }))
 
-// POST with body as destination
+// Custom aggregator to control merge behavior
+.enrich(
+  fetch({ url: 'https://api.example.com/profile' }),
+  (original, result) => ({
+    ...original,
+    body: { ...original.body, profileData: result.body }
+  })
+)
+```
+
+**With `.to()` (side-effect or capture result):**
+
+```ts
+// Side-effect only (default) - send webhook, ignore response
 .to(fetch({
   method: 'POST',
-  url: 'https://api.example.com/users',
-  body: (exchange) => ({ name: exchange.body.name }),
-  headers: { 'Content-Type': 'application/json' }
+  url: 'https://api.example.com/webhook',
+  body: (exchange) => exchange.body
 }))
+
+// Capture HTTP status with custom aggregator
+.to(
+  fetch({ 
+    method: 'POST',
+    url: 'https://api.example.com/save' 
+  }),
+  (original, result) => ({
+    ...original,
+    body: { ...original.body, httpStatus: result.status }
+  })
+)
 
 // With query parameters
 .enrich(fetch({
   url: 'https://api.example.com/search',
   query: (exchange) => ({ q: exchange.body.searchTerm, limit: 10 })
 }))
-```
-
-// Direct the fetch result into a specific field (custom aggregator)
-```ts
-.enrich(
-  fetch({
-    url: 'https://api.example.com/items'
-  }),
-  (original, enrichment) => ({
-    ...original,
-    body: {
-      ...original.body,
-      api: enrichment // place the full FetchResult on a field
-    }
-  })
-)
-
-// Or only keep the response body
-.enrich(
-  fetch({
-    url: (exchange) => `https://api.example.com/users/${exchange.body.userId}`
-  }),
-  (original, enrichment) => ({
-    ...original,
-    body: {
-      ...original.body,
-      userData: enrichment.body
-    }
-  })
-)
 ```
 
 Options:
@@ -815,12 +811,22 @@ class MyAdapter implements Source<string> {
   }
 }
 
-class MyDestination implements Destination<any> {
+class MyDestination implements Destination<any, void> {
   readonly adapterId = 'my.destination.adapter'
 
-  async send(exchange) {
-    // Destination implementation
+  async send(exchange): Promise<void> {
+    // Destination implementation (no return value)
     console.log('Received:', exchange.body)
+  }
+}
+
+class MyDataFetcher implements Destination<any, { data: string }> {
+  readonly adapterId = 'my.data.adapter'
+
+  async send(exchange): Promise<{ data: string }> {
+    // Fetch and return data
+    const result = await fetchSomeData(exchange.body);
+    return result; // Can be used with .to() or .enrich()
   }
 }
 ```
@@ -836,10 +842,10 @@ declare module '@routecraft/routecraft' {
   }
 }
 
-class ConfigurableAdapter implements Destination<any> {
+class ConfigurableAdapter implements Destination<any, void> {
   readonly adapterId = 'configurable.adapter'
 
-  async send(exchange) {
+  async send(exchange): Promise<void> {
     const config = exchange.context.getStore('my.adapter.config')
     const cache = exchange.context.getStore('my.adapter.cache')
     
@@ -858,7 +864,7 @@ interface MyAdapterOptions {
   retries: number
 }
 
-class MyAdapter implements Destination<any>, MergedOptions<MyAdapterOptions> {
+class MyAdapter implements Destination<any, void>, MergedOptions<MyAdapterOptions> {
   constructor(public options: Partial<MyAdapterOptions> = {}) {}
 
   mergedOptions(context): MyAdapterOptions {
@@ -871,7 +877,7 @@ class MyAdapter implements Destination<any>, MergedOptions<MyAdapterOptions> {
     }
   }
 
-  async send(exchange) {
+  async send(exchange): Promise<void> {
     const opts = this.mergedOptions(exchange.context)
     // Use merged options...
   }
@@ -880,13 +886,38 @@ class MyAdapter implements Destination<any>, MergedOptions<MyAdapterOptions> {
 
 ### Implementation interfaces
 
-| Interface | Method | Purpose |
-|-----------|--------|---------|
-| `Source<T>` | `subscribe(context, handler, abortController)` | Produce messages for routes |
-| `Destination<T>` | `send(exchange)` | Consume final messages from routes |
-| `Processor<T, R>` | `process(exchange)` | Transform exchanges in route steps |
-| `Enricher<T, R>` | `enrich(exchange)` | Add data for enrichment operations |
-| `Tap<T>` | `tap(exchange)` | Side effects without changing exchange |
+| Interface | Method | Purpose | Used With |
+|-----------|--------|---------|-----------|
+| `Source<T>` | `subscribe(context, handler, abortController)` | Produce messages for routes | `.from()` |
+| `Destination<T, R>` | `send(exchange): R` | Send/fetch data, optionally return result | `.to()`, `.enrich()` |
+| `Processor<T, R>` | `process(exchange)` | Transform exchanges in route steps | `.process()` |
+| `Tap<T>` | `tap(exchange)` | Side effects without changing exchange | `.tap()` |
+
+**Note:** The `Enricher` interface has been removed. Use `Destination<T, R>` for both `.to()` and `.enrich()` operations. The difference is in the default aggregator behavior:
+- `.to()` ignores the result by default (side-effect)
+- `.enrich()` merges the result into the body by default
+
+**Adapters that return data should specify the return type:**
+
+```ts
+class MyDataAdapter implements Destination<InputType, OutputType> {
+  async send(exchange: Exchange<InputType>): Promise<OutputType> {
+    const result = await fetchData();
+    return result; // Available to both .to() and .enrich()
+  }
+}
+```
+
+**Adapters with no return value use `void`:**
+
+```ts
+class MyLogAdapter implements Destination<any, void> {
+  async send(exchange: Exchange): Promise<void> {
+    console.log(exchange.body);
+    // No return value
+  }
+}
+```
 
 For detailed type definitions, see `packages/routecraft/src/types.ts` and operation files in `packages/routecraft/src/operations/`.
 

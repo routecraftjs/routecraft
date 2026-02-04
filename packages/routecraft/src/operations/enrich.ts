@@ -1,42 +1,20 @@
 import { type Adapter, type Step } from "../types.ts";
 import { type Exchange } from "../exchange.ts";
 import { OperationType } from "../exchange.ts";
+import {
+  type Destination,
+  type CallableDestination,
+  type DestinationAggregator,
+} from "./to.ts";
 
 /**
- * Function that produces enrichment data based on the original exchange.
- * Returns only the enrichment payload (body) which will be combined with the
- * original exchange by the aggregator.
- */
-export type CallableEnricher<T = unknown, R = unknown> = (
-  exchange: Exchange<T>,
-) => Promise<R> | R;
-
-/**
- * Enricher: produce data to merge into the existing exchange.
- * - Does not return a new Exchange; only the enrichment payload
- * - Combine with default or custom aggregator in `.enrich(adapter, aggregator)`
- */
-export interface Enricher<T = unknown, R = unknown> extends Adapter {
-  enrich: CallableEnricher<T, R>;
-  adapterId: string;
-}
-
-/**
- * Function that aggregates the original exchange with the enrichment data
- * Similar to CallableAggregator but specifically for the enrich operation
- */
-export type EnrichAggregator<T = unknown, R = unknown> = (
-  original: Exchange<T>,
-  enrichmentData: R,
-) => Promise<Exchange<T>> | Exchange<T>;
-
-/**
- * Default aggregator that merges the enrichment data with the original exchange body.
+ * Default aggregator for .enrich() - merges the result into the exchange body.
  *
  * This aggregator:
- * 1. Converts the original body to an object if it's not already one (using {value: originalBody})
- * 2. Converts the enrichment data to an object if it's not already one (using {value: enrichmentData})
- * 3. Merges these objects using spread syntax ({...originalBody, ...enrichmentObject})
+ * 1. Returns original exchange if enrichment data is undefined or null
+ * 2. Converts the original body to an object if it's not already one (using {value: originalBody})
+ * 3. Converts the enrichment data to an object if it's not already one (using {value: enrichmentData})
+ * 4. Merges these objects using spread syntax ({...originalBody, ...enrichmentObject})
  *
  * Note: If both the original body and enrichment data have a 'value' property,
  * the enrichment data's 'value' will overwrite the original's 'value'.
@@ -45,6 +23,11 @@ export const defaultEnrichAggregator = <T = unknown, R = unknown>(
   original: Exchange<T>,
   enrichmentData: R,
 ): Exchange<T> => {
+  // Handle undefined/null results - no enrichment to add
+  if (enrichmentData === undefined || enrichmentData === null) {
+    return original;
+  }
+
   // Convert original body to object if it's not already
   const originalBody =
     typeof original.body === "object" && original.body !== null
@@ -68,26 +51,21 @@ export const defaultEnrichAggregator = <T = unknown, R = unknown>(
 };
 
 /**
- * Step that enriches the exchange with additional data
+ * Step that enriches the exchange with additional data from a destination adapter.
+ * Uses the same Destination adapters as .to() but with a different default aggregator.
  */
 export class EnrichStep<T = unknown, R = unknown> implements Step<
-  Enricher<T, R>
+  Destination<T, R>
 > {
   operation: OperationType = OperationType.ENRICH;
-  adapter: Enricher<T, R>;
-  aggregator: EnrichAggregator<T, R> | undefined;
+  adapter: Destination<T, R>;
+  aggregator: DestinationAggregator<T, R> | undefined;
 
   constructor(
-    adapter: Enricher<T, R> | CallableEnricher<T, R>,
-    aggregator?: EnrichAggregator<T, R>,
+    adapter: Destination<T, R> | CallableDestination<T, R>,
+    aggregator?: DestinationAggregator<T, R>,
   ) {
-    this.adapter =
-      typeof adapter === "function"
-        ? {
-            enrich: adapter,
-            adapterId: crypto.randomUUID(),
-          }
-        : adapter;
+    this.adapter = typeof adapter === "function" ? { send: adapter } : adapter;
     this.aggregator = aggregator;
   }
 
@@ -96,8 +74,8 @@ export class EnrichStep<T = unknown, R = unknown> implements Step<
     remainingSteps: Step<Adapter>[],
     queue: { exchange: Exchange; steps: Step<Adapter>[] }[],
   ): Promise<void> {
-    // Get the enrichment data
-    const enrichmentData = await Promise.resolve(this.adapter.enrich(exchange));
+    // Get the enrichment data by calling the destination's send method
+    const enrichmentData = await Promise.resolve(this.adapter.send(exchange));
 
     // Use the provided aggregator or the default one
     const aggregator = this.aggregator || defaultEnrichAggregator;

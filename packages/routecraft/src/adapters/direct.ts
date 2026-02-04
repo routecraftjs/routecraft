@@ -111,7 +111,7 @@ declare module "@routecraft/routecraft" {
 }
 
 export class DirectAdapter<T = unknown>
-  implements Source<T>, Destination<T>, MergedOptions<DirectAdapterOptions>
+  implements Source<T>, Destination<T, T>, MergedOptions<DirectAdapterOptions>
 {
   readonly adapterId = "routecraft.adapter.direct";
   static readonly ADAPTER_DIRECT_STORE =
@@ -221,7 +221,7 @@ export class DirectAdapter<T = unknown>
     return store.get(endpoint) as DirectChannel<Exchange<T>>;
   }
 
-  async send(exchange: Exchange<T>): Promise<void> {
+  async send(exchange: Exchange<T>): Promise<T> {
     // Cast exchange to require the context
     const defaultExchange = exchange as DefaultExchange<T>;
 
@@ -236,12 +236,8 @@ export class DirectAdapter<T = unknown>
     // Send and wait for result - this is synchronous blocking behavior
     const result = await channel.send(endpoint, defaultExchange);
 
-    // Update the original exchange with the result
-    if (result && result !== defaultExchange) {
-      defaultExchange.body = result.body;
-      // Note: headers are readonly, so we can't update them directly
-      // The direct adapter maintains the original exchange structure
-    }
+    // Return the body from the result exchange
+    return result.body;
   }
 
   mergedOptions(context: CraftContext): DirectAdapterOptions {

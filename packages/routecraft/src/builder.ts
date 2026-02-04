@@ -26,6 +26,7 @@ import {
 import {
   type Destination,
   type CallableDestination,
+  type DestinationAggregator,
   ToStep,
 } from "./operations/to.ts";
 import {
@@ -51,12 +52,7 @@ import {
   FilterStep,
 } from "./operations/filter.ts";
 import { ValidateStep } from "./operations/validate.ts";
-import {
-  type EnrichAggregator,
-  EnrichStep,
-  type Enricher,
-  type CallableEnricher,
-} from "./operations/enrich.ts";
+import { EnrichStep } from "./operations/enrich.ts";
 import { HeaderStep } from "./operations/header.ts";
 import { type HeaderValue } from "./exchange.ts";
 // Binder mechanism removed
@@ -430,26 +426,35 @@ export class RouteBuilder<Current = unknown> {
 
   /**
    * Send the processed data to a destination.
-   * This is typically the final step in a route.
-   * The type remains the same after this operation.
+   * By default, the destination result is ignored and the original exchange continues.
+   * Optionally provide an aggregator to capture and merge the result into the exchange.
    *
-   * @param destination A function or adapter that consumes the data
+   * @template R The result type returned by the destination
+   * @param destination A function or adapter that sends the data
+   * @param aggregator Optional function to merge the result with the original exchange
    * @returns A RouteBuilder with the same type
    * @example
-   * // Send data to a database
+   * // Send to a destination (side-effect only, result ignored)
    * .to(async ({ body }) => {
    *   await db.users.insert(body);
    * })
    *
-   * // Send to a predefined destination
-   * .to(kafkaProducer({ topic: 'processed-data' }))
+   * // Capture result with custom aggregator
+   * .to(
+   *   fetch({ url: 'https://api.example.com/save' }),
+   *   (original, result) => ({
+   *     ...original,
+   *     body: { ...original.body, httpStatus: result.status }
+   *   })
+   * )
    */
-  to(
-    destination: Destination<Current> | CallableDestination<Current>,
+  to<R = void>(
+    destination: Destination<Current, R> | CallableDestination<Current, R>,
+    aggregator?: DestinationAggregator<Current, R>,
   ): RouteBuilder<Current> {
     const route = this.requireSource();
     logger.debug(`Adding destination step to route "${route.id}"`);
-    route.steps.push(new ToStep<Current>(destination));
+    route.steps.push(new ToStep<Current, R>(destination, aggregator));
     return this.withType<Current>();
   }
 
@@ -705,36 +710,36 @@ export class RouteBuilder<Current = unknown> {
   }
 
   /**
-   * Enrich the current data with additional information.
-   * This is useful for adding context or fetching related data.
+   * Enrich the current data with additional information from a destination.
+   * By default, the result is merged into the exchange body.
+   * Uses the same Destination adapters as .to() but with a merge-by-default aggregator.
    *
    * @template R The resulting type after enrichment (defaults to Current if not specified)
-   * @param enricher Function that returns additional data to be merged
+   * @param destination A destination adapter or function that returns enrichment data
    * @param aggregator Optional function to control how data is combined
    * @returns A RouteBuilder with the combined type
    * @example
-   * // Add user details from an API
-   * .enrich<User & { profile: Profile }>(async (user) => {
-   *   const details = await fetchUserDetails(user.id);
-   *   return details;
-   * })
+   * // Add user details from an API (default merge behavior)
+   * .enrich(fetch({
+   *   url: (ex) => `https://api.example.com/users/${ex.body.userId}`
+   * }))
    *
    * // Custom aggregation strategy
-   * .enrich<CustomType>(
-   *   async (exchange) => ({ extraData: "value" }),
-   *   (original, enrichmentData) => ({
+   * .enrich(
+   *   fetch({ url: 'https://api.example.com/data' }),
+   *   (original, result) => ({
    *     ...original,
-   *     body: customMergeFunction(original.body, enrichmentData)
+   *     body: { ...original.body, fetchedData: result.body }
    *   })
    * )
    */
   enrich<R = Current>(
-    enricher:
-      | Enricher<Current, Partial<R>>
-      | CallableEnricher<Current, Partial<R>>,
-    aggregator?: EnrichAggregator<Current, Partial<R>>,
+    destination:
+      | Destination<Current, Partial<R>>
+      | CallableDestination<Current, Partial<R>>,
+    aggregator?: DestinationAggregator<Current, Partial<R>>,
   ): RouteBuilder<R> {
-    this.addStep(new EnrichStep(enricher, aggregator));
+    this.addStep(new EnrichStep(destination, aggregator));
     return this.withType<R>();
   }
 
