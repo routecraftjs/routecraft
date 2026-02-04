@@ -62,7 +62,7 @@
       "eslint --fix",
       "prettier --write --ignore-unknown"
     ],
-    "*.{md,mdx,json,yml,yaml}": [
+    "*.{json,yml,yaml}": [
       "prettier --write --ignore-unknown"
     ],
     "*.{css,scss,less,html,svg}": [

@@ -79,13 +79,18 @@ export {
   simple,
   noop,
   log,
+  debug,
   direct,
   timer,
   fetch,
 } from "./dsl.ts";
 
 export { SimpleAdapter } from "./adapters/simple.ts";
-export { LogAdapter } from "./adapters/log.ts";
+export {
+  LogAdapter,
+  type LogAdapterOptions,
+  type LogLevel,
+} from "./adapters/log.ts";
 export { NoopAdapter } from "./adapters/noop.ts";
 export {
   FetchAdapter,
