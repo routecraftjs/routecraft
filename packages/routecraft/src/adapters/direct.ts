@@ -47,10 +47,17 @@ export interface DirectRouteMetadata {
   keywords?: string[];
 }
 
-export interface DirectAdapterOptions {
+/** Base options shared between source and destination. */
+export interface DirectOptions {
   /** Custom channel implementation */
   channelType?: DirectChannelType<DirectChannel>;
+}
 
+/**
+ * Options when using direct adapter as a Source (.from()).
+ * Body/header validation and discovery metadata apply to incoming messages.
+ */
+export interface DirectSourceOptions extends DirectOptions {
   /**
    * Body validation schema. Behavior depends on schema library:
    * - Zod 4: z.object() strips extras (default), z.looseObject() keeps them, z.strictObject() rejects them
@@ -85,6 +92,16 @@ export interface DirectAdapterOptions {
   keywords?: string[];
 }
 
+/**
+ * Options when using direct adapter as a Destination (.to(), .tap()).
+ * Room for future options (e.g. timeout, retryPolicy).
+ */
+export type DirectDestinationOptions = DirectOptions;
+
+/** Combined type for internal adapter use. */
+export type DirectAdapterOptions = DirectSourceOptions &
+  DirectDestinationOptions;
+
 declare module "@routecraft/routecraft" {
   interface StoreRegistry {
     [DirectAdapter.ADAPTER_DIRECT_STORE]: Map<string, DirectChannel<Exchange>>;
@@ -108,10 +125,14 @@ export class DirectAdapter<T = unknown>
 
   constructor(
     rawEndpoint: DirectEndpoint<T>,
-    public options: Partial<DirectAdapterOptions> = {},
+    options: Partial<DirectSourceOptions | DirectDestinationOptions> = {},
   ) {
     this.rawEndpoint = rawEndpoint;
+    this.options = options as Partial<DirectAdapterOptions>;
   }
+
+  /** Options passed at construction; typed as full options for internal use. */
+  public options: Partial<DirectAdapterOptions>;
 
   private resolveEndpoint(exchange: Exchange<T>): string {
     const endpoint =

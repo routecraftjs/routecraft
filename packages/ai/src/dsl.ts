@@ -1,20 +1,27 @@
 import {
   direct,
-  type DirectAdapterOptions,
   type DirectAdapter,
+  type DirectDestinationOptions,
+  type DirectSourceOptions,
   type Exchange,
 } from "@routecraft/routecraft";
 
 /**
- * Options for creating a tool (extends DirectAdapterOptions).
- *
- * Tools are discoverable direct routes designed for AI/MCP integration.
- * When providing options, `description` is required so tools are always discoverable.
+ * Options for tool() when used as a Source in .from().
+ * Description is required for AI/MCP discoverability.
  */
-export interface ToolOptions extends DirectAdapterOptions {
-  /** Human-readable description of what this tool does (required for discovery). */
+export interface ToolSourceOptions extends DirectSourceOptions {
+  /** Human-readable description (required for tools). */
   description: string;
 }
+
+/**
+ * Options for tool() when used as a Destination in .to().
+ */
+export type ToolDestinationOptions = DirectDestinationOptions;
+
+/** @deprecated Use ToolSourceOptions or ToolDestinationOptions. Kept for backward compatibility. */
+export type ToolOptions = ToolSourceOptions;
 
 /**
  * Create a tool - a discoverable direct route for AI/MCP integration.
@@ -61,8 +68,16 @@ export interface ToolOptions extends DirectAdapterOptions {
  * ```
  */
 export function tool<T = unknown>(
+  endpoint: string,
+  options: ToolSourceOptions,
+): DirectAdapter<T>;
+export function tool<T = unknown>(
   endpoint: string | ((exchange: Exchange<T>) => string),
-  options?: ToolOptions,
+  options?: ToolDestinationOptions,
+): DirectAdapter<T>;
+export function tool<T = unknown>(
+  endpoint: string | ((exchange: Exchange<T>) => string),
+  options?: ToolSourceOptions | ToolDestinationOptions,
 ): DirectAdapter<T> {
   return direct<T>(endpoint, options);
 }

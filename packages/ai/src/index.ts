@@ -1,2 +1,7 @@
 // DSL functions
-export { tool, type ToolOptions } from "./dsl.ts";
+export {
+  tool,
+  type ToolDestinationOptions,
+  type ToolOptions,
+  type ToolSourceOptions,
+} from "./dsl.ts";

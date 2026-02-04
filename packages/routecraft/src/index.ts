@@ -97,6 +97,9 @@ export {
   type DirectAdapterOptions,
   type DirectChannel,
   type DirectChannelType,
+  type DirectDestinationOptions,
+  type DirectOptions,
   type DirectRouteMetadata,
+  type DirectSourceOptions,
 } from "./adapters/direct.ts";
 export { TimerAdapter, type TimerOptions } from "./adapters/timer.ts";

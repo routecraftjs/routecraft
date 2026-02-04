@@ -2,7 +2,12 @@ import { ContextBuilder, RouteBuilder } from "./builder.ts";
 import { SimpleAdapter } from "./adapters/simple.ts";
 import { NoopAdapter } from "./adapters/noop.ts";
 import { LogAdapter } from "./adapters/log.ts";
-import { DirectAdapter, type DirectAdapterOptions } from "./adapters/direct.ts";
+import {
+  DirectAdapter,
+  type DirectAdapterOptions,
+  type DirectDestinationOptions,
+  type DirectSourceOptions,
+} from "./adapters/direct.ts";
 import { TimerAdapter, type TimerOptions } from "./adapters/timer.ts";
 import { FetchAdapter, type FetchOptions } from "./adapters/fetch.ts";
 import { type Exchange } from "./exchange.ts";
@@ -211,6 +216,14 @@ export function log<T = unknown>(
  *   .to(direct((ex) => `handler-${ex.body.type}`))
  * ```
  */
+export function direct<T = unknown>(
+  endpoint: string,
+  options?: Partial<DirectSourceOptions>,
+): DirectAdapter<T>;
+export function direct<T = unknown>(
+  endpoint: string | ((exchange: Exchange<T>) => string),
+  options?: Partial<DirectDestinationOptions>,
+): DirectAdapter<T>;
 export function direct<T = unknown>(
   endpoint: string | ((exchange: Exchange<T>) => string),
   options?: Partial<DirectAdapterOptions>,
