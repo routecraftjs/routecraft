@@ -966,4 +966,42 @@ describe("Route Behavior", () => {
     // Should only have string messages
     expect(capturedMessages).toEqual(["valid string", "another string"]);
   });
+
+  /**
+   * @case Verifies multiple .to() calls maintain body unchanged
+   * @preconditions Multiple .to() destinations in sequence
+   * @expectedResult Body passes through unchanged despite multiple destinations
+   */
+  test("multiple .to() calls preserve body", async () => {
+    const dest1Spy = vi.fn(async () => ({ result1: "ignored" }));
+    const dest2Spy = vi.fn(async () => ({ result2: "ignored" }));
+    const dest3Spy = vi.fn(async () => ({ result3: "ignored" }));
+    const finalSpy = vi.fn();
+
+    testContext = context()
+      .routes(
+        craft()
+          .id("multiple-to-test")
+          .from(simple({ original: "value", count: 42 }))
+          .to(dest1Spy)
+          .to(dest2Spy)
+          .to(dest3Spy)
+          .to(finalSpy),
+      )
+      .build();
+
+    await testContext.start();
+
+    // All destinations should be called
+    expect(dest1Spy).toHaveBeenCalledTimes(1);
+    expect(dest2Spy).toHaveBeenCalledTimes(1);
+    expect(dest3Spy).toHaveBeenCalledTimes(1);
+    expect(finalSpy).toHaveBeenCalledTimes(1);
+
+    // Body should be unchanged through all destinations
+    expect(finalSpy.mock.calls[0][0].body).toEqual({
+      original: "value",
+      count: 42,
+    });
+  });
 });

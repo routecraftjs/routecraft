@@ -1,5 +1,4 @@
 import { type Destination } from "../operations/to.ts";
-import { type Enricher } from "../operations/enrich.ts";
 import { type Exchange } from "../exchange.ts";
 
 export type HttpMethod =
@@ -33,25 +32,22 @@ export type FetchResult<T = string | unknown> = {
 };
 
 /**
- * FetchAdapter can act as a Processor, Enricher, or Destination.
- * - process: replaces body with FetchResult
- * - enrich: returns FetchResult for aggregation
- * - send: performs request as side effect (ignores body)
+ * FetchAdapter performs HTTP requests and returns the result.
+ * Can be used with both .to() and .enrich() operations.
+ * - With .to(): result available via custom aggregator
+ * - With .enrich(): result merged into body by default
  */
-export class FetchAdapter<T = unknown, R = FetchResult>
-  implements Enricher<T, FetchResult<R>>, Destination<T>
-{
+export class FetchAdapter<T = unknown, R = FetchResult> implements Destination<
+  T,
+  FetchResult<R>
+> {
   readonly adapterId = "routecraft.adapter.fetch";
 
   constructor(private readonly options: FetchOptions<T>) {}
 
-  async enrich(exchange: Exchange<T>): Promise<FetchResult<R>> {
+  async send(exchange: Exchange<T>): Promise<FetchResult<R>> {
     const result = await this.performFetch(exchange);
     return result as FetchResult<R>;
-  }
-
-  async send(exchange: Exchange<T>): Promise<void> {
-    await this.performFetch(exchange);
   }
 
   private async performFetch(exchange: Exchange<T>): Promise<FetchResult> {

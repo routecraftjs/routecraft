@@ -23,7 +23,11 @@ export {
   type CallableProcessor,
 } from "./operations/process.ts";
 
-export { type Destination, type CallableDestination } from "./operations/to.ts";
+export {
+  type Destination,
+  type CallableDestination,
+  type DestinationAggregator,
+} from "./operations/to.ts";
 
 export { type Splitter, type CallableSplitter } from "./operations/split.ts";
 
@@ -41,13 +45,6 @@ export {
 export { type Tap, type CallableTap } from "./operations/tap.ts";
 
 export { type Filter, type CallableFilter } from "./operations/filter.ts";
-
-export {
-  type EnrichAggregator,
-  defaultEnrichAggregator,
-  type Enricher,
-  type CallableEnricher,
-} from "./operations/enrich.ts";
 
 export { ContextBuilder, RouteBuilder, type RouteOptions } from "./builder.ts";
 

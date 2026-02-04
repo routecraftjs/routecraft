@@ -387,4 +387,88 @@ describe("Fetch Adapter", () => {
     expect(destSpy.mock.calls[1][0].body).toEqual({ id: 2, name: "Item 2" });
     expect(destSpy.mock.calls[2][0].body).toEqual({ id: 3, name: "Item 3" });
   });
+
+  /**
+   * @case Verifies .to(fetch()) without aggregator ignores result
+   * @preconditions fetch adapter used with .to() without aggregator
+   * @expectedResult Fetch called but result ignored, body unchanged
+   */
+  test(".to(fetch()) without aggregator ignores result", async () => {
+    const destSpy = vi.fn();
+
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Map([["content-type", "application/json"]]),
+      text: async () => JSON.stringify({ ignored: "data" }),
+      url: "https://api.example.com/webhook",
+    });
+
+    testContext = context()
+      .routes(
+        craft()
+          .id("test-to-fetch-no-aggregator")
+          .from(simple({ original: "data" }))
+          .to(fetch({ method: "POST", url: "https://api.example.com/webhook" }))
+          .to(destSpy),
+      )
+      .build();
+
+    await testContext.start();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(destSpy).toHaveBeenCalledTimes(1);
+    const finalBody = destSpy.mock.calls[0][0].body;
+    // Body should be unchanged - fetch result ignored
+    expect(finalBody).toEqual({ original: "data" });
+  });
+
+  /**
+   * @case Verifies .to(fetch()) with custom aggregator captures result
+   * @preconditions fetch adapter used with .to() with custom aggregator
+   * @expectedResult Result captured and merged via aggregator
+   */
+  test(".to(fetch()) with custom aggregator captures HTTP status", async () => {
+    const destSpy = vi.fn();
+
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 201,
+      headers: new Map([["content-type", "application/json"]]),
+      text: async () => JSON.stringify({ id: 456 }),
+      url: "https://api.example.com/create",
+    });
+
+    testContext = context()
+      .routes(
+        craft()
+          .id("test-to-fetch-with-aggregator")
+          .from(simple({ name: "Test Item" }))
+          .to(
+            fetch({ method: "POST", url: "https://api.example.com/create" }),
+            (original, result) => ({
+              ...original,
+              body: {
+                ...original.body,
+                httpStatus: result.status,
+                createdId: result.body.id,
+              },
+            }),
+          )
+          .to(destSpy),
+      )
+      .build();
+
+    await testContext.start();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(destSpy).toHaveBeenCalledTimes(1);
+    const finalBody = destSpy.mock.calls[0][0].body;
+    // Body should include original data plus captured HTTP status and ID
+    expect(finalBody).toEqual({
+      name: "Test Item",
+      httpStatus: 201,
+      createdId: 456,
+    });
+  });
 });
