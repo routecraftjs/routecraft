@@ -1,235 +1,229 @@
 # AI & MCP Integration - Implementation Plan
 
-This directory contains 4 separate implementation plans for adding AI and MCP capabilities to RouteCraft. Each plan can be implemented and PR'd independently.
+This directory contains implementation plans for adding AI and MCP capabilities to RouteCraft. Each plan can be implemented and PR'd independently.
 
 ## Overview
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│                 Implementation Order                │
+│                 Implementation Order                 │
 ├─────────────────────────────────────────────────────┤
-│                                                     │
-│  Plan 1: Direct Schema Validation (CORE)           │
-│  └─> Foundation for all AI features                │
-│      • Schema validation with Zod                  │
-│      • Route registry for AI discovery             │
-│      • No breaking changes                         │
-│                                                     │
-│  Plan 2: MCP Adapters (STANDALONE)                 │
-│  └─> Bidirectional MCP integration                 │
-│      • Expose routes as MCP tools                  │
-│      • Call external MCP tools                     │
-│      • Independent of AI routing                   │
-│                                                     │
-│  Plan 3: LLM Adapters (EXTENDS PLAN 2)             │
-│  └─> AI-powered message processing                 │
-│      • LLM provider interface                      │
-│      • llm() processor/transformer                 │
-│      • Structured outputs via Zod                  │
-│                                                     │
-│  Plan 4: Agent Routing (COMBINES 1 + 3)            │
-│  └─> AI-powered dynamic routing                    │
-│      • Auto-discovery from registry                │
-│      • Function calling for decisions              │
-│      • Security via allowlist                      │
-│                                                     │
+│                                                      │
+│  Plan 1: Direct Schema Validation ✅ COMPLETE       │
+│  └─> Foundation for all AI features                 │
+│      • Schema validation with Zod                   │
+│      • Route registry for discovery                 │
+│                                                      │
+│  Plan 2: @routecraft/ai Package + tool() alias      │
+│  └─> Create the AI package                          │
+│      • New @routecraft/ai package                   │
+│      • tool() as alias for direct()                 │
+│      • Test package infrastructure                  │
+│                                                      │
+│  Plan 3: LLM Adapters (OpenAI, Gemini)              │
+│  └─> AI-powered message processing                  │
+│      • llm() processor/transformer                  │
+│      • OpenAI (ChatGPT) provider                    │
+│      • Google Gemini provider                       │
+│      • NOT source/destination - processors only     │
+│                                                      │
+│  Plan 4: MCP Destination                            │
+│  └─> Call external MCP tools                        │
+│      • .to(mcp()) to call MCP servers               │
+│      • Filesystem, GitHub, etc.                     │
+│                                                      │
+│  Plan 5: MCP Source                                 │
+│  └─> Expose tools via MCP                           │
+│      • .from(mcpSource()) starts MCP server         │
+│      • Wraps DirectAdapter tools                    │
+│      • Claude, Cursor can call your tools           │
+│                                                      │
+│  Plan 6: Agent Routing                              │
+│  └─> AI-powered dynamic routing                     │
+│      • agent() destination adapter                  │
+│      • LLM selects tool based on message            │
+│      • Allowlist for security                       │
+│                                                      │
 └─────────────────────────────────────────────────────┘
 ```
 
-## Plans
+## Plan Details
 
-### [Plan 1: Direct Schema Validation](1-direct-schema-validation.plan.md)
-**Status:** Independent, no dependencies  
-**Estimate:** 4-5 hours  
-**PR:** Can merge immediately
+### Plan 1: Direct Schema Validation ✅ COMPLETE
+[View Plan](1-direct-schema-validation.plan.md)
 
-**What it adds:**
-- Zod schema validation for direct route bodies and headers
-- Optional description field for AI discoverability
-- Route registry in context store
-- RC5011 error code
-
-**Why separate:**
-- Provides immediate value (type safety) without AI features
-- Foundation for all other plans
-- No breaking changes, fully backward compatible
-
-**Can use standalone for:**
-- Type-safe inter-route communication
-- Runtime validation of messages
-- Preparing routes for future AI integration
+**What was added:**
+- Schema validation for direct route bodies and headers
+- Route registry in context store (`DirectAdapter.ADAPTER_DIRECT_REGISTRY`)
+- `description` and `keywords` options for discoverability
+- RC5011 error code for validation failures
 
 ---
 
-### [Plan 2: MCP Adapters](2-ai-package-mcp-adapters.plan.md)
-**Status:** Depends on Plan 1  
-**Estimate:** 8-10 hours  
-**PR:** After Plan 1 merges
+### Plan 2: @routecraft/ai Package + tool() Alias
+[View Plan](2-ai-package-tool-alias.plan.md)
+
+**Status:** Ready to implement  
+**Estimate:** 1-2 hours
 
 **What it adds:**
 - New `@routecraft/ai` package
-- `mcp()` source adapter - expose routes as MCP tools
-- `mcp()` destination adapter - call external MCP tools
-- MCP server/client wrappers
-- Zod to JSON Schema converter
+- `tool()` function - alias for `direct()` with AI-friendly semantics
+- Package infrastructure (build, test, types)
 
-**Why separate:**
-- MCP is independent of LLM/Agent features
-- Can be used standalone for tool ecosystems
-- Large enough to be its own feature
-
-**Can use standalone for:**
-- Exposing RouteCraft workflows to Claude, Cursor, etc.
-- Using filesystem, github, and other MCP tools
-- Building MCP-enabled integrations
+**Why:**
+- Establishes package structure early
+- "Tool" terminology aligns with AI/MCP ecosystems
+- Low-risk first step to validate setup
 
 ---
 
-### [Plan 3: LLM Adapters](3-ai-package-llm-adapters.plan.md)
-**Status:** Depends on Plan 2  
-**Estimate:** 6-8 hours  
-**PR:** After Plan 2 merges
+### Plan 3: LLM Adapters
+[View Plan](3-ai-package-llm-adapters.plan.md)
+
+**Status:** Ready after Plan 2  
+**Estimate:** 6-8 hours
 
 **What it adds:**
-- `LLMProvider` interface (provider-agnostic)
-- `OpenAIProvider` implementation
-- `llm()` processor adapter
-- `llm()` transformer adapter
-- Context store provider configuration
+- `LLMProvider` interface
+- `OpenAIProvider` (ChatGPT models)
+- `GeminiProvider` (Google models)
+- `llm()` for `.process()` and `.transform()`
 
-**Why separate:**
-- LLM features independent of MCP and agent routing
-- Can be used without agent routing
-- Focused on message transformation
-
-**Can use standalone for:**
-- AI-powered content transformation
-- Text generation and enrichment
-- Translation and summarization
-- Any LLM-based processing
+**Design decision:** LLMs are processors, not sources or destinations:
+- Not a source: LLMs don't generate messages unprompted
+- Not a destination: LLMs don't consume/store messages
+- They transform messages - perfect for `.process()` and `.transform()`
 
 ---
 
-### [Plan 4: Agent Routing](4-ai-package-agent-routing.plan.md)
-**Status:** Depends on Plans 1 and 3  
-**Estimate:** 6-8 hours  
-**PR:** After Plans 1 and 3 merge
+### Plan 4: MCP Adapter (Destination & Enrich)
+[View Plan](4-mcp-destination.plan.md)
+
+**Status:** Ready after Plan 3  
+**Estimate:** 4-6 hours
 
 **What it adds:**
-- `agent()` destination adapter
-- Auto-discovery of routes from registry
-- AI-powered routing decisions via function calling
-- Allowlist for security
-- Fallback endpoint handling
+- `mcp()` adapter for `.to()` and `.enrich()`
+- Call external MCP tools (filesystem, GitHub, etc.)
+- MCP client wrapper
 
-**Why separate:**
-- Highest-level feature that combines others
-- Most complex implementation
-- Should be thoroughly tested in isolation
+**Examples:**
+```typescript
+// .to() - Replace body with result
+craft()
+  .from(source)
+  .to(mcp({
+    server: { name: 'filesystem', transport: 'stdio', command: 'mcp-fs' },
+    tool: 'read_file',
+  }))
 
-**Requires:**
-- Plan 1 for route registry
-- Plan 3 for LLM function calling
+// .enrich() - Add result to existing body
+craft()
+  .from(simple({ docId: 'readme' }))
+  .enrich(mcp({
+    server: filesystemServer,
+    tool: 'read_file',
+    mapArguments: (body) => ({ path: `/docs/${body.docId}.md` }),
+    enrichKey: 'content',
+  }))
+  .process(({ docId, content }) => summarize(content))
+```
 
-**This is the "magic" feature that enables:**
-- Natural language routing
-- Dynamic workflow orchestration
-- AI-powered message delegation
+---
+
+### Plan 5: MCP Source
+[View Plan](5-mcp-source.plan.md)
+
+**Status:** Ready after Plan 4  
+**Estimate:** 6-8 hours
+
+**What it adds:**
+- `mcpSource()` source adapter
+- Starts MCP server exposing your tools
+- External clients (Claude, Cursor) can call your tools
+
+**Example:**
+```typescript
+// Define tools
+craft()
+  .from(tool('fetch-webpage', { description: '...', schema }))
+  .process(fetchWebpage)
+
+// Expose via MCP
+craft()
+  .from(mcpSource())
+  .to(noop())
+```
+
+---
+
+### Plan 6: Agent Routing
+[View Plan](6-agent-routing.plan.md)
+
+**Status:** Ready after Plan 5  
+**Estimate:** 6-8 hours
+
+**What it adds:**
+- `agent()` adapter for `.to()`, `.enrich()`, and `.process()`
+- LLM-powered tool selection
+- Automatic tool discovery from registry
+- Allowlist, fallback, and `enrichKey` options
+
+**Examples:**
+```typescript
+// .to() - Replace body with selected tool result
+craft()
+  .from(userInput)
+  .to(agent({
+    provider: openai,
+    model: 'gpt-4o-mini',
+    tools: ['weather', 'search', 'calculator'],
+  }))
+
+// .enrich() - Merge tool result into body (e.g. under enrichKey)
+craft()
+  .from(simple({ query: 'weather Paris' }))
+  .enrich(agent({ provider: openai, model: 'gpt-4o-mini', enrichKey: 'toolResult' }))
+  .process(({ query, toolResult }) => formatResponse(toolResult))
+```
+
+---
 
 ## Implementation Strategy
 
-### Option A: Sequential Implementation (Recommended)
-Implement and merge each plan in order:
+### Recommended Order
 
-1. **Week 1:** Plan 1 (Direct Schema Validation)
-   - Merge immediately
-   - Provides value right away
-   - Unblocks other plans
+1. **Plan 2** - Create package, add `tool()` (~1-2 hours)
+2. **Plan 3** - Add LLM adapters (~6-8 hours)
+3. **Plan 4** - Add MCP destination (~4-6 hours)
+4. **Plan 5** - Add MCP source (~6-8 hours)
+5. **Plan 6** - Add agent routing (~6-8 hours)
 
-2. **Week 2:** Plan 2 (MCP Adapters)
-   - Standalone MCP integration
-   - Can be used independently
+**Total estimate:** 24-32 hours
 
-3. **Week 3:** Plan 3 (LLM Adapters)
-   - Extends AI package with LLM features
-   - Builds on Plan 2
+### Each Plan is Self-Contained
 
-4. **Week 4:** Plan 4 (Agent Routing)
-   - Final piece that ties everything together
-   - Most impactful feature
+- Each plan can be merged independently
+- Tests included in each plan
+- Documentation included
 
-### Option B: Parallel Implementation
-If you have multiple contributors:
+## File Cleanup
 
-**Track 1 (Core):**
-- Plan 1 → Plan 4
+The old plan files can be removed after implementing:
+- `2-ai-package-mcp-adapters.plan.md` (replaced by plans 4 & 5)
+- `3-ai-package-llm-adapters.plan.md` (renamed and updated)
+- `4-ai-package-agent-routing.plan.md` (now plan 6)
 
-**Track 2 (MCP):**
-- Plan 1 → Plan 2
+## Quick Start
 
-**Track 3 (LLM):**
-- Plan 2 → Plan 3
+To begin, implement Plan 2:
 
-Merge order:
-1. Plan 1 (enables both tracks)
-2. Plan 2 (enables Plan 3)
-3. Plan 3 (enables Plan 4)
-4. Plan 4 (final integration)
+```bash
+# Create the package
+mkdir -p packages/ai/src packages/ai/test
+cd packages/ai
 
-## Testing Strategy
-
-Each plan has its own comprehensive test suite:
-
-- **Plan 1:** Direct route validation tests (20+ cases)
-- **Plan 2:** MCP source/destination tests with mocks
-- **Plan 3:** LLM processor/transformer tests with mock provider
-- **Plan 4:** Agent routing tests with multiple scenarios
-
-## Documentation
-
-Each plan includes:
-- API documentation
-- Usage examples
-- Migration guides (where applicable)
-- Integration examples
-
-## Success Criteria
-
-### Plan 1 Complete
-- ✅ Direct routes validate with Zod schemas
-- ✅ Routes register in discovery store
-- ✅ All tests passing
-- ✅ No breaking changes
-
-### Plan 2 Complete
-- ✅ Routes exposed as MCP tools
-- ✅ External MCP tools callable
-- ✅ MCP server/client working
-- ✅ All tests passing
-
-### Plan 3 Complete
-- ✅ LLM provider interface defined
-- ✅ OpenAI provider working
-- ✅ llm() processor and transformer functional
-- ✅ All tests passing
-
-### Plan 4 Complete
-- ✅ agent() auto-discovers routes
-- ✅ AI routing decisions accurate
-- ✅ Allowlist and fallback working
-- ✅ All tests passing
-
-## Total Estimate
-
-**Sequential:** 24-31 hours  
-**With parallelization:** Could be done in 2-3 weeks with 2-3 developers
-
-## Questions?
-
-For each plan:
-- Detailed implementation in the plan file
-- Test cases defined
-- Documentation structure outlined
-- Success criteria clear
-
-Choose your implementation strategy and start with Plan 1!
+# Create package.json, tsconfig, etc.
+# See Plan 2 for details
+```
