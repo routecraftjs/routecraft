@@ -1,0 +1,50 @@
+{
+  "name": "@routecraft/ai",
+  "version": "0.2.0-canary.6",
+  "description": "AI and MCP integrations for RouteCraft",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts",
+    "test": "vitest",
+    "test:coverage": "vitest --coverage",
+    "prepublishOnly": "pnpm run build"
+  },
+  "dependencies": {
+    "@routecraft/routecraft": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.0.18",
+    "zod": "^4.3.6"
+  },
+  "peerDependencies": {
+    "@routecraft/routecraft": ">=0.2.0"
+  },
+  "keywords": [
+    "routecraft",
+    "ai",
+    "mcp",
+    "tools",
+    "llm"
+  ],
+  "author": "routecraftjs",
+  "license": "Apache-2.0",
+  "homepage": "https://routecraft.dev",
+  "bugs": "https://github.com/routecraftjs/routecraft/issues",
+  "repository": "https://github.com/routecraftjs/routecraft",
+  "publishConfig": {
+    "access": "public"
+  }
+}
