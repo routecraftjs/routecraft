@@ -318,7 +318,7 @@ jobs:
 
       - name: Publish canary to npm
         run: |
-          for pkg in packages/routecraft packages/cli packages/create-routecraft packages/eslint-plugin-routecraft; do
+          for pkg in packages/routecraft packages/cli packages/create-routecraft packages/eslint-plugin-routecraft packages/ai; do
             echo "Publishing $pkg..."
             npm publish "./$pkg" --tag canary --access public --provenance
           done
@@ -408,7 +408,7 @@ jobs:
 
       - name: Publish packages to npm
         run: |
-          for pkg in packages/routecraft packages/cli packages/create-routecraft packages/eslint-plugin-routecraft; do
+          for pkg in packages/routecraft packages/cli packages/create-routecraft packages/eslint-plugin-routecraft packages/ai; do
             echo "Publishing $pkg..."
             npm publish "./$pkg" --access public --provenance
           done
