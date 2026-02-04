@@ -53,20 +53,25 @@ export interface DirectAdapterOptions {
 
   /**
    * Body validation schema. Behavior depends on schema library:
-   * - Zod: strips extra fields by default, use z.object().strict() to reject them
-   * - Valibot: similar behavior, check library docs
-   * - ArkType: check library docs
+   * - Zod 4: z.object() strips extras (default), z.looseObject() keeps them, z.strictObject() rejects them
+   * - Valibot: check library docs for handling extra properties
+   * - ArkType: check library docs for handling extra properties
    */
   schema?: StandardSchemaV1;
 
   /**
    * Header validation schema. Validates the headers object.
-   * Use z.object().passthrough() to allow extra headers through.
+   * Behavior depends on schema library:
+   * - Zod 4: z.object() strips extras (default), z.looseObject() keeps them, z.strictObject() rejects them
+   * - Valibot: check library docs for handling extra properties
+   * - ArkType: check library docs for handling extra properties
+   *
+   * If no headerSchema is provided, all headers pass through unchanged.
    * @example
-   * z.object({
+   * z.looseObject({
    *   'x-tenant-id': z.string().uuid(),
    *   'x-trace-id': z.string().optional(),
-   * }).passthrough()
+   * })  // Validates required headers, keeps all others
    */
   headerSchema?: StandardSchemaV1;
 
@@ -278,7 +283,7 @@ export class DirectAdapter<T = unknown>
   ): (exchange: Exchange<T>) => Promise<Exchange<T>> {
     return async (exchange: Exchange<T>) => {
       let validatedBody = exchange.body;
-      const validatedHeaders = { ...exchange.headers };
+      let validatedHeaders = exchange.headers;
 
       // Validate body if schema provided
       if (this.options.schema) {
@@ -322,7 +327,7 @@ export class DirectAdapter<T = unknown>
 
         // Use validated/coerced headers if schema transformed them
         if (result.value !== undefined) {
-          Object.assign(validatedHeaders, result.value);
+          validatedHeaders = result.value as ExchangeHeaders;
         }
       }
 

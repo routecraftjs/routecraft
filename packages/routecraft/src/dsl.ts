@@ -152,7 +152,7 @@ export function log<T = unknown>(
  *
  * @example
  * ```typescript
- * // Basic validation with Zod (strips extra fields by default)
+ * // Basic validation with Zod 4 (z.object strips extra fields)
  * import { z } from 'zod'
  *
  * craft()
@@ -167,26 +167,26 @@ export function log<T = unknown>(
  *
  * @example
  * ```typescript
- * // Strict validation - fail on extra fields
+ * // Strict validation - fail on extra fields (Zod 4)
  * craft()
  *   .from(direct('user-processor', {
- *     schema: z.object({
+ *     schema: z.strictObject({
  *       userId: z.string().uuid(),
  *       action: z.enum(['create', 'update', 'delete'])
- *     }).strict()  // Use .strict() to reject extras
+ *     })
  *   }))
  *   .process(processUser)
  * ```
  *
  * @example
  * ```typescript
- * // Header validation
+ * // Header validation - validate required headers, keep others (Zod 4)
  * craft()
  *   .from(direct('api-handler', {
- *     headerSchema: z.object({
+ *     headerSchema: z.looseObject({
  *       'x-tenant-id': z.string().uuid(),
  *       'x-trace-id': z.string().optional(),
- *     }).passthrough()  // Allow other headers through
+ *     })
  *   }))
  *   .process(handleRequest)
  * ```
