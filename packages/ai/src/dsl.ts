@@ -1,5 +1,9 @@
-import { direct, type DirectAdapterOptions } from "@routecraft/routecraft";
-import type { DirectAdapter } from "@routecraft/routecraft";
+import {
+  direct,
+  type DirectAdapterOptions,
+  type DirectAdapter,
+  type Exchange,
+} from "@routecraft/routecraft";
 
 /**
  * Options for creating a tool (extends DirectAdapterOptions).
@@ -57,9 +61,7 @@ export interface ToolOptions extends DirectAdapterOptions {
  * ```
  */
 export function tool<T = unknown>(
-  endpoint:
-    | string
-    | ((exchange: import("@routecraft/routecraft").Exchange<T>) => string),
+  endpoint: string | ((exchange: Exchange<T>) => string),
   options?: ToolOptions,
 ): DirectAdapter<T> {
   return direct<T>(endpoint, options);

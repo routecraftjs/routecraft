@@ -30,7 +30,10 @@ describe("tool() DSL function", () => {
           .id("producer")
           .from(simple({ message: "hello" }))
           .to(tool("my-tool")),
-        craft().id("consumer").from(tool("my-tool")).to(consumer),
+        craft()
+          .id("consumer")
+          .from(tool("my-tool", { description: "Receive messages" }))
+          .to(consumer),
       ])
       .build();
 
@@ -39,6 +42,31 @@ describe("tool() DSL function", () => {
 
     expect(consumer).toHaveBeenCalledTimes(1);
     expect(consumer.mock.calls[0][0].body).toEqual({ message: "hello" });
+  });
+
+  /**
+   * @case Defining route has description only; producer sends with tool(name) no options
+   * @preconditions One route defines tool with description, other sends to tool endpoint
+   * @expectedResult Message delivered to defining route
+   */
+  test("docs pattern: define tool with description, producer sends with no options", async () => {
+    const consumer = vi.fn();
+
+    ctx = context()
+      .routes([
+        craft().id("my-tool").from(tool("my-tool")).to(consumer),
+        craft()
+          .id("producer")
+          .from(simple({ query: "hello" }))
+          .to(tool("my-tool")),
+      ])
+      .build();
+
+    await ctx.start();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect(consumer).toHaveBeenCalledTimes(1);
+    expect(consumer.mock.calls[0][0].body).toEqual({ query: "hello" });
   });
 
   /**

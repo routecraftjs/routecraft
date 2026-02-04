@@ -120,6 +120,43 @@ craft()
   .to(database({ operation: 'bulkInsert' }))
 ```
 
+#### tool-source-options
+
+- **Action**: Error (default)
+- **Description**: When using `tool()` from `@routecraft/ai` as a source in `.from()`, options with `description` must be provided for AI/MCP discoverability.
+- **Options**: None
+- **Autofix**: None
+
+This rule ensures that tools are properly documented for AI agent discovery. The `description` field is required so that AI systems can understand what each tool does.
+
+Examples:
+
+```ts
+// ✅ Good: tool() with options in .from()
+import { tool } from '@routecraft/ai'
+
+craft()
+  .id('my-tool')
+  .from(tool('my-tool', { description: 'Process incoming requests' }))
+  .to(log())
+```
+
+```ts
+// ✅ Good: tool() without options in .to() (destination)
+craft()
+  .id('producer')
+  .from(simple({ message: 'hello' }))
+  .to(tool('my-tool'))
+```
+
+```ts
+// ❌ Bad: tool() without options in .from()
+craft()
+  .id('my-tool')
+  .from(tool('my-tool'))
+  .to(log())
+```
+
 ### Customizing Rule Severity
 
 You can change the severity or disable rules in your ESLint config:
@@ -166,6 +203,7 @@ The plugin provides two pre-configured rule sets:
 The recommended config enables:
 - `require-named-route` as error
 - `batch-before-from` as warn
+- `tool-source-options` as error
 
-The all config enables both rules as errors.
+The all config enables all rules as errors.
 

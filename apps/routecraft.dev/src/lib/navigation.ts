@@ -29,6 +29,7 @@ export const navigation = [
         title: 'Create RouteCraft',
         href: '/docs/reference/cli/create-routecraft',
       },
+      { title: 'AI Package', href: '/docs/reference/ai' },
       { title: 'Plugins', href: '/docs/reference/plugins' },
       { title: 'Linting', href: '/docs/reference/linting' },
       { title: 'Errors', href: '/docs/reference/errors' },
