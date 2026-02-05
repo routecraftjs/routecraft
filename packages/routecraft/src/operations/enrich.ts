@@ -1,11 +1,16 @@
 import { type Adapter, type Step } from "../types.ts";
-import { type Exchange } from "../exchange.ts";
-import { OperationType } from "../exchange.ts";
 import {
-  type Destination,
-  type CallableDestination,
-  type DestinationAggregator,
-} from "./to.ts";
+  type Exchange,
+  type ExchangeHeaders,
+  OperationType,
+} from "../exchange.ts";
+import { type Destination, type CallableDestination } from "./to.ts";
+
+/** Aggregator used by .enrich() to merge destination result with the current exchange. */
+export type DestinationAggregator<T = unknown, R = unknown> = (
+  original: Exchange<T>,
+  enrichmentData: R,
+) => Exchange<T>;
 
 /**
  * Default aggregator for .enrich() - merges the result into the exchange body.
@@ -40,14 +45,13 @@ export const defaultEnrichAggregator = <T = unknown, R = unknown>(
       ? enrichmentData
       : { value: enrichmentData };
 
-  // Merge the objects
-  return {
-    ...original,
-    body: {
-      ...originalBody,
-      ...enrichmentObject,
-    } as T,
-  };
+  // Merge the objects into original exchange body
+  original.body = {
+    ...originalBody,
+    ...enrichmentObject,
+  } as T;
+
+  return original;
 };
 
 /**
@@ -81,11 +85,15 @@ export class EnrichStep<T = unknown, R = unknown> implements Step<
     const aggregator = this.aggregator || defaultEnrichAggregator;
 
     // Aggregate the original exchange with the enrichment data
-    const newExchange = await Promise.resolve(
-      aggregator(exchange, enrichmentData),
-    );
+    const result = await Promise.resolve(aggregator(exchange, enrichmentData));
 
-    // Push the new exchange to the queue
-    queue.push({ exchange: newExchange, steps: remainingSteps });
+    // If aggregator returned a different exchange, copy properties back
+    if (result !== exchange) {
+      exchange.body = result.body;
+      (exchange as { headers: ExchangeHeaders }).headers = result.headers;
+    }
+
+    // Push the exchange to the queue
+    queue.push({ exchange, steps: remainingSteps });
   }
 }

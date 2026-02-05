@@ -1,5 +1,10 @@
 import { type Adapter, type Step } from "../types.ts";
-import { type Exchange, OperationType, HeadersKeys } from "../exchange.ts";
+import {
+  type Exchange,
+  type ExchangeHeaders,
+  OperationType,
+  HeadersKeys,
+} from "../exchange.ts";
 import { error as rcError } from "../error.ts";
 
 export type CallableAggregator<T = unknown, R = T> = (
@@ -100,8 +105,12 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
       const aggregatedExchange = await Promise.resolve(
         this.adapter.aggregate([exchange]),
       );
+      // Copy aggregated properties back to original exchange
+      exchange.body = aggregatedExchange.body as unknown as T;
+      (exchange as { headers: ExchangeHeaders }).headers =
+        aggregatedExchange.headers;
       queue.push({
-        exchange: aggregatedExchange,
+        exchange: exchange as unknown as Exchange<R>,
         steps: remainingSteps,
       });
       return;
@@ -127,17 +136,22 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
       this.adapter.aggregate(aggregationGroup as Exchange<T>[]),
     );
 
+    // Copy aggregated properties back to original exchange
+    exchange.body = aggregatedExchange.body as unknown as T;
+    (exchange as { headers: ExchangeHeaders }).headers =
+      aggregatedExchange.headers;
+
     // Remove the current group from hierarchy after aggregation
     const remainingHierarchy = splitHierarchy.slice(0, -1);
     if (remainingHierarchy.length > 0) {
-      aggregatedExchange.headers[HeadersKeys.SPLIT_HIERARCHY] =
+      (exchange.headers as ExchangeHeaders)[HeadersKeys.SPLIT_HIERARCHY] =
         remainingHierarchy;
     } else {
-      delete aggregatedExchange.headers[HeadersKeys.SPLIT_HIERARCHY];
+      delete (exchange.headers as ExchangeHeaders)[HeadersKeys.SPLIT_HIERARCHY];
     }
 
     queue.push({
-      exchange: aggregatedExchange,
+      exchange: exchange as unknown as Exchange<R>,
       steps: remainingSteps,
     });
   }

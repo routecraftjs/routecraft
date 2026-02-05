@@ -51,29 +51,11 @@ describe("LogAdapter", () => {
   });
 
   /**
-   * @case Default level is info for tap()
-   * @preconditions LogAdapter created with no options
-   * @expectedResult exchange.logger.info() is called
-   */
-  test("tap() uses info level by default", async () => {
-    const adapter = new LogAdapter();
-    const exchange = mockExchange("hello");
-
-    await adapter.tap(exchange);
-
-    expect(exchange.logger.info).toHaveBeenCalledTimes(1);
-    expect(exchange.logger.info).toHaveBeenCalledWith(
-      { id: "test-id", body: "hello", headers: {} },
-      "LogAdapter tap",
-    );
-  });
-
-  /**
    * @case Options level overrides default
    * @preconditions LogAdapter created with undefined formatter and { level: 'debug' }
    * @expectedResult exchange.logger.debug() is called
    */
-  test("send() and tap() use configured level", async () => {
+  test("send() uses configured level", async () => {
     const adapter = new LogAdapter(undefined, { level: "debug" });
     const exchange = mockExchange("data");
 
@@ -81,13 +63,6 @@ describe("LogAdapter", () => {
     expect(exchange.logger.debug).toHaveBeenCalledWith(
       { id: "test-id", body: "data", headers: {} },
       "LogAdapter output",
-    );
-
-    exchange.logger.debug.mockClear();
-    await adapter.tap(exchange);
-    expect(exchange.logger.debug).toHaveBeenCalledWith(
-      { id: "test-id", body: "data", headers: {} },
-      "LogAdapter tap",
     );
   });
 
@@ -225,23 +200,6 @@ describe("debug() DSL helper", () => {
     expect(exchange.logger.debug).toHaveBeenCalledWith(
       { debugBody: "test" },
       "LogAdapter output",
-    );
-  });
-
-  /**
-   * @case debug() works with tap()
-   * @preconditions debug() used in tap()
-   * @expectedResult exchange.logger.debug() called with tap message
-   */
-  test("debug() works with tap()", async () => {
-    const adapter = debug((ex) => `Debugging: ${ex.body}`);
-    const exchange = mockExchange("tap-test");
-
-    await adapter.tap(exchange);
-
-    expect(exchange.logger.debug).toHaveBeenCalledWith(
-      "Debugging: tap-test",
-      "LogAdapter tap",
     );
   });
 });

@@ -180,7 +180,7 @@ export function debug<T = unknown>(
  * Create a direct adapter for synchronous inter-route communication.
  *
  * Direct adapters allow routes to communicate with each other
- * synchronously with single consumer semantics (Apache Camel style).
+ * synchronously with single consumer semantics.
  *
  * @template T The type of data this adapter processes
  * @param endpoint The name of the direct endpoint (string) or a function that

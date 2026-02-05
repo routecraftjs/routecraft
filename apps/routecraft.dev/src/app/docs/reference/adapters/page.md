@@ -239,7 +239,6 @@ craft()
 - **Synchronous**: Calling route waits for response from consuming route
 - **Single consumer**: Only one route can consume from each endpoint (last one wins)
 - **Request-response**: Perfect for HTTP APIs and composable route architectures
-- **Apache Camel style**: Similar to Camel's `direct:` component
 - **Automatic endpoint name sanitization**: Special chars become dashes
 - **Dynamic routing**: Endpoint names can be determined at runtime using exchange data (destination only)
 - **Static sources**: Source endpoints (`.from()`) must use static strings; dynamic functions only work with `.to()` and `.tap()`

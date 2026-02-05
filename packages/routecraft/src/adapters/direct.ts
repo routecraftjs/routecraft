@@ -2,7 +2,7 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   type ExchangeHeaders,
   type Exchange,
-  type DefaultExchange,
+  getExchangeContext,
 } from "../exchange";
 import { type Source } from "../operations/from";
 import { CraftContext, type MergedOptions } from "../context";
@@ -20,7 +20,7 @@ export type DirectEndpoint<T = unknown> =
 /**
  * DirectChannel interface for synchronous inter-route communication.
  *
- * Implements Apache Camel's direct: component semantics:
+ * Semantics:
  * - Single consumer per endpoint (last subscriber wins)
  * - Synchronous blocking behavior (sender waits for response)
  * - Point-to-point messaging (not pub/sub)
@@ -222,19 +222,21 @@ export class DirectAdapter<T = unknown>
   }
 
   async send(exchange: Exchange<T>): Promise<T> {
-    // Cast exchange to require the context
-    const defaultExchange = exchange as DefaultExchange<T>;
+    const context = getExchangeContext(exchange);
+    if (!context) {
+      throw new Error("Exchange has no context — cannot send via direct");
+    }
 
     // Resolve endpoint dynamically if needed
     const endpoint = this.resolveEndpoint(exchange);
 
-    defaultExchange.logger.debug(
+    exchange.logger.debug(
       `Preparing to send message to direct endpoint "${endpoint}"`,
     );
-    const channel = this.directChannel(defaultExchange.context, endpoint);
+    const channel = this.directChannel(context, endpoint);
 
     // Send and wait for result - this is synchronous blocking behavior
-    const result = await channel.send(endpoint, defaultExchange);
+    const result = await channel.send(endpoint, exchange);
 
     // Return the body from the result exchange
     return result.body;
@@ -387,7 +389,7 @@ class InMemoryDirectChannel<T> implements DirectChannel<T> {
     _endpoint: string,
     handler: (message: T) => Promise<T>,
   ): Promise<void> {
-    // Single consumer - only one handler allowed (Apache Camel direct behavior)
+    // Single consumer - only one handler allowed
     // This replaces any existing handler (last subscriber wins)
     this.handler = handler;
   }

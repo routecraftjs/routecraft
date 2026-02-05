@@ -1,5 +1,14 @@
 import { type Adapter, type Step } from "../types.ts";
-import { type Exchange, OperationType, HeadersKeys } from "../exchange.ts";
+import {
+  type Exchange,
+  OperationType,
+  HeadersKeys,
+  DefaultExchange,
+  getExchangeContext,
+  getExchangeRoute,
+  EXCHANGE_INTERNALS,
+} from "../exchange.ts";
+import type { Route } from "../route.ts";
 
 export type CallableSplitter<T = unknown, R = unknown> = (
   body: T,
@@ -29,20 +38,35 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
     );
     const groupId = crypto.randomUUID();
 
+    const context = getExchangeContext(exchange);
+    const route = getExchangeRoute(exchange);
+
+    if (!context) {
+      throw new Error("Exchange has no context — cannot execute split");
+    }
+
     const existingHierarchy =
       (exchange.headers[HeadersKeys.SPLIT_HIERARCHY] as string[]) || [];
     const splitHierarchy = [...existingHierarchy, groupId];
 
     splitBodies.forEach((body) => {
-      const postProcessedExchange: Exchange<R> = {
-        ...exchange,
+      const postProcessedExchange = new DefaultExchange<R>(context, {
         id: crypto.randomUUID(),
         body,
         headers: {
           ...exchange.headers,
           [HeadersKeys.SPLIT_HIERARCHY]: splitHierarchy,
         },
-      };
+      });
+
+      // Set route in internals if it exists
+      if (route) {
+        const internals = EXCHANGE_INTERNALS.get(postProcessedExchange);
+        if (internals) {
+          internals.route = route as Route;
+        }
+      }
+
       postProcessedExchange.logger.debug(
         `Pushing split exchange ${postProcessedExchange.id} to queue, splitHierarchy: ${postProcessedExchange.headers[HeadersKeys.SPLIT_HIERARCHY]}`,
       );

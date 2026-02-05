@@ -40,15 +40,7 @@ export class HeaderStep<T = unknown> implements Step<HeaderSetter<T>> {
     queue: { exchange: Exchange<T>; steps: Step<Adapter>[] }[],
   ): Promise<void> {
     const value = await Promise.resolve(this.adapter.set(exchange));
-    queue.push({
-      exchange: {
-        ...exchange,
-        headers: {
-          ...exchange.headers,
-          [this.adapter.key]: value,
-        },
-      },
-      steps: remainingSteps,
-    });
+    exchange.headers[this.adapter.key] = value;
+    queue.push({ exchange, steps: remainingSteps });
   }
 }

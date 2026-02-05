@@ -375,11 +375,23 @@ export class CraftContext {
   }
 
   /**
+   * Wait for all in-flight route handlers (and their background tasks) to complete.
+   * Does not stop sources; use stop() for full shutdown.
+   *
+   * @returns A promise that resolves when all routes have drained
+   */
+  async drain(): Promise<void> {
+    this.logger.debug("Draining context: waiting for all route handlers");
+    await Promise.all(this.routes.map((r) => r.drain()));
+    this.logger.debug("Context drained");
+  }
+
+  /**
    * Stop all routes and shut down the context.
    *
    * This will:
-   * 1. Abort all route controllers
-   * 2. Run the onShutdown handler if defined
+   * 1. Abort all route controllers (stops sources)
+   * 2. Drain all routes (wait for in-flight handlers and their background tasks)
    *
    * @returns A promise that resolves when all shutdown operations complete
    *
@@ -397,12 +409,15 @@ export class CraftContext {
     this.logger.debug("Stopping Routecraft context");
     this.emit("contextStopping", { reason: undefined });
 
-    // Abort all route controllers (route emits handled by route abort listener)
+    // 1. Abort all route controllers (stops sources)
     for (const route of this.routes) {
-      this.logger.debug("Stopping route controller");
+      this.logger.debug(`Stopping route "${route.definition.id}"`);
       const controller = this.controllers.get(route.definition.id);
       controller?.abort("context.stop()");
     }
+
+    // 2. Drain all routes (wait for in-flight handlers + their tasks)
+    await Promise.all(this.routes.map((r) => r.drain()));
 
     this.logger.debug("Routecraft context stopped");
     this.emit("contextStopped", {});

@@ -23,11 +23,7 @@ export {
   type CallableProcessor,
 } from "./operations/process.ts";
 
-export {
-  type Destination,
-  type CallableDestination,
-  type DestinationAggregator,
-} from "./operations/to.ts";
+export { type Destination, type CallableDestination } from "./operations/to.ts";
 
 export { type Splitter, type CallableSplitter } from "./operations/split.ts";
 
@@ -41,8 +37,6 @@ export {
   type Transformer,
   type CallableTransformer,
 } from "./operations/transform.ts";
-
-export { type Tap, type CallableTap } from "./operations/tap.ts";
 
 export { type Filter, type CallableFilter } from "./operations/filter.ts";
 

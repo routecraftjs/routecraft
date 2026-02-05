@@ -261,6 +261,9 @@ describe("Route Behavior", () => {
       .build();
     await testContext.start();
 
+    // Wait for async tap jobs to complete
+    await testContext.drain();
+
     expect(capturedCorrelationIds[0]).toBeDefined();
     expect(capturedCorrelationIds[0]).toBe(capturedCorrelationIds[1]);
   });
@@ -373,6 +376,9 @@ describe("Route Behavior", () => {
 
     await testContext.start();
 
+    // Wait for async tap jobs to complete
+    await testContext.drain();
+
     expect(processingOrder).toEqual(["first", "second"]);
   });
 
@@ -465,6 +471,9 @@ describe("Route Behavior", () => {
 
     await testContext.start();
 
+    // Wait for async tap jobs to complete
+    await testContext.drain();
+
     // Expect the original "hello-world" to be split into two parts: "hello" and "world".
     const tapBodies = spyTap.mock.calls.map((call) => call[0].body);
     expect(tapBodies).toEqual(expect.arrayContaining(["hello", "world"]));
@@ -534,6 +543,10 @@ describe("Route Behavior", () => {
       .build();
 
     await testContext.start();
+
+    // Wait for async tap jobs to complete
+    await testContext.drain();
+
     expect(spyTap).toHaveBeenCalledTimes(2);
     const correlationIds = spyTap.mock.calls.map(
       (call) => call[0].headers["routecraft.correlation_id"],
@@ -732,6 +745,9 @@ describe("Route Behavior", () => {
 
     await testContext.start();
 
+    // Wait for async tap jobs to complete
+    await testContext.drain();
+
     // Both split exchanges should have the original custom header
     expect(spyTap).toHaveBeenCalledTimes(2);
     expect(spyTap.mock.calls[0][0].headers["custom.header"]).toBe("test-value");
@@ -882,6 +898,9 @@ describe("Route Behavior", () => {
 
     await testContext.start();
 
+    // Wait for async tap jobs to complete
+    await testContext.drain();
+
     expect(processorSpy).toHaveBeenCalledTimes(2);
     expect(processorSpy2).toHaveBeenCalledTimes(4);
     expect(processorSpy3).toHaveBeenCalledTimes(6);
@@ -931,6 +950,9 @@ describe("Route Behavior", () => {
 
     await testContext.start();
 
+    // Wait for async tap jobs to complete
+    await testContext.drain();
+
     // Should only have even numbers
     const tapBodies = spyTap.mock.calls.map((call) => call[0].body);
     expect(tapBodies).toEqual([2, 4, 6]);
@@ -963,19 +985,22 @@ describe("Route Behavior", () => {
 
     await testContext.start();
 
+    // Wait for async tap jobs to complete
+    await testContext.drain();
+
     // Should only have string messages
     expect(capturedMessages).toEqual(["valid string", "another string"]);
   });
 
   /**
-   * @case Verifies multiple .to() calls maintain body unchanged
-   * @preconditions Multiple .to() destinations in sequence
-   * @expectedResult Body passes through unchanged despite multiple destinations
+   * @case Verifies multiple .to() calls transform body sequentially
+   * @preconditions Multiple .to() destinations in sequence with return values
+   * @expectedResult Each .to() that returns data replaces the body
    */
-  test("multiple .to() calls preserve body", async () => {
-    const dest1Spy = vi.fn(async () => ({ result1: "ignored" }));
-    const dest2Spy = vi.fn(async () => ({ result2: "ignored" }));
-    const dest3Spy = vi.fn(async () => ({ result3: "ignored" }));
+  test("multiple .to() calls transform body", async () => {
+    const dest1Spy = vi.fn(async () => ({ result: 1 }));
+    const dest2Spy = vi.fn(async () => ({ result: 2 }));
+    const dest3Spy = vi.fn(async () => ({ result: 3 }));
     const finalSpy = vi.fn();
 
     testContext = context()
@@ -998,10 +1023,9 @@ describe("Route Behavior", () => {
     expect(dest3Spy).toHaveBeenCalledTimes(1);
     expect(finalSpy).toHaveBeenCalledTimes(1);
 
-    // Body should be unchanged through all destinations
+    // Body should be the last result
     expect(finalSpy.mock.calls[0][0].body).toEqual({
-      original: "value",
-      count: 42,
+      result: 3,
     });
   });
 });

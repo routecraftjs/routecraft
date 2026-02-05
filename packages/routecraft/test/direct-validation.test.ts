@@ -1270,7 +1270,9 @@ describe("Direct adapter validation", () => {
         .build();
 
       await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Wait for async tap jobs to complete
+      await ctx.drain();
 
       // Producer tap should have been called
       expect(producerTap).toHaveBeenCalledTimes(1);

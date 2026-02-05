@@ -1,5 +1,6 @@
-import { CraftContext } from "./context.ts";
+import { type CraftContext } from "./context.ts";
 import { type Logger, createLogger } from "./logger.ts";
+import type { Route } from "./route.ts";
 
 /**
  * Types of operations that can be performed on an exchange.
@@ -118,6 +119,49 @@ export type Exchange<T = unknown> = {
 };
 
 /**
+ * Internal state for exchanges.
+ * Stored in WeakMap so it is not exposed on the public Exchange interface.
+ *
+ * @internal
+ */
+type ExchangeInternals = {
+  context: CraftContext;
+  route?: Route;
+};
+
+/**
+ * WeakMap storing internal state for exchanges.
+ * Used to hide context and task tracking from external access.
+ *
+ * @internal
+ */
+export const EXCHANGE_INTERNALS = new WeakMap<Exchange, ExchangeInternals>();
+
+/**
+ * Get the CraftContext for an exchange, if it has internals.
+ *
+ * @param exchange The exchange
+ * @returns The context or undefined
+ * @internal
+ */
+export function getExchangeContext(
+  exchange: Exchange,
+): CraftContext | undefined {
+  return EXCHANGE_INTERNALS.get(exchange)?.context;
+}
+
+/**
+ * Get the route for an exchange, if it has internals.
+ *
+ * @param exchange The exchange
+ * @returns The route or undefined
+ * @internal
+ */
+export function getExchangeRoute(exchange: Exchange): Route | undefined {
+  return EXCHANGE_INTERNALS.get(exchange)?.route;
+}
+
+/**
  * Default implementation of the Exchange interface.
  *
  * Provides standard exchange functionality with automatic
@@ -157,10 +201,7 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
    * @param context The CraftContext this exchange belongs to
    * @param options Optional configuration for the exchange
    */
-  constructor(
-    public readonly context: CraftContext,
-    options?: Partial<Exchange<T>>,
-  ) {
+  constructor(context: CraftContext, options?: Partial<Exchange<T>>) {
     this.id = options?.id || crypto.randomUUID();
     this.headers = {
       [HeadersKeys.ROUTE_ID]: crypto.randomUUID(),
@@ -169,6 +210,9 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
       ...(options?.headers || {}),
     };
     this.body = options?.body || ({} as T);
+
+    // Store internals in WeakMap before createLogger (logger reads from it)
+    EXCHANGE_INTERNALS.set(this, { context });
     this.logger = createLogger(this);
   }
 }

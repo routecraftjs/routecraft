@@ -6,7 +6,7 @@ Answers to common questions. {% .lead %}
 
 ## What is RouteCraft?
 
-RouteCraft is a developer-first automation and integration framework that lets you build data processing pipelines using a fluent DSL. Think of it as Apache Camel for modern JavaScript/TypeScript applications.
+RouteCraft is a developer-first automation and integration framework that lets you build data processing pipelines using a fluent DSL.
 
 ## How do I run examples?
 

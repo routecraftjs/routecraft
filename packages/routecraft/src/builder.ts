@@ -26,7 +26,6 @@ import {
 import {
   type Destination,
   type CallableDestination,
-  type DestinationAggregator,
   ToStep,
 } from "./operations/to.ts";
 import {
@@ -45,14 +44,14 @@ import {
   type CallableTransformer,
   TransformStep,
 } from "./operations/transform.ts";
-import { type Tap, type CallableTap, TapStep } from "./operations/tap.ts";
+import { TapStep } from "./operations/tap.ts";
 import {
   type CallableFilter,
   type Filter,
   FilterStep,
 } from "./operations/filter.ts";
 import { ValidateStep } from "./operations/validate.ts";
-import { EnrichStep } from "./operations/enrich.ts";
+import { EnrichStep, type DestinationAggregator } from "./operations/enrich.ts";
 import { HeaderStep } from "./operations/header.ts";
 import { type HeaderValue } from "./exchange.ts";
 // Binder mechanism removed
@@ -426,36 +425,29 @@ export class RouteBuilder<Current = unknown> {
 
   /**
    * Send the processed data to a destination.
-   * By default, the destination result is ignored and the original exchange continues.
-   * Optionally provide an aggregator to capture and merge the result into the exchange.
+   * If the destination returns undefined, the exchange continues unchanged.
+   * If the destination returns a value, the exchange body is replaced with that value.
    *
    * @template R The result type returned by the destination
    * @param destination A function or adapter that sends the data
-   * @param aggregator Optional function to merge the result with the original exchange
-   * @returns A RouteBuilder with the same type
+   * @returns A RouteBuilder with the result type
    * @example
-   * // Send to a destination (side-effect only, result ignored)
+   * // Send to a destination that returns void (no body change)
    * .to(async ({ body }) => {
    *   await db.users.insert(body);
    * })
    *
-   * // Capture result with custom aggregator
-   * .to(
-   *   fetch({ url: 'https://api.example.com/save' }),
-   *   (original, result) => ({
-   *     ...original,
-   *     body: { ...original.body, httpStatus: result.status }
-   *   })
-   * )
+   * // Send and replace body with result
+   * .to(fetch({ url: 'https://api.example.com/transform' }))
+   * // Body becomes FetchResult
    */
   to<R = void>(
     destination: Destination<Current, R> | CallableDestination<Current, R>,
-    aggregator?: DestinationAggregator<Current, R>,
-  ): RouteBuilder<Current> {
+  ): RouteBuilder<R> {
     const route = this.requireSource();
     logger.debug(`Adding destination step to route "${route.id}"`);
-    route.steps.push(new ToStep<Current, R>(destination, aggregator));
-    return this.withType<Current>();
+    route.steps.push(new ToStep<Current, R>(destination));
+    return this.withType<R>();
   }
 
   /**
@@ -464,8 +456,7 @@ export class RouteBuilder<Current = unknown> {
    * If no splitter is provided and the current data is an array, it will automatically
    * split the array into individual items.
    *
-   * Similar to Apache Camel's Splitter EIP: accepts body, returns array of body items.
-   * The framework automatically creates new exchanges for each item.
+   * Accepts body, returns array of body items. The framework automatically creates new exchanges for each item.
    *
    * @template ItemType The type of items in the array (inferred from array if not specified)
    * @param splitter Optional function that receives the body and returns an array of items
@@ -644,8 +635,9 @@ export class RouteBuilder<Current = unknown> {
    * Execute a side effect without changing the data.
    * This is useful for logging, metrics, or other operations that don't modify the data.
    * The type remains the same after tapping.
+   * Return values are ignored.
    *
-   * @param tap A function that performs a side effect
+   * @param destination A destination adapter or function for side effects
    * @returns A RouteBuilder with the same type
    * @example
    * // Log the current data
@@ -657,8 +649,12 @@ export class RouteBuilder<Current = unknown> {
    *   metrics.gauge('item_size', JSON.stringify(exchange.body).length);
    * })
    */
-  tap(tap: Tap<Current> | CallableTap<Current>): RouteBuilder<Current> {
-    this.addStep(new TapStep<Current>(tap));
+  tap(
+    destination:
+      | Destination<Current, unknown>
+      | CallableDestination<Current, unknown>,
+  ): RouteBuilder<Current> {
+    this.addStep(new TapStep<Current>(destination));
     return this.withType<Current>();
   }
 

@@ -35,8 +35,9 @@ export class TransformStep<T = unknown, R = T> implements Step<
     const newBody = await Promise.resolve(
       this.adapter.transform(exchange.body),
     );
+    exchange.body = newBody as unknown as T;
     queue.push({
-      exchange: { ...exchange, body: newBody },
+      exchange: exchange as unknown as Exchange<R>,
       steps: remainingSteps,
     });
   }
