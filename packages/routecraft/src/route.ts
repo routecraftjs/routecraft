@@ -5,6 +5,7 @@ import {
   OperationType,
   type ExchangeHeaders,
   DefaultExchange,
+  EXCHANGE_INTERNALS,
 } from "./exchange.ts";
 import { error as rcError, RouteCraftError, RC } from "./error.ts";
 import { createLogger, type Logger } from "./logger.ts";
@@ -76,6 +77,18 @@ export interface Route {
    * Stop processing data on this route.
    */
   stop(): void;
+
+  /**
+   * Wait for all in-flight handlers (and their background tasks) to complete.
+   */
+  drain(): Promise<void>;
+
+  /**
+   * Track a background task (e.g. tap) for this route.
+   * @param promise The promise to track
+   * @internal
+   */
+  trackTask(promise: Promise<unknown>): void;
 }
 
 /**
@@ -96,6 +109,12 @@ export class DefaultRoute implements Route {
 
   /** Processes messages from the message channel */
   private consumer: Consumer;
+
+  /** In-flight handler promises (for drain) */
+  private inFlightHandlers = new Set<Promise<Exchange>>();
+
+  /** Background tasks (e.g. tap) tracked at route level */
+  private tasks = new Set<Promise<unknown>>();
 
   /**
    * Create a new route instance.
@@ -149,7 +168,7 @@ export class DefaultRoute implements Route {
    * @private
    */
   private buildExchange(message: unknown, headers?: ExchangeHeaders): Exchange {
-    return new DefaultExchange(this.context, {
+    const exchange = new DefaultExchange(this.context, {
       body: message,
       headers: {
         ...headers,
@@ -158,6 +177,23 @@ export class DefaultRoute implements Route {
         [HeadersKeys.OPERATION]: OperationType.FROM,
       },
     });
+
+    // Add route to internals so steps like tap can access it
+    const internals = EXCHANGE_INTERNALS.get(exchange);
+    if (internals) {
+      internals.route = this;
+    }
+
+    return exchange;
+  }
+
+  /**
+   * Track a background task (e.g. tap) for this route.
+   * @internal
+   */
+  trackTask(promise: Promise<unknown>): void {
+    this.tasks.add(promise);
+    promise.finally(() => this.tasks.delete(promise));
   }
 
   /**
@@ -210,22 +246,34 @@ export class DefaultRoute implements Route {
 
   /**
    * Process an exchange through the route's steps.
-   *
-   * This is the main processing logic that:
-   * 1. Takes an initial exchange from the source
-   * 2. Processes it through each step in sequence
-   * 3. Handles errors that occur during processing
+   * Resolves with the result immediately; then waits for background tasks (e.g. tap) before cleanup.
    *
    * @param exchange The initial exchange to process
    * @returns A promise that resolves when processing is complete
    * @private
    */
-  private async handler(exchange: Exchange): Promise<Exchange> {
+  private handler(exchange: Exchange): Promise<Exchange> {
     exchange.logger.debug(
       `Processing initial exchange ${exchange.id} on route "${this.definition.id}"`,
     );
 
-    // Use a queue to process the steps in FIFO order.
+    // Run steps (tap adds tasks via route.trackTask)
+    const handlerPromise = this.runSteps(exchange);
+
+    this.inFlightHandlers.add(handlerPromise);
+    handlerPromise.finally(() => this.inFlightHandlers.delete(handlerPromise));
+
+    return handlerPromise;
+  }
+
+  /**
+   * Run the step loop for an exchange.
+   *
+   * @param exchange The initial exchange to process
+   * @returns The last processed exchange
+   * @private
+   */
+  private async runSteps(exchange: Exchange): Promise<Exchange> {
     const queue: { exchange: Exchange; steps: Step<Adapter>[] }[] = [
       { exchange: exchange, steps: [...this.definition.steps] },
     ];
@@ -235,42 +283,51 @@ export class DefaultRoute implements Route {
     while (queue.length > 0) {
       const { exchange, steps } = queue.shift()!;
       if (steps.length === 0) {
-        // No more steps; this is a completed exchange for this branch.
         lastProcessedExchange = exchange;
         continue;
       }
 
       const [step, ...remainingSteps] = steps;
 
-      // Update operation type in headers for the current step
-      const updatedExchange: Exchange = {
-        ...exchange,
-        headers: {
-          ...exchange.headers,
-          [HeadersKeys.OPERATION]: step.operation,
-        },
-      };
+      // Update operation header for this step
+      exchange.headers[HeadersKeys.OPERATION] = step.operation;
 
-      updatedExchange.logger.debug(
-        `Processing step ${step.operation} on exchange ${updatedExchange.id}`,
+      exchange.logger.debug(
+        `Processing step ${step.operation} on exchange ${exchange.id}`,
       );
 
       try {
-        await step.execute(updatedExchange, remainingSteps, queue);
+        await step.execute(exchange, remainingSteps, queue);
       } catch (error) {
         const err = this.processError(step.operation, error);
-        updatedExchange.logger.warn(
+        exchange.logger.warn(
           err,
-          `Step ${step.operation} failed for exchange ${updatedExchange.id}`,
+          `Step ${step.operation} failed for exchange ${exchange.id}`,
         );
         this.context.emit("error", {
           error: err,
           route: this,
-          exchange: updatedExchange,
+          exchange: exchange,
         });
       }
     }
     return lastProcessedExchange;
+  }
+
+  /**
+   * Wait for all in-flight handlers and background tasks to complete.
+   * Loops until no new handlers are added (drains consumer queue).
+   */
+  async drain(): Promise<void> {
+    this.logger.debug(
+      `Draining route: ${this.inFlightHandlers.size} handlers, ${this.tasks.size} tasks in flight`,
+    );
+    while (this.inFlightHandlers.size > 0 || this.tasks.size > 0) {
+      const currentHandlers = [...this.inFlightHandlers];
+      const currentTasks = [...this.tasks];
+      await Promise.all([...currentHandlers, ...currentTasks]);
+    }
+    this.logger.debug("Route drained");
   }
 
   /**

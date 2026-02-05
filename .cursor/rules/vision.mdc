@@ -32,7 +32,7 @@ alwaysApply: false
 
 ## Inspirations and guiding principles
 
-- Primary inspiration: Apache Camel. When uncertain about naming or composition, prefer Camel-like patterns: adapters implement operation interfaces, routes remain linear and focused, and configuration lives in options rather than public DSL verbs.
+- When uncertain about naming or composition: adapters implement operation interfaces, routes remain linear and focused, and configuration lives in options rather than public DSL verbs.
 - Additional inspiration: Pipedream, Make, Zapier – easy composition of sources, steps, and destinations with clear boundaries.
 - Origin story: started as automation for repetitive tasks; with AI/agents, we assume fewer tasks are truly repetitive and design for smart, dynamic flows while keeping type safety and isolation.
 

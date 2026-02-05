@@ -30,7 +30,7 @@ export default craft()
 - 🎯 **Type-safe**: Full TypeScript support with intelligent type inference
 - 🔌 **Extensible**: Easy-to-write adapters for any integration
 - 🚀 **Performant**: Built for high-throughput data processing
-- 🛠️ **Developer-friendly**: Intuitive DSL inspired by Apache Camel
+- 🛠️ **Developer-friendly**: Intuitive, fluent DSL
 - 📦 **Lightweight**: Minimal dependencies
 
 ## Documentation

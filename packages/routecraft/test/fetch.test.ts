@@ -389,25 +389,25 @@ describe("Fetch Adapter", () => {
   });
 
   /**
-   * @case Verifies .to(fetch()) without aggregator ignores result
-   * @preconditions fetch adapter used with .to() without aggregator
-   * @expectedResult Fetch called but result ignored, body unchanged
+   * @case Verifies .to(fetch()) replaces body with result
+   * @preconditions fetch adapter used with .to()
+   * @expectedResult Body replaced with FetchResult
    */
-  test(".to(fetch()) without aggregator ignores result", async () => {
+  test(".to(fetch()) replaces body with fetch result", async () => {
     const destSpy = vi.fn();
 
     fetchMock.mockResolvedValue({
       ok: true,
       status: 200,
       headers: new Map([["content-type", "application/json"]]),
-      text: async () => JSON.stringify({ ignored: "data" }),
+      text: async () => JSON.stringify({ responseData: "value" }),
       url: "https://api.example.com/webhook",
     });
 
     testContext = context()
       .routes(
         craft()
-          .id("test-to-fetch-no-aggregator")
+          .id("test-to-fetch-replaces-body")
           .from(simple({ original: "data" }))
           .to(fetch({ method: "POST", url: "https://api.example.com/webhook" }))
           .to(destSpy),
@@ -419,56 +419,55 @@ describe("Fetch Adapter", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(destSpy).toHaveBeenCalledTimes(1);
     const finalBody = destSpy.mock.calls[0][0].body;
-    // Body should be unchanged - fetch result ignored
-    expect(finalBody).toEqual({ original: "data" });
+    // Body should be replaced with FetchResult
+    expect(finalBody.status).toBe(200);
+    expect(finalBody.body).toEqual({ responseData: "value" });
   });
 
   /**
-   * @case Verifies .to(fetch()) with custom aggregator captures result
-   * @preconditions fetch adapter used with .to() with custom aggregator
-   * @expectedResult Result captured and merged via aggregator
+   * @case Verifies chaining .to() calls
+   * @preconditions Multiple .to(fetch()) calls
+   * @expectedResult Each .to() replaces body sequentially
    */
-  test(".to(fetch()) with custom aggregator captures HTTP status", async () => {
+  test("chaining .to(fetch()) calls", async () => {
     const destSpy = vi.fn();
 
-    fetchMock.mockResolvedValue({
-      ok: true,
-      status: 201,
-      headers: new Map([["content-type", "application/json"]]),
-      text: async () => JSON.stringify({ id: 456 }),
-      url: "https://api.example.com/create",
-    });
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Map([["content-type", "application/json"]]),
+        text: async () => JSON.stringify({ step: 1 }),
+        url: "https://api.example.com/step1",
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        headers: new Map([["content-type", "application/json"]]),
+        text: async () => JSON.stringify({ step: 2 }),
+        url: "https://api.example.com/step2",
+      });
 
     testContext = context()
       .routes(
         craft()
-          .id("test-to-fetch-with-aggregator")
-          .from(simple({ name: "Test Item" }))
-          .to(
-            fetch({ method: "POST", url: "https://api.example.com/create" }),
-            (original, result) => ({
-              ...original,
-              body: {
-                ...original.body,
-                httpStatus: result.status,
-                createdId: result.body.id,
-              },
-            }),
-          )
+          .id("test-to-fetch-chain")
+          .from(simple({ initial: "data" }))
+          .to(fetch({ url: "https://api.example.com/step1" }))
+          .to(fetch({ url: "https://api.example.com/step2" }))
           .to(destSpy),
       )
       .build();
 
     await testContext.start();
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(destSpy).toHaveBeenCalledTimes(1);
     const finalBody = destSpy.mock.calls[0][0].body;
-    // Body should include original data plus captured HTTP status and ID
-    expect(finalBody).toEqual({
-      name: "Test Item",
-      httpStatus: 201,
-      createdId: 456,
+    // Body should be the last FetchResult
+    expect(finalBody).toMatchObject({
+      status: 201,
+      body: { step: 2 },
     });
   });
 });

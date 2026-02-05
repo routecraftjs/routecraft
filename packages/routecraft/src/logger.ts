@@ -1,6 +1,6 @@
 import { pino, type Logger } from "pino";
 import { type Route, DefaultRoute } from "./route.ts";
-import { type Exchange, DefaultExchange, HeadersKeys } from "./exchange.ts";
+import { type Exchange, EXCHANGE_INTERNALS, HeadersKeys } from "./exchange.ts";
 import { CraftContext } from "./context.ts";
 export type { Logger };
 
@@ -90,12 +90,13 @@ export function createLogger(
       contextId: context.context.contextId,
       routeId: context.definition.id,
     });
-  } else if (context instanceof DefaultExchange) {
+  } else if (EXCHANGE_INTERNALS.has(context as Exchange)) {
+    const internals = EXCHANGE_INTERNALS.get(context as Exchange)!;
     return base.child({
-      contextId: context.context.contextId,
-      routeId: context.headers[HeadersKeys.ROUTE_ID],
-      exchangeId: context.id,
-      correlationId: context.headers[HeadersKeys.CORRELATION_ID],
+      contextId: internals.context.contextId,
+      routeId: (context as Exchange).headers[HeadersKeys.ROUTE_ID],
+      exchangeId: (context as Exchange).id,
+      correlationId: (context as Exchange).headers[HeadersKeys.CORRELATION_ID],
     });
   } else {
     return base;

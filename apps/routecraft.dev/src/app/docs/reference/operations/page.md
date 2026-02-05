@@ -562,7 +562,7 @@ Filter exchanges based on a predicate. The predicate receives the full `Exchange
 ```
 
 {% callout type="note" title="Filter vs Transform" %}
-Unlike `.transform()` which receives only the body, `.filter()` receives the full `Exchange` object. This allows filtering based on headers, correlation IDs, or other exchange metadata, not just the message body. This aligns with Apache Camel's Filter EIP behavior.
+Unlike `.transform()` which receives only the body, `.filter()` receives the full `Exchange` object. This allows filtering based on headers, correlation IDs, or other exchange metadata, not just the message body.
 {% /callout %}
 
 ### validate
@@ -699,7 +699,7 @@ split<Item = Current extends Array<infer U> ? U : never>(fn?: (body: Current) =>
 
 Split arrays into individual items. Each item becomes a separate exchange with a new UUID and copied headers from the original exchange.
 
-Similar to Apache Camel's Splitter EIP, the split function receives the message body and returns an array of items. The framework automatically creates exchanges for each item.
+The split function receives the message body and returns an array of items. The framework automatically creates exchanges for each item.
 
 ```ts
 // Split array automatically
@@ -832,10 +832,15 @@ Only pass exchanges after a specified quiet period with no new exchanges. Useful
 ### tap
 
 ```ts
-tap(fn: Tap<Current> | CallableTap<Current> | RouteBuilder<any>): RouteBuilder<Current>
+tap(destination: Destination<Current, unknown> | CallableDestination<Current, unknown>): RouteBuilder<Current>
 ```
 
-Execute side effects without changing the exchange. The tap operation receives a **deep copy** of the exchange and runs **non-blocking** - errors in the tap won't affect the main route. Perfect for logging, auditing, notifications, or any fire-and-forget side effects.
+Execute side effects without changing the exchange. The tap operation is **async fire-and-forget** - it runs in the background and never blocks the main route. Return values are ignored.
+
+The tap receives a **deep copy** of the exchange with:
+- New exchange ID
+- Cloned body and headers
+- Correlation header (`x-parent-exchange-id`) pointing to the parent exchange
 
 ```ts
 // Simple function-based tapping
@@ -850,10 +855,17 @@ Execute side effects without changing the exchange. The tap operation receives a
 ```
 
 **Key behaviors:**
-- **Non-blocking**: Main route doesn't wait for tap to complete and continues even if tap fails
-- **Copy semantics**: Tap receives a deep copy, not the original exchange
+- **Async fire-and-forget**: Main route continues immediately without waiting
+- **Exchange snapshot**: Tap receives a deep copy with new ID and correlation metadata
+- **Return values ignored**: Any value returned by the tap destination is discarded
 - **Error isolation**: Errors in tap don't affect the main route (they're logged but not thrown)
+- **Lifecycle aware**: Context waits for all taps to complete during shutdown via `drain()`
 - **Perfect for**: Logging, auditing, notifications, analytics, monitoring
+
+**Lifecycle:**
+- Routes complete without waiting for taps
+- `context.stop()` automatically calls `context.drain()` to wait for all tap jobs
+- Ensures all async work finishes before shutdown completes
 
 
 ## Destination operations
@@ -862,50 +874,149 @@ Execute side effects without changing the exchange. The tap operation receives a
 
 ```ts
 to<R = void>(
-  destination: Destination<Current, R> | CallableDestination<Current, R>,
-  aggregator?: (original: Exchange<Current>, result: R) => Exchange<Current>
-): RouteBuilder<Current>
+  destination: Destination<Current, R> | CallableDestination<Current, R>
+): RouteBuilder<R>
 ```
 
-Send the exchange to a destination. By default, the result is ignored and the original exchange continues unchanged (side-effect only). Optionally provide an aggregator to capture and merge the result into the exchange.
+Send the exchange to a destination. If the destination returns `undefined`, the exchange continues unchanged. If it returns a value, the exchange body is replaced with that value.
 
-**Default behavior (side-effect only):**
+**Destinations returning void (side-effect only):**
 
 ```ts
 .to(log()) // Log the final result
-.to(database.insert()) // Insert into database (result ignored)
-.to(async (exchange) => await sendToWebhook(exchange)) // Send webhook
+.to(database.insert()) // Insert into database, returns void
+.to(async (exchange) => {
+  await sendToWebhook(exchange);
+  // No return = undefined = body unchanged
+})
 ```
 
-**Capture result with custom aggregator:**
+**Destinations returning data (body replacement):**
 
 ```ts
-// Capture HTTP status from API call
-.to(
-  fetch({ method: 'POST', url: 'https://api.example.com/save' }),
-  (original, result) => ({
-    ...original,
-    body: { ...original.body, httpStatus: result.status }
-  })
-)
+// Fetch returns FetchResult - body becomes FetchResult
+.to(fetch({ url: 'https://api.example.com/transform' }))
 
-// Capture database ID from insert
-.to(
-  database.insert(),
-  (original, result) => ({
-    ...original,
-    body: { ...original.body, savedId: result.id }
-  })
-)
+// Database insert returns ID - body becomes the ID
+.to(database.insertAndReturnId())
+
+// Custom transformation
+.to(async (exchange) => {
+  const result = await processData(exchange.body);
+  return result; // Body replaced with result
+})
 ```
 
-**Multiple .to() calls:**
-
-When using multiple `.to()` operations without aggregators, the body remains unchanged:
+**Chaining .to() calls:**
 
 ```ts
-.to(saveToDatabase())     // Side-effect: save to DB
-.to(sendToQueue())        // Side-effect: publish to queue  
-.to(logResult())          // Side-effect: log
-// Body unchanged through all steps
+// Each .to() can transform the body
+.to(async (ex) => ({ ...ex.body, step: 1 }))
+.to(async (ex) => ({ ...ex.body, step: 2 }))
+// Body accumulates changes from each .to() that returns data
+
+// Mix side-effects and transformations
+.to(saveToDatabase()) // Returns void, body unchanged
+.to(fetch({ url: 'https://api.example.com/enrich' })) // Body becomes FetchResult
+.to(log()) // Logs the FetchResult
 ```
+
+## Error Handling
+
+### error (Planned)
+
+**Note:** The `error()` operation is documented here but not yet implemented. Implementation is planned for a future release.
+
+```ts
+error(handler: (error: RouteCraftError, exchange: Exchange) => void | Exchange | Promise<void | Exchange>): RouteBuilder<Current>
+```
+
+Configure route-level error handling. This is a **route-level configuration**, not a step wrapper - it applies to all errors in the entire route regardless of where it's called in the builder chain.
+
+The error handler can:
+- Return `void` to drop the exchange and stop processing
+- Return an `Exchange` to continue processing with a modified exchange
+- Rethrow the error to propagate it to the context level
+
+```ts
+// Drop exchanges that fail
+craft()
+  .id('with-error-handler')
+  .from(source())
+  .error((error, exchange) => {
+    console.error('Route failed:', error);
+    // Return void = drop exchange
+  })
+  .process(mightFail)
+  .to(destination)
+
+// Continue with fallback value
+craft()
+  .id('with-fallback')
+  .from(source())
+  .error((error, exchange) => {
+    exchange.logger.warn(error, 'Using fallback');
+    return { ...exchange, body: { fallback: true } };
+  })
+  .process(mightFail)
+  .to(destination)
+
+// Rethrow to context level
+craft()
+  .id('rethrow-critical')
+  .from(source())
+  .error((error, exchange) => {
+    if (error.code === 'CRITICAL') throw error;
+    // Handle non-critical errors
+  })
+  .process(mightFail)
+  .to(destination)
+```
+
+**Error handling levels:**
+1. **Step level**: Some steps (like `tap`) handle their own errors internally
+2. **Route level**: `error()` handler (when implemented)
+3. **Context level**: Fallback for unhandled errors via `context.on('error', handler)`
+
+### try (Planned)
+
+**Note:** The `try()` operation is documented here but not yet implemented. Implementation is planned for a future release.
+
+```ts
+try(handler: (error: RouteCraftError, exchange: Exchange) => void | Exchange | Promise<void | Exchange>): RouteBuilder<Current>
+```
+
+Wrap the **next step only** with local error handling. Unlike `error()` which is route-level, `try()` provides step-scoped error handling.
+
+```ts
+// Handle error from next step only
+craft()
+  .id('step-scoped-error')
+  .from(source())
+  .process(step1) // No error handling
+  .try((error, exchange) => {
+    // Only handles errors from step2
+    console.error('step2 failed:', error);
+    return { ...exchange, body: { recovered: true } };
+  })
+  .process(step2) // This step is wrapped by try()
+  .process(step3) // No error handling
+  .to(destination)
+
+// Multiple try() wrappers
+craft()
+  .id('multiple-try')
+  .from(source())
+  .try(handler1).process(step1)
+  .try(handler2).process(step2)
+  .try(handler3).to(destination)
+```
+
+**Behavior:**
+- `try()` only wraps the **next step** in the builder chain
+- If the wrapped step throws:
+  - The try handler is called with the error and exchange
+  - If handler returns `void`, exchange is dropped
+  - If handler returns an `Exchange`, processing continues with it
+  - If handler rethrows, error propagates to route-level `error()` handler
+- Errors from other steps are not affected by this `try()` handler

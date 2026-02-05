@@ -5,7 +5,6 @@ import {
   simple,
   fetch,
   log,
-  noop,
   type CraftContext,
   type Destination,
 } from "@routecraft/routecraft";
@@ -53,11 +52,11 @@ describe("Unified Destination Adapter", () => {
   });
 
   /**
-   * @case Verify .to() with result-returning adapter uses default aggregator
-   * @preconditions fetch returns result, no custom aggregator
-   * @expectedResult Result ignored, body unchanged
+   * @case Verify .to() with result-returning adapter replaces body
+   * @preconditions fetch returns result
+   * @expectedResult Body replaced with FetchResult
    */
-  test(".to() with result-returning adapter ignores result by default", async () => {
+  test(".to() with result-returning adapter replaces body", async () => {
     const destSpy = vi.fn();
 
     fetchMock.mockResolvedValue({
@@ -82,42 +81,26 @@ describe("Unified Destination Adapter", () => {
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const finalBody = destSpy.mock.calls[0][0].body;
-    // Body should be unchanged - fetch result ignored
-    expect(finalBody).toEqual({ original: "data" });
+    // Body should be replaced with FetchResult
+    expect(finalBody.status).toBe(200);
+    expect(finalBody.body).toEqual({ apiData: "value" });
   });
 
   /**
-   * @case Verify .to() with custom aggregator captures result
-   * @preconditions fetch returns result, custom aggregator provided
-   * @expectedResult Result merged into body via aggregator
+   * @case Verify .to() chains with body transformation
+   * @preconditions Multiple .to() calls where some return data
+   * @expectedResult Each .to() that returns data replaces the body
    */
-  test(".to() with custom aggregator captures result", async () => {
+  test(".to() chains with body transformation", async () => {
     const destSpy = vi.fn();
-
-    fetchMock.mockResolvedValue({
-      ok: true,
-      status: 201,
-      headers: new Map([["content-type", "application/json"]]),
-      text: async () => JSON.stringify({ id: 123 }),
-      url: "https://api.example.com/save",
-    });
 
     testContext = context()
       .routes(
         craft()
-          .id("test-custom-to-aggregator")
-          .from(simple({ name: "John", email: "john@example.com" }))
-          .to(
-            fetch({ method: "POST", url: "https://api.example.com/save" }),
-            (original, result) => ({
-              ...original,
-              body: {
-                ...original.body,
-                httpStatus: result.status,
-                savedId: result.body.id,
-              },
-            }),
-          )
+          .id("test-to-chain")
+          .from(simple({ step: 0 }))
+          .to(async (ex) => ({ ...ex.body, step: 1 }))
+          .to(async (ex) => ({ ...ex.body, step: 2 }))
           .to(destSpy),
       )
       .build();
@@ -127,10 +110,7 @@ describe("Unified Destination Adapter", () => {
     expect(destSpy).toHaveBeenCalledTimes(1);
     const finalBody = destSpy.mock.calls[0][0].body;
     expect(finalBody).toEqual({
-      name: "John",
-      email: "john@example.com",
-      httpStatus: 201,
-      savedId: 123,
+      step: 2,
     });
   });
 
@@ -218,20 +198,28 @@ describe("Unified Destination Adapter", () => {
   });
 
   /**
-   * @case Verify multiple .to() calls don't overwrite each other
+   * @case Verify multiple .to() calls with body replacement
    * @preconditions Multiple .to() calls with result-returning adapters
-   * @expectedResult Body unchanged through all .to() operations
+   * @expectedResult Last result-returning .to() determines body
    */
-  test("multiple .to() calls maintain body", async () => {
+  test("multiple .to() calls replace body sequentially", async () => {
     const destSpy = vi.fn();
 
-    fetchMock.mockResolvedValue({
-      ok: true,
-      status: 200,
-      headers: new Map([["content-type", "application/json"]]),
-      text: async () => JSON.stringify({ response: "data" }),
-      url: "https://api.example.com/endpoint",
-    });
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Map([["content-type", "application/json"]]),
+        text: async () => JSON.stringify({ response: "data1" }),
+        url: "https://api.example.com/endpoint1",
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Map([["content-type", "application/json"]]),
+        text: async () => JSON.stringify({ response: "data2" }),
+        url: "https://api.example.com/endpoint2",
+      });
 
     testContext = context()
       .routes(
@@ -240,7 +228,6 @@ describe("Unified Destination Adapter", () => {
           .from(simple({ original: "value" }))
           .to(fetch({ url: "https://api.example.com/endpoint1" }))
           .to(fetch({ url: "https://api.example.com/endpoint2" }))
-          .to(noop())
           .to(destSpy),
       )
       .build();
@@ -249,14 +236,17 @@ describe("Unified Destination Adapter", () => {
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const finalBody = destSpy.mock.calls[0][0].body;
-    // Body should be unchanged through all .to() calls
-    expect(finalBody).toEqual({ original: "value" });
+    // Body should be the last FetchResult
+    expect(finalBody).toMatchObject({
+      status: 200,
+      body: { response: "data2" },
+    });
   });
 
   /**
    * @case Verify mix of .to() and .enrich() calls
    * @preconditions Mix of .to() and .enrich() operations
-   * @expectedResult .to() preserves body, .enrich() adds to it
+   * @expectedResult .to() replaces body, .enrich() merges
    */
   test("mixing .to() and .enrich() works correctly", async () => {
     const destSpy = vi.fn();
@@ -273,7 +263,7 @@ describe("Unified Destination Adapter", () => {
         ok: true,
         status: 200,
         headers: new Map([["content-type", "application/json"]]),
-        text: async () => JSON.stringify({ ignored: "data" }),
+        text: async () => JSON.stringify({ webhookData: "data" }),
         url: "https://api.example.com/webhook",
       })
       .mockResolvedValueOnce({
@@ -290,7 +280,7 @@ describe("Unified Destination Adapter", () => {
           .id("test-mixed-operations")
           .from(simple({ userId: 1 }))
           .enrich(fetch({ url: "https://api.example.com/user" })) // Merges
-          .to(fetch({ url: "https://api.example.com/webhook" })) // Ignored
+          .to(fetch({ url: "https://api.example.com/webhook" })) // Replaces body
           .enrich(fetch({ url: "https://api.example.com/role" })) // Merges
           .to(destSpy),
       )
@@ -300,10 +290,10 @@ describe("Unified Destination Adapter", () => {
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const finalBody = destSpy.mock.calls[0][0].body;
-    // Should have userId + first enrich + second enrich (webhook ignored)
+    // Body flow: start with userId -> enrich merges user data -> .to() replaces with webhook result -> enrich merges role
     expect(finalBody).toMatchObject({
-      userId: 1,
-      body: { role: "Admin" }, // Last enrich
+      body: { role: "Admin" },
+      status: 200,
     });
   });
 
@@ -372,10 +362,10 @@ describe("Unified Destination Adapter", () => {
   /**
    * @case Verify callable destination works with .to()
    * @preconditions Using function instead of adapter object
-   * @expectedResult Function called, body unchanged
+   * @expectedResult Function called, body replaced with result
    */
   test(".to() with callable destination function", async () => {
-    const callableSpy = vi.fn(async () => ({ result: "ignored" }));
+    const callableSpy = vi.fn(async () => ({ result: "replaced" }));
     const destSpy = vi.fn();
 
     testContext = context()
@@ -393,7 +383,7 @@ describe("Unified Destination Adapter", () => {
     expect(callableSpy).toHaveBeenCalledTimes(1);
     expect(destSpy).toHaveBeenCalledTimes(1);
     const finalBody = destSpy.mock.calls[0][0].body;
-    expect(finalBody).toEqual({ data: "value" });
+    expect(finalBody).toEqual({ result: "replaced" });
   });
 
   /**

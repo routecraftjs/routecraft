@@ -1,6 +1,9 @@
 import { type Adapter, type Step } from "../types.ts";
-import { type Exchange } from "../exchange.ts";
-import { OperationType } from "../exchange.ts";
+import {
+  type Exchange,
+  type ExchangeHeaders,
+  OperationType,
+} from "../exchange.ts";
 
 /**
  * Processor: mutate or derive a new Exchange from the current one.
@@ -32,6 +35,12 @@ export class ProcessStep<T = unknown, R = T> implements Step<Processor<T, R>> {
     queue: { exchange: Exchange<R>; steps: Step<Adapter>[] }[],
   ): Promise<void> {
     const newExchange = await Promise.resolve(this.adapter.process(exchange));
-    queue.push({ exchange: newExchange, steps: remainingSteps });
+    // Process adapter may return a modified exchange; copy properties to original
+    exchange.body = newExchange.body as unknown as T;
+    (exchange as { headers: ExchangeHeaders }).headers = newExchange.headers;
+    queue.push({
+      exchange: exchange as unknown as Exchange<R>,
+      steps: remainingSteps,
+    });
   }
 }

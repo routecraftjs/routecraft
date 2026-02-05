@@ -1,5 +1,5 @@
 ---
-description: "Operations DSL: RouteCraft steps mapped to Apache Camel EIPs"
+description: "Operations DSL: RouteCraft step guidelines and authoring"
 globs:
   [
     "packages/routecraft/src/operations/**/*",
@@ -10,56 +10,45 @@ globs:
 alwaysApply: false
 ---
 
-## Operations (DSL) guidelines and Camel mapping
+## Operations (DSL) guidelines
 
-This document maps RouteCraft operations to Apache Camel Enterprise Integration Patterns (EIPs) where applicable, and sets guidelines for authoring steps. Prefer Camel-like naming and behavior when uncertain. Refer to the docs under `apps/routecraft.dev/src/app/docs/reference/operations/page.md` for end‑user documentation.
+This document sets guidelines for authoring RouteCraft steps. Refer to the docs under `apps/routecraft.dev/src/app/docs/reference/operations/page.md` for end‑user documentation.
 
 ### RouteCraft operations (from source)
 
 - `.from(source)`
-  - Camel: From (endpoint consumer)
   - Notes: A route must start with a single source. Use `[ { id }, source ]` form to set a stable route ID.
 
 - `.process(adapter | (exchange) => exchange)`
-  - Camel: Processor
   - Notes: Can change headers and body; return a new or modified exchange. Prefer pure transformations here; avoid side effects.
 
 - `.transform(adapter | (body) => newBody)`
-  - Camel: Transform / Message Translator
   - Notes: Body-only change. Framework writes result back to `exchange.body`.
 
 {% badge %}implemented{% /badge %} `.map((body) => newBody)`
 
-- Camel: Transform (functional shortcut)
 - Notes: Thin wrapper over transform semantics for convenience.
 
-- `.tap(adapter | (exchange) => void)`
-  - Camel: Wire Tap (lightweight)
-  - Notes: Observe without mutating; no side effects that change downstream. Use for logging/metrics.
+- `.tap(destination | (exchange) => any)`
+  - Notes: Async side effect that doesn't block route. Returns values ignored. Exchange snapshotted with new ID and correlation header. Use for logging/metrics/notifications.
 
 - `.filter(adapter | (exchange) => boolean)`
-  - Camel: Filter
   - Notes: Rejects the exchange when predicate is false. Downstream steps will not run for rejected messages.
 
 - `.validate(adapter | (exchange) => asserts)`
-  - Camel: Validate
   - Notes: Throw or reject on schema violations; prefer schema libs (e.g., Zod) inside the validator.
 
 - `.split(adapter | (exchange) => Exchange[])`
-  - Camel: Splitter
   - Notes: Fan-out into multiple exchanges; framework maintains `routecraft.split_hierarchy` headers for aggregation.
 
 - `.aggregate(adapter | (exchanges) => Exchange)`
-  - Camel: Aggregator
   - Notes: Fan-in of split groups; ensure deterministic aggregation.
 
-- `.enrich(adapter | (exchange) => Partial<Exchange["body"]>)`
-  - Camel: Content Enricher
-  - Notes: Merge additional data into the message; default aggregator provided in core.
+- `.enrich(destination | (exchange) => data, aggregator?)`
+  - Notes: Fetch/compute data and merge into body. Default aggregator merges result. Optional custom aggregator.
 
-- `.to(destination)`
-  - Camel: To (endpoint producer)
-  - Notes: Side effects/output only. Keep idempotency and error surfacing clear.
+- `.to(destination | (exchange) => result)`
+  - Notes: Send exchange to destination. If result is undefined, body unchanged. If result defined, body replaced with result.
 
 {% badge %}wip{% /badge %} `.dedupe(options?)`
   - Notes: Stateful filter that suppresses duplicate exchanges based on a derived key. Duplicates are dropped entirely - no downstream processing, no result returned. Key is reserved immediately (single-flight), committed on route success, released on failure. Options: `{ key?: (e) => string }`. If key is omitted, derived by hashing the exchange body (sha256). Use for skipping unchanged files or preventing duplicate side effects.
@@ -84,8 +73,9 @@ This document maps RouteCraft operations to Apache Camel Enterprise Integration 
 
 - Use `.transform` for body-only pure mapping. Metadata unchanged.
 - Use `.process` to replace or reshape the entire exchange (change body and/or headers). Avoid IO here.
-- Use `.to` for side effects/output (DB writes, HTTP emits, queues). Message continues unchanged.
-- Use `.enrich` to fetch/compute extra data and merge it via aggregator.
+- Use `.to` for sending data (DB writes, HTTP emits, queues). Body replaced if destination returns data, unchanged if returns void/undefined.
+- Use `.enrich` to fetch/compute extra data and merge it into body (default merge behavior).
+- Use `.tap` for async fire-and-forget side effects (logging, metrics, notifications). Never blocks route.
 
 ### Header semantics
 

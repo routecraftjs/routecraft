@@ -19,7 +19,6 @@ export interface Filter<T = unknown> extends Adapter {
  * Filter: evaluate predicate against the entire Exchange.
  * - Receives full Exchange (allows filtering on headers, body, and other properties)
  * - Returns true to continue, false to reject the exchange
- * - Aligns with Apache Camel Filter EIP behavior
  * - Use when you need to filter based on headers or other exchange metadata
  * - For body-only transformations, use `.transform` instead
  */
