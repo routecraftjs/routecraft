@@ -4,7 +4,7 @@ import { NoopAdapter } from "./adapters/noop.ts";
 import { LogAdapter, type LogOptions } from "./adapters/log.ts";
 import {
   DirectAdapter,
-  type DirectAdapterOptions,
+  type DirectOptions,
   type DirectDestinationOptions,
   type DirectSourceOptions,
 } from "./adapters/direct.ts";
@@ -259,7 +259,7 @@ export function direct<T = unknown>(
 ): DirectAdapter<T>;
 export function direct<T = unknown>(
   endpoint: string | ((exchange: Exchange<T>) => string),
-  options?: Partial<DirectAdapterOptions>,
+  options?: Partial<DirectOptions>,
 ): DirectAdapter<T> {
   return new DirectAdapter<T>(endpoint, options);
 }

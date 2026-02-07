@@ -539,7 +539,7 @@ export {
 export type {
   DirectRouteMetadata,
   DirectAdapter,
-  DirectAdapterOptions,
+  DirectOptions,
 } from "@routecraft/routecraft";
 ```
 

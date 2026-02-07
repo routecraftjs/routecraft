@@ -167,7 +167,7 @@ Options:
 ### direct
 
 ```ts
-direct<T>(endpoint: string | ((exchange: Exchange<T>) => string), options?: Partial<DirectAdapterOptions>): DirectAdapter<T>
+direct<T>(endpoint: string | ((exchange: Exchange<T>) => string), options?: Partial<DirectOptions>): DirectAdapter<T>
 ```
 
 Enable synchronous inter-route communication with single consumer semantics. Perfect for composable route architectures where you need request-response patterns. Supports dynamic endpoint names based on exchange data for destinations.
