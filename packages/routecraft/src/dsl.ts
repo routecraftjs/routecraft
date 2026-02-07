@@ -1,7 +1,7 @@
 import { ContextBuilder, RouteBuilder } from "./builder.ts";
 import { SimpleAdapter } from "./adapters/simple.ts";
 import { NoopAdapter } from "./adapters/noop.ts";
-import { LogAdapter, type LogAdapterOptions } from "./adapters/log.ts";
+import { LogAdapter, type LogOptions } from "./adapters/log.ts";
 import {
   DirectAdapter,
   type DirectAdapterOptions,
@@ -149,7 +149,7 @@ export function noop<T = unknown>(): NoopAdapter<T> {
  */
 export function log<T = unknown>(
   formatter?: (exchange: Exchange<T>) => unknown,
-  options?: LogAdapterOptions,
+  options?: LogOptions,
 ): LogAdapter<T> {
   return new LogAdapter<T>(formatter, options);
 }
@@ -171,7 +171,7 @@ export function log<T = unknown>(
  */
 export function debug<T = unknown>(
   formatter?: (exchange: Exchange<T>) => unknown,
-  options?: Omit<LogAdapterOptions, "level">,
+  options?: Omit<LogOptions, "level">,
 ): LogAdapter<T> {
   return new LogAdapter<T>(formatter, { ...options, level: "debug" });
 }

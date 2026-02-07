@@ -20,7 +20,6 @@ export interface ToolSourceOptions extends DirectSourceOptions {
  */
 export type ToolDestinationOptions = DirectDestinationOptions;
 
-/** @deprecated Use ToolSourceOptions or ToolDestinationOptions. Kept for backward compatibility. */
 export type ToolOptions = ToolSourceOptions;
 
 /**

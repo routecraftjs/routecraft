@@ -49,17 +49,19 @@ export class TapStep<T = unknown> implements Step<Destination<T, unknown>> {
 
     const snapshot = snapshotExchange(exchange, context);
 
-    const promise = Promise.resolve(this.adapter.send(snapshot)).catch(
-      (error: unknown) => {
+    const promise = (async () => {
+      try {
+        await this.adapter.send(snapshot);
+      } catch (error: unknown) {
         const err = rcError("RC5007", error, {
           message: `Error tapping exchange ${snapshot.id}`,
           suggestion:
-            "Check the tap function for any errors or wrap it in a try/catch block.",
+            "Tap errors can be handled in the route-level error() operation.",
         });
-        snapshot.logger.warn(err, `Error tapping exchange ${snapshot.id}`);
         context.emit("error", { error: err, exchange: snapshot });
-      },
-    );
+        throw err; // Reject for observability
+      }
+    })();
 
     route.trackTask(promise);
 

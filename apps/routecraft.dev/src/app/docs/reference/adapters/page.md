@@ -9,14 +9,14 @@ Catalog of adapters and authoring guidance. {% .lead %}
 | Adapter | Category | Description | Types |
 |---------|----------|-------------|-------|
 | [`simple`](#simple) | Core | Static or dynamic data sources | `Source` |
-| [`log`](#log) | Core | Console logging for debugging | `Destination`, `Tap` |
+| [`log`](#log) | Core | Console logging for debugging | `Destination` |
 | [`timer`](#timer) | Core | Scheduled/recurring execution | `Source` |
 | [`direct`](#direct) | Core | Synchronous inter-route communication | `Source`, `Destination` |
-| [`fetch`](#fetch) | Core | HTTP client requests | `Destination`, `Enricher` |
+| [`fetch`](#fetch) | Core | HTTP client requests | `Destination` |
 | [`noop`](#noop) | Core | No-operation placeholder | `Destination` |
-| [`file`](#file) | File | Read/write text files | `Source`, `Destination`, `Enricher` |
-| [`json`](#json) | File | JSON file handling with parsing | `Source`, `Destination`, `Enricher` |
-| [`csv`](#csv) | File | CSV file processing | `Source`, `Destination`, `Enricher` |
+| [`file`](#file) | File | Read/write text files | `Source`, `Destination` |
+| [`json`](#json) | File | JSON file handling with parsing | `Source`, `Destination` |
+| [`csv`](#csv) | File | CSV file processing | `Source`, `Destination` |
 | [`http`](#http) | HTTP | HTTP server endpoints | `Source` |
 | [`smtp`](#smtp) | Email | SMTP email sending | `Destination` |
 
@@ -441,27 +441,22 @@ Make HTTP requests. Returns a `Destination` adapter that works with both `.to()`
 )
 ```
 
-**With `.to()` (side-effect or capture result):**
+**With `.to()` (side-effect or body replacement):**
 
 ```ts
-// Side-effect only (default) - send webhook, ignore response
+// Side-effect only - send webhook, ignore response (fetch returns FetchResult but body is replaced)
 .to(fetch({
   method: 'POST',
   url: 'https://api.example.com/webhook',
   body: (exchange) => exchange.body
 }))
 
-// Capture HTTP status with custom aggregator
-.to(
-  fetch({ 
-    method: 'POST',
-    url: 'https://api.example.com/save' 
-  }),
-  (original, result) => ({
-    ...original,
-    body: { ...original.body, httpStatus: result.status }
-  })
-)
+// When fetch returns a result, .to() replaces the exchange body with that result
+.to(fetch({ 
+  method: 'GET',
+  url: 'https://api.example.com/transform' 
+}))
+// Body is now the FetchResult (status, headers, body). Use .enrich() with an aggregator to merge.
 
 // With query parameters
 .enrich(fetch({
@@ -888,13 +883,13 @@ class MyAdapter implements Destination<any, void>, MergedOptions<MyAdapterOption
 | Interface | Method | Purpose | Used With |
 |-----------|--------|---------|-----------|
 | `Source<T>` | `subscribe(context, handler, abortController)` | Produce messages for routes | `.from()` |
-| `Destination<T, R>` | `send(exchange): R` | Send/fetch data, optionally return result | `.to()`, `.enrich()` |
+| `Destination<T, R>` | `send(exchange): R` | Send/fetch data, optionally return result | `.to()`, `.enrich()`, `.tap()` |
 | `Processor<T, R>` | `process(exchange)` | Transform exchanges in route steps | `.process()` |
-| `Tap<T>` | `tap(exchange)` | Side effects without changing exchange | `.tap()` |
 
-**Note:** The `Enricher` interface has been removed. Use `Destination<T, R>` for both `.to()` and `.enrich()` operations. The difference is in the default aggregator behavior:
-- `.to()` ignores the result by default (side-effect)
+Use `Destination<T, R>` for `.to()`, `.enrich()`, and `.tap()`. The difference is in how results are used:
+- `.to()` ignores the result by default (side-effect) or replaces body if a value is returned
 - `.enrich()` merges the result into the body by default
+- `.tap()` receives a snapshot and runs fire-and-forget (result ignored)
 
 **Adapters that return data should specify the return type:**
 
