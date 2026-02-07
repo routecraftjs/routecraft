@@ -299,3 +299,16 @@ export function fetch<T = unknown, R = unknown>(
 ): FetchAdapter<T, R> {
   return new FetchAdapter<T, R>(options);
 }
+
+/**
+ * Create a pseudo adapter for documentation or placeholder use.
+ * Returns an adapter-shaped object that satisfies Source, Destination, and Processor
+ * but throws (or no-ops) at runtime until replaced with a real adapter.
+ *
+ * @example
+ * ```typescript
+ * const mcp = pseudo<McpOpts>("mcp");
+ * craft().from(timer()).enrich(mcp<GmailResult>({ server: "gmail", tool: "list" }));
+ * ```
+ */
+export { pseudo } from "./adapters/pseudo.ts";

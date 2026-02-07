@@ -74,6 +74,7 @@ export {
   direct,
   timer,
   fetch,
+  pseudo,
 } from "./dsl.ts";
 
 export { SimpleAdapter } from "./adapters/simple.ts";
@@ -95,3 +96,10 @@ export {
   type DirectSourceOptions,
 } from "./adapters/direct.ts";
 export { TimerAdapter, type TimerOptions } from "./adapters/timer.ts";
+export {
+  type PseudoAdapter,
+  type PseudoFactory,
+  type PseudoKeyedFactory,
+  type PseudoOptions,
+  type PseudoKeyedOptions,
+} from "./adapters/pseudo.ts";
