@@ -18,7 +18,6 @@ Catalog of adapters and authoring guidance. {% .lead %}
 | [`json`](#json) | File | JSON file handling with parsing | `Source`, `Destination` |
 | [`csv`](#csv) | File | CSV file processing | `Source`, `Destination` |
 | [`http`](#http) | HTTP | HTTP server endpoints | `Source` |
-| [`smtp`](#smtp) | Email | SMTP email sending | `Destination` |
 
 ## Core adapters
 
@@ -655,64 +654,6 @@ Response behavior:
 - The final exchange is returned to the HTTP client. If the final body is an object with optional fields `{ status?: number, headers?: Record<string,string>, body?: unknown }`, those fields are used to build the response.
 - If `status` or `headers` are not provided, RouteCraft returns the body with `200` status and no additional headers.
 - For serialization and setting `Content-Type`, use a formatting step in your route (e.g., a `.format(...)` or `.transform(...)` that sets appropriate headers). If you set a response content type header in your pipeline, it will be used.
-
-### smtp {% badge %}wip{% /badge %}
-
-```ts
-smtp(options: SmtpOptions): SmtpAdapter
-```
-
-Send emails via SMTP protocol. Focused implementation for SMTP servers only.
-
-```ts
-// Basic SMTP email
-.to(smtp({
-  host: 'smtp.gmail.com',
-  port: 587,
-  auth: { user: 'user@gmail.com', pass: 'password' },
-  to: (exchange) => exchange.body.userEmail,
-  subject: 'Welcome!',
-  text: (exchange) => `Hello ${exchange.body.name}!`
-}))
-
-// HTML email with templates
-.to(smtp({
-  host: 'mail.company.com',
-  port: 25,
-  from: 'noreply@company.com',
-  to: (exchange) => exchange.body.recipients,
-  subject: (exchange) => `Order ${exchange.body.orderId} confirmed`,
-  html: (exchange) => renderTemplate('order-confirmation', exchange.body)
-}))
-
-// With attachments
-.to(smtp({
-  host: 'smtp.company.com',
-  auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-  to: 'admin@company.com',
-  subject: 'Daily Report',
-  text: 'Please find attached report.',
-  attachments: (exchange) => [
-    { filename: 'report.pdf', content: exchange.body.pdfBuffer }
-  ]
-}))
-```
-
-**Options:**
-- `host` - SMTP server hostname (required)
-- `port` - SMTP server port (default: 587)
-- `secure` - Use TLS (default: false)
-- `auth` - Authentication `{ user, pass }` (optional)
-- `from` - From address string or function
-- `to` - To address(es) string, array, or function (required)
-- `cc` - CC address(es) string, array, or function
-- `bcc` - BCC address(es) string, array, or function
-- `subject` - Subject string or function
-- `text` - Plain text body string or function
-- `html` - HTML body string or function
-- `attachments` - Attachments array or function returning attachments
-
-**Attachment format:** `{ filename: string, content: Buffer | string, contentType?: string }`
 
 ## Testing
 
