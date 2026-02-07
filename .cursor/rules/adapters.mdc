@@ -17,8 +17,8 @@ These rules align with RouteCraft's public DSL and adapter interfaces exported f
 #### Goals
 
 - Keep adapters minimal, focused, and composable.
-- Implement only the operation interface(s) you need: `Source.subscribe`, `Destination.send`, `Processor.process`, `Transformer.transform`, `Tap.tap`, etc. Adapters may implement multiple interfaces when it serves a clear purpose (e.g., log adapter implements destination and tap).
-- **Note:** The `Enricher` interface has been removed. Use `Destination<T, R>` for both `.to()` and `.enrich()` operations. Return the result from `send()` - it will be ignored by `.to()` (default) or merged by `.enrich()` (default).
+- Implement only the operation interface(s) you need: `Source.subscribe`, `Destination.send`, `Processor.process`, `Transformer.transform`, etc. Adapters may implement multiple interfaces when it serves a clear purpose (e.g., log adapter implements Destination and works with `.to()` and `.tap()`).
+- Use `Destination<T, R>` for `.to()`, `.enrich()`, and `.tap()`. Return the result from `send()` - it will be ignored by `.to()` (default), merged by `.enrich()` (default), or ignored by `.tap()`.
 - Use `CraftContext` stores for shared state; merge options via `MergedOptions` when relevant.
 - Prefer pure functions for transform-like behavior; keep side effects in `.to(...)` destinations.
 
@@ -44,9 +44,10 @@ These rules align with RouteCraft's public DSL and adapter interfaces exported f
 
 - Signature: `send(exchange): Promise<R>` where R is the result type (use `void` if no result).
 - Return meaningful data when possible (e.g., database IDs, HTTP status, API responses).
-- The same adapter works with both `.to()` and `.enrich()`:
-  - `.to()` ignores the result by default (side-effect only)
+- The same adapter works with both `.to()`, `.enrich()`, and `.tap()`:
+  - `.to()` ignores the result by default (side-effect only) or replaces body if a value is returned
   - `.enrich()` merges the result into the body by default
+  - `.tap()` receives a snapshot and runs fire-and-forget (result ignored)
 - Pull context from `DefaultExchange.context` if needed for stores or loggers.
 
 **Examples:**
@@ -68,7 +69,7 @@ class FetchAdapter implements Destination<T, FetchResult> {
 }
 ```
 
-#### Processor/Transformer/Enricher adapters
+#### Processor/Transformer adapters
 
 - Processor: `process(exchange) => Exchange` (can change headers, body, or logger).
 - Transformer: `transform(body) => newBody` (pure, body-only change); the framework will write back to the exchange body.
@@ -78,7 +79,7 @@ class FetchAdapter implements Destination<T, FetchResult> {
 
 - Implement `Transformer` for reusable, pure body mapping with options.
 - Implement `Processor` only if you need headers or to replace the exchange, or to package reusable read-IO with standard behavior (timeouts, retries). Otherwise prefer function processors.
-- Implement `Destination<T, R>` when the adapter produces data that can be used for both side-effects (`.to()`) and enrichment (`.enrich()`). The return type `R` will be automatically handled based on the operation.
+- Implement `Destination<T, R>` when the adapter produces data that can be used for side-effects (`.to()`), enrichment (`.enrich()`), or fire-and-forget (`.tap()`). The return type `R` will be automatically handled based on the operation.
 
 #### Error handling
 
@@ -245,8 +246,6 @@ export class MyTransformerAdapter<T = unknown, R = T>
   }
 }
 ```
-
-**Note:** The `Enricher` interface has been removed. Use `Destination<T, R>` instead (see examples above). The same adapter can be used with both `.to()` and `.enrich()` - the only difference is the default aggregator behavior.
 
 #### Logging
 

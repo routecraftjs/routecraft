@@ -20,6 +20,7 @@ DSL operators with signatures and examples. {% .lead %}
 |-----------|----------|-------------|
 | [`id`](#id) | Route | Set the unique identifier for the route |
 | [`batch`](#batch) | Route | Process exchanges in batches instead of one at a time |
+| [`error`](#error) | Route | Configure route-level error handling {% badge %}planned{% /badge %} |
 | [`from`](#from) | Source | Define the source of data for the route |
 | [`retry`](#retry) | Wrapper | Retry the next operation on failure |
 | [`throttle`](#throttle) | Wrapper | Rate limit the next operation |
@@ -98,7 +99,7 @@ craft()
   .id('bulk-processor')
   .batch({ size: 50, flushIntervalMs: 5000 })
   .from(timer({ intervalMs: 1000 }))
-  .to(database({ operation: 'bulkInsert' }))
+  .to(saveToDB)
 ```
 
 **Options:**
@@ -114,6 +115,95 @@ The `batch()` operation only works with asynchronous message sources like `timer
 
 If you need to combine multiple messages from split branches, use the `aggregate()` operation instead.
 {% /callout %}
+
+### error (Planned)
+
+**Note:** The `error()` operation is documented here but not yet implemented. Implementation is planned for a future release.
+
+```ts
+error(handler: (error: RouteCraftError, exchange: Exchange, stepInfo: StepInfo) => void | Exchange | Promise<void | Exchange | string>): RouteBuilder<Current>
+```
+
+Configure route-level error handling. This is a **route-level configuration**, not a step wrapper - it applies to all errors in the entire route regardless of where it's called in the builder chain. Convention is to place it near the top with other route-level options like `id()` and `batch()`.
+
+The error handler receives:
+- `error`: The RouteCraftError that occurred
+- `exchange`: The exchange that failed
+- `stepInfo`: Information about which step failed (operation type, step index)
+
+The error handler can:
+- Return `void` to drop the exchange and stop processing
+- Return an `Exchange` to continue processing with a modified exchange (fallback value)
+- Return a `string` (direct endpoint name) to route to another direct route for fallback handling
+- Rethrow the error to propagate it to the context level
+
+```ts
+// Drop exchanges that fail
+craft()
+  .id('with-error-handler')
+  .error((error, exchange, stepInfo) => {
+    console.error(`Step ${stepInfo.operation} failed:`, error);
+    // Return void = drop exchange
+  })
+  .from(source())
+  .process(mightFail)
+  .to(destination)
+
+// Continue with fallback value
+craft()
+  .id('with-fallback')
+  .error((error, exchange) => {
+    exchange.logger.warn(error, 'Using fallback');
+    return { ...exchange, body: { fallback: true } };
+  })
+  .from(source())
+  .process(mightFail)
+  .to(destination)
+
+// Route to fallback handler (direct route)
+craft()
+  .id('with-fallback-route')
+  .error((error, exchange, stepInfo) => {
+    if (error.code === 'RC5001') return 'validation-error-handler';
+    return 'generic-error-handler';
+  })
+  .from(source())
+  .process(mightFail)
+  .to(destination)
+
+// Conditional error handling based on step
+craft()
+  .id('conditional-error-handling')
+  .error((error, exchange, stepInfo) => {
+    if (stepInfo.operation === 'TRANSFORM' && stepInfo.index === 0) {
+      return { ...exchange, body: { recovered: true } };
+    }
+    throw error; // Rethrow for other steps
+  })
+  .from(source())
+  .transform(mightFail)
+  .process(alsoMightFail)
+  .to(destination)
+
+// Rethrow to context level
+craft()
+  .id('rethrow-critical')
+  .error((error, exchange) => {
+    if (error.code === 'CRITICAL') throw error;
+    return { ...exchange, body: { handled: true } };
+  })
+  .from(source())
+  .process(mightFail)
+  .to(destination)
+```
+
+**Error handling levels:**
+1. **Route level**: `error()` handler catches all errors in the route (including tap errors via events)
+2. **Context level**: Fallback for unhandled errors via `context.on('error', handler)`
+
+**Note about tap errors:** Tap operations emit errors to the route error handler via events. The main exchange continues (tap is fire-and-forget), but the error is observable for logging and monitoring.
+
+**Note about direct destinations:** Direct destinations with their own routes have their own error handlers. Errors in direct destinations are handled by their route's error handler, not the calling route.
 
 ## Wrapper operations
 
@@ -488,6 +578,8 @@ enrich<R = Current>(
 
 Enrich the exchange with additional data from a destination adapter. Uses the same adapters as `.to()` but with a merge-by-default aggregator that combines the result with the original body.
 
+**Note:** `.to()` ignores results by default or replaces the body if a value is returned. Use `.enrich()` when you want to merge data into the body.
+
 **Default behavior (merge result into body):**
 
 ```ts
@@ -503,7 +595,7 @@ Enrich the exchange with additional data from a destination adapter. Uses the sa
 }))
 
 // Enrich using any destination adapter
-.enrich(database.lookup({ table: 'users', key: 'userId' }))
+.enrich(lookupUser)
 ```
 
 **Custom aggregation:**
@@ -530,10 +622,10 @@ Enrich the exchange with additional data from a destination adapter. Uses the sa
 
 **Key difference from `.to()`:**
 
-- `.to()` ignores the result by default (side-effect only)
+- `.to()` replaces the body if the destination returns a value (not `undefined`)
 - `.enrich()` merges the result into the body by default
 
-Both operations use the same `Destination` adapters - the difference is only in the default aggregator behavior.
+Both operations use the same `Destination` adapters - the difference is only in how the result is applied.
 
 ## Flow control operations
 
@@ -840,7 +932,7 @@ Execute side effects without changing the exchange. The tap operation is **async
 The tap receives a **deep copy** of the exchange with:
 - New exchange ID
 - Cloned body and headers
-- Correlation header (`x-parent-exchange-id`) pointing to the parent exchange
+- Correlation ID preserved for traceability back to parent exchange
 
 ```ts
 // Simple function-based tapping
@@ -858,12 +950,13 @@ The tap receives a **deep copy** of the exchange with:
 - **Async fire-and-forget**: Main route continues immediately without waiting
 - **Exchange snapshot**: Tap receives a deep copy with new ID and correlation metadata
 - **Return values ignored**: Any value returned by the tap destination is discarded
-- **Error isolation**: Errors in tap don't affect the main route (they're logged but not thrown)
-- **Lifecycle aware**: Context waits for all taps to complete during shutdown via `drain()`
+- **Error isolation**: Errors in tap are emitted to the route error handler but don't halt the main exchange (already fire-and-forget)
+- **Lifecycle aware**: Routes and context wait for all taps to complete during shutdown via `drain()`
 - **Perfect for**: Logging, auditing, notifications, analytics, monitoring
 
 **Lifecycle:**
 - Routes complete without waiting for taps
+- Taps are tracked by the route and waited for during `drain()`
 - `context.stop()` automatically calls `context.drain()` to wait for all tap jobs
 - Ensures all async work finishes before shutdown completes
 
@@ -884,7 +977,7 @@ Send the exchange to a destination. If the destination returns `undefined`, the 
 
 ```ts
 .to(log()) // Log the final result
-.to(database.insert()) // Insert into database, returns void
+.to(saveToDB) // Insert into database, returns void
 .to(async (exchange) => {
   await sendToWebhook(exchange);
   // No return = undefined = body unchanged
@@ -893,12 +986,14 @@ Send the exchange to a destination. If the destination returns `undefined`, the 
 
 **Destinations returning data (body replacement):**
 
+When a destination returns a value (not `undefined`), the exchange body is **replaced** with that value.
+
 ```ts
 // Fetch returns FetchResult - body becomes FetchResult
 .to(fetch({ url: 'https://api.example.com/transform' }))
 
-// Database insert returns ID - body becomes the ID
-.to(database.insertAndReturnId())
+// Custom adapter returns ID - body becomes the ID
+.to(saveToDBReturnID)
 
 // Custom transformation
 .to(async (exchange) => {
@@ -910,113 +1005,25 @@ Send the exchange to a destination. If the destination returns `undefined`, the 
 **Chaining .to() calls:**
 
 ```ts
-// Each .to() can transform the body
+// Each .to() can transform the body if it returns a value
 .to(async (ex) => ({ ...ex.body, step: 1 }))
 .to(async (ex) => ({ ...ex.body, step: 2 }))
 // Body accumulates changes from each .to() that returns data
 
 // Mix side-effects and transformations
-.to(saveToDatabase()) // Returns void, body unchanged
+.to(saveToDB) // Returns void, body unchanged
 .to(fetch({ url: 'https://api.example.com/enrich' })) // Body becomes FetchResult
 .to(log()) // Logs the FetchResult
 ```
 
+**Note:** Unlike `.enrich()`, `.to()` does not merge results. If the destination returns a value, it completely replaces the body.
+
+{% callout type="warning" title="Multiple .to() per route not recommended" %}
+While technically possible, using multiple `.to()` operations in a single route is not advised. We recommend one `.to()` per route for clarity. Consider using `.enrich()` for intermediate data fetching or `.tap()` for side effects.
+
+An ESLint rule `@routecraft/routecraft/single-to-per-route` is available to warn when multiple `.to()` operations are used.
+{% /callout %}
+
 ## Error Handling
 
-### error (Planned)
-
-**Note:** The `error()` operation is documented here but not yet implemented. Implementation is planned for a future release.
-
-```ts
-error(handler: (error: RouteCraftError, exchange: Exchange) => void | Exchange | Promise<void | Exchange>): RouteBuilder<Current>
-```
-
-Configure route-level error handling. This is a **route-level configuration**, not a step wrapper - it applies to all errors in the entire route regardless of where it's called in the builder chain.
-
-The error handler can:
-- Return `void` to drop the exchange and stop processing
-- Return an `Exchange` to continue processing with a modified exchange
-- Rethrow the error to propagate it to the context level
-
-```ts
-// Drop exchanges that fail
-craft()
-  .id('with-error-handler')
-  .from(source())
-  .error((error, exchange) => {
-    console.error('Route failed:', error);
-    // Return void = drop exchange
-  })
-  .process(mightFail)
-  .to(destination)
-
-// Continue with fallback value
-craft()
-  .id('with-fallback')
-  .from(source())
-  .error((error, exchange) => {
-    exchange.logger.warn(error, 'Using fallback');
-    return { ...exchange, body: { fallback: true } };
-  })
-  .process(mightFail)
-  .to(destination)
-
-// Rethrow to context level
-craft()
-  .id('rethrow-critical')
-  .from(source())
-  .error((error, exchange) => {
-    if (error.code === 'CRITICAL') throw error;
-    // Handle non-critical errors
-  })
-  .process(mightFail)
-  .to(destination)
-```
-
-**Error handling levels:**
-1. **Step level**: Some steps (like `tap`) handle their own errors internally
-2. **Route level**: `error()` handler (when implemented)
-3. **Context level**: Fallback for unhandled errors via `context.on('error', handler)`
-
-### try (Planned)
-
-**Note:** The `try()` operation is documented here but not yet implemented. Implementation is planned for a future release.
-
-```ts
-try(handler: (error: RouteCraftError, exchange: Exchange) => void | Exchange | Promise<void | Exchange>): RouteBuilder<Current>
-```
-
-Wrap the **next step only** with local error handling. Unlike `error()` which is route-level, `try()` provides step-scoped error handling.
-
-```ts
-// Handle error from next step only
-craft()
-  .id('step-scoped-error')
-  .from(source())
-  .process(step1) // No error handling
-  .try((error, exchange) => {
-    // Only handles errors from step2
-    console.error('step2 failed:', error);
-    return { ...exchange, body: { recovered: true } };
-  })
-  .process(step2) // This step is wrapped by try()
-  .process(step3) // No error handling
-  .to(destination)
-
-// Multiple try() wrappers
-craft()
-  .id('multiple-try')
-  .from(source())
-  .try(handler1).process(step1)
-  .try(handler2).process(step2)
-  .try(handler3).to(destination)
-```
-
-**Behavior:**
-- `try()` only wraps the **next step** in the builder chain
-- If the wrapped step throws:
-  - The try handler is called with the error and exchange
-  - If handler returns `void`, exchange is dropped
-  - If handler returns an `Exchange`, processing continues with it
-  - If handler rethrows, error propagates to route-level `error()` handler
-- Errors from other steps are not affected by this `try()` handler
+See the [error()](#error-planned) operation under **Route operations** for route-level error handling. Convention is to list `error()` near the top with other route-level options like `id`, `batch`, and `error`.

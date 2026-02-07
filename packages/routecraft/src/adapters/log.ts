@@ -5,7 +5,7 @@ import { type Exchange } from "../exchange";
 export type LogLevel = "trace" | "debug" | "info" | "warn" | "error" | "fatal";
 
 /** Options for LogAdapter. */
-export interface LogAdapterOptions {
+export interface LogOptions {
   /** Log level to use (default: "info"). */
   level?: LogLevel;
 }
@@ -20,7 +20,7 @@ export class LogAdapter<T = unknown> implements Destination<T, void> {
 
   constructor(
     formatter?: (exchange: Exchange<T>) => unknown,
-    options?: LogAdapterOptions,
+    options?: LogOptions,
   ) {
     this.formatter = formatter;
     this.level = options?.level ?? DEFAULT_LEVEL;

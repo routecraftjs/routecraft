@@ -110,11 +110,8 @@ export class DefaultRoute implements Route {
   /** Processes messages from the message channel */
   private consumer: Consumer;
 
-  /** In-flight handler promises (for drain) */
-  private inFlightHandlers = new Set<Promise<Exchange>>();
-
-  /** Background tasks (e.g. tap) tracked at route level */
-  private tasks = new Set<Promise<unknown>>();
+  /** All in-flight work (handler and task promises) for drain */
+  private inFlight = new Set<Promise<unknown>>();
 
   /**
    * Create a new route instance.
@@ -192,8 +189,10 @@ export class DefaultRoute implements Route {
    * @internal
    */
   trackTask(promise: Promise<unknown>): void {
-    this.tasks.add(promise);
-    promise.finally(() => this.tasks.delete(promise));
+    // Prevent unhandled rejection - errors are already emitted via context.emit()
+    const handledPromise = promise.catch(() => {});
+    this.inFlight.add(handledPromise);
+    handledPromise.finally(() => this.inFlight.delete(handledPromise));
   }
 
   /**
@@ -260,8 +259,8 @@ export class DefaultRoute implements Route {
     // Run steps (tap adds tasks via route.trackTask)
     const handlerPromise = this.runSteps(exchange);
 
-    this.inFlightHandlers.add(handlerPromise);
-    handlerPromise.finally(() => this.inFlightHandlers.delete(handlerPromise));
+    this.inFlight.add(handlerPromise);
+    handlerPromise.finally(() => this.inFlight.delete(handlerPromise));
 
     return handlerPromise;
   }
@@ -315,17 +314,14 @@ export class DefaultRoute implements Route {
   }
 
   /**
-   * Wait for all in-flight handlers and background tasks to complete.
-   * Loops until no new handlers are added (drains consumer queue).
+   * Wait for all in-flight work (handlers and tasks) to complete.
+   * Loops until no new work is added (drains consumer queue).
    */
   async drain(): Promise<void> {
-    this.logger.debug(
-      `Draining route: ${this.inFlightHandlers.size} handlers, ${this.tasks.size} tasks in flight`,
-    );
-    while (this.inFlightHandlers.size > 0 || this.tasks.size > 0) {
-      const currentHandlers = [...this.inFlightHandlers];
-      const currentTasks = [...this.tasks];
-      await Promise.all([...currentHandlers, ...currentTasks]);
+    this.logger.debug(`Draining route: ${this.inFlight.size} in flight`);
+    while (this.inFlight.size > 0) {
+      const current = [...this.inFlight];
+      await Promise.allSettled(current);
     }
     this.logger.debug("Route drained");
   }
