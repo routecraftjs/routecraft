@@ -33,6 +33,75 @@ These rules align with RouteCraft's public DSL and adapter interfaces exported f
 - For adapters that need context-level config, implement `MergedOptions<T>`: expose `options` and a `mergedOptions(context)` method that reads from a typed `StoreRegistry` key.
 - Extend `StoreRegistry` via declaration merging to type your store keys.
 
+##### Options naming when source and destination differ
+
+When an adapter can be used as both a source and a destination and has different options for each role, use this convention (see `packages/routecraft/src/adapters/direct.ts` as the reference implementation):
+
+**Exported types (public API):**
+
+- **Base**: `MyAdapterBaseOptions` — interface with options shared by both roles (e.g. `channelType`).
+- **Source**: `MyAdapterSourceOptions extends MyAdapterBaseOptions` — interface with options only relevant when used with `.from()` (e.g. `schema`, `description`).
+- **Destination**: `MyAdapterDestinationOptions = MyAdapterBaseOptions` (or extends if destination-specific options exist) — options only relevant when used with `.to()` / `.tap()`.
+- **Main "Options"**: `MyAdapterOptions = MyAdapterSourceOptions | MyAdapterDestinationOptions` — the **union** type. Use this as the constructor parameter type and in all public docs/signatures.
+
+**Internal type (not exported):**
+
+- **Merged**: `type MyAdapterOptionsMerged = MyAdapterSourceOptions & MyAdapterDestinationOptions` — the **intersection** type. Use this for:
+  - `this.options` property type
+  - `StoreRegistry` store type (`Partial<MyAdapterOptionsMerged>`)
+  - `mergedOptions()` return type
+  - `MergedOptions<MyAdapterOptionsMerged>` interface implementation
+
+This pattern allows the public API to accept either source or destination options (union), while internally the adapter can safely read any option property (intersection) without type errors.
+
+**Example:**
+
+```ts
+export interface MyAdapterBaseOptions {
+  timeout?: number;
+}
+
+export interface MyAdapterSourceOptions extends MyAdapterBaseOptions {
+  pollInterval?: number;
+  schema?: StandardSchemaV1;
+}
+
+export type MyAdapterDestinationOptions = MyAdapterBaseOptions;
+
+// Public: union for constructor
+export type MyAdapterOptions = MyAdapterSourceOptions | MyAdapterDestinationOptions;
+
+// Internal: intersection for stored options (not exported)
+type MyAdapterOptionsMerged = MyAdapterSourceOptions & MyAdapterDestinationOptions;
+
+declare module "@routecraft/routecraft" {
+  interface StoreRegistry {
+    "routecraft.adapter.my.options": Partial<MyAdapterOptionsMerged>;
+  }
+}
+
+export class MyAdapter<T = unknown>
+  implements Source<T>, Destination<T, void>, MergedOptions<MyAdapterOptionsMerged>
+{
+  constructor(options: Partial<MyAdapterOptions> = {}) {
+    this.options = options as Partial<MyAdapterOptionsMerged>;
+  }
+
+  public options: Partial<MyAdapterOptionsMerged>;
+
+  mergedOptions(context: CraftContext): MyAdapterOptionsMerged {
+    const store = context.getStore("routecraft.adapter.my.options") as
+      | Partial<MyAdapterOptionsMerged>
+      | undefined;
+    return { ...store, ...this.options };
+  }
+
+  // Now this.options.schema, this.options.pollInterval, this.options.timeout all type-check
+}
+```
+
+Do not name any type with "AdapterOptions" or "MergedOptions" in the suffix; reserve the simple `MyAdapterOptions` name for the union used in the public API.
+
 #### Source adapters
 
 - Signature: `subscribe(context, handler, abortController)` and return a Promise that resolves when the source completes or is aborted.

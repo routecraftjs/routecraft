@@ -86,7 +86,7 @@ export {
 } from "./adapters/fetch.ts";
 export {
   DirectAdapter,
-  type DirectAdapterOptions,
+  type DirectBaseOptions,
   type DirectChannel,
   type DirectChannelType,
   type DirectDestinationOptions,

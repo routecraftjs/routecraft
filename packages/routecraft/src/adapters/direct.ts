@@ -48,7 +48,7 @@ export interface DirectRouteMetadata {
 }
 
 /** Base options shared between source and destination. */
-export interface DirectOptions {
+export interface DirectBaseOptions {
   /** Custom channel implementation */
   channelType?: DirectChannelType<DirectChannel>;
 }
@@ -57,7 +57,7 @@ export interface DirectOptions {
  * Options when using direct adapter as a Source (.from()).
  * Body/header validation and discovery metadata apply to incoming messages.
  */
-export interface DirectSourceOptions extends DirectOptions {
+export interface DirectSourceOptions extends DirectBaseOptions {
   /**
    * Body validation schema. Behavior depends on schema library:
    * - Zod 4: z.object() strips extras (default), z.looseObject() keeps them, z.strictObject() rejects them
@@ -96,22 +96,24 @@ export interface DirectSourceOptions extends DirectOptions {
  * Options when using direct adapter as a Destination (.to(), .tap()).
  * Room for future options (e.g. timeout, retryPolicy).
  */
-export type DirectDestinationOptions = DirectOptions;
+export type DirectDestinationOptions = DirectBaseOptions;
 
-/** Combined type for internal adapter use. */
-export type DirectAdapterOptions = DirectSourceOptions &
-  DirectDestinationOptions;
+/** Options when using direct as a source or destination (union). */
+export type DirectOptions = DirectSourceOptions | DirectDestinationOptions;
+
+/** Internal: merged shape so we can read both source and destination options. */
+type DirectOptionsMerged = DirectSourceOptions & DirectDestinationOptions;
 
 declare module "@routecraft/routecraft" {
   interface StoreRegistry {
     [DirectAdapter.ADAPTER_DIRECT_STORE]: Map<string, DirectChannel<Exchange>>;
-    [DirectAdapter.ADAPTER_DIRECT_OPTIONS]: Partial<DirectAdapterOptions>;
+    [DirectAdapter.ADAPTER_DIRECT_OPTIONS]: Partial<DirectOptionsMerged>;
     [DirectAdapter.ADAPTER_DIRECT_REGISTRY]: Map<string, DirectRouteMetadata>;
   }
 }
 
 export class DirectAdapter<T = unknown>
-  implements Source<T>, Destination<T, T>, MergedOptions<DirectAdapterOptions>
+  implements Source<T>, Destination<T, T>, MergedOptions<DirectOptionsMerged>
 {
   readonly adapterId = "routecraft.adapter.direct";
   static readonly ADAPTER_DIRECT_STORE =
@@ -125,14 +127,14 @@ export class DirectAdapter<T = unknown>
 
   constructor(
     rawEndpoint: DirectEndpoint<T>,
-    options: Partial<DirectSourceOptions | DirectDestinationOptions> = {},
+    options: Partial<DirectOptions> = {},
   ) {
     this.rawEndpoint = rawEndpoint;
-    this.options = options as Partial<DirectAdapterOptions>;
+    this.options = options as Partial<DirectOptionsMerged>;
   }
 
-  /** Options passed at construction; typed as full options for internal use. */
-  public options: Partial<DirectAdapterOptions>;
+  /** Options passed at construction. */
+  public options: Partial<DirectOptionsMerged>;
 
   private resolveEndpoint(exchange: Exchange<T>): string {
     const endpoint =
@@ -242,9 +244,9 @@ export class DirectAdapter<T = unknown>
     return result.body;
   }
 
-  mergedOptions(context: CraftContext): DirectAdapterOptions {
+  mergedOptions(context: CraftContext): DirectOptionsMerged {
     const store = context.getStore(DirectAdapter.ADAPTER_DIRECT_OPTIONS) as
-      | Partial<DirectAdapterOptions>
+      | Partial<DirectOptionsMerged>
       | undefined;
     return {
       ...store,
