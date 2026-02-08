@@ -895,7 +895,7 @@ Take every Nth exchange or sample at time intervals. Useful for reducing data vo
 
 // Typical use: Reduce high-frequency data
 .id('metrics-sampling')
-.from(direct('high-frequency-metrics'))
+.from(direct('high-frequency-metrics', {}))
 .sample({ every: 100 }) // Only process 1% of metrics
 .to(database({ operation: 'save' }))
 ```

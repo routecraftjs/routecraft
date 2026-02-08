@@ -143,7 +143,7 @@ export const RC: Record<RCCode, RCMeta> = {
     category: "Adapter",
     message: "Dynamic endpoints cannot be used as source",
     suggestion:
-      'Direct adapter with function endpoint can only be used with .to() or .tap(), not .from(). Use a static string endpoint for .from(direct("endpoint")).',
+      'Direct adapter with function endpoint can only be used with .to() or .tap(), not .from(). Use .from(direct("endpoint", {})) for source.',
     docs: `${DOCS_BASE}#rc-5010`,
     retryable: false, // Config error - won't change on retry
   },

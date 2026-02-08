@@ -41,7 +41,7 @@ Define where data comes from:
 ```ts
   .from(timer({ intervalMs: 5000 }))  // Timer source
   .from(http({ path: '/webhook', method: 'POST' })) // HTTP endpoint
-  .from(direct('jobs'))              // Channel source
+  .from(direct('jobs', {}))              // Channel source
 ```
 
 ### 3. Processing pipeline
@@ -110,7 +110,7 @@ craft()
 // Channel route: message-driven, runs until shutdown
 craft()
   .id('message-processor')
-  .from(direct('tasks'))
+  .from(direct('tasks', {}))
   .process(async (task) => await processTask(task))
   .to(log())
 ```
@@ -249,7 +249,7 @@ craft()
 // Consumer route
 craft()
   .id('data-consumer')
-  .from(direct('processed-data'))
+  .from(direct('processed-data', {}))
   .transform(enrichData)
   .to(destination)
 ```

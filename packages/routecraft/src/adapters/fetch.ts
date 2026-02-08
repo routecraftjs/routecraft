@@ -32,6 +32,21 @@ export type FetchResult<T = string | unknown> = {
 };
 
 /**
+ * Create an HTTP client adapter for making requests.
+ * Can be used with both .to() and .enrich() operations.
+ *
+ * @template T The type of exchange body
+ * @template R The type of the response body
+ * @param options Fetch configuration
+ * @returns A FetchAdapter instance
+ */
+export function fetch<T = unknown, R = unknown>(
+  options: FetchOptions<T>,
+): FetchAdapter<T, R> {
+  return new FetchAdapter<T, R>(options);
+}
+
+/**
  * FetchAdapter performs HTTP requests and returns the result.
  * Can be used with both .to() and .enrich() operations.
  * - With .to(): result available via custom aggregator

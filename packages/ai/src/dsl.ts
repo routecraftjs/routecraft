@@ -1,9 +1,10 @@
 import {
   direct,
-  type DirectAdapter,
   type DirectDestinationOptions,
   type DirectSourceOptions,
   type Exchange,
+  type Source,
+  type Destination,
 } from "@routecraft/routecraft";
 
 /**
@@ -26,57 +27,21 @@ export type ToolOptions = ToolSourceOptions;
  * Create a tool - a discoverable direct route for AI/MCP integration.
  *
  * `tool()` is an alias for `direct()` with semantics oriented toward AI use cases.
- * Use `tool()` when building routes that will be discovered and called by AI agents
- * or exposed via MCP.
- *
- * @example
- * ```typescript
- * import { tool } from '@routecraft/ai'
- * import { z } from 'zod'
- *
- * // Define a tool with schema and description for AI discovery
- * craft()
- *   .from(tool('fetch-webpage', {
- *     description: 'Fetch and return the content of a webpage',
- *     schema: z.object({
- *       url: z.string().url(),
- *       includeImages: z.boolean().optional()
- *     }),
- *     keywords: ['fetch', 'web', 'http', 'scrape']
- *   }))
- *   .process(async ({ url, includeImages }) => {
- *     const response = await fetch(url)
- *     return { content: await response.text() }
- *   })
- * ```
- *
- * @example
- * ```typescript
- * // Call a tool from another route
- * craft()
- *   .from(source)
- *   .to(tool('fetch-webpage'))
- * ```
- *
- * @example
- * ```typescript
- * // Dynamic tool routing (destination only)
- * craft()
- *   .from(source)
- *   .to(tool((ex) => `processor-${ex.body.type}`))
- * ```
+ * Same two-argument pattern: tool(endpoint, options) for source, tool(endpoint) for destination.
  */
 export function tool<T = unknown>(
   endpoint: string,
   options: ToolSourceOptions,
-): DirectAdapter<T>;
+): Source<T>;
 export function tool<T = unknown>(
   endpoint: string | ((exchange: Exchange<T>) => string),
-  options?: ToolDestinationOptions,
-): DirectAdapter<T>;
+): Destination<T, T>;
 export function tool<T = unknown>(
   endpoint: string | ((exchange: Exchange<T>) => string),
   options?: ToolSourceOptions | ToolDestinationOptions,
-): DirectAdapter<T> {
-  return direct<T>(endpoint, options);
+): Source<T> | Destination<T, T> {
+  if (options !== undefined) {
+    return direct<T>(endpoint as string, options);
+  }
+  return direct<T>(endpoint);
 }

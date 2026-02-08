@@ -22,7 +22,7 @@ describe("Direct adapter", () => {
           .id("producer")
           .from(simple("test-message"))
           .to(direct("endpoint")),
-        craft().id("consumer").from(direct("endpoint")).to(consumer),
+        craft().id("consumer").from(direct("endpoint", {})).to(consumer),
       ])
       .build();
 
@@ -54,8 +54,8 @@ describe("Direct adapter", () => {
           .id("producerB")
           .from(simple("messageB"))
           .to(direct("endpointB")),
-        craft().id("consumerA").from(direct("endpointA")).to(consumerA),
-        craft().id("consumerB").from(direct("endpointB")).to(consumerB),
+        craft().id("consumerA").from(direct("endpointA", {})).to(consumerA),
+        craft().id("consumerB").from(direct("endpointB", {})).to(consumerB),
       ])
       .build();
 
@@ -82,8 +82,8 @@ describe("Direct adapter", () => {
     ctx = context()
       .routes([
         craft().id("producer").from(simple("message")).to(direct("shared")),
-        craft().id("consumer1").from(direct("shared")).to(consumer1),
-        craft().id("consumer2").from(direct("shared")).to(consumer2), // This should win
+        craft().id("consumer1").from(direct("shared", {})).to(consumer1),
+        craft().id("consumer2").from(direct("shared", {})).to(consumer2), // This should win
       ])
       .build();
 
@@ -118,8 +118,8 @@ describe("Direct adapter", () => {
             ]),
           )
           .to(direct((ex) => `handler-${ex.body.type}`)),
-        craft().id("handler-a").from(direct("handler-a")).to(handlerA),
-        craft().id("handler-b").from(direct("handler-b")).to(handlerB),
+        craft().id("handler-a").from(direct("handler-a", {})).to(handlerA),
+        craft().id("handler-b").from(direct("handler-b", {})).to(handlerB),
       ])
       .build();
 
@@ -173,11 +173,11 @@ describe("Direct adapter", () => {
           ),
         craft()
           .id("high-priority")
-          .from(direct("processing-high"))
+          .from(direct("processing-high", {}))
           .to(highPriorityHandler),
         craft()
           .id("normal-priority")
-          .from(direct("processing-normal"))
+          .from(direct("processing-normal", {}))
           .to(normalPriorityHandler),
       ])
       .build();
@@ -207,7 +207,10 @@ describe("Direct adapter", () => {
           .id("producer")
           .from(simple({ namespace: "com.example", action: "process" }))
           .to(direct((ex) => `${ex.body.namespace}:${ex.body.action}`)),
-        craft().id("consumer").from(direct("com-example-process")).to(consumer),
+        craft()
+          .id("consumer")
+          .from(direct("com-example-process", {}))
+          .to(consumer),
       ])
       .build();
 
@@ -294,15 +297,15 @@ describe("Direct adapter", () => {
           .to(direct((ex) => `${ex.body.type}-handler`)),
         craft()
           .id("order-consumer")
-          .from(direct("order-handler"))
+          .from(direct("order-handler", {}))
           .to(orderHandler),
         craft()
           .id("user-consumer")
-          .from(direct("user-handler"))
+          .from(direct("user-handler", {}))
           .to(userHandler),
         craft()
           .id("product-consumer")
-          .from(direct("product-handler"))
+          .from(direct("product-handler", {}))
           .to(productHandler),
       ])
       .build();

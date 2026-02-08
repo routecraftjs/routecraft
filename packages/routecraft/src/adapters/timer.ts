@@ -46,6 +46,16 @@ export interface TimerOptions {
   jitterMs?: number;
 }
 
+/**
+ * Create a timer adapter that produces messages at regular intervals.
+ *
+ * @param options Configuration for the timer
+ * @returns A TimerAdapter instance
+ */
+export function timer(options?: TimerOptions): TimerAdapter {
+  return new TimerAdapter(options);
+}
+
 export class TimerAdapter implements Source<undefined> {
   readonly adapterId = "routecraft.adapter.timer";
   constructor(private options?: TimerOptions) {}

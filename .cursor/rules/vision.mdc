@@ -27,7 +27,7 @@ alwaysApply: false
 ## Pointers to source (truth)
 
 - Context: `packages/routecraft/src/context.ts`
-- Builder/DSL: `packages/routecraft/src/builder.ts`, `packages/routecraft/src/dsl.ts`
+- Builder/DSL: `packages/routecraft/src/builder.ts`
 - CLI: `packages/cli/src/run.ts`, `packages/cli/src/start.ts`
 
 ## Inspirations and guiding principles
