@@ -762,3 +762,23 @@ export class RouteBuilder<Current = unknown> {
     return this.routes;
   }
 }
+
+/**
+ * Create a new route builder.
+ *
+ * This is the entry point for defining routes in a fluent way.
+ *
+ * @returns A new RouteBuilder instance
+ *
+ * @example
+ * ```typescript
+ * // Define a route that processes data
+ * const myRoute = craft()
+ *   .from(simple("Hello, World!"))
+ *   .transform(data => data.toUpperCase())
+ *   .to(log())
+ * ```
+ */
+export function craft(): RouteBuilder {
+  return new RouteBuilder();
+}

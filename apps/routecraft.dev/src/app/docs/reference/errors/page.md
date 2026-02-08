@@ -208,13 +208,13 @@ Dynamic endpoints cannot be used as source
 A direct adapter with a function endpoint was used with `.from()`. Dynamic endpoints require an exchange to evaluate, but sources don't have incoming exchanges.
 
 **Suggestion**  
-Use a static string endpoint for `.from(direct('endpoint'))`. Dynamic endpoints only work with `.to()` and `.tap()`.
+Use a static string endpoint for source: `.from(direct('endpoint', {}))`. Dynamic endpoints only work with `.to()` and `.tap()`.
 
 **Example**
 ```ts
 // ✅ Correct: static endpoint for source
 craft()
-  .from(direct('my-endpoint'))
+  .from(direct('my-endpoint', {}))
   .to(destination)
 
 // ✅ Correct: dynamic endpoint for destination

@@ -8,6 +8,7 @@ export {
 } from "./exchange.ts";
 
 export {
+  context,
   CraftContext,
   type MergedOptions,
   type StoreRegistry,
@@ -40,7 +41,12 @@ export {
 
 export { type Filter, type CallableFilter } from "./operations/filter.ts";
 
-export { ContextBuilder, RouteBuilder, type RouteOptions } from "./builder.ts";
+export {
+  ContextBuilder,
+  craft,
+  RouteBuilder,
+  type RouteOptions,
+} from "./builder.ts";
 
 export {
   RouteCraftError,
@@ -64,18 +70,13 @@ export { SimpleConsumer } from "./consumers/simple.ts";
 
 export { BatchConsumer, type BatchOptions } from "./consumers/batch.ts";
 
-export {
-  context,
-  craft,
-  simple,
-  noop,
-  log,
-  debug,
-  direct,
-  timer,
-  fetch,
-  pseudo,
-} from "./dsl.ts";
+export { simple } from "./adapters/simple.ts";
+export { noop } from "./adapters/noop.ts";
+export { log, debug } from "./adapters/log.ts";
+export { direct } from "./adapters/direct.ts";
+export { timer } from "./adapters/timer.ts";
+export { fetch } from "./adapters/fetch.ts";
+export { pseudo } from "./adapters/pseudo.ts";
 
 export { SimpleAdapter } from "./adapters/simple.ts";
 export { LogAdapter, type LogOptions, type LogLevel } from "./adapters/log.ts";

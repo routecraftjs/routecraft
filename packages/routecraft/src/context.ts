@@ -1,3 +1,4 @@
+import { ContextBuilder } from "./builder.ts";
 import { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
 import { error as rcError, RC } from "./error.ts";
 import { createLogger, type Logger } from "./logger.ts";
@@ -422,4 +423,27 @@ export class CraftContext {
     this.logger.debug("Routecraft context stopped");
     this.emit("contextStopped", {});
   }
+}
+
+/**
+ * Create a new context builder.
+ *
+ * This is the entry point for creating a new application context.
+ *
+ * @returns A new ContextBuilder instance
+ *
+ * @example
+ * ```typescript
+ * // Create and configure a context
+ * const ctx = context()
+ *   .routes(myRoute)
+ *   .on('contextStarting', () => console.log('Starting...'))
+ *   .build();
+ *
+ * // Start processing
+ * await ctx.start();
+ * ```
+ */
+export function context(): ContextBuilder {
+  return new ContextBuilder();
 }

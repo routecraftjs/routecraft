@@ -1337,7 +1337,7 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint")) // no schema
+            .from(direct("endpoint", {})) // no schema
             .to(consumer),
         ])
         .build();
@@ -1445,7 +1445,7 @@ describe("Direct adapter validation", () => {
             .to(direct("other-endpoint")),
           craft()
             .id("other-consumer")
-            .from(direct("other-endpoint"))
+            .from(direct("other-endpoint", {}))
             .to(otherConsumer),
         ])
         .build();
@@ -1505,7 +1505,7 @@ describe("Direct adapter validation", () => {
         .routes([
           craft()
             .id("no-description")
-            .from(direct("plain-endpoint"))
+            .from(direct("plain-endpoint", {}))
             .to(vi.fn()),
         ])
         .build();

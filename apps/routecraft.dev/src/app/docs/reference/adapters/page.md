@@ -183,7 +183,7 @@ craft()
 // Consumer route that receives from direct endpoint
 craft()
   .id('data-consumer')
-  .from(direct('processed-data'))
+  .from(direct('processed-data', {}))
   .process(businessLogic)
   .to(destination)
 
@@ -195,7 +195,7 @@ craft()
 
 craft()
   .id('order-processor')
-  .from(direct('order-processing'))
+  .from(direct('order-processing', {}))
   .process(validateOrder)
   .process(saveOrder)
   .transform(() => ({ status: 'created', orderId: '12345' }))
@@ -219,12 +219,12 @@ craft()
 // Consumer routes (static endpoints required)
 craft()
   .id('high-priority-handler')
-  .from(direct('processing-high'))
+  .from(direct('processing-high', {}))
   .to(urgentProcessor)
 
 craft()
   .id('normal-priority-handler')
-  .from(direct('processing-normal'))
+  .from(direct('processing-normal', {}))
   .to(standardProcessor)
 ```
 
@@ -262,7 +262,7 @@ Without a schema, all data passes through unchanged:
 
 ```ts
 craft()
-  .from(direct('user-processor'))  // No schema - all data passes through
+  .from(direct('user-processor', {}))  // No schema - all data passes through
   .process(processUser)
 ```
 

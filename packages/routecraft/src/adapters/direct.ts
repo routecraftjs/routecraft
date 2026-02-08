@@ -153,7 +153,7 @@ export class DirectAdapter<T = unknown>
       throw rcError("RC5010", undefined, {
         message: "Dynamic endpoints cannot be used as source",
         suggestion:
-          'Direct adapter with function endpoint can only be used with .to() or .tap(), not .from(). Use a static string endpoint for .from(direct("endpoint")).',
+          'Direct adapter with function endpoint can only be used with .to() or .tap(), not .from(). Use .from(direct("endpoint", {})) for source.',
       });
     }
 
@@ -366,6 +366,41 @@ export class DirectAdapter<T = unknown>
       ) as Promise<Exchange<T>>;
     };
   }
+}
+
+/**
+ * Create a direct adapter for synchronous inter-route communication.
+ *
+ * - direct(endpoint, options) with second argument (even {}) returns Source<T> — use in .from().
+ * - direct(endpoint) or direct(function) with no second argument returns Destination<T, T> — use in .to() / .tap().
+ *
+ * @template T The type of data this adapter processes
+ * @param endpoint The name of the direct endpoint (string) or a function that returns the endpoint name based on the exchange
+ * @param options Source options (pass {} for bare source); omit for destination.
+ * @returns Source<T> when options provided, Destination<T, T> when no options
+ */
+export function direct<T = unknown>(
+  endpoint: string,
+  options: Partial<DirectSourceOptions>,
+): Source<T>;
+export function direct<T = unknown>(
+  endpoint: string | ((exchange: Exchange<T>) => string),
+): Destination<T, T>;
+export function direct<T = unknown>(
+  endpoint: string | ((exchange: Exchange<T>) => string),
+  options?: Partial<DirectOptions>,
+): Source<T> | Destination<T, T> {
+  if (options !== undefined) {
+    if (typeof endpoint !== "string") {
+      throw rcError("RC5010", undefined, {
+        message: "Dynamic endpoints cannot be used as source",
+        suggestion:
+          "Use a static string endpoint for source: .from(direct('endpoint', {})).",
+      });
+    }
+    return new DirectAdapter<T>(endpoint, options) as unknown as Source<T>;
+  }
+  return new DirectAdapter<T>(endpoint) as unknown as Destination<T, T>;
 }
 
 /**

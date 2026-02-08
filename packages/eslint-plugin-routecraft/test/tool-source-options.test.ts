@@ -50,7 +50,7 @@ describe("tool-source-options", () => {
           code: `
             craft()
               .id("my-route")
-              .from(direct("endpoint"))
+              .from(direct("endpoint", {}))
               .to(log());
           `,
         },

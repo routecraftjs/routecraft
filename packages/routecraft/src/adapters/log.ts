@@ -39,3 +39,33 @@ export class LogAdapter<T = unknown> implements Destination<T, void> {
     return { id, body, headers };
   }
 }
+
+/**
+ * Create a logging adapter that logs messages to the console.
+ *
+ * @template T The type of data this adapter processes
+ * @param formatter Optional function that takes an exchange and returns the value to log.
+ * @param options Optional configuration object with `level` (defaults to "info").
+ * @returns A LogAdapter instance
+ */
+export function log<T = unknown>(
+  formatter?: (exchange: Exchange<T>) => unknown,
+  options?: LogOptions,
+): LogAdapter<T> {
+  return new LogAdapter<T>(formatter, options);
+}
+
+/**
+ * Create a logging adapter that logs at DEBUG level.
+ *
+ * @template T The type of data this adapter processes
+ * @param formatter Optional function that takes an exchange and returns the value to log
+ * @param options Optional configuration (level is fixed to "debug")
+ * @returns A LogAdapter instance
+ */
+export function debug<T = unknown>(
+  formatter?: (exchange: Exchange<T>) => unknown,
+  options?: Omit<LogOptions, "level">,
+): LogAdapter<T> {
+  return new LogAdapter<T>(formatter, { ...options, level: "debug" });
+}

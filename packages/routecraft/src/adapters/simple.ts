@@ -2,6 +2,25 @@ import { type Source } from "../operations/from";
 import { type Exchange, type ExchangeHeaders } from "../exchange";
 import { CraftContext } from "../context";
 
+/**
+ * Create a simple adapter that produces static or dynamically generated data.
+ *
+ * This adapter can be used as a source in a route to provide data.
+ *
+ * @template T The type of data to produce
+ * @param producer A static value or function that produces a value
+ * @returns A SimpleAdapter instance
+ */
+export function simple<T = unknown>(
+  producer: (() => T | Promise<T>) | T,
+): SimpleAdapter<T> {
+  return new SimpleAdapter<T>(
+    typeof producer === "function"
+      ? (producer as () => T | Promise<T>)
+      : () => producer,
+  );
+}
+
 export class SimpleAdapter<T = unknown> implements Source<T> {
   readonly adapterId = "routecraft.adapter.simple";
 

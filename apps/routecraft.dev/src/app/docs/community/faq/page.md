@@ -32,7 +32,7 @@ craft()
 // Consumer route  
 craft()
   .id('consumer')
-  .from(direct('my-channel'))
+  .from(direct('my-channel', {}))
   .to(destination)
 ```
 
