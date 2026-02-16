@@ -184,13 +184,15 @@ describe("Events API", () => {
     await expect(t.test()).rejects.toThrow("route start fail");
     expect(t.errors.length).toBeGreaterThanOrEqual(1);
     // Wrapped as RouteCraftError; original message appears in cause or toString
-    const hasStartError = t.errors.some(
-      (e) =>
-        (e as Error).message?.includes("route start fail") ||
-        ((e as Error).cause instanceof Error &&
-          (e as Error).cause?.message === "route start fail") ||
-        String(e).includes("route start fail"),
-    );
+    const hasStartError = t.errors.some((e) => {
+      const err = e as Error;
+      const cause = err.cause;
+      return (
+        err.message?.includes("route start fail") ||
+        (cause instanceof Error && cause.message === "route start fail") ||
+        String(e).includes("route start fail")
+      );
+    });
     expect(hasStartError).toBeTruthy();
   });
 
@@ -200,14 +202,25 @@ describe("Events API", () => {
    * @expectedResult test() rejects after timeout with "Timeout waiting for routes to start"
    */
   test("test() rejects with timeout when route never emits routeStarted", async () => {
-    // Callable source that never resolves and never calls onReady
-    const neverReady = () => new Promise<void>(() => {});
+    // Callable source that never calls onReady but resolves when aborted so test() can finish
+    const neverReady = (
+      _ctx: unknown,
+      _handler: unknown,
+      controller: AbortController,
+    ) =>
+      new Promise<void>((resolve) => {
+        controller.signal.addEventListener("abort", () => resolve(), {
+          once: true,
+        });
+      });
+
     t = await testContext()
+      .routesReadyTimeout(200)
       .routes(craft().id("never-ready").from(neverReady).to(log()))
       .build();
 
     await expect(t.test()).rejects.toThrow(
       "Timeout waiting for routes to start",
     );
-  }, 15_000);
+  }, 5_000);
 });

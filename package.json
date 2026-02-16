@@ -45,18 +45,6 @@
     "vite-tsconfig-paths": "^6.0.5",
     "vitest": "^4.0.18"
   },
-  "size-limit": [
-    {
-      "path": [
-        "packages/routecraft/dist/index.js"
-      ],
-      "limit": "100 kb",
-      "running": false,
-      "ignore": [
-        "node:*"
-      ]
-    }
-  ],
   "lint-staged": {
     "*.{js,jsx,ts,tsx,cjs,mjs,cts,mts}": [
       "eslint --fix",

@@ -142,9 +142,9 @@ describe("Plugin System", () => {
   });
 
   /**
-   * @case Verifies that plugins run after routes are registered
-   * @preconditions A plugin accesses route definitions from context
-   * @expectedResult Routes are available to the plugin
+   * @case Verifies that plugins run before routes are registered and see zero routes during initialization
+   * @preconditions A plugin reads ctx.getRoutes().length during its run
+   * @expectedResult Plugin sees 0 routes during init; after build, context has 2 routes
    */
   test("Plugin runs before routes are registered and can access context", async () => {
     let routeCountInPlugin = 0;

@@ -121,7 +121,7 @@ const cliIndexPath = join(rootDir, "packages", "cli", "src", "index.ts");
 if (existsSync(cliIndexPath)) {
   try {
     let cliContent = readFileSync(cliIndexPath, "utf8");
-    const versionRegex = /\.version\(['"][\d.]+['"]\)/;
+    const versionRegex = /\.version\(['"][0-9.a-zA-Z\-+]+['"]\)/;
     const newVersionLine = `.version("${version}")`;
 
     if (versionRegex.test(cliContent)) {
@@ -151,7 +151,7 @@ if (existsSync(versionSelectorPath)) {
   try {
     let selectorContent = readFileSync(versionSelectorPath, "utf8");
     const versionRegex =
-      /const versions = \[\{ label: 'v[\d.]+', value: 'v[\d.]+' \}\]/;
+      /const versions = \[\{ label: 'v[0-9.a-zA-Z\-+]+', value: 'v[0-9.a-zA-Z\-+]+' \}\]/;
     const newVersionLine = `const versions = [{ label: 'v${version}', value: 'v${version}' }]`;
 
     if (versionRegex.test(selectorContent)) {

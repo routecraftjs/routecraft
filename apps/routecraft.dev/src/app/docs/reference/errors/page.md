@@ -12,25 +12,25 @@ The `retryable` property indicates whether the [`retry`](/docs/reference/operati
 
 | Code | Category | Message | Retryable |
 | --- | --- | --- | :---: |
-| [RC1001](#rc-1001) | Definition | Route definition failed validation | No |
-| [RC1002](#rc-1002) | Definition | Duplicate route id | No |
-| [RC2001](#rc-2001) | DSL | Invalid operation type | No |
-| [RC2002](#rc-2002) | DSL | Missing from step | No |
-| [RC3001](#rc-3001) | Lifecycle | Route failed to start | No |
-| [RC3002](#rc-3002) | Lifecycle | Context failed to start | No |
-| [RC5001](#rc-5001) | Adapter | Source adapter threw | Yes |
-| [RC5002](#rc-5002) | Adapter | Processing step threw | Yes |
-| [RC5003](#rc-5003) | Adapter | Destination adapter threw | Yes |
-| [RC5004](#rc-5004) | Adapter | Split operation failed | No |
-| [RC5005](#rc-5005) | Adapter | Aggregation operation failed | No |
-| [RC5006](#rc-5006) | Adapter | Transform function threw | No |
-| [RC5007](#rc-5007) | Adapter | Tap step threw | Yes |
-| [RC5008](#rc-5008) | Adapter | Filter predicate threw | No |
-| [RC5009](#rc-5009) | Adapter | Validation failed | No |
-| [RC5010](#rc-5010) | Adapter | Dynamic endpoints cannot be used as source | No |
-| [RC5011](#rc-5011) | Adapter | Direct route schema validation failed | No |
-| [RC5012](#rc-5012) | Adapter | No handler subscribed on direct endpoint | No |
-| [RC9901](#rc-9901) | Runtime | Unknown error | Yes |
+| [RC1001](#rc1001) | Definition | Route definition failed validation | No |
+| [RC1002](#rc1002) | Definition | Duplicate route id | No |
+| [RC2001](#rc2001) | DSL | Invalid operation type | No |
+| [RC2002](#rc2002) | DSL | Missing from step | No |
+| [RC3001](#rc3001) | Lifecycle | Route failed to start | No |
+| [RC3002](#rc3002) | Lifecycle | Context failed to start | No |
+| [RC5001](#rc5001) | Adapter | Source adapter threw | Yes |
+| [RC5002](#rc5002) | Adapter | Processing step threw | Yes |
+| [RC5003](#rc5003) | Adapter | Destination adapter threw | Yes |
+| [RC5004](#rc5004) | Adapter | Split operation failed | No |
+| [RC5005](#rc5005) | Adapter | Aggregation operation failed | No |
+| [RC5006](#rc5006) | Adapter | Transform function threw | No |
+| [RC5007](#rc5007) | Adapter | Tap step threw | Yes |
+| [RC5008](#rc5008) | Adapter | Filter predicate threw | No |
+| [RC5009](#rc5009) | Adapter | Validation failed | No |
+| [RC5010](#rc5010) | Adapter | Dynamic endpoints cannot be used as source | No |
+| [RC5011](#rc5011) | Adapter | Direct route schema validation failed | No |
+| [RC5012](#rc5012) | Adapter | No handler subscribed on direct endpoint | No |
+| [RC9901](#rc9901) | Runtime | Unknown error | Yes |
 
 ---
 
@@ -228,36 +228,6 @@ craft()
   .from(direct((ex) => 'endpoint')) // throws RC5010
 ```
 
-## RC5012
-No handler subscribed on direct endpoint
-
-**Why it happens**  
-A producer route attempted to send a message to a direct endpoint, but no consumer route is subscribed to that endpoint. This typically occurs when:
-- The consumer route hasn't started yet
-- The consumer route has stopped or failed
-- The endpoint name is misspelled or doesn't match
-
-**Suggestion**  
-Ensure a consumer route is subscribed to the endpoint before sending messages. Check that:
-- Both routes are registered in the same context
-- The consumer route has started successfully
-- Endpoint names match exactly (including case)
-
-**Example**
-```ts
-// Consumer must be running
-craft()
-  .id('consumer')
-  .from(direct('my-endpoint', {}))
-  .to(log());
-
-// Producer sends to subscribed endpoint
-craft()
-  .id('producer')
-  .from(simple('message'))
-  .to(direct('my-endpoint'));
-```
-
 ## RC5011
 Direct route schema validation failed
 
@@ -296,6 +266,36 @@ craft()
   }))
   .to(handler)
 // Pass: { id: '123', extra: 'field' } (extra preserved)
+```
+
+## RC5012
+No handler subscribed on direct endpoint
+
+**Why it happens**  
+A producer route attempted to send a message to a direct endpoint, but no consumer route is subscribed to that endpoint. This typically occurs when:
+- The consumer route hasn't started yet
+- The consumer route has stopped or failed
+- The endpoint name is misspelled or doesn't match
+
+**Suggestion**  
+Ensure a consumer route is subscribed to the endpoint before sending messages. Check that:
+- Both routes are registered in the same context
+- The consumer route has started successfully
+- Endpoint names match exactly (including case)
+
+**Example**
+```ts
+// Consumer must be running
+craft()
+  .id('consumer')
+  .from(direct('my-endpoint', {}))
+  .to(log());
+
+// Producer sends to subscribed endpoint
+craft()
+  .id('producer')
+  .from(simple('message'))
+  .to(direct('my-endpoint'));
 ```
 
 ## RC9901

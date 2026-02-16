@@ -12,6 +12,7 @@ export default defineConfig({
     },
   },
   test: {
+    environment: "node",
     env: {
       LOG_LEVEL: "silent",
     },

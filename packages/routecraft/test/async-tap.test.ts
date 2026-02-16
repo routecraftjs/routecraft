@@ -36,7 +36,7 @@ describe("Async Tap Execution", () => {
           .from(simple({ data: "test" }))
           .tap(async () => {
             // Simulate slow tap operation
-            await new Promise((resolve) => setTimeout(resolve, 100));
+            await new Promise((resolve) => setTimeout(resolve, 20));
             tapExecutionTime = Date.now() - startTime;
             tapCompleted();
           })
@@ -51,13 +51,13 @@ describe("Async Tap Execution", () => {
 
     // Route should complete before tap
     expect(routeCompleted).toHaveBeenCalledTimes(1);
-    expect(routeExecutionTime).toBeLessThan(50); // Route finishes quickly
+    expect(routeExecutionTime).toBeLessThan(15); // Route finishes quickly
 
     // Wait for tap to complete
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    await new Promise((resolve) => setTimeout(resolve, 40));
 
     expect(tapCompleted).toHaveBeenCalledTimes(1);
-    expect(tapExecutionTime).toBeGreaterThanOrEqual(100); // Tap took its time
+    expect(tapExecutionTime).toBeGreaterThanOrEqual(18); // Tap took its time
   });
 
   /**
@@ -87,7 +87,7 @@ describe("Async Tap Execution", () => {
     await t.ctx.start();
 
     // Wait for tap to execute
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 25));
 
     expect(tapSpy).toHaveBeenCalledTimes(1);
     const tapExchange = tapSpy.mock.calls[0][0];
@@ -171,15 +171,15 @@ describe("Async Tap Execution", () => {
           .id("test-drain")
           .from(simple([1, 2, 3]))
           .tap(async () => {
-            await new Promise((resolve) => setTimeout(resolve, 50));
+            await new Promise((resolve) => setTimeout(resolve, 20));
             tap1Completed();
           })
           .tap(async () => {
-            await new Promise((resolve) => setTimeout(resolve, 75));
+            await new Promise((resolve) => setTimeout(resolve, 30));
             tap2Completed();
           })
           .tap(async () => {
-            await new Promise((resolve) => setTimeout(resolve, 100));
+            await new Promise((resolve) => setTimeout(resolve, 40));
             tap3Completed();
           })
           .to(() => {}),
@@ -211,7 +211,7 @@ describe("Async Tap Execution", () => {
           .id("test-stop-drain")
           .from(simple({ data: "test" }))
           .tap(async () => {
-            await new Promise((resolve) => setTimeout(resolve, 100));
+            await new Promise((resolve) => setTimeout(resolve, 30));
             tapCompleted();
           })
           .to(() => {}),
@@ -241,15 +241,15 @@ describe("Async Tap Execution", () => {
           .id("test-parallel-taps")
           .from(simple({ data: "test" }))
           .tap(async () => {
-            await new Promise((resolve) => setTimeout(resolve, 50));
+            await new Promise((resolve) => setTimeout(resolve, 20));
             tapOrder.push(1);
           })
           .tap(async () => {
-            await new Promise((resolve) => setTimeout(resolve, 25));
+            await new Promise((resolve) => setTimeout(resolve, 10));
             tapOrder.push(2);
           })
           .tap(async () => {
-            await new Promise((resolve) => setTimeout(resolve, 10));
+            await new Promise((resolve) => setTimeout(resolve, 5));
             tapOrder.push(3);
           })
           .to(() => {}),
