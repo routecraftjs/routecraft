@@ -1,12 +1,12 @@
 import { describe, test, expect, afterEach, vi } from "vitest";
 import { z } from "zod";
 import {
-  context,
   craft,
   simple,
   direct,
   DirectAdapter,
-  type CraftContext,
+  testContext,
+  type TestContext,
 } from "../src/index.ts";
 
 /**
@@ -16,10 +16,10 @@ import {
  */
 
 describe("Direct adapter validation", () => {
-  let ctx: CraftContext;
+  let t: TestContext;
 
   afterEach(async () => {
-    if (ctx) await ctx.stop();
+    if (t) await t.stop();
   });
 
   // ============================================================
@@ -39,7 +39,7 @@ describe("Direct adapter validation", () => {
 
       const consumer = vi.fn();
 
-      ctx = context()
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -52,9 +52,7 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
+      await t.test();
       expect(consumer).toHaveBeenCalledTimes(1);
       expect(consumer.mock.calls[0][0].body).toEqual({
         userId: "123",
@@ -73,11 +71,9 @@ describe("Direct adapter validation", () => {
         action: z.string(),
       });
 
-      const errorHandler = vi.fn();
       const consumer = vi.fn();
 
-      ctx = context()
-        .on("error", errorHandler)
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -90,12 +86,9 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      expect(errorHandler).toHaveBeenCalled();
-      const error = errorHandler.mock.calls[0][0].details.error;
-      expect(error.rc).toBe("RC5011");
+      await t.test();
+      expect(t.errors).toHaveLength(1);
+      expect(t.errors[0].rc).toBe("RC5011");
       expect(consumer).not.toHaveBeenCalled();
     });
 
@@ -110,10 +103,7 @@ describe("Direct adapter validation", () => {
         action: z.string(),
       });
 
-      const errorHandler = vi.fn();
-
-      ctx = context()
-        .on("error", errorHandler)
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -126,12 +116,9 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      expect(errorHandler).toHaveBeenCalled();
-      const error = errorHandler.mock.calls[0][0].details.error;
-      expect(error.rc).toBe("RC5011");
+      await t.test();
+      expect(t.errors).toHaveLength(1);
+      expect(t.errors[0].rc).toBe("RC5011");
     });
 
     /**
@@ -144,10 +131,7 @@ describe("Direct adapter validation", () => {
         count: z.number(),
       });
 
-      const errorHandler = vi.fn();
-
-      ctx = context()
-        .on("error", errorHandler)
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -160,12 +144,9 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      expect(errorHandler).toHaveBeenCalled();
-      const error = errorHandler.mock.calls[0][0].details.error;
-      expect(error.rc).toBe("RC5011");
+      await t.test();
+      expect(t.errors).toHaveLength(1);
+      expect(t.errors[0].rc).toBe("RC5011");
     });
 
     /**
@@ -183,7 +164,7 @@ describe("Direct adapter validation", () => {
 
       const consumer = vi.fn();
 
-      ctx = context()
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -200,9 +181,7 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
+      await t.test();
       expect(consumer).toHaveBeenCalledTimes(1);
     });
 
@@ -224,7 +203,7 @@ describe("Direct adapter validation", () => {
 
       const consumer = vi.fn();
 
-      ctx = context()
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -244,9 +223,7 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
+      await t.test();
       expect(consumer).toHaveBeenCalledTimes(1);
     });
 
@@ -263,7 +240,7 @@ describe("Direct adapter validation", () => {
 
       const consumer = vi.fn();
 
-      ctx = context()
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -276,9 +253,7 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
+      await t.test();
       expect(consumer).toHaveBeenCalledTimes(1);
       const body = consumer.mock.calls[0][0].body;
       expect(body.count).toBe(42);
@@ -306,7 +281,7 @@ describe("Direct adapter validation", () => {
 
       const consumer = vi.fn();
 
-      ctx = context()
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -319,9 +294,7 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 150));
-
+      await t.test();
       expect(consumer).toHaveBeenCalledTimes(1);
     });
 
@@ -337,10 +310,7 @@ describe("Direct adapter validation", () => {
         email: z.string().email(),
       });
 
-      const errorHandler = vi.fn();
-
-      ctx = context()
-        .on("error", errorHandler)
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -353,14 +323,10 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      expect(errorHandler).toHaveBeenCalled();
-      const error = errorHandler.mock.calls[0][0].details.error;
-      expect(error.rc).toBe("RC5011");
-      // Error should have cause with validation issues
-      expect(error.cause).toBeDefined();
+      await t.test();
+      expect(t.errors).toHaveLength(1);
+      expect(t.errors[0].rc).toBe("RC5011");
+      expect(t.errors[0].cause).toBeDefined();
     });
 
     /**
@@ -375,7 +341,7 @@ describe("Direct adapter validation", () => {
 
       const consumer = vi.fn();
 
-      ctx = context()
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -388,9 +354,7 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
+      await t.test();
       expect(consumer).toHaveBeenCalledTimes(1);
       expect(consumer.mock.calls[0][0].body.text).toBe("HELLO");
     });
@@ -403,10 +367,7 @@ describe("Direct adapter validation", () => {
     test("validation error includes endpoint name in message", async () => {
       const schema = z.object({ id: z.string() });
 
-      const errorHandler = vi.fn();
-
-      ctx = context()
-        .on("error", errorHandler)
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -419,12 +380,9 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      expect(errorHandler).toHaveBeenCalled();
-      const error = errorHandler.mock.calls[0][0].details.error;
-      expect(error.meta.message).toContain("my-special-endpoint");
+      await t.test();
+      expect(t.errors).toHaveLength(1);
+      expect(t.errors[0].meta.message).toContain("my-special-endpoint");
     });
 
     /**
@@ -439,7 +397,7 @@ describe("Direct adapter validation", () => {
 
       const consumer = vi.fn();
 
-      ctx = context()
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -452,9 +410,7 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
+      await t.test();
       expect(consumer).toHaveBeenCalledTimes(1);
       const body = consumer.mock.calls[0][0].body;
       expect(body.id).toBe("123");
@@ -476,10 +432,7 @@ describe("Direct adapter validation", () => {
         id: z.string(),
       });
 
-      const errorHandler = vi.fn();
-
-      ctx = context()
-        .on("error", errorHandler)
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -492,12 +445,9 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      expect(errorHandler).toHaveBeenCalled();
-      const error = errorHandler.mock.calls[0][0].details.error;
-      expect(error.rc).toBe("RC5011");
+      await t.test();
+      expect(t.errors).toHaveLength(1);
+      expect(t.errors[0].rc).toBe("RC5011");
     });
 
     /**
@@ -512,7 +462,7 @@ describe("Direct adapter validation", () => {
 
       const consumer = vi.fn();
 
-      ctx = context()
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -525,8 +475,7 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await t.test();
 
       expect(consumer).toHaveBeenCalledTimes(1);
       const body = consumer.mock.calls[0][0].body;
@@ -546,7 +495,7 @@ describe("Direct adapter validation", () => {
 
       const consumer = vi.fn();
 
-      ctx = context()
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -559,8 +508,7 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await t.test();
 
       expect(consumer).toHaveBeenCalledTimes(1);
       const body = consumer.mock.calls[0][0].body;
@@ -580,7 +528,7 @@ describe("Direct adapter validation", () => {
 
       const consumer = vi.fn();
 
-      ctx = context()
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -593,8 +541,7 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await t.test();
 
       expect(consumer).toHaveBeenCalledTimes(1);
       const body = consumer.mock.calls[0][0].body;
@@ -628,7 +575,7 @@ describe("Direct adapter validation", () => {
 
       const consumer = vi.fn();
 
-      ctx = context()
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -648,9 +595,7 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
+      await t.test();
       expect(consumer).toHaveBeenCalledTimes(1);
     });
 
@@ -667,7 +612,7 @@ describe("Direct adapter validation", () => {
 
       const consumer = vi.fn();
 
-      ctx = context()
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -680,9 +625,7 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
+      await t.test();
       expect(consumer).toHaveBeenCalledTimes(1);
     });
   });
@@ -699,7 +642,7 @@ describe("Direct adapter validation", () => {
     test("valid headers pass validation", async () => {
       const consumer = vi.fn();
 
-      ctx = context()
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -719,9 +662,7 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
+      await t.test();
       expect(consumer).toHaveBeenCalledTimes(1);
     });
 
@@ -733,7 +674,7 @@ describe("Direct adapter validation", () => {
     test("extra headers stripped by default", async () => {
       const consumer = vi.fn();
 
-      ctx = context()
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -755,8 +696,7 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await t.test();
 
       expect(consumer).toHaveBeenCalledTimes(1);
       const headers = consumer.mock.calls[0][0].headers;
@@ -772,7 +712,7 @@ describe("Direct adapter validation", () => {
     test("looseObject preserves extra headers", async () => {
       const consumer = vi.fn();
 
-      ctx = context()
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -793,8 +733,7 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await t.test();
 
       expect(consumer).toHaveBeenCalledTimes(1);
       const headers = consumer.mock.calls[0][0].headers;
@@ -808,10 +747,7 @@ describe("Direct adapter validation", () => {
      * @expectedResult RC5011 error thrown
      */
     test("strictObject rejects extra headers", async () => {
-      const errorHandler = vi.fn();
-
-      ctx = context()
-        .on("error", errorHandler)
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -832,12 +768,9 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      expect(errorHandler).toHaveBeenCalled();
-      const error = errorHandler.mock.calls[0][0].details.error;
-      expect(error.rc).toBe("RC5011");
+      await t.test();
+      expect(t.errors).toHaveLength(1);
+      expect(t.errors[0].rc).toBe("RC5011");
     });
 
     /**
@@ -846,10 +779,7 @@ describe("Direct adapter validation", () => {
      * @expectedResult RC5011 error emitted
      */
     test("invalid header throws RC5011", async () => {
-      const errorHandler = vi.fn();
-
-      ctx = context()
-        .on("error", errorHandler)
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -869,12 +799,9 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      expect(errorHandler).toHaveBeenCalled();
-      const error = errorHandler.mock.calls[0][0].details.error;
-      expect(error.rc).toBe("RC5011");
+      await t.test();
+      expect(t.errors).toHaveLength(1);
+      expect(t.errors[0].rc).toBe("RC5011");
     });
 
     /**
@@ -883,10 +810,7 @@ describe("Direct adapter validation", () => {
      * @expectedResult RC5011 error emitted
      */
     test("missing required header throws RC5011", async () => {
-      const errorHandler = vi.fn();
-
-      ctx = context()
-        .on("error", errorHandler)
+      t = await testContext()
         .routes([
           craft().id("producer").from(simple("test")).to(direct("endpoint")),
           craft()
@@ -902,12 +826,9 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      expect(errorHandler).toHaveBeenCalled();
-      const error = errorHandler.mock.calls[0][0].details.error;
-      expect(error.rc).toBe("RC5011");
+      await t.test();
+      expect(t.errors).toHaveLength(1);
+      expect(t.errors[0].rc).toBe("RC5011");
     });
 
     /**
@@ -918,7 +839,7 @@ describe("Direct adapter validation", () => {
     test("optional header can be missing", async () => {
       const consumer = vi.fn();
 
-      ctx = context()
+      t = await testContext()
         .routes([
           craft().id("producer").from(simple("test")).to(direct("endpoint")),
           craft()
@@ -934,9 +855,7 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
+      await t.test();
       expect(consumer).toHaveBeenCalledTimes(1);
     });
 
@@ -946,10 +865,7 @@ describe("Direct adapter validation", () => {
      * @expectedResult Header validated against schema
      */
     test("optional header validates when present", async () => {
-      const errorHandler = vi.fn();
-
-      ctx = context()
-        .on("error", errorHandler)
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -969,12 +885,9 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      expect(errorHandler).toHaveBeenCalled();
-      const error = errorHandler.mock.calls[0][0].details.error;
-      expect(error.rc).toBe("RC5011");
+      await t.test();
+      expect(t.errors).toHaveLength(1);
+      expect(t.errors[0].rc).toBe("RC5011");
     });
 
     /**
@@ -985,7 +898,7 @@ describe("Direct adapter validation", () => {
     test("multiple header validations work", async () => {
       const consumer = vi.fn();
 
-      ctx = context()
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -1009,9 +922,7 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
+      await t.test();
       expect(consumer).toHaveBeenCalledTimes(1);
     });
 
@@ -1023,7 +934,7 @@ describe("Direct adapter validation", () => {
     test("header coercion applied", async () => {
       const consumer = vi.fn();
 
-      ctx = context()
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -1043,8 +954,7 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await t.test();
 
       expect(consumer).toHaveBeenCalledTimes(1);
       const headers = consumer.mock.calls[0][0].headers;
@@ -1068,7 +978,7 @@ describe("Direct adapter validation", () => {
         { message: "Must start with valid-" },
       );
 
-      ctx = context()
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -1088,9 +998,7 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 150));
-
+      await t.test();
       expect(consumer).toHaveBeenCalledTimes(1);
     });
   });
@@ -1107,7 +1015,7 @@ describe("Direct adapter validation", () => {
     test("body and header validation both applied", async () => {
       const consumer = vi.fn();
 
-      ctx = context()
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -1126,9 +1034,7 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
+      await t.test();
       expect(consumer).toHaveBeenCalledTimes(1);
     });
 
@@ -1138,10 +1044,7 @@ describe("Direct adapter validation", () => {
      * @expectedResult RC5011 error for header
      */
     test("body passes but header fails throws RC5011", async () => {
-      const errorHandler = vi.fn();
-
-      ctx = context()
-        .on("error", errorHandler)
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -1160,12 +1063,9 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      expect(errorHandler).toHaveBeenCalled();
-      const error = errorHandler.mock.calls[0][0].details.error;
-      expect(error.rc).toBe("RC5011");
+      await t.test();
+      expect(t.errors).toHaveLength(1);
+      expect(t.errors[0].rc).toBe("RC5011");
     });
 
     /**
@@ -1174,10 +1074,7 @@ describe("Direct adapter validation", () => {
      * @expectedResult RC5011 error for body
      */
     test("header passes but body fails throws RC5011", async () => {
-      const errorHandler = vi.fn();
-
-      ctx = context()
-        .on("error", errorHandler)
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -1196,13 +1093,10 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      expect(errorHandler).toHaveBeenCalled();
-      const error = errorHandler.mock.calls[0][0].details.error;
-      expect(error.rc).toBe("RC5011");
-      expect(error.meta.message).toContain("Body validation failed");
+      await t.test();
+      expect(t.errors).toHaveLength(1);
+      expect(t.errors[0].rc).toBe("RC5011");
+      expect(t.errors[0].meta.message).toContain("Body validation failed");
     });
 
     /**
@@ -1213,7 +1107,7 @@ describe("Direct adapter validation", () => {
     test("both body and headers can be coerced", async () => {
       const consumer = vi.fn();
 
-      ctx = context()
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -1232,9 +1126,7 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
+      await t.test();
       expect(consumer).toHaveBeenCalledTimes(1);
       expect(consumer.mock.calls[0][0].body.count).toBe(42);
       expect(consumer.mock.calls[0][0].headers["x-limit"]).toBe(100);
@@ -1252,10 +1144,7 @@ describe("Direct adapter validation", () => {
      */
     test("validation only on consumer side", async () => {
       const producerTap = vi.fn();
-      const errorHandler = vi.fn();
-
-      ctx = context()
-        .on("error", errorHandler)
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -1269,15 +1158,9 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-
-      // Wait for async tap jobs to complete
-      await ctx.drain();
-
-      // Producer tap should have been called
+      await t.test();
       expect(producerTap).toHaveBeenCalledTimes(1);
-      // Error should have occurred at consumer
-      expect(errorHandler).toHaveBeenCalled();
+      expect(t.errors).toHaveLength(1);
     });
 
     /**
@@ -1289,7 +1172,7 @@ describe("Direct adapter validation", () => {
       const consumerA = vi.fn();
       const consumerB = vi.fn();
 
-      ctx = context()
+      t = await testContext()
         .routes([
           craft()
             .id("producerA")
@@ -1314,8 +1197,7 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await t.test();
 
       expect(consumerA).toHaveBeenCalledTimes(1);
       expect(consumerB).toHaveBeenCalledTimes(1);
@@ -1329,7 +1211,7 @@ describe("Direct adapter validation", () => {
     test("no validation when schema not provided", async () => {
       const consumer = vi.fn();
 
-      ctx = context()
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -1342,8 +1224,7 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await t.test();
 
       expect(consumer).toHaveBeenCalledTimes(1);
       expect(consumer.mock.calls[0][0].body).toEqual({
@@ -1359,10 +1240,7 @@ describe("Direct adapter validation", () => {
      * @expectedResult Producer completes, error only at consumer level
      */
     test("producer completes despite consumer validation error", async () => {
-      const errorHandler = vi.fn();
-
-      ctx = context()
-        .on("error", errorHandler)
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -1377,11 +1255,8 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      expect(errorHandler).toHaveBeenCalled();
-      // Note: With synchronous direct, the producer may see the error thrown back
+      await t.test();
+      expect(t.errors).toHaveLength(1);
     });
 
     /**
@@ -1390,10 +1265,7 @@ describe("Direct adapter validation", () => {
      * @expectedResult Error event handler called
      */
     test("error event emitted on validation failure", async () => {
-      const errorHandler = vi.fn();
-
-      ctx = context()
-        .on("error", errorHandler)
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -1406,13 +1278,9 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      expect(errorHandler).toHaveBeenCalled();
-      const payload = errorHandler.mock.calls[0][0];
-      expect(payload.details.error).toBeDefined();
-      expect(payload.details.error.rc).toBe("RC5011");
+      await t.test();
+      expect(t.errors).toHaveLength(1);
+      expect(t.errors[0].rc).toBe("RC5011");
     });
 
     /**
@@ -1421,11 +1289,9 @@ describe("Direct adapter validation", () => {
      * @expectedResult Context doesn't crash, other routes work
      */
     test("route continues after validation error", async () => {
-      const errorHandler = vi.fn();
       const otherConsumer = vi.fn();
 
-      ctx = context()
-        .on("error", errorHandler)
+      t = await testContext()
         .routes([
           craft()
             .id("failing-producer")
@@ -1450,12 +1316,8 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      // Error should have occurred
-      expect(errorHandler).toHaveBeenCalled();
-      // But other route should still work
+      await t.test();
+      expect(t.errors).toHaveLength(1);
       expect(otherConsumer).toHaveBeenCalledTimes(1);
     });
   });
@@ -1470,7 +1332,7 @@ describe("Direct adapter validation", () => {
      * @expectedResult Route metadata in registry
      */
     test("routes with description register in store", async () => {
-      ctx = context()
+      t = await testContext()
         .routes([
           craft()
             .id("discoverable")
@@ -1484,12 +1346,10 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-
-      const registry = ctx.getStore(DirectAdapter.ADAPTER_DIRECT_REGISTRY);
+      await t.test();
+      const registry = t.ctx.getStore(DirectAdapter.ADAPTER_DIRECT_REGISTRY);
       expect(registry).toBeDefined();
       expect(registry?.has("test-endpoint")).toBe(true);
-
       const metadata = registry?.get("test-endpoint");
       expect(metadata?.description).toBe("A test endpoint");
       expect(metadata?.keywords).toEqual(["test"]);
@@ -1501,7 +1361,7 @@ describe("Direct adapter validation", () => {
      * @expectedResult Route in registry but without description
      */
     test("routes without description still registered", async () => {
-      ctx = context()
+      t = await testContext()
         .routes([
           craft()
             .id("no-description")
@@ -1510,9 +1370,8 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-
-      const registry = ctx.getStore(DirectAdapter.ADAPTER_DIRECT_REGISTRY);
+      await t.test();
+      const registry = t.ctx.getStore(DirectAdapter.ADAPTER_DIRECT_REGISTRY);
       expect(registry?.has("plain-endpoint")).toBe(true);
       expect(registry?.get("plain-endpoint")?.description).toBeUndefined();
     });
@@ -1523,7 +1382,7 @@ describe("Direct adapter validation", () => {
      * @expectedResult Registry created on first registration
      */
     test("registry created if not exists", async () => {
-      ctx = context()
+      t = await testContext()
         .routes([
           craft()
             .id("first-discoverable")
@@ -1532,9 +1391,8 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-
-      const registry = ctx.getStore(DirectAdapter.ADAPTER_DIRECT_REGISTRY);
+      await t.test();
+      const registry = t.ctx.getStore(DirectAdapter.ADAPTER_DIRECT_REGISTRY);
       expect(registry).toBeDefined();
       expect(registry).toBeInstanceOf(Map);
     });
@@ -1545,7 +1403,7 @@ describe("Direct adapter validation", () => {
      * @expectedResult All registered in registry
      */
     test("multiple routes register correctly", async () => {
-      ctx = context()
+      t = await testContext()
         .routes([
           craft()
             .id("route-a")
@@ -1567,9 +1425,8 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-
-      const registry = ctx.getStore(DirectAdapter.ADAPTER_DIRECT_REGISTRY);
+      await t.test();
+      const registry = t.ctx.getStore(DirectAdapter.ADAPTER_DIRECT_REGISTRY);
       expect(registry?.size).toBe(3);
       expect(registry?.has("endpoint-a")).toBe(true);
       expect(registry?.has("endpoint-b")).toBe(true);
@@ -1582,7 +1439,7 @@ describe("Direct adapter validation", () => {
      * @expectedResult Can retrieve registry and iterate
      */
     test("registry accessible via context getStore", async () => {
-      ctx = context()
+      t = await testContext()
         .routes([
           craft()
             .id("route")
@@ -1597,11 +1454,9 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-
-      const registry = ctx.getStore(DirectAdapter.ADAPTER_DIRECT_REGISTRY);
+      await t.test();
+      const registry = t.ctx.getStore(DirectAdapter.ADAPTER_DIRECT_REGISTRY);
       const routes = registry ? Array.from(registry.values()) : [];
-
       expect(routes).toHaveLength(1);
       expect(routes[0]).toEqual({
         endpoint: "my-endpoint",
@@ -1617,7 +1472,7 @@ describe("Direct adapter validation", () => {
      * @expectedResult Sanitized name in registry
      */
     test("sanitized endpoint names used in registry", async () => {
-      ctx = context()
+      t = await testContext()
         .routes([
           craft()
             .id("route")
@@ -1630,9 +1485,8 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-
-      const registry = ctx.getStore(DirectAdapter.ADAPTER_DIRECT_REGISTRY);
+      await t.test();
+      const registry = t.ctx.getStore(DirectAdapter.ADAPTER_DIRECT_REGISTRY);
       expect(registry?.has("my-special-endpoint-name")).toBe(true);
       expect(registry?.has("my.special:endpoint/name")).toBe(false);
     });
@@ -1654,7 +1508,7 @@ describe("Direct adapter validation", () => {
       });
       const consumer = vi.fn();
 
-      ctx = context()
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -1667,9 +1521,7 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
+      await t.test();
       expect(consumer).toHaveBeenCalledTimes(1);
     });
 
@@ -1681,7 +1533,7 @@ describe("Direct adapter validation", () => {
     test("null header value validates", async () => {
       const consumer = vi.fn();
 
-      ctx = context()
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -1701,9 +1553,7 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
+      await t.test();
       expect(consumer).toHaveBeenCalledTimes(1);
     });
 
@@ -1716,7 +1566,7 @@ describe("Direct adapter validation", () => {
       const schema = z.object({});
       const consumer = vi.fn();
 
-      ctx = context()
+      t = await testContext()
         .routes([
           craft().id("producer").from(simple({})).to(direct("endpoint")),
           craft()
@@ -1726,9 +1576,7 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
+      await t.test();
       expect(consumer).toHaveBeenCalledTimes(1);
     });
 
@@ -1751,7 +1599,7 @@ describe("Direct adapter validation", () => {
         })),
       };
 
-      ctx = context()
+      t = await testContext()
         .routes([
           craft()
             .id("producer")
@@ -1765,10 +1613,8 @@ describe("Direct adapter validation", () => {
         .build();
 
       const start = Date.now();
-      await ctx.start();
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      await t.test();
       const elapsed = Date.now() - start;
-
       expect(consumer).toHaveBeenCalledTimes(1);
       expect(elapsed).toBeLessThan(2000); // Should complete in under 2s
     });
@@ -1779,7 +1625,7 @@ describe("Direct adapter validation", () => {
      * @expectedResult All routes in registry
      */
     test("registry persists across route registrations", async () => {
-      ctx = context()
+      t = await testContext()
         .routes([
           craft()
             .id("route-1")
@@ -1792,12 +1638,9 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await ctx.start();
-
-      const registry = ctx.getStore(DirectAdapter.ADAPTER_DIRECT_REGISTRY);
+      await t.test();
+      const registry = t.ctx.getStore(DirectAdapter.ADAPTER_DIRECT_REGISTRY);
       expect(registry?.size).toBe(2);
-
-      // Both should be present
       expect(registry?.get("endpoint-1")?.description).toBe("First");
       expect(registry?.get("endpoint-2")?.description).toBe("Second");
     });

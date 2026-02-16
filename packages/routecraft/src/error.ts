@@ -16,6 +16,7 @@ export type RCCode =
   | "RC5009"
   | "RC5010"
   | "RC5011"
+  | "RC5012"
   | "RC9901";
 
 export type RCMeta = {
@@ -154,6 +155,14 @@ export const RC: Record<RCCode, RCMeta> = {
       "Check that message body and headers match the schema. For Zod 4: z.object() strips extras, z.looseObject() keeps them, z.strictObject() rejects them.",
     docs: `${DOCS_BASE}#rc-5011`,
     retryable: false, // Bad input - same data will fail again
+  },
+  RC5012: {
+    category: "Adapter",
+    message: "No handler subscribed on direct endpoint",
+    suggestion:
+      "The direct/tool route may have stopped or was never started. Ensure the consumer route is running before sending.",
+    docs: `${DOCS_BASE}#rc-5012`,
+    retryable: false,
   },
   RC9901: {
     category: "Runtime",

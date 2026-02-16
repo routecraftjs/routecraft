@@ -1,18 +1,18 @@
 import { describe, test, expect, afterEach } from "vitest";
 import {
-  context,
+  testContext,
   craft,
   simple,
   log,
-  type CraftContext,
+  type TestContext,
 } from "@routecraft/routecraft";
 
 describe("Events API", () => {
-  let ctx: CraftContext;
+  let t: TestContext;
 
   afterEach(async () => {
-    if (ctx) {
-      await ctx.stop();
+    if (t) {
+      await t.stop();
     }
   });
 
@@ -28,7 +28,7 @@ describe("Events API", () => {
       .id("evt-route")
       .from(simple([1, 2, 3]))
       .to(log());
-    ctx = context()
+    t = await testContext()
       .on("contextStarting", () => {
         events.push("contextStarting");
       })
@@ -59,7 +59,7 @@ describe("Events API", () => {
       .routes(route)
       .build();
 
-    await ctx.start();
+    await t.ctx.start();
 
     // Give event handlers microtask time to flush
     await new Promise((r) => setTimeout(r, 0));
@@ -82,7 +82,7 @@ describe("Events API", () => {
    */
   test("emits routeRegistered when registering after build", async () => {
     const events: string[] = [];
-    ctx = context()
+    t = await testContext()
       .on("routeRegistered", () => {
         events.push("routeRegistered");
       })
@@ -92,7 +92,7 @@ describe("Events API", () => {
       .from(simple([1]))
       .to(log())
       .build()[0];
-    ctx.registerRoutes(def);
+    t.ctx.registerRoutes(def);
     expect(events).toContain("routeRegistered");
   });
 
@@ -105,7 +105,7 @@ describe("Events API", () => {
     const errors: unknown[] = [];
 
     // 1) Startup failure (raise in contextStarting handler)
-    const failingStartup = context()
+    const failingStartup = await testContext()
       .on("contextStarting", () => {
         throw new Error("startup fail");
       })
@@ -114,11 +114,11 @@ describe("Events API", () => {
       })
       .build();
 
-    await failingStartup.start();
+    await failingStartup.ctx.start();
     await new Promise((r) => setTimeout(r, 0));
 
     // 2) Route failure via source throwing
-    const failingRouteCtx = context()
+    const failingRouteT = await testContext()
       .on("error", ({ details: { error } }) => {
         errors.push(error);
       })
@@ -131,11 +131,11 @@ describe("Events API", () => {
       )
       .build();
 
-    await failingRouteCtx.start();
+    await failingRouteT.ctx.start();
     await new Promise((r) => setTimeout(r, 0));
 
     // 3) Step failure in process()
-    const stepFailCtx = context()
+    const stepFailT = await testContext()
       .on("error", ({ details }) => {
         errors.push(details.error);
       })
@@ -149,7 +149,7 @@ describe("Events API", () => {
       )
       .build();
 
-    await stepFailCtx.start();
+    await stepFailT.ctx.start();
     await new Promise((r) => setTimeout(r, 0));
 
     expect(errors.length).toBeGreaterThanOrEqual(3);
@@ -162,4 +162,52 @@ describe("Events API", () => {
     );
     expect(anyStep).toBeTruthy();
   });
+
+  /**
+   * @case test() rejects when a route throws during start (before routeStarted)
+   * @preconditions Route with source that throws in subscribe() before calling onReady
+   * @expectedResult test() rejects and does not hang; error is in t.errors
+   */
+  test("test() rejects when route throws during start and does not hang", async () => {
+    const startError = new Error("route start fail");
+    t = await testContext()
+      .routes(
+        craft()
+          .id("throw-on-start")
+          .from(() => {
+            throw startError;
+          })
+          .to(log()),
+      )
+      .build();
+
+    await expect(t.test()).rejects.toThrow("route start fail");
+    expect(t.errors.length).toBeGreaterThanOrEqual(1);
+    // Wrapped as RouteCraftError; original message appears in cause or toString
+    const hasStartError = t.errors.some(
+      (e) =>
+        (e as Error).message?.includes("route start fail") ||
+        ((e as Error).cause instanceof Error &&
+          (e as Error).cause?.message === "route start fail") ||
+        String(e).includes("route start fail"),
+    );
+    expect(hasStartError).toBeTruthy();
+  });
+
+  /**
+   * @case test() rejects with timeout when no route ever emits routeStarted
+   * @preconditions Route with source that never calls onReady
+   * @expectedResult test() rejects after timeout with "Timeout waiting for routes to start"
+   */
+  test("test() rejects with timeout when route never emits routeStarted", async () => {
+    // Callable source that never resolves and never calls onReady
+    const neverReady = () => new Promise<void>(() => {});
+    t = await testContext()
+      .routes(craft().id("never-ready").from(neverReady).to(log()))
+      .build();
+
+    await expect(t.test()).rejects.toThrow(
+      "Timeout waiting for routes to start",
+    );
+  }, 15_000);
 });

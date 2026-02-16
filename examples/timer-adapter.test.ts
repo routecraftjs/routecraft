@@ -1,5 +1,5 @@
 import { describe, test, expect, vi, beforeEach } from "vitest";
-import { context, logger } from "@routecraft/routecraft";
+import { testContext, logger } from "@routecraft/routecraft";
 import timerRoutes from "./timer-adapter.mjs";
 
 describe("Timer Adapter", () => {
@@ -23,14 +23,14 @@ describe("Timer Adapter", () => {
     } as any;
     vi.spyOn(logger, "child").mockReturnValue(childLogger);
 
-    const ctx = context().routes(timerRoutes).build();
+    const t = await testContext().routes(timerRoutes).build();
 
     // Start the timer and wait for a few intervals
-    const execution = ctx.start();
+    const execution = t.ctx.start();
     await new Promise((resolve) => setTimeout(resolve, 150));
 
     // Stop the timer and wait for execution to complete
-    await ctx.stop();
+    await t.ctx.stop();
     await execution;
 
     // Should have logged multiple times
@@ -45,11 +45,11 @@ describe("Timer Adapter", () => {
    */
   test("stops emitting when context stops", async () => {
     const logSpy = vi.spyOn(console, "log");
-    const ctx = context().routes(timerRoutes).build();
+    const t = await testContext().routes(timerRoutes).build();
 
     // Start and immediately stop
-    const execution = ctx.start();
-    await ctx.stop();
+    const execution = t.ctx.start();
+    await t.ctx.stop();
     await execution;
 
     const initialCallCount = logSpy.mock.calls.length;

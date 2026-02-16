@@ -148,6 +148,7 @@ export class DirectAdapter<T = unknown>
     context: CraftContext,
     handler: (message: T, headers?: ExchangeHeaders) => Promise<Exchange>,
     abortController: AbortController,
+    onReady?: () => void,
   ): Promise<void> {
     if (typeof this.rawEndpoint === "function") {
       throw rcError("RC5010", undefined, {
@@ -182,12 +183,26 @@ export class DirectAdapter<T = unknown>
           return result as Exchange<T>;
         };
 
+    // Set up cleanup on abort before subscribing
+    abortController.signal.addEventListener("abort", async () => {
+      await channel.unsubscribe(context, endpoint);
+    });
+
     // Set up the subscription
     await channel.subscribe(context, endpoint, wrappedHandler);
 
-    // Set up cleanup on abort
-    abortController.signal.addEventListener("abort", async () => {
-      await channel.unsubscribe(context, endpoint);
+    onReady?.();
+
+    // Keep the route "running" until the context stops (abort). Otherwise the context
+    // would see all routes complete and auto-stop, e.g. before MCP can serve tool calls.
+    await new Promise<void>((resolve) => {
+      if (abortController.signal.aborted) {
+        resolve();
+        return;
+      }
+      abortController.signal.addEventListener("abort", () => resolve(), {
+        once: true,
+      });
     });
   }
 
@@ -413,12 +428,14 @@ export function direct<T = unknown>(
 class InMemoryDirectChannel<T> implements DirectChannel<T> {
   private handler: ((message: T) => Promise<T>) | null = null;
 
-  async send(_endpoint: string, message: T): Promise<T> {
+  async send(endpoint: string, message: T): Promise<T> {
     if (this.handler) {
       // Synchronous behavior - single consumer gets the message and we wait for result
       return await this.handler(message);
     }
-    return message; // If no handler, return original message
+    throw rcError("RC5012", undefined, {
+      message: `No handler subscribed on direct endpoint "${endpoint}" — route may have stopped or was never started`,
+    });
   }
 
   async subscribe(

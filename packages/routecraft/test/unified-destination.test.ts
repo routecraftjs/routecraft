@@ -1,16 +1,17 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import {
-  context,
+  testContext,
   craft,
   simple,
   fetch,
   log,
-  type CraftContext,
+  type TestContext,
   type Destination,
 } from "@routecraft/routecraft";
 
+// Use t.test() for normal runs (start → wait routes ready → drain → stop). Use t.ctx.start() when a route does not emit routeStarted (e.g. dynamic source) or when you need manual lifecycle control.
 describe("Unified Destination Adapter", () => {
-  let testContext: CraftContext;
+  let t: TestContext;
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -20,8 +21,8 @@ describe("Unified Destination Adapter", () => {
   });
 
   afterEach(async () => {
-    if (testContext) {
-      await testContext.stop();
+    if (t) {
+      await t.stop();
     }
     vi.restoreAllMocks();
   });
@@ -34,7 +35,7 @@ describe("Unified Destination Adapter", () => {
   test(".to() with void-returning adapter ignores result", async () => {
     const destSpy = vi.fn();
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("test-void-adapter")
@@ -44,7 +45,7 @@ describe("Unified Destination Adapter", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.test();
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const finalBody = destSpy.mock.calls[0][0].body;
@@ -67,7 +68,7 @@ describe("Unified Destination Adapter", () => {
       url: "https://api.example.com/endpoint",
     });
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("test-default-to")
@@ -77,7 +78,7 @@ describe("Unified Destination Adapter", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.test();
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const finalBody = destSpy.mock.calls[0][0].body;
@@ -94,7 +95,7 @@ describe("Unified Destination Adapter", () => {
   test(".to() chains with body transformation", async () => {
     const destSpy = vi.fn();
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("test-to-chain")
@@ -105,7 +106,7 @@ describe("Unified Destination Adapter", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.test();
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const finalBody = destSpy.mock.calls[0][0].body;
@@ -130,7 +131,7 @@ describe("Unified Destination Adapter", () => {
       url: "https://api.example.com/profile",
     });
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("test-default-enrich")
@@ -140,7 +141,7 @@ describe("Unified Destination Adapter", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.test();
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const finalBody = destSpy.mock.calls[0][0].body;
@@ -168,7 +169,7 @@ describe("Unified Destination Adapter", () => {
       url: "https://api.example.com/user",
     });
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("test-custom-enrich-aggregator")
@@ -187,7 +188,7 @@ describe("Unified Destination Adapter", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.test();
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const finalBody = destSpy.mock.calls[0][0].body;
@@ -221,7 +222,7 @@ describe("Unified Destination Adapter", () => {
         url: "https://api.example.com/endpoint2",
       });
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("test-multiple-to")
@@ -232,7 +233,7 @@ describe("Unified Destination Adapter", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.test();
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const finalBody = destSpy.mock.calls[0][0].body;
@@ -274,7 +275,7 @@ describe("Unified Destination Adapter", () => {
         url: "https://api.example.com/role",
       });
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("test-mixed-operations")
@@ -286,7 +287,7 @@ describe("Unified Destination Adapter", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.test();
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const finalBody = destSpy.mock.calls[0][0].body;
@@ -310,7 +311,7 @@ describe("Unified Destination Adapter", () => {
       },
     };
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("test-undefined-enrich")
@@ -320,7 +321,7 @@ describe("Unified Destination Adapter", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.test();
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const finalBody = destSpy.mock.calls[0][0].body;
@@ -341,7 +342,7 @@ describe("Unified Destination Adapter", () => {
       },
     };
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("test-null-enrich")
@@ -351,7 +352,7 @@ describe("Unified Destination Adapter", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.test();
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const finalBody = destSpy.mock.calls[0][0].body;
@@ -368,7 +369,7 @@ describe("Unified Destination Adapter", () => {
     const callableSpy = vi.fn(async () => ({ result: "replaced" }));
     const destSpy = vi.fn();
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("test-callable-to")
@@ -378,7 +379,7 @@ describe("Unified Destination Adapter", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.test();
 
     expect(callableSpy).toHaveBeenCalledTimes(1);
     expect(destSpy).toHaveBeenCalledTimes(1);
@@ -395,7 +396,7 @@ describe("Unified Destination Adapter", () => {
     const callableEnricher = vi.fn(async () => ({ enriched: "data" }));
     const destSpy = vi.fn();
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("test-callable-enrich")
@@ -405,7 +406,7 @@ describe("Unified Destination Adapter", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.test();
 
     expect(callableEnricher).toHaveBeenCalledTimes(1);
     expect(destSpy).toHaveBeenCalledTimes(1);

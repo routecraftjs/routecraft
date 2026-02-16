@@ -5,6 +5,7 @@ import {
   timer,
   log,
   pseudo,
+  testContext,
   type RouteBuilder,
   type PseudoFactory,
   type PseudoKeyedFactory,
@@ -181,6 +182,27 @@ describe("Pseudo adapter", () => {
       await expect(
         Promise.resolve(adapter.send(mockExchange("x"))),
       ).resolves.toBeUndefined();
+    });
+
+    /**
+     * @case runtime 'noop' subscribe() no-ops so .from(pseudo) can start without throwing
+     * @preconditions pseudo with runtime: 'noop' used as source in .from()
+     * @expectedResult context start does not throw; routeStarted fires; no messages delivered
+     */
+    test("noop runtime subscribe allows .from(pseudo) to start", async () => {
+      const src = pseudo<{ poll: number }>("src", { runtime: "noop" });
+      const route = craft()
+        .id("noop-source")
+        .from(src<{ id: string }>({ poll: 1000 }))
+        .to(simple());
+      const started = vi.fn();
+      const t = await testContext()
+        .on("routeStarted", started)
+        .routes(route)
+        .build();
+      await t.ctx.start();
+      expect(started).toHaveBeenCalledOnce();
+      await t.stop();
     });
 
     /**

@@ -48,7 +48,7 @@ export function VersionSelector(
           )}
           aria-label="Documentation version"
         >
-          <span>v0.1.1</span>
+          <span>{versions[0].value}</span>
           <ChevronDownIcon className="h-4 w-4 text-slate-400 dark:text-slate-300" />
         </ListboxButton>
         <ListboxOptions className="absolute top-[calc(100%+0.5rem)] right-0 z-50 w-36 space-y-1 rounded-xl bg-white p-2 text-sm font-medium text-slate-700 shadow-sm dark:bg-slate-900 dark:text-slate-100">

@@ -6,20 +6,25 @@ Test your custom RouteCraft routes with fast unit tests and optional E2E runs. {
 
 ## Quick start
 
+Use `testContext()` to build a test context and `t.test()` to run the full lifecycle (start, wait for routes ready, drain, stop). Assert after `await t.test()`:
+
 ```ts
 import { describe, it, expect, vi } from "vitest";
-import { context } from "@routecraft/routecraft";
+import { testContext, type TestContext } from "@routecraft/routecraft";
 import helloRoute from "../routes/hello-world.route";
 
 describe("hello route", () => {
+  let t: TestContext;
+
+  afterEach(async () => {
+    if (t) await t.stop();
+  });
+
   it("emits and logs", async () => {
     const logSpy = vi.spyOn(console, "log");
 
-    const ctx = context().routes(helloRoute).build();
-    const execution = ctx.start();
-    await new Promise((r) => setTimeout(r, 100));
-    await ctx.stop();
-    await execution;
+    t = testContext().routes(helloRoute).build();
+    await t.test();
 
     expect(logSpy).toHaveBeenCalled();
   });
@@ -43,23 +48,22 @@ export default defineConfig({
 
 ## Route lifecycle in tests
 
-Build a `CraftContext`, start it, give it time to run, then stop and await completion:
+Use `testContext()` and `t.test()` for the recommended flow. `t.test()` runs start → wait for all routes ready → drain → stop, so you don't need manual timeouts for direct/simple routes:
 
 ```ts
-import { context } from "@routecraft/routecraft";
+import { testContext, type TestContext } from "@routecraft/routecraft";
 import routes from "../routes/hello-world.route"; // your route builder export
 
-const testContext = context().routes(routes).build();
-const execution = testContext.start();
-await new Promise((r) => setTimeout(r, 100));
-await testContext.stop();
-await execution;
+const t = testContext().routes(routes).build();
+await t.test();
+// Assert here: mocks, t.errors, t.ctx.getStore(), etc.
 ```
 
 Checklist:
 
-- Start with `const execution = ctx.start()`; later `await ctx.stop()` and `await execution`.
-- Keep waits small (50–200ms) for single-shot routes; use timers/mocks for long-running routes.
+- Prefer `await t.test()` for full lifecycle; assert after it returns.
+- Use `t.ctx` when you need the raw context (e.g. `t.ctx.start()`, `t.ctx.getStore()`).
+- For custom timing (e.g. timer routes), use `t.ctx.start()` and `t.ctx.stop()` manually.
 - Restore mocks in `beforeEach/afterEach`.
 
 ## Common testing patterns
@@ -88,14 +92,14 @@ spyAdapter.receivedBodies() // Get array of just the body values
 ### Spy on destinations to assert outputs
 
 ```ts
-import { craft, simple, spy, context } from "@routecraft/routecraft";
+import { craft, simple, spy, testContext } from "@routecraft/routecraft";
 import { expect } from "vitest";
 
 const spyAdapter = spy();
 
 const route = craft().id("out").from(simple("payload")).to(spyAdapter);
-const ctx = context().routes(route).build();
-await ctx.start();
+const t = testContext().routes(route).build();
+await t.test();
 
 expect(spyAdapter.received).toHaveLength(1);
 expect(spyAdapter.received[0].body).toBe("payload");
@@ -107,7 +111,7 @@ expect(spyAdapter.calls.send).toBe(1);
 For routes that use `.to(log())`, spy on `console.log` to verify logging behavior:
 
 ```ts
-import { craft, simple, log, context } from "@routecraft/routecraft";
+import { craft, simple, log, testContext } from "@routecraft/routecraft";
 import { vi, expect } from "vitest";
 
 test('logs messages correctly', async () => {
@@ -118,8 +122,8 @@ test('logs messages correctly', async () => {
     .from(simple("Hello, World!"))
     .to(log());
     
-  const ctx = context().routes(route).build();
-  await ctx.start();
+  const t = testContext().routes(route).build();
+  await t.test();
   
   expect(logSpy).toHaveBeenCalled();
   const loggedMessage = logSpy.mock.calls[0][0];
@@ -152,7 +156,7 @@ const logsForRoute = calls.filter(
 ### Test custom sources that await the final exchange
 
 ```ts
-import { craft, context, spy } from "@routecraft/routecraft";
+import { craft, testContext, spy } from "@routecraft/routecraft";
 
 let observed: any;
 const spyAdapter = spy();
@@ -173,8 +177,8 @@ const route = craft()
   .to(spyAdapter)
   .transform((body: string) => `${body}!`);
 
-const ctx = context().routes(route).build();
-await ctx.start();
+const t = testContext().routes(route).build();
+await t.test();
 
 expect(observed.body).toBe("HELLO!");
 expect(spyAdapter.received[0].body).toBe("HELLO!");
@@ -182,12 +186,13 @@ expect(spyAdapter.received[0].body).toBe("HELLO!");
 
 ### Timers and long‑running routes
 
-Option A: small real waits (simple):
+For timer or long-running routes, use the raw context and manual start/stop:
 
 ```ts
-const execution = ctx.start();
+const t = testContext().routes(timerRoutes).build();
+const execution = t.ctx.start();
 await new Promise((r) => setTimeout(r, 150));
-await ctx.stop();
+await t.ctx.stop();
 await execution;
 ```
 
@@ -224,7 +229,8 @@ const route = craft()
   .process(processSpy) // Use spy as processor
   .to(spy());
 
-await ctx.start();
+const t = testContext().routes(route).build();
+await t.test();
 expect(processSpy.calls.process).toBe(1);
 expect(processSpy.received[0].body).toBe("input");
 
@@ -236,7 +242,8 @@ const route2 = craft()
   .enrich(enrichSpy) // Use spy as enricher
   .to(spy());
 
-await ctx.start();
+const t2 = testContext().routes(route2).build();
+await t2.test();
 expect(enrichSpy.calls.enrich).toBe(1);
 ```
 
@@ -260,7 +267,8 @@ const route = craft()
   .process(transformSpy)
   .to(destinationSpy);
 
-await ctx.start();
+const t = testContext().routes(route).build();
+await t.test();
 
 // Verify the pipeline
 expect(transformSpy.calls.process).toBe(1);
@@ -288,6 +296,7 @@ pnpm craft run ./examples/hello-world.mjs
 
 ## Troubleshooting
 
-- Hanging tests: ensure you `await ctx.stop()` and then `await execution`.
+- Hanging tests: use `await t.test()` for standard flows, or ensure you `await t.ctx.stop()` and then `await execution` when driving lifecycle manually.
 - Flaky timers: prefer fake timers or increase the wait to 100–200ms.
 - No logs captured: ensure your route includes `.to(log())` or you spy on the child logger.
+- Errors in tests: check `t.errors` after `await t.test()`; RouteCraft errors are collected automatically.

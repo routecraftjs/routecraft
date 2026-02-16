@@ -9,3 +9,4 @@ dist/
 .env.local
 .env*.local
 .pnpm-store/
+.cursor/plans/

@@ -69,17 +69,14 @@ For the complete event reference with all details structures, see [Configuration
 
 ## Plugins
 
-Keep observability concerns modular by authoring small plugins that receive the `CraftContext`. Frameworks auto-wire plugins placed under `plugins/`, so you only need to export the function (and optionally an order).
+Keep observability concerns modular by authoring small plugins that receive the `CraftContext`. Plugins run **before routes are registered**, allowing them to set up state, subscribe to lifecycle events, or dynamically register additional routes.
 
 ```ts
 // plugins/observability.ts
 import { logger, type CraftContext } from '@routecraft/routecraft'
 
-// Optional: control initialization order (lower runs earlier)
-export const order = 100
-
 export default function observability(ctx: CraftContext) {
-  logger.info('Observability plugin ready', { contextId: ctx.contextId })
+  logger.info('Observability plugin initializing', { contextId: ctx.contextId })
   
   // Subscribe to events for monitoring
   ctx.on('routeStarted', ({ ts, context, details: { route } }) => {

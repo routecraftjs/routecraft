@@ -1,5 +1,5 @@
 import { expect, test, vi } from "vitest";
-import { context, logger } from "@routecraft/routecraft";
+import { testContext, logger } from "@routecraft/routecraft";
 import routes from "./direct-adapter.mjs";
 
 /**
@@ -10,15 +10,8 @@ import routes from "./direct-adapter.mjs";
 test("receives 'Hello, World!' on my-direct-1 and logs it", async () => {
   const logSpy = vi.spyOn(logger, "info");
 
-  const testContext = context().routes(routes).build();
-
-  const execution = testContext.start();
-
-  // Allow time for the simple route to emit and directs to propagate
-  await new Promise((resolve) => setTimeout(resolve, 150));
-
-  await testContext.stop();
-  await execution;
+  const t = await testContext().routes(routes).build();
+  await t.test();
 
   // Collect logged exchanges (LogAdapter logs base exchange: { id, body, headers })
   // pino.info() is called with (object, message) format - first arg is the data

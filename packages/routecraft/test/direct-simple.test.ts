@@ -1,11 +1,18 @@
 import { describe, test, expect, afterEach, vi } from "vitest";
-import { context, craft, simple, direct } from "../src/index.ts";
+import {
+  context,
+  craft,
+  simple,
+  direct,
+  testContext,
+  type TestContext,
+} from "../src/index.ts";
 
 describe("Direct adapter", () => {
-  let ctx: any;
+  let t: TestContext;
 
   afterEach(async () => {
-    if (ctx) await ctx.stop();
+    if (t) await t.stop();
   });
 
   /**
@@ -16,7 +23,7 @@ describe("Direct adapter", () => {
   test("basic direct communication", async () => {
     const consumer = vi.fn();
 
-    ctx = context()
+    t = await testContext()
       .routes([
         craft()
           .id("producer")
@@ -26,11 +33,7 @@ describe("Direct adapter", () => {
       ])
       .build();
 
-    await ctx.start();
-
-    // Allow processing to complete
-    await new Promise((resolve) => setTimeout(resolve, 100));
-
+    await t.test();
     expect(consumer).toHaveBeenCalledTimes(1);
     expect(consumer.mock.calls[0][0].body).toBe("test-message");
   });
@@ -44,7 +47,7 @@ describe("Direct adapter", () => {
     const consumerA = vi.fn();
     const consumerB = vi.fn();
 
-    ctx = context()
+    t = await testContext()
       .routes([
         craft()
           .id("producerA")
@@ -59,11 +62,7 @@ describe("Direct adapter", () => {
       ])
       .build();
 
-    await ctx.start();
-
-    // Allow processing to complete
-    await new Promise((resolve) => setTimeout(resolve, 100));
-
+    await t.test();
     expect(consumerA).toHaveBeenCalledTimes(1);
     expect(consumerB).toHaveBeenCalledTimes(1);
     expect(consumerA.mock.calls[0][0].body).toBe("messageA");
@@ -79,7 +78,7 @@ describe("Direct adapter", () => {
     const consumer1 = vi.fn();
     const consumer2 = vi.fn();
 
-    ctx = context()
+    t = await testContext()
       .routes([
         craft().id("producer").from(simple("message")).to(direct("shared")),
         craft().id("consumer1").from(direct("shared", {})).to(consumer1),
@@ -87,12 +86,7 @@ describe("Direct adapter", () => {
       ])
       .build();
 
-    await ctx.start();
-
-    // Allow processing to complete
-    await new Promise((resolve) => setTimeout(resolve, 100));
-
-    // Only the last registered consumer should receive the message
+    await t.test();
     expect(consumer1).toHaveBeenCalledTimes(0);
     expect(consumer2).toHaveBeenCalledTimes(1);
     expect(consumer2.mock.calls[0][0].body).toBe("message");
@@ -107,7 +101,7 @@ describe("Direct adapter", () => {
     const handlerA = vi.fn();
     const handlerB = vi.fn();
 
-    ctx = context()
+    t = await testContext()
       .routes([
         craft()
           .id("dynamic-producer")
@@ -123,11 +117,7 @@ describe("Direct adapter", () => {
       ])
       .build();
 
-    await ctx.start();
-
-    // Allow processing to complete
-    await new Promise((resolve) => setTimeout(resolve, 100));
-
+    await t.test();
     expect(handlerA).toHaveBeenCalledTimes(1);
     expect(handlerB).toHaveBeenCalledTimes(1);
     expect(handlerA.mock.calls[0][0].body).toEqual({
@@ -149,7 +139,7 @@ describe("Direct adapter", () => {
     const highPriorityHandler = vi.fn();
     const normalPriorityHandler = vi.fn();
 
-    ctx = context()
+    t = await testContext()
       .routes([
         craft()
           .id("priority-producer-high")
@@ -182,11 +172,7 @@ describe("Direct adapter", () => {
       ])
       .build();
 
-    await ctx.start();
-
-    // Allow processing to complete
-    await new Promise((resolve) => setTimeout(resolve, 100));
-
+    await t.test();
     expect(highPriorityHandler).toHaveBeenCalledTimes(1);
     expect(normalPriorityHandler).toHaveBeenCalledTimes(1);
     expect(highPriorityHandler.mock.calls[0][0].body).toBe("msg1");
@@ -201,7 +187,7 @@ describe("Direct adapter", () => {
   test("dynamic endpoint sanitization", async () => {
     const consumer = vi.fn();
 
-    ctx = context()
+    t = await testContext()
       .routes([
         craft()
           .id("producer")
@@ -214,11 +200,7 @@ describe("Direct adapter", () => {
       ])
       .build();
 
-    await ctx.start();
-
-    // Allow processing to complete
-    await new Promise((resolve) => setTimeout(resolve, 100));
-
+    await t.test();
     expect(consumer).toHaveBeenCalledTimes(1);
     expect(consumer.mock.calls[0][0].body).toEqual({
       namespace: "com.example",
@@ -244,9 +226,7 @@ describe("Direct adapter", () => {
         .build();
     }).not.toThrow(); // Building doesn't throw
 
-    // Set up error listener
-    const errorListener = vi.fn();
-    ctx = context()
+    t = await testContext()
       .routes([
         craft()
           .id("invalid-consumer")
@@ -254,22 +234,17 @@ describe("Direct adapter", () => {
           .from(direct((ex) => "dynamic-endpoint"))
           .to(vi.fn()),
       ])
-      .on("error", errorListener)
       .build();
 
-    // Start returns a promise that uses allSettled, so errors are caught
-    await ctx.start();
-
-    // Check that the error event was emitted
-    expect(errorListener).toHaveBeenCalled();
-    const { details } = errorListener.mock.calls[0][0];
-    expect(details.error).toBeDefined();
-
-    // Check the error message (RouteCarftError has meta.message)
-    const errorMessage = details.error.meta?.message || details.error.message;
+    // Route with dynamic endpoint as source never emits routeStarted, so don't use t.test()
+    await t.ctx.start();
+    expect(t.errors).toHaveLength(1);
+    const err = t.errors[0];
+    const errorMessage = err.meta?.message ?? (err as Error).message;
     expect(errorMessage).toContain(
       "Dynamic endpoints cannot be used as source",
     );
+    await t.ctx.stop();
   });
 
   /**
@@ -282,7 +257,7 @@ describe("Direct adapter", () => {
     const userHandler = vi.fn();
     const productHandler = vi.fn();
 
-    ctx = context()
+    t = await testContext()
       .routes([
         craft()
           .id("multi-producer")
@@ -310,16 +285,11 @@ describe("Direct adapter", () => {
       ])
       .build();
 
-    await ctx.start();
-
-    // Allow processing to complete
-    await new Promise((resolve) => setTimeout(resolve, 100));
-
+    await t.test();
     expect(orderHandler).toHaveBeenCalledTimes(2);
     expect(userHandler).toHaveBeenCalledTimes(1);
     expect(productHandler).toHaveBeenCalledTimes(1);
 
-    // Verify correct messages were received
     expect(orderHandler.mock.calls[0][0].body).toEqual({
       type: "order",
       id: 1,
@@ -328,7 +298,10 @@ describe("Direct adapter", () => {
       type: "order",
       id: 4,
     });
-    expect(userHandler.mock.calls[0][0].body).toEqual({ type: "user", id: 2 });
+    expect(userHandler.mock.calls[0][0].body).toEqual({
+      type: "user",
+      id: 2,
+    });
     expect(productHandler.mock.calls[0][0].body).toEqual({
       type: "product",
       id: 3,

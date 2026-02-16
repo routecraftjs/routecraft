@@ -1,14 +1,14 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import {
-  context,
+  testContext,
   craft,
   simple,
   fetch,
-  type CraftContext,
+  type TestContext,
 } from "@routecraft/routecraft";
 
 describe("Fetch Adapter", () => {
-  let testContext: CraftContext;
+  let t: TestContext;
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -18,8 +18,8 @@ describe("Fetch Adapter", () => {
   });
 
   afterEach(async () => {
-    if (testContext) {
-      await testContext.stop();
+    if (t) {
+      await t.stop();
     }
     vi.restoreAllMocks();
   });
@@ -41,7 +41,7 @@ describe("Fetch Adapter", () => {
       url: "https://api.example.com/user",
     });
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("test-json-object")
@@ -51,7 +51,7 @@ describe("Fetch Adapter", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const enrichedBody = destSpy.mock.calls[0][0].body;
@@ -77,7 +77,7 @@ describe("Fetch Adapter", () => {
       url: "https://api.example.com/numbers",
     });
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("test-json-array")
@@ -87,7 +87,7 @@ describe("Fetch Adapter", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const enrichedBody = destSpy.mock.calls[0][0].body;
@@ -113,7 +113,7 @@ describe("Fetch Adapter", () => {
       url: "https://api.example.com/status",
     });
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("test-json-charset")
@@ -123,7 +123,7 @@ describe("Fetch Adapter", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const enrichedBody = destSpy.mock.calls[0][0].body;
@@ -148,7 +148,7 @@ describe("Fetch Adapter", () => {
       url: "https://api.example.com/text",
     });
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("test-plain-text")
@@ -158,7 +158,7 @@ describe("Fetch Adapter", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const enrichedBody = destSpy.mock.calls[0][0].body;
@@ -184,7 +184,7 @@ describe("Fetch Adapter", () => {
       url: "https://api.example.com/data.xml",
     });
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("test-xml")
@@ -194,7 +194,7 @@ describe("Fetch Adapter", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const enrichedBody = destSpy.mock.calls[0][0].body;
@@ -220,7 +220,7 @@ describe("Fetch Adapter", () => {
       url: "https://example.com/page",
     });
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("test-html")
@@ -230,7 +230,7 @@ describe("Fetch Adapter", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const enrichedBody = destSpy.mock.calls[0][0].body;
@@ -256,7 +256,7 @@ describe("Fetch Adapter", () => {
       url: "https://api.example.com/data",
     });
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("test-no-content-type")
@@ -266,7 +266,7 @@ describe("Fetch Adapter", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const enrichedBody = destSpy.mock.calls[0][0].body;
@@ -292,7 +292,7 @@ describe("Fetch Adapter", () => {
       url: "https://api.example.com/bad",
     });
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("test-malformed-json")
@@ -302,7 +302,7 @@ describe("Fetch Adapter", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const enrichedBody = destSpy.mock.calls[0][0].body;
@@ -327,7 +327,7 @@ describe("Fetch Adapter", () => {
       url: "https://api.example.com/empty",
     });
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("test-empty-json")
@@ -337,7 +337,7 @@ describe("Fetch Adapter", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const enrichedBody = destSpy.mock.calls[0][0].body;
@@ -367,7 +367,7 @@ describe("Fetch Adapter", () => {
       url: "https://api.example.com/items",
     });
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("test-split-integration")
@@ -378,7 +378,7 @@ describe("Fetch Adapter", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     // Should have been called once for each item
     expect(destSpy).toHaveBeenCalledTimes(3);
@@ -404,7 +404,7 @@ describe("Fetch Adapter", () => {
       url: "https://api.example.com/webhook",
     });
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("test-to-fetch-replaces-body")
@@ -414,7 +414,7 @@ describe("Fetch Adapter", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(destSpy).toHaveBeenCalledTimes(1);
@@ -448,7 +448,7 @@ describe("Fetch Adapter", () => {
         url: "https://api.example.com/step2",
       });
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("test-to-fetch-chain")
@@ -459,7 +459,7 @@ describe("Fetch Adapter", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(destSpy).toHaveBeenCalledTimes(1);

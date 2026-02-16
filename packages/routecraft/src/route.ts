@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { type CraftContext } from "./context.ts";
 import {
   type Exchange,
@@ -169,7 +170,7 @@ export class DefaultRoute implements Route {
       body: message,
       headers: {
         ...headers,
-        [HeadersKeys.CORRELATION_ID]: crypto.randomUUID(),
+        [HeadersKeys.CORRELATION_ID]: randomUUID(),
         [HeadersKeys.ROUTE_ID]: this.definition.id,
         [HeadersKeys.OPERATION]: OperationType.FROM,
       },
@@ -214,19 +215,26 @@ export class DefaultRoute implements Route {
       return this.handler(this.buildExchange(message, headers));
     });
 
-    // Signal that the route has started successfully (consumer registered)
-    this.context.emit("routeStarted", { route: this });
+    let emitted = false;
+    const onReady = () => {
+      if (!emitted) {
+        emitted = true;
+        this.context.emit("routeStarted", { route: this });
+      }
+    };
 
     // Subscribe to the source and enqueue messages to the internal processing queue
     return this.definition.source.subscribe(
       this.context,
       (message, headers) => {
+        onReady(); // fallback: fire before first message if adapter never called it
         return this.messageChannel.enqueue({
           message,
           headers: headers ?? {},
         });
       },
       this.abortController,
+      onReady,
     );
   }
 

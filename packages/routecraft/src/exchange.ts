@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { type CraftContext } from "./context.ts";
 import { type Logger, createLogger } from "./logger.ts";
 import type { Route } from "./route.ts";
@@ -202,11 +203,11 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
    * @param options Optional configuration for the exchange
    */
   constructor(context: CraftContext, options?: Partial<Exchange<T>>) {
-    this.id = options?.id || crypto.randomUUID();
+    this.id = options?.id || randomUUID();
     this.headers = {
-      [HeadersKeys.ROUTE_ID]: crypto.randomUUID(),
+      [HeadersKeys.ROUTE_ID]: randomUUID(),
       [HeadersKeys.OPERATION]: OperationType.FROM,
-      [HeadersKeys.CORRELATION_ID]: crypto.randomUUID(),
+      [HeadersKeys.CORRELATION_ID]: randomUUID(),
       ...(options?.headers || {}),
     };
     this.body = options?.body || ({} as T);

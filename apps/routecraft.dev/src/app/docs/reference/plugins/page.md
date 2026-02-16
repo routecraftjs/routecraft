@@ -9,7 +9,10 @@ Extend RouteCraft with cross-cutting behavior using plugins. {% .lead %}
 A plugin can augment the `CraftContext` by:
 - Registering event listeners
 - Adding shared stores
+- Dynamically registering routes before the main routes are registered
 - Exposing utilities to routes/adapters
+
+**Key: Plugins run before routes are registered**, allowing them to set up state, subscribe to lifecycle events, or dynamically add routes.
 
 Plugins are either:
 - A function `(context) => void | Promise<void>`
@@ -70,6 +73,28 @@ Plugins can subscribe to the Events API and handle:
 - System: `error`
 
 See [/docs/reference/events](/docs/reference/events) for full signatures.
+
+## Advanced: Dynamic route registration
+
+Since plugins run before routes are registered, they can dynamically add routes to the context. This is useful for implementing conditional route loading or plugin-provided routes:
+
+```ts
+// plugins/admin-routes.ts
+import { type CraftContext, craft, simple, log } from '@routecraft/routecraft'
+
+export default function adminRoutes(context: CraftContext) {
+  // Only add admin routes if enabled
+  if (process.env.ENABLE_ADMIN) {
+    context.registerRoutes(
+      craft()
+        .id('admin-status')
+        .from(simple({ role: 'admin' }))
+        .to(log())
+        .build()[0]
+    )
+  }
+}
+```
 
 ## Setting adapter defaults via the context store
 

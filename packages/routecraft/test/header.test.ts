@@ -1,12 +1,12 @@
 import { describe, test, expect, afterEach, vi } from "vitest";
-import { context, craft, simple } from "../src/index.ts";
+import { testContext, craft, simple, type TestContext } from "../src/index.ts";
 
 describe("Header operation", () => {
-  let testContext: any;
+  let t: TestContext;
 
   afterEach(async () => {
-    if (testContext) {
-      await testContext.stop();
+    if (t) {
+      await t.stop();
     }
   });
 
@@ -18,7 +18,7 @@ describe("Header operation", () => {
   test("basic header operation works", async () => {
     const destSpy = vi.fn();
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("header-basic")
@@ -28,7 +28,7 @@ describe("Header operation", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.test();
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const sentExchange = destSpy.mock.calls[0][0];
@@ -43,7 +43,7 @@ describe("Header operation", () => {
   test("derived header from body", async () => {
     const destSpy = vi.fn();
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("header-derived")
@@ -53,7 +53,7 @@ describe("Header operation", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.test();
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const sentExchange = destSpy.mock.calls[0][0];

@@ -33,6 +33,9 @@
   "bin": {
     "craft": "./dist/index.js"
   },
+  "engines": {
+    "node": ">=18.19.0"
+  },
   "keywords": [
     "routecraft",
     "cli",

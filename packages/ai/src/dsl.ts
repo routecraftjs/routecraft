@@ -1,5 +1,6 @@
 import {
   direct,
+  error as rcError,
   type DirectDestinationOptions,
   type DirectSourceOptions,
   type Exchange,
@@ -41,7 +42,14 @@ export function tool<T = unknown>(
   options?: ToolSourceOptions | ToolDestinationOptions,
 ): Source<T> | Destination<T, T> {
   if (options !== undefined) {
-    return direct<T>(endpoint as string, options);
+    if (typeof endpoint !== "string") {
+      throw rcError("RC5010", undefined, {
+        message: "Dynamic endpoints cannot be used as source",
+        suggestion:
+          "Use a static string endpoint for source: .from(tool('endpoint', options)).",
+      });
+    }
+    return direct<T>(endpoint, options);
   }
   return direct<T>(endpoint);
 }

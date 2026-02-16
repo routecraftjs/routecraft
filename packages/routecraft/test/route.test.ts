@@ -1,10 +1,10 @@
 import { type } from "arktype";
 import { describe, test, expect, afterEach, vi, beforeEach } from "vitest";
 import {
-  context,
+  testContext,
   craft,
   simple,
-  type CraftContext,
+  type TestContext,
   logger,
   log,
   noop,
@@ -21,15 +21,15 @@ const logSpy = {
 };
 
 describe("Route Behavior", () => {
-  let testContext: CraftContext;
+  let t: TestContext;
 
   beforeEach(() => {
     vi.restoreAllMocks();
   });
 
   afterEach(async () => {
-    if (testContext) {
-      await testContext.stop();
+    if (t) {
+      await t.stop();
     }
   });
 
@@ -42,7 +42,7 @@ describe("Route Behavior", () => {
     const transformerSpy = vi.fn((body) => body);
     const destSpy = vi.fn();
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("test-pipeline")
@@ -52,7 +52,7 @@ describe("Route Behavior", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     expect(transformerSpy).toHaveBeenCalled();
     expect(destSpy).toHaveBeenCalledTimes(1);
@@ -70,7 +70,7 @@ describe("Route Behavior", () => {
     const destSpy2 = vi.fn();
     const processorSpy = vi.fn((exchange) => exchange);
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("test-route")
@@ -81,7 +81,7 @@ describe("Route Behavior", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     expect(destSpy1).toHaveBeenCalledTimes(1);
     expect(destSpy2).toHaveBeenCalledTimes(1);
@@ -96,7 +96,7 @@ describe("Route Behavior", () => {
   test("stops processing when context stops", async () => {
     const processorSpy = vi.fn((exchange) => exchange);
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("continuous-route")
@@ -117,10 +117,10 @@ describe("Route Behavior", () => {
       )
       .build();
 
-    const execution = testContext.start();
+    const execution = t.ctx.start();
 
     const initialCallCount = processorSpy.mock.calls.length;
-    await testContext.stop();
+    await t.stop();
     await execution;
 
     // Verify no new messages were processed after stopping
@@ -138,7 +138,7 @@ describe("Route Behavior", () => {
     vi.spyOn(logger, "child").mockReturnValue(logSpy);
     const spyDest = vi.fn();
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("error-route")
@@ -150,7 +150,7 @@ describe("Route Behavior", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     expect(logSpy.warn).toHaveBeenCalled();
     expect(spyDest).toHaveBeenCalledTimes(0);
@@ -167,7 +167,7 @@ describe("Route Behavior", () => {
   test("returns final exchange to source (with to)", async () => {
     let finalFromSource: any | undefined;
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("return-final-with-to")
@@ -190,7 +190,7 @@ describe("Route Behavior", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     expect(finalFromSource).toBeDefined();
     expect(finalFromSource.body).toBe("HELLO! DONE");
@@ -204,7 +204,7 @@ describe("Route Behavior", () => {
   test("returns final exchange to source (without to)", async () => {
     let finalFromSource: any | undefined;
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("return-final-no-to")
@@ -226,7 +226,7 @@ describe("Route Behavior", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     expect(finalFromSource).toBeDefined();
     expect(finalFromSource.body).toBe("start-a-b-c");
@@ -240,7 +240,7 @@ describe("Route Behavior", () => {
   test("maintains message correlation through pipeline", async () => {
     const capturedCorrelationIds: string[] = [];
 
-    const testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("correlation-test")
@@ -259,10 +259,10 @@ describe("Route Behavior", () => {
           .to(noop()),
       )
       .build();
-    await testContext.start();
+    await t.ctx.start();
 
     // Wait for async tap jobs to complete
-    await testContext.drain();
+    await t.drain();
 
     expect(capturedCorrelationIds[0]).toBeDefined();
     expect(capturedCorrelationIds[0]).toBe(capturedCorrelationIds[1]);
@@ -280,7 +280,7 @@ describe("Route Behavior", () => {
     const spyDest = vi.fn();
     let processedCount = 0;
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .from({
@@ -302,7 +302,7 @@ describe("Route Behavior", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     // Verify error was logged for failed message
     expect(logSpy.warn).toHaveBeenCalled();
@@ -323,7 +323,7 @@ describe("Route Behavior", () => {
   test("propagates headers through pipeline", async () => {
     const capturedHeaders: Record<string, unknown>[] = [];
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .from({
@@ -343,7 +343,7 @@ describe("Route Behavior", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     expect(capturedHeaders[0]["custom.header"]).toBe("test-value");
     expect(capturedHeaders[1]["processor.header"]).toBe("added-value");
@@ -357,7 +357,7 @@ describe("Route Behavior", () => {
   test("handles async processors correctly", async () => {
     const processingOrder: string[] = [];
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("async-test")
@@ -374,10 +374,10 @@ describe("Route Behavior", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     // Wait for async tap jobs to complete
-    await testContext.drain();
+    await t.drain();
 
     expect(processingOrder).toEqual(["first", "second"]);
   });
@@ -390,7 +390,7 @@ describe("Route Behavior", () => {
   test("handles body transformations", async () => {
     const spyDest = vi.fn();
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("transform-test")
@@ -410,7 +410,7 @@ describe("Route Behavior", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     const receivedBodies = spyDest.mock.calls.map((call) => call[0].body);
     expect(receivedBodies).toEqual([{ value: 4 }]);
@@ -424,7 +424,7 @@ describe("Route Behavior", () => {
   test("handles processor return values correctly", async () => {
     const spyDest = vi.fn();
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("processor-returns")
@@ -440,7 +440,7 @@ describe("Route Behavior", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     const receivedBodies = spyDest.mock.calls.map((call) => call[0].body);
     expect(receivedBodies).toEqual(["processed-1"]);
@@ -455,7 +455,7 @@ describe("Route Behavior", () => {
     const spyTap = vi.fn();
     const spyDest = vi.fn();
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("split-test")
@@ -469,10 +469,10 @@ describe("Route Behavior", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     // Wait for async tap jobs to complete
-    await testContext.drain();
+    await t.drain();
 
     // Expect the original "hello-world" to be split into two parts: "hello" and "world".
     const tapBodies = spyTap.mock.calls.map((call) => call[0].body);
@@ -502,7 +502,7 @@ describe("Route Behavior", () => {
   test("handles empty split output gracefully", async () => {
     const spyDest = vi.fn();
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("empty-split-test")
@@ -515,7 +515,7 @@ describe("Route Behavior", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
     // Since splitter returns an empty array, send should not be called.
     expect(spyDest).toHaveBeenCalledTimes(0);
   });
@@ -528,7 +528,7 @@ describe("Route Behavior", () => {
   test("maintains correlation ID across split exchanges", async () => {
     const spyTap = vi.fn();
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("correlation-split-test")
@@ -542,10 +542,10 @@ describe("Route Behavior", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     // Wait for async tap jobs to complete
-    await testContext.drain();
+    await t.drain();
 
     expect(spyTap).toHaveBeenCalledTimes(2);
     const correlationIds = spyTap.mock.calls.map(
@@ -574,7 +574,7 @@ describe("Route Behavior", () => {
     };
     const aggSpy = vi.spyOn(agg, "aggregate");
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("aggregate-test")
@@ -586,7 +586,7 @@ describe("Route Behavior", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     expect(splitSpy).toHaveBeenCalledTimes(1);
     expect(processorSpy).toHaveBeenCalledTimes(3);
@@ -604,7 +604,7 @@ describe("Route Behavior", () => {
   test("aggregate step with no preceding split", async () => {
     const spyDest = vi.fn();
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("aggregate-direct-test")
@@ -620,7 +620,7 @@ describe("Route Behavior", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     expect(spyDest).toHaveBeenCalledTimes(1);
     const receivedBodies = spyDest.mock.calls.map((call) => call[0].body);
@@ -635,7 +635,7 @@ describe("Route Behavior", () => {
   test("default aggregate collects bodies into array", async () => {
     const spyDest = vi.fn();
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("default-aggregate-test")
@@ -650,7 +650,7 @@ describe("Route Behavior", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     expect(spyDest).toHaveBeenCalledTimes(1);
     const receivedBodies = spyDest.mock.calls.map((call) => call[0].body);
@@ -662,13 +662,13 @@ describe("Route Behavior", () => {
    * @preconditions Multiple exchanges where some bodies are arrays
    * @expectedResult Arrays are flattened and combined with scalar values into a single array
    */
-  test("default aggregate flattens arrays when any body is an array", () => {
+  test("default aggregate flattens arrays when any body is an array", async () => {
     // Test the aggregator function directly
-    const directTestContext = context().build();
-    const exchange1 = new DefaultExchange(directTestContext, { body: 1 });
-    const exchange2 = new DefaultExchange(directTestContext, { body: [2, 3] });
-    const exchange3 = new DefaultExchange(directTestContext, { body: 4 });
-    const exchange4 = new DefaultExchange(directTestContext, {
+    const directT = await testContext().build();
+    const exchange1 = new DefaultExchange(directT.ctx, { body: 1 });
+    const exchange2 = new DefaultExchange(directT.ctx, { body: [2, 3] });
+    const exchange3 = new DefaultExchange(directT.ctx, { body: 4 });
+    const exchange4 = new DefaultExchange(directT.ctx, {
       body: [5, 6, 7],
     });
 
@@ -687,11 +687,11 @@ describe("Route Behavior", () => {
    * @preconditions Multiple exchanges where all bodies are arrays
    * @expectedResult All arrays are flattened into a single combined array
    */
-  test("default aggregate flattens multiple arrays", () => {
-    const directTestContext = context().build();
-    const exchange1 = new DefaultExchange(directTestContext, { body: [1, 2] });
-    const exchange2 = new DefaultExchange(directTestContext, { body: [3, 4] });
-    const exchange3 = new DefaultExchange(directTestContext, { body: [5, 6] });
+  test("default aggregate flattens multiple arrays", async () => {
+    const directT = await testContext().build();
+    const exchange1 = new DefaultExchange(directT.ctx, { body: [1, 2] });
+    const exchange2 = new DefaultExchange(directT.ctx, { body: [3, 4] });
+    const exchange3 = new DefaultExchange(directT.ctx, { body: [5, 6] });
 
     const result = defaultAggregate([exchange1, exchange2, exchange3]);
 
@@ -703,13 +703,13 @@ describe("Route Behavior", () => {
    * @preconditions One array and multiple scalar values
    * @expectedResult Array is flattened and scalar values are added to the result
    */
-  test("default aggregate handles single array with scalars", () => {
-    const directTestContext = context().build();
-    const exchange1 = new DefaultExchange(directTestContext, {
+  test("default aggregate handles single array with scalars", async () => {
+    const directT = await testContext().build();
+    const exchange1 = new DefaultExchange(directT.ctx, {
       body: [1, 2, 3],
     });
-    const exchange2 = new DefaultExchange(directTestContext, { body: 4 });
-    const exchange3 = new DefaultExchange(directTestContext, { body: 5 });
+    const exchange2 = new DefaultExchange(directT.ctx, { body: 4 });
+    const exchange3 = new DefaultExchange(directT.ctx, { body: 5 });
 
     const result = defaultAggregate([
       exchange1,
@@ -728,7 +728,7 @@ describe("Route Behavior", () => {
   test("split exchanges maintain custom headers", async () => {
     const spyTap = vi.fn();
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("split-headers-test")
@@ -743,10 +743,10 @@ describe("Route Behavior", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     // Wait for async tap jobs to complete
-    await testContext.drain();
+    await t.drain();
 
     // Both split exchanges should have the original custom header
     expect(spyTap).toHaveBeenCalledTimes(2);
@@ -762,7 +762,7 @@ describe("Route Behavior", () => {
   test("split exchanges can be processed independently before aggregation", async () => {
     const spyDest = vi.fn();
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("split-process-aggregate")
@@ -786,7 +786,7 @@ describe("Route Behavior", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     expect(spyDest).toHaveBeenCalledTimes(1);
     const receivedBodies = spyDest.mock.calls.map((call) => call[0].body);
@@ -803,7 +803,7 @@ describe("Route Behavior", () => {
     vi.spyOn(logger, "child").mockReturnValue(logSpy);
     const spyDest = vi.fn();
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("split-error-aggregate")
@@ -823,7 +823,7 @@ describe("Route Behavior", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     // Verify error was logged
     expect(logSpy.warn).toHaveBeenCalled();
@@ -868,7 +868,7 @@ describe("Route Behavior", () => {
     };
     const aggSpy2 = vi.spyOn(agg2, "aggregate");
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("nested-split-test")
@@ -896,10 +896,10 @@ describe("Route Behavior", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     // Wait for async tap jobs to complete
-    await testContext.drain();
+    await t.drain();
 
     expect(processorSpy).toHaveBeenCalledTimes(2);
     expect(processorSpy2).toHaveBeenCalledTimes(4);
@@ -937,7 +937,7 @@ describe("Route Behavior", () => {
     const spyDest = vi.fn();
     const numbers = [1, 2, 3, 4, 5, 6];
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("filter-test")
@@ -948,10 +948,10 @@ describe("Route Behavior", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     // Wait for async tap jobs to complete
-    await testContext.drain();
+    await t.drain();
 
     // Should only have even numbers
     const tapBodies = spyTap.mock.calls.map((call) => call[0].body);
@@ -970,7 +970,7 @@ describe("Route Behavior", () => {
     const messages = ["valid string", 123, "another string", { key: "value" }];
     const capturedMessages: unknown[] = [];
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("validate-test")
@@ -983,10 +983,10 @@ describe("Route Behavior", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     // Wait for async tap jobs to complete
-    await testContext.drain();
+    await t.drain();
 
     // Should only have string messages
     expect(capturedMessages).toEqual(["valid string", "another string"]);
@@ -1003,7 +1003,7 @@ describe("Route Behavior", () => {
     const dest3Spy = vi.fn(async () => ({ result: 3 }));
     const finalSpy = vi.fn();
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("multiple-to-test")
@@ -1015,7 +1015,7 @@ describe("Route Behavior", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     // All destinations should be called
     expect(dest1Spy).toHaveBeenCalledTimes(1);

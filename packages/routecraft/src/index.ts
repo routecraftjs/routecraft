@@ -13,6 +13,7 @@ export {
   type MergedOptions,
   type StoreRegistry,
   type CraftConfig,
+  type CraftPlugin,
 } from "./context.ts";
 
 export { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
@@ -20,26 +21,53 @@ export { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
 export { type Source, type CallableSource } from "./operations/from.ts";
 
 export {
+  ProcessStep,
   type Processor,
   type CallableProcessor,
 } from "./operations/process.ts";
 
-export { type Destination, type CallableDestination } from "./operations/to.ts";
+export {
+  ToStep,
+  type Destination,
+  type CallableDestination,
+} from "./operations/to.ts";
 
-export { type Splitter, type CallableSplitter } from "./operations/split.ts";
+export {
+  SplitStep,
+  type Splitter,
+  type CallableSplitter,
+} from "./operations/split.ts";
 
 export {
   type Aggregator,
   type CallableAggregator,
   defaultAggregate,
+  AggregateStep,
 } from "./operations/aggregate.ts";
 
 export {
+  TransformStep,
   type Transformer,
   type CallableTransformer,
 } from "./operations/transform.ts";
 
-export { type Filter, type CallableFilter } from "./operations/filter.ts";
+export {
+  type Filter,
+  type CallableFilter,
+  FilterStep,
+} from "./operations/filter.ts";
+
+export {
+  type CallableHeaderSetter,
+  type HeaderSetter,
+  HeaderStep,
+} from "./operations/header.ts";
+
+export { type DestinationAggregator, EnrichStep } from "./operations/enrich.ts";
+
+export { TapStep } from "./operations/tap.ts";
+
+export { ValidateStep } from "./operations/validate.ts";
 
 export {
   ContextBuilder,
@@ -56,7 +84,12 @@ export {
   RC,
 } from "./error.ts";
 
-export { logger, createLogger, type Logger } from "./logger.ts";
+export {
+  logger,
+  createLogger,
+  configureLogger,
+  type Logger,
+} from "./logger.ts";
 
 export {
   type Adapter,
@@ -104,3 +137,5 @@ export {
   type PseudoOptions,
   type PseudoKeyedOptions,
 } from "./adapters/pseudo.ts";
+
+export { TestContext, testContext } from "./test.ts";

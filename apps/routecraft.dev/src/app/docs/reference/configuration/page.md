@@ -27,6 +27,7 @@ export const craftConfig = {
 |-------|------|----------|---------|-------------|
 | `store` | `Map<keyof StoreRegistry, StoreRegistry[keyof StoreRegistry]>` | No | — | Initial values for the context store |
 | `on` | `Partial<Record<EventName, EventHandler \| EventHandler[]>>` | No | — | Event handlers to register on context creation |
+| `plugins` | `CraftPlugin[]` | No | — | Plugins to initialize before routes are registered |
 
 ## Usage patterns
 
@@ -178,6 +179,33 @@ const adapter = createAdapter({
 
 This pattern allows adapters to inherit global configuration while maintaining local overrides.
 
+## Plugins
+
+Plugins extend RouteCraft with cross-cutting behavior and run before routes are registered. Configure them via `CraftConfig.plugins`:
+
+```ts
+// Via config
+import { plugin as mcp } from '@routecraft/ai'
+import observabilityPlugin from './plugins/observability'
+
+export const craftConfig = {
+  plugins: [
+    observabilityPlugin(),
+    mcp({ name: 'my-tools' })
+  ]
+}
+
+// Via builder
+const ctx = context()
+  .with({
+    plugins: [observabilityPlugin(), mcp()]
+  })
+  .routes(myRoutes)
+  .build()
+```
+
+See the [Plugins reference](/docs/reference/plugins) for details on authoring plugins and advanced patterns like dynamic route registration.
+
 ## Events
 
 Subscribe to lifecycle events via config or builder. See the [Events reference](/docs/reference/events) for all available events, signatures, and examples.
@@ -203,10 +231,6 @@ const ctx = context()
 ## Planned features
 
 The following features are planned for future releases:
-
-### Plugins {% badge %}wip{% /badge %}
-
-Plugin system for extending context functionality with custom stores, event hooks, and middleware.
 
 ### Admin Portal {% badge %}wip{% /badge %}
 
