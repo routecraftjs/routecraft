@@ -10,22 +10,45 @@ import blurCyanImage from '@/images/blur-cyan.png'
 import blurIndigoImage from '@/images/blur-indigo.png'
 
 const codeLanguage = 'typescript'
-const routeCode = `import { craft, simple, fetch, log } from '@routecraft/routecraft'
+const aiToolExample = `import { craft, tool, mail } from '@routecraft/routecraft'
+import { z } from 'zod'
 
 export default craft()
-  .id('hello-world')
-  .from(simple({ userId: 1 }))
-  .enrich(fetch({
-    method: 'GET',
-    url: (ex) => \`https://jsonplaceholder.typicode.com/users/\${ex.body.userId}\`,
+  .id('send-team-email')
+  .from(tool('send-team-email', {
+    description: 'Send email to team members',
+    schema: z.object({
+      to: z.string().email().refine(
+        email => email.endsWith('@company.com'),
+        'Can only send to @company.com addresses'
+      ),
+      subject: z.string(),
+      message: z.string()
+    })
   }))
-  .transform((result) => \`Hello, \${result.body.name}!\`)
-  .to(log())`
+  .to(mail())  // Config loaded from context`
+
+const mcpConfigExample = `{
+  "mcpServers": {
+    "routecraft": {
+      "command": "/path/to/node",
+      "args": [
+        "/path/to/routecraft/cli",
+        "run",
+        "--log-file",
+        "/path/to/craft.log",
+        "--log-level",
+        "debug",
+        "/path/to/route/index.mjs"
+      ]
+    }
+  }
+}`
 
 type CodeTab = { name: string; code: string }
 const tabs: CodeTab[] = [
-  { name: 'routes/hello-world.route.ts', code: routeCode },
-  { name: 'package.json', code: '' },
+  { name: 'routes/send-email.ts', code: aiToolExample },
+  { name: 'claude_desktop_config.json', code: mcpConfigExample },
 ]
 
 function TrafficLightsIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
@@ -39,7 +62,7 @@ function TrafficLightsIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
 }
 
 export function Hero() {
-  const [activeTab, setActiveTab] = useState<string>('routes/hello-world.mjs')
+  const [activeTab, setActiveTab] = useState<string>('routes/send-email.ts')
   const active = tabs.find((t) => t.name === activeTab) ?? tabs[0]
   const code = active.code
   return (
@@ -58,12 +81,12 @@ export function Hero() {
             />
             <div className="relative">
               <p className="inline bg-linear-to-r from-indigo-200 via-sky-400 to-indigo-200 bg-clip-text font-display text-5xl tracking-tight text-transparent">
-                Automation without limits
+                Give AI access, not control
               </p>
               <p className="mt-3 text-2xl tracking-tight text-gray-400">
-                Automation should feel like writing code, not dragging boxes.
-                RouteCraft is developer first, open source, and AI native, with
-                features designed for developers and agents alike.
+                Write TypeScript routes that send emails, manage calendars, and
+                automate work. Expose them to Claude, ChatGPT, Cursor, or any AI
+                agent via MCP. AI calls your code, not your computer.
               </p>
               <div className="mt-8 flex gap-4 md:justify-center lg:justify-start">
                 <Button href="https://github.com/routecraftjs/routecraft">

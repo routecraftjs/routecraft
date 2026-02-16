@@ -6,16 +6,27 @@ What RouteCraft is and how it works. {% .lead %}
 
 ## What is RouteCraft?
 
-RouteCraft is an open source automation and integration framework for TypeScript. It is built for developers who prefer writing code instead of wiring together boxes in a UI. Workflows should feel like part of your codebase, simple, readable, and under version control.
+RouteCraft is a **code-first automation platform** for TypeScript. It's built for developers who want their AI to actually do things: send emails, book meetings, manage calendars, not just answer questions.
 
-Unlike black box automation tools, RouteCraft is transparent. Every route is just TypeScript, so you can test it, commit it, and run it anywhere from your laptop to the cloud.
+Unlike visual workflow builders that limit what you can do, RouteCraft gives you the full power of TypeScript. Write routes as code, expose them to AI agents via MCP, and deploy anywhere from your laptop to the cloud.
 
-RouteCraft is AI native. That means three things:
-1. You can call AI models and agents inside your routes as first class steps.
-2. You can expose a route to an agent as a tool or as an MCP server.
-3. The DSL is predictable and repeatable, which makes it easy for generative AI to create and maintain routes you can trust and verify.
+RouteCraft is AI-native from the ground up:
+1. **Make AI useful** - Turn any route into a tool for Claude, ChatGPT, Cursor, and other agents
+2. **Code, not configs** - TypeScript all the way with full IDE support and type safety
+3. **Safe by design** - AI only accesses the routes you explicitly code
 
-In short, RouteCraft combines the reliability of code with the flexibility of automation. It makes AI a collaborator rather than a mystery box.
+In short, RouteCraft makes **AI automation powerful, flexible, and controllable**. Build tools that actually work, test them like any code, and deploy with confidence.
+
+### Why AI Native Matters
+
+**AI Can Do More Than Chat**  
+Your AI should send emails, book appointments, manage your calendar, and automate real work. RouteCraft turns any route into a tool that AI agents can discover and use.
+
+**Code Beats Visual Builders**  
+Drag-and-drop tools are great until you need custom logic, error handling, or complex transformations. With RouteCraft, you write TypeScript: version controlled, testable, and reviewable.
+
+**Built-In Safety**  
+AI only accesses what you code. Need email access? Write a route. Calendar integration? Write a route. Everything else is off-limits. No surprises, no security nightmares.
 
 ---
 

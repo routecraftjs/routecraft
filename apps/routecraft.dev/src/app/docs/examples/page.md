@@ -4,6 +4,18 @@ title: Examples
 
 Working, focused example routes you can copy and adapt. {% .lead %}
 
+## AI & Automation Examples
+
+{% quick-links %}
+
+{% quick-link title="Email Assistant" icon="installation" href="/docs/examples/ai-email-parser" description="Send and manage emails with AI." /%}
+{% quick-link title="Calendar & Meetings" icon="plugins" href="/docs/examples/ai-agent-tools" description="Schedule meetings and manage your calendar." /%}
+{% quick-link title="Travel & Booking" icon="presets" href="/docs/examples/ai-document-processor" description="Search flights, book restaurants and hotels." /%}
+
+{% /quick-links %}
+
+## Integration Examples
+
 {% quick-links %}
 
 {% quick-link title="File to HTTP" icon="installation" href="/docs/examples/api-sync" description="Read CSV and send rows to an API." /%}
