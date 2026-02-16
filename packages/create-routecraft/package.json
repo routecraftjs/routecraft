@@ -17,7 +17,7 @@
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
-    "@inquirer/prompts": "^8.2.0"
+    "@inquirer/prompts": "^8.2.1"
   },
   "publishConfig": {
     "access": "public"
