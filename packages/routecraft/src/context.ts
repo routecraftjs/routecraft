@@ -1,7 +1,8 @@
+import { randomUUID } from "node:crypto";
 import { ContextBuilder } from "./builder.ts";
 import { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
 import { error as rcError, RC } from "./error.ts";
-import { createLogger, type Logger } from "./logger.ts";
+import { createLogger, configureLogger, type Logger } from "./logger.ts";
 import {
   type EventHandler,
   type EventName,
@@ -44,6 +45,17 @@ export type MergedOptions<T> = {
 };
 
 /**
+ * A plugin is a function or an object with an apply method. It receives a
+ * CraftContext and can set up event listeners, store values, or other
+ * initialization logic. Plugins run before routes are registered (via
+ * initPlugins()), allowing them to observe, veto, or dynamically modify
+ * the route registration process.
+ */
+export type CraftPlugin =
+  | ((ctx: CraftContext) => void | Promise<void>)
+  | { apply(ctx: CraftContext): void | Promise<void> };
+
+/**
  * Configuration options for creating a CraftContext.
  */
 export type CraftConfig = {
@@ -53,6 +65,15 @@ export type CraftConfig = {
   on?: Partial<
     Record<EventName, EventHandler<EventName> | EventHandler<EventName>[]>
   >;
+  /** Plugins to run before routes are registered (call initPlugins() then registerRoutes) */
+  plugins?: CraftPlugin[];
+  /**
+   * Logging options. Destination and level are controlled by environment variables
+   * so they apply before your app runs. Set LOG_FILE, LOG_LEVEL (e.g. "silent" to
+   * disable), or use CLI flags `craft run --log-file <path>` and `--log-level <level>`.
+   * craftConfig.log documents the same options; use the env vars or CLI to get that behavior.
+   */
+  log?: { file?: string; level?: string };
 };
 
 /**
@@ -89,7 +110,7 @@ export type CraftConfig = {
  */
 export class CraftContext {
   /** Unique identifier for this context instance */
-  public readonly contextId: string = crypto.randomUUID();
+  public readonly contextId: string = randomUUID();
 
   /** Routes registered with this context */
   private routes: Route[] = [];
@@ -110,12 +131,21 @@ export class CraftContext {
   private readonly handlers: Map<EventName, Set<EventHandler<EventName>>> =
     new Map();
 
+  /** Plugins from config, run by initPlugins() before routes are registered */
+  private readonly plugins: CraftPlugin[] = [];
+
   /**
    * Create a new CraftContext instance.
    *
    * @param config Optional configuration for the context
    */
   constructor(config?: CraftConfig) {
+    if (config?.log) {
+      const logOpts: { logFile?: string; level?: string } = {};
+      if (config.log.file !== undefined) logOpts.logFile = config.log.file;
+      if (config.log.level !== undefined) logOpts.level = config.log.level;
+      if (Object.keys(logOpts).length > 0) configureLogger(logOpts);
+    }
     this.logger = createLogger(this);
     if (config) {
       // Initialize store from config
@@ -134,6 +164,41 @@ export class CraftContext {
             this.on(event as EventName, handler);
           }
         }
+      }
+      if (config.plugins?.length) {
+        this.plugins.push(...config.plugins);
+      }
+    }
+  }
+
+  /**
+   * Run plugins from config. Call this before registerRoutes() so plugins can
+   * set up state or dynamically add routes. Supports function plugins and
+   * objects with an apply(ctx) method. Fails fast: on first plugin error, logs,
+   * emits "error", and rethrows to abort remaining plugins.
+   */
+  async initPlugins(): Promise<void> {
+    for (const plugin of this.plugins) {
+      try {
+        if (typeof plugin === "function") {
+          await plugin(this);
+        } else if (
+          plugin &&
+          typeof plugin === "object" &&
+          typeof (plugin as { apply?: unknown }).apply === "function"
+        ) {
+          await (
+            plugin as { apply(ctx: CraftContext): void | Promise<void> }
+          ).apply(this);
+        } else {
+          this.logger.warn(
+            `Invalid plugin ignored: expected function or object with apply method`,
+          );
+        }
+      } catch (err) {
+        this.logger.error(err as Error, "Plugin threw during initPlugins");
+        this.emit("error", { error: err });
+        throw err;
       }
     }
   }

@@ -29,6 +29,7 @@ The `retryable` property indicates whether the [`retry`](/docs/reference/operati
 | [RC5009](#rc-5009) | Adapter | Validation failed | No |
 | [RC5010](#rc-5010) | Adapter | Dynamic endpoints cannot be used as source | No |
 | [RC5011](#rc-5011) | Adapter | Direct route schema validation failed | No |
+| [RC5012](#rc-5012) | Adapter | No handler subscribed on direct endpoint | No |
 | [RC9901](#rc-9901) | Runtime | Unknown error | Yes |
 
 ---
@@ -225,6 +226,36 @@ craft()
 // ❌ Wrong: dynamic endpoint for source
 craft()
   .from(direct((ex) => 'endpoint')) // throws RC5010
+```
+
+## RC5012
+No handler subscribed on direct endpoint
+
+**Why it happens**  
+A producer route attempted to send a message to a direct endpoint, but no consumer route is subscribed to that endpoint. This typically occurs when:
+- The consumer route hasn't started yet
+- The consumer route has stopped or failed
+- The endpoint name is misspelled or doesn't match
+
+**Suggestion**  
+Ensure a consumer route is subscribed to the endpoint before sending messages. Check that:
+- Both routes are registered in the same context
+- The consumer route has started successfully
+- Endpoint names match exactly (including case)
+
+**Example**
+```ts
+// Consumer must be running
+craft()
+  .id('consumer')
+  .from(direct('my-endpoint', {}))
+  .to(log());
+
+// Producer sends to subscribed endpoint
+craft()
+  .id('producer')
+  .from(simple('message'))
+  .to(direct('my-endpoint'));
 ```
 
 ## RC5011

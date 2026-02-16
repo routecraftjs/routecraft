@@ -1,17 +1,17 @@
 import { describe, test, expect, afterEach, vi } from "vitest";
 import {
-  context,
+  testContext,
   craft,
   simple,
-  type CraftContext,
+  type TestContext,
 } from "@routecraft/routecraft";
 
 describe("Async Tap Execution", () => {
-  let testContext: CraftContext;
+  let t: TestContext;
 
   afterEach(async () => {
-    if (testContext) {
-      await testContext.stop();
+    if (t) {
+      await t.stop();
     }
     vi.restoreAllMocks();
   });
@@ -29,7 +29,7 @@ describe("Async Tap Execution", () => {
 
     const startTime = Date.now();
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("test-async-tap")
@@ -47,7 +47,7 @@ describe("Async Tap Execution", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     // Route should complete before tap
     expect(routeCompleted).toHaveBeenCalledTimes(1);
@@ -69,7 +69,7 @@ describe("Async Tap Execution", () => {
     const tapSpy = vi.fn();
     let originalCorrelationId: string | undefined;
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("test-tap-snapshot")
@@ -84,7 +84,7 @@ describe("Async Tap Execution", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     // Wait for tap to execute
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -110,7 +110,7 @@ describe("Async Tap Execution", () => {
   test("tap errors don't affect main route", async () => {
     const routeCompleted = vi.fn();
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("test-tap-error")
@@ -122,7 +122,7 @@ describe("Async Tap Execution", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     // Route should complete successfully
     expect(routeCompleted).toHaveBeenCalledTimes(1);
@@ -136,7 +136,7 @@ describe("Async Tap Execution", () => {
   test("tap return values are ignored", async () => {
     const destSpy = vi.fn();
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("test-tap-return")
@@ -148,7 +148,7 @@ describe("Async Tap Execution", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const finalBody = destSpy.mock.calls[0][0].body;
@@ -165,7 +165,7 @@ describe("Async Tap Execution", () => {
     const tap2Completed = vi.fn();
     const tap3Completed = vi.fn();
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("test-drain")
@@ -186,10 +186,10 @@ describe("Async Tap Execution", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     // stop() aborts sources then drains routes (waits for handlers + taps)
-    await testContext.stop();
+    await t.stop();
 
     // All taps should be completed after stop
     expect(tap1Completed).toHaveBeenCalledTimes(3); // 3 messages
@@ -205,7 +205,7 @@ describe("Async Tap Execution", () => {
   test("context.stop() drains before stopping", async () => {
     const tapCompleted = vi.fn();
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("test-stop-drain")
@@ -218,10 +218,10 @@ describe("Async Tap Execution", () => {
       )
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     // Stop should wait for tap to complete
-    await testContext.stop();
+    await t.stop();
 
     // Tap should be completed after stop
     expect(tapCompleted).toHaveBeenCalledTimes(1);
@@ -235,7 +235,7 @@ describe("Async Tap Execution", () => {
   test("multiple taps execute in parallel", async () => {
     const tapOrder: number[] = [];
 
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("test-parallel-taps")
@@ -256,8 +256,8 @@ describe("Async Tap Execution", () => {
       )
       .build();
 
-    await testContext.start();
-    await testContext.stop();
+    await t.ctx.start();
+    await t.stop();
 
     // Taps should complete in order of their duration (shortest first)
     // since they run in parallel

@@ -1,21 +1,21 @@
 import { describe, test, expect, afterEach, vi, beforeEach } from "vitest";
 import {
-  context,
   craft,
   simple,
-  type CraftContext,
+  testContext,
+  type TestContext,
 } from "@routecraft/routecraft";
 
 describe("CraftContext", () => {
-  let testContext: CraftContext;
+  let t: TestContext;
 
   beforeEach(() => {
     vi.restoreAllMocks();
   });
 
   afterEach(async () => {
-    if (testContext) {
-      await testContext.stop();
+    if (t) {
+      await t.stop();
     }
   });
 
@@ -25,13 +25,13 @@ describe("CraftContext", () => {
    * @expectedResult Context should start and stop without errors
    */
   test("Initializes with empty configuration", async () => {
-    testContext = context().build();
-    const execution = testContext.start();
+    t = await testContext().build();
+    const execution = t.ctx.start();
 
-    await testContext.stop();
+    await t.ctx.stop();
     await execution;
 
-    expect(testContext.getRoutes()).toHaveLength(0);
+    expect(t.ctx.getRoutes()).toHaveLength(0);
   });
 
   /**
@@ -40,16 +40,16 @@ describe("CraftContext", () => {
    * @expectedResult Context should contain exactly 1 registered route
    */
   test("Registers routes correctly", async () => {
-    testContext = context()
+    t = await testContext()
       .routes(craft().id("test-route").from(simple("test")))
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
     // Ensure all asynchronous logs have flushed
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(testContext.getRoutes()).toHaveLength(1);
-    expect(testContext.getRouteById("test-route")).toBeDefined();
+    expect(t.ctx.getRoutes()).toHaveLength(1);
+    expect(t.ctx.getRouteById("test-route")).toBeDefined();
   });
 
   /**
@@ -63,14 +63,14 @@ describe("CraftContext", () => {
     const contextStopping = vi.fn();
     const contextStopped = vi.fn();
 
-    testContext = context()
+    t = await testContext()
       .on("contextStarting", contextStarting)
       .on("contextStarted", contextStarted)
       .on("contextStopping", contextStopping)
       .on("contextStopped", contextStopped)
       .build();
 
-    await testContext.start();
+    await t.ctx.start();
 
     expect(contextStarting).toHaveBeenCalledTimes(1);
     expect(contextStarted).toHaveBeenCalledTimes(1);
@@ -80,11 +80,11 @@ describe("CraftContext", () => {
 });
 
 describe("Error Handling", () => {
-  let testContext: CraftContext;
+  let t: TestContext;
 
   afterEach(async () => {
-    if (testContext) {
-      await testContext.stop();
+    if (t) {
+      await t.stop();
     }
   });
 
@@ -95,7 +95,7 @@ describe("Error Handling", () => {
    */
   test("Handles startup errors", async () => {
     const errorMessage = "Simulated startup failure";
-    testContext = context()
+    t = await testContext()
       .on("contextStarting", () => {
         throw new Error(errorMessage);
       })
@@ -103,19 +103,19 @@ describe("Error Handling", () => {
 
     // Start won't reject because we emit errors and continue; verify error event fires
     const errSpy = vi.fn();
-    testContext.on("error", errSpy);
-    await testContext.start();
+    t.ctx.on("error", errSpy);
+    await t.ctx.start();
     await new Promise((r) => setTimeout(r, 0));
     expect(errSpy).toHaveBeenCalled();
   });
 });
 
 describe("Route Management", () => {
-  let testContext: CraftContext;
+  let t: TestContext;
 
   afterEach(async () => {
-    if (testContext) {
-      await testContext.stop();
+    if (t) {
+      await t.stop();
     }
   });
 
@@ -124,8 +124,8 @@ describe("Route Management", () => {
    * @preconditions Two routes with same ID
    * @expectedResult Should throw error during context creation
    */
-  test("Rejects duplicate route IDs", () => {
-    const builder = context().routes(
+  test("Rejects duplicate route IDs", async () => {
+    const builder = testContext().routes(
       craft()
         .id("duplicate")
         .from(simple("test"))
@@ -133,7 +133,7 @@ describe("Route Management", () => {
         .from(simple("test")),
     );
 
-    expect(() => builder.build()).toThrow(/duplicate/i);
+    await expect(builder.build()).rejects.toThrow(/duplicate/i);
   });
 
   /**
@@ -146,20 +146,20 @@ describe("Route Management", () => {
       .map((n) => craft().id(`route-${n}`).from(simple(n)).build())
       .flat();
 
-    testContext = context().routes(testRoutes).build();
+    t = await testContext().routes(testRoutes).build();
 
-    expect(testContext.getRoutes()).toHaveLength(3);
-    expect(testContext.getRouteById("route-2")).toBeDefined();
-    expect(testContext.getRouteById("missing")).toBeUndefined();
+    expect(t.ctx.getRoutes()).toHaveLength(3);
+    expect(t.ctx.getRouteById("route-2")).toBeDefined();
+    expect(t.ctx.getRouteById("missing")).toBeUndefined();
   });
 });
 
 describe("Lifecycle Management", () => {
-  let testContext: CraftContext;
+  let t: TestContext;
 
   afterEach(async () => {
-    if (testContext) {
-      await testContext.stop();
+    if (t) {
+      await t.stop();
     }
   });
 
@@ -169,11 +169,11 @@ describe("Lifecycle Management", () => {
    * @expectedResult Subsequent stop calls are no-ops
    */
   test("Handles multiple stop calls", async () => {
-    testContext = context().build();
-    await testContext.start();
+    t = await testContext().build();
+    await t.ctx.start();
 
-    await testContext.stop();
-    const secondStop = testContext.stop(); // Should be no-op
+    await t.ctx.stop();
+    const secondStop = t.ctx.stop(); // Should be no-op
 
     await expect(secondStop).resolves.not.toThrow();
   });
@@ -183,23 +183,23 @@ describe("Lifecycle Management", () => {
    * @preconditions Context with custom store
    * @expectedResult Store should be available in context
    */
-  test("Initializes custom stores", () => {
+  test("Initializes custom stores", async () => {
     const testStore = new Map([["test", "value"]]);
 
-    testContext = context()
+    t = await testContext()
       .store("customStore" as any, testStore)
       .build();
 
-    expect(testContext.getStore("customStore" as any)).toBe(testStore);
+    expect(t.ctx.getStore("customStore" as any)).toBe(testStore);
   });
 });
 
 describe("Route Independence", () => {
-  let testContext: CraftContext;
+  let t: TestContext;
 
   afterEach(async () => {
-    if (testContext) {
-      await testContext.stop();
+    if (t) {
+      await t.stop();
     }
   });
 
@@ -212,7 +212,7 @@ describe("Route Independence", () => {
     const sendSpy = vi.fn();
 
     // Create context with failing and working routes.
-    testContext = context()
+    t = await testContext()
       .routes(
         craft()
           .id("failing-route")
@@ -236,7 +236,7 @@ describe("Route Independence", () => {
 
     // Start the context. The working route should process and eventually
     // trigger the destination adapter's send() from the "to" step.
-    await testContext.start();
+    await t.ctx.start();
 
     // Assert that the NoopAdapter's send method was called.
     expect(sendSpy).toHaveBeenCalled();

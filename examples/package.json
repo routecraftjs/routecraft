@@ -5,12 +5,16 @@
   "type": "module",
   "scripts": {
     "test": "vitest",
-    "start": "craft run index.mjs",
+    "start": "craft run --log-level debug index.mjs",
     "test:coverage": "vitest --coverage"
   },
+  "dependencies": {
+    "@routecraft/ai": "workspace:*",
+    "@routecraft/routecraft": "workspace:*",
+    "zod": "^4.3.6"
+  },
   "devDependencies": {
-    "@routecraft/cli": "workspace:^0.2.0",
-    "@routecraft/routecraft": "workspace:^0.2.0",
+    "@routecraft/cli": "workspace:*",
     "tsx": "^4.21.0",
     "vitest": "^4.0.18"
   }

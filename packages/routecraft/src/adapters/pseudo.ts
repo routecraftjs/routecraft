@@ -12,7 +12,9 @@ export interface PseudoKeyedOptions extends PseudoOptions {
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- input position must accept any exchange for DSL assignability */
-export type PseudoAdapter<R> = Source<R> &
+export type PseudoAdapter<R> = {
+  adapterId: string;
+} & Source<R> &
   Destination<any, R> &
   Processor<any, R>;
 /* eslint-enable @typescript-eslint/no-explicit-any */
@@ -36,11 +38,25 @@ function createAdapter<R>(
   const noopSend = (): Promise<R> => Promise.resolve(undefined as unknown as R);
   const noopProcess = <T>(exchange: Exchange<T>): Exchange<R> =>
     exchange as unknown as Exchange<R>;
+  const noopSubscribe: Source<R>["subscribe"] = (
+    _context,
+    _handler,
+    _abortController,
+    onReady,
+  ) => {
+    onReady?.();
+    return Promise.resolve();
+  };
 
   type SendFn = PseudoAdapter<R>["send"];
   type ProcessFn = PseudoAdapter<R>["process"];
+  type SubscribeFn = Source<R>["subscribe"];
   return {
-    subscribe: fail as Source<R>["subscribe"],
+    adapterId: `routecraft.adapter.pseudo.${name}`,
+    subscribe:
+      runtime === "noop"
+        ? (noopSubscribe as SubscribeFn)
+        : (fail as SubscribeFn),
     send: runtime === "noop" ? (noopSend as SendFn) : (fail as SendFn),
     process:
       runtime === "noop" ? (noopProcess as ProcessFn) : (fail as ProcessFn),

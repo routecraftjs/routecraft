@@ -138,4 +138,34 @@ if (existsSync(cliIndexPath)) {
   }
 }
 
+// Update VersionSelector component
+const versionSelectorPath = join(
+  rootDir,
+  "apps",
+  "routecraft.dev",
+  "src",
+  "components",
+  "VersionSelector.tsx",
+);
+if (existsSync(versionSelectorPath)) {
+  try {
+    let selectorContent = readFileSync(versionSelectorPath, "utf8");
+    const versionRegex =
+      /const versions = \[\{ label: 'v[\d.]+', value: 'v[\d.]+' \}\]/;
+    const newVersionLine = `const versions = [{ label: 'v${version}', value: 'v${version}' }]`;
+
+    if (versionRegex.test(selectorContent)) {
+      selectorContent = selectorContent.replace(versionRegex, newVersionLine);
+      writeFileSync(versionSelectorPath, selectorContent);
+      console.log(`✓ Updated VersionSelector component → v${version}`);
+      updatedCount++;
+    } else {
+      console.warn("⚠ Could not find version line in VersionSelector.tsx");
+    }
+  } catch (error) {
+    console.error(`✗ Failed to update VersionSelector version:`, error.message);
+    process.exit(1);
+  }
+}
+
 console.log(`\nSuccessfully updated ${updatedCount} package(s)`);

@@ -2,18 +2,18 @@ import { describe, test, expect, afterEach, vi } from "vitest";
 import { z } from "zod";
 import { tool } from "../src/index.ts";
 import {
-  context,
   craft,
   simple,
   DirectAdapter,
-  type CraftContext,
+  testContext,
+  type TestContext,
 } from "@routecraft/routecraft";
 
 describe("tool() DSL function", () => {
-  let ctx: CraftContext;
+  let t: TestContext;
 
   afterEach(async () => {
-    if (ctx) await ctx.stop();
+    if (t) await t.stop();
   });
 
   /**
@@ -24,7 +24,7 @@ describe("tool() DSL function", () => {
   test("tool() is an alias for direct()", async () => {
     const consumer = vi.fn();
 
-    ctx = context()
+    t = await testContext()
       .routes([
         craft()
           .id("producer")
@@ -37,9 +37,7 @@ describe("tool() DSL function", () => {
       ])
       .build();
 
-    await ctx.start();
-    await new Promise((resolve) => setTimeout(resolve, 100));
-
+    await t.test();
     expect(consumer).toHaveBeenCalledTimes(1);
     expect(consumer.mock.calls[0][0].body).toEqual({ message: "hello" });
   });
@@ -52,7 +50,7 @@ describe("tool() DSL function", () => {
   test("docs pattern: define tool with description, producer sends with no options", async () => {
     const consumer = vi.fn();
 
-    ctx = context()
+    t = await testContext()
       .routes([
         craft().id("my-tool").from(tool("my-tool")).to(consumer),
         craft()
@@ -62,9 +60,7 @@ describe("tool() DSL function", () => {
       ])
       .build();
 
-    await ctx.start();
-    await new Promise((resolve) => setTimeout(resolve, 100));
-
+    await t.test();
     expect(consumer).toHaveBeenCalledTimes(1);
     expect(consumer.mock.calls[0][0].body).toEqual({ query: "hello" });
   });
@@ -81,7 +77,7 @@ describe("tool() DSL function", () => {
 
     const consumer = vi.fn();
 
-    ctx = context()
+    t = await testContext()
       .routes([
         craft()
           .id("producer")
@@ -99,9 +95,7 @@ describe("tool() DSL function", () => {
       ])
       .build();
 
-    await ctx.start();
-    await new Promise((resolve) => setTimeout(resolve, 100));
-
+    await t.test();
     expect(consumer).toHaveBeenCalledTimes(1);
   });
 
@@ -115,10 +109,7 @@ describe("tool() DSL function", () => {
       url: z.string().url(),
     });
 
-    const errorHandler = vi.fn();
-
-    ctx = context()
-      .on("error", errorHandler)
+    t = await testContext()
       .routes([
         craft()
           .id("producer")
@@ -136,12 +127,9 @@ describe("tool() DSL function", () => {
       ])
       .build();
 
-    await ctx.start();
-    await new Promise((resolve) => setTimeout(resolve, 100));
-
-    expect(errorHandler).toHaveBeenCalled();
-    const error = errorHandler.mock.calls[0][0].details.error;
-    expect(error.rc).toBe("RC5011");
+    await t.test();
+    expect(t.errors).toHaveLength(1);
+    expect(t.errors[0].rc).toBe("RC5011");
   });
 
   /**
@@ -150,7 +138,7 @@ describe("tool() DSL function", () => {
    * @expectedResult Registry contains endpoint with metadata
    */
   test("tool() registers in discovery registry", async () => {
-    ctx = context()
+    t = await testContext()
       .routes([
         craft()
           .id("my-tool-route")
@@ -165,12 +153,10 @@ describe("tool() DSL function", () => {
       ])
       .build();
 
-    await ctx.start();
-
-    const registry = ctx.getStore(DirectAdapter.ADAPTER_DIRECT_REGISTRY);
+    await t.test();
+    const registry = t.ctx.getStore(DirectAdapter.ADAPTER_DIRECT_REGISTRY);
     expect(registry).toBeDefined();
     expect(registry?.has("search-tool")).toBe(true);
-
     const metadata = registry?.get("search-tool");
     expect(metadata?.description).toBe("Search for documents");
     expect(metadata?.keywords).toEqual(["search", "query", "find"]);
@@ -185,7 +171,7 @@ describe("tool() DSL function", () => {
     const consumerA = vi.fn();
     const consumerB = vi.fn();
 
-    ctx = context()
+    t = await testContext()
       .routes([
         craft()
           .id("producer")
@@ -196,9 +182,7 @@ describe("tool() DSL function", () => {
       ])
       .build();
 
-    await ctx.start();
-    await new Promise((resolve) => setTimeout(resolve, 100));
-
+    await t.test();
     expect(consumerA).toHaveBeenCalledTimes(1);
     expect(consumerB).not.toHaveBeenCalled();
   });

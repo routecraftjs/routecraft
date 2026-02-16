@@ -245,7 +245,7 @@ jobs:
 
       - name: Run all examples
         working-directory: ./examples
-        run: craft run hello-world.mjs
+        run: craft run --log-level debug hello-world.mjs
 
   publish-canary:
     needs: [build, cli-test]

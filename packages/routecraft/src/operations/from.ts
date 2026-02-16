@@ -6,6 +6,7 @@ export type CallableSource<T = unknown> = (
   context: CraftContext,
   handler: (message: T, headers?: ExchangeHeaders) => Promise<Exchange>,
   abortController: AbortController,
+  onReady?: () => void,
 ) => Promise<void> | void;
 
 export interface Source<T = unknown> extends Adapter {

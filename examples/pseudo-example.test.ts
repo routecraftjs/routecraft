@@ -9,9 +9,13 @@ describe("Pseudo example route", () => {
    */
   it("builds a valid route definition with enrich, split, and tap steps", () => {
     const definitions = route.build();
+    const steps = definitions[0].steps;
 
     expect(definitions).toHaveLength(1);
     expect(definitions[0].id).toBe("pseudo-example");
-    expect(definitions[0].steps).toHaveLength(3); // enrich, split, tap
+    expect(steps).toHaveLength(3);
+    expect(steps[0].operation).toBe("enrich");
+    expect(steps[1].operation).toBe("split");
+    expect(steps[2].operation).toBe("tap");
   });
 });

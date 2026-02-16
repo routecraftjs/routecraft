@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { context, type CraftContext, logger } from "@routecraft/routecraft";
+import { testContext, type TestContext, logger } from "@routecraft/routecraft";
 import routes from "./hello-world.mjs";
 
 describe("Hello World Route", () => {
-  let testContext: CraftContext;
+  let t: TestContext;
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -13,8 +13,8 @@ describe("Hello World Route", () => {
   });
 
   afterEach(async () => {
-    if (testContext) {
-      await testContext.stop();
+    if (t) {
+      await t.stop();
     }
     vi.restoreAllMocks();
   });
@@ -45,17 +45,9 @@ describe("Hello World Route", () => {
     // Spy on logger.info to capture the output
     const logSpy = vi.spyOn(logger, "info");
 
-    // Create context with imported route
-    testContext = context().routes(routes).build();
-
-    // Start the context
-    await testContext.start();
-
-    // Wait for the exchange to be processed
-    await new Promise((resolve) => setTimeout(resolve, 100));
-
-    // Stop the context
-    await testContext.stop();
+    // Create context with imported route and run full lifecycle
+    t = await testContext().routes(routes).build();
+    await t.test();
 
     // Verify fetch was called with the correct URL
     expect(fetchMock).toHaveBeenCalledTimes(1);

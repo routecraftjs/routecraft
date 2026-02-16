@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { type Adapter, type Step } from "../types.ts";
 import {
   type Exchange,
@@ -36,7 +37,7 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
     const splitBodies = await Promise.resolve(
       this.adapter.split(exchange.body),
     );
-    const groupId = crypto.randomUUID();
+    const groupId = randomUUID();
 
     const context = getExchangeContext(exchange);
     const route = getExchangeRoute(exchange);
@@ -51,7 +52,7 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
 
     splitBodies.forEach((body) => {
       const postProcessedExchange = new DefaultExchange<R>(context, {
-        id: crypto.randomUUID(),
+        id: randomUUID(),
         body,
         headers: {
           ...exchange.headers,

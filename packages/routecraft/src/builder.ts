@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { type RouteDefinition } from "./route.ts";
 import {
@@ -76,6 +77,12 @@ import { type HeaderValue } from "./exchange.ts";
  * // Start the context to begin processing
  * await context.start();
  * ```
+ *
+ * Plugins run before routes are registered, allowing them to:
+ * - Set up stores and state
+ * - Dynamically register additional routes
+ * - Subscribe to lifecycle events
+ * - Perform other initialization
  */
 export class ContextBuilder {
   protected config?: CraftConfig;
@@ -85,6 +92,7 @@ export class ContextBuilder {
     StoreRegistry[keyof StoreRegistry]
   >();
   protected eventHandlers = new Map<EventName, Set<EventHandler<EventName>>>();
+  protected plugins: Array<import("./context.ts").CraftPlugin> = [];
   // Binder registry removed
 
   constructor() {}
@@ -121,6 +129,11 @@ export class ContextBuilder {
           this.eventHandlers.set(eventName, set);
         }
       }
+    }
+
+    // Extract plugins if provided
+    if (config.plugins) {
+      this.plugins.push(...config.plugins);
     }
 
     return this;
@@ -210,13 +223,17 @@ export class ContextBuilder {
   /**
    * Build and return a configured CraftContext instance.
    *
-   * This finalizes the configuration and creates a ready-to-use context
-   * with all the configured routes, handlers, and store values.
+   * This finalizes the configuration, runs plugins, and creates a ready-to-use
+   * context with all the configured routes, handlers, and store values.
    *
-   * @returns A new CraftContext instance
+   * @returns A promise that resolves to a new CraftContext instance
    */
-  build(): CraftContext {
-    const ctx = new CraftContext(this.config);
+  async build(): Promise<CraftContext> {
+    const configWithPlugins = {
+      ...this.config,
+      plugins: this.plugins,
+    };
+    const ctx = new CraftContext(configWithPlugins);
 
     // Add stores from builder (config stores already added in constructor)
     for (const [key, value] of this.initialStores) {
@@ -231,6 +248,9 @@ export class ContextBuilder {
         ctx.on(event as EventName, handler as EventHandler<EventName>);
       }
     }
+
+    // Run plugins before routes are registered (context runs config.plugins)
+    await ctx.initPlugins();
 
     // Register all routes from builder
     ctx.registerRoutes(...this.definitions);
@@ -348,7 +368,7 @@ export class RouteBuilder<Current = unknown> {
    * })
    */
   from<T>(source: Source<T> | CallableSource<T>): RouteBuilder<T> {
-    const id = this.pendingOptions?.id ?? crypto.randomUUID().toString();
+    const id = this.pendingOptions?.id ?? randomUUID();
     const consumer = this.pendingOptions?.consumer ?? {
       type: SimpleConsumer as unknown as ConsumerType<Consumer>,
       options: undefined,

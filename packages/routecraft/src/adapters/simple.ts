@@ -30,7 +30,9 @@ export class SimpleAdapter<T = unknown> implements Source<T> {
     context: CraftContext,
     handler: (message: T, headers?: ExchangeHeaders) => Promise<Exchange>,
     abortController: AbortController,
+    onReady?: () => void,
   ): Promise<void> {
+    onReady?.();
     context.logger.debug("Producing messages");
     let result;
     try {

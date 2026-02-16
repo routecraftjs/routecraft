@@ -9,10 +9,11 @@ import { config as loadDotenv } from "dotenv";
  * @returns The parsed dotenv config result
  */
 export function loadEnvFile(path?: string) {
+  const dotenvOpts = { quiet: true };
   if (path) {
     // Explicit path provided - load that file only
     const envPath = resolve(process.cwd(), path);
-    const result = loadDotenv({ path: envPath });
+    const result = loadDotenv({ path: envPath, ...dotenvOpts });
 
     if (result.error) {
       logger.info(
@@ -29,7 +30,10 @@ export function loadEnvFile(path?: string) {
 
   // No path provided - load .env, then .env.local (with override)
   // Load .env first
-  const envResult = loadDotenv({ path: resolve(process.cwd(), ".env") });
+  const envResult = loadDotenv({
+    path: resolve(process.cwd(), ".env"),
+    ...dotenvOpts,
+  });
   if (envResult.parsed) {
     logger.debug(
       `Loaded ${Object.keys(envResult.parsed).length} environment variables from .env`,
@@ -42,6 +46,7 @@ export function loadEnvFile(path?: string) {
   const envLocalResult = loadDotenv({
     path: resolve(process.cwd(), ".env.local"),
     override: true,
+    ...dotenvOpts,
   });
   if (envLocalResult.parsed) {
     logger.debug(

@@ -67,6 +67,7 @@ export class TimerAdapter implements Source<undefined> {
       headers?: ExchangeHeaders,
     ) => Promise<Exchange>,
     abortController: AbortController,
+    onReady?: () => void,
   ): Promise<void> {
     const {
       intervalMs = 1000,
@@ -94,6 +95,8 @@ export class TimerAdapter implements Source<undefined> {
     } else {
       baseTime = Date.now() + delayMs;
     }
+
+    onReady?.();
 
     // Create and return an async promise that runs the timer loop
     return new Promise<void>((resolve) => {
@@ -161,7 +164,13 @@ export class TimerAdapter implements Source<undefined> {
           };
 
           // Trigger the handler for this timer tick.
-          await handler(undefined, headers);
+          try {
+            await handler(undefined, headers);
+          } catch (error) {
+            _context.logger.error(error as Error, "Timer handler failed");
+            abortController.abort();
+            break;
+          }
         }
         resolve();
       };

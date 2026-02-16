@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { type Adapter, type Step } from "../types.ts";
 import {
   type Exchange,
@@ -19,7 +20,7 @@ function snapshotExchange<T>(
   context: CraftContext,
 ): Exchange<T> {
   return new DefaultExchange<T>(context, {
-    id: crypto.randomUUID(),
+    id: randomUUID(),
     body: structuredClone(exchange.body),
     headers: { ...exchange.headers },
   });
