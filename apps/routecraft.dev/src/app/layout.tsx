@@ -23,11 +23,33 @@ const lexend = localFont({
 
 export const metadata: Metadata = {
   title: {
-    template: '%s - Docs',
-    default: 'RouteCraft - Compose routes. Run anywhere.',
+    template: '%s - RouteCraft',
+    default: 'RouteCraft - Give AI Access, Not Control',
   },
   description:
-    'A developer-first automation and integration framework with a fluent DSL for sources, steps, and destinations.',
+    'Write TypeScript routes that send emails, manage calendars, and automate work. AI calls your code, not your computer. The code-first alternative to Make.com.',
+  keywords: [
+    'AI automation',
+    'TypeScript automation',
+    'MCP',
+    'Model Context Protocol',
+    'Claude Desktop',
+    'Cursor AI',
+    'AI tools',
+    'code-first automation',
+    'Make.com alternative',
+    'n8n alternative',
+    'openclaw alternative',
+    'nanoclaw alternative',
+    'zapier alternative',
+    'workflow automation',
+  ],
+  openGraph: {
+    title: 'RouteCraft - Give AI Access, Not Control',
+    description:
+      'Write TypeScript routes that send emails, manage calendars, and automate work. AI calls your code, not your computer.',
+    type: 'website',
+  },
   icons: {
     icon: '/icon.svg',
   },

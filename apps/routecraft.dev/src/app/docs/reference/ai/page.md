@@ -2,7 +2,17 @@
 title: AI Package
 ---
 
-AI and MCP integrations for RouteCraft via the `@routecraft/ai` package. {% .lead %}
+Secure AI integrations for RouteCraft. {% .lead %}
+
+## Why RouteCraft for AI?
+
+RouteCraft takes a **security-first approach** to AI automation. While many frameworks give agents unrestricted system access, RouteCraft requires explicit, coded routes for every capability.
+
+**Benefits:**
+- **Controlled access**: Agents call only the routes you define
+- **No surprises**: Every action is TypeScript code you can review
+- **Production-ready**: Validate inputs, handle errors, log everything
+- **MCP-native**: Expose tools to Claude, Cursor, and other AI clients
 
 ## Installation
 

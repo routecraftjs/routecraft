@@ -88,3 +88,32 @@ Run it with the CLI (recommended), or execute within your own Node app using `Cr
 ## TypeScript note
 
 The CLI `run` command executes only JavaScript route files (`.mjs`, `.js`, `.cjs`). If you author routes in TypeScript, compile them to JavaScript before running.
+
+## AI Quick Start
+
+To create a project with AI tools enabled:
+
+{% code-tabs %}
+{% code-tab label="npm" language="bash" %}
+```bash
+npm create routecraft@latest my-ai-tools
+npm install @routecraft/ai zod
+```
+{% /code-tab %}
+
+{% code-tab label="pnpm" language="bash" %}
+```bash
+pnpm create routecraft@latest my-ai-tools
+pnpm add @routecraft/ai zod
+```
+{% /code-tab %}
+
+{% code-tab label="bun" language="bash" %}
+```bash
+bunx create-routecraft my-ai-tools
+bun add @routecraft/ai zod
+```
+{% /code-tab %}
+{% /code-tabs %}
+
+Then create tools and expose them to AI agents. See the [AI & MCP Setup guide](/docs/introduction/ai-setup) for complete instructions.

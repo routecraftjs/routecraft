@@ -2,7 +2,7 @@
 
   <img src="./routecraft-sticker.svg" alt="Routecraft" width="300" />
 
-  <p><strong>A type-safe integration and automation framework for TypeScript/Node.js</strong></p>
+  <p><strong>Give AI access, not control</strong></p>
 
   <a href="https://github.com/routecraftjs/routecraft/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/routecraftjs/routecraft/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Node.js" src="https://img.shields.io/badge/Node.js-22%2B-3c873a?logo=node.js">
@@ -15,53 +15,84 @@
 
 ## About
 
-Routecraft lets you author small, focused routes with a fluent DSL and run them across multiple runtimes. It is inspired by Apache Camel and designed for clear boundaries: sources, pure processing steps, and explicit destinations.
+RouteCraft is a code-first automation platform for TypeScript. Write routes that send emails, manage calendars, and automate work. AI calls your code, not your computer.
 
-## Installation
+## Why RouteCraft?
 
-```bash
-# Create a new project
-npm create routecraft@latest
+- ✅ **AI that does real work** - Send emails, schedule meetings, automate tasks
+- ✅ **Code, not configs** - TypeScript all the way with full IDE support
+- ✅ **Works with Claude & Cursor** - Expose tools via MCP automatically
+- ✅ **You stay in control** - AI only accesses the routes you code
 
-# Or add to existing project
-npm install @routecraft/routecraft
-```
+## Quick Start
 
-## Quick Example
+### Write a tool
 
 ```ts
-import { craft, timer, log } from '@routecraft/routecraft'
+import { craft, tool, mail } from '@routecraft/routecraft'
+import { z } from 'zod'
 
+// Define a tool AI can call
 export default craft()
-  .id('hello-world')
-  .from(timer({ intervalMs: 1000, repeatCount: 5 }))
-  .transform(() => 'Hello, RouteCraft!')
-  .to(log())
+  .from(tool('send-team-email', {
+    description: 'Send email to team members',
+    schema: z.object({ 
+      to: z.string().email().refine(
+        email => email.endsWith('@company.com'),
+        'Can only send to @company.com addresses'
+      ),
+      subject: z.string(),
+      message: z.string()
+    })
+  }))
+  .to(mail())  // Config loaded from context
 ```
 
-Run it: `craft run my-route.mjs`
+### Expose to Claude Desktop
 
-📚 [Full Documentation](https://routecraft.dev)
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "my-tools": {
+      "command": "npx",
+      "args": ["@routecraft/cli", "run", "./routes/tools.mjs"]
+    }
+  }
+}
+```
+
+Now talk to Claude: *"Send an email to john@example.com thanking him for yesterday's meeting"*
+
+Claude discovers your tool and uses it automatically. ✨
+
+📚 [Get Started](https://routecraft.dev/docs/introduction) | [AI Examples](https://routecraft.dev/docs/examples/ai-email-parser) | [API Docs](https://routecraft.dev/docs/reference)
 
 ## Key Features
 
-- Type-safe DSL: `craft().from(...).transform(...).to(...)`
-- Isolated routes with their own `AbortController` and backpressure-aware consumers
-- Built-in adapters: `simple`, `timer`, `direct`; utilities: `log`, `noop`, `fetch`
-- Runtimes: CLI and Node.js programmatic API
-- First-class testing with Vitest and example routes
+- **Make AI useful** - Send emails, schedule meetings, automate tasks
+- **Code-first** - TypeScript with full IDE support, testing, and version control
+- **MCP native** - Works with Claude Desktop, Cursor, and any MCP client
+- **Type-safe** - Zod-powered validation ensures data integrity
+- **Deploy anywhere** - Run locally, self-host, or use our upcoming cloud platform
 
 ## Monorepo Structure
 
 - `packages/routecraft` – Core library (builder, DSL, context, adapters, consumers)
+- `packages/ai` – AI and MCP integrations (`tool()`, schema validation, discovery)
 - `packages/cli` – CLI to run files or folders of routes and start contexts
 - `apps/routecraft.dev` – Documentation site (docs, examples, guides)
 - `examples/` – Runnable example routes and tests
 
 ## Examples
 
-- Browse the [`examples/`](./examples) directory for ready-to-run sample routes and tests.
-- Try: `pnpm craft run ./examples/hello-world.mjs`
+**Real-world automation:**
+- **Email Assistant** - [Send and manage emails](https://routecraft.dev/docs/examples/ai-email-parser)
+- **Calendar & Meetings** - [Schedule meetings automatically](https://routecraft.dev/docs/examples/ai-agent-tools)
+- **Travel & Booking** - [Search flights and book restaurants](https://routecraft.dev/docs/examples/ai-document-processor)
+
+Try it yourself: `pnpm craft run ./examples/mcp-echo.mjs`
 
 ## Contributing
 
