@@ -32,7 +32,7 @@ Consumers are responsible for pulling messages off the internal ProcessingQueue 
 
 - `BatchConsumer` with `BatchOptions`
   - `size` (default 1000): max messages per batch
-  - `time` (default 10_000 ms): max time window
+  - `time` (default 200 ms): max time window
   - `merge(messages)` (default merges headers and arrays body)
   - Behavior: buffers, flushes on size or time, calls `handler(merged.message, merged.headers)`
 
@@ -105,11 +105,11 @@ export class MyConsumer implements Consumer<MyConsumerOptions> {
     public readonly context: CraftContext,
     public readonly definition: RouteDefinition,
     public readonly channel: ProcessingQueue<Message>,
-    public readonly options: MyConsumerOptions
+    public readonly options: MyConsumerOptions,
   ) {}
 
   async register(
-    handler: (message: unknown, headers?: ExchangeHeaders) => Promise<void>
+    handler: (message: unknown, headers?: ExchangeHeaders) => Promise<void>,
   ): Promise<void> {
     this.channel.setHandler(async (msg) => {
       // Optionally buffer/throttle here

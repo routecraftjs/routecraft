@@ -23,7 +23,7 @@ describe("hello route", () => {
   it("emits and logs", async () => {
     const logSpy = vi.spyOn(console, "log");
 
-    t = testContext().routes(helloRoute).build();
+    t = await testContext().routes(helloRoute).build();
     await t.test();
 
     expect(logSpy).toHaveBeenCalled();
@@ -54,7 +54,7 @@ Use `testContext()` and `t.test()` for the recommended flow. `t.test()` runs sta
 import { testContext, type TestContext } from "@routecraft/routecraft";
 import routes from "../routes/hello-world.route"; // your route builder export
 
-const t = testContext().routes(routes).build();
+const t = await testContext().routes(routes).build();
 await t.test();
 // Assert here: mocks, t.errors, t.ctx.getStore(), etc.
 ```
@@ -98,7 +98,7 @@ import { expect } from "vitest";
 const spyAdapter = spy();
 
 const route = craft().id("out").from(simple("payload")).to(spyAdapter);
-const t = testContext().routes(route).build();
+const t = await testContext().routes(route).build();
 await t.test();
 
 expect(spyAdapter.received).toHaveLength(1);
@@ -122,7 +122,7 @@ test('logs messages correctly', async () => {
     .from(simple("Hello, World!"))
     .to(log());
     
-  const t = testContext().routes(route).build();
+  const t = await testContext().routes(route).build();
   await t.test();
   
   expect(logSpy).toHaveBeenCalled();
@@ -177,7 +177,7 @@ const route = craft()
   .to(spyAdapter)
   .transform((body: string) => `${body}!`);
 
-const t = testContext().routes(route).build();
+const t = await testContext().routes(route).build();
 await t.test();
 
 expect(observed.body).toBe("HELLO!");
@@ -189,7 +189,7 @@ expect(spyAdapter.received[0].body).toBe("HELLO!");
 For timer or long-running routes, use the raw context and manual start/stop:
 
 ```ts
-const t = testContext().routes(timerRoutes).build();
+const t = await testContext().routes(timerRoutes).build();
 const execution = t.ctx.start();
 await new Promise((r) => setTimeout(r, 150));
 await t.ctx.stop();
@@ -229,7 +229,7 @@ const route = craft()
   .process(processSpy) // Use spy as processor
   .to(spy());
 
-const t = testContext().routes(route).build();
+const t = await testContext().routes(route).build();
 await t.test();
 expect(processSpy.calls.process).toBe(1);
 expect(processSpy.received[0].body).toBe("input");
@@ -242,7 +242,7 @@ const route2 = craft()
   .enrich(enrichSpy) // Use spy as enricher
   .to(spy());
 
-const t2 = testContext().routes(route2).build();
+const t2 = await testContext().routes(route2).build();
 await t2.test();
 expect(enrichSpy.calls.enrich).toBe(1);
 ```
@@ -267,7 +267,7 @@ const route = craft()
   .process(transformSpy)
   .to(destinationSpy);
 
-const t = testContext().routes(route).build();
+const t = await testContext().routes(route).build();
 await t.test();
 
 // Verify the pipeline

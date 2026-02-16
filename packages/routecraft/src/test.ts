@@ -6,7 +6,12 @@ import type { EventName, EventHandler } from "./types.ts";
 import type { RouteDefinition } from "./route.ts";
 import type { RouteBuilder } from "./builder.ts";
 
-const ROUTES_READY_TIMEOUT_MS = 10_000;
+const DEFAULT_ROUTES_READY_TIMEOUT_MS = 200;
+
+export interface TestContextOptions {
+  /** Timeout in ms for waiting for all routes to emit routeStarted. Default 200. */
+  routesReadyTimeoutMs?: number;
+}
 
 /**
  * Test-friendly wrapper around CraftContext. Runs the real context but manages
@@ -15,9 +20,12 @@ const ROUTES_READY_TIMEOUT_MS = 10_000;
 export class TestContext {
   readonly ctx: CraftContext;
   readonly errors: RouteCraftError[] = [];
+  private readonly routesReadyTimeoutMs: number;
 
-  constructor(ctx: CraftContext) {
+  constructor(ctx: CraftContext, options?: TestContextOptions) {
     this.ctx = ctx;
+    this.routesReadyTimeoutMs =
+      options?.routesReadyTimeoutMs ?? DEFAULT_ROUTES_READY_TIMEOUT_MS;
     ctx.on("error", (payload) => {
       const err = payload.details.error;
       this.errors.push(
@@ -44,7 +52,7 @@ export class TestContext {
                 if (settled) return;
                 cleanup();
                 reject(new Error("Timeout waiting for routes to start"));
-              }, ROUTES_READY_TIMEOUT_MS);
+              }, this.routesReadyTimeoutMs);
 
             const offRouteStarted = ctx.on("routeStarted", () => {
               if (settled) return;
@@ -72,10 +80,13 @@ export class TestContext {
             }
           });
     const started = ctx.start();
-    await allReady;
-    await ctx.drain();
-    await ctx.stop();
-    await started;
+    try {
+      await allReady;
+      await ctx.drain();
+    } finally {
+      await ctx.stop();
+      await started;
+    }
   }
 
   drain(): Promise<void> {
@@ -93,6 +104,13 @@ export class TestContext {
  */
 export class TestContextBuilder {
   private builder = new ContextBuilder();
+  private routesReadyTimeoutMs: number | undefined;
+
+  /** Override timeout for waiting for routes to start (ms). Used by tests that assert timeout behavior. */
+  routesReadyTimeout(ms: number): this {
+    this.routesReadyTimeoutMs = ms;
+    return this;
+  }
 
   with(config: CraftConfig): this {
     this.builder.with(config);
@@ -121,7 +139,12 @@ export class TestContextBuilder {
   }
 
   async build(): Promise<TestContext> {
-    return new TestContext(await this.builder.build());
+    const ctx = await this.builder.build();
+    const options: TestContextOptions | undefined =
+      this.routesReadyTimeoutMs !== undefined
+        ? { routesReadyTimeoutMs: this.routesReadyTimeoutMs }
+        : undefined;
+    return new TestContext(ctx, options);
   }
 }
 
