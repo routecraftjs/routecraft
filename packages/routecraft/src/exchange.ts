@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { INTERNALS_KEY, BRAND } from "./brand.ts";
 import { type CraftContext } from "./context.ts";
 import { type RouteCraftLogger, createLogger } from "./logger.ts";
 import type { Route } from "./route.ts";
@@ -140,6 +141,7 @@ export const EXCHANGE_INTERNALS = new WeakMap<Exchange, ExchangeInternals>();
 
 /**
  * Get the CraftContext for an exchange, if it has internals.
+ * Reads from symbol-keyed storage first (cross-instance safe), then WeakMap.
  *
  * @param exchange The exchange
  * @returns The context or undefined
@@ -148,18 +150,27 @@ export const EXCHANGE_INTERNALS = new WeakMap<Exchange, ExchangeInternals>();
 export function getExchangeContext(
   exchange: Exchange,
 ): CraftContext | undefined {
-  return EXCHANGE_INTERNALS.get(exchange)?.context;
+  const internals =
+    (exchange as Exchange & { [INTERNALS_KEY]?: ExchangeInternals })[
+      INTERNALS_KEY
+    ] ?? EXCHANGE_INTERNALS.get(exchange);
+  return internals?.context;
 }
 
 /**
  * Get the route for an exchange, if it has internals.
+ * Reads from symbol-keyed storage first (cross-instance safe), then WeakMap.
  *
  * @param exchange The exchange
  * @returns The route or undefined
  * @internal
  */
 export function getExchangeRoute(exchange: Exchange): Route | undefined {
-  return EXCHANGE_INTERNALS.get(exchange)?.route;
+  const internals =
+    (exchange as Exchange & { [INTERNALS_KEY]?: ExchangeInternals })[
+      INTERNALS_KEY
+    ] ?? EXCHANGE_INTERNALS.get(exchange);
+  return internals?.route;
 }
 
 /**
@@ -212,8 +223,12 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
     };
     this.body = options?.body || ({} as T);
 
-    // Store internals in WeakMap before createLogger (logger reads from it)
-    EXCHANGE_INTERNALS.set(this, { context });
+    // Store internals: symbol key (cross-instance) and WeakMap (same-instance compat)
+    const internals: ExchangeInternals = { context };
+    (this as unknown as Record<symbol, ExchangeInternals>)[INTERNALS_KEY] =
+      internals;
+    EXCHANGE_INTERNALS.set(this, internals);
+    (this as unknown as Record<symbol, boolean>)[BRAND.Exchange] = true;
     this.logger = createLogger(this);
   }
 }

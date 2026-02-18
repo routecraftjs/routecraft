@@ -8,7 +8,9 @@ import {
   DefaultExchange,
   EXCHANGE_INTERNALS,
 } from "./exchange.ts";
+import { BRAND, INTERNALS_KEY } from "./brand.ts";
 import { error as rcError, RouteCraftError, RC } from "./error.ts";
+import { isRouteCraftError } from "./brand.ts";
 import { createLogger, type RouteCraftLogger } from "./logger.ts";
 import { type Source } from "./operations/from.ts";
 import {
@@ -126,6 +128,7 @@ export class DefaultRoute implements Route {
     public readonly definition: RouteDefinition,
     abortController?: AbortController,
   ) {
+    (this as unknown as Record<symbol, boolean>)[BRAND.DefaultRoute] = true;
     this.assertNotAborted();
     this.abortController = abortController ?? new AbortController();
     this.logger = createLogger(this);
@@ -176,8 +179,13 @@ export class DefaultRoute implements Route {
       },
     });
 
-    // Add route to internals so steps like tap can access it
-    const internals = EXCHANGE_INTERNALS.get(exchange);
+    // Add route to internals so steps like tap can access it (symbol-key for cross-instance)
+    const internals =
+      (
+        exchange as Exchange & {
+          [key: symbol]: { context: CraftContext; route?: Route };
+        }
+      )[INTERNALS_KEY] ?? EXCHANGE_INTERNALS.get(exchange);
     if (internals) {
       internals.route = this;
     }
@@ -362,9 +370,9 @@ export class DefaultRoute implements Route {
     operation: OperationType,
     error: unknown,
   ): RouteCraftError {
-    // If already a RouteCraftError, preserve the original error code
-    if (error instanceof RouteCraftError) {
-      return error;
+    // If already a RouteCraftError, preserve the original error code (brand check for cross-instance)
+    if (isRouteCraftError(error)) {
+      return error as RouteCraftError;
     }
     const rc = "RC5002" as const; // Processing step threw
     return rcError(rc, error, {

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { type Adapter, type Step } from "../types.ts";
+import { INTERNALS_KEY } from "../brand.ts";
 import {
   type Exchange,
   OperationType,
@@ -60,9 +61,14 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
         },
       });
 
-      // Set route in internals if it exists
+      // Set route in internals if it exists (symbol-key for cross-instance)
       if (route) {
-        const internals = EXCHANGE_INTERNALS.get(postProcessedExchange);
+        const internals =
+          (
+            postProcessedExchange as Exchange & {
+              [key: symbol]: { context: unknown; route?: Route };
+            }
+          )[INTERNALS_KEY] ?? EXCHANGE_INTERNALS.get(postProcessedExchange);
         if (internals) {
           internals.route = route as Route;
         }

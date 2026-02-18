@@ -1,6 +1,7 @@
 import type { CraftContext } from "./context.ts";
 import type { CraftConfig, StoreRegistry } from "./context.ts";
 import { ContextBuilder } from "./builder.ts";
+import { isRouteCraftError } from "./brand.ts";
 import { RouteCraftError, error as rcError } from "./error.ts";
 import type { EventName, EventHandler } from "./types.ts";
 import type { RouteDefinition } from "./route.ts";
@@ -29,7 +30,9 @@ export class TestContext {
     ctx.on("error", (payload) => {
       const err = payload.details.error;
       this.errors.push(
-        err instanceof RouteCraftError ? err : rcError("RC9901", err),
+        isRouteCraftError(err)
+          ? (err as RouteCraftError)
+          : rcError("RC9901", err),
       );
     });
   }

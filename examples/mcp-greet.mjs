@@ -1,8 +1,18 @@
 import { craft, log, noop } from "@routecraft/routecraft";
-import { tool } from "@routecraft/ai";
+import { plugin as mcp, tool } from "@routecraft/ai";
 import { z } from "zod";
 
-export const echoRoute = craft()
+export const craftConfig = {
+  plugins: [
+    mcp({
+      name: "routecraft",
+      version: "1.0.0",
+      transport: "stdio",
+    }),
+  ],
+};
+
+export default craft()
   .id("greet-user")
   .from(
     tool("greet-user", {

@@ -53,16 +53,13 @@ describe("CraftContext", () => {
   });
 
   /**
-   * @case Verifies duck-typed RouteBuilder is accepted (e.g. when CLI and user module use different package copies)
-   * @preconditions Plain object with .build() returning RouteDefinition[] (not instanceof RouteBuilder)
+   * @case Verifies RouteBuilder is accepted via brand (works across package copies via Symbol.for())
+   * @preconditions RouteBuilder instance (e.g. from user module when CLI uses different copy)
    * @expectedResult Context should register the route and start without validation errors
    */
-  test("Accepts duck-typed route builder (plain object with .build())", async () => {
-    const definition = craft().id("duck-route").from(simple("duck")).build()[0];
-    const duckBuilder = {
-      build: () => [definition],
-    };
-    t = await testContext().routes(duckBuilder).build();
+  test("Accepts RouteBuilder (brand allows cross-instance recognition)", async () => {
+    const builder = craft().id("duck-route").from(simple("duck"));
+    t = await testContext().routes(builder).build();
 
     await t.ctx.start();
     await new Promise((r) => setTimeout(r, 0));

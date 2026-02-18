@@ -2,9 +2,10 @@ import { mkdirSync, openSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve, isAbsolute, basename } from "node:path";
 import { pino, type Logger } from "pino";
-import { type Route, DefaultRoute } from "./route.ts";
-import { type Exchange, EXCHANGE_INTERNALS, HeadersKeys } from "./exchange.ts";
-import { CraftContext } from "./context.ts";
+import { type Route } from "./route.ts";
+import { type Exchange, getExchangeContext, HeadersKeys } from "./exchange.ts";
+import { isCraftContext, isRoute, isExchange } from "./brand.ts";
+import type { CraftContext } from "./context.ts";
 
 /**
  * Public logger type for RouteCraft. Implemented by the default logger and
@@ -250,26 +251,31 @@ export function createLogger(
     return b as unknown as RouteCraftLogger;
   }
 
-  if (context instanceof CraftContext) {
+  if (isCraftContext(context)) {
+    const ctx = context as CraftContext;
     return b.child({
-      contextId: context.contextId,
+      contextId: ctx.contextId,
     }) as unknown as RouteCraftLogger;
-  } else if (context instanceof DefaultRoute) {
+  } else if (isRoute(context)) {
+    const route = context as Route;
     return b.child({
-      contextId: context.context.contextId,
-      routeId: context.definition.id,
+      contextId: route.context.contextId,
+      routeId: route.definition.id,
     }) as unknown as RouteCraftLogger;
-  } else if (EXCHANGE_INTERNALS.has(context as Exchange)) {
-    const internals = EXCHANGE_INTERNALS.get(context as Exchange)!;
-    return b.child({
-      contextId: internals.context.contextId,
-      routeId: (context as Exchange).headers[HeadersKeys.ROUTE_ID],
-      exchangeId: (context as Exchange).id,
-      correlationId: (context as Exchange).headers[HeadersKeys.CORRELATION_ID],
-    }) as unknown as RouteCraftLogger;
-  } else {
-    return b as unknown as RouteCraftLogger;
+  } else if (isExchange(context)) {
+    const ctx = getExchangeContext(context as Exchange);
+    if (ctx) {
+      return b.child({
+        contextId: ctx.contextId,
+        routeId: (context as Exchange).headers[HeadersKeys.ROUTE_ID],
+        exchangeId: (context as Exchange).id,
+        correlationId: (context as Exchange).headers[
+          HeadersKeys.CORRELATION_ID
+        ],
+      }) as unknown as RouteCraftLogger;
+    }
   }
+  return b as unknown as RouteCraftLogger;
 }
 
 /** Overrides for the default logger (e.g. tests setting logger.child). */

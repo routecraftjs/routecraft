@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { BRAND } from "./brand.ts";
 import { ContextBuilder } from "./builder.ts";
 import { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
 import { error as rcError, RC } from "./error.ts";
@@ -148,6 +149,7 @@ export class CraftContext {
    * @param config Optional configuration for the context
    */
   constructor(config?: CraftConfig) {
+    (this as unknown as Record<symbol, boolean>)[BRAND.CraftContext] = true;
     if (config?.log) {
       const logOpts: { logFile?: string; level?: string; redact?: string[] } =
         {};

@@ -1,3 +1,5 @@
+import { BRAND } from "./brand.ts";
+
 export type RCCode =
   | "RC1001"
   | "RC1002"
@@ -187,6 +189,7 @@ export class RouteCraftError extends Error {
     super(meta.message, { cause });
     this.name = "RouteCraftError";
     this.retryable = meta.retryable;
+    (this as unknown as Record<symbol, boolean>)[BRAND.RouteCraftError] = true;
   }
 
   override toString(): string {
