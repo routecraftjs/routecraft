@@ -23,8 +23,8 @@
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
-    "@routecraft/routecraft": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.26.0"
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "@routecraft/routecraft": "workspace:^0.2.0"
   },
   "devDependencies": {
     "vitest": "^4.0.18",

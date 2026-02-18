@@ -237,6 +237,22 @@ jobs:
       - name: Fetch tags
         run: git fetch --force --tags
 
+      - name: Set version for smoke test
+        run: |
+          VERSION=$(node -p "require('./packages/routecraft/package.json').version")
+          pnpm run version:set "$VERSION"
+
+      - name: Smoke test publishable (pack + npm install + npx craft run)
+        run: node .github/scripts/smoke-test-publishable.mjs
+
+      - name: Restore repo (only paths set-version touched)
+        run: |
+          git checkout -- package.json examples/package.json \
+            packages/ai/package.json packages/cli/package.json \
+            packages/create-routecraft/package.json packages/eslint-plugin-routecraft/package.json packages/routecraft/package.json \
+            packages/cli/src/index.ts \
+            apps/routecraft.dev/package.json apps/routecraft.dev/src/components/VersionSelector.tsx
+
       - name: Install CLI globally
         working-directory: ./packages/cli
         run: |
@@ -395,6 +411,11 @@ jobs:
         with:
           path: "**/dist"
           key: build-${{ github.sha }}
+
+      - name: Update package versions
+        run: |
+          RELEASE_VERSION=${GITHUB_REF#refs/tags/v}
+          pnpm run version:set "$RELEASE_VERSION"
 
       - name: Check package version
         run: |
