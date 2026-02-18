@@ -174,6 +174,9 @@ export class ContextBuilder {
    * Add routes to the context.
    *
    * Routes can be added as individual RouteDefinitions, RouteBuilders, or arrays of either.
+   * RouteBuilder-like objects (duck-typed by having a .build() that returns RouteDefinition[])
+   * are supported so that builders from another copy of the package (e.g. CLI vs user module)
+   * are still recognized.
    *
    * @param routes Individual or array of route definitions/builders to add
    * @returns This builder instance for method chaining
@@ -201,21 +204,27 @@ export class ContextBuilder {
       | RouteDefinition
       | RouteBuilder<unknown>,
   ): this {
+    const isBuilderLike = (
+      obj: unknown,
+    ): obj is { build: () => RouteDefinition[] } =>
+      typeof obj === "object" &&
+      obj !== null &&
+      typeof (obj as { build?: unknown }).build === "function";
+
+    const addOne = (route: RouteDefinition | RouteBuilder<unknown>): void => {
+      if (route instanceof RouteBuilder || isBuilderLike(route)) {
+        this.definitions.push(
+          ...(route as { build: () => RouteDefinition[] }).build(),
+        );
+      } else {
+        this.definitions.push(route);
+      }
+    };
+
     if (Array.isArray(routes)) {
-      // Handle array of RouteDefinitions or RouteBuilders
-      routes.forEach((route) => {
-        if (route instanceof RouteBuilder) {
-          this.definitions.push(...route.build());
-        } else {
-          this.definitions.push(route);
-        }
-      });
-    } else if (routes instanceof RouteBuilder) {
-      // Handle single RouteBuilder
-      this.definitions.push(...routes.build());
+      routes.forEach(addOne);
     } else {
-      // Handle single RouteDefinition
-      this.definitions.push(routes);
+      addOne(routes);
     }
     return this;
   }

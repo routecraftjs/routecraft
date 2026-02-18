@@ -31,9 +31,9 @@ export default craft()
 const mcpConfigExample = `{
   "mcpServers": {
     "routecraft": {
-      "command": "/path/to/node",
+      "command": "npx",
       "args": [
-        "/path/to/routecraft/cli",
+        "@routecraft/cli",
         "run",
         "--log-file",
         "/path/to/craft.log",

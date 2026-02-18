@@ -116,7 +116,10 @@ program
         // eslint-disable-next-line no-console
         console.error(result.message);
       }
-      process.exit(result.code ?? 1);
+      // Defer exit so pino/sonic-boom can finish initializing and avoid "sonic boom is not ready yet"
+      const code = result.code ?? 1;
+      setImmediate(() => process.exit(code));
+      return;
     }
   });
 

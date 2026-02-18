@@ -1,4 +1,4 @@
-import { closeSync, mkdirSync, openSync } from "node:fs";
+import { mkdirSync, openSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve, isAbsolute, basename } from "node:path";
 import { pino, type Logger } from "pino";
@@ -55,10 +55,15 @@ function hasPinoPretty(): boolean {
 /**
  * Resolve log destination. Precedence: (1) pendingLogOptions.logFile (CLI
  * --log-file / config), (2) process.env.LOG_FILE, (3) process.env.CRAFT_LOG_FILE.
- * If none are set, returns stdout (fd 1). No file is opened unless one of these
- * is set. On EROFS/EACCES falls back to os.tmpdir() or stdout.
+ * If none are set, returns stdout (fd 1). For file logging we open the fd once
+ * and pass it to pino so sonic-boom is ready immediately, avoiding "sonic boom
+ * is not ready yet" when the process exits early. On EROFS/EACCES falls back to
+ * os.tmpdir() or stdout.
  */
 function getLogDestination(): NodeJS.WritableStream {
+  const pinoDest = pino as unknown as {
+    destination: (pathOrFd: string | number) => NodeJS.WritableStream;
+  };
   const logFile =
     pendingLogOptions.logFile ??
     process.env["LOG_FILE"] ??
@@ -67,34 +72,21 @@ function getLogDestination(): NodeJS.WritableStream {
     const resolved = isAbsolute(logFile)
       ? logFile
       : resolve(process.cwd(), logFile);
-    let pathToUse = resolved;
     try {
       mkdirSync(dirname(resolved), { recursive: true });
       const fd = openSync(resolved, "a");
-      closeSync(fd);
+      return pinoDest.destination(fd);
     } catch {
-      pathToUse = resolve(tmpdir(), basename(logFile));
       try {
+        const pathToUse = resolve(tmpdir(), basename(logFile));
         const fd = openSync(pathToUse, "a");
-        closeSync(fd);
+        return pinoDest.destination(fd);
       } catch {
-        // fall back to stdout if tmp is also unwritable
-        return (
-          pino as unknown as {
-            destination: (fd: number) => NodeJS.WritableStream;
-          }
-        ).destination(1);
+        return pinoDest.destination(1);
       }
     }
-    return (
-      pino as unknown as {
-        destination: (path: string) => NodeJS.WritableStream;
-      }
-    ).destination(pathToUse);
   }
-  return (
-    pino as unknown as { destination: (fd: number) => NodeJS.WritableStream }
-  ).destination(1);
+  return pinoDest.destination(1);
 }
 
 let base: Logger | null = null;

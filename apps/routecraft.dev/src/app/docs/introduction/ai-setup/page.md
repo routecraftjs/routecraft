@@ -90,15 +90,15 @@ Open Cursor Settings → Features → Model Context Protocol, then add:
 
 ## Production deployment
 
-For production MCP servers, use absolute paths:
+For production, we recommend **npx** with a pinned version (e.g. `@routecraft/cli@2.0.0`) so you don’t rely on global installs or path resolution:
 
 ```json
 {
   "mcpServers": {
     "production-tools": {
-      "command": "/usr/local/bin/node",
+      "command": "npx",
       "args": [
-        "/path/to/project/node_modules/@routecraft/cli/dist/index.js",
+        "@routecraft/cli@2.0.0",
         "run",
         "/path/to/project/routes/tools.mjs"
       ]
@@ -106,6 +106,8 @@ For production MCP servers, use absolute paths:
   }
 }
 ```
+
+If npx is not available in your environment, use the full path to Node and to `node_modules/@routecraft/cli/dist/index.js` as the first arg.
 
 ## Security best practices
 

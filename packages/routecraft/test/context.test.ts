@@ -53,6 +53,25 @@ describe("CraftContext", () => {
   });
 
   /**
+   * @case Verifies duck-typed RouteBuilder is accepted (e.g. when CLI and user module use different package copies)
+   * @preconditions Plain object with .build() returning RouteDefinition[] (not instanceof RouteBuilder)
+   * @expectedResult Context should register the route and start without validation errors
+   */
+  test("Accepts duck-typed route builder (plain object with .build())", async () => {
+    const definition = craft().id("duck-route").from(simple("duck")).build()[0];
+    const duckBuilder = {
+      build: () => [definition],
+    };
+    t = await testContext().routes(duckBuilder).build();
+
+    await t.ctx.start();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(t.ctx.getRoutes()).toHaveLength(1);
+    expect(t.ctx.getRouteById("duck-route")).toBeDefined();
+  });
+
+  /**
    * @case Verifies lifecycle hooks execution
    * @preconditions Context with startup/shutdown handlers
    * @expectedResult Both handlers should be called exactly once

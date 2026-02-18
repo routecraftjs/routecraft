@@ -166,4 +166,13 @@ describe("CLI run command", () => {
   });
 
   // Intentionally no test for .ts runtime; CLI rejects .ts/.tsx inputs
+
+  /**
+   * Manual test for "two-copy" duck-typing (different CLI vs route package):
+   * 1. From repo root: pnpm build
+   * 2. Run: npx @routecraft/cli@canary run examples/index.mjs
+   * The CLI uses its own @routecraft/routecraft; the loaded file resolves to the
+   * workspace package, so RouteBuilder is from a different copy. With duck-typing
+   * the server should start; without it you get "Route definition failed validation: id(e){return..."
+   */
 });
