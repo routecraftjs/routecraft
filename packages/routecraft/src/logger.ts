@@ -322,6 +322,10 @@ export const logger: RouteCraftLogger = new Proxy({} as RouteCraftLogger, {
     loggerOverrides.set(prop, value);
     return true;
   },
+  deleteProperty(_target, prop) {
+    loggerOverrides.delete(prop);
+    return true;
+  },
   has(_target, prop) {
     return (
       loggerOverrides.has(prop) ||
