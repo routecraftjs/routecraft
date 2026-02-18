@@ -2,7 +2,11 @@ import { randomUUID } from "node:crypto";
 import { ContextBuilder } from "./builder.ts";
 import { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
 import { error as rcError, RC } from "./error.ts";
-import { createLogger, configureLogger, type Logger } from "./logger.ts";
+import {
+  createLogger,
+  configureLogger,
+  type RouteCraftLogger,
+} from "./logger.ts";
 import {
   type EventHandler,
   type EventName,
@@ -68,12 +72,16 @@ export type CraftConfig = {
   /** Plugins to run before routes are registered (call initPlugins() then registerRoutes) */
   plugins?: CraftPlugin[];
   /**
-   * Logging options. Destination and level are controlled by environment variables
-   * so they apply before your app runs. Set LOG_FILE, LOG_LEVEL (e.g. "silent" to
-   * disable), or use CLI flags `craft run --log-file <path>` and `--log-level <level>`.
-   * craftConfig.log documents the same options; use the env vars or CLI to get that behavior.
+   * Logging options. You can set default `log.level`, `log.file`, and `log.redact` here.
+   * - **CLI runs** (`craft run`): CLI args override craft config; env is set from argv before
+   *   the CLI loads your file, then config is merged with env (CLI wins) and applied before
+   *   any logging. Use `--log-file` / `--log-level` to override config.
+   * - **Programmatic context** (no CLI): Config overrides env; env (LOG_FILE, LOG_LEVEL,
+   *   LOG_REDACT / CRAFT_LOG_*) is the fallback when a key is not set in config.
+   * redact: pino paths to redact (e.g. ["user.name", "req.headers.authorization"]); or set
+   * LOG_REDACT / CRAFT_LOG_REDACT (comma-separated). No CLI flag for redact.
    */
-  log?: { file?: string; level?: string };
+  log?: { file?: string; level?: string; redact?: string[] };
 };
 
 /**
@@ -125,7 +133,7 @@ export class CraftContext {
   >();
 
   /** Logger for this context */
-  public readonly logger: Logger;
+  public readonly logger: RouteCraftLogger;
 
   /** Registered event handlers */
   private readonly handlers: Map<EventName, Set<EventHandler<EventName>>> =
@@ -141,9 +149,11 @@ export class CraftContext {
    */
   constructor(config?: CraftConfig) {
     if (config?.log) {
-      const logOpts: { logFile?: string; level?: string } = {};
+      const logOpts: { logFile?: string; level?: string; redact?: string[] } =
+        {};
       if (config.log.file !== undefined) logOpts.logFile = config.log.file;
       if (config.log.level !== undefined) logOpts.level = config.log.level;
+      if (config.log.redact !== undefined) logOpts.redact = config.log.redact;
       if (Object.keys(logOpts).length > 0) configureLogger(logOpts);
     }
     this.logger = createLogger(this);

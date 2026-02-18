@@ -134,7 +134,6 @@ describe("Route Behavior", () => {
    * @expectedResult Should continue running and log error
    */
   test("handles processor errors gracefully", async () => {
-    // @ts-expect-error Mocking logger.child
     vi.spyOn(logger, "child").mockReturnValue(logSpy);
     const spyDest = vi.fn();
 
@@ -274,7 +273,6 @@ describe("Route Behavior", () => {
    * @expectedResult Should continue processing subsequent messages
    */
   test("continues processing after message failure", async () => {
-    // @ts-expect-error Mocking logger.child
     vi.spyOn(logger, "child").mockReturnValue(logSpy);
     const messages = ["success1", "fail", "success2"];
     const spyDest = vi.fn();
@@ -799,7 +797,6 @@ describe("Route Behavior", () => {
    * @expectedResult Failed exchanges should not prevent aggregation of successful ones
    */
   test("aggregation handles failed split processing gracefully", async () => {
-    // @ts-expect-error Mocking logger.child
     vi.spyOn(logger, "child").mockReturnValue(logSpy);
     const spyDest = vi.fn();
 

@@ -3,15 +3,15 @@ import { tool } from "@routecraft/ai";
 import { z } from "zod";
 
 export const echoRoute = craft()
-  .id("echo-tool")
+  .id("greet-user")
   .from(
-    tool("echo", {
-      description: "Echo back the input message",
+    tool("greet-user", {
+      description: "Greet a user by name",
       schema: z.object({
-        message: z.string().describe("The message to echo"),
+        user: z.string().describe("The user to greet."),
       }),
     }),
   )
-  .transform((payload) => ({ message: payload.message }))
+  .transform((payload) => ({ message: `Hello, ${payload.user}!` }))
   .tap(log())
   .to(noop());

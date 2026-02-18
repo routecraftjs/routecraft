@@ -42,8 +42,16 @@ describe("Hello World Route", () => {
       url: "https://jsonplaceholder.typicode.com/users/1",
     });
 
-    // Spy on logger.info to capture the output
-    const logSpy = vi.spyOn(logger, "info");
+    // Mock logger.child so createLogger() returns this mock; routes use context.logger from createLogger
+    const infoSpy = vi.fn();
+    const mockLogger = {
+      info: infoSpy,
+      warn: vi.fn(),
+      debug: vi.fn(),
+      error: vi.fn(),
+      child: vi.fn().mockReturnThis(),
+    };
+    vi.spyOn(logger, "child").mockReturnValue(mockLogger as any);
 
     // Create context with imported route and run full lifecycle
     t = await testContext().routes(routes).build();
@@ -59,11 +67,11 @@ describe("Hello World Route", () => {
     );
 
     // Verify the log was called (route completed)
-    expect(logSpy).toHaveBeenCalled();
+    expect(infoSpy).toHaveBeenCalled();
 
     // Get the last call arguments (the logged data and message)
     // pino.info() is called with (object, message) format
-    const lastCall = logSpy.mock.calls[logSpy.mock.calls.length - 1];
+    const lastCall = infoSpy.mock.calls[infoSpy.mock.calls.length - 1];
     const result = lastCall[0]; // First argument is the logged object
 
     // Assert the greeting message

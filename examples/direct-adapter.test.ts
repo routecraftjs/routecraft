@@ -8,14 +8,22 @@ import routes from "./direct-adapter.mjs";
  * @expectedResult Should send and receive messages between directs
  */
 test("receives 'Hello, World!' on my-direct-1 and logs it", async () => {
-  const logSpy = vi.spyOn(logger, "info");
+  const infoSpy = vi.fn();
+  const mockLogger = {
+    info: infoSpy,
+    warn: vi.fn(),
+    debug: vi.fn(),
+    error: vi.fn(),
+    child: vi.fn().mockReturnThis(),
+  };
+  vi.spyOn(logger, "child").mockReturnValue(mockLogger as any);
 
   const t = await testContext().routes(routes).build();
   await t.test();
 
   // Collect logged exchanges (LogAdapter logs base exchange: { id, body, headers })
   // pino.info() is called with (object, message) format - first arg is the data
-  const calls = logSpy.mock.calls.map((c) => c[0]) as Array<
+  const calls = infoSpy.mock.calls.map((c) => c[0]) as Array<
     { headers?: Record<string, unknown>; body?: unknown } | unknown
   >;
 

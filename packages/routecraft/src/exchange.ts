@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { type CraftContext } from "./context.ts";
-import { type Logger, createLogger } from "./logger.ts";
+import { type RouteCraftLogger, createLogger } from "./logger.ts";
 import type { Route } from "./route.ts";
 
 /**
@@ -116,7 +116,7 @@ export type Exchange<T = unknown> = {
   body: T;
 
   /** Logger for this exchange */
-  logger: Logger;
+  logger: RouteCraftLogger;
 };
 
 /**
@@ -194,7 +194,7 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
   body: T;
 
   /** Logger for this exchange */
-  public readonly logger: Logger;
+  public readonly logger: RouteCraftLogger;
 
   /**
    * Create a new exchange.
