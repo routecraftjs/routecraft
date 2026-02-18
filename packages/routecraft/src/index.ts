@@ -85,6 +85,17 @@ export {
 } from "./error.ts";
 
 export {
+  BRAND,
+  INTERNALS_KEY,
+  isCraftContext,
+  isRoute,
+  isRouteBuilder,
+  isRouteDefinition,
+  isRouteCraftError,
+  isExchange,
+} from "./brand.ts";
+
+export {
   logger,
   createLogger,
   configureLogger,

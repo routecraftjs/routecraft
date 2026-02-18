@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import { BRAND, isRouteBuilder } from "./brand.ts";
 import { type RouteDefinition } from "./route.ts";
 import {
   CraftContext,
@@ -204,20 +205,13 @@ export class ContextBuilder {
       | RouteDefinition
       | RouteBuilder<unknown>,
   ): this {
-    const isBuilderLike = (
-      obj: unknown,
-    ): obj is { build: () => RouteDefinition[] } =>
-      typeof obj === "object" &&
-      obj !== null &&
-      typeof (obj as { build?: unknown }).build === "function";
-
     const addOne = (route: RouteDefinition | RouteBuilder<unknown>): void => {
-      if (route instanceof RouteBuilder || isBuilderLike(route)) {
+      if (isRouteBuilder(route)) {
         this.definitions.push(
           ...(route as { build: () => RouteDefinition[] }).build(),
         );
       } else {
-        this.definitions.push(route);
+        this.definitions.push(route as RouteDefinition);
       }
     };
 
@@ -313,7 +307,9 @@ export class RouteBuilder<Current = unknown> {
       }
     | undefined;
 
-  constructor() {}
+  constructor() {
+    (this as unknown as Record<symbol, boolean>)[BRAND.RouteBuilder] = true;
+  }
 
   /**
    * Internal method to create a new RouteBuilder with an updated type parameter.
@@ -394,6 +390,9 @@ export class RouteBuilder<Current = unknown> {
         options: consumer.options ?? undefined,
       },
     };
+    (this.currentRoute as unknown as Record<symbol, boolean>)[
+      BRAND.RouteDefinition
+    ] = true;
 
     // Clear staged options once used
     this.pendingOptions = undefined;

@@ -1,11 +1,13 @@
 import { resolve, extname } from "node:path";
 import {
   ContextBuilder,
-  type RouteDefinition,
   type CraftConfig,
   configureLogger,
+  isRouteBuilder,
+  isRouteDefinition,
   logger,
-  RouteBuilder,
+  type RouteBuilder,
+  type RouteDefinition,
 } from "@routecraft/routecraft";
 import { registerContextSignalHandlers } from "./util";
 
@@ -100,38 +102,20 @@ function configureRoutes(
   contextBuilder: InstanceType<typeof ContextBuilder>,
   defaultExport: unknown,
 ): RunResult {
-  // Type guards (duck-typing so routes from user file's routecraft are accepted)
-  const isRouteBuilder = (
-    obj: unknown,
-  ): obj is InstanceType<typeof RouteBuilder> =>
-    typeof obj === "object" &&
-    obj !== null &&
-    typeof (obj as { build?: unknown }).build === "function";
-
-  const isRouteDefinition = (obj: unknown): obj is RouteDefinition =>
-    typeof obj === "object" &&
-    obj !== null &&
-    "id" in obj &&
-    typeof obj.id === "string" && // Ensure id is a string, not a method
-    "source" in obj &&
-    "steps" in obj &&
-    "consumer" in obj;
-
   if (!defaultExport) {
     logger.error("No default export found. Expected routes as default export.");
     return { success: false, code: 1, message: "No default export found" };
   }
 
-  // Handle single RouteBuilder or RouteDefinition
-  // Check RouteBuilder first since it also has an 'id' property (as a method)
+  // Handle single RouteBuilder or RouteDefinition (brand-based guards for cross-instance)
   if (isRouteBuilder(defaultExport)) {
-    contextBuilder.routes(defaultExport);
+    contextBuilder.routes(defaultExport as RouteBuilder<unknown>);
     logger.info("Loaded single RouteBuilder from default export");
     return { success: true };
   }
 
   if (isRouteDefinition(defaultExport)) {
-    contextBuilder.routes(defaultExport);
+    contextBuilder.routes(defaultExport as RouteDefinition);
     logger.info("Loaded single route from default export");
     return { success: true };
   }
@@ -156,7 +140,7 @@ function configureRoutes(
 
     defaultExport.forEach((routeOrBuilder) =>
       contextBuilder.routes(
-        routeOrBuilder as RouteDefinition | InstanceType<typeof RouteBuilder>,
+        routeOrBuilder as RouteDefinition | RouteBuilder<unknown>,
       ),
     );
     logger.info(
