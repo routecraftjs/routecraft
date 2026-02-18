@@ -22,6 +22,6 @@ export default craft()
       }),
     }),
   )
-  .transform((payload) => ({ message: `Hello, ${payload.user}!` }))
   .tap(log())
+  .transform((payload) => ({ message: `Hello, ${payload.user}!` }))
   .to(noop());
