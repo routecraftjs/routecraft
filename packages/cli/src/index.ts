@@ -25,13 +25,7 @@ if (!(major > 18 || (major === 18 && minor >= 19))) {
 }
 
 // ── 2. Early argv scan for log options (before loadEnvFile/runCommand) ─
-// Default level so logger sees "warn" if nothing else is set
-if (process.env["LOG_LEVEL"] === undefined) {
-  process.env["LOG_LEVEL"] = "warn";
-}
-if (process.env["CRAFT_LOG_LEVEL"] === undefined) {
-  process.env["CRAFT_LOG_LEVEL"] = "warn";
-}
+// Only set env when user passes flags; otherwise craftConfig.log can apply when context is built
 for (let i = 0; i < process.argv.length; i++) {
   const arg = process.argv[i];
   if (arg === "--log-file" && process.argv[i + 1]) {

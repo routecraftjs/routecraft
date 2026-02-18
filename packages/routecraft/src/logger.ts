@@ -98,8 +98,8 @@ function hasPinoPretty(): boolean {
 }
 
 /**
- * Resolve log destination. Precedence: (1) pendingLogOptions.logFile (CLI
- * --log-file / config), (2) process.env.LOG_FILE, (3) process.env.CRAFT_LOG_FILE.
+ * Resolve log destination. Env wins over config. Precedence: (1) process.env.LOG_FILE,
+ * (2) process.env.CRAFT_LOG_FILE, (3) pendingLogOptions.logFile (craftConfig / configureLogger).
  * If none are set, returns stdout (fd 1). For file logging we open the fd once
  * and pass it to pino so sonic-boom is ready immediately, avoiding "sonic boom
  * is not ready yet" when the process exits early. On EROFS/EACCES falls back to
@@ -110,9 +110,9 @@ function getLogDestination(): NodeJS.WritableStream {
     destination: (pathOrFd: string | number) => NodeJS.WritableStream;
   };
   const logFile =
-    pendingLogOptions.logFile ??
     process.env["LOG_FILE"] ??
-    process.env["CRAFT_LOG_FILE"];
+    process.env["CRAFT_LOG_FILE"] ??
+    pendingLogOptions.logFile;
   if (logFile) {
     const resolved = isAbsolute(logFile)
       ? logFile
@@ -137,21 +137,21 @@ function getLogDestination(): NodeJS.WritableStream {
 let base: Logger | null = null;
 
 /**
- * Resolve redact paths: config (configureLogger / craftConfig.log.redact) takes precedence,
- * then LOG_REDACT or CRAFT_LOG_REDACT (comma-separated). Used so redaction is configurable
- * without a CLI flag.
+ * Resolve redact paths. Env wins over config: LOG_REDACT / CRAFT_LOG_REDACT (comma-separated)
+ * first, then pendingLogOptions.redact (craftConfig / configureLogger).
  */
 function getRedactPaths(): string[] | undefined {
-  const fromConfig = pendingLogOptions.redact;
-  if (fromConfig !== undefined && fromConfig.length > 0) {
-    return fromConfig;
-  }
   const env = process.env["LOG_REDACT"] ?? process.env["CRAFT_LOG_REDACT"];
   if (env) {
-    return env
+    const parsed = env
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
+    if (parsed.length > 0) return parsed;
+  }
+  const fromConfig = pendingLogOptions.redact;
+  if (fromConfig !== undefined && fromConfig.length > 0) {
+    return fromConfig;
   }
   return undefined;
 }
@@ -172,9 +172,9 @@ function getBaseLogger(): Logger {
   const pinoLogger = pino(
     {
       level:
-        pendingLogOptions.level ??
         process.env["LOG_LEVEL"] ??
         process.env["CRAFT_LOG_LEVEL"] ??
+        pendingLogOptions.level ??
         "warn",
       formatters: {
         level: (label) => ({ level: label.toUpperCase() }),
