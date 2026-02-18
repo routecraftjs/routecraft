@@ -9,7 +9,7 @@ import {
   EXCHANGE_INTERNALS,
 } from "./exchange.ts";
 import { error as rcError, RouteCraftError, RC } from "./error.ts";
-import { createLogger, type Logger } from "./logger.ts";
+import { createLogger, type RouteCraftLogger } from "./logger.ts";
 import { type Source } from "./operations/from.ts";
 import {
   type Adapter,
@@ -66,7 +66,7 @@ export interface Route {
   readonly signal: AbortSignal;
 
   /** Logger for this route */
-  logger: Logger;
+  logger: RouteCraftLogger;
 
   /**
    * Start processing data on this route.
@@ -103,7 +103,7 @@ export class DefaultRoute implements Route {
   private abortController: AbortController;
 
   /** Logger for this route */
-  public readonly logger: Logger;
+  public readonly logger: RouteCraftLogger;
 
   /** Internal queue for passing messages between the source and consumer */
   private messageChannel: ProcessingQueue<Message>;

@@ -20,8 +20,8 @@ describe("Timer Adapter", () => {
       error: vi.fn(),
       level: "info",
       child: vi.fn().mockReturnThis(),
-    } as any;
-    vi.spyOn(logger, "child").mockReturnValue(childLogger);
+    };
+    vi.spyOn(logger, "child").mockReturnValue(childLogger as any);
 
     const t = await testContext().routes(timerRoutes).build();
 

@@ -13,20 +13,28 @@ describe("Enrich Example", () => {
    * @expectedResult The exchange body should contain both original and additional data
    */
   it("should enrich an exchange with additional data", async () => {
+    // Mock logger.child so createLogger() returns this mock; routes use context.logger from createLogger
+    const infoSpy = vi.fn();
+    const mockLogger = {
+      info: infoSpy,
+      warn: vi.fn(),
+      debug: vi.fn(),
+      error: vi.fn(),
+      child: vi.fn().mockReturnThis(),
+    };
+    vi.spyOn(logger, "child").mockReturnValue(mockLogger as any);
+
     // Create a context with the route builder and run full lifecycle
     const t = await testContext().routes(enrichExample).build();
-
-    // Spy on logger.info to capture the output
-    const logSpy = vi.spyOn(logger, "info");
 
     await t.test();
 
     // Verify the result
-    expect(logSpy).toHaveBeenCalled();
+    expect(infoSpy).toHaveBeenCalled();
 
     // Get the last call arguments (the logged data)
     // pino.info() is called with (object, message) format
-    const lastCall = logSpy.mock.calls[logSpy.mock.calls.length - 1];
+    const lastCall = infoSpy.mock.calls[infoSpy.mock.calls.length - 1];
     const result = lastCall[0]; // First argument is the logged object
 
     expect(result).toBeDefined();

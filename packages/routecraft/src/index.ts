@@ -88,7 +88,7 @@ export {
   logger,
   createLogger,
   configureLogger,
-  type Logger,
+  type RouteCraftLogger,
 } from "./logger.ts";
 
 export {

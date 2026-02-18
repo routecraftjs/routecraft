@@ -39,7 +39,7 @@ Logs go to **stdout** by default at **warn** level. No file is used unless you s
 
 - **Environment:** `LOG_FILE` or `CRAFT_LOG_FILE` to write logs to a file. `LOG_LEVEL` or `CRAFT_LOG_LEVEL` for the level (e.g. `info`, `warn`, `error`, or `silent` to disable).
 - **CLI:** `craft run <file> --log-file <path>` and `--log-level <level>` (set before your app loads).
-- **Config and precedence:** `craftConfig.log` provides default values; environment variables override those, and CLI flags override both. Env vars and CLI flags must be set before the logger is instantiated (before logger creation) to take effect—pass flags to the CLI early so they are applied prior to building the context.
+- **Config and precedence:** `craftConfig.log` can set default `level`, `file`, and `redact`. For **CLI runs**, CLI flags override craft config. For **programmatic context**, craft config overrides env. Env (LOG_LEVEL, LOG_FILE, LOG_REDACT / CRAFT_LOG_*) is the fallback when a key is not set in config.
 
 ## Documentation
 

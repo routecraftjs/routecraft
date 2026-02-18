@@ -28,6 +28,7 @@ export const craftConfig = {
 | `store` | `Map<keyof StoreRegistry, StoreRegistry[keyof StoreRegistry]>` | No | — | Initial values for the context store |
 | `on` | `Partial<Record<EventName, EventHandler \| EventHandler[]>>` | No | — | Event handlers to register on context creation |
 | `plugins` | `CraftPlugin[]` | No | — | Plugins to initialize before routes are registered |
+| `log` | `{ file?: string; level?: string; redact?: string[] }` | No | — | Default log file, level, and pino redact paths. **CLI runs:** CLI flags override config. **Programmatic context:** config overrides env. Env is fallback when a key is unset. |
 
 ## Usage patterns
 
@@ -114,6 +115,8 @@ RouteCraft automatically loads environment variables from `.env` files when usin
 LOG_LEVEL=debug
 NODE_ENV=development
 ```
+
+**Logging precedence:** `craftConfig.log` can set default `level`, `file`, and `redact`. When using the CLI, CLI flags override those defaults. When creating a context programmatically (no CLI), craft config overrides env; env (`LOG_LEVEL`, `LOG_FILE`, `LOG_REDACT` / `CRAFT_LOG_*`) is used when a key is not set in config.
 
 ## Adapters
 

@@ -3,6 +3,7 @@ import {
   ContextBuilder,
   type RouteDefinition,
   type CraftConfig,
+  configureLogger,
   logger,
   RouteBuilder,
 } from "@routecraft/routecraft";
@@ -40,18 +41,37 @@ export async function runCommand(filePath: string): Promise<RunResult> {
   }
 
   try {
-    logger.info(`Loading file: ${absFilePath}`);
-
-    // Load the module with both default and named exports
+    // Load the module first so we can read craftConfig and set up logging before any logger use.
     const module = await import(absFilePath);
+    const craftConfig = module.craftConfig as CraftConfig | undefined;
+
+    // Merge log options: CLI env over craft config over defaults, then configure once.
+    const logFile =
+      process.env["LOG_FILE"] ??
+      process.env["CRAFT_LOG_FILE"] ??
+      craftConfig?.log?.file;
+    const mergedLog: Parameters<typeof configureLogger>[0] = {
+      level:
+        process.env["LOG_LEVEL"] ??
+        process.env["CRAFT_LOG_LEVEL"] ??
+        craftConfig?.log?.level ??
+        "warn",
+      ...(logFile !== undefined && { logFile }),
+      ...(craftConfig?.log?.redact !== undefined && {
+        redact: craftConfig.log.redact,
+      }),
+    };
+    configureLogger(mergedLog);
+
+    logger.info(`Loading file: ${absFilePath}`);
 
     // Create context builder
     const contextBuilder = new ContextBuilder();
 
-    // Check for optional craftConfig named export
-    if (module.craftConfig) {
+    // Apply craftConfig (routes, plugins, etc.); log was already applied above.
+    if (craftConfig) {
       logger.info("Found craftConfig export, applying configuration");
-      contextBuilder.with(module.craftConfig as CraftConfig);
+      contextBuilder.with(craftConfig);
     }
 
     // Handle routes from the default export
@@ -80,7 +100,7 @@ function configureRoutes(
   contextBuilder: InstanceType<typeof ContextBuilder>,
   defaultExport: unknown,
 ): RunResult {
-  // Type guards
+  // Type guards (duck-typing so routes from user file's routecraft are accepted)
   const isRouteBuilder = (
     obj: unknown,
   ): obj is InstanceType<typeof RouteBuilder> =>

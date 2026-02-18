@@ -139,9 +139,9 @@ Mock child logger for timer-heavy tests:
 
 ```ts
 import { vi } from "vitest";
-import { logger } from "@routecraft/routecraft";
+import { logger, type RouteCraftLogger } from "@routecraft/routecraft";
 
-const childLogger = { info: vi.fn(), debug: vi.fn(), warn: vi.fn(), error: vi.fn(), level: "info", child: vi.fn().mockReturnThis() } as any;
+const childLogger = { info: vi.fn(), debug: vi.fn(), warn: vi.fn(), error: vi.fn(), level: "info", child: vi.fn().mockReturnThis() } as unknown as RouteCraftLogger;
 vi.spyOn(logger, "child").mockReturnValue(childLogger);
 ```
 
