@@ -26,6 +26,7 @@ export interface RouteCraftLogger {
   error(msg: string, ...args: unknown[]): void;
   fatal(obj: unknown, msg?: string, ...args: unknown[]): void;
   fatal(msg: string, ...args: unknown[]): void;
+  silent(obj: unknown, msg?: string, ...args: unknown[]): void;
   silent(msg: string, ...args: unknown[]): void;
 
   level: string;
@@ -73,7 +74,10 @@ export function configureLogger(options: {
     pendingLogOptions = { ...pendingLogOptions, level: options.level };
   }
   if (options.redact !== undefined) {
-    pendingLogOptions = { ...pendingLogOptions, redact: options.redact };
+    const redact = options.redact
+      .map((s) => (typeof s === "string" ? s.trim() : String(s)))
+      .filter(Boolean);
+    pendingLogOptions = { ...pendingLogOptions, redact };
   }
 }
 
@@ -319,6 +323,10 @@ export const logger: RouteCraftLogger = new Proxy({} as RouteCraftLogger, {
     return value;
   },
   set(_target, prop, value) {
+    if (prop === "level" && typeof value === "string") {
+      const target = getDefaultLogger() as unknown as Record<string, unknown>;
+      target["level"] = value;
+    }
     loggerOverrides.set(prop, value);
     return true;
   },
