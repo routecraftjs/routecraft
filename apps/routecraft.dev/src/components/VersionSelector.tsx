@@ -8,7 +8,7 @@ import {
 } from '@headlessui/react'
 import clsx from 'clsx'
 
-const versions = [{ label: 'v0.1.1', value: 'v0.1.1' }]
+const versions = [{ label: 'v0.2.0', value: 'v0.2.0' }]
 
 function ChevronDownIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
   return (

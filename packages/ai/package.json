@@ -1,6 +1,6 @@
 {
   "name": "@routecraft/ai",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "AI and MCP integrations for RouteCraft",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -24,14 +24,14 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",
-    "@routecraft/routecraft": "workspace:^0.2.0"
+    "@routecraft/routecraft": "workspace:^0.3.0"
   },
   "devDependencies": {
     "vitest": "^4.0.18",
     "zod": "^4.3.6"
   },
   "peerDependencies": {
-    "@routecraft/routecraft": ">=0.2.0"
+    "@routecraft/routecraft": "*"
   },
   "keywords": [
     "routecraft",
