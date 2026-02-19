@@ -5,7 +5,8 @@ import {
   type ExchangeHeaders,
   type Source,
 } from "@routecraft/routecraft";
-import type { McpServerOptions } from "../dsl.ts";
+import { BRAND } from "../brand.ts";
+import type { McpServerOptions } from "./types.ts";
 import { MCP_PLUGIN_REGISTERED } from "./types.ts";
 
 /**
@@ -18,7 +19,9 @@ export class McpSourceAdapter<T = unknown> implements Source<T> {
   constructor(
     private readonly endpoint: string,
     private readonly options: McpServerOptions,
-  ) {}
+  ) {
+    (this as unknown as Record<symbol, boolean>)[BRAND.McpSourceAdapter] = true;
+  }
 
   async subscribe(
     context: CraftContext,

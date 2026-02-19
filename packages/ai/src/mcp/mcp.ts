@@ -1,48 +1,36 @@
 import {
   direct,
   error as rcError,
-  type DirectServerOptions,
   type Exchange,
   type Source,
   type Destination,
 } from "@routecraft/routecraft";
-import { McpClientAdapter } from "./mcp/client-adapter.ts";
-import { McpSourceAdapter } from "./mcp/source-adapter.ts";
-
-/**
- * Options for mcp() when used as a Server in .from().
- * Description is required for AI/MCP discoverability.
- */
-export interface McpServerOptions extends DirectServerOptions {
-  /** Human-readable description (required for MCP tools). */
-  description: string;
-}
-
-/**
- * Options for mcp() when used as a Client in .to() to call a remote MCP server.
- */
-export interface McpClientOptions {
-  /** URL of the remote MCP server (e.g. streamable HTTP or SSE endpoint). */
-  url: string;
-  /** Tool name to invoke. If omitted, exchange body may specify it or a default applies. */
-  tool?: string;
-  /** Server id from context store; resolved to URL at runtime. Use when URL is registered in context. */
-  serverId?: string;
-}
-
-export type McpOptions = McpServerOptions;
+import { McpClientAdapter } from "./client-adapter.ts";
+import { McpSourceAdapter } from "./source-adapter.ts";
+import type {
+  McpArgsExtractor,
+  McpClientOptions,
+  McpServerOptions,
+} from "./types.ts";
 
 /**
  * Create an MCP endpoint - a discoverable direct route for AI/MCP integration.
  *
  * `mcp()` is an alias for `direct()` with semantics oriented toward AI/MCP use cases.
- * Same two-argument pattern: mcp(endpoint, options) for source, mcp(endpoint) for destination.
+ * - .to(mcp("server:tool", { args? })) — remote tool by name (server and tool from plugin clients).
+ * - .to(mcp({ url | serverId, tool, args? })) — remote tool with explicit options.
+ * - .from(mcp(endpoint, options)) — source with description.
+ * - .to(mcp(endpoint)) — direct destination.
  */
 export function mcp<T = unknown>(
   endpoint: string,
   options: McpServerOptions,
 ): Source<T>;
 export function mcp(options: McpClientOptions): Destination<unknown, unknown>;
+export function mcp(
+  target: string,
+  options?: { args?: McpArgsExtractor },
+): Destination<unknown, unknown>;
 export function mcp<T = unknown>(
   endpoint: string | ((exchange: Exchange<T>) => string),
 ): Destination<T, T>;
@@ -51,7 +39,7 @@ export function mcp<T = unknown>(
     | string
     | ((exchange: Exchange<T>) => string)
     | McpClientOptions,
-  options?: McpServerOptions | McpClientOptions,
+  options?: McpServerOptions | McpClientOptions | { args?: McpArgsExtractor },
 ): Source<T> | Destination<T, T> | Destination<unknown, unknown> {
   // Remote MCP client: .to(mcp({ url, tool })) or .to(mcp({ serverId, tool }))
   if (
@@ -61,6 +49,27 @@ export function mcp<T = unknown>(
   ) {
     return new McpClientAdapter(endpointOrOptions as McpClientOptions);
   }
+
+  // .to(mcp("server:tool", { args? })) — parse target and create client adapter
+  if (
+    typeof endpointOrOptions === "string" &&
+    endpointOrOptions.includes(":")
+  ) {
+    const colonIndex = endpointOrOptions.indexOf(":");
+    const serverId = endpointOrOptions.slice(0, colonIndex);
+    const tool = endpointOrOptions.slice(colonIndex + 1);
+    const clientOptions: McpClientOptions = { serverId, tool };
+    if (
+      options !== undefined &&
+      typeof options === "object" &&
+      "args" in options &&
+      options.args !== undefined
+    ) {
+      clientOptions.args = options.args;
+    }
+    return new McpClientAdapter(clientOptions);
+  }
+
   const endpoint = endpointOrOptions as
     | string
     | ((exchange: Exchange<T>) => string);
