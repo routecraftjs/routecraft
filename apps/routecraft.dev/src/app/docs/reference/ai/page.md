@@ -65,9 +65,9 @@ mcp<T>(
 
 Create a discoverable direct route for AI/MCP integration. If you pass the **options** object (second argument), you **must** include `description`—it is required whenever options are provided. `schema` and `keywords` are optional.
 
-### Options (McpOptions)
+### Options (McpServerOptions / McpOptions)
 
-When you pass options, `description` is **required**. Other fields are optional.
+When you pass options for the server (`.from(mcp(...))`), use `McpServerOptions`; `description` is **required**. Other fields are optional.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -76,6 +76,23 @@ When you pass options, `description` is **required**. Other fields are optional.
 | `headerSchema` | `StandardSchemaV1` | No | Header validation schema. |
 | `keywords` | `string[]` | No | Keywords for discovery and categorization. |
 | `channelType` | `DirectChannelType<DirectChannel>` | No | Custom direct channel implementation. |
+
+### MCP plugin required for `.from(mcp(...))`
+
+Routes that use `.from(mcp(...))` require the **MCP plugin** to be in your config. If you omit it, the route will fail when it starts with an error: "MCP plugin required". Add `mcpPlugin()` to `plugins` when building your context:
+
+```ts
+import { mcp, mcpPlugin } from '@routecraft/ai';
+import { craft } from '@routecraft/routecraft';
+
+const ctx = craft()
+  .id('my-app')
+  .routes([/* routes that use .from(mcp(...)) */])
+  .with({ plugins: [mcpPlugin({ transport: 'http', port: 3001 })] })
+  .build();
+```
+
+`mcpPlugin(options?)` accepts typed **McpPluginOptions** (e.g. `name`, `version`, `transport`, `port`, `host`, `tools`). For full validation of options (e.g. required props), use `validateWithSchema(options, schema)` with a StandardSchema from Zod, Valibot, or ArkType before passing options to `mcpPlugin()`.
 
 ### Without options (destination or simple source)
 
@@ -177,12 +194,12 @@ const tools = registry ? Array.from(registry.values()) : [];
 `mcp()` is an alias for `direct()` with two differences:
 
 1. **Semantics** – Names and docs are oriented toward AI/MCP (MCP endpoints, discovery).
-2. **McpOptions** – When you pass options, `description` is **required** so every defined MCP endpoint is discoverable; `direct()` leaves all options optional.
+2. **McpServerOptions** – When you pass options, `description` is **required** so every defined MCP endpoint is discoverable; `direct()` leaves all options optional.
 
 Behavior (single consumer, synchronous, validation, registry) is the same as `direct()`. Use `mcp()` when building AI/MCP-facing routes; use `direct()` for general inter-route communication.
 
 ## Coming soon
 
 - LLM adapters (OpenAI, Google Gemini)
-- MCP client destination (`.to(mcp({ server, tool: 'foo' }))`) for calling remote MCP servers
+- MCP client destination (`.to(mcp({ url, tool: 'foo' }))`) for calling remote MCP servers
 - Agent routing

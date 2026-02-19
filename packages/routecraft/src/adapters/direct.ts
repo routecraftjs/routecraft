@@ -54,10 +54,10 @@ export interface DirectBaseOptions {
 }
 
 /**
- * Options when using direct adapter as a Source (.from()).
+ * Options when using direct adapter as a Server (.from()).
  * Body/header validation and discovery metadata apply to incoming messages.
  */
-export interface DirectSourceOptions extends DirectBaseOptions {
+export interface DirectServerOptions extends DirectBaseOptions {
   /**
    * Body validation schema. Behavior depends on schema library:
    * - Zod 4: z.object() strips extras (default), z.looseObject() keeps them, z.strictObject() rejects them
@@ -93,16 +93,16 @@ export interface DirectSourceOptions extends DirectBaseOptions {
 }
 
 /**
- * Options when using direct adapter as a Destination (.to(), .tap()).
+ * Options when using direct adapter as a Client (.to(), .tap()).
  * Room for future options (e.g. timeout, retryPolicy).
  */
-export type DirectDestinationOptions = DirectBaseOptions;
+export type DirectClientOptions = DirectBaseOptions;
 
-/** Options when using direct as a source or destination (union). */
-export type DirectOptions = DirectSourceOptions | DirectDestinationOptions;
+/** Options when using direct as a server or client (union). */
+export type DirectOptions = DirectServerOptions | DirectClientOptions;
 
-/** Internal: merged shape so we can read both source and destination options. */
-type DirectOptionsMerged = DirectSourceOptions & DirectDestinationOptions;
+/** Internal: merged shape so we can read both server and client options. */
+type DirectOptionsMerged = DirectServerOptions & DirectClientOptions;
 
 declare module "@routecraft/routecraft" {
   interface StoreRegistry {
@@ -396,7 +396,7 @@ export class DirectAdapter<T = unknown>
  */
 export function direct<T = unknown>(
   endpoint: string,
-  options: Partial<DirectSourceOptions>,
+  options: Partial<DirectServerOptions>,
 ): Source<T>;
 export function direct<T = unknown>(
   endpoint: string | ((exchange: Exchange<T>) => string),

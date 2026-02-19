@@ -1,3 +1,10 @@
-export { plugin } from "./plugin.ts";
+export { mcpPlugin } from "./plugin.ts";
 export { MCPServer } from "./server.ts";
-export type { MCPServerOptions, MCPTool, MCPToolResult } from "./types.ts";
+export {
+  MCP_PLUGIN_REGISTERED,
+  type McpPluginOptions,
+  type MCPServerOptions,
+  type MCPTool,
+  type MCPToolResult,
+} from "./types.ts";
+export { validateWithSchema } from "./validate-options.ts";

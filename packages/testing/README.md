@@ -14,7 +14,7 @@ or
 pnpm add -D @routecraft/testing
 ```
 
-Install as a **devDependency** and ensure `vitest` (>=4) and `@routecraft/routecraft` are available.
+Install as a **devDependency** and ensure `vitest` (>=4.0.0) and `@routecraft/routecraft` are available.
 
 ## Quick Start
 

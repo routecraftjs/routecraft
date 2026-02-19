@@ -2,6 +2,7 @@ export {
   DefaultExchange,
   type Exchange,
   type ExchangeHeaders,
+  getExchangeContext,
   HeadersKeys,
   type HeaderValue,
   OperationType,
@@ -133,10 +134,10 @@ export {
   type DirectBaseOptions,
   type DirectChannel,
   type DirectChannelType,
-  type DirectDestinationOptions,
+  type DirectClientOptions,
   type DirectOptions,
   type DirectRouteMetadata,
-  type DirectSourceOptions,
+  type DirectServerOptions,
 } from "./adapters/direct.ts";
 export { TimerAdapter, type TimerOptions } from "./adapters/timer.ts";
 export {
