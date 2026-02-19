@@ -20,16 +20,6 @@ export async function runCommand(filePath: string): Promise<RunResult> {
   const absFilePath = resolve(process.cwd(), filePath);
   const ext = extname(absFilePath);
 
-  // Reject TypeScript files explicitly (before generic extension check)
-  if (ext === ".ts" || ext === ".tsx") {
-    return {
-      success: false,
-      code: 1,
-      message:
-        "TypeScript files are not supported by 'craft run'. Compile to .js or use .mjs/.js/.cjs.",
-    };
-  }
-
   // Validate file extension
   if (
     !SUPPORTED_EXTENSIONS.includes(ext as (typeof SUPPORTED_EXTENSIONS)[number])

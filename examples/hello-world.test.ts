@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { testContext, type TestContext, logger } from "@routecraft/routecraft";
+import { testContext, type TestContext } from "@routecraft/routecraft";
 import routes from "./hello-world.mjs";
 
 describe("Hello World Route", () => {
@@ -42,18 +42,7 @@ describe("Hello World Route", () => {
       url: "https://jsonplaceholder.typicode.com/users/1",
     });
 
-    // Mock logger.child so createLogger() returns this mock; routes use context.logger from createLogger
-    const infoSpy = vi.fn();
-    const mockLogger = {
-      info: infoSpy,
-      warn: vi.fn(),
-      debug: vi.fn(),
-      error: vi.fn(),
-      child: vi.fn().mockReturnThis(),
-    };
-    vi.spyOn(logger, "child").mockReturnValue(mockLogger as any);
-
-    // Create context with imported route and run full lifecycle
+    // Create context with imported route and run full lifecycle (t.logger is a spy)
     t = await testContext().routes(routes).build();
     await t.test();
 
@@ -67,10 +56,11 @@ describe("Hello World Route", () => {
     );
 
     // Verify the log was called (route completed)
-    expect(infoSpy).toHaveBeenCalled();
+    expect(t.logger.info).toHaveBeenCalled();
 
     // Get the last call arguments (the logged data and message)
     // pino.info() is called with (object, message) format
+    const infoSpy = t.logger.info as ReturnType<typeof vi.fn>;
     const lastCall = infoSpy.mock.calls[infoSpy.mock.calls.length - 1];
     const result = lastCall[0]; // First argument is the logged object
 

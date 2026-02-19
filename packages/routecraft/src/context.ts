@@ -3,11 +3,7 @@ import { BRAND } from "./brand.ts";
 import { ContextBuilder } from "./builder.ts";
 import { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
 import { error as rcError, RC } from "./error.ts";
-import {
-  createLogger,
-  configureLogger,
-  type RouteCraftLogger,
-} from "./logger.ts";
+import { logger, childBindings } from "./logger.ts";
 import {
   type EventHandler,
   type EventName,
@@ -72,17 +68,6 @@ export type CraftConfig = {
   >;
   /** Plugins to run before routes are registered (call initPlugins() then registerRoutes) */
   plugins?: CraftPlugin[];
-  /**
-   * Logging options. You can set default `log.level`, `log.file`, and `log.redact` here.
-   * - **CLI runs** (`craft run`): CLI args override craft config; env is set from argv before
-   *   the CLI loads your file, then config is merged with env (CLI wins) and applied before
-   *   any logging. Use `--log-file` / `--log-level` to override config.
-   * - **Programmatic context** (no CLI): Config overrides env; env (LOG_FILE, LOG_LEVEL,
-   *   LOG_REDACT / CRAFT_LOG_*) is the fallback when a key is not set in config.
-   * redact: pino paths to redact (e.g. ["user.name", "req.headers.authorization"]); or set
-   * LOG_REDACT / CRAFT_LOG_REDACT (comma-separated). No CLI flag for redact.
-   */
-  log?: { file?: string; level?: string; redact?: string[] };
 };
 
 /**
@@ -133,8 +118,8 @@ export class CraftContext {
     StoreRegistry[keyof StoreRegistry]
   >();
 
-  /** Logger for this context */
-  public readonly logger: RouteCraftLogger;
+  /** Logger for this context (pino child logger) */
+  public readonly logger: ReturnType<typeof logger.child>;
 
   /** Registered event handlers */
   private readonly handlers: Map<EventName, Set<EventHandler<EventName>>> =
@@ -150,15 +135,7 @@ export class CraftContext {
    */
   constructor(config?: CraftConfig) {
     (this as unknown as Record<symbol, boolean>)[BRAND.CraftContext] = true;
-    if (config?.log) {
-      const logOpts: { logFile?: string; level?: string; redact?: string[] } =
-        {};
-      if (config.log.file !== undefined) logOpts.logFile = config.log.file;
-      if (config.log.level !== undefined) logOpts.level = config.log.level;
-      if (config.log.redact !== undefined) logOpts.redact = config.log.redact;
-      if (Object.keys(logOpts).length > 0) configureLogger(logOpts);
-    }
-    this.logger = createLogger(this);
+    this.logger = logger.child(childBindings(this));
     if (config) {
       // Initialize store from config
       if (config.store) {

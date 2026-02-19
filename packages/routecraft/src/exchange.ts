@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { INTERNALS_KEY, BRAND } from "./brand.ts";
 import { type CraftContext } from "./context.ts";
-import { type RouteCraftLogger, createLogger } from "./logger.ts";
+import { logger, childBindings } from "./logger.ts";
 import type { Route } from "./route.ts";
 
 /**
@@ -116,8 +116,8 @@ export type Exchange<T = unknown> = {
   /** The data being processed */
   body: T;
 
-  /** Logger for this exchange */
-  logger: RouteCraftLogger;
+  /** Logger for this exchange (pino child logger) */
+  logger: ReturnType<typeof logger.child>;
 };
 
 /**
@@ -204,8 +204,8 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
   /** The data being processed */
   body: T;
 
-  /** Logger for this exchange */
-  public readonly logger: RouteCraftLogger;
+  /** Logger for this exchange (pino child logger) */
+  public readonly logger: ReturnType<typeof logger.child>;
 
   /**
    * Create a new exchange.
@@ -229,6 +229,6 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
       internals;
     EXCHANGE_INTERNALS.set(this, internals);
     (this as unknown as Record<symbol, boolean>)[BRAND.Exchange] = true;
-    this.logger = createLogger(this);
+    this.logger = logger.child(childBindings(this));
   }
 }

@@ -28,7 +28,6 @@ export const craftConfig = {
 | `store` | `Map<keyof StoreRegistry, StoreRegistry[keyof StoreRegistry]>` | No | — | Initial values for the context store |
 | `on` | `Partial<Record<EventName, EventHandler \| EventHandler[]>>` | No | — | Event handlers to register on context creation |
 | `plugins` | `CraftPlugin[]` | No | — | Plugins to initialize before routes are registered |
-| `log` | `{ file?: string; level?: string; redact?: string[] }` | No | — | Default log file, level, and pino redact paths. **CLI runs:** CLI flags override config. **Programmatic context:** config overrides env. Env is fallback when a key is unset. |
 
 ## Usage patterns
 
@@ -106,17 +105,38 @@ const ctx = context()
   .build()
 ```
 
+## Logging configuration
+
+Logging uses a single pino instance configured at module load. Precedence (highest wins):
+
+1. **Environment variables** — `LOG_LEVEL` / `CRAFT_LOG_LEVEL`, `LOG_FILE` / `CRAFT_LOG_FILE`, `LOG_REDACT` / `CRAFT_LOG_REDACT` (comma-separated paths to redact)
+2. **Config file in cwd** — `craft.log.cjs` or `craft.log.js` in the current working directory
+3. **Config file in home** — `craft.log.cjs` or `craft.log.js` in `~/.routecraft/`
+4. **Defaults** — level `"warn"`, stdout, no redact
+
+The config file exports a **native pino options object** (e.g. `level`, `redact`, `formatters`, `transport`). Env vars are merged on top, so env always wins.
+
+Example `craft.log.js` (or `craft.log.cjs` in a CommonJS project):
+
+```js
+// craft.log.js
+export default {
+  level: "info",
+  redact: ["req.headers.authorization"],
+};
+```
+
+When using the CLI, pass `--log-level` or `--log-file` to set the corresponding env var before the logger initializes, so CLI flags override any config file.
+
 ## Environment variables
 
-RouteCraft automatically loads environment variables from `.env` files when using the CLI. Set logging levels and other runtime configuration:
+RouteCraft automatically loads environment variables from `.env` files when using the CLI:
 
 ```bash
 # .env
 LOG_LEVEL=debug
 NODE_ENV=development
 ```
-
-**Logging precedence:** `craftConfig.log` can set default `level`, `file`, and `redact`. When using the CLI, CLI flags override those defaults. When creating a context programmatically (no CLI), craft config overrides env; env (`LOG_LEVEL`, `LOG_FILE`, `LOG_REDACT` / `CRAFT_LOG_*`) is used when a key is not set in config.
 
 ## Adapters
 

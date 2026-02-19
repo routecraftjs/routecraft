@@ -4,8 +4,7 @@
  * Routecraft CLI — single entry point.
  *
  * 1. Check Node version (Pino 10 needs Node 18.19+)
- * 2. Set LOG_FILE / LOG_LEVEL from argv before any import touches pino
- * 3. Dynamically import the rest so env is ready when the logger initialises
+ * 2. Define program and parse; log options are global and applied before lazy-loading run/util (which load the logger)
  */
 
 // ── 1. Node version gate ────────────────────────────────────────────
@@ -24,42 +23,22 @@ if (!(major > 18 || (major === 18 && minor >= 19))) {
   process.exit(1);
 }
 
-// ── 2. Early argv scan for log options (before loadEnvFile/runCommand) ─
-// Only set env when user passes flags; otherwise craftConfig.log can apply when context is built
-for (let i = 0; i < process.argv.length; i++) {
-  const arg = process.argv[i];
-  if (arg === "--log-file" && process.argv[i + 1]) {
-    const path = process.argv[i + 1];
-    process.env["LOG_FILE"] = path;
-    process.env["CRAFT_LOG_FILE"] = path;
-  } else if (arg.startsWith("--log-file=")) {
-    const path = arg.slice("--log-file=".length);
-    process.env["LOG_FILE"] = path;
-    process.env["CRAFT_LOG_FILE"] = path;
-  }
-  if (arg === "--log-level" && process.argv[i + 1]) {
-    const level = process.argv[i + 1];
-    process.env["LOG_LEVEL"] = level;
-    process.env["CRAFT_LOG_LEVEL"] = level;
-  } else if (arg.startsWith("--log-level=")) {
-    const level = arg.slice("--log-level=".length);
-    process.env["LOG_LEVEL"] = level;
-    process.env["CRAFT_LOG_LEVEL"] = level;
-  }
-}
-
-// ── 3. Dynamic imports (pino is loaded here, sees env vars above) ───
+// ── 2. CLI definition (only Commander; run/util are lazy-loaded so logger sees env) ─
 const { Command } = await import("commander");
-const { runCommand } = await import("./run.js");
-const { loadEnvFile } = await import("./util.js");
-
-// ── 4. CLI definition ──────────────────────────────────────────────
 const program = new Command();
 
 program
   .name("craft")
   .description("A modern routing framework for TypeScript")
   .version("0.2.0")
+  .option(
+    "--log-level <level>",
+    "Log level (e.g. info, warn, error, silent to disable)",
+  )
+  .option(
+    "--log-file <path>",
+    "Write logs to a file (keeps stdout clear for MCP stdio)",
+  )
   .showSuggestionAfterError()
   .showHelpAfterError()
   .exitOverride((err) => {
@@ -87,23 +66,26 @@ program
     "--env <path>",
     "Load environment variables from a .env file (default: .env)",
   )
-  .option(
-    "--log-file <path>",
-    "Write logs to a file (keeps stdout clear for MCP stdio)",
-  )
-  .option(
-    "--log-level <level>",
-    "Log level (e.g. info, warn, error, silent to disable)",
-    "warn",
-  )
   .action(async (filePath, options) => {
-    // Load environment variables if specified or use default .env
+    // Apply global log options to env before any import that creates the logger
+    const globalOpts = program.opts();
+    if (globalOpts["logLevel"] !== undefined) {
+      process.env["LOG_LEVEL"] = globalOpts["logLevel"];
+      process.env["CRAFT_LOG_LEVEL"] = globalOpts["logLevel"];
+    }
+    if (globalOpts["logFile"] !== undefined) {
+      process.env["LOG_FILE"] = globalOpts["logFile"];
+      process.env["CRAFT_LOG_FILE"] = globalOpts["logFile"];
+    }
+
+    const { loadEnvFile } = await import("./util.js");
     if (options.env !== undefined) {
       loadEnvFile(options.env);
     } else {
       loadEnvFile();
     }
 
+    const { runCommand } = await import("./run.js");
     const result = await runCommand(filePath);
     if (!result.success) {
       if (result.message) {

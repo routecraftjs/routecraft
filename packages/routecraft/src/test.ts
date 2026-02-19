@@ -1,3 +1,4 @@
+import { vi } from "vitest";
 import type { CraftContext } from "./context.ts";
 import type { CraftConfig, StoreRegistry } from "./context.ts";
 import { ContextBuilder } from "./builder.ts";
@@ -6,8 +7,39 @@ import { RouteCraftError, error as rcError } from "./error.ts";
 import type { EventName, EventHandler } from "./types.ts";
 import type { RouteDefinition } from "./route.ts";
 import type { RouteBuilder } from "./builder.ts";
+import { logger } from "./logger.ts";
 
 const DEFAULT_ROUTES_READY_TIMEOUT_MS = 200;
+
+function createSpyLogger(): SpyLogger {
+  const spy: SpyLogger = {
+    info: vi.fn(),
+    debug: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    trace: vi.fn(),
+    fatal: vi.fn(),
+    child: vi.fn(),
+  };
+  spy.child.mockImplementation(() => spy);
+  return spy;
+}
+
+function createNoopSpyLogger(): SpyLogger {
+  const noop = vi.fn();
+  const childFn = vi.fn();
+  const noopLogger: SpyLogger = {
+    info: noop,
+    debug: noop,
+    warn: noop,
+    error: noop,
+    trace: noop,
+    fatal: noop,
+    child: childFn,
+  };
+  childFn.mockImplementation(() => noopLogger);
+  return noopLogger;
+}
 
 export interface TestContextOptions {
   /** Timeout in ms for waiting for all routes to emit routeStarted. Default 200. */
@@ -15,16 +47,43 @@ export interface TestContextOptions {
 }
 
 /**
+ * Spy logger with vi.fn() methods for assertions (e.g. expect(t.logger.info).toHaveBeenCalledWith(...)).
+ */
+export type SpyLogger = {
+  info: ReturnType<typeof vi.fn>;
+  debug: ReturnType<typeof vi.fn>;
+  warn: ReturnType<typeof vi.fn>;
+  error: ReturnType<typeof vi.fn>;
+  trace: ReturnType<typeof vi.fn>;
+  fatal: ReturnType<typeof vi.fn>;
+  child: ReturnType<typeof vi.fn>;
+};
+
+/**
  * Test-friendly wrapper around CraftContext. Runs the real context but manages
  * lifecycle (start → wait routes ready → drain → stop) and collects errors.
+ * t.logger is a spy logger (vi.fn() methods) for asserting on log calls.
  */
 export class TestContext {
   readonly ctx: CraftContext;
+  /** Spy logger; e.g. expect(t.logger.info).toHaveBeenCalledWith(...) */
+  readonly logger: SpyLogger;
   readonly errors: RouteCraftError[] = [];
   private readonly routesReadyTimeoutMs: number;
 
-  constructor(ctx: CraftContext, options?: TestContextOptions) {
+  private restoreLoggerChild?: () => void;
+
+  constructor(
+    ctx: CraftContext,
+    options?: TestContextOptions & {
+      spyLogger?: SpyLogger;
+      restoreLoggerChild?: () => void;
+    },
+  ) {
     this.ctx = ctx;
+    this.logger = options?.spyLogger ?? createNoopSpyLogger();
+    if (options?.restoreLoggerChild)
+      this.restoreLoggerChild = options.restoreLoggerChild;
     this.routesReadyTimeoutMs =
       options?.routesReadyTimeoutMs ?? DEFAULT_ROUTES_READY_TIMEOUT_MS;
     ctx.on("error", (payload) => {
@@ -89,6 +148,7 @@ export class TestContext {
     } finally {
       await ctx.stop();
       await started;
+      this.restoreLoggerChild?.();
     }
   }
 
@@ -142,11 +202,24 @@ export class TestContextBuilder {
   }
 
   async build(): Promise<TestContext> {
+    const spyLogger = createSpyLogger();
+    const originalChild = logger.child.bind(logger);
+    logger.child = vi.fn(
+      () => spyLogger as unknown as ReturnType<typeof logger.child>,
+    ) as typeof logger.child;
     const ctx = await this.builder.build();
-    const options: TestContextOptions | undefined =
-      this.routesReadyTimeoutMs !== undefined
+    const options: TestContextOptions & {
+      spyLogger: SpyLogger;
+      restoreLoggerChild: () => void;
+    } = {
+      ...(this.routesReadyTimeoutMs !== undefined
         ? { routesReadyTimeoutMs: this.routesReadyTimeoutMs }
-        : undefined;
+        : {}),
+      spyLogger,
+      restoreLoggerChild: () => {
+        logger.child = originalChild;
+      },
+    };
     return new TestContext(ctx, options);
   }
 }

@@ -5,20 +5,12 @@ import {
   craft,
   simple,
   type TestContext,
-  logger,
   log,
   noop,
   defaultAggregate,
   DefaultExchange,
 } from "@routecraft/routecraft";
 import type { Exchange } from "@routecraft/routecraft";
-
-const logSpy = {
-  warn: vi.fn(),
-  info: vi.fn(),
-  debug: vi.fn(),
-  error: vi.fn(),
-};
 
 describe("Route Behavior", () => {
   let t: TestContext;
@@ -134,7 +126,6 @@ describe("Route Behavior", () => {
    * @expectedResult Should continue running and log error
    */
   test("handles processor errors gracefully", async () => {
-    vi.spyOn(logger, "child").mockReturnValue(logSpy);
     const spyDest = vi.fn();
 
     t = await testContext()
@@ -151,11 +142,11 @@ describe("Route Behavior", () => {
 
     await t.ctx.start();
 
-    expect(logSpy.warn).toHaveBeenCalled();
+    expect(t.logger.warn).toHaveBeenCalled();
     expect(spyDest).toHaveBeenCalledTimes(0);
-    expect(logSpy.warn.mock.calls[0][1]).toMatch(
-      /Step process failed for exchange/,
-    );
+    expect(
+      (t.logger.warn as ReturnType<typeof vi.fn>).mock.calls[0][1],
+    ).toMatch(/Step process failed for exchange/);
   });
 
   /**
@@ -273,7 +264,6 @@ describe("Route Behavior", () => {
    * @expectedResult Should continue processing subsequent messages
    */
   test("continues processing after message failure", async () => {
-    vi.spyOn(logger, "child").mockReturnValue(logSpy);
     const messages = ["success1", "fail", "success2"];
     const spyDest = vi.fn();
     let processedCount = 0;
@@ -303,10 +293,10 @@ describe("Route Behavior", () => {
     await t.ctx.start();
 
     // Verify error was logged for failed message
-    expect(logSpy.warn).toHaveBeenCalled();
-    expect(logSpy.warn.mock.calls[0][1]).toMatch(
-      /Step process failed for exchange/,
-    );
+    expect(t.logger.warn).toHaveBeenCalled();
+    expect(
+      (t.logger.warn as ReturnType<typeof vi.fn>).mock.calls[0][1],
+    ).toMatch(/Step process failed for exchange/);
 
     // Verify successful messages were processed
     expect(processedCount).toBe(2); // Both success1 and success2 should be processed
@@ -797,7 +787,6 @@ describe("Route Behavior", () => {
    * @expectedResult Failed exchanges should not prevent aggregation of successful ones
    */
   test("aggregation handles failed split processing gracefully", async () => {
-    vi.spyOn(logger, "child").mockReturnValue(logSpy);
     const spyDest = vi.fn();
 
     t = await testContext()
@@ -823,10 +812,10 @@ describe("Route Behavior", () => {
     await t.ctx.start();
 
     // Verify error was logged
-    expect(logSpy.warn).toHaveBeenCalled();
-    expect(logSpy.warn.mock.calls[0][1]).toMatch(
-      /Step process failed for exchange/,
-    );
+    expect(t.logger.warn).toHaveBeenCalled();
+    expect(
+      (t.logger.warn as ReturnType<typeof vi.fn>).mock.calls[0][1],
+    ).toMatch(/Step process failed for exchange/);
 
     // Verify successful exchanges were aggregated
     expect(spyDest).toHaveBeenCalledTimes(1);
