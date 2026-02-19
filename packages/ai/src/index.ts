@@ -1,16 +1,27 @@
-// DSL functions
+// Cross-instance identity (Symbol.for) for MCP adapters
 export {
-  mcp,
-  type McpClientOptions,
-  type McpOptions,
-  type McpServerOptions,
-} from "./dsl.ts";
+  BRAND,
+  isMcpAdapter,
+  isMcpClientAdapter,
+  isMcpSourceAdapter,
+} from "./brand.ts";
 
-// MCP plugin, client adapter, and types
+// MCP DSL and types
+export { mcp, type McpOptions, type McpServerOptions } from "./mcp/index.ts";
+
+// MCP client adapter and types
 export {
   ADAPTER_MCP_CLIENT_SERVERS,
+  defaultArgs,
   McpClientAdapter,
 } from "./mcp/client-adapter.ts";
+export type {
+  McpArgsExtractor,
+  McpClientHttpConfig,
+  McpClientOptions,
+  McpClientServerConfig,
+  McpClientStdioConfig,
+} from "./mcp/types.ts";
 export {
   mcpPlugin,
   MCPServer,
