@@ -1,5 +1,6 @@
 import { describe, test, expect, afterEach, vi } from "vitest";
-import { testContext, craft, simple, type TestContext } from "../src/index.ts";
+import { testContext, type TestContext } from "@routecraft/testing";
+import { craft, simple } from "@routecraft/routecraft";
 
 describe("Header operation", () => {
   let t: TestContext;

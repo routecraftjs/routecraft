@@ -1,16 +1,16 @@
 import { describe, test, expect, vi, expectTypeOf } from "vitest";
+import { testContext } from "@routecraft/testing";
 import {
   craft,
   simple,
   timer,
   log,
   pseudo,
-  testContext,
   type RouteBuilder,
   type PseudoFactory,
   type PseudoKeyedFactory,
-} from "../src/index.ts";
-import type { Exchange } from "../src/exchange.ts";
+} from "@routecraft/routecraft";
+import type { Exchange } from "@routecraft/routecraft";
 
 // Option/result types for type-level and runtime tests
 interface McpOpts {

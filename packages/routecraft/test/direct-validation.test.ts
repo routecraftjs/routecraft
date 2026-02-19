@@ -1,13 +1,7 @@
 import { describe, test, expect, afterEach, vi } from "vitest";
 import { z } from "zod";
-import {
-  craft,
-  simple,
-  direct,
-  DirectAdapter,
-  testContext,
-  type TestContext,
-} from "../src/index.ts";
+import { testContext, type TestContext } from "@routecraft/testing";
+import { craft, simple, direct, DirectAdapter } from "@routecraft/routecraft";
 
 /**
  * Direct adapter validation tests

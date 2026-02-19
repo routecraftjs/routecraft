@@ -1,12 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import { MCPServer } from "../src/mcp/server.ts";
-import {
-  testContext,
-  craft,
-  direct,
-  noop,
-  type TestContext,
-} from "@routecraft/routecraft";
+import { testContext, type TestContext } from "@routecraft/testing";
+import { craft, direct, noop } from "@routecraft/routecraft";
 import { tool } from "../src/index.ts";
 import { z } from "zod";
 

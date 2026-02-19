@@ -1,11 +1,6 @@
 import { describe, test, expect, afterEach } from "vitest";
-import {
-  testContext,
-  craft,
-  simple,
-  log,
-  type TestContext,
-} from "@routecraft/routecraft";
+import { testContext, type TestContext } from "@routecraft/testing";
+import { craft, simple, log } from "@routecraft/routecraft";
 
 describe("Events API", () => {
   let t: TestContext;

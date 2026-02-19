@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { testContext, type TestContext } from "@routecraft/routecraft";
+import { testContext, type TestContext } from "@routecraft/testing";
 import routes from "./hello-world.mjs";
 
 describe("Hello World Route", () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { testContext } from "@routecraft/routecraft";
+import { testContext } from "@routecraft/testing";
 import enrichExample from "./enrich-example.mjs";
 
 describe("Enrich Example", () => {

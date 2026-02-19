@@ -1,11 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
-import {
-  testContext,
-  craft,
-  simple,
-  fetch,
-  type TestContext,
-} from "@routecraft/routecraft";
+import { testContext, type TestContext } from "@routecraft/testing";
+import { craft, simple, fetch } from "@routecraft/routecraft";
 
 describe("Fetch Adapter", () => {
   let t: TestContext;
