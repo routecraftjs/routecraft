@@ -83,6 +83,26 @@ Open Cursor Settings → Features → Model Context Protocol, then add:
 }
 ```
 
+## Calling external MCP servers (optional)
+
+If your routes need to **call** another MCP server (e.g. a browser MCP for automation), add the MCP plugin with **clients** so the adapter can resolve server URLs:
+
+```ts
+import { mcpPlugin } from '@routecraft/ai';
+
+craft().with({
+  plugins: [
+    mcpPlugin({
+      clients: {
+        browser: { url: 'http://127.0.0.1:8089/mcp' },
+      },
+    },
+  ],
+})
+```
+
+Then use `.to(mcp('browser:toolName', { args: () => ({ ... }) }))` or `.enrich(mcp('browser:toolName', ...))` in your routes. See [AI reference – MCP client](/docs/reference/ai#mcp-client-calling-remote-mcp-tools) for full options and patterns.
+
 ## 4. Restart and verify
 
 1. Completely quit and restart Claude/Cursor

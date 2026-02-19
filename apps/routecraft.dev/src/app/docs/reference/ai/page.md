@@ -174,6 +174,50 @@ craft()
   .to(consumerB);
 ```
 
+## MCP client: calling remote MCP tools
+
+Your routes can **call** remote MCP servers (e.g. a browser MCP, a custom tool server) by using `mcp()` as a **destination** with client options.
+
+**Ways to call a remote tool:**
+
+1. **By URL and tool name** – `.to(mcp({ url: 'http://host:port/mcp', tool: 'toolName' }, { args: (ex) => ({ ... }) }))`  
+   Use when the MCP server is at a known URL (e.g. Streamable HTTP).
+
+2. **By server id (from plugin config)** – Register servers in `mcpPlugin({ clients: { browser: { url: 'http://...' } } })`, then `.to(mcp({ serverId: 'browser', tool: 'browser_navigate' }, { args: () => ({ url: '...' }) }))`.  
+   The plugin stores the URL; at runtime the adapter resolves `serverId` from the context store.
+
+3. **Short form** – `.to(mcp('serverId:toolName', { args: () => ({ ... }) }))`  
+   Same as (2) with `serverId` and `tool` derived from the string.
+
+**Example (browser MCP):**
+
+```ts
+import { mcp, mcpPlugin } from '@routecraft/ai';
+import { craft, simple, log } from '@routecraft/routecraft';
+
+const ctx = craft()
+  .with({
+    plugins: [
+      mcpPlugin({
+        clients: {
+          browser: { url: 'http://127.0.0.1:8089/mcp' },
+        },
+      },
+    ],
+  })
+  .routes([
+    craft()
+      .id('scrape')
+      .from(simple({ url: 'https://example.com' }))
+      .enrich(mcp('browser:browser_navigate', { args: (ex) => ({ url: ex.body.url }) }))
+      .enrich(mcp('browser:browser_evaluate', { args: () => ({ script: '() => [1,2,3]' }) }))
+      .tap(log()),
+  ])
+  .build();
+```
+
+Tool results (e.g. from `browser_evaluate`) are returned as the destination result; use `.transform()` in your route to parse or normalize the response as needed.
+
 ## Discovery registry
 
 MCP routes defined with an options object (which must include `description`) are registered in the context store, along with any optional `schema` and `keywords`. After `context.start()`, you can read the registry to build tool catalogs for MCP or agents:
@@ -201,5 +245,4 @@ Behavior (single consumer, synchronous, validation, registry) is the same as `di
 ## Coming soon
 
 - LLM adapters (OpenAI, Google Gemini)
-- MCP client destination (`.to(mcp({ url, tool: 'foo' }))`) for calling remote MCP servers
 - Agent routing
