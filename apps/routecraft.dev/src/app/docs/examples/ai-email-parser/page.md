@@ -5,13 +5,14 @@ title: Email Assistant
 Build an AI assistant that can send and manage emails. {% .lead %}
 
 ```ts
-import { craft, tool, fetch } from '@routecraft/routecraft'
+import { mcp } from '@routecraft/ai'
+import { craft, fetch, noop } from '@routecraft/routecraft'
 import { z } from 'zod'
 
 // Tool 1: Send email
 export default craft()
   .id('send-email')
-  .from(tool('send-email', {
+  .from(mcp('send-email', {
     description: 'Send an email with subject and body',
     schema: z.object({
       to: z.string().email(),
@@ -40,7 +41,7 @@ export default craft()
 // Tool 2: Check unread emails
 craft()
   .id('check-inbox')
-  .from(tool('check-inbox', {
+  .from(mcp('check-inbox', {
     description: 'Get count of unread emails and recent senders',
     keywords: ['email', 'inbox', 'unread']
   }))

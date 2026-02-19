@@ -29,12 +29,13 @@ RouteCraft is a code-first automation platform for TypeScript. Write routes that
 ### Write a tool
 
 ```ts
-import { craft, tool, mail } from '@routecraft/routecraft'
+import { mcp } from '@routecraft/ai'
+import { craft, mail } from '@routecraft/routecraft'
 import { z } from 'zod'
 
 // Define a tool AI can call
 export default craft()
-  .from(tool('send-team-email', {
+  .from(mcp('send-team-email', {
     description: 'Send email to team members',
     schema: z.object({ 
       to: z.string().email().refine(
@@ -80,7 +81,7 @@ Claude discovers your tool and uses it automatically. ✨
 ## Monorepo Structure
 
 - `packages/routecraft` – Core library (builder, DSL, context, adapters, consumers)
-- `packages/ai` – AI and MCP integrations (`tool()`, schema validation, discovery)
+- `packages/ai` – AI and MCP integrations (`mcp()`, schema validation, discovery)
 - `packages/cli` – CLI to run files or folders of routes and start contexts
 - `apps/routecraft.dev` – Documentation site (docs, examples, guides)
 - `examples/` – Runnable example routes and tests

@@ -9,44 +9,44 @@ import {
 } from "@routecraft/routecraft";
 
 /**
- * Options for tool() when used as a Source in .from().
+ * Options for mcp() when used as a Source in .from().
  * Description is required for AI/MCP discoverability.
  */
-export interface ToolSourceOptions extends DirectSourceOptions {
-  /** Human-readable description (required for tools). */
+export interface McpSourceOptions extends DirectSourceOptions {
+  /** Human-readable description (required for MCP tools). */
   description: string;
 }
 
 /**
- * Options for tool() when used as a Destination in .to().
+ * Options for mcp() when used as a Destination in .to().
  */
-export type ToolDestinationOptions = DirectDestinationOptions;
+export type McpDestinationOptions = DirectDestinationOptions;
 
-export type ToolOptions = ToolSourceOptions;
+export type McpOptions = McpSourceOptions;
 
 /**
- * Create a tool - a discoverable direct route for AI/MCP integration.
+ * Create an MCP endpoint - a discoverable direct route for AI/MCP integration.
  *
- * `tool()` is an alias for `direct()` with semantics oriented toward AI use cases.
- * Same two-argument pattern: tool(endpoint, options) for source, tool(endpoint) for destination.
+ * `mcp()` is an alias for `direct()` with semantics oriented toward AI/MCP use cases.
+ * Same two-argument pattern: mcp(endpoint, options) for source, mcp(endpoint) for destination.
  */
-export function tool<T = unknown>(
+export function mcp<T = unknown>(
   endpoint: string,
-  options: ToolSourceOptions,
+  options: McpSourceOptions,
 ): Source<T>;
-export function tool<T = unknown>(
+export function mcp<T = unknown>(
   endpoint: string | ((exchange: Exchange<T>) => string),
 ): Destination<T, T>;
-export function tool<T = unknown>(
+export function mcp<T = unknown>(
   endpoint: string | ((exchange: Exchange<T>) => string),
-  options?: ToolSourceOptions | ToolDestinationOptions,
+  options?: McpSourceOptions | McpDestinationOptions,
 ): Source<T> | Destination<T, T> {
   if (options !== undefined) {
     if (typeof endpoint !== "string") {
       throw rcError("RC5010", undefined, {
         message: "Dynamic endpoints cannot be used as source",
         suggestion:
-          "Use a static string endpoint for source: .from(tool('endpoint', options)).",
+          "Use a static string endpoint for source: .from(mcp('endpoint', options)).",
       });
     }
     return direct<T>(endpoint, options);

@@ -162,7 +162,7 @@ export const RC: Record<RCCode, RCMeta> = {
     category: "Adapter",
     message: "No handler subscribed on direct endpoint",
     suggestion:
-      "The direct/tool route may have stopped or was never started. Ensure the consumer route is running before sending.",
+      "The direct/mcp route may have stopped or was never started. Ensure the consumer route is running before sending.",
     docs: `${DOCS_BASE}#rc-5012`,
     retryable: false,
   },

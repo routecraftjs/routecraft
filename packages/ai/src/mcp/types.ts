@@ -21,7 +21,7 @@ export interface MCPServerOptions {
   host?: string;
 
   /**
-   * Filter which tools to expose. Default: all tool() routes.
+   * Filter which tools to expose. Default: all mcp() routes.
    * Can be an array of endpoint names or a filter function.
    */
   tools?: string[] | ((meta: DirectRouteMetadata) => boolean);

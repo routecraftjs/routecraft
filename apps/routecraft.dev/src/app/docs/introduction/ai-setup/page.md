@@ -22,15 +22,16 @@ npm install @routecraft/ai zod
 
 ## 2. Create tools
 
-Define tools as routes using `tool()` from `@routecraft/ai`:
+Define tools as routes using `mcp()` from `@routecraft/ai`:
 
 ```typescript
-import { craft, tool, noop } from '@routecraft/routecraft'
+import { mcp } from '@routecraft/ai'
+import { craft, noop } from '@routecraft/routecraft'
 import { z } from 'zod'
 
 export default craft()
   .id('my-tool')
-  .from(tool('my-tool', {
+  .from(mcp('my-tool', {
     description: 'What this tool does',
     schema: z.object({
       param: z.string()

@@ -1,7 +1,7 @@
 import { describe, test, expect, afterEach } from "vitest";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { craft, direct, noop } from "@routecraft/routecraft";
-import { tool, plugin as mcp } from "@routecraft/ai";
+import { mcp, plugin as mcpPlugin } from "@routecraft/ai";
 import { z } from "zod";
 
 describe("MCP Plugin Integration", () => {
@@ -19,17 +19,17 @@ describe("MCP Plugin Integration", () => {
    * @expectedResult Context builds without error
    */
   test("plugin() registers with context", async () => {
-    expect(typeof mcp).toBe("function");
+    expect(typeof mcpPlugin).toBe("function");
 
     t = await testContext()
       .routes(
         craft()
           .id("test")
-          .from(tool("test", { description: "test" }))
+          .from(mcp("test", { description: "test" }))
           .to(noop()),
       )
       .with({
-        plugins: [mcp()],
+        plugins: [mcpPlugin()],
       })
       .build();
 
@@ -37,15 +37,15 @@ describe("MCP Plugin Integration", () => {
   });
 
   /**
-   * @case Verifies that only tool() routes with description are exposed
-   * @preconditions Routes with tool() and direct() are defined
-   * @expectedResult Registry contains only tool routes
+   * @case Verifies that only mcp() routes with description are exposed
+   * @preconditions Routes with mcp() and direct() are defined
+   * @expectedResult Registry contains only mcp routes
    */
-  test("Only tool() routes with description are exposed", async () => {
+  test("Only mcp() routes with description are exposed", async () => {
     const toolRoute = craft()
       .id("my-tool")
       .from(
-        tool("my-tool", {
+        mcp("my-tool", {
           description: "A test tool",
           schema: z.object({ input: z.string() }),
         }),
@@ -60,7 +60,7 @@ describe("MCP Plugin Integration", () => {
     t = await testContext()
       .routes([toolRoute, directRoute])
       .with({
-        plugins: [mcp()],
+        plugins: [mcpPlugin()],
       })
       .build();
 
@@ -77,12 +77,12 @@ describe("MCP Plugin Integration", () => {
       .routes(
         craft()
           .id("test")
-          .from(tool("test", { description: "test" }))
+          .from(mcp("test", { description: "test" }))
           .to(noop()),
       )
       .with({
         plugins: [
-          mcp({
+          mcpPlugin({
             name: "custom-server",
             version: "2.0.0",
           }),
@@ -99,7 +99,7 @@ describe("MCP Plugin Integration", () => {
    * @expectedResult Only filtered tools are available
    */
   test("plugin() can filter tools by name", () => {
-    const p = mcp({ tools: ["allowed-tool"] });
+    const p = mcpPlugin({ tools: ["allowed-tool"] });
     expect(typeof p).toBe("function");
   });
 
@@ -109,18 +109,18 @@ describe("MCP Plugin Integration", () => {
    * @expectedResult Only tools matching filter are exposed
    */
   test("plugin() can filter tools by function", () => {
-    const p = mcp({
+    const p = mcpPlugin({
       tools: (meta) => meta.keywords?.includes("public") ?? false,
     });
     expect(typeof p).toBe("function");
   });
 
   /**
-   * @case Verifies that tool() routes with schema are properly registered
-   * @preconditions A tool route with Zod schema is defined
+   * @case Verifies that mcp() routes with schema are properly registered
+   * @preconditions An mcp route with Zod schema is defined
    * @expectedResult Schema is registered in metadata
    */
-  test("tool() routes register with schema", async () => {
+  test("mcp() routes register with schema", async () => {
     const mySchema = z.object({
       name: z.string(),
       age: z.number().optional(),
@@ -129,7 +129,7 @@ describe("MCP Plugin Integration", () => {
     const toolRoute = craft()
       .id("schema-tool")
       .from(
-        tool("schema-tool", {
+        mcp("schema-tool", {
           description: "A tool with schema",
           schema: mySchema,
         }),
@@ -139,7 +139,7 @@ describe("MCP Plugin Integration", () => {
     t = await testContext()
       .routes([toolRoute])
       .with({
-        plugins: [mcp()],
+        plugins: [mcpPlugin()],
       })
       .build();
 
@@ -147,7 +147,7 @@ describe("MCP Plugin Integration", () => {
   });
 
   /**
-   * @case Verifies that tool() routes without description are not treated as tools
+   * @case Verifies that mcp() routes without description are not treated as tools
    * @preconditions A direct() adapter is used without description
    * @expectedResult Route is registered but not in tool registry
    */
@@ -160,7 +160,7 @@ describe("MCP Plugin Integration", () => {
     t = await testContext()
       .routes([route])
       .with({
-        plugins: [mcp()],
+        plugins: [mcpPlugin()],
       })
       .build();
 

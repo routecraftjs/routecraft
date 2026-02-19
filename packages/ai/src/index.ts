@@ -1,9 +1,9 @@
 // DSL functions
 export {
-  tool,
-  type ToolDestinationOptions,
-  type ToolOptions,
-  type ToolSourceOptions,
+  mcp,
+  type McpDestinationOptions,
+  type McpOptions,
+  type McpSourceOptions,
 } from "./dsl.ts";
 
 // MCP plugin and types
