@@ -30,7 +30,7 @@ const program = new Command();
 program
   .name("craft")
   .description("A modern routing framework for TypeScript")
-  .version("0.2.0")
+  .version("0.3.0")
   .option(
     "--log-level <level>",
     "Log level (e.g. info, warn, error, silent to disable)",

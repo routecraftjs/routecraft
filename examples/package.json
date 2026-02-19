@@ -1,6 +1,6 @@
 {
   "name": "examples",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,12 +8,12 @@
     "test:coverage": "vitest --coverage"
   },
   "dependencies": {
-    "@routecraft/ai": "workspace:^0.2.0",
-    "@routecraft/routecraft": "workspace:^0.2.0",
+    "@routecraft/ai": "workspace:^0.3.0",
+    "@routecraft/routecraft": "workspace:^0.3.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@routecraft/cli": "workspace:^0.2.0",
+    "@routecraft/cli": "workspace:^0.3.0",
     "tsx": "^4.21.0",
     "vitest": "^4.0.18"
   }
