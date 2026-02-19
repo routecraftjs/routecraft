@@ -21,15 +21,15 @@ describe("hello route", () => {
   });
 
   it("emits and logs", async () => {
-    const logSpy = vi.spyOn(console, "log");
-
     t = await testContext().routes(helloRoute).build();
     await t.test();
 
-    expect(logSpy).toHaveBeenCalled();
+    expect(t.logger.info).toHaveBeenCalled();
   });
 });
 ```
+
+**Tip:** `t.logger` is a spy (vi.fn() methods). Use `expect(t.logger.info).toHaveBeenCalled()` or inspect `t.logger.info.mock.calls` for log assertions.
 
 ## Vitest configuration
 
@@ -63,6 +63,7 @@ Checklist:
 
 - Prefer `await t.test()` for full lifecycle; assert after it returns.
 - Use `t.ctx` when you need the raw context (e.g. `t.ctx.start()`, `t.ctx.getStore()`).
+- Use `t.logger` to assert on log calls (e.g. `expect(t.logger.info).toHaveBeenCalled()`).
 - For custom timing (e.g. timer routes), use `t.ctx.start()` and `t.ctx.stop()` manually.
 - Restore mocks in `beforeEach/afterEach`.
 
@@ -106,49 +107,36 @@ expect(spyAdapter.received[0].body).toBe("payload");
 expect(spyAdapter.calls.send).toBe(1);
 ```
 
-### Spy on console logs
+### Assert on log output
 
-For routes that use `.to(log())`, spy on `console.log` to verify logging behavior:
+`testContext().build()` returns a test context whose `t.logger` is a spy. Use it to assert on pino log calls (e.g. from `.to(log())` or adapter logging):
 
 ```ts
 import { craft, simple, log, testContext } from "@routecraft/routecraft";
-import { vi, expect } from "vitest";
+import { expect, vi } from "vitest";
 
 test('logs messages correctly', async () => {
-  const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-  
   const route = craft()
     .id("log-test")
     .from(simple("Hello, World!"))
     .to(log());
-    
+
   const t = await testContext().routes(route).build();
   await t.test();
-  
-  expect(logSpy).toHaveBeenCalled();
-  const loggedMessage = logSpy.mock.calls[0][0];
+
+  expect(t.logger.info).toHaveBeenCalled();
+  const loggedMessage = (t.logger.info as ReturnType<typeof vi.fn>).mock.calls[0][1];
   expect(loggedMessage).toContain("Hello, World!");
-  
-  logSpy.mockRestore();
 });
 ```
 
 **Tip:** Use `spy()` adapter instead of `log()` when you need more control over assertions.
 
-Mock child logger for timer-heavy tests:
-
-```ts
-import { vi } from "vitest";
-import { logger, type RouteCraftLogger } from "@routecraft/routecraft";
-
-const childLogger = { info: vi.fn(), debug: vi.fn(), warn: vi.fn(), error: vi.fn(), level: "info", child: vi.fn().mockReturnThis() } as unknown as RouteCraftLogger;
-vi.spyOn(logger, "child").mockReturnValue(childLogger);
-```
-
 Filter logs by route id (from `LogAdapter` headers):
 
 ```ts
-const logsForRoute = calls.filter(
+const infoCalls = (t.logger.info as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+const logsForRoute = infoCalls.filter(
   (arg) => typeof arg === "object" && arg != null && "headers" in arg && (arg as any).headers?.["routecraft.route"] === "channel-adapter-1",
 );
 ```
@@ -298,5 +286,5 @@ pnpm craft run ./examples/hello-world.mjs
 
 - Hanging tests: use `await t.test()` for standard flows, or ensure you `await t.ctx.stop()` and then `await execution` when driving lifecycle manually.
 - Flaky timers: prefer fake timers or increase the wait to 100–200ms.
-- No logs captured: ensure your route includes `.to(log())` or you spy on the child logger.
+- No logs captured: ensure your route includes `.to(log())` and assert on `t.logger.info` (or `t.logger.warn` / `t.logger.debug`) after `await t.test()`.
 - Errors in tests: check `t.errors` after `await t.test()`; RouteCraft errors are collected automatically.

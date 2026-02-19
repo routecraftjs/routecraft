@@ -95,12 +95,8 @@ export {
   isExchange,
 } from "./brand.ts";
 
-export {
-  logger,
-  createLogger,
-  configureLogger,
-  type RouteCraftLogger,
-} from "./logger.ts";
+export { logger, childBindings } from "./logger.ts";
+export type { Logger } from "pino";
 
 export {
   type Adapter,
@@ -149,4 +145,4 @@ export {
   type PseudoKeyedOptions,
 } from "./adapters/pseudo.ts";
 
-export { TestContext, testContext } from "./test.ts";
+export { TestContext, testContext, type SpyLogger } from "./test.ts";

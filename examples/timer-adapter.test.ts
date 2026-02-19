@@ -1,5 +1,5 @@
 import { describe, test, expect, vi, beforeEach } from "vitest";
-import { testContext, logger } from "@routecraft/routecraft";
+import { testContext } from "@routecraft/routecraft";
 import timerRoutes from "./timer-adapter.mjs";
 
 describe("Timer Adapter", () => {
@@ -13,16 +13,6 @@ describe("Timer Adapter", () => {
    * @expectedResult Should emit multiple messages before being stopped
    */
   test("emits messages at specified interval", async () => {
-    const childLogger = {
-      info: vi.fn(),
-      debug: vi.fn(),
-      warn: vi.fn(),
-      error: vi.fn(),
-      level: "info",
-      child: vi.fn().mockReturnThis(),
-    };
-    vi.spyOn(logger, "child").mockReturnValue(childLogger as any);
-
     const t = await testContext().routes(timerRoutes).build();
 
     // Start the timer and wait for a few intervals
@@ -34,8 +24,10 @@ describe("Timer Adapter", () => {
     await execution;
 
     // Should have logged multiple times
-    expect(childLogger.info).toHaveBeenCalled();
-    expect(childLogger.info.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(t.logger.info).toHaveBeenCalled();
+    expect(
+      (t.logger.info as ReturnType<typeof vi.fn>).mock.calls.length,
+    ).toBeGreaterThanOrEqual(2);
   });
 
   /**

@@ -11,7 +11,7 @@ import {
 import { BRAND, INTERNALS_KEY } from "./brand.ts";
 import { error as rcError, RouteCraftError, RC } from "./error.ts";
 import { isRouteCraftError } from "./brand.ts";
-import { createLogger, type RouteCraftLogger } from "./logger.ts";
+import { logger, childBindings } from "./logger.ts";
 import { type Source } from "./operations/from.ts";
 import {
   type Adapter,
@@ -67,8 +67,8 @@ export interface Route {
   /** Signal that indicates when the route has been aborted */
   readonly signal: AbortSignal;
 
-  /** Logger for this route */
-  logger: RouteCraftLogger;
+  /** Logger for this route (pino child logger) */
+  logger: ReturnType<typeof logger.child>;
 
   /**
    * Start processing data on this route.
@@ -104,8 +104,8 @@ export class DefaultRoute implements Route {
   /** Controls aborting the route's operations */
   private abortController: AbortController;
 
-  /** Logger for this route */
-  public readonly logger: RouteCraftLogger;
+  /** Logger for this route (pino child logger) */
+  public readonly logger: ReturnType<typeof logger.child>;
 
   /** Internal queue for passing messages between the source and consumer */
   private messageChannel: ProcessingQueue<Message>;
@@ -131,7 +131,7 @@ export class DefaultRoute implements Route {
     (this as unknown as Record<symbol, boolean>)[BRAND.DefaultRoute] = true;
     this.assertNotAborted();
     this.abortController = abortController ?? new AbortController();
-    this.logger = createLogger(this);
+    this.logger = logger.child(childBindings(this));
     this.messageChannel = new InMemoryProcessingQueue<Message>();
     this.consumer = new this.definition.consumer.type(
       this.context,
