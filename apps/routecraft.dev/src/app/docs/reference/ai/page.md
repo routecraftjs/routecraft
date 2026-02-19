@@ -49,23 +49,23 @@ The package depends on `@routecraft/routecraft` (peer `>=0.2.0`).
 
 `@routecraft/ai` provides an AI-friendly DSL on top of RouteCraft's core:
 
-- **`tool()`** – Alias for `direct()` with semantics for AI/MCP: when you pass options, `description` is **required**; schema and keywords are optional.
-- **Discovery** – Tools register in the context store so you can query endpoints, descriptions, and schemas at runtime (e.g. for MCP or agent tool catalogs).
+- **`mcp()`** – Alias for `direct()` with semantics for AI/MCP: when you pass options, `description` is **required**; schema and keywords are optional.
+- **Discovery** – MCP routes register in the context store so you can query endpoints, descriptions, and schemas at runtime (e.g. for MCP or agent tool catalogs).
 
-Use `tool()` when building routes that will be discovered and called by AI agents or exposed via MCP.
+Use `mcp()` when building routes that will be discovered and called by AI agents or exposed via MCP.
 
-## tool()
+## mcp()
 
 ```ts
-tool<T>(
+mcp<T>(
   endpoint: string | ((exchange: Exchange<T>) => string),
-  options?: ToolOptions
+  options?: McpOptions
 ): DirectAdapter<T>
 ```
 
 Create a discoverable direct route for AI/MCP integration. If you pass the **options** object (second argument), you **must** include `description`—it is required whenever options are provided. `schema` and `keywords` are optional.
 
-### Options (ToolOptions)
+### Options (McpOptions)
 
 When you pass options, `description` is **required**. Other fields are optional.
 
@@ -79,42 +79,42 @@ When you pass options, `description` is **required**. Other fields are optional.
 
 ### Without options (destination or simple source)
 
-You can call `tool(endpoint)` with **no** options when you only **send to** a tool (`.to(tool('my-tool'))`) or when you **receive from** an endpoint that is defined by another route with options. The route that *defines* the tool must pass options including `description`:
+You can call `mcp(endpoint)` with **no** options when you only **send to** an MCP endpoint (`.to(mcp('my-tool'))`) or when you **receive from** an endpoint that is defined by another route with options. The route that *defines* the MCP endpoint must pass options including `description`:
 
 ```ts
-import { tool } from '@routecraft/ai';
+import { mcp } from '@routecraft/ai';
 import { craft, simple } from '@routecraft/routecraft';
 
-// Route that defines the tool (options with description required)
+// Route that defines the MCP endpoint (options with description required)
 craft()
   .id('my-tool')
   .from(
-    tool('my-tool', {
+    mcp('my-tool', {
       description: 'Echo or process the incoming query',
     })
   )
   .process((body) => body);
 
-// Producer: send to tool endpoint (no options when only sending)
+// Producer: send to MCP endpoint (no options when only sending)
 craft()
   .id('producer')
   .from(simple({ query: 'hello' }))
-  .to(tool('my-tool'));
+  .to(mcp('my-tool'));
 ```
 
-### With options (define a discoverable tool)
+### With options (define a discoverable MCP endpoint)
 
-When you **define** a tool (typically in `.from(tool(...))`), you must pass an options object that includes `description`. Schema and keywords are optional:
+When you **define** an MCP endpoint (typically in `.from(mcp(...))`), you must pass an options object that includes `description`. Schema and keywords are optional:
 
 ```ts
-import { tool } from '@routecraft/ai';
+import { mcp } from '@routecraft/ai';
 import { craft } from '@routecraft/routecraft';
 import { z } from 'zod';
 
 craft()
   .id('fetch-webpage')
   .from(
-    tool('fetch-webpage', {
+    mcp('fetch-webpage', {
       description: 'Fetch and return the content of a webpage',
       schema: z.object({
         url: z.string().url(),
@@ -130,18 +130,18 @@ craft()
 
 ### Dynamic endpoints (destination only)
 
-As with `direct()`, you can use a function for the endpoint when sending **to** a tool (e.g. route by exchange data). The routes that *define* each handler must pass options with `description`:
+As with `direct()`, you can use a function for the endpoint when sending **to** an MCP endpoint (e.g. route by exchange data). The routes that *define* each handler must pass options with `description`:
 
 ```ts
 craft()
   .id('router')
   .from(simple({ type: 'a', data: 'test' }))
-  .to(tool((ex) => `handler-${ex.body.type}`));
+  .to(mcp((ex) => `handler-${ex.body.type}`));
 
 craft()
   .id('handler-a')
   .from(
-    tool('handler-a', {
+    mcp('handler-a', {
       description: 'Handle type-a messages',
     })
   )
@@ -150,7 +150,7 @@ craft()
 craft()
   .id('handler-b')
   .from(
-    tool('handler-b', {
+    mcp('handler-b', {
       description: 'Handle type-b messages',
     })
   )
@@ -159,7 +159,7 @@ craft()
 
 ## Discovery registry
 
-Tools defined with an options object (which must include `description`) are registered in the context store, along with any optional `schema` and `keywords`. After `context.start()`, you can read the registry to build tool catalogs for MCP or agents:
+MCP routes defined with an options object (which must include `description`) are registered in the context store, along with any optional `schema` and `keywords`. After `context.start()`, you can read the registry to build tool catalogs for MCP or agents:
 
 ```ts
 import { context, DirectAdapter } from '@routecraft/routecraft';
@@ -174,15 +174,15 @@ const tools = registry ? Array.from(registry.values()) : [];
 
 ## Relation to direct()
 
-`tool()` is an alias for `direct()` with two differences:
+`mcp()` is an alias for `direct()` with two differences:
 
-1. **Semantics** – Names and docs are oriented toward AI/MCP (tools, discovery).
-2. **ToolOptions** – When you pass options, `description` is **required** so every defined tool is discoverable; `direct()` leaves all options optional.
+1. **Semantics** – Names and docs are oriented toward AI/MCP (MCP endpoints, discovery).
+2. **McpOptions** – When you pass options, `description` is **required** so every defined MCP endpoint is discoverable; `direct()` leaves all options optional.
 
-Behavior (single consumer, synchronous, validation, registry) is the same as `direct()`. Use `tool()` when building AI/MCP-facing routes; use `direct()` for general inter-route communication.
+Behavior (single consumer, synchronous, validation, registry) is the same as `direct()`. Use `mcp()` when building AI/MCP-facing routes; use `direct()` for general inter-route communication.
 
 ## Coming soon
 
 - LLM adapters (OpenAI, Google Gemini)
-- MCP source and destination (`.from(mcp())`, `.to(mcp())`)
+- MCP client destination (`.to(mcp({ server, tool: 'foo' }))`) for calling remote MCP servers
 - Agent routing

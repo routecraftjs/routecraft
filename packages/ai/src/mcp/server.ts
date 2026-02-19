@@ -10,7 +10,7 @@ type MCPServerResolvedOptions = Required<
 
 /**
  * MCPServer wraps the MCP SDK and bridges it to RouteCraft's DirectChannel infrastructure.
- * It reads the tool registry lazily (on first tools/list request) to ensure routes have subscribed.
+ * It reads the MCP route registry lazily (on first tools/list request) to ensure routes have subscribed.
  *
  * Note: Uses dynamic imports to avoid TypeScript compatibility issues with the MCP SDK.
  * Supports both stdio and streamable-http transports.
@@ -214,7 +214,7 @@ export class MCPServer {
       return [];
     }
 
-    // Get all tool routes (those with description)
+    // Get all mcp() routes (those with description)
     let tools = Array.from(registry.values()).filter(
       (t) => t.description !== undefined,
     );
@@ -235,7 +235,7 @@ export class MCPServer {
   }
 
   /**
-   * Convert RouteCraft tool metadata to MCP tool format
+   * Convert RouteCraft mcp() route metadata to MCP tool format
    */
   private metadataToMCPTool(
     metadata: DirectRouteMetadata,

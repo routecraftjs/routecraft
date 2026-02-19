@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import { MCPServer } from "../src/mcp/server.ts";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { craft, direct, noop } from "@routecraft/routecraft";
-import { tool } from "../src/index.ts";
+import { mcp } from "../src/index.ts";
 import { z } from "zod";
 
 describe("MCPServer", () => {
@@ -62,7 +62,7 @@ describe("MCPServer", () => {
         craft()
           .id("tool1")
           .from(
-            tool("tool1", {
+            mcp("tool1", {
               description: "First tool",
             }),
           )
@@ -70,7 +70,7 @@ describe("MCPServer", () => {
         craft()
           .id("tool2")
           .from(
-            tool("tool2", {
+            mcp("tool2", {
               description: "Second tool",
             }),
           )
@@ -112,7 +112,7 @@ describe("MCPServer", () => {
         craft()
           .id("public-tool")
           .from(
-            tool("public-tool", {
+            mcp("public-tool", {
               description: "A public tool",
               keywords: ["public"],
             }),
@@ -121,7 +121,7 @@ describe("MCPServer", () => {
         craft()
           .id("private-tool")
           .from(
-            tool("private-tool", {
+            mcp("private-tool", {
               description: "A private tool",
               keywords: ["private"],
             }),
@@ -169,7 +169,7 @@ describe("MCPServer", () => {
         craft()
           .id("schema-tool")
           .from(
-            tool("schema-tool", {
+            mcp("schema-tool", {
               description: "Tool with schema",
               schema,
             }),
@@ -193,7 +193,7 @@ describe("MCPServer", () => {
         craft()
           .id("no-schema-tool")
           .from(
-            tool("no-schema-tool", {
+            mcp("no-schema-tool", {
               description: "Tool without explicit schema",
             }),
           )
@@ -207,8 +207,8 @@ describe("MCPServer", () => {
 
   /**
    * @case Verifies that MCPServer ignores direct() routes without description
-   * @preconditions Both tool() and direct() routes are registered
-   * @expectedResult Only tool() routes are exposed
+   * @preconditions Both mcp() and direct() routes are registered
+   * @expectedResult Only mcp() routes are exposed
    */
   test("MCPServer applies sensible defaults", async () => {
     t = await testContext()
@@ -216,7 +216,7 @@ describe("MCPServer", () => {
         craft()
           .id("exposed-tool")
           .from(
-            tool("exposed-tool", {
+            mcp("exposed-tool", {
               description: "A tool route that should be exposed",
             }),
           )

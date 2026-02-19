@@ -1,10 +1,10 @@
 import { describe, test, expect, afterEach, vi } from "vitest";
 import { z } from "zod";
-import { tool } from "../src/index.ts";
+import { mcp } from "../src/index.ts";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { craft, simple, DirectAdapter } from "@routecraft/routecraft";
 
-describe("tool() DSL function", () => {
+describe("mcp() DSL function", () => {
   let t: TestContext;
 
   afterEach(async () => {
@@ -12,11 +12,11 @@ describe("tool() DSL function", () => {
   });
 
   /**
-   * @case tool() behaves like direct() for producer-consumer flow
-   * @preconditions Two routes: producer sends to tool endpoint, consumer from same tool endpoint
+   * @case mcp() behaves like direct() for producer-consumer flow
+   * @preconditions Two routes: producer sends to mcp endpoint, consumer from same mcp endpoint
    * @expectedResult Message delivered to consumer with same body
    */
-  test("tool() is an alias for direct()", async () => {
+  test("mcp() is an alias for direct()", async () => {
     const consumer = vi.fn();
 
     t = await testContext()
@@ -24,10 +24,10 @@ describe("tool() DSL function", () => {
         craft()
           .id("producer")
           .from(simple({ message: "hello" }))
-          .to(tool("my-tool")),
+          .to(mcp("my-tool")),
         craft()
           .id("consumer")
-          .from(tool("my-tool", { description: "Receive messages" }))
+          .from(mcp("my-tool", { description: "Receive messages" }))
           .to(consumer),
       ])
       .build();
@@ -38,20 +38,20 @@ describe("tool() DSL function", () => {
   });
 
   /**
-   * @case Defining route has description only; producer sends with tool(name) no options
-   * @preconditions One route defines tool with description, other sends to tool endpoint
+   * @case Defining route has description only; producer sends with mcp(name) no options
+   * @preconditions One route defines mcp with description, other sends to mcp endpoint
    * @expectedResult Message delivered to defining route
    */
-  test("docs pattern: define tool with description, producer sends with no options", async () => {
+  test("docs pattern: define mcp with description, producer sends with no options", async () => {
     const consumer = vi.fn();
 
     t = await testContext()
       .routes([
-        craft().id("my-tool").from(tool("my-tool")).to(consumer),
+        craft().id("my-tool").from(mcp("my-tool")).to(consumer),
         craft()
           .id("producer")
           .from(simple({ query: "hello" }))
-          .to(tool("my-tool")),
+          .to(mcp("my-tool")),
       ])
       .build();
 
@@ -61,11 +61,11 @@ describe("tool() DSL function", () => {
   });
 
   /**
-   * @case tool() with schema option validates body at consumer
-   * @preconditions Consumer uses tool() with schema; producer sends valid body
+   * @case mcp() with schema option validates body at consumer
+   * @preconditions Consumer uses mcp() with schema; producer sends valid body
    * @expectedResult Message processed without error
    */
-  test("tool() with schema validates input", async () => {
+  test("mcp() with schema validates input", async () => {
     const schema = z.object({
       url: z.string().url(),
     });
@@ -77,11 +77,11 @@ describe("tool() DSL function", () => {
         craft()
           .id("producer")
           .from(simple({ url: "https://example.com" }))
-          .to(tool("fetch-tool")),
+          .to(mcp("fetch-tool")),
         craft()
           .id("consumer")
           .from(
-            tool("fetch-tool", {
+            mcp("fetch-tool", {
               description: "Fetch a URL",
               schema,
             }),
@@ -95,11 +95,11 @@ describe("tool() DSL function", () => {
   });
 
   /**
-   * @case tool() with schema rejects invalid body
+   * @case mcp() with schema rejects invalid body
    * @preconditions Consumer has schema; producer sends invalid body
    * @expectedResult RC5011 error emitted and error handler called
    */
-  test("tool() with invalid input throws RC5011", async () => {
+  test("mcp() with invalid input throws RC5011", async () => {
     const schema = z.object({
       url: z.string().url(),
     });
@@ -109,11 +109,11 @@ describe("tool() DSL function", () => {
         craft()
           .id("producer")
           .from(simple({ url: "not-a-valid-url" }))
-          .to(tool("fetch-tool")),
+          .to(mcp("fetch-tool")),
         craft()
           .id("consumer")
           .from(
-            tool("fetch-tool", {
+            mcp("fetch-tool", {
               description: "Fetch a URL",
               schema,
             }),
@@ -128,17 +128,17 @@ describe("tool() DSL function", () => {
   });
 
   /**
-   * @case tool() with description/keywords registers metadata
-   * @preconditions Route uses tool() with description, schema, and keywords
+   * @case mcp() with description/keywords registers metadata
+   * @preconditions Route uses mcp() with description, schema, and keywords
    * @expectedResult Registry contains endpoint with metadata
    */
-  test("tool() registers in discovery registry", async () => {
+  test("mcp() registers in discovery registry", async () => {
     t = await testContext()
       .routes([
         craft()
           .id("my-tool-route")
           .from(
-            tool("search-tool", {
+            mcp("search-tool", {
               description: "Search for documents",
               schema: z.object({ query: z.string() }),
               keywords: ["search", "query", "find"],
@@ -158,11 +158,11 @@ describe("tool() DSL function", () => {
   });
 
   /**
-   * @case tool() with function endpoint resolves at send time
-   * @preconditions Producer uses tool((ex) => `handler-${ex.body.type}`); two handler routes
+   * @case mcp() with function endpoint resolves at send time
+   * @preconditions Producer uses mcp((ex) => `handler-${ex.body.type}`); two handler routes
    * @expectedResult Message routed to correct handler by body.type
    */
-  test("tool() works with dynamic endpoints (destination only)", async () => {
+  test("mcp() works with dynamic endpoints (destination only)", async () => {
     const consumerA = vi.fn();
     const consumerB = vi.fn();
 
@@ -171,9 +171,9 @@ describe("tool() DSL function", () => {
         craft()
           .id("producer")
           .from(simple({ type: "a", data: "test" }))
-          .to(tool((ex) => `handler-${ex.body.type}`)),
-        craft().id("handler-a").from(tool("handler-a")).to(consumerA),
-        craft().id("handler-b").from(tool("handler-b")).to(consumerB),
+          .to(mcp((ex) => `handler-${ex.body.type}`)),
+        craft().id("handler-a").from(mcp("handler-a")).to(consumerA),
+        craft().id("handler-b").from(mcp("handler-b")).to(consumerB),
       ])
       .build();
 

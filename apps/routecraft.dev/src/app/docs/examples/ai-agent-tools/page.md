@@ -5,13 +5,14 @@ title: Calendar & Meeting Assistant
 Build an AI that can manage your calendar and schedule meetings. {% .lead %}
 
 ```ts
-import { craft, tool, noop } from '@routecraft/routecraft'
+import { mcp } from '@routecraft/ai'
+import { craft, noop } from '@routecraft/routecraft'
 import { z } from 'zod'
 
 // Tool 1: Check availability
 craft()
   .id('check-availability')
-  .from(tool('check-availability', {
+  .from(mcp('check-availability', {
     description: 'Check calendar for available time slots',
     schema: z.object({
       date: z.string(),
@@ -33,7 +34,7 @@ craft()
 // Tool 2: Schedule meeting
 craft()
   .id('schedule-meeting')
-  .from(tool('schedule-meeting', {
+  .from(mcp('schedule-meeting', {
     description: 'Schedule a meeting and send calendar invites',
     schema: z.object({
       title: z.string(),
@@ -63,7 +64,7 @@ craft()
 // Tool 3: Get today's agenda
 craft()
   .id('todays-agenda')
-  .from(tool('todays-agenda', {
+  .from(mcp('todays-agenda', {
     description: 'Get summary of today\'s meetings and events',
     keywords: ['calendar', 'agenda', 'today', 'schedule']
   }))

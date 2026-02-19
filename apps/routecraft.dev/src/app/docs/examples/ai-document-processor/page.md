@@ -9,13 +9,14 @@ This example demonstrates the intended API design for complex multi-step automat
 {% /callout %}
 
 ```ts
-import { craft, tool, fetch } from '@routecraft/routecraft'
+import { mcp } from '@routecraft/ai'
+import { craft, fetch } from '@routecraft/routecraft'
 import { z } from 'zod'
 
 // Tool 1: Search flights
 craft()
   .id('search-flights')
-  .from(tool('search-flights', {
+  .from(mcp('search-flights', {
     description: 'Search for available flights',
     schema: z.object({
       from: z.string().describe('Departure airport code'),
@@ -48,7 +49,7 @@ craft()
 // Tool 2: Book restaurant
 craft()
   .id('book-restaurant')
-  .from(tool('book-restaurant', {
+  .from(mcp('book-restaurant', {
     description: 'Find and book a restaurant reservation',
     schema: z.object({
       cuisine: z.string(),
@@ -88,7 +89,7 @@ craft()
 // Tool 3: Hotel search
 craft()
   .id('search-hotels')
-  .from(tool('search-hotels', {
+  .from(mcp('search-hotels', {
     description: 'Search for hotels in a city',
     schema: z.object({
       city: z.string(),

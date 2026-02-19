@@ -60,12 +60,12 @@ const rule: Rule.RuleModule = {
     type: "problem",
     docs: {
       description:
-        "When using tool() as a source in .from(), options with description must be provided for discoverability.",
+        "When using mcp() as a source in .from(), options with description must be provided for discoverability.",
       recommended: false,
     },
     messages: {
       missingOptions:
-        "tool-source-options: tool() used in .from() must have options with description for AI/MCP discoverability. Use tool('name', { description: '...' }).",
+        "mcp-source-options: mcp() used in .from() must have options with description for AI/MCP discoverability. Use mcp('name', { description: '...' }).",
     },
     schema: [],
   },
@@ -84,24 +84,24 @@ const rule: Rule.RuleModule = {
 
         const fromArg = args[0];
 
-        // Check if the argument is a tool() call
+        // Check if the argument is an mcp() call
         if (!isCallExpression(fromArg)) return;
 
         const fromArgCallee = (fromArg as Record<string, unknown>)[
           "callee"
         ] as unknown;
 
-        // Check if it's a direct tool() call
-        if (!isIdentifier(fromArgCallee) || fromArgCallee.name !== "tool")
+        // Check if it's a direct mcp() call
+        if (!isIdentifier(fromArgCallee) || fromArgCallee.name !== "mcp")
           return;
 
-        // tool() is called inside .from() - check if it has options (second argument)
-        const toolArgs = (fromArg as Record<string, unknown>)["arguments"] as
+        // mcp() is called inside .from() - check if it has options (second argument)
+        const mcpArgs = (fromArg as Record<string, unknown>)["arguments"] as
           | unknown[]
           | undefined;
 
-        if (!Array.isArray(toolArgs) || toolArgs.length < 2) {
-          // tool() called with no options or only endpoint
+        if (!Array.isArray(mcpArgs) || mcpArgs.length < 2) {
+          // mcp() called with no options or only endpoint
           context.report({
             node: fromArg as Rule.Node,
             messageId: "missingOptions",

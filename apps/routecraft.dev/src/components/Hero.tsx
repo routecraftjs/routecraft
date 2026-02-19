@@ -10,12 +10,13 @@ import blurCyanImage from '@/images/blur-cyan.png'
 import blurIndigoImage from '@/images/blur-indigo.png'
 
 const codeLanguage = 'typescript'
-const aiToolExample = `import { craft, tool, mail } from '@routecraft/routecraft'
+const aiToolExample = `import { mcp } from '@routecraft/ai'
+import { craft, mail } from '@routecraft/routecraft'
 import { z } from 'zod'
 
 export default craft()
   .id('send-team-email')
-  .from(tool('send-team-email', {
+  .from(mcp('send-team-email', {
     description: 'Send email to team members',
     schema: z.object({
       to: z.string().email().refine(

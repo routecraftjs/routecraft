@@ -120,40 +120,40 @@ craft()
   .to(database({ operation: 'bulkInsert' }))
 ```
 
-#### tool-source-options
+#### mcp-source-options
 
 - **Action**: Error (default)
-- **Description**: When using `tool()` from `@routecraft/ai` as a source in `.from()`, options with `description` must be provided for AI/MCP discoverability.
+- **Description**: When using `mcp()` from `@routecraft/ai` as a source in `.from()`, options with `description` must be provided for AI/MCP discoverability.
 - **Options**: None
 - **Autofix**: None
 
-This rule ensures that tools are properly documented for AI agent discovery. The `description` field is required so that AI systems can understand what each tool does.
+This rule ensures that MCP routes are properly documented for AI agent discovery. The `description` field is required so that AI systems can understand what each endpoint does.
 
 Examples:
 
 ```ts
-// ✅ Good: tool() with options in .from()
-import { tool } from '@routecraft/ai'
+// ✅ Good: mcp() with options in .from()
+import { mcp } from '@routecraft/ai'
 
 craft()
   .id('my-tool')
-  .from(tool('my-tool', { description: 'Process incoming requests' }))
+  .from(mcp('my-tool', { description: 'Process incoming requests' }))
   .to(log())
 ```
 
 ```ts
-// ✅ Good: tool() without options in .to() (destination)
+// ✅ Good: mcp() without options in .to() (destination)
 craft()
   .id('producer')
   .from(simple({ message: 'hello' }))
-  .to(tool('my-tool'))
+  .to(mcp('my-tool'))
 ```
 
 ```ts
-// ❌ Bad: tool() without options in .from()
+// ❌ Bad: mcp() without options in .from()
 craft()
   .id('my-tool')
-  .from(tool('my-tool'))
+  .from(mcp('my-tool'))
   .to(log())
 ```
 
