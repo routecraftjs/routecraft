@@ -1,13 +1,8 @@
 import { describe, test, expect, afterEach, vi } from "vitest";
 import { z } from "zod";
 import { tool } from "../src/index.ts";
-import {
-  craft,
-  simple,
-  DirectAdapter,
-  testContext,
-  type TestContext,
-} from "@routecraft/routecraft";
+import { testContext, type TestContext } from "@routecraft/testing";
+import { craft, simple, DirectAdapter } from "@routecraft/routecraft";
 
 describe("tool() DSL function", () => {
   let t: TestContext;

@@ -1,10 +1,6 @@
 import { describe, test, expect, afterEach, vi } from "vitest";
-import {
-  testContext,
-  craft,
-  simple,
-  type TestContext,
-} from "@routecraft/routecraft";
+import { testContext, type TestContext } from "@routecraft/testing";
+import { craft, simple } from "@routecraft/routecraft";
 
 describe("Async Tap Execution", () => {
   let t: TestContext;

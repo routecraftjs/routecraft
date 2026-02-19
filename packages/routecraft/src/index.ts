@@ -104,6 +104,8 @@ export {
   type Consumer,
   type ConsumerType,
   type Message,
+  type EventName,
+  type EventHandler,
 } from "./types.ts";
 
 export { SimpleConsumer } from "./consumers/simple.ts";
@@ -144,5 +146,3 @@ export {
   type PseudoOptions,
   type PseudoKeyedOptions,
 } from "./adapters/pseudo.ts";
-
-export { TestContext, testContext, type SpyLogger } from "./test.ts";

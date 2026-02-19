@@ -10,7 +10,7 @@ Use `testContext()` to build a test context and `t.test()` to run the full lifec
 
 ```ts
 import { describe, it, expect, vi } from "vitest";
-import { testContext, type TestContext } from "@routecraft/routecraft";
+import { testContext, type TestContext } from "@routecraft/testing";
 import helloRoute from "../routes/hello-world.route";
 
 describe("hello route", () => {
@@ -51,7 +51,7 @@ export default defineConfig({
 Use `testContext()` and `t.test()` for the recommended flow. `t.test()` runs start → wait for all routes ready → drain → stop, so you don't need manual timeouts for direct/simple routes:
 
 ```ts
-import { testContext, type TestContext } from "@routecraft/routecraft";
+import { testContext, type TestContext } from "@routecraft/testing";
 import routes from "../routes/hello-world.route"; // your route builder export
 
 const t = await testContext().routes(routes).build();
@@ -93,7 +93,8 @@ spyAdapter.receivedBodies() // Get array of just the body values
 ### Spy on destinations to assert outputs
 
 ```ts
-import { craft, simple, spy, testContext } from "@routecraft/routecraft";
+import { testContext } from "@routecraft/testing";
+import { craft, simple, spy } from "@routecraft/routecraft";
 import { expect } from "vitest";
 
 const spyAdapter = spy();
@@ -112,7 +113,8 @@ expect(spyAdapter.calls.send).toBe(1);
 `testContext().build()` returns a test context whose `t.logger` is a spy. Use it to assert on pino log calls (e.g. from `.to(log())` or adapter logging):
 
 ```ts
-import { craft, simple, log, testContext } from "@routecraft/routecraft";
+import { testContext } from "@routecraft/testing";
+import { craft, simple, log } from "@routecraft/routecraft";
 import { expect, vi } from "vitest";
 
 test('logs messages correctly', async () => {
@@ -144,7 +146,8 @@ const logsForRoute = infoCalls.filter(
 ### Test custom sources that await the final exchange
 
 ```ts
-import { craft, testContext, spy } from "@routecraft/routecraft";
+import { testContext } from "@routecraft/testing";
+import { craft, spy } from "@routecraft/routecraft";
 
 let observed: any;
 const spyAdapter = spy();

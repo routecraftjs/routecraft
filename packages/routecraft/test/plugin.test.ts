@@ -1,12 +1,11 @@
 import { describe, test, expect, afterEach, vi } from "vitest";
+import { testContext, type TestContext } from "@routecraft/testing";
 import {
-  testContext,
   craft,
   simple,
   noop,
   type CraftContext,
   type CraftPlugin,
-  type TestContext,
 } from "@routecraft/routecraft";
 
 describe("Plugin System", () => {

@@ -1,11 +1,6 @@
 import { describe, test, expect, afterEach } from "vitest";
-import {
-  testContext,
-  craft,
-  direct,
-  noop,
-  type TestContext,
-} from "@routecraft/routecraft";
+import { testContext, type TestContext } from "@routecraft/testing";
+import { craft, direct, noop } from "@routecraft/routecraft";
 import { tool, plugin as mcp } from "@routecraft/ai";
 import { z } from "zod";
 

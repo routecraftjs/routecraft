@@ -1,0 +1,49 @@
+{
+  "name": "@routecraft/testing",
+  "version": "0.3.0",
+  "description": "Test utilities for RouteCraft routes",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts",
+    "test": "vitest",
+    "test:coverage": "vitest --coverage",
+    "prepublishOnly": "pnpm run build"
+  },
+  "dependencies": {
+    "@routecraft/routecraft": "workspace:^0.3.0"
+  },
+  "devDependencies": {
+    "vitest": "^4.0.18"
+  },
+  "peerDependencies": {
+    "@routecraft/routecraft": "*",
+    "vitest": ">=4"
+  },
+  "keywords": [
+    "routecraft",
+    "testing",
+    "vitest",
+    "test-context"
+  ],
+  "author": "routecraftjs",
+  "license": "Apache-2.0",
+  "homepage": "https://routecraft.dev",
+  "bugs": "https://github.com/routecraftjs/routecraft/issues",
+  "repository": "https://github.com/routecraftjs/routecraft",
+  "publishConfig": {
+    "access": "public"
+  }
+}
