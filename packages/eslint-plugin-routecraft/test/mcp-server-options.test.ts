@@ -1,6 +1,6 @@
 import { describe, test } from "vitest";
 import { RuleTester } from "eslint";
-import mcpSourceOptionsRule from "../src/rules/mcp-source-options";
+import mcpServerOptionsRule from "../src/rules/mcp-server-options";
 
 const ruleTester = new RuleTester({
   languageOptions: {
@@ -9,14 +9,14 @@ const ruleTester = new RuleTester({
   },
 });
 
-describe("mcp-source-options", () => {
+describe("mcp-server-options", () => {
   /**
    * @case Verifies that mcp() with options in .from() passes
    * @preconditions Routes that use .from(mcp('name', { description: '...' }))
    * @expectedResult No errors should be reported
    */
   test("valid cases pass", () => {
-    ruleTester.run("mcp-source-options", mcpSourceOptionsRule, {
+    ruleTester.run("mcp-server-options", mcpServerOptionsRule, {
       valid: [
         // mcp() with options in .from()
         {
@@ -80,7 +80,7 @@ describe("mcp-source-options", () => {
    * @expectedResult Errors should be reported
    */
   test("mcp() without options in .from() is caught", () => {
-    ruleTester.run("mcp-source-options", mcpSourceOptionsRule, {
+    ruleTester.run("mcp-server-options", mcpServerOptionsRule, {
       valid: [],
       invalid: [
         {
@@ -114,12 +114,51 @@ describe("mcp-source-options", () => {
   });
 
   /**
+   * @case Verifies that mcp() with empty options or options without description is caught
+   * @preconditions .from(mcp('name', {})) or .from(mcp('name', { unrelated: true }))
+   * @expectedResult Errors should be reported
+   */
+  test("mcp() with empty options or options without description is caught", () => {
+    ruleTester.run("mcp-server-options", mcpServerOptionsRule, {
+      valid: [],
+      invalid: [
+        {
+          code: `
+            craft()
+              .id("my-tool")
+              .from(mcp("my-tool", {}))
+              .to(log());
+          `,
+          errors: [
+            {
+              messageId: "missingOptions",
+            },
+          ],
+        },
+        {
+          code: `
+            craft()
+              .id("my-tool")
+              .from(mcp("my-tool", { unrelated: true }))
+              .to(log());
+          `,
+          errors: [
+            {
+              messageId: "missingOptions",
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  /**
    * @case Verifies that multiple routes are independently validated
    * @preconditions Multiple routes with mixed valid/invalid mcp() usage
    * @expectedResult Only invalid routes should be reported
    */
   test("multiple routes are independently validated", () => {
-    ruleTester.run("mcp-source-options", mcpSourceOptionsRule, {
+    ruleTester.run("mcp-server-options", mcpServerOptionsRule, {
       valid: [],
       invalid: [
         {

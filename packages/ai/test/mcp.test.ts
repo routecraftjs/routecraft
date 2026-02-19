@@ -1,6 +1,6 @@
 import { describe, test, expect, afterEach, vi } from "vitest";
 import { z } from "zod";
-import { mcp } from "../src/index.ts";
+import { mcp, mcpPlugin } from "../src/index.ts";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { craft, simple, DirectAdapter } from "@routecraft/routecraft";
 
@@ -30,6 +30,7 @@ describe("mcp() DSL function", () => {
           .from(mcp("my-tool", { description: "Receive messages" }))
           .to(consumer),
       ])
+      .with({ plugins: [mcpPlugin()] })
       .build();
 
     await t.test();
@@ -47,12 +48,16 @@ describe("mcp() DSL function", () => {
 
     t = await testContext()
       .routes([
-        craft().id("my-tool").from(mcp("my-tool")).to(consumer),
+        craft()
+          .id("my-tool")
+          .from(mcp("my-tool", { description: "My tool" }))
+          .to(consumer),
         craft()
           .id("producer")
           .from(simple({ query: "hello" }))
           .to(mcp("my-tool")),
       ])
+      .with({ plugins: [mcpPlugin()] })
       .build();
 
     await t.test();
@@ -88,6 +93,7 @@ describe("mcp() DSL function", () => {
           )
           .to(consumer),
       ])
+      .with({ plugins: [mcpPlugin()] })
       .build();
 
     await t.test();
@@ -120,6 +126,7 @@ describe("mcp() DSL function", () => {
           )
           .to(vi.fn()),
       ])
+      .with({ plugins: [mcpPlugin()] })
       .build();
 
     await t.test();
@@ -146,6 +153,7 @@ describe("mcp() DSL function", () => {
           )
           .to(vi.fn()),
       ])
+      .with({ plugins: [mcpPlugin()] })
       .build();
 
     await t.test();
@@ -155,6 +163,21 @@ describe("mcp() DSL function", () => {
     const metadata = registry?.get("search-tool");
     expect(metadata?.description).toBe("Search for documents");
     expect(metadata?.keywords).toEqual(["search", "query", "find"]);
+  });
+
+  /**
+   * @case mcp() with McpClientOptions returns MCP client adapter for remote server
+   * @preconditions Call mcp({ url, tool })
+   * @expectedResult Returns adapter with adapterId routecraft.adapter.mcp.client and send method
+   */
+  test("mcp({ url, tool }) returns MCP client adapter", () => {
+    const adapter = mcp({
+      url: "http://localhost:3001/mcp",
+      tool: "my-remote-tool",
+    });
+    expect(adapter).toBeDefined();
+    expect(adapter.adapterId).toBe("routecraft.adapter.mcp.client");
+    expect(typeof adapter.send).toBe("function");
   });
 
   /**
@@ -172,9 +195,16 @@ describe("mcp() DSL function", () => {
           .id("producer")
           .from(simple({ type: "a", data: "test" }))
           .to(mcp((ex) => `handler-${ex.body.type}`)),
-        craft().id("handler-a").from(mcp("handler-a")).to(consumerA),
-        craft().id("handler-b").from(mcp("handler-b")).to(consumerB),
+        craft()
+          .id("handler-a")
+          .from(mcp("handler-a", { description: "Handler A" }))
+          .to(consumerA),
+        craft()
+          .id("handler-b")
+          .from(mcp("handler-b", { description: "Handler B" }))
+          .to(consumerB),
       ])
+      .with({ plugins: [mcpPlugin()] })
       .build();
 
     await t.test();

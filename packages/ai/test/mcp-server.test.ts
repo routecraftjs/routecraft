@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import { MCPServer } from "../src/mcp/server.ts";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { craft, direct, noop } from "@routecraft/routecraft";
-import { mcp } from "../src/index.ts";
+import { mcp, MCP_PLUGIN_REGISTERED } from "../src/index.ts";
 import { z } from "zod";
 
 describe("MCPServer", () => {
@@ -76,6 +76,10 @@ describe("MCPServer", () => {
           )
           .to(noop()),
       ])
+      .store(
+        MCP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry,
+        true,
+      )
       .build();
 
     server = new MCPServer(t.ctx, {
@@ -83,22 +87,12 @@ describe("MCPServer", () => {
     });
 
     expect(server).toBeDefined();
-    const routeStartedPromise = new Promise<void>((resolve) => {
-      let count = 0;
-      t.ctx.on("routeStarted", () => {
-        count++;
-        if (count >= 2) resolve();
-      });
-    });
-    const startPromise = t.ctx.start();
-    await routeStartedPromise;
+    await t.test();
     const tools = server.getAvailableTools();
-    const names = tools.map((t) => t.name as string);
+    const names = tools.map((tool) => tool.name as string);
     expect(names).toContain("tool1");
     expect(names).not.toContain("tool2");
     expect(names).toEqual(["tool1"]);
-    await t.ctx.stop();
-    await startPromise;
   });
 
   /**
@@ -128,6 +122,10 @@ describe("MCPServer", () => {
           )
           .to(noop()),
       ])
+      .store(
+        MCP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry,
+        true,
+      )
       .build();
 
     server = new MCPServer(t.ctx, {
@@ -135,22 +133,12 @@ describe("MCPServer", () => {
     });
 
     expect(server).toBeDefined();
-    const routeStartedPromise = new Promise<void>((resolve) => {
-      let count = 0;
-      t.ctx.on("routeStarted", () => {
-        count++;
-        if (count >= 2) resolve();
-      });
-    });
-    const startPromise = t.ctx.start();
-    await routeStartedPromise;
+    await t.test();
     const tools = server.getAvailableTools();
-    const names = tools.map((t) => t.name as string);
+    const names = tools.map((tool) => tool.name as string);
     expect(names).toContain("public-tool");
     expect(names).not.toContain("private-tool");
     expect(names).toEqual(["public-tool"]);
-    await t.ctx.stop();
-    await startPromise;
   });
 
   /**
@@ -226,24 +214,18 @@ describe("MCPServer", () => {
           .from(direct("internal-direct", {}))
           .to(noop()),
       ])
+      .store(
+        MCP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry,
+        true,
+      )
       .build();
     server = new MCPServer(t.ctx);
     expect(server).toBeDefined();
-    const routeStartedPromise = new Promise<void>((resolve) => {
-      let count = 0;
-      t.ctx.on("routeStarted", () => {
-        count++;
-        if (count >= 2) resolve();
-      });
-    });
-    const startPromise = t.ctx.start();
-    await routeStartedPromise;
+    await t.test();
     const tools = server.getAvailableTools();
-    const names = tools.map((t) => t.name as string);
+    const names = tools.map((tool) => tool.name as string);
     expect(names).toContain("exposed-tool");
     expect(names).not.toContain("internal-direct");
     expect(names).toEqual(["exposed-tool"]);
-    await t.ctx.stop();
-    await startPromise;
   });
 });

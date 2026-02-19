@@ -120,10 +120,10 @@ craft()
   .to(database({ operation: 'bulkInsert' }))
 ```
 
-#### mcp-source-options
+#### mcp-server-options
 
 - **Action**: Error (default)
-- **Description**: When using `mcp()` from `@routecraft/ai` as a source in `.from()`, options with `description` must be provided for AI/MCP discoverability.
+- **Description**: When using `mcp()` from `@routecraft/ai` as a server in `.from()`, options with `description` must be provided for AI/MCP discoverability.
 - **Options**: None
 - **Autofix**: None
 

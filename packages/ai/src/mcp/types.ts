@@ -1,10 +1,20 @@
 import type { DirectRouteMetadata } from "@routecraft/routecraft";
 
+/** Store key set by mcpPlugin() when applied; routes using .from(mcp(...)) require it. */
+export const MCP_PLUGIN_REGISTERED =
+  "routecraft.mcp.plugin.registered" as const;
+
+declare module "@routecraft/routecraft" {
+  interface StoreRegistry {
+    [MCP_PLUGIN_REGISTERED]: boolean;
+  }
+}
+
 /**
- * Options for configuring the MCP server and plugin.
- * Used by MCPServer and the RouteCraft MCP plugin.
+ * Options for the MCP plugin (mcpPlugin).
+ * One plugin per adapter: this is the single options type for the MCP plugin.
  */
-export interface MCPServerOptions {
+export interface McpPluginOptions {
   /** Server name in MCP protocol handshake. Default: "routecraft" */
   name?: string;
 
@@ -26,6 +36,9 @@ export interface MCPServerOptions {
    */
   tools?: string[] | ((meta: DirectRouteMetadata) => boolean);
 }
+
+/** @internal Used by MCPServer implementation; same shape as McpPluginOptions. */
+export type MCPServerOptions = McpPluginOptions;
 
 /**
  * Represents a tool exposed via MCP

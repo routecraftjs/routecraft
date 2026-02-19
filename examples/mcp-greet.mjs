@@ -1,10 +1,10 @@
 import { craft, log, noop } from "@routecraft/routecraft";
-import { plugin as mcp, tool } from "@routecraft/ai";
+import { mcpPlugin, mcp } from "@routecraft/ai";
 import { z } from "zod";
 
 export const craftConfig = {
   plugins: [
-    mcp({
+    mcpPlugin({
       name: "routecraft",
       version: "1.0.0",
       transport: "stdio",
@@ -15,7 +15,7 @@ export const craftConfig = {
 export default craft()
   .id("greet-user")
   .from(
-    tool("greet-user", {
+    mcp("greet-user", {
       description: "Greet a user by name",
       schema: z.object({
         user: z.string().describe("The user to greet."),

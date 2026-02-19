@@ -41,6 +41,56 @@ function isCallExpression(
   );
 }
 
+function isObjectExpression(
+  node: unknown,
+): node is { type: "ObjectExpression"; properties: unknown[] } {
+  return (
+    isObject(node) &&
+    node["type"] === "ObjectExpression" &&
+    Array.isArray(node["properties"])
+  );
+}
+
+function isLiteral(
+  node: unknown,
+): node is { type: "Literal"; value: string | number | boolean | null } {
+  return isObject(node) && node["type"] === "Literal" && "value" in node;
+}
+
+function isProperty(node: unknown): node is {
+  type: "Property";
+  key: unknown;
+  value: unknown;
+} {
+  return (
+    isObject(node) &&
+    node["type"] === "Property" &&
+    "key" in node &&
+    "value" in node
+  );
+}
+
+function getPropertyKeyName(key: unknown): string | undefined {
+  if (isIdentifier(key)) return key.name;
+  if (isLiteral(key) && typeof key.value === "string") return key.value;
+  return undefined;
+}
+
+/** Returns true if the object has a description property that is a non-empty string literal. */
+function hasDescriptionOption(obj: {
+  type: "ObjectExpression";
+  properties: unknown[];
+}): boolean {
+  for (const prop of obj.properties) {
+    if (!isProperty(prop)) continue;
+    const name = getPropertyKeyName(prop.key);
+    if (name !== "description") continue;
+    if (!isLiteral(prop.value)) return false;
+    return typeof prop.value.value === "string" && prop.value.value.length > 0;
+  }
+  return false;
+}
+
 // Utility: find the callee name for a CallExpression like obj.method() or fn()
 function getCallName(node: unknown): string | undefined {
   if (!isCallExpression(node)) return undefined;
@@ -60,12 +110,12 @@ const rule: Rule.RuleModule = {
     type: "problem",
     docs: {
       description:
-        "When using mcp() as a source in .from(), options with description must be provided for discoverability.",
+        "When using mcp() as a server in .from(), options with description must be provided for discoverability.",
       recommended: false,
     },
     messages: {
       missingOptions:
-        "mcp-source-options: mcp() used in .from() must have options with description for AI/MCP discoverability. Use mcp('name', { description: '...' }).",
+        "mcp-server-options: mcp() used in .from() must have options with description for AI/MCP discoverability. Use mcp('name', { description: '...' }).",
     },
     schema: [],
   },
@@ -95,13 +145,29 @@ const rule: Rule.RuleModule = {
         if (!isIdentifier(fromArgCallee) || fromArgCallee.name !== "mcp")
           return;
 
-        // mcp() is called inside .from() - check if it has options (second argument)
+        // mcp() is called inside .from() - check if it has options (second argument) with description
         const mcpArgs = (fromArg as Record<string, unknown>)["arguments"] as
           | unknown[]
           | undefined;
 
         if (!Array.isArray(mcpArgs) || mcpArgs.length < 2) {
-          // mcp() called with no options or only endpoint
+          context.report({
+            node: fromArg as Rule.Node,
+            messageId: "missingOptions",
+          });
+          return;
+        }
+
+        const optionsArg = mcpArgs[1];
+        if (!isObjectExpression(optionsArg)) {
+          context.report({
+            node: fromArg as Rule.Node,
+            messageId: "missingOptions",
+          });
+          return;
+        }
+
+        if (!hasDescriptionOption(optionsArg)) {
           context.report({
             node: fromArg as Rule.Node,
             messageId: "missingOptions",

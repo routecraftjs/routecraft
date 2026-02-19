@@ -6,7 +6,7 @@ Build an AI assistant that can send and manage emails. {% .lead %}
 
 ```ts
 import { mcp } from '@routecraft/ai'
-import { craft, fetch, noop } from '@routecraft/routecraft'
+import { craft, noop } from '@routecraft/routecraft'
 import { z } from 'zod'
 
 // Tool 1: Send email

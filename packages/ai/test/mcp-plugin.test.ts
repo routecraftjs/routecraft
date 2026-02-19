@@ -1,7 +1,7 @@
 import { describe, test, expect, afterEach } from "vitest";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { craft, direct, noop } from "@routecraft/routecraft";
-import { mcp, plugin as mcpPlugin } from "@routecraft/ai";
+import { mcp, mcpPlugin } from "@routecraft/ai";
 import { z } from "zod";
 
 describe("MCP Plugin Integration", () => {
@@ -14,11 +14,29 @@ describe("MCP Plugin Integration", () => {
   });
 
   /**
-   * @case Verifies that plugin() can be used in context config
+   * @case Route using .from(mcp(...)) without mcpPlugin fails at start
+   * @preconditions Route has mcp() source but plugins do not include mcpPlugin()
+   * @expectedResult Starting the context (t.test()) throws with message about MCP plugin required
+   */
+  test(".from(mcp(...)) without mcpPlugin fails when route starts", async () => {
+    t = await testContext()
+      .routes(
+        craft()
+          .id("test")
+          .from(mcp("test", { description: "test" }))
+          .to(noop()),
+      )
+      .build();
+
+    await expect(t.test()).rejects.toThrow(/MCP plugin required/);
+  });
+
+  /**
+   * @case Verifies that mcpPlugin() can be used in context config
    * @preconditions Plugin is added to config
    * @expectedResult Context builds without error
    */
-  test("plugin() registers with context", async () => {
+  test("mcpPlugin() registers with context", async () => {
     expect(typeof mcpPlugin).toBe("function");
 
     t = await testContext()
@@ -68,11 +86,11 @@ describe("MCP Plugin Integration", () => {
   });
 
   /**
-   * @case Verifies that plugin accepts options
+   * @case Verifies that mcpPlugin accepts options
    * @preconditions Plugin is created with custom options
    * @expectedResult Plugin accepts name, version options
    */
-  test("plugin() accepts configuration options", async () => {
+  test("mcpPlugin() accepts configuration options", async () => {
     t = await testContext()
       .routes(
         craft()
@@ -94,21 +112,21 @@ describe("MCP Plugin Integration", () => {
   });
 
   /**
-   * @case Verifies that plugin can filter tools
+   * @case Verifies that mcpPlugin can filter tools
    * @preconditions Multiple tools are defined and filter is applied
    * @expectedResult Only filtered tools are available
    */
-  test("plugin() can filter tools by name", () => {
+  test("mcpPlugin() can filter tools by name", () => {
     const p = mcpPlugin({ tools: ["allowed-tool"] });
     expect(typeof p).toBe("function");
   });
 
   /**
-   * @case Verifies that plugin can filter tools by function
+   * @case Verifies that mcpPlugin can filter tools by function
    * @preconditions Custom filter function is provided
    * @expectedResult Only tools matching filter are exposed
    */
-  test("plugin() can filter tools by function", () => {
+  test("mcpPlugin() can filter tools by function", () => {
     const p = mcpPlugin({
       tools: (meta) => meta.keywords?.includes("public") ?? false,
     });
