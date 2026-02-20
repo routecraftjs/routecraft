@@ -151,9 +151,12 @@ export class TestContext {
       await allReady;
       await ctx.drain();
     } finally {
-      await ctx.stop();
-      await started;
-      this.restoreLoggerChild?.();
+      try {
+        await ctx.stop();
+        await started;
+      } finally {
+        this.restoreLoggerChild?.();
+      }
     }
   }
 

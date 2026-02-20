@@ -6,6 +6,7 @@
 export const BRAND = {
   McpSourceAdapter: Symbol.for("routecraft.ai.McpSourceAdapter"),
   McpClientAdapter: Symbol.for("routecraft.ai.McpClientAdapter"),
+  MCPAdapter: Symbol.for("routecraft.ai.MCPAdapter"),
 } as const;
 
 function isBranded(obj: unknown, key: symbol): boolean {
@@ -24,6 +25,14 @@ export function isMcpClientAdapter(obj: unknown): boolean {
   return isBranded(obj, BRAND.McpClientAdapter);
 }
 
+export function isMcpDirectAdapter(obj: unknown): boolean {
+  return isBranded(obj, BRAND.MCPAdapter);
+}
+
 export function isMcpAdapter(obj: unknown): boolean {
-  return isMcpSourceAdapter(obj) || isMcpClientAdapter(obj);
+  return (
+    isMcpSourceAdapter(obj) ||
+    isMcpClientAdapter(obj) ||
+    isMcpDirectAdapter(obj)
+  );
 }

@@ -20,13 +20,17 @@ craft()
     }),
     keywords: ['calendar', 'availability', 'schedule']
   }))
-  .process(async ({ date, duration }) => {
+  .process(async (exchange) => {
+    const { date, duration } = exchange.body
     const events = await googleCalendar.getEvents(date)
     const freeSlots = findAvailableSlots(events, duration)
     return {
-      date,
-      availableSlots: freeSlots,
-      busyCount: events.length
+      ...exchange,
+      body: {
+        date,
+        availableSlots: freeSlots,
+        busyCount: events.length
+      }
     }
   })
   .to(noop())
@@ -45,18 +49,22 @@ craft()
     }),
     keywords: ['meeting', 'schedule', 'calendar', 'invite']
   }))
-  .process(async (req) => {
+  .process(async (exchange) => {
+    const { title, attendees, startTime, duration, location } = exchange.body
     const event = await googleCalendar.createEvent({
-      summary: req.title,
-      attendees: req.attendees.map(email => ({ email })),
-      start: { dateTime: req.startTime },
-      end: { dateTime: addMinutes(req.startTime, req.duration) },
-      location: req.location
+      summary: title,
+      attendees: attendees.map(email => ({ email })),
+      start: { dateTime: startTime },
+      end: { dateTime: addMinutes(startTime, duration) },
+      location
     })
     return {
-      created: true,
-      eventId: event.id,
-      link: event.htmlLink
+      ...exchange,
+      body: {
+        created: true,
+        eventId: event.id,
+        link: event.htmlLink
+      }
     }
   })
   .to(noop())
@@ -68,17 +76,20 @@ craft()
     description: 'Get summary of today\'s meetings and events',
     keywords: ['calendar', 'agenda', 'today', 'schedule']
   }))
-  .process(async () => {
+  .process(async (exchange) => {
     const today = new Date().toISOString().split('T')[0]
     const events = await googleCalendar.getEvents(today)
     return {
-      date: today,
-      eventCount: events.length,
-      events: events.map(e => ({
-        time: e.start.dateTime,
-        title: e.summary,
-        attendees: e.attendees?.length || 0
-      }))
+      ...exchange,
+      body: {
+        date: today,
+        eventCount: events.length,
+        events: events.map(e => ({
+          time: e.start.dateTime,
+          title: e.summary,
+          attendees: e.attendees?.length || 0
+        }))
+      }
     }
   })
   .to(noop())

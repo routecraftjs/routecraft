@@ -76,22 +76,27 @@ import { mcp } from '@routecraft/ai';
 import { craft, context, DirectAdapter } from '@routecraft/routecraft';
 import { z } from 'zod';
 
-craft()
-  .from(
-    mcp('fetch-webpage', {
-      description: 'Fetch and return the content of a webpage',
-      schema: z.object({
-        url: z.string().url(),
+const ctx = context()
+  .routes([
+    craft()
+      .from(
+        mcp('fetch-webpage', {
+          description: 'Fetch and return the content of a webpage',
+          schema: z.object({
+            url: z.string().url(),
+          }),
+          keywords: ['fetch', 'web', 'http'],
+        })
+      )
+      .transform(async (body) => {
+        const response = await fetch(body.url);
+        return { content: await response.text() };
       }),
-      keywords: ['fetch', 'web', 'http'],
-    })
-  )
-  .process(async ({ url }) => {
-    const response = await fetch(url);
-    return { content: await response.text() };
-  });
+  ])
+  .build();
+await ctx.start();
 
-// After context.start(), query registered tools
+// Query registered tools after context has started
 const registry = ctx.getStore(DirectAdapter.ADAPTER_DIRECT_REGISTRY);
 const tools = Array.from(registry?.values() ?? []);
 ```

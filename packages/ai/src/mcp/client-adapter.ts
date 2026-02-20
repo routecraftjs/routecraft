@@ -12,7 +12,7 @@ const ADAPTER_MCP_CLIENT_SERVERS = "routecraft.mcp.client.servers" as const;
 
 declare module "@routecraft/routecraft" {
   interface StoreRegistry {
-    [ADAPTER_MCP_CLIENT_SERVERS]: Map<string, McpClientHttpConfig>;
+    [ADAPTER_MCP_CLIENT_SERVERS]: Map<string, McpClientHttpConfig | string>;
   }
 }
 
@@ -25,6 +25,11 @@ function resolveUrl(
   context: ReturnType<typeof getExchangeContext>,
 ): string {
   if (options.url) return options.url;
+  if (options.serverId && !context) {
+    throw new Error(
+      `MCP client: serverId "${options.serverId}" requires a context to resolve. Ensure the exchange has context (e.g. from a route) so store "${ADAPTER_MCP_CLIENT_SERVERS}" can be read.`,
+    );
+  }
   if (options.serverId && context) {
     const servers = context.getStore(
       ADAPTER_MCP_CLIENT_SERVERS as keyof import("@routecraft/routecraft").StoreRegistry,
@@ -111,33 +116,60 @@ export class McpClientAdapter implements Destination<unknown, unknown> {
     ) => InstanceType<typeof clientModule.Client>)(clientInfo, {
       capabilities: {},
     });
-    const connect = (
-      client as unknown as { connect(transport: unknown): Promise<void> }
-    ).connect;
-    await connect.call(client, transport);
+    try {
+      const connect = (
+        client as unknown as { connect(transport: unknown): Promise<void> }
+      ).connect;
+      await connect.call(client, transport);
 
-    const callTool = (
-      client as unknown as {
-        callTool(params: {
-          name: string;
-          arguments?: Record<string, unknown>;
-        }): Promise<{ content?: Array<{ type: string; text?: string }> }>;
+      const callTool = (
+        client as unknown as {
+          callTool(params: {
+            name: string;
+            arguments?: Record<string, unknown>;
+          }): Promise<{ content?: Array<{ type: string; text?: string }> }>;
+        }
+      ).callTool;
+      const response = await callTool.call(client, {
+        name: toolName,
+        arguments: args,
+      });
+
+      const content = response?.content;
+      if (Array.isArray(content) && content.length > 0) {
+        const first = content[0];
+        if (first && typeof first === "object" && "text" in first)
+          return first.text;
+        if (first && typeof first === "object" && "data" in first)
+          return (first as { data?: string }).data;
       }
-    ).callTool;
-    const response = await callTool.call(client, {
-      name: toolName,
-      arguments: args,
-    });
-
-    const content = response?.content;
-    if (Array.isArray(content) && content.length > 0) {
-      const first = content[0];
-      if (first && typeof first === "object" && "text" in first)
-        return first.text;
-      if (first && typeof first === "object" && "data" in first)
-        return (first as { data?: string }).data;
+      return response;
+    } finally {
+      const clientCleanup = client as unknown as {
+        close?: () => void | Promise<void>;
+        disconnect?: () => void | Promise<void>;
+      };
+      const closeOrDisconnect = clientCleanup.close ?? clientCleanup.disconnect;
+      if (typeof closeOrDisconnect === "function") {
+        try {
+          await Promise.resolve(closeOrDisconnect.call(client));
+        } catch {
+          // Ignore cleanup errors so original error propagates
+        }
+      }
+      const transportCleanup = transport as unknown as {
+        close?: () => void | Promise<void>;
+        destroy?: () => void;
+      };
+      const closeOrDestroy = transportCleanup.close ?? transportCleanup.destroy;
+      if (typeof closeOrDestroy === "function") {
+        try {
+          await Promise.resolve(closeOrDestroy.call(transport));
+        } catch {
+          // Ignore cleanup errors so original error propagates
+        }
+      }
     }
-    return response;
   }
 }
 

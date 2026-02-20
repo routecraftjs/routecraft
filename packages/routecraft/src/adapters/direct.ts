@@ -115,7 +115,7 @@ declare module "@routecraft/routecraft" {
 export class DirectAdapter<T = unknown>
   implements Source<T>, Destination<T, T>, MergedOptions<DirectOptionsMerged>
 {
-  readonly adapterId = "routecraft.adapter.direct";
+  readonly adapterId: string = "routecraft.adapter.direct";
   static readonly ADAPTER_DIRECT_STORE =
     "routecraft.adapter.direct.store" as const;
   static readonly ADAPTER_DIRECT_OPTIONS =

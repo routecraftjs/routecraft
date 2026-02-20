@@ -26,22 +26,26 @@ craft()
     }),
     keywords: ['flight', 'travel', 'booking', 'airline']
   }))
-  .process(async (req) => {
+  .process(async (exchange) => {
+    const { from, to, date, passengers } = exchange.body
     const flights = await searchFlightAPI({
-      origin: req.from,
-      destination: req.to,
-      date: req.date,
-      passengers: req.passengers
+      origin: from,
+      destination: to,
+      date,
+      passengers
     })
     return {
-      flights: flights.slice(0, 5).map(f => ({
-        airline: f.airline,
-        flightNumber: f.number,
-        departure: f.departureTime,
-        arrival: f.arrivalTime,
-        price: f.price,
-        duration: f.duration
-      }))
+      ...exchange,
+      body: {
+        flights: flights.slice(0, 5).map(f => ({
+          airline: f.airline,
+          flightNumber: f.number,
+          departure: f.departureTime,
+          arrival: f.arrivalTime,
+          price: f.price,
+          duration: f.duration
+        }))
+      }
     }
   })
   .to(noop())
@@ -60,28 +64,32 @@ craft()
     }),
     keywords: ['restaurant', 'dining', 'reservation', 'food']
   }))
-  .process(async (req) => {
+  .process(async (exchange) => {
+    const { city, cuisine, date, time, partySize } = exchange.body
     // Search OpenTable or similar
     const restaurants = await searchRestaurants({
-      location: req.city,
-      cuisine: req.cuisine,
-      date: req.date,
-      time: req.time,
-      partySize: req.partySize
+      location: city,
+      cuisine,
+      date,
+      time,
+      partySize
     })
     
     // Book the best match
     const booking = await bookTable(restaurants[0].id, {
-      date: req.date,
-      time: req.time,
-      partySize: req.partySize
+      date,
+      time,
+      partySize
     })
     
     return {
-      restaurant: restaurants[0].name,
-      address: restaurants[0].address,
-      time: booking.time,
-      confirmationCode: booking.code
+      ...exchange,
+      body: {
+        restaurant: restaurants[0].name,
+        address: restaurants[0].address,
+        time: booking.time,
+        confirmationCode: booking.code
+      }
     }
   })
   .to(noop())
@@ -100,16 +108,19 @@ craft()
     }),
     keywords: ['hotel', 'accommodation', 'booking', 'lodging']
   }))
-  .process(async (req) => {
-    const hotels = await searchHotels(req)
+  .process(async (exchange) => {
+    const hotels = await searchHotels(exchange.body)
     return {
-      hotels: hotels.slice(0, 5).map(h => ({
-        name: h.name,
-        rating: h.rating,
-        pricePerNight: h.price,
-        amenities: h.amenities,
-        availability: h.available
-      }))
+      ...exchange,
+      body: {
+        hotels: hotels.slice(0, 5).map(h => ({
+          name: h.name,
+          rating: h.rating,
+          pricePerNight: h.price,
+          amenities: h.amenities,
+          availability: h.available
+        }))
+      }
     }
   })
   .to(noop())
