@@ -24,7 +24,7 @@ import { testContext, type TestContext } from "@routecraft/testing";
 import { craft, simple, log } from "@routecraft/routecraft";
 
 describe("my route", () => {
-  let t: TestContext;
+  let t: TestContext | undefined;
 
   afterEach(async () => {
     if (t) await t.stop();

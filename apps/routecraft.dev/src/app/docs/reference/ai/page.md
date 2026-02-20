@@ -49,7 +49,7 @@ The package depends on `@routecraft/routecraft` (peer `>=0.2.0`).
 
 `@routecraft/ai` provides an AI-friendly DSL on top of RouteCraft's core:
 
-- **`mcp()`** – Alias for `direct()` with semantics for AI/MCP: when you pass options, `description` is **required**; schema and keywords are optional.
+- **`mcp()`** – Supports both **server** (expose tools via `.from(mcp(...))`) and **client** (call remote MCP tools via `.to(mcp(...))`). Built on `DirectAdapter`; local endpoints use `MCPAdapter`, which extends `DirectAdapter`. When you pass options for a server, `description` is **required**; schema and keywords are optional.
 - **Discovery** – MCP routes register in the context store so you can query endpoints, descriptions, and schemas at runtime (e.g. for MCP or agent tool catalogs).
 
 Use `mcp()` when building routes that will be discovered and called by AI agents or exposed via MCP.
@@ -60,10 +60,10 @@ Use `mcp()` when building routes that will be discovered and called by AI agents
 mcp<T>(
   endpoint: string | ((exchange: Exchange<T>) => string),
   options?: McpOptions
-): DirectAdapter<T>
+): Source<T> | Destination<T, T> | Destination<unknown, unknown>
 ```
 
-Create a discoverable direct route for AI/MCP integration. If you pass the **options** object (second argument), you **must** include `description`—it is required whenever options are provided. `schema` and `keywords` are optional.
+`mcp()` supports both **client** and **server** use: define discoverable tools with `.from(mcp(endpoint, options))`, send to local endpoints with `.to(mcp(endpoint))` (returns `MCPAdapter<T>`, which extends `DirectAdapter<T>`), or call remote MCP servers with `.to(mcp('server:tool'))` or `.to(mcp({ url, tool }))`. The signature above is a simplified union of return types; the implementation is overloaded. If you pass the **options** object (second argument) for a server, you **must** include `description`—it is required whenever options are provided. `schema` and `keywords` are optional.
 
 ### Options (McpServerOptions / McpOptions)
 
@@ -83,20 +83,19 @@ Routes that use `.from(mcp(...))` require the **MCP plugin** to be in your confi
 
 ```ts
 import { mcp, mcpPlugin } from '@routecraft/ai';
-import { craft } from '@routecraft/routecraft';
+import { context } from '@routecraft/routecraft';
 
-const ctx = craft()
-  .id('my-app')
+const ctx = await context()
   .routes([/* routes that use .from(mcp(...)) */])
   .with({ plugins: [mcpPlugin({ transport: 'http', port: 3001 })] })
   .build();
 ```
 
-`mcpPlugin(options?)` accepts typed **McpPluginOptions** (e.g. `name`, `version`, `transport`, `port`, `host`, `tools`). For full validation of options (e.g. required props), use `validateWithSchema(options, schema)` with a StandardSchema from Zod, Valibot, or ArkType before passing options to `mcpPlugin()`.
+`mcpPlugin(options?)` accepts typed **McpPluginOptions** (e.g. `name`, `version`, `transport`, `port`, `host`, `tools`). For full validation of options (e.g. required props), use `await validateWithSchema(options, schema)` with a StandardSchema from Zod, Valibot, or ArkType before passing options to `mcpPlugin()`; it returns a Promise and supports async validators.
 
 ### Without options (destination or simple source)
 
-You can call `mcp(endpoint)` with **no** options when you only **send to** an MCP endpoint (`.to(mcp('my-tool'))`) or when you **receive from** an endpoint that is defined by another route with options. The route that *defines* the MCP endpoint must pass options including `description`:
+You can call `mcp(endpoint)` with **no** options when you only **send to** an MCP endpoint (`.to(mcp('my-tool'))`) or when you **receive from** an endpoint that is defined by another route with options. In this case `mcp()` returns an `MCPAdapter<T>` (extends `DirectAdapter<T>`). The route that *defines* the MCP endpoint must pass options including `description`:
 
 ```ts
 import { mcp } from '@routecraft/ai';

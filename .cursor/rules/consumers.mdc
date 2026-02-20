@@ -32,9 +32,10 @@ Consumers are responsible for pulling messages off the internal ProcessingQueue 
 
 - `BatchConsumer` with `BatchOptions`
   - `size` (default 1000): max messages per batch
-  - `time` (default 200 ms): max time window
+  - `time` (default 10_000 ms): max time window before flush
   - `merge(messages)` (default merges headers and arrays body)
   - Behavior: buffers, flushes on size or time, calls `handler(merged.message, merged.headers)`
+  - From the route builder use `.batch({ size?, flushIntervalMs? })`; `flushIntervalMs` is mapped to consumer `time`.
 
 ### Best practices
 

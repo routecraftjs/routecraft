@@ -47,7 +47,8 @@ function loadConfigFile(): PinoOptionsLike {
 }
 
 /**
- * Resolve destination stream. ENV wins, then config file, then stdout.
+ * Resolve destination stream. ENV wins, then config file, then stderr.
+ * Default is stderr so stdout stays clear for MCP/stdio and logs are conventional diagnostics.
  */
 function getDestination(fileConfig?: string): NodeJS.WritableStream {
   const pinoDest = pino as unknown as {
@@ -69,18 +70,18 @@ function getDestination(fileConfig?: string): NodeJS.WritableStream {
         const fd = openSync(pathToUse, "a");
         return pinoDest.destination(fd);
       } catch {
-        return pinoDest.destination(1);
+        return pinoDest.destination(2);
       }
     }
   }
-  return pinoDest.destination(1);
+  return pinoDest.destination(2);
 }
 
 /** Options object accepted by pino() */
 type PinoOptions = Parameters<typeof pino>[0];
 
 /**
- * Use pretty (pino-pretty) when NODE_ENV is not production and we're writing to stdout.
+ * Use pretty (pino-pretty) when NODE_ENV is not production and we're writing to stderr.
  * Override with PINO_PRETTY=1 to force pretty; set LOG_FILE to get JSON (e.g. for MCP).
  */
 function usePrettyOutput(filePath?: string): boolean {

@@ -1,11 +1,11 @@
 import {
-  direct,
   error as rcError,
   type Exchange,
   type Source,
   type Destination,
 } from "@routecraft/routecraft";
 import { McpClientAdapter } from "./client-adapter.ts";
+import { MCPAdapter } from "./mcp-adapter.ts";
 import { McpSourceAdapter } from "./source-adapter.ts";
 import type {
   McpArgsExtractor,
@@ -50,10 +50,17 @@ export function mcp<T = unknown>(
     return new McpClientAdapter(endpointOrOptions as McpClientOptions);
   }
 
-  // .to(mcp("server:tool", { args? })) — parse target and create client adapter
+  // .to(mcp("server:tool", { args? })) — parse target and create client adapter only when options is undefined or client-only (args, no description)
+  const isClientColonOptions =
+    options === undefined ||
+    (typeof options === "object" &&
+      options !== null &&
+      "args" in options &&
+      !("description" in options));
   if (
     typeof endpointOrOptions === "string" &&
-    endpointOrOptions.includes(":")
+    endpointOrOptions.includes(":") &&
+    isClientColonOptions
   ) {
     const colonIndex = endpointOrOptions.indexOf(":");
     const serverId = endpointOrOptions.slice(0, colonIndex);
@@ -89,7 +96,19 @@ export function mcp<T = unknown>(
           "Use .to(mcp({ url: '...', tool: '...' })) to call a remote MCP server.",
       });
     }
+    if (
+      "args" in options &&
+      options.args !== undefined &&
+      !("description" in options)
+    ) {
+      throw rcError("RC5010", undefined, {
+        message:
+          "mcp(endpoint, { args }) is for client usage with a 'server:tool' target, not for defining a source",
+        suggestion:
+          "Use .to(mcp('server:tool', { args })) to call a remote tool, or .from(mcp('endpoint', { description: '...' })) to define a source.",
+      });
+    }
     return new McpSourceAdapter<T>(endpoint, options as McpServerOptions);
   }
-  return direct<T>(endpoint);
+  return new MCPAdapter<T>(endpoint) as unknown as Destination<T, T>;
 }

@@ -7,7 +7,12 @@ export {
 } from "./brand.ts";
 
 // MCP DSL and types
-export { mcp, type McpOptions, type McpServerOptions } from "./mcp/index.ts";
+export {
+  mcp,
+  MCPAdapter,
+  type McpOptions,
+  type McpServerOptions,
+} from "./mcp/index.ts";
 
 // MCP client adapter and types
 export {

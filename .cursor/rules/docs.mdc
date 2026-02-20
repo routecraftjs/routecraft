@@ -18,3 +18,7 @@ Key pages to keep updated:
 @apps/routecraft.dev/src/app/docs/reference/operations/page.md
 @apps/routecraft.dev/src/app/docs/reference/cli/page.md
 @apps/routecraft.dev/src/app/docs/reference/adapters/page.md
+@apps/routecraft.dev/src/app/docs/reference/errors/page.md
+@apps/routecraft.dev/src/app/docs/reference/plugins/page.md
+@apps/routecraft.dev/src/app/docs/reference/configuration/page.md
+@apps/routecraft.dev/src/app/docs/reference/events/page.md

@@ -10,27 +10,8 @@ alwaysApply: false
 - Keep routes small, composable, and isolated. If you need multiple flows, start another `.from` in the same builder or create a new builder.
 - Avoid `any`: use precise types or generics. Prefer `unknown` plus narrowing when necessary.
 
-### Adapter authoring: good vs bad
-
-- Good
-  - One constructor with a minimal options object: `myAdapter(options?: Partial<MyOptions>)`.
-  - Implement the operation interface(s) needed:
-    - Source: `subscribe(context, handler, abortController)`
-    - Destination: `send(exchange)`
-    - Processor: `process(exchange)`
-  - Use `CraftContext` store for shared state. Extend `StoreRegistry` with typed keys via declaration merging.
-  - Provide a clear `adapterId`, log with `logger`.
-- Bad
-  - Public DSL with chained, service-specific verbs.
-  - Implicit globals or cross-route coupling. Use `channel(...)` or typed stores.
-  - Adapters mixing unrelated responsibilities.
-
-### Operation authoring: guidelines
-
-- One function per step; accept a single options object or one adapter instance.
-- Prefer purity for `.transform`, `.process`, `.filter`, `.tap`.
-- Validate external inputs with `.validate(schema)`.
-- Use `.split` and `.aggregate` for fan-out/in patterns.
+- Adapter authoring: see @.cursor/rules/adapters.mdc.
+- Operation authoring: see @.cursor/rules/operations.mdc.
 
 ### Explicit anti-patterns (avoid)
 
@@ -54,7 +35,7 @@ alwaysApply: false
 
 - Set a stable `id` in the first `.from([{ id }, source ])` call.
 - Keep a clear, single responsibility.
-- Apply `.to` only for side effects/output destinations.
+- Use `.to` for side effects/output destinations; use `.enrich` for merging external data into the body.
 
 ### Build and test flow
 

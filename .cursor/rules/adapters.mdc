@@ -33,26 +33,32 @@ These rules align with RouteCraft's public DSL and adapter interfaces exported f
 - For adapters that need context-level config, implement `MergedOptions<T>`: expose `options` and a `mergedOptions(context)` method that reads from a typed `StoreRegistry` key.
 - Extend `StoreRegistry` via declaration merging to type your store keys.
 
+##### Store keys: prefer Symbol brands over string keys
+
+When adding keys to `StoreRegistry` (e.g. for plugin state or adapter config), **use a Symbol as the key**, not a string. Multiple versions of `@routecraft/routecraft` or packages that extend the store can be loaded; string keys would match across versions and break type/runtime consistency. A Symbol is unique per runtime, so it brands the slot to the package/version that declared it. Export the Symbol (e.g. `export const MY_PLUGIN_STORE_KEY = Symbol.for("routecraft.mypackage.store")`) and use it in `declare module` and in `getStore()`/`setStore()` calls. Do not rely on `keyof StoreRegistry` casts with string constants for store keys when a Symbol brand is feasible.
+
 ##### Options naming when source and destination differ
 
-When an adapter can be used as both a source and a destination and has different options for each role, use this convention (see `packages/routecraft/src/adapters/direct.ts` as the reference implementation):
+**Option type names** (e.g. `XxxServerOptions`, `XxxClientOptions`) are defined in @.cursor/rules/naming-policy.mdc — that file is authoritative. Use **XxxServerOptions** for the source role and **XxxClientOptions** for the destination role; do not use the deprecated `MyAdapterSourceOptions` / `MyAdapterDestinationOptions` naming.
+
+When an adapter can be used as both a source and a destination and has different options for each role, use this **structure** (see `packages/routecraft/src/adapters/direct.ts` as the reference implementation):
 
 **Exported types (public API):**
 
-- **Base**: `MyAdapterBaseOptions` — interface with options shared by both roles (e.g. `channelType`).
-- **Source**: `MyAdapterSourceOptions extends MyAdapterBaseOptions` — interface with options only relevant when used with `.from()` (e.g. `schema`, `description`).
-- **Destination**: `MyAdapterDestinationOptions = MyAdapterBaseOptions` (or extends if destination-specific options exist) — options only relevant when used with `.to()` / `.tap()`.
-- **Main "Options"**: `MyAdapterOptions = MyAdapterSourceOptions | MyAdapterDestinationOptions` — the **union** type. Use this as the constructor parameter type and in all public docs/signatures.
+- **Base**: `XxxBaseOptions` — interface with options shared by both roles (e.g. `channelType`).
+- **Server**: `XxxServerOptions extends XxxBaseOptions` — options when used with `.from()` (e.g. `schema`, `description`).
+- **Client**: `XxxClientOptions = XxxBaseOptions` (or extends if client-specific options exist) — options when used with `.to()` / `.tap()`.
+- **Main "Options"**: `XxxOptions = XxxServerOptions | XxxClientOptions` — the **union** type. Use this as the constructor parameter type and in all public docs/signatures.
 
 **Internal type (not exported):**
 
-- **Merged**: `type MyAdapterOptionsMerged = MyAdapterSourceOptions & MyAdapterDestinationOptions` — the **intersection** type. Use this for:
+- **Merged**: `type XxxOptionsMerged = XxxServerOptions & XxxClientOptions` — the **intersection** type. Use this for:
   - `this.options` property type
-  - `StoreRegistry` store type (`Partial<MyAdapterOptionsMerged>`)
+  - `StoreRegistry` store type (`Partial<XxxOptionsMerged>`)
   - `mergedOptions()` return type
-  - `MergedOptions<MyAdapterOptionsMerged>` interface implementation
+  - `MergedOptions<XxxOptionsMerged>` interface implementation
 
-This pattern allows the public API to accept either source or destination options (union), while internally the adapter can safely read any option property (intersection) without type errors.
+This pattern allows the public API to accept either server or client options (union), while internally the adapter can safely read any option property (intersection) without type errors.
 
 **Example:**
 
@@ -61,18 +67,18 @@ export interface MyAdapterBaseOptions {
   timeout?: number;
 }
 
-export interface MyAdapterSourceOptions extends MyAdapterBaseOptions {
+export interface MyAdapterServerOptions extends MyAdapterBaseOptions {
   pollInterval?: number;
   schema?: StandardSchemaV1;
 }
 
-export type MyAdapterDestinationOptions = MyAdapterBaseOptions;
+export type MyAdapterClientOptions = MyAdapterBaseOptions;
 
 // Public: union for constructor
-export type MyAdapterOptions = MyAdapterSourceOptions | MyAdapterDestinationOptions;
+export type MyAdapterOptions = MyAdapterServerOptions | MyAdapterClientOptions;
 
 // Internal: intersection for stored options (not exported)
-type MyAdapterOptionsMerged = MyAdapterSourceOptions & MyAdapterDestinationOptions;
+type MyAdapterOptionsMerged = MyAdapterServerOptions & MyAdapterClientOptions;
 
 declare module "@routecraft/routecraft" {
   interface StoreRegistry {
@@ -181,6 +187,7 @@ Source adapter:
 ```ts
 import {
   type Source,
+  type Exchange,
   type ExchangeHeaders,
   CraftContext,
 } from "@routecraft/routecraft";
@@ -195,7 +202,7 @@ export class MySourceAdapter<T = unknown> implements Source<T> {
 
   async subscribe(
     context: CraftContext,
-    handler: (message: T, headers?: ExchangeHeaders) => Promise<void>,
+    handler: (message: T, headers?: ExchangeHeaders) => Promise<Exchange>,
     abortController: AbortController
   ): Promise<void> {
     const { pollIntervalMs = 1000 } = this.options;
