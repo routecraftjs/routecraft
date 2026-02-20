@@ -33,9 +33,9 @@ These rules align with RouteCraft's public DSL and adapter interfaces exported f
 - For adapters that need context-level config, implement `MergedOptions<T>`: expose `options` and a `mergedOptions(context)` method that reads from a typed `StoreRegistry` key.
 - Extend `StoreRegistry` via declaration merging to type your store keys.
 
-##### Store keys: prefer Symbol brands over string keys
+##### Store keys: use Symbol.for so keys work across versions
 
-When adding keys to `StoreRegistry` (e.g. for plugin state or adapter config), **use a Symbol as the key**, not a string. Multiple versions of `@routecraft/routecraft` or packages that extend the store can be loaded; string keys would match across versions and break type/runtime consistency. A Symbol is unique per runtime, so it brands the slot to the package/version that declared it. Export the Symbol (e.g. `export const MY_PLUGIN_STORE_KEY = Symbol.for("routecraft.mypackage.store")`) and use it in `declare module` and in `getStore()`/`setStore()` calls. Do not rely on `keyof StoreRegistry` casts with string constants for store keys when a Symbol brand is feasible.
+When adding keys to `StoreRegistry` (e.g. for plugin state or adapter config), **use `Symbol.for(...)`** so the same key is shared across all copies of your package in a process (e.g. CLI `craft run` vs the version the route imports). Export the Symbol (e.g. `export const MY_PLUGIN_STORE_KEY = Symbol.for("routecraft.mypackage.store")`) and use it in your `declare module` augmentation and in `getStore()`/`setStore()` calls. Do **not** use a local Symbol (`Symbol("...")`) for store keys—that would create different keys per package/version and break lookups when CLI and route use different versions. See `packages/routecraft/src/brand.ts` for the same pattern (cross-instance identity). Prefer Symbol.for over string keys; avoid `keyof StoreRegistry` casts with string constants when a Symbol key is feasible.
 
 ##### Options naming when source and destination differ
 
@@ -80,9 +80,11 @@ export type MyAdapterOptions = MyAdapterServerOptions | MyAdapterClientOptions;
 // Internal: intersection for stored options (not exported)
 type MyAdapterOptionsMerged = MyAdapterServerOptions & MyAdapterClientOptions;
 
+export const MY_ADAPTER_OPTIONS_KEY = Symbol.for("routecraft.adapter.my.options");
+
 declare module "@routecraft/routecraft" {
   interface StoreRegistry {
-    "routecraft.adapter.my.options": Partial<MyAdapterOptionsMerged>;
+    [MY_ADAPTER_OPTIONS_KEY]: Partial<MyAdapterOptionsMerged>;
   }
 }
 
@@ -96,9 +98,7 @@ export class MyAdapter<T = unknown>
   public options: Partial<MyAdapterOptionsMerged>;
 
   mergedOptions(context: CraftContext): MyAdapterOptionsMerged {
-    const store = context.getStore("routecraft.adapter.my.options") as
-      | Partial<MyAdapterOptionsMerged>
-      | undefined;
+    const store = context.getStore(MY_ADAPTER_OPTIONS_KEY);
     return { ...store, ...this.options };
   }
 
@@ -171,13 +171,18 @@ class FetchAdapter implements Destination<T, FetchResult> {
 #### Store usage (typed)
 
 ```ts
-// Example: add adapter-scoped store entries
+// Use Symbol.for so the same key is shared when CLI and route use different package versions
+export const EXAMPLE_STORE_KEY = Symbol.for("routecraft.adapter.example.store");
+export const EXAMPLE_OPTIONS_KEY = Symbol.for("routecraft.adapter.example.options");
+
 declare module "@routecraft/routecraft" {
   interface StoreRegistry {
-    "routecraft.adapter.example.store": Map<string, unknown>;
-    "routecraft.adapter.example.options": Partial<ExampleOptions>;
+    [EXAMPLE_STORE_KEY]: Map<string, unknown>;
+    [EXAMPLE_OPTIONS_KEY]: Partial<ExampleOptions>;
   }
 }
+
+// In adapter or plugin: context.getStore(EXAMPLE_STORE_KEY), context.setStore(EXAMPLE_OPTIONS_KEY, opts)
 ```
 
 #### Skeletons (TypeScript)

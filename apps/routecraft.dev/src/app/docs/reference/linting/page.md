@@ -203,7 +203,7 @@ The plugin provides two pre-configured rule sets:
 The recommended config enables:
 - `require-named-route` as error
 - `batch-before-from` as warn
-- `tool-source-options` as error
+- `mcp-server-options` as error
 
 The all config enables all rules as errors.
 

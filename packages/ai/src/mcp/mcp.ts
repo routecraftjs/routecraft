@@ -50,12 +50,11 @@ export function mcp<T = unknown>(
     return new McpClientAdapter(endpointOrOptions as McpClientOptions);
   }
 
-  // .to(mcp("server:tool", { args? })) — parse target and create client adapter only when options is undefined or client-only (args, no description)
+  // .to(mcp("server:tool", { args? })) — parse target and create client adapter when options is undefined or lacks description (client-style; description = server/source)
   const isClientColonOptions =
     options === undefined ||
     (typeof options === "object" &&
       options !== null &&
-      "args" in options &&
       !("description" in options));
   if (
     typeof endpointOrOptions === "string" &&
@@ -110,5 +109,5 @@ export function mcp<T = unknown>(
     }
     return new McpSourceAdapter<T>(endpoint, options as McpServerOptions);
   }
-  return new MCPAdapter<T>(endpoint) as unknown as Destination<T, T>;
+  return new MCPAdapter<T>(endpoint);
 }

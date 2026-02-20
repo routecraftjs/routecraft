@@ -22,7 +22,8 @@ export default craft()
     }),
     keywords: ['email', 'send', 'communication']
   }))
-  .process(async ({ to, subject, body, cc }) => {
+  .process(async (exchange) => {
+    const { to, subject, body, cc } = exchange.body
     // Use SendGrid, Resend, or your email service
     await sendGrid.send({
       to,
@@ -31,9 +32,12 @@ export default craft()
       cc
     })
     return {
-      sent: true,
-      to,
-      timestamp: new Date().toISOString()
+      ...exchange,
+      body: {
+        sent: true,
+        to,
+        timestamp: new Date().toISOString()
+      }
     }
   })
   .to(noop())
@@ -45,11 +49,14 @@ craft()
     description: 'Get count of unread emails and recent senders',
     keywords: ['email', 'inbox', 'unread']
   }))
-  .process(async () => {
+  .process(async (exchange) => {
     const unread = await gmail.getUnread()
     return {
-      count: unread.length,
-      recentSenders: unread.slice(0, 5).map(e => e.from)
+      ...exchange,
+      body: {
+        count: unread.length,
+        recentSenders: unread.slice(0, 5).map(e => e.from)
+      }
     }
   })
   .to(noop())

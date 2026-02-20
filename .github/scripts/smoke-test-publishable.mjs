@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 /**
- * Smoke-test publishable artifacts: pack routecraft + CLI, install with npm
- * in a clean temp dir, run npx craft --version and npx craft run <example>.
+ * Smoke-test publishable artifacts: pack routecraft, CLI, and testing; install
+ * with npm in a clean temp dir, run npx craft --version and npx craft run <example>.
  * Run from repo root after set-version and build. Uses only npm (no pnpm)
  * so behavior matches real npx @routecraft/cli users.
  *
@@ -47,20 +47,21 @@ function run(cmd, opts = {}) {
 
 console.log(`Smoke testing publishable packages (version: ${version})\n`);
 
-// 1. Create pack dir and pack routecraft + CLI
+// 1. Create pack dir and pack routecraft, cli, and testing
+const publishablePackages = ["routecraft", "cli", "testing"];
 mkdirSync(packDir, { recursive: true });
 
-run(`npm pack --pack-destination "${packDir}"`, {
-  cwd: join(rootDir, "packages/routecraft"),
-});
-run(`npm pack --pack-destination "${packDir}"`, {
-  cwd: join(rootDir, "packages/cli"),
-});
+for (const pkg of publishablePackages) {
+  run(`npm pack --pack-destination "${packDir}"`, {
+    cwd: join(rootDir, "packages", pkg),
+  });
+}
 
 const tarballs = readdirSync(packDir).filter((f) => f.endsWith(".tgz"));
-if (tarballs.length !== 2) {
+const expectedCount = publishablePackages.length;
+if (tarballs.length !== expectedCount) {
   console.error(
-    `Expected 2 tarballs in ${packDir}, got: ${tarballs.join(", ") || "none"}`,
+    `Expected ${expectedCount} tarballs in ${packDir}, got: ${tarballs.join(", ") || "none"}`,
   );
   process.exit(1);
 }

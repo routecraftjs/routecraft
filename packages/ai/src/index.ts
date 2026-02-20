@@ -3,6 +3,7 @@ export {
   BRAND,
   isMcpAdapter,
   isMcpClientAdapter,
+  isMcpDirectAdapter,
   isMcpSourceAdapter,
 } from "./brand.ts";
 

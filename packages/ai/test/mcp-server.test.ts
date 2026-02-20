@@ -89,7 +89,7 @@ describe("MCPServer", () => {
     expect(server).toBeDefined();
     await t.test();
     const tools = server.getAvailableTools();
-    const names = tools.map((tool) => tool.name as string);
+    const names = tools.map((tool) => tool.name);
     expect(names).toContain("tool1");
     expect(names).not.toContain("tool2");
     expect(names).toEqual(["tool1"]);
@@ -132,7 +132,7 @@ describe("MCPServer", () => {
     expect(server).toBeDefined();
     await t.test();
     const tools = server.getAvailableTools();
-    const names = tools.map((tool) => tool.name as string);
+    const names = tools.map((tool) => tool.name);
     expect(names).toContain("public-tool");
     expect(names).not.toContain("private-tool");
     expect(names).toEqual(["public-tool"]);
@@ -217,7 +217,7 @@ describe("MCPServer", () => {
     expect(server).toBeDefined();
     await t.test();
     const tools = server.getAvailableTools();
-    const names = tools.map((tool) => tool.name as string);
+    const names = tools.map((tool) => tool.name);
     expect(names).toContain("exposed-tool");
     expect(names).not.toContain("internal-direct");
     expect(names).toEqual(["exposed-tool"]);
