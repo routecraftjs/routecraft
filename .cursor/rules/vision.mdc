@@ -21,7 +21,7 @@ alwaysApply: false
 
 ## Adapters in repo
 
-- `simple`, `channel`, `timer`; utilities: `log`, `noop`.
+- Adapters: `direct`, `simple`, `timer`, `fetch`; utilities: `log`, `noop`. (`pseudo` for tests.)
 - Consumers: `SimpleConsumer` (default), `BatchConsumer`.
 
 ## Pointers to source (truth)

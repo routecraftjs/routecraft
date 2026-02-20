@@ -21,6 +21,7 @@ export class MCPServer {
   private server: unknown = null;
   private transport: unknown = null;
   private running = false;
+  private toolsListLogged = false;
 
   constructor(context: CraftContext, options: MCPServerOptions = {}) {
     this.context = context;
@@ -56,6 +57,7 @@ export class MCPServer {
       this.context.logger.info(
         `MCP server started (${this.options.name}@${this.options.version}) on ${transport}`,
       );
+      this.logExposedToolsOnce();
     } catch (error) {
       this.context.logger.error(error, "Failed to start MCP server");
       throw error;
@@ -163,9 +165,9 @@ export class MCPServer {
     >;
 
     srv["setRequestHandler"](ListToolsRequestSchema, async () => {
-      return {
-        tools: this.getAvailableTools(),
-      };
+      const tools = this.getAvailableTools();
+      this.logExposedToolsOnce();
+      return { tools };
     });
 
     srv["setRequestHandler"](
@@ -199,6 +201,21 @@ export class MCPServer {
     } catch (error) {
       this.context.logger.error(error, "Error stopping MCP server");
     }
+  }
+
+  /**
+   * Log exposed MCP tool names once (at start or on first tools/list).
+   */
+  private logExposedToolsOnce(): void {
+    if (this.toolsListLogged) return;
+    const tools = this.getAvailableTools();
+    if (tools.length === 0) return;
+    const names = tools.map((t) => (t["name"] as string) ?? "?");
+    this.context.logger.info(
+      { tools: names },
+      `Exposing ${tools.length} MCP tool(s): ${names.join(", ")}`,
+    );
+    this.toolsListLogged = true;
   }
 
   /**

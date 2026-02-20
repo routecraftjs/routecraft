@@ -10,7 +10,7 @@ This example demonstrates the intended API design for complex multi-step automat
 
 ```ts
 import { mcp } from '@routecraft/ai'
-import { craft, fetch } from '@routecraft/routecraft'
+import { craft, noop } from '@routecraft/routecraft'
 import { z } from 'zod'
 
 // Tool 1: Search flights

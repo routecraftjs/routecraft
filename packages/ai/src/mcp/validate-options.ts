@@ -1,6 +1,11 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { McpPluginOptions } from "./types.ts";
 
+/** Standard Schema validate result: success has value, failure has issues. */
+type ValidateResult<T = unknown> =
+  | { value: T; issues?: never }
+  | { value?: never; issues: readonly unknown[] };
+
 /**
  * Validates MCP plugin options at apply time.
  * For full schema validation (required props, shape), use validateWithSchema() with a
@@ -33,16 +38,20 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
  * @example
  * import { z } from "zod";
  * const schema = z.object({ transport: z.enum(["stdio", "http"]), port: z.number().optional() });
- * validateWithSchema(options, schema);
- * mcpPlugin(options);
+ * const validated = await validateWithSchema(options, schema);
+ * mcpPlugin(validated);
  */
-export function validateWithSchema(
+export async function validateWithSchema(
   options: McpPluginOptions,
   schema: StandardSchemaV1,
-): McpPluginOptions {
+): Promise<McpPluginOptions> {
   const standard = (
     schema as {
-      "~standard"?: { validate: (v: unknown) => { value?: unknown } };
+      "~standard"?: {
+        validate: (
+          v: unknown,
+        ) => ValidateResult<unknown> | Promise<ValidateResult<unknown>>;
+      };
     }
   )["~standard"];
   if (!standard?.validate) {
@@ -50,9 +59,14 @@ export function validateWithSchema(
       "mcpPlugin: schema must be a StandardSchemaV1 with ~standard.validate",
     );
   }
-  const result = standard.validate(options);
-  if (result.value === undefined) {
-    throw new Error("mcpPlugin options validation failed");
+  let result = standard.validate(options);
+  if (result instanceof Promise) {
+    result = await result;
+  }
+  if (result.issues && result.issues.length > 0) {
+    throw new Error(
+      `mcpPlugin options validation failed: ${JSON.stringify(result.issues)}`,
+    );
   }
   return result.value as McpPluginOptions;
 }

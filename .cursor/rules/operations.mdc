@@ -29,6 +29,9 @@ This document sets guidelines for authoring RouteCraft steps. Refer to the docs 
 
 - Notes: Thin wrapper over transform semantics for convenience.
 
+- `.header(key, valueOrFn)`
+  - Notes: Set or override a header (static value or function from exchange). Body type unchanged.
+
 - `.tap(destination | (exchange) => any)`
   - Notes: Async side effect that doesn't block route. Returns values ignored. Exchange snapshotted with new ID and correlation header. Use for logging/metrics/notifications.
 

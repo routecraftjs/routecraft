@@ -5,6 +5,9 @@ import { craft, direct, noop } from "@routecraft/routecraft";
 import { mcp, MCP_PLUGIN_REGISTERED } from "../src/index.ts";
 import { z } from "zod";
 
+const MCP_STORE_KEY =
+  MCP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry;
+
 describe("MCPServer", () => {
   let t: TestContext;
   let server: MCPServer;
@@ -76,10 +79,7 @@ describe("MCPServer", () => {
           )
           .to(noop()),
       ])
-      .store(
-        MCP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry,
-        true,
-      )
+      .store(MCP_STORE_KEY, true)
       .build();
 
     server = new MCPServer(t.ctx, {
@@ -122,10 +122,7 @@ describe("MCPServer", () => {
           )
           .to(noop()),
       ])
-      .store(
-        MCP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry,
-        true,
-      )
+      .store(MCP_STORE_KEY, true)
       .build();
 
     server = new MCPServer(t.ctx, {
@@ -214,10 +211,7 @@ describe("MCPServer", () => {
           .from(direct("internal-direct", {}))
           .to(noop()),
       ])
-      .store(
-        MCP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry,
-        true,
-      )
+      .store(MCP_STORE_KEY, true)
       .build();
     server = new MCPServer(t.ctx);
     expect(server).toBeDefined();

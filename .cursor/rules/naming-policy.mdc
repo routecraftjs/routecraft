@@ -18,6 +18,8 @@ alwaysApply: false
   - **XxxClientOptions** = options when the adapter is used as a destination (we send / we call).
 - Examples: `DirectServerOptions` / `DirectClientOptions`, `McpServerOptions` / `McpClientOptions`; later `FetchServerOptions` / `FetchClientOptions`, `WebSocketServerOptions` / `WebSocketClientOptions`.
 
+**Supersession:** The **XxxServerOptions** / **XxxClientOptions** convention above is authoritative and replaces the older **MyAdapterSourceOptions** / **MyAdapterDestinationOptions** pattern. If you see `MyAdapterSourceOptions` or `MyAdapterDestinationOptions` in docs or examples, treat them as deprecated in favor of `XxxServerOptions` (source role) and `XxxClientOptions` (destination role). For the structural pattern (base, union, intersection), see @.cursor/rules/adapters.mdc.
+
 **Single-role adapters**
 
 - Adapters that only act as source or only as destination (timer, simple, log, noop) use a single options type: **XxxOptions** (e.g. `TimerOptions`, `LogOptions`). Do not use Server/Client in their option names.

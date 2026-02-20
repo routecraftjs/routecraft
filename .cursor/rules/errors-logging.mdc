@@ -12,7 +12,7 @@ alwaysApply: false
 
 ## Errors and logging
 
-- Use `rcError(code, cause?, details?)` from `@packages/routecraft/src/error.ts` for framework errors.
+- Use `rcError(code, cause?, details?)` from `@packages/routecraft/src/error.ts` for framework/route errors (categorized, documented). Use normal `throw new Error` for adapter-only validation when you don't need an RC code.
 - Log with `context.logger` in sources and `exchange.logger` in steps/destinations.
 - Prefer structured logs: `logger.info(message, { meta })`.
 - Emit and observe context events for lifecycle and errors.

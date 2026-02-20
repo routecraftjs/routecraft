@@ -96,7 +96,7 @@ craft().with({
       clients: {
         browser: { url: 'http://127.0.0.1:8089/mcp' },
       },
-    },
+    }),
   ],
 })
 ```
