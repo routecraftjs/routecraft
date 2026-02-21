@@ -5,23 +5,20 @@ import {
   type ExchangeHeaders,
   type Source,
 } from "@routecraft/routecraft";
-import { BRAND } from "../brand.ts";
 import type { McpServerOptions } from "./types.ts";
 import { MCP_PLUGIN_REGISTERED } from "./types.ts";
 
 /**
- * Source adapter for .from(mcp(endpoint, options)).
- * Delegates to direct() but requires the MCP plugin to be registered; fails at subscribe (route start) if not.
+ * Internal server: .from(mcp(endpoint, options)). Delegates to direct(); requires MCP plugin.
+ * Exported only for use by McpAdapter; not re-exported from package.
  */
-export class McpSourceAdapter<T = unknown> implements Source<T> {
+export class McpServer<T = unknown> implements Source<T> {
   readonly adapterId = "routecraft.adapter.mcp.source";
 
   constructor(
     private readonly endpoint: string,
     private readonly options: McpServerOptions,
-  ) {
-    (this as unknown as Record<symbol, boolean>)[BRAND.McpSourceAdapter] = true;
-  }
+  ) {}
 
   async subscribe(
     context: CraftContext,

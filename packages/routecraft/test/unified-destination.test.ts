@@ -3,7 +3,7 @@ import { testContext, type TestContext } from "@routecraft/testing";
 import {
   craft,
   simple,
-  fetch,
+  http,
   log,
   type Destination,
 } from "@routecraft/routecraft";
@@ -53,8 +53,8 @@ describe("Unified Destination Adapter", () => {
 
   /**
    * @case Verify .to() with result-returning adapter replaces body
-   * @preconditions fetch returns result
-   * @expectedResult Body replaced with FetchResult
+   * @preconditions http returns result
+   * @expectedResult Body replaced with HttpResult
    */
   test(".to() with result-returning adapter replaces body", async () => {
     const destSpy = vi.fn();
@@ -72,7 +72,7 @@ describe("Unified Destination Adapter", () => {
         craft()
           .id("test-default-to")
           .from(simple({ original: "data" }))
-          .to(fetch({ url: "https://api.example.com/endpoint" }))
+          .to(http({ url: "https://api.example.com/endpoint" }))
           .to(destSpy),
       )
       .build();
@@ -81,7 +81,7 @@ describe("Unified Destination Adapter", () => {
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const finalBody = destSpy.mock.calls[0][0].body;
-    // Body should be replaced with FetchResult
+    // Body should be replaced with HttpResult
     expect(finalBody.status).toBe(200);
     expect(finalBody.body).toEqual({ apiData: "value" });
   });
@@ -116,7 +116,7 @@ describe("Unified Destination Adapter", () => {
 
   /**
    * @case Verify .enrich() with default aggregator merges result
-   * @preconditions fetch returns result, no custom aggregator
+   * @preconditions http returns result, no custom aggregator
    * @expectedResult Result merged into body
    */
   test(".enrich() with result-returning adapter merges by default", async () => {
@@ -135,7 +135,7 @@ describe("Unified Destination Adapter", () => {
         craft()
           .id("test-default-enrich")
           .from(simple({ userId: 1 }))
-          .enrich(fetch({ url: "https://api.example.com/profile" }))
+          .enrich(http({ url: "https://api.example.com/profile" }))
           .to(destSpy),
       )
       .build();
@@ -144,7 +144,7 @@ describe("Unified Destination Adapter", () => {
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const finalBody = destSpy.mock.calls[0][0].body;
-    // FetchResult is merged into body
+    // HttpResult is merged into body
     expect(finalBody).toMatchObject({
       userId: 1,
       body: { profile: "data", avatar: "url" },
@@ -154,7 +154,7 @@ describe("Unified Destination Adapter", () => {
 
   /**
    * @case Verify .enrich() with custom aggregator
-   * @preconditions fetch returns result, custom aggregator provided
+   * @preconditions http returns result, custom aggregator provided
    * @expectedResult Result merged via custom logic
    */
   test(".enrich() with custom aggregator uses custom logic", async () => {
@@ -174,7 +174,7 @@ describe("Unified Destination Adapter", () => {
           .id("test-custom-enrich-aggregator")
           .from(simple({ userId: 1 }))
           .enrich(
-            fetch({ url: "https://api.example.com/user" }),
+            http({ url: "https://api.example.com/user" }),
             (original, result) => ({
               ...original,
               body: {
@@ -226,8 +226,8 @@ describe("Unified Destination Adapter", () => {
         craft()
           .id("test-multiple-to")
           .from(simple({ original: "value" }))
-          .to(fetch({ url: "https://api.example.com/endpoint1" }))
-          .to(fetch({ url: "https://api.example.com/endpoint2" }))
+          .to(http({ url: "https://api.example.com/endpoint1" }))
+          .to(http({ url: "https://api.example.com/endpoint2" }))
           .to(destSpy),
       )
       .build();
@@ -236,7 +236,7 @@ describe("Unified Destination Adapter", () => {
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const finalBody = destSpy.mock.calls[0][0].body;
-    // Body should be the last FetchResult
+    // Body should be the last HttpResult
     expect(finalBody).toMatchObject({
       status: 200,
       body: { response: "data2" },
@@ -279,9 +279,9 @@ describe("Unified Destination Adapter", () => {
         craft()
           .id("test-mixed-operations")
           .from(simple({ userId: 1 }))
-          .enrich(fetch({ url: "https://api.example.com/user" })) // Merges
-          .to(fetch({ url: "https://api.example.com/webhook" })) // Replaces body
-          .enrich(fetch({ url: "https://api.example.com/role" })) // Merges
+          .enrich(http({ url: "https://api.example.com/user" })) // Merges
+          .to(http({ url: "https://api.example.com/webhook" })) // Replaces body
+          .enrich(http({ url: "https://api.example.com/role" })) // Merges
           .to(destSpy),
       )
       .build();

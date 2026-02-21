@@ -18,20 +18,21 @@ pnpm add @routecraft/ai
 
 ```typescript
 import { mcp } from '@routecraft/ai';
-import { craft, simple } from '@routecraft/routecraft';
+import { craft, simple, direct } from '@routecraft/routecraft';
 
+// In-process: use direct(); MCP server route needs description
 craft()
   .from(simple({ query: 'hello' }))
-  .to(mcp('my-tool'));
+  .to(direct('my-tool'));
 
 craft()
-  .from(mcp('my-tool'))
+  .from(mcp('my-tool', { description: 'My tool' }))
   .process((body) => body);
 ```
 
 ## Features
 
-- **mcp()**: Alias for `direct()` with semantics for AI/MCP—discoverable routes with optional schema and description
+- **mcp()**: MCP server (`.from(mcp(endpoint, { description }))`) and client (`.to(mcp({ url, tool }))` or `.to(mcp('server:tool', { args }))`). For in-process use `direct()`.
 - **Discovery**: Tools register in the context store for querying endpoints, descriptions, and schemas
 - **Schema validation**: Use Zod (or other Standard Schema libs) for body and header validation on tools
 - **Coming soon**: LLM adapters (OpenAI, Gemini), MCP source/destination, agent routing
@@ -73,7 +74,12 @@ For comprehensive documentation, examples, and guides, visit [routecraft.dev](ht
 
 ```typescript
 import { mcp } from '@routecraft/ai';
-import { craft, context, DirectAdapter } from '@routecraft/routecraft';
+import {
+  craft,
+  context,
+  DirectAdapter,
+  http,
+} from '@routecraft/routecraft';
 import { z } from 'zod';
 
 const ctx = context()
@@ -88,10 +94,7 @@ const ctx = context()
           keywords: ['fetch', 'web', 'http'],
         })
       )
-      .transform(async (body) => {
-        const response = await fetch(body.url);
-        return { content: await response.text() };
-      }),
+      .enrich(http({ url: (ex) => ex.body.url })),
   ])
   .build();
 await ctx.start();

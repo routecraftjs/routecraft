@@ -15,6 +15,8 @@ export {
   type StoreRegistry,
   type CraftConfig,
   type CraftPlugin,
+  type DirectConfig,
+  type HttpConfig,
 } from "./context.ts";
 
 export { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
@@ -118,17 +120,17 @@ export { noop } from "./adapters/noop.ts";
 export { log, debug } from "./adapters/log.ts";
 export { direct } from "./adapters/direct.ts";
 export { timer } from "./adapters/timer.ts";
-export { fetch } from "./adapters/fetch.ts";
+export { http } from "./adapters/http.ts";
 export { pseudo } from "./adapters/pseudo.ts";
 
 export { SimpleAdapter } from "./adapters/simple.ts";
 export { LogAdapter, type LogOptions, type LogLevel } from "./adapters/log.ts";
 export { NoopAdapter } from "./adapters/noop.ts";
 export {
-  FetchAdapter,
-  type FetchOptions,
-  type FetchResult,
-} from "./adapters/fetch.ts";
+  HttpAdapter,
+  type HttpOptions,
+  type HttpResult,
+} from "./adapters/http.ts";
 export {
   DirectAdapter,
   type DirectBaseOptions,

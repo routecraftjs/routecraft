@@ -30,7 +30,15 @@ export class LogAdapter<T = unknown> implements Destination<T, void> {
     const logData = this.formatter
       ? this.formatter(exchange)
       : this.baseExchange(exchange);
-    exchange.logger[this.level](logData, "LogAdapter output");
+    const adapterLabel = this.adapterId.split(".").pop();
+    const bindings =
+      typeof logData === "object" && logData !== null
+        ? { ...logData, adapter: adapterLabel }
+        : { adapter: adapterLabel, value: logData };
+    exchange.logger[this.level](
+      bindings,
+      `LogAdapter (${adapterLabel}) output`,
+    );
     return Promise.resolve();
   }
 

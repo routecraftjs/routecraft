@@ -9,7 +9,7 @@ This example uses the `http()` adapter and `choice()` operation which are planne
 {% /callout %}
 
 ```ts
-import { craft, http, log, fetch } from '@routecraft/routecraft'
+import { craft, http, log } from '@routecraft/routecraft'
 
 export default craft()
   .id('webhook-router')
@@ -18,13 +18,13 @@ export default craft()
   .choice([
     {
       when: data => data.event === 'user.signup',
-      then: craft().to(fetch({ 
+      then: craft().to(http({ 
         url: 'https://api.sendgrid.com/send-welcome' 
       }))
     },
     {
       when: data => data.event === 'payment',
-      then: craft().to(fetch({ 
+      then: craft().to(http({ 
         url: 'https://analytics.company.com/track' 
       }))
     },

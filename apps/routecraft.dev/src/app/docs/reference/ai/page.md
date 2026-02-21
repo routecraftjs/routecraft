@@ -49,7 +49,7 @@ The package depends on `@routecraft/routecraft` (peer `>=0.2.0`).
 
 `@routecraft/ai` provides an AI-friendly DSL on top of RouteCraft's core:
 
-- **`mcp()`** – Supports both **server** (expose tools via `.from(mcp(...))`) and **client** (call remote MCP tools via `.to(mcp(...))`). Built on `DirectAdapter`; local endpoints use `MCPAdapter`, which extends `DirectAdapter`. When you pass options for a server, `description` is **required**; schema and keywords are optional.
+- **`mcp()`** – Supports both **server** (expose tools via `.from(mcp(endpoint, options))`) and **client** (call remote MCP tools via `.to(mcp({ url, tool }))` or `.to(mcp('server:tool', { args }))`). Returns a single `McpAdapter` facade. For in-process messaging use `direct()` from `@routecraft/routecraft`. When you pass options for a server, `description` is **required**; schema and keywords are optional.
 - **Discovery** – MCP routes register in the context store so you can query endpoints, descriptions, and schemas at runtime (e.g. for MCP or agent tool catalogs).
 
 Use `mcp()` when building routes that will be discovered and called by AI agents or exposed via MCP.
@@ -63,7 +63,7 @@ mcp<T>(
 ): Source<T> | Destination<T, T> | Destination<unknown, unknown>
 ```
 
-`mcp()` supports both **client** and **server** use: define discoverable tools with `.from(mcp(endpoint, options))`, send to local endpoints with `.to(mcp(endpoint))` (returns `MCPAdapter<T>`, which extends `DirectAdapter<T>`), or call remote MCP servers with `.to(mcp('server:tool'))` or `.to(mcp({ url, tool }))`. The signature above is a simplified union of return types; the implementation is overloaded. If you pass the **options** object (second argument) for a server, you **must** include `description`—it is required whenever options are provided. `schema` and `keywords` are optional.
+`mcp()` supports both **client** and **server** use: define discoverable tools with `.from(mcp(endpoint, options))`, or call remote MCP servers with `.to(mcp('server:tool', { args }))` or `.to(mcp({ url, tool }))`. For in-process messaging (producer sending to a local endpoint), use `direct()` from `@routecraft/routecraft`, not `mcp()`. The implementation returns a single `McpAdapter` facade. If you pass the **options** object (second argument) for a server, you **must** include `description`—it is required whenever options are provided. `schema` and `keywords` are optional.
 
 ### Options (McpServerOptions / McpOptions)
 
@@ -93,13 +93,13 @@ const ctx = await context()
 
 `mcpPlugin(options?)` accepts typed **McpPluginOptions** (e.g. `name`, `version`, `transport`, `port`, `host`, `tools`). For full validation of options (e.g. required props), use `await validateWithSchema(options, schema)` with a StandardSchema from Zod, Valibot, or ArkType before passing options to `mcpPlugin()`; it returns a Promise and supports async validators.
 
-### Without options (destination or simple source)
+### In-process: use direct() for producers
 
-You can call `mcp(endpoint)` with **no** options when you only **send to** an MCP endpoint (`.to(mcp('my-tool'))`) or when you **receive from** an endpoint that is defined by another route with options. In this case `mcp()` returns an `MCPAdapter<T>` (extends `DirectAdapter<T>`). The route that *defines* the MCP endpoint must pass options including `description`:
+For **in-process** messaging (one route sends to another in the same app), use `direct()` from `@routecraft/routecraft`. The route that *defines* the MCP endpoint uses `.from(mcp(endpoint, { description }))`; the producer uses `.to(direct(endpoint))`:
 
 ```ts
 import { mcp } from '@routecraft/ai';
-import { craft, simple } from '@routecraft/routecraft';
+import { craft, simple, direct } from '@routecraft/routecraft';
 
 // Route that defines the MCP endpoint (options with description required)
 craft()
@@ -111,11 +111,11 @@ craft()
   )
   .process((body) => body);
 
-// Producer: send to MCP endpoint (no options when only sending)
+// Producer: send to same endpoint via direct() (in-process)
 craft()
   .id('producer')
   .from(simple({ query: 'hello' }))
-  .to(mcp('my-tool'));
+  .to(direct('my-tool'));
 ```
 
 ### With options (define a discoverable MCP endpoint)

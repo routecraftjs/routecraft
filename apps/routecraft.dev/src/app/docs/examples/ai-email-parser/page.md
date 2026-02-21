@@ -9,7 +9,7 @@ import { mcp } from '@routecraft/ai'
 import { craft, noop } from '@routecraft/routecraft'
 import { z } from 'zod'
 
-// Tool 1: Send email
+// Tool 1: Send email (side effects in .to(), not in .process)
 export default craft()
   .id('send-email')
   .from(mcp('send-email', {
@@ -22,7 +22,7 @@ export default craft()
     }),
     keywords: ['email', 'send', 'communication']
   }))
-  .process(async (exchange) => {
+  .to(async (exchange) => {
     const { to, subject, body, cc } = exchange.body
     // Use SendGrid, Resend, or your email service
     await sendGrid.send({
@@ -32,33 +32,27 @@ export default craft()
       cc
     })
     return {
-      ...exchange,
-      body: {
-        sent: true,
-        to,
-        timestamp: new Date().toISOString()
-      }
+      sent: true,
+      to,
+      timestamp: new Date().toISOString()
     }
   })
-  .to(noop())
 
-// Tool 2: Check unread emails
+// Tool 2: Check unread emails (fetch in .enrich(), pure reshape in .process())
 craft()
   .id('check-inbox')
   .from(mcp('check-inbox', {
     description: 'Get count of unread emails and recent senders',
     keywords: ['email', 'inbox', 'unread']
   }))
-  .process(async (exchange) => {
-    const unread = await gmail.getUnread()
-    return {
-      ...exchange,
-      body: {
-        count: unread.length,
-        recentSenders: unread.slice(0, 5).map(e => e.from)
-      }
+  .enrich(async () => ({ unread: await gmail.getUnread() }))
+  .process((exchange) => ({
+    ...exchange,
+    body: {
+      count: exchange.body.unread.length,
+      recentSenders: exchange.body.unread.slice(0, 5).map((e) => e.from)
     }
-  })
+  }))
   .to(noop())
 ```
 

@@ -110,7 +110,7 @@ Do not name any type with "AdapterOptions" or "MergedOptions" in the suffix; res
 
 #### Source adapters
 
-- Signature: `subscribe(context, handler, abortController)` and return a Promise that resolves when the source completes or is aborted.
+- Signature: `subscribe(context, handler, abortController, onReady?)` and return a Promise that resolves when the source completes or is aborted. The `handler` is provided by the framework and has type `(message: T, headers?: ExchangeHeaders) => Promise<Exchange>`; the framework uses the returned `Exchange` for pipeline flow and events—adapter code may call `await handler(message, headers)` and ignore the return value.
 - Respect `abortController.signal.aborted`; add an abort listener to clean up subscriptions.
 - For indefinite sources (e.g., channel subscriptions), resolve the returned Promise only on abort/unsubscribe.
 - Prefer backpressure-friendly approaches; for arrays, `Promise.all` is fine for small, known batches (see `SimpleAdapter`).
@@ -208,7 +208,8 @@ export class MySourceAdapter<T = unknown> implements Source<T> {
   async subscribe(
     context: CraftContext,
     handler: (message: T, headers?: ExchangeHeaders) => Promise<Exchange>,
-    abortController: AbortController
+    abortController: AbortController,
+    onReady?: () => void,
   ): Promise<void> {
     const { pollIntervalMs = 1000 } = this.options;
     context.logger.info("Starting my-source subscription");
@@ -239,6 +240,8 @@ export class MySourceAdapter<T = unknown> implements Source<T> {
   }
 }
 ```
+
+**Source handler contract and migration:** The handler is supplied by the framework; its return type is `Promise<Exchange>` so the pipeline can pass the processed exchange through the queue and into events. As an adapter author you only invoke the handler (e.g. `await handler(data, headers)`); you do not construct `Exchange` yourself. If you previously had a handler typed as returning `Promise<void>`, update the signature to `(message: T, headers?: ExchangeHeaders) => Promise<Exchange>` and keep calling the handler as before—the framework passes a handler that already returns an `Exchange`. The `Exchange` type includes `id`, `body`, `headers`, and `logger`; the framework builds it from the message and headers you pass into the handler.
 
 Destination adapter (no return value):
 

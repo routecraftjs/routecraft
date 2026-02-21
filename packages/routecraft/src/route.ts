@@ -16,6 +16,7 @@ import { type Source } from "./operations/from.ts";
 import {
   type Adapter,
   type Step,
+  getAdapterLabel,
   type Consumer,
   type ConsumerType,
   type Message,
@@ -307,17 +308,21 @@ export class DefaultRoute implements Route {
       // Update operation header for this step
       exchange.headers[HeadersKeys.OPERATION] = step.operation;
 
+      const adapterLabel = getAdapterLabel(step.adapter);
+      const stepMsg = `Processing step ${step.operation}${adapterLabel ? ` (${adapterLabel})` : ""} on exchange ${exchange.id}`;
       exchange.logger.debug(
-        `Processing step ${step.operation} on exchange ${exchange.id}`,
+        adapterLabel ? { adapter: adapterLabel } : {},
+        stepMsg,
       );
 
       try {
         await step.execute(exchange, remainingSteps, queue);
       } catch (error) {
         const err = this.processError(step.operation, error);
+        const failMsg = `Step ${step.operation}${adapterLabel ? ` (${adapterLabel})` : ""} failed for exchange ${exchange.id}`;
         exchange.logger.warn(
-          err,
-          `Step ${step.operation} failed for exchange ${exchange.id}`,
+          { ...(adapterLabel ? { adapter: adapterLabel } : {}), err },
+          failMsg,
         );
         this.context.emit("error", {
           error: err,

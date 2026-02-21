@@ -406,13 +406,6 @@ export function direct<T = unknown>(
   options?: Partial<DirectOptions>,
 ): Source<T> | Destination<T, T> {
   if (options !== undefined) {
-    if (typeof endpoint !== "string") {
-      throw rcError("RC5010", undefined, {
-        message: "Dynamic endpoints cannot be used as source",
-        suggestion:
-          "Use a static string endpoint for source: .from(direct('endpoint', {})).",
-      });
-    }
     return new DirectAdapter<T>(endpoint, options) as unknown as Source<T>;
   }
   return new DirectAdapter<T>(endpoint) as unknown as Destination<T, T>;

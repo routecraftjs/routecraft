@@ -7,6 +7,21 @@ import { type Route } from "./route.ts";
 // eslint-disable-next-line
 export interface Adapter {}
 
+/**
+ * Returns a short label for logging which adapter is used.
+ * Uses adapterId's last segment (e.g. "routecraft.adapter.llm" → "llm"), constructor name, or "inline" for plain objects.
+ */
+export function getAdapterLabel(
+  adapter: Adapter | undefined,
+): string | undefined {
+  if (!adapter) return undefined;
+  const a = adapter as { adapterId?: string };
+  if (a.adapterId) return a.adapterId.split(".").pop();
+  const name = (adapter as { constructor?: { name?: string } }).constructor
+    ?.name;
+  return name === "Object" ? "inline" : name;
+}
+
 export interface Step<T extends Adapter> {
   operation: OperationType;
   adapter: T;

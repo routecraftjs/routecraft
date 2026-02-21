@@ -44,8 +44,8 @@ describe("LogAdapter", () => {
 
     expect(exchange.logger.info).toHaveBeenCalledTimes(1);
     expect(exchange.logger.info).toHaveBeenCalledWith(
-      { id: "test-id", body: "hello", headers: {} },
-      "LogAdapter output",
+      { id: "test-id", body: "hello", headers: {}, adapter: "log" },
+      "LogAdapter (log) output",
     );
     expect(exchange.logger.debug).not.toHaveBeenCalled();
   });
@@ -61,8 +61,8 @@ describe("LogAdapter", () => {
 
     await adapter.send(exchange);
     expect(exchange.logger.debug).toHaveBeenCalledWith(
-      { id: "test-id", body: "data", headers: {} },
-      "LogAdapter output",
+      { id: "test-id", body: "data", headers: {}, adapter: "log" },
+      "LogAdapter (log) output",
     );
   });
 
@@ -78,8 +78,8 @@ describe("LogAdapter", () => {
     await adapter.send(exchange);
 
     expect(exchange.logger.info).toHaveBeenCalledWith(
-      "body: payload",
-      "LogAdapter output",
+      { adapter: "log", value: "body: payload" },
+      "LogAdapter (log) output",
     );
   });
 
@@ -97,8 +97,8 @@ describe("LogAdapter", () => {
     await adapter.send(exchange);
 
     expect(exchange.logger.warn).toHaveBeenCalledWith(
-      { custom: { foo: 1 } },
-      "LogAdapter output",
+      { custom: { foo: 1 }, adapter: "log" },
+      "LogAdapter (log) output",
     );
   });
 });
@@ -130,8 +130,8 @@ describe("log() DSL", () => {
     await adapter.send(exchange);
 
     expect(exchange.logger.info).toHaveBeenCalledWith(
-      "test-id",
-      "LogAdapter output",
+      { adapter: "log", value: "test-id" },
+      "LogAdapter (log) output",
     );
   });
 
@@ -161,8 +161,8 @@ describe("log() DSL", () => {
     await adapter.send(exchange);
 
     expect(exchange.logger.error).toHaveBeenCalledWith(
-      "err-payload",
-      "LogAdapter output",
+      { adapter: "log", value: "err-payload" },
+      "LogAdapter (log) output",
     );
   });
 });
@@ -181,8 +181,8 @@ describe("debug() DSL helper", () => {
 
     expect(exchange.logger.debug).toHaveBeenCalledTimes(1);
     expect(exchange.logger.debug).toHaveBeenCalledWith(
-      { id: "test-id", body: "debug-data", headers: {} },
-      "LogAdapter output",
+      { id: "test-id", body: "debug-data", headers: {}, adapter: "log" },
+      "LogAdapter (log) output",
     );
   });
 
@@ -198,8 +198,8 @@ describe("debug() DSL helper", () => {
     await adapter.send(exchange);
 
     expect(exchange.logger.debug).toHaveBeenCalledWith(
-      { debugBody: "test" },
-      "LogAdapter output",
+      { debugBody: "test", adapter: "log" },
+      "LogAdapter (log) output",
     );
   });
 });

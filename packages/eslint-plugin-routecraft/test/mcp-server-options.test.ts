@@ -36,13 +36,13 @@ describe("mcp-server-options", () => {
               .to(consumer);
           `,
         },
-        // mcp() without options in .to() is fine
+        // in-process .to() uses direct(), not mcp()
         {
           code: `
             craft()
               .id("producer")
               .from(simple({ message: "hello" }))
-              .to(mcp("my-tool"));
+              .to(direct("my-tool"));
           `,
         },
         // direct() in .from() is not affected
@@ -63,10 +63,10 @@ describe("mcp-server-options", () => {
               .to(log());
           `,
         },
-        // mcp() not in .from() context
+        // mcp() not in .from() context (client usage)
         {
           code: `
-            const adapter = mcp("my-tool");
+            const adapter = mcp({ url: "http://localhost/mcp", tool: "my-tool" });
           `,
         },
       ],
@@ -174,7 +174,7 @@ describe("mcp-server-options", () => {
             const route3 = craft()
               .id("also-valid")
               .from(simple("data"))
-              .to(mcp("t1"));
+              .to(direct("t1"));
           `,
           errors: [
             {

@@ -8,9 +8,14 @@ import type {
 export const MCP_PLUGIN_REGISTERED =
   "routecraft.mcp.plugin.registered" as const;
 
+/** Store key for named remote MCP servers (mcpPlugin({ clients })). Used by McpClient to resolve serverId. */
+export const ADAPTER_MCP_CLIENT_SERVERS =
+  "routecraft.mcp.client.servers" as const;
+
 declare module "@routecraft/routecraft" {
   interface StoreRegistry {
     [MCP_PLUGIN_REGISTERED]: boolean;
+    [ADAPTER_MCP_CLIENT_SERVERS]: Map<string, McpClientHttpConfig | string>;
   }
 }
 
@@ -53,7 +58,7 @@ export interface McpPluginOptions {
   /** Port for the streamable-http MCP server. Default: 3001 (only used with transport: "http") */
   port?: number;
 
-  /** Host to bind to. Default: "localhost" (only used with transport: "http") */
+  /** Host to bind to. Default: "0.0.0.0" (only used with transport: "http") */
   host?: string;
 
   /**
@@ -92,10 +97,14 @@ export type McpArgsExtractor = (
 
 /**
  * Options for mcp() when used as a Client in .to() to call a remote MCP server.
- * Provide either url (direct) or serverId (from plugin clients); tool is required.
+ * Provide either url (inline HTTP) or serverId (from plugin/store); tool is required.
+ *
+ * **Stdio is not supported in routes.** Only HTTP is allowed: use `url` for an inline
+ * HTTP endpoint or `serverId` for a named backend from mcpPlugin({ clients }) or
+ * context store. Stdio MCP clients are managed by the plugin lifecycle only.
  */
 export interface McpClientOptions {
-  /** URL of the remote MCP server. Omit when using serverId (from mcpPlugin clients). */
+  /** URL of the remote MCP server (HTTP/HTTPS only). Omit when using serverId. */
   url?: string;
   /** Tool name to invoke. If omitted, exchange body may specify it or a default applies. */
   tool?: string;

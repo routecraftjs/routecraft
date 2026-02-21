@@ -1,18 +1,20 @@
 import type { Exchange } from "@routecraft/routecraft";
 import { getExchangeContext } from "@routecraft/routecraft";
 import type { Destination } from "@routecraft/routecraft";
-import { BRAND } from "../brand.ts";
 import type {
   McpArgsExtractor,
   McpClientHttpConfig,
   McpClientOptions,
 } from "./types.ts";
+import { ADAPTER_MCP_CLIENT_SERVERS } from "./types.ts";
 
-const ADAPTER_MCP_CLIENT_SERVERS = "routecraft.mcp.client.servers" as const;
-
-declare module "@routecraft/routecraft" {
-  interface StoreRegistry {
-    [ADAPTER_MCP_CLIENT_SERVERS]: Map<string, McpClientHttpConfig | string>;
+/** Ensure inline url is HTTP(S) only; stdio is not supported in routes. */
+function assertHttpUrl(url: string): void {
+  const trimmed = url.trim().toLowerCase();
+  if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+    throw new Error(
+      `MCP client: url must be HTTP or HTTPS. Stdio is not supported in routes; register stdio clients via mcpPlugin({ clients: { name: { command, args } } }). Got: "${url.slice(0, 50)}${url.length > 50 ? "..." : ""}"`,
+    );
   }
 }
 
@@ -24,7 +26,10 @@ function resolveUrl(
   options: McpClientOptions,
   context: ReturnType<typeof getExchangeContext>,
 ): string {
-  if (options.url) return options.url;
+  if (options.url) {
+    assertHttpUrl(options.url);
+    return options.url;
+  }
   if (options.serverId && !context) {
     throw new Error(
       `MCP client: serverId "${options.serverId}" requires a context to resolve. Ensure the exchange has context (e.g. from a route) so store "${ADAPTER_MCP_CLIENT_SERVERS}" can be read.`,
@@ -58,15 +63,13 @@ export const defaultArgs: McpArgsExtractor = (exchange) =>
     : { input: exchange.body };
 
 /**
- * McpClientAdapter calls a remote MCP server's tool and returns the result as the exchange body.
- * Use .to(mcp({ url, tool })) or .to(mcp({ serverId, tool, args })).
+ * Internal client: calls a remote MCP server's tool.
+ * Exported only for use by McpAdapter; not re-exported from package.
  */
-export class McpClientAdapter implements Destination<unknown, unknown> {
+export class McpClient implements Destination<unknown, unknown> {
   readonly adapterId = "routecraft.adapter.mcp.client";
 
-  constructor(private readonly options: McpClientOptions) {
-    (this as unknown as Record<symbol, boolean>)[BRAND.McpClientAdapter] = true;
-  }
+  constructor(private readonly options: McpClientOptions) {}
 
   async send(exchange: Exchange<unknown>): Promise<unknown> {
     const context = getExchangeContext(exchange);
@@ -172,5 +175,3 @@ export class McpClientAdapter implements Destination<unknown, unknown> {
     }
   }
 }
-
-export { ADAPTER_MCP_CLIENT_SERVERS };

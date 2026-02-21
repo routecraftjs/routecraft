@@ -22,7 +22,7 @@
     "all": " pnpm lint --fix && pnpm format:write && pnpm typecheck && pnpm build && pnpm test"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.2",
+    "@eslint/js": "^9.39.3",
     "@size-limit/preset-small-lib": "^12.0.0",
     "@size-limit/time": "^12.0.0",
     "@types/node": "^25.3.0",
@@ -30,7 +30,7 @@
     "@typescript-eslint/parser": "^8.56.0",
     "@vitest/coverage-v8": "^4.0.18",
     "comment-parser": "^1.4.5",
-    "eslint": "^9.39.2",
+    "eslint": "^9.39.3",
     "eslint-config-prettier": "10.1.8",
     "globals": "^17.3.0",
     "husky": "^9.1.7",

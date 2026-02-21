@@ -1,0 +1,36 @@
+---
+description: "Main adapter as facade: one exported adapter; Server/Client are internal and not named *Adapter"
+globs:
+  [
+    "packages/**/src/**/adapters/**/*",
+    "packages/**/src/**/mcp/**/*",
+    "packages/**/src/**/agent/**/*",
+  ]
+alwaysApply: false
+---
+
+### Main adapter as facade
+
+**Scope:** Applies to adapters that support both source (server) and destination (client) roles (e.g. MCP, direct). Single-role adapters (e.g. LLM destination, agent destination) only need "factory simple, adapter owns logic" — no internal server/client split.
+
+For **two-role** adapters:
+
+- **One facade only:** Export a single adapter class (e.g. `McpAdapter`, `DirectAdapter`). It is the only adapter type in the public API for that capability.
+- **Internal server/client:** You may have internal classes that implement the real logic (e.g. `McpServer`, `McpClient`). They must **not** be exported. They do **not** use the `*Adapter` naming: name them e.g. `McpServer` and `McpClient`, not `McpServerAdapter` and `McpClientAdapter`.
+- **Facade is thin:** The main adapter should not contain the functional implementation unless it is trivial (e.g. noop, simple). It delegates to the internal server/client. The DSL factory (e.g. `mcp()`, `direct()`) decides which role is requested and returns the main adapter configured to delegate to the correct internal implementation.
+- **Adapter owns complexity:** The main adapter (and its internal server/client) is where option validation, merging, and non-trivial logic live. The DSL factory (e.g. `mcp()`, `direct()`) stays as simple as possible: only overload resolution and construction. Do not put validation or option-shaping logic in the factory.
+
+For **single-role** adapters (e.g. `AgentAdapter`, `LlmAdapter`):
+
+- **Exported:** One main adapter; name includes `Adapter`.
+- **Factory:** As simple as possible — construction only; no validation or option logic in the factory.
+- **Adapter:** Owns option validation, merging, and any delegation to internal helpers (e.g. `AgentRunner` not exported).
+
+**Config-helper plugins:** Plugins that only populate the context store (no lifecycle hooks) follow the same store pattern as lifecycle plugins. Document the distinction in JSDoc (e.g. "Config only; no lifecycle.") so it is clear they do not start/stop anything.
+
+**Summary**
+
+- **Exported:** One main adapter per capability (name includes `Adapter`).
+- **Internal (not exported):** Server/client or runner classes; no `*Adapter` suffix (e.g. `McpServer`, `McpClient`, `AgentRunner`).
+- **Factory:** As simple as possible — overload resolution and construction only; no validation or option logic.
+- **Adapter:** Owns option validation, merging, and delegation to internal server/client or runner.

@@ -12,7 +12,7 @@ export type HttpMethod =
 
 export type QueryParams = Record<string, string | number | boolean>;
 
-export interface FetchOptions<T = unknown> {
+export interface HttpOptions<T = unknown> {
   method?: HttpMethod;
   url: string | ((exchange: Exchange<T>) => string);
   headers?:
@@ -24,7 +24,7 @@ export interface FetchOptions<T = unknown> {
   throwOnHttpError?: boolean;
 }
 
-export type FetchResult<T = string | unknown> = {
+export type HttpResult<T = string | unknown> = {
   status: number;
   headers: Record<string, string>;
   body: T;
@@ -37,35 +37,35 @@ export type FetchResult<T = string | unknown> = {
  *
  * @template T The type of exchange body
  * @template R The type of the response body
- * @param options Fetch configuration
- * @returns A FetchAdapter instance
+ * @param options HTTP configuration
+ * @returns An HttpAdapter instance
  */
-export function fetch<T = unknown, R = unknown>(
-  options: FetchOptions<T>,
-): FetchAdapter<T, R> {
-  return new FetchAdapter<T, R>(options);
+export function http<T = unknown, R = unknown>(
+  options: HttpOptions<T>,
+): HttpAdapter<T, R> {
+  return new HttpAdapter<T, R>(options);
 }
 
 /**
- * FetchAdapter performs HTTP requests and returns the result.
+ * HttpAdapter performs HTTP requests and returns the result.
  * Can be used with both .to() and .enrich() operations.
  * - With .to(): result available via custom aggregator
  * - With .enrich(): result merged into body by default
  */
-export class FetchAdapter<T = unknown, R = FetchResult> implements Destination<
+export class HttpAdapter<T = unknown, R = HttpResult> implements Destination<
   T,
-  FetchResult<R>
+  HttpResult<R>
 > {
-  readonly adapterId = "routecraft.adapter.fetch";
+  readonly adapterId = "routecraft.adapter.http";
 
-  constructor(private readonly options: FetchOptions<T>) {}
+  constructor(private readonly options: HttpOptions<T>) {}
 
-  async send(exchange: Exchange<T>): Promise<FetchResult<R>> {
+  async send(exchange: Exchange<T>): Promise<HttpResult<R>> {
     const result = await this.performFetch(exchange);
-    return result as FetchResult<R>;
+    return result as HttpResult<R>;
   }
 
-  private async performFetch(exchange: Exchange<T>): Promise<FetchResult> {
+  private async performFetch(exchange: Exchange<T>): Promise<HttpResult> {
     const method = this.options.method ?? "GET";
     const url = this.resolveRequired(this.options.url, exchange);
     const headers = { ...(this.resolve(this.options.headers, exchange) ?? {}) };
@@ -133,7 +133,7 @@ export class FetchAdapter<T = unknown, R = FetchResult> implements Destination<
         headers: headersRecord,
         body: parsedBody,
         url: res.url || finalUrl,
-      } satisfies FetchResult;
+      } satisfies HttpResult;
     } finally {
       if (timeout) clearTimeout(timeout);
     }

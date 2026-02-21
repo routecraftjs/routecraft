@@ -90,6 +90,7 @@ Custom consumer skeleton:
 ```ts
 import {
   type Consumer,
+  type Exchange,
   type ProcessingQueue,
   type Message,
   type ExchangeHeaders,
@@ -110,11 +111,11 @@ export class MyConsumer implements Consumer<MyConsumerOptions> {
   ) {}
 
   async register(
-    handler: (message: unknown, headers?: ExchangeHeaders) => Promise<void>,
+    handler: (message: unknown, headers?: ExchangeHeaders) => Promise<Exchange>,
   ): Promise<void> {
     this.channel.setHandler(async (msg) => {
       // Optionally buffer/throttle here
-      await handler(msg.message, msg.headers);
+      return await handler(msg.message, msg.headers);
     });
   }
 }

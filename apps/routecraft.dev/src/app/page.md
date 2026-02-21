@@ -72,7 +72,7 @@ You should see your routes start and log output in your terminal.
 The starter project includes a hello world route at `routes/hello-world.route.ts`. It demonstrates the core flow:
 
 1. **Start with data** - `.from(simple({ userId: 1 }))` creates an exchange with a user ID
-2. **Enrich from an API** - `.enrich(fetch(...))` calls an external API and merges the result
+2. **Enrich from an API** - `.enrich(http(...))` calls an external API and merges the result
 3. **Transform** - `.transform(...)` shapes the data into a greeting
 4. **Output** - `.to(log())` logs the final result to the console
 

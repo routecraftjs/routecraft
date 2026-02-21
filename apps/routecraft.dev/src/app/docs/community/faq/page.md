@@ -47,7 +47,7 @@ RouteCraft provides several error handling approaches:
 
 ## What adapters are available?
 
-RouteCraft includes many built-in adapters like `simple()`, `timer()`, `csv()`, `http()`, `fetch()`, and more.
+RouteCraft includes many built-in adapters like `simple()`, `timer()`, `csv()`, `http()`, and more.
 
 For the complete list with examples and options, see [Adapters Reference](/docs/reference/adapters).
 

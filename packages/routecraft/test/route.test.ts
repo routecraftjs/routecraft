@@ -145,7 +145,7 @@ describe("Route Behavior", () => {
     expect(spyDest).toHaveBeenCalledTimes(0);
     expect(
       (t.logger.warn as ReturnType<typeof vi.fn>).mock.calls[0][1],
-    ).toMatch(/Step process failed for exchange/);
+    ).toMatch(/Step process( \([^)]+\))? failed for exchange/);
   });
 
   /**
@@ -295,7 +295,7 @@ describe("Route Behavior", () => {
     expect(t.logger.warn).toHaveBeenCalled();
     expect(
       (t.logger.warn as ReturnType<typeof vi.fn>).mock.calls[0][1],
-    ).toMatch(/Step process failed for exchange/);
+    ).toMatch(/Step process( \([^)]+\))? failed for exchange/);
 
     // Verify successful messages were processed
     expect(processedCount).toBe(2); // Both success1 and success2 should be processed
@@ -814,7 +814,7 @@ describe("Route Behavior", () => {
     expect(t.logger.warn).toHaveBeenCalled();
     expect(
       (t.logger.warn as ReturnType<typeof vi.fn>).mock.calls[0][1],
-    ).toMatch(/Step process failed for exchange/);
+    ).toMatch(/Step process( \([^)]+\))? failed for exchange/);
 
     // Verify successful exchanges were aggregated
     expect(spyDest).toHaveBeenCalledTimes(1);

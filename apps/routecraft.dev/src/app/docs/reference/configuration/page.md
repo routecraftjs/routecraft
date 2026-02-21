@@ -143,11 +143,11 @@ NODE_ENV=development
 Adapters are not auto-loaded. Import and instantiate them explicitly in routes:
 
 ```ts
-import { craft, timer, fetch, log } from '@routecraft/routecraft'
+import { craft, timer, http, log } from '@routecraft/routecraft'
 
 export default craft()
   .from(timer({ intervalMs: 5000 }))
-  .enrich(fetch({ url: 'https://api.example.com/data' }))
+  .enrich(http({ url: 'https://api.example.com/data' }))
   .to(log())
 ```
 

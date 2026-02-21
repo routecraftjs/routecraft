@@ -57,6 +57,20 @@ export type CraftPlugin =
   | { apply(ctx: CraftContext): void | Promise<void> };
 
 /**
+ * Reserved config for direct adapter (future: channel type, whitelist, timeouts).
+ * No-op today; used by built-in direct handling when implemented.
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- Reserved for future options.
+export interface DirectConfig {}
+
+/**
+ * Reserved config for HTTP (future: inbound server port, host).
+ * No-op today; used by built-in HTTP server when implemented.
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- Reserved for future options.
+export interface HttpConfig {}
+
+/**
  * Configuration options for creating a CraftContext.
  */
 export type CraftConfig = {
@@ -68,6 +82,10 @@ export type CraftConfig = {
   >;
   /** Plugins to run before routes are registered (call initPlugins() then registerRoutes) */
   plugins?: CraftPlugin[];
+  /** Reserved: direct adapter / channel config (no-op today) */
+  direct?: DirectConfig;
+  /** Reserved: HTTP server config for inbound (no-op today) */
+  http?: HttpConfig;
 };
 
 /**

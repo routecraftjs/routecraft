@@ -142,11 +142,11 @@ craft()
 ```
 
 ```ts
-// ✅ Good: mcp() without options in .to() (destination)
+// ✅ Good: direct() for in-process .to(); mcp() with description in .from()
 craft()
   .id('producer')
   .from(simple({ message: 'hello' }))
-  .to(mcp('my-tool'))
+  .to(direct('my-tool'))
 ```
 
 ```ts

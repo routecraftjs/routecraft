@@ -41,7 +41,7 @@ describe("single-to-per-route", () => {
           code: `
             craft()
               .from(simple(1))
-              .enrich(fetch({ url: 'https://api.example.com' }))
+              .enrich(http({ url: 'https://api.example.com' }))
               .to(dest);
           `,
         },

@@ -466,8 +466,8 @@ export class RouteBuilder<Current = unknown> {
    * })
    *
    * // Send and replace body with result
-   * .to(fetch({ url: 'https://api.example.com/transform' }))
-   * // Body becomes FetchResult
+   * .to(http({ url: 'https://api.example.com/transform' }))
+   * // Body becomes HttpResult
    */
   to<R = void>(
     destination: Destination<Current, R> | CallableDestination<Current, R>,
@@ -744,13 +744,13 @@ export class RouteBuilder<Current = unknown> {
    * @returns A RouteBuilder with the combined type
    * @example
    * // Add user details from an API (default merge behavior)
-   * .enrich(fetch({
+   * .enrich(http({
    *   url: (ex) => `https://api.example.com/users/${ex.body.userId}`
    * }))
    *
    * // Custom aggregation strategy
    * .enrich(
-   *   fetch({ url: 'https://api.example.com/data' }),
+   *   http({ url: 'https://api.example.com/data' }),
    *   (original, result) => ({
    *     ...original,
    *     body: { ...original.body, fetchedData: result.body }

@@ -1,8 +1,8 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { testContext, type TestContext } from "@routecraft/testing";
-import { craft, simple, fetch } from "@routecraft/routecraft";
+import { craft, simple, http } from "@routecraft/routecraft";
 
-describe("Fetch Adapter", () => {
+describe("HTTP Adapter", () => {
   let t: TestContext;
   let fetchMock: ReturnType<typeof vi.fn>;
 
@@ -21,7 +21,7 @@ describe("Fetch Adapter", () => {
 
   /**
    * @case Verifies that JSON object responses are auto-parsed
-   * @preconditions Fetch returns JSON with application/json content-type
+   * @preconditions HTTP adapter returns JSON with application/json content-type
    * @expectedResult Body should be parsed as JSON object
    */
   test("auto-parses JSON object response", async () => {
@@ -41,7 +41,7 @@ describe("Fetch Adapter", () => {
         craft()
           .id("test-json-object")
           .from(simple("trigger"))
-          .enrich(fetch({ url: "https://api.example.com/user" }))
+          .enrich(http({ url: "https://api.example.com/user" }))
           .to(destSpy),
       )
       .build();
@@ -50,14 +50,14 @@ describe("Fetch Adapter", () => {
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const enrichedBody = destSpy.mock.calls[0][0].body;
-    // Enrich merges the FetchResult into the body
+    // Enrich merges the HttpResult into the body
     expect(enrichedBody.body).toEqual(jsonData);
     expect(typeof enrichedBody.body).toBe("object");
   });
 
   /**
    * @case Verifies that JSON array responses are auto-parsed
-   * @preconditions Fetch returns JSON array with application/json content-type
+   * @preconditions HTTP adapter returns JSON array with application/json content-type
    * @expectedResult Body should be parsed as array
    */
   test("auto-parses JSON array response", async () => {
@@ -77,7 +77,7 @@ describe("Fetch Adapter", () => {
         craft()
           .id("test-json-array")
           .from(simple("trigger"))
-          .enrich(fetch({ url: "https://api.example.com/numbers" }))
+          .enrich(http({ url: "https://api.example.com/numbers" }))
           .to(destSpy),
       )
       .build();
@@ -86,14 +86,14 @@ describe("Fetch Adapter", () => {
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const enrichedBody = destSpy.mock.calls[0][0].body;
-    // Enrich merges the FetchResult into the body
+    // Enrich merges the HttpResult into the body
     expect(enrichedBody.body).toEqual(jsonArray);
     expect(Array.isArray(enrichedBody.body)).toBe(true);
   });
 
   /**
    * @case Verifies that JSON with charset parameter is handled correctly
-   * @preconditions Fetch returns JSON with application/json; charset=utf-8
+   * @preconditions HTTP adapter returns JSON with application/json; charset=utf-8
    * @expectedResult Body should be parsed as JSON
    */
   test("auto-parses JSON with charset parameter", async () => {
@@ -113,7 +113,7 @@ describe("Fetch Adapter", () => {
         craft()
           .id("test-json-charset")
           .from(simple("trigger"))
-          .enrich(fetch({ url: "https://api.example.com/status" }))
+          .enrich(http({ url: "https://api.example.com/status" }))
           .to(destSpy),
       )
       .build();
@@ -122,13 +122,13 @@ describe("Fetch Adapter", () => {
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const enrichedBody = destSpy.mock.calls[0][0].body;
-    // Enrich merges the FetchResult into the body
+    // Enrich merges the HttpResult into the body
     expect(enrichedBody.body).toEqual(jsonData);
   });
 
   /**
    * @case Verifies that plain text responses remain as strings
-   * @preconditions Fetch returns text/plain content-type
+   * @preconditions HTTP adapter returns text/plain content-type
    * @expectedResult Body should remain as string
    */
   test("returns plain text as string", async () => {
@@ -148,7 +148,7 @@ describe("Fetch Adapter", () => {
         craft()
           .id("test-plain-text")
           .from(simple("trigger"))
-          .enrich(fetch({ url: "https://api.example.com/text" }))
+          .enrich(http({ url: "https://api.example.com/text" }))
           .to(destSpy),
       )
       .build();
@@ -157,14 +157,14 @@ describe("Fetch Adapter", () => {
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const enrichedBody = destSpy.mock.calls[0][0].body;
-    // Enrich merges the FetchResult into the body
+    // Enrich merges the HttpResult into the body
     expect(enrichedBody.body).toBe(textData);
     expect(typeof enrichedBody.body).toBe("string");
   });
 
   /**
    * @case Verifies that XML responses remain as strings
-   * @preconditions Fetch returns text/xml content-type
+   * @preconditions HTTP adapter returns text/xml content-type
    * @expectedResult Body should remain as string
    */
   test("returns XML as string", async () => {
@@ -184,7 +184,7 @@ describe("Fetch Adapter", () => {
         craft()
           .id("test-xml")
           .from(simple("trigger"))
-          .enrich(fetch({ url: "https://api.example.com/data.xml" }))
+          .enrich(http({ url: "https://api.example.com/data.xml" }))
           .to(destSpy),
       )
       .build();
@@ -193,14 +193,14 @@ describe("Fetch Adapter", () => {
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const enrichedBody = destSpy.mock.calls[0][0].body;
-    // Enrich merges the FetchResult into the body
+    // Enrich merges the HttpResult into the body
     expect(enrichedBody.body).toBe(xmlData);
     expect(typeof enrichedBody.body).toBe("string");
   });
 
   /**
    * @case Verifies that HTML responses remain as strings
-   * @preconditions Fetch returns text/html content-type
+   * @preconditions HTTP adapter returns text/html content-type
    * @expectedResult Body should remain as string
    */
   test("returns HTML as string", async () => {
@@ -220,7 +220,7 @@ describe("Fetch Adapter", () => {
         craft()
           .id("test-html")
           .from(simple("trigger"))
-          .enrich(fetch({ url: "https://example.com/page" }))
+          .enrich(http({ url: "https://example.com/page" }))
           .to(destSpy),
       )
       .build();
@@ -229,14 +229,14 @@ describe("Fetch Adapter", () => {
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const enrichedBody = destSpy.mock.calls[0][0].body;
-    // Enrich merges the FetchResult into the body
+    // Enrich merges the HttpResult into the body
     expect(enrichedBody.body).toBe(htmlData);
     expect(typeof enrichedBody.body).toBe("string");
   });
 
   /**
    * @case Verifies handling of missing Content-Type header
-   * @preconditions Fetch response has no content-type header
+   * @preconditions HTTP response has no content-type header
    * @expectedResult Body should remain as string
    */
   test("returns string when content-type is missing", async () => {
@@ -256,7 +256,7 @@ describe("Fetch Adapter", () => {
         craft()
           .id("test-no-content-type")
           .from(simple("trigger"))
-          .enrich(fetch({ url: "https://api.example.com/data" }))
+          .enrich(http({ url: "https://api.example.com/data" }))
           .to(destSpy),
       )
       .build();
@@ -265,14 +265,14 @@ describe("Fetch Adapter", () => {
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const enrichedBody = destSpy.mock.calls[0][0].body;
-    // Enrich merges the FetchResult into the body
+    // Enrich merges the HttpResult into the body
     expect(enrichedBody.body).toBe(textData);
     expect(typeof enrichedBody.body).toBe("string");
   });
 
   /**
    * @case Verifies graceful handling of malformed JSON
-   * @preconditions Fetch returns invalid JSON with application/json content-type
+   * @preconditions HTTP adapter returns invalid JSON with application/json content-type
    * @expectedResult Body should fallback to string
    */
   test("falls back to string for malformed JSON", async () => {
@@ -292,7 +292,7 @@ describe("Fetch Adapter", () => {
         craft()
           .id("test-malformed-json")
           .from(simple("trigger"))
-          .enrich(fetch({ url: "https://api.example.com/bad" }))
+          .enrich(http({ url: "https://api.example.com/bad" }))
           .to(destSpy),
       )
       .build();
@@ -301,14 +301,14 @@ describe("Fetch Adapter", () => {
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const enrichedBody = destSpy.mock.calls[0][0].body;
-    // Enrich merges the FetchResult into the body
+    // Enrich merges the HttpResult into the body
     expect(enrichedBody.body).toBe(malformedJson);
     expect(typeof enrichedBody.body).toBe("string");
   });
 
   /**
    * @case Verifies handling of empty JSON response
-   * @preconditions Fetch returns empty string with application/json content-type
+   * @preconditions HTTP adapter returns empty string with application/json content-type
    * @expectedResult Body should fallback to empty string
    */
   test("handles empty JSON response", async () => {
@@ -327,7 +327,7 @@ describe("Fetch Adapter", () => {
         craft()
           .id("test-empty-json")
           .from(simple("trigger"))
-          .enrich(fetch({ url: "https://api.example.com/empty" }))
+          .enrich(http({ url: "https://api.example.com/empty" }))
           .to(destSpy),
       )
       .build();
@@ -336,14 +336,14 @@ describe("Fetch Adapter", () => {
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const enrichedBody = destSpy.mock.calls[0][0].body;
-    // Enrich merges the FetchResult into the body
+    // Enrich merges the HttpResult into the body
     expect(enrichedBody.body).toBe("");
     expect(typeof enrichedBody.body).toBe("string");
   });
 
   /**
    * @case Verifies JSON array can be used with split operation
-   * @preconditions Fetch returns JSON array that needs to be split
+   * @preconditions HTTP adapter returns JSON array that needs to be split
    * @expectedResult Array should be auto-parsed and splittable
    */
   test("JSON array integrates with split operation", async () => {
@@ -367,7 +367,7 @@ describe("Fetch Adapter", () => {
         craft()
           .id("test-split-integration")
           .from(simple("trigger"))
-          .enrich(fetch({ url: "https://api.example.com/items" }))
+          .enrich(http({ url: "https://api.example.com/items" }))
           .split((body: any) => (Array.isArray(body.body) ? body.body : []))
           .to(destSpy),
       )
@@ -384,11 +384,11 @@ describe("Fetch Adapter", () => {
   });
 
   /**
-   * @case Verifies .to(fetch()) replaces body with result
-   * @preconditions fetch adapter used with .to()
-   * @expectedResult Body replaced with FetchResult
+   * @case Verifies .to(http()) replaces body with result
+   * @preconditions http adapter used with .to()
+   * @expectedResult Body replaced with HttpResult
    */
-  test(".to(fetch()) replaces body with fetch result", async () => {
+  test(".to(http()) replaces body with http result", async () => {
     const destSpy = vi.fn();
 
     fetchMock.mockResolvedValue({
@@ -402,9 +402,9 @@ describe("Fetch Adapter", () => {
     t = await testContext()
       .routes(
         craft()
-          .id("test-to-fetch-replaces-body")
+          .id("test-to-http-replaces-body")
           .from(simple({ original: "data" }))
-          .to(fetch({ method: "POST", url: "https://api.example.com/webhook" }))
+          .to(http({ method: "POST", url: "https://api.example.com/webhook" }))
           .to(destSpy),
       )
       .build();
@@ -414,17 +414,17 @@ describe("Fetch Adapter", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(destSpy).toHaveBeenCalledTimes(1);
     const finalBody = destSpy.mock.calls[0][0].body;
-    // Body should be replaced with FetchResult
+    // Body should be replaced with HttpResult
     expect(finalBody.status).toBe(200);
     expect(finalBody.body).toEqual({ responseData: "value" });
   });
 
   /**
    * @case Verifies chaining .to() calls
-   * @preconditions Multiple .to(fetch()) calls
+   * @preconditions Multiple .to(http()) calls
    * @expectedResult Each .to() replaces body sequentially
    */
-  test("chaining .to(fetch()) calls", async () => {
+  test("chaining .to(http()) calls", async () => {
     const destSpy = vi.fn();
 
     fetchMock
@@ -446,10 +446,10 @@ describe("Fetch Adapter", () => {
     t = await testContext()
       .routes(
         craft()
-          .id("test-to-fetch-chain")
+          .id("test-to-http-chain")
           .from(simple({ initial: "data" }))
-          .to(fetch({ url: "https://api.example.com/step1" }))
-          .to(fetch({ url: "https://api.example.com/step2" }))
+          .to(http({ url: "https://api.example.com/step1" }))
+          .to(http({ url: "https://api.example.com/step2" }))
           .to(destSpy),
       )
       .build();
@@ -459,7 +459,7 @@ describe("Fetch Adapter", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(destSpy).toHaveBeenCalledTimes(1);
     const finalBody = destSpy.mock.calls[0][0].body;
-    // Body should be the last FetchResult
+    // Body should be the last HttpResult
     expect(finalBody).toMatchObject({
       status: 201,
       body: { step: 2 },

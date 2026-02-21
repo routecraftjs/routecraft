@@ -589,8 +589,8 @@ Enrich the exchange with additional data from a destination adapter. Uses the sa
   permissions: await getUserPermissions(exchange.body.userId)
 }))
 
-// Enrich using fetch adapter
-.enrich(fetch({ 
+// Enrich using http adapter
+.enrich(http({ 
   url: (ex) => `https://api.example.com/users/${ex.body.userId}` 
 }))
 
@@ -603,7 +603,7 @@ Enrich the exchange with additional data from a destination adapter. Uses the sa
 ```ts
 // Store result under specific key
 .enrich(
-  fetch({ url: 'https://api.example.com/profile' }),
+  http({ url: 'https://api.example.com/profile' }),
   (original, result) => ({
     ...original,
     body: { ...original.body, profileData: result.body }
@@ -612,7 +612,7 @@ Enrich the exchange with additional data from a destination adapter. Uses the sa
 
 // Only extract specific fields
 .enrich(
-  fetch({ url: 'https://api.example.com/user' }),
+  http({ url: 'https://api.example.com/user' }),
   (original, result) => ({
     ...original,
     body: { ...original.body, userName: result.body.name }
@@ -989,8 +989,8 @@ Send the exchange to a destination. If the destination returns `undefined`, the 
 When a destination returns a value (not `undefined`), the exchange body is **replaced** with that value.
 
 ```ts
-// Fetch returns FetchResult - body becomes FetchResult
-.to(fetch({ url: 'https://api.example.com/transform' }))
+// http returns HttpResult - body becomes HttpResult
+.to(http({ url: 'https://api.example.com/transform' }))
 
 // Custom adapter returns ID - body becomes the ID
 .to(saveToDBReturnID)
@@ -1012,8 +1012,8 @@ When a destination returns a value (not `undefined`), the exchange body is **rep
 
 // Mix side-effects and transformations
 .to(saveToDB) // Returns void, body unchanged
-.to(fetch({ url: 'https://api.example.com/enrich' })) // Body becomes FetchResult
-.to(log()) // Logs the FetchResult
+.to(http({ url: 'https://api.example.com/enrich' })) // Body becomes HttpResult
+.to(log()) // Logs the HttpResult
 ```
 
 **Note:** Unlike `.enrich()`, `.to()` does not merge results. If the destination returns a value, it completely replaces the body.

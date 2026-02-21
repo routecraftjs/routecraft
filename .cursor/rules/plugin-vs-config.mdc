@@ -1,0 +1,35 @@
+---
+description: "Plugin vs context store vs route: when to use lifecycle, config helpers, and inline options"
+globs:
+  [
+    "packages/**/src/**/*.ts",
+    "packages/**/src/**/mcp/**/*",
+    "packages/**/src/**/llm/**/*",
+    "packages/**/src/**/agent/**/*",
+  ]
+alwaysApply: false
+---
+
+### Plugin: lifecycle or config helper
+
+Use a **plugin** when:
+
+- Something must be **started, stopped, or managed** as a process (lifecycle). Examples: `mcpPlugin` starts the MCP server, spawns stdio subprocesses; future HTTP inbound server.
+- Or you want a **typed, validated config helper** that populates the context store. That is acceptable even when there is no lifecycle — document it clearly in JSDoc (e.g. "Config only; no lifecycle hooks."). Example: `llmPlugin`.
+
+So: plugins may be lifecycle-only, config-helper-only, or both (e.g. `mcpPlugin` hosts the server and optionally registers named HTTP clients in the store).
+
+### Context store
+
+The **context store** is the underlying mechanism for sharing config between plugins and adapters. Prefer plugin helpers to populate it (typed options, validation). Advanced users can set store directly: `builder.store(KEY, value)` (export store keys like `ADAPTER_LLM_PROVIDERS`, `ADAPTER_MCP_CLIENT_SERVERS` from the package).
+
+### Route: named vs inline
+
+Adapters in routes can be:
+
+- **Named:** Reference a pre-registered backend by id (e.g. `mcp("browser:screenshot")`, `llm("ollama:llama3")`). Config comes from context store (plugin or `builder.store()`). Preferred for recurring, credentialed, or auditable backends.
+- **Inline:** Full options in the route (e.g. `http({ url, method })`, `mcp({ url, tool })`, `agent({ modelId, ... })`). Use for ad-hoc or dynamic cases. No stdio in routes — see below.
+
+### stdio = plugin only
+
+Routes **never** spawn processes. Stdio MCP clients are registered in `mcpPlugin({ clients: { name: { command, args } } })` and managed at `contextStarted` / `contextStopping`. The route API does not expose a stdio option; only HTTP (inline `url` or named `serverId`) is valid in a route.

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { type Adapter, type Step } from "../types.ts";
+import { type Adapter, type Step, getAdapterLabel } from "../types.ts";
 import { INTERNALS_KEY } from "../brand.ts";
 import {
   type Exchange,
@@ -74,8 +74,10 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
         }
       }
 
+      const adapterLabel = getAdapterLabel(this.adapter);
       postProcessedExchange.logger.debug(
-        `Pushing split exchange ${postProcessedExchange.id} to queue, splitHierarchy: ${postProcessedExchange.headers[HeadersKeys.SPLIT_HIERARCHY]}`,
+        adapterLabel ? { adapter: adapterLabel } : {},
+        `Pushing split exchange ${postProcessedExchange.id} to queue${adapterLabel ? ` (${adapterLabel})` : ""}, splitHierarchy: ${postProcessedExchange.headers[HeadersKeys.SPLIT_HIERARCHY]}`,
       );
       queue.push({
         exchange: postProcessedExchange,

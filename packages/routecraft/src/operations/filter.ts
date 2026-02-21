@@ -1,4 +1,4 @@
-import { type Adapter, type Step } from "../types.ts";
+import { type Adapter, type Step, getAdapterLabel } from "../types.ts";
 import { type Exchange, OperationType } from "../exchange.ts";
 import { error as rcError } from "../error.ts";
 
@@ -36,17 +36,25 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
     remainingSteps: Step<Adapter>[],
     queue: { exchange: Exchange<T>; steps: Step<Adapter>[] }[],
   ): Promise<void> {
+    const adapterLabel = getAdapterLabel(this.adapter);
+    const adapterSuffix = adapterLabel ? ` (${adapterLabel})` : "";
     try {
       const result = await Promise.resolve(this.adapter.filter(exchange));
       if (!result) {
-        exchange.logger.debug(`Filter rejected exchange ${exchange.id}`);
+        exchange.logger.debug(
+          adapterLabel ? { adapter: adapterLabel } : {},
+          `Filter${adapterSuffix} rejected exchange ${exchange.id}`,
+        );
         return;
       }
     } catch (error: unknown) {
       const err = rcError("RC5008", error, {
         message: `Error filtering exchange ${exchange.id}`,
       });
-      exchange.logger.warn(err, `Error filtering exchange ${exchange.id}`);
+      exchange.logger.warn(
+        { ...(adapterLabel ? { adapter: adapterLabel } : {}), err },
+        `Error filtering${adapterSuffix} exchange ${exchange.id}`,
+      );
     }
     queue.push({ exchange, steps: remainingSteps });
   }

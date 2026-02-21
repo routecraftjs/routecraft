@@ -1,5 +1,6 @@
 import type { CraftContext, DirectRouteMetadata } from "@routecraft/routecraft";
 import { DirectAdapter, DefaultExchange } from "@routecraft/routecraft";
+import { createServer } from "node:http";
 import type { MCPServerOptions } from "./types.ts";
 
 /** Resolved options with defaults applied (internal use). */
@@ -20,6 +21,8 @@ export class MCPServer {
   private options: MCPServerResolvedOptions;
   private server: unknown = null;
   private transport: unknown = null;
+  /** Node HTTP server when transport is http; used to listen on port and close on stop. */
+  private httpServer: ReturnType<typeof createServer> | null = null;
   private running = false;
   private toolsListLogged = false;
 
@@ -30,7 +33,7 @@ export class MCPServer {
       version: "1.0.0",
       transport: "stdio",
       port: 3001,
-      host: "localhost",
+      host: "0.0.0.0",
       ...options,
     };
   }
@@ -93,21 +96,26 @@ export class MCPServer {
   }
 
   /**
-   * Start HTTP transport (streamable-http)
+   * Start HTTP transport (streamable-http).
+   * The SDK transport does not create or listen on a port; we create a Node HTTP server
+   * and call transport.handleRequest(req, res) for each request to /mcp.
    */
   private async startHttp(): Promise<void> {
-    // Dynamically import SDK
     const serverModule =
       await import("@modelcontextprotocol/sdk/server/index.js");
     const { Server } = serverModule;
 
-    // Try to get StreamableHTTPServerTransport from the SDK
-    // The MCP SDK exports this from the main server module
-    const StreamableHTTPServerTransport: unknown = (
-      serverModule as Record<string, unknown>
-    )["StreamableHTTPServerTransport"];
+    const streamableModule =
+      await import("@modelcontextprotocol/sdk/server/streamableHttp.js").catch(
+        () => null,
+      );
+    const TransportClass = (
+      streamableModule as Record<string, unknown> | null
+    )?.["StreamableHTTPServerTransport"] as new (options?: {
+      sessionIdGenerator?: () => string;
+    }) => unknown;
 
-    if (!StreamableHTTPServerTransport) {
+    if (!TransportClass) {
       throw new Error(
         "StreamableHTTPServerTransport not found in MCP SDK - ensure @modelcontextprotocol/sdk v1.26.0+ is installed",
       );
@@ -126,11 +134,12 @@ export class MCPServer {
     const port = this.options.port;
     const host = this.options.host;
 
-    // Create HTTP transport with port and host
-    const TransportClass = StreamableHTTPServerTransport as {
-      new (options: { port: number; host?: string }): unknown;
-    };
-    this.transport = new TransportClass({ port, host });
+    // Transport options: sessionIdGenerator and enableJsonResponse (no port/host – we create the server below).
+    // enableJsonResponse: true so we return plain JSON per request instead of SSE (simpler for clients).
+    this.transport = new TransportClass({
+      sessionIdGenerator: () => crypto.randomUUID(),
+      enableJsonResponse: true,
+    } as { sessionIdGenerator?: () => string; enableJsonResponse?: boolean });
 
     const srvWithConnect = this.server as Record<
       string,
@@ -138,9 +147,59 @@ export class MCPServer {
     >;
     await srvWithConnect["connect"](this.transport);
 
+    const handleRequest = (
+      this.transport as Record<
+        string,
+        (req: unknown, res: unknown, parsedBody?: unknown) => Promise<void>
+      >
+    )["handleRequest"];
+    if (typeof handleRequest !== "function") {
+      throw new Error(
+        "StreamableHTTPServerTransport.handleRequest not found - SDK may have changed",
+      );
+    }
+
+    this.httpServer = createServer(async (req, res) => {
+      const url = req.url?.split("?")[0] ?? "";
+      if (url !== "/mcp" && url !== "/mcp/") {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Not Found", path: url }));
+        return;
+      }
+      try {
+        await handleRequest.call(this.transport, req, res);
+      } catch (err) {
+        this.context.logger.error(err, "MCP HTTP request error");
+        if (!res.headersSent) {
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Internal Server Error" }));
+        }
+      }
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      this.httpServer!.listen(port, host, () => resolve());
+      this.httpServer!.on("error", (err) => {
+        this.context.logger.error(err, "MCP HTTP server listen failed");
+        reject(err);
+      });
+    });
+
+    const boundPort = this.getHttpPort() ?? port;
     this.context.logger.info(
-      `MCP HTTP server listening on http://${host}:${port}`,
+      `MCP HTTP server listening on http://${host}:${boundPort}/mcp`,
     );
+  }
+
+  /**
+   * When transport is http, returns the bound port (useful when port 0 was used). Otherwise undefined.
+   */
+  getHttpPort(): number | undefined {
+    const addr = this.httpServer?.address();
+    if (addr && typeof addr === "object" && "port" in addr) {
+      return (addr as { port: number }).port;
+    }
+    return undefined;
   }
 
   /**
@@ -192,9 +251,17 @@ export class MCPServer {
     }
 
     try {
+      if (this.httpServer) {
+        await new Promise<void>((resolve) => {
+          this.httpServer!.close(() => resolve());
+        });
+        this.httpServer = null;
+      }
       if (this.transport) {
         const tr = this.transport as Record<string, () => Promise<void>>;
-        await tr["close"]();
+        if (typeof tr["close"] === "function") {
+          await tr["close"]();
+        }
       }
       this.running = false;
       this.context.logger.info("MCP server stopped");
@@ -265,44 +332,42 @@ export class MCPServer {
   }
 
   /**
-   * Convert StandardSchema to JSON Schema
+   * Convert to JSON Schema using Standard JSON Schema (schema['~standard'].jsonSchema.input)
+   * when available; otherwise return a generic object schema.
+   * Works with any spec-compliant library (Zod 4.2+, ArkType, Valibot via toStandardJsonSchema).
    */
   private schemaToJsonSchema(schema: unknown): Record<string, unknown> {
-    if (!schema) {
+    if (!schema || typeof schema !== "object") {
       return { type: "object" };
     }
 
-    // Check for Zod 4 toJsonSchema method
-    if (typeof schema === "object" && schema !== null && "_def" in schema) {
-      const schemaObj = schema as Record<string, unknown>;
-      if (typeof schemaObj["toJsonSchema"] === "function") {
-        try {
-          const schemaWithMethod = schema as Record<string, unknown>;
-          const toJsonSchema = schemaWithMethod["toJsonSchema"] as (
-            this: unknown,
-          ) => Record<string, unknown>;
-          return toJsonSchema.call(schemaWithMethod);
-        } catch (error) {
-          this.context.logger.debug(
-            error,
-            "Failed to convert schema to JSON Schema",
-          );
-          return { type: "object" };
+    const standard = (schema as Record<string, unknown>)["~standard"] as
+      | {
+          jsonSchema?: {
+            input?: (opts: { target: string }) => Record<string, unknown>;
+          };
         }
+      | undefined;
+    if (standard?.jsonSchema?.input) {
+      try {
+        const out = standard.jsonSchema.input({
+          target: "draft-2020-12",
+        });
+        return typeof out === "object" && out !== null
+          ? out
+          : { type: "object" };
+      } catch (error) {
+        this.context.logger.debug(
+          error,
+          "Standard JSON Schema conversion failed",
+        );
+        return { type: "object" };
       }
     }
 
-    // Check for standard-schema validate method and try to extract info
-    if (
-      typeof schema === "object" &&
-      schema !== null &&
-      "~standard" in schema
-    ) {
-      // For now, return generic object schema for standard-schema
-      // In the future, we could enhance this based on the schema library
+    if ("~standard" in schema) {
       return { type: "object", additionalProperties: true };
     }
-
     return { type: "object" };
   }
 
@@ -341,9 +406,28 @@ export class MCPServer {
         };
       }
 
+      // Ensure body is an object when client sends JSON (SDK may pass parsed object or raw string)
+      const body =
+        typeof args === "string"
+          ? (() => {
+              try {
+                return (JSON.parse(args) as Record<string, unknown>) || {};
+              } catch {
+                return { input: args };
+              }
+            })()
+          : args && typeof args === "object"
+            ? args
+            : {};
+
+      this.context.logger.debug(
+        { bodyType: typeof body, body },
+        "MCP tool call exchange body",
+      );
+
       // Create an exchange with the tool arguments
       const exchange = new DefaultExchange(this.context, {
-        body: args,
+        body,
         headers: {
           "routecraft.mcp.tool": toolName,
           "routecraft.mcp.session": `mcp-${Date.now()}`,
