@@ -167,7 +167,17 @@ export class TimerAdapter implements Source<undefined> {
           try {
             await handler(undefined, headers);
           } catch (error) {
-            _context.logger.error(error as Error, "Timer handler failed");
+            const msg =
+              error &&
+              typeof error === "object" &&
+              "meta" in error &&
+              typeof (error as { meta: { message?: string } }).meta?.message ===
+                "string"
+                ? (error as { meta: { message: string } }).meta.message
+                : error instanceof Error
+                  ? error.message
+                  : "Timer handler failed";
+            _context.logger.error({ adapter: "timer", err: error }, msg);
             abortController.abort();
             break;
           }

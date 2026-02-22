@@ -103,9 +103,9 @@ describe("mcp() DSL function", () => {
   /**
    * @case mcp() with schema rejects invalid body
    * @preconditions Consumer has schema; producer sends invalid body
-   * @expectedResult RC5011 error emitted and error handler called
+   * @expectedResult RC5002 error emitted and error handler called
    */
-  test("mcp() with invalid input throws RC5011", async () => {
+  test("mcp() with invalid input throws RC5002", async () => {
     const schema = z.object({
       url: z.string().url(),
     });
@@ -131,7 +131,7 @@ describe("mcp() DSL function", () => {
 
     await t.test();
     expect(t.errors).toHaveLength(1);
-    expect(t.errors[0].rc).toBe("RC5011");
+    expect(t.errors[0].rc).toBe("RC5002");
   });
 
   /**

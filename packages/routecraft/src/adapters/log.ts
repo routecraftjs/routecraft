@@ -35,10 +35,7 @@ export class LogAdapter<T = unknown> implements Destination<T, void> {
       typeof logData === "object" && logData !== null
         ? { ...logData, adapter: adapterLabel }
         : { adapter: adapterLabel, value: logData };
-    exchange.logger[this.level](
-      bindings,
-      `LogAdapter (${adapterLabel}) output`,
-    );
+    exchange.logger[this.level](bindings, "LogAdapter output");
     return Promise.resolve();
   }
 

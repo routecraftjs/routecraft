@@ -199,8 +199,14 @@ export class DefaultRoute implements Route {
    * @internal
    */
   trackTask(promise: Promise<unknown>): void {
-    // Prevent unhandled rejection - errors are already emitted via context.emit()
-    const handledPromise = promise.catch(() => {});
+    const handledPromise = promise.catch((err: unknown) => {
+      const msg = isRouteCraftError(err)
+        ? (err as { meta: { message: string } }).meta.message
+        : err instanceof Error
+          ? err.message
+          : "Background task failed";
+      this.logger.error({ err, route: this.definition.id }, msg);
+    });
     this.inFlight.add(handledPromise);
     handledPromise.finally(() => this.inFlight.delete(handledPromise));
   }
@@ -217,7 +223,7 @@ export class DefaultRoute implements Route {
    */
   async start(): Promise<void> {
     this.assertNotAborted();
-    this.logger.debug(`Starting route "${this.definition.id}"`);
+    // Lifecycle log is emitted only by context (one log per event).
 
     // Start consuming messages from the internal processing queue
     this.consumer.register((message, headers) => {
@@ -255,7 +261,7 @@ export class DefaultRoute implements Route {
    * 2. Aborts the route's controller
    */
   stop(): void {
-    this.logger.debug(`Stopping route "${this.definition.id}"`);
+    // Lifecycle log is emitted only by context (one log per event).
     this.messageChannel.clear();
     this.abortController.abort("Route stop() called");
   }
@@ -269,9 +275,7 @@ export class DefaultRoute implements Route {
    * @private
    */
   private handler(exchange: Exchange): Promise<Exchange> {
-    exchange.logger.debug(
-      `Processing initial exchange ${exchange.id} on route "${this.definition.id}"`,
-    );
+    exchange.logger.debug({ operation: "from" }, "Processing initial exchange");
 
     // Run steps (tap adds tasks via route.trackTask)
     const handlerPromise = this.runSteps(exchange);
@@ -309,20 +313,25 @@ export class DefaultRoute implements Route {
       exchange.headers[HeadersKeys.OPERATION] = step.operation;
 
       const adapterLabel = getAdapterLabel(step.adapter);
-      const stepMsg = `Processing step ${step.operation}${adapterLabel ? ` (${adapterLabel})` : ""} on exchange ${exchange.id}`;
       exchange.logger.debug(
-        adapterLabel ? { adapter: adapterLabel } : {},
-        stepMsg,
+        {
+          operation: step.operation,
+          ...(adapterLabel ? { adapter: adapterLabel } : {}),
+        },
+        "Processing step",
       );
 
       try {
         await step.execute(exchange, remainingSteps, queue);
       } catch (error) {
         const err = this.processError(step.operation, error);
-        const failMsg = `Step ${step.operation}${adapterLabel ? ` (${adapterLabel})` : ""} failed for exchange ${exchange.id}`;
-        exchange.logger.warn(
-          { ...(adapterLabel ? { adapter: adapterLabel } : {}), err },
-          failMsg,
+        exchange.logger.error(
+          {
+            operation: step.operation,
+            ...(adapterLabel ? { adapter: adapterLabel } : {}),
+            err,
+          },
+          err.meta.message,
         );
         this.context.emit("error", {
           error: err,
@@ -339,12 +348,15 @@ export class DefaultRoute implements Route {
    * Loops until no new work is added (drains consumer queue).
    */
   async drain(): Promise<void> {
-    this.logger.debug(`Draining route: ${this.inFlight.size} in flight`);
+    this.logger.debug(
+      { inFlight: this.inFlight.size },
+      "Draining route: waiting for in-flight handlers and tasks",
+    );
     while (this.inFlight.size > 0) {
       const current = [...this.inFlight];
       await Promise.allSettled(current);
     }
-    this.logger.debug("Route drained");
+    this.logger.debug({}, "Route drained");
   }
 
   /**
@@ -372,17 +384,14 @@ export class DefaultRoute implements Route {
    * @private
    */
   private processError(
-    operation: OperationType,
+    _operation: OperationType,
     error: unknown,
   ): RouteCraftError {
-    // If already a RouteCraftError, preserve the original error code (brand check for cross-instance)
     if (isRouteCraftError(error)) {
       return error as RouteCraftError;
     }
-    const rc = "RC5002" as const; // Processing step threw
-    return rcError(rc, error, {
-      message: `${RC[rc].message}: op=${operation} route=${this.definition.id}`,
-    });
+    const msg = error instanceof Error ? error.message : String(error);
+    return rcError("RC5001", error, { message: msg });
   }
 
   /**

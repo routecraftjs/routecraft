@@ -1,5 +1,9 @@
 import type { CraftContext, DirectRouteMetadata } from "@routecraft/routecraft";
-import { DirectAdapter, DefaultExchange } from "@routecraft/routecraft";
+import {
+  DirectAdapter,
+  DefaultExchange,
+  isRouteCraftError,
+} from "@routecraft/routecraft";
 import { createServer } from "node:http";
 import type { MCPServerOptions } from "./types.ts";
 
@@ -43,7 +47,7 @@ export class MCPServer {
    */
   async start(): Promise<void> {
     if (this.running) {
-      this.context.logger.warn("MCP server already running");
+      this.context.logger.warn({}, "MCP server already running");
       return;
     }
 
@@ -58,11 +62,21 @@ export class MCPServer {
 
       this.running = true;
       this.context.logger.info(
-        `MCP server started (${this.options.name}@${this.options.version}) on ${transport}`,
+        {
+          name: this.options.name,
+          version: this.options.version,
+          transport,
+        },
+        "MCP server started",
       );
       this.logExposedToolsOnce();
     } catch (error) {
-      this.context.logger.error(error, "Failed to start MCP server");
+      const msg = isRouteCraftError(error)
+        ? (error as unknown as { meta: { message: string } }).meta.message
+        : error instanceof Error
+          ? error.message
+          : "Failed to start MCP server";
+      this.context.logger.error({ err: error }, msg);
       throw error;
     }
   }
@@ -169,7 +183,12 @@ export class MCPServer {
       try {
         await handleRequest.call(this.transport, req, res);
       } catch (err) {
-        this.context.logger.error(err, "MCP HTTP request error");
+        const msg = isRouteCraftError(err)
+          ? (err as unknown as { meta: { message: string } }).meta.message
+          : err instanceof Error
+            ? err.message
+            : "MCP HTTP request error";
+        this.context.logger.error({ err }, msg);
         if (!res.headersSent) {
           res.writeHead(500, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ error: "Internal Server Error" }));
@@ -180,14 +199,20 @@ export class MCPServer {
     await new Promise<void>((resolve, reject) => {
       this.httpServer!.listen(port, host, () => resolve());
       this.httpServer!.on("error", (err) => {
-        this.context.logger.error(err, "MCP HTTP server listen failed");
+        const msg = isRouteCraftError(err)
+          ? (err as unknown as { meta: { message: string } }).meta.message
+          : err instanceof Error
+            ? err.message
+            : "MCP HTTP server listen failed";
+        this.context.logger.error({ err }, msg);
         reject(err);
       });
     });
 
     const boundPort = this.getHttpPort() ?? port;
     this.context.logger.info(
-      `MCP HTTP server listening on http://${host}:${boundPort}/mcp`,
+      { host, port: boundPort, path: "/mcp" },
+      "MCP HTTP server listening",
     );
   }
 
@@ -264,9 +289,14 @@ export class MCPServer {
         }
       }
       this.running = false;
-      this.context.logger.info("MCP server stopped");
+      this.context.logger.info({}, "MCP server stopped");
     } catch (error) {
-      this.context.logger.error(error, "Error stopping MCP server");
+      const msg = isRouteCraftError(error)
+        ? (error as unknown as { meta: { message: string } }).meta.message
+        : error instanceof Error
+          ? error.message
+          : "Error stopping MCP server";
+      this.context.logger.error({ err: error }, msg);
     }
   }
 
@@ -279,8 +309,8 @@ export class MCPServer {
     if (tools.length === 0) return;
     const names = tools.map((t) => (t["name"] as string) ?? "?");
     this.context.logger.info(
-      { tools: names },
-      `Exposing ${tools.length} MCP tool(s): ${names.join(", ")}`,
+      { tools: names, count: names.length },
+      "Exposing MCP tools",
     );
     this.toolsListLogged = true;
   }
@@ -454,11 +484,15 @@ export class MCPServer {
         content: [{ type: "text", text: resultText }],
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.context.logger.error(error, `Tool call failed: ${toolName}`);
+      const msg = isRouteCraftError(error)
+        ? (error as unknown as { meta: { message: string } }).meta.message
+        : error instanceof Error
+          ? error.message
+          : String(error);
+      this.context.logger.error({ tool: toolName, err: error }, msg);
       this.context.emit("error", { error });
       return {
-        content: [{ type: "text", text: `Error: ${message}` }],
+        content: [{ type: "text", text: `Error: ${msg}` }],
       };
     }
   }

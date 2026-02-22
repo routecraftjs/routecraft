@@ -13,19 +13,15 @@ export class ValidateStep<T = unknown> extends FilterStep<T> {
       if (result instanceof Promise) result = await result;
 
       // if the `issues` field exists, the validation failed
-      if (result.issues) {
-        const err = rcError("RC5009", result.issues, {
-          message: `Error validating exchange ${exchange.id}`,
+      const issues = (result as { issues?: unknown }).issues;
+      if (issues !== undefined && issues !== null) {
+        const causeMessage =
+          typeof issues === "object" ? JSON.stringify(issues) : String(issues);
+        throw rcError("RC5002", new Error(causeMessage), {
+          message: "Validation failed",
         });
-        const adapterSuffix = adapterRef.label ? ` (${adapterRef.label})` : "";
-        exchange.logger.debug(
-          adapterRef.label ? { err, adapter: adapterRef.label } : err,
-          `Error validating${adapterSuffix} exchange ${exchange.id}`,
-        );
-        return false;
-      } else {
-        return true;
       }
+      return true;
     });
     adapterRef.label = getAdapterLabel(this.adapter);
   }

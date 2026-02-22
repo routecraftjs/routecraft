@@ -141,11 +141,11 @@ describe("Route Behavior", () => {
 
     await t.ctx.start();
 
-    expect(t.logger.warn).toHaveBeenCalled();
+    expect(t.logger.error).toHaveBeenCalled();
     expect(spyDest).toHaveBeenCalledTimes(0);
-    expect(
-      (t.logger.warn as ReturnType<typeof vi.fn>).mock.calls[0][1],
-    ).toMatch(/Step process( \([^)]+\))? failed for exchange/);
+    expect((t.logger.error as ReturnType<typeof vi.fn>).mock.calls[0][1]).toBe(
+      "Processor error",
+    );
   });
 
   /**
@@ -292,10 +292,10 @@ describe("Route Behavior", () => {
     await t.ctx.start();
 
     // Verify error was logged for failed message
-    expect(t.logger.warn).toHaveBeenCalled();
-    expect(
-      (t.logger.warn as ReturnType<typeof vi.fn>).mock.calls[0][1],
-    ).toMatch(/Step process( \([^)]+\))? failed for exchange/);
+    expect(t.logger.error).toHaveBeenCalled();
+    expect((t.logger.error as ReturnType<typeof vi.fn>).mock.calls[0][1]).toBe(
+      "Simulated failure",
+    );
 
     // Verify successful messages were processed
     expect(processedCount).toBe(2); // Both success1 and success2 should be processed
@@ -811,10 +811,10 @@ describe("Route Behavior", () => {
     await t.ctx.start();
 
     // Verify error was logged
-    expect(t.logger.warn).toHaveBeenCalled();
-    expect(
-      (t.logger.warn as ReturnType<typeof vi.fn>).mock.calls[0][1],
-    ).toMatch(/Step process( \([^)]+\))? failed for exchange/);
+    expect(t.logger.error).toHaveBeenCalled();
+    expect((t.logger.error as ReturnType<typeof vi.fn>).mock.calls[0][1]).toBe(
+      "Simulated processing error",
+    );
 
     // Verify successful exchanges were aggregated
     expect(spyDest).toHaveBeenCalledTimes(1);

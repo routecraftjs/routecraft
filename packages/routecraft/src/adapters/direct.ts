@@ -151,7 +151,7 @@ export class DirectAdapter<T = unknown>
     onReady?: () => void,
   ): Promise<void> {
     if (typeof this.rawEndpoint === "function") {
-      throw rcError("RC5010", undefined, {
+      throw rcError("RC5003", undefined, {
         message: "Dynamic endpoints cannot be used as source",
         suggestion:
           'Direct adapter with function endpoint can only be used with .to() or .tap(), not .from(). Use .from(direct("endpoint", {})) for source.',
@@ -165,12 +165,14 @@ export class DirectAdapter<T = unknown>
     this.registerRoute(context, endpoint);
 
     context.logger.debug(
-      `Setting up subscription for direct endpoint "${endpoint}"`,
+      { endpoint, adapter: "direct" },
+      "Setting up subscription for direct endpoint",
     );
     const channel = this.directChannel(context, endpoint);
     if (abortController.signal.aborted) {
       context.logger.debug(
-        `Subscription aborted for direct endpoint "${endpoint}"`,
+        { endpoint, adapter: "direct" },
+        "Subscription aborted for direct endpoint",
       );
       return;
     }
@@ -248,7 +250,8 @@ export class DirectAdapter<T = unknown>
     const endpoint = this.resolveEndpoint(exchange);
 
     exchange.logger.debug(
-      `Preparing to send message to direct endpoint "${endpoint}"`,
+      { endpoint, adapter: "direct" },
+      "Preparing to send message to direct endpoint",
     );
     const channel = this.directChannel(context, endpoint);
 
@@ -305,7 +308,8 @@ export class DirectAdapter<T = unknown>
     registry.set(endpoint, metadata);
 
     context.logger.debug(
-      `Registered direct route "${endpoint}" in discoverable registry`,
+      { endpoint, adapter: "direct" },
+      "Registered direct route in discoverable registry",
     );
   }
 
@@ -326,20 +330,21 @@ export class DirectAdapter<T = unknown>
         let result = this.options.schema["~standard"].validate(exchange.body);
         if (result instanceof Promise) result = await result;
 
-        if (result.issues) {
-          const err = rcError("RC5011", result.issues, {
+        const bodyIssues = (result as { issues?: unknown }).issues;
+        if (bodyIssues !== undefined && bodyIssues !== null) {
+          const causeMessage =
+            typeof bodyIssues === "object"
+              ? JSON.stringify(bodyIssues)
+              : String(bodyIssues);
+          throw rcError("RC5002", new Error(causeMessage), {
             message: `Body validation failed for direct route "${endpoint}"`,
           });
-          exchange.logger.debug(
-            err,
-            `Validation error on endpoint "${endpoint}"`,
-          );
-          throw err;
         }
 
         // Use validated/coerced value if schema transformed it
-        if (result.value !== undefined) {
-          validatedBody = result.value as T;
+        const bodyValue = (result as { value?: T }).value;
+        if (bodyValue !== undefined) {
+          validatedBody = bodyValue;
         }
       }
 
@@ -350,20 +355,21 @@ export class DirectAdapter<T = unknown>
         );
         if (result instanceof Promise) result = await result;
 
-        if (result.issues) {
-          const err = rcError("RC5011", result.issues, {
+        const headerIssues = (result as { issues?: unknown }).issues;
+        if (headerIssues !== undefined && headerIssues !== null) {
+          const causeMessage =
+            typeof headerIssues === "object"
+              ? JSON.stringify(headerIssues)
+              : String(headerIssues);
+          throw rcError("RC5002", new Error(causeMessage), {
             message: `Header validation failed for direct route "${endpoint}"`,
           });
-          exchange.logger.debug(
-            err,
-            `Header validation error on endpoint "${endpoint}"`,
-          );
-          throw err;
         }
 
         // Use validated/coerced headers if schema transformed them
-        if (result.value !== undefined) {
-          validatedHeaders = result.value as ExchangeHeaders;
+        const headerValue = (result as { value?: ExchangeHeaders }).value;
+        if (headerValue !== undefined) {
+          validatedHeaders = headerValue;
         }
       }
 
@@ -426,7 +432,7 @@ class InMemoryDirectChannel<T> implements DirectChannel<T> {
       // Synchronous behavior - single consumer gets the message and we wait for result
       return await this.handler(message);
     }
-    throw rcError("RC5012", undefined, {
+    throw rcError("RC5004", undefined, {
       message: `No handler subscribed on direct endpoint "${endpoint}" — route may have stopped or was never started`,
     });
   }

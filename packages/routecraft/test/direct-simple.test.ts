@@ -205,7 +205,7 @@ describe("Direct adapter", () => {
   /**
    * @case Verifies error is thrown when dynamic endpoint used with from()
    * @preconditions Attempt to use dynamic endpoint as source
-   * @expectedResult Should throw RC5010 error
+   * @expectedResult Should throw RC5003 error
    */
   test("throws error for dynamic endpoint as source", async () => {
     expect(() => {

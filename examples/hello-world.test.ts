@@ -58,11 +58,13 @@ describe("Hello World Route", () => {
     // Verify the log was called (route completed)
     expect(t.logger.info).toHaveBeenCalled();
 
-    // Get the last call arguments (the logged data and message)
-    // pino.info() is called with (object, message) format
+    // Find the LogAdapter output call (pino.info(object, message)); lifecycle also logs at info
     const infoSpy = t.logger.info as ReturnType<typeof vi.fn>;
-    const lastCall = infoSpy.mock.calls[infoSpy.mock.calls.length - 1];
-    const result = lastCall[0]; // First argument is the logged object
+    const logAdapterCall = infoSpy.mock.calls.find(
+      (call: unknown[]) => call[1] === "LogAdapter output",
+    );
+    expect(logAdapterCall).toBeDefined();
+    const result = logAdapterCall![0];
 
     // Assert the greeting message
     expect(result).toBeDefined();

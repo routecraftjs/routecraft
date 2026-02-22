@@ -4,7 +4,7 @@ title: Errors
 
 Short, actionable RC error codes used across RouteCraft. {% .lead %}
 
-Each error includes a code, message, a brief suggestion, and underlying error. Codes follow RCcnnn where c is category and nnn is the number.
+Each error includes a code, message, a brief suggestion, and underlying error. Codes follow RCcnnn where c is category and nnn is the number. All codes are framework-owned; adapters use them with specific message/suggestion overrides via `rcError(rc, cause, { message, suggestion })`. When the framework logs an error, structured meta (`rc`, `message`, `suggestion`, `causeMessage`, `causeStack`) is included so you can search and alert in your log aggregator.
 
 ## Retryable errors
 
@@ -18,18 +18,16 @@ The `retryable` property indicates whether the [`retry`](/docs/reference/operati
 | [RC2002](#rc2002) | DSL | Missing from step | No |
 | [RC3001](#rc3001) | Lifecycle | Route failed to start | No |
 | [RC3002](#rc3002) | Lifecycle | Context failed to start | No |
-| [RC5001](#rc5001) | Adapter | Source adapter threw | Yes |
-| [RC5002](#rc5002) | Adapter | Processing step threw | Yes |
-| [RC5003](#rc5003) | Adapter | Destination adapter threw | Yes |
-| [RC5004](#rc5004) | Adapter | Split operation failed | No |
-| [RC5005](#rc5005) | Adapter | Aggregation operation failed | No |
-| [RC5006](#rc5006) | Adapter | Transform function threw | No |
-| [RC5007](#rc5007) | Adapter | Tap step threw | Yes |
-| [RC5008](#rc5008) | Adapter | Filter predicate threw | No |
-| [RC5009](#rc5009) | Adapter | Validation failed | No |
-| [RC5010](#rc5010) | Adapter | Dynamic endpoints cannot be used as source | No |
-| [RC5011](#rc5011) | Adapter | Direct route schema validation failed | No |
-| [RC5012](#rc5012) | Adapter | No handler subscribed on direct endpoint | No |
+| [RC5001](#rc5001) | Adapter | Step execution failed | Yes |
+| [RC5002](#rc5002) | Adapter | Validation failed | No |
+| [RC5003](#rc5003) | Adapter | Adapter misconfigured | No |
+| [RC5004](#rc5004) | Adapter | No handler available | No |
+| [RC5010](#rc5010) | Adapter | Connection failed | Yes |
+| [RC5011](#rc5011) | Adapter | Request timeout | Yes |
+| [RC5012](#rc5012) | Adapter | Authentication failed | No |
+| [RC5013](#rc5013) | Adapter | Rate limited | Yes |
+| [RC5014](#rc5014) | Adapter | Resource not found | No |
+| [RC5015](#rc5015) | Adapter | Permission denied | No |
 | [RC9901](#rc9901) | Runtime | Unknown error | Yes |
 
 ---
@@ -122,181 +120,100 @@ context().routes(validRoutes).build().start()
 ```
 
 ## RC5001
-Source adapter threw
+Step execution failed
 
 **Why it happens**  
-Source failed during subscription or production.
+A step in the pipeline threw (process, transform, filter, tap, destination, etc.). The framework wraps plain Errors with this code and preserves the original message.
 
 **Suggestion**  
-Verify connectivity and adapter options.
+Read the error message and suggestion in the log; check adapter documentation. Use `rcError("RC5010", cause, { message, suggestion })` for connection failures, RC5013 for rate limits, etc., so users get a specific docs page.
 
 ## RC5002
-Processing step threw
-
-**Why it happens**  
-Processor logic threw or rejected.
-
-**Suggestion**  
-Add guards to transforms and processors.
-
-## RC5003
-Destination adapter threw
-
-**Why it happens**  
-Destination failed to send data.
-
-**Suggestion**  
-Verify destination connectivity and options.
-
-## RC5004
-Split operation failed
-
-**Why it happens**  
-Split function threw or input was not iterable.
-
-**Suggestion**  
-Ensure the input is iterable and guarded.
-
-## RC5005
-Aggregation operation failed
-
-**Why it happens**  
-Aggregation logic threw or shapes mismatched.
-
-**Suggestion**  
-Validate partial shapes and defaults.
-
-## RC5006
-Transform function threw
-
-**Why it happens**  
-Transform logic threw or accessed missing properties.
-
-**Suggestion**  
-Narrow input types and add guards.
-
-## RC5007
-Tap step threw
-
-**Why it happens**  
-Side-effect function threw.
-
-**Suggestion**  
-Keep tap side effects resilient.
-
-## RC5008
-Filter predicate threw
-
-**Why it happens**  
-Predicate accessed missing fields or threw.
-
-**Suggestion**  
-Guard against missing properties and unexpected shapes.
-
-## RC5009
 Validation failed
 
 **Why it happens**  
-Schema failed or validator threw.
+Schema validation failed, input shape was wrong, or a validator threw (e.g. direct route body/header schema, validate() step, aggregator received empty array).
 
 **Suggestion**  
-Adjust the schema or coerce input.
+Adjust the schema or coerce input; check data shapes. For Zod: use `z.object()`, `z.looseObject()`, or `z.strictObject()` as appropriate.
+
+## RC5003
+Adapter misconfigured
+
+**Why it happens**  
+Adapter was used in the wrong role (e.g. dynamic endpoint as source), required options are missing, or the adapter does not support this usage.
+
+**Suggestion**  
+Check required options and correct role usage (`.from()` vs `.to()`). Example: use a static string endpoint for source: `.from(direct('endpoint', {}))`; dynamic endpoints only work with `.to()` and `.tap()`.
+
+## RC5004
+No handler available
+
+**Why it happens**  
+A producer sent to a direct endpoint but no consumer route is subscribed, or the consumer route has stopped.
+
+**Suggestion**  
+Ensure the consumer route is running before sending. Check route startup order and that endpoint names match.
+
+**Example**
+```ts
+craft().id('consumer').from(direct('my-endpoint', {})).to(log());
+craft().id('producer').from(simple('message')).to(direct('my-endpoint'));
+```
 
 ## RC5010
-Dynamic endpoints cannot be used as source
+Connection failed
 
 **Why it happens**  
-A direct adapter with a function endpoint was used with `.from()`. Dynamic endpoints require an exchange to evaluate, but sources don't have incoming exchanges.
+Network unreachable, connection refused, DNS failure, or service not running.
 
 **Suggestion**  
-Use a static string endpoint for source: `.from(direct('endpoint', {}))`. Dynamic endpoints only work with `.to()` and `.tap()`.
-
-**Example**
-```ts
-// ✅ Correct: static endpoint for source
-craft()
-  .from(direct('my-endpoint', {}))
-  .to(destination)
-
-// ✅ Correct: dynamic endpoint for destination
-craft()
-  .from(source)
-  .to(direct((ex) => `endpoint-${ex.body.type}`))
-
-// ❌ Wrong: dynamic endpoint for source
-craft()
-  .from(direct((ex) => 'endpoint')) // throws RC5010
-```
+Check network, DNS, ports, and firewall; verify the service is running.
 
 ## RC5011
-Direct route schema validation failed
+Request timeout
 
 **Why it happens**  
-Message body or headers don't match the schema defined in direct adapter options.
+The operation exceeded its deadline (e.g. ETIMEDOUT).
 
 **Suggestion**  
-Check message structure matches schema. For Zod 4: use `z.object()` (strips extras), `z.looseObject()` (keeps extras), or `z.strictObject()` (rejects extras).
-
-**Example**
-```ts
-import { z } from 'zod'
-
-// z.object() - strips extra fields (default)
-craft()
-  .from(direct('endpoint', {
-    schema: z.object({ id: z.string() })
-  }))
-  .to(handler)
-// Pass: { id: '123' }
-// Pass: { id: '123', extra: 'field' } (extra removed)
-
-// z.strictObject() - rejects extra fields
-craft()
-  .from(direct('endpoint', {
-    schema: z.strictObject({ id: z.string() })
-  }))
-  .to(handler)
-// Pass: { id: '123' }
-// Fail: { id: '123', extra: 'field' } ← RC5011
-
-// z.looseObject() - keeps extra fields
-craft()
-  .from(direct('endpoint', {
-    schema: z.looseObject({ id: z.string() })
-  }))
-  .to(handler)
-// Pass: { id: '123', extra: 'field' } (extra preserved)
-```
+Increase timeout or configure retry with backoff.
 
 ## RC5012
-No handler subscribed on direct endpoint
+Authentication failed
 
 **Why it happens**  
-A producer route attempted to send a message to a direct endpoint, but no consumer route is subscribed to that endpoint. This typically occurs when:
-- The consumer route hasn't started yet
-- The consumer route has stopped or failed
-- The endpoint name is misspelled or doesn't match
+Invalid credentials, expired token, or 401 from the service.
 
 **Suggestion**  
-Ensure a consumer route is subscribed to the endpoint before sending messages. Check that:
-- Both routes are registered in the same context
-- The consumer route has started successfully
-- Endpoint names match exactly (including case)
+Verify API keys, tokens, and credential configuration.
 
-**Example**
-```ts
-// Consumer must be running
-craft()
-  .id('consumer')
-  .from(direct('my-endpoint', {}))
-  .to(log());
+## RC5013
+Rate limited
 
-// Producer sends to subscribed endpoint
-craft()
-  .id('producer')
-  .from(simple('message'))
-  .to(direct('my-endpoint'));
-```
+**Why it happens**  
+Service returned 429 or quota exceeded.
+
+**Suggestion**  
+Reduce request frequency or configure retry with backoff.
+
+## RC5014
+Resource not found
+
+**Why it happens**  
+The resource does not exist (e.g. 404, model ID not found, endpoint or queue name wrong).
+
+**Suggestion**  
+Check that the resource exists (model ID, endpoint, queue name).
+
+## RC5015
+Permission denied
+
+**Why it happens**  
+Access control or IAM denied the operation (e.g. 403).
+
+**Suggestion**  
+Check access control, IAM, and scopes.
 
 ## RC9901
 Unknown error

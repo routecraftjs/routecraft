@@ -54,7 +54,7 @@ export class TapStep<T = unknown> implements Step<Destination<T, unknown>> {
       try {
         await this.adapter.send(snapshot);
       } catch (error: unknown) {
-        const err = rcError("RC5007", error, {
+        const err = rcError("RC5001", error, {
           message: `Error tapping exchange ${snapshot.id}`,
           suggestion:
             "Tap errors can be handled in the route-level error() operation.",

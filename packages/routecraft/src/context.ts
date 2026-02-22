@@ -3,6 +3,7 @@ import { BRAND } from "./brand.ts";
 import { ContextBuilder } from "./builder.ts";
 import { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
 import { error as rcError, RC } from "./error.ts";
+import { isRouteCraftError } from "./brand.ts";
 import { logger, childBindings } from "./logger.ts";
 import {
   type EventHandler,
@@ -185,7 +186,7 @@ export class CraftContext {
    * emits "error", and rethrows to abort remaining plugins.
    */
   async initPlugins(): Promise<void> {
-    for (const plugin of this.plugins) {
+    for (const [pluginIndex, plugin] of this.plugins.entries()) {
       try {
         if (typeof plugin === "function") {
           await plugin(this);
@@ -198,12 +199,16 @@ export class CraftContext {
             plugin as { apply(ctx: CraftContext): void | Promise<void> }
           ).apply(this);
         } else {
-          this.logger.warn(
-            `Invalid plugin ignored: expected function or object with apply method`,
+          this.logger.error(
+            { pluginIndex },
+            "Invalid plugin ignored: expected function or object with apply(ctx) method. See docs for plugin shape.",
           );
         }
       } catch (err) {
-        this.logger.error(err as Error, "Plugin threw during initPlugins");
+        this.logger.error(
+          { pluginIndex, err },
+          "Plugin threw during initPlugins. Check stack and plugin implementation.",
+        );
         this.emit("error", { error: err });
         throw err;
       }
@@ -244,7 +249,10 @@ export class CraftContext {
         void (handler as unknown as EventHandler<K>)(payload);
       } catch (err) {
         // Swallow handler errors but log them and emit system error
-        this.logger.warn(err as Error, "Event handler threw");
+        this.logger.warn(
+          { event, err },
+          "Event handler threw. Handler should not throw; errors are emitted as context 'error' event.",
+        );
         if (event !== "error") {
           this.emit("error", { error: err });
         }
@@ -399,24 +407,29 @@ export class CraftContext {
    * ```
    */
   async start(): Promise<void> {
-    this.logger.debug("Starting Routecraft context");
+    this.logger.info(
+      { routeCount: this.routes.length },
+      "Starting Routecraft context",
+    );
     this.emit("contextStarting", {});
 
-    this.logger.debug("Starting all routes");
+    this.logger.debug({}, "Starting all routes");
     this.emit("contextStarted", {});
     return Promise.allSettled(
       this.routes.map(async (route) => {
         try {
-          this.logger.debug(`Starting route "${route.definition.id}"`);
+          this.logger.info({ route: route.definition.id }, "Starting route");
           this.emit("routeStarting", { route });
           await route.start();
-          this.logger.debug(`Route "${route.definition.id}" ended.`);
+          this.logger.info({ route: route.definition.id }, "Route stopped");
           return { routeId: route.definition.id, success: true as const };
         } catch (error) {
-          this.logger.error(
-            error,
-            `Failed to start route "${route.definition.id}"`,
-          );
+          const msg = isRouteCraftError(error)
+            ? (error as { meta: { message: string } }).meta.message
+            : error instanceof Error
+              ? error.message
+              : "Route failed to start";
+          this.logger.fatal({ route: route.definition.id, err: error }, msg);
           this.emit("error", { error, route });
           // Abort just this failing route
           const controller = this.controllers.get(route.definition.id);
@@ -429,19 +442,24 @@ export class CraftContext {
         // Check if all routes completed successfully
         const allFulfilled = results.every((r) => r.status === "fulfilled");
         if (allFulfilled) {
-          this.logger.debug("All routes have completed. Stopping context...");
+          this.logger.debug({}, "All routes have completed. Stopping context.");
           return this.stop();
         } else {
-          this.logger.debug(
-            "Some routes ended or failed, but the context remains active.\n" +
-              "Call context.stop() or let other indefinite routes continue.",
+          this.logger.info(
+            {},
+            "Some routes ended or failed; context remains active. Call context.stop() or let other indefinite routes continue.",
           );
           // Do not stop automatically; let other routes run.
           return;
         }
       })
       .catch((error) => {
-        this.logger.error(error, "Context start failed");
+        const msg = isRouteCraftError(error)
+          ? (error as { meta: { message: string } }).meta.message
+          : error instanceof Error
+            ? error.message
+            : "Context start failed";
+        this.logger.fatal({ err: error }, msg);
         this.emit("error", { error });
         throw error;
       });
@@ -454,9 +472,12 @@ export class CraftContext {
    * @returns A promise that resolves when all routes have drained
    */
   async drain(): Promise<void> {
-    this.logger.debug("Draining context: waiting for all route handlers");
+    this.logger.debug(
+      { routeCount: this.routes.length },
+      "Draining context: waiting for all route handlers and tasks",
+    );
     await Promise.all(this.routes.map((r) => r.drain()));
-    this.logger.debug("Context drained");
+    this.logger.debug({}, "Context drained");
   }
 
   /**
@@ -479,12 +500,12 @@ export class CraftContext {
    * ```
    */
   async stop(): Promise<void> {
-    this.logger.debug("Stopping Routecraft context");
+    this.logger.info({}, "Stopping Routecraft context");
     this.emit("contextStopping", { reason: undefined });
 
     // 1. Abort all route controllers (stops sources)
     for (const route of this.routes) {
-      this.logger.debug(`Stopping route "${route.definition.id}"`);
+      this.logger.info({ route: route.definition.id }, "Stopping route");
       const controller = this.controllers.get(route.definition.id);
       controller?.abort("context.stop()");
     }
@@ -492,7 +513,7 @@ export class CraftContext {
     // 2. Drain all routes (wait for in-flight handlers + their tasks)
     await Promise.all(this.routes.map((r) => r.drain()));
 
-    this.logger.debug("Routecraft context stopped");
+    this.logger.info({}, "Routecraft context stopped");
     this.emit("contextStopped", {});
   }
 }

@@ -19,8 +19,8 @@ export class NoopAdapter<T = unknown> implements Destination<T> {
   send(exchange: Exchange<T>): Promise<void> {
     const adapterLabel = this.adapterId.split(".").pop();
     exchange.logger.debug(
-      { id: exchange.id, adapter: adapterLabel },
-      `Discarding message (${adapterLabel})`,
+      { adapter: adapterLabel },
+      "Discarding message (noop)",
     );
     return Promise.resolve();
   }

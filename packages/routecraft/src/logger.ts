@@ -124,6 +124,11 @@ function resolveConfig(): {
   const options: PinoOptions = {
     ...fromFile,
     level,
+    formatters: {
+      level(label: string) {
+        return { level: label };
+      },
+    },
     ...(redact && redact.length > 0 ? { redact } : {}),
     ...(usePretty
       ? {
@@ -157,7 +162,7 @@ export function childBindings(
     const route = context as Route;
     return {
       contextId: route.context.contextId,
-      routeId: route.definition.id,
+      route: route.definition.id,
     };
   }
   if (isExchange(context)) {
@@ -166,9 +171,9 @@ export function childBindings(
     if (ctx) {
       return {
         contextId: ctx.contextId,
-        routeId: ex.headers[HeadersKeys.ROUTE_ID],
-        exchangeId: ex.id,
+        route: ex.headers[HeadersKeys.ROUTE_ID],
         correlationId: ex.headers[HeadersKeys.CORRELATION_ID],
+        exchangeId: ex.id,
       };
     }
   }

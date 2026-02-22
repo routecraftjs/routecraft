@@ -43,7 +43,7 @@ export const defaultAggregate = <T>(
   exchanges: Exchange<T>[],
 ): Exchange<FlattenedAggregateResult<T>> => {
   if (exchanges.length === 0) {
-    throw rcError("RC2002", undefined, {
+    throw rcError("RC5002", undefined, {
       message: "Aggregator received empty array of exchanges",
       suggestion:
         "Ensure at least one exchange is available before aggregation",

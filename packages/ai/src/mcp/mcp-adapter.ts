@@ -88,7 +88,7 @@ export class McpAdapter<T = unknown>
     }
 
     // Invalid: endpoint only (no options) — direct not supported
-    throw rcError("RC5010", undefined, {
+    throw rcError("RC5003", undefined, {
       message:
         "mcp() with only an endpoint is not supported. Use direct('endpoint') for in-process. For MCP server use .from(mcp('endpoint', { description: '...' })); for client use .to(mcp({ url, tool })) or .to(mcp('server:tool', { args })).",
       suggestion:
@@ -101,14 +101,14 @@ export class McpAdapter<T = unknown>
     options: McpServerOptions | { args?: McpArgsExtractor },
   ): void {
     if (typeof endpoint !== "string") {
-      throw rcError("RC5010", undefined, {
+      throw rcError("RC5003", undefined, {
         message: "Dynamic endpoints cannot be used as source",
         suggestion:
           "Use a static string endpoint for source: .from(mcp('endpoint', options)).",
       });
     }
     if ("url" in options || "serverId" in options) {
-      throw rcError("RC5010", undefined, {
+      throw rcError("RC5003", undefined, {
         message:
           "mcp() with url or serverId must be used as destination: .to(mcp({ url, tool }))",
         suggestion:
@@ -120,7 +120,7 @@ export class McpAdapter<T = unknown>
       options.args !== undefined &&
       !("description" in options)
     ) {
-      throw rcError("RC5010", undefined, {
+      throw rcError("RC5003", undefined, {
         message:
           "mcp(endpoint, { args }) is for client usage with a 'server:tool' target, not for defining a source",
         suggestion:
@@ -131,7 +131,7 @@ export class McpAdapter<T = unknown>
       !("description" in options) ||
       typeof (options as { description?: unknown }).description !== "string"
     ) {
-      throw rcError("RC5010", undefined, {
+      throw rcError("RC5003", undefined, {
         message:
           "mcp(endpoint, options) as source requires options.description",
         suggestion:
@@ -147,7 +147,7 @@ export class McpAdapter<T = unknown>
     onReady?: () => void,
   ): Promise<void> {
     if (!(this.delegate instanceof McpServer)) {
-      throw rcError("RC5010", undefined, {
+      throw rcError("RC5003", undefined, {
         message:
           "This MCP adapter was created as a client; cannot use with .from()",
         suggestion:
@@ -159,7 +159,7 @@ export class McpAdapter<T = unknown>
 
   async send(exchange: Exchange<unknown>): Promise<unknown> {
     if (!(this.delegate instanceof McpClient)) {
-      throw rcError("RC5010", undefined, {
+      throw rcError("RC5003", undefined, {
         message:
           "This MCP adapter was created as a server; cannot use with .to()",
         suggestion:

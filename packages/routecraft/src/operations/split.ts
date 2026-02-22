@@ -76,8 +76,13 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
 
       const adapterLabel = getAdapterLabel(this.adapter);
       postProcessedExchange.logger.debug(
-        adapterLabel ? { adapter: adapterLabel } : {},
-        `Pushing split exchange ${postProcessedExchange.id} to queue${adapterLabel ? ` (${adapterLabel})` : ""}, splitHierarchy: ${postProcessedExchange.headers[HeadersKeys.SPLIT_HIERARCHY]}`,
+        {
+          operation: "split",
+          ...(adapterLabel ? { adapter: adapterLabel } : {}),
+          splitHierarchy:
+            postProcessedExchange.headers[HeadersKeys.SPLIT_HIERARCHY],
+        },
+        "Pushing split exchange to queue",
       );
       queue.push({
         exchange: postProcessedExchange,

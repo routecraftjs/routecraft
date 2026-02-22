@@ -53,22 +53,22 @@ describe("logger", () => {
    * @preconditions testContext with a named route is built
    * @expectedResult bindings contain contextId and routeId
    */
-  test("childBindings for Route returns contextId and routeId", async () => {
+  test("childBindings for Route returns contextId and route", async () => {
     const t = await testContext()
       .routes(craft().id("my-route").from(simple("x")))
       .build();
     const route = t.ctx.getRoutes()[0];
     const bindings = childBindings(route);
     expect(bindings).toHaveProperty("contextId", t.ctx.contextId);
-    expect(bindings).toHaveProperty("routeId", "my-route");
+    expect(bindings).toHaveProperty("route", "my-route");
   });
 
   /**
-   * @case childBindings for Exchange returns contextId, routeId, exchangeId, correlationId when exchange has internals
+   * @case childBindings for Exchange returns contextId, route, exchangeId, correlationId when exchange has internals
    * @preconditions DefaultExchange created with a context
-   * @expectedResult bindings contain contextId, routeId, exchangeId, correlationId
+   * @expectedResult bindings contain contextId, route, exchangeId, correlationId
    */
-  test("childBindings for Exchange returns contextId, routeId, exchangeId, correlationId when exchange has internals", async () => {
+  test("childBindings for Exchange returns contextId, route, exchangeId, correlationId when exchange has internals", async () => {
     const t = await testContext()
       .routes(craft().id("r").from(simple("x")))
       .build();
@@ -76,7 +76,7 @@ describe("logger", () => {
     const exchange = new DefaultExchange(ctx, { body: "test" });
     const bindings = childBindings(exchange);
     expect(bindings).toHaveProperty("contextId");
-    expect(bindings).toHaveProperty("routeId");
+    expect(bindings).toHaveProperty("route");
     expect(bindings).toHaveProperty("exchangeId", exchange.id);
     expect(bindings).toHaveProperty("correlationId");
   });

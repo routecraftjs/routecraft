@@ -55,11 +55,11 @@ describe("Direct adapter validation", () => {
     });
 
     /**
-     * @case Invalid body throws RC5011
+     * @case Invalid body throws RC5002
      * @preconditions Body has wrong type for field
-     * @expectedResult RC5011 error emitted
+     * @expectedResult RC5002 error emitted
      */
-    test("invalid body throws RC5011", async () => {
+    test("invalid body throws RC5002", async () => {
       const schema = z.object({
         userId: z.string(),
         action: z.string(),
@@ -82,16 +82,16 @@ describe("Direct adapter validation", () => {
 
       await t.test();
       expect(t.errors).toHaveLength(1);
-      expect(t.errors[0].rc).toBe("RC5011");
+      expect(t.errors[0].rc).toBe("RC5002");
       expect(consumer).not.toHaveBeenCalled();
     });
 
     /**
-     * @case Missing required field throws RC5011
+     * @case Missing required field throws RC5002
      * @preconditions Body missing required field
-     * @expectedResult RC5011 error emitted
+     * @expectedResult RC5002 error emitted
      */
-    test("missing required field throws RC5011", async () => {
+    test("missing required field throws RC5002", async () => {
       const schema = z.object({
         userId: z.string(),
         action: z.string(),
@@ -112,15 +112,15 @@ describe("Direct adapter validation", () => {
 
       await t.test();
       expect(t.errors).toHaveLength(1);
-      expect(t.errors[0].rc).toBe("RC5011");
+      expect(t.errors[0].rc).toBe("RC5002");
     });
 
     /**
-     * @case Wrong type throws RC5011
+     * @case Wrong type throws RC5002
      * @preconditions Body field has wrong type
-     * @expectedResult RC5011 error emitted
+     * @expectedResult RC5002 error emitted
      */
-    test("wrong type throws RC5011", async () => {
+    test("wrong type throws RC5002", async () => {
       const schema = z.object({
         count: z.number(),
       });
@@ -140,7 +140,7 @@ describe("Direct adapter validation", () => {
 
       await t.test();
       expect(t.errors).toHaveLength(1);
-      expect(t.errors[0].rc).toBe("RC5011");
+      expect(t.errors[0].rc).toBe("RC5002");
     });
 
     /**
@@ -319,7 +319,7 @@ describe("Direct adapter validation", () => {
 
       await t.test();
       expect(t.errors).toHaveLength(1);
-      expect(t.errors[0].rc).toBe("RC5011");
+      expect(t.errors[0].rc).toBe("RC5002");
       expect(t.errors[0].cause).toBeDefined();
     });
 
@@ -417,9 +417,9 @@ describe("Direct adapter validation", () => {
   // ============================================================
   describe("Zod 4 object behaviors", () => {
     /**
-     * @case z.strictObject() rejects extra fields with RC5011
+     * @case z.strictObject() rejects extra fields with RC5002
      * @preconditions Schema uses z.strictObject() and body has extra fields
-     * @expectedResult RC5011 error thrown
+     * @expectedResult RC5002 error thrown
      */
     test("strictObject rejects extra fields", async () => {
       const schema = z.strictObject({
@@ -441,7 +441,7 @@ describe("Direct adapter validation", () => {
 
       await t.test();
       expect(t.errors).toHaveLength(1);
-      expect(t.errors[0].rc).toBe("RC5011");
+      expect(t.errors[0].rc).toBe("RC5002");
     });
 
     /**
@@ -738,7 +738,7 @@ describe("Direct adapter validation", () => {
     /**
      * @case strictObject rejects extra headers (Zod 4)
      * @preconditions Headers contain extra fields + z.strictObject()
-     * @expectedResult RC5011 error thrown
+     * @expectedResult RC5002 error thrown
      */
     test("strictObject rejects extra headers", async () => {
       t = await testContext()
@@ -764,15 +764,15 @@ describe("Direct adapter validation", () => {
 
       await t.test();
       expect(t.errors).toHaveLength(1);
-      expect(t.errors[0].rc).toBe("RC5011");
+      expect(t.errors[0].rc).toBe("RC5002");
     });
 
     /**
-     * @case Invalid header throws RC5011
+     * @case Invalid header throws RC5002
      * @preconditions Header doesn't match schema
-     * @expectedResult RC5011 error emitted
+     * @expectedResult RC5002 error emitted
      */
-    test("invalid header throws RC5011", async () => {
+    test("invalid header throws RC5002", async () => {
       t = await testContext()
         .routes([
           craft()
@@ -795,15 +795,15 @@ describe("Direct adapter validation", () => {
 
       await t.test();
       expect(t.errors).toHaveLength(1);
-      expect(t.errors[0].rc).toBe("RC5011");
+      expect(t.errors[0].rc).toBe("RC5002");
     });
 
     /**
-     * @case Missing required header throws RC5011
+     * @case Missing required header throws RC5002
      * @preconditions Required header not present
-     * @expectedResult RC5011 error emitted
+     * @expectedResult RC5002 error emitted
      */
-    test("missing required header throws RC5011", async () => {
+    test("missing required header throws RC5002", async () => {
       t = await testContext()
         .routes([
           craft().id("producer").from(simple("test")).to(direct("endpoint")),
@@ -822,7 +822,7 @@ describe("Direct adapter validation", () => {
 
       await t.test();
       expect(t.errors).toHaveLength(1);
-      expect(t.errors[0].rc).toBe("RC5011");
+      expect(t.errors[0].rc).toBe("RC5002");
     });
 
     /**
@@ -881,7 +881,7 @@ describe("Direct adapter validation", () => {
 
       await t.test();
       expect(t.errors).toHaveLength(1);
-      expect(t.errors[0].rc).toBe("RC5011");
+      expect(t.errors[0].rc).toBe("RC5002");
     });
 
     /**
@@ -1033,11 +1033,11 @@ describe("Direct adapter validation", () => {
     });
 
     /**
-     * @case Body passes but header fails throws RC5011
+     * @case Body passes but header fails throws RC5002
      * @preconditions Valid body, invalid header
-     * @expectedResult RC5011 error for header
+     * @expectedResult RC5002 error for header
      */
-    test("body passes but header fails throws RC5011", async () => {
+    test("body passes but header fails throws RC5002", async () => {
       t = await testContext()
         .routes([
           craft()
@@ -1059,15 +1059,15 @@ describe("Direct adapter validation", () => {
 
       await t.test();
       expect(t.errors).toHaveLength(1);
-      expect(t.errors[0].rc).toBe("RC5011");
+      expect(t.errors[0].rc).toBe("RC5002");
     });
 
     /**
-     * @case Header passes but body fails throws RC5011
+     * @case Header passes but body fails throws RC5002
      * @preconditions Valid header, invalid body
-     * @expectedResult RC5011 error for body
+     * @expectedResult RC5002 error for body
      */
-    test("header passes but body fails throws RC5011", async () => {
+    test("header passes but body fails throws RC5002", async () => {
       t = await testContext()
         .routes([
           craft()
@@ -1089,7 +1089,7 @@ describe("Direct adapter validation", () => {
 
       await t.test();
       expect(t.errors).toHaveLength(1);
-      expect(t.errors[0].rc).toBe("RC5011");
+      expect(t.errors[0].rc).toBe("RC5002");
       expect(t.errors[0].meta.message).toContain("Body validation failed");
     });
 
@@ -1274,7 +1274,7 @@ describe("Direct adapter validation", () => {
 
       await t.test();
       expect(t.errors).toHaveLength(1);
-      expect(t.errors[0].rc).toBe("RC5011");
+      expect(t.errors[0].rc).toBe("RC5002");
     });
 
     /**

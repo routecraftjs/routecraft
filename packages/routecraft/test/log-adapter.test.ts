@@ -45,7 +45,7 @@ describe("LogAdapter", () => {
     expect(exchange.logger.info).toHaveBeenCalledTimes(1);
     expect(exchange.logger.info).toHaveBeenCalledWith(
       { id: "test-id", body: "hello", headers: {}, adapter: "log" },
-      "LogAdapter (log) output",
+      "LogAdapter output",
     );
     expect(exchange.logger.debug).not.toHaveBeenCalled();
   });
@@ -62,7 +62,7 @@ describe("LogAdapter", () => {
     await adapter.send(exchange);
     expect(exchange.logger.debug).toHaveBeenCalledWith(
       { id: "test-id", body: "data", headers: {}, adapter: "log" },
-      "LogAdapter (log) output",
+      "LogAdapter output",
     );
   });
 
@@ -79,7 +79,7 @@ describe("LogAdapter", () => {
 
     expect(exchange.logger.info).toHaveBeenCalledWith(
       { adapter: "log", value: "body: payload" },
-      "LogAdapter (log) output",
+      "LogAdapter output",
     );
   });
 
@@ -98,7 +98,7 @@ describe("LogAdapter", () => {
 
     expect(exchange.logger.warn).toHaveBeenCalledWith(
       { custom: { foo: 1 }, adapter: "log" },
-      "LogAdapter (log) output",
+      "LogAdapter output",
     );
   });
 });
@@ -131,7 +131,7 @@ describe("log() DSL", () => {
 
     expect(exchange.logger.info).toHaveBeenCalledWith(
       { adapter: "log", value: "test-id" },
-      "LogAdapter (log) output",
+      "LogAdapter output",
     );
   });
 
@@ -162,7 +162,7 @@ describe("log() DSL", () => {
 
     expect(exchange.logger.error).toHaveBeenCalledWith(
       { adapter: "log", value: "err-payload" },
-      "LogAdapter (log) output",
+      "LogAdapter output",
     );
   });
 });
@@ -182,7 +182,7 @@ describe("debug() DSL helper", () => {
     expect(exchange.logger.debug).toHaveBeenCalledTimes(1);
     expect(exchange.logger.debug).toHaveBeenCalledWith(
       { id: "test-id", body: "debug-data", headers: {}, adapter: "log" },
-      "LogAdapter (log) output",
+      "LogAdapter output",
     );
   });
 
@@ -199,7 +199,7 @@ describe("debug() DSL helper", () => {
 
     expect(exchange.logger.debug).toHaveBeenCalledWith(
       { debugBody: "test", adapter: "log" },
-      "LogAdapter (log) output",
+      "LogAdapter output",
     );
   });
 });

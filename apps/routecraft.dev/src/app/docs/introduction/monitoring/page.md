@@ -20,7 +20,7 @@ export default craft()
   .to(log())
 ```
 
-Each log includes trace-friendly fields like `contextId`, `routeId`, and for exchanges also `exchangeId` and `correlationId`.
+Each log includes trace-friendly fields like `contextId`, `route` (route name/id), and for exchanges also `exchangeId` and `correlationId`.
 
 ## Context and route events
 
@@ -40,14 +40,14 @@ ctx.on('contextStarting', ({ ts, context }) => {
 })
 
 ctx.on('routeStarting', ({ ts, context, details: { route } }) => {
-  logger.info('Route starting', { contextId: context.contextId, routeId: route.definition.id, ts })
+  logger.info('Route starting', { contextId: context.contextId, route: route.definition.id, ts })
 })
 
 ctx.on('error', ({ ts, context, details: { error, route, exchange } }) => {
   const code = error?.code || 'UNKNOWN'
   logger.error('Error occurred', { 
     contextId: context.contextId, 
-    routeId: route?.definition.id, 
+    route: route?.definition.id, 
     code, 
     error, 
     ts 
@@ -100,4 +100,14 @@ export default function observability(ctx: CraftContext) {
 
 ## Built-in logging and tracing
 
-The CLI and Next.js runtimes include structured logging out of the box (Pino). In development logs are pretty-printed; in production they are JSON. Log records carry `contextId`, `routeId`, and (for exchanges) `exchangeId`/`correlationId`, which makes end-to-end tracing straightforward in your log aggregator.
+The CLI and Next.js runtimes include structured logging out of the box (Pino). In development logs are pretty-printed; in production they are JSON. Log records carry `contextId`, `route`, and (for exchanges) `exchangeId`/`correlationId`, which makes end-to-end tracing straightforward in your log aggregator.
+
+### Logging rules (framework and adapters)
+
+- **Error message is the log message**: At error boundaries, the log message is the error's message (e.g. "Redis connection refused", "Model not found"). Variable context (route, operation, adapter) is in the **meta** (first argument object). Non-error logs use stable message strings with context in meta.
+- **One log per event**: Each event is logged once. The boundary that handles the error logs it (e.g. route.runSteps for step failures). Never catch, log, and re-throw the same error.
+- **Structured error in meta**: Put the error in meta (e.g. `{ err, operation, adapter }`). RouteCraftError implements `toJSON()` so `rc`, `message`, `suggestion`, `docs`, `causeMessage`, `causeStack` appear as structured fields in serialized output.
+- **Levels**: `fatal` = context or route failed to start; `error` = operation failed (step, adapter, invalid plugin); `warn` = unexpected but processing continues; `info` = notable state (context/route start and stop — same level for start and stop); `debug` = flow/diagnostic.
+- **Validation errors**: When throwing RC5002 (validation failed), the cause is serialized (e.g. validation issues as JSON) so logs show actual errors, not `[object Object]`.
+
+See [Errors](/docs/reference/errors) for RC codes and suggestions. For the full rule, see the project's errors-logging rule.

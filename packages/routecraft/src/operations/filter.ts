@@ -37,24 +37,22 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
     queue: { exchange: Exchange<T>; steps: Step<Adapter>[] }[],
   ): Promise<void> {
     const adapterLabel = getAdapterLabel(this.adapter);
-    const adapterSuffix = adapterLabel ? ` (${adapterLabel})` : "";
     try {
       const result = await Promise.resolve(this.adapter.filter(exchange));
       if (!result) {
         exchange.logger.debug(
-          adapterLabel ? { adapter: adapterLabel } : {},
-          `Filter${adapterSuffix} rejected exchange ${exchange.id}`,
+          {
+            operation: "filter",
+            ...(adapterLabel ? { adapter: adapterLabel } : {}),
+          },
+          "Filter rejected exchange",
         );
         return;
       }
     } catch (error: unknown) {
-      const err = rcError("RC5008", error, {
-        message: `Error filtering exchange ${exchange.id}`,
+      throw rcError("RC5001", error, {
+        message: "Filter predicate threw",
       });
-      exchange.logger.warn(
-        { ...(adapterLabel ? { adapter: adapterLabel } : {}), err },
-        `Error filtering${adapterSuffix} exchange ${exchange.id}`,
-      );
     }
     queue.push({ exchange, steps: remainingSteps });
   }

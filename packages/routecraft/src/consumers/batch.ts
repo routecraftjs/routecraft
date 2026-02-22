@@ -77,9 +77,11 @@ export class BatchConsumer implements Consumer<BatchOptions> {
             resolve(finalExchange);
           }
         } catch (error) {
+          const msg =
+            error instanceof Error ? error.message : "Batch consumer failed";
           this.context.logger.warn(
-            error,
-            `Error in batch consumer for route "${this.definition.id}":`,
+            { err: error, route: this.definition.id },
+            msg,
           );
           for (const { reject } of currentResolvers) {
             reject(error);

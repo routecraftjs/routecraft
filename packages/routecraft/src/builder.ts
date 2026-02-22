@@ -331,7 +331,7 @@ export class RouteBuilder<Current = unknown> {
    */
   id(id: string): this {
     this.pendingOptions = { ...(this.pendingOptions ?? {}), id };
-    logger.trace(`Staging route id "${id}" for next route`);
+    logger.trace({ route: id }, "Staging route id for next route");
     return this;
   }
 
@@ -379,7 +379,7 @@ export class RouteBuilder<Current = unknown> {
       options: undefined,
     };
 
-    logger.trace(`Creating route definition with id "${id}"`);
+    logger.trace({ route: id }, "Creating route definition");
 
     this.currentRoute = {
       id,
@@ -427,7 +427,10 @@ export class RouteBuilder<Current = unknown> {
    */
   private addStep<T extends Adapter>(step: Step<T>): RouteBuilder<Current> {
     const route = this.requireSource();
-    logger.trace(`Adding ${step.operation} step to route "${route.id}"`);
+    logger.trace(
+      { operation: step.operation, route: route.id },
+      "Adding step to route",
+    );
     route.steps.push(step);
     return this.withType<Current>();
   }
@@ -473,7 +476,7 @@ export class RouteBuilder<Current = unknown> {
     destination: Destination<Current, R> | CallableDestination<Current, R>,
   ): RouteBuilder<R> {
     const route = this.requireSource();
-    logger.trace(`Adding destination step to route "${route.id}"`);
+    logger.trace({ route: route.id }, "Adding destination step to route");
     route.steps.push(new ToStep<Current, R>(destination));
     return this.withType<R>();
   }
@@ -507,7 +510,7 @@ export class RouteBuilder<Current = unknown> {
       | CallableSplitter<Current, ItemType>,
   ): RouteBuilder<ItemType> {
     const route = this.requireSource();
-    logger.trace(`Adding split step to route "${route.id}"`);
+    logger.trace({ route: route.id }, "Adding split step to route");
 
     // If no splitter is provided and Current is an array, use default array splitter
     if (!splitter) {
@@ -515,7 +518,7 @@ export class RouteBuilder<Current = unknown> {
       const defaultSplitter: CallableSplitter<Current, ItemType> = (body) => {
         // Check if the body is an array
         if (!Array.isArray(body)) {
-          throw rcError("RC2001", undefined, {
+          throw rcError("RC5002", undefined, {
             message: "Default splitter can only be used with arrays",
             suggestion:
               "Provide a custom splitter or ensure the input is an array",
@@ -786,7 +789,7 @@ export class RouteBuilder<Current = unknown> {
    *   .build();
    */
   build(): RouteDefinition[] {
-    logger.trace(`Building ${this.routes.length} routes`);
+    logger.trace({ routeCount: this.routes.length }, "Building routes");
     return this.routes;
   }
 }
