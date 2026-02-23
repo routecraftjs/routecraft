@@ -112,7 +112,7 @@ export interface LlmOptions {
    * Optional output schema (Standard Schema). When set, the adapter requests
    * provider-level structured output and validates the result. Supported by
    * OpenAI (gpt-4o/mini) and Ollama; others may return JSON that is validated
-   * after the call. On success, the parsed value is set on LlmResult.value.
+   * after the call. On success, the parsed value is set on LlmResult.output.
    */
   outputSchema?: StandardSchemaV1;
 }
@@ -123,19 +123,29 @@ export type LlmOptionsMerged = Required<
 > &
   Omit<LlmOptions, "temperature" | "maxTokens">;
 
+/**
+ * Token usage. Matches Vercel AI SDK LanguageModelUsage shape (inputTokens/outputTokens)
+ * so result.usage can be used interchangeably with generateText() return value.
+ */
 export interface LlmUsage {
-  promptTokens?: number;
-  completionTokens?: number;
+  inputTokens?: number;
+  outputTokens?: number;
   totalTokens?: number;
 }
 
+/**
+ * LLM result shape aligned with Vercel AI SDK generateText() return value.
+ * Same property names (text, output, usage) so code and docs transfer directly.
+ */
 export interface LlmResult {
-  content: string;
-  usage?: LlmUsage;
-  /** Raw provider response for advanced use. */
-  raw?: unknown;
+  /** Generated text (raw string from the model). */
+  text: string;
   /** Parsed structured output when outputSchema was set and validation succeeded. */
-  value?: unknown;
+  output?: unknown;
+  /** Token usage for the last step. Same shape as AI SDK usage. */
+  usage?: LlmUsage;
+  /** Full generateText() result for advanced use (debugging, response metadata). */
+  raw?: unknown;
 }
 
 export interface LlmPluginOptions {

@@ -15,43 +15,81 @@ export type DestinationAggregator<T = unknown, R = unknown> = (
 /**
  * Default aggregator for .enrich() - merges the result into the exchange body.
  *
- * This aggregator:
- * 1. Returns original exchange if enrichment data is undefined or null
- * 2. Converts the original body to an object if it's not already one (using {value: originalBody})
- * 3. Converts the enrichment data to an object if it's not already one (using {value: enrichmentData})
- * 4. Merges these objects using spread syntax ({...originalBody, ...enrichmentObject})
- *
- * Note: If both the original body and enrichment data have a 'value' property,
- * the enrichment data's 'value' will overwrite the original's 'value'.
+ * - If enrichment data is undefined or null, returns the original exchange unchanged.
+ * - If enrichment data is an object, it is spread onto the body (no wrapping).
+ * - If enrichment data is a primitive (e.g. string), it cannot be spread, so it is
+ *   set as body.text and merged with the original body.
+ * - If the original body is not an object, it is treated as body.text before merging.
  */
 export const defaultEnrichAggregator = <T = unknown, R = unknown>(
   original: Exchange<T>,
   enrichmentData: R,
 ): Exchange<T> => {
-  // Handle undefined/null results - no enrichment to add
   if (enrichmentData === undefined || enrichmentData === null) {
     return original;
   }
 
-  // Convert original body to object if it's not already
-  const originalBody =
-    typeof original.body === "object" && original.body !== null
-      ? original.body
-      : { value: original.body };
+  const isEnrichmentObject =
+    typeof enrichmentData === "object" && enrichmentData !== null;
+  const isBodyObject =
+    typeof original.body === "object" && original.body !== null;
 
-  // Convert enrichment data to object if it's not already
-  const enrichmentObject =
-    typeof enrichmentData === "object" && enrichmentData !== null
-      ? enrichmentData
-      : { value: enrichmentData };
+  const originalBody = isBodyObject ? original.body : { text: original.body };
+  const enrichmentObject = isEnrichmentObject
+    ? (enrichmentData as Record<string, unknown>)
+    : { text: enrichmentData };
 
-  // Merge the objects into original exchange body
   original.body = {
     ...originalBody,
     ...enrichmentObject,
   } as T;
 
   return original;
+};
+
+/**
+ * Returns an aggregator for .enrich() that merges a single extracted value into the exchange body.
+ * When `into` is omitted: plain objects are spread onto body; strings/primitives go to body.text;
+ * arrays go to body.array. When `into` is provided, the value is set at body[into].
+ * Null/undefined from getValue is never merged (exchange unchanged).
+ */
+export const only = <T = unknown, R = unknown>(
+  getValue: (enrichmentData: R) => unknown,
+  into?: string,
+): DestinationAggregator<T, R> => {
+  return (original: Exchange<T>, enrichmentData: R): Exchange<T> => {
+    const value = getValue(enrichmentData);
+    if (value === undefined || value === null) {
+      return original;
+    }
+
+    const isBodyObject =
+      typeof original.body === "object" && original.body !== null;
+    const originalBody = isBodyObject
+      ? (original.body as Record<string, unknown>)
+      : { text: original.body };
+
+    if (into !== undefined) {
+      original.body = { ...originalBody, [into]: value } as T;
+      return original;
+    }
+
+    const isPlainObject =
+      typeof value === "object" && value !== null && !Array.isArray(value);
+    if (isPlainObject) {
+      original.body = {
+        ...originalBody,
+        ...(value as Record<string, unknown>),
+      } as T;
+      return original;
+    }
+    if (Array.isArray(value)) {
+      original.body = { ...originalBody, array: value } as T;
+      return original;
+    }
+    original.body = { ...originalBody, text: value } as T;
+    return original;
+  };
 };
 
 /**

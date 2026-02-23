@@ -12,15 +12,15 @@ const PROVIDER_DEFAULTS = {
   },
 } as const;
 
-/** Map AI SDK LanguageModelUsage (inputTokens/outputTokens) to our LlmUsage (promptTokens/completionTokens). */
-function mapUsage(u: {
+/** Pass through AI SDK usage so LlmUsage matches LanguageModelUsage (inputTokens/outputTokens). */
+function toLlmUsage(u: {
   inputTokens?: number | undefined;
   outputTokens?: number | undefined;
   totalTokens?: number | undefined;
 }): LlmUsage {
   return {
-    ...(u.inputTokens !== undefined && { promptTokens: u.inputTokens }),
-    ...(u.outputTokens !== undefined && { completionTokens: u.outputTokens }),
+    ...(u.inputTokens !== undefined && { inputTokens: u.inputTokens }),
+    ...(u.outputTokens !== undefined && { outputTokens: u.outputTokens }),
     ...(u.totalTokens !== undefined && { totalTokens: u.totalTokens }),
   };
 }
@@ -167,10 +167,10 @@ async function callOpenAI(
   const result = await generateText(
     params as Parameters<typeof generateText>[0],
   );
-  const out: LlmResult = { content: result.text ?? "", raw: result };
-  if (result.usage) out.usage = mapUsage(result.usage);
+  const out: LlmResult = { text: result.text ?? "", raw: result };
+  if (result.usage) out.usage = toLlmUsage(result.usage);
   if ("output" in result && result.output !== undefined)
-    out.value = result.output;
+    out.output = result.output;
   return out;
 }
 
@@ -206,10 +206,10 @@ async function callAnthropic(
   const result = await generateText(
     params as Parameters<typeof generateText>[0],
   );
-  const out: LlmResult = { content: result.text ?? "", raw: result };
-  if (result.usage) out.usage = mapUsage(result.usage);
+  const out: LlmResult = { text: result.text ?? "", raw: result };
+  if (result.usage) out.usage = toLlmUsage(result.usage);
   if ("output" in result && result.output !== undefined)
-    out.value = result.output;
+    out.output = result.output;
   return out;
 }
 
@@ -245,10 +245,10 @@ async function callGemini(
   const result = await generateText(
     params as Parameters<typeof generateText>[0],
   );
-  const out: LlmResult = { content: result.text ?? "", raw: result };
-  if (result.usage) out.usage = mapUsage(result.usage);
+  const out: LlmResult = { text: result.text ?? "", raw: result };
+  if (result.usage) out.usage = toLlmUsage(result.usage);
   if ("output" in result && result.output !== undefined)
-    out.value = result.output;
+    out.output = result.output;
   return out;
 }
 
@@ -286,10 +286,10 @@ async function callOpenRouter(
   const result = await generateText(
     params as Parameters<typeof generateText>[0],
   );
-  const out: LlmResult = { content: result.text ?? "", raw: result };
-  if (result.usage) out.usage = mapUsage(result.usage);
+  const out: LlmResult = { text: result.text ?? "", raw: result };
+  if (result.usage) out.usage = toLlmUsage(result.usage);
   if ("output" in result && result.output !== undefined)
-    out.value = result.output;
+    out.output = result.output;
   return out;
 }
 
@@ -330,9 +330,9 @@ async function callOllama(
   const result = await generateText(
     params as Parameters<typeof generateText>[0],
   );
-  const out: LlmResult = { content: result.text ?? "", raw: result };
-  if (result.usage) out.usage = mapUsage(result.usage);
+  const out: LlmResult = { text: result.text ?? "", raw: result };
+  if (result.usage) out.usage = toLlmUsage(result.usage);
   if ("output" in result && result.output !== undefined)
-    out.value = result.output;
+    out.output = result.output;
   return out;
 }

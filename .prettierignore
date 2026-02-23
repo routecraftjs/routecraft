@@ -7,6 +7,9 @@
 **/build/
 **/out/
 
+# Cursor hooks state (machine-generated)
+.cursor
+
 # Coverage and caches
 coverage/
 **/coverage/

@@ -3,12 +3,17 @@
   "hooks": {
     "afterFileEdit": [
       {
-        "command": "node .cursor/hooks/format-after-edit.mjs"
+        "command": "node .cursor/hooks/track-edit.mjs"
       }
     ],
     "stop": [
       {
-        "command": "node .cursor/hooks/verify-before-stop.mjs"
+        "command": "node .cursor/hooks/stop-check.mjs"
+      }
+    ],
+    "sessionEnd": [
+      {
+        "command": "node .cursor/hooks/cleanup.mjs"
       }
     ]
   }

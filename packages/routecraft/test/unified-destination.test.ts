@@ -5,6 +5,7 @@ import {
   simple,
   http,
   log,
+  only,
   type Destination,
 } from "@routecraft/routecraft";
 
@@ -195,6 +196,203 @@ describe("Unified Destination Adapter", () => {
       userId: 1,
       userDetails: { name: "John", role: "Admin" },
     });
+  });
+
+  /**
+   * @case Verify .enrich() with only() and into sets single key
+   * @preconditions Enricher returns object with output.links, only(getValue, "links") used
+   * @expectedResult Body has links key set to extracted value
+   */
+  test(".enrich() with only(getValue, into) sets body key", async () => {
+    const destSpy = vi.fn();
+    const enricher = vi.fn(async () => ({ output: { links: ["a", "b"] } }));
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("test-only-with-into")
+          .from(simple({ userId: 1 }))
+          .enrich(
+            enricher,
+            only((r) => r.output?.links, "links"),
+          )
+          .to(destSpy),
+      )
+      .build();
+
+    await t.test();
+
+    expect(destSpy).toHaveBeenCalledTimes(1);
+    expect(destSpy.mock.calls[0][0].body).toEqual({
+      userId: 1,
+      links: ["a", "b"],
+    });
+  });
+
+  /**
+   * @case Verify .enrich() with only() without into spreads plain object
+   * @preconditions Enricher returns plain object, only(getValue) used without into
+   * @expectedResult Body gets spread with object keys
+   */
+  test(".enrich() with only(getValue) spreads plain object onto body", async () => {
+    const destSpy = vi.fn();
+    const enricher = vi.fn(async () => ({
+      output: { links: ["x"], count: 1 },
+    }));
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("test-only-spread-object")
+          .from(simple({ userId: 1 }))
+          .enrich(
+            enricher,
+            only((r) => r.output),
+          )
+          .to(destSpy),
+      )
+      .build();
+
+    await t.test();
+
+    expect(destSpy).toHaveBeenCalledTimes(1);
+    expect(destSpy.mock.calls[0][0].body).toEqual({
+      userId: 1,
+      links: ["x"],
+      count: 1,
+    });
+  });
+
+  /**
+   * @case Verify .enrich() with only() without into puts string in body.text
+   * @preconditions Enricher returns string, only(getValue) used without into
+   * @expectedResult Body has text key set to string
+   */
+  test(".enrich() with only(getValue) puts string in body.text", async () => {
+    const destSpy = vi.fn();
+    const enricher = vi.fn(async () => "hello");
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("test-only-string-text")
+          .from(simple({ userId: 1 }))
+          .enrich(
+            enricher,
+            only((r) => r),
+          )
+          .to(destSpy),
+      )
+      .build();
+
+    await t.test();
+
+    expect(destSpy).toHaveBeenCalledTimes(1);
+    expect(destSpy.mock.calls[0][0].body).toEqual({ userId: 1, text: "hello" });
+  });
+
+  /**
+   * @case Verify .enrich() with only() without into puts array in body.array
+   * @preconditions Enricher returns array, only(getValue) used without into
+   * @expectedResult Body has array key set to array value
+   */
+  test(".enrich() with only(getValue) puts array in body.array", async () => {
+    const destSpy = vi.fn();
+    const enricher = vi.fn(async () => [1, 2, 3]);
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("test-only-array")
+          .from(simple({ userId: 1 }))
+          .enrich(
+            enricher,
+            only((r) => r),
+          )
+          .to(destSpy),
+      )
+      .build();
+
+    await t.test();
+
+    expect(destSpy).toHaveBeenCalledTimes(1);
+    expect(destSpy.mock.calls[0][0].body).toEqual({
+      userId: 1,
+      array: [1, 2, 3],
+    });
+  });
+
+  /**
+   * @case Verify .enrich() with only() leaves exchange unchanged when getValue returns null/undefined
+   * @preconditions Enricher returns object with output null or undefined, only(getValue) used
+   * @expectedResult Body unchanged (no merge)
+   */
+  test(".enrich() with only() leaves body unchanged when value is null or undefined", async () => {
+    const destSpy = vi.fn();
+    const enricherNull = vi.fn(async () => ({ output: null }));
+    const enricherUndef = vi.fn(async () => ({ output: undefined }));
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("test-only-null")
+          .from(simple({ userId: 1 }))
+          .enrich(
+            enricherNull,
+            only((r) => r.output),
+          )
+          .to(destSpy),
+      )
+      .build();
+
+    await t.test();
+    expect(destSpy.mock.calls[0][0].body).toEqual({ userId: 1 });
+
+    await t.stop();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("test-only-undefined")
+          .from(simple({ userId: 1 }))
+          .enrich(
+            enricherUndef,
+            only((r) => r.output),
+          )
+          .to(destSpy),
+      )
+      .build();
+
+    await t.test();
+    expect(destSpy.mock.calls[1][0].body).toEqual({ userId: 1 });
+  });
+
+  /**
+   * @case Verify .enrich() with only() and optional chain returns undefined leaves body unchanged
+   * @preconditions Enricher returns empty object, only((r) => r.output?.links) used
+   * @expectedResult Body unchanged (optional chain yields undefined)
+   */
+  test(".enrich() with only() optional chain missing path leaves body unchanged", async () => {
+    const destSpy = vi.fn();
+    const enricher = vi.fn(async () => ({}));
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("test-only-optional-chain")
+          .from(simple({ userId: 1 }))
+          .enrich(
+            enricher,
+            only((r) => r.output?.links),
+          )
+          .to(destSpy),
+      )
+      .build();
+
+    await t.test();
+
+    expect(destSpy).toHaveBeenCalledTimes(1);
+    expect(destSpy.mock.calls[0][0].body).toEqual({ userId: 1 });
   });
 
   /**

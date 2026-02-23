@@ -66,7 +66,11 @@ export {
   HeaderStep,
 } from "./operations/header.ts";
 
-export { type DestinationAggregator, EnrichStep } from "./operations/enrich.ts";
+export {
+  type DestinationAggregator,
+  EnrichStep,
+  only,
+} from "./operations/enrich.ts";
 
 export { TapStep } from "./operations/tap.ts";
 
