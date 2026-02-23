@@ -264,18 +264,18 @@ describe("Unified Destination Adapter", () => {
   });
 
   /**
-   * @case Verify .enrich() with only() without into puts string in body.text
+   * @case Verify .enrich() with only() without into puts string in body.stdout
    * @preconditions Enricher returns string, only(getValue) used without into
-   * @expectedResult Body has text key set to string
+   * @expectedResult Body has stdout key set to string
    */
-  test(".enrich() with only(getValue) puts string in body.text", async () => {
+  test(".enrich() with only(getValue) puts string in body.stdout", async () => {
     const destSpy = vi.fn();
     const enricher = vi.fn(async () => "hello");
 
     t = await testContext()
       .routes(
         craft()
-          .id("test-only-string-text")
+          .id("test-only-string-stdout")
           .from(simple({ userId: 1 }))
           .enrich(
             enricher,
@@ -288,7 +288,10 @@ describe("Unified Destination Adapter", () => {
     await t.test();
 
     expect(destSpy).toHaveBeenCalledTimes(1);
-    expect(destSpy.mock.calls[0][0].body).toEqual({ userId: 1, text: "hello" });
+    expect(destSpy.mock.calls[0][0].body).toEqual({
+      userId: 1,
+      stdout: "hello",
+    });
   });
 
   /**

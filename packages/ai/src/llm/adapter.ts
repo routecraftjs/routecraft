@@ -1,3 +1,4 @@
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   getExchangeContext,
   type CraftContext,
@@ -15,6 +16,46 @@ import type {
   LlmResult,
 } from "./types.ts";
 import { ADAPTER_LLM_OPTIONS, ADAPTER_LLM_PROVIDERS } from "./types.ts";
+
+/**
+ * When the AI SDK doesn't set result.output (e.g. it threw on the getter), try to
+ * parse result.text as JSON and validate with the output schema. Returns the
+ * parsed value or undefined.
+ */
+function parseStructuredTextFallback(
+  text: string,
+  schema: StandardSchemaV1,
+): unknown {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  const standard = (schema as unknown as Record<string, unknown>)[
+    "~standard"
+  ] as
+    | {
+        validate: (
+          value: unknown,
+        ) =>
+          | { value?: unknown; issues?: unknown }
+          | Promise<{ value?: unknown; issues?: unknown }>;
+      }
+    | undefined;
+  if (!standard?.validate) return undefined;
+  const result = standard.validate(parsed);
+  if (
+    result &&
+    typeof result === "object" &&
+    "issues" in result &&
+    result.issues
+  )
+    return undefined;
+  return result && typeof result === "object" && "value" in result
+    ? result.value
+    : undefined;
+}
 
 const DEFAULT_TEMPERATURE = 0;
 const DEFAULT_MAX_TOKENS = 1024;
@@ -139,7 +180,7 @@ export class LlmAdapter
         ? toAiOutputSpec(merged.outputSchema)
         : undefined;
 
-    return callLlm({
+    const result = await callLlm({
       config,
       modelId: modelName,
       options: opts,
@@ -147,5 +188,19 @@ export class LlmAdapter
       userPrompt,
       output,
     });
+
+    if (
+      result.output === undefined &&
+      result.text &&
+      merged.outputSchema !== undefined
+    ) {
+      const fallback = parseStructuredTextFallback(
+        result.text,
+        merged.outputSchema,
+      );
+      if (fallback !== undefined) result.output = fallback;
+    }
+
+    return result;
   }
 }

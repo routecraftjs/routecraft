@@ -26,6 +26,21 @@ function toLlmUsage(u: {
 }
 
 /**
+ * Safely read structured output from generateText result. The AI SDK's result.output
+ * is a getter that throws AI_NoOutputGeneratedError when the model didn't produce
+ * valid structured output (e.g. empty, blocked, or unparseable). Catching here
+ * allows returning without output so the adapter can try parsing result.text.
+ */
+function getStructuredOutput(result: { output?: unknown }): unknown {
+  try {
+    if ("output" in result && result.output !== undefined) return result.output;
+  } catch {
+    // SDK getter threw (e.g. AI_NoOutputGeneratedError); leave output undefined.
+  }
+  return undefined;
+}
+
+/**
  * Runtime check that a provider-returned value has the minimal LanguageModel shape
  * required by the AI SDK generateText (doGenerate, doStream). Throws a descriptive
  * error if validation fails so we avoid silent type assertions.
@@ -169,8 +184,8 @@ async function callOpenAI(
   );
   const out: LlmResult = { text: result.text ?? "", raw: result };
   if (result.usage) out.usage = toLlmUsage(result.usage);
-  if ("output" in result && result.output !== undefined)
-    out.output = result.output;
+  const parsed = getStructuredOutput(result as { output?: unknown });
+  if (parsed !== undefined) out.output = parsed;
   return out;
 }
 
@@ -208,8 +223,8 @@ async function callAnthropic(
   );
   const out: LlmResult = { text: result.text ?? "", raw: result };
   if (result.usage) out.usage = toLlmUsage(result.usage);
-  if ("output" in result && result.output !== undefined)
-    out.output = result.output;
+  const parsed = getStructuredOutput(result as { output?: unknown });
+  if (parsed !== undefined) out.output = parsed;
   return out;
 }
 
@@ -247,8 +262,8 @@ async function callGemini(
   );
   const out: LlmResult = { text: result.text ?? "", raw: result };
   if (result.usage) out.usage = toLlmUsage(result.usage);
-  if ("output" in result && result.output !== undefined)
-    out.output = result.output;
+  const parsed = getStructuredOutput(result as { output?: unknown });
+  if (parsed !== undefined) out.output = parsed;
   return out;
 }
 
@@ -288,8 +303,8 @@ async function callOpenRouter(
   );
   const out: LlmResult = { text: result.text ?? "", raw: result };
   if (result.usage) out.usage = toLlmUsage(result.usage);
-  if ("output" in result && result.output !== undefined)
-    out.output = result.output;
+  const parsed = getStructuredOutput(result as { output?: unknown });
+  if (parsed !== undefined) out.output = parsed;
   return out;
 }
 
@@ -332,7 +347,7 @@ async function callOllama(
   );
   const out: LlmResult = { text: result.text ?? "", raw: result };
   if (result.usage) out.usage = toLlmUsage(result.usage);
-  if ("output" in result && result.output !== undefined)
-    out.output = result.output;
+  const parsed = getStructuredOutput(result as { output?: unknown });
+  if (parsed !== undefined) out.output = parsed;
   return out;
 }

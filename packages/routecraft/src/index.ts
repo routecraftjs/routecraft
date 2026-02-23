@@ -70,6 +70,7 @@ export {
   type DestinationAggregator,
   EnrichStep,
   only,
+  none,
 } from "./operations/enrich.ts";
 
 export { TapStep } from "./operations/tap.ts";
@@ -126,6 +127,9 @@ export { direct } from "./adapters/direct.ts";
 export { timer } from "./adapters/timer.ts";
 export { http } from "./adapters/http.ts";
 export { pseudo } from "./adapters/pseudo.ts";
+export { browser } from "./adapters/browser.ts";
+export { html } from "./adapters/html.ts";
+export { json } from "./adapters/json.ts";
 
 export { SimpleAdapter } from "./adapters/simple.ts";
 export { LogAdapter, type LogOptions, type LogLevel } from "./adapters/log.ts";
@@ -153,3 +157,18 @@ export {
   type PseudoOptions,
   type PseudoKeyedOptions,
 } from "./adapters/pseudo.ts";
+export {
+  BrowserAdapter,
+  type BrowserBaseOptions,
+  type BrowserCommandMap,
+  type BrowserCommand,
+  type BrowserResult,
+  type Resolvable,
+  sanitizeSessionId,
+} from "./adapters/browser.ts";
+export {
+  HtmlAdapter,
+  type HtmlOptions,
+  type HtmlResult,
+} from "./adapters/html.ts";
+export { JsonAdapter, type JsonOptions } from "./adapters/json.ts";

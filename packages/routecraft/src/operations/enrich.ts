@@ -18,8 +18,8 @@ export type DestinationAggregator<T = unknown, R = unknown> = (
  * - If enrichment data is undefined or null, returns the original exchange unchanged.
  * - If enrichment data is an object, it is spread onto the body (no wrapping).
  * - If enrichment data is a primitive (e.g. string), it cannot be spread, so it is
- *   set as body.text and merged with the original body.
- * - If the original body is not an object, it is treated as body.text before merging.
+ *   set as body.stdout and merged with the original body.
+ * - If the original body is not an object, it is treated as body.stdout before merging.
  */
 export const defaultEnrichAggregator = <T = unknown, R = unknown>(
   original: Exchange<T>,
@@ -34,10 +34,10 @@ export const defaultEnrichAggregator = <T = unknown, R = unknown>(
   const isBodyObject =
     typeof original.body === "object" && original.body !== null;
 
-  const originalBody = isBodyObject ? original.body : { text: original.body };
+  const originalBody = isBodyObject ? original.body : { stdout: original.body };
   const enrichmentObject = isEnrichmentObject
     ? (enrichmentData as Record<string, unknown>)
-    : { text: enrichmentData };
+    : { stdout: enrichmentData };
 
   original.body = {
     ...originalBody,
@@ -49,7 +49,7 @@ export const defaultEnrichAggregator = <T = unknown, R = unknown>(
 
 /**
  * Returns an aggregator for .enrich() that merges a single extracted value into the exchange body.
- * When `into` is omitted: plain objects are spread onto body; strings/primitives go to body.text;
+ * When `into` is omitted: plain objects are spread onto body; strings/primitives go to body.stdout;
  * arrays go to body.array. When `into` is provided, the value is set at body[into].
  * Null/undefined from getValue is never merged (exchange unchanged).
  */
@@ -67,7 +67,7 @@ export const only = <T = unknown, R = unknown>(
       typeof original.body === "object" && original.body !== null;
     const originalBody = isBodyObject
       ? (original.body as Record<string, unknown>)
-      : { text: original.body };
+      : { stdout: original.body };
 
     if (into !== undefined) {
       original.body = { ...originalBody, [into]: value } as T;
@@ -87,7 +87,18 @@ export const only = <T = unknown, R = unknown>(
       original.body = { ...originalBody, array: value } as T;
       return original;
     }
-    original.body = { ...originalBody, text: value } as T;
+    original.body = { ...originalBody, stdout: value } as T;
+    return original;
+  };
+};
+
+/** No-op aggregator for .enrich() - returns the original exchange unchanged. */
+export const none = <T = unknown, R = unknown>(): DestinationAggregator<
+  T,
+  R
+> => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- second param required by signature, intentionally unused
+  return (original: Exchange<T>, _ignored: R): Exchange<T> => {
     return original;
   };
 };

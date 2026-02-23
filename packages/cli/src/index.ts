@@ -97,6 +97,8 @@ program
       setImmediate(() => process.exit(code));
       return;
     }
+    // Success: exit so the process does not hang (e.g. open browser or timer handles)
+    setImmediate(() => process.exit(0));
   });
 
 // Parse the command line arguments and execute the appropriate command
