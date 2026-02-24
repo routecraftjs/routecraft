@@ -27,27 +27,29 @@ export function llmPlugin(
 ): CraftPlugin {
   validateLlmPluginOptions(options);
 
-  return (ctx: CraftContext) => {
-    const map = new Map<string, LlmModelConfig>();
-    for (const [providerId, opts] of Object.entries(options.providers)) {
-      if (opts !== undefined)
-        map.set(
-          providerId,
-          toModelConfig(providerId, opts as Record<string, unknown>),
-        );
-    }
-    ctx.setStore(
-      ADAPTER_LLM_PROVIDERS as keyof import("@routecraft/routecraft").StoreRegistry,
-      map,
-    );
-    if (
-      options.defaultOptions &&
-      Object.keys(options.defaultOptions).length > 0
-    ) {
+  return {
+    apply(ctx: CraftContext) {
+      const map = new Map<string, LlmModelConfig>();
+      for (const [providerId, opts] of Object.entries(options.providers)) {
+        if (opts !== undefined)
+          map.set(
+            providerId,
+            toModelConfig(providerId, opts as Record<string, unknown>),
+          );
+      }
       ctx.setStore(
-        ADAPTER_LLM_OPTIONS as keyof import("@routecraft/routecraft").StoreRegistry,
-        options.defaultOptions,
+        ADAPTER_LLM_PROVIDERS as keyof import("@routecraft/routecraft").StoreRegistry,
+        map,
       );
-    }
+      if (
+        options.defaultOptions &&
+        Object.keys(options.defaultOptions).length > 0
+      ) {
+        ctx.setStore(
+          ADAPTER_LLM_OPTIONS as keyof import("@routecraft/routecraft").StoreRegistry,
+          options.defaultOptions,
+        );
+      }
+    },
   };
 }

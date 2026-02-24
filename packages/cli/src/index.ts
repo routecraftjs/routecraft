@@ -97,8 +97,9 @@ program
       setImmediate(() => process.exit(code));
       return;
     }
-    // Success: exit so the process does not hang (e.g. open browser or timer handles)
-    setImmediate(() => process.exit(0));
+    // Don't call process.exit() — let the event loop drain naturally.
+    // process.exit() triggers C++ static destructors that race with ONNX
+    // Runtime cleanup (onnxruntime#25038: "mutex lock failed").
   });
 
 // Parse the command line arguments and execute the appropriate command

@@ -114,23 +114,25 @@ describe("MCP Plugin Integration", () => {
   /**
    * @case Verifies that mcpPlugin can filter tools
    * @preconditions Multiple tools are defined and filter is applied
-   * @expectedResult Only filtered tools are available
+   * @expectedResult Plugin is an object with apply and optional teardown
    */
   test("mcpPlugin() can filter tools by name", () => {
     const p = mcpPlugin({ tools: ["allowed-tool"] });
-    expect(typeof p).toBe("function");
+    expect(typeof p.apply).toBe("function");
+    expect(p).toHaveProperty("teardown");
   });
 
   /**
    * @case Verifies that mcpPlugin can filter tools by function
    * @preconditions Custom filter function is provided
-   * @expectedResult Only tools matching filter are exposed
+   * @expectedResult Plugin is an object with apply and optional teardown
    */
   test("mcpPlugin() can filter tools by function", () => {
     const p = mcpPlugin({
       tools: (meta) => meta.keywords?.includes("public") ?? false,
     });
-    expect(typeof p).toBe("function");
+    expect(typeof p.apply).toBe("function");
+    expect(p).toHaveProperty("teardown");
   });
 
   /**

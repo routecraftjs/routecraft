@@ -12,40 +12,42 @@ import { validateMcpPluginOptions } from "./validate-options.ts";
 export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
   validateMcpPluginOptions(options);
 
-  return (ctx: CraftContext) => {
-    ctx.setStore(
-      MCP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry,
-      true,
-    );
+  let server: MCPServer | null = null;
 
-    if (options.clients && Object.keys(options.clients).length > 0) {
-      const map = new Map(Object.entries(options.clients));
+  return {
+    apply(ctx: CraftContext) {
       ctx.setStore(
-        ADAPTER_MCP_CLIENT_SERVERS as keyof import("@routecraft/routecraft").StoreRegistry,
-        map,
+        MCP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry,
+        true,
       );
-    }
 
-    let server: MCPServer | null = null;
-
-    ctx.on("contextStarted", async () => {
-      server = new MCPServer(ctx, options);
-      try {
-        await server.start();
-      } catch (error) {
-        ctx.logger.error(error, "Failed to start MCP server plugin");
-        throw error;
+      if (options.clients && Object.keys(options.clients).length > 0) {
+        const map = new Map(Object.entries(options.clients));
+        ctx.setStore(
+          ADAPTER_MCP_CLIENT_SERVERS as keyof import("@routecraft/routecraft").StoreRegistry,
+          map,
+        );
       }
-    });
 
-    ctx.on("contextStopping", async () => {
+      ctx.on("contextStarted", async () => {
+        server = new MCPServer(ctx, options);
+        try {
+          await server.start();
+        } catch (error) {
+          ctx.logger.error(error, "Failed to start MCP server plugin");
+          throw error;
+        }
+      });
+    },
+    async teardown(ctx: CraftContext) {
       if (server) {
         try {
           await server.stop();
         } catch (error) {
           ctx.logger.error(error, "Error stopping MCP server plugin");
         }
+        server = null;
       }
-    });
+    },
   };
 }

@@ -79,14 +79,11 @@ export function registerContextSignalHandlers(
   process.on("SIGINT", async () => {
     context.logger.info("Shutting down (SIGINT)...");
     await context.stop();
-    process.exit(0);
+    context.logger.info("Cleanup complete");
   });
   process.on("SIGTERM", async () => {
     context.logger.info("Shutting down (SIGTERM)...");
     await context.stop();
-    process.exit(0);
-  });
-  process.on("exit", () => {
     context.logger.info("Cleanup complete");
   });
 }

@@ -484,8 +484,8 @@ export class RouteBuilder<Current = unknown> {
   /**
    * Split an array into individual items for processing.
    * Each item becomes a separate exchange with a new UUID and copied headers.
-   * If no splitter is provided and the current data is an array, it will automatically
-   * split the array into individual items.
+   * If no splitter is provided: array bodies are split into items; non-array bodies
+   * are treated as a single item (one exchange).
    *
    * Accepts body, returns array of body items. The framework automatically creates new exchanges for each item.
    *
@@ -512,21 +512,14 @@ export class RouteBuilder<Current = unknown> {
     const route = this.requireSource();
     logger.trace({ route: route.id }, "Adding split step to route");
 
-    // If no splitter is provided and Current is an array, use default array splitter
+    // If no splitter is provided, use default splitter: arrays are split, non-arrays as single item
     if (!splitter) {
-      // Create a default array splitter
       const defaultSplitter: CallableSplitter<Current, ItemType> = (body) => {
-        // Check if the body is an array
-        if (!Array.isArray(body)) {
-          throw rcError("RC5002", undefined, {
-            message: "Default splitter can only be used with arrays",
-            suggestion:
-              "Provide a custom splitter or ensure the input is an array",
-          });
+        if (Array.isArray(body)) {
+          return body as ItemType[];
         }
-
-        // Split the array into individual items
-        return body as ItemType[];
+        // Non-array: treat as single item so .split() works when previous step returns one value
+        return [body] as unknown as ItemType[];
       };
 
       route.steps.push(new SplitStep<Current, ItemType>(defaultSplitter));

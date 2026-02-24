@@ -19,6 +19,7 @@ export type {
   LlmModelConfigOllama,
   LlmModelConfigOpenAI,
   LlmModelConfigOpenRouter,
+  LlmModelId,
   LlmOllamaProviderOptions,
   LlmOpenAIProviderOptions,
   LlmOpenRouterProviderOptions,
@@ -59,7 +60,28 @@ export type {
 // Agent adapter (Phase 1: pass-through)
 export { agent, AgentAdapter } from "./agent/index.ts";
 export type {
+  AgentModelId,
   AgentOptions,
-  AgentResult,
   AgentPromptSource,
+  AgentResult,
 } from "./agent/index.ts";
+
+// Embedding adapter and plugin
+export {
+  embedding,
+  EmbeddingAdapter,
+  embeddingPlugin,
+  disposeEmbeddingPipelineCache,
+} from "./embedding/index.ts";
+export type {
+  EmbeddingModelConfig,
+  EmbeddingModelConfigHuggingFace,
+  EmbeddingModelConfigOllama,
+  EmbeddingModelConfigOpenAI,
+  EmbeddingModelId,
+  EmbeddingOptions,
+  EmbeddingPluginOptions,
+  EmbeddingPluginProviders,
+  EmbeddingProviderType,
+  EmbeddingResult,
+} from "./embedding/index.ts";

@@ -47,15 +47,17 @@ export type MergedOptions<T> = {
 };
 
 /**
- * A plugin is a function or an object with an apply method. It receives a
- * CraftContext and can set up event listeners, store values, or other
- * initialization logic. Plugins run before routes are registered (via
- * initPlugins()), allowing them to observe, veto, or dynamically modify
- * the route registration process.
+ * A plugin configures the context at startup and can register cleanup when the
+ * context stops. apply(ctx) runs before routes are registered (initPlugins()).
+ * teardown(ctx) runs when the context stops, after routes have drained.
+ * Plugins that only need init can omit teardown; use ctx.registerTeardown()
+ * from apply() for one-off cleanup callbacks.
  */
-export type CraftPlugin =
-  | ((ctx: CraftContext) => void | Promise<void>)
-  | { apply(ctx: CraftContext): void | Promise<void> };
+export interface CraftPlugin {
+  apply(ctx: CraftContext): void | Promise<void>;
+  /** Called when the context stops, after routes have drained. Optional. */
+  teardown?(ctx: CraftContext): void | Promise<void>;
+}
 
 /**
  * Reserved config for direct adapter (future: channel type, whitelist, timeouts).
@@ -147,6 +149,9 @@ export class CraftContext {
   /** Plugins from config, run by initPlugins() before routes are registered */
   private readonly plugins: CraftPlugin[] = [];
 
+  /** Teardown callbacks registered by plugins; run during stop() after contextStopped */
+  private readonly teardownCallbacks: Array<() => void | Promise<void>> = [];
+
   /**
    * Create a new CraftContext instance.
    *
@@ -181,29 +186,24 @@ export class CraftContext {
 
   /**
    * Run plugins from config. Call this before registerRoutes() so plugins can
-   * set up state or dynamically add routes. Supports function plugins and
-   * objects with an apply(ctx) method. Fails fast: on first plugin error, logs,
-   * emits "error", and rethrows to abort remaining plugins.
+   * set up state or dynamically add routes. Fails fast: on first plugin error,
+   * logs, emits "error", and rethrows to abort remaining plugins.
    */
   async initPlugins(): Promise<void> {
     for (const [pluginIndex, plugin] of this.plugins.entries()) {
       try {
-        if (typeof plugin === "function") {
-          await plugin(this);
-        } else if (
-          plugin &&
-          typeof plugin === "object" &&
-          typeof (plugin as { apply?: unknown }).apply === "function"
+        if (
+          !plugin ||
+          typeof plugin !== "object" ||
+          typeof (plugin as CraftPlugin).apply !== "function"
         ) {
-          await (
-            plugin as { apply(ctx: CraftContext): void | Promise<void> }
-          ).apply(this);
-        } else {
           this.logger.error(
             { pluginIndex },
-            "Invalid plugin ignored: expected function or object with apply(ctx) method. See docs for plugin shape.",
+            "Invalid plugin: expected object with apply(ctx) method. See CraftPlugin type.",
           );
+          continue;
         }
+        await (plugin as CraftPlugin).apply(this);
       } catch (err) {
         this.logger.error(
           { pluginIndex, err },
@@ -213,6 +213,15 @@ export class CraftContext {
         throw err;
       }
     }
+  }
+
+  /**
+   * Register a teardown callback to run when the context stops. Plugins use this
+   * to release resources (e.g. caches, native handles) after routes have drained.
+   * Callbacks run in registration order after "contextStopped" is emitted.
+   */
+  registerTeardown(fn: () => void | Promise<void>): void {
+    this.teardownCallbacks.push(fn);
   }
 
   /**
@@ -515,6 +524,31 @@ export class CraftContext {
 
     this.logger.info({}, "Routecraft context stopped");
     this.emit("contextStopped", {});
+
+    // 3. Run plugin teardown (plugins with teardown in reverse order, then registerTeardown callbacks)
+    for (let i = this.plugins.length - 1; i >= 0; i--) {
+      const plugin = this.plugins[i] as CraftPlugin | undefined;
+      if (plugin?.teardown) {
+        try {
+          await Promise.resolve(plugin.teardown(this));
+        } catch (err) {
+          this.logger.warn(
+            { err, pluginIndex: i },
+            "Plugin teardown threw; continuing with remaining teardowns.",
+          );
+        }
+      }
+    }
+    for (const fn of this.teardownCallbacks) {
+      try {
+        await Promise.resolve(fn());
+      } catch (err) {
+        this.logger.warn(
+          { err },
+          "Plugin teardown threw; continuing with remaining teardowns.",
+        );
+      }
+    }
   }
 }
 

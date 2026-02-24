@@ -130,6 +130,8 @@ export { pseudo } from "./adapters/pseudo.ts";
 export { browser } from "./adapters/browser.ts";
 export { html } from "./adapters/html.ts";
 export { json } from "./adapters/json.ts";
+export { group } from "./adapters/group.ts";
+export { cosine } from "./adapters/cosine.ts";
 
 export { SimpleAdapter } from "./adapters/simple.ts";
 export { LogAdapter, type LogOptions, type LogLevel } from "./adapters/log.ts";
@@ -172,3 +174,5 @@ export {
   type HtmlResult,
 } from "./adapters/html.ts";
 export { JsonAdapter, type JsonOptions } from "./adapters/json.ts";
+export { GroupAdapter, type GroupOptions } from "./adapters/group.ts";
+export { type CosineOptions, type Comparator } from "./adapters/cosine.ts";

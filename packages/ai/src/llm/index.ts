@@ -12,6 +12,7 @@ export type {
   LlmModelConfigOllama,
   LlmModelConfigOpenAI,
   LlmModelConfigOpenRouter,
+  LlmModelId,
   LlmOllamaProviderOptions,
   LlmOpenAIProviderOptions,
   LlmOpenRouterProviderOptions,

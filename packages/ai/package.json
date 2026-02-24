@@ -25,8 +25,9 @@
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.46",
     "@ai-sdk/google": "^3.0.30",
-    "@ai-sdk/openai": "^3.0.30",
-    "@modelcontextprotocol/sdk": "^1.26.0",
+    "@ai-sdk/openai": "^3.0.31",
+    "@huggingface/transformers": "^3.8.1",
+    "@modelcontextprotocol/sdk": "^1.27.0",
     "@openrouter/ai-sdk-provider": "^2.2.3",
     "@routecraft/routecraft": "workspace:^0.3.0",
     "@standard-schema/spec": "^1.1.0",

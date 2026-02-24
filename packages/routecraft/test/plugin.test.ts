@@ -23,16 +23,16 @@ describe("Plugin System", () => {
    * @expectedResult Plugin is called with the context
    */
   test("Plugin receives context", async () => {
-    const pluginMock = vi.fn<[CraftContext], void>();
+    const applyMock = vi.fn<[CraftContext], void>();
 
     t = await testContext()
       .with({
-        plugins: [pluginMock as CraftPlugin],
+        plugins: [{ apply: applyMock }],
       })
       .build();
 
-    expect(pluginMock).toHaveBeenCalledWith(t.ctx);
-    expect(pluginMock).toHaveBeenCalledTimes(1);
+    expect(applyMock).toHaveBeenCalledWith(t.ctx);
+    expect(applyMock).toHaveBeenCalledTimes(1);
   });
 
   /**
@@ -42,9 +42,15 @@ describe("Plugin System", () => {
    */
   test("Multiple plugins run in order", async () => {
     const callOrder: string[] = [];
-    const plugin1 = vi.fn(() => callOrder.push("plugin1")) as CraftPlugin;
-    const plugin2 = vi.fn(() => callOrder.push("plugin2")) as CraftPlugin;
-    const plugin3 = vi.fn(() => callOrder.push("plugin3")) as CraftPlugin;
+    const plugin1: CraftPlugin = {
+      apply: () => callOrder.push("plugin1"),
+    };
+    const plugin2: CraftPlugin = {
+      apply: () => callOrder.push("plugin2"),
+    };
+    const plugin3: CraftPlugin = {
+      apply: () => callOrder.push("plugin3"),
+    };
 
     t = await testContext()
       .with({
@@ -63,8 +69,10 @@ describe("Plugin System", () => {
   test("Plugin can subscribe to context events", async () => {
     const eventMock = vi.fn();
 
-    const plugin = (ctx: CraftContext) => {
-      ctx.on("contextStarted", eventMock);
+    const plugin: CraftPlugin = {
+      apply(ctx: CraftContext) {
+        ctx.on("contextStarted", eventMock);
+      },
     };
 
     t = await testContext()
@@ -91,8 +99,10 @@ describe("Plugin System", () => {
    * @expectedResult Store value is accessible after plugin runs
    */
   test("Plugin can set up stores", async () => {
-    const plugin = (ctx: CraftContext) => {
-      ctx.setStore("test-plugin-key" as any, { data: "test" });
+    const plugin: CraftPlugin = {
+      apply(ctx: CraftContext) {
+        ctx.setStore("test-plugin-key" as any, { data: "test" });
+      },
     };
 
     t = await testContext()
@@ -111,15 +121,16 @@ describe("Plugin System", () => {
    * @expectedResult Routes registered by plugin are available
    */
   test("Plugin can dynamically register routes before routes are registered", async () => {
-    const plugin = (ctx: CraftContext) => {
-      // Plugin can add routes before the main routes are registered
-      ctx.registerRoutes(
-        craft()
-          .id("plugin-added-route")
-          .from(simple("from-plugin"))
-          .to(noop())
-          .build()[0],
-      );
+    const plugin: CraftPlugin = {
+      apply(ctx: CraftContext) {
+        ctx.registerRoutes(
+          craft()
+            .id("plugin-added-route")
+            .from(simple("from-plugin"))
+            .to(noop())
+            .build()[0],
+        );
+      },
     };
 
     t = await testContext()
@@ -148,8 +159,10 @@ describe("Plugin System", () => {
   test("Plugin runs before routes are registered and can access context", async () => {
     let routeCountInPlugin = 0;
 
-    const plugin = (ctx: CraftContext) => {
-      routeCountInPlugin = ctx.getRoutes().length;
+    const plugin: CraftPlugin = {
+      apply(ctx: CraftContext) {
+        routeCountInPlugin = ctx.getRoutes().length;
+      },
     };
 
     t = await testContext()
@@ -174,18 +187,18 @@ describe("Plugin System", () => {
    * @expectedResult All plugins run
    */
   test("Plugins from config execute", async () => {
-    const plugin1 = vi.fn<[CraftContext], void>() as CraftPlugin;
-    const plugin2 = vi.fn<[CraftContext], void>() as CraftPlugin;
+    const apply1 = vi.fn<[CraftContext], void>();
+    const apply2 = vi.fn<[CraftContext], void>();
 
     t = await testContext()
       .routes(craft().id("test").from(simple("hello")).to(noop()))
       .with({
-        plugins: [plugin1, plugin2],
+        plugins: [{ apply: apply1 }, { apply: apply2 }],
       })
       .build();
 
-    expect(plugin1).toHaveBeenCalled();
-    expect(plugin2).toHaveBeenCalled();
+    expect(apply1).toHaveBeenCalled();
+    expect(apply2).toHaveBeenCalled();
   });
 
   /**
@@ -195,15 +208,19 @@ describe("Plugin System", () => {
    */
   test("Plugins accumulate from multiple builder calls", async () => {
     const calls: string[] = [];
-    const plugin1 = () => calls.push("plugin1");
-    const plugin2 = () => calls.push("plugin2");
+    const plugin1: CraftPlugin = {
+      apply: () => calls.push("plugin1"),
+    };
+    const plugin2: CraftPlugin = {
+      apply: () => calls.push("plugin2"),
+    };
 
     t = await testContext()
       .with({
-        plugins: [plugin1 as CraftPlugin],
+        plugins: [plugin1],
       })
       .with({
-        plugins: [plugin2 as CraftPlugin],
+        plugins: [plugin2],
       })
       .build();
 

@@ -148,6 +148,54 @@ export interface LlmResult {
   raw?: unknown;
 }
 
+/**
+ * Recommended LLM model ids for autocomplete (chat/completion use cases).
+ * Format: "providerId:modelName". Custom models are allowed via string.
+ * Updated for 2026.
+ */
+export type LlmModelId =
+  // OpenAI (2026: GPT-5.2, Codex, o1)
+  | "openai:gpt-5.2"
+  | "openai:gpt-5.2-codex"
+  | "openai:gpt-5"
+  | "openai:gpt-5.1-chat-latest"
+  | "openai:gpt-5-mini"
+  | "openai:gpt-5-codex-mini"
+  | "openai:gpt-4o"
+  | "openai:gpt-4o-mini"
+  | "openai:o1"
+  | "openai:o1-mini"
+  // Anthropic (2026: Claude 4.6 / 4.5)
+  | "anthropic:claude-opus-4-6"
+  | "anthropic:claude-sonnet-4-6"
+  | "anthropic:claude-haiku-4-5"
+  // Ollama (common local models)
+  | "ollama:qwen3"
+  | "ollama:llama3.2"
+  | "ollama:llama3.3"
+  | "ollama:mistral"
+  | "ollama:gemma2"
+  | "ollama:deepseek-r1"
+  | "ollama:lfm2.5-thinking"
+  // OpenRouter (top open-weight / frontier: GLM, Kimi, Qwen, DeepSeek)
+  | "openrouter:z-ai/glm-5"
+  | "openrouter:z-ai/glm-4.7"
+  | "openrouter:moonshotai/kimi-k2-thinking"
+  | "openrouter:qwen/qwen3.5-plus-02-15"
+  | "openrouter:qwen/qwen3-next"
+  | "openrouter:deepseek/deepseek-v3.2"
+  | "openrouter:deepseek/deepseek-r1"
+  | "openrouter:meta-llama/llama-3.3-70b-instruct"
+  // Gemini (2026: 2.5 + 3.x preview)
+  | "gemini:gemini-2.5-pro"
+  | "gemini:gemini-2.5-flash"
+  | "gemini:gemini-2.5-flash-lite"
+  | "gemini:gemini-3.1-pro-preview"
+  | "gemini:gemini-3-pro-preview"
+  | "gemini:gemini-3-flash-preview"
+  // Other (custom models)
+  | string;
+
 export interface LlmPluginOptions {
   /**
    * Supported providers keyed by id. Only set options you need (defaults for url etc. apply).
