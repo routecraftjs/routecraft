@@ -1,3 +1,4 @@
+import { ENRICH_MERGE_TYPE } from "../brand.ts";
 import { type Adapter, type Step } from "../types.ts";
 import {
   type Exchange,
@@ -6,26 +7,36 @@ import {
 } from "../exchange.ts";
 import { type Destination, type CallableDestination } from "./to.ts";
 
-/** Aggregator used by .enrich() to merge destination result with the current exchange. */
+/**
+ * Aggregator used by `.enrich()` to merge the destination result with the current exchange.
+ * Receives the original exchange and the enrichment result; returns the (possibly mutated) exchange.
+ *
+ * @template T - Current body type
+ * @template R - Type returned by the enrichment destination
+ */
 export type DestinationAggregator<T = unknown, R = unknown> = (
   original: Exchange<T>,
   enrichmentData: R,
 ) => Exchange<T>;
 
 /**
- * When an aggregator has __enrichMerge, .enrich() infers the result body type as Current & __enrichMerge.
- * Used by only(getValue, into) when into is a string literal.
+ * When an aggregator is branded with [ENRICH_MERGE_TYPE], `.enrich()` infers the result body as `Current & shape`.
+ * Used by `only(getValue, into)` when `into` is a string literal for type inference.
  */
 export type EnrichMergeShape = Record<string, unknown>;
 
 /**
- * Default aggregator for .enrich() - merges the result into the exchange body.
+ * Default aggregator for `.enrich()`: merges the enrichment result into the exchange body.
  *
- * - If enrichment data is undefined or null, returns the original exchange unchanged.
- * - If enrichment data is an object, it is spread onto the body (no wrapping).
- * - If enrichment data is a primitive (e.g. string), it cannot be spread, so it is
- *   set as body.stdout and merged with the original body.
- * - If the original body is not an object, it is treated as body.stdout before merging.
+ * - undefined/null: exchange unchanged.
+ * - Object: spread onto body.
+ * - Primitive/array: set at body.stdout or body.array; non-object bodies are wrapped as { stdout } first.
+ *
+ * @example
+ * ```typescript
+ * .enrich(http({ url: 'https://api.example.com/user' }))
+ * // Response body is spread onto exchange.body; no need to pass aggregator.
+ * ```
  */
 export const defaultEnrichAggregator = <T = unknown, R = unknown>(
   original: Exchange<T>,
@@ -54,17 +65,28 @@ export const defaultEnrichAggregator = <T = unknown, R = unknown>(
 };
 
 /**
- * Returns an aggregator for .enrich() that merges a single extracted value into the exchange body.
- * When `into` is omitted: plain objects are spread onto body; strings/primitives go to body.stdout;
- * arrays go to body.array. When `into` is provided, the value is set at body[into].
- * Null/undefined from getValue is never merged (exchange unchanged).
- * When `into` is a string literal, .enrich() infers the result body type as Current & { [into]: V }.
- * Returns DestinationAggregator<unknown, unknown> & __enrichMerge; the builder accepts this via a union.
+ * Returns an aggregator for `.enrich()` that merges a single value from the enrichment result into the body.
+ *
+ * - `getValue(enrichmentData)` extracts the value; null/undefined are not merged.
+ * - If `into` is omitted: plain objects are spread onto body; primitives go to `body.stdout`; arrays to `body.array`.
+ * - If `into` is provided: the value is set at `body[into]`. When `into` is a string literal, the builder infers body as `Current & { [into]: V }`.
+ *
+ * @param getValue - Function to extract the value from the enrichment result
+ * @param into - Optional key to set on body (enables type inference when a string literal)
+ * @returns An aggregator usable with `.enrich(destination, aggregator)`
+ *
+ * @example
+ * ```typescript
+ * .enrich(http({ url: (ex) => `https://api.example.com/users/${ex.body.userId}` }), only((r) => r.body.name, 'userName'))
+ * // Body type becomes Current & { userName: string }
+ * ```
  */
 export function only<R, V, K extends string>(
   getValue: (enrichmentData: R) => V,
   into: K,
-): DestinationAggregator<unknown, unknown> & { __enrichMerge: Record<K, V> };
+): DestinationAggregator<unknown, unknown> & {
+  [ENRICH_MERGE_TYPE]: Record<K, V>;
+};
 export function only<T = unknown, R = unknown, V = unknown>(
   getValue: (enrichmentData: R) => V,
   into?: string,
@@ -108,7 +130,15 @@ export function only<T = unknown, R = unknown, V = unknown>(
   };
 }
 
-/** No-op aggregator for .enrich() - returns the original exchange unchanged. */
+/**
+ * No-op aggregator for `.enrich()`: returns the original exchange unchanged (enrichment is ignored).
+ * Use when you only need the side effect of calling the destination (e.g. logging or triggering an API).
+ *
+ * @example
+ * ```typescript
+ * .enrich(http({ url: 'https://api.example.com/ping' }), none())
+ * ```
+ */
 export const none = <T = unknown, R = unknown>(): DestinationAggregator<
   T,
   R
@@ -120,16 +150,18 @@ export const none = <T = unknown, R = unknown>(): DestinationAggregator<
 };
 
 /**
- * Step that enriches the exchange with additional data from a destination adapter.
- * Uses the same Destination adapters as .to() but with a different default aggregator.
+ * Aggregator type accepted by EnrichStep. Includes `only()` return type (with [ENRICH_MERGE_TYPE]) for body-type inference.
  */
-/** Aggregator type accepted by EnrichStep; includes branded only() return for body-type inference. */
 export type EnrichAggregatorOption<T, R> =
   | DestinationAggregator<T, R>
   | (DestinationAggregator<unknown, unknown> & {
-      __enrichMerge?: EnrichMergeShape;
+      [ENRICH_MERGE_TYPE]?: EnrichMergeShape;
     });
 
+/**
+ * Step that enriches the exchange with data from a destination (e.g. HTTP lookup).
+ * Uses the same Destination adapters as `.to()`; by default merges the result into the body. Optional aggregator (e.g. `only()`, `none()`) controls how the result is merged.
+ */
 export class EnrichStep<T = unknown, R = unknown> implements Step<
   Destination<T, R>
 > {

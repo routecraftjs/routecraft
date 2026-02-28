@@ -1,16 +1,20 @@
 /**
- * Cosine similarity comparator for use with group(). Reads a vector field from
- * each item and returns true when similarity exceeds the threshold.
+ * Comparator for grouping: returns true when two items should be in the same group.
+ * Used with `group({ comparator })`.
+ *
+ * @template T - Item type (e.g. object with an embedding field)
  */
-
 export interface Comparator<T = unknown> {
   compare: (a: T, b: T) => boolean;
 }
 
+/**
+ * Options for the cosine similarity comparator.
+ */
 export interface CosineOptions {
-  /** Field on each item that holds the embedding (number[]). */
+  /** Property on each item that holds the embedding vector (number[]). */
   field: string;
-  /** Similarity threshold (0–1). Items are grouped when similarity > threshold. Default: 0.82 */
+  /** Similarity threshold in 0–1. Items are grouped when similarity > threshold. Default: 0.82 */
   threshold?: number;
 }
 
@@ -29,8 +33,20 @@ function cosineSimilarity(a: number[], b: number[]): number {
 }
 
 /**
- * Creates a comparator that groups items by cosine similarity of a vector field.
- * Use with group(): group({ comparator: cosine({ field: 'embedding', threshold: 0.82 }) }).
+ * Creates a comparator that groups items by cosine similarity of a numeric vector field.
+ * Use with `group({ comparator: cosine(options) })`.
+ *
+ * @param options - `field` (path to number[] on each item), optional `threshold` (default 0.82)
+ * @returns A Comparator that returns true when two items' vectors have similarity > threshold
+ *
+ * @example
+ * ```typescript
+ * .transform(group({
+ *   comparator: cosine({ field: 'embedding', threshold: 0.85 }),
+ *   from: (body) => body.items,
+ *   map: (cluster) => ({ count: cluster.length, centroid: cluster[0] })
+ * }))
+ * ```
  */
 export function cosine<T = unknown>(options: CosineOptions): Comparator<T> {
   const { field, threshold = 0.82 } = options;

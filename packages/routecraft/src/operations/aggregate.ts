@@ -7,6 +7,13 @@ import {
 } from "../exchange.ts";
 import { error as rcError } from "../error.ts";
 
+/**
+ * Function form of an aggregator: takes an array of exchanges and returns one combined exchange.
+ * Use with `.aggregate(aggregator)`. Default aggregator collects bodies into an array.
+ *
+ * @template T - Body type of incoming exchanges
+ * @template R - Result body type (default T)
+ */
 export type CallableAggregator<T = unknown, R = T> = (
   exchanges: Exchange<T>[],
 ) => Promise<Exchange<R>> | Exchange<R>;
@@ -76,10 +83,21 @@ export const defaultAggregate = <T>(
   };
 };
 
+/**
+ * Aggregator adapter: combines multiple exchanges (e.g. after a split) into one.
+ * Used with `.aggregate()`. Default: collect bodies into an array (with one-level flattening).
+ *
+ * @template T - Body type of incoming exchanges
+ * @template R - Result body type
+ */
 export interface Aggregator<T = unknown, R = unknown> extends Adapter {
   aggregate: CallableAggregator<T, R>;
 }
 
+/**
+ * Step that aggregates exchanges from the same split group into a single exchange.
+ * Uses the split hierarchy header to collect siblings; then runs the aggregator and continues with the result.
+ */
 export class AggregateStep<T = unknown, R = unknown> implements Step<
   Aggregator<T, R>
 > {

@@ -93,13 +93,17 @@ export class JsonAdapter<
 }
 
 /**
- * Create a JSON transformer that parses a JSON string and optionally extracts a value by path.
- * By default uses body (or body.body when object) as the JSON string and replaces the entire body with the result.
- * Use getValue(parsed) to extract/type the value (inferred V); use `from` to read a sub-field and `to` to write the result into body.
- * When getValue is provided and to is omitted, the output type is V.
+ * Creates a JSON transformer: parses a JSON string and optionally extracts a value by path.
+ * By default uses body (or body.body when object) as the JSON string and replaces the body with the result. Use `path` for dot-notation extraction, `getValue(parsed)` to extract and type the value, `from`/`to` to read/write sub-fields.
  *
- * @param options - optional path, optional from(body) to get JSON string, optional getValue(parsed) to extract/type result, optional to(body, result) to write result into body
- * @returns Transformer
+ * @param options - Optional `path`, `from(body)`, `getValue(parsed)`, `to(body, result)`
+ * @returns A Transformer; when `getValue` is provided and `to` is omitted, output type is inferred from getValue
+ *
+ * @example
+ * ```typescript
+ * .transform(json({ path: 'data.items' }))
+ * .transform(json({ from: (b) => b.raw, getValue: (p) => p as User[], to: (b, users) => ({ ...b, users }) }))
+ * ```
  */
 export function json<T, R, V>(
   options: JsonOptions<T, R, V> & {

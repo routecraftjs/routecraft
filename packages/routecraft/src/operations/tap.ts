@@ -12,8 +12,10 @@ import { type Destination, type CallableDestination } from "./to.ts";
 import type { CraftContext } from "../context.ts";
 
 /**
- * Create a snapshot of an exchange for async tap execution.
- * Deep clones body and headers; correlation ID is preserved.
+ * Creates a snapshot of an exchange for async tap execution.
+ * Deep-clones body and headers; correlation id is preserved. Used so tap can run in the background without mutating the main exchange.
+ *
+ * @internal
  */
 function snapshotExchange<T>(
   exchange: Exchange<T>,
@@ -26,6 +28,11 @@ function snapshotExchange<T>(
   });
 }
 
+/**
+ * Step that runs a destination as a side effect without changing the main exchange.
+ * The tap runs asynchronously (route.trackTask); the main flow continues immediately.
+ * Tap receives a snapshot of the exchange (body/headers cloned). Errors are emitted as `error` and rethrown for observability.
+ */
 export class TapStep<T = unknown> implements Step<Destination<T, unknown>> {
   operation: OperationType = OperationType.TAP;
   adapter: Destination<T, unknown>;

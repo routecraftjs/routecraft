@@ -47,10 +47,16 @@ export interface TimerOptions {
 }
 
 /**
- * Create a timer adapter that produces messages at regular intervals.
+ * Creates a source that emits at a fixed interval (or at exact times). Body is undefined; timer metadata is in exchange headers (routecraft.timer.*).
  *
- * @param options Configuration for the timer
- * @returns A TimerAdapter instance
+ * @param options - intervalMs, delayMs, repeatCount, fixedRate, exactTime, timePattern, jitterMs
+ * @returns A Source usable with `.from(timer(options))`
+ *
+ * @example
+ * ```typescript
+ * .from(timer({ intervalMs: 5000, repeatCount: 10 }))
+ * .from(timer({ exactTime: '09:00:00' }))
+ * ```
  */
 export function timer(options?: TimerOptions): TimerAdapter {
   return new TimerAdapter(options);

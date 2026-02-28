@@ -32,13 +32,17 @@ export type HttpResult<T = string | unknown> = {
 };
 
 /**
- * Create an HTTP client adapter for making requests.
- * Can be used with both .to() and .enrich() operations.
+ * Creates an HTTP client destination. Use with `.to()`, `.enrich()`, or `.tap()`.
+ * Supports dynamic url, headers, query, and body from the exchange.
  *
- * @template T The type of exchange body
- * @template R The type of the response body
- * @param options HTTP configuration
- * @returns An HttpAdapter instance
+ * @param options - method, url (string or (exchange) => string), optional headers, query, body, timeoutMs, throwOnHttpError
+ * @returns A Destination that returns { status, headers, body, url }
+ *
+ * @example
+ * ```typescript
+ * .to(http({ url: 'https://api.example.com/ingest', method: 'POST', body: (ex) => ex.body }))
+ * .enrich(http({ url: (ex) => `https://api.example.com/users/${ex.body.userId}` }))
+ * ```
  */
 export function http<T = unknown, R = unknown>(
   options: HttpOptions<T>,

@@ -3,13 +3,18 @@ import { type Exchange, type ExchangeHeaders } from "../exchange";
 import { CraftContext } from "../context";
 
 /**
- * Create a simple adapter that produces static or dynamically generated data.
+ * Creates a source that produces a single value (or one value per call from a function).
+ * Use as the first step in a route with `.from(simple(...))`.
  *
- * This adapter can be used as a source in a route to provide data.
+ * @template T - Body type produced
+ * @param producer - Static value, or function that returns T | Promise<T>
+ * @returns A Source usable with `.from(simple(producer))`
  *
- * @template T The type of data to produce
- * @param producer A static value or function that produces a value
- * @returns A SimpleAdapter instance
+ * @example
+ * ```typescript
+ * .from(simple('hello'))
+ * .from(simple(() => fetch('/api/data').then(r => r.json())))
+ * ```
  */
 export function simple<T = unknown>(
   producer: (() => T | Promise<T>) | T,

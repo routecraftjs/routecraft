@@ -5,7 +5,6 @@ globs:
     "packages/routecraft/src/**/*.ts",
     "packages/ai/src/**/*.ts",
     "examples/**/*.ts",
-    "examples/**/*.mjs",
   ]
 alwaysApply: false
 ---
@@ -20,6 +19,7 @@ RouteCraft must be **100% type safe**. The exchange body (or destination result)
 - **Destinations** (e.g. `to`, `tap`, `enrich`): Declare the result type `R` they return. When a schema or typed option is provided (e.g. `llm(..., { outputSchema })`), the result type must reflect it (e.g. `LlmResultWithOutput<S>`).
 - **Steps** (transform, process, filter, validate, header, split, aggregate, enrich): Input is `Current`; output type must be explicit. After a step, the route’s `Current` type must be updated so the next step receives the correct type (e.g. after `.transform(fn)` the type becomes the return type of `fn`; after `.enrich(dest, only(..., "links"))` the type becomes `Current & { links: V }`).
 - **Helpers** (e.g. `only`, `json`): Preserve or infer types. `only(getValue, into)` should type `getValue` as `(r: R) => V` and, when `into` is a string literal, allow the builder to infer the enriched body type. `json({ getValue })` should infer the output type from `getValue`’s return type when `to` is omitted.
+- **Runtime:** The builder chain is fully typed. The runnable `Route` and event/consumer handlers receive `Exchange` (body: `unknown`) at runtime; use `Route<T>` when you know the body type, or narrow/assert in handlers. Event payloads use `Exchange<unknown>` for consistency.
 
 ### Rules
 

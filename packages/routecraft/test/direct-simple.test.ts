@@ -1,6 +1,13 @@
 import { describe, test, expect, afterEach, vi } from "vitest";
 import { testContext, type TestContext } from "@routecraft/testing";
-import { context, craft, simple, direct } from "@routecraft/routecraft";
+import {
+  context,
+  craft,
+  simple,
+  direct,
+  type CallableDestination,
+  type Source,
+} from "@routecraft/routecraft";
 
 describe("Direct adapter", () => {
   let t: TestContext;
@@ -105,6 +112,7 @@ describe("Direct adapter", () => {
               { type: "b", data: "message-b" },
             ]),
           )
+          .split()
           .to(direct((ex) => `handler-${ex.body.type}`)),
         craft().id("handler-a").from(direct("handler-a", {})).to(handlerA),
         craft().id("handler-b").from(direct("handler-b", {})).to(handlerB),
@@ -213,9 +221,10 @@ describe("Direct adapter", () => {
         .routes([
           craft()
             .id("invalid-consumer")
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            .from(direct((ex) => "dynamic-endpoint"))
-            .to(vi.fn()),
+            .from(
+              direct(() => "dynamic-endpoint") as unknown as Source<unknown>,
+            )
+            .to(vi.fn() as CallableDestination<unknown, void>),
         ])
         .build();
     }).not.toThrow(); // Building doesn't throw
@@ -224,9 +233,8 @@ describe("Direct adapter", () => {
       .routes([
         craft()
           .id("invalid-consumer")
-          // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          .from(direct((ex) => "dynamic-endpoint"))
-          .to(vi.fn()),
+          .from(direct(() => "dynamic-endpoint") as unknown as Source<unknown>)
+          .to(vi.fn() as CallableDestination<unknown, void>),
       ])
       .build();
 
@@ -263,6 +271,7 @@ describe("Direct adapter", () => {
               { type: "order", id: 4 },
             ]),
           )
+          .split()
           .to(direct((ex) => `${ex.body.type}-handler`)),
         craft()
           .id("order-consumer")

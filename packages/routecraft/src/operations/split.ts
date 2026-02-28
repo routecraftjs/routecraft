@@ -12,14 +12,32 @@ import {
 } from "../exchange.ts";
 import type { Route } from "../route.ts";
 
+/**
+ * Function form of a splitter: takes the current body and returns an array of items.
+ * Each item becomes a new exchange. Use with `.split(splitter)` or no-arg `.split()` for arrays.
+ *
+ * @template T - Current body type
+ * @template R - Item type (each becomes one exchange)
+ */
 export type CallableSplitter<T = unknown, R = unknown> = (
   body: T,
 ) => Promise<R[]> | R[];
 
+/**
+ * Splitter adapter: turns one body into many; each item is processed as a separate exchange.
+ * Used with `.split()`. Default (no adapter): array bodies are split into elements; non-arrays become one item.
+ *
+ * @template T - Current body type
+ * @template R - Item type
+ */
 export interface Splitter<T = unknown, R = unknown> extends Adapter {
   split: CallableSplitter<T, R>;
 }
 
+/**
+ * Step that splits the exchange body into multiple exchanges (e.g. one per array element).
+ * Each new exchange gets a new id and shared split hierarchy for aggregation.
+ */
 export class SplitStep<T = unknown, R = unknown> implements Step<
   Splitter<T, R>
 > {

@@ -1,4 +1,4 @@
-import { BRAND } from "./brand.ts";
+import { BRAND, setBrand } from "./brand.ts";
 
 export type RCCode =
   | "RC1001"
@@ -175,7 +175,7 @@ export class RouteCraftError extends Error {
     super(meta.message, { cause });
     this.name = "RouteCraftError";
     this.retryable = meta.retryable;
-    (this as unknown as Record<symbol, boolean>)[BRAND.RouteCraftError] = true;
+    setBrand(this, BRAND.RouteCraftError);
   }
 
   override toString(): string {
@@ -226,6 +226,19 @@ export class RouteCraftError extends Error {
   }
 }
 
+/**
+ * Creates a RouteCraftError with the given code and optional cause/overrides.
+ *
+ * @param rc - Error code from the RC registry (e.g. "RC5001", "RC1002")
+ * @param cause - Optional underlying error (stored as cause, message can be overridden)
+ * @param overrides - Optional overrides for message, suggestion, or docs
+ * @returns A RouteCraftError instance (branded, with retryable from RC meta)
+ *
+ * @example
+ * ```typescript
+ * throw error("RC5002", new Error("Invalid payload"), { message: "Validation failed" });
+ * ```
+ */
 export function error(
   rc: RCCode,
   cause?: unknown,

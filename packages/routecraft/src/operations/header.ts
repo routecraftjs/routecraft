@@ -2,22 +2,30 @@ import { type Adapter, type Step } from "../types.ts";
 import { type Exchange, OperationType, type HeaderValue } from "../exchange.ts";
 
 /**
- * Header: set or override a single exchange header.
- * - Returns the same body; only headers are changed
- * - Prefer this over `.process` when only a header needs updating
+ * Function that returns the value for a header. Can be async. Use with `.header(key, valueOrFn)`.
+ *
+ * @template T - Body type of the exchange
  */
-
 export type CallableHeaderSetter<T = unknown> = (
   exchange: Exchange<T>,
 ) => Promise<HeaderValue> | HeaderValue;
 
+/**
+ * Header setter adapter: sets or overrides one exchange header. Body is unchanged.
+ * Used by the builder's `.header(key, valueOrFn)`.
+ *
+ * @template T - Body type
+ */
 export interface HeaderSetter<T = unknown> extends Adapter {
-  /** Header key to set */
+  /** Header key to set (e.g. `x-request-id`, `routecraft.custom`) */
   key: string;
-  /** Function that computes the header value from exchange data */
+  /** Computes the header value from the exchange (or static value via wrapper) */
   set: CallableHeaderSetter<T>;
 }
 
+/**
+ * Step that sets or overrides a single header on the exchange. Body type is unchanged.
+ */
 export class HeaderStep<T = unknown> implements Step<HeaderSetter<T>> {
   operation: OperationType = OperationType.HEADER;
   adapter: HeaderSetter<T>;

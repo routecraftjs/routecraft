@@ -1,6 +1,39 @@
 import { describe, test, expectTypeOf } from "vitest";
+import { z } from "zod";
 import { craft, simple, only, json } from "../src/index.ts";
 import type { RouteBuilder } from "../src/builder.ts";
+
+describe("validate() type safety", () => {
+  const nameSchema = z.object({ name: z.string() });
+
+  /**
+   * @case validate(schema) narrows body type to schema output
+   * @preconditions .from(simple({ id: 0 })).validate(nameSchema)
+   * @expectedResult RouteBuilder<{ name: string }> (StandardSchemaV1.InferOutput of schema)
+   */
+  test("validate(schema) infers RouteBuilder with schema output type", () => {
+    const route = craft()
+      .from(simple({ id: 0 }))
+      .validate(nameSchema);
+    expectTypeOf(route).toEqualTypeOf<RouteBuilder<{ name: string }>>();
+  });
+});
+
+describe("enrich() without aggregator type safety", () => {
+  /**
+   * @case enrich(dest) with no aggregator infers Current & R from destination
+   * @preconditions .from(simple({ userId: 1 })).enrich(async () => ({ links: [...] }))
+   * @expectedResult RouteBuilder<{ userId: number } & { links: string[] }>
+   */
+  test("enrich(destination) infers Current & R from destination result type", () => {
+    const route = craft()
+      .from(simple({ userId: 1 }))
+      .enrich(async () => ({ links: ["a", "b"] as string[] }));
+    expectTypeOf(route).toEqualTypeOf<
+      RouteBuilder<{ userId: number } & { links: string[] }>
+    >();
+  });
+});
 
 describe("only() and json() type safety", () => {
   /**

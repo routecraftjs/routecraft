@@ -390,15 +390,26 @@ export class DirectAdapter<T = unknown>
 }
 
 /**
- * Create a direct adapter for synchronous inter-route communication.
+ * Creates a direct adapter for synchronous, in-process inter-route messaging.
  *
- * - direct(endpoint, options) with second argument (even {}) returns Source<T> — use in .from().
- * - direct(endpoint) or direct(function) with no second argument returns Destination<T, T> — use in .to() / .tap().
+ * - **Source (for `.from()`):** Call with two arguments: `direct(endpoint, options)`. Pass `{}` for options if you need no schema/description. Body type is inferred from `options.schema` when provided.
+ * - **Destination (for `.to()` / `.tap()`):** Call with one argument: `direct(endpoint)` or `direct((exchange) => endpointString)`.
  *
- * @template S When options.schema is provided, inferred from it; body type becomes StandardSchemaV1.InferOutput<S>. Otherwise unknown.
- * @param endpoint The name of the direct endpoint (string) or a function that returns the endpoint name based on the exchange
- * @param options Source options (pass {} for bare source); omit for destination.
- * @returns Source with body type inferred from options.schema when present, else unknown; or Destination when no options
+ * Semantics: single consumer per endpoint (last subscriber wins), blocking send (sender waits for response).
+ *
+ * @param endpoint - Endpoint name (string) or function (exchange) => endpoint string
+ * @param options - Optional. If provided (even `{}`), returns a Source; if omitted, returns a Destination
+ * @returns Source when options is provided; Destination when options is omitted
+ *
+ * @example
+ * ```typescript
+ * // Source route (server)
+ * .from(direct('/ingest', { schema: mySchema, description: 'Ingest API' }))
+ *
+ * // Destination (client)
+ * .to(direct('/ingest'))
+ * .to(direct((ex) => ex.headers['x-endpoint'] as string))
+ * ```
  */
 export function direct<S extends StandardSchemaV1 | undefined = undefined>(
   endpoint: string,

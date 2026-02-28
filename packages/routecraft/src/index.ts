@@ -94,6 +94,7 @@ export {
 
 export {
   BRAND,
+  ENRICH_MERGE_TYPE,
   INTERNALS_KEY,
   isCraftContext,
   isRoute,

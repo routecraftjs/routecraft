@@ -148,8 +148,16 @@ export const logger =
   destination !== undefined ? pino(options, destination) : pino(options);
 
 /**
- * Return bindings for logger.child() for the given context (CraftContext, Route, or Exchange).
- * Use: logger.child(childBindings(ctx))
+ * Returns pino child logger bindings for the given context so logs include contextId, route, exchangeId, etc.
+ *
+ * @param context - CraftContext, Route, or Exchange instance
+ * @returns Object of key-value bindings (e.g. { contextId, route, correlationId, exchangeId })
+ *
+ * @example
+ * ```typescript
+ * const child = logger.child(childBindings(exchange));
+ * child.info({ extra: 1 }, 'Processing');
+ * ```
  */
 export function childBindings(
   context: CraftContext | Route | Exchange,

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { BRAND, isRouteBuilder } from "./brand.ts";
+import { BRAND, ENRICH_MERGE_TYPE, isRouteBuilder, setBrand } from "./brand.ts";
 import { type RouteDefinition } from "./route.ts";
 import {
   CraftContext,
@@ -312,26 +312,32 @@ export class RouteBuilder<Current = unknown> {
     | undefined;
 
   constructor() {
-    (this as unknown as Record<symbol, boolean>)[BRAND.RouteBuilder] = true;
+    setBrand(this, BRAND.RouteBuilder);
   }
 
   /**
-   * Internal method to create a new RouteBuilder with an updated type parameter.
-   * This is used to propagate type information through the method chain.
+   * Safe identity cast: same instance, type parameter updated for the next step.
+   * Used to propagate body/result type through the method chain.
    *
-   * @template T The new type to use for the RouteBuilder
-   * @returns A new RouteBuilder instance with the updated type
+   * @template T - The body type for the next step
+   * @returns This builder typed as RouteBuilder<T>
    * @private
    */
   private withType<T>(): RouteBuilder<T> {
-    // This cast is necessary but safe because we're not changing the instance,
-    // just the type parameter
     return this as unknown as RouteBuilder<T>;
   }
 
   /**
    * Set the route id for the next route to be created.
-   * This stages the id and does not affect the current route if one exists.
+   * Stages the id; does not affect the current route if one already exists.
+   *
+   * @param id - Unique route identifier (used in logs and context.getRouteById())
+   * @returns This builder for chaining
+   *
+   * @example
+   * ```typescript
+   * craft().id('ingest-api').from(httpServer({ path: '/ingest' })).to(log()).build();
+   * ```
    */
   id(id: string): this {
     this.pendingOptions = { ...(this.pendingOptions ?? {}), id };
@@ -341,7 +347,15 @@ export class RouteBuilder<Current = unknown> {
 
   /**
    * Configure batch processing for the next route to be created.
-   * This stages the batch consumer and does not affect the current route if one exists.
+   * Stages the batch consumer; does not affect the current route if one already exists.
+   *
+   * @param options - Optional `size` (batch size) and `flushIntervalMs` (flush interval)
+   * @returns This builder for chaining
+   *
+   * @example
+   * ```typescript
+   * craft().batch({ size: 10, flushIntervalMs: 1000 }).from(timer(1000)).to(log()).build();
+   * ```
    */
   batch(options?: { size?: number; flushIntervalMs?: number }): this {
     const mapped = {
@@ -394,9 +408,7 @@ export class RouteBuilder<Current = unknown> {
         options: consumer.options ?? undefined,
       },
     };
-    (this.currentRoute as unknown as Record<symbol, boolean>)[
-      BRAND.RouteDefinition
-    ] = true;
+    setBrand(this.currentRoute, BRAND.RouteDefinition);
 
     // Clear staged options once used
     this.pendingOptions = undefined;
@@ -728,9 +740,11 @@ export class RouteBuilder<Current = unknown> {
    *   required: ['name', 'age']
    * })
    */
-  validate(schema: StandardSchemaV1): RouteBuilder<Current> {
+  validate<S extends StandardSchemaV1>(
+    schema: S,
+  ): RouteBuilder<StandardSchemaV1.InferOutput<S>> {
     this.addStep(new ValidateStep(schema));
-    return this.withType<Current>();
+    return this.withType<StandardSchemaV1.InferOutput<S>>();
   }
 
   /**
@@ -757,12 +771,29 @@ export class RouteBuilder<Current = unknown> {
    *   })
    * )
    */
+  enrich<R>(
+    destination: Destination<Current, R> | CallableDestination<Current, R>,
+  ): RouteBuilder<Current & R>;
   enrich<
     R = Current,
     A extends
       | DestinationAggregator<Current, unknown>
       | (DestinationAggregator<unknown, unknown> & {
-          __enrichMerge?: EnrichMergeShape;
+          [ENRICH_MERGE_TYPE]?: EnrichMergeShape;
+        })
+      | undefined = DestinationAggregator<Current, unknown> | undefined,
+  >(
+    destination:
+      | Destination<Current, Partial<R>>
+      | CallableDestination<Current, Partial<R>>,
+    aggregator: A,
+  ): RouteBuilder<A extends { [ENRICH_MERGE_TYPE]: infer M } ? Current & M : R>;
+  enrich<
+    R = Current,
+    A extends
+      | DestinationAggregator<Current, unknown>
+      | (DestinationAggregator<unknown, unknown> & {
+          [ENRICH_MERGE_TYPE]?: EnrichMergeShape;
         })
       | undefined = DestinationAggregator<Current, unknown> | undefined,
   >(
@@ -770,30 +801,31 @@ export class RouteBuilder<Current = unknown> {
       | Destination<Current, Partial<R>>
       | CallableDestination<Current, Partial<R>>,
     aggregator?: A,
-  ): RouteBuilder<A extends { __enrichMerge: infer M } ? Current & M : R> {
+  ): RouteBuilder<
+    A extends { [ENRICH_MERGE_TYPE]: infer M } ? Current & M : R
+  > {
     this.addStep(new EnrichStep<Current, Partial<R>>(destination, aggregator));
     return this.withType<
-      A extends { __enrichMerge: infer M } ? Current & M : R
+      A extends { [ENRICH_MERGE_TYPE]: infer M } ? Current & M : R
     >();
   }
 
   /**
-   * Finalize the route definition and return it.
-   * This method should be called after all steps have been defined.
+   * Finalize and return the route definition(s). Call after defining all steps.
    *
-   * @returns An array of RouteDefinition objects
+   * @returns Array of RouteDefinition (one per `.from()` in this builder chain)
+   *
    * @example
-   * // Define a complete route and build it
-   * const route = craft()
+   * ```typescript
+   * const definitions = craft()
    *   .from<string[]>(source)
    *   .split()
-   *   .process((exchange) => ({ ...exchange, body: exchange.body.toUpperCase() }))
+   *   .process((ex) => ({ ...ex, body: (ex.body as string).toUpperCase() }))
    *   .to(destination)
-   *
-   * // Add the route to a context
-   * context()
-   *   .routes(route)
    *   .build();
+   * const ctx = await context().routes(definitions).build();
+   * await ctx.start();
+   * ```
    */
   build(): RouteDefinition[] {
     logger.trace({ routeCount: this.routes.length }, "Building routes");

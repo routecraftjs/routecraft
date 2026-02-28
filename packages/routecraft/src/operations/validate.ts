@@ -4,19 +4,31 @@ import { FilterStep } from "./filter.ts";
 import { OperationType } from "../exchange.ts";
 import { error as rcError } from "../error.ts";
 
+/** Standard Schema validate() result shape: success has value, failure has issues. */
+interface StandardSchemaResult {
+  value?: unknown;
+  issues?: unknown;
+}
+
+/**
+ * Step that validates the exchange body against a Standard Schema.
+ * On success, the exchange continues; on failure, throws RC5002 with validation issues.
+ * Use with `.validate(schema)`.
+ */
 export class ValidateStep<T = unknown> extends FilterStep<T> {
   override operation: OperationType = OperationType.VALIDATE;
   constructor(schema: StandardSchemaV1) {
     const adapterRef: { label: string | undefined } = { label: undefined };
     super(async (exchange) => {
-      let result = schema["~standard"].validate(exchange.body);
-      if (result instanceof Promise) result = await result;
+      let rawResult = schema["~standard"].validate(exchange.body);
+      if (rawResult instanceof Promise) rawResult = await rawResult;
+      const result = rawResult as StandardSchemaResult;
 
-      // if the `issues` field exists, the validation failed
-      const issues = (result as { issues?: unknown }).issues;
-      if (issues !== undefined && issues !== null) {
+      if (result.issues !== undefined && result.issues !== null) {
         const causeMessage =
-          typeof issues === "object" ? JSON.stringify(issues) : String(issues);
+          typeof result.issues === "object"
+            ? JSON.stringify(result.issues)
+            : String(result.issues);
         throw rcError("RC5002", new Error(causeMessage), {
           message: "Validation failed",
         });

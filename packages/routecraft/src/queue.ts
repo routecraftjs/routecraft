@@ -1,11 +1,10 @@
 import { type ProcessingQueue } from "./types.ts";
 import { type Exchange } from "./exchange.ts";
-// no-op
 
 /**
- * In-memory processing queue used internally by a route to pass
- * messages from the source to the consumer. It's intentionally
- * simpler than the public message channel used by ChannelAdapter.
+ * In-memory processing queue used internally by a route to pass messages from the source to the consumer.
+ * Sources enqueue via `enqueue()`; the route sets a handler via `setHandler()` so each message is processed.
+ * Intentionally minimal (no persistence, no backpressure); for advanced scenarios a custom ProcessingQueue can be used.
  */
 export class InMemoryProcessingQueue<
   T = unknown,

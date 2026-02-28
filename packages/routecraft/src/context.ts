@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { BRAND } from "./brand.ts";
+import { BRAND, setBrand } from "./brand.ts";
 import { ContextBuilder } from "./builder.ts";
 import { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
 import { error as rcError, RC } from "./error.ts";
@@ -20,7 +20,7 @@ import {
  * declare module "@routecraft/routecraft" {
  *   interface StoreRegistry {
  *     "routecraft.adapter.channel.store": Map<string, import("./adapters/channel.ts").MessageChannel>;
- *     "routecraft.adapter.channel.config" Partial<ChannelAdapterOptions>;
+ *     "routecraft.adapter.channel.config": Partial<ChannelAdapterOptions>;
  *   }
  * }
  * ```
@@ -158,7 +158,7 @@ export class CraftContext {
    * @param config Optional configuration for the context
    */
   constructor(config?: CraftConfig) {
-    (this as unknown as Record<symbol, boolean>)[BRAND.CraftContext] = true;
+    setBrand(this, BRAND.CraftContext);
     this.logger = logger.child(childBindings(this));
     if (config) {
       // Initialize store from config
@@ -186,8 +186,11 @@ export class CraftContext {
 
   /**
    * Run plugins from config. Call this before registerRoutes() so plugins can
-   * set up state or dynamically add routes. Fails fast: on first plugin error,
-   * logs, emits "error", and rethrows to abort remaining plugins.
+   * set up state or dynamically add routes.
+   *
+   * Fails fast: on first plugin error, logs, emits `error`, and rethrows.
+   *
+   * @throws Rethrows if any plugin's `apply(ctx)` throws
    */
   async initPlugins(): Promise<void> {
     for (const [pluginIndex, plugin] of this.plugins.entries()) {
@@ -218,7 +221,9 @@ export class CraftContext {
   /**
    * Register a teardown callback to run when the context stops. Plugins use this
    * to release resources (e.g. caches, native handles) after routes have drained.
-   * Callbacks run in registration order after "contextStopped" is emitted.
+   * Callbacks run in registration order after `contextStopped` is emitted.
+   *
+   * @param fn - Callback (sync or async) to run during stop()
    */
   registerTeardown(fn: () => void | Promise<void>): void {
     this.teardownCallbacks.push(fn);
@@ -227,7 +232,17 @@ export class CraftContext {
   /**
    * Subscribe to lifecycle and system events.
    *
-   * Handlers receive payloads with shape { ts, context, details }.
+   * @param event - Event name (e.g. `contextStarting`, `routeStarted`, `error`)
+   * @param handler - Callback receiving `{ ts, context, details }`
+   * @returns Unsubscribe function (call to remove the handler)
+   *
+   * @example
+   * ```typescript
+   * const unsubscribe = ctx.on('routeStarted', ({ details }) => {
+   *   console.log('Route started:', details.route.definition.id);
+   * });
+   * // later: unsubscribe();
+   * ```
    */
   on<K extends EventName>(event: K, handler: EventHandler<K>): () => void {
     const set = this.handlers.get(event) ?? new Set();
@@ -240,7 +255,11 @@ export class CraftContext {
   }
 
   /**
-   * Emit an event to registered handlers. Public for internal use by routes/adapters.
+   * Emit an event to registered handlers.
+   *
+   * @param event - Event name
+   * @param details - Event-specific payload (merged into `EventPayload.details`)
+   * @internal Public for use by routes/adapters; prefer subscribing via on()
    */
   emit<K extends EventName>(
     event: K,
@@ -396,13 +415,11 @@ export class CraftContext {
   /**
    * Start all routes registered with this context.
    *
-   * This will:
-   * 1. Run the onStartup handler if defined
-   * 2. Start all routes in parallel
-   * 3. Wait for all routes to complete if they're not indefinite
-   * 4. Automatically stop the context if all routes complete
+   * Emits `contextStarting` and `contextStarted`, then starts all routes in parallel.
+   * If all routes complete (e.g. finite sources), the context automatically stops.
+   * If any route fails to start, the error is logged, emitted as `error`, and rethrown.
    *
-   * @returns A promise that resolves when all routes have started
+   * @returns A promise that resolves when all routes have started (or when context stops)
    * @throws If any route fails to start
    *
    * @example

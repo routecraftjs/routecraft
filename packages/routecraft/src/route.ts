@@ -8,7 +8,7 @@ import {
   DefaultExchange,
   EXCHANGE_INTERNALS,
 } from "./exchange.ts";
-import { BRAND, INTERNALS_KEY } from "./brand.ts";
+import { BRAND, INTERNALS_KEY, setBrand } from "./brand.ts";
 import { error as rcError, RouteCraftError, RC } from "./error.ts";
 import { isRouteCraftError } from "./brand.ts";
 import { logger, childBindings } from "./logger.ts";
@@ -25,12 +25,23 @@ import {
 import { InMemoryProcessingQueue } from "./queue.ts";
 
 /**
- * Defines the configuration for a route including its source, steps, and consumer.
+ * Configuration for a route: source, steps, and consumer.
  *
- * A route definition describes how data flows from a source through processing steps
- * to one or more destinations.
+ * Describes how data flows from a source through processing steps to destinations.
+ * The builder preserves body type `T`; at runtime the runnable Route uses `Exchange`
+ * and handlers/events receive `Exchange<unknown>` unless you narrow or use `Route<T>`.
  *
- * @template T The type of data produced by the source
+ * @template T - Body type produced by the source (flowing through the chain until type-erased at runtime)
+ *
+ * @example
+ * ```typescript
+ * const def: RouteDefinition<string> = {
+ *   id: 'my-route',
+ *   source: simple('hello'),
+ *   steps: [...],
+ *   consumer: { type: SimpleConsumer, options: undefined }
+ * };
+ * ```
  */
 export type RouteDefinition<T = unknown> = {
   /** Unique identifier for the route */
@@ -56,14 +67,18 @@ export type RouteDefinition<T = unknown> = {
  * Represents a runnable route that processes data.
  *
  * Routes handle the flow of data from a source through processing steps
- * and can be started and stopped.
+ * and can be started and stopped. Use Route<T> when you know the route's
+ * body type (e.g. from a typed definition); at runtime, handlers and
+ * events receive Exchange (body: unknown) unless narrowed.
+ *
+ * @template T The body type of the route's exchange when known (default unknown)
  */
-export interface Route {
+export interface Route<T = unknown> {
   /** The context this route belongs to */
   readonly context: CraftContext;
 
   /** The route's configuration */
-  readonly definition: RouteDefinition;
+  readonly definition: RouteDefinition<T>;
 
   /** Signal that indicates when the route has been aborted */
   readonly signal: AbortSignal;
@@ -72,18 +87,19 @@ export interface Route {
   logger: ReturnType<typeof logger.child>;
 
   /**
-   * Start processing data on this route.
-   * @returns A promise that resolves when the route has started
+   * Start processing: subscribe to the source and begin delivering messages through the steps.
+   * @returns Promise that resolves when the source has been subscribed and the consumer is ready
    */
   start(): Promise<void>;
 
   /**
-   * Stop processing data on this route.
+   * Stop the route: abort the source subscription and clear the internal queue.
    */
   stop(): void;
 
   /**
-   * Wait for all in-flight handlers (and their background tasks) to complete.
+   * Wait until all in-flight message handlers and tracked tasks (e.g. tap) have completed.
+   * Does not stop the route; use stop() to abort the source.
    */
   drain(): Promise<void>;
 
@@ -98,8 +114,9 @@ export interface Route {
 /**
  * Default implementation of the Route interface.
  *
- * Handles the lifecycle of a route, managing the message flow from
- * the source through the defined steps.
+ * Manages message flow from the source through the defined steps and the
+ * internal processing queue to the consumer. Handles start, stop, drain, and
+ * background task tracking (e.g. for tap).
  */
 export class DefaultRoute implements Route {
   /** Controls aborting the route's operations */
@@ -129,7 +146,7 @@ export class DefaultRoute implements Route {
     public readonly definition: RouteDefinition,
     abortController?: AbortController,
   ) {
-    (this as unknown as Record<symbol, boolean>)[BRAND.DefaultRoute] = true;
+    setBrand(this, BRAND.DefaultRoute);
     this.assertNotAborted();
     this.abortController = abortController ?? new AbortController();
     this.logger = logger.child(childBindings(this));
@@ -374,13 +391,12 @@ export class DefaultRoute implements Route {
   }
 
   /**
-   * Create a RouteCraftError from an operation error.
-   * If the error is already a RouteCraftError, preserve it.
+   * Normalize an operation error into a RouteCraftError.
+   * If the error is already a RouteCraftError, it is returned unchanged.
    *
-   * @param operation The operation that caused the error
-   * @param code The error code
-   * @param error The original error
-   * @returns A formatted RouteCraftError
+   * @param _operation - The operation that caused the error (for logging)
+   * @param error - The thrown value (Error or RouteCraftError)
+   * @returns A RouteCraftError (existing or RC5001-wrapped)
    * @private
    */
   private processError(
@@ -393,13 +409,4 @@ export class DefaultRoute implements Route {
     const msg = error instanceof Error ? error.message : String(error);
     return rcError("RC5001", error, { message: msg });
   }
-
-  /**
-   * Get the documentation URL for operation error codes.
-   *
-   * @param code The error code
-   * @returns The documentation URL
-   * @private
-   */
-  // Docs URL is sourced from the RC registry; no per-operation mapping required.
 }

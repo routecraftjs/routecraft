@@ -5,7 +5,6 @@ globs:
     "packages/routecraft/src/**/*.ts",
     "packages/ai/src/**/*.ts",
     "examples/**/*.ts",
-    "examples/**/*.mjs",
   ]
 alwaysApply: false
 ---

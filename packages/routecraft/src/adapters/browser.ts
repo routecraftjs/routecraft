@@ -463,13 +463,20 @@ export class BrowserAdapter<
 }
 
 /**
- * Create a browser destination adapter using the agent-browser library.
+ * Creates a browser destination adapter using the agent-browser library.
  * Session is derived from exchange.id so split/aggregate get isolated sessions.
- * Use with .to(), .enrich(), or .tap().
- * Requires `agent-browser` to be installed as a dependency.
+ * Use with `.to()`, `.enrich()`, or `.tap()`. Requires `agent-browser` as a dependency.
  *
- * @param command - agent-browser command (open, click, snapshot, etc.)
- * @param options - command-specific options + base (session, headed, timeout, json)
+ * @param command - Agent-browser command (e.g. `open`, `click`, `snapshot`, `get`)
+ * @param options - Command-specific options plus base options (session, headed, timeout, json)
+ * @returns A Destination that runs the command and returns `{ stdout, parsed?, exitCode }`
+ *
+ * @example
+ * ```typescript
+ * .to(browser('open', { url: (ex) => ex.body.url }))
+ * .tap(browser('snapshot', { json: true }))
+ * .enrich(browser('get', { info: 'text', selector: 'h1' }), only((r) => r.stdout, 'title'))
+ * ```
  */
 export function browser<T = unknown, C extends BrowserCommand = BrowserCommand>(
   command: C,
