@@ -26,6 +26,7 @@ Import only from `@standard-schema/spec` for these types (e.g. `import type { St
 - **Schema options**: Type as `StandardSchemaV1` (or `StandardJSONSchemaV1` if you only need JSON Schema conversion). Example: `schema?: StandardSchemaV1` on direct/mcp options.
 - **Validation**: Call `schema['~standard'].validate(value)` (and handle `result.issues` / `result.value`). Do not use `z.parse()`, `v.parse()`, or library-specific APIs in framework or package code that should accept any compliant schema.
 - **JSON Schema from a schema**: If the schema has `~standard.jsonSchema?.input`, call `schema['~standard'].jsonSchema.input({ target: 'draft-2020-12' })` (or the draft you need). Do not use `z.toJSONSchema()` or library-specific converters in shared code.
+- **Type inference from schema**: When an adapter accepts a Standard Schema (e.g. `direct()`/`mcp()` `schema`, `llm()` `outputSchema`), use `StandardSchemaV1.InferOutput<S>` so the body or result type is inferred when the option is provided; when omitted, keep the type as `unknown` (or the adapter default). This gives typed routes without manual generics.
 
 ### In examples and docs
 

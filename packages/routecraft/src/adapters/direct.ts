@@ -395,24 +395,35 @@ export class DirectAdapter<T = unknown>
  * - direct(endpoint, options) with second argument (even {}) returns Source<T> — use in .from().
  * - direct(endpoint) or direct(function) with no second argument returns Destination<T, T> — use in .to() / .tap().
  *
- * @template T The type of data this adapter processes
+ * @template S When options.schema is provided, inferred from it; body type becomes StandardSchemaV1.InferOutput<S>. Otherwise unknown.
  * @param endpoint The name of the direct endpoint (string) or a function that returns the endpoint name based on the exchange
  * @param options Source options (pass {} for bare source); omit for destination.
- * @returns Source<T> when options provided, Destination<T, T> when no options
+ * @returns Source with body type inferred from options.schema when present, else unknown; or Destination when no options
  */
-export function direct<T = unknown>(
+export function direct<S extends StandardSchemaV1 | undefined = undefined>(
   endpoint: string,
-  options: Partial<DirectServerOptions>,
-): Source<T>;
+  options: Partial<DirectServerOptions> & { schema?: S },
+): Source<
+  S extends StandardSchemaV1 ? StandardSchemaV1.InferOutput<S> : unknown
+>;
 export function direct<T = unknown>(
   endpoint: string | ((exchange: Exchange<T>) => string),
 ): Destination<T, T>;
-export function direct<T = unknown>(
+export function direct<
+  S extends StandardSchemaV1 | undefined = undefined,
+  T = unknown,
+>(
   endpoint: string | ((exchange: Exchange<T>) => string),
-  options?: Partial<DirectOptions>,
-): Source<T> | Destination<T, T> {
+  options?: Partial<DirectOptions> & { schema?: S },
+):
+  | Source<
+      S extends StandardSchemaV1 ? StandardSchemaV1.InferOutput<S> : unknown
+    >
+  | Destination<T, T> {
   if (options !== undefined) {
-    return new DirectAdapter<T>(endpoint, options) as unknown as Source<T>;
+    return new DirectAdapter(endpoint, options) as unknown as Source<
+      S extends StandardSchemaV1 ? StandardSchemaV1.InferOutput<S> : unknown
+    >;
   }
   return new DirectAdapter<T>(endpoint) as unknown as Destination<T, T>;
 }

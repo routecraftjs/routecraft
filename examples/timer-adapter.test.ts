@@ -15,15 +15,9 @@ describe("Timer Adapter", () => {
   test("emits messages at specified interval", async () => {
     const t = await testContext().routes(timerRoutes).build();
 
-    // Start the timer and wait for a few intervals
-    const execution = t.ctx.start();
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    // delayBeforeDrainMs gives the timer time to fire (≥2 ticks at 50ms) before drain/stop
+    await t.test({ delayBeforeDrainMs: 120 });
 
-    // Stop the timer and wait for execution to complete
-    await t.ctx.stop();
-    await execution;
-
-    // Should have logged multiple times
     expect(t.logger.info).toHaveBeenCalled();
     expect(
       (t.logger.info as ReturnType<typeof vi.fn>).mock.calls.length,

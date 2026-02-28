@@ -34,7 +34,15 @@ export class McpServer<T = unknown> implements Source<T> {
         "MCP plugin required: routes using .from(mcp(...)) require the MCP plugin. Add mcpPlugin() to your config: plugins: [mcpPlugin()].",
       );
     }
-    const directAdapter = direct<T>(this.endpoint, this.options);
-    return directAdapter.subscribe(context, handler, abortController, onReady);
+    const directAdapter = direct(this.endpoint, this.options);
+    return directAdapter.subscribe(
+      context,
+      handler as (
+        message: unknown,
+        headers?: ExchangeHeaders,
+      ) => Promise<Exchange>,
+      abortController,
+      onReady,
+    );
   }
 }

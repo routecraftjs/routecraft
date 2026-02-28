@@ -1,6 +1,6 @@
 import { type Transformer } from "../operations/transform.ts";
 
-export interface JsonOptions<T = unknown, R = unknown> {
+export interface JsonOptions<T = unknown, R = unknown, V = unknown> {
   /**
    * Dot-notation path to extract from the parsed JSON, e.g. "data.items[0].name".
    * If omitted, the full parsed JSON is returned.
@@ -8,8 +8,13 @@ export interface JsonOptions<T = unknown, R = unknown> {
   path?: string;
   /** Pluck JSON string from body. If omitted: body is used when it's a string, or body.body when body is an object (e.g. after http()). */
   from?: (body: T) => string;
-  /** Where to put the parsed/extracted result. If omitted, result replaces the entire body (same default as from). Use e.g. (body, result) => ({ ...body, parsed: result }) to write to a sub-field. */
-  to?: (body: T, result: unknown) => R;
+  /**
+   * Extract or transform the parsed value; return type V is inferred and used for result (and for to(body, result)).
+   * When omitted, parsed/path result is used as-is and typed as unknown.
+   */
+  getValue?: (parsed: unknown) => V;
+  /** Where to put the parsed/extracted result. If omitted, result replaces the entire body (same default as from). Use e.g. (body, result) => ({ ...body, parsed: result }) to write to a sub-field. Result is typed as V when getValue is provided. */
+  to?: (body: T, result: V) => R;
 }
 
 function getText<T>(body: T, from: ((body: T) => string) | undefined): string {
@@ -57,13 +62,14 @@ function getByPath(obj: unknown, path: string): unknown {
   return current;
 }
 
-export class JsonAdapter<T = unknown, R = unknown> implements Transformer<
-  T,
-  R
-> {
+export class JsonAdapter<
+  T = unknown,
+  R = unknown,
+  V = unknown,
+> implements Transformer<T, R> {
   readonly adapterId = "routecraft.adapter.json";
 
-  constructor(private readonly options: JsonOptions<T, R>) {}
+  constructor(private readonly options: JsonOptions<T, R, V>) {}
 
   transform(body: T): R {
     const text = getText(body, this.options.from);
@@ -75,23 +81,39 @@ export class JsonAdapter<T = unknown, R = unknown> implements Transformer<
       throw new Error(`json adapter: failed to parse JSON: ${message}`);
     }
     const path = this.options.path?.trim();
-    const result = path ? getByPath(parsed, path) : parsed;
+    const pathResult = path ? getByPath(parsed, path) : parsed;
+    const result = this.options.getValue
+      ? this.options.getValue(pathResult)
+      : pathResult;
 
     const to = this.options.to;
-    if (to) return to(body, result) as R;
+    if (to) return to(body, result as V) as R;
     return result as unknown as R;
   }
 }
 
 /**
  * Create a JSON transformer that parses a JSON string and optionally extracts a value by path.
- * By default uses body (or body.body when object) as the JSON string and replaces the entire body with the result. Use `from` to read a sub-field and `to` to write the result into a sub-field (default to replaces whole body, same as from).
+ * By default uses body (or body.body when object) as the JSON string and replaces the entire body with the result.
+ * Use getValue(parsed) to extract/type the value (inferred V); use `from` to read a sub-field and `to` to write the result into body.
+ * When getValue is provided and to is omitted, the output type is V.
  *
- * @param options - optional path, optional from(body) to get JSON string, optional to(body, result) to write result into body
+ * @param options - optional path, optional from(body) to get JSON string, optional getValue(parsed) to extract/type result, optional to(body, result) to write result into body
  * @returns Transformer
  */
-export function json<T = unknown, R = unknown>(
-  options: JsonOptions<T, R> = {},
-): Transformer<T, R> {
-  return new JsonAdapter<T, R>(options);
+export function json<T, R, V>(
+  options: JsonOptions<T, R, V> & {
+    getValue: (parsed: unknown) => V;
+    to?: undefined;
+  },
+): Transformer<T, V>;
+export function json<T = unknown, R = unknown, V = unknown>(
+  options?: JsonOptions<T, R, V>,
+): Transformer<T, R>;
+export function json<T = unknown, R = unknown, V = unknown>(
+  options: JsonOptions<T, R, V> = {},
+): Transformer<T, R> | Transformer<T, V> {
+  return new JsonAdapter<T, R, V>(options) as unknown as
+    | Transformer<T, R>
+    | Transformer<T, V>;
 }

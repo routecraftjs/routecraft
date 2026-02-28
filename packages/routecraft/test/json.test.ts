@@ -178,6 +178,42 @@ describe("JSON Adapter", () => {
     });
   });
 
+  describe("getValue option", () => {
+    /**
+     * @case getValue extracts/transforms parsed value; result is typed and becomes body when no to
+     * @preconditions path + getValue return object
+     * @expectedResult Body is the return value of getValue
+     */
+    test("getValue transforms path result and replaces body", async () => {
+      const destSpy = vi.fn();
+      const payload = { data: { name: "Alice", count: 2 } };
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("json-getValue")
+            .from(simple(JSON.stringify(payload)))
+            .transform(
+              json({
+                path: "data",
+                getValue: (p) =>
+                  typeof p === "object" && p !== null && "name" in p
+                    ? { extracted: (p as { name: string }).name }
+                    : { extracted: "" },
+              }),
+            )
+            .to(destSpy),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(destSpy.mock.calls[0][0].body).toEqual({
+        extracted: "Alice",
+      });
+    });
+  });
+
   describe("to option", () => {
     /**
      * @case to option writes parsed result to a sub-field of body

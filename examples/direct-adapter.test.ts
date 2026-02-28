@@ -1,5 +1,5 @@
 import { expect, test, vi } from "vitest";
-import { testContext } from "@routecraft/testing";
+import { testContext, invoke } from "@routecraft/testing";
 import routes from "./direct-adapter.mjs";
 
 /**
@@ -50,4 +50,19 @@ test("receives 'Hello, World!' on my-direct-1 and logs it", async () => {
   expect(logsForChannel2Route.length > 0).toBe(true);
   const bodies2 = logsForChannel2Route.map((x) => x.body);
   expect(bodies2).toContain("Hello, World! 2");
+});
+
+/**
+ * @case Verifies invoke() can call a route by id and get the result
+ * @preconditions Direct adapter routes (invokable source)
+ * @expectedResult Invoking direct-adapter-1 returns transformed body from direct-adapter-2
+ */
+test("invoke returns result from route by id", async () => {
+  const t = await testContext().routes(routes).build();
+  await t.startAndWaitReady();
+
+  const result = await invoke(t.ctx, "direct-adapter-1", "ping");
+
+  expect(result).toBe("Hello, World! 2");
+  await t.stop();
 });

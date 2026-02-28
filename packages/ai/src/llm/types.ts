@@ -149,6 +149,17 @@ export interface LlmResult {
 }
 
 /**
+ * When outputSchema S is provided to llm(), the result type narrows output to InferOutput<S>.
+ * Used for type inference from llm(modelId, { outputSchema }) so body.output is typed downstream.
+ */
+export type LlmResultWithOutput<S extends StandardSchemaV1 | undefined> =
+  S extends StandardSchemaV1
+    ? Omit<LlmResult, "output"> & {
+        output?: StandardSchemaV1.InferOutput<S>;
+      }
+    : LlmResult;
+
+/**
  * Recommended LLM model ids for autocomplete (chat/completion use cases).
  * Format: "providerId:modelName". Custom models are allowed via string.
  * Updated for 2026.

@@ -13,6 +13,12 @@ export type DestinationAggregator<T = unknown, R = unknown> = (
 ) => Exchange<T>;
 
 /**
+ * When an aggregator has __enrichMerge, .enrich() infers the result body type as Current & __enrichMerge.
+ * Used by only(getValue, into) when into is a string literal.
+ */
+export type EnrichMergeShape = Record<string, unknown>;
+
+/**
  * Default aggregator for .enrich() - merges the result into the exchange body.
  *
  * - If enrichment data is undefined or null, returns the original exchange unchanged.
@@ -52,11 +58,21 @@ export const defaultEnrichAggregator = <T = unknown, R = unknown>(
  * When `into` is omitted: plain objects are spread onto body; strings/primitives go to body.stdout;
  * arrays go to body.array. When `into` is provided, the value is set at body[into].
  * Null/undefined from getValue is never merged (exchange unchanged).
+ * When `into` is a string literal, .enrich() infers the result body type as Current & { [into]: V }.
+ * Returns DestinationAggregator<unknown, unknown> & __enrichMerge; the builder accepts this via a union.
  */
-export const only = <T = unknown, R = unknown>(
-  getValue: (enrichmentData: R) => unknown,
+export function only<R, V, K extends string>(
+  getValue: (enrichmentData: R) => V,
+  into: K,
+): DestinationAggregator<unknown, unknown> & { __enrichMerge: Record<K, V> };
+export function only<T = unknown, R = unknown, V = unknown>(
+  getValue: (enrichmentData: R) => V,
   into?: string,
-): DestinationAggregator<T, R> => {
+): DestinationAggregator<T, R>;
+export function only<T = unknown, R = unknown, V = unknown>(
+  getValue: (enrichmentData: R) => V,
+  into?: string,
+): DestinationAggregator<T, R> {
   return (original: Exchange<T>, enrichmentData: R): Exchange<T> => {
     const value = getValue(enrichmentData);
     if (value === undefined || value === null) {
@@ -90,7 +106,7 @@ export const only = <T = unknown, R = unknown>(
     original.body = { ...originalBody, stdout: value } as T;
     return original;
   };
-};
+}
 
 /** No-op aggregator for .enrich() - returns the original exchange unchanged. */
 export const none = <T = unknown, R = unknown>(): DestinationAggregator<
@@ -107,16 +123,23 @@ export const none = <T = unknown, R = unknown>(): DestinationAggregator<
  * Step that enriches the exchange with additional data from a destination adapter.
  * Uses the same Destination adapters as .to() but with a different default aggregator.
  */
+/** Aggregator type accepted by EnrichStep; includes branded only() return for body-type inference. */
+export type EnrichAggregatorOption<T, R> =
+  | DestinationAggregator<T, R>
+  | (DestinationAggregator<unknown, unknown> & {
+      __enrichMerge?: EnrichMergeShape;
+    });
+
 export class EnrichStep<T = unknown, R = unknown> implements Step<
   Destination<T, R>
 > {
   operation: OperationType = OperationType.ENRICH;
   adapter: Destination<T, R>;
-  aggregator: DestinationAggregator<T, R> | undefined;
+  aggregator: EnrichAggregatorOption<T, R> | undefined;
 
   constructor(
     adapter: Destination<T, R> | CallableDestination<T, R>,
-    aggregator?: DestinationAggregator<T, R>,
+    aggregator?: EnrichAggregatorOption<T, R>,
   ) {
     this.adapter = typeof adapter === "function" ? { send: adapter } : adapter;
     this.aggregator = aggregator;
@@ -133,8 +156,10 @@ export class EnrichStep<T = unknown, R = unknown> implements Step<
     // Use the provided aggregator or the default one
     const aggregator = this.aggregator || defaultEnrichAggregator;
 
-    // Aggregate the original exchange with the enrichment data
-    const result = await Promise.resolve(aggregator(exchange, enrichmentData));
+    // Aggregate the original exchange with the enrichment data (aggregator mutates exchange in place)
+    const result = (await Promise.resolve(
+      aggregator(exchange, enrichmentData),
+    )) as Exchange<T>;
 
     // If aggregator returned a different exchange, copy properties back
     if (result !== exchange) {

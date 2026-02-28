@@ -35,7 +35,8 @@
   "devDependencies": {
     "arktype": "^2.1.29",
     "vitest": "^4.0.18",
-    "zod": "^4.3.6"
+    "zod": "^4.3.6",
+    "@routecraft/testing": "workspace:*"
   },
   "repository": "https://github.com/routecraftjs/routecraft",
   "keywords": [

@@ -53,7 +53,11 @@ import {
   FilterStep,
 } from "./operations/filter.ts";
 import { ValidateStep } from "./operations/validate.ts";
-import { EnrichStep, type DestinationAggregator } from "./operations/enrich.ts";
+import {
+  EnrichStep,
+  type DestinationAggregator,
+  type EnrichMergeShape,
+} from "./operations/enrich.ts";
 import { HeaderStep } from "./operations/header.ts";
 import { type HeaderValue } from "./exchange.ts";
 // Binder mechanism removed
@@ -753,14 +757,24 @@ export class RouteBuilder<Current = unknown> {
    *   })
    * )
    */
-  enrich<R = Current>(
+  enrich<
+    R = Current,
+    A extends
+      | DestinationAggregator<Current, unknown>
+      | (DestinationAggregator<unknown, unknown> & {
+          __enrichMerge?: EnrichMergeShape;
+        })
+      | undefined = DestinationAggregator<Current, unknown> | undefined,
+  >(
     destination:
       | Destination<Current, Partial<R>>
       | CallableDestination<Current, Partial<R>>,
-    aggregator?: DestinationAggregator<Current, Partial<R>>,
-  ): RouteBuilder<R> {
-    this.addStep(new EnrichStep(destination, aggregator));
-    return this.withType<R>();
+    aggregator?: A,
+  ): RouteBuilder<A extends { __enrichMerge: infer M } ? Current & M : R> {
+    this.addStep(new EnrichStep<Current, Partial<R>>(destination, aggregator));
+    return this.withType<
+      A extends { __enrichMerge: infer M } ? Current & M : R
+    >();
   }
 
   /**

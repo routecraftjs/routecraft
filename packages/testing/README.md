@@ -48,10 +48,14 @@ describe("my route", () => {
   - **`ctx`** — The underlying context.
   - **`logger`** — A spy logger (Vitest `vi.fn()` methods) for asserting on log calls.
   - **`errors`** — Collected route errors.
-  - **`test()`** — Runs start → wait for routes ready → drain → stop. Assert after `await t.test()`.
-  - **`stop()`** / **`drain()`** — Lifecycle helpers.
-- **`TestContextOptions`** — Options (e.g. `routesReadyTimeoutMs`).
+  - **`test(options?)`** — Runs start → wait for routes ready → (optional delay) → drain → stop. Assert after `await t.test()`. Options:
+  - **`delayBeforeDrainMs`** — Wait this many ms after routes are ready before draining. Use for **timer** (or other deferred) sources so at least one message is processed; e.g. `await t.test({ delayBeforeDrainMs: 50 })` for a timer with `intervalMs: 50`.
+- **`startAndWaitReady()`** — Start context and wait for all routes to be ready (no drain/stop). Use with **`invoke()`** to call a route by id, then call **`stop()`** (or **`drain()`** then **`stop()`**) when done.
+- **`stop()`** / **`drain()`** — Lifecycle helpers.
+- **`TestContextOptions`** — Builder options (e.g. `routesReadyTimeoutMs`).
+- **`TestOptions`** — Options for `test()` (e.g. `delayBeforeDrainMs`).
 - **`SpyLogger`** — Type for the spy logger on `t.logger`.
+- **`invoke(ctx, routeIdOrDestination, body, headers?)`** — Invoke a route by id (string) or send to a Destination instance; returns the result. Use route id when the route's source implements Destination (e.g. direct adapter): `await invoke(t.ctx, "my-route-id", { ... })`.
 
 ## Documentation
 
