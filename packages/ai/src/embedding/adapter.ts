@@ -9,7 +9,6 @@ import { callEmbedding } from "./providers/index.ts";
 import type {
   EmbeddingModelConfig,
   EmbeddingOptions,
-  EmbeddingOptionsMerged,
   EmbeddingResult,
 } from "./types.ts";
 import {
@@ -75,9 +74,7 @@ function buildText<T>(
  * and returns { embedding: number[] }. Use with .enrich(embedding("provider:model", { using: ... })).
  */
 export class EmbeddingAdapter<T = unknown>
-  implements
-    Destination<T, EmbeddingResult>,
-    MergedOptions<EmbeddingOptionsMerged>
+  implements Destination<T, EmbeddingResult>, MergedOptions<EmbeddingOptions>
 {
   readonly adapterId = "routecraft.adapter.embedding";
 
@@ -85,16 +82,16 @@ export class EmbeddingAdapter<T = unknown>
     private readonly modelId: string,
     options: Partial<EmbeddingOptions<T>> = {},
   ) {
-    this.options = options as Partial<EmbeddingOptionsMerged>;
+    this.options = options as Partial<EmbeddingOptions>;
   }
 
-  public options: Partial<EmbeddingOptionsMerged>;
+  public options: Partial<EmbeddingOptions>;
 
-  mergedOptions(context: CraftContext): EmbeddingOptionsMerged {
+  mergedOptions(context: CraftContext): EmbeddingOptions {
     const store = context.getStore(
       ADAPTER_EMBEDDING_OPTIONS as keyof import("@routecraft/routecraft").StoreRegistry,
-    ) as Partial<EmbeddingOptionsMerged> | undefined;
-    return { ...store, ...this.options } as EmbeddingOptionsMerged;
+    ) as Partial<EmbeddingOptions> | undefined;
+    return { ...store, ...this.options } as EmbeddingOptions;
   }
 
   async send(exchange: Exchange<T>): Promise<EmbeddingResult> {

@@ -39,15 +39,14 @@ export {
   mcp,
   McpAdapter,
   mcpPlugin,
-  MCPServer,
+  McpServer,
   MCP_PLUGIN_REGISTERED,
   validateWithSchema,
   type McpOptions,
   type McpPluginOptions,
-  type MCPServerOptions,
   type McpServerOptions,
-  type MCPTool,
-  type MCPToolResult,
+  type McpTool,
+  type McpToolResult,
 } from "./mcp/index.ts";
 export type {
   McpArgsExtractor,

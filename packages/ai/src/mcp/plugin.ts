@@ -1,5 +1,5 @@
 import type { CraftContext, CraftPlugin } from "@routecraft/routecraft";
-import { MCPServer } from "./server.ts";
+import { McpServer } from "./server.ts";
 import { ADAPTER_MCP_CLIENT_SERVERS, MCP_PLUGIN_REGISTERED } from "./types.ts";
 import type { McpPluginOptions } from "./types.ts";
 import { validateMcpPluginOptions } from "./validate-options.ts";
@@ -12,7 +12,7 @@ import { validateMcpPluginOptions } from "./validate-options.ts";
 export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
   validateMcpPluginOptions(options);
 
-  let server: MCPServer | null = null;
+  let server: McpServer | null = null;
 
   return {
     apply(ctx: CraftContext) {
@@ -30,7 +30,7 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
       }
 
       ctx.on("contextStarted", async () => {
-        server = new MCPServer(ctx, options);
+        server = new McpServer(ctx, options);
         try {
           await server.start();
         } catch (error) {

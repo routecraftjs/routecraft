@@ -9,7 +9,6 @@ export type {
   EmbeddingModelConfigOpenAI,
   EmbeddingModelId,
   EmbeddingOptions,
-  EmbeddingOptionsMerged,
   EmbeddingPluginOptions,
   EmbeddingPluginProviders,
   EmbeddingProviderType,

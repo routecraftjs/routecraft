@@ -1,5 +1,5 @@
 import { describe, test, expect, afterEach } from "vitest";
-import { MCPServer } from "../src/mcp/server.ts";
+import { McpServer } from "../src/mcp/server.ts";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { craft, direct, noop } from "@routecraft/routecraft";
 import { mcp, MCP_PLUGIN_REGISTERED } from "../src/index.ts";
@@ -20,9 +20,9 @@ const INIT_PARAMS = {
   clientInfo: { name: "test", version: "1.0.0" },
 };
 
-describe("MCPServer", () => {
+describe("McpServer", () => {
   let t: TestContext;
-  let server: MCPServer;
+  let server: McpServer;
 
   afterEach(async () => {
     if (server) {
@@ -38,16 +38,16 @@ describe("MCPServer", () => {
   });
 
   /**
-   * @case MCPServer construction with default and custom options
+   * @case McpServer construction with default and custom options
    * @preconditions Context built; create server with no options then with name/version
    * @expectedResult Both servers are defined
    */
   test("initializes with default and custom options", async () => {
     t = await testContext().build();
-    server = new MCPServer(t.ctx);
+    server = new McpServer(t.ctx);
     expect(server).toBeDefined();
     await server.stop();
-    server = new MCPServer(t.ctx, {
+    server = new McpServer(t.ctx, {
       name: "custom-server",
       version: "2.0.0",
     });
@@ -92,14 +92,14 @@ describe("MCPServer", () => {
       .store(MCP_STORE_KEY, true)
       .build();
 
-    server = new MCPServer(t.ctx, { tools: ["tool1"] });
+    server = new McpServer(t.ctx, { tools: ["tool1"] });
     expect(server).toBeDefined();
     await t.test();
     let names = server.getAvailableTools().map((tool) => tool.name);
     expect(names).toEqual(["tool1"]);
     await server.stop();
 
-    server = new MCPServer(t.ctx, {
+    server = new McpServer(t.ctx, {
       tools: (meta) => meta.keywords?.includes("public") ?? false,
     });
     await server.start();
@@ -140,7 +140,7 @@ describe("MCPServer", () => {
       .store(MCP_STORE_KEY, true)
       .build();
 
-    server = new MCPServer(t.ctx);
+    server = new McpServer(t.ctx);
     expect(server).toBeDefined();
     await t.test();
     const names = server.getAvailableTools().map((tool) => tool.name);
@@ -171,7 +171,7 @@ describe("MCPServer", () => {
       ])
       .store(MCP_STORE_KEY, true)
       .build();
-    server = new MCPServer(t.ctx);
+    server = new McpServer(t.ctx);
     expect(server).toBeDefined();
     await t.test();
     const names = server.getAvailableTools().map((tool) => tool.name);
@@ -185,7 +185,7 @@ describe("MCPServer", () => {
       serverOptions: { port?: number; host?: string } = {},
     ) {
       t = await testContext().routes(routes).store(MCP_STORE_KEY, true).build();
-      server = new MCPServer(t.ctx, {
+      server = new McpServer(t.ctx, {
         transport: "http",
         port: 0,
         host: "127.0.0.1",
@@ -278,7 +278,7 @@ describe("MCPServer", () => {
 
     /**
      * @case HTTP server responds to initialize and tools/list
-     * @preconditions MCPServer http with one mcp() route; initialize then tools/list
+     * @preconditions McpServer http with one mcp() route; initialize then tools/list
      * @expectedResult HTTP 200 and tools array contains the route
      */
     test("listens and responds to POST /mcp tools/list", async () => {

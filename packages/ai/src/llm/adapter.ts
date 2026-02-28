@@ -13,7 +13,7 @@ import type {
   LlmOptions,
   LlmOptionsMerged,
   LlmPromptSource,
-  LlmResult,
+  LlmResultWithOutput,
 } from "./types.ts";
 import { ADAPTER_LLM_OPTIONS, ADAPTER_LLM_PROVIDERS } from "./types.ts";
 
@@ -126,9 +126,13 @@ function resolveProviderAndModel(
  * LLM destination adapter. Expects model id as "providerId:modelName" (e.g. ollama:lfm2.5-thinking),
  * resolves the provider from the plugin store, merges options, and calls the provider with the model name.
  * Use with .enrich(llm("providerId:modelName", options)) or .to(llm(...)).
+ *
+ * @template S - Output schema type when outputSchema is provided; narrows result.output for downstream typing.
  */
-export class LlmAdapter
-  implements Destination<unknown, LlmResult>, MergedOptions<LlmOptionsMerged>
+export class LlmAdapter<S extends StandardSchemaV1 | undefined = undefined>
+  implements
+    Destination<unknown, LlmResultWithOutput<S>>,
+    MergedOptions<LlmOptionsMerged>
 {
   readonly adapterId = "routecraft.adapter.llm";
 
@@ -153,7 +157,7 @@ export class LlmAdapter
     } as LlmOptionsMerged;
   }
 
-  async send(exchange: Exchange<unknown>): Promise<LlmResult> {
+  async send(exchange: Exchange<unknown>): Promise<LlmResultWithOutput<S>> {
     const context = getExchangeContext(exchange);
     const { config, modelName } = resolveProviderAndModel(
       this.modelId,
@@ -202,6 +206,6 @@ export class LlmAdapter
       if (fallback !== undefined) result.output = fallback;
     }
 
-    return result;
+    return result as LlmResultWithOutput<S>;
   }
 }

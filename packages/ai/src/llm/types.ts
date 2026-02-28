@@ -95,6 +95,9 @@ export interface LlmPluginProviders {
   gemini?: LlmGeminiProviderOptions;
 }
 
+/** Map provider id → provider-specific options (for type-safe toModelConfig). */
+export type LlmProviderOptionsMap = Required<LlmPluginProviders>;
+
 /** Resolve system or user prompt from exchange (string or function). */
 export type LlmPromptSource =
   | string

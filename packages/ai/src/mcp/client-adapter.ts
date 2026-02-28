@@ -32,7 +32,7 @@ function resolveUrl(
   }
   if (options.serverId && !context) {
     throw new Error(
-      `MCP client: serverId "${options.serverId}" requires a context to resolve. Ensure the exchange has context (e.g. from a route) so store "${ADAPTER_MCP_CLIENT_SERVERS}" can be read.`,
+      `MCP client: serverId "${options.serverId}" requires a context to resolve. Ensure the exchange has context (e.g. from a route) so store "${String(ADAPTER_MCP_CLIENT_SERVERS)}" can be read.`,
     );
   }
   if (options.serverId && context) {
@@ -42,7 +42,7 @@ function resolveUrl(
     const config = servers?.get(options.serverId);
     if (!config) {
       throw new Error(
-        `MCP client: serverId "${options.serverId}" not found in context store. Register it with context store key "${ADAPTER_MCP_CLIENT_SERVERS}".`,
+        `MCP client: serverId "${options.serverId}" not found in context store. Register it with context store key "${String(ADAPTER_MCP_CLIENT_SERVERS)}".`,
       );
     }
     if (typeof config === "string") return config;

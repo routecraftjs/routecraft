@@ -1,17 +1,29 @@
 import type { CraftContext, CraftPlugin } from "@routecraft/routecraft";
 import { ADAPTER_LLM_OPTIONS, ADAPTER_LLM_PROVIDERS } from "./types.ts";
-import type { LlmModelConfig, LlmPluginOptions } from "./types.ts";
+import type {
+  LlmModelConfig,
+  LlmPluginOptions,
+  LlmProviderOptionsMap,
+} from "./types.ts";
 import { validateLlmPluginOptions } from "./validate-options.ts";
 
+const PROVIDER_IDS = [
+  "openai",
+  "anthropic",
+  "openrouter",
+  "ollama",
+  "gemini",
+] as const satisfies readonly LlmModelConfig["provider"][];
+
 /** Normalize provider options to full LlmModelConfig (add provider field from key). */
-function toModelConfig(
-  providerId: string,
-  opts: Record<string, unknown>,
-): LlmModelConfig {
-  return {
-    provider: providerId as LlmModelConfig["provider"],
-    ...opts,
-  } as LlmModelConfig;
+function toModelConfig<P extends LlmModelConfig["provider"]>(
+  providerId: P,
+  opts: LlmProviderOptionsMap[P],
+): Extract<LlmModelConfig, { provider: P }> {
+  return { provider: providerId, ...opts } as Extract<
+    LlmModelConfig,
+    { provider: P }
+  >;
 }
 
 /**
@@ -30,12 +42,10 @@ export function llmPlugin(
   return {
     apply(ctx: CraftContext) {
       const map = new Map<string, LlmModelConfig>();
-      for (const [providerId, opts] of Object.entries(options.providers)) {
+      for (const providerId of PROVIDER_IDS) {
+        const opts = options.providers[providerId];
         if (opts !== undefined)
-          map.set(
-            providerId,
-            toModelConfig(providerId, opts as Record<string, unknown>),
-          );
+          map.set(providerId, toModelConfig(providerId, opts));
       }
       ctx.setStore(
         ADAPTER_LLM_PROVIDERS as keyof import("@routecraft/routecraft").StoreRegistry,

@@ -6,7 +6,7 @@
  * Run from repo root: node packages/ai/test/stdio-mcp-runner.mjs
  */
 import { context, craft, noop } from "@routecraft/routecraft";
-import { mcp, MCPServer, MCP_PLUGIN_REGISTERED } from "@routecraft/ai";
+import { mcp, McpServer, MCP_PLUGIN_REGISTERED } from "@routecraft/ai";
 import { z } from "zod";
 
 async function main() {
@@ -56,7 +56,7 @@ async function main() {
   void ctx.start();
   await routesReady;
 
-  const server = new MCPServer(ctx, { transport: "stdio" });
+  const server = new McpServer(ctx, { transport: "stdio" });
   await server.start();
   // Process stays alive; MCP server reads from stdin
 }

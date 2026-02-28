@@ -5,12 +5,14 @@ import type {
 } from "@routecraft/routecraft";
 
 /** Store key set by mcpPlugin() when applied; routes using .from(mcp(...)) require it. */
-export const MCP_PLUGIN_REGISTERED =
-  "routecraft.mcp.plugin.registered" as const;
+export const MCP_PLUGIN_REGISTERED = Symbol.for(
+  "routecraft.mcp.plugin.registered",
+);
 
 /** Store key for named remote MCP servers (mcpPlugin({ clients })). Used by McpClient to resolve serverId. */
-export const ADAPTER_MCP_CLIENT_SERVERS =
-  "routecraft.mcp.client.servers" as const;
+export const ADAPTER_MCP_CLIENT_SERVERS = Symbol.for(
+  "routecraft.mcp.client.servers",
+);
 
 declare module "@routecraft/routecraft" {
   interface StoreRegistry {
@@ -74,9 +76,6 @@ export interface McpPluginOptions {
   clients?: Record<string, McpClientHttpConfig>;
 }
 
-/** @internal Used by MCPServer implementation; same shape as McpPluginOptions. */
-export type MCPServerOptions = McpPluginOptions;
-
 /**
  * Options for mcp() when used as a server in .from().
  * Description is required for AI/MCP discoverability.
@@ -120,7 +119,7 @@ export interface McpClientOptions {
 /**
  * Represents a tool exposed via MCP
  */
-export interface MCPTool {
+export interface McpTool {
   name: string;
   description?: string;
   inputSchema: {
@@ -134,7 +133,7 @@ export interface MCPTool {
 /**
  * MCP tool call result
  */
-export interface MCPToolResult {
+export interface McpToolResult {
   content: Array<{
     type: "text" | "image" | "resource";
     text?: string;

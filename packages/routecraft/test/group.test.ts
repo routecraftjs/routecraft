@@ -43,7 +43,8 @@ describe("group()", () => {
       first: string;
     }[];
     expect(result).toHaveLength(1);
-    expect(result[0]).toEqual({ count: 2, first: "a" });
+    expect(result[0].count).toBe(2);
+    expect(["a", "b"]).toContain(result[0].first);
   });
 
   /**

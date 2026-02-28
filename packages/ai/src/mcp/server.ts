@@ -5,24 +5,24 @@ import {
   isRouteCraftError,
 } from "@routecraft/routecraft";
 import { createServer } from "node:http";
-import type { MCPServerOptions } from "./types.ts";
+import type { McpPluginOptions } from "./types.ts";
 
 /** Resolved options with defaults applied (internal use). */
-type MCPServerResolvedOptions = Required<
-  Pick<MCPServerOptions, "name" | "version" | "transport" | "port" | "host">
+type McpServerResolvedOptions = Required<
+  Pick<McpPluginOptions, "name" | "version" | "transport" | "port" | "host">
 > &
-  Pick<MCPServerOptions, "tools">;
+  Pick<McpPluginOptions, "tools">;
 
 /**
- * MCPServer wraps the MCP SDK and bridges it to RouteCraft's DirectChannel infrastructure.
+ * McpServer wraps the MCP SDK and bridges it to RouteCraft's DirectChannel infrastructure.
  * It reads the MCP route registry lazily (on first tools/list request) to ensure routes have subscribed.
  *
  * Note: Uses dynamic imports to avoid TypeScript compatibility issues with the MCP SDK.
  * Supports both stdio and streamable-http transports.
  */
-export class MCPServer {
+export class McpServer {
   private context: CraftContext;
-  private options: MCPServerResolvedOptions;
+  private options: McpServerResolvedOptions;
   private server: unknown = null;
   private transport: unknown = null;
   /** Node HTTP server when transport is http; used to listen on port and close on stop. */
@@ -30,7 +30,7 @@ export class MCPServer {
   private running = false;
   private toolsListLogged = false;
 
-  constructor(context: CraftContext, options: MCPServerOptions = {}) {
+  constructor(context: CraftContext, options: McpPluginOptions = {}) {
     this.context = context;
     this.options = {
       name: "routecraft",
@@ -345,13 +345,13 @@ export class MCPServer {
     }
 
     // Convert to MCP tool format
-    return tools.map((meta) => this.metadataToMCPTool(meta));
+    return tools.map((meta) => this.metadataToMcpTool(meta));
   }
 
   /**
    * Convert RouteCraft mcp() route metadata to MCP tool format
    */
-  private metadataToMCPTool(
+  private metadataToMcpTool(
     metadata: DirectRouteMetadata,
   ): Record<string, unknown> {
     return {

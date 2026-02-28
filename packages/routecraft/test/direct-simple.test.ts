@@ -222,6 +222,7 @@ describe("Direct adapter", () => {
           craft()
             .id("invalid-consumer")
             .from(
+              // Intentionally invalid: testing runtime error for dynamic endpoint as source
               direct(() => "dynamic-endpoint") as unknown as Source<unknown>,
             )
             .to(vi.fn() as CallableDestination<unknown, void>),

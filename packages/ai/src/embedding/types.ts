@@ -13,7 +13,7 @@ export const ADAPTER_EMBEDDING_OPTIONS = Symbol.for(
 declare module "@routecraft/routecraft" {
   interface StoreRegistry {
     [ADAPTER_EMBEDDING_PROVIDERS]: Map<string, EmbeddingModelConfig>;
-    [ADAPTER_EMBEDDING_OPTIONS]: Partial<EmbeddingOptionsMerged>;
+    [ADAPTER_EMBEDDING_OPTIONS]: Partial<EmbeddingOptions>;
   }
 }
 
@@ -54,8 +54,6 @@ export interface EmbeddingOptions<T = unknown> {
   using: (exchange: Exchange<T>) => string | string[];
 }
 
-export type EmbeddingOptionsMerged = EmbeddingOptions;
-
 export interface EmbeddingResult {
   embedding: number[];
 }
@@ -72,7 +70,7 @@ export interface EmbeddingPluginProviders {
 export interface EmbeddingPluginOptions {
   providers: EmbeddingPluginProviders;
   /** Optional context-level default options. */
-  defaultOptions?: Partial<EmbeddingOptionsMerged>;
+  defaultOptions?: Partial<EmbeddingOptions>;
 }
 
 /**

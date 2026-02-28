@@ -16,8 +16,5 @@ export function llm<S extends StandardSchemaV1 | undefined = undefined>(
   modelId: LlmModelId,
   options?: Partial<LlmOptions> & { outputSchema?: S },
 ): Destination<unknown, LlmResultWithOutput<S>> {
-  return new LlmAdapter(modelId, options) as unknown as Destination<
-    unknown,
-    LlmResultWithOutput<S>
-  >;
+  return new LlmAdapter<S>(modelId, options);
 }
