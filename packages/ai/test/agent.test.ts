@@ -70,10 +70,6 @@ describe("agent() DSL and adapter", () => {
       .with({ plugins: [] })
       .build();
 
-    const warnSpy = vi
-      .spyOn(globalThis.console, "warn")
-      .mockImplementation(() => {});
-
     await t.test();
 
     expect(destSpy).toHaveBeenCalledTimes(1);
@@ -85,9 +81,9 @@ describe("agent() DSL and adapter", () => {
       output: { question: "What is 2+2?" },
       steps: 0,
     });
-    expect(warnSpy).toHaveBeenCalledWith(
-      "[agent] pass-through — implementation pending",
+    expect(t.logger.debug).toHaveBeenCalledWith(
+      { adapter: "agent" },
+      "Agent pass-through — implementation pending",
     );
-    warnSpy.mockRestore();
   });
 });

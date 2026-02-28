@@ -37,7 +37,7 @@ export class MCPServer {
       version: "1.0.0",
       transport: "stdio",
       port: 3001,
-      host: "0.0.0.0",
+      host: "localhost",
       ...options,
     };
   }

@@ -8,7 +8,7 @@
 **/out/
 
 # Cursor hooks state (machine-generated)
-.cursor
+.cursor/hooks/state/
 
 # Coverage and caches
 coverage/

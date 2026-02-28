@@ -1,5 +1,4 @@
 import { type StandardSchemaV1 } from "@standard-schema/spec";
-import { getAdapterLabel } from "../types.ts";
 import { FilterStep } from "./filter.ts";
 import { OperationType } from "../exchange.ts";
 import { error as rcError } from "../error.ts";
@@ -18,7 +17,6 @@ interface StandardSchemaResult {
 export class ValidateStep<T = unknown> extends FilterStep<T> {
   override operation: OperationType = OperationType.VALIDATE;
   constructor(schema: StandardSchemaV1) {
-    const adapterRef: { label: string | undefined } = { label: undefined };
     super(async (exchange) => {
       let rawResult = schema["~standard"].validate(exchange.body);
       if (rawResult instanceof Promise) rawResult = await rawResult;
@@ -35,6 +33,5 @@ export class ValidateStep<T = unknown> extends FilterStep<T> {
       }
       return true;
     });
-    adapterRef.label = getAdapterLabel(this.adapter);
   }
 }

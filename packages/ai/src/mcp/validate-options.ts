@@ -68,6 +68,7 @@ export async function validateWithSchema(
       `mcpPlugin options validation failed: ${JSON.stringify(result.issues)}`,
     );
   }
+  // Guard against schemas that pass (no issues) but omit value
   if (result.value === undefined) {
     throw new Error("mcpPlugin options validation failed: no value returned");
   }

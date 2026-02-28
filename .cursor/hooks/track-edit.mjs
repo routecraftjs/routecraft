@@ -17,7 +17,11 @@ function getCwd() {
   return process.env.CURSOR_PROJECT_DIR || process.cwd();
 }
 
-function acquireLock() {
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function acquireLock() {
   const cwd = getCwd();
   const lockPath = path.resolve(cwd, LOCK_FILE);
   const stateDir = path.dirname(lockPath);
@@ -36,10 +40,7 @@ function acquireLock() {
       };
     } catch (e) {
       if (e.code !== "EEXIST") throw e;
-      const deadline = Date.now() + LOCK_WAIT_MS;
-      while (Date.now() < deadline) {
-        /* busy wait */
-      }
+      await sleep(LOCK_WAIT_MS);
     }
   }
   return null;
@@ -85,7 +86,7 @@ async function main() {
   if (filePath.includes("\0")) process.exit(0);
 
   const cwd = getCwd();
-  const release = acquireLock();
+  const release = await acquireLock();
   if (!release) process.exit(0);
   try {
     const state = readState(cwd);

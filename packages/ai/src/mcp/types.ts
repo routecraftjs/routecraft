@@ -58,7 +58,7 @@ export interface McpPluginOptions {
   /** Port for the streamable-http MCP server. Default: 3001 (only used with transport: "http") */
   port?: number;
 
-  /** Host to bind to. Default: "0.0.0.0" (only used with transport: "http") */
+  /** Host to bind to. Default: "localhost" (only used with transport: "http") */
   host?: string;
 
   /**

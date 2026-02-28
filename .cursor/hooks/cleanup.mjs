@@ -85,4 +85,4 @@ async function main() {
   }
 }
 
-main().catch(() => process.exit(0));
+await main().catch(() => process.exit(0));

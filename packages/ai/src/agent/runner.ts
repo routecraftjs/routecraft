@@ -11,13 +11,10 @@ export class AgentRunner {
   async run(exchange: Exchange<unknown>): Promise<AgentResult> {
     void this._options; // Phase 2 will use modelId, allowedRoutes, etc.
     // Phase 1: pass-through only
-    if (
-      typeof globalThis !== "undefined" &&
-      typeof (globalThis as { console?: { warn?: (m: string) => void } })
-        .console?.warn === "function"
-    ) {
-      (globalThis as { console: { warn: (m: string) => void } }).console.warn(
-        "[agent] pass-through — implementation pending",
+    if (exchange.logger) {
+      exchange.logger.debug(
+        { adapter: "agent" },
+        "Agent pass-through — implementation pending",
       );
     }
     return {

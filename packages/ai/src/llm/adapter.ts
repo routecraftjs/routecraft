@@ -20,12 +20,12 @@ import { ADAPTER_LLM_OPTIONS, ADAPTER_LLM_PROVIDERS } from "./types.ts";
 /**
  * When the AI SDK doesn't set result.output (e.g. it threw on the getter), try to
  * parse result.text as JSON and validate with the output schema. Returns the
- * parsed value or undefined.
+ * parsed value or undefined. Handles both sync and async Standard Schema validate().
  */
-function parseStructuredTextFallback(
+async function parseStructuredTextFallback(
   text: string,
   schema: StandardSchemaV1,
-): unknown {
+): Promise<unknown> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -44,7 +44,8 @@ function parseStructuredTextFallback(
       }
     | undefined;
   if (!standard?.validate) return undefined;
-  const result = standard.validate(parsed);
+  let result = standard.validate(parsed);
+  if (result instanceof Promise) result = await result;
   if (
     result &&
     typeof result === "object" &&
@@ -194,7 +195,7 @@ export class LlmAdapter
       result.text &&
       merged.outputSchema !== undefined
     ) {
-      const fallback = parseStructuredTextFallback(
+      const fallback = await parseStructuredTextFallback(
         result.text,
         merged.outputSchema,
       );
