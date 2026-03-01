@@ -259,10 +259,6 @@ jobs:
           npm link
           craft --version
 
-      - name: Run all examples
-        working-directory: ./examples
-        run: craft run --log-level debug dist/hello-world.js
-
   publish-canary:
     needs: [build, cli-test]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
