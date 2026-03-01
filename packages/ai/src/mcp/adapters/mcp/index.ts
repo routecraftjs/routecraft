@@ -48,14 +48,14 @@ import type { McpMessage } from "./types.ts";
  */
 export function mcp<S extends StandardSchemaV1 | undefined = undefined>(
   endpoint: string,
-  options: (McpServerOptions & { schema?: S }) | { args?: McpArgsExtractor },
+  options: McpServerOptions & { schema?: S },
 ): Source<McpMessage<S>>;
 export function mcp(
   clientOptions: McpClientOptions,
 ): Destination<unknown, unknown>;
 export function mcp(
-  shorthand: string,
-  options: { args?: McpArgsExtractor },
+  shorthand: `${string}:${string}`,
+  options?: { args?: McpArgsExtractor },
 ): Destination<unknown, unknown>;
 export function mcp<S extends StandardSchemaV1 | undefined = undefined>(
   endpointOrOptions:
@@ -104,7 +104,6 @@ export function mcp<S extends StandardSchemaV1 | undefined = undefined>(
     | string
     | ((exchange: Exchange<McpMessage<S>>) => string);
   if (options !== undefined) {
-    validateServerArgs(endpoint, options);
     return new McpSourceAdapter<S>(
       endpoint as string,
       options as McpServerOptions & { schema?: S },
@@ -118,49 +117,6 @@ export function mcp<S extends StandardSchemaV1 | undefined = undefined>(
     suggestion:
       "Use .from(mcp('endpoint', { description: '...' })) or .to(mcp({ url, tool })) or direct('endpoint').",
   });
-}
-
-function validateServerArgs<S extends StandardSchemaV1 | undefined>(
-  endpoint: string | ((exchange: Exchange<McpMessage<S>>) => string),
-  options: (McpServerOptions & { schema?: S }) | { args?: McpArgsExtractor },
-): void {
-  if (typeof endpoint !== "string") {
-    throw rcError("RC5003", undefined, {
-      message: "Dynamic endpoints cannot be used as source",
-      suggestion:
-        "Use a static string endpoint for source: .from(mcp('endpoint', options)).",
-    });
-  }
-  if ("url" in options || "serverId" in options) {
-    throw rcError("RC5003", undefined, {
-      message:
-        "mcp() with url or serverId must be used as destination: .to(mcp({ url, tool }))",
-      suggestion:
-        "Use .to(mcp({ url: '...', tool: '...' })) to call a remote MCP server.",
-    });
-  }
-  if (
-    "args" in options &&
-    options.args !== undefined &&
-    !("description" in options)
-  ) {
-    throw rcError("RC5003", undefined, {
-      message:
-        "mcp(endpoint, { args }) is for client usage with a 'server:tool' target, not for defining a source",
-      suggestion:
-        "Use .to(mcp('server:tool', { args })) to call a remote tool, or .from(mcp('endpoint', { description: '...' })) to define a source.",
-    });
-  }
-  if (
-    !("description" in options) ||
-    typeof (options as { description?: unknown }).description !== "string"
-  ) {
-    throw rcError("RC5003", undefined, {
-      message: "mcp(endpoint, options) as source requires options.description",
-      suggestion:
-        "Use .from(mcp('endpoint', { description: '...' })) to define a source.",
-    });
-  }
 }
 
 // Re-export types for public API

@@ -183,7 +183,7 @@ describe("Direct adapter", () => {
   /**
    * @case Verifies endpoint sanitization works with dynamic endpoints
    * @preconditions Dynamic endpoint that returns special characters
-   * @expectedResult Special characters should be sanitized to dashes
+   * @expectedResult Special characters should be URL-encoded for collision-free routing
    */
   test("dynamic endpoint sanitization", async () => {
     const consumer = vi.fn();
@@ -196,7 +196,7 @@ describe("Direct adapter", () => {
           .to(direct((ex) => `${ex.body.namespace}:${ex.body.action}`)),
         craft()
           .id("consumer")
-          .from(direct("com-example-process", {}))
+          .from(direct("com.example:process", {}))
           .to(consumer),
       ])
       .build();

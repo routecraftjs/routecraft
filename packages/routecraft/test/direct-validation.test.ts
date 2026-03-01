@@ -1468,7 +1468,7 @@ describe("Direct adapter validation", () => {
     /**
      * @case Sanitized endpoint names used in registry
      * @preconditions Endpoint name has special characters
-     * @expectedResult Sanitized name in registry
+     * @expectedResult URL-encoded name in registry (collision-free)
      */
     test("sanitized endpoint names used in registry", async () => {
       t = await testContext()
@@ -1486,7 +1486,7 @@ describe("Direct adapter validation", () => {
 
       await t.test();
       const registry = t.ctx.getStore(ADAPTER_DIRECT_REGISTRY);
-      expect(registry?.has("my-special-endpoint-name")).toBe(true);
+      expect(registry?.has("my.special%3Aendpoint%2Fname")).toBe(true);
       expect(registry?.has("my.special:endpoint/name")).toBe(false);
     });
   });
