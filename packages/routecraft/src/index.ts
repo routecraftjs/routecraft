@@ -130,8 +130,10 @@ export { timer } from "./adapters/timer.ts";
 export { http } from "./adapters/http.ts";
 export { pseudo } from "./adapters/pseudo.ts";
 export { browser } from "./adapters/browser.ts";
+export { file } from "./adapters/file.ts";
 export { html } from "./adapters/html.ts";
 export { json } from "./adapters/json.ts";
+export { csv } from "./adapters/csv.ts";
 export { group } from "./adapters/group.ts";
 
 export { SimpleAdapter } from "./adapters/simple.ts";
@@ -169,12 +171,20 @@ export {
   type Resolvable,
   sanitizeSessionId,
 } from "./adapters/browser.ts";
+export { FileAdapter, type FileOptions } from "./adapters/file.ts";
 export {
   HtmlAdapter,
   type HtmlOptions,
   type HtmlResult,
 } from "./adapters/html.ts";
-export { JsonAdapter, type JsonOptions } from "./adapters/json.ts";
+export {
+  JsonAdapter,
+  JsonFileAdapter,
+  type JsonOptions,
+  type JsonTransformerOptions,
+  type JsonFileOptions,
+} from "./adapters/json.ts";
+export { CsvAdapter, type CsvOptions } from "./adapters/csv.ts";
 export { GroupAdapter, type GroupOptions } from "./adapters/group.ts";
 export {
   cosine,

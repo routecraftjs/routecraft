@@ -1,6 +1,9 @@
 import { describe, test, expect, afterEach, vi } from "vitest";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { craft, simple, html, type HtmlResult } from "@routecraft/routecraft";
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import * as os from "node:os";
 
 describe("HTML Adapter", () => {
   let t: TestContext;
@@ -299,6 +302,226 @@ describe("HTML Adapter", () => {
 
       const body = destSpy.mock.calls[0][0].body as HtmlResult;
       expect(body).toBe("");
+    });
+  });
+
+  describe("source mode (with path)", () => {
+    let tempDir: string;
+    let testFile: string;
+
+    afterEach(async () => {
+      // Clean up temp files
+      if (tempDir) {
+        try {
+          await fs.rm(tempDir, { recursive: true, force: true });
+        } catch {
+          // ignore cleanup errors
+        }
+      }
+    });
+
+    /**
+     * @case Read HTML file and extract text using selector
+     * @preconditions HTML file exists with content
+     * @expectedResult Text is extracted from file
+     */
+    test("reads HTML file and extracts text", async () => {
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "html-test-"));
+      testFile = path.join(tempDir, "test.html");
+      await fs.writeFile(
+        testFile,
+        "<html><head><title>File Title</title></head><body><h1>Hello from file</h1></body></html>",
+      );
+
+      const destSpy = vi.fn();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("html-source-text")
+            .from(html({ path: testFile, selector: "h1", extract: "text" }))
+            .to(destSpy),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(destSpy).toHaveBeenCalledTimes(1);
+      const body = destSpy.mock.calls[0][0].body as HtmlResult;
+      expect(body).toBe("Hello from file");
+    });
+
+    /**
+     * @case Read HTML file and extract multiple elements
+     * @preconditions HTML file with multiple matching elements
+     * @expectedResult Array of extracted values
+     */
+    test("reads HTML file and extracts multiple elements", async () => {
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "html-test-"));
+      testFile = path.join(tempDir, "list.html");
+      await fs.writeFile(
+        testFile,
+        "<html><body><ul><li>Item 1</li><li>Item 2</li><li>Item 3</li></ul></body></html>",
+      );
+
+      const destSpy = vi.fn();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("html-source-multi")
+            .from(html({ path: testFile, selector: "li", extract: "text" }))
+            .to(destSpy),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(destSpy).toHaveBeenCalledTimes(1);
+      const body = destSpy.mock.calls[0][0].body as HtmlResult;
+      expect(Array.isArray(body)).toBe(true);
+      expect(body).toEqual(["Item 1", "Item 2", "Item 3"]);
+    });
+
+    /**
+     * @case Read HTML file and extract attribute
+     * @preconditions HTML file with element having attribute
+     * @expectedResult Attribute value is extracted
+     */
+    test("reads HTML file and extracts attribute", async () => {
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "html-test-"));
+      testFile = path.join(tempDir, "links.html");
+      await fs.writeFile(
+        testFile,
+        '<html><body><a href="https://example.com">Link</a></body></html>',
+      );
+
+      const destSpy = vi.fn();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("html-source-attr")
+            .from(
+              html({
+                path: testFile,
+                selector: "a",
+                extract: "attr",
+                attr: "href",
+              }),
+            )
+            .to(destSpy),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(destSpy).toHaveBeenCalledTimes(1);
+      const body = destSpy.mock.calls[0][0].body as HtmlResult;
+      expect(body).toBe("https://example.com");
+    });
+  });
+
+  describe("destination mode (with path)", () => {
+    let tempDir: string;
+    let testFile: string;
+
+    afterEach(async () => {
+      // Clean up temp files
+      if (tempDir) {
+        try {
+          await fs.rm(tempDir, { recursive: true, force: true });
+        } catch {
+          // ignore cleanup errors
+        }
+      }
+    });
+
+    /**
+     * @case Write HTML string to file
+     * @preconditions HTML string in exchange body
+     * @expectedResult File is created with HTML content
+     */
+    test("writes HTML string to file", async () => {
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "html-test-"));
+      testFile = path.join(tempDir, "output.html");
+
+      const htmlContent =
+        "<html><head><title>Output</title></head><body><h1>Generated HTML</h1></body></html>";
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("html-dest-write")
+            .from(simple(htmlContent))
+            .to(html({ path: testFile, mode: "write" })),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      // Verify file was created with correct content
+      const fileContent = await fs.readFile(testFile, "utf-8");
+      expect(fileContent).toBe(htmlContent);
+    });
+
+    /**
+     * @case Write HTML from body.body object
+     * @preconditions Exchange body is object with body property containing HTML
+     * @expectedResult File is created with HTML from body.body
+     */
+    test("writes HTML from body.body to file", async () => {
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "html-test-"));
+      testFile = path.join(tempDir, "output.html");
+
+      const httpLike = {
+        status: 200,
+        headers: {} as Record<string, string>,
+        body: "<html><body><p>From body.body</p></body></html>",
+        url: "https://example.com",
+      };
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("html-dest-body-body")
+            .from(simple(httpLike))
+            .to(html({ path: testFile, mode: "write" })),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      // Verify file was created with correct content
+      const fileContent = await fs.readFile(testFile, "utf-8");
+      expect(fileContent).toBe(httpLike.body);
+    });
+
+    /**
+     * @case Create parent directories when writing HTML
+     * @preconditions createDirs is true, parent directory doesn't exist
+     * @expectedResult Parent directories are created, file is written
+     */
+    test("creates parent directories when createDirs is true", async () => {
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "html-test-"));
+      testFile = path.join(tempDir, "nested", "dir", "output.html");
+
+      const htmlContent = "<html><body><p>Nested file</p></body></html>";
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("html-dest-createDirs")
+            .from(simple(htmlContent))
+            .to(html({ path: testFile, mode: "write", createDirs: true })),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      // Verify file was created with correct content
+      const fileContent = await fs.readFile(testFile, "utf-8");
+      expect(fileContent).toBe(htmlContent);
     });
   });
 });
