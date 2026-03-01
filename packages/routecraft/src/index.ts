@@ -162,8 +162,6 @@ export {
   ADAPTER_DIRECT_OPTIONS,
   ADAPTER_DIRECT_REGISTRY,
 } from "./adapters/direct/index.ts";
-export { DirectSourceAdapter } from "./adapters/direct/source.ts";
-export { DirectDestinationAdapter } from "./adapters/direct/destination.ts";
 export {
   TimerSourceAdapter,
   type TimerOptions,

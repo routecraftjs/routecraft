@@ -74,6 +74,19 @@ export class McpDestinationAdapter implements Destination<unknown, unknown> {
 
   constructor(private readonly options: McpClientOptions) {
     (this as unknown as Record<symbol, boolean>)[BRAND_MCP_ADAPTER] = true;
+
+    // Validate client options
+    if (!options.url && !options.serverId) {
+      throw new Error(
+        "MCP client: either url or serverId must be provided in McpClientOptions.",
+      );
+    }
+
+    if (options.url && options.serverId) {
+      throw new Error(
+        "MCP client: cannot provide both url and serverId. Use either url for direct HTTP or serverId for registered servers.",
+      );
+    }
   }
 
   async send(exchange: Exchange<unknown>): Promise<unknown> {

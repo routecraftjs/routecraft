@@ -1,6 +1,7 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   direct,
+  rcError,
   type CraftContext,
   type Exchange,
   type ExchangeHeaders,
@@ -29,6 +30,50 @@ export class McpSourceAdapter<
 
   constructor(endpoint: string, options: McpServerOptions & { schema?: S }) {
     (this as unknown as Record<symbol, boolean>)[BRAND_MCP_ADAPTER] = true;
+
+    // Validate endpoint and options
+    if (typeof endpoint !== "string") {
+      throw rcError("RC5003", undefined, {
+        message: "Dynamic endpoints cannot be used as source",
+        suggestion:
+          "Use a static string endpoint for source: .from(mcp('endpoint', options)).",
+      });
+    }
+
+    if ("url" in options || "serverId" in options) {
+      throw rcError("RC5003", undefined, {
+        message:
+          "mcp() with url or serverId must be used as destination: .to(mcp({ url, tool }))",
+        suggestion:
+          "Use .to(mcp({ url: '...', tool: '...' })) to call a remote MCP server.",
+      });
+    }
+
+    if (
+      "args" in options &&
+      (options as { args?: unknown }).args !== undefined &&
+      !("description" in options)
+    ) {
+      throw rcError("RC5003", undefined, {
+        message:
+          "mcp(endpoint, { args }) is for client usage with a 'server:tool' target, not for defining a source",
+        suggestion:
+          "Use .to(mcp('server:tool', { args })) to call a remote tool, or .from(mcp('endpoint', { description: '...' })) to define a source.",
+      });
+    }
+
+    if (
+      !("description" in options) ||
+      typeof options.description !== "string"
+    ) {
+      throw rcError("RC5003", undefined, {
+        message:
+          "mcp(endpoint, options) as source requires options.description",
+        suggestion:
+          "Use .from(mcp('endpoint', { description: '...' })) to define a source.",
+      });
+    }
+
     this.endpoint = endpoint;
     this.options = options;
   }
