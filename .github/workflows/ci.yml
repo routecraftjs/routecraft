@@ -187,13 +187,20 @@ jobs:
           NEXT_PUBLIC_POSTHOG_KEY: ${{ secrets.NEXT_PUBLIC_POSTHOG_KEY }}
           NEXT_PUBLIC_POSTHOG_HOST: ${{ secrets.NEXT_PUBLIC_POSTHOG_HOST }}
 
+      - name: Build examples
+        run: pnpm --filter examples run build
+
       - name: Check bundle size
         run: pnpm run limit:size
 
       - name: Cache build artifacts
         uses: actions/cache@v4
         with:
-          path: "**/dist"
+          path: |
+            packages/routecraft/dist
+            packages/cli/dist
+            packages/testing/dist
+            examples/dist
           key: build-${{ github.sha }}
 
       - name: Upload docs export artifact
@@ -231,11 +238,12 @@ jobs:
       - name: Restore build artifacts
         uses: actions/cache@v4
         with:
-          path: "**/dist"
+          path: |
+            packages/routecraft/dist
+            packages/cli/dist
+            packages/testing/dist
+            examples/dist
           key: build-${{ github.sha }}
-
-      - name: Build examples
-        run: pnpm --filter examples run build
 
       - name: Fetch tags
         run: git fetch --force --tags
