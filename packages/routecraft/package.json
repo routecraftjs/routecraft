@@ -31,7 +31,7 @@
   },
   "devDependencies": {
     "@routecraft/testing": "workspace:^0.3.0",
-    "agent-browser": "^0.13.0",
+    "agent-browser": "^0.15.1",
     "arktype": "^2.1.29",
     "cheerio": "^1.2.0",
     "vitest": "^4.0.18",
@@ -54,7 +54,7 @@
   "homepage": "https://routecraft.dev",
   "bugs": "https://github.com/routecraftjs/routecraft/issues",
   "peerDependencies": {
-    "agent-browser": "^0.13.0",
+    "agent-browser": "^0.15.1",
     "cheerio": "^1.2.0",
     "pino-pretty": "^13.1.3"
   },
