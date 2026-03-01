@@ -130,6 +130,7 @@ export { timer } from "./adapters/timer.ts";
 export { http } from "./adapters/http.ts";
 export { pseudo } from "./adapters/pseudo.ts";
 export { browser } from "./adapters/browser.ts";
+export { file } from "./adapters/file.ts";
 export { html } from "./adapters/html.ts";
 export { json } from "./adapters/json.ts";
 export { group } from "./adapters/group.ts";
@@ -169,6 +170,7 @@ export {
   type Resolvable,
   sanitizeSessionId,
 } from "./adapters/browser.ts";
+export { FileAdapter, type FileOptions } from "./adapters/file.ts";
 export {
   HtmlAdapter,
   type HtmlOptions,
