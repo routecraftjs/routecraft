@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsup \"src/*.ts\" --format esm --dts",
+    "build": "tsup",
     "test": "vitest",
     "test:coverage": "vitest --coverage"
   },
