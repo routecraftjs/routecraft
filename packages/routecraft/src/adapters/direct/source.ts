@@ -49,15 +49,18 @@ export class DirectSourceAdapter<T = unknown>
     // Sanitize the endpoint name
     const endpoint = sanitizeEndpoint(this.endpoint);
 
+    // Get merged options from context store
+    const merged = getMergedOptions(context, this.options);
+
     // Register route in the registry
-    registerRoute(context, endpoint, this.options);
+    registerRoute(context, endpoint, merged);
 
     context.logger.debug(
       { endpoint, adapter: "direct" },
       "Setting up subscription for direct endpoint",
     );
 
-    const channel = getDirectChannel<T>(context, endpoint, this.options);
+    const channel = getDirectChannel<T>(context, endpoint, merged);
 
     if (abortController.signal.aborted) {
       context.logger.debug(
@@ -68,17 +71,26 @@ export class DirectSourceAdapter<T = unknown>
     }
 
     // Wrap handler with validation if schema provided
-    const wrappedHandler = this.hasValidation()
-      ? this.createValidatedHandler(handler, endpoint)
+    const wrappedHandler = this.hasValidation(merged)
+      ? this.createValidatedHandler(handler, endpoint, merged)
       : async (exchange: Exchange<T>) => {
           const result = await handler(exchange.body as T, exchange.headers);
           return result as Exchange<T>;
         };
 
     // Set up cleanup on abort before subscribing
-    abortController.signal.addEventListener("abort", async () => {
-      await channel.unsubscribe(context, endpoint);
-    });
+    abortController.signal.addEventListener(
+      "abort",
+      () => {
+        channel.unsubscribe(context, endpoint).catch((err) => {
+          context.logger.error(
+            { err, adapter: "direct", endpoint, operation: "unsubscribe" },
+            "Failed to unsubscribe from direct endpoint during abort",
+          );
+        });
+      },
+      { once: true },
+    );
 
     // Set up the subscription
     await channel.subscribe(context, endpoint, wrappedHandler);
@@ -105,8 +117,8 @@ export class DirectSourceAdapter<T = unknown>
   /**
    * Check if this adapter has validation configured
    */
-  private hasValidation(): boolean {
-    return !!(this.options.schema || this.options.headerSchema);
+  private hasValidation(options: DirectOptionsMerged): boolean {
+    return !!(options.schema || options.headerSchema);
   }
 
   /**
@@ -116,14 +128,15 @@ export class DirectSourceAdapter<T = unknown>
   private createValidatedHandler(
     handler: (message: T, headers?: ExchangeHeaders) => Promise<Exchange>,
     endpoint: string,
+    options: DirectOptionsMerged,
   ): (exchange: Exchange<T>) => Promise<Exchange<T>> {
     return async (exchange: Exchange<T>) => {
       let validatedBody = exchange.body;
       let validatedHeaders = exchange.headers;
 
       // Validate body if schema provided
-      if (this.options.schema) {
-        let result = this.options.schema["~standard"].validate(exchange.body);
+      if (options.schema) {
+        let result = options.schema["~standard"].validate(exchange.body);
         if (result instanceof Promise) result = await result;
 
         const bodyIssues = (result as { issues?: unknown }).issues;
@@ -145,8 +158,8 @@ export class DirectSourceAdapter<T = unknown>
       }
 
       // Validate headers if headerSchema provided
-      if (this.options.headerSchema) {
-        let result = this.options.headerSchema["~standard"].validate(
+      if (options.headerSchema) {
+        let result = options.headerSchema["~standard"].validate(
           exchange.headers,
         );
         if (result instanceof Promise) result = await result;
