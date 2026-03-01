@@ -22,10 +22,17 @@ export default defineConfig({
 
   // External packages that shouldn't be bundled
   external: [
-    // Node.js built-ins
     /^node:/,
-    // Workspace packages (let them be resolved at runtime)
     /^@routecraft\/.*/,
+    "pino-pretty",
+    // @routecraft/ai optional: install only the providers/MCP/embeddings you use
+    "@ai-sdk/anthropic",
+    "@ai-sdk/google",
+    "@ai-sdk/openai",
+    "@huggingface/transformers",
+    "@modelcontextprotocol/sdk",
+    "@openrouter/ai-sdk-provider",
+    "ollama-ai-provider-v2",
   ],
 
   // Development

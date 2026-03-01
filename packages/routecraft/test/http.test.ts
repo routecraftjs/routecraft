@@ -1,6 +1,12 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { testContext, type TestContext } from "@routecraft/testing";
-import { craft, simple, http } from "@routecraft/routecraft";
+import {
+  craft,
+  simple,
+  http,
+  DefaultExchange,
+  getExchangeContext,
+} from "@routecraft/routecraft";
 
 describe("HTTP Adapter", () => {
   let t: TestContext;
@@ -368,7 +374,18 @@ describe("HTTP Adapter", () => {
           .id("test-split-integration")
           .from(simple("trigger"))
           .enrich(http({ url: "https://api.example.com/items" }))
-          .split((body: any) => (Array.isArray(body.body) ? body.body : []))
+          .split((exchange) => {
+            const ctx = getExchangeContext(exchange)!;
+            const body = exchange.body as { body?: unknown[] };
+            const items = Array.isArray(body?.body) ? body.body : [];
+            return items.map(
+              (b) =>
+                new DefaultExchange(ctx, {
+                  body: b,
+                  headers: exchange.headers,
+                }),
+            );
+          })
           .to(destSpy),
       )
       .build();

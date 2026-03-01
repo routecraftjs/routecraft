@@ -5,7 +5,7 @@ import {
   OperationType,
   HeadersKeys,
 } from "../exchange.ts";
-import { error as rcError } from "../error.ts";
+import { rcError } from "../error.ts";
 
 /**
  * Function form of an aggregator: takes an array of exchanges and returns one combined exchange.

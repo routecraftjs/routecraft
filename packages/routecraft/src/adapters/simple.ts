@@ -43,6 +43,10 @@ export class SimpleAdapter<T = unknown> implements Source<T> {
     try {
       result = await this.producer();
     } catch (error) {
+      context.logger.error(
+        { adapter: "simple", err: error },
+        "Producer failed; aborting",
+      );
       abortController.abort();
       throw error;
     }

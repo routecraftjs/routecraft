@@ -44,16 +44,24 @@ async function main() {
             () => reject(new Error("Timeout waiting for routes")),
             5000,
           );
-          ctx.on("routeStarted", () => {
+          const onRouteStarted = () => {
             ready++;
             if (ready >= total) {
               clearTimeout(timeout);
+              unsubError();
               resolve();
             }
-          });
+          };
+          const onError = (event) => {
+            clearTimeout(timeout);
+            unsubRouteStarted();
+            reject(event.details.error);
+          };
+          const unsubRouteStarted = ctx.on("routeStarted", onRouteStarted);
+          const unsubError = ctx.on("error", onError);
         });
 
-  void ctx.start();
+  ctx.start();
   await routesReady;
 
   const server = new McpServer(ctx, { transport: "stdio" });

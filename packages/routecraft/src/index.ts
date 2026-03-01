@@ -88,6 +88,7 @@ export {
   RouteCraftError,
   type RCCode,
   type RCMeta,
+  rcError,
   error,
   RC,
 } from "./error.ts";

@@ -68,7 +68,7 @@ export function loadEnvFile(path?: string) {
 }
 
 /**
- * Registers SIGINT, SIGTERM, and exit handlers for a CraftContext instance.
+ * Registers SIGINT and SIGTERM handlers for a CraftContext instance.
  * Ensures graceful shutdown and logging.
  *
  * @param context The CraftContext instance

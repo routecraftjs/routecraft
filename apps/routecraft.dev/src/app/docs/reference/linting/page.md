@@ -143,9 +143,12 @@ craft()
 
 ```ts
 // ✅ Good: direct() for in-process .to(); mcp() with description in .from()
+import { mcp } from '@routecraft/ai'
+import { direct } from '@routecraft/routecraft'
+
 craft()
   .id('producer')
-  .from(simple({ message: 'hello' }))
+  .from(mcp('my-tool', { description: 'Produce messages for my-tool' }))
   .to(direct('my-tool'))
 ```
 

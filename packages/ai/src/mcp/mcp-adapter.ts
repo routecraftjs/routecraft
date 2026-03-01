@@ -1,5 +1,6 @@
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
-  error as rcError,
+  rcError,
   type Exchange,
   type ExchangeHeaders,
   type Source,
@@ -15,25 +16,32 @@ import type {
   McpServerOptions,
 } from "./types.ts";
 
-type McpDelegate<T = unknown> = McpServer<T> | McpClient;
+/** Message type derived from schema S when present; otherwise unknown. */
+type McpMessage<S extends StandardSchemaV1 | undefined> =
+  S extends StandardSchemaV1 ? StandardSchemaV1.InferOutput<S> : unknown;
+
+type McpDelegate<S extends StandardSchemaV1 | undefined> =
+  | McpServer<S>
+  | McpClient;
 
 /**
  * MCP adapter facade: single exported adapter for both server (.from) and client (.to) roles.
  * Delegates to internal McpServer or McpClient. Use via mcp(); do not instantiate internal classes.
+ * For server use, S is inferred from options.schema so the source body type matches.
  */
-export class McpAdapter<T = unknown>
-  implements Source<T>, Destination<unknown, unknown>
+export class McpAdapter<S extends StandardSchemaV1 | undefined = undefined>
+  implements Source<McpMessage<S>>, Destination<unknown, unknown>
 {
   readonly adapterId = "routecraft.adapter.mcp";
 
-  private readonly delegate: McpDelegate<T>;
+  private readonly delegate: McpDelegate<S>;
 
   constructor(
     endpointOrOptions:
       | string
-      | ((exchange: Exchange<T>) => string)
+      | ((exchange: Exchange<McpMessage<S>>) => string)
       | McpClientOptions,
-    options?: McpServerOptions | { args?: McpArgsExtractor },
+    options?: (McpServerOptions & { schema?: S }) | { args?: McpArgsExtractor },
   ) {
     (this as unknown as Record<symbol, boolean>)[BRAND.McpAdapter] = true;
 
@@ -77,12 +85,12 @@ export class McpAdapter<T = unknown>
     // Server: endpoint + options with description
     const endpoint = endpointOrOptions as
       | string
-      | ((exchange: Exchange<T>) => string);
+      | ((exchange: Exchange<McpMessage<S>>) => string);
     if (options !== undefined) {
       this.validateServerArgs(endpoint, options);
-      this.delegate = new McpServer<T>(
+      this.delegate = new McpServer<S>(
         endpoint as string,
-        options as McpServerOptions,
+        options as McpServerOptions & { schema?: S },
       );
       return;
     }
@@ -97,8 +105,8 @@ export class McpAdapter<T = unknown>
   }
 
   private validateServerArgs(
-    endpoint: string | ((exchange: Exchange<T>) => string),
-    options: McpServerOptions | { args?: McpArgsExtractor },
+    endpoint: string | ((exchange: Exchange<McpMessage<S>>) => string),
+    options: (McpServerOptions & { schema?: S }) | { args?: McpArgsExtractor },
   ): void {
     if (typeof endpoint !== "string") {
       throw rcError("RC5003", undefined, {
@@ -142,7 +150,10 @@ export class McpAdapter<T = unknown>
 
   async subscribe(
     context: CraftContext,
-    handler: (message: T, headers?: ExchangeHeaders) => Promise<Exchange>,
+    handler: (
+      message: McpMessage<S>,
+      headers?: ExchangeHeaders,
+    ) => Promise<Exchange>,
     abortController: AbortController,
     onReady?: () => void,
   ): Promise<void> {

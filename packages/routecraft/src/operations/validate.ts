@@ -1,7 +1,7 @@
 import { type StandardSchemaV1 } from "@standard-schema/spec";
 import { FilterStep } from "./filter.ts";
 import { OperationType } from "../exchange.ts";
-import { error as rcError } from "../error.ts";
+import { rcError } from "../error.ts";
 
 /** Standard Schema validate() result shape: success has value, failure has issues. */
 interface StandardSchemaResult {

@@ -109,7 +109,7 @@ craft()
       description: 'Echo or process the incoming query',
     })
   )
-  .process((body) => body);
+  .transform((body) => body);
 
 // Producer: send to same endpoint via direct() (in-process)
 craft()

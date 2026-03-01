@@ -7,7 +7,7 @@ import {
   getExchangeContext,
   getExchangeRoute,
 } from "../exchange.ts";
-import { error as rcError } from "../error.ts";
+import { rcError } from "../error.ts";
 import { type Destination, type CallableDestination } from "./to.ts";
 import type { CraftContext } from "../context.ts";
 

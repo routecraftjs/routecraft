@@ -9,7 +9,7 @@ import {
   EXCHANGE_INTERNALS,
 } from "./exchange.ts";
 import { BRAND, INTERNALS_KEY, setBrand } from "./brand.ts";
-import { error as rcError, RouteCraftError, RC } from "./error.ts";
+import { rcError, RouteCraftError, RC } from "./error.ts";
 import { isRouteCraftError } from "./brand.ts";
 import { logger, childBindings } from "./logger.ts";
 import { type Source } from "./operations/from.ts";

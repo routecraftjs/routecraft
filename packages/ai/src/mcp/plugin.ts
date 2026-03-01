@@ -5,7 +5,7 @@ import type { McpPluginOptions } from "./types.ts";
 import { validateMcpPluginOptions } from "./validate-options.ts";
 
 /**
- * MCP plugin: one plugin per adapter. Starts the MCP server on context start and exposes mcp() routes to external MCP clients.
+ * MCP plugin: one plugin per adapter. Starts the MCP server during plugin apply (before routes start) so startup failures fail context build. Exposes mcp() routes to external MCP clients.
  * Optional clients: register named remote MCP servers so routes can use .to(mcp("name:tool")) without passing url.
  * Required when any route uses .from(mcp(...)); the route will fail at start if this plugin is not applied.
  */
@@ -15,7 +15,7 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
   let server: McpServer | null = null;
 
   return {
-    apply(ctx: CraftContext) {
+    async apply(ctx: CraftContext) {
       ctx.setStore(
         MCP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry,
         true,
@@ -29,15 +29,8 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
         );
       }
 
-      ctx.on("contextStarted", async () => {
-        server = new McpServer(ctx, options);
-        try {
-          await server.start();
-        } catch (error) {
-          ctx.logger.error(error, "Failed to start MCP server plugin");
-          throw error;
-        }
-      });
+      server = new McpServer(ctx, options);
+      await server.start();
     },
     async teardown(ctx: CraftContext) {
       if (server) {

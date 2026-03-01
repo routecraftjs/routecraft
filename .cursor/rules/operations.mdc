@@ -20,7 +20,7 @@ This document sets guidelines for authoring RouteCraft steps. Refer to the docs 
   - Notes: A route must start with a single source. Use `[ { id }, source ]` form to set a stable route ID.
 
 - `.process(adapter | (exchange) => exchange)`
-  - Notes: Can change headers and body; return a new or modified exchange. Prefer pure transformations here; avoid side effects. Process is not for side effects or I/O—use `.from()` for input and `.to()` or `.enrich()` for output/side effects.
+  - Notes: Can change headers and body; return a new or modified exchange. Keep `.transform`, `.process`, and `.filter` pure; route side effects to `.tap(...)`, `.to(...)`, or `.enrich()` where appropriate. Use `.from()` for input.
 
 - `.transform(adapter | (body) => newBody)`
   - Notes: Body-only change. Framework writes result back to `exchange.body`.
@@ -67,10 +67,10 @@ This document sets guidelines for authoring RouteCraft steps. Refer to the docs 
 ### Authoring guidelines
 
 - One function per step; prefer small, composable operations.
-- Pure where possible: `.transform`, `.process`, `.filter`, `.tap`.
+- Pure where possible: `.transform`, `.process`, `.filter`.
 - Validate external inputs at boundaries with `.validate`.
 - Use `.split`/`.aggregate` for fan-out/fan-in; avoid manual loops inside processors.
-- Side effects belong in `.to(...)` destinations, not in processors/transformers. `.process` is not for side effects; keep it pure.
+- Keep `.transform`, `.process`, and `.filter` pure; route side effects to `.tap(...)`, `.to(...)`, and `.enrich()` where appropriate.
 
 ### Which to use when (quick guide)
 

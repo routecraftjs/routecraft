@@ -131,17 +131,11 @@ export class HtmlAdapter<T = unknown, R = HtmlResult> implements Transformer<
 }
 
 /**
- * Creates an HTML transformer that extracts content using CSS selectors (cheerio).
- * By default uses body (or body.body when body is an object) as the HTML string and replaces the body with the extracted result. Use `from` to read HTML from a sub-field and `to` to write the result into a sub-field.
+ * Create an HTML transformer that extracts data from an HTML string using CSS selectors (cheerio).
+ * By default uses body (or body.body when object) as the HTML string and replaces the entire body with the result. Use `from` to read a sub-field and `to` to write the result into a sub-field (default to replaces whole body, same as from).
  *
- * @param options - `selector`, `extract` (text | html | attr | outerHtml | innerText | textContent), optional `from(body)`, `to(body, result)`, and for attr: `attr`
- * @returns A Transformer usable with `.transform(html(options))`
- *
- * @example
- * ```typescript
- * .transform(html({ selector: 'h1', extract: 'text' }))
- * .transform(html({ selector: '.price', extract: 'attr', attr: 'data-value', from: (b) => b.html, to: (b, v) => ({ ...b, price: v }) }))
- * ```
+ * @param options - selector, extract type, optional from(body) to get HTML, optional to(body, result) to write result into body
+ * @returns Transformer
  */
 export function html<T = unknown, R = HtmlResult>(
   options: HtmlOptions<T, R>,

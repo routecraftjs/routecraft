@@ -236,10 +236,10 @@ export class RouteCraftError extends Error {
  *
  * @example
  * ```typescript
- * throw error("RC5002", new Error("Invalid payload"), { message: "Validation failed" });
+ * throw rcError("RC5002", new Error("Invalid payload"), { message: "Validation failed" });
  * ```
  */
-export function error(
+export function rcError(
   rc: RCCode,
   cause?: unknown,
   overrides?: Partial<Pick<RCMeta, "message" | "suggestion" | "docs">>,
@@ -253,3 +253,6 @@ export function error(
   const parsed = cause ? RouteCraftError.parse(cause).error : undefined;
   return new RouteCraftError(rc, meta, parsed);
 }
+
+/** @deprecated Use rcError. Kept for API compatibility. */
+export const error = rcError;

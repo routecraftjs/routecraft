@@ -49,7 +49,20 @@ export function toAiOutputSpec(schema: StandardSchemaV1): unknown {
   function validate(
     value: unknown,
   ): { success: true; value: unknown } | { success: false; error: Error } {
-    const result = standard!.validate(value);
+    let result:
+      | { value?: unknown; issues?: unknown }
+      | Promise<{
+          value?: unknown;
+          issues?: unknown;
+        }>;
+    try {
+      result = standard!.validate(value);
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err : new Error(String(err)),
+      };
+    }
     if (result instanceof Promise) {
       return {
         success: false,
@@ -58,7 +71,14 @@ export function toAiOutputSpec(schema: StandardSchemaV1): unknown {
         ),
       };
     }
-    if (result.issues) {
+    const hasIssues =
+      result.issues != null &&
+      (Array.isArray(result.issues)
+        ? result.issues.length > 0
+        : typeof result.issues === "object" && result.issues !== null
+          ? Object.keys(result.issues).length > 0
+          : Boolean(result.issues));
+    if (hasIssues) {
       return {
         success: false,
         error: new Error(

@@ -9,7 +9,7 @@ import {
   isRouteDefinition,
   isRouteCraftError,
   isExchange,
-  error as rcError,
+  rcError,
 } from "@routecraft/routecraft";
 
 describe("Brand type guards (cross-instance identity)", () => {

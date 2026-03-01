@@ -10,7 +10,7 @@ import {
   DefaultExchange,
   isRouteCraftError,
   RouteCraftError,
-  error as rcError,
+  rcError,
   logger,
 } from "@routecraft/routecraft";
 import type {
@@ -95,6 +95,7 @@ export class TestContext {
   private readonly routesReadyTimeoutMs: number;
 
   private restoreLoggerChild?: () => void;
+  private startedPromise?: Promise<void>;
 
   constructor(
     ctx: CraftContext,
@@ -160,8 +161,8 @@ export class TestContext {
               reject(payload.details.error);
             });
           });
-    ctx.start();
-    await allReady;
+    this.startedPromise = ctx.start();
+    await Promise.all([this.startedPromise, allReady]);
   }
 
   /**
@@ -234,8 +235,11 @@ export class TestContext {
     return this.ctx.drain();
   }
 
-  stop(): Promise<void> {
-    return this.ctx.stop();
+  async stop(): Promise<void> {
+    await this.ctx.stop();
+    if (this.startedPromise !== undefined) {
+      await this.startedPromise;
+    }
   }
 }
 

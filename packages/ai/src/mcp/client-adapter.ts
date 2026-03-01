@@ -99,16 +99,30 @@ export class McpClient implements Destination<unknown, unknown> {
     toolName: string,
     args: Record<string, unknown>,
   ): Promise<unknown> {
-    const clientModule =
-      await import("@modelcontextprotocol/sdk/client/index.js");
-    const Client = clientModule.Client;
-    const transportModule =
-      await import("@modelcontextprotocol/sdk/client/streamableHttp.js");
-    const StreamableHTTPClientTransport =
-      transportModule.StreamableHTTPClientTransport as new (
+    let clientModule: {
+      Client: new (
+        info: { name: string; version: string },
+        options?: { capabilities?: Record<string, unknown> },
+      ) => unknown;
+    };
+    let transportModule: {
+      StreamableHTTPClientTransport: new (
         url: URL,
         options?: { sessionId?: string },
       ) => unknown;
+    };
+    try {
+      clientModule = await import("@modelcontextprotocol/sdk/client/index.js");
+      transportModule =
+        await import("@modelcontextprotocol/sdk/client/streamableHttp.js");
+    } catch {
+      throw new Error(
+        'MCP client requires "@modelcontextprotocol/sdk". Install it with: pnpm add @modelcontextprotocol/sdk',
+      );
+    }
+    const Client = clientModule.Client;
+    const StreamableHTTPClientTransport =
+      transportModule.StreamableHTTPClientTransport;
 
     const url = new URL(serverUrl);
     const transport = new StreamableHTTPClientTransport(url);

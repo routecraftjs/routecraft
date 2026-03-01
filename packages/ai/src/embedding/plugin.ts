@@ -6,14 +6,14 @@ import {
 } from "./types.ts";
 import type { EmbeddingModelConfig, EmbeddingPluginOptions } from "./types.ts";
 
-/** Normalize provider options to full EmbeddingModelConfig (add provider from key). */
+/** Normalize provider options to full EmbeddingModelConfig (providerId wins over opts.provider). */
 function toModelConfig(
   providerId: string,
   opts: Record<string, unknown>,
 ): EmbeddingModelConfig {
   return {
-    provider: providerId as EmbeddingModelConfig["provider"],
     ...opts,
+    provider: providerId as EmbeddingModelConfig["provider"],
   } as EmbeddingModelConfig;
 }
 

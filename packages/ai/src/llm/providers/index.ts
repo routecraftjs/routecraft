@@ -5,6 +5,12 @@ import type {
   LlmUsage,
 } from "../types.ts";
 
+function throwProviderInstallError(pkg: string, provider: string): never {
+  throw new Error(
+    `The ${provider} LLM provider requires the "${pkg}" package. Install it with: pnpm add ${pkg}`,
+  );
+}
+
 /** Provider-level defaults so users can register models with minimal config (e.g. { provider: "ollama" }). */
 const PROVIDER_DEFAULTS = {
   ollama: {
@@ -156,7 +162,16 @@ async function callOpenAI(
   userPrompt: string,
   output: CallLlmParams["output"],
 ): Promise<LlmResult> {
-  const { createOpenAI } = await import("@ai-sdk/openai");
+  let createOpenAI: (s: {
+    apiKey: string;
+    baseURL?: string;
+  }) => (m: string) => unknown;
+  try {
+    const mod = await import("@ai-sdk/openai");
+    createOpenAI = mod.createOpenAI as typeof createOpenAI;
+  } catch {
+    throwProviderInstallError("@ai-sdk/openai", "OpenAI");
+  }
   const { generateText } = await import("ai");
   const openaiSettings: { apiKey: string; baseURL?: string } = {
     apiKey: config.apiKey,
@@ -165,7 +180,7 @@ async function callOpenAI(
   const openai = createOpenAI(openaiSettings);
   const model = openai(modelId);
   const genParams: Parameters<typeof generateText>[0] = {
-    model,
+    model: model as Parameters<typeof generateText>[0]["model"],
     prompt: userPrompt,
     ...(options.maxTokens !== undefined && {
       maxOutputTokens: options.maxTokens,
@@ -197,12 +212,18 @@ async function callAnthropic(
   userPrompt: string,
   output: CallLlmParams["output"],
 ): Promise<LlmResult> {
-  const { createAnthropic } = await import("@ai-sdk/anthropic");
+  let createAnthropic: (s: { apiKey: string }) => (m: string) => unknown;
+  try {
+    const mod = await import("@ai-sdk/anthropic");
+    createAnthropic = mod.createAnthropic as typeof createAnthropic;
+  } catch {
+    throwProviderInstallError("@ai-sdk/anthropic", "Anthropic");
+  }
   const { generateText } = await import("ai");
   const anthropic = createAnthropic({ apiKey: config.apiKey });
   const model = anthropic(modelId);
   const genParams: Parameters<typeof generateText>[0] = {
-    model,
+    model: model as Parameters<typeof generateText>[0]["model"],
     prompt: userPrompt,
     ...(options.maxTokens !== undefined && {
       maxOutputTokens: options.maxTokens,
@@ -236,12 +257,21 @@ async function callGemini(
   userPrompt: string,
   output: CallLlmParams["output"],
 ): Promise<LlmResult> {
-  const { createGoogleGenerativeAI } = await import("@ai-sdk/google");
+  let createGoogleGenerativeAI: (s: {
+    apiKey: string;
+  }) => (m: string) => unknown;
+  try {
+    const mod = await import("@ai-sdk/google");
+    createGoogleGenerativeAI =
+      mod.createGoogleGenerativeAI as typeof createGoogleGenerativeAI;
+  } catch {
+    throwProviderInstallError("@ai-sdk/google", "Gemini");
+  }
   const { generateText } = await import("ai");
   const google = createGoogleGenerativeAI({ apiKey: config.apiKey });
   const model = google(modelId);
   const genParams: Parameters<typeof generateText>[0] = {
-    model,
+    model: model as Parameters<typeof generateText>[0]["model"],
     prompt: userPrompt,
     ...(options.maxTokens !== undefined && {
       maxOutputTokens: options.maxTokens,
@@ -275,7 +305,15 @@ async function callOpenRouter(
   userPrompt: string,
   output: CallLlmParams["output"],
 ): Promise<LlmResult> {
-  const { createOpenRouter } = await import("@openrouter/ai-sdk-provider");
+  let createOpenRouter: (s: { apiKey: string }) => {
+    chat: (id: string) => unknown;
+  };
+  try {
+    const mod = await import("@openrouter/ai-sdk-provider");
+    createOpenRouter = mod.createOpenRouter as typeof createOpenRouter;
+  } catch {
+    throwProviderInstallError("@openrouter/ai-sdk-provider", "OpenRouter");
+  }
   const { generateText } = await import("ai");
   const openrouter = createOpenRouter({ apiKey: config.apiKey });
   const resolvedId = config.modelId ?? modelId;
@@ -316,7 +354,13 @@ async function callOllama(
   userPrompt: string,
   output: CallLlmParams["output"],
 ): Promise<LlmResult> {
-  const { createOllama } = await import("ollama-ai-provider-v2");
+  let createOllama: (s: { baseURL?: string }) => (name: string) => unknown;
+  try {
+    const mod = await import("ollama-ai-provider-v2");
+    createOllama = mod.createOllama as typeof createOllama;
+  } catch {
+    throwProviderInstallError("ollama-ai-provider-v2", "Ollama");
+  }
   const { generateText } = await import("ai");
   const ollama = createOllama({
     baseURL: config.baseURL ?? PROVIDER_DEFAULTS.ollama.baseURL,

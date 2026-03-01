@@ -443,20 +443,22 @@ Make HTTP requests. Returns a `Destination` adapter that works with both `.to()`
 
 **With `.to()` (side-effect or body replacement):**
 
+`.to(http(...))` always invokes the `http()` adapter. When the adapter returns an `HttpResult`, `.to()` replaces the exchange body with that result. The first example below is a fire-and-forget pattern in intent only (the code does not read the response), but at runtime the body is still replaced by the `HttpResult`. To merge or preserve the original exchange body, use `.enrich()` with an aggregator instead of `.to(http(...))`.
+
 ```ts
-// Side-effect only - send webhook, ignore response (http returns HttpResult but body is replaced)
+// Fire-and-forget intent (code does not read the response); body is still replaced by HttpResult at runtime
 .to(http({
   method: 'POST',
   url: 'https://api.example.com/webhook',
   body: (exchange) => exchange.body
 }))
 
-// When http returns a result, .to() replaces the exchange body with that result
+// http() returns HttpResult; .to() replaces exchange body with it
 .to(http({ 
   method: 'GET',
   url: 'https://api.example.com/transform' 
 }))
-// Body is now the HttpResult (status, headers, body). Use .enrich() with an aggregator to merge.
+// Body is now the HttpResult (status, headers, body). Use .enrich() with an aggregator to merge or preserve the original body.
 
 // With query parameters
 .enrich(http({

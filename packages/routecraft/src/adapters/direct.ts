@@ -7,7 +7,7 @@ import {
 import { type Source } from "../operations/from";
 import { CraftContext, type MergedOptions } from "../context";
 import { type Destination } from "../operations/to";
-import { error as rcError } from "../error";
+import { rcError } from "../error";
 
 export type DirectChannelType<T extends DirectChannel> = new (
   endpoint: string,

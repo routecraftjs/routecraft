@@ -372,6 +372,12 @@ describe("McpServer", () => {
         stdio: ["pipe", "pipe", "pipe"],
       });
 
+      const stderrChunks: string[] = [];
+      child.stderr?.setEncoding("utf8");
+      child.stderr?.on("data", (chunk: string) => stderrChunks.push(chunk));
+      const getStderr = (): string =>
+        stderrChunks.length ? stderrChunks.join("").trim() : "(no stderr)";
+
       const lineQueue: string[] = [];
       let resolveNext: ((line: string) => void) | null = null;
       const rl = createInterface({ input: child.stdout! });
@@ -392,11 +398,34 @@ describe("McpServer", () => {
           }
         });
 
+      const readResponseTimeoutMs = 12_000;
       const readResponse = async (
         id: number,
       ): Promise<Record<string, unknown>> => {
+        const deadline = Date.now() + readResponseTimeoutMs;
         for (;;) {
-          const line = await nextLine();
+          const remaining = deadline - Date.now();
+          if (remaining <= 0) {
+            throw new Error(
+              `stdio MCP readResponse(id=${id}) timed out after ${readResponseTimeoutMs}ms. Child stderr: ${getStderr()}`,
+            );
+          }
+          let timeoutId: ReturnType<typeof setTimeout>;
+          const line = await Promise.race([
+            nextLine(),
+            new Promise<string>((_, reject) => {
+              timeoutId = setTimeout(
+                () =>
+                  reject(
+                    new Error(
+                      `readResponse(id=${id}) timed out. Child stderr: ${getStderr()}`,
+                    ),
+                  ),
+                remaining,
+              );
+            }),
+          ]);
+          clearTimeout(timeoutId!);
           if (!line.trim()) continue;
           try {
             const msg = JSON.parse(line) as Record<string, unknown>;
@@ -457,6 +486,6 @@ describe("McpServer", () => {
       } finally {
         child.kill("SIGTERM");
       }
-    }, 10000);
+    }, 25_000);
   });
 });

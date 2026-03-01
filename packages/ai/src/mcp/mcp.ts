@@ -28,13 +28,13 @@ export function mcp(
 ): Destination<unknown, unknown>;
 export function mcp<S extends StandardSchemaV1 | undefined = undefined>(
   endpointOrOptions: string | McpClientOptions,
-  options?: McpServerOptions | { args?: McpArgsExtractor },
+  options?: (McpServerOptions & { schema?: S }) | { args?: McpArgsExtractor },
 ):
   | Source<
       S extends StandardSchemaV1 ? StandardSchemaV1.InferOutput<S> : unknown
     >
   | Destination<unknown, unknown> {
-  return new McpAdapter(
+  return new McpAdapter<S>(
     endpointOrOptions as
       | string
       | ((exchange: Exchange<unknown>) => string)

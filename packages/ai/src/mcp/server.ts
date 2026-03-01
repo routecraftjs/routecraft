@@ -7,6 +7,9 @@ import {
 import { createServer } from "node:http";
 import type { McpPluginOptions } from "./types.ts";
 
+const MCP_SDK_INSTALL =
+  'MCP server requires "@modelcontextprotocol/sdk". Install it with: pnpm add @modelcontextprotocol/sdk';
+
 /** Resolved options with defaults applied (internal use). */
 type McpServerResolvedOptions = Required<
   Pick<McpPluginOptions, "name" | "version" | "transport" | "port" | "host">
@@ -85,11 +88,21 @@ export class McpServer {
    * Start stdio transport
    */
   private async startStdio(): Promise<void> {
-    // Dynamically import SDK to avoid TypeScript compatibility issues
-    const { Server } =
-      await import("@modelcontextprotocol/sdk/server/index.js");
-    const { StdioServerTransport } =
-      await import("@modelcontextprotocol/sdk/server/stdio.js");
+    let Server: new (
+      info: { name: string; version: string },
+      options: { capabilities: { tools: Record<string, unknown> } },
+    ) => unknown;
+    let StdioServerTransport: new () => unknown;
+    try {
+      const serverMod =
+        await import("@modelcontextprotocol/sdk/server/index.js");
+      Server = serverMod.Server;
+      const stdioMod =
+        await import("@modelcontextprotocol/sdk/server/stdio.js");
+      StdioServerTransport = stdioMod.StdioServerTransport;
+    } catch {
+      throw new Error(MCP_SDK_INSTALL);
+    }
 
     this.server = new Server(
       {
@@ -115,9 +128,17 @@ export class McpServer {
    * and call transport.handleRequest(req, res) for each request to /mcp.
    */
   private async startHttp(): Promise<void> {
-    const serverModule =
-      await import("@modelcontextprotocol/sdk/server/index.js");
-    const { Server } = serverModule;
+    let Server: new (
+      info: { name: string; version: string },
+      options: { capabilities: { tools: Record<string, unknown> } },
+    ) => unknown;
+    try {
+      const serverModule =
+        await import("@modelcontextprotocol/sdk/server/index.js");
+      Server = serverModule.Server;
+    } catch {
+      throw new Error(MCP_SDK_INSTALL);
+    }
 
     const streamableModule =
       await import("@modelcontextprotocol/sdk/server/streamableHttp.js").catch(
@@ -232,8 +253,17 @@ export class McpServer {
    * Uses SDK request schemas so setRequestHandler receives a proper schema (method literal).
    */
   private async setupRequestHandlers(): Promise<void> {
-    const typesModule = await import("@modelcontextprotocol/sdk/types.js");
-    const t = typesModule as Record<string, unknown>;
+    let typesModule: Record<string, unknown>;
+    try {
+      typesModule =
+        (await import("@modelcontextprotocol/sdk/types.js")) as Record<
+          string,
+          unknown
+        >;
+    } catch {
+      throw new Error(MCP_SDK_INSTALL);
+    }
+    const t = typesModule;
     const ListToolsRequestSchema = t["ListToolsRequestSchema"];
     const CallToolRequestSchema = t["CallToolRequestSchema"];
 

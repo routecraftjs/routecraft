@@ -1,6 +1,6 @@
 import { type Adapter, type Step, getAdapterLabel } from "../types.ts";
 import { type Exchange, OperationType } from "../exchange.ts";
-import { error as rcError } from "../error.ts";
+import { rcError } from "../error.ts";
 
 /**
  * Predicate over the full exchange. Return true to keep the exchange, false to drop it.

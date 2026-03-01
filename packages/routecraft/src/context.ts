@@ -63,15 +63,13 @@ export interface CraftPlugin {
  * Reserved config for direct adapter (future: channel type, whitelist, timeouts).
  * No-op today; used by built-in direct handling when implemented.
  */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- Reserved for future options.
-export interface DirectConfig {}
+export type DirectConfig = Record<string, unknown>;
 
 /**
  * Reserved config for HTTP (future: inbound server port, host).
  * No-op today; used by built-in HTTP server when implemented.
  */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- Reserved for future options.
-export interface HttpConfig {}
+export type HttpConfig = Record<string, unknown>;
 
 /**
  * Configuration options for creating a CraftContext.
@@ -200,11 +198,15 @@ export class CraftContext {
           typeof plugin !== "object" ||
           typeof (plugin as CraftPlugin).apply !== "function"
         ) {
+          const err = rcError("RC9901", undefined, {
+            message: `Invalid plugin at index ${pluginIndex}: expected object with apply(ctx)`,
+          });
           this.logger.error(
-            { pluginIndex },
-            "Invalid plugin: expected object with apply(ctx) method. See CraftPlugin type.",
+            { pluginIndex, err },
+            "Invalid plugin: expected object with apply(ctx) method.",
           );
-          continue;
+          this.emit("error", { error: err });
+          throw err;
         }
         await (plugin as CraftPlugin).apply(this);
       } catch (err) {
@@ -537,7 +539,16 @@ export class CraftContext {
     }
 
     // 2. Drain all routes (wait for in-flight handlers + their tasks)
-    await Promise.all(this.routes.map((r) => r.drain()));
+    let drainError: unknown;
+    try {
+      await Promise.all(this.routes.map((r) => r.drain()));
+    } catch (err) {
+      drainError = err;
+      this.logger.warn(
+        { err },
+        "Route drain failed during stop(); continuing teardown.",
+      );
+    }
 
     this.logger.info({}, "Routecraft context stopped");
     this.emit("contextStopped", {});
@@ -565,6 +576,10 @@ export class CraftContext {
           "Plugin teardown threw; continuing with remaining teardowns.",
         );
       }
+    }
+
+    if (drainError) {
+      throw drainError;
     }
   }
 }

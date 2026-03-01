@@ -50,15 +50,34 @@ function resolveHuggingFaceModel(modelName: string): string {
   return `Xenova/${modelName}`;
 }
 
+const HUGGINGFACE_INSTALL =
+  'The Hugging Face embedding provider requires "@huggingface/transformers". Install it with: pnpm add @huggingface/transformers';
+
 async function getHuggingFacePipeline(modelName: string): Promise<PipelineFn> {
   const resolved = resolveHuggingFaceModel(modelName);
   const cached = pipelineCache.get(resolved);
   if (cached) return cached.run;
 
-  const { pipeline } = await import("@huggingface/transformers");
-  const pipe = await pipeline("feature-extraction", resolved, {
+  let pipelineFn: (
+    task: string,
+    model: string,
+    opts?: { dtype?: string },
+  ) => Promise<unknown>;
+  try {
+    const mod = await import("@huggingface/transformers");
+    pipelineFn = mod.pipeline as typeof pipelineFn;
+  } catch {
+    throw new Error(HUGGINGFACE_INSTALL);
+  }
+  const pipe = (await pipelineFn("feature-extraction", resolved, {
     dtype: "fp32",
-  });
+  })) as {
+    (
+      text: string,
+      options?: { pooling?: string; normalize?: boolean },
+    ): Promise<unknown>;
+    dispose?: () => void;
+  };
   const run: PipelineFn = (text, options) =>
     pipe(text, {
       pooling: (options?.pooling ?? "mean") as "mean",
@@ -68,21 +87,39 @@ async function getHuggingFacePipeline(modelName: string): Promise<PipelineFn> {
     run,
     dispose:
       typeof pipe.dispose === "function"
-        ? () => Promise.resolve(pipe.dispose())
+        ? () => Promise.resolve(pipe.dispose!())
         : undefined,
   };
   pipelineCache.set(resolved, entry);
   return run;
 }
 
+function previewForError(value: unknown): string {
+  if (value === null) return "null";
+  if (typeof value !== "object") return String(value);
+  if (Array.isArray(value)) return `array(${value.length})`;
+  try {
+    const s = JSON.stringify(value);
+    return s.length > 100 ? s.slice(0, 100) + "..." : s;
+  } catch {
+    return "object";
+  }
+}
+
 function toNumberArray(data: Float32Array | number[] | unknown): number[] {
   if (Array.isArray(data)) return data as number[];
   if (data instanceof Float32Array) return Array.from(data);
   if (data && typeof data === "object" && "data" in data) {
-    const d = (data as { data: Float32Array | number[] }).data;
-    return Array.isArray(d) ? d : Array.from(d);
+    const d = (data as { data: unknown }).data;
+    if (Array.isArray(d)) return d as number[];
+    if (d instanceof Float32Array) return Array.from(d);
+    throw new Error(
+      `Embedding output .data must be an Array or Float32Array; got ${typeof d}: ${previewForError(d)}`,
+    );
   }
-  return [];
+  throw new Error(
+    `Embedding output must be an Array, Float32Array, or object with .data; got ${typeof data}: ${previewForError(data)}`,
+  );
 }
 
 export async function callEmbedding(

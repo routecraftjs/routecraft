@@ -56,7 +56,7 @@ export function http<T = unknown, R = unknown>(
  * - With .to(): result available via custom aggregator
  * - With .enrich(): result merged into body by default
  */
-export class HttpAdapter<T = unknown, R = HttpResult> implements Destination<
+export class HttpAdapter<T = unknown, R = unknown> implements Destination<
   T,
   HttpResult<R>
 > {

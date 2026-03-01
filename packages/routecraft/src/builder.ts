@@ -7,7 +7,7 @@ import {
   type StoreRegistry,
   type CraftConfig,
 } from "./context.ts";
-import { error as rcError } from "./error.ts";
+import { rcError } from "./error.ts";
 import { logger } from "./logger.ts";
 import { type EventHandler, type EventName } from "./types.ts";
 import { SimpleConsumer } from "./consumers/simple.ts";
@@ -19,7 +19,11 @@ import {
   type Consumer,
   type ConsumerType,
 } from "./types.ts";
-import { type Exchange } from "./exchange.ts";
+import {
+  type Exchange,
+  DefaultExchange,
+  getExchangeContext,
+} from "./exchange.ts";
 import {
   type Processor,
   type CallableProcessor,
@@ -498,27 +502,26 @@ export class RouteBuilder<Current = unknown> {
   }
 
   /**
-   * Split an array into individual items for processing.
-   * Each item becomes a separate exchange with a new UUID and copied headers.
-   * If no splitter is provided: array bodies are split into items; non-array bodies
-   * are treated as a single item (one exchange).
-   *
-   * Accepts body, returns array of body items. The framework automatically creates new exchanges for each item.
+   * Split into multiple exchanges for fan-out. Each returned exchange is processed independently.
+   * If no splitter is provided: array bodies are split into one exchange per element; non-array bodies
+   * are treated as a single item (one exchange). Framework maintains `routecraft.split_hierarchy`
+   * headers for aggregation.
    *
    * @template ItemType The type of items in the array (inferred from array if not specified)
-   * @param splitter Optional function that receives the body and returns an array of items
+   * @param splitter Optional adapter or function (exchange) => Exchange<ItemType>[]
    * @returns A RouteBuilder with the item type
    * @example
    * // Automatically split an array of numbers
    * .from<number[]>(source)
    * .split() // ItemType is inferred as number
    *
-   * // Custom splitting logic - extract nested array
+   * // Custom splitting logic - exchange-aware
    * .from(source)
-   * .split<User>((body) => body.users)
+   * .split<User>((exchange) => exchange.body.users.map(body =>
+   *   new DefaultExchange(getExchangeContext(exchange)!, { body, headers: exchange.headers })))
    *
-   * // Split a string by delimiter
-   * .split<string>((body) => body.split(","))
+   * // Split a string by delimiter (return exchanges)
+   * .split<string>((exchange) => exchange.body.split(",").map(body => new DefaultExchange(getExchangeContext(exchange)!, { body, headers: exchange.headers })))
    */
   split<ItemType = Current extends Array<infer U> ? U : never>(
     splitter?:
@@ -530,12 +533,31 @@ export class RouteBuilder<Current = unknown> {
 
     // If no splitter is provided, use default splitter: arrays are split, non-arrays as single item
     if (!splitter) {
-      const defaultSplitter: CallableSplitter<Current, ItemType> = (body) => {
-        if (Array.isArray(body)) {
-          return body as ItemType[];
+      const defaultSplitter: CallableSplitter<Current, ItemType> = (
+        exchange,
+      ) => {
+        const context = getExchangeContext(exchange);
+        if (!context) {
+          throw new Error(
+            "Exchange has no context — cannot execute default split",
+          );
         }
-        // Non-array: treat as single item so .split() works when previous step returns one value
-        return [body] as unknown as ItemType[];
+        const body = exchange.body;
+        if (Array.isArray(body)) {
+          return (body as ItemType[]).map(
+            (b) =>
+              new DefaultExchange(context, {
+                body: b,
+                headers: exchange.headers,
+              }),
+          ) as Exchange<ItemType>[];
+        }
+        return [
+          new DefaultExchange(context, {
+            body: body as unknown as ItemType,
+            headers: exchange.headers,
+          }),
+        ];
       };
 
       route.steps.push(new SplitStep<Current, ItemType>(defaultSplitter));

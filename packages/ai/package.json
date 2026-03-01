@@ -23,23 +23,30 @@
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
+    "@routecraft/routecraft": "workspace:^0.3.0",
+    "@standard-schema/spec": "^1.1.0",
+    "ai": "^6.0.105"
+  },
+  "devDependencies": {
     "@ai-sdk/anthropic": "^3.0.46",
     "@ai-sdk/google": "^3.0.30",
     "@ai-sdk/openai": "^3.0.31",
     "@huggingface/transformers": "^3.8.1",
     "@modelcontextprotocol/sdk": "^1.27.0",
     "@openrouter/ai-sdk-provider": "^2.2.3",
-    "@routecraft/routecraft": "workspace:^0.3.0",
-    "@standard-schema/spec": "^1.1.0",
-    "ai": "^6.0.97",
-    "ollama-ai-provider-v2": "^3.3.1"
-  },
-  "devDependencies": {
+    "ollama-ai-provider-v2": "^3.3.1",
     "vitest": "^4.0.18",
     "zod": "^4.3.6"
   },
   "peerDependencies": {
-    "@routecraft/routecraft": "*"
+    "@ai-sdk/anthropic": "^3.0.46",
+    "@ai-sdk/google": "^3.0.30",
+    "@ai-sdk/openai": "^3.0.31",
+    "@huggingface/transformers": "^3.8.1",
+    "@modelcontextprotocol/sdk": "^1.27.0",
+    "@openrouter/ai-sdk-provider": "^2.2.3",
+    "@routecraft/routecraft": "*",
+    "ollama-ai-provider-v2": "^3.3.1"
   },
   "keywords": [
     "routecraft",
@@ -55,5 +62,14 @@
   "repository": "https://github.com/routecraftjs/routecraft",
   "publishConfig": {
     "access": "public"
+  },
+  "optionalDependencies": {
+    "@ai-sdk/anthropic": "^3.0.50",
+    "@ai-sdk/google": "^3.0.34",
+    "@ai-sdk/openai": "^3.0.37",
+    "@huggingface/transformers": "^3.8.1",
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@openrouter/ai-sdk-provider": "^2.2.3",
+    "ollama-ai-provider-v2": "^3.3.1"
   }
 }
