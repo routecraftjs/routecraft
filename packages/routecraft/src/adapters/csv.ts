@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import { type Source, type CallableSource } from "../operations/from.ts";
 import {
   type Destination,
@@ -7,11 +8,11 @@ import { type Exchange } from "../exchange.ts";
 import { file } from "./file.ts";
 import * as fsp from "node:fs/promises";
 
+const require = createRequire(import.meta.url);
+
 function ensurePapaparse(): typeof import("papaparse") {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const papa = require("papaparse");
-    // Handle both CommonJS default export and named exports
     return papa.default || papa;
   } catch {
     throw new Error(
@@ -54,12 +55,6 @@ export interface CsvOptions {
   encoding?: BufferEncoding;
 
   /**
-   * Watch file for changes (source mode only).
-   * Default: false
-   */
-  watch?: boolean;
-
-  /**
    * Create parent directories if they don't exist (destination mode only).
    * Default: false
    */
@@ -74,9 +69,10 @@ export interface CsvOptions {
   mode?: "write" | "append";
 }
 
-export class CsvAdapter
-  implements Source<Array<Record<string, unknown>>>, Destination<unknown, void>
-{
+type CsvRow = Record<string, unknown> | string[];
+type CsvData = CsvRow[];
+
+export class CsvAdapter implements Source<CsvData>, Destination<unknown, void> {
   readonly adapterId = "routecraft.adapter.csv";
 
   constructor(private readonly options: CsvOptions) {}
@@ -85,7 +81,7 @@ export class CsvAdapter
    * Source implementation: read CSV file and parse to array of objects.
    * Uses file() adapter underneath for I/O and watching.
    */
-  subscribe: CallableSource<Array<Record<string, unknown>>> = async (
+  subscribe: CallableSource<CsvData> = async (
     context,
     handler,
     abortController,
@@ -126,9 +122,7 @@ export class CsvAdapter
 
           // Papa.parse returns data as unknown[], but with header: true it's Record<string, unknown>[]
           // Call handler and return the exchange it produces
-          return await handler(
-            parseResult.data as Array<Record<string, unknown>>,
-          );
+          return await handler(parseResult.data as CsvData);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           throw new Error(`csv adapter: failed to parse CSV: ${message}`);
@@ -204,7 +198,7 @@ export class CsvAdapter
 
     // Create file adapter for writing
     const fileAdapter = file({
-      path: this.options.path,
+      path: resolvedPath,
       encoding: this.options.encoding || "utf-8",
       mode: this.options.mode || "write",
       createDirs: this.options.createDirs || false,

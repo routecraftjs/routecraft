@@ -86,7 +86,7 @@ describe("File Adapter", () => {
      * @case Throws error when file not found
      * @preconditions File path points to non-existent file
      * @expectedResult Error with "file not found" message
-     * @todo Framework uses event-based error handling - to be fixed in future
+     * @skip Framework uses event-based error handling - test kept for documentation
      */
     test.skip("throws error when file not found", async () => {
       const filePath = path.join(tmpDir, "nonexistent.txt");
@@ -101,49 +101,6 @@ describe("File Adapter", () => {
         .build();
 
       await expect(t.ctx.start()).rejects.toThrow(/file not found/);
-    });
-
-    /**
-     * @case Watches file for changes and emits new content
-     * @preconditions File exists and watch is enabled
-     * @expectedResult Initial content emitted, then new content after modification
-     * @todo Watch functionality removed - to be implemented in future version
-     */
-    test.skip("watches file for changes", async () => {
-      const filePath = path.join(tmpDir, "watched.txt");
-      const initialContent = "Initial content";
-      await fsp.writeFile(filePath, initialContent, "utf-8");
-
-      const destSpy = vi.fn();
-
-      t = await testContext()
-        .routes(
-          craft()
-            .id("file-watch")
-            .from(file({ path: filePath }))
-            .to(destSpy as CallableDestination<unknown, void>),
-        )
-        .build();
-
-      await t.ctx.start();
-
-      // Initial read
-      expect(destSpy).toHaveBeenCalledTimes(1);
-      expect(destSpy.mock.calls[0][0].body).toBe(initialContent);
-
-      // Wait a bit for watcher to be ready
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      // Modify file
-      const updatedContent = "Updated content";
-      await fsp.writeFile(filePath, updatedContent, "utf-8");
-
-      // Wait for file watcher to trigger (with some buffer for debouncing)
-      await new Promise((resolve) => setTimeout(resolve, 200));
-
-      // Should have been called twice now
-      expect(destSpy).toHaveBeenCalledTimes(2);
-      expect(destSpy.mock.calls[1][0].body).toBe(updatedContent);
     });
 
     /**
@@ -274,7 +231,7 @@ describe("File Adapter", () => {
      * @case Throws error when parent directory doesn't exist and createDirs is false
      * @preconditions Parent directory doesn't exist, createDirs is false
      * @expectedResult Error with "directory not found" message
-     * @todo Framework uses event-based error handling - to be fixed in future
+     * @skip Framework uses event-based error handling - test kept for documentation
      */
     test.skip("throws error when directory doesn't exist and createDirs is false", async () => {
       const filePath = path.join(tmpDir, "nonexistent", "output.txt");

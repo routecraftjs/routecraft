@@ -47,9 +47,12 @@ export class FileAdapter implements Source<string>, Destination<unknown, void> {
   subscribe: CallableSource<string> = async (
     _context,
     handler,
-    _abortController,
+    abortController,
     onReady,
   ) => {
+    // Check if already aborted
+    if (abortController.signal.aborted) return;
+
     const { path: filePath, encoding = "utf-8" } = this.options;
 
     if (typeof filePath !== "string") {
@@ -72,6 +75,9 @@ export class FileAdapter implements Source<string>, Destination<unknown, void> {
       throw new Error(`file adapter: failed to read file: ${message}`);
     });
 
+    // Check if aborted before emitting
+    if (abortController.signal.aborted) return;
+
     // Emit the content
     await handler(content);
 
@@ -90,6 +96,13 @@ export class FileAdapter implements Source<string>, Destination<unknown, void> {
       encoding = "utf-8",
       createDirs = false,
     } = this.options;
+
+    // Validate mode
+    if (mode === "read") {
+      throw new Error(
+        "file adapter: mode 'read' is only valid for source mode, not destination",
+      );
+    }
 
     // Resolve path (static or dynamic)
     const resolvedPath =
@@ -121,9 +134,10 @@ export class FileAdapter implements Source<string>, Destination<unknown, void> {
     try {
       if (mode === "append") {
         await fsp.appendFile(resolvedPath, content, { encoding });
-      } else {
-        // mode === 'write'
+      } else if (mode === "write") {
         await fsp.writeFile(resolvedPath, content, { encoding });
+      } else {
+        throw new Error(`file adapter: unsupported destination mode: ${mode}`);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

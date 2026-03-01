@@ -160,57 +160,6 @@ Bob,25,LA
     });
 
     /**
-     * @case Watches CSV file for changes
-     * @preconditions CSV file exists and watch is enabled
-     * @expectedResult Initial content emitted, then new content after modification
-     * NOTE: This test can be flaky due to file system watcher timing
-     */
-    test.skip("watches CSV file for changes", async () => {
-      const filePath = path.join(tmpDir, "watched.csv");
-      const initialContent = `name,age
-Alice,30`;
-      await fsp.writeFile(filePath, initialContent, "utf-8");
-
-      const destSpy = vi.fn();
-
-      t = await testContext()
-        .routes(
-          craft()
-            .id("csv-watch")
-            .from(csv({ path: filePath, watch: true, header: true }))
-            .to(destSpy as CallableDestination<unknown, void>),
-        )
-        .build();
-
-      await t.ctx.start();
-
-      // Initial read
-      expect(destSpy).toHaveBeenCalledTimes(1);
-      expect(destSpy.mock.calls[0][0].body).toEqual([
-        { name: "Alice", age: "30" },
-      ]);
-
-      // Wait for watcher to be fully initialized
-      await new Promise((resolve) => setTimeout(resolve, 200));
-
-      // Modify file
-      const updatedContent = `name,age
-Alice,30
-Bob,25`;
-      await fsp.writeFile(filePath, updatedContent, "utf-8");
-
-      // Wait for file watcher to trigger (debounce + processing time)
-      await new Promise((resolve) => setTimeout(resolve, 400));
-
-      // Should have been called twice now
-      expect(destSpy).toHaveBeenCalledTimes(2);
-      expect(destSpy.mock.calls[1][0].body).toEqual([
-        { name: "Alice", age: "30" },
-        { name: "Bob", age: "25" },
-      ]);
-    });
-
-    /**
      * @case Handles malformed CSV gracefully
      * @preconditions CSV file with unclosed quotes (papaparse may recover)
      * @expectedResult Either parses with best effort or throws error
@@ -447,20 +396,6 @@ Alice,30
       // simple(array) emits each item, so destSpy receives individual objects
       expect(destSpy).toHaveBeenCalledTimes(1);
       expect(destSpy.mock.calls[0][0].body).toEqual({ name: "Alice", age: 30 });
-    });
-  });
-
-  describe("papaparse dependency", () => {
-    /**
-     * @case Throws helpful error when papaparse not installed
-     * @preconditions papaparse module not available
-     * @expectedResult Error message instructs to install papaparse
-     */
-    test("throws helpful error when papaparse not installed", async () => {
-      // This test is primarily for documentation purposes
-      // In actual runtime with papaparse missing, the error would be thrown
-      const adapter = new CsvAdapter({ path: "test.csv" });
-      expect(adapter.adapterId).toBe("routecraft.adapter.csv");
     });
   });
 

@@ -305,53 +305,10 @@ describe("JSON Adapter", () => {
     });
 
     /**
-     * @case Watch mode triggers on file changes
-     * @preconditions watch: true, file is modified after initial read
-     * @expectedResult Handler called twice (initial + on change)
-     * @todo Watch functionality removed - to be implemented in future version
-     */
-    test.skip("watch mode triggers on file changes", async () => {
-      const initialData = { value: 1 };
-      await fs.writeFile(testFilePath, JSON.stringify(initialData));
-
-      const destSpy = vi.fn();
-
-      t = await testContext()
-        .routes(
-          craft()
-            .id("json-source-watch")
-            .from(
-              json({
-                path: testFilePath,
-              }) as unknown as Source<unknown>,
-            )
-            .to(destSpy),
-        )
-        .build();
-
-      await t.ctx.start();
-
-      // Initial read
-      expect(destSpy).toHaveBeenCalledTimes(1);
-      expect(destSpy.mock.calls[0][0].body).toEqual(initialData);
-
-      // Wait a bit then modify file
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      const updatedData = { value: 2 };
-      await fs.writeFile(testFilePath, JSON.stringify(updatedData));
-
-      // Wait for watch to trigger
-      await new Promise((resolve) => setTimeout(resolve, 200));
-
-      expect(destSpy).toHaveBeenCalledTimes(2);
-      expect(destSpy.mock.calls[1][0].body).toEqual(updatedData);
-    });
-
-    /**
      * @case Invalid JSON in file throws error
      * @preconditions File contains invalid JSON
      * @expectedResult Error thrown with "failed to parse" message
-     * @todo Framework uses event-based error handling - to be fixed in future
+     * @skip Framework uses event-based error handling - test kept for documentation
      */
     test.skip("invalid JSON file throws error", async () => {
       await fs.writeFile(testFilePath, "{ invalid json }");
@@ -374,7 +331,7 @@ describe("JSON Adapter", () => {
      * @case Missing file throws error
      * @preconditions File does not exist
      * @expectedResult Error thrown with "file not found" message
-     * @todo Framework uses event-based error handling - to be fixed in future
+     * @skip Framework uses event-based error handling - test kept for documentation
      */
     test.skip("missing file throws error", async () => {
       const nonExistentPath = path.join(tempDir, "nonexistent.json");
@@ -566,20 +523,6 @@ describe("JSON Adapter", () => {
       const adapter = json({
         path: (ex) => `/tmp/${(ex.body as { id: string }).id}.json`,
       });
-      expect(adapter).toHaveProperty(
-        "adapterId",
-        "routecraft.adapter.json.file",
-      );
-    });
-
-    /**
-     * @case File mode when watch option present
-     * @preconditions watch: true with path
-     * @expectedResult Uses file mode
-     * @todo Watch functionality removed - to be implemented in future version
-     */
-    test.skip("uses file mode when watch option present", () => {
-      const adapter = json({ path: "./data.json" });
       expect(adapter).toHaveProperty(
         "adapterId",
         "routecraft.adapter.json.file",
