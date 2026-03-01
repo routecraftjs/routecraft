@@ -1,6 +1,9 @@
-export { mcp } from "./mcp.ts";
-export { McpAdapter } from "./mcp-adapter.ts";
-export { defaultArgs } from "./client-adapter.ts";
+export { mcp, defaultArgs, BRAND_MCP_ADAPTER } from "./adapters/mcp/index.ts";
+export type {
+  McpMessage,
+  McpArgsExtractor,
+  McpClientHttpConfig,
+} from "./adapters/mcp/index.ts";
 export { mcpPlugin } from "./plugin.ts";
 export { McpServer } from "./server.ts";
 export {

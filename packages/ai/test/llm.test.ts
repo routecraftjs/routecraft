@@ -1,5 +1,5 @@
 import { describe, test, expect, afterEach } from "vitest";
-import { llm, llmPlugin, LlmAdapter } from "../src/index.ts";
+import { llm, llmPlugin, LlmDestinationAdapter } from "../src/index.ts";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { craft, simple, noop } from "@routecraft/routecraft";
 
@@ -11,13 +11,13 @@ describe("llm() DSL and adapter", () => {
   });
 
   /**
-   * @case llm(modelId) returns an LlmAdapter instance
+   * @case llm(modelId) returns an LlmDestinationAdapter instance
    * @preconditions None
    * @expectedResult Destination has adapterId routecraft.adapter.llm
    */
-  test("llm(providerId:modelName) returns an LlmAdapter", () => {
+  test("llm(providerId:modelName) returns an LlmDestinationAdapter", () => {
     const dest = llm("ollama:my-model");
-    expect(dest).toBeInstanceOf(LlmAdapter);
+    expect(dest).toBeInstanceOf(LlmDestinationAdapter);
     expect(dest.adapterId).toBe("routecraft.adapter.llm");
   });
 
@@ -31,7 +31,7 @@ describe("llm() DSL and adapter", () => {
       systemPrompt: "You are helpful.",
       temperature: 0.5,
     });
-    expect(dest).toBeInstanceOf(LlmAdapter);
+    expect(dest).toBeInstanceOf(LlmDestinationAdapter);
     expect(dest.options.systemPrompt).toBe("You are helpful.");
     expect(dest.options.temperature).toBe(0.5);
   });

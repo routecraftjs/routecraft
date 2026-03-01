@@ -1,5 +1,5 @@
 export { llm } from "./llm.ts";
-export { LlmAdapter } from "./adapter.ts";
+export { LlmDestinationAdapter } from "./destination.ts";
 export { llmPlugin } from "./plugin.ts";
 export { validateLlmPluginOptions } from "./validate-options.ts";
 export { ADAPTER_LLM_OPTIONS, ADAPTER_LLM_PROVIDERS } from "./types.ts";

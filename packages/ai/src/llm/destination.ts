@@ -129,7 +129,9 @@ function resolveProviderAndModel(
  *
  * @template S - Output schema type when outputSchema is provided; narrows result.output for downstream typing.
  */
-export class LlmAdapter<S extends StandardSchemaV1 | undefined = undefined>
+export class LlmDestinationAdapter<
+  S extends StandardSchemaV1 | undefined = undefined,
+>
   implements
     Destination<unknown, LlmResultWithOutput<S>>,
     MergedOptions<LlmOptionsMerged>

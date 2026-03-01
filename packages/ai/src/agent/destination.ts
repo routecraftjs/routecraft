@@ -13,10 +13,13 @@ function validateModelId(modelId: string): void {
 }
 
 /**
- * Agent adapter facade.
+ * Agent destination adapter.
  * Use via agent(); do not instantiate AgentRunner directly.
  */
-export class AgentAdapter implements Destination<unknown, AgentResult> {
+export class AgentDestinationAdapter implements Destination<
+  unknown,
+  AgentResult
+> {
   readonly adapterId = "routecraft.adapter.agent";
 
   private readonly runner: AgentRunner;

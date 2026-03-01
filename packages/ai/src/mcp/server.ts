@@ -1,6 +1,7 @@
 import type { CraftContext, DirectRouteMetadata } from "@routecraft/routecraft";
 import {
-  DirectAdapter,
+  ADAPTER_DIRECT_REGISTRY,
+  ADAPTER_DIRECT_STORE,
   DefaultExchange,
   isRouteCraftError,
 } from "@routecraft/routecraft";
@@ -350,9 +351,9 @@ export class McpServer {
    * Reads the registry lazily - called on every tools/list request and for tests.
    */
   getAvailableTools(): Array<Record<string, unknown>> {
-    const registry = this.context.getStore(
-      DirectAdapter.ADAPTER_DIRECT_REGISTRY,
-    ) as Map<string, DirectRouteMetadata> | undefined;
+    const registry = this.context.getStore(ADAPTER_DIRECT_REGISTRY) as
+      | Map<string, DirectRouteMetadata>
+      | undefined;
 
     if (!registry) {
       return [];
@@ -440,9 +441,9 @@ export class McpServer {
   ): Promise<{ content: Array<{ type: "text"; text: string }> }> {
     try {
       // Get the direct channel store
-      const channelStore = this.context.getStore(
-        DirectAdapter.ADAPTER_DIRECT_STORE,
-      ) as Map<string, Record<string, unknown>> | undefined;
+      const channelStore = this.context.getStore(ADAPTER_DIRECT_STORE) as
+        | Map<string, Record<string, unknown>>
+        | undefined;
 
       if (!channelStore) {
         const err = new Error("No direct channels available");

@@ -1,5 +1,5 @@
 export { agent } from "./agent.ts";
-export { AgentAdapter } from "./adapter.ts";
+export { AgentDestinationAdapter } from "./destination.ts";
 export type {
   AgentModelId,
   AgentOptions,

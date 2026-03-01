@@ -1,6 +1,6 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Destination } from "@routecraft/routecraft";
-import { LlmAdapter } from "./adapter.ts";
+import { LlmDestinationAdapter } from "./destination.ts";
 import type { LlmModelId, LlmOptions, LlmResultWithOutput } from "./types.ts";
 
 /**
@@ -16,5 +16,5 @@ export function llm<S extends StandardSchemaV1 | undefined = undefined>(
   modelId: LlmModelId,
   options?: Partial<LlmOptions> & { outputSchema?: S },
 ): Destination<unknown, LlmResultWithOutput<S>> {
-  return new LlmAdapter<S>(modelId, options);
+  return new LlmDestinationAdapter<S>(modelId, options);
 }

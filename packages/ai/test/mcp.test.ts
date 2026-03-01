@@ -2,7 +2,12 @@ import { describe, test, expect, afterEach, vi } from "vitest";
 import { z } from "zod";
 import { mcp, mcpPlugin } from "../src/index.ts";
 import { testContext, type TestContext } from "@routecraft/testing";
-import { craft, simple, direct, DirectAdapter } from "@routecraft/routecraft";
+import {
+  craft,
+  simple,
+  direct,
+  ADAPTER_DIRECT_REGISTRY,
+} from "@routecraft/routecraft";
 
 describe("mcp() DSL function", () => {
   let t: TestContext;
@@ -157,7 +162,7 @@ describe("mcp() DSL function", () => {
       .build();
 
     await t.test();
-    const registry = t.ctx.getStore(DirectAdapter.ADAPTER_DIRECT_REGISTRY);
+    const registry = t.ctx.getStore(ADAPTER_DIRECT_REGISTRY);
     expect(registry).toBeDefined();
     expect(registry?.has("search-tool")).toBe(true);
     const metadata = registry?.get("search-tool");

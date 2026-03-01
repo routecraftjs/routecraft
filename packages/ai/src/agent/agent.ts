@@ -1,5 +1,5 @@
 import type { Destination } from "@routecraft/routecraft";
-import { AgentAdapter } from "./adapter.ts";
+import { AgentDestinationAdapter } from "./destination.ts";
 import type { AgentOptions, AgentResult } from "./types.ts";
 
 /**
@@ -11,5 +11,5 @@ import type { AgentOptions, AgentResult } from "./types.ts";
 export function agent(
   options: AgentOptions,
 ): Destination<unknown, AgentResult> {
-  return new AgentAdapter(options);
+  return new AgentDestinationAdapter(options);
 }

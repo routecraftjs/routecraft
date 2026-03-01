@@ -1,5 +1,9 @@
 import { describe, test, expect, afterEach } from "vitest";
-import { embedding, embeddingPlugin, EmbeddingAdapter } from "../src/index.ts";
+import {
+  embedding,
+  embeddingPlugin,
+  EmbeddingDestinationAdapter,
+} from "../src/index.ts";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { craft, simple, noop } from "@routecraft/routecraft";
 
@@ -11,15 +15,15 @@ describe("embedding() DSL and adapter", () => {
   });
 
   /**
-   * @case embedding(modelId, options) returns an EmbeddingAdapter instance
+   * @case embedding(modelId, options) returns an EmbeddingDestinationAdapter instance
    * @preconditions None
    * @expectedResult Destination has adapterId routecraft.adapter.embedding
    */
-  test("embedding(providerId:modelName) returns an EmbeddingAdapter", () => {
+  test("embedding(providerId:modelName) returns an EmbeddingDestinationAdapter", () => {
     const dest = embedding("huggingface:all-MiniLM-L6-v2", {
       using: () => "hello",
     });
-    expect(dest).toBeInstanceOf(EmbeddingAdapter);
+    expect(dest).toBeInstanceOf(EmbeddingDestinationAdapter);
     expect(dest.adapterId).toBe("routecraft.adapter.embedding");
   });
 

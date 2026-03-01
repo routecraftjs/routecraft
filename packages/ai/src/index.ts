@@ -6,7 +6,7 @@ export {
   ADAPTER_LLM_PROVIDERS,
   ADAPTER_LLM_OPTIONS,
   llm,
-  LlmAdapter,
+  LlmDestinationAdapter,
   llmPlugin,
   validateLlmPluginOptions,
 } from "./llm/index.ts";
@@ -35,13 +35,16 @@ export type {
 // MCP DSL, adapter, and types
 export {
   ADAPTER_MCP_CLIENT_SERVERS,
+  BRAND_MCP_ADAPTER,
   defaultArgs,
   mcp,
-  McpAdapter,
   mcpPlugin,
   McpServer,
   MCP_PLUGIN_REGISTERED,
   validateWithSchema,
+  type McpArgsExtractor,
+  type McpClientHttpConfig,
+  type McpMessage,
   type McpOptions,
   type McpPluginOptions,
   type McpServerOptions,
@@ -49,15 +52,13 @@ export {
   type McpToolResult,
 } from "./mcp/index.ts";
 export type {
-  McpArgsExtractor,
-  McpClientHttpConfig,
   McpClientOptions,
   McpClientServerConfig,
   McpClientStdioConfig,
 } from "./mcp/types.ts";
 
 // Agent adapter (Phase 1: pass-through)
-export { agent, AgentAdapter } from "./agent/index.ts";
+export { agent, AgentDestinationAdapter } from "./agent/index.ts";
 export type {
   AgentModelId,
   AgentOptions,
@@ -68,7 +69,7 @@ export type {
 // Embedding adapter and plugin
 export {
   embedding,
-  EmbeddingAdapter,
+  EmbeddingDestinationAdapter,
   embeddingPlugin,
   disposeEmbeddingPipelineCache,
 } from "./embedding/index.ts";

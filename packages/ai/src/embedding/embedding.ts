@@ -1,5 +1,5 @@
 import type { Destination } from "@routecraft/routecraft";
-import { EmbeddingAdapter } from "./adapter.ts";
+import { EmbeddingDestinationAdapter } from "./destination.ts";
 import type {
   EmbeddingModelId,
   EmbeddingOptions,
@@ -18,5 +18,5 @@ export function embedding<T = unknown>(
   modelId: EmbeddingModelId,
   options?: Partial<EmbeddingOptions<T>>,
 ): Destination<T, EmbeddingResult> {
-  return new EmbeddingAdapter<T>(modelId, options);
+  return new EmbeddingDestinationAdapter<T>(modelId, options);
 }

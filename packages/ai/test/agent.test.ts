@@ -1,5 +1,5 @@
 import { describe, test, expect, afterEach, vi } from "vitest";
-import { agent, AgentAdapter } from "../src/index.ts";
+import { agent, AgentDestinationAdapter } from "../src/index.ts";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { craft, simple } from "@routecraft/routecraft";
 
@@ -11,16 +11,16 @@ describe("agent() DSL and adapter", () => {
   });
 
   /**
-   * @case agent(options) returns an AgentAdapter instance
+   * @case agent(options) returns an AgentDestinationAdapter instance
    * @preconditions None
    * @expectedResult Destination has adapterId routecraft.adapter.agent
    */
-  test("agent(options) returns an AgentAdapter", () => {
+  test("agent(options) returns an AgentDestinationAdapter", () => {
     const dest = agent({
       modelId: "ollama:llama3",
       systemPrompt: "You are helpful.",
     });
-    expect(dest).toBeInstanceOf(AgentAdapter);
+    expect(dest).toBeInstanceOf(AgentDestinationAdapter);
     expect(dest.adapterId).toBe("routecraft.adapter.agent");
   });
 

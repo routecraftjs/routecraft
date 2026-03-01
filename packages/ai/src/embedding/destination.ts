@@ -73,7 +73,7 @@ function buildText<T>(
  * (e.g. huggingface:all-MiniLM-L6-v2), resolves the provider from the plugin store,
  * and returns { embedding: number[] }. Use with .enrich(embedding("provider:model", { using: ... })).
  */
-export class EmbeddingAdapter<T = unknown>
+export class EmbeddingDestinationAdapter<T = unknown>
   implements Destination<T, EmbeddingResult>, MergedOptions<EmbeddingOptions>
 {
   readonly adapterId = "routecraft.adapter.embedding";

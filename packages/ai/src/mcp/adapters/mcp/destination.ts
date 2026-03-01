@@ -1,12 +1,9 @@
-import type { Exchange } from "@routecraft/routecraft";
+import type { Exchange, Destination } from "@routecraft/routecraft";
 import { getExchangeContext } from "@routecraft/routecraft";
-import type { Destination } from "@routecraft/routecraft";
-import type {
-  McpArgsExtractor,
-  McpClientHttpConfig,
-  McpClientOptions,
-} from "./types.ts";
-import { ADAPTER_MCP_CLIENT_SERVERS } from "./types.ts";
+import type { McpClientOptions, McpArgsExtractor } from "../../types.ts";
+import { ADAPTER_MCP_CLIENT_SERVERS } from "../../types.ts";
+import type { McpClientHttpConfig } from "./types.ts";
+import { BRAND_MCP_ADAPTER } from "./shared.ts";
 
 /** Ensure inline url is HTTP(S) only; stdio is not supported in routes. */
 function assertHttpUrl(url: string): void {
@@ -63,13 +60,21 @@ export const defaultArgs: McpArgsExtractor = (exchange) =>
     : { input: exchange.body };
 
 /**
- * Internal client: calls a remote MCP server's tool.
- * Exported only for use by McpAdapter; not re-exported from package.
+ * McpDestinationAdapter implements the Destination interface for the MCP adapter.
+ *
+ * This adapter is used when mcp() is called with client options:
+ * - `mcp({ url, tool })` - Direct HTTP URL
+ * - `mcp({ serverId, tool })` - Server registered via mcpPlugin
+ * - `mcp('server:tool')` - Shorthand for serverId:tool
+ *
+ * It makes HTTP calls to remote MCP servers using the MCP SDK.
  */
-export class McpClient implements Destination<unknown, unknown> {
-  readonly adapterId = "routecraft.adapter.mcp.client";
+export class McpDestinationAdapter implements Destination<unknown, unknown> {
+  readonly adapterId: string = "routecraft.adapter.mcp";
 
-  constructor(private readonly options: McpClientOptions) {}
+  constructor(private readonly options: McpClientOptions) {
+    (this as unknown as Record<symbol, boolean>)[BRAND_MCP_ADAPTER] = true;
+  }
 
   async send(exchange: Exchange<unknown>): Promise<unknown> {
     const context = getExchangeContext(exchange);
