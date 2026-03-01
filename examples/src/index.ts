@@ -1,2 +1,5 @@
-export { default as helloWorld } from "./hello-world";
-export { default as mcpGreet, craftConfig } from "./mcp-greet";
+export { default as craftConfig } from "./craft.config";
+import { default as helloWorld } from "./hello-world";
+import { default as mcpGreet } from "./mcp-greet";
+
+export default [helloWorld, mcpGreet];
