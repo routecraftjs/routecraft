@@ -1,32 +1,8 @@
-import { type Source } from "../operations/from";
-import { type Exchange, type ExchangeHeaders } from "../exchange";
-import { CraftContext } from "../context";
+import { type Source } from "../../operations/from";
+import { type Exchange, type ExchangeHeaders } from "../../exchange";
+import { CraftContext } from "../../context";
 
-/**
- * Creates a source that produces a single value (or one value per call from a function).
- * Use as the first step in a route with `.from(simple(...))`.
- *
- * @template T - Body type produced
- * @param producer - Static value, or function that returns T | Promise<T>
- * @returns A Source usable with `.from(simple(producer))`
- *
- * @example
- * ```typescript
- * .from(simple('hello'))
- * .from(simple(() => fetch('/api/data').then(r => r.json())))
- * ```
- */
-export function simple<T = unknown>(
-  producer: (() => T | Promise<T>) | T,
-): SimpleAdapter<T> {
-  return new SimpleAdapter<T>(
-    typeof producer === "function"
-      ? (producer as () => T | Promise<T>)
-      : () => producer,
-  );
-}
-
-export class SimpleAdapter<T = unknown> implements Source<T> {
+export class SimpleSourceAdapter<T = unknown> implements Source<T> {
   readonly adapterId = "routecraft.adapter.simple";
 
   constructor(private producer: () => T | Promise<T>) {}

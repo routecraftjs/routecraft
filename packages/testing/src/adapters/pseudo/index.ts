@@ -1,15 +1,5 @@
-import type { Exchange } from "../exchange.ts";
-import type { Source } from "../operations/from.ts";
-import type { Destination } from "../operations/to.ts";
-import type { Processor } from "../operations/process.ts";
-
-export interface PseudoOptions {
-  runtime?: "throw" | "noop";
-}
-
-export interface PseudoKeyedOptions extends PseudoOptions {
-  args: "keyed";
-}
+import type { Source, Destination, Processor } from "@routecraft/routecraft";
+import type { PseudoOptions, PseudoKeyedOptions } from "./shared";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- input position must accept any exchange for DSL assignability */
 export type PseudoAdapter<R> = {
@@ -36,14 +26,13 @@ function createAdapter<R>(
     );
   };
   const noopSend = (): Promise<R> => Promise.resolve(undefined as unknown as R);
-  const noopProcess = <T>(exchange: Exchange<T>): Exchange<R> =>
-    exchange as unknown as Exchange<R>;
-  const noopSubscribe: Source<R>["subscribe"] = (
-    _context,
-    _handler,
-    _abortController,
-    onReady,
-  ) => {
+  const noopProcess = (exchange: unknown): unknown => exchange;
+  const noopSubscribe = (
+    _context: unknown,
+    _handler: unknown,
+    _abortController: unknown,
+    onReady?: () => void,
+  ): Promise<void> => {
     onReady?.();
     return Promise.resolve();
   };
@@ -51,6 +40,7 @@ function createAdapter<R>(
   type SendFn = PseudoAdapter<R>["send"];
   type ProcessFn = PseudoAdapter<R>["process"];
   type SubscribeFn = Source<R>["subscribe"];
+
   return {
     adapterId: `routecraft.adapter.pseudo.${name}`,
     subscribe:
@@ -95,3 +85,6 @@ export function pseudo<
     return createAdapter<R>(name, runtime);
   };
 }
+
+// Re-export types
+export type { PseudoOptions, PseudoKeyedOptions } from "./shared";

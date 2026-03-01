@@ -1,6 +1,6 @@
 import { describe, test, expectTypeOf } from "vitest";
 import { z } from "zod";
-import { direct } from "../src/adapters/direct.ts";
+import { direct } from "../src/adapters/direct/index.ts";
 import type { Source } from "../src/operations/from.ts";
 import type { Destination } from "../src/operations/to.ts";
 

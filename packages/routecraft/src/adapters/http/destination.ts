@@ -1,65 +1,17 @@
-import { type Destination } from "../operations/to.ts";
-import { type Exchange } from "../exchange.ts";
-
-export type HttpMethod =
-  | "GET"
-  | "POST"
-  | "PUT"
-  | "PATCH"
-  | "DELETE"
-  | "HEAD"
-  | "OPTIONS";
-
-export type QueryParams = Record<string, string | number | boolean>;
-
-export interface HttpOptions<T = unknown> {
-  method?: HttpMethod;
-  url: string | ((exchange: Exchange<T>) => string);
-  headers?:
-    | Record<string, string>
-    | ((exchange: Exchange<T>) => Record<string, string>);
-  query?: QueryParams | ((exchange: Exchange<T>) => QueryParams);
-  body?: unknown | ((exchange: Exchange<T>) => unknown);
-  timeoutMs?: number;
-  throwOnHttpError?: boolean;
-}
-
-export type HttpResult<T = string | unknown> = {
-  status: number;
-  headers: Record<string, string>;
-  body: T;
-  url: string;
-};
+import { type Destination } from "../../operations/to";
+import { type Exchange } from "../../exchange";
+import type { HttpOptions, HttpResult, QueryParams } from "./types";
 
 /**
- * Creates an HTTP client destination. Use with `.to()`, `.enrich()`, or `.tap()`.
- * Supports dynamic url, headers, query, and body from the exchange.
- *
- * @param options - method, url (string or (exchange) => string), optional headers, query, body, timeoutMs, throwOnHttpError
- * @returns A Destination that returns { status, headers, body, url }
- *
- * @example
- * ```typescript
- * .to(http({ url: 'https://api.example.com/ingest', method: 'POST', body: (ex) => ex.body }))
- * .enrich(http({ url: (ex) => `https://api.example.com/users/${ex.body.userId}` }))
- * ```
- */
-export function http<T = unknown, R = unknown>(
-  options: HttpOptions<T>,
-): HttpAdapter<T, R> {
-  return new HttpAdapter<T, R>(options);
-}
-
-/**
- * HttpAdapter performs HTTP requests and returns the result.
+ * HttpDestinationAdapter performs HTTP requests and returns the result.
  * Can be used with both .to() and .enrich() operations.
  * - With .to(): result available via custom aggregator
  * - With .enrich(): result merged into body by default
  */
-export class HttpAdapter<T = unknown, R = unknown> implements Destination<
-  T,
-  HttpResult<R>
-> {
+export class HttpDestinationAdapter<
+  T = unknown,
+  R = unknown,
+> implements Destination<T, HttpResult<R>> {
   readonly adapterId = "routecraft.adapter.http";
 
   constructor(private readonly options: HttpOptions<T>) {}

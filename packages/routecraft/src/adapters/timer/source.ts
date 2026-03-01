@@ -1,68 +1,13 @@
-import { HeadersKeys, type Exchange, type ExchangeHeaders } from "../exchange";
-import { type Source } from "../operations/from";
-import { CraftContext } from "../context";
+import {
+  HeadersKeys,
+  type Exchange,
+  type ExchangeHeaders,
+} from "../../exchange";
+import { type Source } from "../../operations/from";
+import { CraftContext } from "../../context";
+import type { TimerOptions } from "./types";
 
-export interface TimerOptions {
-  /**
-   * Time between executions in milliseconds
-   * @default 1000
-   */
-  intervalMs?: number;
-
-  /**
-   * Delay before the first execution in milliseconds
-   * @default 0
-   */
-  delayMs?: number;
-
-  /**
-   * Number of times to trigger before stopping
-   * @default Infinity
-   */
-  repeatCount?: number;
-
-  /**
-   * Ensures execution happens at exact intervals (ignoring execution time)
-   * @default false
-   */
-  fixedRate?: boolean;
-
-  /**
-   * Executes at an exact time of day (ISO HH:mm:ss)
-   * @default null
-   */
-  exactTime?: string;
-
-  /**
-   * Allows custom date formats for execution times
-   * @default null
-   */
-  timePattern?: string;
-
-  /**
-   * Adds random delay to prevent synchronized execution spikes
-   * @default 0
-   */
-  jitterMs?: number;
-}
-
-/**
- * Creates a source that emits at a fixed interval (or at exact times). Body is undefined; timer metadata is in exchange headers (routecraft.timer.*).
- *
- * @param options - intervalMs, delayMs, repeatCount, fixedRate, exactTime, timePattern, jitterMs
- * @returns A Source usable with `.from(timer(options))`
- *
- * @example
- * ```typescript
- * .from(timer({ intervalMs: 5000, repeatCount: 10 }))
- * .from(timer({ exactTime: '09:00:00' }))
- * ```
- */
-export function timer(options?: TimerOptions): TimerAdapter {
-  return new TimerAdapter(options);
-}
-
-export class TimerAdapter implements Source<undefined> {
+export class TimerSourceAdapter implements Source<undefined> {
   readonly adapterId = "routecraft.adapter.timer";
   constructor(private options?: TimerOptions) {}
 

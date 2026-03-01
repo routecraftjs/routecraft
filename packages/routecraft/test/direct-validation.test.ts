@@ -1,7 +1,12 @@
 import { describe, test, expect, afterEach, vi } from "vitest";
 import { z } from "zod";
 import { testContext, type TestContext } from "@routecraft/testing";
-import { craft, simple, direct, DirectAdapter } from "@routecraft/routecraft";
+import {
+  craft,
+  simple,
+  direct,
+  ADAPTER_DIRECT_REGISTRY,
+} from "@routecraft/routecraft";
 
 /**
  * Direct adapter validation tests
@@ -1341,7 +1346,7 @@ describe("Direct adapter validation", () => {
         .build();
 
       await t.test();
-      const registry = t.ctx.getStore(DirectAdapter.ADAPTER_DIRECT_REGISTRY);
+      const registry = t.ctx.getStore(ADAPTER_DIRECT_REGISTRY);
       expect(registry).toBeDefined();
       expect(registry?.has("test-endpoint")).toBe(true);
       const metadata = registry?.get("test-endpoint");
@@ -1365,7 +1370,7 @@ describe("Direct adapter validation", () => {
         .build();
 
       await t.test();
-      const registry = t.ctx.getStore(DirectAdapter.ADAPTER_DIRECT_REGISTRY);
+      const registry = t.ctx.getStore(ADAPTER_DIRECT_REGISTRY);
       expect(registry?.has("plain-endpoint")).toBe(true);
       expect(registry?.get("plain-endpoint")?.description).toBeUndefined();
     });
@@ -1386,7 +1391,7 @@ describe("Direct adapter validation", () => {
         .build();
 
       await t.test();
-      const registry = t.ctx.getStore(DirectAdapter.ADAPTER_DIRECT_REGISTRY);
+      const registry = t.ctx.getStore(ADAPTER_DIRECT_REGISTRY);
       expect(registry).toBeDefined();
       expect(registry).toBeInstanceOf(Map);
     });
@@ -1420,7 +1425,7 @@ describe("Direct adapter validation", () => {
         .build();
 
       await t.test();
-      const registry = t.ctx.getStore(DirectAdapter.ADAPTER_DIRECT_REGISTRY);
+      const registry = t.ctx.getStore(ADAPTER_DIRECT_REGISTRY);
       expect(registry?.size).toBe(3);
       expect(registry?.has("endpoint-a")).toBe(true);
       expect(registry?.has("endpoint-b")).toBe(true);
@@ -1449,7 +1454,7 @@ describe("Direct adapter validation", () => {
         .build();
 
       await t.test();
-      const registry = t.ctx.getStore(DirectAdapter.ADAPTER_DIRECT_REGISTRY);
+      const registry = t.ctx.getStore(ADAPTER_DIRECT_REGISTRY);
       const routes = registry ? Array.from(registry.values()) : [];
       expect(routes).toHaveLength(1);
       expect(routes[0]).toEqual({
@@ -1480,7 +1485,7 @@ describe("Direct adapter validation", () => {
         .build();
 
       await t.test();
-      const registry = t.ctx.getStore(DirectAdapter.ADAPTER_DIRECT_REGISTRY);
+      const registry = t.ctx.getStore(ADAPTER_DIRECT_REGISTRY);
       expect(registry?.has("my-special-endpoint-name")).toBe(true);
       expect(registry?.has("my.special:endpoint/name")).toBe(false);
     });
@@ -1633,7 +1638,7 @@ describe("Direct adapter validation", () => {
         .build();
 
       await t.test();
-      const registry = t.ctx.getStore(DirectAdapter.ADAPTER_DIRECT_REGISTRY);
+      const registry = t.ctx.getStore(ADAPTER_DIRECT_REGISTRY);
       expect(registry?.size).toBe(2);
       expect(registry?.get("endpoint-1")?.description).toBe("First");
       expect(registry?.get("endpoint-2")?.description).toBe("Second");

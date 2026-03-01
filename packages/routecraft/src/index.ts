@@ -122,13 +122,13 @@ export { SimpleConsumer } from "./consumers/simple.ts";
 
 export { BatchConsumer, type BatchOptions } from "./consumers/batch.ts";
 
-export { simple } from "./adapters/simple.ts";
+export { simple } from "./adapters/simple/index.ts";
 export { noop } from "./adapters/noop.ts";
-export { log, debug } from "./adapters/log.ts";
-export { direct } from "./adapters/direct.ts";
-export { timer } from "./adapters/timer.ts";
-export { http } from "./adapters/http.ts";
-export { pseudo } from "./adapters/pseudo.ts";
+export { log, debug } from "./adapters/log/index.ts";
+export { direct } from "./adapters/direct/index.ts";
+export { timer } from "./adapters/timer/index.ts";
+export { http } from "./adapters/http/index.ts";
+export { pseudo } from "@routecraft/testing";
 export { browser } from "./adapters/browser.ts";
 export { file } from "./adapters/file.ts";
 export { html } from "./adapters/html.ts";
@@ -136,16 +136,21 @@ export { json } from "./adapters/json.ts";
 export { csv } from "./adapters/csv.ts";
 export { group } from "./adapters/group.ts";
 
-export { SimpleAdapter } from "./adapters/simple.ts";
-export { LogAdapter, type LogOptions, type LogLevel } from "./adapters/log.ts";
+export { SimpleSourceAdapter } from "./adapters/simple/index.ts";
+export {
+  LogDestinationAdapter,
+  type LogOptions,
+  type LogLevel,
+} from "./adapters/log/index.ts";
 export { NoopAdapter } from "./adapters/noop.ts";
 export {
-  HttpAdapter,
+  HttpDestinationAdapter,
   type HttpOptions,
   type HttpResult,
-} from "./adapters/http.ts";
+  type HttpMethod,
+  type QueryParams,
+} from "./adapters/http/index.ts";
 export {
-  DirectAdapter,
   type DirectBaseOptions,
   type DirectChannel,
   type DirectChannelType,
@@ -153,15 +158,23 @@ export {
   type DirectOptions,
   type DirectRouteMetadata,
   type DirectServerOptions,
-} from "./adapters/direct.ts";
-export { TimerAdapter, type TimerOptions } from "./adapters/timer.ts";
+  ADAPTER_DIRECT_STORE,
+  ADAPTER_DIRECT_OPTIONS,
+  ADAPTER_DIRECT_REGISTRY,
+} from "./adapters/direct/index.ts";
+export { DirectSourceAdapter } from "./adapters/direct/source.ts";
+export { DirectDestinationAdapter } from "./adapters/direct/destination.ts";
+export {
+  TimerSourceAdapter,
+  type TimerOptions,
+} from "./adapters/timer/index.ts";
 export {
   type PseudoAdapter,
   type PseudoFactory,
   type PseudoKeyedFactory,
   type PseudoOptions,
   type PseudoKeyedOptions,
-} from "./adapters/pseudo.ts";
+} from "@routecraft/testing";
 export {
   BrowserAdapter,
   type BrowserBaseOptions,

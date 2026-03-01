@@ -1,5 +1,5 @@
 import { describe, test, expect, vi } from "vitest";
-import { LogAdapter, log, debug } from "../src/index.ts";
+import { LogDestinationAdapter, log, debug } from "../src/index.ts";
 import type { Exchange } from "../src/exchange.ts";
 
 function mockExchange<T = unknown>(
@@ -30,14 +30,14 @@ function mockExchange<T = unknown>(
   } as Exchange<T> & { logger: typeof logger };
 }
 
-describe("LogAdapter", () => {
+describe("LogDestinationAdapter", () => {
   /**
    * @case Default level is info for send()
-   * @preconditions LogAdapter created with no options
+   * @preconditions LogDestinationAdapter created with no options
    * @expectedResult exchange.logger.info() is called
    */
   test("send() uses info level by default", async () => {
-    const adapter = new LogAdapter();
+    const adapter = new LogDestinationAdapter();
     const exchange = mockExchange("hello");
 
     await adapter.send(exchange);
@@ -52,11 +52,11 @@ describe("LogAdapter", () => {
 
   /**
    * @case Options level overrides default
-   * @preconditions LogAdapter created with undefined formatter and { level: 'debug' }
+   * @preconditions LogDestinationAdapter created with undefined formatter and { level: 'debug' }
    * @expectedResult exchange.logger.debug() is called
    */
   test("send() uses configured level", async () => {
-    const adapter = new LogAdapter(undefined, { level: "debug" });
+    const adapter = new LogDestinationAdapter(undefined, { level: "debug" });
     const exchange = mockExchange("data");
 
     await adapter.send(exchange);
@@ -68,11 +68,11 @@ describe("LogAdapter", () => {
 
   /**
    * @case Formatter function as first parameter
-   * @preconditions LogAdapter created with formatter function only
+   * @preconditions LogDestinationAdapter created with formatter function only
    * @expectedResult level is info, formatter output is logged
    */
   test("constructor accepts formatter function as first param", async () => {
-    const adapter = new LogAdapter((ex) => `body: ${ex.body}`);
+    const adapter = new LogDestinationAdapter((ex) => `body: ${ex.body}`);
     const exchange = mockExchange("payload");
 
     await adapter.send(exchange);
@@ -85,11 +85,11 @@ describe("LogAdapter", () => {
 
   /**
    * @case Formatter and level in separate parameters
-   * @preconditions LogAdapter created with formatter as first param and { level: 'warn' } as second
+   * @preconditions LogDestinationAdapter created with formatter as first param and { level: 'warn' } as second
    * @expectedResult exchange.logger.warn() called with formatter result
    */
   test("constructor with formatter and level option", async () => {
-    const adapter = new LogAdapter((ex) => ({ custom: ex.body }), {
+    const adapter = new LogDestinationAdapter((ex) => ({ custom: ex.body }), {
       level: "warn",
     });
     const exchange = mockExchange({ foo: 1 });

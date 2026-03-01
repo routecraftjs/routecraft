@@ -1,0 +1,186 @@
+import type { ExchangeHeaders, Exchange } from "../../exchange";
+import type { Source } from "../../operations/from";
+import type { CraftContext, MergedOptions } from "../../context";
+import { rcError } from "../../error";
+import type { DirectServerOptions } from "./types";
+import type { DirectOptionsMerged } from "./shared";
+import {
+  getDirectChannel,
+  getMergedOptions,
+  registerRoute,
+  sanitizeEndpoint,
+} from "./shared";
+
+/**
+ * DirectSourceAdapter implements the Source interface for the direct adapter.
+ *
+ * This adapter is used when direct() is called with two arguments:
+ * - `direct(endpoint, options)` where options can be `{}` or contain schema/description
+ *
+ * It subscribes to incoming messages on a specific endpoint and validates them
+ * using the provided schema and headerSchema (if any).
+ */
+export class DirectSourceAdapter<T = unknown>
+  implements Source<T>, MergedOptions<DirectOptionsMerged>
+{
+  readonly adapterId: string = "routecraft.adapter.direct";
+
+  private endpoint: string;
+  public options: Partial<DirectOptionsMerged>;
+
+  constructor(endpoint: string, options: Partial<DirectServerOptions> = {}) {
+    if (typeof endpoint !== "string") {
+      throw rcError("RC5003", undefined, {
+        message: "DirectSourceAdapter requires a string endpoint",
+        suggestion:
+          'Direct adapter with function endpoint can only be used with .to() or .tap(), not .from(). Use .from(direct("endpoint", {})) for source.',
+      });
+    }
+    this.endpoint = endpoint;
+    this.options = options as Partial<DirectOptionsMerged>;
+  }
+
+  async subscribe(
+    context: CraftContext,
+    handler: (message: T, headers?: ExchangeHeaders) => Promise<Exchange>,
+    abortController: AbortController,
+    onReady?: () => void,
+  ): Promise<void> {
+    // Sanitize the endpoint name
+    const endpoint = sanitizeEndpoint(this.endpoint);
+
+    // Register route in the registry
+    registerRoute(context, endpoint, this.options);
+
+    context.logger.debug(
+      { endpoint, adapter: "direct" },
+      "Setting up subscription for direct endpoint",
+    );
+
+    const channel = getDirectChannel<T>(context, endpoint, this.options);
+
+    if (abortController.signal.aborted) {
+      context.logger.debug(
+        { endpoint, adapter: "direct" },
+        "Subscription aborted for direct endpoint",
+      );
+      return;
+    }
+
+    // Wrap handler with validation if schema provided
+    const wrappedHandler = this.hasValidation()
+      ? this.createValidatedHandler(handler, endpoint)
+      : async (exchange: Exchange<T>) => {
+          const result = await handler(exchange.body as T, exchange.headers);
+          return result as Exchange<T>;
+        };
+
+    // Set up cleanup on abort before subscribing
+    abortController.signal.addEventListener("abort", async () => {
+      await channel.unsubscribe(context, endpoint);
+    });
+
+    // Set up the subscription
+    await channel.subscribe(context, endpoint, wrappedHandler);
+
+    onReady?.();
+
+    // Keep the route "running" until the context stops (abort). Otherwise the context
+    // would see all routes complete and auto-stop, e.g. before MCP can serve tool calls.
+    await new Promise<void>((resolve) => {
+      if (abortController.signal.aborted) {
+        resolve();
+        return;
+      }
+      abortController.signal.addEventListener("abort", () => resolve(), {
+        once: true,
+      });
+    });
+  }
+
+  mergedOptions(context: CraftContext): DirectOptionsMerged {
+    return getMergedOptions(context, this.options);
+  }
+
+  /**
+   * Check if this adapter has validation configured
+   */
+  private hasValidation(): boolean {
+    return !!(this.options.schema || this.options.headerSchema);
+  }
+
+  /**
+   * Create handler that validates body and headers before calling actual handler.
+   * Uses validated/coerced values if schema transforms them.
+   */
+  private createValidatedHandler(
+    handler: (message: T, headers?: ExchangeHeaders) => Promise<Exchange>,
+    endpoint: string,
+  ): (exchange: Exchange<T>) => Promise<Exchange<T>> {
+    return async (exchange: Exchange<T>) => {
+      let validatedBody = exchange.body;
+      let validatedHeaders = exchange.headers;
+
+      // Validate body if schema provided
+      if (this.options.schema) {
+        let result = this.options.schema["~standard"].validate(exchange.body);
+        if (result instanceof Promise) result = await result;
+
+        const bodyIssues = (result as { issues?: unknown }).issues;
+        if (bodyIssues !== undefined && bodyIssues !== null) {
+          const causeMessage =
+            typeof bodyIssues === "object"
+              ? JSON.stringify(bodyIssues)
+              : String(bodyIssues);
+          throw rcError("RC5002", new Error(causeMessage), {
+            message: `Body validation failed for direct route "${endpoint}"`,
+          });
+        }
+
+        // Use validated/coerced value if schema transformed it
+        const bodyValue = (result as { value?: T }).value;
+        if (bodyValue !== undefined) {
+          validatedBody = bodyValue;
+        }
+      }
+
+      // Validate headers if headerSchema provided
+      if (this.options.headerSchema) {
+        let result = this.options.headerSchema["~standard"].validate(
+          exchange.headers,
+        );
+        if (result instanceof Promise) result = await result;
+
+        const headerIssues = (result as { issues?: unknown }).issues;
+        if (headerIssues !== undefined && headerIssues !== null) {
+          const causeMessage =
+            typeof headerIssues === "object"
+              ? JSON.stringify(headerIssues)
+              : String(headerIssues);
+          throw rcError("RC5002", new Error(causeMessage), {
+            message: `Header validation failed for direct route "${endpoint}"`,
+          });
+        }
+
+        // Use validated/coerced headers if schema transformed them
+        const headerValue = (result as { value?: ExchangeHeaders }).value;
+        if (headerValue !== undefined) {
+          validatedHeaders = headerValue;
+        }
+      }
+
+      // Create exchange with validated values
+      const validatedExchange = {
+        ...exchange,
+        body: validatedBody,
+        headers: validatedHeaders,
+      } as Exchange<T>;
+
+      // Call original handler with validated data
+      return handler(
+        validatedExchange.body as T,
+        validatedExchange.headers,
+      ) as Promise<Exchange<T>>;
+    };
+  }
+}

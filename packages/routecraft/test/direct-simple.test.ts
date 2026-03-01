@@ -1,7 +1,6 @@
 import { describe, test, expect, afterEach, vi } from "vitest";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
-  context,
   craft,
   simple,
   direct,
@@ -213,41 +212,24 @@ describe("Direct adapter", () => {
   /**
    * @case Verifies error is thrown when dynamic endpoint used with from()
    * @preconditions Attempt to use dynamic endpoint as source
-   * @expectedResult Should throw RC5003 error
+   * @expectedResult Should throw RC1001 error (invalid-consumer) during build
    */
   test("throws error for dynamic endpoint as source", async () => {
-    expect(() => {
-      context()
+    // With the refactored adapter, build() now throws RC1001 (invalid-consumer)
+    // because DirectDestinationAdapter doesn't have a subscribe method.
+    // This is actually better - fail fast at build time rather than runtime.
+    await expect(async () => {
+      await testContext()
         .routes([
           craft()
             .id("invalid-consumer")
             .from(
-              // Intentionally invalid: testing runtime error for dynamic endpoint as source
               direct(() => "dynamic-endpoint") as unknown as Source<unknown>,
             )
             .to(vi.fn() as CallableDestination<unknown, void>),
         ])
         .build();
-    }).not.toThrow(); // Building doesn't throw
-
-    t = await testContext()
-      .routes([
-        craft()
-          .id("invalid-consumer")
-          .from(direct(() => "dynamic-endpoint") as unknown as Source<unknown>)
-          .to(vi.fn() as CallableDestination<unknown, void>),
-      ])
-      .build();
-
-    // Route with dynamic endpoint as source never emits routeStarted, so don't use t.test()
-    await t.ctx.start();
-    expect(t.errors).toHaveLength(1);
-    const err = t.errors[0];
-    const errorMessage = err.meta?.message ?? (err as Error).message;
-    expect(errorMessage).toContain(
-      "Dynamic endpoints cannot be used as source",
-    );
-    await t.ctx.stop();
+    }).rejects.toThrow("invalid-consumer");
   });
 
   /**

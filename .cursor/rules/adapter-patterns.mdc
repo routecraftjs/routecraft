@@ -1,0 +1,641 @@
+---
+description: "Adapter code structure: file organization, factory patterns, class naming, and callable variants"
+globs:
+  [
+    "packages/routecraft/src/adapters/**/*",
+    "packages/testing/src/adapters/**/*",
+  ]
+alwaysApply: false
+---
+
+# Adapter Code Structure Patterns for Routecraft
+
+## Overview
+
+Routecraft uses a **single-factory adapter pattern** to provide excellent developer experience while maintaining clean, maintainable code.
+
+### Why Single Factory?
+
+**Developer Experience Priority:**
+```typescript
+// ✅ Excellent DX: One concept = one import
+import { direct } from '@routecraft/routecraft';
+
+route.from(direct('channel', options)).to(direct(handler));
+
+// ❌ Bad DX: Multiple imports per concept
+import { directSource, directDestination } from '@routecraft/routecraft';
+
+route.from(directSource('channel', options)).to(directDestination(handler));
+```
+
+**Key Principle:** Each adapter concept (direct, http, simple, etc.) exposes **one factory function** that returns the appropriate interface based on parameters. This keeps the API clean and intuitive.
+
+### Maintainability Through Structure
+
+Behind this simple API, we maintain clean code by:
+- Separating implementation classes by operation (source/destination)
+- Using structural type discrimination in factories
+- Extracting shared logic to helper modules
+- Always returning interface types, not class types
+
+---
+
+## File Structure Rules
+
+### Multi-Interface Adapters
+
+Adapters that support both Source and Destination:
+
+```
+adapters/
+  direct/
+    source.ts       # DirectSourceAdapter class
+    destination.ts  # DirectDestinationAdapter class
+    shared.ts       # Shared helpers (getDirectChannel, etc)
+    types.ts        # Type definitions
+    index.ts        # Public direct() factory + exports
+```
+
+**Example: `index.ts`**
+```typescript
+export function direct<S>(endpoint: string, options: {...}): Source<...>;
+export function direct<T>(endpoint: string | function): Destination<T, T>;
+export function direct<...>(...): Source<...> | Destination<T, T> {
+  // Structural type guards determine which class to instantiate
+  if (arguments.length === 2) {
+    return new DirectSourceAdapter(endpoint, options);
+  }
+  return new DirectDestinationAdapter<T>(endpoint);
+}
+```
+
+### Single-Interface Adapters
+
+Even single-interface adapters use operation-based file naming for **consistency**:
+
+```
+adapters/
+  http/
+    destination.ts  # HttpDestinationAdapter class
+    types.ts        # Type definitions
+    index.ts        # Public http() factory + exports
+
+  simple/
+    source.ts       # SimpleSourceAdapter class
+    index.ts        # Public simple() factory + exports
+```
+
+**Rationale:** Using the same structure everywhere makes it trivial to add new operations later. If we later need `SimpleDestinationAdapter`, we just add `destination.ts` following the existing pattern.
+
+**Example: `simple/index.ts`**
+```typescript
+export function simple<T>(producer: () => T | Promise<T>): Source<T> {
+  return new SimpleSourceAdapter<T>(producer);
+}
+```
+
+---
+
+## The 5 Pattern Rules
+
+### Rule 1: One Concept = One Factory
+
+**Always:** Expose exactly one factory function per adapter concept.
+
+```typescript
+// ✅ Good: Single factory with overloads
+export function direct<S>(endpoint: string, options: {...}): Source<...>;
+export function direct<T>(endpoint: string | function): Destination<T, T>;
+
+// ❌ Bad: Multiple factories for one concept
+export function directSource(endpoint: string, options: {...}): Source<...>;
+export function directDestination(handler: function): Destination<T, T>;
+```
+
+**Why:** This is the cornerstone of our DX. Users think in concepts (direct, http, simple), not operations (source, destination).
+
+### Rule 2: Always Use Directory Structure (Even Single-Interface)
+
+**Always:** Use separate files for each operation, even for single-interface adapters.
+
+```typescript
+// ✅ Good: simple/source.ts + simple/index.ts
+// source.ts
+export class SimpleSourceAdapter<T> implements Source<T> {
+  constructor(private producer: () => T | Promise<T>) {}
+  subscribe(context, handler, abortController, onReady) { ... }
+}
+
+// index.ts
+import { SimpleSourceAdapter } from './source';
+export function simple<T>(producer): Source<T> {
+  return new SimpleSourceAdapter<T>(producer);
+}
+
+// ❌ Bad: Everything in one file (simple.ts)
+export class SimpleSourceAdapter<T> implements Source<T> { ... }
+export function simple<T>(producer): Source<T> { ... }
+```
+
+**Why:** Consistency. Every adapter follows the same pattern, making the codebase predictable and easier to extend.
+
+### Rule 3: Factories Return Interfaces, Not Classes
+
+**Always:** Factory return types must be interface types (`Source<T>`, `Destination<T, R>`), never class types.
+
+```typescript
+// ✅ Good: Returns interface type
+export function http<T, R>(options: HttpOptions): Destination<T, HttpResult<R>> {
+  return new HttpDestinationAdapter<T, R>(options);
+}
+
+// ❌ Bad: Returns class type (exposes implementation)
+export function http<T, R>(options: HttpOptions): HttpDestinationAdapter<T, R> {
+  return new HttpDestinationAdapter<T, R>(options);
+}
+```
+
+**Why:** Interface types provide encapsulation. Users don't depend on implementation details, making future refactoring easier.
+
+### Rule 4: Use Structural Type Guards
+
+**Always:** Use structural checks (`arguments.length`, `typeof`) to discriminate factory overloads.
+
+```typescript
+// ✅ Good: Structural checks
+export function direct<...>(...): Source<...> | Destination<...> {
+  if (arguments.length === 2) {
+    return new DirectSourceAdapter(endpoint, options);
+  }
+  if (typeof endpoint === 'function') {
+    return new DirectDestinationAdapter<T>(endpoint);
+  }
+  throw new Error('Invalid arguments');
+}
+
+// ❌ Bad: Value-based checks (runtime behavior dependency)
+export function direct<...>(...): Source<...> | Destination<...> {
+  if (options !== undefined) {
+    return new DirectSourceAdapter(endpoint, options);
+  }
+  return new DirectDestinationAdapter<T>(endpoint);
+}
+```
+
+**Why:** Structural checks are reliable and type-safe. Value-based checks can fail unexpectedly (e.g., `options = {}` vs `options = undefined`).
+
+### Rule 5: Always Use Multi-Interface Naming
+
+**Always:** Include the operation in class names, even for single-interface adapters.
+
+```typescript
+// ✅ Good: Operation in name
+export class SimpleSourceAdapter<T> implements Source<T> { }
+export class HttpDestinationAdapter<T, R> implements Destination<T, HttpResult<R>> { }
+export class DirectSourceAdapter<T> implements Source<T> { }
+export class DirectDestinationAdapter<T> implements Destination<T, T> { }
+
+// ❌ Bad: Generic names (can't add operations later)
+export class SimpleAdapter<T> implements Source<T> { }
+export class HttpAdapter<T, R> implements Destination<T, HttpResult<R>> { }
+```
+
+**Why:** Future-proofing. If we need to add a destination to `simple`, we can add `SimpleDestinationAdapter` without renaming the existing class.
+
+---
+
+## Class Naming Convention
+
+**Pattern:** `{Concept}{Operation}Adapter`
+
+- **Concept:** The adapter name (Direct, Http, Simple, Timer, Log, etc.)
+- **Operation:** The interface implemented (Source, Destination, Transform, etc.)
+- **Suffix:** Always `Adapter`
+
+**Examples:**
+```typescript
+// Source implementations
+class SimpleSourceAdapter<T> implements Source<T> { }
+class DirectSourceAdapter<T> implements Source<T> { }
+class TimerSourceAdapter<T> implements Source<T> { }
+
+// Destination implementations
+class HttpDestinationAdapter<T, R> implements Destination<T, HttpResult<R>> { }
+class DirectDestinationAdapter<T> implements Destination<T, T> { }
+class LogDestinationAdapter<T> implements Destination<T, void> { }
+```
+
+---
+
+## Callable Variants
+
+### What Are They?
+
+Callable variants allow **bare functions** to be used as adapters:
+
+```typescript
+// Callable types (from routecraft core)
+export type CallableSource<T> = (
+  context: CraftContext,
+  handler: (message: T, headers?: ExchangeHeaders) => Promise<Exchange>,
+  abortController: AbortController,
+  onReady?: () => void,
+) => Promise<void> | void;
+
+export type CallableDestination<T, R = void> = (
+  exchange: Exchange<T>,
+) => Promise<R> | R;
+```
+
+### Why We Keep Them
+
+**Critical for DX:** Callable variants enable concise inline adapters, essential for:
+- **Tests:** Mock adapters without boilerplate
+- **Prototypes:** Quick experimentation
+- **Simple cases:** When a full adapter is overkill
+
+**Examples:**
+```typescript
+// ✅ Test: Inline mock destination (uses CallableDestination)
+route
+  .from(simple(() => ({ id: 1, data: 'test' })))
+  .to(vi.fn());  // Just a function!
+
+// ✅ Test: Inline async handler
+route
+  .from(direct('channel', options))
+  .to(async (exchange) => {
+    expect(exchange.body).toBe('expected');
+    return exchange.body;
+  });
+
+// ✅ Production: Full adapter object (uses Destination)
+route
+  .from(direct('channel', options))
+  .to(http({ url: 'https://api.example.com' }));
+```
+
+### How It Works
+
+The builder pattern accepts both interface objects and bare functions:
+
+```typescript
+// RouteBuilder.from() wraps bare functions
+from<T>(source: Source<T> | CallableSource<T>): RouteBuilder<T> {
+  const adapter = typeof source === 'function'
+    ? { subscribe: source }
+    : source;
+  return new RouteBuilder(adapter);
+}
+```
+
+**No Type Pollution:** Callable variants are just function signatures. They don't add runtime overhead or complexity to the type system.
+
+---
+
+## Migration Guide
+
+### Creating a New Adapter
+
+Follow these steps to create a new adapter that follows all the rules:
+
+#### 1. Create Directory Structure
+
+```bash
+# For any adapter (even single-interface)
+mkdir -p packages/routecraft/src/adapters/yourAdapter
+cd packages/routecraft/src/adapters/yourAdapter
+
+# Core files
+touch index.ts    # Factory function + exports
+touch types.ts    # Type definitions (if needed)
+
+# Add operation files based on support
+touch source.ts       # If supporting Source
+touch destination.ts  # If supporting Destination
+touch shared.ts       # If sharing logic between operations
+```
+
+#### 2. Implement Adapter Classes
+
+**For Source support (`source.ts`):**
+```typescript
+import type { Source, CallableSource, CraftContext, Exchange, ExchangeHeaders } from '../../types';
+
+export class YourAdapterSourceAdapter<T> implements Source<T> {
+  readonly adapterId = "routecraft.adapter.youradapter";
+
+  constructor(
+    private param1: Type1,
+    private param2?: Type2,
+  ) {}
+
+  subscribe: CallableSource<T> = async (context, handler, abortController, onReady) => {
+    try {
+      onReady?.();
+
+      while (!abortController.signal.aborted) {
+        const message = await this.getNextMessage();
+        await handler(message);
+      }
+    } catch (error) {
+      if (!abortController.signal.aborted) throw error;
+    }
+  };
+}
+```
+
+**For Destination support (`destination.ts`):**
+```typescript
+import type { Destination, CallableDestination, Exchange } from '../../types';
+
+export class YourAdapterDestinationAdapter<T, R = void> implements Destination<T, R> {
+  readonly adapterId = "routecraft.adapter.youradapter";
+
+  constructor(private config: ConfigType) {}
+
+  send: CallableDestination<T, R> = async (exchange) => {
+    const result = await this.processExchange(exchange);
+    return result;
+  };
+}
+```
+
+**For shared logic (`shared.ts`):**
+```typescript
+// Extract common helpers used by both source and destination
+export function getYourAdapterChannel(context: CraftContext, endpoint: string) {
+  // Shared logic
+}
+```
+
+#### 3. Create Factory Function
+
+**Single-interface factory (`index.ts`):**
+```typescript
+import type { Source } from '../../operations/from';
+import { YourAdapterSourceAdapter } from './source';
+
+export function yourAdapter<T>(
+  param1: Type1,
+  param2?: Type2,
+): Source<T> {
+  return new YourAdapterSourceAdapter<T>(param1, param2);
+}
+```
+
+**Multi-interface factory (`index.ts`):**
+```typescript
+import type { Source, Destination } from '../../types';
+import { YourAdapterSourceAdapter } from './source';
+import { YourAdapterDestinationAdapter } from './destination';
+
+// Source overload
+export function yourAdapter<S>(
+  endpoint: string,
+  options: SourceOptions<S>
+): Source<Exchange<S>>;
+
+// Destination overload
+export function yourAdapter<T, R = void>(
+  handler: (exchange: Exchange<T>) => Promise<R> | R
+): Destination<T, R>;
+
+// Implementation with structural type guards (Rule 4)
+export function yourAdapter<S, T, R = void>(
+  ...args: any[]
+): Source<Exchange<S>> | Destination<T, R> {
+  if (typeof args[0] === 'string' && arguments.length === 2) {
+    return new YourAdapterSourceAdapter<S>(args[0], args[1]);
+  }
+  if (typeof args[0] === 'function') {
+    return new YourAdapterDestinationAdapter<T, R>(args[0]);
+  }
+  throw new Error('Invalid arguments to yourAdapter()');
+}
+```
+
+#### 4. Export from Package
+
+Add to `packages/routecraft/src/index.ts`:
+```typescript
+export { yourAdapter } from './adapters/yourAdapter';
+export type { YourAdapterOptions } from './adapters/yourAdapter';
+```
+
+#### 5. Write Tests
+
+Create `packages/routecraft/test/your-adapter.test.ts`:
+```typescript
+import { describe, it, expect, vi } from 'vitest';
+import { route, simple } from '../src';
+import { yourAdapter } from '../src/adapters/yourAdapter';
+
+describe('yourAdapter', () => {
+  it('should work as source', async () => {
+    const handler = vi.fn();
+
+    await route
+      .from(yourAdapter(params))
+      .to(handler)
+      .start();
+
+    expect(handler).toHaveBeenCalled();
+  });
+
+  it('should work as destination', async () => {
+    const result = await route
+      .from(simple(() => ({ data: 'test' })))
+      .to(yourAdapter(config))
+      .start();
+
+    expect(result).toBeDefined();
+  });
+});
+```
+
+### Checklist
+
+Before submitting your new adapter:
+
+- [ ] Directory structure follows pattern (operation files + index)
+- [ ] Class names use `{Concept}{Operation}Adapter` format
+- [ ] Factory returns interface type, not class type
+- [ ] Structural type guards used for multi-interface factories
+- [ ] Shared logic extracted to `shared.ts` if needed
+- [ ] JSDoc documentation added
+- [ ] Tests written and passing
+- [ ] Exported from package index
+- [ ] Callable variant supported (functions accepted as adapters)
+
+---
+
+## Examples
+
+### Example 1: Single-Interface Source Adapter (simple)
+
+**File: `packages/routecraft/src/adapters/simple/source.ts`**
+```typescript
+import type { Source, CallableSource, CraftContext, Exchange, ExchangeHeaders } from '../../types';
+
+export class SimpleSourceAdapter<T> implements Source<T> {
+  readonly adapterId = "routecraft.adapter.simple";
+
+  constructor(private producer: () => T | Promise<T>) {}
+
+  subscribe: CallableSource<T> = async (context, handler, abortController, onReady) => {
+    try {
+      onReady?.();
+      const message = await this.producer();
+      await handler(message);
+
+      if (!abortController.signal.aborted) {
+        abortController.abort();
+      }
+    } catch (error) {
+      if (!abortController.signal.aborted) throw error;
+    }
+  };
+}
+```
+
+**File: `packages/routecraft/src/adapters/simple/index.ts`**
+```typescript
+import type { Source } from '../../operations/from';
+import { SimpleSourceAdapter } from './source';
+
+export function simple<T>(producer: () => T | Promise<T>): Source<T> {
+  return new SimpleSourceAdapter<T>(producer);
+}
+```
+
+### Example 2: Multi-Interface Adapter (direct)
+
+**File: `packages/routecraft/src/adapters/direct/source.ts`**
+```typescript
+import type { Source, CallableSource, Exchange, ExchangeHeaders } from '../../types';
+import { getDirectChannel } from './shared';
+
+export class DirectSourceAdapter<S> implements Source<Exchange<S>> {
+  readonly adapterId = "routecraft.adapter.direct";
+
+  constructor(
+    private endpoint: string,
+    private options: DirectServerOptions<S> = {},
+  ) {}
+
+  subscribe: CallableSource<Exchange<S>> = async (
+    context,
+    handler,
+    abortController,
+    onReady,
+  ) => {
+    const channel = getDirectChannel(context, this.endpoint);
+
+    channel.on('message', async (data: any) => {
+      if (abortController.signal.aborted) return;
+      const body = this.options.deserialize?.(data) ?? data;
+      const exchange: Exchange<S> = { body, headers: this.options.headers };
+      await handler(exchange.body, exchange.headers);
+    });
+
+    onReady?.();
+  };
+}
+```
+
+**File: `packages/routecraft/src/adapters/direct/destination.ts`**
+```typescript
+import type { Destination, CallableDestination, Exchange } from '../../types';
+
+export class DirectDestinationAdapter<T> implements Destination<T, T> {
+  readonly adapterId = "routecraft.adapter.direct";
+
+  constructor(
+    private endpoint: string | ((exchange: Exchange<T>) => string),
+  ) {}
+
+  send: CallableDestination<T, T> = async (exchange) => {
+    const endpointStr = typeof this.endpoint === 'function'
+      ? this.endpoint(exchange)
+      : this.endpoint;
+
+    // Send to channel and wait for response
+    const channel = getDirectChannel(exchange.context, endpointStr);
+    return await channel.send(exchange);
+  };
+}
+```
+
+**File: `packages/routecraft/src/adapters/direct/shared.ts`**
+```typescript
+import type { CraftContext } from '../../types';
+
+export const ADAPTER_DIRECT_STORE = Symbol.for("routecraft.adapter.direct.store");
+
+export function getDirectChannel(context: CraftContext, endpoint: string) {
+  let store = context.getStore(ADAPTER_DIRECT_STORE);
+  if (!store) {
+    store = new Map();
+    context.setStore(ADAPTER_DIRECT_STORE, store);
+  }
+
+  let channel = store.get(endpoint);
+  if (!channel) {
+    channel = createChannel(endpoint);
+    store.set(endpoint, channel);
+  }
+
+  return channel;
+}
+```
+
+**File: `packages/routecraft/src/adapters/direct/index.ts`**
+```typescript
+import type { Source, Destination, Exchange } from '../../types';
+import { DirectSourceAdapter } from './source';
+import { DirectDestinationAdapter } from './destination';
+import type { DirectServerOptions } from './types';
+
+// Source overload
+export function direct<S>(
+  endpoint: string,
+  options: Partial<DirectServerOptions>
+): Source<Exchange<S>>;
+
+// Destination overload
+export function direct<T>(
+  endpoint: string | ((exchange: Exchange<T>) => string)
+): Destination<T, T>;
+
+// Implementation with structural type guards (Rule 4)
+export function direct<S, T>(
+  endpoint: string | ((exchange: Exchange<T>) => string),
+  options?: Partial<DirectServerOptions>,
+): Source<Exchange<S>> | Destination<T, T> {
+  // Structural check: arguments.length === 2 means Source
+  if (arguments.length === 2) {
+    return new DirectSourceAdapter<S>(endpoint as string, options!);
+  }
+  // Otherwise Destination
+  return new DirectDestinationAdapter<T>(endpoint);
+}
+
+// Re-export types for public API
+export type { DirectServerOptions, DirectClientOptions, DirectOptions } from './types';
+export { ADAPTER_DIRECT_STORE, ADAPTER_DIRECT_OPTIONS, ADAPTER_DIRECT_REGISTRY } from './shared';
+```
+
+---
+
+## Summary
+
+These rules ensure routecraft adapters remain:
+1. **Consistent** - Same patterns everywhere
+2. **Maintainable** - Clean separation of concerns
+3. **Extensible** - Easy to add new operations
+4. **Developer-friendly** - Single factory per concept
+5. **Type-safe** - Structural discrimination, interface returns
+
+Follow these rules for all new adapters, and refactor existing adapters to comply over time.
