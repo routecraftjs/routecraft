@@ -402,6 +402,7 @@ export class DefaultRoute implements Route {
           route: this,
           exchange: exchange,
         });
+        throw err;
       }
     }
     return lastProcessedExchange;

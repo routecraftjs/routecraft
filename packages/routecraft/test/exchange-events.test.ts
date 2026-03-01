@@ -133,13 +133,14 @@ describe("Exchange and Step Lifecycle Events", () => {
       .id("step-evt-route")
       .from(simple([1, 2]))
       .process((ex) => {
-        // Process the array
-        ex.body = (ex.body as number[]).map((n) => n * 2);
+        // simple() emits each array element separately as individual messages
+        const num = ex.body as unknown as number;
+        (ex.body as unknown) = num * 2;
         return ex;
       })
       .process((ex) => {
-        // Process the array
-        ex.body = (ex.body as number[]).map((n) => n + 10);
+        const num = ex.body as unknown as number;
+        (ex.body as unknown) = num + 10;
         return ex;
       })
       .to(log());
