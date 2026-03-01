@@ -103,7 +103,6 @@ export class CsvAdapter
     const fileAdapter = file({
       path: this.options.path,
       encoding: this.options.encoding || "utf-8",
-      watch: this.options.watch || false,
     });
 
     // Subscribe to file content and parse CSV

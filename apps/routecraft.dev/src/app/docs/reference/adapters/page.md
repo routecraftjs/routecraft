@@ -16,8 +16,9 @@ Catalog of adapters and authoring guidance. {% .lead %}
 | [`noop`](#noop) | Core | No-operation placeholder | `Destination` |
 | [`pseudo`](#pseudo) | Core | Typed placeholder for docs/examples | `Source`, `Destination`, `Processor` |
 | [`file`](#file) | File | Read/write text files | `Source`, `Destination` |
-| [`json`](#json) | File | JSON file handling with parsing | `Source`, `Destination` |
+| [`json`](#json) | File | JSON file handling with parsing | `Source`, `Destination`, `Transformer` |
 | [`csv`](#csv) | File | CSV file processing | `Source`, `Destination` |
+| [`html`](#html) | File | HTML parsing and file handling | `Source`, `Destination`, `Transformer` |
 | — | HTTP | HTTP server (inbound) | Planned |
 
 ## Core adapters
@@ -569,31 +570,33 @@ import { mcp } from "@routecraft/mcp-adapter";
 
 **Exported types:** `PseudoAdapter<R>`, `PseudoFactory<Opts>`, `PseudoKeyedFactory<Opts>`, `PseudoOptions`, `PseudoKeyedOptions`
 
-### file {% badge %}wip{% /badge %}
+### file
 
 ```ts
 file(options: FileOptions): FileAdapter
 ```
 
-Read and write files as strings. For structured data, use `json` or `csv` adapters.
+Read and write plain text files. For structured data, use `json` or `csv` adapters.
 
+**Source mode** (reads files):
 ```ts
-// Read file as source
-.id('file-reader')
-.from(file({ path: './input.txt', encoding: 'utf-8' }))
+// Read file once
+.from(file({ path: './input.txt' }))
 
-// Watch file for changes
-.id('config-watcher')
-.from(file({ path: './config.txt', watch: true }))
+// Custom encoding
+.from(file({ path: './data.txt', encoding: 'latin1' }))
+```
 
-// Write to file
+**Destination mode** (writes files):
+```ts
+// Write to file (overwrite)
 .to(file({ path: './output.txt', mode: 'write' }))
 
 // Append to file
 .to(file({ path: './log.txt', mode: 'append' }))
 
-// Dynamic file paths
-.to(file({ 
+// Dynamic file paths with directory creation
+.to(file({
   path: (exchange) => `./data/${exchange.body.date}.txt`,
   mode: 'write',
   createDirs: true
@@ -601,106 +604,296 @@ Read and write files as strings. For structured data, use `json` or `csv` adapte
 ```
 
 **Options:**
-- `path` - File path string or function
-- `mode` - 'read', 'write', 'append' (default: 'read' for source, 'write' for destination)
-- `encoding` - Text encoding (default: 'utf-8')
-- `watch` - Watch for file changes (source only, default: false)
-- `createDirs` - Create parent directories if needed (default: false)
 
-### json {% badge %}wip{% /badge %}
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `path` | `string \| (exchange) => string` | Required | File path (static or dynamic function) |
+| `mode` | `'read' \| 'write' \| 'append'` | `'read'` for source, `'write'` for destination | File operation mode |
+| `encoding` | `BufferEncoding` | `'utf-8'` | Text encoding |
+| `createDirs` | `boolean` | `false` | Create parent directories (destination only) |
+
+**Exported types:** `FileAdapter`, `FileOptions`
+
+### json
 
 ```ts
-json(options: JsonOptions): JsonAdapter
+json(options?: JsonOptions): JsonAdapter | JsonFileAdapter
 ```
 
-Read and write JSON files with automatic parsing/stringification.
+Parse and format JSON data, or read/write JSON files.
 
+**Transformer mode** (in-memory JSON parsing):
 ```ts
-// Read JSON file
-.id('json-loader')
+// Parse JSON string from body
+.transform(json())
+
+// Extract nested data using dot notation
+.transform(json({ path: 'data.items' }))
+
+// Custom parsing with getValue
+.transform(json({
+  from: (b) => b.rawJson,
+  getValue: (parsed) => parsed as User[]
+}))
+
+// Write to custom field
+.transform(json({
+  to: (body, result) => ({ ...body, parsed: result })
+}))
+```
+
+**Source mode** (read JSON files):
+```ts
+// Read and parse JSON file
 .from(json({ path: './data.json' }))
 
-// Watch JSON file for changes
-.id('config-watcher')
-.from(json({ path: './config.json', watch: true }))
-
-// Write JSON with formatting
-.to(json({ 
-  path: './output.json', 
-  indent: 2,
-  mode: 'write'
-}))
-
-// Dynamic JSON files
-.to(json({ 
-  path: (exchange) => `./exports/${exchange.body.id}.json`,
-  mode: 'write'
+// With custom reviver
+.from(json({
+  path: './data.json',
+  reviver: (key, value) => {
+    if (key === 'date') return new Date(value);
+    return value;
+  }
 }))
 ```
 
-**Options:**
-- `path` - File path string or function
-- `mode` - 'read', 'write', 'append' (default: 'read' for source, 'write' for destination)
-- `watch` - Watch for file changes (source only, default: false)
-- `indent` - JSON formatting spaces (default: 0)
-- `createDirs` - Create parent directories if needed (default: false)
+**Destination mode** (write JSON files):
+```ts
+// Write with formatting
+.to(json({
+  path: './output.json',
+  indent: 2
+}))
 
-**Behavior:**
-- **Source**: Parses JSON and emits the parsed object
-- **Destination**: Stringifies exchange body to JSON
+// Dynamic paths with directory creation
+.to(json({
+  path: (exchange) => `./exports/${exchange.body.id}.json`,
+  createDirs: true
+}))
 
-### csv {% badge %}wip{% /badge %}
+// With custom replacer
+.to(json({
+  path: './filtered.json',
+  replacer: (key, value) => {
+    if (key.startsWith('_')) return undefined;
+    return value;
+  }
+}))
+```
+
+**Transformer Options** (when no `path` provided):
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `path` | `string` | — | Dot-notation path to extract (e.g., `"data.items[0]"`) |
+| `from` | `(body) => string` | Uses `body` or `body.body` | Extract JSON string from exchange |
+| `getValue` | `(parsed) => V` | — | Transform parsed value |
+| `to` | `(body, result) => R` | Replaces body | Where to put result |
+
+**File Options** (when `path` is a file path):
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `path` | `string \| (exchange) => string` | Required | File path (static or dynamic) |
+| `mode` | `'read' \| 'write' \| 'append'` | `'read'` for source, `'write'` for destination | File operation mode |
+| `encoding` | `BufferEncoding` | `'utf-8'` | Text encoding |
+| `createDirs` | `boolean` | `false` | Create parent directories (destination only) |
+| `indent` / `space` | `number` | `0` | JSON formatting spaces (destination only) |
+| `reviver` | `(key, value) => unknown` | — | JSON.parse reviver (source only) |
+| `replacer` | `(key, value) => unknown` | — | JSON.stringify replacer (destination only) |
+
+**Exported types:** `JsonAdapter`, `JsonFileAdapter`, `JsonOptions`, `JsonTransformerOptions`, `JsonFileOptions`
+
+### csv
 
 ```ts
 csv(options: CsvOptions): CsvAdapter
 ```
 
-Read and write CSV files with configurable parsing options.
+Read and write CSV files with automatic parsing/formatting. **Requires `papaparse` as a peer dependency.**
 
+```bash
+npm install papaparse
+```
+
+**Source mode** (read CSV files):
 ```ts
 // Read CSV with headers
-.id('csv-import')
-.from(csv({ path: './data.csv', headers: true }))
+.from(csv({ path: './data.csv', header: true }))
+// Emits array of objects: [{ name: 'Alice', age: '30' }, ...]
 
-// Read CSV without headers (array of arrays)
-.id('raw-csv')
-.from(csv({ path: './data.csv', headers: false }))
+// Read CSV without headers
+.from(csv({ path: './data.csv', header: false }))
+// Emits array of arrays: [['Alice', '30'], ['Bob', '25'], ...]
 
 // Custom delimiter and encoding
-.id('european-csv')
-.from(csv({ 
-  path: './data.csv', 
-  delimiter: ';', 
+.from(csv({
+  path: './data.csv',
+  delimiter: ';',
   encoding: 'latin1',
-  headers: true
+  header: true
+}))
+```
+
+**Destination mode** (write CSV files):
+```ts
+// Write array of objects to CSV
+.to(csv({
+  path: './output.csv',
+  header: true
+}))
+// Automatically includes headers from object keys
+
+// Write to tab-separated file
+.to(csv({
+  path: './data.tsv',
+  delimiter: '\t',
+  header: true
 }))
 
-// Write CSV
-.to(csv({ 
-  path: './output.csv', 
-  headers: ['name', 'email', 'age']
-}))
-
-// Dynamic CSV files
-.to(csv({ 
+// Dynamic paths with directory creation
+.to(csv({
   path: (exchange) => `./reports/${exchange.body.reportDate}.csv`,
-  headers: true
+  createDirs: true,
+  header: true
+}))
+
+// Append to existing CSV (skips header if file exists)
+.to(csv({
+  path: './log.csv',
+  mode: 'append',
+  header: true
 }))
 ```
 
 **Options:**
-- `path` - File path string or function
-- `headers` - Use first row as headers (boolean) or provide header array
-- `delimiter` - Field separator (default: ',')
-- `encoding` - Text encoding (default: 'utf-8')
-- `quote` - Quote character (default: '"')
-- `escape` - Escape character (default: '"')
-- `mode` - 'read', 'write', 'append' (default: 'read' for source, 'write' for destination)
-- `createDirs` - Create parent directories if needed (default: false)
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `path` | `string \| (exchange) => string` | Required | File path (static or dynamic) |
+| `header` | `boolean` | `true` | Use first row as headers (source), include headers (destination) |
+| `delimiter` | `string` | `','` | Field separator |
+| `quoteChar` | `string` | `'"'` | Quote character |
+| `skipEmptyLines` | `boolean` | `true` | Skip empty lines during parsing |
+| `encoding` | `BufferEncoding` | `'utf-8'` | Text encoding |
+| `mode` | `'write' \| 'append'` | `'write'` | File operation mode (destination only) |
+| `createDirs` | `boolean` | `false` | Create parent directories (destination only) |
 
 **Behavior:**
-- **Source**: Emits one exchange per CSV row (object if headers=true, array if headers=false)
-- **Destination**: Writes exchange body as CSV row
+- **Source**: Emits entire CSV as array of records (objects if `header: true`, arrays if `header: false`)
+- **Destination**: Writes exchange body (array of objects/arrays) as CSV. For `mode: 'append'`, skips header row if file exists.
+
+**Peer dependency:** Requires `papaparse` to be installed separately.
+
+**Exported types:** `CsvAdapter`, `CsvOptions`
+
+### html
+
+```ts
+html(options: HtmlOptions): HtmlAdapter
+```
+
+Extract data from HTML using CSS selectors (powered by cheerio), or read/write HTML files.
+
+**Transformer mode** (in-memory HTML parsing):
+```ts
+// Extract text from title
+.transform(html({ selector: 'title', extract: 'text' }))
+
+// Extract multiple elements (returns array)
+.transform(html({ selector: 'h2', extract: 'text' }))
+// Result: ['First Heading', 'Second Heading', ...]
+
+// Extract HTML content
+.transform(html({ selector: '.content', extract: 'html' }))
+
+// Extract attribute value
+.transform(html({ selector: 'a', extract: 'attr', attr: 'href' }))
+
+// Extract outer HTML (including element tag)
+.transform(html({ selector: 'article', extract: 'outerHtml' }))
+
+// Custom parsing from sub-field
+.transform(html({
+  selector: 'p',
+  extract: 'text',
+  from: (body) => body.htmlContent,
+  to: (body, result) => ({ ...body, paragraphs: result })
+}))
+```
+
+**Source mode** (read HTML files and extract):
+```ts
+// Read HTML file and extract title
+.from(html({
+  path: './page.html',
+  selector: 'title',
+  extract: 'text'
+}))
+
+// Extract multiple links from file
+.from(html({
+  path: './page.html',
+  selector: 'a',
+  extract: 'attr',
+  attr: 'href'
+}))
+// Emits array: ['https://example.com', '/about', ...]
+```
+
+**Destination mode** (write HTML files):
+```ts
+// Write HTML string to file
+.to(html({ path: './output.html' }))
+
+// Dynamic paths with directory creation
+.to(html({
+  path: (exchange) => `./pages/${exchange.body.slug}.html`,
+  createDirs: true
+}))
+
+// Append to HTML file
+.to(html({
+  path: './log.html',
+  mode: 'append'
+}))
+```
+
+**Transformer Options** (when no `path` provided):
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `selector` | `string` | Required | CSS selector to match elements |
+| `extract` | `'text' \| 'html' \| 'attr' \| 'outerHtml' \| 'innerText' \| 'textContent'` | `'text'` | What to extract from matched elements |
+| `attr` | `string` | — | Attribute name (required when `extract: 'attr'`) |
+| `from` | `(body) => string` | Uses `body` or `body.body` | Extract HTML string from exchange |
+| `to` | `(body, result) => R` | Replaces body | Where to put extracted result |
+
+**File Options** (when `path` is provided):
+
+All transformer options above, plus:
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `path` | `string \| (exchange) => string` | Required | File path (static or dynamic) |
+| `mode` | `'read' \| 'write' \| 'append'` | `'read'` for source, `'write'` for destination | File operation mode |
+| `encoding` | `BufferEncoding` | `'utf-8'` | Text encoding |
+| `createDirs` | `boolean` | `false` | Create parent directories (destination only) |
+
+**Extract types:**
+- `text` / `innerText` / `textContent`: Plain text content (strips HTML tags, removes `<style>` and `<script>`)
+- `html`: Inner HTML content
+- `outerHtml`: Element including its tag
+- `attr`: Attribute value (requires `attr` option)
+
+**Behavior:**
+- **Single match**: Returns string
+- **Multiple matches**: Returns array of strings
+- **No matches**: Returns empty string
+- **Source mode**: Reads HTML file and extracts data using selector
+- **Destination mode**: Writes HTML string (from `exchange.body` or `exchange.body.body`) to file
+
+**Exported types:** `HtmlAdapter`, `HtmlOptions`, `HtmlResult`
 
 ### http {% badge %}wip{% /badge %}
 

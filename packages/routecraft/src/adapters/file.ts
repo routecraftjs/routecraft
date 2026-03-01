@@ -1,4 +1,3 @@
-import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import { type Source, type CallableSource } from "../operations/from.ts";
@@ -30,13 +29,6 @@ export interface FileOptions {
   encoding?: BufferEncoding;
 
   /**
-   * Watch file for changes (source mode only).
-   * When enabled, the source will emit a message whenever the file changes.
-   * Default: false
-   */
-  watch?: boolean;
-
-  /**
    * Create parent directories if they don't exist (destination mode only).
    * Default: false
    */
@@ -50,15 +42,15 @@ export class FileAdapter implements Source<string>, Destination<unknown, void> {
 
   /**
    * Source implementation: subscribe to file content.
-   * Reads the file once, and optionally watches for changes.
+   * Reads the file once.
    */
   subscribe: CallableSource<string> = async (
     _context,
     handler,
-    abortController,
+    _abortController,
     onReady,
   ) => {
-    const { path: filePath, encoding = "utf-8", watch = false } = this.options;
+    const { path: filePath, encoding = "utf-8" } = this.options;
 
     if (typeof filePath !== "string") {
       throw new Error(
@@ -66,56 +58,22 @@ export class FileAdapter implements Source<string>, Destination<unknown, void> {
       );
     }
 
-    // Read initial file content
-    const readAndEmit = async () => {
-      try {
-        const content = await fsp.readFile(filePath, { encoding });
-        await handler(content);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-          throw new Error(`file adapter: file not found: ${filePath}`);
-        }
-        if ((err as NodeJS.ErrnoException).code === "EACCES") {
-          throw new Error(
-            `file adapter: permission denied reading file: ${filePath}`,
-          );
-        }
-        throw new Error(`file adapter: failed to read file: ${message}`);
+    // Read file content
+    const content = await fsp.readFile(filePath, { encoding }).catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new Error(`file adapter: file not found: ${filePath}`);
       }
-    };
-
-    // Read file initially
-    await readAndEmit();
-
-    // Set up file watcher if requested
-    if (watch) {
-      let watcher: fs.FSWatcher | null = null;
-      let debounceTimer: NodeJS.Timeout | null = null;
-
-      const cleanup = () => {
-        if (debounceTimer) clearTimeout(debounceTimer);
-        if (watcher) watcher.close();
-      };
-
-      abortController.signal.addEventListener("abort", cleanup);
-
-      try {
-        watcher = fs.watch(filePath, async (eventType) => {
-          // Debounce rapid changes (some editors trigger multiple events)
-          if (debounceTimer) clearTimeout(debounceTimer);
-          debounceTimer = setTimeout(async () => {
-            if (eventType === "change" && !abortController.signal.aborted) {
-              await readAndEmit();
-            }
-          }, 50);
-        });
-      } catch (err) {
-        cleanup();
-        const message = err instanceof Error ? err.message : String(err);
-        throw new Error(`file adapter: failed to watch file: ${message}`);
+      if ((err as NodeJS.ErrnoException).code === "EACCES") {
+        throw new Error(
+          `file adapter: permission denied reading file: ${filePath}`,
+        );
       }
-    }
+      throw new Error(`file adapter: failed to read file: ${message}`);
+    });
+
+    // Emit the content
+    await handler(content);
 
     // Signal that source is ready
     if (onReady) onReady();
@@ -192,23 +150,19 @@ export class FileAdapter implements Source<string>, Destination<unknown, void> {
  *
  * As a **source** (.from):
  * - Reads file content as a string
- * - Optionally watches for changes and emits new content
  *
  * As a **destination** (.to):
  * - Writes exchange body to file (write or append mode)
  * - Supports dynamic paths based on exchange content
  * - Can create parent directories automatically
  *
- * @param options - File path, mode, encoding, watch, and createDirs options
+ * @param options - File path, mode, encoding, and createDirs options
  * @returns FileAdapter implementing Source and Destination
  *
  * @example
  * ```typescript
  * // Read file as source
  * .from(file({ path: './input.txt' }))
- *
- * // Watch file for changes
- * .from(file({ path: './config.txt', watch: true }))
  *
  * // Write to file
  * .to(file({ path: './output.txt', mode: 'write' }))

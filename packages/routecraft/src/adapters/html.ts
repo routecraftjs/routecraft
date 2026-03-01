@@ -61,12 +61,6 @@ export interface HtmlOptions<T = unknown, R = unknown> {
    */
   encoding?: BufferEncoding;
   /**
-   * Watch file for changes (source mode only, only when path is provided).
-   * When enabled, the source will emit a message whenever the file changes.
-   * Default: false
-   */
-  watch?: boolean;
-  /**
    * Create parent directories if they don't exist (destination mode only, only when path is provided).
    * Default: false
    */
@@ -110,14 +104,12 @@ export class HtmlAdapter<T = unknown, R = HtmlResult>
         path: string | ((exchange: Exchange) => string);
         mode?: "read" | "write" | "append";
         encoding?: BufferEncoding;
-        watch?: boolean;
         createDirs?: boolean;
       } = {
         path: options.path,
       };
       if (options.mode !== undefined) fileOpts.mode = options.mode;
       if (options.encoding !== undefined) fileOpts.encoding = options.encoding;
-      if (options.watch !== undefined) fileOpts.watch = options.watch;
       if (options.createDirs !== undefined)
         fileOpts.createDirs = options.createDirs;
       this.fileAdapter = file(fileOpts);
@@ -277,7 +269,7 @@ export class HtmlAdapter<T = unknown, R = HtmlResult>
  * - As a **source** (.from): Reads HTML file, extracts data using selector
  * - As a **destination** (.to): Writes HTML string to file
  * - Uses file() adapter internally for I/O operations
- * - Supports file options: encoding, watch, createDirs, mode
+ * - Supports file options: encoding, createDirs, mode
  *
  * @param options - selector, extract type, optional path for file I/O, optional from/to for transformer mode
  * @returns HtmlAdapter implementing Transformer, Source, and Destination
@@ -289,9 +281,6 @@ export class HtmlAdapter<T = unknown, R = HtmlResult>
  *
  * // Source mode: read HTML file and extract
  * .from(html({ path: './page.html', selector: 'h1', extract: 'text' }))
- *
- * // Source mode with watch
- * .from(html({ path: './page.html', selector: '.content', watch: true }))
  *
  * // Destination mode: write HTML to file
  * .to(html({ path: './output.html', mode: 'write' }))

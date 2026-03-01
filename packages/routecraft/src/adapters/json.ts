@@ -49,13 +49,6 @@ export interface JsonFileOptions {
   encoding?: BufferEncoding;
 
   /**
-   * Watch file for changes (source mode only).
-   * When enabled, the source will emit a message whenever the file changes.
-   * Default: false
-   */
-  watch?: boolean;
-
-  /**
    * Create parent directories if they don't exist (destination mode only).
    * Default: false
    */
@@ -179,7 +172,6 @@ export class JsonFileAdapter
       if (options.mode !== undefined) fileOptions.mode = options.mode;
       if (options.encoding !== undefined)
         fileOptions.encoding = options.encoding;
-      if (options.watch !== undefined) fileOptions.watch = options.watch;
       if (options.createDirs !== undefined)
         fileOptions.createDirs = options.createDirs;
 
@@ -277,10 +269,10 @@ export class JsonFileAdapter
  * By default uses body (or body.body when object) as the JSON string and replaces the body with the result.
  *
  * **Source/Destination mode** (when `path` option is provided):
- * As a **source** (.from): Reads and parses JSON files, optionally watches for changes
+ * As a **source** (.from): Reads and parses JSON files
  * As a **destination** (.to): Stringifies and writes JSON files with optional formatting
  *
- * @param options - Transformer options (`from`, `getValue`, `to`) or file options (`path`, `watch`, `space`, etc.)
+ * @param options - Transformer options (`from`, `getValue`, `to`) or file options (`path`, `space`, etc.)
  * @returns A Transformer (transformer mode) or Source/Destination adapter (file mode)
  *
  * @example
@@ -291,7 +283,6 @@ export class JsonFileAdapter
  *
  * // Source mode
  * .from(json({ path: './data.json' }))
- * .from(json({ path: './config.json', watch: true }))
  *
  * // Destination mode
  * .to(json({ path: './output.json', space: 2 }))
@@ -323,7 +314,6 @@ function isFileMode<T = unknown, R = unknown, V = unknown>(
   // Check for file-specific options - if any are present, it's file mode
   const fileOptions = options as JsonFileOptions;
   if (
-    fileOptions.watch ||
     fileOptions.mode ||
     fileOptions.createDirs ||
     fileOptions.encoding ||
