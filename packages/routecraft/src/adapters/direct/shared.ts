@@ -152,13 +152,16 @@ export function registerRoute(
 }
 
 /**
- * Sanitize endpoint name by replacing special characters with dashes.
+ * Sanitize endpoint name using URL encoding for reversible, collision-free keys.
+ *
+ * Uses `encodeURIComponent()` to ensure distinct endpoints like "a/b" and "a-b"
+ * map to unique keys ("a%2Fb" vs "a-b"), preventing routing collisions.
  *
  * @param endpoint - Raw endpoint string
- * @returns Sanitized endpoint string
+ * @returns URL-encoded endpoint string safe for use as Map key
  */
 export function sanitizeEndpoint(endpoint: string): string {
-  return endpoint.replace(/[^a-zA-Z0-9]/g, "-");
+  return encodeURIComponent(endpoint);
 }
 
 /**
