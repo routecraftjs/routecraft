@@ -5,10 +5,6 @@ import { craft, direct, noop } from "@routecraft/routecraft";
 import { mcp, MCP_PLUGIN_REGISTERED } from "../src/index.ts";
 import { z } from "zod";
 import http from "node:http";
-import { spawn } from "node:child_process";
-import { createInterface } from "node:readline";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 const MCP_STORE_KEY =
   MCP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry;
@@ -352,140 +348,69 @@ describe("McpServer", () => {
       expect(receivedBody).not.toBeNull();
       expect(receivedBody).toHaveProperty("user", "World");
     });
-  });
 
-  describe("stdio transport", () => {
     /**
-     * @case Stdio tools/call passes string and object args with correct types
-     * @preconditions Spawn stdio runner; initialize then tools/call with str and obj
+     * @case tools/call passes string and object args with correct types
+     * @preconditions HTTP server with echo-args route; initialize then tools/call with str and obj
      * @expectedResult Route receives str as string and obj as object (not stringified)
      */
     test("tools/call passes string and object args with correct types", async () => {
-      const packagesAi = path.resolve(
-        path.dirname(fileURLToPath(import.meta.url)),
-        "..",
-      );
-      const workspaceRoot = path.join(packagesAi, "..", "..");
-      const runnerPath = path.join(packagesAi, "test", "stdio-mcp-runner.mjs");
-      const child = spawn("node", [runnerPath], {
-        cwd: workspaceRoot,
-        stdio: ["pipe", "pipe", "pipe"],
-      });
-
-      const stderrChunks: string[] = [];
-      child.stderr?.setEncoding("utf8");
-      child.stderr?.on("data", (chunk: string) => stderrChunks.push(chunk));
-      const getStderr = (): string =>
-        stderrChunks.length ? stderrChunks.join("").trim() : "(no stderr)";
-
-      const lineQueue: string[] = [];
-      let resolveNext: ((line: string) => void) | null = null;
-      const rl = createInterface({ input: child.stdout! });
-      rl.on("line", (line: string) => {
-        if (resolveNext) {
-          resolveNext(line);
-          resolveNext = null;
-        } else {
-          lineQueue.push(line);
-        }
-      });
-      const nextLine = (): Promise<string> =>
-        new Promise((resolve) => {
-          if (lineQueue.length > 0) {
-            resolve(lineQueue.shift()!);
-          } else {
-            resolveNext = resolve;
-          }
-        });
-
-      const readResponseTimeoutMs = 12_000;
-      const readResponse = async (
-        id: number,
-      ): Promise<Record<string, unknown>> => {
-        const deadline = Date.now() + readResponseTimeoutMs;
-        for (;;) {
-          const remaining = deadline - Date.now();
-          if (remaining <= 0) {
-            throw new Error(
-              `stdio MCP readResponse(id=${id}) timed out after ${readResponseTimeoutMs}ms. Child stderr: ${getStderr()}`,
-            );
-          }
-          let timeoutId: ReturnType<typeof setTimeout>;
-          const line = await Promise.race([
-            nextLine(),
-            new Promise<string>((_, reject) => {
-              timeoutId = setTimeout(
-                () =>
-                  reject(
-                    new Error(
-                      `readResponse(id=${id}) timed out. Child stderr: ${getStderr()}`,
-                    ),
-                  ),
-                remaining,
-              );
+      const { post, initSession } = await startHttpServer([
+        craft()
+          .id("echo-args")
+          .from(
+            mcp("echo-args", {
+              description: "Echo argument types and values for test",
+              schema: z.object({
+                str: z.string(),
+                obj: z.record(z.string(), z.any()),
+              }),
             }),
-          ]);
-          clearTimeout(timeoutId!);
-          if (!line.trim()) continue;
-          try {
-            const msg = JSON.parse(line) as Record<string, unknown>;
-            if (msg.id === id) return msg;
-          } catch {
-            // skip non-JSON
-          }
-        }
-      };
+          )
+          .transform((body) => ({
+            strType: typeof body.str,
+            objType: typeof body.obj,
+            strVal: body.str,
+            objVal: body.obj,
+          }))
+          .to(noop()),
+      ]);
 
-      const writeRequest = (req: Record<string, unknown>): void => {
-        child.stdin?.write(JSON.stringify(req) + "\n");
-      };
-
-      try {
-        writeRequest({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "initialize",
-          params: INIT_PARAMS,
-        });
-        const initRes = await readResponse(1);
-        expect(initRes.error).toBeUndefined();
-        expect(initRes.result).toBeDefined();
-
-        const toolArgs = { str: "hello", obj: { a: 1, b: 2 } };
-        writeRequest({
-          jsonrpc: "2.0",
-          id: 2,
-          method: "tools/call",
-          params: { name: "echo-args", arguments: toolArgs },
-        });
-        const callRes = await readResponse(2);
-        expect(callRes.error).toBeUndefined();
-        const result = callRes.result as Record<string, unknown>;
-        const content = result?.content as Array<{
-          type: string;
-          text: string;
-        }>;
-        expect(Array.isArray(content) && content[0]?.text).toBeTruthy();
-        const resultText = content[0].text;
-        if (resultText.startsWith("Error:")) {
-          throw new Error(`Tool call returned error: ${resultText}`);
-        }
-
-        const echoed = JSON.parse(resultText) as {
-          strType: string;
-          objType: string;
-          strVal: string;
-          objVal: unknown;
-        };
-        expect(echoed.strType).toBe("string");
-        expect(echoed.objType).toBe("object");
-        expect(echoed.strVal).toBe("hello");
-        expect(echoed.objVal).toEqual({ a: 1, b: 2 });
-        expect(typeof echoed.objVal).toBe("object");
-        expect(echoed.objVal).not.toBe(null);
-      } finally {
-        child.kill("SIGTERM");
+      const sessionId = await initSession();
+      const toolArgs = { str: "hello", obj: { a: 1, b: 2 } };
+      const callBody = JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "echo-args", arguments: toolArgs },
+      });
+      const callRes = await post(callBody, sessionId);
+      expect(callRes.statusCode).toBe(200);
+      const callParsed = JSON.parse(callRes.body);
+      if (callParsed.error) {
+        throw new Error(
+          `tools/call failed: ${JSON.stringify(callParsed.error)}`,
+        );
       }
-    }, 25_000);
+      const result = callParsed.result as Record<string, unknown>;
+      const content = result?.content as Array<{ type: string; text: string }>;
+      expect(Array.isArray(content) && content[0]?.text).toBeTruthy();
+      const resultText = content[0].text;
+      if (resultText.startsWith("Error:")) {
+        throw new Error(`Tool call returned error: ${resultText}`);
+      }
+      const echoed = JSON.parse(resultText) as {
+        strType: string;
+        objType: string;
+        strVal: string;
+        objVal: unknown;
+      };
+      expect(echoed.strType).toBe("string");
+      expect(echoed.objType).toBe("object");
+      expect(echoed.strVal).toBe("hello");
+      expect(echoed.objVal).toEqual({ a: 1, b: 2 });
+      expect(typeof echoed.objVal).toBe("object");
+      expect(echoed.objVal).not.toBe(null);
+    });
   });
 });
