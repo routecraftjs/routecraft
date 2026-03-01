@@ -1,6 +1,15 @@
-import { describe, test, expect, afterEach, vi } from "vitest";
+import { describe, test, expect, afterEach, vi, beforeEach } from "vitest";
 import { testContext, type TestContext } from "@routecraft/testing";
-import { craft, simple, json, JsonAdapter } from "@routecraft/routecraft";
+import {
+  craft,
+  simple,
+  json,
+  JsonAdapter,
+  type Source,
+} from "@routecraft/routecraft";
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import * as os from "node:os";
 
 describe("JSON Adapter", () => {
   let t: TestContext;
@@ -252,6 +261,339 @@ describe("JSON Adapter", () => {
       expect(out.status).toBe(200);
       expect(out.body).toBe(JSON.stringify(payload));
       expect(out.parsed).toEqual(payload);
+    });
+  });
+
+  describe("file source mode", () => {
+    let tempDir: string;
+    let testFilePath: string;
+
+    beforeEach(async () => {
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "json-test-"));
+      testFilePath = path.join(tempDir, "test.json");
+    });
+
+    afterEach(async () => {
+      if (tempDir) {
+        await fs.rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    /**
+     * @case Read JSON file and parse it as source
+     * @preconditions JSON file exists with valid content
+     * @expectedResult Parsed JSON object is emitted
+     */
+    test("reads and parses JSON file", async () => {
+      const data = { name: "Alice", age: 30 };
+      await fs.writeFile(testFilePath, JSON.stringify(data));
+
+      const destSpy = vi.fn();
+
+      const adapter = json({
+        path: testFilePath,
+      }) as unknown as Source<unknown>;
+
+      t = await testContext()
+        .routes(craft().id("json-source-read").from(adapter).to(destSpy))
+        .build();
+
+      await t.ctx.start();
+
+      expect(destSpy).toHaveBeenCalledTimes(1);
+      expect(destSpy.mock.calls[0][0].body).toEqual(data);
+    });
+
+    /**
+     * @case Watch mode triggers on file changes
+     * @preconditions watch: true, file is modified after initial read
+     * @expectedResult Handler called twice (initial + on change)
+     */
+    test("watch mode triggers on file changes", async () => {
+      const initialData = { value: 1 };
+      await fs.writeFile(testFilePath, JSON.stringify(initialData));
+
+      const destSpy = vi.fn();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("json-source-watch")
+            .from(
+              json({
+                path: testFilePath,
+                watch: true,
+              }) as unknown as Source<unknown>,
+            )
+            .to(destSpy),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      // Initial read
+      expect(destSpy).toHaveBeenCalledTimes(1);
+      expect(destSpy.mock.calls[0][0].body).toEqual(initialData);
+
+      // Wait a bit then modify file
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const updatedData = { value: 2 };
+      await fs.writeFile(testFilePath, JSON.stringify(updatedData));
+
+      // Wait for watch to trigger
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      expect(destSpy).toHaveBeenCalledTimes(2);
+      expect(destSpy.mock.calls[1][0].body).toEqual(updatedData);
+    });
+
+    /**
+     * @case Invalid JSON in file throws error
+     * @preconditions File contains invalid JSON
+     * @expectedResult Error thrown with "failed to parse" message
+     */
+    test("invalid JSON file throws error", async () => {
+      await fs.writeFile(testFilePath, "{ invalid json }");
+
+      const destSpy = vi.fn();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("json-source-invalid")
+            .from(json({ path: testFilePath }) as unknown as Source<unknown>)
+            .to(destSpy),
+        )
+        .build();
+
+      await expect(t.ctx.start()).rejects.toThrow(/failed to parse JSON/);
+    });
+
+    /**
+     * @case Missing file throws error
+     * @preconditions File does not exist
+     * @expectedResult Error thrown with "file not found" message
+     */
+    test("missing file throws error", async () => {
+      const nonExistentPath = path.join(tempDir, "nonexistent.json");
+
+      const destSpy = vi.fn();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("json-source-missing")
+            .from(json({ path: nonExistentPath }) as unknown as Source<unknown>)
+            .to(destSpy),
+        )
+        .build();
+
+      await expect(t.ctx.start()).rejects.toThrow(/file not found/);
+    });
+  });
+
+  describe("file destination mode", () => {
+    let tempDir: string;
+    let testFilePath: string;
+
+    beforeEach(async () => {
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "json-test-"));
+      testFilePath = path.join(tempDir, "output.json");
+    });
+
+    afterEach(async () => {
+      if (tempDir) {
+        await fs.rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    /**
+     * @case Write object to JSON file
+     * @preconditions Object in exchange body
+     * @expectedResult JSON file created with stringified content
+     */
+    test("writes object to JSON file", async () => {
+      const data = { name: "Bob", age: 25 };
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("json-dest-write")
+            .from(simple(data))
+            .to(json({ path: testFilePath, mode: "write" })),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      const written = await fs.readFile(testFilePath, "utf-8");
+      expect(JSON.parse(written)).toEqual(data);
+    });
+
+    /**
+     * @case Write with formatting (space option)
+     * @preconditions space: 2 option
+     * @expectedResult JSON file has indented formatting
+     */
+    test("writes formatted JSON with space option", async () => {
+      const data = { name: "Charlie", nested: { value: 42 } };
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("json-dest-formatted")
+            .from(simple(data))
+            .to(json({ path: testFilePath, space: 2 })),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      const written = await fs.readFile(testFilePath, "utf-8");
+      expect(written).toBe(JSON.stringify(data, null, 2));
+    });
+
+    /**
+     * @case Write with formatting (indent alias)
+     * @preconditions indent: 2 option
+     * @expectedResult JSON file has indented formatting
+     */
+    test("writes formatted JSON with indent option", async () => {
+      const data = { key: "value" };
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("json-dest-indent")
+            .from(simple(data))
+            .to(json({ path: testFilePath, indent: 2 })),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      const written = await fs.readFile(testFilePath, "utf-8");
+      expect(written).toBe(JSON.stringify(data, null, 2));
+    });
+
+    /**
+     * @case Create parent directories automatically
+     * @preconditions createDirs: true, nested path
+     * @expectedResult Parent directories created, file written
+     */
+    test("creates parent directories when createDirs is true", async () => {
+      const nestedPath = path.join(tempDir, "nested", "dir", "output.json");
+      const data = { created: true };
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("json-dest-mkdir")
+            .from(simple(data))
+            .to(json({ path: nestedPath, createDirs: true })),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      const written = await fs.readFile(nestedPath, "utf-8");
+      expect(JSON.parse(written)).toEqual(data);
+    });
+
+    /**
+     * @case Dynamic path using exchange data
+     * @preconditions path is function using exchange.body
+     * @expectedResult File written to dynamic path
+     */
+    test("supports dynamic paths", async () => {
+      const data = { id: "user-123", name: "Dynamic" };
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("json-dest-dynamic")
+            .from(simple(data))
+            .to(
+              json({
+                path: (ex) =>
+                  path.join(tempDir, `${(ex.body as { id: string }).id}.json`),
+              }),
+            ),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      const dynamicPath = path.join(tempDir, "user-123.json");
+      const written = await fs.readFile(dynamicPath, "utf-8");
+      expect(JSON.parse(written)).toEqual(data);
+    });
+  });
+
+  describe("mode detection", () => {
+    /**
+     * @case Transformer mode when only path is dot-notation
+     * @preconditions path is string without file indicators, no file options
+     * @expectedResult Uses transformer mode (dot-notation extraction)
+     */
+    test("uses transformer mode for dot-notation path without file options", async () => {
+      const destSpy = vi.fn();
+      const payload = { data: { items: [{ id: 1 }] } };
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("json-mode-transformer")
+            .from(simple(JSON.stringify(payload)))
+            .transform(json({ path: "data.items" }))
+            .to(destSpy),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(destSpy.mock.calls[0][0].body).toEqual([{ id: 1 }]);
+    });
+
+    /**
+     * @case File mode when path is function
+     * @preconditions path is function
+     * @expectedResult Uses file mode
+     */
+    test("uses file mode when path is function", () => {
+      const adapter = json({
+        path: (ex) => `/tmp/${(ex.body as { id: string }).id}.json`,
+      });
+      expect(adapter).toHaveProperty(
+        "adapterId",
+        "routecraft.adapter.json.file",
+      );
+    });
+
+    /**
+     * @case File mode when watch option present
+     * @preconditions watch: true with path
+     * @expectedResult Uses file mode
+     */
+    test("uses file mode when watch option present", () => {
+      const adapter = json({ path: "./data.json", watch: true });
+      expect(adapter).toHaveProperty(
+        "adapterId",
+        "routecraft.adapter.json.file",
+      );
+    });
+
+    /**
+     * @case File mode when mode option present
+     * @preconditions mode: 'write' with path
+     * @expectedResult Uses file mode
+     */
+    test("uses file mode when mode option present", () => {
+      const adapter = json({ path: "./data.json", mode: "write" });
+      expect(adapter).toHaveProperty(
+        "adapterId",
+        "routecraft.adapter.json.file",
+      );
     });
   });
 });
