@@ -77,12 +77,12 @@ run(`npm install ${installPaths}`, { cwd: smokeDir });
 run("npx craft --version", { cwd: smokeDir });
 
 // 4. Copy example route and run
-const examplePath = join(rootDir, "examples", "hello-world.mjs");
+const examplePath = join(rootDir, "examples", "dist", "hello-world.js");
 if (!existsSync(examplePath)) {
   console.error(`Example not found: ${examplePath}`);
   process.exit(1);
 }
-cpSync(examplePath, join(smokeDir, "hello-world.mjs"));
-run("npx craft run --log-level debug hello-world.mjs", { cwd: smokeDir });
+cpSync(examplePath, join(smokeDir, "dist", "hello-world.js"));
+run("npx craft run --log-level debug dist/hello-world.js", { cwd: smokeDir });
 
 console.log("\nSmoke test passed.");
