@@ -589,8 +589,8 @@ Enrich the exchange with additional data from a destination adapter. Uses the sa
   permissions: await getUserPermissions(exchange.body.userId)
 }))
 
-// Enrich using fetch adapter
-.enrich(fetch({ 
+// Enrich using http adapter
+.enrich(http({ 
   url: (ex) => `https://api.example.com/users/${ex.body.userId}` 
 }))
 
@@ -603,7 +603,7 @@ Enrich the exchange with additional data from a destination adapter. Uses the sa
 ```ts
 // Store result under specific key
 .enrich(
-  fetch({ url: 'https://api.example.com/profile' }),
+  http({ url: 'https://api.example.com/profile' }),
   (original, result) => ({
     ...original,
     body: { ...original.body, profileData: result.body }
@@ -612,13 +612,18 @@ Enrich the exchange with additional data from a destination adapter. Uses the sa
 
 // Only extract specific fields
 .enrich(
-  fetch({ url: 'https://api.example.com/user' }),
+  http({ url: 'https://api.example.com/user' }),
   (original, result) => ({
     ...original,
     body: { ...original.body, userName: result.body.name }
   })
 )
+
+// Use only(getValue, into?) to merge a single extracted value without writing a custom aggregator
+.enrich(http({ url: 'https://api.example.com/user' }), only((r) => r.body?.name, "userName"))
 ```
+
+**`only(getValue, into?)`** — Returns an aggregator that merges one value from the enrichment result. Omit `into` to spread a plain object onto the body, or use fallbacks: string → `body.text`, array → `body.array`. Provide `into` to set `body[into]`. Values that are `null` or `undefined` are never merged (exchange unchanged).
 
 **Key difference from `.to()`:**
 
@@ -786,31 +791,38 @@ Route exchanges to different processing paths based on conditions. Like a switch
 ### split
 
 ```ts
-split<Item = Current extends Array<infer U> ? U : never>(fn?: (body: Current) => Item[]): RouteBuilder<Item>
+split<Item = Current extends Array<infer U> ? U : never>(
+  fn?: Splitter<Current, Item> | (exchange: Exchange<Current>) => Exchange<Item>[]
+): RouteBuilder<Item>
 ```
 
-Split arrays into individual items. Each item becomes a separate exchange with a new UUID and copied headers from the original exchange.
+Fan-out into multiple exchanges. Use `.split(adapter | (exchange) => Exchange[])` so splitters can be exchange-aware. Each returned exchange is processed independently.
 
-The split function receives the message body and returns an array of items. The framework automatically creates exchanges for each item.
+If no splitter is provided, array bodies are split into one exchange per element; non-array bodies become a single exchange. The framework maintains `routecraft.split_hierarchy` headers for aggregation.
 
 ```ts
 // Split array automatically
 .split() // [1, 2, 3] becomes three exchanges: 1, 2, 3
 
-// Extract nested array
-.split((body) => body.items)
+// Exchange-aware: extract nested array and return exchanges
+.split((exchange) =>
+  exchange.body.items.map((body) =>
+    new DefaultExchange(getExchangeContext(exchange)!, { body, headers: exchange.headers })
+  )
+)
 
-// Split string by delimiter
-.split((body) => body.split(","))
-
-// Transform items during split
-.split((body) => body.users.map(u => u.id))
+// Split string by delimiter (return exchanges)
+.split((exchange) =>
+  exchange.body.split(",").map((body) =>
+    new DefaultExchange(getExchangeContext(exchange)!, { body, headers: exchange.headers })
+  )
+)
 ```
 
 **Key behaviors:**
-- Each split item gets a new exchange with a unique UUID
-- Headers from the original exchange are copied to all split exchanges
-- Split hierarchy is tracked automatically for aggregation
+- Splitter receives the full exchange and returns an array of exchanges
+- Framework overlays `routecraft.split_hierarchy` and assigns new ids
+- Each split exchange is processed independently; aggregate to combine results
 
 ### aggregate
 
@@ -989,8 +1001,8 @@ Send the exchange to a destination. If the destination returns `undefined`, the 
 When a destination returns a value (not `undefined`), the exchange body is **replaced** with that value.
 
 ```ts
-// Fetch returns FetchResult - body becomes FetchResult
-.to(fetch({ url: 'https://api.example.com/transform' }))
+// http returns HttpResult - body becomes HttpResult
+.to(http({ url: 'https://api.example.com/transform' }))
 
 // Custom adapter returns ID - body becomes the ID
 .to(saveToDBReturnID)
@@ -1012,8 +1024,8 @@ When a destination returns a value (not `undefined`), the exchange body is **rep
 
 // Mix side-effects and transformations
 .to(saveToDB) // Returns void, body unchanged
-.to(fetch({ url: 'https://api.example.com/enrich' })) // Body becomes FetchResult
-.to(log()) // Logs the FetchResult
+.to(http({ url: 'https://api.example.com/enrich' })) // Body becomes HttpResult
+.to(log()) // Logs the HttpResult
 ```
 
 **Note:** Unlike `.enrich()`, `.to()` does not merge results. If the destination returns a value, it completely replaces the body.

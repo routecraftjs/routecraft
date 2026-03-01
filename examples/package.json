@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build": "tsup",
     "test": "vitest",
     "test:coverage": "vitest --coverage"
   },
@@ -13,7 +14,9 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "tsup": "^8.5.1",
     "@routecraft/cli": "workspace:^0.3.0",
+    "@routecraft/testing": "workspace:^0.3.0",
     "tsx": "^4.21.0",
     "vitest": "^4.0.18"
   }

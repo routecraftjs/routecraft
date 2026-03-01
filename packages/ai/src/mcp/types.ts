@@ -5,12 +5,19 @@ import type {
 } from "@routecraft/routecraft";
 
 /** Store key set by mcpPlugin() when applied; routes using .from(mcp(...)) require it. */
-export const MCP_PLUGIN_REGISTERED =
-  "routecraft.mcp.plugin.registered" as const;
+export const MCP_PLUGIN_REGISTERED = Symbol.for(
+  "routecraft.mcp.plugin.registered",
+);
+
+/** Store key for named remote MCP servers (mcpPlugin({ clients })). Used by McpClient to resolve serverId. */
+export const ADAPTER_MCP_CLIENT_SERVERS = Symbol.for(
+  "routecraft.mcp.client.servers",
+);
 
 declare module "@routecraft/routecraft" {
   interface StoreRegistry {
     [MCP_PLUGIN_REGISTERED]: boolean;
+    [ADAPTER_MCP_CLIENT_SERVERS]: Map<string, McpClientHttpConfig | string>;
   }
 }
 
@@ -69,9 +76,6 @@ export interface McpPluginOptions {
   clients?: Record<string, McpClientHttpConfig>;
 }
 
-/** @internal Used by MCPServer implementation; same shape as McpPluginOptions. */
-export type MCPServerOptions = McpPluginOptions;
-
 /**
  * Options for mcp() when used as a server in .from().
  * Description is required for AI/MCP discoverability.
@@ -92,10 +96,14 @@ export type McpArgsExtractor = (
 
 /**
  * Options for mcp() when used as a Client in .to() to call a remote MCP server.
- * Provide either url (direct) or serverId (from plugin clients); tool is required.
+ * Provide either url (inline HTTP) or serverId (from plugin/store); tool is required.
+ *
+ * **Stdio is not supported in routes.** Only HTTP is allowed: use `url` for an inline
+ * HTTP endpoint or `serverId` for a named backend from mcpPlugin({ clients }) or
+ * context store. Stdio MCP clients are managed by the plugin lifecycle only.
  */
 export interface McpClientOptions {
-  /** URL of the remote MCP server. Omit when using serverId (from mcpPlugin clients). */
+  /** URL of the remote MCP server (HTTP/HTTPS only). Omit when using serverId. */
   url?: string;
   /** Tool name to invoke. If omitted, exchange body may specify it or a default applies. */
   tool?: string;
@@ -111,7 +119,7 @@ export interface McpClientOptions {
 /**
  * Represents a tool exposed via MCP
  */
-export interface MCPTool {
+export interface McpTool {
   name: string;
   description?: string;
   inputSchema: {
@@ -125,7 +133,7 @@ export interface MCPTool {
 /**
  * MCP tool call result
  */
-export interface MCPToolResult {
+export interface McpToolResult {
   content: Array<{
     type: "text" | "image" | "resource";
     text?: string;

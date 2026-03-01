@@ -1,26 +1,29 @@
-import { type Adapter, type Step } from "../types.ts";
+import { type Adapter, type Step, getAdapterLabel } from "../types.ts";
 import { type Exchange, OperationType } from "../exchange.ts";
-import { error as rcError } from "../error.ts";
+import { rcError } from "../error.ts";
 
 /**
- * Function that evaluates a predicate against the entire Exchange.
- * Returns true to keep the exchange, false to filter it out.
- * Can evaluate headers, body, and other exchange properties.
+ * Predicate over the full exchange. Return true to keep the exchange, false to drop it.
+ * Use with `.filter(predicate)`. Can inspect headers, body, and other exchange fields.
+ *
+ * @template T - Body type of the exchange
  */
 export type CallableFilter<T = unknown> = (
   exchange: Exchange<T>,
 ) => Promise<boolean> | boolean;
 
+/**
+ * Filter adapter: keeps or drops the exchange based on a predicate. Used with `.filter()`.
+ *
+ * @template T - Body type
+ */
 export interface Filter<T = unknown> extends Adapter {
   filter: CallableFilter<T>;
 }
 
 /**
- * Filter: evaluate predicate against the entire Exchange.
- * - Receives full Exchange (allows filtering on headers, body, and other properties)
- * - Returns true to continue, false to reject the exchange
- * - Use when you need to filter based on headers or other exchange metadata
- * - For body-only transformations, use `.transform` instead
+ * Step that runs a predicate on the exchange. If the predicate returns false, the exchange is dropped (no further steps).
+ * If it throws, the error is wrapped as RC5001.
  */
 export class FilterStep<T = unknown> implements Step<Filter<T>> {
   operation: OperationType = OperationType.FILTER;
@@ -36,17 +39,23 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
     remainingSteps: Step<Adapter>[],
     queue: { exchange: Exchange<T>; steps: Step<Adapter>[] }[],
   ): Promise<void> {
+    const adapterLabel = getAdapterLabel(this.adapter);
     try {
       const result = await Promise.resolve(this.adapter.filter(exchange));
       if (!result) {
-        exchange.logger.debug(`Filter rejected exchange ${exchange.id}`);
+        exchange.logger.debug(
+          {
+            operation: "filter",
+            ...(adapterLabel ? { adapter: adapterLabel } : {}),
+          },
+          "Filter rejected exchange",
+        );
         return;
       }
     } catch (error: unknown) {
-      const err = rcError("RC5008", error, {
-        message: `Error filtering exchange ${exchange.id}`,
+      throw rcError("RC5001", error, {
+        message: "Filter predicate threw",
       });
-      exchange.logger.warn(err, `Error filtering exchange ${exchange.id}`);
     }
     queue.push({ exchange, steps: remainingSteps });
   }

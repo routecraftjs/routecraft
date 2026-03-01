@@ -9,7 +9,7 @@ This example uses the `csv()` adapter which is planned for a future release. It 
 {% /callout %}
 
 ```ts
-import { craft, csv, fetch } from '@routecraft/routecraft'
+import { craft, csv, http } from '@routecraft/routecraft'
 
 export default craft()
   .id('file-to-http')
@@ -19,7 +19,7 @@ export default craft()
     name: row.first_name + ' ' + row.last_name,
     email: row.email
   }))
-  .to(fetch({
+  .to(http({
     url: 'https://api.example.com/users',
     method: 'POST'
   }))

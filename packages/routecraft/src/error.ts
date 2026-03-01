@@ -1,4 +1,4 @@
-import { BRAND } from "./brand.ts";
+import { BRAND, setBrand } from "./brand.ts";
 
 export type RCCode =
   | "RC1001"
@@ -11,14 +11,12 @@ export type RCCode =
   | "RC5002"
   | "RC5003"
   | "RC5004"
-  | "RC5005"
-  | "RC5006"
-  | "RC5007"
-  | "RC5008"
-  | "RC5009"
   | "RC5010"
   | "RC5011"
   | "RC5012"
+  | "RC5013"
+  | "RC5014"
+  | "RC5015"
   | "RC9901";
 
 export type RCMeta = {
@@ -81,89 +79,77 @@ export const RC: Record<RCCode, RCMeta> = {
   },
   RC5001: {
     category: "Adapter",
-    message: "Source adapter threw",
-    suggestion: "Verify connectivity and adapter options",
+    message: "Step execution failed",
+    suggestion:
+      "Read the error message and suggestion; check adapter documentation",
     docs: `${DOCS_BASE}#rc-5001`,
-    retryable: true, // Often transient (network, service unavailable)
+    retryable: true, // Per instance; adapter may override
   },
   RC5002: {
     category: "Adapter",
-    message: "Processing step threw",
-    suggestion: "Add guards to transforms and processors",
+    message: "Validation failed",
+    suggestion: "Adjust the schema or coerce input; check data shapes",
     docs: `${DOCS_BASE}#rc-5002`,
-    retryable: true, // Could be transient depending on processor
+    retryable: false,
   },
   RC5003: {
     category: "Adapter",
-    message: "Destination adapter threw",
-    suggestion: "Verify destination connectivity and options",
+    message: "Adapter misconfigured",
+    suggestion:
+      "Check required options and correct role usage (.from() vs .to())",
     docs: `${DOCS_BASE}#rc-5003`,
-    retryable: true, // Often transient (network, service unavailable)
+    retryable: false,
   },
   RC5004: {
     category: "Adapter",
-    message: "Split operation failed",
-    suggestion: "Ensure the input is iterable and guarded",
+    message: "No handler available",
+    suggestion:
+      "Ensure the consumer route is running before sending. Check route startup order.",
     docs: `${DOCS_BASE}#rc-5004`,
-    retryable: false, // Logic error - same input will fail again
-  },
-  RC5005: {
-    category: "Adapter",
-    message: "Aggregation operation failed",
-    suggestion: "Validate partial shapes and defaults",
-    docs: `${DOCS_BASE}#rc-5005`,
-    retryable: false, // Logic error - same input will fail again
-  },
-  RC5006: {
-    category: "Adapter",
-    message: "Transform function threw",
-    suggestion: "Narrow input types and add guards",
-    docs: `${DOCS_BASE}#rc-5006`,
-    retryable: false, // Logic error - same input will fail again
-  },
-  RC5007: {
-    category: "Adapter",
-    message: "Tap step threw",
-    suggestion: "Keep tap side effects resilient",
-    docs: `${DOCS_BASE}#rc-5007`,
-    retryable: true, // Taps often call external services
-  },
-  RC5008: {
-    category: "Adapter",
-    message: "Filter predicate threw",
-    suggestion: "Guard against missing properties and unexpected shapes",
-    docs: `${DOCS_BASE}#rc-5008`,
-    retryable: false, // Logic error - same input will fail again
-  },
-  RC5009: {
-    category: "Adapter",
-    message: "Validation failed",
-    suggestion: "Adjust the schema or coerce input",
-    docs: `${DOCS_BASE}#rc-5009`,
-    retryable: false, // Bad input - won't change on retry
+    retryable: false,
   },
   RC5010: {
     category: "Adapter",
-    message: "Dynamic endpoints cannot be used as source",
+    message: "Connection failed",
     suggestion:
-      'Direct adapter with function endpoint can only be used with .to() or .tap(), not .from(). Use .from(direct("endpoint", {})) for source.',
+      "Check network, DNS, ports, and firewall; verify service is running",
     docs: `${DOCS_BASE}#rc-5010`,
-    retryable: false, // Config error - won't change on retry
+    retryable: true,
   },
   RC5011: {
     category: "Adapter",
-    message: "Direct route schema validation failed",
-    suggestion:
-      "Check that message body and headers match the schema. For Zod 4: z.object() strips extras, z.looseObject() keeps them, z.strictObject() rejects them.",
+    message: "Request timeout",
+    suggestion: "Increase timeout or configure retry with backoff",
     docs: `${DOCS_BASE}#rc-5011`,
-    retryable: false, // Bad input - same data will fail again
+    retryable: true,
   },
   RC5012: {
     category: "Adapter",
-    message: "No handler subscribed on direct endpoint",
-    suggestion:
-      "The direct/mcp route may have stopped or was never started. Ensure the consumer route is running before sending.",
+    message: "Authentication failed",
+    suggestion: "Verify API keys, tokens, and credential configuration",
     docs: `${DOCS_BASE}#rc-5012`,
+    retryable: false,
+  },
+  RC5013: {
+    category: "Adapter",
+    message: "Rate limited",
+    suggestion: "Reduce request frequency or configure retry with backoff",
+    docs: `${DOCS_BASE}#rc-5013`,
+    retryable: true,
+  },
+  RC5014: {
+    category: "Adapter",
+    message: "Resource not found",
+    suggestion:
+      "Check that the resource exists (model ID, endpoint, queue name)",
+    docs: `${DOCS_BASE}#rc-5014`,
+    retryable: false,
+  },
+  RC5015: {
+    category: "Adapter",
+    message: "Permission denied",
+    suggestion: "Check access control, IAM, and scopes",
+    docs: `${DOCS_BASE}#rc-5015`,
     retryable: false,
   },
   RC9901: {
@@ -189,7 +175,7 @@ export class RouteCraftError extends Error {
     super(meta.message, { cause });
     this.name = "RouteCraftError";
     this.retryable = meta.retryable;
-    (this as unknown as Record<symbol, boolean>)[BRAND.RouteCraftError] = true;
+    setBrand(this, BRAND.RouteCraftError);
   }
 
   override toString(): string {
@@ -207,6 +193,32 @@ export class RouteCraftError extends Error {
     return result;
   }
 
+  /**
+   * Used by pino and other serializers so log output includes rc, message, suggestion, docs, causeMessage, causeStack as searchable fields.
+   */
+  toJSON(): Record<string, unknown> {
+    const causeMessage =
+      this.cause instanceof Error
+        ? this.cause.message
+        : this.cause !== undefined
+          ? String(this.cause)
+          : undefined;
+    const causeStack =
+      this.cause instanceof Error ? this.cause.stack : undefined;
+    return {
+      type: "RouteCraftError",
+      name: this.name,
+      rc: this.rc,
+      message: this.meta.message,
+      suggestion: this.meta.suggestion,
+      docs: this.meta.docs,
+      causeMessage,
+      causeStack,
+      retryable: this.retryable,
+      stack: this.stack,
+    };
+  }
+
   static parse(cause: unknown): { message: string; error: Error } {
     return cause instanceof Error
       ? { message: cause.message, error: cause }
@@ -214,7 +226,20 @@ export class RouteCraftError extends Error {
   }
 }
 
-export function error(
+/**
+ * Creates a RouteCraftError with the given code and optional cause/overrides.
+ *
+ * @param rc - Error code from the RC registry (e.g. "RC5001", "RC1002")
+ * @param cause - Optional underlying error (stored as cause, message can be overridden)
+ * @param overrides - Optional overrides for message, suggestion, or docs
+ * @returns A RouteCraftError instance (branded, with retryable from RC meta)
+ *
+ * @example
+ * ```typescript
+ * throw rcError("RC5002", new Error("Invalid payload"), { message: "Validation failed" });
+ * ```
+ */
+export function rcError(
   rc: RCCode,
   cause?: unknown,
   overrides?: Partial<Pick<RCMeta, "message" | "suggestion" | "docs">>,
@@ -228,3 +253,6 @@ export function error(
   const parsed = cause ? RouteCraftError.parse(cause).error : undefined;
   return new RouteCraftError(rc, meta, parsed);
 }
+
+/** @deprecated Use rcError. Kept for API compatibility. */
+export const error = rcError;

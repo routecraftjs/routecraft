@@ -1,3 +1,4 @@
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   direct,
   type CraftContext,
@@ -5,27 +6,34 @@ import {
   type ExchangeHeaders,
   type Source,
 } from "@routecraft/routecraft";
-import { BRAND } from "../brand.ts";
 import type { McpServerOptions } from "./types.ts";
 import { MCP_PLUGIN_REGISTERED } from "./types.ts";
 
+/** Message type derived from schema S when present; otherwise unknown. */
+type McpServerMessage<S extends StandardSchemaV1 | undefined> =
+  S extends StandardSchemaV1 ? StandardSchemaV1.InferOutput<S> : unknown;
+
 /**
- * Source adapter for .from(mcp(endpoint, options)).
- * Delegates to direct() but requires the MCP plugin to be registered; fails at subscribe (route start) if not.
+ * Internal server: .from(mcp(endpoint, options)). Delegates to direct(); requires MCP plugin.
+ * Exported only for use by McpAdapter; not re-exported from package.
+ * Generic S is the options schema type; T is derived so the handler matches direct() without cast.
  */
-export class McpSourceAdapter<T = unknown> implements Source<T> {
+export class McpServer<
+  S extends StandardSchemaV1 | undefined = undefined,
+> implements Source<McpServerMessage<S>> {
   readonly adapterId = "routecraft.adapter.mcp.source";
 
   constructor(
     private readonly endpoint: string,
-    private readonly options: McpServerOptions,
-  ) {
-    (this as unknown as Record<symbol, boolean>)[BRAND.McpSourceAdapter] = true;
-  }
+    private readonly options: McpServerOptions & { schema?: S },
+  ) {}
 
   async subscribe(
     context: CraftContext,
-    handler: (message: T, headers?: ExchangeHeaders) => Promise<Exchange>,
+    handler: (
+      message: McpServerMessage<S>,
+      headers?: ExchangeHeaders,
+    ) => Promise<Exchange>,
     abortController: AbortController,
     onReady?: () => void,
   ): Promise<void> {
@@ -37,7 +45,7 @@ export class McpSourceAdapter<T = unknown> implements Source<T> {
         "MCP plugin required: routes using .from(mcp(...)) require the MCP plugin. Add mcpPlugin() to your config: plugins: [mcpPlugin()].",
       );
     }
-    const directAdapter = direct<T>(this.endpoint, this.options);
+    const directAdapter = direct(this.endpoint, this.options);
     return directAdapter.subscribe(context, handler, abortController, onReady);
   }
 }

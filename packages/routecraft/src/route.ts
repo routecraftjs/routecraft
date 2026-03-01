@@ -8,14 +8,15 @@ import {
   DefaultExchange,
   EXCHANGE_INTERNALS,
 } from "./exchange.ts";
-import { BRAND, INTERNALS_KEY } from "./brand.ts";
-import { error as rcError, RouteCraftError, RC } from "./error.ts";
+import { BRAND, INTERNALS_KEY, setBrand } from "./brand.ts";
+import { rcError, RouteCraftError, RC } from "./error.ts";
 import { isRouteCraftError } from "./brand.ts";
 import { logger, childBindings } from "./logger.ts";
 import { type Source } from "./operations/from.ts";
 import {
   type Adapter,
   type Step,
+  getAdapterLabel,
   type Consumer,
   type ConsumerType,
   type Message,
@@ -24,12 +25,23 @@ import {
 import { InMemoryProcessingQueue } from "./queue.ts";
 
 /**
- * Defines the configuration for a route including its source, steps, and consumer.
+ * Configuration for a route: source, steps, and consumer.
  *
- * A route definition describes how data flows from a source through processing steps
- * to one or more destinations.
+ * Describes how data flows from a source through processing steps to destinations.
+ * The builder preserves body type `T`; at runtime the runnable Route uses `Exchange`
+ * and handlers/events receive `Exchange<unknown>` unless you narrow or use `Route<T>`.
  *
- * @template T The type of data produced by the source
+ * @template T - Body type produced by the source (flowing through the chain until type-erased at runtime)
+ *
+ * @example
+ * ```typescript
+ * const def: RouteDefinition<string> = {
+ *   id: 'my-route',
+ *   source: simple('hello'),
+ *   steps: [...],
+ *   consumer: { type: SimpleConsumer, options: undefined }
+ * };
+ * ```
  */
 export type RouteDefinition<T = unknown> = {
   /** Unique identifier for the route */
@@ -55,14 +67,18 @@ export type RouteDefinition<T = unknown> = {
  * Represents a runnable route that processes data.
  *
  * Routes handle the flow of data from a source through processing steps
- * and can be started and stopped.
+ * and can be started and stopped. Use Route<T> when you know the route's
+ * body type (e.g. from a typed definition); at runtime, handlers and
+ * events receive Exchange (body: unknown) unless narrowed.
+ *
+ * @template T The body type of the route's exchange when known (default unknown)
  */
-export interface Route {
+export interface Route<T = unknown> {
   /** The context this route belongs to */
   readonly context: CraftContext;
 
   /** The route's configuration */
-  readonly definition: RouteDefinition;
+  readonly definition: RouteDefinition<T>;
 
   /** Signal that indicates when the route has been aborted */
   readonly signal: AbortSignal;
@@ -71,18 +87,19 @@ export interface Route {
   logger: ReturnType<typeof logger.child>;
 
   /**
-   * Start processing data on this route.
-   * @returns A promise that resolves when the route has started
+   * Start processing: subscribe to the source and begin delivering messages through the steps.
+   * @returns Promise that resolves when the source has been subscribed and the consumer is ready
    */
   start(): Promise<void>;
 
   /**
-   * Stop processing data on this route.
+   * Stop the route: abort the source subscription and clear the internal queue.
    */
   stop(): void;
 
   /**
-   * Wait for all in-flight handlers (and their background tasks) to complete.
+   * Wait until all in-flight message handlers and tracked tasks (e.g. tap) have completed.
+   * Does not stop the route; use stop() to abort the source.
    */
   drain(): Promise<void>;
 
@@ -97,8 +114,9 @@ export interface Route {
 /**
  * Default implementation of the Route interface.
  *
- * Handles the lifecycle of a route, managing the message flow from
- * the source through the defined steps.
+ * Manages message flow from the source through the defined steps and the
+ * internal processing queue to the consumer. Handles start, stop, drain, and
+ * background task tracking (e.g. for tap).
  */
 export class DefaultRoute implements Route {
   /** Controls aborting the route's operations */
@@ -128,7 +146,7 @@ export class DefaultRoute implements Route {
     public readonly definition: RouteDefinition,
     abortController?: AbortController,
   ) {
-    (this as unknown as Record<symbol, boolean>)[BRAND.DefaultRoute] = true;
+    setBrand(this, BRAND.DefaultRoute);
     this.assertNotAborted();
     this.abortController = abortController ?? new AbortController();
     this.logger = logger.child(childBindings(this));
@@ -198,8 +216,14 @@ export class DefaultRoute implements Route {
    * @internal
    */
   trackTask(promise: Promise<unknown>): void {
-    // Prevent unhandled rejection - errors are already emitted via context.emit()
-    const handledPromise = promise.catch(() => {});
+    const handledPromise = promise.catch((err: unknown) => {
+      const msg = isRouteCraftError(err)
+        ? (err as { meta: { message: string } }).meta.message
+        : err instanceof Error
+          ? err.message
+          : "Background task failed";
+      this.logger.error({ err, route: this.definition.id }, msg);
+    });
     this.inFlight.add(handledPromise);
     handledPromise.finally(() => this.inFlight.delete(handledPromise));
   }
@@ -216,7 +240,7 @@ export class DefaultRoute implements Route {
    */
   async start(): Promise<void> {
     this.assertNotAborted();
-    this.logger.debug(`Starting route "${this.definition.id}"`);
+    // Lifecycle log is emitted only by context (one log per event).
 
     // Start consuming messages from the internal processing queue
     this.consumer.register((message, headers) => {
@@ -254,7 +278,7 @@ export class DefaultRoute implements Route {
    * 2. Aborts the route's controller
    */
   stop(): void {
-    this.logger.debug(`Stopping route "${this.definition.id}"`);
+    // Lifecycle log is emitted only by context (one log per event).
     this.messageChannel.clear();
     this.abortController.abort("Route stop() called");
   }
@@ -268,9 +292,7 @@ export class DefaultRoute implements Route {
    * @private
    */
   private handler(exchange: Exchange): Promise<Exchange> {
-    exchange.logger.debug(
-      `Processing initial exchange ${exchange.id} on route "${this.definition.id}"`,
-    );
+    exchange.logger.debug({ operation: "from" }, "Processing initial exchange");
 
     // Run steps (tap adds tasks via route.trackTask)
     const handlerPromise = this.runSteps(exchange);
@@ -307,17 +329,26 @@ export class DefaultRoute implements Route {
       // Update operation header for this step
       exchange.headers[HeadersKeys.OPERATION] = step.operation;
 
+      const adapterLabel = getAdapterLabel(step.adapter);
       exchange.logger.debug(
-        `Processing step ${step.operation} on exchange ${exchange.id}`,
+        {
+          operation: step.operation,
+          ...(adapterLabel ? { adapter: adapterLabel } : {}),
+        },
+        "Processing step",
       );
 
       try {
         await step.execute(exchange, remainingSteps, queue);
       } catch (error) {
         const err = this.processError(step.operation, error);
-        exchange.logger.warn(
-          err,
-          `Step ${step.operation} failed for exchange ${exchange.id}`,
+        exchange.logger.error(
+          {
+            operation: step.operation,
+            ...(adapterLabel ? { adapter: adapterLabel } : {}),
+            err,
+          },
+          err.meta.message,
         );
         this.context.emit("error", {
           error: err,
@@ -334,12 +365,15 @@ export class DefaultRoute implements Route {
    * Loops until no new work is added (drains consumer queue).
    */
   async drain(): Promise<void> {
-    this.logger.debug(`Draining route: ${this.inFlight.size} in flight`);
+    this.logger.debug(
+      { inFlight: this.inFlight.size },
+      "Draining route: waiting for in-flight handlers and tasks",
+    );
     while (this.inFlight.size > 0) {
       const current = [...this.inFlight];
       await Promise.allSettled(current);
     }
-    this.logger.debug("Route drained");
+    this.logger.debug({}, "Route drained");
   }
 
   /**
@@ -357,35 +391,22 @@ export class DefaultRoute implements Route {
   }
 
   /**
-   * Create a RouteCraftError from an operation error.
-   * If the error is already a RouteCraftError, preserve it.
+   * Normalize an operation error into a RouteCraftError.
+   * If the error is already a RouteCraftError, it is returned unchanged.
    *
-   * @param operation The operation that caused the error
-   * @param code The error code
-   * @param error The original error
-   * @returns A formatted RouteCraftError
+   * @param _operation - The operation that caused the error (for logging)
+   * @param error - The thrown value (Error or RouteCraftError)
+   * @returns A RouteCraftError (existing or RC5001-wrapped)
    * @private
    */
   private processError(
-    operation: OperationType,
+    _operation: OperationType,
     error: unknown,
   ): RouteCraftError {
-    // If already a RouteCraftError, preserve the original error code (brand check for cross-instance)
     if (isRouteCraftError(error)) {
       return error as RouteCraftError;
     }
-    const rc = "RC5002" as const; // Processing step threw
-    return rcError(rc, error, {
-      message: `${RC[rc].message}: op=${operation} route=${this.definition.id}`,
-    });
+    const msg = error instanceof Error ? error.message : String(error);
+    return rcError("RC5001", error, { message: msg });
   }
-
-  /**
-   * Get the documentation URL for operation error codes.
-   *
-   * @param code The error code
-   * @returns The documentation URL
-   * @private
-   */
-  // Docs URL is sourced from the RC registry; no per-operation mapping required.
 }

@@ -76,13 +76,15 @@ run(`npm install ${installPaths}`, { cwd: smokeDir });
 // 3. npx craft --version
 run("npx craft --version", { cwd: smokeDir });
 
-// 4. Copy example route and run
-const examplePath = join(rootDir, "examples", "hello-world.mjs");
+// 4. Copy built example route (TS → dist/hello-world.js) and run
+const examplePath = join(rootDir, "examples", "dist", "hello-world.js");
 if (!existsSync(examplePath)) {
-  console.error(`Example not found: ${examplePath}`);
+  console.error(`Example not found: ${examplePath} (run pnpm run build first)`);
   process.exit(1);
 }
-cpSync(examplePath, join(smokeDir, "hello-world.mjs"));
-run("npx craft run --log-level debug hello-world.mjs", { cwd: smokeDir });
+const smokeDist = join(smokeDir, "dist");
+mkdirSync(smokeDist, { recursive: true });
+cpSync(examplePath, join(smokeDist, "hello-world.js"));
+run("npx craft run --log-level debug dist/hello-world.js", { cwd: smokeDir });
 
 console.log("\nSmoke test passed.");

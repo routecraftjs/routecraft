@@ -8,6 +8,7 @@ import {
   noop,
   defaultAggregate,
   DefaultExchange,
+  getExchangeContext,
 } from "@routecraft/routecraft";
 import type { Exchange } from "@routecraft/routecraft";
 
@@ -141,11 +142,11 @@ describe("Route Behavior", () => {
 
     await t.ctx.start();
 
-    expect(t.logger.warn).toHaveBeenCalled();
+    expect(t.logger.error).toHaveBeenCalled();
     expect(spyDest).toHaveBeenCalledTimes(0);
-    expect(
-      (t.logger.warn as ReturnType<typeof vi.fn>).mock.calls[0][1],
-    ).toMatch(/Step process failed for exchange/);
+    expect((t.logger.error as ReturnType<typeof vi.fn>).mock.calls[0][1]).toBe(
+      "Processor error",
+    );
   });
 
   /**
@@ -292,10 +293,10 @@ describe("Route Behavior", () => {
     await t.ctx.start();
 
     // Verify error was logged for failed message
-    expect(t.logger.warn).toHaveBeenCalled();
-    expect(
-      (t.logger.warn as ReturnType<typeof vi.fn>).mock.calls[0][1],
-    ).toMatch(/Step process failed for exchange/);
+    expect(t.logger.error).toHaveBeenCalled();
+    expect((t.logger.error as ReturnType<typeof vi.fn>).mock.calls[0][1]).toBe(
+      "Simulated failure",
+    );
 
     // Verify successful messages were processed
     expect(processedCount).toBe(2); // Both success1 and success2 should be processed
@@ -447,9 +448,17 @@ describe("Route Behavior", () => {
         craft()
           .id("split-test")
           .from(simple("hello-world"))
-          .split((body: any) => {
-            // For a string message with '-' delimiter, split into parts.
-            return typeof body === "string" ? body.split("-") : [];
+          .split((exchange) => {
+            const ctx = getExchangeContext(exchange)!;
+            const body = exchange.body;
+            const parts = typeof body === "string" ? body.split("-") : [];
+            return parts.map(
+              (b) =>
+                new DefaultExchange(ctx, {
+                  body: b,
+                  headers: exchange.headers,
+                }),
+            );
           })
           .tap(spyTap)
           .to(spyDest),
@@ -494,10 +503,7 @@ describe("Route Behavior", () => {
         craft()
           .id("empty-split-test")
           .from(simple("unused-message"))
-          .split(() => {
-            // Always return an empty array.
-            return [];
-          })
+          .split(() => [])
           .to(spyDest),
       )
       .build();
@@ -520,9 +526,17 @@ describe("Route Behavior", () => {
         craft()
           .id("correlation-split-test")
           .from(simple("part1,part2"))
-          .split((body: any) => {
-            // Using a comma as a delimiter.
-            return typeof body === "string" ? body.split(",") : [];
+          .split((exchange) => {
+            const ctx = getExchangeContext(exchange)!;
+            const body = exchange.body;
+            const parts = typeof body === "string" ? body.split(",") : [];
+            return parts.map(
+              (b) =>
+                new DefaultExchange(ctx, {
+                  body: b,
+                  headers: exchange.headers,
+                }),
+            );
           })
           .tap(spyTap)
           .to(noop()),
@@ -549,7 +563,16 @@ describe("Route Behavior", () => {
   test("aggregates split exchanges correctly", async () => {
     const spyDest = vi.fn();
     const split = {
-      split: (body) => body.split("-"),
+      split: (exchange) => {
+        const ctx = getExchangeContext(exchange)!;
+        return exchange.body.split("-").map(
+          (b) =>
+            new DefaultExchange(ctx, {
+              body: b,
+              headers: exchange.headers,
+            }),
+        );
+      },
     };
     const splitSpy = vi.spyOn(split, "split");
     const processorSpy = vi.fn((exchange) => exchange);
@@ -724,7 +747,16 @@ describe("Route Behavior", () => {
               await handler("one-two", { "custom.header": "test-value" });
             },
           })
-          .split<string, string>((body) => body.split("-"))
+          .split<string, string>((exchange) => {
+            const ctx = getExchangeContext(exchange)!;
+            return exchange.body.split("-").map(
+              (b) =>
+                new DefaultExchange(ctx, {
+                  body: b,
+                  headers: exchange.headers,
+                }),
+            );
+          })
           .tap(spyTap)
           .to(noop()),
       )
@@ -754,9 +786,19 @@ describe("Route Behavior", () => {
         craft()
           .id("split-process-aggregate")
           .from(simple("1-2-3"))
-          .split<string, number>((body) =>
-            body.split("-").map((part) => parseInt(part)),
-          )
+          .split<string, number>((exchange) => {
+            const ctx = getExchangeContext(exchange)!;
+            return exchange.body
+              .split("-")
+              .map((part) => parseInt(part))
+              .map(
+                (b) =>
+                  new DefaultExchange(ctx, {
+                    body: b,
+                    headers: exchange.headers,
+                  }),
+              );
+          })
           .transform<number>((body) => {
             // Double each number
             return body * 2;
@@ -793,7 +835,16 @@ describe("Route Behavior", () => {
         craft()
           .id("split-error-aggregate")
           .from(simple("success1-error-success2"))
-          .split<string, string>((body) => body.split("-"))
+          .split<string, string>((exchange) => {
+            const ctx = getExchangeContext(exchange)!;
+            return exchange.body.split("-").map(
+              (b) =>
+                new DefaultExchange(ctx, {
+                  body: b,
+                  headers: exchange.headers,
+                }),
+            );
+          })
           .process((exchange) => {
             if (exchange.body === "error") {
               throw new Error("Simulated processing error");
@@ -811,10 +862,10 @@ describe("Route Behavior", () => {
     await t.ctx.start();
 
     // Verify error was logged
-    expect(t.logger.warn).toHaveBeenCalled();
-    expect(
-      (t.logger.warn as ReturnType<typeof vi.fn>).mock.calls[0][1],
-    ).toMatch(/Step process failed for exchange/);
+    expect(t.logger.error).toHaveBeenCalled();
+    expect((t.logger.error as ReturnType<typeof vi.fn>).mock.calls[0][1]).toBe(
+      "Simulated processing error",
+    );
 
     // Verify successful exchanges were aggregated
     expect(spyDest).toHaveBeenCalledTimes(1);
@@ -858,20 +909,38 @@ describe("Route Behavior", () => {
         craft()
           .id("nested-split-test")
           .from(simple("A:1-2|B:3-4"))
-          .split<string, string>((body) =>
-            // First split by |
-            body.split("|"),
-          )
+          .split<string, string>((exchange) => {
+            const ctx = getExchangeContext(exchange)!;
+            return exchange.body.split("|").map(
+              (b) =>
+                new DefaultExchange(ctx, {
+                  body: b,
+                  headers: exchange.headers,
+                }),
+            );
+          })
           .process(processorSpy)
-          .split<string, string>((body) =>
-            // Then split by :
-            body.split(":"),
-          )
+          .split<string, string>((exchange) => {
+            const ctx = getExchangeContext(exchange)!;
+            return exchange.body.split(":").map(
+              (b) =>
+                new DefaultExchange(ctx, {
+                  body: b,
+                  headers: exchange.headers,
+                }),
+            );
+          })
           .process(processorSpy2)
-          .split<string, string>((body) =>
-            // Finally split by -
-            body.split("-"),
-          )
+          .split<string, string>((exchange) => {
+            const ctx = getExchangeContext(exchange)!;
+            return exchange.body.split("-").map(
+              (b) =>
+                new DefaultExchange(ctx, {
+                  body: b,
+                  headers: exchange.headers,
+                }),
+            );
+          })
           .process(processorSpy3)
           .tap(spyTap)
           .aggregate(agg)

@@ -5,9 +5,18 @@ export default [
     running: false,
     modifyEsbuildConfig(config) {
       // Configure esbuild for Node.js environment
-      // This tells esbuild that node:* modules are built-in and shouldn't be resolved
       config.platform = "node";
-      config.external = [...(config.external || []), "node:*"];
+      config.format = "esm"; // so import.meta (e.g. createRequire(import.meta.url)) works
+      config.external = [
+        ...(config.external || []),
+        "node:*",
+        // Peer/optional: not bundled so size limit applies to core only
+        "agent-browser",
+        "pino-pretty",
+        "playwright-core",
+        "playwright",
+        "cheerio",
+      ];
       return config;
     },
   },

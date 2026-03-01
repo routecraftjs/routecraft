@@ -109,10 +109,14 @@ describe("Events API", () => {
       })
       .build();
 
-    await failingStartup.ctx.start();
+    try {
+      await failingStartup.ctx.start();
+    } catch (e) {
+      errors.push(e);
+    }
     await new Promise((r) => setTimeout(r, 0));
 
-    // 2) Route failure via source throwing
+    // 2) Route failure via source throwing (start() rejects with AggregateError)
     const failingRouteT = await testContext()
       .on("error", ({ details: { error } }) => {
         errors.push(error);
@@ -126,10 +130,14 @@ describe("Events API", () => {
       )
       .build();
 
-    await failingRouteT.ctx.start();
+    try {
+      await failingRouteT.ctx.start();
+    } catch {
+      // Rejected with AggregateError; error event already pushed original
+    }
     await new Promise((r) => setTimeout(r, 0));
 
-    // 3) Step failure in process()
+    // 3) Step failure in process() (start() resolves; step fails during run)
     const stepFailT = await testContext()
       .on("error", ({ details }) => {
         errors.push(details.error);

@@ -2,20 +2,31 @@ import { type Adapter, type Step } from "../types.ts";
 import { type Exchange, OperationType } from "../exchange.ts";
 
 /**
- * Transform: body-only pure conversion.
- * - Returns a new body; headers and metadata remain unchanged
- * - Prefer this for simple mapping/scalar conversions
- * - Use `.process` instead if you need to modify headers or other Exchange fields
+ * Function form of a transformer: maps the body to a new value. Headers are unchanged.
+ * Use with `.transform(transformer)`. Prefer over `.process()` when only the body changes.
+ *
+ * @template T - Current body type
+ * @template R - Result body type (default T)
  */
-
 export type CallableTransformer<T = unknown, R = T> = (
   message: T,
 ) => Promise<R> | R;
 
+/**
+ * Transformer adapter: body-only conversion. Used with `.transform()`.
+ * Headers and exchange metadata are preserved. Use `.process()` to change headers or the full exchange.
+ *
+ * @template T - Current body type
+ * @template R - Result body type
+ */
 export interface Transformer<T = unknown, R = T> extends Adapter {
   transform: CallableTransformer<T, R>;
 }
 
+/**
+ * Step that replaces the exchange body with the result of the transformer.
+ * Headers and id are unchanged.
+ */
 export class TransformStep<T = unknown, R = T> implements Step<
   Transformer<T, R>
 > {

@@ -1,0 +1,35 @@
+---
+description: "RouteCraft must be 100% type safe; the body/result type must flow through every operation"
+globs:
+  [
+    "packages/routecraft/src/**/*.ts",
+    "packages/ai/src/**/*.ts",
+    "examples/**/*.ts",
+  ]
+alwaysApply: false
+---
+
+## Type safety policy
+
+RouteCraft must be **100% type safe**. The exchange body (or destination result) type must be **passed by every operation always** — no operation should drop or widen the type to `unknown` unless that is the explicit contract (e.g. a source with no schema).
+
+### What this means
+
+- **Sources** (e.g. `direct`, `mcp`, `simple`): Declare the body type `T` they produce. When a schema is provided, infer `T` from the schema (e.g. `StandardSchemaV1.InferOutput<S>`) so the route is typed from the start.
+- **Destinations** (e.g. `to`, `tap`, `enrich`): Declare the result type `R` they return. When a schema or typed option is provided (e.g. `llm(..., { outputSchema })`), the result type must reflect it (e.g. `LlmResultWithOutput<S>`).
+- **Steps** (transform, process, filter, validate, header, split, aggregate, enrich): Input is `Current`; output type must be explicit. After a step, the route’s `Current` type must be updated so the next step receives the correct type (e.g. after `.transform(fn)` the type becomes the return type of `fn`; after `.enrich(dest, only(..., "links"))` the type becomes `Current & { links: V }`).
+- **Helpers** (e.g. `only`, `json`): Preserve or infer types. `only(getValue, into)` should type `getValue` as `(r: R) => V` and, when `into` is a string literal, allow the builder to infer the enriched body type. `json({ getValue })` should infer the output type from `getValue`’s return type when `to` is omitted.
+- **Runtime:** The builder chain is fully typed. The runnable `Route` and event/consumer handlers receive `Exchange` (body: `unknown`) at runtime; use `Route<T>` when you know the body type, or narrow/assert in handlers. Event payloads use `Exchange<unknown>` for consistency.
+
+### Rules
+
+1. **No unnecessary `unknown`.** Prefer inferring types from schemas, callbacks, or literal options (e.g. `only(..., "key")`) so that `unknown` is only used when there is no type information (e.g. source/destination without schema).
+2. **Generics must flow.** Every public API that accepts or produces a body/result type must use generics (e.g. `Source<T>`, `Destination<T, R>`, `Transformer<T, R>`, `DestinationAggregator<T, R>`) and the builder must propagate `Current` (or the step’s output type) through the chain.
+3. **New operations and adapters:** When adding a new step or adapter, declare input and output types; ensure the route builder’s `Current` is updated after the step so downstream steps stay typed.
+4. **Tests:** Add type-level tests (e.g. `expectTypeOf`) where new type inference or propagation is added, so regressions are caught.
+
+### References
+
+- Schema-based inference: [standard-schema.mdc](.cursor/rules/standard-schema.mdc)
+- Operations and steps: [operations.mdc](.cursor/rules/operations.mdc)
+- Adapters: [adapters.mdc](.cursor/rules/adapters.mdc)

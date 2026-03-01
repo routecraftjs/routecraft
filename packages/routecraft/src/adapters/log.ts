@@ -30,7 +30,12 @@ export class LogAdapter<T = unknown> implements Destination<T, void> {
     const logData = this.formatter
       ? this.formatter(exchange)
       : this.baseExchange(exchange);
-    exchange.logger[this.level](logData, "LogAdapter output");
+    const adapterLabel = this.adapterId.split(".").pop();
+    const bindings =
+      typeof logData === "object" && logData !== null
+        ? { ...logData, adapter: adapterLabel }
+        : { adapter: adapterLabel, value: logData };
+    exchange.logger[this.level](bindings, "LogAdapter output");
     return Promise.resolve();
   }
 
@@ -41,12 +46,19 @@ export class LogAdapter<T = unknown> implements Destination<T, void> {
 }
 
 /**
- * Create a logging adapter that logs messages to the console.
+ * Creates a logging destination that logs each exchange (or a formatted value) via the exchange logger.
  *
- * @template T The type of data this adapter processes
- * @param formatter Optional function that takes an exchange and returns the value to log.
- * @param options Optional configuration object with `level` (defaults to "info").
- * @returns A LogAdapter instance
+ * @template T - Body type of the exchange
+ * @param formatter - Optional function (exchange) => value to log; default logs id, body, headers
+ * @param options - Optional `level` (default "info")
+ * @returns A Destination usable with `.to(log())` or `.tap(log())`
+ *
+ * @example
+ * ```typescript
+ * .to(log())
+ * .to(log((ex) => ({ id: ex.id, body: ex.body })))
+ * .to(log(undefined, { level: 'debug' }))
+ * ```
  */
 export function log<T = unknown>(
   formatter?: (exchange: Exchange<T>) => unknown,
@@ -56,12 +68,12 @@ export function log<T = unknown>(
 }
 
 /**
- * Create a logging adapter that logs at DEBUG level.
+ * Same as `log()` but with level fixed to `"debug"`. Useful for verbose pipelines.
  *
- * @template T The type of data this adapter processes
- * @param formatter Optional function that takes an exchange and returns the value to log
- * @param options Optional configuration (level is fixed to "debug")
- * @returns A LogAdapter instance
+ * @template T - Body type of the exchange
+ * @param formatter - Optional (exchange) => value to log
+ * @param options - Optional config (level is always "debug")
+ * @returns A Destination that logs at debug level
  */
 export function debug<T = unknown>(
   formatter?: (exchange: Exchange<T>) => unknown,

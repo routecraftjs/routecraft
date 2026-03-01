@@ -17,7 +17,6 @@ alwaysApply: false
 
 - Service-specific verbs in the public DSL
   - Bad: `api.get("/users").map(...).to(db())`
-  - Better: `craft().from([ { id }, api({ method: "GET", path: "/users" })]).map(...).to(db())`
 - Overloaded adapter constructors that hide behavior
   - Bad: `Api("/users")` implying GET by default
   - Better: `api({ method: "GET", path: "/users" })`
@@ -33,7 +32,6 @@ alwaysApply: false
 
 ### Route authoring checklist
 
-- Set a stable `id` in the first `.from([{ id }, source ])` call.
 - Keep a clear, single responsibility.
 - Use `.to` for side effects/output destinations; use `.enrich` for merging external data into the body.
 
@@ -45,12 +43,12 @@ alwaysApply: false
   - Lint: `pnpm lint`
   - Typecheck: `pnpm typecheck`
 - Run example routes:
-  - `pnpm craft run ./examples/hello-world.mjs`
+  - `pnpm craft run ./examples//dist/hello-world.js`
   - `pnpm craft run ./examples --exclude "*.test.ts"`
 
 ### Examples (references)
 
-- Hello World: @examples/hello-world.mjs
+- Hello World: @examples//dist/hello-world.js
 - Enrich: @examples/enrich-example.mjs
 
 ### Documentation pointers

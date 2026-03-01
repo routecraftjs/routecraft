@@ -47,10 +47,16 @@ export interface TimerOptions {
 }
 
 /**
- * Create a timer adapter that produces messages at regular intervals.
+ * Creates a source that emits at a fixed interval (or at exact times). Body is undefined; timer metadata is in exchange headers (routecraft.timer.*).
  *
- * @param options Configuration for the timer
- * @returns A TimerAdapter instance
+ * @param options - intervalMs, delayMs, repeatCount, fixedRate, exactTime, timePattern, jitterMs
+ * @returns A Source usable with `.from(timer(options))`
+ *
+ * @example
+ * ```typescript
+ * .from(timer({ intervalMs: 5000, repeatCount: 10 }))
+ * .from(timer({ exactTime: '09:00:00' }))
+ * ```
  */
 export function timer(options?: TimerOptions): TimerAdapter {
   return new TimerAdapter(options);
@@ -167,7 +173,17 @@ export class TimerAdapter implements Source<undefined> {
           try {
             await handler(undefined, headers);
           } catch (error) {
-            _context.logger.error(error as Error, "Timer handler failed");
+            const msg =
+              error &&
+              typeof error === "object" &&
+              "meta" in error &&
+              typeof (error as { meta: { message?: string } }).meta?.message ===
+                "string"
+                ? (error as { meta: { message: string } }).meta.message
+                : error instanceof Error
+                  ? error.message
+                  : "Timer handler failed";
+            _context.logger.error({ adapter: "timer", err: error }, msg);
             abortController.abort();
             break;
           }

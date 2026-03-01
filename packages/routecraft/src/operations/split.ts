@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { type Adapter, type Step } from "../types.ts";
+import { type Adapter, type Step, getAdapterLabel } from "../types.ts";
 import { INTERNALS_KEY } from "../brand.ts";
 import {
   type Exchange,
@@ -12,14 +12,34 @@ import {
 } from "../exchange.ts";
 import type { Route } from "../route.ts";
 
+/**
+ * Function form of a splitter: takes the current exchange and returns an array of exchanges.
+ * Use with `.split(splitter)` or no-arg `.split()` for arrays. The framework overlays
+ * `routecraft.split_hierarchy` and assigns new ids for aggregation.
+ *
+ * @template T - Current body type
+ * @template R - Body type of each returned exchange
+ */
 export type CallableSplitter<T = unknown, R = unknown> = (
-  body: T,
-) => Promise<R[]> | R[];
+  exchange: Exchange<T>,
+) => Promise<Exchange<R>[]> | Exchange<R>[];
 
+/**
+ * Splitter adapter: turns one body into many; each item is processed as a separate exchange.
+ * Used with `.split()`. Default (no adapter): array bodies are split into elements; non-arrays become one item.
+ *
+ * @template T - Current body type
+ * @template R - Item type
+ */
 export interface Splitter<T = unknown, R = unknown> extends Adapter {
   split: CallableSplitter<T, R>;
 }
 
+/**
+ * Step that splits the exchange into multiple exchanges (e.g. one per array element).
+ * Each new exchange gets a new id and shared split hierarchy for aggregation.
+ * Framework maintains `routecraft.split_hierarchy` headers for aggregation.
+ */
 export class SplitStep<T = unknown, R = unknown> implements Step<
   Splitter<T, R>
 > {
@@ -35,9 +55,7 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
     remainingSteps: Step<Adapter>[],
     queue: { exchange: Exchange<R>; steps: Step<Adapter>[] }[],
   ): Promise<void> {
-    const splitBodies = await Promise.resolve(
-      this.adapter.split(exchange.body),
-    );
+    const splitExchanges = await Promise.resolve(this.adapter.split(exchange));
     const groupId = randomUUID();
 
     const context = getExchangeContext(exchange);
@@ -51,12 +69,12 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
       (exchange.headers[HeadersKeys.SPLIT_HIERARCHY] as string[]) || [];
     const splitHierarchy = [...existingHierarchy, groupId];
 
-    splitBodies.forEach((body) => {
+    for (const resultExchange of splitExchanges) {
       const postProcessedExchange = new DefaultExchange<R>(context, {
         id: randomUUID(),
-        body,
+        body: resultExchange.body,
         headers: {
-          ...exchange.headers,
+          ...resultExchange.headers,
           [HeadersKeys.SPLIT_HIERARCHY]: splitHierarchy,
         },
       });
@@ -74,13 +92,20 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
         }
       }
 
+      const adapterLabel = getAdapterLabel(this.adapter);
       postProcessedExchange.logger.debug(
-        `Pushing split exchange ${postProcessedExchange.id} to queue, splitHierarchy: ${postProcessedExchange.headers[HeadersKeys.SPLIT_HIERARCHY]}`,
+        {
+          operation: "split",
+          ...(adapterLabel ? { adapter: adapterLabel } : {}),
+          splitHierarchy:
+            postProcessedExchange.headers[HeadersKeys.SPLIT_HIERARCHY],
+        },
+        "Pushing split exchange to queue",
       );
       queue.push({
         exchange: postProcessedExchange,
         steps: remainingSteps,
       });
-    });
+    }
   }
 }

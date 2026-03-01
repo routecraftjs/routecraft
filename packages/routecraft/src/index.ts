@@ -15,6 +15,8 @@ export {
   type StoreRegistry,
   type CraftConfig,
   type CraftPlugin,
+  type DirectConfig,
+  type HttpConfig,
 } from "./context.ts";
 
 export { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
@@ -64,7 +66,12 @@ export {
   HeaderStep,
 } from "./operations/header.ts";
 
-export { type DestinationAggregator, EnrichStep } from "./operations/enrich.ts";
+export {
+  type DestinationAggregator,
+  EnrichStep,
+  only,
+  none,
+} from "./operations/enrich.ts";
 
 export { TapStep } from "./operations/tap.ts";
 
@@ -81,12 +88,14 @@ export {
   RouteCraftError,
   type RCCode,
   type RCMeta,
+  rcError,
   error,
   RC,
 } from "./error.ts";
 
 export {
   BRAND,
+  ENRICH_MERGE_TYPE,
   INTERNALS_KEY,
   isCraftContext,
   isRoute,
@@ -118,17 +127,21 @@ export { noop } from "./adapters/noop.ts";
 export { log, debug } from "./adapters/log.ts";
 export { direct } from "./adapters/direct.ts";
 export { timer } from "./adapters/timer.ts";
-export { fetch } from "./adapters/fetch.ts";
+export { http } from "./adapters/http.ts";
 export { pseudo } from "./adapters/pseudo.ts";
+export { browser } from "./adapters/browser.ts";
+export { html } from "./adapters/html.ts";
+export { json } from "./adapters/json.ts";
+export { group } from "./adapters/group.ts";
 
 export { SimpleAdapter } from "./adapters/simple.ts";
 export { LogAdapter, type LogOptions, type LogLevel } from "./adapters/log.ts";
 export { NoopAdapter } from "./adapters/noop.ts";
 export {
-  FetchAdapter,
-  type FetchOptions,
-  type FetchResult,
-} from "./adapters/fetch.ts";
+  HttpAdapter,
+  type HttpOptions,
+  type HttpResult,
+} from "./adapters/http.ts";
 export {
   DirectAdapter,
   type DirectBaseOptions,
@@ -147,3 +160,24 @@ export {
   type PseudoOptions,
   type PseudoKeyedOptions,
 } from "./adapters/pseudo.ts";
+export {
+  BrowserAdapter,
+  type BrowserBaseOptions,
+  type BrowserCommandMap,
+  type BrowserCommand,
+  type BrowserResult,
+  type Resolvable,
+  sanitizeSessionId,
+} from "./adapters/browser.ts";
+export {
+  HtmlAdapter,
+  type HtmlOptions,
+  type HtmlResult,
+} from "./adapters/html.ts";
+export { JsonAdapter, type JsonOptions } from "./adapters/json.ts";
+export { GroupAdapter, type GroupOptions } from "./adapters/group.ts";
+export {
+  cosine,
+  type CosineOptions,
+  type Comparator,
+} from "./adapters/cosine.ts";

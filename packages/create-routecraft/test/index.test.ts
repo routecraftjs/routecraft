@@ -66,7 +66,6 @@ describe("create-routecraft", () => {
       expect(pkg.scripts).toHaveProperty("start");
     } catch {
       // Expected in test environment due to mocked execSync
-      // eslint-disable-next-line no-console
       console.log("Test completed - project scaffolding logic executed");
     }
   });
@@ -97,7 +96,6 @@ describe("create-routecraft", () => {
       expect(content).toMatch(/Hello, World/);
     } catch {
       // Expected in test environment
-      // eslint-disable-next-line no-console
       console.log("Test completed - example logic executed");
     }
   });
@@ -129,7 +127,6 @@ describe("create-routecraft", () => {
       );
     } catch {
       // Expected in test environment
-      // eslint-disable-next-line no-console
       console.log("Test completed - flag handling logic executed");
     }
   });
@@ -155,7 +152,6 @@ describe("create-routecraft", () => {
       await new Promise((resolve) => setTimeout(resolve, 100));
     } catch {
       // Expected since we can't actually clone GitHub repos in tests
-      // eslint-disable-next-line no-console
       console.log("Test completed - GitHub URL handling executed");
     }
   });
@@ -189,7 +185,6 @@ describe("create-routecraft", () => {
       expect(content).toMatch(/export default \[\];/);
     } catch {
       // Expected in test environment
-      // eslint-disable-next-line no-console
       console.log("Test completed - no example logic executed");
     }
   });
@@ -213,7 +208,6 @@ describe("create-routecraft", () => {
       expect(content).toMatch(/export default \[\];/);
     } catch {
       // Expected in test environment
-      // eslint-disable-next-line no-console
       console.log("Test completed - default example logic executed");
     }
   });

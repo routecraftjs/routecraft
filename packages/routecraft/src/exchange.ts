@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { INTERNALS_KEY, BRAND } from "./brand.ts";
+import { INTERNALS_KEY, BRAND, setBrand, setInternals } from "./brand.ts";
 import { type CraftContext } from "./context.ts";
 import { logger, childBindings } from "./logger.ts";
 import type { Route } from "./route.ts";
@@ -84,7 +84,7 @@ export interface RouteCraftHeaders {
 }
 
 /**
- * Possible types for header values.
+ * Allowed types for a single header value. Custom headers can use any of these; standard headers use specific types (see RouteCraftHeaders).
  */
 export type HeaderValue = string | number | boolean | undefined | string[];
 
@@ -225,10 +225,9 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
 
     // Store internals: symbol key (cross-instance) and WeakMap (same-instance compat)
     const internals: ExchangeInternals = { context };
-    (this as unknown as Record<symbol, ExchangeInternals>)[INTERNALS_KEY] =
-      internals;
+    setInternals(this, INTERNALS_KEY, internals);
     EXCHANGE_INTERNALS.set(this, internals);
-    (this as unknown as Record<symbol, boolean>)[BRAND.Exchange] = true;
+    setBrand(this, BRAND.Exchange);
     this.logger = logger.child(childBindings(this));
   }
 }

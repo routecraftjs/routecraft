@@ -3,8 +3,9 @@ import { testContext, type TestContext } from "@routecraft/testing";
 import {
   craft,
   simple,
-  fetch,
+  http,
   log,
+  only,
   type Destination,
 } from "@routecraft/routecraft";
 
@@ -53,8 +54,8 @@ describe("Unified Destination Adapter", () => {
 
   /**
    * @case Verify .to() with result-returning adapter replaces body
-   * @preconditions fetch returns result
-   * @expectedResult Body replaced with FetchResult
+   * @preconditions http returns result
+   * @expectedResult Body replaced with HttpResult
    */
   test(".to() with result-returning adapter replaces body", async () => {
     const destSpy = vi.fn();
@@ -72,7 +73,7 @@ describe("Unified Destination Adapter", () => {
         craft()
           .id("test-default-to")
           .from(simple({ original: "data" }))
-          .to(fetch({ url: "https://api.example.com/endpoint" }))
+          .to(http({ url: "https://api.example.com/endpoint" }))
           .to(destSpy),
       )
       .build();
@@ -81,7 +82,7 @@ describe("Unified Destination Adapter", () => {
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const finalBody = destSpy.mock.calls[0][0].body;
-    // Body should be replaced with FetchResult
+    // Body should be replaced with HttpResult
     expect(finalBody.status).toBe(200);
     expect(finalBody.body).toEqual({ apiData: "value" });
   });
@@ -116,7 +117,7 @@ describe("Unified Destination Adapter", () => {
 
   /**
    * @case Verify .enrich() with default aggregator merges result
-   * @preconditions fetch returns result, no custom aggregator
+   * @preconditions http returns result, no custom aggregator
    * @expectedResult Result merged into body
    */
   test(".enrich() with result-returning adapter merges by default", async () => {
@@ -135,7 +136,7 @@ describe("Unified Destination Adapter", () => {
         craft()
           .id("test-default-enrich")
           .from(simple({ userId: 1 }))
-          .enrich(fetch({ url: "https://api.example.com/profile" }))
+          .enrich(http({ url: "https://api.example.com/profile" }))
           .to(destSpy),
       )
       .build();
@@ -144,7 +145,7 @@ describe("Unified Destination Adapter", () => {
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const finalBody = destSpy.mock.calls[0][0].body;
-    // FetchResult is merged into body
+    // HttpResult is merged into body
     expect(finalBody).toMatchObject({
       userId: 1,
       body: { profile: "data", avatar: "url" },
@@ -154,7 +155,7 @@ describe("Unified Destination Adapter", () => {
 
   /**
    * @case Verify .enrich() with custom aggregator
-   * @preconditions fetch returns result, custom aggregator provided
+   * @preconditions http returns result, custom aggregator provided
    * @expectedResult Result merged via custom logic
    */
   test(".enrich() with custom aggregator uses custom logic", async () => {
@@ -174,7 +175,7 @@ describe("Unified Destination Adapter", () => {
           .id("test-custom-enrich-aggregator")
           .from(simple({ userId: 1 }))
           .enrich(
-            fetch({ url: "https://api.example.com/user" }),
+            http({ url: "https://api.example.com/user" }),
             (original, result) => ({
               ...original,
               body: {
@@ -195,6 +196,206 @@ describe("Unified Destination Adapter", () => {
       userId: 1,
       userDetails: { name: "John", role: "Admin" },
     });
+  });
+
+  /**
+   * @case Verify .enrich() with only() and into sets single key
+   * @preconditions Enricher returns object with output.links, only(getValue, "links") used
+   * @expectedResult Body has links key set to extracted value
+   */
+  test(".enrich() with only(getValue, into) sets body key", async () => {
+    const destSpy = vi.fn();
+    const enricher = vi.fn(async () => ({ output: { links: ["a", "b"] } }));
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("test-only-with-into")
+          .from(simple({ userId: 1 }))
+          .enrich(
+            enricher,
+            only((r) => r.output?.links, "links"),
+          )
+          .to(destSpy),
+      )
+      .build();
+
+    await t.test();
+
+    expect(destSpy).toHaveBeenCalledTimes(1);
+    expect(destSpy.mock.calls[0][0].body).toEqual({
+      userId: 1,
+      links: ["a", "b"],
+    });
+  });
+
+  /**
+   * @case Verify .enrich() with only() without into spreads plain object
+   * @preconditions Enricher returns plain object, only(getValue) used without into
+   * @expectedResult Body gets spread with object keys
+   */
+  test(".enrich() with only(getValue) spreads plain object onto body", async () => {
+    const destSpy = vi.fn();
+    const enricher = vi.fn(async () => ({
+      output: { links: ["x"], count: 1 },
+    }));
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("test-only-spread-object")
+          .from(simple({ userId: 1 }))
+          .enrich(
+            enricher,
+            only((r) => r.output),
+          )
+          .to(destSpy),
+      )
+      .build();
+
+    await t.test();
+
+    expect(destSpy).toHaveBeenCalledTimes(1);
+    expect(destSpy.mock.calls[0][0].body).toEqual({
+      userId: 1,
+      links: ["x"],
+      count: 1,
+    });
+  });
+
+  /**
+   * @case Verify .enrich() with only() without into puts string in body.stdout
+   * @preconditions Enricher returns string, only(getValue) used without into
+   * @expectedResult Body has stdout key set to string
+   */
+  test(".enrich() with only(getValue) puts string in body.stdout", async () => {
+    const destSpy = vi.fn();
+    const enricher = vi.fn(async () => "hello");
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("test-only-string-stdout")
+          .from(simple({ userId: 1 }))
+          .enrich(
+            enricher,
+            only((r) => r),
+          )
+          .to(destSpy),
+      )
+      .build();
+
+    await t.test();
+
+    expect(destSpy).toHaveBeenCalledTimes(1);
+    expect(destSpy.mock.calls[0][0].body).toEqual({
+      userId: 1,
+      stdout: "hello",
+    });
+  });
+
+  /**
+   * @case Verify .enrich() with only() without into puts array in body.array
+   * @preconditions Enricher returns array, only(getValue) used without into
+   * @expectedResult Body has array key set to array value
+   */
+  test(".enrich() with only(getValue) puts array in body.array", async () => {
+    const destSpy = vi.fn();
+    const enricher = vi.fn(async () => [1, 2, 3]);
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("test-only-array")
+          .from(simple({ userId: 1 }))
+          .enrich(
+            enricher,
+            only((r) => r),
+          )
+          .to(destSpy),
+      )
+      .build();
+
+    await t.test();
+
+    expect(destSpy).toHaveBeenCalledTimes(1);
+    expect(destSpy.mock.calls[0][0].body).toEqual({
+      userId: 1,
+      array: [1, 2, 3],
+    });
+  });
+
+  /**
+   * @case Verify .enrich() with only() leaves exchange unchanged when getValue returns null/undefined
+   * @preconditions Enricher returns object with output null or undefined, only(getValue) used
+   * @expectedResult Body unchanged (no merge)
+   */
+  test(".enrich() with only() leaves body unchanged when value is null or undefined", async () => {
+    const destSpy = vi.fn();
+    const enricherNull = vi.fn(async () => ({ output: null }));
+    const enricherUndef = vi.fn(async () => ({ output: undefined }));
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("test-only-null")
+          .from(simple({ userId: 1 }))
+          .enrich(
+            enricherNull,
+            only((r) => r.output),
+          )
+          .to(destSpy),
+      )
+      .build();
+
+    await t.test();
+    expect(destSpy.mock.calls[0][0].body).toEqual({ userId: 1 });
+
+    await t.stop();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("test-only-undefined")
+          .from(simple({ userId: 1 }))
+          .enrich(
+            enricherUndef,
+            only((r) => r.output),
+          )
+          .to(destSpy),
+      )
+      .build();
+
+    await t.test();
+    expect(destSpy.mock.calls[1][0].body).toEqual({ userId: 1 });
+  });
+
+  /**
+   * @case Verify .enrich() with only() and optional chain returns undefined leaves body unchanged
+   * @preconditions Enricher returns empty object, only((r) => r.output?.links) used
+   * @expectedResult Body unchanged (optional chain yields undefined)
+   */
+  test(".enrich() with only() optional chain missing path leaves body unchanged", async () => {
+    const destSpy = vi.fn();
+    const enricher = vi.fn(async () => ({}));
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("test-only-optional-chain")
+          .from(simple({ userId: 1 }))
+          .enrich(
+            enricher,
+            only((r) => r.output?.links),
+          )
+          .to(destSpy),
+      )
+      .build();
+
+    await t.test();
+
+    expect(destSpy).toHaveBeenCalledTimes(1);
+    expect(destSpy.mock.calls[0][0].body).toEqual({ userId: 1 });
   });
 
   /**
@@ -226,8 +427,8 @@ describe("Unified Destination Adapter", () => {
         craft()
           .id("test-multiple-to")
           .from(simple({ original: "value" }))
-          .to(fetch({ url: "https://api.example.com/endpoint1" }))
-          .to(fetch({ url: "https://api.example.com/endpoint2" }))
+          .to(http({ url: "https://api.example.com/endpoint1" }))
+          .to(http({ url: "https://api.example.com/endpoint2" }))
           .to(destSpy),
       )
       .build();
@@ -236,7 +437,7 @@ describe("Unified Destination Adapter", () => {
 
     expect(destSpy).toHaveBeenCalledTimes(1);
     const finalBody = destSpy.mock.calls[0][0].body;
-    // Body should be the last FetchResult
+    // Body should be the last HttpResult
     expect(finalBody).toMatchObject({
       status: 200,
       body: { response: "data2" },
@@ -279,9 +480,9 @@ describe("Unified Destination Adapter", () => {
         craft()
           .id("test-mixed-operations")
           .from(simple({ userId: 1 }))
-          .enrich(fetch({ url: "https://api.example.com/user" })) // Merges
-          .to(fetch({ url: "https://api.example.com/webhook" })) // Replaces body
-          .enrich(fetch({ url: "https://api.example.com/role" })) // Merges
+          .enrich(http({ url: "https://api.example.com/user" })) // Merges
+          .to(http({ url: "https://api.example.com/webhook" })) // Replaces body
+          .enrich(http({ url: "https://api.example.com/role" })) // Merges
           .to(destSpy),
       )
       .build();

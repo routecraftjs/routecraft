@@ -44,7 +44,7 @@ describe("LogAdapter", () => {
 
     expect(exchange.logger.info).toHaveBeenCalledTimes(1);
     expect(exchange.logger.info).toHaveBeenCalledWith(
-      { id: "test-id", body: "hello", headers: {} },
+      { id: "test-id", body: "hello", headers: {}, adapter: "log" },
       "LogAdapter output",
     );
     expect(exchange.logger.debug).not.toHaveBeenCalled();
@@ -61,7 +61,7 @@ describe("LogAdapter", () => {
 
     await adapter.send(exchange);
     expect(exchange.logger.debug).toHaveBeenCalledWith(
-      { id: "test-id", body: "data", headers: {} },
+      { id: "test-id", body: "data", headers: {}, adapter: "log" },
       "LogAdapter output",
     );
   });
@@ -78,7 +78,7 @@ describe("LogAdapter", () => {
     await adapter.send(exchange);
 
     expect(exchange.logger.info).toHaveBeenCalledWith(
-      "body: payload",
+      { adapter: "log", value: "body: payload" },
       "LogAdapter output",
     );
   });
@@ -97,7 +97,7 @@ describe("LogAdapter", () => {
     await adapter.send(exchange);
 
     expect(exchange.logger.warn).toHaveBeenCalledWith(
-      { custom: { foo: 1 } },
+      { custom: { foo: 1 }, adapter: "log" },
       "LogAdapter output",
     );
   });
@@ -130,7 +130,7 @@ describe("log() DSL", () => {
     await adapter.send(exchange);
 
     expect(exchange.logger.info).toHaveBeenCalledWith(
-      "test-id",
+      { adapter: "log", value: "test-id" },
       "LogAdapter output",
     );
   });
@@ -161,7 +161,7 @@ describe("log() DSL", () => {
     await adapter.send(exchange);
 
     expect(exchange.logger.error).toHaveBeenCalledWith(
-      "err-payload",
+      { adapter: "log", value: "err-payload" },
       "LogAdapter output",
     );
   });
@@ -181,7 +181,7 @@ describe("debug() DSL helper", () => {
 
     expect(exchange.logger.debug).toHaveBeenCalledTimes(1);
     expect(exchange.logger.debug).toHaveBeenCalledWith(
-      { id: "test-id", body: "debug-data", headers: {} },
+      { id: "test-id", body: "debug-data", headers: {}, adapter: "log" },
       "LogAdapter output",
     );
   });
@@ -198,7 +198,7 @@ describe("debug() DSL helper", () => {
     await adapter.send(exchange);
 
     expect(exchange.logger.debug).toHaveBeenCalledWith(
-      { debugBody: "test" },
+      { debugBody: "test", adapter: "log" },
       "LogAdapter output",
     );
   });

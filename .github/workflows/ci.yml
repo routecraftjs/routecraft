@@ -242,6 +242,15 @@ jobs:
           VERSION=$(node -p "require('./packages/routecraft/package.json').version")
           pnpm run version:set "$VERSION"
 
+      - name: Build examples
+        run: pnpm --filter examples run build
+
+      - name: Install CLI globally
+        working-directory: ./packages/cli
+        run: |
+          npm link
+          craft --version
+
       - name: Smoke test publishable (pack + npm install + npx craft run)
         run: node .github/scripts/smoke-test-publishable.mjs
 
@@ -252,16 +261,6 @@ jobs:
             packages/create-routecraft/package.json packages/eslint-plugin-routecraft/package.json packages/routecraft/package.json packages/testing/package.json \
             packages/cli/src/index.ts \
             apps/routecraft.dev/package.json apps/routecraft.dev/src/components/VersionSelector.tsx
-
-      - name: Install CLI globally
-        working-directory: ./packages/cli
-        run: |
-          npm link
-          craft --version
-
-      - name: Run all examples
-        working-directory: ./examples
-        run: craft run --log-level debug hello-world.mjs
 
   publish-canary:
     needs: [build, cli-test]

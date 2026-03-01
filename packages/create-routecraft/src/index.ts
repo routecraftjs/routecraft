@@ -178,13 +178,13 @@ export default [];`,
 const EXAMPLES = {
   "hello-world": {
     "routes/hello-world.route.ts": {
-      content: `import { log, craft, simple, fetch, type FetchResult } from "@routecraft/routecraft";
+      content: `import { log, craft, simple, http, type HttpResult } from "@routecraft/routecraft";
 
 export default craft()
   .id("hello-world")
   .from(simple({ userId: 1 }))
-  .enrich<FetchResult<{ name: string }>>(
-    fetch({
+  .enrich<HttpResult<{ name: string }>>(
+    http({
       method: "GET",
       url: (ex) =>
         \`https://jsonplaceholder.typicode.com/users/\${ex.body.userId}\`,

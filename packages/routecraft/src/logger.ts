@@ -124,6 +124,11 @@ function resolveConfig(): {
   const options: PinoOptions = {
     ...fromFile,
     level,
+    formatters: {
+      level(label: string) {
+        return { level: label };
+      },
+    },
     ...(redact && redact.length > 0 ? { redact } : {}),
     ...(usePretty
       ? {
@@ -143,8 +148,16 @@ export const logger =
   destination !== undefined ? pino(options, destination) : pino(options);
 
 /**
- * Return bindings for logger.child() for the given context (CraftContext, Route, or Exchange).
- * Use: logger.child(childBindings(ctx))
+ * Returns pino child logger bindings for the given context so logs include contextId, route, exchangeId, etc.
+ *
+ * @param context - CraftContext, Route, or Exchange instance
+ * @returns Object of key-value bindings (e.g. { contextId, route, correlationId, exchangeId })
+ *
+ * @example
+ * ```typescript
+ * const child = logger.child(childBindings(exchange));
+ * child.info({ extra: 1 }, 'Processing');
+ * ```
  */
 export function childBindings(
   context: CraftContext | Route | Exchange,
@@ -157,7 +170,7 @@ export function childBindings(
     const route = context as Route;
     return {
       contextId: route.context.contextId,
-      routeId: route.definition.id,
+      route: route.definition.id,
     };
   }
   if (isExchange(context)) {
@@ -166,9 +179,9 @@ export function childBindings(
     if (ctx) {
       return {
         contextId: ctx.contextId,
-        routeId: ex.headers[HeadersKeys.ROUTE_ID],
-        exchangeId: ex.id,
+        route: ex.headers[HeadersKeys.ROUTE_ID],
         correlationId: ex.headers[HeadersKeys.CORRELATION_ID],
+        exchangeId: ex.id,
       };
     }
   }

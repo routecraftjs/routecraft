@@ -10,3 +10,4 @@ dist/
 .env*.local
 .pnpm-store/
 .cursor/plans/
+.cursor/hooks/state/

@@ -142,11 +142,14 @@ craft()
 ```
 
 ```ts
-// ✅ Good: mcp() without options in .to() (destination)
+// ✅ Good: direct() for in-process .to(); mcp() with description in .from()
+import { mcp } from '@routecraft/ai'
+import { direct } from '@routecraft/routecraft'
+
 craft()
   .id('producer')
-  .from(simple({ message: 'hello' }))
-  .to(mcp('my-tool'))
+  .from(mcp('my-tool', { description: 'Produce messages for my-tool' }))
+  .to(direct('my-tool'))
 ```
 
 ```ts

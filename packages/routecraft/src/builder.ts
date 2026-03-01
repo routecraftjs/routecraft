@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { BRAND, isRouteBuilder } from "./brand.ts";
+import { BRAND, ENRICH_MERGE_TYPE, isRouteBuilder, setBrand } from "./brand.ts";
 import { type RouteDefinition } from "./route.ts";
 import {
   CraftContext,
   type StoreRegistry,
   type CraftConfig,
 } from "./context.ts";
-import { error as rcError } from "./error.ts";
+import { rcError } from "./error.ts";
 import { logger } from "./logger.ts";
 import { type EventHandler, type EventName } from "./types.ts";
 import { SimpleConsumer } from "./consumers/simple.ts";
@@ -19,7 +19,11 @@ import {
   type Consumer,
   type ConsumerType,
 } from "./types.ts";
-import { type Exchange } from "./exchange.ts";
+import {
+  type Exchange,
+  DefaultExchange,
+  getExchangeContext,
+} from "./exchange.ts";
 import {
   type Processor,
   type CallableProcessor,
@@ -53,7 +57,11 @@ import {
   FilterStep,
 } from "./operations/filter.ts";
 import { ValidateStep } from "./operations/validate.ts";
-import { EnrichStep, type DestinationAggregator } from "./operations/enrich.ts";
+import {
+  EnrichStep,
+  type DestinationAggregator,
+  type EnrichMergeShape,
+} from "./operations/enrich.ts";
 import { HeaderStep } from "./operations/header.ts";
 import { type HeaderValue } from "./exchange.ts";
 // Binder mechanism removed
@@ -308,36 +316,50 @@ export class RouteBuilder<Current = unknown> {
     | undefined;
 
   constructor() {
-    (this as unknown as Record<symbol, boolean>)[BRAND.RouteBuilder] = true;
+    setBrand(this, BRAND.RouteBuilder);
   }
 
   /**
-   * Internal method to create a new RouteBuilder with an updated type parameter.
-   * This is used to propagate type information through the method chain.
+   * Safe identity cast: same instance, type parameter updated for the next step.
+   * Used to propagate body/result type through the method chain.
    *
-   * @template T The new type to use for the RouteBuilder
-   * @returns A new RouteBuilder instance with the updated type
+   * @template T - The body type for the next step
+   * @returns This builder typed as RouteBuilder<T>
    * @private
    */
   private withType<T>(): RouteBuilder<T> {
-    // This cast is necessary but safe because we're not changing the instance,
-    // just the type parameter
     return this as unknown as RouteBuilder<T>;
   }
 
   /**
    * Set the route id for the next route to be created.
-   * This stages the id and does not affect the current route if one exists.
+   * Stages the id; does not affect the current route if one already exists.
+   *
+   * @param id - Unique route identifier (used in logs and context.getRouteById())
+   * @returns This builder for chaining
+   *
+   * @example
+   * ```typescript
+   * craft().id('ingest-api').from(httpServer({ path: '/ingest' })).to(log()).build();
+   * ```
    */
   id(id: string): this {
     this.pendingOptions = { ...(this.pendingOptions ?? {}), id };
-    logger.trace(`Staging route id "${id}" for next route`);
+    logger.trace({ route: id }, "Staging route id for next route");
     return this;
   }
 
   /**
    * Configure batch processing for the next route to be created.
-   * This stages the batch consumer and does not affect the current route if one exists.
+   * Stages the batch consumer; does not affect the current route if one already exists.
+   *
+   * @param options - Optional `size` (batch size) and `flushIntervalMs` (flush interval)
+   * @returns This builder for chaining
+   *
+   * @example
+   * ```typescript
+   * craft().batch({ size: 10, flushIntervalMs: 1000 }).from(timer(1000)).to(log()).build();
+   * ```
    */
   batch(options?: { size?: number; flushIntervalMs?: number }): this {
     const mapped = {
@@ -379,7 +401,7 @@ export class RouteBuilder<Current = unknown> {
       options: undefined,
     };
 
-    logger.trace(`Creating route definition with id "${id}"`);
+    logger.trace({ route: id }, "Creating route definition");
 
     this.currentRoute = {
       id,
@@ -390,9 +412,7 @@ export class RouteBuilder<Current = unknown> {
         options: consumer.options ?? undefined,
       },
     };
-    (this.currentRoute as unknown as Record<symbol, boolean>)[
-      BRAND.RouteDefinition
-    ] = true;
+    setBrand(this.currentRoute, BRAND.RouteDefinition);
 
     // Clear staged options once used
     this.pendingOptions = undefined;
@@ -427,7 +447,10 @@ export class RouteBuilder<Current = unknown> {
    */
   private addStep<T extends Adapter>(step: Step<T>): RouteBuilder<Current> {
     const route = this.requireSource();
-    logger.trace(`Adding ${step.operation} step to route "${route.id}"`);
+    logger.trace(
+      { operation: step.operation, route: route.id },
+      "Adding step to route",
+    );
     route.steps.push(step);
     return this.withType<Current>();
   }
@@ -466,64 +489,75 @@ export class RouteBuilder<Current = unknown> {
    * })
    *
    * // Send and replace body with result
-   * .to(fetch({ url: 'https://api.example.com/transform' }))
-   * // Body becomes FetchResult
+   * .to(http({ url: 'https://api.example.com/transform' }))
+   * // Body becomes HttpResult
    */
   to<R = void>(
     destination: Destination<Current, R> | CallableDestination<Current, R>,
   ): RouteBuilder<R> {
     const route = this.requireSource();
-    logger.trace(`Adding destination step to route "${route.id}"`);
+    logger.trace({ route: route.id }, "Adding destination step to route");
     route.steps.push(new ToStep<Current, R>(destination));
     return this.withType<R>();
   }
 
   /**
-   * Split an array into individual items for processing.
-   * Each item becomes a separate exchange with a new UUID and copied headers.
-   * If no splitter is provided and the current data is an array, it will automatically
-   * split the array into individual items.
-   *
-   * Accepts body, returns array of body items. The framework automatically creates new exchanges for each item.
+   * Split into multiple exchanges for fan-out. Each returned exchange is processed independently.
+   * If no splitter is provided: array bodies are split into one exchange per element; non-array bodies
+   * are treated as a single item (one exchange). Framework maintains `routecraft.split_hierarchy`
+   * headers for aggregation.
    *
    * @template ItemType The type of items in the array (inferred from array if not specified)
-   * @param splitter Optional function that receives the body and returns an array of items
+   * @param splitter Optional adapter or function (exchange) => Exchange<ItemType>[]
    * @returns A RouteBuilder with the item type
    * @example
    * // Automatically split an array of numbers
    * .from<number[]>(source)
    * .split() // ItemType is inferred as number
    *
-   * // Custom splitting logic - extract nested array
+   * // Custom splitting logic - exchange-aware
    * .from(source)
-   * .split<User>((body) => body.users)
+   * .split<User>((exchange) => exchange.body.users.map(body =>
+   *   new DefaultExchange(getExchangeContext(exchange)!, { body, headers: exchange.headers })))
    *
-   * // Split a string by delimiter
-   * .split<string>((body) => body.split(","))
+   * // Split a string by delimiter (return exchanges)
+   * .split<string>((exchange) => exchange.body.split(",").map(body => new DefaultExchange(getExchangeContext(exchange)!, { body, headers: exchange.headers })))
    */
-  split<ItemType = Current extends Array<infer U> ? U : never>(
+  split<ItemType = Current extends Array<infer U> ? U : Current>(
     splitter?:
       | Splitter<Current, ItemType>
       | CallableSplitter<Current, ItemType>,
   ): RouteBuilder<ItemType> {
     const route = this.requireSource();
-    logger.trace(`Adding split step to route "${route.id}"`);
+    logger.trace({ route: route.id }, "Adding split step to route");
 
-    // If no splitter is provided and Current is an array, use default array splitter
+    // If no splitter is provided, use default splitter: arrays are split, non-arrays as single item
     if (!splitter) {
-      // Create a default array splitter
-      const defaultSplitter: CallableSplitter<Current, ItemType> = (body) => {
-        // Check if the body is an array
-        if (!Array.isArray(body)) {
-          throw rcError("RC2001", undefined, {
-            message: "Default splitter can only be used with arrays",
-            suggestion:
-              "Provide a custom splitter or ensure the input is an array",
+      const defaultSplitter: CallableSplitter<Current, ItemType> = (
+        exchange,
+      ) => {
+        const context = getExchangeContext(exchange);
+        if (!context) {
+          throw rcError("RC5001", undefined, {
+            message: "Exchange has no context — cannot execute default split",
           });
         }
-
-        // Split the array into individual items
-        return body as ItemType[];
+        const body = exchange.body;
+        if (Array.isArray(body)) {
+          return (body as ItemType[]).map(
+            (b) =>
+              new DefaultExchange(context, {
+                body: b,
+                headers: exchange.headers,
+              }),
+          ) as Exchange<ItemType>[];
+        }
+        return [
+          new DefaultExchange(context, {
+            body: body as unknown as ItemType,
+            headers: exchange.headers,
+          }),
+        ];
       };
 
       route.steps.push(new SplitStep<Current, ItemType>(defaultSplitter));
@@ -728,9 +762,11 @@ export class RouteBuilder<Current = unknown> {
    *   required: ['name', 'age']
    * })
    */
-  validate(schema: StandardSchemaV1): RouteBuilder<Current> {
+  validate<S extends StandardSchemaV1>(
+    schema: S,
+  ): RouteBuilder<StandardSchemaV1.InferOutput<S>> {
     this.addStep(new ValidateStep(schema));
-    return this.withType<Current>();
+    return this.withType<StandardSchemaV1.InferOutput<S>>();
   }
 
   /**
@@ -744,49 +780,77 @@ export class RouteBuilder<Current = unknown> {
    * @returns A RouteBuilder with the combined type
    * @example
    * // Add user details from an API (default merge behavior)
-   * .enrich(fetch({
+   * .enrich(http({
    *   url: (ex) => `https://api.example.com/users/${ex.body.userId}`
    * }))
    *
    * // Custom aggregation strategy
    * .enrich(
-   *   fetch({ url: 'https://api.example.com/data' }),
+   *   http({ url: 'https://api.example.com/data' }),
    *   (original, result) => ({
    *     ...original,
    *     body: { ...original.body, fetchedData: result.body }
    *   })
    * )
    */
-  enrich<R = Current>(
+  enrich<R>(
+    destination: Destination<Current, R> | CallableDestination<Current, R>,
+  ): RouteBuilder<Current & R>;
+  enrich<
+    R = Current,
+    A extends
+      | DestinationAggregator<Current, unknown>
+      | (DestinationAggregator<unknown, unknown> & {
+          [ENRICH_MERGE_TYPE]?: EnrichMergeShape;
+        })
+      | undefined = DestinationAggregator<Current, unknown> | undefined,
+  >(
     destination:
       | Destination<Current, Partial<R>>
       | CallableDestination<Current, Partial<R>>,
-    aggregator?: DestinationAggregator<Current, Partial<R>>,
-  ): RouteBuilder<R> {
-    this.addStep(new EnrichStep(destination, aggregator));
-    return this.withType<R>();
+    aggregator: A,
+  ): RouteBuilder<A extends { [ENRICH_MERGE_TYPE]: infer M } ? Current & M : R>;
+  enrich<
+    R = Current,
+    A extends
+      | DestinationAggregator<Current, unknown>
+      | (DestinationAggregator<unknown, unknown> & {
+          [ENRICH_MERGE_TYPE]?: EnrichMergeShape;
+        })
+      | undefined = DestinationAggregator<Current, unknown> | undefined,
+  >(
+    destination:
+      | Destination<Current, Partial<R>>
+      | CallableDestination<Current, Partial<R>>,
+    aggregator?: A,
+  ): RouteBuilder<
+    A extends { [ENRICH_MERGE_TYPE]: infer M } ? Current & M : R
+  > {
+    this.addStep(new EnrichStep<Current, Partial<R>>(destination, aggregator));
+    return this.withType<
+      A extends { [ENRICH_MERGE_TYPE]: infer M } ? Current & M : R
+    >();
   }
 
   /**
-   * Finalize the route definition and return it.
-   * This method should be called after all steps have been defined.
+   * Finalize and return the route definition(s). Call after defining all steps.
    *
-   * @returns An array of RouteDefinition objects
+   * @returns Array of RouteDefinition (one per `.from()` in this builder chain)
+   *
    * @example
-   * // Define a complete route and build it
-   * const route = craft()
+   * ```typescript
+   * const definitions = craft()
    *   .from<string[]>(source)
    *   .split()
-   *   .process((exchange) => ({ ...exchange, body: exchange.body.toUpperCase() }))
+   *   .process((ex) => ({ ...ex, body: (ex.body as string).toUpperCase() }))
    *   .to(destination)
-   *
-   * // Add the route to a context
-   * context()
-   *   .routes(route)
    *   .build();
+   * const ctx = await context().routes(definitions).build();
+   * await ctx.start();
+   * ```
    */
   build(): RouteDefinition[] {
-    logger.trace(`Building ${this.routes.length} routes`);
+    logger.trace({ routeCount: this.routes.length }, "Building routes");
     return this.routes;
   }
 }

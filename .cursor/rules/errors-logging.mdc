@@ -6,15 +6,79 @@ globs:
     "packages/routecraft/src/logger.ts",
     "packages/routecraft/src/context.ts",
     "packages/routecraft/src/**/*.ts",
+    "packages/ai/src/**/*.ts",
   ]
 alwaysApply: false
 ---
 
-## Errors and logging
+## Logging rule (authoritative)
 
-- Use `rcError(code, cause?, details?)` from `@packages/routecraft/src/error.ts` for framework/route errors (categorized, documented). Use normal `throw new Error` for adapter-only validation when you don't need an RC code.
+### 1. Throw specific, log at boundary
+
+- **Throw**: Create a RouteCraftError with specific `message` and `suggestion` overrides, or throw a plain Error (the framework preserves it). Throwing does not obligate the thrower to log.
+- **Boundary**: The catch that **handles** the error (does not re-throw) is the boundary. Only the boundary logs.
+- **Never catch-log-throw**: If a catch block re-throws, it must NOT log. Logging and re-throwing creates duplicate log lines.
+
+### 2. Use the error's own message as the pino log string
+
+At a boundary, use `err.meta.message` (RouteCraftError) or `err.message` (plain Error) as the pino message string. Variable context (route, operation, adapter, tool) goes in the first-arg bindings object. Do not use generic strings like "Step failed" as the log message; the error already says what went wrong.
+
+### 3. Stable message for non-error logs; context in bindings
+
+For non-error logs, the **message** is a fixed string. Variable context goes only in the first-arg bindings object or child bindings. This keeps messages searchable and countable in aggregators.
+
+### 4. Level semantics
+
+- **fatal**: Context or entire route failed (context start failed, route failed to start).
+- **error**: Operation failed (step failed, adapter threw, invalid plugin, plugin threw during init).
+- **warn**: Unexpected condition but processing continues (e.g. event handler threw).
+- **info**: Notable state (e.g. context/route start and stop, server started, shutdown). Use **info** for context and route lifecycle so start and stop are visible at default level and symmetric.
+- **debug**: Diagnostic / flow detail (e.g. "Starting all routes", "Processing step", drain).
+
+### 5. Lifecycle and consistency
+
+- **Same level for start and stop**: Log context and route start at the same level as their corresponding stop (e.g. both **info**). Avoid "info for starting, debug for stopping" so operators see a consistent lifecycle without changing log level.
+- **Symmetric message wording**: Use matching pairs for lifecycle (e.g. "Starting route" / "Stopping route", "Route stopped", "Routecraft context stopped"). Prefer past tense for completed events ("Route stopped", "Context stopped") and present for in-progress ("Stopping route").
+
+### 6. Structured error in bindings
+
+When logging a failure, put the error in bindings (e.g. `{ err, operation, adapter }`). RouteCraftError implements `toJSON()` so rc, message, suggestion, docs, causeMessage, causeStack appear in serialized logs.
+
+### 7. Validation and cause serialization
+
+When creating RouteCraftError for validation (e.g. RC5002), ensure the **cause** serializes to something useful in logs (e.g. `JSON.stringify(issues)` or a normalized object). Never pass an object that will log as `[object Object]`.
+
+---
+
+## Boundaries
+
+Each boundary handles the error (does not re-throw it to another boundary). Do not add new boundaries without updating this list.
+
+- **route.runSteps** — step/exchange failures. Logs at error with `{ err, operation }`, emits event, does not re-throw. Uses `err.meta.message` (RouteCraftError) or `err.message` as the log message.
+- **context.start** — route start and context start failures. Logs at fatal with `{ route?, err }`. Uses `err.meta.message` or `err.message`, fallback "Route failed to start" / "Context start failed".
+- **Timer adapter** — handler error. Logs at error with `{ adapter: "timer", err }`. Uses `err.meta.message` or `err.message`, fallback "Timer handler failed". Aborts loop, does not re-throw.
+- **route.trackTask** — background task (e.g. tap) rejection. Logs at error with `{ err, route }`. Uses `err.meta.message` (RouteCraftError) or `err.message` (Error), fallback "Background task failed". Does not re-throw.
+- **AI server tool handler** — tool call errors. Logs once at error with `{ tool, err }`. Uses `err.meta.message` or `err.message`. Returns error response to MCP client. No isRC branching.
+
+---
+
+## Error code philosophy
+
+- **All codes are framework-owned.** Defined in `packages/routecraft/src/error.ts`. The `RCCode` type is a closed union. No external registration, no adapter-defined codes.
+- **Codes represent failure patterns**, not step types. Community adapters use framework codes with specific message/suggestion overrides (e.g. `rcError("RC5010", cause, { message: "Redis connection refused on port 6379" })`).
+- **A code earns its place** when its docs page can provide specific, actionable troubleshooting steps. If not, use the catch-all (RC5001) and put specifics in the message override.
+- **Progressive quality ladder for adapter authors:**
+  - Level 0: Throw plain Error. Framework wraps with RC5001, preserves original message and stack.
+  - Level 1: Throw `rcError(rc, cause)` with the right framework code. Specific docs link, retryable flag.
+  - Level 2: Throw `rcError(rc, cause, { message, suggestion })`. Specific log message and actionable guidance.
+
+---
+
+## API
+
+- Use `rcError(rc, cause?, { message?, suggestion?, docs? })` from `packages/routecraft/src/error.ts` for framework and adapter errors. Use normal `throw new Error` only when you do not need an RC code or docs link.
 - Log with `context.logger` in sources and `exchange.logger` in steps/destinations.
-- Prefer structured logs: `logger.info(message, { meta })`.
+- At boundaries: `logger.error({ err, operation, adapter }, err.meta.message)`. RouteCraftError's `toJSON()` serializes rc, message, suggestion, docs, causeMessage, causeStack into the log.
 - Emit and observe context events for lifecycle and errors.
 
 References:

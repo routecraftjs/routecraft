@@ -11,7 +11,7 @@ RouteCraft is a developer-first automation and integration framework that lets y
 ## How do I run examples?
 
 ```bash
-pnpm craft run ./examples/hello-world.mjs
+pnpm craft run ./examples//dist/hello-world.js
 ```
 
 ## What's the difference between a route and a context?
@@ -47,7 +47,7 @@ RouteCraft provides several error handling approaches:
 
 ## What adapters are available?
 
-RouteCraft includes many built-in adapters like `simple()`, `timer()`, `csv()`, `http()`, `fetch()`, and more.
+RouteCraft includes many built-in adapters like `simple()`, `timer()`, `csv()`, `http()`, and more.
 
 For the complete list with examples and options, see [Adapters Reference](/docs/reference/adapters).
 

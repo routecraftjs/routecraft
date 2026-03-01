@@ -97,6 +97,9 @@ program
       setImmediate(() => process.exit(code));
       return;
     }
+    // Don't call process.exit() — let the event loop drain naturally.
+    // process.exit() triggers C++ static destructors that race with ONNX
+    // Runtime cleanup (onnxruntime#25038: "mutex lock failed").
   });
 
 // Parse the command line arguments and execute the appropriate command

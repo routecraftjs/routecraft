@@ -52,7 +52,7 @@ Transform, filter, and route data:
   .transform(row => ({ name: row.name }))  // Transform data
   .sample({ every: 10 })                  // Sample data
   .tap(log())                             // Side effects
-  .to(fetch({ url: 'https://api.com' }))  // Final output
+  .to(http({ url: 'https://api.com' }))  // Final output
 ```
 
 ## Route lifecycle

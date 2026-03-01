@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { BRAND } from "./brand.ts";
+import { BRAND, setBrand } from "./brand.ts";
 import { ContextBuilder } from "./builder.ts";
 import { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
 import { error as rcError, RC } from "./error.ts";
+import { isRouteCraftError } from "./brand.ts";
 import { logger, childBindings } from "./logger.ts";
 import {
   type EventHandler,
@@ -19,7 +20,7 @@ import {
  * declare module "@routecraft/routecraft" {
  *   interface StoreRegistry {
  *     "routecraft.adapter.channel.store": Map<string, import("./adapters/channel.ts").MessageChannel>;
- *     "routecraft.adapter.channel.config" Partial<ChannelAdapterOptions>;
+ *     "routecraft.adapter.channel.config": Partial<ChannelAdapterOptions>;
  *   }
  * }
  * ```
@@ -46,15 +47,29 @@ export type MergedOptions<T> = {
 };
 
 /**
- * A plugin is a function or an object with an apply method. It receives a
- * CraftContext and can set up event listeners, store values, or other
- * initialization logic. Plugins run before routes are registered (via
- * initPlugins()), allowing them to observe, veto, or dynamically modify
- * the route registration process.
+ * A plugin configures the context at startup and can register cleanup when the
+ * context stops. apply(ctx) runs before routes are registered (initPlugins()).
+ * teardown(ctx) runs when the context stops, after routes have drained.
+ * Plugins that only need init can omit teardown; use ctx.registerTeardown()
+ * from apply() for one-off cleanup callbacks.
  */
-export type CraftPlugin =
-  | ((ctx: CraftContext) => void | Promise<void>)
-  | { apply(ctx: CraftContext): void | Promise<void> };
+export interface CraftPlugin {
+  apply(ctx: CraftContext): void | Promise<void>;
+  /** Called when the context stops, after routes have drained. Optional. */
+  teardown?(ctx: CraftContext): void | Promise<void>;
+}
+
+/**
+ * Reserved config for direct adapter (future: channel type, whitelist, timeouts).
+ * No-op today; used by built-in direct handling when implemented.
+ */
+export type DirectConfig = Record<string, unknown>;
+
+/**
+ * Reserved config for HTTP (future: inbound server port, host).
+ * No-op today; used by built-in HTTP server when implemented.
+ */
+export type HttpConfig = Record<string, unknown>;
 
 /**
  * Configuration options for creating a CraftContext.
@@ -68,6 +83,10 @@ export type CraftConfig = {
   >;
   /** Plugins to run before routes are registered (call initPlugins() then registerRoutes) */
   plugins?: CraftPlugin[];
+  /** Reserved: direct adapter / channel config (no-op today) */
+  direct?: DirectConfig;
+  /** Reserved: HTTP server config for inbound (no-op today) */
+  http?: HttpConfig;
 };
 
 /**
@@ -128,13 +147,16 @@ export class CraftContext {
   /** Plugins from config, run by initPlugins() before routes are registered */
   private readonly plugins: CraftPlugin[] = [];
 
+  /** Teardown callbacks registered by plugins; run during stop() after contextStopped */
+  private readonly teardownCallbacks: Array<() => void | Promise<void>> = [];
+
   /**
    * Create a new CraftContext instance.
    *
    * @param config Optional configuration for the context
    */
   constructor(config?: CraftConfig) {
-    (this as unknown as Record<symbol, boolean>)[BRAND.CraftContext] = true;
+    setBrand(this, BRAND.CraftContext);
     this.logger = logger.child(childBindings(this));
     if (config) {
       // Initialize store from config
@@ -162,30 +184,36 @@ export class CraftContext {
 
   /**
    * Run plugins from config. Call this before registerRoutes() so plugins can
-   * set up state or dynamically add routes. Supports function plugins and
-   * objects with an apply(ctx) method. Fails fast: on first plugin error, logs,
-   * emits "error", and rethrows to abort remaining plugins.
+   * set up state or dynamically add routes.
+   *
+   * Fails fast: on first plugin error, logs, emits `error`, and rethrows.
+   *
+   * @throws Rethrows if any plugin's `apply(ctx)` throws
    */
   async initPlugins(): Promise<void> {
-    for (const plugin of this.plugins) {
+    for (const [pluginIndex, plugin] of this.plugins.entries()) {
       try {
-        if (typeof plugin === "function") {
-          await plugin(this);
-        } else if (
-          plugin &&
-          typeof plugin === "object" &&
-          typeof (plugin as { apply?: unknown }).apply === "function"
+        if (
+          !plugin ||
+          typeof plugin !== "object" ||
+          typeof (plugin as CraftPlugin).apply !== "function"
         ) {
-          await (
-            plugin as { apply(ctx: CraftContext): void | Promise<void> }
-          ).apply(this);
-        } else {
-          this.logger.warn(
-            `Invalid plugin ignored: expected function or object with apply method`,
+          const err = rcError("RC9901", undefined, {
+            message: `Invalid plugin at index ${pluginIndex}: expected object with apply(ctx)`,
+          });
+          this.logger.error(
+            { pluginIndex, err },
+            "Invalid plugin: expected object with apply(ctx) method.",
           );
+          this.emit("error", { error: err });
+          throw err;
         }
+        await (plugin as CraftPlugin).apply(this);
       } catch (err) {
-        this.logger.error(err as Error, "Plugin threw during initPlugins");
+        this.logger.error(
+          { pluginIndex, err },
+          "Plugin threw during initPlugins. Check stack and plugin implementation.",
+        );
         this.emit("error", { error: err });
         throw err;
       }
@@ -193,9 +221,30 @@ export class CraftContext {
   }
 
   /**
+   * Register a teardown callback to run when the context stops. Plugins use this
+   * to release resources (e.g. caches, native handles) after routes have drained.
+   * Callbacks run in registration order after `contextStopped` is emitted.
+   *
+   * @param fn - Callback (sync or async) to run during stop()
+   */
+  registerTeardown(fn: () => void | Promise<void>): void {
+    this.teardownCallbacks.push(fn);
+  }
+
+  /**
    * Subscribe to lifecycle and system events.
    *
-   * Handlers receive payloads with shape { ts, context, details }.
+   * @param event - Event name (e.g. `contextStarting`, `routeStarted`, `error`)
+   * @param handler - Callback receiving `{ ts, context, details }`
+   * @returns Unsubscribe function (call to remove the handler)
+   *
+   * @example
+   * ```typescript
+   * const unsubscribe = ctx.on('routeStarted', ({ details }) => {
+   *   console.log('Route started:', details.route.definition.id);
+   * });
+   * // later: unsubscribe();
+   * ```
    */
   on<K extends EventName>(event: K, handler: EventHandler<K>): () => void {
     const set = this.handlers.get(event) ?? new Set();
@@ -208,7 +257,11 @@ export class CraftContext {
   }
 
   /**
-   * Emit an event to registered handlers. Public for internal use by routes/adapters.
+   * Emit an event to registered handlers.
+   *
+   * @param event - Event name
+   * @param details - Event-specific payload (merged into `EventPayload.details`)
+   * @internal Public for use by routes/adapters; prefer subscribing via on()
    */
   emit<K extends EventName>(
     event: K,
@@ -226,7 +279,10 @@ export class CraftContext {
         void (handler as unknown as EventHandler<K>)(payload);
       } catch (err) {
         // Swallow handler errors but log them and emit system error
-        this.logger.warn(err as Error, "Event handler threw");
+        this.logger.warn(
+          { event, err },
+          "Event handler threw. Handler should not throw; errors are emitted as context 'error' event.",
+        );
         if (event !== "error") {
           this.emit("error", { error: err });
         }
@@ -361,13 +417,11 @@ export class CraftContext {
   /**
    * Start all routes registered with this context.
    *
-   * This will:
-   * 1. Run the onStartup handler if defined
-   * 2. Start all routes in parallel
-   * 3. Wait for all routes to complete if they're not indefinite
-   * 4. Automatically stop the context if all routes complete
+   * Emits `contextStarting` and `contextStarted`, then starts all routes in parallel.
+   * If all routes complete (e.g. finite sources), the context automatically stops.
+   * If any route fails to start, the error is logged, emitted as `error`, and rethrown.
    *
-   * @returns A promise that resolves when all routes have started
+   * @returns A promise that resolves when all routes have started (or when context stops)
    * @throws If any route fails to start
    *
    * @example
@@ -381,24 +435,29 @@ export class CraftContext {
    * ```
    */
   async start(): Promise<void> {
-    this.logger.debug("Starting Routecraft context");
+    this.logger.info(
+      { routeCount: this.routes.length },
+      "Starting Routecraft context",
+    );
     this.emit("contextStarting", {});
 
-    this.logger.debug("Starting all routes");
+    this.logger.debug({}, "Starting all routes");
     this.emit("contextStarted", {});
     return Promise.allSettled(
       this.routes.map(async (route) => {
         try {
-          this.logger.debug(`Starting route "${route.definition.id}"`);
+          this.logger.info({ route: route.definition.id }, "Starting route");
           this.emit("routeStarting", { route });
           await route.start();
-          this.logger.debug(`Route "${route.definition.id}" ended.`);
+          this.logger.info({ route: route.definition.id }, "Route stopped");
           return { routeId: route.definition.id, success: true as const };
         } catch (error) {
-          this.logger.error(
-            error,
-            `Failed to start route "${route.definition.id}"`,
-          );
+          const msg = isRouteCraftError(error)
+            ? (error as { meta: { message: string } }).meta.message
+            : error instanceof Error
+              ? error.message
+              : "Route failed to start";
+          this.logger.fatal({ route: route.definition.id, err: error }, msg);
           this.emit("error", { error, route });
           // Abort just this failing route
           const controller = this.controllers.get(route.definition.id);
@@ -411,19 +470,24 @@ export class CraftContext {
         // Check if all routes completed successfully
         const allFulfilled = results.every((r) => r.status === "fulfilled");
         if (allFulfilled) {
-          this.logger.debug("All routes have completed. Stopping context...");
+          this.logger.debug({}, "All routes have completed. Stopping context.");
           return this.stop();
         } else {
-          this.logger.debug(
-            "Some routes ended or failed, but the context remains active.\n" +
-              "Call context.stop() or let other indefinite routes continue.",
+          this.logger.info(
+            {},
+            "Some routes ended or failed; context remains active. Call context.stop() or let other indefinite routes continue.",
           );
           // Do not stop automatically; let other routes run.
           return;
         }
       })
       .catch((error) => {
-        this.logger.error(error, "Context start failed");
+        const msg = isRouteCraftError(error)
+          ? (error as { meta: { message: string } }).meta.message
+          : error instanceof Error
+            ? error.message
+            : "Context start failed";
+        this.logger.fatal({ err: error }, msg);
         this.emit("error", { error });
         throw error;
       });
@@ -436,9 +500,12 @@ export class CraftContext {
    * @returns A promise that resolves when all routes have drained
    */
   async drain(): Promise<void> {
-    this.logger.debug("Draining context: waiting for all route handlers");
+    this.logger.debug(
+      { routeCount: this.routes.length },
+      "Draining context: waiting for all route handlers and tasks",
+    );
     await Promise.all(this.routes.map((r) => r.drain()));
-    this.logger.debug("Context drained");
+    this.logger.debug({}, "Context drained");
   }
 
   /**
@@ -461,21 +528,59 @@ export class CraftContext {
    * ```
    */
   async stop(): Promise<void> {
-    this.logger.debug("Stopping Routecraft context");
+    this.logger.info({}, "Stopping Routecraft context");
     this.emit("contextStopping", { reason: undefined });
 
     // 1. Abort all route controllers (stops sources)
     for (const route of this.routes) {
-      this.logger.debug(`Stopping route "${route.definition.id}"`);
+      this.logger.info({ route: route.definition.id }, "Stopping route");
       const controller = this.controllers.get(route.definition.id);
       controller?.abort("context.stop()");
     }
 
     // 2. Drain all routes (wait for in-flight handlers + their tasks)
-    await Promise.all(this.routes.map((r) => r.drain()));
+    let drainError: unknown;
+    try {
+      await Promise.all(this.routes.map((r) => r.drain()));
+    } catch (err) {
+      drainError = err;
+      this.logger.warn(
+        { err },
+        "Route drain failed during stop(); continuing teardown.",
+      );
+    }
 
-    this.logger.debug("Routecraft context stopped");
+    this.logger.info({}, "Routecraft context stopped");
     this.emit("contextStopped", {});
+
+    // 3. Run plugin teardown (plugins with teardown in reverse order, then registerTeardown callbacks)
+    for (let i = this.plugins.length - 1; i >= 0; i--) {
+      const plugin = this.plugins[i] as CraftPlugin | undefined;
+      if (plugin?.teardown) {
+        try {
+          await Promise.resolve(plugin.teardown(this));
+        } catch (err) {
+          this.logger.warn(
+            { err, pluginIndex: i },
+            "Plugin teardown threw; continuing with remaining teardowns.",
+          );
+        }
+      }
+    }
+    for (const fn of this.teardownCallbacks) {
+      try {
+        await Promise.resolve(fn());
+      } catch (err) {
+        this.logger.warn(
+          { err },
+          "Plugin teardown threw; continuing with remaining teardowns.",
+        );
+      }
+    }
+
+    if (drainError) {
+      throw drainError;
+    }
   }
 }
 

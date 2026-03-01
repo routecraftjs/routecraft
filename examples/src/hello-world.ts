@@ -1,10 +1,10 @@
-import { log, craft, simple, fetch } from "@routecraft/routecraft";
+import { log, craft, simple, http } from "@routecraft/routecraft";
 
 export default craft()
   .id("hello-world")
   .from(simple({ userId: 1 }))
   .enrich(
-    fetch({
+    http<{ userId: number }, { name: string }>({
       method: "GET",
       url: (ex) =>
         `https://jsonplaceholder.typicode.com/users/${ex.body.userId}`,

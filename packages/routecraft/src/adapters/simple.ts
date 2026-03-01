@@ -3,13 +3,18 @@ import { type Exchange, type ExchangeHeaders } from "../exchange";
 import { CraftContext } from "../context";
 
 /**
- * Create a simple adapter that produces static or dynamically generated data.
+ * Creates a source that produces a single value (or one value per call from a function).
+ * Use as the first step in a route with `.from(simple(...))`.
  *
- * This adapter can be used as a source in a route to provide data.
+ * @template T - Body type produced
+ * @param producer - Static value, or function that returns T | Promise<T>
+ * @returns A Source usable with `.from(simple(producer))`
  *
- * @template T The type of data to produce
- * @param producer A static value or function that produces a value
- * @returns A SimpleAdapter instance
+ * @example
+ * ```typescript
+ * .from(simple('hello'))
+ * .from(simple(() => fetch('/api/data').then(r => r.json())))
+ * ```
  */
 export function simple<T = unknown>(
   producer: (() => T | Promise<T>) | T,
@@ -33,40 +38,42 @@ export class SimpleAdapter<T = unknown> implements Source<T> {
     onReady?: () => void,
   ): Promise<void> {
     onReady?.();
-    context.logger.debug("Producing messages");
+    context.logger.debug({ adapter: "simple" }, "Producing messages");
     let result;
     try {
       result = await this.producer();
     } catch (error) {
-      context.logger.error(error, "Failed to produce messages");
+      context.logger.error(
+        { adapter: "simple", err: error },
+        "Producer failed; aborting",
+      );
       abortController.abort();
       throw error;
     }
 
     if (Array.isArray(result)) {
-      context.logger.debug(`Processing array of ${result.length} messages`);
+      context.logger.debug(
+        { adapter: "simple", messageCount: result.length },
+        "Processing array of messages",
+      );
       try {
-        await Promise.all(
-          result.map((item) =>
-            handler(item).catch((error) => {
-              context.logger.error(error, "Failed to process message");
-              throw error;
-            }),
-          ),
-        );
+        await Promise.all(result.map((item) => handler(item)));
       } finally {
-        context.logger.debug("Finished processing array of messages");
+        context.logger.debug(
+          { adapter: "simple" },
+          "Finished processing array of messages",
+        );
         abortController.abort();
       }
     } else {
-      context.logger.debug("Processing single message");
+      context.logger.debug({ adapter: "simple" }, "Processing single message");
       try {
         await handler(result);
-      } catch (error) {
-        context.logger.error(error, "Failed to process message");
-        throw error;
       } finally {
-        context.logger.debug("Finished processing single message");
+        context.logger.debug(
+          { adapter: "simple" },
+          "Finished processing single message",
+        );
         abortController.abort();
       }
     }

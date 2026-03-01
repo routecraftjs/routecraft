@@ -12,13 +12,13 @@ Catalog of adapters and authoring guidance. {% .lead %}
 | [`log`](#log) | Core | Console logging for debugging | `Destination` |
 | [`timer`](#timer) | Core | Scheduled/recurring execution | `Source` |
 | [`direct`](#direct) | Core | Synchronous inter-route communication | `Source`, `Destination` |
-| [`fetch`](#fetch) | Core | HTTP client requests | `Destination` |
+| [`http`](#http-client) | Core | HTTP client requests | `Destination` |
 | [`noop`](#noop) | Core | No-operation placeholder | `Destination` |
 | [`pseudo`](#pseudo) | Core | Typed placeholder for docs/examples | `Source`, `Destination`, `Processor` |
 | [`file`](#file) | File | Read/write text files | `Source`, `Destination` |
 | [`json`](#json) | File | JSON file handling with parsing | `Source`, `Destination` |
 | [`csv`](#csv) | File | CSV file processing | `Source`, `Destination` |
-| [`http`](#http) | HTTP | HTTP server endpoints | `Source` |
+| — | HTTP | HTTP server (inbound) | Planned |
 
 ## Core adapters
 
@@ -408,10 +408,10 @@ const routes = registry ? Array.from(registry.values()) : []
 
 Useful for runtime introspection, documentation generation, and building dynamic routing systems.
 
-### fetch
+### http (client)
 
 ```ts
-fetch<T, R>(options: FetchOptions<T>): FetchAdapter<T, R>
+http<T, R>(options: HttpOptions<T>): HttpAdapter<T, R>
 ```
 
 Make HTTP requests. Returns a `Destination` adapter that works with both `.to()` and `.enrich()`.
@@ -420,20 +420,20 @@ Make HTTP requests. Returns a `Destination` adapter that works with both `.to()`
 
 ```ts
 // Static GET request - result merged into body
-.enrich(fetch({ 
+.enrich(http({ 
   method: 'GET',
   url: 'https://api.example.com/users'
 }))
 
 // Dynamic URL based on exchange data
-.enrich(fetch({ 
+.enrich(http({ 
   method: 'GET',
   url: (exchange) => `https://api.example.com/users/${exchange.body.userId}`
 }))
 
 // Custom aggregator to control merge behavior
 .enrich(
-  fetch({ url: 'https://api.example.com/profile' }),
+  http({ url: 'https://api.example.com/profile' }),
   (original, result) => ({
     ...original,
     body: { ...original.body, profileData: result.body }
@@ -443,23 +443,25 @@ Make HTTP requests. Returns a `Destination` adapter that works with both `.to()`
 
 **With `.to()` (side-effect or body replacement):**
 
+`.to(http(...))` always invokes the `http()` adapter. When the adapter returns an `HttpResult`, `.to()` replaces the exchange body with that result. The first example below is a fire-and-forget pattern in intent only (the code does not read the response), but at runtime the body is still replaced by the `HttpResult`. To merge or preserve the original exchange body, use `.enrich()` with an aggregator instead of `.to(http(...))`.
+
 ```ts
-// Side-effect only - send webhook, ignore response (fetch returns FetchResult but body is replaced)
-.to(fetch({
+// Fire-and-forget intent (code does not read the response); body is still replaced by HttpResult at runtime
+.to(http({
   method: 'POST',
   url: 'https://api.example.com/webhook',
   body: (exchange) => exchange.body
 }))
 
-// When fetch returns a result, .to() replaces the exchange body with that result
-.to(fetch({ 
+// http() returns HttpResult; .to() replaces exchange body with it
+.to(http({ 
   method: 'GET',
   url: 'https://api.example.com/transform' 
 }))
-// Body is now the FetchResult (status, headers, body). Use .enrich() with an aggregator to merge.
+// Body is now the HttpResult (status, headers, body). Use .enrich() with an aggregator to merge or preserve the original body.
 
 // With query parameters
-.enrich(fetch({
+.enrich(http({
   url: 'https://api.example.com/search',
   query: (exchange) => ({ q: exchange.body.searchTerm, limit: 10 })
 }))
@@ -476,7 +478,7 @@ Options:
 | `body` | `unknown \| (exchange) => unknown` | — | No | Request body (JSON serialized when not string/binary) |
 | `throwOnHttpError` | `boolean` | `true` | No | Throw when response is non-2xx |
 
-**Returns:** `FetchResult` object with `status`, `headers`, `body`, and `url`
+**Returns:** `HttpResult` object with `status`, `headers`, `body`, and `url`
 
 ### noop
 

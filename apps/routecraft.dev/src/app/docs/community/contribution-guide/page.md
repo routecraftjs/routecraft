@@ -35,7 +35,7 @@ pnpm typecheck
 pnpm test
 
 # Run example routes
-pnpm craft run ./examples/hello-world.mjs
+pnpm craft run ./examples//dist/hello-world.js
 
 # Run docs site locally
 pnpm docs

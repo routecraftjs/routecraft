@@ -2,7 +2,7 @@ import { describe, test, expect, afterEach, vi } from "vitest";
 import { z } from "zod";
 import { mcp, mcpPlugin } from "../src/index.ts";
 import { testContext, type TestContext } from "@routecraft/testing";
-import { craft, simple, DirectAdapter } from "@routecraft/routecraft";
+import { craft, simple, direct, DirectAdapter } from "@routecraft/routecraft";
 
 describe("mcp() DSL function", () => {
   let t: TestContext;
@@ -12,11 +12,11 @@ describe("mcp() DSL function", () => {
   });
 
   /**
-   * @case mcp() behaves like direct() for producer-consumer flow
-   * @preconditions Two routes: producer sends to mcp endpoint, consumer from same mcp endpoint
+   * @case In-process: producer uses direct(), consumer uses mcp() with description
+   * @preconditions Two routes: producer sends via direct, consumer from mcp with description
    * @expectedResult Message delivered to consumer with same body
    */
-  test("mcp() is an alias for direct()", async () => {
+  test("in-process producer uses direct(), consumer uses mcp() with description", async () => {
     const consumer = vi.fn();
 
     t = await testContext()
@@ -24,7 +24,7 @@ describe("mcp() DSL function", () => {
         craft()
           .id("producer")
           .from(simple({ message: "hello" }))
-          .to(mcp("my-tool")),
+          .to(direct("my-tool")),
         craft()
           .id("consumer")
           .from(mcp("my-tool", { description: "Receive messages" }))
@@ -39,11 +39,11 @@ describe("mcp() DSL function", () => {
   });
 
   /**
-   * @case Defining route has description only; producer sends with mcp(name) no options
-   * @preconditions One route defines mcp with description, other sends to mcp endpoint
+   * @case Defining route has description; producer sends via direct()
+   * @preconditions One route defines mcp with description, other sends via direct to same endpoint
    * @expectedResult Message delivered to defining route
    */
-  test("docs pattern: define mcp with description, producer sends with no options", async () => {
+  test("docs pattern: define mcp with description, producer sends via direct()", async () => {
     const consumer = vi.fn();
 
     t = await testContext()
@@ -55,7 +55,7 @@ describe("mcp() DSL function", () => {
         craft()
           .id("producer")
           .from(simple({ query: "hello" }))
-          .to(mcp("my-tool")),
+          .to(direct("my-tool")),
       ])
       .with({ plugins: [mcpPlugin()] })
       .build();
@@ -82,7 +82,7 @@ describe("mcp() DSL function", () => {
         craft()
           .id("producer")
           .from(simple({ url: "https://example.com" }))
-          .to(mcp("fetch-tool")),
+          .to(direct("fetch-tool")),
         craft()
           .id("consumer")
           .from(
@@ -103,9 +103,9 @@ describe("mcp() DSL function", () => {
   /**
    * @case mcp() with schema rejects invalid body
    * @preconditions Consumer has schema; producer sends invalid body
-   * @expectedResult RC5011 error emitted and error handler called
+   * @expectedResult RC5002 error emitted and error handler called
    */
-  test("mcp() with invalid input throws RC5011", async () => {
+  test("mcp() with invalid input throws RC5002", async () => {
     const schema = z.object({
       url: z.string().url(),
     });
@@ -115,7 +115,7 @@ describe("mcp() DSL function", () => {
         craft()
           .id("producer")
           .from(simple({ url: "not-a-valid-url" }))
-          .to(mcp("fetch-tool")),
+          .to(direct("fetch-tool")),
         craft()
           .id("consumer")
           .from(
@@ -131,7 +131,7 @@ describe("mcp() DSL function", () => {
 
     await t.test();
     expect(t.errors).toHaveLength(1);
-    expect(t.errors[0].rc).toBe("RC5011");
+    expect(t.errors[0].rc).toBe("RC5002");
   });
 
   /**
@@ -166,26 +166,26 @@ describe("mcp() DSL function", () => {
   });
 
   /**
-   * @case mcp() with McpClientOptions returns MCP client adapter for remote server
+   * @case mcp() with McpClientOptions returns McpAdapter (facade) for remote server
    * @preconditions Call mcp({ url, tool })
-   * @expectedResult Returns adapter with adapterId routecraft.adapter.mcp.client and send method
+   * @expectedResult Returns adapter with adapterId routecraft.adapter.mcp and send method
    */
-  test("mcp({ url, tool }) returns MCP client adapter", () => {
+  test("mcp({ url, tool }) returns McpAdapter with send", () => {
     const adapter = mcp({
       url: "http://localhost:3001/mcp",
       tool: "my-remote-tool",
     });
     expect(adapter).toBeDefined();
-    expect(adapter.adapterId).toBe("routecraft.adapter.mcp.client");
+    expect(adapter.adapterId).toBe("routecraft.adapter.mcp");
     expect(typeof adapter.send).toBe("function");
   });
 
   /**
-   * @case mcp() with function endpoint resolves at send time
-   * @preconditions Producer uses mcp((ex) => `handler-${ex.body.type}`); two handler routes
+   * @case direct() with function endpoint resolves at send time
+   * @preconditions Producer uses direct((ex) => `handler-${ex.body.type}`); two handler routes with mcp()
    * @expectedResult Message routed to correct handler by body.type
    */
-  test("mcp() works with dynamic endpoints (destination only)", async () => {
+  test("direct() works with dynamic endpoints (destination only)", async () => {
     const consumerA = vi.fn();
     const consumerB = vi.fn();
 
@@ -194,7 +194,7 @@ describe("mcp() DSL function", () => {
         craft()
           .id("producer")
           .from(simple({ type: "a", data: "test" }))
-          .to(mcp((ex) => `handler-${ex.body.type}`)),
+          .to(direct((ex) => `handler-${ex.body.type}`)),
         craft()
           .id("handler-a")
           .from(mcp("handler-a", { description: "Handler A" }))
@@ -210,5 +210,16 @@ describe("mcp() DSL function", () => {
     await t.test();
     expect(consumerA).toHaveBeenCalledTimes(1);
     expect(consumerB).not.toHaveBeenCalled();
+  });
+
+  /**
+   * @case mcp(endpoint) with no options throws (direct not supported; use direct())
+   * @preconditions Call mcp("endpoint") with no second argument
+   * @expectedResult Throws with message about using direct() for in-process
+   */
+  test("mcp(endpoint) with no options throws", () => {
+    expect(() => mcp("my-tool")).toThrow(
+      /direct\(.*endpoint.*\) for in-process|mcp\(\) with only an endpoint is not supported/,
+    );
   });
 });
