@@ -234,6 +234,9 @@ jobs:
           path: "**/dist"
           key: build-${{ github.sha }}
 
+      - name: Build examples
+        run: pnpm --filter examples run build
+
       - name: Fetch tags
         run: git fetch --force --tags
 

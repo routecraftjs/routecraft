@@ -523,7 +523,7 @@ export class RouteBuilder<Current = unknown> {
    * // Split a string by delimiter (return exchanges)
    * .split<string>((exchange) => exchange.body.split(",").map(body => new DefaultExchange(getExchangeContext(exchange)!, { body, headers: exchange.headers })))
    */
-  split<ItemType = Current extends Array<infer U> ? U : never>(
+  split<ItemType = Current extends Array<infer U> ? U : Current>(
     splitter?:
       | Splitter<Current, ItemType>
       | CallableSplitter<Current, ItemType>,
