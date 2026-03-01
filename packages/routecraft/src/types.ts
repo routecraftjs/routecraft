@@ -88,39 +88,83 @@ export interface ProcessingQueue<T = unknown> {
 // Events API
 
 export type ContextEventName =
-  | "contextStarting"
-  | "contextStarted"
-  | "contextStopping"
-  | "contextStopped";
+  | "context:starting"
+  | "context:started"
+  | "context:stopping"
+  | "context:stopped";
 
 export type RouteEventName =
-  | "routeRegistered"
-  | "routeStarting"
-  | "routeStarted"
-  | "routeStopping"
-  | "routeStopped";
+  | "route:registered"
+  | "route:starting"
+  | "route:started"
+  | "route:stopping"
+  | "route:stopped";
+
+export type ExchangeEventName =
+  | "exchange:started"
+  | "exchange:completed"
+  | "exchange:failed";
+
+export type StepEventName = "step:started" | "step:completed";
 
 export type SystemEventName = "error";
 
-export type EventName = ContextEventName | RouteEventName | SystemEventName;
+export type EventName =
+  | ContextEventName
+  | RouteEventName
+  | ExchangeEventName
+  | StepEventName
+  | SystemEventName;
 
 export type EventDetailsMapping = {
   // Context
-  contextStarting: Record<string, never>;
-  contextStarted: Record<string, never>;
-  contextStopping: { reason?: unknown };
-  contextStopped: Record<string, never>;
+  "context:starting": Record<string, never>;
+  "context:started": Record<string, never>;
+  "context:stopping": { reason?: unknown };
+  "context:stopped": Record<string, never>;
 
   // Route
-  routeRegistered: { route: Route };
-  routeStarting: { route: Route };
-  routeStarted: { route: Route };
-  routeStopping: {
+  "route:registered": { route: Route };
+  "route:starting": { route: Route };
+  "route:started": { route: Route };
+  "route:stopping": {
     route: Route;
     reason?: unknown;
     exchange?: Exchange<unknown>;
   };
-  routeStopped: { route: Route; exchange?: Exchange<unknown> };
+  "route:stopped": { route: Route; exchange?: Exchange<unknown> };
+
+  // Exchange
+  "exchange:started": {
+    routeId: string;
+    correlationId: string;
+  };
+  "exchange:completed": {
+    routeId: string;
+    correlationId: string;
+    duration: number;
+  };
+  "exchange:failed": {
+    routeId: string;
+    correlationId: string;
+    duration: number;
+    error: unknown;
+  };
+
+  // Step
+  "step:started": {
+    routeId: string;
+    correlationId: string;
+    operation: OperationType;
+    adapter?: string;
+  };
+  "step:completed": {
+    routeId: string;
+    correlationId: string;
+    operation: OperationType;
+    adapter?: string;
+    duration: number;
+  };
 
   // System
   error: { error: unknown; route?: Route; exchange?: Exchange<unknown> };
@@ -128,7 +172,7 @@ export type EventDetailsMapping = {
 
 export type EventPayload<K extends EventName> = {
   ts: string;
-  context: CraftContext;
+  contextId: string;
   details: EventDetailsMapping[K];
 };
 

@@ -161,12 +161,12 @@ export class DefaultRoute implements Route {
     // Emit routeStopping/routeStopped when the controller is aborted externally
     this.abortController.signal.addEventListener("abort", (event) => {
       try {
-        this.context.emit("routeStopping", {
+        this.context.emit("route:stopping", {
           route: this,
           reason: (event as unknown as { reason?: unknown })?.reason,
         });
       } finally {
-        this.context.emit("routeStopped", { route: this });
+        this.context.emit("route:stopped", { route: this });
       }
     });
   }
@@ -251,7 +251,7 @@ export class DefaultRoute implements Route {
     const onReady = () => {
       if (!emitted) {
         emitted = true;
-        this.context.emit("routeStarted", { route: this });
+        this.context.emit("route:started", { route: this });
       }
     };
 
@@ -294,8 +294,35 @@ export class DefaultRoute implements Route {
   private handler(exchange: Exchange): Promise<Exchange> {
     exchange.logger.debug({ operation: "from" }, "Processing initial exchange");
 
+    const startTime = Date.now();
+
+    // Emit exchange:started event
+    this.context.emit("exchange:started", {
+      routeId: this.definition.id,
+      correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
+    });
+
     // Run steps (tap adds tasks via route.trackTask)
-    const handlerPromise = this.runSteps(exchange);
+    const handlerPromise = this.runSteps(exchange)
+      .then((result) => {
+        const duration = Date.now() - startTime;
+        this.context.emit("exchange:completed", {
+          routeId: this.definition.id,
+          correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
+          duration,
+        });
+        return result;
+      })
+      .catch((error) => {
+        const duration = Date.now() - startTime;
+        this.context.emit("exchange:failed", {
+          routeId: this.definition.id,
+          correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
+          duration,
+          error,
+        });
+        throw error;
+      });
 
     this.inFlight.add(handlerPromise);
     handlerPromise.finally(() => this.inFlight.delete(handlerPromise));
@@ -338,8 +365,28 @@ export class DefaultRoute implements Route {
         "Processing step",
       );
 
+      const stepStartTime = Date.now();
+
+      // Emit step:started event
+      this.context.emit("step:started", {
+        routeId: this.definition.id,
+        correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
+        operation: step.operation,
+        ...(adapterLabel ? { adapter: adapterLabel } : {}),
+      });
+
       try {
         await step.execute(exchange, remainingSteps, queue);
+
+        // Emit step:completed event
+        const stepDuration = Date.now() - stepStartTime;
+        this.context.emit("step:completed", {
+          routeId: this.definition.id,
+          correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
+          operation: step.operation,
+          ...(adapterLabel ? { adapter: adapterLabel } : {}),
+          duration: stepDuration,
+        });
       } catch (error) {
         const err = this.processError(step.operation, error);
         exchange.logger.error(
