@@ -86,9 +86,8 @@ describe("File Adapter", () => {
      * @case Throws error when file not found
      * @preconditions File path points to non-existent file
      * @expectedResult Error with "file not found" message
-     * @skip Framework uses event-based error handling - test kept for documentation
      */
-    test.skip("throws error when file not found", async () => {
+    test("throws error when file not found", async () => {
       const filePath = path.join(tmpDir, "nonexistent.txt");
 
       t = await testContext()
@@ -100,7 +99,14 @@ describe("File Adapter", () => {
         )
         .build();
 
-      await expect(t.ctx.start()).rejects.toThrow(/file not found/);
+      const errSpy = vi.fn();
+      t.ctx.on("error", errSpy);
+      await t.ctx.start();
+      await new Promise((r) => setTimeout(r, 0));
+      expect(errSpy).toHaveBeenCalled();
+      const errorPayload = errSpy.mock.calls[0][0];
+      const error = errorPayload.details.error;
+      expect(error.message).toMatch(/file not found/);
     });
 
     /**
@@ -231,9 +237,8 @@ describe("File Adapter", () => {
      * @case Throws error when parent directory doesn't exist and createDirs is false
      * @preconditions Parent directory doesn't exist, createDirs is false
      * @expectedResult Error with "directory not found" message
-     * @skip Framework uses event-based error handling - test kept for documentation
      */
-    test.skip("throws error when directory doesn't exist and createDirs is false", async () => {
+    test("throws error when directory doesn't exist and createDirs is false", async () => {
       const filePath = path.join(tmpDir, "nonexistent", "output.txt");
       const content = "Test";
 
@@ -246,7 +251,14 @@ describe("File Adapter", () => {
         )
         .build();
 
-      await expect(t.ctx.start()).rejects.toThrow(
+      const errSpy = vi.fn();
+      t.ctx.on("error", errSpy);
+      await t.ctx.start();
+      await new Promise((r) => setTimeout(r, 0));
+      expect(errSpy).toHaveBeenCalled();
+      const errorPayload = errSpy.mock.calls[0][0];
+      const error = errorPayload.details.error;
+      expect(error.message).toMatch(
         /directory not found.*use createDirs: true/,
       );
     });

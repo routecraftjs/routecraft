@@ -308,9 +308,8 @@ describe("JSON Adapter", () => {
      * @case Invalid JSON in file throws error
      * @preconditions File contains invalid JSON
      * @expectedResult Error thrown with "failed to parse" message
-     * @skip Framework uses event-based error handling - test kept for documentation
      */
-    test.skip("invalid JSON file throws error", async () => {
+    test("invalid JSON file throws error", async () => {
       await fs.writeFile(testFilePath, "{ invalid json }");
 
       const destSpy = vi.fn();
@@ -324,16 +323,22 @@ describe("JSON Adapter", () => {
         )
         .build();
 
-      await expect(t.ctx.start()).rejects.toThrow(/failed to parse JSON/);
+      const errSpy = vi.fn();
+      t.ctx.on("error", errSpy);
+      await t.ctx.start();
+      await new Promise((r) => setTimeout(r, 0));
+      expect(errSpy).toHaveBeenCalled();
+      const errorPayload = errSpy.mock.calls[0][0];
+      const error = errorPayload.details.error;
+      expect(error.message).toMatch(/failed to parse JSON/);
     });
 
     /**
      * @case Missing file throws error
      * @preconditions File does not exist
      * @expectedResult Error thrown with "file not found" message
-     * @skip Framework uses event-based error handling - test kept for documentation
      */
-    test.skip("missing file throws error", async () => {
+    test("missing file throws error", async () => {
       const nonExistentPath = path.join(tempDir, "nonexistent.json");
 
       const destSpy = vi.fn();
@@ -347,7 +352,14 @@ describe("JSON Adapter", () => {
         )
         .build();
 
-      await expect(t.ctx.start()).rejects.toThrow(/file not found/);
+      const errSpy = vi.fn();
+      t.ctx.on("error", errSpy);
+      await t.ctx.start();
+      await new Promise((r) => setTimeout(r, 0));
+      expect(errSpy).toHaveBeenCalled();
+      const errorPayload = errSpy.mock.calls[0][0];
+      const error = errorPayload.details.error;
+      expect(error.message).toMatch(/file not found/);
     });
   });
 
