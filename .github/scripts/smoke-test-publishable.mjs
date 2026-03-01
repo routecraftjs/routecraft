@@ -10,7 +10,14 @@
  *   version: optional; defaults to packages/routecraft/package.json version
  */
 
-import { mkdirSync, cpSync, readdirSync, existsSync, readFileSync } from "fs";
+import {
+  mkdirSync,
+  cpSync,
+  readdirSync,
+  existsSync,
+  readFileSync,
+  writeFileSync,
+} from "fs";
 import { join, resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { execSync } from "child_process";
@@ -69,6 +76,10 @@ if (tarballs.length !== expectedCount) {
 // 2. Temp dir: npm init + install from tarballs only
 mkdirSync(smokeDir, { recursive: true });
 run("npm init -y", { cwd: smokeDir });
+const smokePkgPath = join(smokeDir, "package.json");
+const smokePkg = JSON.parse(readFileSync(smokePkgPath, "utf8"));
+smokePkg.type = "module";
+writeFileSync(smokePkgPath, JSON.stringify(smokePkg, null, 2) + "\n");
 
 const installPaths = tarballs.map((t) => join(packDir, t)).join(" ");
 run(`npm install ${installPaths}`, { cwd: smokeDir });
