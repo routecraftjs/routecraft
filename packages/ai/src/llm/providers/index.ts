@@ -11,6 +11,17 @@ function throwProviderInstallError(pkg: string, provider: string): never {
   );
 }
 
+function isModuleNotFoundFor(error: unknown, pkg: string): boolean {
+  if (!(error instanceof Error)) return false;
+  const msg = error.message ?? "";
+  return (
+    (msg.includes("ERR_MODULE_NOT_FOUND") ||
+      msg.includes("Cannot find module") ||
+      msg.includes("Cannot find package")) &&
+    msg.includes(pkg)
+  );
+}
+
 /** Provider-level defaults so users can register models with minimal config (e.g. { provider: "ollama" }). */
 const PROVIDER_DEFAULTS = {
   ollama: {
@@ -169,8 +180,11 @@ async function callOpenAI(
   try {
     const mod = await import("@ai-sdk/openai");
     createOpenAI = mod.createOpenAI as typeof createOpenAI;
-  } catch {
-    throwProviderInstallError("@ai-sdk/openai", "OpenAI");
+  } catch (error) {
+    if (isModuleNotFoundFor(error, "@ai-sdk/openai")) {
+      throwProviderInstallError("@ai-sdk/openai", "OpenAI");
+    }
+    throw error;
   }
   const { generateText } = await import("ai");
   const openaiSettings: { apiKey: string; baseURL?: string } = {
@@ -216,8 +230,11 @@ async function callAnthropic(
   try {
     const mod = await import("@ai-sdk/anthropic");
     createAnthropic = mod.createAnthropic as typeof createAnthropic;
-  } catch {
-    throwProviderInstallError("@ai-sdk/anthropic", "Anthropic");
+  } catch (error) {
+    if (isModuleNotFoundFor(error, "@ai-sdk/anthropic")) {
+      throwProviderInstallError("@ai-sdk/anthropic", "Anthropic");
+    }
+    throw error;
   }
   const { generateText } = await import("ai");
   const anthropic = createAnthropic({ apiKey: config.apiKey });
@@ -264,8 +281,11 @@ async function callGemini(
     const mod = await import("@ai-sdk/google");
     createGoogleGenerativeAI =
       mod.createGoogleGenerativeAI as typeof createGoogleGenerativeAI;
-  } catch {
-    throwProviderInstallError("@ai-sdk/google", "Gemini");
+  } catch (error) {
+    if (isModuleNotFoundFor(error, "@ai-sdk/google")) {
+      throwProviderInstallError("@ai-sdk/google", "Gemini");
+    }
+    throw error;
   }
   const { generateText } = await import("ai");
   const google = createGoogleGenerativeAI({ apiKey: config.apiKey });
@@ -311,8 +331,11 @@ async function callOpenRouter(
   try {
     const mod = await import("@openrouter/ai-sdk-provider");
     createOpenRouter = mod.createOpenRouter as typeof createOpenRouter;
-  } catch {
-    throwProviderInstallError("@openrouter/ai-sdk-provider", "OpenRouter");
+  } catch (error) {
+    if (isModuleNotFoundFor(error, "@openrouter/ai-sdk-provider")) {
+      throwProviderInstallError("@openrouter/ai-sdk-provider", "OpenRouter");
+    }
+    throw error;
   }
   const { generateText } = await import("ai");
   const openrouter = createOpenRouter({ apiKey: config.apiKey });
@@ -358,8 +381,11 @@ async function callOllama(
   try {
     const mod = await import("ollama-ai-provider-v2");
     createOllama = mod.createOllama as typeof createOllama;
-  } catch {
-    throwProviderInstallError("ollama-ai-provider-v2", "Ollama");
+  } catch (error) {
+    if (isModuleNotFoundFor(error, "ollama-ai-provider-v2")) {
+      throwProviderInstallError("ollama-ai-provider-v2", "Ollama");
+    }
+    throw error;
   }
   const { generateText } = await import("ai");
   const ollama = createOllama({

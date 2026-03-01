@@ -538,9 +538,9 @@ export class RouteBuilder<Current = unknown> {
       ) => {
         const context = getExchangeContext(exchange);
         if (!context) {
-          throw new Error(
-            "Exchange has no context — cannot execute default split",
-          );
+          throw rcError("RC5001", undefined, {
+            message: "Exchange has no context — cannot execute default split",
+          });
         }
         const body = exchange.body;
         if (Array.isArray(body)) {

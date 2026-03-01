@@ -53,6 +53,17 @@ function resolveHuggingFaceModel(modelName: string): string {
 const HUGGINGFACE_INSTALL =
   'The Hugging Face embedding provider requires "@huggingface/transformers". Install it with: pnpm add @huggingface/transformers';
 
+function isModuleNotFoundFor(error: unknown, pkg: string): boolean {
+  if (!(error instanceof Error)) return false;
+  const msg = error.message ?? "";
+  return (
+    (msg.includes("ERR_MODULE_NOT_FOUND") ||
+      msg.includes("Cannot find module") ||
+      msg.includes("Cannot find package")) &&
+    msg.includes(pkg)
+  );
+}
+
 async function getHuggingFacePipeline(modelName: string): Promise<PipelineFn> {
   const resolved = resolveHuggingFaceModel(modelName);
   const cached = pipelineCache.get(resolved);
@@ -66,8 +77,11 @@ async function getHuggingFacePipeline(modelName: string): Promise<PipelineFn> {
   try {
     const mod = await import("@huggingface/transformers");
     pipelineFn = mod.pipeline as typeof pipelineFn;
-  } catch {
-    throw new Error(HUGGINGFACE_INSTALL);
+  } catch (error) {
+    if (isModuleNotFoundFor(error, "@huggingface/transformers")) {
+      throw new Error(HUGGINGFACE_INSTALL);
+    }
+    throw error;
   }
   const pipe = (await pipelineFn("feature-extraction", resolved, {
     dtype: "fp32",
