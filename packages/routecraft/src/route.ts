@@ -303,26 +303,15 @@ export class DefaultRoute implements Route {
     });
 
     // Run steps (tap adds tasks via route.trackTask)
-    const handlerPromise = this.runSteps(exchange)
-      .then((result) => {
-        const duration = Date.now() - startTime;
-        this.context.emit("exchange:completed", {
-          routeId: this.definition.id,
-          correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
-          duration,
-        });
-        return result;
-      })
-      .catch((error) => {
-        const duration = Date.now() - startTime;
-        this.context.emit("exchange:failed", {
-          routeId: this.definition.id,
-          correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
-          duration,
-          error,
-        });
-        throw error;
+    const handlerPromise = this.runSteps(exchange, startTime).then((result) => {
+      const duration = Date.now() - startTime;
+      this.context.emit("exchange:completed", {
+        routeId: this.definition.id,
+        correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
+        duration,
       });
+      return result;
+    });
 
     this.inFlight.add(handlerPromise);
     handlerPromise.finally(() => this.inFlight.delete(handlerPromise));
@@ -334,10 +323,14 @@ export class DefaultRoute implements Route {
    * Run the step loop for an exchange.
    *
    * @param exchange The initial exchange to process
+   * @param startTime The timestamp when exchange processing started (for duration calculation)
    * @returns The last processed exchange
    * @private
    */
-  private async runSteps(exchange: Exchange): Promise<Exchange> {
+  private async runSteps(
+    exchange: Exchange,
+    startTime: number,
+  ): Promise<Exchange> {
     const queue: { exchange: Exchange; steps: Step<Adapter>[] }[] = [
       { exchange: exchange, steps: [...this.definition.steps] },
     ];
@@ -402,6 +395,16 @@ export class DefaultRoute implements Route {
           route: this,
           exchange: exchange,
         });
+
+        // Emit exchange:failed event with duration
+        const duration = Date.now() - startTime;
+        this.context.emit("exchange:failed", {
+          routeId: this.definition.id,
+          correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
+          duration,
+          error: err,
+        });
+
         throw err;
       }
     }

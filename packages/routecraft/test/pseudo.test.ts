@@ -197,7 +197,7 @@ describe("Pseudo adapter", () => {
         .to(simple());
       const started = vi.fn();
       const t = await testContext()
-        .on("routeStarted", started)
+        .on("route:started", started)
         .routes(route)
         .build();
       await t.ctx.start();

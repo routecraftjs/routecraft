@@ -71,7 +71,7 @@ describe("Plugin System", () => {
 
     const plugin: CraftPlugin = {
       apply(ctx: CraftContext) {
-        ctx.on("contextStarted", eventMock);
+        ctx.on("context:started", eventMock);
       },
     };
 

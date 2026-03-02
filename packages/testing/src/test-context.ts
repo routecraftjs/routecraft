@@ -94,7 +94,7 @@ export class TestContext {
               reject(new Error("Timeout waiting for routes to start"));
             }, this.routesReadyTimeoutMs);
 
-            const offRouteStarted = ctx.on("routeStarted", () => {
+            const offRouteStarted = ctx.on("route:started", () => {
               if (settled) return;
               ready++;
               if (ready >= total) {
@@ -141,7 +141,7 @@ export class TestContext {
                 reject(new Error("Timeout waiting for routes to start"));
               }, this.routesReadyTimeoutMs);
 
-            const offRouteStarted = ctx.on("routeStarted", () => {
+            const offRouteStarted = ctx.on("route:started", () => {
               if (settled) return;
               ready++;
               if (ready >= total) {

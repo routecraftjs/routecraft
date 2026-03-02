@@ -135,6 +135,7 @@ export { html } from "./adapters/html.ts";
 export { json } from "./adapters/json.ts";
 export { csv } from "./adapters/csv.ts";
 export { group } from "./adapters/group.ts";
+export { event } from "./adapters/sources/event/index.ts";
 
 export { SimpleSourceAdapter } from "./adapters/simple/index.ts";
 export {
@@ -204,3 +205,8 @@ export {
   type CosineOptions,
   type Comparator,
 } from "./adapters/cosine.ts";
+export {
+  EventSourceAdapter,
+  type EventFilter,
+  type EventSourceOptions,
+} from "./adapters/sources/event/index.ts";

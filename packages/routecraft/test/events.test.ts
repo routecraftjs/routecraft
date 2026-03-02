@@ -24,32 +24,32 @@ describe("Events API", () => {
       .from(simple([1, 2, 3]))
       .to(log());
     t = await testContext()
-      .on("contextStarting", () => {
-        events.push("contextStarting");
+      .on("context:starting", () => {
+        events.push("context:starting");
       })
-      .on("contextStarted", () => {
-        events.push("contextStarted");
+      .on("context:started", () => {
+        events.push("context:started");
       })
       // routeRegistered occurs during registerRoutes() in build(); test separately below
-      .on("routeStarting", ({ details: { route } }) => {
+      .on("route:starting", ({ details: { route } }) => {
         if (route.definition?.id ?? "evt-route") {
-          events.push("routeStarting");
+          events.push("route:starting");
         }
       })
-      .on("routeStarted", () => {
-        events.push("routeStarted");
+      .on("route:started", () => {
+        events.push("route:started");
       })
-      .on("routeStopping", () => {
-        events.push("routeStopping");
+      .on("route:stopping", () => {
+        events.push("route:stopping");
       })
-      .on("routeStopped", () => {
-        events.push("routeStopped");
+      .on("route:stopped", () => {
+        events.push("route:stopped");
       })
-      .on("contextStopping", () => {
-        events.push("contextStopping");
+      .on("context:stopping", () => {
+        events.push("context:stopping");
       })
-      .on("contextStopped", () => {
-        events.push("contextStopped");
+      .on("context:stopped", () => {
+        events.push("context:stopped");
       })
       .routes(route)
       .build();
@@ -60,14 +60,14 @@ describe("Events API", () => {
     await new Promise((r) => setTimeout(r, 0));
 
     // Since the simple source completes immediately, the context should auto-stop
-    expect(events).toContain("contextStarting");
-    expect(events).toContain("contextStarted");
-    expect(events).toContain("routeStarting");
-    expect(events).toContain("routeStarted");
-    expect(events).toContain("routeStopping");
-    expect(events).toContain("routeStopped");
-    expect(events).toContain("contextStopping");
-    expect(events).toContain("contextStopped");
+    expect(events).toContain("context:starting");
+    expect(events).toContain("context:started");
+    expect(events).toContain("route:starting");
+    expect(events).toContain("route:started");
+    expect(events).toContain("route:stopping");
+    expect(events).toContain("route:stopped");
+    expect(events).toContain("context:stopping");
+    expect(events).toContain("context:stopped");
   });
 
   /**
@@ -78,8 +78,8 @@ describe("Events API", () => {
   test("emits routeRegistered when registering after build", async () => {
     const events: string[] = [];
     t = await testContext()
-      .on("routeRegistered", () => {
-        events.push("routeRegistered");
+      .on("route:registered", () => {
+        events.push("route:registered");
       })
       .build();
     const def = craft()
@@ -88,7 +88,7 @@ describe("Events API", () => {
       .to(log())
       .build()[0];
     t.ctx.registerRoutes(def);
-    expect(events).toContain("routeRegistered");
+    expect(events).toContain("route:registered");
   });
 
   /**
@@ -101,7 +101,7 @@ describe("Events API", () => {
 
     // 1) Startup failure (raise in contextStarting handler)
     const failingStartup = await testContext()
-      .on("contextStarting", () => {
+      .on("context:starting", () => {
         throw new Error("startup fail");
       })
       .on("error", ({ details: { error } }) => {
