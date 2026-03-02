@@ -405,7 +405,8 @@ export class DefaultRoute implements Route {
           error: err,
         });
 
-        throw err;
+        // Don't re-throw - error is fully handled via events and logging
+        // Re-throwing would create unhandled rejections
       }
     }
     return lastProcessedExchange;
