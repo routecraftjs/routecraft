@@ -141,7 +141,27 @@ export class BatchConsumer implements Consumer<BatchOptions> {
       return promise;
     });
 
-    // Note: batch:stopped would be emitted when the route stops, but that would require
-    // tracking consumer lifecycle. For now, we emit started and flushed events only.
+    // Listen for route stopping to emit batch:stopped
+    const unsubscribe = this.context.on("route:stopping", ({ details }) => {
+      if (details.route.definition.id === this.definition.id) {
+        // Clear any pending timer
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+
+        // Emit batch:stopped event
+        this.context.emit(
+          `route:${this.definition.id}:operation:batch:stopped` as const,
+          {
+            routeId: this.definition.id,
+            batchId,
+          },
+        );
+
+        // Unsubscribe after emitting
+        unsubscribe();
+      }
+    });
   }
 }

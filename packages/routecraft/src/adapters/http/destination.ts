@@ -36,7 +36,10 @@ export class HttpDestinationAdapter<
     // Add content length if available from headers
     const contentLength = httpResult.headers?.["content-length"];
     if (contentLength !== undefined) {
-      metadata["contentLength"] = parseInt(contentLength, 10);
+      const parsed = parseInt(contentLength, 10);
+      if (!isNaN(parsed)) {
+        metadata["contentLength"] = parsed;
+      }
     }
 
     return metadata;

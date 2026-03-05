@@ -272,12 +272,17 @@ export class CraftContext {
   /**
    * Subscribe to lifecycle and system events.
    *
-   * Supports wildcard patterns:
-   * - `"*"` - all events
-   * - `"route:*"` - all route events
-   * - `"exchange:*"` - all exchange events
+   * **Wildcard Patterns:**
    *
-   * @param event - Event name or wildcard pattern (e.g. `route:started`, `route:*`, `*`)
+   * - `*` (single-level wildcard): Matches exactly one segment
+   *   - Pattern and event must have the same number of colon-separated segments
+   *   - Example: `route:*` matches `route:started` (2 segments), but NOT `route:payment:exchange:started` (4 segments)
+   *
+   * - `**` (globstar wildcard): Matches zero or more segments at any level
+   *   - Example: `route:**` matches `route:started`, `route:payment:exchange:started`, etc.
+   *   - Example: `route:*:operation:**` matches all operations with any adapter depth
+   *
+   * @param event - Event name or wildcard pattern (e.g. `route:started`, `route:*`, `route:**`)
    * @param handler - Callback receiving `{ ts, contextId, details }`
    * @returns Unsubscribe function (call to remove the handler)
    *
@@ -288,9 +293,19 @@ export class CraftContext {
    *   console.log('Route started:', details.route.definition.id);
    * });
    *
-   * // Subscribe to all route events
-   * const unsubAll = ctx.on('route:*', ({ details }) => {
+   * // Subscribe to all static route events (2 segments)
+   * ctx.on('route:*', ({ details }) => {
    *   console.log('Route event:', details);
+   * });
+   *
+   * // Subscribe to all route events at any depth (globstar)
+   * ctx.on('route:**', ({ details }) => {
+   *   console.log('Route event at any depth:', details);
+   * });
+   *
+   * // Subscribe to all exchange events (4 segments)
+   * ctx.on('route:*:exchange:*', ({ details }) => {
+   *   console.log('Exchange event:', details);
    * });
    *
    * // later: unsubscribe();
@@ -443,6 +458,11 @@ export class CraftContext {
     // Exact match (no wildcards)
     if (!pattern.includes("*")) return event === pattern;
 
+    // Check for ** globstar wildcard (multi-level matching)
+    if (pattern.includes("**")) {
+      return this.matchesGlobstarPattern(event, pattern);
+    }
+
     // Tokenize both event and pattern on ":"
     const eventSegments = event.split(":");
     const patternSegments = pattern.split(":");
@@ -463,6 +483,66 @@ export class CraftContext {
     }
 
     return true;
+  }
+
+  /**
+   * Match event against pattern with ** globstar wildcards.
+   * ** matches zero or more segments at any level.
+   *
+   * Examples:
+   * - "route:**" matches "route:started", "route:payment:exchange:started", etc.
+   * - "route:*:operation:**" matches "route:api:operation:from:mcp:started", etc.
+   */
+  private matchesGlobstarPattern(event: string, pattern: string): boolean {
+    const eventSegments = event.split(":");
+    const patternSegments = pattern.split(":");
+
+    let eventIdx = 0;
+    let patternIdx = 0;
+
+    while (patternIdx < patternSegments.length) {
+      const patternSeg = patternSegments[patternIdx];
+
+      if (patternSeg === "**") {
+        // ** is the last segment - matches everything remaining
+        if (patternIdx === patternSegments.length - 1) {
+          return true;
+        }
+
+        // Try to match remaining pattern at each possible position in event
+        const remainingPattern = patternSegments
+          .slice(patternIdx + 1)
+          .join(":");
+
+        // Try matching from current position onwards
+        for (let i = eventIdx; i <= eventSegments.length; i++) {
+          const remainingEvent = eventSegments.slice(i).join(":");
+          if (this.matchesPattern(remainingEvent, remainingPattern)) {
+            return true;
+          }
+        }
+
+        return false;
+      } else if (patternSeg === "*") {
+        // Single-level wildcard - must have a segment to match
+        if (eventIdx >= eventSegments.length) return false;
+        eventIdx++;
+        patternIdx++;
+      } else {
+        // Exact match required
+        if (
+          eventIdx >= eventSegments.length ||
+          eventSegments[eventIdx] !== patternSeg
+        ) {
+          return false;
+        }
+        eventIdx++;
+        patternIdx++;
+      }
+    }
+
+    // All pattern segments matched - event must be fully consumed too
+    return eventIdx === eventSegments.length;
   }
 
   // onStartup/onShutdown removed in favor of event listeners
@@ -595,6 +675,16 @@ export class CraftContext {
    * Emits `context:starting` and `context:started`, then starts all routes in parallel.
    * If all routes complete (e.g. finite sources), the context automatically stops.
    * If any route fails to start, the error is logged, emitted as `error`, and rethrown.
+   *
+   * **Context Lifecycle Events:**
+   * - `context:starting` - Context initialization begins
+   * - `context:started` - Context initialized (routes may not be started yet)
+   * - `context:stopping` - Context shutdown begins
+   * - `context:stopped` - Context shutdown complete
+   *
+   * **Note:** `context:started` fires after context initialization but BEFORE
+   * individual routes start. To track route readiness, subscribe to
+   * `route:*:started` events instead.
    *
    * @returns A promise that resolves when all routes have started (or when context stops)
    * @throws If any route fails to start

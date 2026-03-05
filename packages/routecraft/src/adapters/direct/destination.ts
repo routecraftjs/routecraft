@@ -61,7 +61,8 @@ export class DirectDestinationAdapter<T = unknown>
    * Extract metadata from Direct adapter execution.
    * Includes the resolved endpoint.
    */
-  getMetadata(): Record<string, unknown> {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  getMetadata(_result?: unknown): Record<string, unknown> {
     return {
       endpoint: this.lastResolvedEndpoint ?? "unknown",
     };
