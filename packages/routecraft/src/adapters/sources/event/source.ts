@@ -89,8 +89,15 @@ export class EventSourceAdapter implements Source<EventPayload<EventName>> {
 
     // Keep the subscription alive until aborted
     return new Promise<void>((resolve) => {
-      abortController.signal.addEventListener("abort", () => {
+      // Check if already aborted
+      if (abortController.signal.aborted) {
         resolve();
+        return;
+      }
+
+      // Add listener with { once: true } to prevent leaks
+      abortController.signal.addEventListener("abort", () => resolve(), {
+        once: true,
       });
     });
   }

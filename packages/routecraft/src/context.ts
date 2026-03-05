@@ -684,7 +684,8 @@ export class CraftContext {
    *
    * **Note:** `context:started` fires after context initialization but BEFORE
    * individual routes start. To track route readiness, subscribe to
-   * `route:*:started` events instead.
+   * `route:started` or `route:stopping` events instead.
+   * To filter by specific route, inspect details.route.definition.id in the handler.
    *
    * @returns A promise that resolves when all routes have started (or when context stops)
    * @throws If any route fails to start

@@ -33,7 +33,7 @@ describe("Events API", () => {
       })
       // routeRegistered occurs during registerRoutes() in build(); test separately below
       .on("route:starting", ({ details: { route } }) => {
-        if (route.definition?.id ?? "evt-route") {
+        if (route.definition?.id === "evt-route") {
           events.push("route:starting");
         }
       })

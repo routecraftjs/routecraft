@@ -150,6 +150,12 @@ export class BatchConsumer implements Consumer<BatchOptions> {
           timer = null;
         }
 
+        // Reject all pending promises to prevent memory leaks
+        for (const { reject } of resolvers) {
+          reject(new Error("BatchConsumerStopped: Route is shutting down"));
+        }
+        resolvers.length = 0;
+
         // Emit batch:stopped event
         this.context.emit(
           `route:${this.definition.id}:operation:batch:stopped` as const,
