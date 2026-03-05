@@ -48,7 +48,7 @@ route:registered                                   # Route lifecycle
 route:payment:exchange:started                     # Exchange lifecycle
 route:payment:operation:from:mcp:started          # Adapter operations
 route:payment:operation:process:started           # Processing operations
-plugin:myPlugin:lifecycle:started                 # Plugin lifecycle
+plugin:myPlugin:started                           # Plugin lifecycle
 ```
 
 ### Wildcard Subscriptions
@@ -161,7 +161,7 @@ ctx.on('route:*:operation:error:recovered', ({ details }) => {
 Plugins automatically emit lifecycle events:
 
 ```typescript
-ctx.on('plugin:*:lifecycle:started', ({ details }) => {
+ctx.on('plugin:*:started', ({ details }) => {
   console.log('Plugin started:', details.pluginId);
 });
 ```
@@ -188,18 +188,18 @@ Use the event adapter to create routes triggered by events:
 ```typescript
 import { craft, event, log } from '@routecraft/routecraft';
 
-// Route triggered by LLM events
+// Example: Monitor route lifecycle events
 craft()
-  .from(event('route:*:operation:to:llm:stopped'))
+  .from(event('route:*:started'))
   .process((ex) => {
-    const { model, inputTokens, outputTokens } = ex.body.details.metadata;
-    return {
-      model,
-      totalTokens: inputTokens + outputTokens,
-      cost: calculateCost(model, inputTokens, outputTokens)
-    };
+    console.log('Route started:', ex.body.details.routeId);
+    return ex;
   })
   .to(log());
+
+// ⚠️ Note: The event source adapter currently filters out :operation: and :exchange:
+// events to prevent infinite loops. To monitor operation events, use a different
+// monitoring approach (e.g., plugin-based observers or external event bus).
 ```
 
 ### Complete Event Hierarchy
@@ -245,11 +245,11 @@ route:<routeId>:operation:error:invoked               # Error handling
 route:<routeId>:operation:error:recovered
 route:<routeId>:operation:error:failed
 
-plugin:<pluginId>:lifecycle:registered                # Plugin lifecycle
-plugin:<pluginId>:lifecycle:starting
-plugin:<pluginId>:lifecycle:started
-plugin:<pluginId>:lifecycle:stopping
-plugin:<pluginId>:lifecycle:stopped
+plugin:<pluginId>:registered                          # Plugin lifecycle
+plugin:<pluginId>:starting
+plugin:<pluginId>:started
+plugin:<pluginId>:stopping
+plugin:<pluginId>:stopped
 
 error                                                  # System errors
 ```
