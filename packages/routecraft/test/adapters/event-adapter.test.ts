@@ -116,16 +116,25 @@ describe("Event Source Adapter", () => {
   });
 
   /**
-   * @case Event adapter supports '*' wildcard to match all events (excluding exchange/step events to prevent loops)
-   * @preconditions Route using event('*') as source
-   * @expectedResult Handler receives context and route events (not exchange/step to avoid feedback loops)
+   * @case Event adapter supports multiple patterns to match lifecycle events
+   * @preconditions Route using event(['context:*', 'route:*']) to avoid circular routes
+   * @expectedResult Handler receives context and route lifecycle events safely
    */
-  test("supports * wildcard for all events", async () => {
+  test("supports multiple patterns for lifecycle events", async () => {
     const events: any[] = [];
 
     const eventRoute = craft()
-      .id("all-events-listener")
-      .from(event("*"))
+      .id("lifecycle-listener")
+      .from(
+        event([
+          "context:*",
+          "route:registered",
+          "route:starting",
+          "route:started",
+          "route:stopping",
+          "route:stopped",
+        ]),
+      )
       .to((ex) => {
         events.push(ex.body);
       });
@@ -142,7 +151,7 @@ describe("Event Source Adapter", () => {
     await t.stop();
     await started;
 
-    // Should have received context + route events (exchange/step events are filtered to prevent loops)
+    // Should have received context + route lifecycle events (no operation/exchange events to prevent loops)
     expect(events.length).toBeGreaterThanOrEqual(2);
   });
 

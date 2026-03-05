@@ -7,6 +7,40 @@ import type { EventFilter } from "./types";
 /**
  * Event source adapter that produces exchanges from framework events.
  * Subscribes to context events and emits them as exchanges.
+ *
+ * ⚠️ **Circular Route Warning:**
+ * Be careful when subscribing to `:operation:` or `:exchange:` events.
+ * If your handler emits new operation events (e.g., by calling adapters),
+ * you can create infinite loops.
+ *
+ * **Unsafe Pattern (Infinite Loop):**
+ * ```typescript
+ * // ❌ DON'T: This creates an infinite loop
+ * craft()
+ *   .from(event('route:*:operation:**'))
+ *   .to(http(...))  // Emits route:X:operation:to:http:started → loop!
+ * ```
+ *
+ * **Safe Patterns:**
+ * ```typescript
+ * // ✅ SAFE: Use non-operation destinations
+ * craft()
+ *   .from(event('route:*:operation:**'))
+ *   .to(log())  // log() doesn't emit operation events
+ *
+ * // ✅ SAFE: Filter to avoid self-reference
+ * craft()
+ *   .from(event('route:*:operation:to:llm:*'))
+ *   .filter((ex) => ex.body.details.routeId !== 'monitoring-route')
+ *   .to(metrics())
+ *
+ * // ✅ SAFE: Subscribe to non-operation events only
+ * craft()
+ *   .from(event('route:*:started'))
+ *   .to(http(...))  // Route lifecycle events don't cause loops
+ * ```
+ *
+ * Use operation events for observability routes that don't emit more operations.
  */
 export class EventSourceAdapter implements Source<EventPayload<EventName>> {
   readonly adapterId = "routecraft.adapter.event";
@@ -48,20 +82,9 @@ export class EventSourceAdapter implements Source<EventPayload<EventName>> {
               initialized = true;
             }
 
-            // Note: Subscriptions are still registered for exchange/operation events,
-            // but handlers are filtered at invocation time to prevent infinite loops.
-            // This approach keeps the subscription logic simple at the cost of some
-            // unused subscriptions.
-
-            // Prevent infinite loops: don't process events from exchange/operation lifecycle
-            // These are generated when processing the event, causing feedback loops
-            const isExchangeOrOperationEvent =
-              eventName.includes(":exchange:") ||
-              eventName.includes(":operation:");
-            if (isExchangeOrOperationEvent) {
-              // Skip exchange and operation events to prevent infinite loops
-              return;
-            }
+            // Note: All event patterns (including operation/exchange patterns) are now
+            // passed directly to context.on() for matching. Be careful to avoid circular
+            // routes where operation events trigger handlers that emit more operation events.
 
             try {
               await handler(payload);
@@ -103,61 +126,20 @@ export class EventSourceAdapter implements Source<EventPayload<EventName>> {
   }
 
   /**
-   * Resolve event names from filters, expanding wildcards.
+   * Resolve event names from filters.
+   *
+   * Since context.on() supports wildcard matching (including ** globstar),
+   * we simply pass patterns through without expansion. This allows
+   * hierarchical patterns like "route:*:operation:**" to work correctly.
    */
   private resolveEventNames(filters: string[]): string[] {
-    const allEventNames: EventName[] = [
-      // Context events
-      "context:starting",
-      "context:started",
-      "context:stopping",
-      "context:stopped",
-      // Route events
-      "route:registered",
-      "route:starting",
-      "route:started",
-      "route:stopping",
-      "route:stopped",
-      // System events
-      "error",
-      // Note: Exchange and operation events are hierarchical (route:X:exchange:Y, route:X:operation:Y:Z)
-      // Use wildcards like "route:*:exchange:*" or "route:*:operation:*" to match them
-    ];
-
+    // Deduplicate filters
     const resolved = new Set<string>();
 
     for (const filter of filters) {
-      if (filter === "*") {
-        // Match all events
-        allEventNames.forEach((name) => resolved.add(name));
-      } else if (filter.includes("*")) {
-        // Wildcard pattern matching
-        const pattern = this.wildcardToRegex(filter);
-        for (const eventName of allEventNames) {
-          if (pattern.test(eventName)) {
-            resolved.add(eventName);
-          }
-        }
-      } else {
-        // Exact match
-        resolved.add(filter);
-      }
+      resolved.add(filter);
     }
 
     return Array.from(resolved);
-  }
-
-  /**
-   * Convert wildcard pattern to regex.
-   * Examples:
-   * - 'route:*' -> /^route:.*$/
-   * - 'exchange:*' -> /^exchange:.*$/
-   * - 'route:myroute:*' -> /^route:myroute:.*$/
-   */
-  private wildcardToRegex(pattern: string): RegExp {
-    const escaped = pattern
-      .replace(/[.+?^${}()|[\]\\]/g, "\\$&") // Escape special regex chars
-      .replace(/\*/g, ".*"); // Convert * to .*
-    return new RegExp(`^${escaped}$`);
   }
 }
