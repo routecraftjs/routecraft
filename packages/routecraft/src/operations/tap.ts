@@ -36,6 +36,7 @@ function snapshotExchange<T>(
 export class TapStep<T = unknown> implements Step<Destination<T, unknown>> {
   operation: OperationType = OperationType.TAP;
   adapter: Destination<T, unknown>;
+  metadata?: Record<string, unknown>;
 
   constructor(
     adapter: Destination<T, unknown> | CallableDestination<T, unknown>,
@@ -59,7 +60,17 @@ export class TapStep<T = unknown> implements Step<Destination<T, unknown>> {
 
     const promise = (async () => {
       try {
-        await this.adapter.send(snapshot);
+        const result = await this.adapter.send(snapshot);
+
+        // Extract metadata if the adapter provides it (for observability)
+        const getMetadata = (
+          this.adapter as {
+            getMetadata?: (result: unknown) => Record<string, unknown>;
+          }
+        ).getMetadata;
+        if (getMetadata) {
+          this.metadata = getMetadata.call(this.adapter, result);
+        }
       } catch (error: unknown) {
         const err = rcError("RC5001", error, {
           message: `Error tapping exchange ${snapshot.id}`,

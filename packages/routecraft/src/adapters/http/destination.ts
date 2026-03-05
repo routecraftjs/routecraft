@@ -21,6 +21,30 @@ export class HttpDestinationAdapter<
     return result as HttpResult<R>;
   }
 
+  /**
+   * Extract metadata from HTTP result for observability.
+   * Includes method, url, statusCode, and contentLength.
+   */
+  getMetadata(result: unknown): Record<string, unknown> {
+    const httpResult = result as HttpResult<R>;
+    const metadata: Record<string, unknown> = {
+      method: this.options.method ?? "GET",
+      url: httpResult.url,
+      statusCode: httpResult.status,
+    };
+
+    // Add content length if available from headers
+    const contentLength = httpResult.headers?.["content-length"];
+    if (contentLength !== undefined) {
+      const parsed = parseInt(contentLength, 10);
+      if (!isNaN(parsed)) {
+        metadata["contentLength"] = parsed;
+      }
+    }
+
+    return metadata;
+  }
+
   private async performFetch(exchange: Exchange<T>): Promise<HttpResult> {
     const method = this.options.method ?? "GET";
     const url = this.resolveRequired(this.options.url, exchange);

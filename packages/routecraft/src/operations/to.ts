@@ -32,6 +32,7 @@ export interface Destination<T = unknown, R = void> extends Adapter {
 export class ToStep<T = unknown, R = void> implements Step<Destination<T, R>> {
   operation: OperationType = OperationType.TO;
   adapter: Destination<T, R>;
+  metadata?: Record<string, unknown>;
 
   constructor(adapter: Destination<T, R> | CallableDestination<T, R>) {
     this.adapter = typeof adapter === "function" ? { send: adapter } : adapter;
@@ -44,6 +45,16 @@ export class ToStep<T = unknown, R = void> implements Step<Destination<T, R>> {
   ): Promise<void> {
     // Call the destination and capture the result
     const result = await Promise.resolve(this.adapter.send(exchange));
+
+    // Extract metadata if the adapter provides it
+    const getMetadata = (
+      this.adapter as {
+        getMetadata?: (result: unknown) => Record<string, unknown>;
+      }
+    ).getMetadata;
+    if (getMetadata) {
+      this.metadata = getMetadata.call(this.adapter, result);
+    }
 
     // If result is defined, replace body with result
     if (result !== undefined) {

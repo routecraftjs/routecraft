@@ -71,7 +71,7 @@ describe("Plugin System", () => {
 
     const plugin: CraftPlugin = {
       apply(ctx: CraftContext) {
-        ctx.on("contextStarted", eventMock);
+        ctx.on("context:started", eventMock);
       },
     };
 
@@ -226,5 +226,96 @@ describe("Plugin System", () => {
 
     expect(calls).toContain("plugin1");
     expect(calls).toContain("plugin2");
+  });
+
+  /**
+   * @case Verifies that plugin lifecycle events are emitted during teardown
+   * @preconditions A plugin is registered with a teardown method
+   * @expectedResult stopping and stopped lifecycle events are emitted when context stops
+   */
+  test("Plugin lifecycle events are emitted", async () => {
+    let stoppingCalled = false;
+    let stoppedCalled = false;
+    let teardownCalled = false;
+
+    const plugin: CraftPlugin = {
+      apply() {
+        // Plugin initialization
+      },
+      teardown() {
+        teardownCalled = true;
+      },
+    };
+
+    t = await testContext()
+      .with({
+        plugins: [plugin],
+      })
+      .build();
+
+    // Subscribe to plugin lifecycle events (plugin ID is "plugin-0" for plain object at index 0)
+    t.ctx.on("plugin:plugin-0:stopping", () => {
+      stoppingCalled = true;
+    });
+
+    t.ctx.on("plugin:plugin-0:stopped", () => {
+      stoppedCalled = true;
+    });
+
+    // Stop to trigger teardown events
+    await t.ctx.stop();
+
+    // Verify teardown was called and events were emitted
+    expect(teardownCalled).toBe(true);
+    expect(stoppingCalled).toBe(true);
+    expect(stoppedCalled).toBe(true);
+  });
+
+  /**
+   * @case Verifies plugin lifecycle events include correct metadata
+   * @preconditions A named plugin is registered
+   * @expectedResult Events contain pluginId and pluginIndex
+   */
+  test("Plugin lifecycle events include metadata", async () => {
+    const capturedEvents: Array<{ pluginId: string; pluginIndex: number }> = [];
+
+    class MyTestPlugin implements CraftPlugin {
+      apply() {
+        // Plugin initialization
+      }
+      teardown() {
+        // Plugin cleanup
+      }
+    }
+
+    const plugin = new MyTestPlugin();
+
+    t = await testContext()
+      .with({
+        plugins: [plugin],
+      })
+      .build();
+
+    // Subscribe to plugin lifecycle events (pattern must match 3 segments: plugin:ID:event)
+    t.ctx.on("plugin:*:*", (payload) => {
+      const details = payload.details as {
+        pluginId: string;
+        pluginIndex: number;
+      };
+      capturedEvents.push({
+        pluginId: details.pluginId,
+        pluginIndex: details.pluginIndex,
+      });
+    });
+
+    // Stop to trigger teardown events (which we can capture)
+    await t.ctx.stop();
+
+    // Should have captured stopping and stopped events
+    expect(capturedEvents.length).toBe(2);
+    expect(capturedEvents[0].pluginId).toBe("MyTestPlugin");
+    expect(capturedEvents[0].pluginIndex).toBe(0);
+    expect(capturedEvents[1].pluginId).toBe("MyTestPlugin");
+    expect(capturedEvents[1].pluginIndex).toBe(0);
   });
 });

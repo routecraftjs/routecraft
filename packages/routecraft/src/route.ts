@@ -161,12 +161,12 @@ export class DefaultRoute implements Route {
     // Emit routeStopping/routeStopped when the controller is aborted externally
     this.abortController.signal.addEventListener("abort", (event) => {
       try {
-        this.context.emit("routeStopping", {
+        this.context.emit("route:stopping", {
           route: this,
           reason: (event as unknown as { reason?: unknown })?.reason,
         });
       } finally {
-        this.context.emit("routeStopped", { route: this });
+        this.context.emit("route:stopped", { route: this });
       }
     });
   }
@@ -251,7 +251,7 @@ export class DefaultRoute implements Route {
     const onReady = () => {
       if (!emitted) {
         emitted = true;
-        this.context.emit("routeStarted", { route: this });
+        this.context.emit("route:started", { route: this });
       }
     };
 
@@ -294,8 +294,35 @@ export class DefaultRoute implements Route {
   private handler(exchange: Exchange): Promise<Exchange> {
     exchange.logger.debug({ operation: "from" }, "Processing initial exchange");
 
+    const startTime = Date.now();
+
+    // Emit exchange:started event
+    const correlationId = exchange.headers[
+      HeadersKeys.CORRELATION_ID
+    ] as string;
+    this.context.emit(`route:${this.definition.id}:exchange:started` as const, {
+      routeId: this.definition.id,
+      exchangeId: correlationId,
+      correlationId,
+    });
+
     // Run steps (tap adds tasks via route.trackTask)
-    const handlerPromise = this.runSteps(exchange);
+    const handlerPromise = this.runSteps(exchange, startTime).then((result) => {
+      const duration = Date.now() - startTime;
+      const correlationId = exchange.headers[
+        HeadersKeys.CORRELATION_ID
+      ] as string;
+      this.context.emit(
+        `route:${this.definition.id}:exchange:completed` as const,
+        {
+          routeId: this.definition.id,
+          exchangeId: correlationId,
+          correlationId,
+          duration,
+        },
+      );
+      return result;
+    });
 
     this.inFlight.add(handlerPromise);
     handlerPromise.finally(() => this.inFlight.delete(handlerPromise));
@@ -307,10 +334,14 @@ export class DefaultRoute implements Route {
    * Run the step loop for an exchange.
    *
    * @param exchange The initial exchange to process
+   * @param startTime The timestamp when exchange processing started (for duration calculation)
    * @returns The last processed exchange
    * @private
    */
-  private async runSteps(exchange: Exchange): Promise<Exchange> {
+  private async runSteps(
+    exchange: Exchange,
+    startTime: number,
+  ): Promise<Exchange> {
     const queue: { exchange: Exchange; steps: Step<Adapter>[] }[] = [
       { exchange: exchange, steps: [...this.definition.steps] },
     ];
@@ -338,8 +369,39 @@ export class DefaultRoute implements Route {
         "Processing step",
       );
 
+      const stepStartTime = Date.now();
+      const correlationId = exchange.headers[
+        HeadersKeys.CORRELATION_ID
+      ] as string;
+
+      // Emit step:started event
+      this.context.emit(`route:${this.definition.id}:step:started` as const, {
+        routeId: this.definition.id,
+        exchangeId: correlationId,
+        correlationId,
+        operation: step.operation,
+        ...(adapterLabel ? { adapter: adapterLabel } : {}),
+      });
+
       try {
         await step.execute(exchange, remainingSteps, queue);
+
+        // Emit step:completed event
+        const stepDuration = Date.now() - stepStartTime;
+        const correlationId = exchange.headers[
+          HeadersKeys.CORRELATION_ID
+        ] as string;
+        this.context.emit(
+          `route:${this.definition.id}:step:completed` as const,
+          {
+            routeId: this.definition.id,
+            exchangeId: correlationId,
+            correlationId,
+            operation: step.operation,
+            ...(adapterLabel ? { adapter: adapterLabel } : {}),
+            duration: stepDuration,
+          },
+        );
       } catch (error) {
         const err = this.processError(step.operation, error);
         exchange.logger.error(
@@ -355,6 +417,25 @@ export class DefaultRoute implements Route {
           route: this,
           exchange: exchange,
         });
+
+        // Emit exchange:failed event with duration
+        const duration = Date.now() - startTime;
+        const correlationId = exchange.headers[
+          HeadersKeys.CORRELATION_ID
+        ] as string;
+        this.context.emit(
+          `route:${this.definition.id}:exchange:failed` as const,
+          {
+            routeId: this.definition.id,
+            exchangeId: correlationId,
+            correlationId,
+            duration,
+            error: err,
+          },
+        );
+
+        // Don't re-throw - error is fully handled via events and logging
+        // Re-throwing would create unhandled rejections
       }
     }
     return lastProcessedExchange;

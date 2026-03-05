@@ -76,10 +76,10 @@ describe("CraftContext", () => {
     const contextStopped = vi.fn();
 
     t = await testContext()
-      .on("contextStarting", contextStarting)
-      .on("contextStarted", contextStarted)
-      .on("contextStopping", contextStopping)
-      .on("contextStopped", contextStopped)
+      .on("context:starting", contextStarting)
+      .on("context:started", contextStarted)
+      .on("context:stopping", contextStopping)
+      .on("context:stopped", contextStopped)
       .build();
 
     await t.ctx.start();
@@ -108,7 +108,7 @@ describe("Error Handling", () => {
   test("Handles startup errors", async () => {
     const errorMessage = "Simulated startup failure";
     t = await testContext()
-      .on("contextStarting", () => {
+      .on("context:starting", () => {
         throw new Error(errorMessage);
       })
       .build();

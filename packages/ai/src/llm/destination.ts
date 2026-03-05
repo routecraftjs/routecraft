@@ -210,4 +210,29 @@ export class LlmDestinationAdapter<
 
     return result as LlmResultWithOutput<S>;
   }
+
+  /**
+   * Extract metadata from LLM result for observability.
+   * Includes model, provider, and token usage.
+   */
+  getMetadata(result: unknown): Record<string, unknown> {
+    const llmResult = result as LlmResultWithOutput<S>;
+    const { providerId } = parseProviderModel(this.modelId);
+
+    const metadata: Record<string, unknown> = {
+      model: this.modelId,
+      provider: providerId,
+    };
+
+    if (llmResult.usage) {
+      if (llmResult.usage["inputTokens"] !== undefined) {
+        metadata["inputTokens"] = llmResult.usage["inputTokens"];
+      }
+      if (llmResult.usage["outputTokens"] !== undefined) {
+        metadata["outputTokens"] = llmResult.usage["outputTokens"];
+      }
+    }
+
+    return metadata;
+  }
 }

@@ -77,7 +77,7 @@ import { type HeaderValue } from "./exchange.ts";
  * // Create a context with routes and handlers
  * const context = new ContextBuilder()
  *   .with({ store: new Map() })
- *   .on('contextStarting', ({ ts }) => console.log('Starting at', ts))
+ *   .on('context:starting', ({ ts }) => console.log('Starting at', ts))
  *   .store('routecraft.adapter.channel.store', new Map())
  *   .routes(routes1)
  *   .routes([routes2, routes3])

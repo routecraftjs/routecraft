@@ -197,7 +197,7 @@ describe("McpServer", () => {
                 () => reject(new Error("Timeout waiting for routes")),
                 3000,
               );
-              t.ctx.on("routeStarted", () => {
+              t.ctx.on("route:started", () => {
                 ready++;
                 if (ready >= total) {
                   clearTimeout(timeout);

@@ -109,7 +109,32 @@ export class McpDestinationAdapter implements Destination<unknown, unknown> {
     const args = argsExtractor(exchange);
 
     const result = await this.callRemoteTool(url, toolName, args);
+
+    // Attach metadata to result for getMetadata() to read (eliminates race condition)
+    if (result && typeof result === "object") {
+      (result as Record<string, unknown>)["metadata"] = {
+        toolName,
+        url,
+        transport: "http",
+        ...(this.options.serverId ? { serverId: this.options.serverId } : {}),
+      };
+    }
+
     return result;
+  }
+
+  /**
+   * Extract metadata from MCP adapter execution.
+   * Reads metadata from the result object to avoid race conditions with concurrent exchanges.
+   */
+  getMetadata(result: unknown): Record<string, unknown> {
+    if (result && typeof result === "object" && "metadata" in result) {
+      return (result as { metadata: Record<string, unknown> }).metadata;
+    }
+    return {
+      toolName: "unknown",
+      transport: "http",
+    };
   }
 
   private async callRemoteTool(

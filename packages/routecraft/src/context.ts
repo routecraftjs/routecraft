@@ -102,10 +102,10 @@ export type CraftConfig = {
  * // Create a context with routes and event handlers
  * const context = new CraftContext({
  *   on: {
- *     contextStarting: async () => {
+ *     'context:starting': async () => {
  *       console.log('Starting application');
  *     },
- *     contextStopping: async () => {
+ *     'context:stopping': async () => {
  *       console.log('Shutting down application');
  *     }
  *   }
@@ -142,6 +142,10 @@ export class CraftContext {
 
   /** Registered event handlers */
   private readonly handlers: Map<EventName, Set<EventHandler<EventName>>> =
+    new Map();
+
+  /** Wildcard event handlers (for pattern matching like "route:*" or "*") */
+  private readonly wildcardHandlers: Map<string, Set<EventHandler<EventName>>> =
     new Map();
 
   /** Plugins from config, run by initPlugins() before routes are registered */
@@ -183,6 +187,18 @@ export class CraftContext {
   }
 
   /**
+   * Generate a plugin identifier from the plugin's constructor name or index.
+   * @param plugin The plugin instance
+   * @param index The plugin's index in the plugins array
+   * @returns A string identifier for the plugin
+   */
+  private getPluginId(plugin: CraftPlugin, index: number): string {
+    const constructorName =
+      plugin.constructor?.name !== "Object" ? plugin.constructor?.name : null;
+    return constructorName ?? `plugin-${index}`;
+  }
+
+  /**
    * Run plugins from config. Call this before registerRoutes() so plugins can
    * set up state or dynamically add routes.
    *
@@ -208,7 +224,29 @@ export class CraftContext {
           this.emit("error", { error: err });
           throw err;
         }
+
+        // Generate plugin ID from constructor name or index
+        const pluginId = this.getPluginId(plugin as CraftPlugin, pluginIndex);
+
+        // Emit registered event
+        this.emit(`plugin:${pluginId}:registered` as EventName, {
+          pluginId,
+          pluginIndex,
+        });
+
+        // Emit starting event
+        this.emit(`plugin:${pluginId}:starting` as EventName, {
+          pluginId,
+          pluginIndex,
+        });
+
         await (plugin as CraftPlugin).apply(this);
+
+        // Emit started event
+        this.emit(`plugin:${pluginId}:started` as EventName, {
+          pluginId,
+          pluginIndex,
+        });
       } catch (err) {
         this.logger.error(
           { pluginIndex, err },
@@ -234,26 +272,102 @@ export class CraftContext {
   /**
    * Subscribe to lifecycle and system events.
    *
-   * @param event - Event name (e.g. `contextStarting`, `routeStarted`, `error`)
-   * @param handler - Callback receiving `{ ts, context, details }`
+   * **Wildcard Patterns:**
+   *
+   * - `*` (single-level wildcard): Matches exactly one segment
+   *   - Pattern and event must have the same number of colon-separated segments
+   *   - Example: `route:*` matches `route:started` (2 segments), but NOT `route:payment:exchange:started` (4 segments)
+   *
+   * - `**` (globstar wildcard): Matches zero or more segments at any level
+   *   - Example: `route:**` matches `route:started`, `route:payment:exchange:started`, etc.
+   *   - Example: `route:*:operation:**` matches all operations with any adapter depth
+   *
+   * @param event - Event name or wildcard pattern (e.g. `route:started`, `route:*`, `route:**`)
+   * @param handler - Callback receiving `{ ts, contextId, details }`
    * @returns Unsubscribe function (call to remove the handler)
    *
    * @example
    * ```typescript
-   * const unsubscribe = ctx.on('routeStarted', ({ details }) => {
+   * // Subscribe to specific event
+   * const unsubscribe = ctx.on('route:started', ({ details }) => {
    *   console.log('Route started:', details.route.definition.id);
    * });
+   *
+   * // Subscribe to all static route events (2 segments)
+   * ctx.on('route:*', ({ details }) => {
+   *   console.log('Route event:', details);
+   * });
+   *
+   * // Subscribe to all route events at any depth (globstar)
+   * ctx.on('route:**', ({ details }) => {
+   *   console.log('Route event at any depth:', details);
+   * });
+   *
+   * // Subscribe to all exchange events (4 segments)
+   * ctx.on('route:*:exchange:*', ({ details }) => {
+   *   console.log('Exchange event:', details);
+   * });
+   *
    * // later: unsubscribe();
    * ```
    */
-  on<K extends EventName>(event: K, handler: EventHandler<K>): () => void {
-    const set = this.handlers.get(event) ?? new Set();
-    // Force type casting at storage time; retrieval re-casts on emit
-    set.add(handler as unknown as EventHandler<EventName>);
-    this.handlers.set(event, set);
-    return () => {
-      set.delete(handler as unknown as EventHandler<EventName>);
+  on<K extends EventName>(
+    event: K | string,
+    handler: EventHandler<K>,
+  ): () => void {
+    // Check if this is a wildcard pattern
+    const isWildcard = typeof event === "string" && event.includes("*");
+
+    if (isWildcard) {
+      const set = this.wildcardHandlers.get(event) ?? new Set();
+      set.add(handler as unknown as EventHandler<EventName>);
+      this.wildcardHandlers.set(event, set);
+      return () => {
+        set.delete(handler as unknown as EventHandler<EventName>);
+      };
+    } else {
+      const set = this.handlers.get(event as EventName) ?? new Set();
+      set.add(handler as unknown as EventHandler<EventName>);
+      this.handlers.set(event as EventName, set);
+      return () => {
+        set.delete(handler as unknown as EventHandler<EventName>);
+      };
+    }
+  }
+
+  /**
+   * Subscribe to an event for a single occurrence. The handler is automatically
+   * removed after the first time the event is emitted.
+   *
+   * Supports the same wildcard patterns as `on()`.
+   *
+   * @param event - Event name or wildcard pattern
+   * @param handler - Callback receiving `{ ts, contextId, details }`
+   * @returns Unsubscribe function (call to remove the handler before it fires)
+   *
+   * @example
+   * ```typescript
+   * // Wait for context to start
+   * ctx.once('context:started', () => {
+   *   console.log('Context started!');
+   * });
+   *
+   * // Wait for any route to start
+   * ctx.once('route:*', ({ details }) => {
+   *   console.log('First route started:', details);
+   * });
+   * ```
+   */
+  once<K extends EventName>(
+    event: K | string,
+    handler: EventHandler<K>,
+  ): () => void {
+    const wrappedHandler: EventHandler<K> = (payload) => {
+      unsubscribe();
+      return handler(payload);
     };
+    const unsubscribe = this.on(event, wrappedHandler);
+    return unsubscribe;
   }
 
   /**
@@ -269,17 +383,51 @@ export class CraftContext {
   ): void {
     const payload: EventPayload<K> = {
       ts: new Date().toISOString(),
-      context: this,
+      contextId: this.contextId,
       details,
     } as EventPayload<K>;
-    const set = this.handlers.get(event);
-    if (!set || set.size === 0) return;
-    for (const handler of Array.from(set)) {
+
+    // Collect all matching handlers (exact match + wildcards)
+    const matchingHandlers: EventHandler<EventName>[] = [];
+
+    // 1. Exact match handlers
+    const exactSet = this.handlers.get(event);
+    if (exactSet && exactSet.size > 0) {
+      matchingHandlers.push(...Array.from(exactSet));
+    }
+
+    // 2. Wildcard handlers
+    for (const [pattern, handlerSet] of this.wildcardHandlers) {
+      if (this.matchesPattern(event, pattern)) {
+        matchingHandlers.push(...Array.from(handlerSet));
+      }
+    }
+
+    if (matchingHandlers.length === 0) return;
+
+    // Execute all matching handlers
+    for (const handler of matchingHandlers) {
       try {
-        void (handler as unknown as EventHandler<K>)(payload);
+        const result = (handler as unknown as EventHandler<K>)(payload);
+        // Handle async handlers properly to catch promise rejections
+        if (result && typeof result.then === "function") {
+          void result.catch((err: unknown) => {
+            // Log async handler errors at error level for error events, warn for others
+            const logLevel = event === "error" ? "error" : "warn";
+            this.logger[logLevel](
+              { event, err },
+              "Async event handler rejected. Handler should not throw; errors are emitted as context 'error' event.",
+            );
+            if (event !== "error") {
+              this.emit("error", { error: err });
+            }
+          });
+        }
       } catch (err) {
-        // Swallow handler errors but log them and emit system error
-        this.logger.warn(
+        // Swallow synchronous handler errors but log them and emit system error
+        // Log error events at error level, others at warn
+        const logLevel = event === "error" ? "error" : "warn";
+        this.logger[logLevel](
           { event, err },
           "Event handler threw. Handler should not throw; errors are emitted as context 'error' event.",
         );
@@ -288,6 +436,113 @@ export class CraftContext {
         }
       }
     }
+  }
+
+  /**
+   * Check if an event name matches a wildcard pattern.
+   * Supports:
+   * - "*" matches all events
+   * - "route:*" matches all route events (route:started, route:stopped, etc.)
+   * - "exchange:*" matches all exchange events
+   * - "route:myroute:*" matches all events for a specific route
+   * - "route:*:operation:from:*" matches hierarchical patterns at any level
+   *
+   * @param event - Event name to match
+   * @param pattern - Wildcard pattern
+   * @returns True if the event matches the pattern
+   */
+  private matchesPattern(event: string, pattern: string): boolean {
+    // Special case: "*" matches everything
+    if (pattern === "*") return true;
+
+    // Exact match (no wildcards)
+    if (!pattern.includes("*")) return event === pattern;
+
+    // Check for ** globstar wildcard (multi-level matching)
+    if (pattern.includes("**")) {
+      return this.matchesGlobstarPattern(event, pattern);
+    }
+
+    // Tokenize both event and pattern on ":"
+    const eventSegments = event.split(":");
+    const patternSegments = pattern.split(":");
+
+    // Must have same number of segments
+    if (eventSegments.length !== patternSegments.length) return false;
+
+    // Match each segment (exact match or wildcard)
+    for (let i = 0; i < patternSegments.length; i++) {
+      const patternSeg = patternSegments[i];
+      const eventSeg = eventSegments[i];
+
+      // Wildcard matches any segment
+      if (patternSeg === "*") continue;
+
+      // Exact match required
+      if (patternSeg !== eventSeg) return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Match event against pattern with ** globstar wildcards.
+   * ** matches zero or more segments at any level.
+   *
+   * Examples:
+   * - "route:**" matches "route:started", "route:payment:exchange:started", etc.
+   * - "route:*:operation:**" matches "route:api:operation:from:mcp:started", etc.
+   */
+  private matchesGlobstarPattern(event: string, pattern: string): boolean {
+    const eventSegments = event.split(":");
+    const patternSegments = pattern.split(":");
+
+    let eventIdx = 0;
+    let patternIdx = 0;
+
+    while (patternIdx < patternSegments.length) {
+      const patternSeg = patternSegments[patternIdx];
+
+      if (patternSeg === "**") {
+        // ** is the last segment - matches everything remaining
+        if (patternIdx === patternSegments.length - 1) {
+          return true;
+        }
+
+        // Try to match remaining pattern at each possible position in event
+        const remainingPattern = patternSegments
+          .slice(patternIdx + 1)
+          .join(":");
+
+        // Try matching from current position onwards
+        for (let i = eventIdx; i <= eventSegments.length; i++) {
+          const remainingEvent = eventSegments.slice(i).join(":");
+          if (this.matchesPattern(remainingEvent, remainingPattern)) {
+            return true;
+          }
+        }
+
+        return false;
+      } else if (patternSeg === "*") {
+        // Single-level wildcard - must have a segment to match
+        if (eventIdx >= eventSegments.length) return false;
+        eventIdx++;
+        patternIdx++;
+      } else {
+        // Exact match required
+        if (
+          eventIdx >= eventSegments.length ||
+          eventSegments[eventIdx] !== patternSeg
+        ) {
+          return false;
+        }
+        eventIdx++;
+        patternIdx++;
+      }
+    }
+
+    // All pattern segments matched - event must be fully consumed too
+    return eventIdx === eventSegments.length;
   }
 
   // onStartup/onShutdown removed in favor of event listeners
@@ -351,7 +606,7 @@ export class CraftContext {
       const route = new DefaultRoute(this, definition, controller);
       this.routes.push(route);
       // Event: routeRegistered
-      this.emit("routeRegistered", { route });
+      this.emit("route:registered", { route });
     }
   }
 
@@ -417,9 +672,20 @@ export class CraftContext {
   /**
    * Start all routes registered with this context.
    *
-   * Emits `contextStarting` and `contextStarted`, then starts all routes in parallel.
+   * Emits `context:starting` and `context:started`, then starts all routes in parallel.
    * If all routes complete (e.g. finite sources), the context automatically stops.
    * If any route fails to start, the error is logged, emitted as `error`, and rethrown.
+   *
+   * **Context Lifecycle Events:**
+   * - `context:starting` - Context initialization begins
+   * - `context:started` - Context initialized (routes may not be started yet)
+   * - `context:stopping` - Context shutdown begins
+   * - `context:stopped` - Context shutdown complete
+   *
+   * **Note:** `context:started` fires after context initialization but BEFORE
+   * individual routes start. To track route readiness, subscribe to
+   * `route:started` or `route:stopping` events instead.
+   * To filter by specific route, inspect details.route.definition.id in the handler.
    *
    * @returns A promise that resolves when all routes have started (or when context stops)
    * @throws If any route fails to start
@@ -439,15 +705,15 @@ export class CraftContext {
       { routeCount: this.routes.length },
       "Starting Routecraft context",
     );
-    this.emit("contextStarting", {});
+    this.emit("context:starting", {});
 
     this.logger.debug({}, "Starting all routes");
-    this.emit("contextStarted", {});
+    this.emit("context:started", {});
     return Promise.allSettled(
       this.routes.map(async (route) => {
         try {
           this.logger.info({ route: route.definition.id }, "Starting route");
-          this.emit("routeStarting", { route });
+          this.emit("route:starting", { route });
           await route.start();
           this.logger.info({ route: route.definition.id }, "Route stopped");
           return { routeId: route.definition.id, success: true as const };
@@ -529,7 +795,7 @@ export class CraftContext {
    */
   async stop(): Promise<void> {
     this.logger.info({}, "Stopping Routecraft context");
-    this.emit("contextStopping", { reason: undefined });
+    this.emit("context:stopping", { reason: undefined });
 
     // 1. Abort all route controllers (stops sources)
     for (const route of this.routes) {
@@ -551,14 +817,28 @@ export class CraftContext {
     }
 
     this.logger.info({}, "Routecraft context stopped");
-    this.emit("contextStopped", {});
+    this.emit("context:stopped", {});
 
     // 3. Run plugin teardown (plugins with teardown in reverse order, then registerTeardown callbacks)
     for (let i = this.plugins.length - 1; i >= 0; i--) {
       const plugin = this.plugins[i] as CraftPlugin | undefined;
       if (plugin?.teardown) {
+        const pluginId = this.getPluginId(plugin, i);
+
+        // Emit stopping event
+        this.emit(`plugin:${pluginId}:stopping` as EventName, {
+          pluginId,
+          pluginIndex: i,
+        });
+
         try {
           await Promise.resolve(plugin.teardown(this));
+
+          // Emit stopped event
+          this.emit(`plugin:${pluginId}:stopped` as EventName, {
+            pluginId,
+            pluginIndex: i,
+          });
         } catch (err) {
           this.logger.warn(
             { err, pluginIndex: i },
@@ -596,7 +876,7 @@ export class CraftContext {
  * // Create and configure a context
  * const ctx = context()
  *   .routes(myRoute)
- *   .on('contextStarting', () => console.log('Starting...'))
+ *   .on('context:starting', () => console.log('Starting...'))
  *   .build();
  *
  * // Start processing

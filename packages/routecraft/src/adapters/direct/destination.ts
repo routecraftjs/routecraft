@@ -21,6 +21,7 @@ export class DirectDestinationAdapter<T = unknown>
 
   private rawEndpoint: DirectEndpoint<T>;
   public options: Partial<DirectOptionsMerged>;
+  private lastResolvedEndpoint?: string;
 
   constructor(
     rawEndpoint: DirectEndpoint<T>,
@@ -40,6 +41,7 @@ export class DirectDestinationAdapter<T = unknown>
 
     // Resolve endpoint dynamically if needed
     const endpoint = this.resolveEndpoint(exchange);
+    this.lastResolvedEndpoint = endpoint; // Store for metadata
 
     exchange.logger.debug(
       { endpoint, adapter: "direct" },
@@ -53,6 +55,17 @@ export class DirectDestinationAdapter<T = unknown>
 
     // Return the body from the result exchange
     return result.body;
+  }
+
+  /**
+   * Extract metadata from Direct adapter execution.
+   * Includes the resolved endpoint.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  getMetadata(_result?: unknown): Record<string, unknown> {
+    return {
+      endpoint: this.lastResolvedEndpoint ?? "unknown",
+    };
   }
 
   mergedOptions(context: CraftContext): DirectOptionsMerged {
