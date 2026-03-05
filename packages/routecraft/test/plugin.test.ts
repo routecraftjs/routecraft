@@ -254,11 +254,11 @@ describe("Plugin System", () => {
       .build();
 
     // Subscribe to plugin lifecycle events (plugin ID is "plugin-0" for plain object at index 0)
-    t.ctx.on("plugin:plugin-0:stopping" as any, () => {
+    t.ctx.on("plugin:plugin-0:stopping", () => {
       stoppingCalled = true;
     });
 
-    t.ctx.on("plugin:plugin-0:stopped" as any, () => {
+    t.ctx.on("plugin:plugin-0:stopped", () => {
       stoppedCalled = true;
     });
 

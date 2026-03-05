@@ -42,7 +42,7 @@ Routecraft provides a powerful event system for monitoring and debugging your in
 
 Events follow a hierarchical naming convention with colon-separated segments:
 
-```
+```text
 context:started                                    # Context lifecycle
 route:registered                                   # Route lifecycle
 route:payment:exchange:started                     # Exchange lifecycle
@@ -204,7 +204,7 @@ craft()
 
 ### Complete Event Hierarchy
 
-```
+```text
 context:starting                                   # Context lifecycle
 context:started
 context:stopping

@@ -71,8 +71,6 @@ export const defaultArgs: McpArgsExtractor = (exchange) =>
  */
 export class McpDestinationAdapter implements Destination<unknown, unknown> {
   readonly adapterId: string = "routecraft.adapter.mcp";
-  private lastToolName?: string;
-  private lastUrl?: string;
 
   constructor(private readonly options: McpClientOptions) {
     (this as unknown as Record<symbol, boolean>)[BRAND_MCP_ADAPTER] = true;
@@ -97,35 +95,33 @@ export class McpDestinationAdapter implements Destination<unknown, unknown> {
     const argsExtractor = this.options.args ?? defaultArgs;
     const args = argsExtractor(exchange);
 
-    // Store for metadata
-    this.lastToolName = toolName;
-    this.lastUrl = url;
-
     const result = await this.callRemoteTool(url, toolName, args);
+
+    // Attach metadata to result for getMetadata() to read (eliminates race condition)
+    if (result && typeof result === "object") {
+      (result as Record<string, unknown>)["metadata"] = {
+        toolName,
+        url,
+        transport: "http",
+        ...(this.options.serverId ? { serverId: this.options.serverId } : {}),
+      };
+    }
+
     return result;
   }
 
   /**
    * Extract metadata from MCP adapter execution.
-   * Includes toolName, transport type, and serverId if available.
+   * Reads metadata from the result object to avoid race conditions with concurrent exchanges.
    */
-  getMetadata(): Record<string, unknown> {
-    const metadata: Record<string, unknown> = {
-      toolName: this.lastToolName ?? "unknown",
+  getMetadata(result: unknown): Record<string, unknown> {
+    if (result && typeof result === "object" && "metadata" in result) {
+      return (result as { metadata: Record<string, unknown> }).metadata;
+    }
+    return {
+      toolName: "unknown",
       transport: "http",
     };
-
-    // Include serverId if configured
-    if (this.options["serverId"]) {
-      metadata["serverId"] = this.options["serverId"];
-    }
-
-    // Include URL if available (helps identify which server)
-    if (this.lastUrl) {
-      metadata["url"] = this.lastUrl;
-    }
-
-    return metadata;
   }
 
   private async callRemoteTool(
