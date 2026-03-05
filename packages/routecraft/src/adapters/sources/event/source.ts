@@ -53,13 +53,13 @@ export class EventSourceAdapter implements Source<EventPayload<EventName>> {
             // Initialize route ID on first event if needed
             await initializeRouteId();
 
-            // Prevent infinite loops: don't process events from exchange/step lifecycle
+            // Prevent infinite loops: don't process events from exchange/operation lifecycle
             // These are generated when processing the event, causing feedback loops
-            const isExchangeOrStepEvent =
-              eventName.startsWith("exchange:") ||
-              eventName.startsWith("step:");
-            if (isExchangeOrStepEvent) {
-              // Skip exchange and step events to prevent infinite loops
+            const isExchangeOrOperationEvent =
+              eventName.includes(":exchange:") ||
+              eventName.includes(":operation:");
+            if (isExchangeOrOperationEvent) {
+              // Skip exchange and operation events to prevent infinite loops
               return;
             }
 
@@ -111,15 +111,10 @@ export class EventSourceAdapter implements Source<EventPayload<EventName>> {
       "route:started",
       "route:stopping",
       "route:stopped",
-      // Exchange events
-      "exchange:started",
-      "exchange:completed",
-      "exchange:failed",
-      // Step events
-      "step:started",
-      "step:completed",
       // System events
       "error",
+      // Note: Exchange and operation events are hierarchical (route:X:exchange:Y, route:X:operation:Y:Z)
+      // Use wildcards like "route:*:exchange:*" or "route:*:operation:*" to match them
     ];
 
     const resolved = new Set<string>();

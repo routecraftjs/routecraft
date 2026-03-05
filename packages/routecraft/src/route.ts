@@ -297,19 +297,30 @@ export class DefaultRoute implements Route {
     const startTime = Date.now();
 
     // Emit exchange:started event
-    this.context.emit("exchange:started", {
+    const correlationId = exchange.headers[
+      HeadersKeys.CORRELATION_ID
+    ] as string;
+    this.context.emit(`route:${this.definition.id}:exchange:started` as const, {
       routeId: this.definition.id,
-      correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
+      exchangeId: correlationId,
+      correlationId,
     });
 
     // Run steps (tap adds tasks via route.trackTask)
     const handlerPromise = this.runSteps(exchange, startTime).then((result) => {
       const duration = Date.now() - startTime;
-      this.context.emit("exchange:completed", {
-        routeId: this.definition.id,
-        correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
-        duration,
-      });
+      const correlationId = exchange.headers[
+        HeadersKeys.CORRELATION_ID
+      ] as string;
+      this.context.emit(
+        `route:${this.definition.id}:exchange:completed` as const,
+        {
+          routeId: this.definition.id,
+          exchangeId: correlationId,
+          correlationId,
+          duration,
+        },
+      );
       return result;
     });
 
@@ -359,11 +370,15 @@ export class DefaultRoute implements Route {
       );
 
       const stepStartTime = Date.now();
+      const correlationId = exchange.headers[
+        HeadersKeys.CORRELATION_ID
+      ] as string;
 
       // Emit step:started event
-      this.context.emit("step:started", {
+      this.context.emit(`route:${this.definition.id}:step:started` as const, {
         routeId: this.definition.id,
-        correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
+        exchangeId: correlationId,
+        correlationId,
         operation: step.operation,
         ...(adapterLabel ? { adapter: adapterLabel } : {}),
       });
@@ -373,13 +388,20 @@ export class DefaultRoute implements Route {
 
         // Emit step:completed event
         const stepDuration = Date.now() - stepStartTime;
-        this.context.emit("step:completed", {
-          routeId: this.definition.id,
-          correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
-          operation: step.operation,
-          ...(adapterLabel ? { adapter: adapterLabel } : {}),
-          duration: stepDuration,
-        });
+        const correlationId = exchange.headers[
+          HeadersKeys.CORRELATION_ID
+        ] as string;
+        this.context.emit(
+          `route:${this.definition.id}:step:completed` as const,
+          {
+            routeId: this.definition.id,
+            exchangeId: correlationId,
+            correlationId,
+            operation: step.operation,
+            ...(adapterLabel ? { adapter: adapterLabel } : {}),
+            duration: stepDuration,
+          },
+        );
       } catch (error) {
         const err = this.processError(step.operation, error);
         exchange.logger.error(
@@ -398,12 +420,19 @@ export class DefaultRoute implements Route {
 
         // Emit exchange:failed event with duration
         const duration = Date.now() - startTime;
-        this.context.emit("exchange:failed", {
-          routeId: this.definition.id,
-          correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
-          duration,
-          error: err,
-        });
+        const correlationId = exchange.headers[
+          HeadersKeys.CORRELATION_ID
+        ] as string;
+        this.context.emit(
+          `route:${this.definition.id}:exchange:failed` as const,
+          {
+            routeId: this.definition.id,
+            exchangeId: correlationId,
+            correlationId,
+            duration,
+            error: err,
+          },
+        );
 
         // Don't re-throw - error is fully handled via events and logging
         // Re-throwing would create unhandled rejections

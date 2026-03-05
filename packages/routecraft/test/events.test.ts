@@ -1,6 +1,7 @@
 import { describe, test, expect, afterEach } from "vitest";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { craft, simple, log } from "@routecraft/routecraft";
+import type { EventName } from "../src/types.ts";
 
 describe("Events API", () => {
   let t: TestContext;
@@ -226,4 +227,124 @@ describe("Events API", () => {
       "Timeout waiting for routes to start",
     );
   }, 5_000);
+
+  /**
+   * @case Hierarchical wildcard patterns match events at any level
+   * @preconditions Context with hierarchical event subscriptions
+   * @expectedResult Patterns like route:*:operation:from:* match correctly
+   */
+  test("supports hierarchical wildcard patterns", async () => {
+    const events: string[] = [];
+
+    t = await testContext()
+      // Route-specific subscription
+      .on("route:payment:*" as EventName, () => {
+        events.push("route:payment:*");
+      })
+      // Direction-specific subscription (any route)
+      .on("route:*:operation:from:*" as EventName, () => {
+        events.push("route:*:operation:from:*");
+      })
+      // Adapter-specific subscription (MCP operations)
+      .on("route:*:operation:*:mcp:*" as EventName, () => {
+        events.push("route:*:operation:*:mcp:*");
+      })
+      // All operations on any route
+      .on("route:*:operation:*" as EventName, () => {
+        events.push("route:*:operation:*");
+      })
+      .build();
+
+    // Emit test events
+    t.ctx.emit("route:payment:started" as any, {} as any);
+    t.ctx.emit("route:payment:operation:from:http" as any, {} as any);
+    t.ctx.emit("route:payment:operation:to:mcp:tool" as any, {} as any);
+    t.ctx.emit("route:checkout:operation:from:channel" as any, {} as any);
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    // route:payment:started should match route:payment:*
+    expect(events.filter((e) => e === "route:payment:*").length).toBe(1);
+
+    // route:*:operation:from:* should match both:
+    // - route:payment:operation:from:http (5 segments)
+    // - route:checkout:operation:from:channel (5 segments)
+    const fromMatches = events.filter((e) => e === "route:*:operation:from:*");
+    expect(fromMatches.length).toBe(2);
+
+    // route:*:operation:*:mcp:* should match:
+    // - route:payment:operation:to:mcp:tool (6 segments)
+    const mcpMatches = events.filter((e) => e === "route:*:operation:*:mcp:*");
+    expect(mcpMatches.length).toBe(1);
+
+    // Verify route:*:operation:* (4 segments) didn't match any 5 or 6 segment events
+    const fourSegmentMatches = events.filter(
+      (e) => e === "route:*:operation:*",
+    );
+    expect(fourSegmentMatches.length).toBe(0);
+  });
+
+  /**
+   * @case Backward compatibility with existing wildcard patterns
+   * @preconditions Context with simple wildcard subscriptions
+   * @expectedResult route:*, exchange:*, and * patterns still work
+   */
+  test("maintains backward compatibility with existing wildcards", async () => {
+    const events: string[] = [];
+
+    t = await testContext()
+      .on("*" as EventName, () => {
+        events.push("*");
+      })
+      .on("route:*" as EventName, () => {
+        events.push("route:*");
+      })
+      .on("exchange:*" as EventName, () => {
+        events.push("exchange:*");
+      })
+      .build();
+
+    // Emit various events
+    t.ctx.emit("route:started" as any, {} as any);
+    t.ctx.emit("exchange:started" as any, {} as any);
+    t.ctx.emit("context:starting", {});
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    // route:started should match * and route:*
+    expect(events.filter((e) => e === "*").length).toBe(3); // All 3 events
+    expect(events.filter((e) => e === "route:*").length).toBe(1);
+    expect(events.filter((e) => e === "exchange:*").length).toBe(1);
+  });
+
+  /**
+   * @case Patterns with different segment counts do not match
+   * @preconditions Context with specific-length patterns
+   * @expectedResult Events with different segment counts do not match
+   */
+  test("patterns require matching segment counts", async () => {
+    const events: string[] = [];
+
+    t = await testContext()
+      .on("route:*:operation" as EventName, () => {
+        events.push("matched");
+      })
+      .build();
+
+    // Different segment counts should not match
+    t.ctx.emit("route:started" as any, {} as any); // 2 segments
+    t.ctx.emit("route:payment:operation:started" as any, {} as any); // 4 segments
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Should not match anything (3 segments required)
+    expect(events.length).toBe(0);
+
+    // Now emit with exactly 3 segments
+    t.ctx.emit("route:payment:operation" as any, {} as any);
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(events.length).toBe(1);
+  });
 });

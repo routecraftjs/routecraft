@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { CraftContext } from "../context.ts";
 import { type RouteDefinition } from "../route.ts";
 import { type ProcessingQueue, type Message, type Consumer } from "../types.ts";
@@ -63,13 +64,40 @@ export class BatchConsumer implements Consumer<BatchOptions> {
       reject: (e: unknown) => void;
     }[] = [];
     let timer: ReturnType<typeof setTimeout> | null = null;
+    const batchId = randomUUID();
+    let batchStartTime = Date.now();
 
-    const flushBatch = async () => {
+    // Emit batch:started event
+    this.context.emit(
+      `route:${this.definition.id}:operation:batch:started` as const,
+      {
+        routeId: this.definition.id,
+        batchSize: this.options.size!,
+        batchId,
+      },
+    );
+
+    const flushBatch = async (reason: "size" | "time") => {
       if (batch.length > 0) {
         const currentBatch = batch;
         const currentResolvers = resolvers;
+        const waitTime = Date.now() - batchStartTime;
         batch = [];
         resolvers = [];
+        batchStartTime = Date.now();
+
+        // Emit batch:flushed event
+        this.context.emit(
+          `route:${this.definition.id}:operation:batch:flushed` as const,
+          {
+            routeId: this.definition.id,
+            batchSize: currentBatch.length,
+            batchId,
+            waitTime,
+            reason,
+          },
+        );
+
         try {
           const merged = this.options.merge!(currentBatch);
           const finalExchange = await handler(merged.message, merged.headers);
@@ -103,14 +131,17 @@ export class BatchConsumer implements Consumer<BatchOptions> {
           clearTimeout(timer);
         }
         timer = setTimeout(async () => {
-          await flushBatch();
+          await flushBatch("time");
         }, this.options.time!);
       }
 
       if (batch.length >= this.options.size!) {
-        await flushBatch();
+        await flushBatch("size");
       }
       return promise;
     });
+
+    // Note: batch:stopped would be emitted when the route stops, but that would require
+    // tracking consumer lifecycle. For now, we emit started and flushed events only.
   }
 }

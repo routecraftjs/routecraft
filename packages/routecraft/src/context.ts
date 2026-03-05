@@ -187,6 +187,18 @@ export class CraftContext {
   }
 
   /**
+   * Generate a plugin identifier from the plugin's constructor name or index.
+   * @param plugin The plugin instance
+   * @param index The plugin's index in the plugins array
+   * @returns A string identifier for the plugin
+   */
+  private getPluginId(plugin: CraftPlugin, index: number): string {
+    const constructorName =
+      plugin.constructor?.name !== "Object" ? plugin.constructor?.name : null;
+    return constructorName ?? `plugin-${index}`;
+  }
+
+  /**
    * Run plugins from config. Call this before registerRoutes() so plugins can
    * set up state or dynamically add routes.
    *
@@ -212,7 +224,29 @@ export class CraftContext {
           this.emit("error", { error: err });
           throw err;
         }
+
+        // Generate plugin ID from constructor name or index
+        const pluginId = this.getPluginId(plugin as CraftPlugin, pluginIndex);
+
+        // Emit registered event
+        this.emit(`plugin:${pluginId}:lifecycle:registered` as EventName, {
+          pluginId,
+          pluginIndex,
+        });
+
+        // Emit starting event
+        this.emit(`plugin:${pluginId}:lifecycle:starting` as EventName, {
+          pluginId,
+          pluginIndex,
+        });
+
         await (plugin as CraftPlugin).apply(this);
+
+        // Emit started event
+        this.emit(`plugin:${pluginId}:lifecycle:started` as EventName, {
+          pluginId,
+          pluginIndex,
+        });
       } catch (err) {
         this.logger.error(
           { pluginIndex, err },
@@ -396,21 +430,39 @@ export class CraftContext {
    * - "route:*" matches all route events (route:started, route:stopped, etc.)
    * - "exchange:*" matches all exchange events
    * - "route:myroute:*" matches all events for a specific route
+   * - "route:*:operation:from:*" matches hierarchical patterns at any level
    *
    * @param event - Event name to match
    * @param pattern - Wildcard pattern
    * @returns True if the event matches the pattern
    */
   private matchesPattern(event: string, pattern: string): boolean {
+    // Special case: "*" matches everything
     if (pattern === "*") return true;
+
+    // Exact match (no wildcards)
     if (!pattern.includes("*")) return event === pattern;
 
-    // Convert wildcard pattern to regex
-    const regexPattern = pattern
-      .replace(/[.+?^${}()|[\]\\]/g, "\\$&") // Escape regex special chars
-      .replace(/\*/g, ".*"); // Convert * to .*
+    // Tokenize both event and pattern on ":"
+    const eventSegments = event.split(":");
+    const patternSegments = pattern.split(":");
 
-    return new RegExp(`^${regexPattern}$`).test(event);
+    // Must have same number of segments
+    if (eventSegments.length !== patternSegments.length) return false;
+
+    // Match each segment (exact match or wildcard)
+    for (let i = 0; i < patternSegments.length; i++) {
+      const patternSeg = patternSegments[i];
+      const eventSeg = eventSegments[i];
+
+      // Wildcard matches any segment
+      if (patternSeg === "*") continue;
+
+      // Exact match required
+      if (patternSeg !== eventSeg) return false;
+    }
+
+    return true;
   }
 
   // onStartup/onShutdown removed in favor of event listeners
@@ -680,8 +732,22 @@ export class CraftContext {
     for (let i = this.plugins.length - 1; i >= 0; i--) {
       const plugin = this.plugins[i] as CraftPlugin | undefined;
       if (plugin?.teardown) {
+        const pluginId = this.getPluginId(plugin, i);
+
+        // Emit stopping event
+        this.emit(`plugin:${pluginId}:lifecycle:stopping` as EventName, {
+          pluginId,
+          pluginIndex: i,
+        });
+
         try {
           await Promise.resolve(plugin.teardown(this));
+
+          // Emit stopped event
+          this.emit(`plugin:${pluginId}:lifecycle:stopped` as EventName, {
+            pluginId,
+            pluginIndex: i,
+          });
         } catch (err) {
           this.logger.warn(
             { err, pluginIndex: i },

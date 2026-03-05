@@ -4,6 +4,8 @@ import {
   type ExchangeHeaders,
   OperationType,
   HeadersKeys,
+  getExchangeContext,
+  getExchangeRoute,
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
 
@@ -114,6 +116,21 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
     remainingSteps: Step<Adapter>[],
     queue: { exchange: Exchange<R>; steps: Step<Adapter>[] }[],
   ): Promise<void> {
+    const context = getExchangeContext(exchange);
+    const route = getExchangeRoute(exchange);
+    const routeId =
+      route?.definition.id ??
+      (exchange.headers[HeadersKeys.ROUTE_ID] as string);
+
+    // Emit aggregate:started event
+    if (context) {
+      context.emit(`route:${routeId}:operation:aggregate:started` as const, {
+        routeId,
+        exchangeId: exchange.id,
+        correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
+      });
+    }
+
     const splitHierarchy = exchange.headers[
       HeadersKeys.SPLIT_HIERARCHY
     ] as string[];
@@ -127,6 +144,17 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
       exchange.body = aggregatedExchange.body as unknown as T;
       (exchange as { headers: ExchangeHeaders }).headers =
         aggregatedExchange.headers;
+
+      // Emit aggregate:stopped event
+      if (context) {
+        context.emit(`route:${routeId}:operation:aggregate:stopped` as const, {
+          routeId,
+          exchangeId: exchange.id,
+          correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
+          inputCount: 1,
+        });
+      }
+
       queue.push({
         exchange: exchange as unknown as Exchange<R>,
         steps: remainingSteps,
@@ -166,6 +194,16 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
         remainingHierarchy;
     } else {
       delete (exchange.headers as ExchangeHeaders)[HeadersKeys.SPLIT_HIERARCHY];
+    }
+
+    // Emit aggregate:stopped event
+    if (context) {
+      context.emit(`route:${routeId}:operation:aggregate:stopped` as const, {
+        routeId,
+        exchangeId: exchange.id,
+        correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
+        inputCount: aggregationGroup.length,
+      });
     }
 
     queue.push({

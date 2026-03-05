@@ -55,15 +55,25 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
     remainingSteps: Step<Adapter>[],
     queue: { exchange: Exchange<R>; steps: Step<Adapter>[] }[],
   ): Promise<void> {
-    const splitExchanges = await Promise.resolve(this.adapter.split(exchange));
-    const groupId = randomUUID();
-
     const context = getExchangeContext(exchange);
     const route = getExchangeRoute(exchange);
 
     if (!context) {
       throw new Error("Exchange has no context — cannot execute split");
     }
+
+    // Emit split:started event
+    const routeId =
+      route?.definition.id ??
+      (exchange.headers[HeadersKeys.ROUTE_ID] as string);
+    context.emit(`route:${routeId}:operation:split:started` as const, {
+      routeId,
+      exchangeId: exchange.id,
+      correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
+    });
+
+    const splitExchanges = await Promise.resolve(this.adapter.split(exchange));
+    const groupId = randomUUID();
 
     const existingHierarchy =
       (exchange.headers[HeadersKeys.SPLIT_HIERARCHY] as string[]) || [];
@@ -107,5 +117,13 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
         steps: remainingSteps,
       });
     }
+
+    // Emit split:stopped event with childCount
+    context.emit(`route:${routeId}:operation:split:stopped` as const, {
+      routeId,
+      exchangeId: exchange.id,
+      correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
+      childCount: splitExchanges.length,
+    });
   }
 }

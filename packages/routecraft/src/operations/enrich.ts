@@ -168,6 +168,7 @@ export class EnrichStep<T = unknown, R = unknown> implements Step<
   operation: OperationType = OperationType.ENRICH;
   adapter: Destination<T, R>;
   aggregator: EnrichAggregatorOption<T, R> | undefined;
+  metadata?: Record<string, unknown>;
 
   constructor(
     adapter: Destination<T, R> | CallableDestination<T, R>,
@@ -184,6 +185,16 @@ export class EnrichStep<T = unknown, R = unknown> implements Step<
   ): Promise<void> {
     // Get the enrichment data by calling the destination's send method
     const enrichmentData = await Promise.resolve(this.adapter.send(exchange));
+
+    // Extract metadata if the adapter provides it
+    const getMetadata = (
+      this.adapter as {
+        getMetadata?: (result: unknown) => Record<string, unknown>;
+      }
+    ).getMetadata;
+    if (getMetadata) {
+      this.metadata = getMetadata.call(this.adapter, enrichmentData);
+    }
 
     // Use the provided aggregator or the default one
     const aggregator = this.aggregator || defaultEnrichAggregator;
