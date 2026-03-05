@@ -229,13 +229,13 @@ export class CraftContext {
         const pluginId = this.getPluginId(plugin as CraftPlugin, pluginIndex);
 
         // Emit registered event
-        this.emit(`plugin:${pluginId}:lifecycle:registered` as EventName, {
+        this.emit(`plugin:${pluginId}:registered` as EventName, {
           pluginId,
           pluginIndex,
         });
 
         // Emit starting event
-        this.emit(`plugin:${pluginId}:lifecycle:starting` as EventName, {
+        this.emit(`plugin:${pluginId}:starting` as EventName, {
           pluginId,
           pluginIndex,
         });
@@ -243,7 +243,7 @@ export class CraftContext {
         await (plugin as CraftPlugin).apply(this);
 
         // Emit started event
-        this.emit(`plugin:${pluginId}:lifecycle:started` as EventName, {
+        this.emit(`plugin:${pluginId}:started` as EventName, {
           pluginId,
           pluginIndex,
         });
@@ -735,7 +735,7 @@ export class CraftContext {
         const pluginId = this.getPluginId(plugin, i);
 
         // Emit stopping event
-        this.emit(`plugin:${pluginId}:lifecycle:stopping` as EventName, {
+        this.emit(`plugin:${pluginId}:stopping` as EventName, {
           pluginId,
           pluginIndex: i,
         });
@@ -744,7 +744,7 @@ export class CraftContext {
           await Promise.resolve(plugin.teardown(this));
 
           // Emit stopped event
-          this.emit(`plugin:${pluginId}:lifecycle:stopped` as EventName, {
+          this.emit(`plugin:${pluginId}:stopped` as EventName, {
             pluginId,
             pluginIndex: i,
           });

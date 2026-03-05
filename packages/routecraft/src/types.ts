@@ -205,18 +205,18 @@ export type OperationEventName =
  * Plugin lifecycle events.
  *
  * Auto-emitted events for plugin lifecycle:
- * - `plugin:<pluginId>:lifecycle:registered` - Plugin registered with context
- * - `plugin:<pluginId>:lifecycle:starting` - Plugin is about to start
- * - `plugin:<pluginId>:lifecycle:started` - Plugin has started
- * - `plugin:<pluginId>:lifecycle:stopping` - Plugin is about to stop
- * - `plugin:<pluginId>:lifecycle:stopped` - Plugin has stopped
+ * - `plugin:<pluginId>:registered` - Plugin registered with context
+ * - `plugin:<pluginId>:starting` - Plugin is about to start
+ * - `plugin:<pluginId>:started` - Plugin has started
+ * - `plugin:<pluginId>:stopping` - Plugin is about to stop
+ * - `plugin:<pluginId>:stopped` - Plugin has stopped
  *
  * Plugins can also emit custom events using pattern: `plugin:<pluginId>:<custom>:<event>`
  *
  * @example
  * ```typescript
  * // Monitor when plugins start
- * ctx.on('plugin:*:lifecycle:started', ({ details }) => {
+ * ctx.on('plugin:*:started', ({ details }) => {
  *   console.log('Plugin started:', details.pluginId);
  * });
  *
@@ -227,11 +227,11 @@ export type OperationEventName =
  * ```
  */
 export type PluginEventName =
-  | `plugin:${string}:lifecycle:registered`
-  | `plugin:${string}:lifecycle:starting`
-  | `plugin:${string}:lifecycle:started`
-  | `plugin:${string}:lifecycle:stopping`
-  | `plugin:${string}:lifecycle:stopped`;
+  | `plugin:${string}:registered`
+  | `plugin:${string}:starting`
+  | `plugin:${string}:started`
+  | `plugin:${string}:stopping`
+  | `plugin:${string}:stopped`;
 
 /**
  * Step lifecycle events (hierarchical naming with routeId).
@@ -589,27 +589,27 @@ export type EventDetailsMapping<K extends EventName = EventName> =
                                                         adapter?: string;
                                                         duration: number;
                                                       }
-                                                    : K extends `plugin:${string}:lifecycle:registered`
+                                                    : K extends `plugin:${string}:registered`
                                                       ? {
                                                           pluginId: string;
                                                           pluginIndex: number;
                                                         }
-                                                      : K extends `plugin:${string}:lifecycle:starting`
+                                                      : K extends `plugin:${string}:starting`
                                                         ? {
                                                             pluginId: string;
                                                             pluginIndex: number;
                                                           }
-                                                        : K extends `plugin:${string}:lifecycle:started`
+                                                        : K extends `plugin:${string}:started`
                                                           ? {
                                                               pluginId: string;
                                                               pluginIndex: number;
                                                             }
-                                                          : K extends `plugin:${string}:lifecycle:stopping`
+                                                          : K extends `plugin:${string}:stopping`
                                                             ? {
                                                                 pluginId: string;
                                                                 pluginIndex: number;
                                                               }
-                                                            : K extends `plugin:${string}:lifecycle:stopped`
+                                                            : K extends `plugin:${string}:stopped`
                                                               ? {
                                                                   pluginId: string;
                                                                   pluginIndex: number;
