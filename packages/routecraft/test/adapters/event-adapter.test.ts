@@ -1,6 +1,12 @@
 import { describe, test, expect, afterEach } from "vitest";
 import { testContext, type TestContext } from "@routecraft/testing";
-import { craft, event, log, simple } from "@routecraft/routecraft";
+import {
+  EventSourceAdapter,
+  craft,
+  event,
+  log,
+  simple,
+} from "@routecraft/routecraft";
 
 describe("Event Source Adapter", () => {
   let t: TestContext;
@@ -272,44 +278,89 @@ describe("Event Source Adapter", () => {
   });
 
   /**
-   * @case Event adapter handles errors in event handlers gracefully
-   * @preconditions Event listener with throwing handler
-   * @expectedResult Error is logged but doesn't crash the adapter
+   * @case Event source adapter logs handler failures at warn level
+   * @preconditions Direct EventSourceAdapter subscription with a throwing handler
+   * @expectedResult Adapter catches the rejection, logs a warn entry, and avoids error-level logging for that failure
    */
   test("handles errors in event handlers", async () => {
-    let callCount = 0;
+    t = await testContext().build();
 
-    const eventRoute = craft()
-      .id("error-handler-test")
-      .from(event("route:started"))
-      .to(() => {
-        callCount++;
-        if (callCount === 1) {
-          throw new Error("Handler error");
-        }
-      });
+    const adapter = new EventSourceAdapter("context:started");
+    const abortController = new AbortController();
+    const subscription = adapter.subscribe(
+      t.ctx,
+      async () => {
+        throw new Error("Handler error");
+      },
+      abortController,
+    );
 
-    const triggerRoute1 = craft()
-      .id("trigger-1")
-      .from(simple("test1"))
-      .to(log());
+    t.ctx.emit("context:started", {});
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
-    const triggerRoute2 = craft()
-      .id("trigger-2")
-      .from(simple("test2"))
-      .to(log());
+    expect(
+      t.logger.warn.mock.calls.some(
+        ([fields, message]) =>
+          message === "Handler error" &&
+          (fields as { adapter?: string; err?: { message?: string } })
+            .adapter === "event" &&
+          (fields as { adapter?: string; err?: { message?: string } }).err
+            ?.message === "Handler error",
+      ),
+    ).toBe(true);
+    expect(
+      t.logger.error.mock.calls.some(
+        ([, message]) => message === "Handler error",
+      ),
+    ).toBe(false);
 
-    t = await testContext()
-      .routes([eventRoute, triggerRoute1, triggerRoute2])
-      .build();
+    abortController.abort();
+    await subscription;
+  });
 
-    const started = t.ctx.start();
-    await new Promise((r) => setTimeout(r, 100));
-    await t.stop();
-    await started;
+  /**
+   * @case Event source adapter prefers RouteCraft-style meta.message in warn logs
+   * @preconditions Direct EventSourceAdapter subscription with a throwing handler object containing both meta.message and message
+   * @expectedResult Warn log uses meta.message while preserving the original error object in bindings
+   */
+  test("prefers meta.message when event handler errors include it", async () => {
+    t = await testContext().build();
 
-    // Should have attempted to handle multiple events despite error
-    expect(callCount).toBeGreaterThanOrEqual(2);
+    const adapter = new EventSourceAdapter("context:started");
+    const abortController = new AbortController();
+    const subscription = adapter.subscribe(
+      t.ctx,
+      async () => {
+        throw {
+          meta: { message: "RouteCraft handler error" },
+          message: "Plain handler error",
+        };
+      },
+      abortController,
+    );
+
+    t.ctx.emit("context:started", {});
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(
+      t.logger.warn.mock.calls.some(
+        ([fields, message]) =>
+          message === "RouteCraft handler error" &&
+          (
+            fields as {
+              err?: { meta?: { message?: string }; message?: string };
+            }
+          ).err?.meta?.message === "RouteCraft handler error" &&
+          (
+            fields as {
+              err?: { meta?: { message?: string }; message?: string };
+            }
+          ).err?.message === "Plain handler error",
+      ),
+    ).toBe(true);
+
+    abortController.abort();
+    await subscription;
   });
 
   /**

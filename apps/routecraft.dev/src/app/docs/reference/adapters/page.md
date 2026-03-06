@@ -12,14 +12,13 @@ Catalog of adapters and authoring guidance. {% .lead %}
 | [`log`](#log) | Core | Console logging for debugging | `Destination` |
 | [`timer`](#timer) | Core | Scheduled/recurring execution | `Source` |
 | [`direct`](#direct) | Core | Synchronous inter-route communication | `Source`, `Destination` |
-| [`http`](#http-client) | Core | HTTP client requests | `Destination` |
+| [`http`](#http-client) | Core | Outbound HTTP client requests (inbound/server support planned) | `Destination` |
 | [`noop`](#noop) | Core | No-operation placeholder | `Destination` |
 | [`pseudo`](#pseudo) | Core | Typed placeholder for docs/examples | `Source`, `Destination`, `Processor` |
 | [`file`](#file) | File | Read/write text files | `Source`, `Destination` |
 | [`json`](#json) | File | JSON file handling with parsing | `Source`, `Destination`, `Transformer` |
 | [`csv`](#csv) | File | CSV file processing | `Source`, `Destination` |
 | [`html`](#html) | File | HTML parsing and file handling | `Source`, `Destination`, `Transformer` |
-| — | HTTP | HTTP server (inbound) | Planned |
 
 ## Core adapters
 
@@ -188,10 +187,10 @@ craft()
   .process(businessLogic)
   .to(destination)
 
-// HTTP API with direct routing
+// Planned: inbound HTTP API with direct routing
 craft()
   .id('api-endpoint')
-  .from(httpServer('/api/orders'))
+  .from(http({ path: '/api/orders', method: 'POST' })) // Planned HTTP source API
   .to(direct('order-processing')) // Synchronous call
 
 craft()
@@ -200,7 +199,7 @@ craft()
   .process(validateOrder)
   .process(saveOrder)
   .transform(() => ({ status: 'created', orderId: '12345' }))
-  // Response goes back to HTTP client automatically
+  // Planned response flow goes back to the HTTP client automatically
 
 // Dynamic endpoint based on message content
 craft()
@@ -412,10 +411,14 @@ Useful for runtime introspection, documentation generation, and building dynamic
 ### http (client)
 
 ```ts
-http<T, R>(options: HttpOptions<T>): HttpAdapter<T, R>
+http<T, R>(options: HttpOptions<T>): Destination<T, HttpResult<R>>
 ```
 
 Make HTTP requests. Returns a `Destination` adapter that works with both `.to()` and `.enrich()`.
+
+**Current support:** RouteCraft currently exports `http()` only as an outbound/client adapter for making HTTP requests.
+
+**Planned inbound support:** RouteCraft does **not** yet ship an inbound HTTP source/server adapter. The design reference below is included to show the intended direction and may change before implementation.
 
 **With `.enrich()` (merge result into body):**
 
@@ -895,9 +898,9 @@ All transformer options above, plus:
 
 **Exported types:** `HtmlAdapter`, `HtmlOptions`, `HtmlResult`
 
-### http {% badge %}wip{% /badge %}
+#### Planned inbound/server HTTP support {% badge %}wip{% /badge %}
 
-Standard signature: `http({ path, method, ...options })`.
+Tentative source signature: `http({ path, method, ...options })`.
 
 ```ts
 // Simple webhook endpoint
