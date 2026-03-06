@@ -88,10 +88,26 @@ export class EventSourceAdapter implements Source<EventPayload<EventName>> {
 
             try {
               await handler(payload);
-            } catch (error) {
+            } catch (err) {
+              const metaMessage =
+                typeof err === "object" &&
+                err !== null &&
+                "meta" in err &&
+                typeof (err as { meta?: { message?: unknown } }).meta
+                  ?.message === "string"
+                  ? (err as { meta: { message: string } }).meta.message
+                  : undefined;
+              const errorMessage =
+                typeof err === "object" &&
+                err !== null &&
+                "message" in err &&
+                typeof (err as { message?: unknown }).message === "string"
+                  ? (err as { message: string }).message
+                  : undefined;
+
               context.logger.warn(
-                { adapter: "event", event: eventName, err: error },
-                "Event handler failed",
+                { adapter: "event", event: eventName, err },
+                metaMessage ?? errorMessage ?? "Event handler failed",
               );
             }
           }

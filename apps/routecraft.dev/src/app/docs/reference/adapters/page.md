@@ -190,7 +190,7 @@ craft()
 // Planned: inbound HTTP API with direct routing
 craft()
   .id('api-endpoint')
-  .from(httpServer('/api/orders')) // Planned HTTP source API
+  .from(http({ path: '/api/orders', method: 'POST' })) // Planned HTTP source API
   .to(direct('order-processing')) // Synchronous call
 
 craft()

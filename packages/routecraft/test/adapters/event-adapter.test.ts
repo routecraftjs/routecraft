@@ -301,15 +301,63 @@ describe("Event Source Adapter", () => {
     expect(
       t.logger.warn.mock.calls.some(
         ([fields, message]) =>
-          message === "Event handler failed" &&
-          (fields as { adapter?: string }).adapter === "event",
+          message === "Handler error" &&
+          (fields as { adapter?: string; err?: { message?: string } })
+            .adapter === "event" &&
+          (fields as { adapter?: string; err?: { message?: string } }).err
+            ?.message === "Handler error",
       ),
     ).toBe(true);
     expect(
       t.logger.error.mock.calls.some(
-        ([, message]) => message === "Event handler failed",
+        ([, message]) => message === "Handler error",
       ),
     ).toBe(false);
+
+    abortController.abort();
+    await subscription;
+  });
+
+  /**
+   * @case Event source adapter prefers RouteCraft-style meta.message in warn logs
+   * @preconditions Direct EventSourceAdapter subscription with a throwing handler object containing both meta.message and message
+   * @expectedResult Warn log uses meta.message while preserving the original error object in bindings
+   */
+  test("prefers meta.message when event handler errors include it", async () => {
+    t = await testContext().build();
+
+    const adapter = new EventSourceAdapter("context:started");
+    const abortController = new AbortController();
+    const subscription = adapter.subscribe(
+      t.ctx,
+      async () => {
+        throw {
+          meta: { message: "RouteCraft handler error" },
+          message: "Plain handler error",
+        };
+      },
+      abortController,
+    );
+
+    t.ctx.emit("context:started", {});
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(
+      t.logger.warn.mock.calls.some(
+        ([fields, message]) =>
+          message === "RouteCraft handler error" &&
+          (
+            fields as {
+              err?: { meta?: { message?: string }; message?: string };
+            }
+          ).err?.meta?.message === "RouteCraft handler error" &&
+          (
+            fields as {
+              err?: { meta?: { message?: string }; message?: string };
+            }
+          ).err?.message === "Plain handler error",
+      ),
+    ).toBe(true);
 
     abortController.abort();
     await subscription;
