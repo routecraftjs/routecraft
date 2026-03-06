@@ -5,7 +5,7 @@ title: Webhook Router
 Receive webhooks and route different events to different destinations. {% .lead %}
 
 {% callout type="warning" %}
-This example uses the `http()` adapter and `choice()` operation which are planned for a future release. It serves as a reference for the intended API design. Check the [Adapters documentation](/docs/reference/adapters) and [Operations documentation](/docs/reference/operations) for currently available features.
+This example uses the **planned inbound/server HTTP API** and the `choice()` operation, which is also planned for a future release. The currently shipped `http()` adapter is for outbound/client requests only. Treat this page as design reference and check the [Adapters documentation](/docs/reference/adapters) and [Operations documentation](/docs/reference/operations) for current vs planned features.
 {% /callout %}
 
 ```ts

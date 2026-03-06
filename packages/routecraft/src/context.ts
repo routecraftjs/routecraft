@@ -151,7 +151,7 @@ export class CraftContext {
   /** Plugins from config, run by initPlugins() before routes are registered */
   private readonly plugins: CraftPlugin[] = [];
 
-  /** Teardown callbacks registered by plugins; run during stop() after contextStopped */
+  /** Teardown callbacks registered by plugins; run during stop() before context:stopped */
   private readonly teardownCallbacks: Array<() => void | Promise<void>> = [];
 
   /**
@@ -261,7 +261,7 @@ export class CraftContext {
   /**
    * Register a teardown callback to run when the context stops. Plugins use this
    * to release resources (e.g. caches, native handles) after routes have drained.
-   * Callbacks run in registration order after `contextStopped` is emitted.
+   * Callbacks run in registration order before `context:stopped` is emitted.
    *
    * @param fn - Callback (sync or async) to run during stop()
    */
@@ -311,10 +311,9 @@ export class CraftContext {
    * // later: unsubscribe();
    * ```
    */
-  on<K extends EventName>(
-    event: K | string,
-    handler: EventHandler<K>,
-  ): () => void {
+  on<K extends EventName>(event: K, handler: EventHandler<K>): () => void;
+  on(event: string, handler: EventHandler<EventName>): () => void;
+  on(event: EventName | string, handler: EventHandler<EventName>): () => void {
     // Check if this is a wildcard pattern
     const isWildcard = typeof event === "string" && event.includes("*");
 
@@ -358,11 +357,13 @@ export class CraftContext {
    * });
    * ```
    */
-  once<K extends EventName>(
-    event: K | string,
-    handler: EventHandler<K>,
+  once<K extends EventName>(event: K, handler: EventHandler<K>): () => void;
+  once(event: string, handler: EventHandler<EventName>): () => void;
+  once(
+    event: EventName | string,
+    handler: EventHandler<EventName>,
   ): () => void {
-    const wrappedHandler: EventHandler<K> = (payload) => {
+    const wrappedHandler: EventHandler<EventName> = (payload) => {
       unsubscribe();
       return handler(payload);
     };
@@ -816,9 +817,6 @@ export class CraftContext {
       );
     }
 
-    this.logger.info({}, "Routecraft context stopped");
-    this.emit("context:stopped", {});
-
     // 3. Run plugin teardown (plugins with teardown in reverse order, then registerTeardown callbacks)
     for (let i = this.plugins.length - 1; i >= 0; i--) {
       const plugin = this.plugins[i] as CraftPlugin | undefined;
@@ -857,6 +855,9 @@ export class CraftContext {
         );
       }
     }
+
+    this.logger.info({}, "Routecraft context stopped");
+    this.emit("context:stopped", {});
 
     if (drainError) {
       throw drainError;

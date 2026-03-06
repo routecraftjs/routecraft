@@ -65,26 +65,17 @@ export class BatchConsumer implements Consumer<BatchOptions> {
     }[] = [];
     let timer: ReturnType<typeof setTimeout> | null = null;
     const batchId = randomUUID();
-    let batchStartTime = Date.now();
-
-    // Emit batch:started event
-    this.context.emit(
-      `route:${this.definition.id}:operation:batch:started` as const,
-      {
-        routeId: this.definition.id,
-        batchSize: this.options.size!,
-        batchId,
-      },
-    );
+    let batchStartTime: number | null = null;
 
     const flushBatch = async (reason: "size" | "time") => {
       if (batch.length > 0) {
         const currentBatch = batch;
         const currentResolvers = resolvers;
-        const waitTime = Date.now() - batchStartTime;
+        const waitTime =
+          batchStartTime === null ? 0 : Date.now() - batchStartTime;
         batch = [];
         resolvers = [];
-        batchStartTime = Date.now();
+        batchStartTime = null;
 
         // Emit batch:flushed event
         this.context.emit(
@@ -127,6 +118,17 @@ export class BatchConsumer implements Consumer<BatchOptions> {
       });
 
       if (batch.length === 1) {
+        batchStartTime = Date.now();
+
+        this.context.emit(
+          `route:${this.definition.id}:operation:batch:started` as const,
+          {
+            routeId: this.definition.id,
+            batchSize: this.options.size!,
+            batchId,
+          },
+        );
+
         if (timer) {
           clearTimeout(timer);
         }

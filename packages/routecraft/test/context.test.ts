@@ -1,6 +1,6 @@
 import { describe, test, expect, afterEach, vi, beforeEach } from "vitest";
 import { testContext, type TestContext } from "@routecraft/testing";
-import { craft, simple } from "@routecraft/routecraft";
+import { craft, simple, type CraftPlugin } from "@routecraft/routecraft";
 
 describe("CraftContext", () => {
   let t: TestContext;
@@ -188,6 +188,40 @@ describe("Lifecycle Management", () => {
     const secondStop = t.ctx.stop(); // Should be no-op
 
     await expect(secondStop).resolves.not.toThrow();
+  });
+
+  /**
+   * @case Verifies context:stopped is emitted only after teardown work completes
+   * @preconditions Context with async plugin teardown and registered teardown callback
+   * @expectedResult Event ordering is plugin teardown, registered teardown, then context:stopped
+   */
+  test("Emits context:stopped after teardown completes", async () => {
+    const lifecycle: string[] = [];
+
+    const plugin: CraftPlugin = {
+      apply(ctx) {
+        ctx.registerTeardown(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          lifecycle.push("callback");
+        });
+      },
+      async teardown() {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        lifecycle.push("plugin");
+      },
+    };
+
+    t = await testContext()
+      .with({ plugins: [plugin] })
+      .build();
+
+    t.ctx.on("context:stopped", () => {
+      lifecycle.push("context:stopped");
+    });
+
+    await t.ctx.stop();
+
+    expect(lifecycle).toEqual(["plugin", "callback", "context:stopped"]);
   });
 
   /**

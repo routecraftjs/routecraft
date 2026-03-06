@@ -5,7 +5,7 @@ title: HTTP Server
 Create a simple REST API endpoint that processes requests. {% .lead %}
 
 {% callout type="warning" %}
-This example uses the `http()` adapter which is planned for a future release. It serves as a reference for the intended API design. Check the [Adapters documentation](/docs/reference/adapters) for currently available adapters.
+This example shows the **planned inbound/server HTTP API**. The currently shipped `http()` adapter is for outbound/client requests only. Treat this page as design reference and check the [Adapters documentation](/docs/reference/adapters) for current vs planned HTTP support.
 {% /callout %}
 
 ```ts

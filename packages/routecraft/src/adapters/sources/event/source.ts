@@ -89,7 +89,7 @@ export class EventSourceAdapter implements Source<EventPayload<EventName>> {
             try {
               await handler(payload);
             } catch (error) {
-              context.logger.error(
+              context.logger.warn(
                 { adapter: "event", event: eventName, err: error },
                 "Event handler failed",
               );
