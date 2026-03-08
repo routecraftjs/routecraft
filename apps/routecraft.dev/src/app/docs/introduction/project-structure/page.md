@@ -2,57 +2,18 @@
 title: Project structure
 ---
 
-A clear folder layout that scales from small apps to larger codebases. The tables below show the recommended structure and what each directory/file is for. {% .lead %}
+A conventional folder layout that RouteCraft expects out of the box. {% .lead %}
 
-## Top-level folders
-
-| Folder | Purpose |
-| --- | --- |
-| `capabilities` | Application capabilities as standard `.ts` or `.mjs` files |
-| `adapters` | Custom adapters implementing operation interfaces (`subscribe`, `send`, `process`). Keep concerns isolated. |
-| `plugins` | Cross‑cutting helpers (logging, metrics, tracing). |
-| `src` | Optional wrapper folder. If chosen, place the folders above inside `src`. If omitted, keep them at the project root. |
-
----
-
-## Top-level files
-
-These files can live at the project root or inside `src` if you opt into a source directory.
-
-| File | Purpose |
-| --- | --- |
-| `craft.config.ts` | Exports a `CraftConfig` with capabilities. Use context events for lifecycle handling. |
-| `package.json` | Scripts and dependencies. Add `craft` scripts for convenience. |
-| `tsconfig.json` | TypeScript configuration. |
-| `.gitignore` | VCS ignores. Ensure build outputs and environment files are ignored. |
-| `.env`, `.env.local`, etc. | Environment variables. You can pass a file with `--env` in supported CLI commands. |
-
----
-
-## Organizing your project
-
-Routecraft recommends a clear, consistent structure to keep projects maintainable. Use the layout below as your baseline and adjust as needed.
-
-### Src folder
-Routecraft supports storing application code inside an optional `src` folder. This separates application code from project configuration files which mostly live in the root of a project.
-
-### Capability file types
-
-- Capabilities are standard TypeScript or JavaScript files: `.ts`, `.js`, `.mjs`, `.cjs`.
-- No special file suffix is required—use standard extensions for your capability files.
-
-### Suggested folder layout
-
-Use either a flat layout at the project root or colocate under `src`.
+## Folder layout
 
 ```text
 my-app
 ├── craft.config.ts
 ├── capabilities
-│   ├── file-to-http.ts
-│   ├── metrics.ts
-│   └── users
-│       └── api.ts
+│   ├── send-email.ts
+│   ├── sync-users.ts
+│   └── reports
+│       └── daily-summary.ts
 ├── adapters
 │   ├── kafka.ts
 │   └── google-sheets.ts
@@ -62,3 +23,39 @@ my-app
 ├── tsconfig.json
 └── .env
 ```
+
+All application code can live at the project root or inside an optional `src` folder. RouteCraft treats both layouts identically.
+
+## Folders
+
+| Folder | Purpose |
+| --- | --- |
+| `capabilities/` | Your capabilities as `.ts` files. Nest them freely in sub-folders. |
+| `adapters/` | Custom adapters that connect to external systems. Each implements one of the adapter interfaces: `subscribe`, `send`, or `process`. |
+| `plugins/` | Runtime plugins that hook into the RouteCraft context lifecycle, such as MCP transport or custom telemetry. |
+
+**Adapters vs plugins:** an adapter connects to an external system (a queue, an API, a file system). A plugin extends the runtime itself (exposing MCP, adding metrics, wiring up observability).
+
+## Files
+
+| File | Purpose |
+| --- | --- |
+| `craft.config.ts` | Registers plugins and configures the context. Exported as default. |
+| `package.json` | Dependencies and convenience scripts. |
+| `tsconfig.json` | TypeScript configuration. |
+| `.env` | Environment variables. Pass a custom path with `--env` in CLI commands. |
+
+## craft.config.ts
+
+The config file is the entry point for the RouteCraft runtime. A minimal setup:
+
+```ts
+// craft.config.ts
+import type { CraftConfig } from "@routecraft/routecraft";
+
+const config: CraftConfig = {};
+
+export default config;
+```
+
+Sub-folders inside `capabilities/` are supported. `capabilities/reports/daily-summary.ts` is just as valid as a flat file. The capability ID set in `.id()` is what identifies it at runtime, not the filename.

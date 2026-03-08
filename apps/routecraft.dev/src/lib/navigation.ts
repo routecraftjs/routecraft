@@ -1,16 +1,32 @@
 export const navigation = [
   {
+    title: 'Getting Started',
+    href: '/',
+    links: [{ title: 'Quick start', href: '/' }],
+  },
+  {
+    title: 'Changelog',
+    href: '/docs/changelog',
+    links: [{ title: 'Changelog', href: '/docs/changelog' }],
+  },
+  {
     title: 'Introduction',
     href: '/docs/introduction',
     links: [
-      { title: 'Getting started', href: '/' },
-      { title: 'Introduction', href: '/docs/introduction' },
+      { title: 'What is RouteCraft', href: '/docs/introduction' },
       { title: 'Installation', href: '/docs/introduction/installation' },
       {
         title: 'Project structure',
         href: '/docs/introduction/project-structure',
       },
-      { title: 'Routes', href: '/docs/introduction/routes' },
+      { title: 'Capabilities', href: '/docs/introduction/capabilities' },
+    ],
+  },
+  {
+    title: 'Advanced',
+    href: '/docs/advanced',
+    links: [
+      { title: 'AI Integration', href: '/docs/introduction/ai-setup' },
       { title: 'Testing', href: '/docs/introduction/testing' },
       { title: 'Deployment', href: '/docs/introduction/deployment' },
       { title: 'Monitoring', href: '/docs/introduction/monitoring' },
@@ -44,6 +60,15 @@ export const navigation = [
       { title: 'Webhook Router', href: '/docs/examples/webhook-processor' },
       { title: 'HTTP Server', href: '/docs/examples/http-api' },
       { title: 'Batch Processing', href: '/docs/examples/batch-processing' },
+      {
+        title: 'Calendar & Meeting Assistant',
+        href: '/docs/examples/ai-agent-tools',
+      },
+      { title: 'Email Assistant', href: '/docs/examples/ai-email-parser' },
+      {
+        title: 'Travel & Booking Assistant',
+        href: '/docs/examples/ai-document-processor',
+      },
     ],
   },
   {

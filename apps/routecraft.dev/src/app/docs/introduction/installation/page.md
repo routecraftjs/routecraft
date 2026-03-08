@@ -2,47 +2,17 @@
 title: Installation
 ---
 
-System requirements, alternative setup methods, and production builds. {% .lead %}
+System requirements, manual setup, and production builds. {% .lead %}
 
 ## System requirements
 
-- [Node.js 22](https://nodejs.org/en) or later.
+- **Node.js 22.6 or later** - required for the `--experimental-strip-types` flag, which lets you run `.ts` files directly without a build step.
+- **Node.js 23.6 or later** - recommended. TypeScript stripping is stable and enabled by default; no flags needed.
 - macOS, Windows (including WSL), or Linux.
-
-## Production builds
-
-Build and start the app for production:
-
-{% code-tabs %}
-{% code-tab label="npm" language="bash" %}
-```bash
-npm run build && npm run start
-```
-{% /code-tab %}
-
-{% code-tab label="yarn" language="bash" %}
-```bash
-yarn build && yarn start
-```
-{% /code-tab %}
-
-{% code-tab label="pnpm" language="bash" %}
-```bash
-pnpm build && pnpm start
-```
-{% /code-tab %}
-
-{% code-tab label="bun" language="bash" %}
-```bash
-bun run build && bun run start
-```
-{% /code-tab %}
-
-{% /code-tabs %}
 
 ## Manual installation
 
-If you prefer to add RouteCraft to an existing project instead of using the CLI:
+Add RouteCraft to an existing project:
 
 {% code-tabs %}
 {% code-tab label="npm" language="bash" %}
@@ -71,49 +41,88 @@ bun add @routecraft/routecraft
 
 {% /code-tabs %}
 
-Create your first route:
+Create your first capability:
 
 ```ts
 // capabilities/my-capability.ts
 import { craft, simple, log } from "@routecraft/routecraft";
 
 export default craft()
-  .id("my-first-route")
+  .id("my-first-capability")
   .from(simple("Hello, RouteCraft!"))
   .to(log());
 ```
 
-Run it with the CLI (recommended), or execute within your own Node app using `CraftContext`.
+Run it directly with the CLI:
 
-## TypeScript note
+```bash
+npx @routecraft/cli run capabilities/my-capability.ts
+```
 
-The CLI `run` command executes only JavaScript route files (`.mjs`, `.js`, `.cjs`). If you author routes in TypeScript, compile them to JavaScript before running.
+On Node 22.6+, the CLI strips TypeScript at runtime with no `tsc` step required. On Node 23.6+ this happens automatically without any flags.
 
-## AI Quick Start
+## TypeScript configuration
 
-To create a project with AI tools enabled:
+RouteCraft is TypeScript-first. The recommended `tsconfig.json` for a capabilities project:
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "outDir": "dist"
+  },
+  "include": ["capabilities/**/*.ts", "src/**/*.ts"]
+}
+```
+
+You only need to compile (`tsc`) when building for production. During development, the CLI runs your `.ts` files directly.
+
+## Production builds
+
+Build and start for production:
 
 {% code-tabs %}
 {% code-tab label="npm" language="bash" %}
 ```bash
-npm create routecraft@latest my-ai-tools
-npm install @routecraft/ai zod
+npm run build && npm run start
+```
+{% /code-tab %}
+
+{% code-tab label="yarn" language="bash" %}
+```bash
+yarn build && yarn start
 ```
 {% /code-tab %}
 
 {% code-tab label="pnpm" language="bash" %}
 ```bash
-pnpm create routecraft@latest my-ai-tools
-pnpm add @routecraft/ai zod
+pnpm build && pnpm start
 ```
 {% /code-tab %}
 
 {% code-tab label="bun" language="bash" %}
 ```bash
-bunx create-routecraft my-ai-tools
-bun add @routecraft/ai zod
+bun run build && bun run start
 ```
 {% /code-tab %}
+
 {% /code-tabs %}
 
-Then create tools and expose them to AI agents. See the [AI & MCP Setup guide](/docs/introduction/ai-setup) for complete instructions.
+The build step compiles your capabilities to JavaScript. The compiled output in `dist/` is what runs in production with no Node flags and no runtime overhead.
+
+## Embedding RouteCraft in your app
+
+If you're running capabilities from within an existing Node application instead of using the CLI, use `CraftContext` directly:
+
+```ts
+import { CraftContext } from "@routecraft/routecraft";
+
+const ctx = new CraftContext();
+await ctx.load("capabilities/");
+await ctx.start();
+```
+
+This gives you full programmatic control: load specific capability files, run a single capability for a batch job, or integrate RouteCraft into a larger Express or Fastify server.

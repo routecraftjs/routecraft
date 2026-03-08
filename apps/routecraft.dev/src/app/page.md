@@ -4,9 +4,9 @@ title: Getting started
 
 ## Give AI access, not control
 
-Build automation that agents can use without handing over the keys to your system.
+Build capabilities that agents can use without handing over the keys to your system.
 
-* **Code your automation:** Write TypeScript capabilities that define exactly what an agent can do. Send emails, manage calendars, and trigger workflows entirely from code you own.
+* **Deterministic capabilities:** Write TypeScript capabilities that define exactly what an agent can do. Send emails, manage calendars, and trigger workflows entirely from code you own.
 * **Two-way agent integration:** Expose your capabilities natively via the Model Context Protocol (MCP) for Claude and Cursor, or route events directly to your own agents in code using `.to(agent())`.
 * **Secure by design:** Agents can only execute the specific capabilities you expose. No arbitrary filesystem access. No unchecked shell commands. You maintain absolute authority.
 
