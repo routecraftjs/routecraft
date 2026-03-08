@@ -12,7 +12,7 @@
   "dependencies": {
     "@algolia/autocomplete-core": "^1.19.6",
     "@headlessui/react": "^2.2.9",
-    "@markdoc/markdoc": "^0.5.4",
+    "@markdoc/markdoc": "^0.5.5",
     "@markdoc/next.js": "^0.5.0",
     "@sindresorhus/slugify": "^3.0.0",
     "@tailwindcss/postcss": "^4.2.1",
@@ -24,7 +24,7 @@
     "js-yaml": "^4.1.1",
     "next": "^15.5.12",
     "next-themes": "^0.4.6",
-    "posthog-js": "^1.356.1",
+    "posthog-js": "^1.359.1",
     "prism-react-renderer": "^2.4.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
@@ -34,10 +34,10 @@
     "typescript": "^5.9.3"
   },
   "devDependencies": {
-    "@types/node": "^25.3.3",
+    "@types/node": "^25.3.5",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "eslint": "^9.39.3",
+    "eslint": "^9.39.4",
     "eslint-config-next": "^15.5.12",
     "prettier": "^3.8.1",
     "prettier-plugin-tailwindcss": "^0.7.2",

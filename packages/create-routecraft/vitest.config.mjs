@@ -6,6 +6,7 @@ export default defineConfig({
       provider: "v8",
       reporter: ["lcov", "text"],
     },
+    exclude: ["**/templates/**"],
     environment: "node",
   },
 });
