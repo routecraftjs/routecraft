@@ -8,7 +8,7 @@ A clear folder layout that scales from small apps to larger codebases. The table
 
 | Folder | Purpose |
 | --- | --- |
-| `routes` | Application routes should end in `.route.ts` or `.route.mjs` |
+| `capabilities` | Application capabilities as standard `.ts` or `.mjs` files |
 | `adapters` | Custom adapters implementing operation interfaces (`subscribe`, `send`, `process`). Keep concerns isolated. |
 | `plugins` | Cross‑cutting helpers (logging, metrics, tracing). |
 | `src` | Optional wrapper folder. If chosen, place the folders above inside `src`. If omitted, keep them at the project root. |
@@ -21,7 +21,7 @@ These files can live at the project root or inside `src` if you opt into a sourc
 
 | File | Purpose |
 | --- | --- |
-| `craft.config.ts` | Exports a `CraftConfig` with `routes`. Use context events for lifecycle handling. |
+| `craft.config.ts` | Exports a `CraftConfig` with capabilities. Use context events for lifecycle handling. |
 | `package.json` | Scripts and dependencies. Add `craft` scripts for convenience. |
 | `tsconfig.json` | TypeScript configuration. |
 | `.gitignore` | VCS ignores. Ensure build outputs and environment files are ignored. |
@@ -36,10 +36,10 @@ Routecraft recommends a clear, consistent structure to keep projects maintainabl
 ### Src folder
 Routecraft supports storing application code inside an optional `src` folder. This separates application code from project configuration files which mostly live in the root of a project.
 
-### Route file types
+### Capability file types
 
-- You can author routes in TypeScript or JavaScript: `.ts`, `.js`, `.mjs`, `.cjs`.
-- Naming with a `.route.*` suffix is a recommended convention to make route files easy to identify.
+- Capabilities are standard TypeScript or JavaScript files: `.ts`, `.js`, `.mjs`, `.cjs`.
+- No special file suffix is required—use standard extensions for your capability files.
 
 ### Suggested folder layout
 
@@ -48,11 +48,11 @@ Use either a flat layout at the project root or colocate under `src`.
 ```text
 my-app
 ├── craft.config.ts
-├── routes
-│   ├── file-to-http.route.ts
-│   ├── metrics.route.ts
+├── capabilities
+│   ├── file-to-http.ts
+│   ├── metrics.ts
 │   └── users
-│       └── api.route.ts
+│       └── api.ts
 ├── adapters
 │   ├── kafka.ts
 │   └── google-sheets.ts

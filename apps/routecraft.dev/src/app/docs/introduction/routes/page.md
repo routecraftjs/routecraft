@@ -189,16 +189,16 @@ For complete working examples of these patterns, see:
 ### Route organization
 - **One concern per route** - Keep routes focused on a single responsibility
 - **Meaningful IDs** - Use descriptive route identifiers like `user-processor` or `daily-report`
-- **File naming** - Use `.route.ts` suffix for route files
+- **File naming** - Store capabilities in the `capabilities/` folder
 
 ```ts
 // ✅ Good: Focused responsibility
-src/routes/user-registration.route.ts
-src/routes/order-fulfillment.route.ts
-src/routes/email-notifications.route.ts
+capabilities/user-registration.ts
+capabilities/order-fulfillment.ts
+capabilities/email-notifications.ts
 
 // ❌ Bad: Mixed responsibilities
-src/routes/everything.route.ts
+capabilities/everything.ts
 ```
 
 ### Error handling

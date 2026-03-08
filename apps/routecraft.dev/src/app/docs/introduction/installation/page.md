@@ -74,7 +74,7 @@ bun add @routecraft/routecraft
 Create your first route:
 
 ```ts
-// routes/my-route.ts
+// capabilities/my-capability.ts
 import { craft, simple, log } from "@routecraft/routecraft";
 
 export default craft()

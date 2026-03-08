@@ -59,7 +59,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
       "args": [
         "@routecraft/cli",
         "run",
-        "./routes/tools.mjs"
+        "./capabilities/tools.ts"
       ]
     }
   }
@@ -77,7 +77,7 @@ Open Cursor Settings → Features → Model Context Protocol, then add:
     "args": [
       "@routecraft/cli",
       "run",
-      "./routes/tools.mjs"
+      "./capabilities/tools.ts"
     ]
   }
 }
@@ -111,7 +111,7 @@ Then use `.to(mcp('browser:toolName', { args: () => ({ ... }) }))` or `.enrich(m
 
 ## Production deployment
 
-For production, we recommend **npx** with a pinned version (e.g. `@routecraft/cli@2.0.0`) so you don’t rely on global installs or path resolution:
+For production, we recommend **npx** with a pinned version (e.g. `@routecraft/cli@2.0.0`) so you don't rely on global installs or path resolution:
 
 ```json
 {
@@ -121,7 +121,7 @@ For production, we recommend **npx** with a pinned version (e.g. `@routecraft/cl
       "args": [
         "@routecraft/cli@2.0.0",
         "run",
-        "/path/to/project/routes/tools.mjs"
+        "/path/to/project/capabilities/tools.ts"
       ]
     }
   }

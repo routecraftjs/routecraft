@@ -11,3 +11,4 @@ dist/
 .pnpm-store/
 .cursor/plans/
 .cursor/hooks/state/
+.idea/

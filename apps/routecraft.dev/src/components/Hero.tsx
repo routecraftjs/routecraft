@@ -19,15 +19,14 @@ export default craft()
   .from(mcp('send-team-email', {
     description: 'Send email to team members',
     schema: z.object({
-      to: z.string().email().refine(
-        email => email.endsWith('@company.com'),
-        'Can only send to @company.com addresses'
-      ),
+      to: z.string().email(),
       subject: z.string(),
       message: z.string()
     })
   }))
-  .to(mail())  // Config loaded from context`
+  // Guardrail: Only allow emails to company domain
+  .filter(({ to }) => to.endsWith('@company.com'))
+  .to(mail())`
 
 const mcpConfigExample = `{
   "mcpServers": {
@@ -40,7 +39,7 @@ const mcpConfigExample = `{
         "/path/to/craft.log",
         "--log-level",
         "debug",
-        "/path/to/route/index.mjs"
+        "/path/to/routecraft/index.ts"
       ]
     }
   }
@@ -48,7 +47,7 @@ const mcpConfigExample = `{
 
 type CodeTab = { name: string; code: string }
 const tabs: CodeTab[] = [
-  { name: 'routes/send-email.ts', code: aiToolExample },
+  { name: 'capabilities/send-email.ts', code: aiToolExample },
   { name: 'claude_desktop_config.json', code: mcpConfigExample },
 ]
 
@@ -63,7 +62,9 @@ function TrafficLightsIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
 }
 
 export function Hero() {
-  const [activeTab, setActiveTab] = useState<string>('routes/send-email.ts')
+  const [activeTab, setActiveTab] = useState<string>(
+    'capabilities/send-email.ts',
+  )
   const active = tabs.find((t) => t.name === activeTab) ?? tabs[0]
   const code = active.code
   return (
@@ -85,9 +86,10 @@ export function Hero() {
                 Give AI access, not control
               </p>
               <p className="mt-3 text-2xl tracking-tight text-gray-400">
-                Write TypeScript routes that send emails, manage calendars, and
-                automate work. Expose them to Claude, ChatGPT, Cursor, or any AI
-                agent via MCP. AI calls your code, not your computer.
+                Define TypeScript capabilities that send emails, manage
+                calendars, and automate work. Expose them to the Routcraft
+                agent, Claude, ChatGPT, Cursor, or any AI agent via MCP. AI
+                calls your code, not your computer.
               </p>
               <div className="mt-8 flex gap-4 md:justify-center lg:justify-start">
                 <Button href="https://github.com/routecraftjs/routecraft">

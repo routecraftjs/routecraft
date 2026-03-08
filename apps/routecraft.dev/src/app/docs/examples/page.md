@@ -2,7 +2,7 @@
 title: Examples
 ---
 
-Working, focused example routes you can copy and adapt. {% .lead %}
+Working, focused example capabilities you can copy and adapt. {% .lead %}
 
 ## AI & Automation Examples
 

@@ -11,9 +11,9 @@ Use `testContext()` to build a test context and `t.test()` to run the full lifec
 ```ts
 import { describe, it, expect, vi } from "vitest";
 import { testContext, type TestContext } from "@routecraft/testing";
-import helloRoute from "../routes/hello-world.route";
+import helloRoute from "../capabilities/hello-world";
 
-describe("hello route", () => {
+describe("hello capability", () => {
   let t: TestContext;
 
   afterEach(async () => {
@@ -52,7 +52,7 @@ Use `testContext()` and `t.test()` for the recommended flow. `t.test()` runs sta
 
 ```ts
 import { testContext, type TestContext } from "@routecraft/testing";
-import routes from "../routes/hello-world.route"; // your route builder export
+import routes from "../capabilities/hello-world"; // your capability export
 
 const t = await testContext().routes(routes).build();
 await t.test();
@@ -277,9 +277,9 @@ captured.push(exchange.headers["routecraft.correlation_id"] as string);
 expect(new Set(captured).size).toBe(1);
 ```
 
-## Run route files
+## Run capability files
 
-Use the CLI to run compiled route files/folders as an integration check:
+Use the CLI to run compiled capability files/folders as an integration check:
 
 ```bash
 pnpm craft run ./examples//dist/hello-world.js

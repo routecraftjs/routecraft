@@ -2,34 +2,67 @@
 title: Getting started
 ---
 
-Get up and running with RouteCraft in 60 seconds. {% .lead %}
+## Give AI access, not control
 
-## Give AI Access, Not Control
+Build automation that agents can use without handing over the keys to your system.
 
-Build automation that AI can use—without giving it your entire system.
+* **Code your automation:** Write TypeScript capabilities that define exactly what an agent can do. Send emails, manage calendars, and trigger workflows entirely from code you own.
+* **Two-way agent integration:** Expose your capabilities natively via the Model Context Protocol (MCP) for Claude and Cursor, or route events directly to your own agents in code using `.to(agent())`.
+* **Secure by design:** Agents can only execute the specific capabilities you expose. No arbitrary filesystem access. No unchecked shell commands. You maintain absolute authority.
 
-### Code Your Automation
-Write TypeScript routes that define exactly what AI can do. Send emails, manage calendars, automate tasks. All from code you write and control.
+---
 
-### Works with Any AI Agent
-Expose your routes as tools via MCP. Works with Claude Desktop, ChatGPT, Cursor, or any MCP client. Your AI discovers them automatically and calls them when needed.
+## Your first capability
 
-### Safe by Design
-AI only accesses the routes you explicitly code. No filesystem access, no shell commands. You control everything.
+Here's a simple capability that fetches user data and logs a greeting:
+
+```typescript
+// capabilities/hello-world.ts
+import { log, craft, simple, http } from "@routecraft/routecraft";
+
+export default craft()
+  .id("hello-world")
+  .from(simple({ userId: 1 }))
+  .enrich(
+    http<{ userId: number }, { name: string }>({
+      method: "GET",
+      url: (ex) =>
+        `https://jsonplaceholder.typicode.com/users/${ex.body.userId}`,
+    }),
+  )
+  .transform((result) => `Hello, ${result.body.name}!`)
+  .to(log());
+```
+
+Run it instantly without any setup:
+
+```bash
+npx @routecraft/cli run capabilities/hello-world.ts
+```
+
+This pattern (source, enrich, transform, destination) is the foundation of every RouteCraft capability.
 
 ---
 
 ## Play Online
 
-Try RouteCraft in your browser without installing anything:
+Try RouteCraft in your browser or a cloud environment:
 
 {% quick-links %}
 
-{% quick-link title="Open on CodeSandbox" icon="installation" href="https://codesandbox.io/p/sandbox/github/routecraftjs/craft-playground?file=%2Froutes%2Fhello-world.route.ts" description="Play around with RouteCraft in your browser." /%}
+{% quick-link title="Open in GitHub Codespaces" icon="installation" href="https://codespaces.new/routecraftjs/craft-playground" description="Recommended: Full terminal environment with all features." /%}
+
+{% quick-link title="Open on CodeSandbox" icon="installation" href="https://codesandbox.io/p/sandbox/github/routecraftjs/craft-playground" description="Quick browser-based playground." /%}
 
 {% /quick-links %}
 
+**GitHub Codespaces** is recommended since RouteCraft is terminal-first and works best with full shell access.
+
+---
+
 ## Create a new project
+
+Scaffold a complete RouteCraft project with all configuration:
 
 {% code-tabs %}
 {% code-tab label="npm" language="bash" %}
@@ -58,47 +91,55 @@ bunx create-routecraft my-app
 
 {% /code-tabs %}
 
-## Start the development server
+Start the development server:
 
+{% code-tabs %}
+{% code-tab label="npm" language="bash" %}
 ```bash
 cd my-app
 npm run dev
 ```
+{% /code-tab %}
 
-You should see your routes start and log output in your terminal.
+{% code-tab label="yarn" language="bash" %}
+```bash
+cd my-app
+yarn dev
+```
+{% /code-tab %}
 
-## Your first route
+{% code-tab label="pnpm" language="bash" %}
+```bash
+cd my-app
+pnpm run dev
+```
+{% /code-tab %}
 
-The starter project includes a hello world route at `routes/hello-world.route.ts`. It demonstrates the core flow:
+{% code-tab label="bun" language="bash" %}
+```bash
+cd my-app
+bun run dev
+```
+{% /code-tab %}
 
-1. **Start with data** - `.from(simple({ userId: 1 }))` creates an exchange with a user ID
-2. **Enrich from an API** - `.enrich(http(...))` calls an external API and merges the result
-3. **Transform** - `.transform(...)` shapes the data into a greeting
-4. **Output** - `.to(log())` logs the final result to the console
+{% /code-tabs %}
 
-This pattern (source, transform, destination) is the foundation of every RouteCraft route.
+You should see your capabilities start and log output in your terminal.
 
-For AI automation, check out the hero example above showing how to send team emails with built-in domain filtering.
+---
 
 ## What Can You Build?
 
 ### Email Assistant
 "Unsubscribe me from promotional emails" → Scans inbox, categorizes, unsubscribes automatically
 
-### Meeting Coordinator  
+### Meeting Coordinator
 "Move my meeting with John to 2pm" → Finds the meeting, updates time, notifies attendees
 
 ### Travel Planner
 "Book me a flight to NYC next Tuesday" → Searches flights, finds best option, presents details
 
-### Restaurant Booking
-"Reserve a table for 4 at an Italian place tonight" → Searches restaurants, books reservation
-
-### Expense Tracker
-"Add this receipt to my expenses" → Extracts data, categorizes, logs to spreadsheet
-
-### Document Assistant
-"Summarize my unread contracts" → Reads PDFs, extracts key terms, prioritizes
+---
 
 ## Next steps
 
