@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@10.17.1",
+  "packageManager": "PACKAGE_MANAGER",
   "scripts": {
     "build": "tsc",
     "start": "craft run dist/index.js --log-level info",

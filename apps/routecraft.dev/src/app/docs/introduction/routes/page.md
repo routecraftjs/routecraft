@@ -193,12 +193,12 @@ For complete working examples of these patterns, see:
 
 ```ts
 // ✅ Good: Focused responsibility
-src/capabilities/user-registration.ts
-src/capabilities/order-fulfillment.ts
-src/capabilities/email-notifications.ts
+capabilities/user-registration.ts
+capabilities/order-fulfillment.ts
+capabilities/email-notifications.ts
 
 // ❌ Bad: Mixed responsibilities
-src/capabilities/everything.ts
+capabilities/everything.ts
 ```
 
 ### Error handling

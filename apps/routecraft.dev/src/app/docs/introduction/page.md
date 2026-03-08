@@ -15,6 +15,8 @@ RouteCraft is AI-native from the ground up:
 2. **Code, not configs** - TypeScript all the way with full IDE support and type safety
 3. **Safe by design** - AI only accesses the capabilities you explicitly code
 
+In RouteCraft, a **capability** is implemented as a **Route** – a composable pipeline that processes data through adapters and operations.
+
 In short, RouteCraft makes **AI automation powerful, flexible, and controllable**. Build tools that actually work, test them like any code, and deploy with confidence.
 
 ### Why AI Native Matters

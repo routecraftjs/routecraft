@@ -4,10 +4,18 @@ import routecraftPlugin from "@routecraft/eslint-plugin-routecraft";
 
 /** @type {import('eslint').Linter.Config[]} */
 export default [
+  {
+    ignores: ["dist/**", "coverage/**", "node_modules/**"],
+  },
   pluginJs.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ["capabilities/**/*.{ts,js}", "**/*.{ts,js,mjs,cjs}"],
+    files: [
+      "capabilities/**/*.{ts,js}",
+      "adapters/**/*.{ts,js}",
+      "plugins/**/*.{ts,js}",
+      "index.{ts,js}",
+    ],
     plugins: { "@routecraft/routecraft": routecraftPlugin },
     ...routecraftPlugin.configs.recommended,
   },

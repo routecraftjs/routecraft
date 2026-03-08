@@ -61,6 +61,21 @@ function getRoutecraftVersion(): string {
 }
 
 /**
+ * Get package manager with version
+ */
+function getPackageManagerVersion(packageManager: PackageManager): string {
+  // In a real implementation, you might want to detect installed versions
+  // For now, we'll use sensible defaults
+  const versions: Record<PackageManager, string> = {
+    pnpm: "pnpm@10.17.1",
+    npm: "npm@10.0.0",
+    yarn: "yarn@4.0.0",
+    bun: "bun@1.0.0",
+  };
+  return versions[packageManager];
+}
+
+/**
  * Read and process a template file
  */
 async function readTemplateFile(filePath: string): Promise<string> {
@@ -77,7 +92,7 @@ function processTemplate(
 ): string {
   let processed = content;
   for (const [key, value] of Object.entries(replacements)) {
-    processed = processed.replace(new RegExp(key, "g"), value);
+    processed = processed.replaceAll(key, value);
   }
   return processed;
 }
@@ -445,26 +460,26 @@ async function generateProjectStructure(
   await mkdir(join(baseDir, "adapters"), { recursive: true });
   await mkdir(join(baseDir, "plugins"), { recursive: true });
 
-  // Template files mapping
-  const templateFiles = [
-    ".gitignore",
-    ".prettierrc",
-    "craft.config.ts",
-    "eslint.config.mjs",
-    "tsconfig.json",
-    "vitest.config.ts",
-  ];
+  // Template files mapping (source -> destination)
+  const templateFiles: Record<string, string> = {
+    gitignore: ".gitignore",
+    ".prettierrc": ".prettierrc",
+    "craft.config.ts": "craft.config.ts",
+    "eslint.config.mjs": "eslint.config.mjs",
+    "tsconfig.json": "tsconfig.json",
+    "vitest.config.ts": "vitest.config.ts",
+  };
 
   const routecraftVersion = getRoutecraftVersion();
 
   // Copy base template files
-  for (const templateFile of templateFiles) {
-    const sourcePath = join(TEMPLATES_DIR, "base", templateFile);
-    const destPath = join(projectDir, templateFile);
+  for (const [sourceFile, destFile] of Object.entries(templateFiles)) {
+    const sourcePath = join(TEMPLATES_DIR, "base", sourceFile);
+    const destPath = join(projectDir, destFile);
 
     const content = await readTemplateFile(sourcePath);
     await writeFile(destPath, content);
-    console.log(`Created file: ${templateFile}`);
+    console.log(`Created file: ${destFile}`);
   }
 
   // Handle package.json with replacements
@@ -473,6 +488,7 @@ async function generateProjectStructure(
   packageJsonContent = processTemplate(packageJsonContent, {
     PROJECT_NAME: options.projectName,
     ROUTECRAFT_VERSION: routecraftVersion,
+    PACKAGE_MANAGER: getPackageManagerVersion(options.packageManager),
   });
   await writeFile(join(projectDir, "package.json"), packageJsonContent);
   console.log(`Created file: package.json`);
@@ -480,7 +496,16 @@ async function generateProjectStructure(
   // Handle index.ts based on whether example is included
   const indexTemplate = hasExample ? "index-with-example.ts" : "index-empty.ts";
   const indexSource = join(TEMPLATES_DIR, "base", indexTemplate);
-  const indexContent = await readTemplateFile(indexSource);
+  let indexContent = await readTemplateFile(indexSource);
+
+  // Replace import path based on useSrcDir
+  const capabilitiesPath = options.useSrcDir
+    ? "./src/capabilities"
+    : "./capabilities";
+  indexContent = processTemplate(indexContent, {
+    CAPABILITIES_IMPORT_PATH: capabilitiesPath,
+  });
+
   await writeFile(join(projectDir, "index.ts"), indexContent);
   console.log(`Created file: index.ts`);
 

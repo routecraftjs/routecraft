@@ -12,7 +12,7 @@ Catalog of adapters and authoring guidance. {% .lead %}
 | [`log`](#log) | Core | Console logging for debugging | `Destination` |
 | [`timer`](#timer) | Core | Scheduled/recurring execution | `Source` |
 | [`direct`](#direct) | Core | Synchronous inter-route communication | `Source`, `Destination` |
-| [`http`](#http-client) | Core | Outbound HTTP client requests (inbound/server support planned) | `Destination` |
+| [`http`](#http) | Core | Outbound HTTP client requests (inbound/server support planned) | `Destination` |
 | [`noop`](#noop) | Core | No-operation placeholder | `Destination` |
 | [`pseudo`](#pseudo) | Core | Typed placeholder for docs/examples | `Source`, `Destination`, `Processor` |
 | [`file`](#file) | File | Read/write text files | `Source`, `Destination` |

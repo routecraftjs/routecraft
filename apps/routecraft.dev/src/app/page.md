@@ -18,14 +18,20 @@ Here's a simple capability that fetches user data and logs a greeting:
 
 ```typescript
 // capabilities/hello-world.ts
-import { craft, simple, http, log } from '@routecraft/routecraft'
+import { log, craft, simple, http } from "@routecraft/routecraft";
 
 export default craft()
-  .id('hello-world')
+  .id("hello-world")
   .from(simple({ userId: 1 }))
-  .enrich(http({ url: 'https://jsonplaceholder.typicode.com/users/{{userId}}' }))
-  .transform(({ name }) => `Hello, ${name}!`)
-  .to(log())
+  .enrich(
+    http<{ userId: number }, { name: string }>({
+      method: "GET",
+      url: (ex) =>
+        `https://jsonplaceholder.typicode.com/users/${ex.body.userId}`,
+    }),
+  )
+  .transform((result) => `Hello, ${result.body.name}!`)
+  .to(log());
 ```
 
 Run it instantly without any setup:
