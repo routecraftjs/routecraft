@@ -408,7 +408,7 @@ const routes = registry ? Array.from(registry.values()) : []
 
 Useful for runtime introspection, documentation generation, and building dynamic routing systems.
 
-### http (client)
+### http
 
 ```ts
 http<T, R>(options: HttpOptions<T>): Destination<T, HttpResult<R>>

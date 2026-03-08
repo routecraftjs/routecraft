@@ -27,7 +27,7 @@ export const metadata: Metadata = {
     default: 'RouteCraft - Give AI Access, Not Control',
   },
   description:
-    'Write TypeScript routes that send emails, manage calendars, and automate work. AI calls your code, not your computer. The code-first alternative to Make.com.',
+    'Write TypeScript capabilities that send emails, manage calendars, and automate work. AI calls your code, not your computer. The code-first alternative to Make.com.',
   keywords: [
     'AI automation',
     'TypeScript automation',
@@ -47,7 +47,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: 'RouteCraft - Give AI Access, Not Control',
     description:
-      'Write TypeScript routes that send emails, manage calendars, and automate work. AI calls your code, not your computer.',
+      'Write TypeScript capabilities that send emails, manage calendars, and automate work. AI calls your code, not your computer.',
     type: 'website',
   },
   icons: {

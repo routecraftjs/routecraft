@@ -8,7 +8,8 @@
     "create-routecraft": "./dist/index.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "templates"
   ],
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts",

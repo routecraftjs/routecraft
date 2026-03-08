@@ -11,6 +11,9 @@ import { input, select, confirm } from "@inquirer/prompts";
 import { tmpdir } from "node:os";
 import { cp, rm } from "node:fs/promises";
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const TEMPLATES_DIR = join(__dirname, "../templates");
+
 /**
  * Package manager types
  */
@@ -58,143 +61,28 @@ function getRoutecraftVersion(): string {
 }
 
 /**
- * Template file configuration
+ * Read and process a template file
  */
-interface TemplateFileConfig {
-  content: string | ((arg: string) => string) | ((arg: boolean) => string);
+async function readTemplateFile(filePath: string): Promise<string> {
+  const content = await readFile(filePath, "utf-8");
+  return content;
 }
 
 /**
- * Default project structure template for Node.js package managers
+ * Process template content with replacements
  */
-const NODE_TEMPLATE = {
-  "package.json": {
-    content: (projectName: string) =>
-      JSON.stringify(
-        {
-          name: projectName,
-          version: "0.2.0",
-          private: true,
-          type: "module",
-          scripts: {
-            build: "tsc",
-            start: "craft run dist/index.js",
-            lint: "eslint .",
-          },
-          dependencies: {
-            "@routecraft/routecraft": getRoutecraftVersion(),
-          },
-          devDependencies: {
-            "@types/node": "^20.0.0",
-            typescript: "^5.0.0",
-            eslint: "^9.36.0",
-            "@eslint/js": "^9.36.0",
-            "typescript-eslint": "^8.44.1",
-            "@routecraft/eslint-plugin-routecraft": getRoutecraftVersion(),
-            "@routecraft/cli": getRoutecraftVersion(),
-            "pino-pretty": "^13.1.2",
-          },
-        },
-        null,
-        2,
-      ),
-  },
-  "tsconfig.json": {
-    content: JSON.stringify(
-      {
-        compilerOptions: {
-          target: "ES2022",
-          module: "ESNext",
-          moduleResolution: "bundler",
-          outDir: "./dist",
-          rootDir: ".",
-          allowSyntheticDefaultImports: true,
-          esModuleInterop: true,
-          allowJs: true,
-          strict: true,
-          skipLibCheck: true,
-          isolatedModules: true,
-          resolveJsonModule: true,
-        },
-        include: ["**/*.ts", "**/*.js"],
-        exclude: ["node_modules", "dist"],
-      },
-      null,
-      2,
-    ),
-  },
-  "eslint.config.mjs": {
-    content: `import pluginJs from "@eslint/js";
-import tseslint from "typescript-eslint";
-import routecraftPlugin from "@routecraft/eslint-plugin-routecraft";
+function processTemplate(
+  content: string,
+  replacements: Record<string, string>,
+): string {
+  let processed = content;
+  for (const [key, value] of Object.entries(replacements)) {
+    processed = processed.replace(new RegExp(key, "g"), value);
+  }
+  return processed;
+}
 
-/** @type {import('eslint').Linter.Config[]} */
-export default [
-  pluginJs.configs.recommended,
-  ...tseslint.configs.recommended,
-  {
-    files: ["routes/**/*.{ts,js}", "**/*.route.{ts,js}", "**/*.{ts,js}"],
-    plugins: { "@routecraft/routecraft": routecraftPlugin },
-    ...routecraftPlugin.configs.recommended,
-  },
-];
-`,
-  },
-  "craft.config.ts": {
-    content: `import type { CraftConfig } from "@routecraft/routecraft";
-
-const config: CraftConfig = {
-};
-
-export default config;`,
-  },
-  ".gitignore": {
-    content: `node_modules/
-dist/
-.env
-.env.local
-.env.*.local
-*.log
-.DS_Store`,
-  },
-  "index.ts": {
-    content: (hasExample: boolean) =>
-      hasExample
-        ? `export { default as craftConfig } from './craft.config.js';
-import helloWorldRoute from './routes/hello-world.route.js';
-
-// Export all routes as default for craft run
-export default [helloWorldRoute];`
-        : `export { default as craftConfig } from './craft.config.js';
-
-// Export all routes as default for craft run
-export default [];`,
-  },
-};
-
-/**
- * Example route templates for Node.js
- */
-const EXAMPLES = {
-  "hello-world": {
-    "routes/hello-world.route.ts": {
-      content: `import { log, craft, simple, http, type HttpResult } from "@routecraft/routecraft";
-
-export default craft()
-  .id("hello-world")
-  .from(simple({ userId: 1 }))
-  .enrich<HttpResult<{ name: string }>>(
-    http({
-      method: "GET",
-      url: (ex) =>
-        \`https://jsonplaceholder.typicode.com/users/\${ex.body.userId}\`,
-    }),
-  )
-  .transform((result) => \`Hello, \${result.body.name}!\`)
-  .to(log());`,
-    },
-  },
-};
+// Template files are now stored in the templates/ directory
 
 /**
  * Check if an example string is a URL
@@ -550,38 +438,51 @@ async function generateProjectStructure(
   options: Required<InitOptions>,
 ) {
   const baseDir = options.useSrcDir ? join(projectDir, "src") : projectDir;
+  const hasExample = options.example !== "none";
 
   // Create base directories
-  await mkdir(join(baseDir, "routes"), { recursive: true });
+  await mkdir(join(baseDir, "capabilities"), { recursive: true });
   await mkdir(join(baseDir, "adapters"), { recursive: true });
   await mkdir(join(baseDir, "plugins"), { recursive: true });
 
-  // Generate template files
-  const template = NODE_TEMPLATE as Record<string, TemplateFileConfig>;
-  const hasExample = options.example !== "none";
+  // Template files mapping
+  const templateFiles = [
+    ".gitignore",
+    ".prettierrc",
+    "craft.config.ts",
+    "eslint.config.mjs",
+    "tsconfig.json",
+    "vitest.config.ts",
+  ];
 
-  for (const [filePath, fileConfig] of Object.entries(template)) {
-    const fullPath = join(projectDir, filePath);
-    await mkdir(dirname(fullPath), { recursive: true });
+  const routecraftVersion = getRoutecraftVersion();
 
-    let content: string;
-    if (typeof fileConfig.content === "function") {
-      // Special handling for index.ts which needs hasExample parameter
-      if (filePath === "index.ts") {
-        content = (fileConfig.content as (arg: boolean) => string)(hasExample);
-      } else {
-        // Other files like package.json need projectName
-        content = (fileConfig.content as (arg: string) => string)(
-          options.projectName,
-        );
-      }
-    } else {
-      content = fileConfig.content;
-    }
+  // Copy base template files
+  for (const templateFile of templateFiles) {
+    const sourcePath = join(TEMPLATES_DIR, "base", templateFile);
+    const destPath = join(projectDir, templateFile);
 
-    await writeFile(fullPath, content);
-    console.log(`Created file: ${filePath}`);
+    const content = await readTemplateFile(sourcePath);
+    await writeFile(destPath, content);
+    console.log(`Created file: ${templateFile}`);
   }
+
+  // Handle package.json with replacements
+  const packageJsonSource = join(TEMPLATES_DIR, "base", "package.json");
+  let packageJsonContent = await readTemplateFile(packageJsonSource);
+  packageJsonContent = processTemplate(packageJsonContent, {
+    PROJECT_NAME: options.projectName,
+    ROUTECRAFT_VERSION: routecraftVersion,
+  });
+  await writeFile(join(projectDir, "package.json"), packageJsonContent);
+  console.log(`Created file: package.json`);
+
+  // Handle index.ts based on whether example is included
+  const indexTemplate = hasExample ? "index-with-example.ts" : "index-empty.ts";
+  const indexSource = join(TEMPLATES_DIR, "base", indexTemplate);
+  const indexContent = await readTemplateFile(indexSource);
+  await writeFile(join(projectDir, "index.ts"), indexContent);
+  console.log(`Created file: index.ts`);
 
   // Add example routes if requested
   if (options.example !== "none") {
@@ -589,7 +490,7 @@ async function generateProjectStructure(
       // Handle GitHub URL examples
       const tempExampleDir = await downloadGitHubExample(options.example);
       try {
-        // Copy all files from the downloaded example to the routes directory
+        // Copy all files from the downloaded example to the base directory
         await cp(tempExampleDir, baseDir, {
           recursive: true,
           force: true,
@@ -617,17 +518,16 @@ async function generateProjectStructure(
         }
       }
     } else {
-      // Handle built-in examples
-      const examples = EXAMPLES;
-      const example = examples[options.example as keyof typeof examples];
-      if (!example) {
+      // Handle built-in examples - copy from templates/examples/
+      const exampleDir = join(TEMPLATES_DIR, "examples", options.example);
+      if (existsSync(exampleDir)) {
+        await cp(exampleDir, baseDir, {
+          recursive: true,
+          force: false,
+        });
+        console.log(`✅ Added ${options.example} example`);
+      } else {
         throw new Error(`Unknown example: ${options.example}`);
-      }
-      for (const [filePath, fileConfig] of Object.entries(example)) {
-        const fullPath = join(baseDir, filePath);
-        await mkdir(dirname(fullPath), { recursive: true });
-        await writeFile(fullPath, fileConfig.content);
-        console.log(`Created example file: ${filePath}`);
       }
     }
   }
