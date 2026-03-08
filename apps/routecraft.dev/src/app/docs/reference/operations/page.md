@@ -666,7 +666,7 @@ craft()
 Use `dedupe` when duplicates should do nothing. Use `cache` when duplicates should return the same result.
 {% /callout %}
 
-### Default key derivation
+**Default key derivation:**
 
 When `dedupe` or `cache` is called without a `keyFn`, a key is derived automatically by hashing the exchange body:
 

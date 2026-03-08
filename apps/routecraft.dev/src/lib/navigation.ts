@@ -29,8 +29,13 @@ export const navigation = [
     links: [
       { title: 'Plugins', href: '/docs/introduction/plugins' },
       { title: 'Events', href: '/docs/introduction/events' },
+      {
+        title: 'Composing Capabilities',
+        href: '/docs/advanced/composing-capabilities',
+      },
       { title: 'Creating adapters', href: '/docs/advanced/custom-adapters' },
-      { title: 'AI Integration', href: '/docs/introduction/ai-setup' },
+      { title: 'Expose as MCP', href: '/docs/advanced/expose-as-mcp' },
+      { title: 'Call an MCP', href: '/docs/advanced/call-an-mcp' },
       { title: 'Testing', href: '/docs/introduction/testing' },
       { title: 'Deployment', href: '/docs/introduction/deployment' },
       { title: 'Monitoring', href: '/docs/introduction/monitoring' },
@@ -58,22 +63,7 @@ export const navigation = [
   {
     title: 'Examples',
     href: '/docs/examples',
-    links: [
-      { title: 'File to HTTP', href: '/docs/examples/api-sync' },
-      { title: 'Sample Metrics', href: '/docs/examples/metrics-collector' },
-      { title: 'Webhook Router', href: '/docs/examples/webhook-processor' },
-      { title: 'HTTP Server', href: '/docs/examples/http-api' },
-      { title: 'Batch Processing', href: '/docs/examples/batch-processing' },
-      {
-        title: 'Calendar & Meeting Assistant',
-        href: '/docs/examples/ai-agent-tools',
-      },
-      { title: 'Email Assistant', href: '/docs/examples/ai-email-parser' },
-      {
-        title: 'Travel & Booking Assistant',
-        href: '/docs/examples/ai-document-processor',
-      },
-    ],
+    links: [{ title: 'File to HTTP', href: '/docs/examples/api-sync' }],
   },
   {
     title: 'Community',

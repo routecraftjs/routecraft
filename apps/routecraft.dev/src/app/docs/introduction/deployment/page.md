@@ -2,34 +2,26 @@
 title: Deployment
 ---
 
-Deploy RouteCraft via a Node.js server, Docker image, or DigitalOcean App Platform. {% .lead %}
-
-| Deployment option | Feature support |
-| --- | --- |
-| [Node.js server](#nodejs-server) | All |
-| [Docker container](#docker) | All |
-| [DigitalOcean App Platform](/docs/introduction/deployment/digitalocean) | All |
+Deploy RouteCraft as a Node.js process or a Docker container. {% .lead %}
 
 ## Node.js server
 
-Routecraft can be deployed to any provider that supports Node.js. Ensure your `package.json` has the `build` and `start` scripts:
+RouteCraft runs on any provider that supports Node.js. Add `build` and `start` scripts to your `package.json`:
 
 ```json
 {
   "scripts": {
     "build": "tsc",
-    "start": "craft run ./routes/index.mjs"
+    "start": "craft run ./capabilities/index.js"
   }
 }
 ```
 
-Then, run `npm run build` to build your application and `npm run start` to start the Node.js server. This server supports all Routecraft features.
+Run `npm run build` to compile, then `npm run start` to launch.
 
 ## Docker
 
-Routecraft can be deployed to any provider that supports Docker containers. This includes container orchestrators like Kubernetes or a cloud provider that runs Docker.
-
-Docker deployments support all Routecraft features. Use a multi-stage image to keep the runtime small:
+Use a multi-stage image to keep the runtime image small:
 
 ```dockerfile
 # 1) Dependencies
@@ -56,12 +48,8 @@ COPY package.json pnpm-lock.yaml ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 
-CMD ["pnpm", "craft", "run", "./routes/index.mjs"]
+CMD ["pnpm", "craft", "run", "./capabilities/index.js"]
 ```
-
-## Providers
-
-- [DigitalOcean (App Platform)](/docs/introduction/deployment/digitalocean)
 
 ---
 
@@ -69,6 +57,6 @@ CMD ["pnpm", "craft", "run", "./routes/index.mjs"]
 
 {% quick-links %}
 
-{% quick-link title="CLI reference" icon="installation" href="/docs/reference/cli" description="All craft CLI commands including run, build, and start." /%}
+{% quick-link title="CLI reference" icon="installation" href="/docs/reference/cli" description="All craft CLI commands including run and build." /%}
 
 {% /quick-links %}
