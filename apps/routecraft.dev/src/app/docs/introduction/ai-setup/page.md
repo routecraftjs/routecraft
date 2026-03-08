@@ -138,8 +138,13 @@ If npx is not available in your environment, use the full path to Node and to `n
 4. **Rate limiting** - Add throttling for sensitive operations
 5. **Environment variables** - Never hardcode API keys
 
-## Next steps
+---
 
-- [Tool reference](/docs/reference/ai)
-- [AI examples](/docs/examples/ai-agent-tools)
-- [Testing routes](/docs/introduction/testing)
+## Related
+
+{% quick-links %}
+
+{% quick-link title="AI Package reference" icon="presets" href="/docs/reference/ai" description="Full MCP adapter API and options." /%}
+{% quick-link title="AI examples" icon="installation" href="/docs/examples/ai-agent-tools" description="Calendar assistant and travel booking examples." /%}
+
+{% /quick-links %}

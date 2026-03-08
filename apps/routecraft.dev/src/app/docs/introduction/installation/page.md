@@ -126,3 +126,14 @@ await ctx.start();
 ```
 
 This gives you full programmatic control: load specific capability files, run a single capability for a batch job, or integrate RouteCraft into a larger Express or Fastify server.
+
+---
+
+## Related
+
+{% quick-links %}
+
+{% quick-link title="CLI reference" icon="installation" href="/docs/reference/cli" description="All CLI commands and options." /%}
+{% quick-link title="Create RouteCraft" icon="presets" href="/docs/reference/cli/create-routecraft" description="Scaffold a new project with create-routecraft." /%}
+
+{% /quick-links %}

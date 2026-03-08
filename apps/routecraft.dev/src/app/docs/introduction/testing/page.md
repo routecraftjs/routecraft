@@ -291,3 +291,13 @@ pnpm craft run ./examples//dist/hello-world.js
 - Flaky timers: prefer fake timers or increase the wait to 100–200ms.
 - No logs captured: ensure your route includes `.to(log())` and assert on `t.logger.info` (or `t.logger.warn` / `t.logger.debug`) after `await t.test()`.
 - Errors in tests: check `t.errors` after `await t.test()`; RouteCraft errors are collected automatically.
+
+---
+
+## Related
+
+{% quick-links %}
+
+{% quick-link title="Errors reference" icon="warning" href="/docs/reference/errors" description="RC error codes -- useful when asserting on t.errors in tests." /%}
+
+{% /quick-links %}

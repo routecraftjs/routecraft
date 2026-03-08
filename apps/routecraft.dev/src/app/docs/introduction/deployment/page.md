@@ -62,3 +62,13 @@ CMD ["pnpm", "craft", "run", "./routes/index.mjs"]
 ## Providers
 
 - [DigitalOcean (App Platform)](/docs/introduction/deployment/digitalocean)
+
+---
+
+## Related
+
+{% quick-links %}
+
+{% quick-link title="CLI reference" icon="installation" href="/docs/reference/cli" description="All craft CLI commands including run, build, and start." /%}
+
+{% /quick-links %}

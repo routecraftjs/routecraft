@@ -35,6 +35,10 @@ craft()
 
 `.id()` is what identifies the capability at runtime, not the filename. Name your files descriptively, but the ID is what matters.
 
+{% callout type="note" title="Always set an ID" %}
+It is recommended to give every route a unique `.id()`. Without one, RouteCraft generates an ID automatically but it may change between runs, making debugging and MCP tool discovery harder. The `require-named-route` ESLint rule enforces this and can be disabled per-project.
+{% /callout %}
+
 ## Source types
 
 The `.from()` adapter determines how a capability is triggered:
@@ -77,7 +81,11 @@ Operations are the steps between source and destination. They are composable and
 
 ## Destinations
 
-`.to()` sends the processed exchange to its final target:
+`.to()` sends the processed exchange to its final target. It is recommended to use only one `.to()` per route -- if you need to fan out, use `.tap()` for side-effect destinations and reserve `.to()` for the primary output.
+
+{% callout type="note" title="One destination per route" %}
+Using multiple `.to()` calls on a single route is supported but not recommended. The `single-destination` ESLint rule warns when more than one `.to()` is chained. Use `.tap()` for fire-and-forget side effects instead.
+{% /callout %}
 
 ```ts
 .to(log())                              // Print to console
@@ -85,6 +93,26 @@ Operations are the steps between source and destination. They are composable and
 .to(json({ path: "./output.json" }))   // Write to file
 .to(direct("next-stage"))              // Hand off to another capability
 ```
+
+## Multiple capabilities in one file
+
+A single `craft()` call can define multiple capabilities by chaining `.id().from().to()` blocks. This is useful for grouping related capabilities that belong to the same domain.
+
+```ts
+// capabilities/calendar.ts
+export default craft()
+  .id("calendar.fetch-events")
+  .from(http({ path: "/calendar/events", method: "GET" }))
+  .transform(mapCalendarEvents)
+  .to(log())
+
+  .id("calendar.create-event")
+  .from(http({ path: "/calendar/events", method: "POST" }))
+  .validate(eventSchema)
+  .to(googleCalendar())
+```
+
+Each `.id()` starts a new route definition. Every ID must be unique -- it is what identifies the capability at runtime, not the filename.
 
 ## Inter-capability communication
 
@@ -106,6 +134,12 @@ export default craft()
   .to(log());
 ```
 
-## Testing
+---
 
-Capabilities are plain TypeScript -- test them with any standard framework. See the [Testing guide](/docs/introduction/testing) for patterns using `spy()` and `CraftContext`.
+## Related
+
+{% quick-links %}
+
+{% quick-link title="Operations reference" icon="plugins" href="/docs/reference/operations" description="Full API: all operations with signatures and examples." /%}
+
+{% /quick-links %}

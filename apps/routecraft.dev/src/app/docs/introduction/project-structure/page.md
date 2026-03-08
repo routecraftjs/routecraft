@@ -59,3 +59,13 @@ export default config;
 ```
 
 Sub-folders inside `capabilities/` are supported. `capabilities/reports/daily-summary.ts` is just as valid as a flat file. The capability ID set in `.id()` is what identifies it at runtime, not the filename.
+
+---
+
+## Related
+
+{% quick-links %}
+
+{% quick-link title="Configuration reference" icon="presets" href="/docs/reference/configuration" description="craft.config.ts options and context settings." /%}
+
+{% /quick-links %}

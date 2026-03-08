@@ -2,12 +2,10 @@ export const navigation = [
   {
     title: 'Getting Started',
     href: '/',
-    links: [{ title: 'Quick start', href: '/' }],
-  },
-  {
-    title: 'Changelog',
-    href: '/docs/changelog',
-    links: [{ title: 'Changelog', href: '/docs/changelog' }],
+    links: [
+      { title: 'Quick start', href: '/' },
+      { title: 'Changelog', href: '/docs/changelog' },
+    ],
   },
   {
     title: 'Introduction',
@@ -20,12 +18,18 @@ export const navigation = [
         href: '/docs/introduction/project-structure',
       },
       { title: 'Capabilities', href: '/docs/introduction/capabilities' },
+      { title: 'The Exchange', href: '/docs/introduction/exchange' },
+      { title: 'Operations', href: '/docs/introduction/operations' },
+      { title: 'Adapters', href: '/docs/introduction/adapters' },
     ],
   },
   {
     title: 'Advanced',
     href: '/docs/advanced',
     links: [
+      { title: 'Plugins', href: '/docs/introduction/plugins' },
+      { title: 'Events', href: '/docs/introduction/events' },
+      { title: 'Creating adapters', href: '/docs/advanced/custom-adapters' },
       { title: 'AI Integration', href: '/docs/introduction/ai-setup' },
       { title: 'Testing', href: '/docs/introduction/testing' },
       { title: 'Deployment', href: '/docs/introduction/deployment' },

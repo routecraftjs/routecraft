@@ -35,11 +35,11 @@ const ctx = context()
   .build()
 
 // Subscribe to events
-ctx.on('contextStarting', ({ ts, context }) => {
+ctx.on('context:starting', ({ ts, context }) => {
   logger.info('Context starting', { contextId: context.contextId, ts })
 })
 
-ctx.on('routeStarting', ({ ts, context, details: { route } }) => {
+ctx.on('route:starting', ({ ts, context, details: { route } }) => {
   logger.info('Route starting', { contextId: context.contextId, route: route.definition.id, ts })
 })
 
@@ -61,11 +61,11 @@ await ctx.start()
 
 All events follow the signature: `{ ts, context, details }` where `details` contains event-specific data. Key events include:
 
-- **Context lifecycle**: `contextStarting`, `contextStarted`, `contextStopping`, `contextStopped`
-- **Route lifecycle**: `routeRegistered`, `routeStarting`, `routeStarted`, `routeStopping`, `routeStopped`
+- **Context lifecycle**: `context:starting`, `context:started`, `context:stopping`, `context:stopped`
+- **Route lifecycle**: `route:registered`, `route:starting`, `route:started`, `route:stopping`, `route:stopped`
 - **System events**: `error` for any error that occurs
 
-For the complete event reference with all details structures, see [Configuration - Event handling](/docs/reference/configuration#event-handling).
+For the complete event reference with all details structures, see the [Events reference](/docs/reference/events).
 
 ## Plugins
 
@@ -79,19 +79,19 @@ export default function observability(ctx: CraftContext) {
   logger.info('Observability plugin initializing', { contextId: ctx.contextId })
   
   // Subscribe to events for monitoring
-  ctx.on('routeStarted', ({ ts, context, details: { route } }) => {
+  ctx.on('route:started', ({ ts, context, details: { route } }) => {
     // Track route startup metrics
     console.log(`Route ${route.definition.id} started at ${ts}`)
   })
-  
+
   ctx.on('error', ({ ts, context, details: { error, route, exchange } }) => {
     // Send errors to external monitoring service
     const code = error?.code || 'UNKNOWN'
     const location = route ? `route ${route.definition.id}` : 'context'
     console.error(`Error ${code} in ${location}:`, error)
   })
-  
-  ctx.on('contextStopped', ({ ts, context }) => {
+
+  ctx.on('context:stopped', ({ ts, context }) => {
     // Flush metrics before shutdown
     console.log(`Context ${context.contextId} stopped, flushing metrics...`)
   })
@@ -111,3 +111,13 @@ The CLI and Next.js runtimes include structured logging out of the box (Pino). I
 - **Validation errors**: When throwing RC5002 (validation failed), the cause is serialized (e.g. validation issues as JSON) so logs show actual errors, not `[object Object]`.
 
 See [Errors](/docs/reference/errors) for RC codes and suggestions. For the full rule, see the project's errors-logging rule.
+
+---
+
+## Related
+
+{% quick-links %}
+
+{% quick-link title="Events reference" icon="presets" href="/docs/reference/events" description="Full event catalog with payload shapes and wildcard patterns." /%}
+
+{% /quick-links %}
