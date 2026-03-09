@@ -423,7 +423,7 @@ Make HTTP requests. Returns a `Destination` adapter that works with both `.to()`
 
 **Current support:** RouteCraft currently exports `http()` only as an outbound/client adapter for making HTTP requests.
 
-**Planned inbound support:** RouteCraft does **not** yet ship an inbound HTTP source/server adapter. The planned design is shown in [Planned inbound/server HTTP support](#planned-inboundserver-http-support) below and may change before implementation.
+**Planned inbound support:** RouteCraft does **not** yet ship an inbound HTTP source/server adapter. The planned design is shown in [Planned inbound/server HTTP support](#planned-inbound-server-http-support) below and may change before implementation.
 
 **With `.enrich()` (merge result into body):**
 
@@ -1004,7 +1004,7 @@ craft()
     schema: z.object({ url: z.string().url() }),
     keywords: ['fetch', 'web'],
   }))
-  .process(async ({ url }) => {
+  .transform(async ({ url }) => {
     const res = await fetch(url)
     return { content: await res.text() }
   })

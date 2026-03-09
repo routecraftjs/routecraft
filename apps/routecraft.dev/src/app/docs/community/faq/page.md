@@ -53,7 +53,7 @@ Implement the appropriate interface (`Source`, `Destination`, or `Processor`) an
 class MyAdapter implements Source<string> {
   readonly adapterId = 'my.custom.adapter'
 
-  async subscribe(context, handler, controller) {
+  async subscribe(context, handler, controller, onReady?) {
     // emit exchanges by calling handler(value)
   }
 }

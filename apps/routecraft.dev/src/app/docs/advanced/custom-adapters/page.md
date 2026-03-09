@@ -14,7 +14,7 @@ A source produces data and starts the pipeline. Implement the `Source` interface
 import { type Source } from '@routecraft/routecraft'
 
 class MyQueueAdapter implements Source<Message> {
-  readonly adapterId = 'my.queue'
+  readonly adapterId = 'acme.adapter.my-queue'
 
   async subscribe(context, handler, abort) {
     while (!abort.signal.aborted) {
@@ -33,7 +33,7 @@ A destination receives the final exchange. Implement the `Destination` interface
 import { type Destination } from '@routecraft/routecraft'
 
 class MyStorageAdapter implements Destination<Record<string, unknown>, void> {
-  readonly adapterId = 'my.storage'
+  readonly adapterId = 'acme.adapter.my-storage'
 
   async send(exchange) {
     await storage.write(exchange.body)
@@ -43,19 +43,34 @@ class MyStorageAdapter implements Destination<Record<string, unknown>, void> {
 
 If `send` returns a value, the exchange body is replaced with it. If it returns nothing, the body is unchanged.
 
+Use a `Destination` with `.enrich()` when you need to fetch external data and merge it into the body:
+
+```ts
+class MyEnricherAdapter implements Destination<InputType, ExtraFields> {
+  readonly adapterId = 'acme.adapter.my-enricher'
+
+  async send(exchange) {
+    return fetchExtra(exchange.body.id)
+  }
+}
+
+// The returned value is merged into the body
+.enrich(myEnricher({ apiKey: process.env.ENRICH_KEY }))
+```
+
 ## Processor
 
-A processor sits in the middle of a pipeline and modifies the exchange. Implement the `Processor` interface:
+A processor sits in the middle of a pipeline and modifies the exchange. Implement the `Processor` interface. Use this when you need header or context access alongside body reshaping -- for body-only changes, `.transform()` is the simpler choice:
 
 ```ts
 import { type Processor } from '@routecraft/routecraft'
 
 class MyTransformAdapter implements Processor<InputType, OutputType> {
-  readonly adapterId = 'my.transform'
+  readonly adapterId = 'acme.adapter.my-transform'
 
   async process(exchange) {
-    const extra = await fetchExtra(exchange.body.id)
-    return { ...exchange, body: { ...exchange.body, ...extra } }
+    const tenantId = exchange.headers['x-tenant']
+    return { ...exchange, body: { ...exchange.body, tenantId } }
   }
 }
 ```
@@ -87,11 +102,11 @@ export function myQueue(options?: MyQueueOptions) {
 ```ts
 // adapters/my-enricher.ts
 export function myEnricher(options?: MyEnricherOptions) {
-  return new MyTransformAdapter(options)
+  return new MyEnricherAdapter(options)
 }
 
-// Usage -- processor
-.process(myEnricher({ apiKey: process.env.ENRICH_KEY }))
+// Usage -- enricher (merges result into body)
+.enrich(myEnricher({ apiKey: process.env.ENRICH_KEY }))
 ```
 
 Keeping one factory per adapter makes imports predictable and avoids a proliferation of role-suffixed exports (`myQueueSource`, `myQueueDestination`, etc.). The adapter class itself handles the role -- the factory just wires up the options.
@@ -100,7 +115,7 @@ An adapter class can implement multiple interfaces when it makes sense. A queue 
 
 ```ts
 class MyQueueAdapter implements Source<Message>, Destination<Message, void> {
-  readonly adapterId = 'my.queue'
+  readonly adapterId = 'acme.adapter.my-queue'
 
   async subscribe(context, handler, abort) {
     while (!abort.signal.aborted) {

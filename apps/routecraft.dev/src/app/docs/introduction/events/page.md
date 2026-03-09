@@ -81,7 +81,7 @@ unsub() // stops receiving events
 
 Event names are colon-separated segments that describe scope from broad to specific:
 
-```
+```text
 context:started
 route:started
 route:{capabilityId}:exchange:completed

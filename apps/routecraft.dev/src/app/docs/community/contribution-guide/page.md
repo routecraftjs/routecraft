@@ -78,9 +78,9 @@ refactor(builder): simplify type inference for map()
 - TypeScript everywhere; avoid `any`. Prefer precise types or `unknown` with narrowing.
 - Keep capabilities small, composable, and isolated. Use `.from` for sources, pure steps for processing, `.to` for side effects.
 - One function per step; accept a single options object or one adapter instance.
-- Validate external inputs with a Zod `schema` on the source adapter or `.filter(fn)` for business rules.
+- Validate external inputs with a StandardSchemaV1-compliant `schema` on the source adapter or `.filter(fn)` for business rules.
 - Prefer purity for `.transform`, `.process`, `.filter`, `.tap`.
-- Avoid cross-route globals; use `direct(...)` or `CraftContext` store.
+- Avoid cross-capability globals; use `direct(...)` or `CraftContext` store.
 - Match existing formatting and structure; keep functions short and readable.
 
 ## Testing

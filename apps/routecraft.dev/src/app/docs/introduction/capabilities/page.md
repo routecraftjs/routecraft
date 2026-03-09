@@ -36,7 +36,7 @@ craft()
 `.id()` is what identifies the capability at runtime, not the filename. Name your files descriptively, but the ID is what matters.
 
 {% callout type="note" title="Always set an ID" %}
-It is recommended to give every route a unique `.id()`. Without one, RouteCraft generates an ID automatically but it may change between runs, making debugging and MCP tool discovery harder. The `require-named-route` ESLint rule enforces this and can be disabled per-project.
+It is recommended to give every capability a unique `.id()`. Without one, RouteCraft generates an ID automatically but it may change between runs, making debugging and MCP tool discovery harder. The `require-named-route` ESLint rule enforces this and can be disabled per-project.
 {% /callout %}
 
 ## Source types
@@ -81,10 +81,10 @@ Operations are the steps between source and destination. They are composable and
 
 ## Destinations
 
-`.to()` sends the processed exchange to its final target. It is recommended to use only one `.to()` per route -- if you need to fan out, use `.tap()` for side-effect destinations and reserve `.to()` for the primary output.
+`.to()` sends the processed exchange to its final target. It is recommended to use only one `.to()` per capability -- if you need to fan out, use `.tap()` for side-effect destinations and reserve `.to()` for the primary output.
 
-{% callout type="note" title="One destination per route" %}
-Using multiple `.to()` calls on a single route is supported but not recommended. The `single-destination` ESLint rule warns when more than one `.to()` is chained. Use `.tap()` for fire-and-forget side effects instead.
+{% callout type="note" title="One destination per capability" %}
+Using multiple `.to()` calls on a single capability is supported but not recommended. The `single-destination` ESLint rule warns when more than one `.to()` is chained. Use `.tap()` for fire-and-forget side effects instead.
 {% /callout %}
 
 ```ts
@@ -112,7 +112,7 @@ export default craft()
   .to(googleCalendar())
 ```
 
-Each `.id()` starts a new route definition. Every ID must be unique -- it is what identifies the capability at runtime, not the filename.
+Each `.id()` starts a new capability definition. Every ID must be unique -- it is what identifies the capability at runtime, not the filename.
 
 ## Inter-capability communication
 

@@ -21,9 +21,9 @@ craft()
 
 ## Operation categories
 
-### Route-level
+### Capability(Route)-level
 
-Route-level operations configure the capability itself. They go **before** `.from()` and apply to the entire capability, not to individual exchanges.
+Capability(Route)-level operations configure the capability itself. They go **before** `.from()` and apply to the entire capability, not to individual operations.
 
 `.from()` is the most important one -- it defines the source adapter and creates the capability. Everything before it (`.id()`, `.batch()`) is configuration. Everything after it operates on exchanges.
 
@@ -37,13 +37,13 @@ The distinction between them is how much of the exchange they expose. `.transfor
 
 Flow control operations decide which exchanges continue and how they are split or merged.
 
-`.filter()` drops exchanges that do not match a predicate -- the exchange simply does not continue downstream. `.validate()` checks the body against a StandardSchema (Zod, Valibot, ArkType); invalid exchanges emit an error event. `.split()` fans an array body out into one exchange per item, so each can be processed independently. `.aggregate()` collects those back into a single exchange. `.choice()` routes to different sub-pipelines based on conditions, like a switch statement for data flows.
+`.filter()` drops exchanges that do not match a predicate -- the exchange simply does not continue downstream. `.validate()` checks the body against a StandardSchema (Zod, Valibot, ArkType); invalid exchanges emit an error event. `.split()` fans an array body out into one exchange per item, so each can be processed independently. `.aggregate()` collects those back into a single exchange. `.choice()` {% badge %}wip{% /badge %} routes to different sub-pipelines based on conditions, like a switch statement for data flows.
 
 ### Wrappers
 
 Wrappers modify the behaviour of the **next operation only**. They do not stand alone -- they must be followed by the operation they wrap, placed immediately before it.
 
-`.retry()` re-runs the next operation on failure. `.timeout()` cancels it if it takes too long. `.throttle()` rate-limits it. `.delay()` adds a pause before it runs. `.onError()` catches any error and lets you provide a fallback exchange. `.cache()` skips re-running if the same input has been seen before.
+`.retry()` re-runs the next operation on failure. `.timeout()` cancels it if it takes too long. `.throttle()` rate-limits it. `.delay()` adds a pause before it runs. `.onError()` {% badge %}wip{% /badge %} catches any error and lets you provide a fallback exchange. `.cache()` {% badge %}wip{% /badge %} skips re-running if the same input has been seen before.
 
 Multiple wrappers can be stacked. They apply in outside-in order, so the first listed is the outermost. This means the order changes the semantics:
 

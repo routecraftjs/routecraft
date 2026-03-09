@@ -78,7 +78,7 @@ If no ID is specified, a random UUID will be generated automatically.
 ### batch
 
 ```ts
-batch(options?: { size?: number; time?: number }): RouteBuilder<Current>
+batch(options?: { size?: number; flushIntervalMs?: number }): RouteBuilder<Current>
 ```
 
 Process exchanges in batches instead of one at a time. Useful for bulk operations like database inserts or API batch requests.
@@ -86,14 +86,14 @@ Process exchanges in batches instead of one at a time. Useful for bulk operation
 ```ts
 craft()
   .id('bulk-processor')
-  .batch({ size: 50, time: 5000 })
+  .batch({ size: 50, flushIntervalMs: 5000 })
   .from(timer({ intervalMs: 1000 }))
   .to(saveToDB)
 ```
 
 **Options:**
 - `size` - Maximum exchanges per batch (default: 100)
-- `time` - Maximum wait time in milliseconds before flushing a partial batch (default: 5000ms)
+- `flushIntervalMs` - Maximum wait time in milliseconds before flushing a partial batch (default: 5000ms)
 
 {% callout type="note" title="Linting: route-level positioning" %}
 Use the ESLint rule `@routecraft/routecraft/batch-before-from` to ensure `batch()` is placed **before** `.from()`. See [Linting Rules](/docs/reference/linting#batch-before-from).

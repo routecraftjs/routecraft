@@ -36,7 +36,7 @@ Use the `on` property in `craft.config.ts` to react to lifecycle and error event
 // craft.config.ts
 import type { CraftConfig } from '@routecraft/routecraft'
 
-const config: CraftConfig = {
+export const craftConfig: CraftConfig = {
   on: {
     'context:started': ({ ts }) => {
       console.log(`Ready at ${ts}`)
@@ -49,8 +49,6 @@ const config: CraftConfig = {
     },
   },
 }
-
-export default config
 ```
 
 For the full event catalog see the [Events reference](/docs/reference/events).
@@ -86,8 +84,9 @@ Register it in `craft.config.ts`:
 
 ```ts
 import observability from './plugins/observability'
+import type { CraftConfig } from '@routecraft/routecraft'
 
-const config: CraftConfig = {
+export const craftConfig: CraftConfig = {
   plugins: [observability],
 }
 ```

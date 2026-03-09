@@ -56,7 +56,7 @@ craft()
   .process((exchange) => {
     const tenant = exchange.headers['x-tenant']     // 'acme-corp'
     const priority = exchange.headers['x-priority'] // 'normal'
-    return exchange.body
+    return exchange
   })
   .to(log())
 ```
@@ -91,7 +91,7 @@ Most operations give you a choice: work with just the body, or the full exchange
 ```ts
 .process((exchange) => {
   const tenantId = exchange.headers['x-tenant']
-  return { ...exchange.body, tenantId }
+  return { ...exchange, body: { ...exchange.body, tenantId } }
 })
 ```
 

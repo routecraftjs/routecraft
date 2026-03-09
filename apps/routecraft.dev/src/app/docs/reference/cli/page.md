@@ -69,7 +69,7 @@ Options:
 
 ### run
 
-Execute one or more capabilities from a JavaScript file once, then exit when all capabilities have completed.
+Load one or more capabilities from a TypeScript file and start the RouteCraft context. The process runs as long as the capabilities run -- finite capabilities exit after completing; long-lived sources keep the process running until the context is stopped or a signal is received.
 
 ```bash
 craft run <file> [--env <.env path>]
@@ -81,5 +81,5 @@ Options:
 
 | Option | Description |
 | --- | --- |
-| \<file\> | JavaScript file (.mjs/.js/.cjs) to execute |
+| \<file\> | TypeScript or JavaScript file (.ts/.mjs/.js/.cjs) to execute |
 | --env \<path\> | Load environment variables from a .env file |
