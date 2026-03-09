@@ -1,6 +1,6 @@
 {
   "name": "@routecraft/ai",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "AI and MCP integrations for RouteCraft",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -23,7 +23,7 @@
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
-    "@routecraft/routecraft": "workspace:^0.3.0",
+    "@routecraft/routecraft": "^0.4.0",
     "@standard-schema/spec": "^1.1.0",
     "ai": "^6.0.116"
   },

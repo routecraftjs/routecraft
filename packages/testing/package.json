@@ -1,6 +1,6 @@
 {
   "name": "@routecraft/testing",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Test utilities for RouteCraft routes",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -23,7 +23,7 @@
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
-    "@routecraft/routecraft": "workspace:^0.3.0"
+    "@routecraft/routecraft": "^0.4.0"
   },
   "devDependencies": {
     "vitest": "^4.0.18"

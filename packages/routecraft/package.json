@@ -1,6 +1,6 @@
 {
   "name": "@routecraft/routecraft",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Type-safe integration and automation framework for TypeScript/Node.js",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -23,7 +23,7 @@
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
-    "@routecraft/testing": "workspace:^0.3.0",
+    "@routecraft/testing": "^0.4.0",
     "@standard-schema/spec": "^1.1.0",
     "pino": "^10.3.1"
   },
