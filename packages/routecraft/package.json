@@ -32,7 +32,7 @@
   },
   "devDependencies": {
     "@types/papaparse": "^5.5.2",
-    "agent-browser": "^0.17.0",
+    "agent-browser": "^0.17.1",
     "arktype": "^2.2.0",
     "cheerio": "^1.2.0",
     "papaparse": "^5.5.3",

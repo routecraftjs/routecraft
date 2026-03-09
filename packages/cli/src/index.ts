@@ -23,7 +23,40 @@ if (!(major > 18 || (major === 18 && minor >= 19))) {
   process.exit(1);
 }
 
-// ── 2. CLI definition (only Commander; run/util are lazy-loaded so logger sees env) ─
+// ── 2. Re-exec with tsx loader if a .ts file is being run ───────────────────
+// Node's native --experimental-strip-types does not handle extensionless
+// imports or .js-to-.ts resolution. tsx (via --import tsx/esm) does.
+// We set CRAFT_TSX_LOADER=1 before re-execing to avoid an infinite loop.
+const hasTSFile = process.argv
+  .slice(2)
+  .some((arg) => !arg.startsWith("-") && arg.endsWith(".ts"));
+
+if (hasTSFile && !process.env["CRAFT_TSX_LOADER"]) {
+  const { execFileSync } = await import("node:child_process");
+  const { createRequire } = await import("node:module");
+  // Resolve tsx/esm relative to the CLI package so it works regardless of CWD
+  const tsxEsmPath = createRequire(import.meta.url).resolve("tsx/esm");
+  try {
+    execFileSync(
+      process.execPath,
+      [
+        "--import",
+        tsxEsmPath,
+        ...process.execArgv,
+        process.argv[1]!,
+        ...process.argv.slice(2),
+      ],
+      { stdio: "inherit", env: { ...process.env, CRAFT_TSX_LOADER: "1" } },
+    );
+    process.exit(0);
+  } catch (err: unknown) {
+    process.exit(
+      (err as NodeJS.ErrnoException & { status?: number }).status ?? 1,
+    );
+  }
+}
+
+// ── 3. CLI definition (only Commander; run/util are lazy-loaded so logger sees env) ─
 const { Command } = await import("commander");
 const program = new Command();
 

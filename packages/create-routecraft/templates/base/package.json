@@ -6,7 +6,7 @@
   "packageManager": "PACKAGE_MANAGER",
   "scripts": {
     "build": "tsc",
-    "start": "craft run dist/index.js --log-level info",
+    "start": "craft run index.ts --log-level info",
     "lint": "eslint .",
     "format": "prettier . --check --ignore-unknown",
     "format:write": "prettier . --write --ignore-unknown",

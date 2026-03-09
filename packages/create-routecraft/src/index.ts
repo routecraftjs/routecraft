@@ -317,8 +317,7 @@ async function initCommand(
 
 Next steps:
   cd ${answers.projectName}
-  ${answers.skipInstall ? `${getPackageManagerCommand(answers.packageManager)} install\n  ` : ""}${getPackageManagerCommand(answers.packageManager)} run build
-  ${getPackageManagerCommand(answers.packageManager)} run start
+  ${answers.skipInstall ? `${getPackageManagerCommand(answers.packageManager)} install\n  ` : ""}${getPackageManagerCommand(answers.packageManager)} run start
 
 For more information, visit: https://routecraft.dev
     `);
@@ -564,7 +563,7 @@ async function generateProjectStructure(
     packageJson.scripts = {
       ...packageJson.scripts,
       build: "tsc",
-      start: "craft run dist/src/index.js",
+      start: "craft run src/index.ts",
     };
     await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2));
   }
