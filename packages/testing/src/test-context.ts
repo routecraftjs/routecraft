@@ -220,6 +220,11 @@ export class TestContextBuilder {
     return this;
   }
 
+  once<K extends EventName>(event: K, handler: EventHandler<K>): this {
+    this.builder.once(event, handler);
+    return this;
+  }
+
   store<K extends keyof StoreRegistry>(key: K, value: StoreRegistry[K]): this {
     this.builder.store(key, value);
     return this;

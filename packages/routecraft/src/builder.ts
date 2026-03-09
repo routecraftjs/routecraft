@@ -101,6 +101,7 @@ export class ContextBuilder {
     StoreRegistry[keyof StoreRegistry]
   >();
   protected eventHandlers = new Map<EventName, Set<EventHandler<EventName>>>();
+  protected onceHandlers = new Map<EventName, Set<EventHandler<EventName>>>();
   protected plugins: Array<import("./context.ts").CraftPlugin> = [];
   // Binder registry removed
 
@@ -140,6 +141,9 @@ export class ContextBuilder {
       }
     }
 
+    // Note: config.once handlers are registered by the CraftContext constructor directly,
+    // so we do not copy them into onceHandlers here to avoid double-registration.
+
     // Extract plugins if provided
     if (config.plugins) {
       this.plugins.push(...config.plugins);
@@ -157,6 +161,17 @@ export class ContextBuilder {
     const set = this.eventHandlers.get(event) ?? new Set();
     set.add(handler as unknown as EventHandler<EventName>);
     this.eventHandlers.set(event, set);
+    return this;
+  }
+
+  /**
+   * Register a one-time event listener to be attached to the built context.
+   * The handler fires once and then auto-unsubscribes.
+   */
+  once<K extends EventName>(event: K, handler: EventHandler<K>): this {
+    const set = this.onceHandlers.get(event) ?? new Set();
+    set.add(handler as unknown as EventHandler<EventName>);
+    this.onceHandlers.set(event, set);
     return this;
   }
 
@@ -257,6 +272,13 @@ export class ContextBuilder {
     for (const [event, handlers] of this.eventHandlers.entries()) {
       for (const handler of handlers) {
         ctx.on(event as EventName, handler as EventHandler<EventName>);
+      }
+    }
+
+    // Attach one-time event handlers from builder (config once handlers already added in constructor)
+    for (const [event, handlers] of this.onceHandlers.entries()) {
+      for (const handler of handlers) {
+        ctx.once(event as EventName, handler as EventHandler<EventName>);
       }
     }
 

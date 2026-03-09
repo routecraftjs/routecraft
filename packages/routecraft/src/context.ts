@@ -81,6 +81,10 @@ export type CraftConfig = {
   on?: Partial<
     Record<EventName, EventHandler<EventName> | EventHandler<EventName>[]>
   >;
+  /** One-time event handlers to register on context creation (fire once, then auto-unsubscribe) */
+  once?: Partial<
+    Record<EventName, EventHandler<EventName> | EventHandler<EventName>[]>
+  >;
   /** Plugins to run before routes are registered (call initPlugins() then registerRoutes) */
   plugins?: CraftPlugin[];
   /** Reserved: direct adapter / channel config (no-op today) */
@@ -177,6 +181,17 @@ export class CraftContext {
             handler.forEach((h) => this.on(event as EventName, h));
           } else if (handler) {
             this.on(event as EventName, handler);
+          }
+        }
+      }
+
+      // Register one-time event handlers from config
+      if (config.once) {
+        for (const [event, handler] of Object.entries(config.once)) {
+          if (Array.isArray(handler)) {
+            handler.forEach((h) => this.once(event as EventName, h));
+          } else if (handler) {
+            this.once(event as EventName, handler);
           }
         }
       }

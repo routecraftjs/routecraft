@@ -404,4 +404,82 @@ describe("Events API", () => {
   test.skip("emits batch:stopped when batch consumer route stops", async () => {
     // Implementation verified in batch.ts - event emitted when route:stopping fires
   });
+
+  /**
+   * @case once via builder fires exactly once
+   * @preconditions Context with .once() builder method for context:started
+   * @expectedResult Handler fires exactly once even when event fires multiple times
+   */
+  test("once via builder fires handler exactly once", async () => {
+    let callCount = 0;
+    t = await testContext()
+      .once("context:started", () => {
+        callCount++;
+      })
+      .build();
+
+    await t.ctx.start();
+    await t.ctx.stop();
+    await t.ctx.start();
+    await t.ctx.stop();
+
+    expect(callCount).toBe(1);
+  });
+
+  /**
+   * @case once via CraftConfig fires exactly once
+   * @preconditions CraftContext constructed with config.once handler
+   * @expectedResult Handler fires exactly once even when event fires multiple times
+   */
+  test("once via config fires handler exactly once", async () => {
+    let callCount = 0;
+    t = await testContext()
+      .with({
+        once: {
+          "context:started": () => {
+            callCount++;
+          },
+        },
+      })
+      .build();
+
+    await t.ctx.start();
+    await t.ctx.stop();
+    await t.ctx.start();
+    await t.ctx.stop();
+
+    expect(callCount).toBe(1);
+  });
+
+  /**
+   * @case once via config supports array of handlers
+   * @preconditions CraftContext constructed with config.once array of handlers
+   * @expectedResult Each handler fires exactly once
+   */
+  test("once via config supports array of handlers", async () => {
+    let callA = 0;
+    let callB = 0;
+    t = await testContext()
+      .with({
+        once: {
+          "context:started": [
+            () => {
+              callA++;
+            },
+            () => {
+              callB++;
+            },
+          ],
+        },
+      })
+      .build();
+
+    await t.ctx.start();
+    await t.ctx.stop();
+    await t.ctx.start();
+    await t.ctx.stop();
+
+    expect(callA).toBe(1);
+    expect(callB).toBe(1);
+  });
 });
