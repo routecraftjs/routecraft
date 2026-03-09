@@ -301,8 +301,8 @@ importers:
         specifier: ^5.5.2
         version: 5.5.2
       agent-browser:
-        specifier: ^0.15.3
-        version: 0.15.3(puppeteer-core@24.22.0)
+        specifier: ^0.17.0
+        version: 0.17.0(puppeteer-core@24.22.0)
       arktype:
         specifier: ^2.2.0
         version: 2.2.0
@@ -1999,8 +1999,8 @@ packages:
     resolution: {integrity: sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==}
     engines: {node: '>= 14'}
 
-  agent-browser@0.15.3:
-    resolution: {integrity: sha512-0HUhEc9kGPzQmDbGgjvc3BkAEQkfyQeY19d/ITgP+dSlUvoDRM09YwFhOM8dBbfvNiKtLnlIEFoxD6kmFB5h0A==}
+  agent-browser@0.17.0:
+    resolution: {integrity: sha512-O+WNHWsD/12ASP0QDmweNBXZTOKY8cNNC47K++TJK6xkRODzrZOJNcc3MgRwyKJpwh2DlunkD/riM5PnYkzhUA==}
     hasBin: true
 
   ai@6.0.116:
@@ -6507,7 +6507,7 @@ snapshots:
 
   '@types/ws@8.18.1':
     dependencies:
-      '@types/node': 20.19.37
+      '@types/node': 25.3.5
 
   '@types/yauzl@2.10.3':
     dependencies:
@@ -6825,7 +6825,7 @@ snapshots:
 
   agent-base@7.1.4: {}
 
-  agent-browser@0.15.3(puppeteer-core@24.22.0):
+  agent-browser@0.17.0(puppeteer-core@24.22.0):
     dependencies:
       node-simctl: 7.7.5
       playwright-core: 1.58.2
