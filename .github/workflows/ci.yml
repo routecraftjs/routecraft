@@ -242,9 +242,6 @@ jobs:
           VERSION=$(node -p "require('./packages/routecraft/package.json').version")
           pnpm run version:set "$VERSION"
 
-      - name: Build examples
-        run: pnpm --filter examples run build
-
       - name: Install CLI globally
         working-directory: ./packages/cli
         run: |

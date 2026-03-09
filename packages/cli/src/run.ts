@@ -10,7 +10,7 @@ import {
 } from "@routecraft/routecraft";
 import { registerContextSignalHandlers } from "./util";
 
-const SUPPORTED_EXTENSIONS = [".mjs", ".js", ".cjs"] as const;
+const SUPPORTED_EXTENSIONS = [".mjs", ".js", ".cjs", ".ts"] as const;
 
 type RunResult =
   | { success: true }

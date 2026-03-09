@@ -3,7 +3,7 @@ import { writeFile, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// No TypeScript runtime mocking needed; CLI no longer supports running .ts files directly
+// .ts files are supported on Node 22.6+ via --experimental-strip-types / built-in stripping
 
 // Silence logger output
 vi.mock("@routecraft/routecraft", async () => {
@@ -47,11 +47,11 @@ describe("CLI run command", () => {
 
   /**
    * @case Verifies that supported file extensions are accepted
-   * @preconditions Files with supported extensions (.js, .mjs, .cjs)
+   * @preconditions Files with supported extensions (.js, .mjs, .cjs, .ts)
    * @expectedResult runCommand should process files without extension errors
    */
   test("accepts supported extensions", async () => {
-    const files = ["a.js", "b.mjs", "c.cjs"];
+    const files = ["a.js", "b.mjs", "c.cjs", "d.ts"];
     for (const f of files) {
       await writeFile(
         f,
@@ -165,7 +165,8 @@ describe("CLI run command", () => {
     }
   });
 
-  // Intentionally no test for .ts runtime; CLI rejects .ts/.tsx inputs
+  // Runtime execution of .ts files relies on Node's type stripping (22.6+ flag, 23.6+ default).
+  // The re-exec logic lives in index.ts. run.ts only validates the extension.
 
   /**
    * Manual test for "two-copy" duck-typing (different CLI vs route package):

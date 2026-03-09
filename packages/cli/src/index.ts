@@ -23,7 +23,55 @@ if (!(major > 18 || (major === 18 && minor >= 19))) {
   process.exit(1);
 }
 
-// ── 2. CLI definition (only Commander; run/util are lazy-loaded so logger sees env) ─
+// ── 2. Re-exec with TypeScript strip flags if a .ts file is being run ───────
+// Node 22.6+: --experimental-strip-types must be present in execArgv for
+// import() to handle .ts files. Node 23.6+: types are stripped by default.
+const hasTSFile = process.argv
+  .slice(2)
+  .some((arg) => !arg.startsWith("-") && arg.endsWith(".ts"));
+
+if (hasTSFile) {
+  const atLeast226 = major > 22 || (major === 22 && minor >= 6);
+  const atLeast236 = major > 23 || (major === 23 && minor >= 6);
+
+  if (!atLeast226) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `[routecraft] Running .ts files directly requires Node.js 22.6 or later. ` +
+        `You are on ${process.version}. Please upgrade Node or compile your file first.`,
+    );
+    process.exit(1);
+  }
+
+  const hasStripFlag = process.execArgv.some(
+    (a) => a === "--experimental-strip-types" || a === "--strip-types",
+  );
+
+  if (!atLeast236 && !hasStripFlag) {
+    // Re-exec the current process with --experimental-strip-types so that
+    // the subsequent import() call in run.ts can load the .ts file.
+    const { execFileSync } = await import("node:child_process");
+    try {
+      execFileSync(
+        process.execPath,
+        [
+          "--experimental-strip-types",
+          ...process.execArgv,
+          process.argv[1]!,
+          ...process.argv.slice(2),
+        ],
+        { stdio: "inherit" },
+      );
+      process.exit(0);
+    } catch (err: unknown) {
+      process.exit(
+        (err as NodeJS.ErrnoException & { status?: number }).status ?? 1,
+      );
+    }
+  }
+}
+
+// ── 3. CLI definition (only Commander; run/util are lazy-loaded so logger sees env) ─
 const { Command } = await import("commander");
 const program = new Command();
 
