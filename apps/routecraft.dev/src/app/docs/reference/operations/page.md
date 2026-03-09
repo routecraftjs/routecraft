@@ -20,16 +20,16 @@ DSL operators with signatures and examples. {% .lead %}
 |-----------|----------|-------------|
 | [`id`](#id) | Route | Set the unique identifier for the route |
 | [`batch`](#batch) | Route | Process exchanges in batches instead of one at a time |
-| [`error`](#error) | Route | Configure route-level error handling {% badge %}planned{% /badge %} |
+| [`error`](#error) | Route | Configure route-level error handling {% badge %}wip{% /badge %} |
 | [`from`](#from) | Route | Define the source of data for the capability |
-| [`retry`](#retry) | Wrapper | Retry the next operation on failure |
-| [`throttle`](#throttle) | Wrapper | Rate limit the next operation |
-| [`cache`](#cache) | Wrapper | Cache and reuse results of the next operation |
-| [`sample`](#sample) | Transform | Take every Nth exchange or time-based sampling |
-| [`debounce`](#debounce) | Transform | Only pass exchanges after a quiet period |
-| [`timeout`](#timeout) | Wrapper | Cancel the next operation if it exceeds a duration |
-| [`delay`](#delay) | Wrapper | Add delay before the next operation |
-| [`onError`](#onError) | Wrapper | Handle errors from the next operation |
+| [`retry`](#retry) | Wrapper | Retry the next operation on failure {% badge %}wip{% /badge %} |
+| [`throttle`](#throttle) | Wrapper | Rate limit the next operation {% badge %}wip{% /badge %} |
+| [`cache`](#cache) | Wrapper | Cache and reuse results of the next operation {% badge %}wip{% /badge %} |
+| [`sample`](#sample) | Flow Control | Take every Nth exchange or time-based sampling {% badge %}wip{% /badge %} |
+| [`debounce`](#debounce) | Flow Control | Only pass exchanges after a quiet period {% badge %}wip{% /badge %} |
+| [`timeout`](#timeout) | Wrapper | Cancel the next operation if it exceeds a duration {% badge %}wip{% /badge %} |
+| [`delay`](#delay) | Wrapper | Add delay before the next operation {% badge %}wip{% /badge %} |
+| [`onError`](#onError) | Wrapper | Handle errors from the next operation {% badge %}wip{% /badge %} |
 | [`transform`](#transform) | Transform | Transform data using a function (body only) |
 | [`map`](#map) | Transform | Map fields from source to target object |
 | [`process`](#process) | Transform | Process data with full exchange access |
@@ -37,12 +37,12 @@ DSL operators with signatures and examples. {% .lead %}
 | [`enrich`](#enrich) | Transform | Add additional data to current data |
 | [`filter`](#filter) | Flow Control | Filter data based on predicate |
 | [`validate`](#validate) | Flow Control | Validate data against schema |
-| [`dedupe`](#dedupe) | Flow Control | Suppress duplicate exchanges based on a key |
-| [`choice`](#choice) | Flow Control | Route to different paths based on conditions |
+| [`dedupe`](#dedupe) | Flow Control | Suppress duplicate exchanges based on a key {% badge %}wip{% /badge %} |
+| [`choice`](#choice) | Flow Control | Route to different paths based on conditions {% badge %}wip{% /badge %} |
 | [`split`](#split) | Flow Control | Split arrays into individual items |
 | [`aggregate`](#aggregate) | Flow Control | Combine multiple items into single result |
-| [`multicast`](#multicast) | Flow Control | Send exchange to multiple destinations |
-| [`loop`](#loop) | Flow Control | Repeat operations while condition is true |
+| [`multicast`](#multicast) | Flow Control | Send exchange to multiple destinations {% badge %}wip{% /badge %} |
+| [`loop`](#loop) | Flow Control | Repeat operations while condition is true {% badge %}wip{% /badge %} |
 | [`tap`](#tap) | Side Effect | Fire-and-forget side effect, does not block the pipeline |
 | [`to`](#to) | Side Effect | Send data to a destination adapter and end the pipeline |
 
@@ -78,7 +78,7 @@ If no ID is specified, a random UUID will be generated automatically.
 ### batch
 
 ```ts
-batch(options?: { size?: number; flushIntervalMs?: number }): RouteBuilder<Current>
+batch(options?: { size?: number; time?: number }): RouteBuilder<Current>
 ```
 
 Process exchanges in batches instead of one at a time. Useful for bulk operations like database inserts or API batch requests.
@@ -86,26 +86,26 @@ Process exchanges in batches instead of one at a time. Useful for bulk operation
 ```ts
 craft()
   .id('bulk-processor')
-  .batch({ size: 50, flushIntervalMs: 5000 })
+  .batch({ size: 50, time: 5000 })
   .from(timer({ intervalMs: 1000 }))
   .to(saveToDB)
 ```
 
 **Options:**
 - `size` - Maximum exchanges per batch (default: 100)
-- `flushIntervalMs` - Maximum wait time before flushing partial batch (default: 5000ms)
+- `time` - Maximum wait time in milliseconds before flushing a partial batch (default: 5000ms)
 
 {% callout type="note" title="Linting: route-level positioning" %}
 Use the ESLint rule `@routecraft/routecraft/batch-before-from` to ensure `batch()` is placed **before** `.from()`. See [Linting Rules](/docs/reference/linting#batch-before-from).
 {% /callout %}
 
 {% callout type="warning" title="Incompatible with synchronous sources" %}
-The `batch()` operation only works with asynchronous message sources like `timer()`. It **cannot** be used with `direct()` sources because direct endpoints are synchronous and blocking—each sender waits for the consumer to fully process a message before the next can be sent, preventing message accumulation.
+The `batch()` operation only works with asynchronous message sources like `timer()`. It **cannot** be used with `direct()` sources because direct endpoints are synchronous and blocking -- each sender waits for the consumer to fully process a message before the next can be sent, preventing message accumulation.
 
 If you need to combine multiple messages from split branches, use the `aggregate()` operation instead.
 {% /callout %}
 
-### error (Planned)
+### error {% badge %}wip{% /badge %}
 
 **Note:** The `error()` operation is documented here but not yet implemented. Implementation is planned for a future release.
 
@@ -207,9 +207,6 @@ Defines the source adapter and creates the capability. Must come after all other
 ```ts
 .id('timer-route')
 .from(timer({ intervalMs: 1000 }))
-
-.id('webhook-handler')
-.from(httpServer({ port: 3000 }))
 
 // Callable source (async function)
 .id('data-fetcher')
@@ -604,7 +601,7 @@ Unlike `.transform()` which receives only the body, `.filter()` receives the ful
 validate(schema: StandardSchemaV1): RouteBuilder<Current>
 ```
 
-Validate the exchange body against a schema. Invalid exchanges will cause the route to emit an error event.
+Validate the exchange body against a schema. Invalid exchanges will cause the capability to emit an error event.
 
 ```ts
 import { z } from 'zod'

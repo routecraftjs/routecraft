@@ -10,6 +10,46 @@ System requirements, manual setup, and production builds. {% .lead %}
 - **Node.js 23.6 or later** - recommended. TypeScript stripping is stable and enabled by default; no flags needed.
 - macOS, Windows (including WSL), or Linux.
 
+## Create a new project
+
+Scaffold a complete RouteCraft project with one command:
+
+{% code-tabs %}
+{% code-tab label="npm" language="bash" %}
+```bash
+npm create routecraft@latest my-app
+```
+{% /code-tab %}
+
+{% code-tab label="yarn" language="bash" %}
+```bash
+yarn create routecraft my-app
+```
+{% /code-tab %}
+
+{% code-tab label="pnpm" language="bash" %}
+```bash
+pnpm create routecraft@latest my-app
+```
+{% /code-tab %}
+
+{% code-tab label="bun" language="bash" %}
+```bash
+bunx create-routecraft my-app
+```
+{% /code-tab %}
+
+{% /code-tabs %}
+
+Follow the prompts to configure your project name, package manager, and directory layout. Then:
+
+```bash
+cd my-app
+npm run start
+```
+
+For all flags and options, see [CLI -- create](/docs/reference/cli#create).
+
 ## Manual installation
 
 Add RouteCraft to an existing project:
@@ -134,6 +174,6 @@ This gives you full programmatic control: load specific capability files, run a 
 {% quick-links %}
 
 {% quick-link title="CLI reference" icon="installation" href="/docs/reference/cli" description="All CLI commands and options." /%}
-{% quick-link title="Create RouteCraft" icon="presets" href="/docs/reference/cli/create-routecraft" description="Scaffold a new project with create-routecraft." /%}
+{% quick-link title="Project structure" icon="presets" href="/docs/introduction/project-structure" description="Understand the layout of a RouteCraft project." /%}
 
 {% /quick-links %}

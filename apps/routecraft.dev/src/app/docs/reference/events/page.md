@@ -2,61 +2,7 @@
 title: Events
 ---
 
-All lifecycle and runtime events emitted by the RouteCraft context. {% .lead %}
-
-## Subscribing to events
-
-Use `context.on(event, handler)` to subscribe. The handler receives `{ ts, context, details }`.
-
-```ts
-ctx.on('context:started', ({ ts, context }) => {
-  console.log(`Context ${context.id} started at ${ts}`)
-})
-
-ctx.on('route:started', ({ details: { route } }) => {
-  console.log(`Capability ${route.definition.id} is running`)
-})
-
-ctx.on('error', ({ details: { error } }) => {
-  console.error('Error occurred:', error)
-})
-```
-
-Use `context.once(event, handler)` to subscribe for a single invocation only.
-
-To unsubscribe, call the function returned by `context.on`:
-
-```ts
-const unsub = ctx.on('route:started', handler)
-unsub() // removes the handler
-```
-
-## Wildcard patterns
-
-Event names use colon-separated segments. You can subscribe using glob patterns instead of exact names.
-
-| Pattern | Matches |
-| --- | --- |
-| `*` | Any single event name (all events) |
-| `route:*` | Events with exactly two segments starting with `route:` |
-| `route:**` | All events starting with `route:` at any depth |
-| `route:*:exchange:**` | All exchange events for any capability |
-| `route:my-cap:operation:**` | All operation events for `my-cap` |
-
-```ts
-// All events
-ctx.on('*', ({ ts }) => auditLog.write(ts))
-
-// All exchange events across all capabilities
-ctx.on('route:*:exchange:**', ({ details }) => {
-  metrics.record(details)
-})
-
-// All operation events for one capability
-ctx.on('route:order-processor:operation:**', ({ details }) => {
-  trace.span(details)
-})
-```
+Full catalog of lifecycle and runtime events emitted by the RouteCraft context. {% .lead %}
 
 ## Event payload
 
@@ -168,3 +114,14 @@ Plugin events are scoped to a plugin ID.
 | Event | When it fires | Details |
 | --- | --- | --- |
 | `error` | Any unhandled error in a capability or the context | `{ error, route?, exchange? }` |
+
+---
+
+## Related
+
+{% quick-links %}
+
+{% quick-link title="Events" icon="theming" href="/docs/introduction/events" description="How to subscribe, use wildcards, emit custom events, and common patterns." /%}
+{% quick-link title="Configuration" icon="presets" href="/docs/reference/configuration" description="Subscribe to events via craft.config.ts." /%}
+
+{% /quick-links %}
