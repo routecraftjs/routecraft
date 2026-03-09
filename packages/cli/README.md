@@ -1,6 +1,6 @@
 # @routecraft/cli
 
-CLI for running RouteCraft routes.
+Run RouteCraft capabilities from the terminal.
 
 ## Installation
 
@@ -16,17 +16,13 @@ pnpm add -g @routecraft/cli
 
 ## Usage
 
-Run a RouteCraft route file:
-
 ```bash
-craft run myroute.mjs
+craft run my-capability.ts
 ```
 
-The CLI will:
-- Load your route file
-- Execute the route
-- Keep the process running for continuous processing
-- Handle graceful shutdown on SIGINT/SIGTERM
+The CLI loads your capability file, starts all registered capabilities, and keeps the process running. It handles graceful shutdown on `SIGINT`/`SIGTERM` and automatically loads a `.env` file from the current directory if present.
+
+TypeScript files are supported directly -- no build step required.
 
 ## Options
 
@@ -34,36 +30,36 @@ The CLI will:
 craft run [options] <file>
 
 Options:
-  -h, --help     Display help information
-  -V, --version  Display version information
+  --log-level <level>   Log level: info, warn, error, silent (default: warn)
+  --log-file <path>     Write logs to a file instead of stdout
+  -h, --help            Display help information
+  -V, --version         Display version information
 ```
 
-## Environment Variables
-
-The CLI automatically loads environment variables from a `.env` file in the current directory if present.
-
-## Example Route File
+## Example
 
 ```typescript
-// myroute.mjs
+// capabilities/timer-ping.ts
 import { craft, timer, log } from '@routecraft/routecraft';
 
 export default craft()
-  .id('timer-example')
+  .id('timer-ping')
   .from(timer({ intervalMs: 1000 }))
   .transform((ex) => ({ timestamp: Date.now() }))
   .to(log());
 ```
 
-Run it:
-
 ```bash
-craft run myroute.mjs
+craft run capabilities/timer-ping.ts
 ```
+
+## Use as an MCP Server
+
+The CLI is the entry point for exposing your capabilities to Claude Desktop, Cursor, and other MCP clients. See the [`@routecraft/ai`](https://www.npmjs.com/package/@routecraft/ai) package for setup instructions.
 
 ## Documentation
 
-For more information, visit [routecraft.dev](https://routecraft.dev).
+For full guides and examples, visit [routecraft.dev](https://routecraft.dev).
 
 ## License
 
@@ -74,4 +70,3 @@ Apache-2.0
 - [Documentation](https://routecraft.dev)
 - [GitHub Repository](https://github.com/routecraftjs/routecraft)
 - [Issue Tracker](https://github.com/routecraftjs/routecraft/issues)
-

@@ -1,6 +1,6 @@
 # @routecraft/eslint-plugin-routecraft
 
-ESLint plugin for RouteCraft projects with rules to enforce best practices.
+ESLint plugin for RouteCraft with rules to enforce capability authoring best practices.
 
 ## Installation
 

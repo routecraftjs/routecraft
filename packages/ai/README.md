@@ -1,6 +1,6 @@
 # @routecraft/ai
 
-AI and MCP integrations for RouteCraft.
+AI adapters and MCP integration for RouteCraft. Call LLMs, run agents, generate embeddings, and expose your capabilities to Claude, Cursor, and other MCP clients.
 
 ## Installation
 
@@ -16,30 +16,91 @@ pnpm add @routecraft/ai
 
 ## Quick Start
 
+Define a capability and expose it as an MCP tool:
+
 ```typescript
+// capabilities/fetch-webpage.ts
 import { mcp } from '@routecraft/ai';
-import { craft, simple, direct } from '@routecraft/routecraft';
+import { craft, context, http } from '@routecraft/routecraft';
+import { z } from 'zod';
 
-// In-process: use direct(); MCP server route needs description
-craft()
-  .from(simple({ query: 'hello' }))
-  .to(direct('my-tool'));
+const ctx = context()
+  .routes([
+    craft()
+      .id('fetch-webpage')
+      .from(
+        mcp('fetch-webpage', {
+          description: 'Fetch and return the content of a webpage',
+          schema: z.object({ url: z.string().url() }),
+        })
+      )
+      .enrich(http({ url: (ex) => ex.body.url })),
+  ])
+  .build();
 
-craft()
-  .from(mcp('my-tool', { description: 'My tool' }))
-  .process((body) => body);
+await ctx.start();
 ```
 
-## Features
+Run it as an MCP server:
 
-- **mcp()**: MCP server (`.from(mcp(endpoint, { description }))`) and client (`.to(mcp({ url, tool }))` or `.to(mcp('server:tool', { args }))`). For in-process use `direct()`.
-- **Discovery**: Tools register in the context store for querying endpoints, descriptions, and schemas
-- **Schema validation**: Use Zod (or other Standard Schema libs) for body and header validation on tools
-- **Coming soon**: LLM adapters (OpenAI, Gemini), MCP source/destination, agent routing
+```bash
+npx @routecraft/cli run capabilities/fetch-webpage.ts
+```
 
-## Connecting from Cursor / Claude Desktop (MCP)
+## Two Modes
 
-**Recommended:** use **npx** so the MCP client runs the CLI without needing a global install or full paths. The server requires **Node.js 18.19+ or 20+** (Pino 10 needs `diagnostics_channel.tracingChannel`). If the client uses an older Node, start Cursor/Claude from a shell where a newer Node is first in `PATH` (e.g. `nvm use 22`), or set **command** to the full path of a Node 20+ binary and **args** with the path to the CLI entry (see fallback below).
+### Server Mode: expose capabilities outward via MCP
+
+Use `mcp()` as a `.from()` source. This registers the capability as an MCP tool that Claude Desktop, Cursor, or any MCP client can invoke.
+
+```typescript
+import { mcp, llm, llmPlugin } from '@routecraft/ai';
+import { craft, context, http } from '@routecraft/routecraft';
+import { z } from 'zod';
+
+const ctx = context()
+  .plugins([
+    llmPlugin({
+      providers: { anthropic: { apiKey: process.env.ANTHROPIC_API_KEY! } },
+    }),
+  ])
+  .routes([
+    craft()
+      .id('summarize-webpage')
+      .from(
+        mcp('summarize-webpage', {
+          description: 'Fetch and summarize the content of a webpage',
+          schema: z.object({ url: z.string().url() }),
+        })
+      )
+      .enrich(http({ url: (ex) => ex.body.url }))
+      .to(llm('anthropic:claude-sonnet-4-6', {
+        systemPrompt: 'Summarize the following webpage content concisely.',
+        userPrompt: (ex) => String(ex.body),
+      })),
+  ])
+  .build();
+```
+
+### Client Mode: route data to agents in code
+
+Use `mcp()` as a `.to()` destination to call another MCP server, or use `direct()` to call a capability in the same process by ID.
+
+```typescript
+import { direct, timer } from '@routecraft/routecraft';
+
+// Call a capability in the same process on a schedule
+craft()
+  .id('orchestrator')
+  .from(timer({ intervalMs: 60_000 }))
+  .to(direct('fetch-webpage'));
+```
+
+## Connecting Claude Desktop and Cursor
+
+The CLI runs your capability file as an MCP server. Use `npx` so clients do not need a global install.
+
+**Node.js 18.19+ or 20+** is required.
 
 In **Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS) or **Cursor** (MCP settings):
 
@@ -51,62 +112,38 @@ In **Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_conf
       "args": [
         "@routecraft/cli",
         "run",
-        "--log-file",
-        "/path/to/craft.log",
-        "--log-level",
-        "debug",
-        "/path/to/your/index.mjs"
+        "--log-file", "/path/to/craft.log",
+        "--log-level", "debug",
+        "/path/to/your/capabilities/index.ts"
       ]
     }
   }
 }
 ```
 
-Use `@routecraft/cli@canary` for the latest canary build. Logging to a file keeps stdout JSON-RPC-only; omit `--log-file` / `--log-level` or use `--log-level silent` to disable logs.
+Use `@routecraft/cli@canary` for the latest canary build. Writing logs to a file keeps stdout JSON-RPC-only, which is required for MCP transport. Use `--log-level silent` to disable logs entirely.
 
-**Fallback (minimal PATH):** if `npx` is not available to the MCP client, set **command** to the full path of a Node 20+ binary and **args** so the first element is the CLI’s JavaScript entry. From a project with `@routecraft/cli` installed: `node -e "console.log(require.resolve('@routecraft/cli/dist/index.js'))"`.
+**If `npx` is not available to the MCP client:** set `command` to the full path of a Node 20+ binary and set the first `args` element to the CLI entry point. From a project with `@routecraft/cli` installed, find it with:
+
+```bash
+node -e "console.log(require.resolve('@routecraft/cli/dist/index.js'))"
+```
+
+## Features
+
+- **`mcp(name, options)`**: Register a capability as an MCP tool (server mode) or call an external MCP server (client mode)
+- **`llm(modelId, options?)`**: Call any LLM provider from a capability pipeline. Supports Anthropic, OpenAI, Gemini, Ollama, and OpenRouter. Register providers via `llmPlugin`.
+- **`embedding(modelId, options?)`**: Generate embeddings from a capability pipeline.
+- **Schema validation**: Use Zod (or any Standard Schema library) for strict input validation on MCP tools
+- **Tool discovery**: Registered tools are available via the context store for querying endpoints, descriptions, and schemas
 
 ## Documentation
 
-For comprehensive documentation, examples, and guides, visit [routecraft.dev](https://routecraft.dev).
-
-## Example
-
-```typescript
-import { mcp } from '@routecraft/ai';
-import {
-  craft,
-  context,
-  DirectAdapter,
-  http,
-} from '@routecraft/routecraft';
-import { z } from 'zod';
-
-const ctx = context()
-  .routes([
-    craft()
-      .from(
-        mcp('fetch-webpage', {
-          description: 'Fetch and return the content of a webpage',
-          schema: z.object({
-            url: z.string().url(),
-          }),
-          keywords: ['fetch', 'web', 'http'],
-        })
-      )
-      .enrich(http({ url: (ex) => ex.body.url })),
-  ])
-  .build();
-await ctx.start();
-
-// Query registered tools after context has started
-const registry = ctx.getStore(DirectAdapter.ADAPTER_DIRECT_REGISTRY);
-const tools = Array.from(registry?.values() ?? []);
-```
+For full guides and examples, visit [routecraft.dev](https://routecraft.dev).
 
 ## Contributing
 
-Contributions are welcome! Please see our [Contributing Guide](https://github.com/routecraftjs/routecraft/blob/main/CONTRIBUTING.md).
+Contributions are welcome. See the [Contributing Guide](https://github.com/routecraftjs/routecraft/blob/main/CONTRIBUTING.md).
 
 ## License
 

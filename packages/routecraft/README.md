@@ -1,6 +1,8 @@
 # @routecraft/routecraft
 
-Type-safe integration and automation framework for TypeScript/Node.js.
+Give AI access to your automation, not control over your system.
+
+RouteCraft is a TypeScript-first framework for building automation capabilities that agents can invoke. Write deterministic pipelines for Software 1.0. Hand them to an AI agent as tools for Software 3.0. Both, from the same code.
 
 ## Installation
 
@@ -17,270 +19,181 @@ pnpm add @routecraft/routecraft
 ## Quick Start
 
 ```typescript
-import { craft, simple, log } from '@routecraft/routecraft';
-
-export default craft()
-  .id('my-route')
-  .from(simple('Hello, World!'))
-  .to(log());
-```
-
-## Features
-
-- 🎯 **Type-safe**: Full TypeScript support with intelligent type inference
-- 🔌 **Extensible**: Easy-to-write adapters for any integration
-- 🚀 **Performant**: Built for high-throughput data processing
-- 🛠️ **Developer-friendly**: Intuitive, fluent DSL
-- 📦 **Lightweight**: Minimal dependencies
-- 📊 **Observable**: Comprehensive event system for monitoring and debugging
-
-## Event System
-
-Routecraft provides a powerful event system for monitoring and debugging your integration routes.
-
-### Event Hierarchy
-
-Events follow a hierarchical naming convention with colon-separated segments:
-
-```text
-context:started                                    # Context lifecycle
-route:registered                                   # Route lifecycle
-route:payment:exchange:started                     # Exchange lifecycle
-route:payment:operation:from:mcp:started          # Adapter operations
-route:payment:operation:process:started           # Processing operations
-plugin:myPlugin:started                           # Plugin lifecycle
-```
-
-### Wildcard Subscriptions
-
-Subscribe to multiple events using wildcards (`*`):
-
-```typescript
-import { craft, testContext } from '@routecraft/routecraft';
-
-const ctx = await testContext()
-  // Monitor all exchanges across all routes
-  .on('route:*:exchange:*', ({ details }) => {
-    console.log(`Exchange ${details.exchangeId} on route ${details.routeId}`);
-  })
-
-  // Monitor all MCP adapter calls
-  .on('route:*:operation:from:mcp:*', ({ details }) => {
-    console.log('MCP tool:', details.metadata.toolName);
-  })
-
-  // Monitor specific route
-  .on('route:payment:*', ({ details }) => {
-    console.log('Payment route event:', details);
-  })
-
-  // Monitor all events
-  .on('*', (event) => {
-    console.log('Event:', event);
-  })
-  .build();
-```
-
-### Operation Events (Wave 3)
-
-Operation events provide granular tracking of adapter and processing operations:
-
-**Adapter operations** (track specific adapter calls):
-```typescript
-// Track LLM costs
-ctx.on('route:*:operation:to:llm:stopped', ({ details }) => {
-  const { inputTokens, outputTokens, model } = details.metadata;
-  console.log(`LLM ${model}: ${inputTokens + outputTokens} tokens`);
-});
-
-// Monitor HTTP calls
-ctx.on('route:*:operation:to:http:stopped', ({ details }) => {
-  console.log('HTTP:', details.metadata.statusCode, details.metadata.url);
-});
-
-// Track MCP tool usage
-ctx.on('route:*:operation:from:mcp:*', ({ details }) => {
-  console.log('MCP:', details.metadata.toolName, details.metadata.userId);
-});
-```
-
-**Processing operations** (track pipeline steps):
-```typescript
-// Monitor all processing steps
-ctx.on('route:*:operation:process:*', ({ details }) => {
-  console.log('Processing operation:', details.operation);
-});
-
-// Track transformations
-ctx.on('route:*:operation:transform:stopped', ({ details }) => {
-  console.log('Transform completed in', details.duration, 'ms');
-});
-```
-
-### Adapter Metadata Guidelines
-
-Adapters can populate `metadata` fields for observability:
-
-**✅ Include:**
-- IDs, names, counts, codes, flags (small values)
-- Values useful for filtering, metrics, cost calculation
-
-**❌ Exclude:**
-- Large bodies or full request/response data
-- Sensitive data (unless explicitly configured)
-
-**Examples by adapter type:**
-- **LLM**: model, provider, inputTokens, outputTokens, temperature
-- **HTTP**: method, url, statusCode, contentLength
-- **MCP**: toolName, transport, userId, serverId
-- **Kafka**: topic, partition, offset, messageSize
-
-### Special Operations
-
-Track batch, split, aggregate, retry, and error handling operations:
-
-```typescript
-// Track batch behavior
-ctx.on('route:*:operation:batch:flushed', ({ details }) => {
-  console.log('Batch flushed:', details.batchSize, 'exchanges');
-});
-
-// Monitor retry attempts
-ctx.on('route:*:operation:retry:attempt', ({ details }) => {
-  console.log('Retry', details.attemptNumber, 'of', details.maxAttempts);
-});
-
-// Track error recovery
-ctx.on('route:*:operation:error:recovered', ({ details }) => {
-  console.log('Recovered from error using', details.recoveryStrategy);
-});
-```
-
-### Plugin Lifecycle Events
-
-Plugins automatically emit lifecycle events:
-
-```typescript
-ctx.on('plugin:*:started', ({ details }) => {
-  console.log('Plugin started:', details.pluginId);
-});
-```
-
-Plugins can also emit custom events:
-
-```typescript
-// In your plugin
-ctx.emit('plugin:myPlugin:metrics:collected', {
-  pluginId: 'myPlugin',
-  metrics: { /* ... */ }
-});
-
-// Subscribe to custom plugin events
-ctx.on('plugin:myPlugin:metrics:collected', ({ details }) => {
-  console.log('Metrics:', details.metrics);
-});
-```
-
-### Event Source Adapter
-
-Use the event adapter to create routes triggered by events:
-
-```typescript
-import { craft, event, log } from '@routecraft/routecraft';
-
-// Example: Monitor route lifecycle events
-craft()
-  .from(event('route:*:started'))
-  .process((ex) => {
-    console.log('Route started:', ex.body.details.routeId);
-    return ex;
-  })
-  .to(log());
-
-// ⚠️ Note: The event source adapter currently filters out :operation: and :exchange:
-// events to prevent infinite loops. To monitor operation events, use a different
-// monitoring approach (e.g., plugin-based observers or external event bus).
-```
-
-### Complete Event Hierarchy
-
-```text
-context:starting                                   # Context lifecycle
-context:started
-context:stopping
-context:stopped
-
-route:registered                                   # Route lifecycle
-route:starting
-route:started
-route:stopping
-route:stopped
-
-route:<routeId>:exchange:started                  # Exchange lifecycle
-route:<routeId>:exchange:completed
-route:<routeId>:exchange:failed
-
-route:<routeId>:operation:from:<adapterId>:started    # Adapter operations
-route:<routeId>:operation:from:<adapterId>:stopped
-route:<routeId>:operation:to:<adapterId>:started
-route:<routeId>:operation:to:<adapterId>:stopped
-
-route:<routeId>:operation:<processingType>:started    # Processing operations
-route:<routeId>:operation:<processingType>:stopped
-
-route:<routeId>:operation:batch:started               # Batch operations
-route:<routeId>:operation:batch:flushed
-route:<routeId>:operation:batch:stopped
-
-route:<routeId>:operation:split:started               # Split/Aggregate
-route:<routeId>:operation:split:stopped
-route:<routeId>:operation:aggregate:started
-route:<routeId>:operation:aggregate:stopped
-
-route:<routeId>:operation:retry:started               # Retry operations
-route:<routeId>:operation:retry:attempt
-route:<routeId>:operation:retry:stopped
-
-route:<routeId>:operation:error:invoked               # Error handling
-route:<routeId>:operation:error:recovered
-route:<routeId>:operation:error:failed
-
-plugin:<pluginId>:registered                          # Plugin lifecycle
-plugin:<pluginId>:starting
-plugin:<pluginId>:started
-plugin:<pluginId>:stopping
-plugin:<pluginId>:stopped
-
-error                                                  # System errors
-```
-
-## Logging
-
-Logs go to **stdout** by default at **warn** level. No file is used unless you set one.
-
-- **Environment:** `LOG_FILE` or `CRAFT_LOG_FILE` to write logs to a file. `LOG_LEVEL` or `CRAFT_LOG_LEVEL` for the level (e.g. `info`, `warn`, `error`, or `silent` to disable).
-- **CLI:** `craft run <file> --log-file <path>` and `--log-level <level>` (set before your app loads).
-- **Config and precedence:** `craftConfig.log` can set default `level`, `file`, and `redact`. For **CLI runs**, CLI flags override craft config. For **programmatic context**, craft config overrides env. Env (LOG_LEVEL, LOG_FILE, LOG_REDACT / CRAFT_LOG_*) is the fallback when a key is not set in config.
-
-## Documentation
-
-For comprehensive documentation, examples, and guides, visit [routecraft.dev](https://routecraft.dev).
-
-## Example
-
-```typescript
+// capabilities/timer-ping.ts
 import { craft, timer, log } from '@routecraft/routecraft';
 
 export default craft()
-  .id('timer-example')
+  .id('timer-ping')
   .from(timer({ intervalMs: 1000 }))
   .transform((ex) => ({ timestamp: Date.now() }))
   .to(log());
 ```
 
+Run it directly:
+
+```bash
+npx @routecraft/cli run capabilities/timer-ping.ts
+```
+
+## Core Concepts
+
+### Capabilities
+
+A capability is a named, typed pipeline that defines exactly what an agent or system can trigger. You compose capabilities using a chainable DSL:
+
+```typescript
+import { craft, timer, http } from '@routecraft/routecraft';
+
+craft()
+  .id('sync-users')
+  .from(timer({ intervalMs: 60_000 }))
+  .transform((ex) => ({ ...ex.body, syncedAt: Date.now() }))
+  .to(http({ url: 'https://api.example.com/sync' }));
+```
+
+### The Exchange
+
+Every message flowing through a capability is an `Exchange` -- a typed envelope with `body`, `headers`, and metadata:
+
+```json
+{
+  "body": { "userId": "u_123", "action": "sync" },
+  "headers": { "source": "timer", "routeId": "sync-users" },
+  "exchangeId": "ex_abc"
+}
+```
+
+### Operations
+
+Operations transform or gate the data flowing through a capability:
+
+| Operation | Purpose |
+|-----------|---------|
+| `.transform(fn)` | Reshape the exchange body |
+| `.process(fn)` | Full exchange access for side effects |
+| `.validate(schema)` | Enforce a Zod schema; drop invalid exchanges |
+| `.filter(fn)` | Conditionally stop an exchange |
+| `.enrich(adapter)` | Augment the body with data from an external source |
+| `.to(adapter)` | Send to a destination |
+
+### Context
+
+Group capabilities into a context for lifecycle management:
+
+```typescript
+import { context } from '@routecraft/routecraft';
+
+const ctx = context()
+  .routes([sendEmail, syncUsers, processWebhook])
+  .build();
+
+await ctx.start();
+```
+
+## Features
+
+- Type-safe by default: the entire DSL uses TypeScript generics for end-to-end inference
+- AI-authorable: the predictable, chainable DSL is easy for code generators like Claude or Cursor to write
+- Run on a schedule or hand to an agent as a tool -- the same capability file works for both
+- Secure by design: agents can only invoke the capabilities you expose; no arbitrary filesystem access or shell commands
+- Minimal dependencies
+
+## Event System
+
+RouteCraft emits structured events throughout a capability's lifecycle, useful for observability, cost tracking, and debugging.
+
+### Event Naming
+
+Events follow a hierarchical, colon-separated pattern:
+
+```text
+context:started
+route:registered
+route:<routeId>:exchange:started
+route:<routeId>:operation:to:<adapterId>:stopped
+plugin:<pluginId>:started
+```
+
+### Subscribing
+
+```typescript
+import { context } from '@routecraft/routecraft';
+
+const ctx = context()
+  .routes([...])
+  .on('route:*:exchange:completed', ({ details }) => {
+    console.log('Exchange completed on', details.routeId);
+  })
+  .on('route:*:operation:to:llm:stopped', ({ details }) => {
+    const { inputTokens, outputTokens, model } = details.metadata;
+    console.log(`LLM cost: ${model}, ${inputTokens + outputTokens} tokens`);
+  })
+  .build();
+```
+
+Use `*` as a wildcard at any segment. Subscribe to `*` to capture every event.
+
+### Full Event Reference
+
+```text
+context:starting / started / stopping / stopped
+route:registered / starting / started / stopping / stopped
+route:<id>:exchange:started / completed / failed
+route:<id>:operation:from:<adapterId>:started / stopped
+route:<id>:operation:to:<adapterId>:started / stopped
+route:<id>:operation:<processingType>:started / stopped
+route:<id>:operation:batch:started / flushed / stopped
+route:<id>:operation:split:started / stopped
+route:<id>:operation:aggregate:started / stopped
+route:<id>:operation:retry:started / attempt / stopped
+route:<id>:operation:error:invoked / recovered / failed
+plugin:<pluginId>:registered / starting / started / stopping / stopped
+error
+```
+
+### Adapter Metadata
+
+Adapters populate `details.metadata` for filtering and metrics. Include small values (IDs, counts, codes) and exclude large bodies or sensitive data.
+
+Examples by adapter type:
+- **LLM**: model, provider, inputTokens, outputTokens, temperature
+- **HTTP**: method, url, statusCode, contentLength
+- **MCP**: toolName, transport, userId, serverId
+- **Kafka**: topic, partition, offset, messageSize
+
+### Event Source Adapter
+
+Trigger a capability from internal events:
+
+```typescript
+import { craft, event, log } from '@routecraft/routecraft';
+
+craft()
+  .from(event('route:*:exchange:completed'))
+  .process((ex) => {
+    console.log('Route completed:', ex.body.details.routeId);
+    return ex;
+  })
+  .to(log());
+```
+
+Note: the event adapter filters out `:operation:` and `:exchange:` events internally to prevent infinite loops.
+
+## Logging
+
+Logs go to stdout at `warn` level by default.
+
+- **Env vars**: `LOG_LEVEL` / `CRAFT_LOG_LEVEL`, `LOG_FILE` / `CRAFT_LOG_FILE`
+- **CLI flags**: `craft run <file> --log-level info --log-file craft.log`
+- **Config**: `craftConfig.log` sets defaults; CLI flags override config for CLI runs
+
+## Documentation
+
+For full guides, adapter reference, and examples, visit [routecraft.dev](https://routecraft.dev).
+
 ## Contributing
 
-Contributions are welcome! Please see our [Contributing Guide](https://github.com/routecraftjs/routecraft/blob/main/CONTRIBUTING.md).
+Contributions are welcome. See the [Contributing Guide](https://github.com/routecraftjs/routecraft/blob/main/CONTRIBUTING.md).
 
 ## License
 
@@ -291,4 +204,3 @@ Apache-2.0
 - [Documentation](https://routecraft.dev)
 - [GitHub Repository](https://github.com/routecraftjs/routecraft)
 - [Issue Tracker](https://github.com/routecraftjs/routecraft/issues)
-

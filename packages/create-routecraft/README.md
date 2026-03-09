@@ -1,10 +1,8 @@
 # create-routecraft
 
-Scaffold a new RouteCraft project with best practices and example routes.
+Scaffold a new RouteCraft project with best practices and example capabilities.
 
 ## Usage
-
-Create a new RouteCraft project interactively:
 
 ```bash
 npm create routecraft@latest
@@ -26,11 +24,11 @@ npx create-routecraft
 
 The scaffolded project includes:
 
-- ✅ Pre-configured TypeScript setup
-- ✅ Example routes demonstrating key features
-- ✅ Ready-to-use project structure
-- ✅ Development dependencies configured
-- ✅ ESLint and testing setup
+- Pre-configured TypeScript setup
+- Example capabilities demonstrating key features
+- Ready-to-use project structure
+- Development dependencies configured
+- ESLint and testing setup
 
 ## Interactive Prompts
 
@@ -63,4 +61,3 @@ Apache-2.0
 - [Documentation](https://routecraft.dev)
 - [GitHub Repository](https://github.com/routecraftjs/routecraft)
 - [Issue Tracker](https://github.com/routecraftjs/routecraft/issues)
-
