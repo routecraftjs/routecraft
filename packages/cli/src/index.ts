@@ -23,51 +23,36 @@ if (!(major > 18 || (major === 18 && minor >= 19))) {
   process.exit(1);
 }
 
-// ── 2. Re-exec with TypeScript strip flags if a .ts file is being run ───────
-// Node 22.6+: --experimental-strip-types must be present in execArgv for
-// import() to handle .ts files. Node 23.6+: types are stripped by default.
+// ── 2. Re-exec with tsx loader if a .ts file is being run ───────────────────
+// Node's native --experimental-strip-types does not handle extensionless
+// imports or .js-to-.ts resolution. tsx (via --import tsx/esm) does.
+// We set CRAFT_TSX_LOADER=1 before re-execing to avoid an infinite loop.
 const hasTSFile = process.argv
   .slice(2)
   .some((arg) => !arg.startsWith("-") && arg.endsWith(".ts"));
 
-if (hasTSFile) {
-  const atLeast226 = major > 22 || (major === 22 && minor >= 6);
-  const atLeast236 = major > 23 || (major === 23 && minor >= 6);
-
-  if (!atLeast226) {
-    // eslint-disable-next-line no-console
-    console.error(
-      `[routecraft] Running .ts files directly requires Node.js 22.6 or later. ` +
-        `You are on ${process.version}. Please upgrade Node or compile your file first.`,
+if (hasTSFile && !process.env["CRAFT_TSX_LOADER"]) {
+  const { execFileSync } = await import("node:child_process");
+  const { createRequire } = await import("node:module");
+  // Resolve tsx/esm relative to the CLI package so it works regardless of CWD
+  const tsxEsmPath = createRequire(import.meta.url).resolve("tsx/esm");
+  try {
+    execFileSync(
+      process.execPath,
+      [
+        "--import",
+        tsxEsmPath,
+        ...process.execArgv,
+        process.argv[1]!,
+        ...process.argv.slice(2),
+      ],
+      { stdio: "inherit", env: { ...process.env, CRAFT_TSX_LOADER: "1" } },
     );
-    process.exit(1);
-  }
-
-  const hasStripFlag = process.execArgv.some(
-    (a) => a === "--experimental-strip-types" || a === "--strip-types",
-  );
-
-  if (!atLeast236 && !hasStripFlag) {
-    // Re-exec the current process with --experimental-strip-types so that
-    // the subsequent import() call in run.ts can load the .ts file.
-    const { execFileSync } = await import("node:child_process");
-    try {
-      execFileSync(
-        process.execPath,
-        [
-          "--experimental-strip-types",
-          ...process.execArgv,
-          process.argv[1]!,
-          ...process.argv.slice(2),
-        ],
-        { stdio: "inherit" },
-      );
-      process.exit(0);
-    } catch (err: unknown) {
-      process.exit(
-        (err as NodeJS.ErrnoException & { status?: number }).status ?? 1,
-      );
-    }
+    process.exit(0);
+  } catch (err: unknown) {
+    process.exit(
+      (err as NodeJS.ErrnoException & { status?: number }).status ?? 1,
+    );
   }
 }
 
