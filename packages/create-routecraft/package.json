@@ -1,6 +1,6 @@
 {
   "name": "create-routecraft",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Create a new RouteCraft project",
   "type": "module",
   "main": "./dist/index.js",
@@ -21,7 +21,7 @@
     "@inquirer/prompts": "^8.3.0"
   },
   "devDependencies": {
-    "@routecraft/testing": "workspace:^0.3.0"
+    "@routecraft/testing": "^0.4.0"
   },
   "publishConfig": {
     "access": "public"
