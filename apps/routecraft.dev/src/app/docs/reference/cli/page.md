@@ -2,7 +2,7 @@
 title: CLI
 ---
 
-Run and scaffold RouteCraft capabilities from the command line. {% .lead %}
+Run RouteCraft capabilities from the command line. {% .lead %}
 
 ## Basic usage
 
@@ -21,11 +21,9 @@ Global options:
 `dev`, `build`, `start`, and `exec` are planned for future releases.
 {% /callout %}
 
-## Commands
+## Project scaffolding
 
-### create
-
-Scaffold a new RouteCraft project interactively.
+New projects are created via `npm create routecraft`, a separate scaffolding package -- not a `craft` subcommand:
 
 {% code-tabs %}
 {% code-tab label="npm" language="bash" %}
@@ -66,6 +64,8 @@ Options:
 | --use-npm, --use-pnpm, --use-yarn, --use-bun | Choose package manager |
 | --no-src-dir | Place project files at root instead of src/ |
 | --no-git | Skip git initialization |
+
+## Commands
 
 ### run
 
