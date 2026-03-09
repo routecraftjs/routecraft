@@ -20,16 +20,16 @@ DSL operators with signatures and examples. {% .lead %}
 |-----------|----------|-------------|
 | [`id`](#id) | Route | Set the unique identifier for the route |
 | [`batch`](#batch) | Route | Process exchanges in batches instead of one at a time |
-| [`error`](#error) | Route | Configure route-level error handling {% badge %}planned{% /badge %} |
-| [`from`](#from) | Source | Define the source of data for the route |
-| [`retry`](#retry) | Wrapper | Retry the next operation on failure |
-| [`throttle`](#throttle) | Wrapper | Rate limit the next operation |
-| [`cache`](#cache) | Wrapper | Cache and reuse results of the next operation |
-| [`sample`](#sample) | Transform | Take every Nth exchange or time-based sampling |
-| [`debounce`](#debounce) | Transform | Only pass exchanges after a quiet period |
-| [`timeout`](#timeout) | Wrapper | Cancel the next operation if it exceeds a duration |
-| [`delay`](#delay) | Wrapper | Add delay before the next operation |
-| [`onError`](#onError) | Wrapper | Handle errors from the next operation |
+| [`error`](#error) | Route | Configure route-level error handling {% badge %}wip{% /badge %} |
+| [`from`](#from) | Route | Define the source of data for the capability |
+| [`retry`](#retry) | Wrapper | Retry the next operation on failure {% badge %}wip{% /badge %} |
+| [`throttle`](#throttle) | Wrapper | Rate limit the next operation {% badge %}wip{% /badge %} |
+| [`cache`](#cache) | Wrapper | Cache and reuse results of the next operation {% badge %}wip{% /badge %} |
+| [`sample`](#sample) | Flow Control | Take every Nth exchange or time-based sampling {% badge %}wip{% /badge %} |
+| [`debounce`](#debounce) | Flow Control | Only pass exchanges after a quiet period {% badge %}wip{% /badge %} |
+| [`timeout`](#timeout) | Wrapper | Cancel the next operation if it exceeds a duration {% badge %}wip{% /badge %} |
+| [`delay`](#delay) | Wrapper | Add delay before the next operation {% badge %}wip{% /badge %} |
+| [`onError`](#onError) | Wrapper | Handle errors from the next operation {% badge %}wip{% /badge %} |
 | [`transform`](#transform) | Transform | Transform data using a function (body only) |
 | [`map`](#map) | Transform | Map fields from source to target object |
 | [`process`](#process) | Transform | Process data with full exchange access |
@@ -37,29 +37,18 @@ DSL operators with signatures and examples. {% .lead %}
 | [`enrich`](#enrich) | Transform | Add additional data to current data |
 | [`filter`](#filter) | Flow Control | Filter data based on predicate |
 | [`validate`](#validate) | Flow Control | Validate data against schema |
-| [`dedupe`](#dedupe) | Flow Control | Suppress duplicate exchanges based on a key |
-| [`choice`](#choice) | Flow Control | Route to different paths based on conditions |
+| [`dedupe`](#dedupe) | Flow Control | Suppress duplicate exchanges based on a key {% badge %}wip{% /badge %} |
+| [`choice`](#choice) | Flow Control | Route to different paths based on conditions {% badge %}wip{% /badge %} |
 | [`split`](#split) | Flow Control | Split arrays into individual items |
 | [`aggregate`](#aggregate) | Flow Control | Combine multiple items into single result |
-| [`multicast`](#multicast) | Flow Control | Send exchange to multiple destinations |
-| [`loop`](#loop) | Flow Control | Repeat operations while condition is true |
-| [`tap`](#tap) | Side Effect | Execute side effects without changing data |
-| [`to`](#to) | Destination | Send data to destination |
-
-### Operation scope and ordering
-
-- **Route operations** (e.g. `id`, `batch`) configure the route itself and apply to the entire route. They configure the **next** route created by `from()`.
-  - Place them before `from()`.
-  - If called after a route already exists in the chain, they are staged and will apply to the next `from()` (they do not change the current route).
-
-- **Wrapper operations** (e.g. `retry`, `throttle`, `timeout`, `delay`, `onError`) wrap the **next operation only**.
-  - Place them immediately before the operation they should affect.
-  - Multiple wrappers can be stacked; they apply in **outside-in order** (first wrapper listed is the outermost).
-  - Example: `.retry().timeout().process()` means retry wraps timeout wraps process—a timeout triggers a retry.
+| [`multicast`](#multicast) | Flow Control | Send exchange to multiple destinations {% badge %}wip{% /badge %} |
+| [`loop`](#loop) | Flow Control | Repeat operations while condition is true {% badge %}wip{% /badge %} |
+| [`tap`](#tap) | Side Effect | Fire-and-forget side effect, does not block the pipeline |
+| [`to`](#to) | Side Effect | Send data to a destination adapter and end the pipeline |
 
 ## Route operations
 
-Route operations configure the route itself and apply to the entire route. They configure the next route created by `from()`. Place them before `from()`. If called after an existing route, they are staged for the next `from()`.
+Route operations configure the capability itself. `id`, `batch`, and `error` go before `from()` -- if called after an existing route, they are staged for the next `from()`. `from()` defines the source and creates the capability.
 
 ### id
 
@@ -104,19 +93,19 @@ craft()
 
 **Options:**
 - `size` - Maximum exchanges per batch (default: 100)
-- `flushIntervalMs` - Maximum wait time before flushing partial batch (default: 5000ms)
+- `flushIntervalMs` - Maximum wait time in milliseconds before flushing a partial batch (default: 5000ms)
 
 {% callout type="note" title="Linting: route-level positioning" %}
 Use the ESLint rule `@routecraft/routecraft/batch-before-from` to ensure `batch()` is placed **before** `.from()`. See [Linting Rules](/docs/reference/linting#batch-before-from).
 {% /callout %}
 
 {% callout type="warning" title="Incompatible with synchronous sources" %}
-The `batch()` operation only works with asynchronous message sources like `timer()`. It **cannot** be used with `direct()` sources because direct endpoints are synchronous and blocking—each sender waits for the consumer to fully process a message before the next can be sent, preventing message accumulation.
+The `batch()` operation only works with asynchronous message sources like `timer()`. It **cannot** be used with `direct()` sources because direct endpoints are synchronous and blocking -- each sender waits for the consumer to fully process a message before the next can be sent, preventing message accumulation.
 
 If you need to combine multiple messages from split branches, use the `aggregate()` operation instead.
 {% /callout %}
 
-### error (Planned)
+### error {% badge %}wip{% /badge %}
 
 **Note:** The `error()` operation is documented here but not yet implemented. Implementation is planned for a future release.
 
@@ -205,60 +194,28 @@ craft()
 
 **Note about direct destinations:** Direct destinations with their own routes have their own error handlers. Errors in direct destinations are handled by their route's error handler, not the calling route.
 
+### from
+
+```ts
+from<T>(src: Source<T> | CallableSource<T>): RouteBuilder<T>
+```
+
+Defines the source adapter and creates the capability. Must come after all other route-level operations (`id`, `batch`, `error`).
+
+**Returns:** `RouteBuilder<T>` where `T` is the body type produced by the source.
+
+```ts
+.id('timer-route')
+.from(timer({ intervalMs: 1000 }))
+
+// Callable source (async function)
+.id('data-fetcher')
+.from(async () => await fetchData())
+```
+
 ## Wrapper operations
 
-Wrapper operations modify the behavior of the next operation in the chain. They create a wrapper around the subsequent step to add cross-cutting concerns.
-
-### Chaining wrappers
-
-Multiple wrappers can be chained together. They apply in **outside-in order**—the first wrapper listed is the outermost, wrapping all subsequent wrappers and the operation.
-
-```ts
-// retry wraps timeout wraps process
-.retry({ maxAttempts: 3 })
-.timeout(5000)
-.process(op)
-```
-
-The **order matters** and determines behavior:
-
-```ts
-// Each retry attempt gets a fresh 5s timeout
-craft()
-  .id('retry-wraps-timeout')
-  .from(source)
-  .retry({ maxAttempts: 3 })
-  .timeout(5000)
-  .process(slowOp)
-  .to(destination)
-
-// Total 30s budget shared across all retry attempts
-craft()
-  .id('timeout-wraps-retry')
-  .from(source)
-  .timeout(30000)
-  .retry({ maxAttempts: 3 })
-  .process(flakyOp)
-  .to(destination)
-
-// Fallback on any error, including timeout
-craft()
-  .id('error-wraps-timeout')
-  .from(source)
-  .onError((err, ex) => ({ ...ex, body: { fallback: true } }))
-  .timeout(5000)
-  .process(slowOp)
-  .to(destination)
-
-// Rate limit with retry on failure
-craft()
-  .id('throttle-with-retry')
-  .from(source)
-  .retry({ maxAttempts: 3 })
-  .throttle({ requestsPerSecond: 10 })
-  .process(apiCall)
-  .to(destination)
-```
+Wrappers apply to the **next operation only** in outside-in order. See [Operations](/docs/introduction/operations#chaining-wrappers) for chaining semantics.
 
 ### retry {% badge %}wip{% /badge %}
 
@@ -452,30 +409,6 @@ craft()
 - `ttl` - Time to live in milliseconds. After expiry, the next execution recomputes the value
 - `scope` - What to cache: `'body'` (default) or `'exchange'` (body plus selected headers)
 
-## Source operations
-
-### from
-
-```ts
-from<T>(src: Source<T> | CallableSource<T>): RouteBuilder<T>
-```
-
-Define the source of data for the route. This operation creates the route and must come after any route configuration operations.
-
-```ts
-// Simple source
-.id('timer-route')
-.from(timer({ intervalMs: 1000 }))
-
-// HTTP server source
-.id('webhook-handler')
-.from(httpServer({ port: 3000 }))
-
-// Callable source
-.id('data-fetcher')
-.from(async () => await fetchData())
-```
-
 ## Transform operations
 
 ### transform
@@ -668,7 +601,7 @@ Unlike `.transform()` which receives only the body, `.filter()` receives the ful
 validate(schema: StandardSchemaV1): RouteBuilder<Current>
 ```
 
-Validate the exchange body against a schema. Invalid exchanges will cause the route to emit an error event.
+Validate the exchange body against a schema. Invalid exchanges will cause the capability to emit an error event.
 
 ```ts
 import { z } from 'zod'
@@ -730,7 +663,7 @@ craft()
 Use `dedupe` when duplicates should do nothing. Use `cache` when duplicates should return the same result.
 {% /callout %}
 
-### Default key derivation
+**Default key derivation:**
 
 When `dedupe` or `cache` is called without a `keyFn`, a key is derived automatically by hashing the exchange body:
 
@@ -931,7 +864,7 @@ Only pass exchanges after a specified quiet period with no new exchanges. Useful
 .process(reloadConfig)
 ```
 
-## Side effect operations
+## Side effects
 
 ### tap
 
@@ -972,8 +905,6 @@ The tap receives a **deep copy** of the exchange with:
 - `context.stop()` automatically calls `context.drain()` to wait for all tap jobs
 - Ensures all async work finishes before shutdown completes
 
-
-## Destination operations
 
 ### to
 
@@ -1035,7 +966,3 @@ While technically possible, using multiple `.to()` operations in a single route 
 
 An ESLint rule `@routecraft/routecraft/single-to-per-route` is available to warn when multiple `.to()` operations are used.
 {% /callout %}
-
-## Error Handling
-
-See the [error()](#error-planned) operation under **Route operations** for route-level error handling. Convention is to list `error()` near the top with other route-level options like `id`, `batch`, and `error`.

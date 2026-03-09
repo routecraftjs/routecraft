@@ -2,30 +2,26 @@
 title: File to HTTP
 ---
 
-Read CSV file and send each row to an API. {% .lead %}
-
-{% callout type="warning" %}
-This example uses the `csv()` adapter which is planned for a future release. It serves as a reference for the intended API design. Check the [Adapters documentation](/docs/reference/adapters) for currently available adapters.
-{% /callout %}
+Read a CSV file and send each row to an API. {% .lead %}
 
 ```ts
 import { craft, csv, http } from '@routecraft/routecraft'
 
 export default craft()
   .id('file-to-http')
-  .from(csv({ path: './customers.csv', headers: true }))
+  .from(csv({ path: './customers.csv', header: true }))
   .filter(row => row.status === 'active')
   .transform(row => ({
     name: row.first_name + ' ' + row.last_name,
-    email: row.email
+    email: row.email,
   }))
   .to(http({
     url: 'https://api.example.com/users',
-    method: 'POST'
+    method: 'POST',
   }))
 ```
 
-## Input Data
+## Input data
 
 **customers.csv:**
 ```csv
@@ -35,12 +31,12 @@ Jane,Smith,jane@test.com,inactive
 Bob,Wilson,bob@test.com,active
 ```
 
-## What It Does
+## What it does
 
-1. Reads CSV file with headers
-2. Filters to only `active` customers
-3. Transforms each row to combine first/last name
-4. Sends each transformed row to API via POST
+1. Reads `customers.csv` with headers parsed as object keys
+2. Filters to only `active` rows
+3. Combines first and last name into a single `name` field
+4. POSTs each transformed row to the API
 
 ## Result
 
@@ -51,4 +47,4 @@ Two HTTP POST requests sent to `https://api.example.com/users`:
 { "name": "Bob Wilson", "email": "bob@test.com" }
 ```
 
-Jane is filtered out because her status is `inactive`.
+Jane is skipped because her status is `inactive`.

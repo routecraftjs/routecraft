@@ -51,7 +51,8 @@ function PageLink({
 }
 
 export function PrevNextLinks() {
-  let pathname = usePathname()
+  let rawPathname = usePathname()
+  let pathname = rawPathname === '/' ? '/' : rawPathname.replace(/\/$/, '')
   let allLinks = navigation.flatMap((section) => section.links)
   let linkIndex = allLinks.findIndex((link) => link.href === pathname)
   let previousPage = linkIndex > -1 ? allLinks[linkIndex - 1] : null

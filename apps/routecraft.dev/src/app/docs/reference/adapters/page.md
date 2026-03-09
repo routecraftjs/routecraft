@@ -2,7 +2,7 @@
 title: Adapters
 ---
 
-Catalog of adapters and authoring guidance. {% .lead %}
+Full catalog of adapters with signatures and options. {% .lead %}
 
 ## Adapter overview
 
@@ -13,19 +13,23 @@ Catalog of adapters and authoring guidance. {% .lead %}
 | [`timer`](#timer) | Core | Scheduled/recurring execution | `Source` |
 | [`direct`](#direct) | Core | Synchronous inter-route communication | `Source`, `Destination` |
 | [`http`](#http) | Core | Outbound HTTP client requests (inbound/server support planned) | `Destination` |
-| [`noop`](#noop) | Core | No-operation placeholder | `Destination` |
-| [`pseudo`](#pseudo) | Core | Typed placeholder for docs/examples | `Source`, `Destination`, `Processor` |
+| [`noop`](#noop) | Test | No-operation placeholder | `Destination` |
+| [`pseudo`](#pseudo) | Test | Typed placeholder for docs/examples | `Source`, `Destination`, `Processor` |
+| [`spy`](#spy) {% badge %}wip{% /badge %} | Test | Records exchanges for assertions | `Destination`, `Processor` |
 | [`file`](#file) | File | Read/write text files | `Source`, `Destination` |
 | [`json`](#json) | File | JSON file handling with parsing | `Source`, `Destination`, `Transformer` |
 | [`csv`](#csv) | File | CSV file processing | `Source`, `Destination` |
 | [`html`](#html) | File | HTML parsing and file handling | `Source`, `Destination`, `Transformer` |
+| [`mcp`](#mcp) | AI | Expose capabilities as MCP tools or call remote MCP servers | `Source`, `Destination` |
+| [`llm`](#llm) | AI | Call a language model and get text or structured output | `Destination` |
+| [`embedding`](#embedding) | AI | Generate vector embeddings from text | `Destination` |
 
 ## Core adapters
 
 ### simple
 
 ```ts
-simple<T>(producer: (() => T | Promise<T>) | T): SimpleAdapter<T>
+simple<T>(producer: (() => T | Promise<T>) | T): Source<T>
 ```
 
 Create a static or dynamic data source. Can produce a single value, an array of values, or use a function to generate data.
@@ -56,7 +60,7 @@ Create a static or dynamic data source. Can produce a single value, an array of 
 ### log
 
 ```ts
-log<T>(formatter?: (exchange: Exchange<T>) => unknown, options?: { level?: LogLevel }): LogAdapter<T>
+log<T>(formatter?: (exchange: Exchange<T>) => unknown, options?: LogOptions): Destination<T, void>
 ```
 
 Log messages to the console. Can be used as a destination with `.to()` or for side effects with `.tap()`.
@@ -98,7 +102,7 @@ Log messages to the console. Can be used as a destination with `.to()` or for si
 ### debug
 
 ```ts
-debug<T>(formatter?: (exchange: Exchange<T>) => unknown): LogAdapter<T>
+debug<T>(formatter?: (exchange: Exchange<T>) => unknown): Destination<T, void>
 ```
 
 Convenience helper for debug-level logging. Equivalent to `log(formatter, { level: 'debug' })`.
@@ -120,7 +124,7 @@ craft().from(source).tap(debug((ex) => `Input: ${ex.body}`)).transform(processDa
 ### timer
 
 ```ts
-timer(options?: TimerOptions): TimerAdapter
+timer(options?: TimerOptions): Source<undefined>
 ```
 
 Trigger routes at regular intervals or specific times. Produces `undefined` as the message body.
@@ -160,6 +164,7 @@ Options:
 | `repeatCount` | `number` | `Infinity` | No | Number of executions before stopping |
 | `fixedRate` | `boolean` | `false` | No | Execute at exact intervals ignoring processing time |
 | `exactTime` | `string` | — | No | Execute daily at time of day `HH:mm:ss` (fires once/day) |
+| `timePattern` | `string` | — | No | Custom date format for execution times |
 | `jitterMs` | `number` | `0` | No | Random jitter added to each scheduled run |
 
 **Headers added:** Timer metadata including fired time, counter, period, and next run time
@@ -274,7 +279,7 @@ Zod 4 uses different object constructors to control extra field handling:
 |-------------|--------------|----------|
 | `z.object()` | Stripped (default) | Strict contracts, clean data |
 | `z.looseObject()` | Preserved | Flexible schemas, passthrough |
-| `z.strictObject()` | Error (RC5011) | Reject unexpected fields |
+| `z.strictObject()` | Error (RC5002) | Reject unexpected fields |
 
 ```ts
 import { z } from 'zod'
@@ -292,7 +297,7 @@ craft()
 // Passes: { userId: '...', action: 'create' }
 // Passes: { userId: '...', action: 'create', extra: 'field' }
 //    Extra fields silently removed from result
-// RC5011: { userId: '...', missing: 'action' }
+// RC5002: { userId: '...', missing: 'action' }
 ```
 
 ```ts
@@ -322,7 +327,7 @@ craft()
   .process(processUser)
 
 // Passes: { userId: '...', action: 'create' }
-// RC5011: { userId: '...', action: 'create', extra: 'field' }
+// RC5002: { userId: '...', action: 'create', extra: 'field' }
 ```
 
 **Header Validation**
@@ -418,7 +423,7 @@ Make HTTP requests. Returns a `Destination` adapter that works with both `.to()`
 
 **Current support:** RouteCraft currently exports `http()` only as an outbound/client adapter for making HTTP requests.
 
-**Planned inbound support:** RouteCraft does **not** yet ship an inbound HTTP source/server adapter. The design reference below is included to show the intended direction and may change before implementation.
+**Planned inbound support:** RouteCraft does **not** yet ship an inbound HTTP source/server adapter. The planned design is shown in [Planned inbound/server HTTP support](#planned-inbound-server-http-support) below and may change before implementation.
 
 **With `.enrich()` (merge result into body):**
 
@@ -481,8 +486,39 @@ Options:
 | `query` | `Record<string,string|number|boolean> \| (exchange) => Query` | `{}` | No | Query parameters appended to URL |
 | `body` | `unknown \| (exchange) => unknown` | — | No | Request body (JSON serialized when not string/binary) |
 | `throwOnHttpError` | `boolean` | `true` | No | Throw when response is non-2xx |
+| `timeoutMs` | `number` | — | No | Request timeout in milliseconds |
 
 **Returns:** `HttpResult` object with `status`, `headers`, `body`, and `url`
+
+#### Planned inbound/server HTTP support {% badge %}wip{% /badge %}
+
+Tentative source signature: `http({ path, method, ...options })`.
+
+```ts
+// Simple webhook endpoint
+.id('webhook-receiver')
+.from(http({ path: '/webhook', method: 'POST' }))
+
+// Multiple methods on same path
+.id('data-api')
+.from(http({ path: '/api/data', method: ['GET', 'POST', 'PUT'] }))
+```
+
+| Option | Type | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `path` | `string` | `'/'` | No | URL path to mount |
+| `method` | `HttpMethod \| HttpMethod[]` | `'POST'` | No | Accepted HTTP methods |
+
+Exchange body: `{ method, url, headers, body, query, params }`.
+The final exchange becomes the HTTP response; no explicit `.to()` step is required.
+
+Response behavior:
+
+- The final exchange is returned to the HTTP client. If the final body is an object with optional fields `{ status?: number, headers?: Record<string,string>, body?: unknown }`, those fields are used to build the response.
+- If `status` or `headers` are not provided, RouteCraft returns the body with `200` status and no additional headers.
+- For serialization and setting `Content-Type`, use a formatting step in your capability (e.g., a `.transform(...)` that sets appropriate headers).
+
+## Test adapters
 
 ### noop
 
@@ -499,6 +535,51 @@ A no-operation adapter that discards messages. Useful for testing, development, 
 // Testing placeholder
 .to(noop()) // Messages are discarded but logged
 ```
+
+### spy {% badge %}wip{% /badge %}
+
+```ts
+spy<T>(): SpyAdapter<T>
+```
+
+Records all exchanges passing through it. Use as a destination, processor, or enricher to capture and assert on pipeline output.
+
+```ts
+import { spy } from '@routecraft/routecraft'
+
+const spyAdapter = spy()
+
+const route = craft()
+  .id('my-route')
+  .from(simple('payload'))
+  .to(spyAdapter)
+
+const t = await testContext().routes(route).build()
+await t.test()
+
+expect(spyAdapter.received).toHaveLength(1)
+expect(spyAdapter.received[0].body).toBe('payload')
+expect(spyAdapter.calls.send).toBe(1)
+```
+
+**Properties:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `received` | `Exchange[]` | All exchanges recorded |
+| `calls.send` | `number` | Number of times used as destination |
+| `calls.process` | `number` | Number of times used as processor |
+| `calls.enrich` | `number` | Number of times used as enricher |
+
+**Methods:**
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `reset()` | `void` | Clear all recorded data |
+| `lastReceived()` | `Exchange` | Most recent exchange |
+| `receivedBodies()` | `unknown[]` | Array of just the body values |
+
+See [Testing](/docs/introduction/testing) for full usage patterns.
 
 ### pseudo
 
@@ -572,6 +653,8 @@ import { mcp } from "@routecraft/mcp-adapter";
 ```
 
 **Exported types:** `PseudoAdapter<R>`, `PseudoFactory<Opts>`, `PseudoKeyedFactory<Opts>`, `PseudoOptions`, `PseudoKeyedOptions`
+
+## File adapters
 
 ### file
 
@@ -898,252 +981,183 @@ All transformer options above, plus:
 
 **Exported types:** `HtmlAdapter`, `HtmlOptions`, `HtmlResult`
 
-#### Planned inbound/server HTTP support {% badge %}wip{% /badge %}
+## AI adapters
 
-Tentative source signature: `http({ path, method, ...options })`.
+### mcp
 
 ```ts
-// Simple webhook endpoint
-.id('webhook-receiver')
-.from(http({ path: '/webhook', method: 'POST' }))
-
-// Multiple methods on same path
-.id('data-api')
-.from(http({ path: '/api/data', method: ['GET', 'POST', 'PUT'] }))
+import { mcp } from '@routecraft/ai'
 ```
 
-| Option | Type | Default | Required | Description |
-| --- | --- | --- | --- | --- |
-| `path` | `string` | `'/'` | No | URL path to mount |
-| `method` | `HttpMethod \| HttpMethod[]` | `'POST'` | No | Accepted HTTP methods |
- 
+Expose capabilities as MCP tools or call remote MCP servers. Requires `mcpPlugin()` in your context plugins when used as a source.
 
-Exchange body: `{ method, url, headers, body, query, params }`.
-The final exchange becomes the HTTP response; no explicit `.to()` step is required.
-
-Response behavior:
-
-- The final exchange is returned to the HTTP client. If the final body is an object with optional fields `{ status?: number, headers?: Record<string,string>, body?: unknown }`, those fields are used to build the response.
-- If `status` or `headers` are not provided, RouteCraft returns the body with `200` status and no additional headers.
-- For serialization and setting `Content-Type`, use a formatting step in your route (e.g., a `.format(...)` or `.transform(...)` that sets appropriate headers). If you set a response content type header in your pipeline, it will be used.
-
-## Testing
-
-RouteCraft uses standard Vitest mocking for testing. No special spy adapters needed!
-
-### Testing Destinations
+**Source mode -- define a discoverable MCP tool:**
 
 ```ts
-import { context, craft, simple } from '@routecraft/routecraft'
+import { mcp } from '@routecraft/ai'
+import { z } from 'zod'
 
-const destSpy = vi.fn()
-
-const ctx = context()
-  .routes(
-    craft()
-      .from(simple('test-data'))
-      .to(destSpy)
-  )
-  .build()
-
-await ctx.start()
-
-// Standard Vitest assertions
-expect(destSpy).toHaveBeenCalledTimes(1)
-const sentExchange = destSpy.mock.calls[0][0]
-expect(sentExchange.body).toBe('test-data')
-expect(sentExchange.headers['x-test']).toBe('value')
+craft()
+  .id('fetch-webpage')
+  .from(mcp('fetch-webpage', {
+    description: 'Fetch the content of a webpage',
+    schema: z.object({ url: z.string().url() }),
+    keywords: ['fetch', 'web'],
+  }))
+  .transform(async ({ url }) => {
+    const res = await fetch(url)
+    return { content: await res.text() }
+  })
 ```
 
-### Testing Processors
+`description` is required whenever options are passed. Schema and keywords are optional.
+
+**Destination mode -- call a remote MCP tool:**
 
 ```ts
-const processorSpy = vi.fn((exchange) => {
-  // Your processor logic here
-  return exchange
+// By server id registered in mcpPlugin clients
+.enrich(mcp('browser:browser_navigate', { args: (ex) => ({ url: ex.body.url }) }))
+
+// By URL and tool name
+.enrich(mcp({ url: 'http://127.0.0.1:8089/mcp', tool: 'browser_navigate' }, { args: (ex) => ({ url: ex.body.url }) }))
+```
+
+**Options (McpServerOptions -- source):**
+
+| Option | Type | Required | Description |
+|--------|------|----------|-------------|
+| `description` | `string` | Yes | Human-readable description for AI discovery |
+| `schema` | `StandardSchemaV1` | No | Body validation schema (Zod, Valibot, ArkType) |
+| `headerSchema` | `StandardSchemaV1` | No | Header validation schema |
+| `keywords` | `string[]` | No | Keywords for discovery and categorization |
+
+**Relation to `direct()`:** `mcp()` is built on `direct()`. The key difference is that `description` is required when passing options, ensuring every exposed tool is discoverable by AI agents.
+
+See [Expose as MCP](/docs/advanced/expose-as-mcp) and [Call an MCP](/docs/advanced/call-an-mcp).
+
+### llm
+
+```ts
+import { llm } from '@routecraft/ai'
+```
+
+Call a language model and get text or structured output. Requires `llmPlugin()` in your context plugins.
+
+```ts
+import { llm } from '@routecraft/ai'
+
+// Text output
+craft()
+  .id('summarise')
+  .from(source)
+  .enrich(llm('anthropic:claude-haiku-4-5-20251001', {
+    systemPrompt: 'Summarise the following in one sentence.',
+    userPrompt: (ex) => ex.body.content,
+  }))
+  .to(log())
+// Result merged into body: { ..., text: '...', usage: { inputTokens, outputTokens } }
+
+// Structured output with Zod schema
+import { z } from 'zod'
+
+const sentimentSchema = z.object({
+  sentiment: z.enum(['positive', 'neutral', 'negative']),
+  confidence: z.number(),
 })
 
-const ctx = context()
-  .routes(
-    craft()
-      .from(simple('input'))
-      .process(processorSpy)
-      .to(vi.fn())
-  )
-  .build()
-
-await ctx.start()
-
-expect(processorSpy).toHaveBeenCalled()
+craft()
+  .id('classify')
+  .from(source)
+  .enrich(llm('openai:gpt-4o', {
+    systemPrompt: 'Classify the sentiment of the text.',
+    userPrompt: (ex) => ex.body.text,
+    outputSchema: sentimentSchema,
+  }))
+  .to(log())
+// result.output is typed as { sentiment: string, confidence: number }
 ```
 
-### Helper Functions for Common Patterns
+Model ID format: `"provider:model-name"` (e.g., `"ollama:llama3.2"`, `"anthropic:claude-sonnet-4-6"`).
+
+**Supported providers:** `openai`, `anthropic`, `ollama`, `openrouter`, `gemini`
+
+**Options:**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `systemPrompt` | `string \| (exchange) => string` | — | System prompt (static or derived from exchange) |
+| `userPrompt` | `string \| (exchange) => string` | — | User prompt (static or derived from exchange) |
+| `outputSchema` | `StandardSchemaV1` | — | Zod/Valibot/ArkType schema for structured output |
+| `temperature` | `number` | — | Sampling temperature |
+| `maxTokens` | `number` | — | Maximum tokens to generate |
+| `topP` | `number` | — | Top-p sampling |
+| `frequencyPenalty` | `number` | — | Frequency penalty |
+| `presencePenalty` | `number` | — | Presence penalty |
+
+**Result shape (merged into body by `.enrich()`):**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `text` | `string` | Raw model output |
+| `output` | `T` | Parsed structured output (only when `outputSchema` provided) |
+| `usage.inputTokens` | `number` | Input token count |
+| `usage.outputTokens` | `number` | Output token count |
+| `usage.totalTokens` | `number` | Total token count |
+
+Provider credentials are configured once in `llmPlugin()` and shared across all `llm()` calls. See [Plugins reference](/docs/reference/plugins).
+
+### embedding
 
 ```ts
-// Helper to get all received bodies
-function getReceivedBodies(spy: any) {
-  return spy.mock.calls.map(call => call[0].body)
-}
-
-// Helper to get all received headers
-function getReceivedHeaders(spy: any, headerName: string) {
-  return spy.mock.calls.map(call => call[0].headers[headerName])
-}
-
-const destSpy = vi.fn()
-await ctx.start()
-
-expect(getReceivedBodies(destSpy)).toEqual(['test-data'])
-expect(getReceivedHeaders(destSpy, 'x-test')).toEqual(['value'])
+import { embedding } from '@routecraft/ai'
 ```
 
-## Custom adapters
-
-Adapters implement operation interfaces and can use the context store for shared state.
-
-### Basic adapter structure
+Generate vector embeddings from text. Requires `embeddingPlugin()` in your context plugins.
 
 ```ts
-import { Source, Destination, Processor } from '@routecraft/routecraft'
+import { embedding } from '@routecraft/ai'
 
-class MyAdapter implements Source<string> {
-  readonly adapterId = 'my.custom.adapter'
+craft()
+  .id('embed-document')
+  .from(source)
+  .enrich(embedding('openai:text-embedding-3-small', {
+    using: (ex) => ex.body.content,
+  }))
+  .to(vectorStore)
+// Result merged into body: { ..., embedding: [0.123, -0.456, ...] }
 
-  async subscribe(context, handler, abortController) {
-    // Source implementation
-    while (!abortController.signal.aborted) {
-      await handler('data')
-      await new Promise(resolve => setTimeout(resolve, 1000))
-    }
-  }
-}
-
-class MyDestination implements Destination<any, void> {
-  readonly adapterId = 'my.destination.adapter'
-
-  async send(exchange): Promise<void> {
-    // Destination implementation (no return value)
-    console.log('Received:', exchange.body)
-  }
-}
-
-class MyDataFetcher implements Destination<any, { data: string }> {
-  readonly adapterId = 'my.data.adapter'
-
-  async send(exchange): Promise<{ data: string }> {
-    // Fetch and return data
-    const result = await fetchSomeData(exchange.body);
-    return result; // Can be used with .to() or .enrich()
-  }
-}
+// Embed a combination of fields
+.enrich(embedding('ollama:nomic-embed-text', {
+  using: (ex) => `${ex.body.title} ${ex.body.description}`,
+}))
 ```
 
-### Using context store
+Model ID format: `"provider:model-name"` (e.g., `"huggingface:all-MiniLM-L6-v2"`, `"ollama:nomic-embed-text"`).
 
-```ts
-// Extend StoreRegistry for type safety
-declare module '@routecraft/routecraft' {
-  interface StoreRegistry {
-    'my.adapter.config': { apiKey: string }
-    'my.adapter.cache': Map<string, any>
-  }
-}
+**Supported providers:** `huggingface` (local ONNX, no API key), `ollama`, `openai`, `mock` (deterministic test vectors)
 
-class ConfigurableAdapter implements Destination<any, void> {
-  readonly adapterId = 'configurable.adapter'
+**Options:**
 
-  async send(exchange): Promise<void> {
-    const config = exchange.context.getStore('my.adapter.config')
-    const cache = exchange.context.getStore('my.adapter.cache')
-    
-    // Use config and cache...
-  }
-}
-```
+| Option | Type | Required | Description |
+|--------|------|----------|-------------|
+| `using` | `(exchange) => string \| string[]` | Yes | Extract the text to embed from the exchange |
 
-### Merged options pattern
+**Result shape (merged into body by `.enrich()`):**
 
-```ts
-import { MergedOptions } from '@routecraft/routecraft'
+| Field | Type | Description |
+|-------|------|-------------|
+| `embedding` | `number[]` | Vector representation of the input text |
 
-interface MyAdapterOptions {
-  timeout: number
-  retries: number
-}
+Provider credentials are configured once in `embeddingPlugin()` and shared across all `embedding()` calls. See [Plugins reference](/docs/reference/plugins).
 
-class MyAdapter implements Destination<any, void>, MergedOptions<MyAdapterOptions> {
-  constructor(public options: Partial<MyAdapterOptions> = {}) {}
+---
 
-  mergedOptions(context): MyAdapterOptions {
-    const globalOptions = context.getStore('my.adapter.global.options') || {}
-    return {
-      timeout: 5000,
-      retries: 3,
-      ...globalOptions,
-      ...this.options
-    }
-  }
+## Related
 
-  async send(exchange): Promise<void> {
-    const opts = this.mergedOptions(exchange.context)
-    // Use merged options...
-  }
-}
-```
+{% quick-links %}
 
-### Implementation interfaces
+{% quick-link title="Adapters" icon="presets" href="/docs/introduction/adapters" description="How adapters work and how to configure them." /%}
+{% quick-link title="Creating adapters" icon="plugins" href="/docs/advanced/custom-adapters" description="Build your own source, destination, or processor adapter." /%}
+{% quick-link title="Testing" icon="presets" href="/docs/introduction/testing" description="Test your capabilities with testContext() and the spy() adapter." /%}
 
-| Interface | Method | Purpose | Used With |
-|-----------|--------|---------|-----------|
-| `Source<T>` | `subscribe(context, handler, abortController)` | Produce messages for routes | `.from()` |
-| `Destination<T, R>` | `send(exchange): R` | Send/fetch data, optionally return result | `.to()`, `.enrich()`, `.tap()` |
-| `Processor<T, R>` | `process(exchange)` | Transform exchanges in route steps | `.process()` |
-
-Use `Destination<T, R>` for `.to()`, `.enrich()`, and `.tap()`. The difference is in how results are used:
-- `.to()` ignores the result by default (side-effect) or replaces body if a value is returned
-- `.enrich()` merges the result into the body by default
-- `.tap()` receives a snapshot and runs fire-and-forget (result ignored)
-
-**Adapters that return data should specify the return type:**
-
-```ts
-class MyDataAdapter implements Destination<InputType, OutputType> {
-  async send(exchange: Exchange<InputType>): Promise<OutputType> {
-    const result = await fetchData();
-    return result; // Available to both .to() and .enrich()
-  }
-}
-```
-
-**Adapters with no return value use `void`:**
-
-```ts
-class MyLogAdapter implements Destination<any, void> {
-  async send(exchange: Exchange): Promise<void> {
-    console.log(exchange.body);
-    // No return value
-  }
-}
-```
-
-For detailed type definitions, see `packages/routecraft/src/types.ts` and operation files in `packages/routecraft/src/operations/`.
-
-### Best practices
-
-- **Provide a DSL factory for adapters**: expose a function that returns the adapter instance so routes read naturally and avoid `new`.
-
-```ts
-// ✅ Prefer: DSL factory function
-import { xyz } from '@acme/routecraft-xyz'
-
-export default craft()
-  .id('uses-xyz')
-  .from(xyz({ /* options */ }))
-
-// ❌ Avoid: direct class instantiation in routes
-import { XyzAdapter } from '@acme/routecraft-xyz'
-
-export default craft()
-  .id('uses-xyz')
-  .from(new XyzAdapter({ /* options */ }))
-```
+{% /quick-links %}

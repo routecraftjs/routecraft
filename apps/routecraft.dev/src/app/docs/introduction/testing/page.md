@@ -2,7 +2,7 @@
 title: Testing
 ---
 
-Test your custom RouteCraft routes with fast unit tests and optional E2E runs. {% .lead %}
+Test your capabilities with fast unit tests and optional E2E runs. {% .lead %}
 
 ## Quick start
 
@@ -155,15 +155,14 @@ const spyAdapter = spy();
 const route = craft()
   .id("return-final")
   .from({
-      subscribe: async (_ctx, handler, controller) => {
-        try {
-          observed = await handler("hello");
-        } finally {
-          controller.abort();
-        }
-      },
+    subscribe: async (_ctx, handler, controller) => {
+      try {
+        observed = await handler("hello");
+      } finally {
+        controller.abort();
+      }
     },
-  ])
+  })
   .transform((body: string) => body.toUpperCase())
   .to(spyAdapter)
   .transform((body: string) => `${body}!`);
@@ -175,12 +174,22 @@ expect(observed.body).toBe("HELLO!");
 expect(spyAdapter.received[0].body).toBe("HELLO!");
 ```
 
-### Timers and long‑running routes
+### Timers and long-running routes
 
-For timer or long-running routes, use the raw context and manual start/stop:
+Use `.routesReadyTimeout(ms)` to give timer or slow-starting routes more time to become ready before `t.test()` proceeds:
 
 ```ts
-const t = await testContext().routes(timerRoutes).build();
+const t = await testContext()
+  .routesReadyTimeout(500)
+  .routes(timerRoute)
+  .build();
+await t.test();
+```
+
+For cases where you need precise control over the run window, drive the lifecycle manually:
+
+```ts
+const t = await testContext().routes(timerRoute).build();
 const execution = t.ctx.start();
 await new Promise((r) => setTimeout(r, 150));
 await t.ctx.stop();
@@ -282,7 +291,7 @@ expect(new Set(captured).size).toBe(1);
 Use the CLI to run compiled capability files/folders as an integration check:
 
 ```bash
-pnpm craft run ./examples//dist/hello-world.js
+pnpm craft run ./examples/dist/hello-world.js
 ```
 
 ## Troubleshooting
@@ -291,3 +300,13 @@ pnpm craft run ./examples//dist/hello-world.js
 - Flaky timers: prefer fake timers or increase the wait to 100–200ms.
 - No logs captured: ensure your route includes `.to(log())` and assert on `t.logger.info` (or `t.logger.warn` / `t.logger.debug`) after `await t.test()`.
 - Errors in tests: check `t.errors` after `await t.test()`; RouteCraft errors are collected automatically.
+
+---
+
+## Related
+
+{% quick-links %}
+
+{% quick-link title="Errors reference" icon="warning" href="/docs/reference/errors" description="RC error codes -- useful when asserting on t.errors in tests." /%}
+
+{% /quick-links %}

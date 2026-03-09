@@ -2,165 +2,153 @@
 title: Plugins
 ---
 
-Extend RouteCraft with cross-cutting behavior using plugins. {% .lead %}
+Full catalog of built-in plugins with options and behaviour. {% .lead %}
 
-## What is a plugin?
+## Plugin overview
 
-A plugin can augment the `CraftContext` by:
-- Registering event listeners
-- Adding shared stores
-- Dynamically registering routes before the main routes are registered
-- Exposing utilities to routes/adapters
+| Plugin | Package | Description |
+|--------|---------|-------------|
+| [`llmPlugin`](#llmplugin) | `@routecraft/ai` | Register LLM providers for use with `llm()` |
+| [`embeddingPlugin`](#embeddingplugin) | `@routecraft/ai` | Register embedding providers for use with `embedding()` |
+| [`mcpPlugin`](#mcpplugin) | `@routecraft/ai` | Start an MCP server and register remote MCP clients |
 
-**Key: Plugins run before routes are registered**, allowing them to set up state, subscribe to lifecycle events, or dynamically add routes.
-
-Plugins are either:
-- A function `(context) => void | Promise<void>`
-- An object with `register(context)` and optional lifecycle hooks
-
-## File-based auto-loading
-
-When using the CLI, plugins are auto-loaded if present in a `plugins/` directory at your project root (or within `src/plugins` if you use a `src` directory). You can also pass plugins explicitly via `CraftConfig.plugins`.
+## llmPlugin
 
 ```ts
-// craft.config.ts
-import routes from './routes'
-import metrics from './plugins/metrics'
+import { llmPlugin } from '@routecraft/ai'
+```
 
-export default {
-  routes,
-  plugins: [metrics],
+Registers LLM provider credentials in the context store. Required when any capability uses `llm()`. Configure once; all `llm()` calls in the context share it.
+
+```ts
+import { llmPlugin } from '@routecraft/ai'
+import type { CraftConfig } from '@routecraft/routecraft'
+
+const config: CraftConfig = {
+  plugins: [
+    llmPlugin({
+      providers: {
+        anthropic: { apiKey: process.env.ANTHROPIC_API_KEY },
+        openai: { apiKey: process.env.OPENAI_API_KEY },
+      },
+    }),
+  ],
 }
+
+export default config
 ```
 
-## Structure
+**Options:**
 
-Function style:
+| Option | Type | Required | Description |
+|--------|------|----------|-------------|
+| `providers` | `LlmPluginProviders` | Yes | Provider credentials (at least one required) |
+| `defaultOptions` | `Partial<LlmOptions>` | No | Default options applied to all `llm()` calls |
+
+**Providers:**
+
+| Provider | Options | Description |
+|----------|---------|-------------|
+| `openai` | `{ apiKey: string, baseURL?: string }` | OpenAI API |
+| `anthropic` | `{ apiKey: string }` | Anthropic API |
+| `openrouter` | `{ apiKey: string, modelId?: string }` | OpenRouter API |
+| `ollama` | `{ baseURL?: string, modelId?: string }` | Local Ollama instance |
+| `gemini` | `{ apiKey: string }` | Google Gemini API |
+
+See [`llm` adapter](/docs/reference/adapters#llm) for usage.
+
+## embeddingPlugin
 
 ```ts
-// plugins/logger.ts
-import { type CraftContext } from '@routecraft/routecraft'
+import { embeddingPlugin } from '@routecraft/ai'
+```
 
-export default async function loggerPlugin(context: CraftContext) {
-  context.on('routeStarted', ({ details: { route } }) => {
-    context.logger.info(`Started: ${route.definition.id}`)
-  })
+Registers embedding provider credentials in the context store. Required when any capability uses `embedding()`. Runs a teardown on context stop to release native ONNX resources (used by the `huggingface` provider).
+
+```ts
+import { embeddingPlugin } from '@routecraft/ai'
+import type { CraftConfig } from '@routecraft/routecraft'
+
+const config: CraftConfig = {
+  plugins: [
+    embeddingPlugin({
+      providers: {
+        openai: { apiKey: process.env.OPENAI_API_KEY },
+      },
+    }),
+  ],
 }
+
+export default config
 ```
 
-Object style:
+**Options:**
+
+| Option | Type | Required | Description |
+|--------|------|----------|-------------|
+| `providers` | `EmbeddingPluginProviders` | Yes | Provider credentials (at least one required) |
+| `defaultOptions` | `Partial<EmbeddingOptions>` | No | Default options applied to all `embedding()` calls |
+
+**Providers:**
+
+| Provider | Options | Description |
+|----------|---------|-------------|
+| `huggingface` | `{}` | Local ONNX inference, no API key required |
+| `ollama` | `{ baseURL?: string }` | Local Ollama instance |
+| `openai` | `{ apiKey: string, baseURL?: string }` | OpenAI embeddings API |
+| `mock` | `{}` | Deterministic test vectors, for use in tests |
+
+See [`embedding` adapter](/docs/reference/adapters#embedding) for usage.
+
+## mcpPlugin
 
 ```ts
-// plugins/metrics.ts
-import { type CraftContext } from '@routecraft/routecraft'
+import { mcpPlugin } from '@routecraft/ai'
+```
 
-export default {
-  async register(context: CraftContext) {
-    context.setStore('metrics.counters', { started: 0 })
-    context.on('routeStarted', ({ context }) => {
-      const counters = context.getStore('metrics.counters') as { started: number }
-      counters.started += 1
-    })
-  },
+Starts an MCP server so capabilities exposed with `.from(mcp(...))` are reachable by external MCP clients. Also registers named remote MCP clients so capabilities can call external MCP servers by a short server id. Required when any capability uses `mcp()` as a source.
+
+```ts
+import { mcpPlugin } from '@routecraft/ai'
+import type { CraftConfig } from '@routecraft/routecraft'
+
+const config: CraftConfig = {
+  plugins: [
+    mcpPlugin({
+      transport: 'http',
+      port: 3001,
+      clients: {
+        browser: { url: 'http://127.0.0.1:8089/mcp' },
+        search: { url: 'http://127.0.0.1:8090/mcp' },
+      },
+    }),
+  ],
 }
+
+export default config
 ```
 
-## Lifecycle hooks
+**Options:**
 
-Plugins can subscribe to the Events API and handle:
-- Context lifecycle: `contextStarting`, `contextStarted`, `contextStopping`, `contextStopped`
-- Route lifecycle: `routeRegistered`, `routeStarting`, `routeStarted`, `routeStopping`, `routeStopped`
-- System: `error`
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `name` | `string` | `'routecraft'` | Server name exposed in MCP metadata |
+| `version` | `string` | `'1.0.0'` | Server version |
+| `transport` | `'http' \| 'stdio'` | `'stdio'` | Transport protocol |
+| `port` | `number` | `3001` | HTTP port (http transport only) |
+| `host` | `string` | `'localhost'` | HTTP host (http transport only) |
+| `tools` | `string[]` | — | Allowlist of tool names to expose |
+| `clients` | `Record<string, { url: string }>` | — | Named remote MCP servers for client calls |
 
-See [/docs/reference/events](/docs/reference/events) for full signatures.
+See [Expose as MCP](/docs/advanced/expose-as-mcp) and [Call an MCP](/docs/advanced/call-an-mcp) for usage guides.
 
-## Advanced: Dynamic route registration
+---
 
-Since plugins run before routes are registered, they can dynamically add routes to the context. This is useful for implementing conditional route loading or plugin-provided routes:
+## Related
 
-```ts
-// plugins/admin-routes.ts
-import { type CraftContext, craft, simple, log } from '@routecraft/routecraft'
+{% quick-links %}
 
-export default function adminRoutes(context: CraftContext) {
-  // Only add admin routes if enabled
-  if (process.env.ENABLE_ADMIN) {
-    context.registerRoutes(
-      craft()
-        .id('admin-status')
-        .from(simple({ role: 'admin' }))
-        .to(log())
-        .build()[0]
-    )
-  }
-}
-```
+{% quick-link title="Plugins" icon="presets" href="/docs/introduction/plugins" description="How to write and register plugins." /%}
+{% quick-link title="Adapters reference" icon="presets" href="/docs/reference/adapters" description="llm, embedding, and mcp adapter signatures and options." /%}
 
-## Setting adapter defaults via the context store
-
-Plugins are a great place to set configuration defaults that adapters can consume, such as database connection details or API auth.
-
-```ts
-// plugins/defaults.ts
-import { type CraftContext } from '@routecraft/routecraft'
-
-export default function defaults(context: CraftContext) {
-  context.setStore('db.config', {
-    connectionString: process.env.DB_URL,
-    poolSize: 10,
-  })
-
-  context.setStore('api.defaults', {
-    headers: { Authorization: `Bearer ${process.env.API_TOKEN}` },
-  })
-}
-```
-
-Adapters can read these defaults via the context. If an adapter implements a merged options pattern, it can combine global defaults with local options.
-
-```ts
-// Example adapter merging store defaults
-import { type CraftContext, type MergedOptions } from '@routecraft/routecraft'
-
-interface DbOptions { connectionString: string; poolSize?: number }
-
-class DbAdapter implements MergedOptions<DbOptions> {
-  constructor(public options: Partial<DbOptions> = {}) {}
-  mergedOptions(context: CraftContext): DbOptions {
-    const defaults = (context.getStore('db.config') as Partial<DbOptions>) || {}
-    return { connectionString: '', poolSize: 10, ...defaults, ...this.options }
-  }
-}
-```
-
-Routes can also access defaults in processing steps:
-
-```ts
-craft()
-  .from(simple({ path: '/resource' }))
-  .process((ex) => {
-    const api = ex.context.getStore('api.defaults') as { headers?: Record<string,string> }
-    return { ...ex.body, headers: { ...api?.headers } }
-  })
-```
-
-## Best practices
-
-- Keep plugins focused (logging, metrics, tracing)
-- Avoid hidden side effects in routes; use events instead
-- Use the context store to share state between routes/adapters
-
-## Example: simple logging plugin
-
-```ts
-// plugins/simple-logger.ts
-import { type CraftContext } from '@routecraft/routecraft'
-
-export default function simpleLogger(context: CraftContext) {
-  context.on('error', ({ details: { error } }) => {
-    context.logger.error(error, 'RouteCraft error')
-  })
-}
-```
-
-
+{% /quick-links %}

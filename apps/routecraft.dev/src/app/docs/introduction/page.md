@@ -58,7 +58,6 @@ Adapters are **connectors** that let your capabilities interact with the outside
 - **Sources**: where data enters (HTTP requests, timers, files).
 - **Processors**: steps that modify or enrich the exchange.
 - **Destinations**: where the data ends up (logs, databases, APIs).
-- **Taps**: side channels like logging or metrics that observe the flow without changing it.
 
 Adapters make RouteCraft extensible. You can use the built-ins or create your own.
 
@@ -103,13 +102,12 @@ These concepts make RouteCraft a **developer-first automation framework**: strai
 
 ---
 
+## Related
+
 {% quick-links %}
 
 {% quick-link title="Installation" icon="installation" href="/docs/introduction/installation" description="Install via CLI or manually add packages." /%}
-{% quick-link title="Project structure" icon="presets" href="/docs/introduction/project-structure" description="Nuxt‑style folder layout and discovery." /%}
+{% quick-link title="Project structure" icon="presets" href="/docs/introduction/project-structure" description="Nuxt-style folder layout and auto-discovery." /%}
 {% quick-link title="Capabilities" icon="plugins" href="/docs/introduction/capabilities" description="Author small, focused capabilities using the DSL." /%}
-{% quick-link title="Testing" icon="plugins" href="/docs/introduction/testing" description="Unit and E2E patterns for routes." /%}
-{% quick-link title="Deployment" icon="presets" href="/docs/introduction/deployment" description="Local, Docker, and cloud notes." /%}
-{% quick-link title="Monitoring" icon="theming" href="/docs/introduction/monitoring" description="Logging and observability hooks." /%}
 
 {% /quick-links %}

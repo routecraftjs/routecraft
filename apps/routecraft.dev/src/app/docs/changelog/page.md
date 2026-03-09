@@ -4,9 +4,13 @@ title: Changelog
 
 All notable changes to RouteCraft. {% .lead %}
 
+RouteCraft is in active development -- APIs may change between minor versions.
+
 ---
 
-## v0.2.0 — February 2026
+## [v0.2.0](https://github.com/routecraftjs/routecraft/releases/tag/v0.2.0) {% badge color="yellow" %}Pre-release{% /badge %}
+
+*February 2026*
 
 ### AI & MCP
 
@@ -28,7 +32,9 @@ All notable changes to RouteCraft. {% .lead %}
 
 ---
 
-## v0.1.1 — November 2025
+## [v0.1.1](https://github.com/routecraftjs/routecraft/releases/tag/v0.1.1) {% badge color="yellow" %}Pre-release{% /badge %}
+
+*November 2025*
 
 Quality-of-life improvements.
 
@@ -40,7 +46,9 @@ Quality-of-life improvements.
 
 ---
 
-## v0.1.0 — October 2025
+## [v0.1.0](https://github.com/routecraftjs/routecraft/releases/tag/v0.1.0) {% badge color="yellow" %}Pre-release{% /badge %}
+
+*October 2025*
 
 Initial release.
 

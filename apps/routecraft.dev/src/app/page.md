@@ -141,13 +141,12 @@ You should see your capabilities start and log output in your terminal.
 
 ---
 
-## Next steps
+## Related
 
 {% quick-links %}
 
 {% quick-link title="Introduction" icon="lightbulb" href="/docs/introduction" description="Learn what RouteCraft is and understand the core concepts." /%}
-{% quick-link title="AI & MCP Setup" icon="presets" href="/docs/introduction/ai-setup" description="Connect RouteCraft to Claude Desktop or Cursor." /%}
-{% quick-link title="Email Assistant" icon="plugins" href="/docs/examples/ai-email-parser" description="Build an AI that can send and manage emails." /%}
 {% quick-link title="Installation" icon="installation" href="/docs/introduction/installation" description="System requirements, production builds, and manual setup." /%}
+{% quick-link title="Examples" icon="plugins" href="/docs/examples" description="See complete working capabilities across common use cases." /%}
 
 {% /quick-links %}

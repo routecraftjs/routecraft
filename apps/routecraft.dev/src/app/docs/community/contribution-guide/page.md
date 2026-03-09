@@ -10,10 +10,6 @@ How to contribute to RouteCraft. {% .lead %}
 - Make focused, incremental changes with clear commit messages.
 - Run quality checks and tests locally before opening a PR.
 
-## Editor recommendation
-
-We recommend using Cursor as your editor. This repository includes Cursor rules that help contributors and AI-assisted workflows align with our conventions.
-
 ## Prerequisites
 
 - Node.js 22+
@@ -34,8 +30,8 @@ pnpm lint
 pnpm typecheck
 pnpm test
 
-# Run example routes
-pnpm craft run ./examples//dist/hello-world.js
+# Run example capabilities
+pnpm craft run ./examples/dist/hello-world.js
 
 # Run docs site locally
 pnpm docs
@@ -80,11 +76,11 @@ refactor(builder): simplify type inference for map()
 ## Coding Standards
 
 - TypeScript everywhere; avoid `any`. Prefer precise types or `unknown` with narrowing.
-- Keep routes small, composable, and isolated. Use `.from` for sources, pure steps for processing, `.to` for side effects.
+- Keep capabilities small, composable, and isolated. Use `.from` for sources, pure steps for processing, `.to` for side effects.
 - One function per step; accept a single options object or one adapter instance.
-- Validate external inputs with `.validate(schema)`.
+- Validate external inputs with a StandardSchemaV1-compliant `schema` on the source adapter or `.filter(fn)` for business rules.
 - Prefer purity for `.transform`, `.process`, `.filter`, `.tap`.
-- Avoid cross-route globals; use `direct(...)` or `CraftContext` store.
+- Avoid cross-capability globals; use `direct(...)` or `CraftContext` store.
 - Match existing formatting and structure; keep functions short and readable.
 
 ## Testing
@@ -129,4 +125,4 @@ Include in your PR description:
 ## Questions and Help
 
 - Open a GitHub Discussion or Issue for questions.
-- Check the docs under Introduction → Project Structure and Routes for fundamentals.
+- Check the docs under Introduction → Project Structure and Capabilities for fundamentals.

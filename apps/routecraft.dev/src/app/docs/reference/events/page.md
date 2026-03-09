@@ -2,67 +2,126 @@
 title: Events
 ---
 
-Lifecycle and runtime events for contexts and routes. {% .lead %}
+Full catalog of lifecycle and runtime events emitted by the RouteCraft context. {% .lead %}
 
-## Subscribing to events
+## Event payload
 
-Use `context.on(event, handler)` to subscribe. Handlers receive `{ ts, context, details }`.
+All events share the same envelope:
 
 ```ts
-import { context } from '@routecraft/routecraft'
-import routes from './routes'
-
-const ctx = context()
-  .routes(routes)
-  .build()
-
-ctx.on('contextStarting', ({ ts }) => {
-  console.log('Context starting at', ts)
-})
-
-ctx.on('routeStarted', ({ details: { route } }) => {
-  console.log(`Route ${route.definition.id} started`)
-})
-
-ctx.on('error', ({ details: { error } }) => {
-  console.error('Error occurred:', error)
-})
-
-await ctx.start()
+{
+  ts: string       // ISO timestamp
+  context: CraftContext
+  details: {...}   // event-specific fields (see tables below)
+}
 ```
-
-## Event signature
-
-All events follow `{ ts, context, details }` where:
-- `ts`: ISO timestamp string for when the event occurred
-- `context`: The `CraftContext` instance
-- `details`: Event-specific data (varies by event)
 
 ## Context events
 
-| Event | Description | Details |
+| Event | When it fires | Details |
 | --- | --- | --- |
-| `contextStarting` | Context is beginning startup | `{}` |
-| `contextStarted` | Context has completed startup | `{}` |
-| `contextStopping` | Context is beginning shutdown | `{ reason }` |
-| `contextStopped` | Context has fully stopped | `{}` |
+| `context:starting` | Before the context starts | `{}` |
+| `context:started` | After all capabilities have started | `{}` |
+| `context:stopping` | Before shutdown begins | `{ reason? }` |
+| `context:stopped` | After all capabilities have stopped | `{}` |
 
 ## Route events
 
-| Event | Description | Details |
+"Route" here refers to a registered capability internally.
+
+| Event | When it fires | Details |
 | --- | --- | --- |
-| `routeRegistered` | Route has been registered | `{ route }` |
-| `routeStarting` | Route is about to start | `{ route }` |
-| `routeStarted` | Route has started successfully | `{ route }` |
-| `routeStopping` | Route is stopping | `{ route, reason, exchange? }` |
-| `routeStopped` | Route has stopped | `{ route, exchange? }` |
+| `route:registered` | Capability registered with the context | `{ route }` |
+| `route:starting` | Just before a capability starts | `{ route }` |
+| `route:started` | Capability is running | `{ route }` |
+| `route:stopping` | Capability is stopping | `{ route, reason?, exchange? }` |
+| `route:stopped` | Capability has stopped | `{ route, exchange? }` |
+
+## Exchange events
+
+Fired per exchange, scoped to the capability that owns it. `routeId` is the capability ID.
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `route:{routeId}:exchange:started` | Exchange enters the pipeline | `{ routeId, exchangeId, correlationId }` |
+| `route:{routeId}:exchange:completed` | Exchange finished successfully | `{ routeId, exchangeId, correlationId, duration }` |
+| `route:{routeId}:exchange:failed` | Exchange failed | `{ routeId, exchangeId, correlationId, duration, error }` |
+
+## Operation events
+
+Operation events are scoped to a capability and an operation type. They fire for individual steps in the pipeline.
+
+### Adapter operations
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `route:{routeId}:operation:from:{adapterId}:started` | Source adapter activated | `{ routeId, exchangeId, correlationId, operation, adapterId, metadata? }` |
+| `route:{routeId}:operation:from:{adapterId}:stopped` | Source adapter completed | `{ routeId, exchangeId, correlationId, operation, adapterId, duration, metadata? }` |
+| `route:{routeId}:operation:to:{adapterId}:started` | Destination adapter invoked | `{ routeId, exchangeId, correlationId, operation, adapterId, metadata? }` |
+| `route:{routeId}:operation:to:{adapterId}:stopped` | Destination adapter completed | `{ routeId, exchangeId, correlationId, operation, adapterId, duration, metadata? }` |
+
+The `metadata` field is populated by the adapter's `getMetadata()` method. For example, the HTTP adapter returns `{ method, url, statusCode, contentLength }`.
+
+### Batch operations
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `route:{routeId}:operation:batch:started` | Batch accumulation started | `{ routeId, batchId, batchSize }` |
+| `route:{routeId}:operation:batch:flushed` | Batch released for processing | `{ routeId, batchId, batchSize, waitTime, reason }` |
+| `route:{routeId}:operation:batch:stopped` | Batch accumulation stopped | `{ routeId, batchId }` |
+
+`reason` is `'size'` when the batch hit its size limit, `'time'` when the flush interval elapsed.
+
+### Split and aggregate operations
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `route:{routeId}:operation:split:started` | Exchange being split into items | `{ routeId, exchangeId, correlationId }` |
+| `route:{routeId}:operation:split:stopped` | Split completed | `{ routeId, exchangeId, correlationId }` |
+| `route:{routeId}:operation:aggregate:started` | Aggregation started | `{ routeId, exchangeId, correlationId }` |
+| `route:{routeId}:operation:aggregate:stopped` | Aggregation completed | `{ routeId, exchangeId, correlationId }` |
+
+### Retry operations
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `route:{routeId}:operation:retry:started` | Retry sequence started | `{ routeId, exchangeId, correlationId, maxAttempts }` |
+| `route:{routeId}:operation:retry:attempt` | One retry attempt made | `{ routeId, exchangeId, correlationId, attemptNumber, maxAttempts, backoffMs, lastError? }` |
+| `route:{routeId}:operation:retry:stopped` | Retry sequence ended | `{ routeId, exchangeId, correlationId, attemptNumber, success }` |
+
+### Error handler operations
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `route:{routeId}:operation:error:invoked` | `.onError()` handler called | `{ routeId, exchangeId, correlationId }` |
+| `route:{routeId}:operation:error:recovered` | Handler succeeded | `{ routeId, exchangeId, correlationId }` |
+| `route:{routeId}:operation:error:failed` | Handler also failed | `{ routeId, exchangeId, correlationId, error }` |
+
+## Plugin events
+
+Plugin events are scoped to a plugin ID.
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `plugin:{pluginId}:registered` | Plugin registered | `{ pluginId, pluginIndex }` |
+| `plugin:{pluginId}:starting` | Plugin is about to start | `{ pluginId, pluginIndex }` |
+| `plugin:{pluginId}:started` | Plugin has started | `{ pluginId, pluginIndex }` |
+| `plugin:{pluginId}:stopping` | Plugin is about to stop | `{ pluginId, pluginIndex }` |
+| `plugin:{pluginId}:stopped` | Plugin has stopped | `{ pluginId, pluginIndex }` |
 
 ## System events
 
-| Event | Description | Details |
+| Event | When it fires | Details |
 | --- | --- | --- |
-| `error` | Any error occurred in the system | `{ error, route?, exchange? }` |
+| `error` | Any unhandled error in a capability or the context | `{ error, route?, exchange? }` |
 
-For monitoring patterns and plugin examples, see [/docs/introduction/monitoring](/docs/introduction/monitoring) and [/docs/reference/plugins](/docs/reference/plugins).
+---
 
+## Related
 
+{% quick-links %}
+
+{% quick-link title="Events" icon="theming" href="/docs/introduction/events" description="How to subscribe, use wildcards, emit custom events, and common patterns." /%}
+{% quick-link title="Configuration" icon="presets" href="/docs/reference/configuration" description="Subscribe to events via craft.config.ts." /%}
+
+{% /quick-links %}
