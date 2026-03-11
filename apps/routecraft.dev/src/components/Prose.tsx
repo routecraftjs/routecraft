@@ -23,7 +23,7 @@ export function Prose<T extends React.ElementType = 'div'>({
         // link underline
         'dark:[--tw-prose-background:var(--color-gray-900)] prose-a:no-underline prose-a:shadow-[inset_0_-2px_0_0_var(--tw-prose-background,#fff),inset_0_calc(-1*(var(--tw-prose-underline-size,4px)+2px))_0_0_var(--tw-prose-underline,var(--color-sky-300))] prose-a:hover:[--tw-prose-underline-size:6px] dark:prose-a:shadow-[inset_0_calc(-1*var(--tw-prose-underline-size,2px))_0_0_var(--tw-prose-underline,var(--color-sky-800))] dark:prose-a:hover:[--tw-prose-underline-size:6px]',
         // pre
-        'prose-pre:rounded-xl prose-pre:bg-gray-900 prose-pre:shadow-lg dark:prose-pre:bg-gray-800/60 dark:prose-pre:shadow-none dark:prose-pre:ring-1 dark:prose-pre:ring-gray-300/10',
+        'prose-pre:rounded-xl prose-pre:bg-gray-100 prose-pre:shadow-none prose-pre:ring-1 prose-pre:ring-gray-200 dark:prose-pre:bg-gray-800/60 dark:prose-pre:shadow-none dark:prose-pre:ring-gray-300/10',
         // hr
         'dark:prose-hr:border-gray-800',
       )}

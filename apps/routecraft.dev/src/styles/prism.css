@@ -1,5 +1,5 @@
 pre[class*='language-'] {
-  color: var(--color-gray-50);
+  color: var(--color-gray-700);
 }
 
 .token.tag,
@@ -8,7 +8,7 @@ pre[class*='language-'] {
 .token.selector .class,
 .token.selector.class,
 .token.function {
-  color: var(--color-pink-400);
+  color: var(--color-pink-600);
 }
 
 .token.attr-name,
@@ -16,32 +16,80 @@ pre[class*='language-'] {
 .token.rule,
 .token.pseudo-class,
 .token.important {
-  color: var(--color-gray-300);
+  color: var(--color-gray-600);
 }
 
 .token.module {
-  color: var(--color-pink-400);
+  color: var(--color-pink-600);
 }
 
 .token.attr-value,
 .token.class,
 .token.string,
 .token.property {
-  color: var(--color-sky-300);
+  color: var(--color-sky-600);
 }
 
 .token.punctuation,
 .token.attr-equals {
-  color: var(--color-gray-500);
+  color: var(--color-gray-400);
 }
 
 .token.unit,
 .language-css .token.function {
-  color: var(--color-teal-200);
+  color: var(--color-teal-600);
 }
 
 .token.comment,
 .token.operator,
 .token.combinator {
+  color: var(--color-gray-500);
+}
+
+:is(.dark, .dark *) pre[class*='language-'] {
+  color: var(--color-gray-50);
+}
+
+:is(.dark, .dark *) .token.tag,
+:is(.dark, .dark *) .token.class-name,
+:is(.dark, .dark *) .token.selector,
+:is(.dark, .dark *) .token.selector .class,
+:is(.dark, .dark *) .token.selector.class,
+:is(.dark, .dark *) .token.function {
+  color: var(--color-pink-400);
+}
+
+:is(.dark, .dark *) .token.attr-name,
+:is(.dark, .dark *) .token.keyword,
+:is(.dark, .dark *) .token.rule,
+:is(.dark, .dark *) .token.pseudo-class,
+:is(.dark, .dark *) .token.important {
+  color: var(--color-gray-300);
+}
+
+:is(.dark, .dark *) .token.module {
+  color: var(--color-pink-400);
+}
+
+:is(.dark, .dark *) .token.attr-value,
+:is(.dark, .dark *) .token.class,
+:is(.dark, .dark *) .token.string,
+:is(.dark, .dark *) .token.property {
+  color: var(--color-sky-300);
+}
+
+:is(.dark, .dark *) .token.punctuation,
+:is(.dark, .dark *) .token.attr-equals {
+  color: var(--color-gray-500);
+}
+
+:is(.dark, .dark *) .token.unit,
+:is(.dark, .dark *) .language-css .token.function {
+  color: var(--color-teal-200);
+}
+
+:is(.dark, .dark *) .token.comment,
+:is(.dark, .dark *) .token.operator,
+:is(.dark, .dark *) .token.combinator {
   color: var(--color-gray-400);
 }
