@@ -19,7 +19,13 @@ export {
   type HttpConfig,
 } from "./context.ts";
 
-export { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
+export {
+  DefaultRoute,
+  type Route,
+  type RouteDefinition,
+  type ErrorHandler,
+  type ForwardFn,
+} from "./route.ts";
 
 export { type Source, type CallableSource } from "./operations/from.ts";
 

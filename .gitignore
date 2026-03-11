@@ -12,3 +12,4 @@ dist/
 .cursor/plans/
 .cursor/hooks/state/
 .idea/
+.claude/worktrees/

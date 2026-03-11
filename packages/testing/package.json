@@ -23,7 +23,7 @@
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
-    "@routecraft/routecraft": "^0.4.0"
+    "@routecraft/routecraft": "workspace:^0.4.0"
   },
   "devDependencies": {
     "vitest": "^4.0.18"

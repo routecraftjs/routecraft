@@ -22,3 +22,5 @@ coverage/
 *.md
 
 **/pnpm-lock.yaml
+
+.claude/worktrees/

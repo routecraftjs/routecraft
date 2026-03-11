@@ -9,14 +9,14 @@
     "test:coverage": "vitest --coverage"
   },
   "dependencies": {
-    "@routecraft/ai": "^0.4.0",
-    "@routecraft/routecraft": "^0.4.0",
+    "@routecraft/ai": "workspace:^0.4.0",
+    "@routecraft/routecraft": "workspace:^0.4.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@routecraft/cli": "workspace:^0.4.0",
+    "@routecraft/testing": "workspace:^0.4.0",
     "tsup": "^8.5.1",
-    "@routecraft/cli": "^0.4.0",
-    "@routecraft/testing": "^0.4.0",
     "tsx": "^4.21.0",
     "vitest": "^4.0.18"
   }

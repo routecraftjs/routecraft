@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { BRAND, ENRICH_MERGE_TYPE, isRouteBuilder, setBrand } from "./brand.ts";
-import { type RouteDefinition } from "./route.ts";
+import { type RouteDefinition, type ErrorHandler } from "./route.ts";
 import {
   CraftContext,
   type StoreRegistry,
@@ -326,7 +326,7 @@ export class RouteBuilder<Current = unknown> {
   protected currentRoute?: RouteDefinition;
   protected routes: RouteDefinition[] = [];
 
-  // Pending options set via .id() / .batch() before .from()
+  // Pending options set via .id() / .batch() / .error() before .from()
   protected pendingOptions?:
     | {
         id?: string;
@@ -334,6 +334,7 @@ export class RouteBuilder<Current = unknown> {
           type: ConsumerType<Consumer>;
           options?: unknown;
         };
+        errorHandler?: ErrorHandler;
       }
     | undefined;
 
@@ -400,6 +401,37 @@ export class RouteBuilder<Current = unknown> {
   }
 
   /**
+   * Define a catch-all error handler for unhandled errors in the route's step pipeline.
+   *
+   * Must be called before `.from()`. When any step throws an unhandled error, this handler
+   * is invoked instead of the default log-and-swallow behavior. The pipeline does not resume
+   * after the handler runs; its return value becomes the route's final exchange body.
+   *
+   * @param handler - Receives the error, the exchange at the point of failure, and a `forward`
+   *   function to delegate to another route via the direct adapter.
+   * @returns This builder for chaining
+   *
+   * @example
+   * ```typescript
+   * craft()
+   *   .id('process-orders')
+   *   .error((error, exchange, forward) => {
+   *     return forward('error-route', { reason: error.message })
+   *   })
+   *   .from(timer({ intervalMs: 60000 }))
+   *   .to(dangerousDestination)
+   * ```
+   */
+  error(handler: ErrorHandler): this {
+    this.pendingOptions = {
+      ...(this.pendingOptions ?? {}),
+      errorHandler: handler,
+    };
+    logger.trace("Staging error handler for next route");
+    return this;
+  }
+
+  /**
    * Define the source of data for this route.
    * This is typically the first step in defining a route.
    *
@@ -422,6 +454,7 @@ export class RouteBuilder<Current = unknown> {
       type: SimpleConsumer as unknown as ConsumerType<Consumer>,
       options: undefined,
     };
+    const errorHandler = this.pendingOptions?.errorHandler;
 
     logger.trace({ route: id }, "Creating route definition");
 
@@ -433,6 +466,7 @@ export class RouteBuilder<Current = unknown> {
         type: consumer.type,
         options: consumer.options ?? undefined,
       },
+      ...(errorHandler ? { errorHandler } : {}),
     };
     setBrand(this.currentRoute, BRAND.RouteDefinition);
 

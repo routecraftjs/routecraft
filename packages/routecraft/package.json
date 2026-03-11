@@ -23,7 +23,7 @@
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
-    "@routecraft/testing": "^0.4.0",
+    "@routecraft/testing": "workspace:^0.4.0",
     "@standard-schema/spec": "^1.1.0",
     "pino": "^10.3.1"
   },
