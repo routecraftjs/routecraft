@@ -68,7 +68,7 @@ export function Hero() {
   const active = tabs.find((t) => t.name === activeTab) ?? tabs[0]
   const code = active.code
   return (
-    <div className="overflow-hidden bg-white dark:bg-gray-950 dark:-mt-19 dark:-mb-32 dark:pt-19 dark:pb-32">
+    <div className="overflow-hidden bg-white dark:-mt-19 dark:-mb-32 dark:bg-gray-950 dark:pt-19 dark:pb-32">
       <div className="py-16 sm:px-2 lg:relative lg:px-0 lg:py-20">
         <div className="mx-auto grid max-w-2xl grid-cols-1 items-center gap-x-8 gap-y-16 px-4 lg:max-w-8xl lg:grid-cols-2 lg:px-8 xl:gap-x-16 xl:px-12">
           <div className="relative z-10 md:text-center lg:text-left">
@@ -82,7 +82,7 @@ export function Hero() {
               priority
             />
             <div className="relative">
-              <p className="inline bg-linear-to-r from-indigo-600 via-sky-500 to-indigo-600 dark:from-indigo-200 dark:via-sky-400 dark:to-indigo-200 bg-clip-text font-display text-5xl tracking-tight text-transparent">
+              <p className="inline bg-linear-to-r from-indigo-600 via-sky-500 to-indigo-600 bg-clip-text font-display text-5xl tracking-tight text-transparent dark:from-indigo-200 dark:via-sky-400 dark:to-indigo-200">
                 Give AI access, not control
               </p>
               <p className="mt-3 text-2xl tracking-tight text-gray-600 dark:text-gray-400">
@@ -102,7 +102,7 @@ export function Hero() {
             </div>
           </div>
           <div className="relative lg:static xl:pl-10">
-            <div className="absolute inset-x-[-50vw] -top-32 -bottom-48 mask-[linear-gradient(transparent,white,white)] lg:-top-32 lg:right-0 lg:-bottom-32 lg:left-[calc(50%+14rem)] lg:mask-none dark:mask-[linear-gradient(transparent,white,transparent)] lg:dark:mask-[linear-gradient(white,white,transparent)] opacity-30 dark:opacity-100">
+            <div className="absolute inset-x-[-50vw] -top-32 -bottom-48 mask-[linear-gradient(transparent,white,white)] opacity-30 lg:-top-32 lg:right-0 lg:-bottom-32 lg:left-[calc(50%+14rem)] lg:mask-none dark:mask-[linear-gradient(transparent,white,transparent)] dark:opacity-100 lg:dark:mask-[linear-gradient(white,white,transparent)]">
               <HeroBackground className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 lg:left-0 lg:translate-x-0 lg:translate-y-[-60%]" />
             </div>
             <div className="relative">
@@ -145,7 +145,7 @@ export function Hero() {
                           className={clsx(
                             'flex h-6 rounded-full',
                             isActive
-                              ? 'bg-linear-to-r from-sky-500/30 via-sky-500 to-sky-500/30 dark:from-sky-400/30 dark:via-sky-400 dark:to-sky-400/30 p-px font-medium text-sky-600 dark:text-sky-300'
+                              ? 'bg-linear-to-r from-sky-500/30 via-sky-500 to-sky-500/30 p-px font-medium text-sky-600 dark:from-sky-400/30 dark:via-sky-400 dark:to-sky-400/30 dark:text-sky-300'
                               : 'text-gray-400 dark:text-gray-500',
                             isDisabled && 'cursor-not-allowed opacity-50',
                           )}
@@ -165,7 +165,7 @@ export function Hero() {
                   <div className="mt-6 flex items-start px-1 text-sm">
                     <div
                       aria-hidden="true"
-                      className="border-r border-gray-200 dark:border-gray-300/5 pr-4 font-mono text-gray-400 dark:text-gray-600 select-none"
+                      className="border-r border-gray-200 pr-4 font-mono text-gray-400 select-none dark:border-gray-300/5 dark:text-gray-600"
                     >
                       {Array.from({
                         length: code.split('\n').length,
