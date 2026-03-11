@@ -13,7 +13,7 @@ export function Prose<T extends React.ElementType = 'div'>({
     <Component
       className={clsx(
         className,
-        'prose max-w-none prose-slate dark:text-gray-400 dark:prose-invert prose-strong:dark:text-gray-200',
+        'prose prose-slate dark:prose-invert prose-strong:dark:text-gray-200 max-w-none dark:text-gray-400',
         // headings
         'prose-headings:scroll-mt-28 prose-headings:font-display prose-headings:font-normal lg:prose-headings:scroll-mt-34',
         // lead
@@ -21,7 +21,7 @@ export function Prose<T extends React.ElementType = 'div'>({
         // links
         'prose-a:font-semibold dark:prose-a:text-sky-400',
         // link underline
-        'dark:[--tw-prose-background:var(--color-gray-900)] prose-a:no-underline prose-a:shadow-[inset_0_-2px_0_0_var(--tw-prose-background,#fff),inset_0_calc(-1*(var(--tw-prose-underline-size,4px)+2px))_0_0_var(--tw-prose-underline,var(--color-sky-300))] prose-a:hover:[--tw-prose-underline-size:6px] dark:prose-a:shadow-[inset_0_calc(-1*var(--tw-prose-underline-size,2px))_0_0_var(--tw-prose-underline,var(--color-sky-800))] dark:prose-a:hover:[--tw-prose-underline-size:6px]',
+        'prose-a:no-underline prose-a:shadow-[inset_0_-2px_0_0_var(--tw-prose-background,#fff),inset_0_calc(-1*(var(--tw-prose-underline-size,4px)+2px))_0_0_var(--tw-prose-underline,var(--color-sky-300))] prose-a:hover:[--tw-prose-underline-size:6px] dark:prose-a:shadow-[inset_0_calc(-1*var(--tw-prose-underline-size,2px))_0_0_var(--tw-prose-underline,var(--color-sky-800))] dark:prose-a:hover:[--tw-prose-underline-size:6px] dark:[--tw-prose-background:var(--color-gray-900)]',
         // pre
         'prose-pre:rounded-xl prose-pre:bg-gray-900 prose-pre:shadow-lg dark:prose-pre:bg-gray-800/60 dark:prose-pre:shadow-none dark:prose-pre:ring-1 dark:prose-pre:ring-gray-300/10',
         // hr
