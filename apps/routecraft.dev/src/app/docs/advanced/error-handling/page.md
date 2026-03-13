@@ -93,6 +93,7 @@ If you only need to log or return a static fallback, you do not need `forward` a
 .error((error) => {
   return { status: 'failed', reason: (error as Error).message }
 })
+```
 
 ## When the error handler itself throws
 
@@ -151,22 +152,6 @@ ctx.on('error', ({ details }) => {
 })
 ```
 
-## Linting
-
-The `error-before-from` ESLint rule (part of the `recommended` and `all` presets) warns when `.error()` is placed after `.from()`, where it has no effect:
-
-```ts
-// Bad -- error() after from() has no effect on the current route
-craft()
-  .from(timer())
-  .error(handler) // warned
-
-// Good -- error() before from()
-craft()
-  .error(handler)
-  .from(timer())
-```
-
 ---
 
 ## Related
@@ -175,6 +160,5 @@ craft()
 
 {% quick-link title="Composing Capabilities" icon="presets" href="/docs/advanced/composing-capabilities" description="Build modular systems with direct() and reusable capability chains." /%}
 {% quick-link title="Events" icon="theming" href="/docs/introduction/events" description="Subscribe to error and exchange lifecycle events." /%}
-{% quick-link title="Linting reference" icon="presets" href="/docs/reference/linting" description="Full rule catalog including error-before-from." /%}
 
 {% /quick-links %}

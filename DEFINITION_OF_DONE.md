@@ -4,7 +4,7 @@ Every change -- feature, fix, refactor -- must satisfy the checklists below befo
 
 ## General Checklist (every change)
 
-- [ ] New or changed behavior has corresponding tests in `packages/*/test/*.test.ts`
+- [ ] New or changed behavior has corresponding tests in `packages/*/test/**/*.test.ts`
 - [ ] Bug fixes include a regression test that fails without the fix
 - [ ] Every test has JSDoc with `@case`, `@preconditions`, and `@expectedResult`
 - [ ] JSDoc on any public API you touched is accurate and up to date (`@param`, `@returns`, `@example`)

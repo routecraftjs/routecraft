@@ -479,8 +479,12 @@ export class DefaultRoute implements Route {
           } catch (handlerError) {
             const handlerErr = this.processError(step.operation, handlerError);
             exchange.logger.error(
-              { operation: step.operation, err: handlerErr },
-              "Error handler itself threw",
+              {
+                operation: step.operation,
+                err: handlerErr,
+                context: "error handler",
+              },
+              handlerErr.meta.message,
             );
             this.context.emit("error", {
               error: handlerErr,
