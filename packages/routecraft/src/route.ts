@@ -8,6 +8,32 @@ import {
   DefaultExchange,
   EXCHANGE_INTERNALS,
 } from "./exchange.ts";
+
+/**
+ * Function that forwards a payload to another route via the direct adapter and returns its result.
+ *
+ * @param routeId - The target route's direct endpoint id
+ * @param payload - The data to send
+ * @returns The result of the target route's pipeline
+ */
+export type ForwardFn = (routeId: string, payload: unknown) => Promise<unknown>;
+
+/**
+ * Error handler invoked when a step in the route pipeline throws an unhandled error.
+ *
+ * The pipeline does not resume after this handler runs. The handler's return value
+ * becomes the route's final exchange body. Use `forward` to delegate to another route.
+ *
+ * @param error - The thrown error
+ * @param exchange - The exchange at the point of failure
+ * @param forward - Sends a payload to another route via the direct adapter
+ * @returns Static fallback value or result of forward()
+ */
+export type ErrorHandler = (
+  error: unknown,
+  exchange: Exchange,
+  forward: ForwardFn,
+) => unknown | Promise<unknown>;
 import { BRAND, INTERNALS_KEY, setBrand } from "./brand.ts";
 import { rcError, RouteCraftError, RC } from "./error.ts";
 import { isRouteCraftError } from "./brand.ts";
@@ -61,6 +87,13 @@ export type RouteDefinition<T = unknown> = {
     /** Options for the consumer */
     options: unknown;
   };
+
+  /**
+   * Optional error handler invoked when a step throws an unhandled error.
+   * If defined, the handler's return value becomes the final exchange body.
+   * If not defined, the error is logged and emitted via the error event (current behavior).
+   */
+  readonly errorHandler?: ErrorHandler;
 };
 
 /**
@@ -404,6 +437,88 @@ export class DefaultRoute implements Route {
         );
       } catch (error) {
         const err = this.processError(step.operation, error);
+        const correlationId = exchange.headers[
+          HeadersKeys.CORRELATION_ID
+        ] as string;
+        const duration = Date.now() - startTime;
+
+        if (this.definition.errorHandler) {
+          // Emit error:invoked event
+          this.context.emit(
+            `route:${this.definition.id}:operation:error:invoked` as const,
+            {
+              routeId: this.definition.id,
+              exchangeId: correlationId,
+              correlationId,
+              originalError: err,
+              failedOperation: step.operation,
+            },
+          );
+
+          try {
+            const forward = this.buildForward();
+            const result = await this.definition.errorHandler(
+              err,
+              exchange,
+              forward,
+            );
+            exchange.body = result;
+            lastProcessedExchange = exchange;
+
+            this.context.emit(
+              `route:${this.definition.id}:operation:error:recovered` as const,
+              {
+                routeId: this.definition.id,
+                exchangeId: correlationId,
+                correlationId,
+                originalError: err,
+                failedOperation: step.operation,
+                recoveryStrategy: "errorHandler",
+              },
+            );
+          } catch (handlerError) {
+            const handlerErr = this.processError(step.operation, handlerError);
+            exchange.logger.error(
+              {
+                operation: step.operation,
+                err: handlerErr,
+                context: "error handler",
+              },
+              handlerErr.meta.message,
+            );
+            this.context.emit("error", {
+              error: handlerErr,
+              route: this,
+              exchange,
+            });
+            this.context.emit(
+              `route:${this.definition.id}:operation:error:failed` as const,
+              {
+                routeId: this.definition.id,
+                exchangeId: correlationId,
+                correlationId,
+                originalError: err,
+                failedOperation: step.operation,
+                recoveryStrategy: "errorHandler",
+              },
+            );
+            this.context.emit(
+              `route:${this.definition.id}:exchange:failed` as const,
+              {
+                routeId: this.definition.id,
+                exchangeId: correlationId,
+                correlationId,
+                duration,
+                error: handlerErr,
+              },
+            );
+          }
+
+          // Pipeline does not resume after error handler (success or failure)
+          return lastProcessedExchange;
+        }
+
+        // Default behavior: log, emit, swallow
         exchange.logger.error(
           {
             operation: step.operation,
@@ -417,12 +532,6 @@ export class DefaultRoute implements Route {
           route: this,
           exchange: exchange,
         });
-
-        // Emit exchange:failed event with duration
-        const duration = Date.now() - startTime;
-        const correlationId = exchange.headers[
-          HeadersKeys.CORRELATION_ID
-        ] as string;
         this.context.emit(
           `route:${this.definition.id}:exchange:failed` as const,
           {
@@ -436,9 +545,31 @@ export class DefaultRoute implements Route {
 
         // Don't re-throw - error is fully handled via events and logging
         // Re-throwing would create unhandled rejections
+        // Do NOT return here: the while loop continues so other queue items (e.g. split children) are processed
       }
     }
     return lastProcessedExchange;
+  }
+
+  /**
+   * Build a forward function that sends a payload to another route via the direct adapter.
+   *
+   * @returns A forward function
+   * @private
+   */
+  private buildForward(): (
+    routeId: string,
+    payload: unknown,
+  ) => Promise<unknown> {
+    return async (routeId: string, payload: unknown): Promise<unknown> => {
+      const { getDirectChannel, sanitizeEndpoint } =
+        await import("./adapters/direct/shared.ts");
+      const endpoint = sanitizeEndpoint(routeId);
+      const channel = getDirectChannel(this.context, endpoint, {});
+      const forwardExchange = this.buildExchange(payload);
+      const result = await channel.send(endpoint, forwardExchange);
+      return result.body;
+    };
   }
 
   /**
