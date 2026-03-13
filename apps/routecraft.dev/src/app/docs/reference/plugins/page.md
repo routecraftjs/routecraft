@@ -106,7 +106,9 @@ See [`embedding` adapter](/docs/reference/adapters#embedding) for usage.
 import { mcpPlugin } from '@routecraft/ai'
 ```
 
-Starts an MCP server so capabilities exposed with `.from(mcp(...))` are reachable by external MCP clients. Also registers named remote MCP clients so capabilities can call external MCP servers by a short server id. Required when any capability uses `mcp()` as a source.
+Starts an MCP server so capabilities exposed with `.from(mcp(...))` are reachable by external MCP clients. Also registers named remote MCP clients (HTTP or stdio subprocess) so capabilities can call external MCP servers by a short server id. Required when any capability uses `mcp()` as a source.
+
+All tools from every source (local routes, stdio clients, HTTP clients) are collected into a unified `McpToolRegistry` stored in the context store under `MCP_TOOL_REGISTRY`.
 
 ```ts
 import { mcpPlugin } from '@routecraft/ai'
@@ -120,7 +122,15 @@ const config: CraftConfig = {
       clients: {
         browser: { url: 'http://127.0.0.1:8089/mcp' },
         search: { url: 'http://127.0.0.1:8090/mcp' },
+        filesystem: {
+          transport: 'stdio',
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
+        },
       },
+      maxRestarts: 5,
+      restartDelayMs: 1000,
+      restartBackoffMultiplier: 2,
     }),
   ],
 }
@@ -134,11 +144,33 @@ export default config
 |--------|------|---------|-------------|
 | `name` | `string` | `'routecraft'` | Server name exposed in MCP metadata |
 | `version` | `string` | `'1.0.0'` | Server version |
-| `transport` | `'http' \| 'stdio'` | `'stdio'` | Transport protocol |
+| `transport` | `'http' \| 'stdio'` | `'stdio'` | Transport protocol for the MCP server |
 | `port` | `number` | `3001` | HTTP port (http transport only) |
 | `host` | `string` | `'localhost'` | HTTP host (http transport only) |
-| `tools` | `string[]` | — | Allowlist of tool names to expose |
-| `clients` | `Record<string, { url: string }>` | — | Named remote MCP servers for client calls |
+| `tools` | `string[] \| (meta) => boolean` | -- | Allowlist of tool names to expose, or a filter function |
+| `clients` | `Record<string, McpClientHttpConfig \| McpClientStdioConfig>` | -- | Named remote MCP servers (see below) |
+| `maxRestarts` | `number` | `5` | Max automatic restarts for stdio clients before giving up |
+| `restartDelayMs` | `number` | `1000` | Initial delay before first restart attempt (ms) |
+| `restartBackoffMultiplier` | `number` | `2` | Multiplier applied to delay on each successive restart |
+| `toolRefreshIntervalMs` | `number` | `0` | Polling interval for HTTP client tool lists (0 = no polling) |
+
+**HTTP client config (`McpClientHttpConfig`):**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `url` | `string` | Yes | Full URL of the remote MCP server |
+
+**Stdio client config (`McpClientStdioConfig`):**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `transport` | `'stdio'` | Yes | Must be `'stdio'` to select subprocess mode |
+| `command` | `string` | Yes | Executable to spawn (e.g. `'node'`, `'npx'`) |
+| `args` | `string[]` | No | Arguments passed to the command |
+| `env` | `Record<string, string>` | No | Environment variables for the child process |
+| `cwd` | `string` | No | Working directory for the child process |
+
+Stdio clients are spawned when the context starts and stopped on teardown. If the subprocess exits unexpectedly, the plugin automatically restarts it with exponential backoff (`restartDelayMs * restartBackoffMultiplier ^ attempt`). The restart counter resets after a successful reconnection.
 
 See [Expose as MCP](/docs/advanced/expose-as-mcp) and [Call an MCP](/docs/advanced/call-an-mcp) for usage guides.
 

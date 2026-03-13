@@ -3,6 +3,7 @@ import type {
   DirectServerOptions,
   Exchange,
 } from "@routecraft/routecraft";
+import type { McpToolRegistry } from "./tool-registry.ts";
 
 /** Store key set by mcpPlugin() when applied; routes using .from(mcp(...)) require it. */
 export const MCP_PLUGIN_REGISTERED = Symbol.for(
@@ -14,10 +15,17 @@ export const ADAPTER_MCP_CLIENT_SERVERS = Symbol.for(
   "routecraft.mcp.client.servers",
 );
 
+/** Store key for the unified MCP tool registry. Used by agent adapter for tool discovery. */
+export const MCP_TOOL_REGISTRY = Symbol.for("routecraft.mcp.tool.registry");
+
 declare module "@routecraft/routecraft" {
   interface StoreRegistry {
     [MCP_PLUGIN_REGISTERED]: boolean;
-    [ADAPTER_MCP_CLIENT_SERVERS]: Map<string, McpClientHttpConfig | string>;
+    [ADAPTER_MCP_CLIENT_SERVERS]: Map<
+      string,
+      McpClientHttpConfig | McpClientStdioConfig | string
+    >;
+    [MCP_TOOL_REGISTRY]: McpToolRegistry;
   }
 }
 
@@ -31,16 +39,23 @@ export interface McpClientHttpConfig {
 }
 
 /**
- * Stdio client config for a remote MCP server (subprocess).
- * Not yet accepted in plugin options; for future use.
+ * Stdio client config for a local MCP server subprocess.
+ * Used in mcpPlugin({ clients: { name: config } }).
+ * The plugin spawns the process, manages its lifecycle, and auto-restarts on crash.
  */
 export interface McpClientStdioConfig {
   transport: "stdio";
+  /** The executable to run (e.g. "npx", "node", "python"). */
   command: string;
+  /** Command line arguments to pass to the executable. */
   args?: string[];
+  /** Environment variables for the child process. Defaults to a safe subset of the parent env. */
+  env?: Record<string, string>;
+  /** Working directory for the child process. Defaults to the current working directory. */
+  cwd?: string;
 }
 
-/** Union of client configs. Plugin options use McpClientHttpConfig only for now. */
+/** Union of client configs accepted by mcpPlugin({ clients }). */
 export type McpClientServerConfig = McpClientHttpConfig | McpClientStdioConfig;
 
 /**
@@ -70,10 +85,36 @@ export interface McpPluginOptions {
   tools?: string[] | ((meta: DirectRouteMetadata) => boolean);
 
   /**
-   * Named remote MCP servers for .to(mcp("name:tool")). Keys are server names; values are HTTP config (url).
-   * Stdio config not yet supported in plugin options.
+   * Named remote MCP servers for .to(mcp("name:tool")).
+   * Keys are server names; values are HTTP or stdio config.
+   * Stdio clients are managed as subprocesses with auto-restart.
+   * HTTP clients are used for ephemeral tool calls.
    */
-  clients?: Record<string, McpClientHttpConfig>;
+  clients?: Record<string, McpClientHttpConfig | McpClientStdioConfig>;
+
+  /**
+   * Max auto-restart attempts for stdio clients before giving up.
+   * Applies to all stdio clients. Default: 5.
+   */
+  maxRestarts?: number;
+
+  /**
+   * Base delay in ms before the first restart attempt.
+   * Subsequent attempts use exponential backoff. Default: 1000.
+   */
+  restartDelayMs?: number;
+
+  /**
+   * Multiplier for exponential backoff between restart attempts.
+   * Delay = restartDelayMs * (restartBackoffMultiplier ^ restartCount). Default: 2.
+   */
+  restartBackoffMultiplier?: number;
+
+  /**
+   * Interval in ms to re-list tools from HTTP clients.
+   * Set to 0 to disable periodic refresh. Default: 60000 (60s).
+   */
+  toolRefreshIntervalMs?: number;
 }
 
 /**
@@ -111,7 +152,7 @@ export interface McpClientOptions {
   serverId?: string;
   /**
    * Extract tool arguments from the exchange. Receives the full exchange.
-   * Default: body as object → use as args; otherwise { input: body }.
+   * Default: body as object -> use as args; otherwise { input: body }.
    */
   args?: McpArgsExtractor;
 }
@@ -128,6 +169,23 @@ export interface McpTool {
     required?: string[];
     [key: string]: unknown;
   };
+}
+
+/**
+ * A tool entry in the unified MCP tool registry.
+ * Combines local mcp() route tools and remote client tools (stdio and HTTP).
+ */
+export interface McpToolRegistryEntry {
+  /** Tool name (unique within a source, may collide across sources). */
+  name: string;
+  /** Human-readable description of the tool. */
+  description?: string;
+  /** JSON Schema for tool input. */
+  inputSchema: Record<string, unknown>;
+  /** Source server ID. Local mcp() routes use "local". */
+  source: string;
+  /** Transport type of the source. */
+  transport: "stdio" | "http" | "local";
 }
 
 /**
