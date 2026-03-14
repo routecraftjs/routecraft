@@ -1,5 +1,5 @@
-import { describe, test, expect, afterEach, vi } from "vitest";
-import { testContext, type TestContext } from "@routecraft/testing";
+import { describe, test, expect, afterEach } from "vitest";
+import { testContext, spy, type TestContext } from "@routecraft/testing";
 import { craft, simple } from "@routecraft/routecraft";
 
 describe("Header operation", () => {
@@ -17,7 +17,7 @@ describe("Header operation", () => {
    * @expectedResult Header should be set with the static value
    */
   test("basic header operation works", async () => {
-    const destSpy = vi.fn();
+    const s = spy();
 
     t = await testContext()
       .routes(
@@ -25,15 +25,14 @@ describe("Header operation", () => {
           .id("header-basic")
           .from(simple("test"))
           .header("x-test", "value")
-          .to(destSpy),
+          .to(s),
       )
       .build();
 
     await t.test();
 
-    expect(destSpy).toHaveBeenCalledTimes(1);
-    const sentExchange = destSpy.mock.calls[0][0];
-    expect(sentExchange.headers["x-test"]).toBe("value");
+    expect(s.received).toHaveLength(1);
+    expect(s.received[0].headers["x-test"]).toBe("value");
   });
 
   /**
@@ -42,7 +41,7 @@ describe("Header operation", () => {
    * @expectedResult Header should contain value derived from body
    */
   test("derived header from body", async () => {
-    const destSpy = vi.fn();
+    const s = spy();
 
     t = await testContext()
       .routes(
@@ -50,14 +49,13 @@ describe("Header operation", () => {
           .id("header-derived")
           .from(simple({ id: "u1", name: "test" }))
           .header("user-id", (exchange) => exchange.body.id)
-          .to(destSpy),
+          .to(s),
       )
       .build();
 
     await t.test();
 
-    expect(destSpy).toHaveBeenCalledTimes(1);
-    const sentExchange = destSpy.mock.calls[0][0];
-    expect(sentExchange.headers["user-id"]).toBe("u1");
+    expect(s.received).toHaveLength(1);
+    expect(s.received[0].headers["user-id"]).toBe("u1");
   });
 });

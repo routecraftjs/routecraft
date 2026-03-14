@@ -15,7 +15,7 @@ Full catalog of adapters with signatures and options. {% .lead %}
 | [`http`](#http) | Core | Outbound HTTP client requests (inbound/server support planned) | `Destination` |
 | [`noop`](#noop) | Test | No-operation placeholder | `Destination` |
 | [`pseudo`](#pseudo) | Test | Typed placeholder for docs/examples | `Source`, `Destination`, `Processor` |
-| [`spy`](#spy) {% badge %}wip{% /badge %} | Test | Records exchanges for assertions | `Destination`, `Processor` |
+| [`spy`](#spy) | Test | Records exchanges for assertions | `Destination`, `Processor` |
 | [`file`](#file) | File | Read/write text files | `Source`, `Destination` |
 | [`json`](#json) | File | JSON file handling with parsing | `Source`, `Destination`, `Transformer` |
 | [`csv`](#csv) | File | CSV file processing | `Source`, `Destination` |
@@ -536,7 +536,7 @@ A no-operation adapter that discards messages. Useful for testing, development, 
 .to(noop()) // Messages are discarded but logged
 ```
 
-### spy {% badge %}wip{% /badge %}
+### spy
 
 ```ts
 spy<T>(): SpyAdapter<T>

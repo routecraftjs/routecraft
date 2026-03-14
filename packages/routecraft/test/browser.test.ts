@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
-import { testContext, type TestContext } from "@routecraft/testing";
+import { testContext, spy, type TestContext } from "@routecraft/testing";
 import {
   craft,
   simple,
@@ -104,7 +104,7 @@ describe("Browser Adapter", () => {
      * @expectedResult executeCommand called with launch then snapshot (session isolation)
      */
     test("executeCommand called with snapshot after launch for session", async () => {
-      const destSpy = vi.fn();
+      const s = spy();
 
       t = await testContext()
         .routes(
@@ -112,7 +112,7 @@ describe("Browser Adapter", () => {
             .id("browser-session-test")
             .from(simple("trigger"))
             .enrich(browser("snapshot"))
-            .to(destSpy),
+            .to(s),
         )
         .build();
 
@@ -130,7 +130,7 @@ describe("Browser Adapter", () => {
      * @expectedResult executeCommand called with navigate action and url
      */
     test("browser(open, { url }) calls navigate with url", async () => {
-      const destSpy = vi.fn();
+      const s = spy();
       const url = "https://example.com";
 
       t = await testContext()
@@ -139,7 +139,7 @@ describe("Browser Adapter", () => {
             .id("browser-open-test")
             .from(simple("trigger"))
             .enrich(browser("open", { url }))
-            .to(destSpy),
+            .to(s),
         )
         .build();
 
@@ -158,7 +158,7 @@ describe("Browser Adapter", () => {
      * @expectedResult executeCommand navigate uses resolved url from exchange
      */
     test("dynamic url from exchange body", async () => {
-      const destSpy = vi.fn();
+      const s = spy();
 
       t = await testContext()
         .routes(
@@ -166,7 +166,7 @@ describe("Browser Adapter", () => {
             .id("browser-dynamic-url")
             .from(simple({ link: "https://dynamic.example.com" }))
             .enrich(browser("open", { url: (e) => e.body.link }))
-            .to(destSpy),
+            .to(s),
         )
         .build();
 
@@ -185,7 +185,7 @@ describe("Browser Adapter", () => {
      * @expectedResult executeCommand called with close action
      */
     test("browser(close) passes close command", async () => {
-      const destSpy = vi.fn();
+      const s = spy();
 
       t = await testContext()
         .routes(
@@ -193,7 +193,7 @@ describe("Browser Adapter", () => {
             .id("browser-close-test")
             .from(simple("trigger"))
             .to(browser("close"))
-            .to(destSpy),
+            .to(s),
         )
         .build();
 
@@ -213,7 +213,7 @@ describe("Browser Adapter", () => {
      * @expectedResult Enriched body has stdout and exitCode from BrowserResult
      */
     test("returns BrowserResult with stdout and exitCode", async () => {
-      const destSpy = vi.fn();
+      const s = spy();
 
       t = await testContext()
         .routes(
@@ -221,14 +221,14 @@ describe("Browser Adapter", () => {
             .id("browser-result-test")
             .from(simple("trigger"))
             .enrich(browser("snapshot"))
-            .to(destSpy),
+            .to(s),
         )
         .build();
 
       await t.ctx.start();
 
-      expect(destSpy).toHaveBeenCalledTimes(1);
-      const enrichedBody = destSpy.mock.calls[0][0].body as BrowserResult & {
+      expect(s.received).toHaveLength(1);
+      const enrichedBody = s.received[0].body as BrowserResult & {
         stdout: string;
         exitCode: number;
       };
@@ -252,7 +252,7 @@ describe("Browser Adapter", () => {
           };
         return { success: true, data: {} };
       });
-      const destSpy = vi.fn();
+      const s = spy();
 
       t = await testContext()
         .routes(
@@ -260,14 +260,14 @@ describe("Browser Adapter", () => {
             .id("browser-json-test")
             .from(simple("trigger"))
             .enrich(browser("snapshot", { json: true }))
-            .to(destSpy),
+            .to(s),
         )
         .build();
 
       await t.ctx.start();
 
-      expect(destSpy).toHaveBeenCalledTimes(1);
-      const result = destSpy.mock.calls[0][0].body as BrowserResult;
+      expect(s.received).toHaveLength(1);
+      const result = s.received[0].body as BrowserResult;
       expect(result.parsed).toEqual({
         snapshot: "tree",
         refs: { e1: { role: "button" } },

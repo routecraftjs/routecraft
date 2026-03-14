@@ -89,6 +89,7 @@ export { direct } from "./adapters/direct/index.ts";
 export { timer } from "./adapters/timer/index.ts";
 export { http } from "./adapters/http/index.ts";
 export { pseudo } from "@routecraft/testing";
+export { spy, type SpyAdapter } from "@routecraft/testing";
 export { browser } from "./adapters/browser.ts";
 export { file } from "./adapters/file.ts";
 export { html } from "./adapters/html.ts";

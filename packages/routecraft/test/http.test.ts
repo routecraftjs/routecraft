@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
-import { testContext, type TestContext } from "@routecraft/testing";
+import { testContext, spy, type TestContext } from "@routecraft/testing";
 import {
   craft,
   simple,
@@ -32,7 +32,7 @@ describe("HTTP Adapter", () => {
    */
   test("auto-parses JSON object response", async () => {
     const jsonData = { name: "John", age: 30 };
-    const destSpy = vi.fn();
+    const s = spy();
 
     fetchMock.mockResolvedValue({
       ok: true,
@@ -48,14 +48,14 @@ describe("HTTP Adapter", () => {
           .id("test-json-object")
           .from(simple("trigger"))
           .enrich(http({ url: "https://api.example.com/user" }))
-          .to(destSpy),
+          .to(s),
       )
       .build();
 
     await t.ctx.start();
 
-    expect(destSpy).toHaveBeenCalledTimes(1);
-    const enrichedBody = destSpy.mock.calls[0][0].body;
+    expect(s.received).toHaveLength(1);
+    const enrichedBody = s.received[0].body as any;
     // Enrich merges the HttpResult into the body
     expect(enrichedBody.body).toEqual(jsonData);
     expect(typeof enrichedBody.body).toBe("object");
@@ -68,7 +68,7 @@ describe("HTTP Adapter", () => {
    */
   test("auto-parses JSON array response", async () => {
     const jsonArray = [1, 2, 3, 4, 5];
-    const destSpy = vi.fn();
+    const s = spy();
 
     fetchMock.mockResolvedValue({
       ok: true,
@@ -84,14 +84,14 @@ describe("HTTP Adapter", () => {
           .id("test-json-array")
           .from(simple("trigger"))
           .enrich(http({ url: "https://api.example.com/numbers" }))
-          .to(destSpy),
+          .to(s),
       )
       .build();
 
     await t.ctx.start();
 
-    expect(destSpy).toHaveBeenCalledTimes(1);
-    const enrichedBody = destSpy.mock.calls[0][0].body;
+    expect(s.received).toHaveLength(1);
+    const enrichedBody = s.received[0].body as any;
     // Enrich merges the HttpResult into the body
     expect(enrichedBody.body).toEqual(jsonArray);
     expect(Array.isArray(enrichedBody.body)).toBe(true);
@@ -104,7 +104,7 @@ describe("HTTP Adapter", () => {
    */
   test("auto-parses JSON with charset parameter", async () => {
     const jsonData = { status: "success" };
-    const destSpy = vi.fn();
+    const s = spy();
 
     fetchMock.mockResolvedValue({
       ok: true,
@@ -120,14 +120,14 @@ describe("HTTP Adapter", () => {
           .id("test-json-charset")
           .from(simple("trigger"))
           .enrich(http({ url: "https://api.example.com/status" }))
-          .to(destSpy),
+          .to(s),
       )
       .build();
 
     await t.ctx.start();
 
-    expect(destSpy).toHaveBeenCalledTimes(1);
-    const enrichedBody = destSpy.mock.calls[0][0].body;
+    expect(s.received).toHaveLength(1);
+    const enrichedBody = s.received[0].body as any;
     // Enrich merges the HttpResult into the body
     expect(enrichedBody.body).toEqual(jsonData);
   });
@@ -139,7 +139,7 @@ describe("HTTP Adapter", () => {
    */
   test("returns plain text as string", async () => {
     const textData = "Hello, World!";
-    const destSpy = vi.fn();
+    const s = spy();
 
     fetchMock.mockResolvedValue({
       ok: true,
@@ -155,14 +155,14 @@ describe("HTTP Adapter", () => {
           .id("test-plain-text")
           .from(simple("trigger"))
           .enrich(http({ url: "https://api.example.com/text" }))
-          .to(destSpy),
+          .to(s),
       )
       .build();
 
     await t.ctx.start();
 
-    expect(destSpy).toHaveBeenCalledTimes(1);
-    const enrichedBody = destSpy.mock.calls[0][0].body;
+    expect(s.received).toHaveLength(1);
+    const enrichedBody = s.received[0].body as any;
     // Enrich merges the HttpResult into the body
     expect(enrichedBody.body).toBe(textData);
     expect(typeof enrichedBody.body).toBe("string");
@@ -175,7 +175,7 @@ describe("HTTP Adapter", () => {
    */
   test("returns XML as string", async () => {
     const xmlData = '<?xml version="1.0"?><root><item>value</item></root>';
-    const destSpy = vi.fn();
+    const s = spy();
 
     fetchMock.mockResolvedValue({
       ok: true,
@@ -191,14 +191,14 @@ describe("HTTP Adapter", () => {
           .id("test-xml")
           .from(simple("trigger"))
           .enrich(http({ url: "https://api.example.com/data.xml" }))
-          .to(destSpy),
+          .to(s),
       )
       .build();
 
     await t.ctx.start();
 
-    expect(destSpy).toHaveBeenCalledTimes(1);
-    const enrichedBody = destSpy.mock.calls[0][0].body;
+    expect(s.received).toHaveLength(1);
+    const enrichedBody = s.received[0].body as any;
     // Enrich merges the HttpResult into the body
     expect(enrichedBody.body).toBe(xmlData);
     expect(typeof enrichedBody.body).toBe("string");
@@ -211,7 +211,7 @@ describe("HTTP Adapter", () => {
    */
   test("returns HTML as string", async () => {
     const htmlData = "<html><body>Hello</body></html>";
-    const destSpy = vi.fn();
+    const s = spy();
 
     fetchMock.mockResolvedValue({
       ok: true,
@@ -227,14 +227,14 @@ describe("HTTP Adapter", () => {
           .id("test-html")
           .from(simple("trigger"))
           .enrich(http({ url: "https://example.com/page" }))
-          .to(destSpy),
+          .to(s),
       )
       .build();
 
     await t.ctx.start();
 
-    expect(destSpy).toHaveBeenCalledTimes(1);
-    const enrichedBody = destSpy.mock.calls[0][0].body;
+    expect(s.received).toHaveLength(1);
+    const enrichedBody = s.received[0].body as any;
     // Enrich merges the HttpResult into the body
     expect(enrichedBody.body).toBe(htmlData);
     expect(typeof enrichedBody.body).toBe("string");
@@ -247,7 +247,7 @@ describe("HTTP Adapter", () => {
    */
   test("returns string when content-type is missing", async () => {
     const textData = "No content type";
-    const destSpy = vi.fn();
+    const s = spy();
 
     fetchMock.mockResolvedValue({
       ok: true,
@@ -263,14 +263,14 @@ describe("HTTP Adapter", () => {
           .id("test-no-content-type")
           .from(simple("trigger"))
           .enrich(http({ url: "https://api.example.com/data" }))
-          .to(destSpy),
+          .to(s),
       )
       .build();
 
     await t.ctx.start();
 
-    expect(destSpy).toHaveBeenCalledTimes(1);
-    const enrichedBody = destSpy.mock.calls[0][0].body;
+    expect(s.received).toHaveLength(1);
+    const enrichedBody = s.received[0].body as any;
     // Enrich merges the HttpResult into the body
     expect(enrichedBody.body).toBe(textData);
     expect(typeof enrichedBody.body).toBe("string");
@@ -283,7 +283,7 @@ describe("HTTP Adapter", () => {
    */
   test("falls back to string for malformed JSON", async () => {
     const malformedJson = '{"invalid": json}';
-    const destSpy = vi.fn();
+    const s = spy();
 
     fetchMock.mockResolvedValue({
       ok: true,
@@ -299,14 +299,14 @@ describe("HTTP Adapter", () => {
           .id("test-malformed-json")
           .from(simple("trigger"))
           .enrich(http({ url: "https://api.example.com/bad" }))
-          .to(destSpy),
+          .to(s),
       )
       .build();
 
     await t.ctx.start();
 
-    expect(destSpy).toHaveBeenCalledTimes(1);
-    const enrichedBody = destSpy.mock.calls[0][0].body;
+    expect(s.received).toHaveLength(1);
+    const enrichedBody = s.received[0].body as any;
     // Enrich merges the HttpResult into the body
     expect(enrichedBody.body).toBe(malformedJson);
     expect(typeof enrichedBody.body).toBe("string");
@@ -318,7 +318,7 @@ describe("HTTP Adapter", () => {
    * @expectedResult Body should fallback to empty string
    */
   test("handles empty JSON response", async () => {
-    const destSpy = vi.fn();
+    const s = spy();
 
     fetchMock.mockResolvedValue({
       ok: true,
@@ -334,14 +334,14 @@ describe("HTTP Adapter", () => {
           .id("test-empty-json")
           .from(simple("trigger"))
           .enrich(http({ url: "https://api.example.com/empty" }))
-          .to(destSpy),
+          .to(s),
       )
       .build();
 
     await t.ctx.start();
 
-    expect(destSpy).toHaveBeenCalledTimes(1);
-    const enrichedBody = destSpy.mock.calls[0][0].body;
+    expect(s.received).toHaveLength(1);
+    const enrichedBody = s.received[0].body as any;
     // Enrich merges the HttpResult into the body
     expect(enrichedBody.body).toBe("");
     expect(typeof enrichedBody.body).toBe("string");
@@ -358,7 +358,7 @@ describe("HTTP Adapter", () => {
       { id: 2, name: "Item 2" },
       { id: 3, name: "Item 3" },
     ];
-    const destSpy = vi.fn();
+    const s = spy();
 
     fetchMock.mockResolvedValue({
       ok: true,
@@ -386,18 +386,18 @@ describe("HTTP Adapter", () => {
                 }),
             );
           })
-          .to(destSpy),
+          .to(s),
       )
       .build();
 
     await t.ctx.start();
 
     // Should have been called once for each item
-    expect(destSpy).toHaveBeenCalledTimes(3);
+    expect(s.received).toHaveLength(3);
     // After split, each item is the body directly
-    expect(destSpy.mock.calls[0][0].body).toEqual({ id: 1, name: "Item 1" });
-    expect(destSpy.mock.calls[1][0].body).toEqual({ id: 2, name: "Item 2" });
-    expect(destSpy.mock.calls[2][0].body).toEqual({ id: 3, name: "Item 3" });
+    expect(s.received[0].body).toEqual({ id: 1, name: "Item 1" });
+    expect(s.received[1].body).toEqual({ id: 2, name: "Item 2" });
+    expect(s.received[2].body).toEqual({ id: 3, name: "Item 3" });
   });
 
   /**
@@ -406,7 +406,7 @@ describe("HTTP Adapter", () => {
    * @expectedResult Body replaced with HttpResult
    */
   test(".to(http()) replaces body with http result", async () => {
-    const destSpy = vi.fn();
+    const s = spy();
 
     fetchMock.mockResolvedValue({
       ok: true,
@@ -422,15 +422,15 @@ describe("HTTP Adapter", () => {
           .id("test-to-http-replaces-body")
           .from(simple({ original: "data" }))
           .to(http({ method: "POST", url: "https://api.example.com/webhook" }))
-          .to(destSpy),
+          .to(s),
       )
       .build();
 
     await t.ctx.start();
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(destSpy).toHaveBeenCalledTimes(1);
-    const finalBody = destSpy.mock.calls[0][0].body;
+    expect(s.received).toHaveLength(1);
+    const finalBody = s.received[0].body as any;
     // Body should be replaced with HttpResult
     expect(finalBody.status).toBe(200);
     expect(finalBody.body).toEqual({ responseData: "value" });
@@ -442,7 +442,7 @@ describe("HTTP Adapter", () => {
    * @expectedResult Each .to() replaces body sequentially
    */
   test("chaining .to(http()) calls", async () => {
-    const destSpy = vi.fn();
+    const s = spy();
 
     fetchMock
       .mockResolvedValueOnce({
@@ -467,15 +467,15 @@ describe("HTTP Adapter", () => {
           .from(simple({ initial: "data" }))
           .to(http({ url: "https://api.example.com/step1" }))
           .to(http({ url: "https://api.example.com/step2" }))
-          .to(destSpy),
+          .to(s),
       )
       .build();
 
     await t.ctx.start();
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(destSpy).toHaveBeenCalledTimes(1);
-    const finalBody = destSpy.mock.calls[0][0].body;
+    expect(s.received).toHaveLength(1);
+    const finalBody = s.received[0].body as any;
     // Body should be the last HttpResult
     expect(finalBody).toMatchObject({
       status: 201,

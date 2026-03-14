@@ -1,8 +1,7 @@
 import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
-import { testContext, type TestContext } from "@routecraft/testing";
+import { testContext, spy, type TestContext } from "@routecraft/testing";
 import { craft, simple, file } from "@routecraft/routecraft";
 import { FileAdapter } from "../src/adapters/file.ts";
-import type { CallableDestination } from "../src/operations/to.ts";
 import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -35,21 +34,21 @@ describe("File Adapter", () => {
       const content = "Hello, World!";
       await fsp.writeFile(filePath, content, "utf-8");
 
-      const destSpy = vi.fn();
+      const s = spy();
 
       t = await testContext()
         .routes(
           craft()
             .id("file-read")
             .from(file({ path: filePath }))
-            .to(destSpy as CallableDestination<unknown, void>),
+            .to(s),
         )
         .build();
 
       await t.ctx.start();
 
-      expect(destSpy).toHaveBeenCalledTimes(1);
-      expect(destSpy.mock.calls[0][0].body).toBe(content);
+      expect(s.received).toHaveLength(1);
+      expect(s.received[0].body).toBe(content);
     });
 
     /**
@@ -62,20 +61,20 @@ describe("File Adapter", () => {
       const content = "Custom encoding test";
       await fsp.writeFile(filePath, content, "utf-8");
 
-      const destSpy = vi.fn();
+      const s = spy();
 
       t = await testContext()
         .routes(
           craft()
             .id("file-read-encoding")
             .from(file({ path: filePath, encoding: "utf-8" }))
-            .to(destSpy as CallableDestination<unknown, void>),
+            .to(s),
         )
         .build();
 
       await t.ctx.start();
 
-      expect(destSpy.mock.calls[0][0].body).toBe(content);
+      expect(s.received[0].body).toBe(content);
     });
 
     /**
@@ -91,7 +90,7 @@ describe("File Adapter", () => {
           craft()
             .id("file-not-found")
             .from(file({ path: filePath }))
-            .to(vi.fn() as CallableDestination<unknown, void>),
+            .to(spy()),
         )
         .build();
 
@@ -135,7 +134,7 @@ describe("File Adapter", () => {
       const filePath = path.join(tmpDir, "output.txt");
       const content = "Test output";
 
-      const destSpy = vi.fn();
+      const s = spy();
 
       t = await testContext()
         .routes(
@@ -143,7 +142,7 @@ describe("File Adapter", () => {
             .id("file-write")
             .from(simple(content))
             .to(file({ path: filePath, mode: "write" }))
-            .to(destSpy as CallableDestination<unknown, void>),
+            .to(s),
         )
         .build();
 
@@ -151,7 +150,7 @@ describe("File Adapter", () => {
 
       const written = await fsp.readFile(filePath, "utf-8");
       expect(written).toBe(content);
-      expect(destSpy).toHaveBeenCalledTimes(1);
+      expect(s.received).toHaveLength(1);
     });
 
     /**
@@ -336,7 +335,7 @@ describe("File Adapter", () => {
     test("body is unchanged after destination (returns void)", async () => {
       const filePath = path.join(tmpDir, "output.txt");
       const content = "Test content";
-      const destSpy = vi.fn();
+      const s = spy();
 
       t = await testContext()
         .routes(
@@ -344,13 +343,13 @@ describe("File Adapter", () => {
             .id("file-no-body-change")
             .from(simple(content))
             .to(file({ path: filePath, mode: "write" }))
-            .to(destSpy as CallableDestination<unknown, void>),
+            .to(s),
         )
         .build();
 
       await t.ctx.start();
 
-      expect(destSpy.mock.calls[0][0].body).toBe(content);
+      expect(s.received[0].body).toBe(content);
     });
   });
 
