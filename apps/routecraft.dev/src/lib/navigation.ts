@@ -11,7 +11,7 @@ export const navigation = [
     title: 'Introduction',
     href: '/docs/introduction',
     links: [
-      { title: 'What is RouteCraft', href: '/docs/introduction' },
+      { title: 'What is Routecraft', href: '/docs/introduction' },
       { title: 'Installation', href: '/docs/introduction/installation' },
       {
         title: 'Project structure',

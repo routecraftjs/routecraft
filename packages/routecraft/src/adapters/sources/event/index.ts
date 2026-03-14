@@ -7,6 +7,7 @@ import type { EventFilter } from "./types";
  * Creates a source that produces exchanges from framework events.
  * Use as the first step in a route with `.from(event(...))`.
  *
+ * @beta
  * **Wildcard Patterns:**
  *
  * - `*` (single-level wildcard): Matches exactly one segment

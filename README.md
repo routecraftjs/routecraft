@@ -15,9 +15,9 @@
 
 ## About
 
-RouteCraft is a code-first automation platform for TypeScript. Write routes that send emails, manage calendars, and automate work. AI calls your code, not your computer.
+Routecraft is a code-first automation platform for TypeScript. Write routes that send emails, manage calendars, and automate work. AI calls your code, not your computer.
 
-## Why RouteCraft?
+## Why Routecraft?
 
 - ✅ **AI that does real work** - Send emails, schedule meetings, automate tasks
 - ✅ **Code, not configs** - TypeScript all the way with full IDE support

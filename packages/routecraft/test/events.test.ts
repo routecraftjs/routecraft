@@ -160,7 +160,7 @@ describe("Events API", () => {
     const messages = errors.map((e) => (e as Error).message);
     expect(messages.some((m) => /startup fail/.test(m))).toBeTruthy();
     expect(messages.some((m) => /source fail/.test(m))).toBeTruthy();
-    // RouteCraftError wraps step failures; either contains message or toString
+    // RoutecraftError wraps step failures; either contains message or toString
     const anyStep = messages.some((m) =>
       /Processing step threw|step fail/i.test(m),
     );
@@ -187,7 +187,7 @@ describe("Events API", () => {
 
     await expect(t.test()).rejects.toThrow("route start fail");
     expect(t.errors.length).toBeGreaterThanOrEqual(1);
-    // Wrapped as RouteCraftError; original message appears in cause or toString
+    // Wrapped as RoutecraftError; original message appears in cause or toString
     const hasStartError = t.errors.some((e) => {
       const err = e as Error;
       const cause = err.cause;

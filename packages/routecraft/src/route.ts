@@ -35,8 +35,8 @@ export type ErrorHandler = (
   forward: ForwardFn,
 ) => unknown | Promise<unknown>;
 import { BRAND, INTERNALS_KEY, setBrand } from "./brand.ts";
-import { rcError, RouteCraftError, RC } from "./error.ts";
-import { isRouteCraftError } from "./brand.ts";
+import { rcError, RoutecraftError, RC } from "./error.ts";
+import { isRoutecraftError } from "./brand.ts";
 import { logger, childBindings } from "./logger.ts";
 import { type Source } from "./operations/from.ts";
 import {
@@ -250,7 +250,7 @@ export class DefaultRoute implements Route {
    */
   trackTask(promise: Promise<unknown>): void {
     const handledPromise = promise.catch((err: unknown) => {
-      const msg = isRouteCraftError(err)
+      const msg = isRoutecraftError(err)
         ? (err as { meta: { message: string } }).meta.message
         : err instanceof Error
           ? err.message
@@ -269,7 +269,7 @@ export class DefaultRoute implements Route {
    * 2. Subscribes to the source to receive data
    *
    * @returns A promise that resolves when the route has started
-   * @throws {RouteCraftError} If the route has been aborted
+   * @throws {RoutecraftError} If the route has been aborted
    */
   async start(): Promise<void> {
     this.assertNotAborted();
@@ -591,7 +591,7 @@ export class DefaultRoute implements Route {
   /**
    * Check if the route has been aborted, and throw an error if it has.
    *
-   * @throws {RouteCraftError} If the route has been aborted
+   * @throws {RoutecraftError} If the route has been aborted
    * @private
    */
   private assertNotAborted(): void {
@@ -603,20 +603,20 @@ export class DefaultRoute implements Route {
   }
 
   /**
-   * Normalize an operation error into a RouteCraftError.
-   * If the error is already a RouteCraftError, it is returned unchanged.
+   * Normalize an operation error into a RoutecraftError.
+   * If the error is already a RoutecraftError, it is returned unchanged.
    *
    * @param _operation - The operation that caused the error (for logging)
-   * @param error - The thrown value (Error or RouteCraftError)
-   * @returns A RouteCraftError (existing or RC5001-wrapped)
+   * @param error - The thrown value (Error or RoutecraftError)
+   * @returns A RoutecraftError (existing or RC5001-wrapped)
    * @private
    */
   private processError(
     _operation: OperationType,
     error: unknown,
-  ): RouteCraftError {
-    if (isRouteCraftError(error)) {
-      return error as RouteCraftError;
+  ): RoutecraftError {
+    if (isRoutecraftError(error)) {
+      return error as RoutecraftError;
     }
     const msg = error instanceof Error ? error.message : String(error);
     return rcError("RC5001", error, { message: msg });

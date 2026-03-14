@@ -5,6 +5,7 @@ import type { AgentOptions, AgentResult } from "./types.ts";
 /**
  * Create an agent destination.
  *
+ * @experimental
  * @param options Agent options (modelId, systemPrompt, allowedRoutes, etc.)
  * @returns Destination that produces AgentResult
  */

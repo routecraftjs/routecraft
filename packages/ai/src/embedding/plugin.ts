@@ -22,6 +22,8 @@ function toModelConfig(
  * cache when the context stops (releases native/ONNX resources).
  * Use embedding("providerId:modelName", { using: ... }),
  * e.g. embedding("huggingface:all-MiniLM-L6-v2", { using: (e) => e.body.title }).
+ *
+ * @experimental
  */
 export function embeddingPlugin(
   options: EmbeddingPluginOptions = { providers: {} },

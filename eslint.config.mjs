@@ -60,7 +60,7 @@ export default [
   },
   pluginJs.configs.recommended,
   ...tseslint.configs.recommended,
-  // RouteCraft rules only for examples
+  // Routecraft rules only for examples
   {
     files: ["examples/**/*.{js,mjs}"],
     plugins: { "@routecraft/routecraft": routecraftPlugin },

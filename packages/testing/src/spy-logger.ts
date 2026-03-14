@@ -2,6 +2,8 @@ import { vi } from "vitest";
 
 /**
  * Spy logger with vi.fn() methods for assertions (e.g. expect(t.logger.info).toHaveBeenCalledWith(...)).
+ *
+ * @beta
  */
 export type SpyLogger = {
   info: ReturnType<typeof vi.fn>;
@@ -13,6 +15,7 @@ export type SpyLogger = {
   child: ReturnType<typeof vi.fn>;
 };
 
+/** @beta */
 export function createSpyLogger(): SpyLogger {
   const spy: SpyLogger = {
     info: vi.fn(),
@@ -27,6 +30,7 @@ export function createSpyLogger(): SpyLogger {
   return spy;
 }
 
+/** @beta */
 export function createNoopSpyLogger(): SpyLogger {
   const noop = vi.fn();
   const childFn = vi.fn();

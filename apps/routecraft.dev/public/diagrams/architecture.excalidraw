@@ -6,8 +6,8 @@
     {
       "type": "text", "id": "d3_title",
       "x": 0, "y": 18, "width": 1020, "height": 26,
-      "text": "RouteCraft: Mission Control for AI Automation",
-      "originalText": "RouteCraft: Mission Control for AI Automation",
+      "text": "Routecraft: Mission Control for AI Automation",
+      "originalText": "Routecraft: Mission Control for AI Automation",
       "fontSize": 18, "fontFamily": 3, "textAlign": "center", "verticalAlign": "top",
       "strokeColor": "#1e40af", "backgroundColor": "transparent", "fillStyle": "solid",
       "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0,
@@ -152,7 +152,7 @@
     {
       "type": "text", "id": "d3_rc_title",
       "x": 412, "y": 96, "width": 240, "height": 28,
-      "text": "RouteCraft", "originalText": "RouteCraft",
+      "text": "Routecraft", "originalText": "Routecraft",
       "fontSize": 20, "fontFamily": 3, "textAlign": "center", "verticalAlign": "top",
       "strokeColor": "#1e3a5f", "backgroundColor": "transparent", "fillStyle": "solid",
       "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0,

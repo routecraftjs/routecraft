@@ -1,6 +1,6 @@
 # @routecraft/testing
 
-Test utilities for RouteCraft capabilities. Use with [Vitest](https://vitest.dev) to run capability lifecycles and assert on output, logs, and errors.
+Test utilities for Routecraft capabilities. Use with [Vitest](https://vitest.dev) to run capability lifecycles and assert on output, logs, and errors.
 
 ## Installation
 
@@ -58,15 +58,17 @@ Wrapper around `CraftContext` with:
 - **`logger`** -- A spy logger (Vitest `vi.fn()` methods) for asserting on log calls.
 - **`errors`** -- Collected capability errors.
 - **`test(options?)`** -- Runs start, waits for capabilities to be ready, optionally delays, drains, then stops. Assert after `await t.test()`.
-- **`startAndWaitReady()`** -- Starts the context and waits for all capabilities to be ready without draining. Use with `invoke()` to call a capability by ID, then call `stop()` when done.
+- **`startAndWaitReady()`** -- Starts the context and waits for all capabilities to be ready without draining. Use with `t.send()` to send to a direct endpoint, then call `stop()` when done.
 - **`stop()`** / **`drain()`** -- Lifecycle helpers.
 
-### `invoke(ctx, routeIdOrDestination, body, headers?)`
+### `t.send(endpoint, body, headers?)`
 
-Invoke a capability by ID or send to a `Destination` instance. Returns the result.
+Send a message to a direct endpoint and return the result. Use with `startAndWaitReady()`.
 
 ```typescript
-const result = await invoke(t.ctx, 'send-email', { to: 'user@example.com' });
+await t.startAndWaitReady();
+const result = await t.send('send-email', { to: 'user@example.com' });
+await t.stop();
 ```
 
 ### Options

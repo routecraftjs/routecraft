@@ -87,7 +87,7 @@ export function Hero() {
               </p>
               <p className="mt-3 text-2xl tracking-tight text-gray-600 dark:text-gray-400">
                 Define TypeScript capabilities that send emails, manage
-                calendars, and automate work. Expose them to the Routcraft
+                calendars, and automate work. Expose them to the Routecraft
                 agent, Claude, ChatGPT, Cursor, or any AI agent via MCP. AI uses
                 your capabilities, not your computer.
               </p>

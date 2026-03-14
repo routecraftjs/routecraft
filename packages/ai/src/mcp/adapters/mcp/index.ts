@@ -34,6 +34,8 @@ import type { McpMessage } from "./types.ts";
  * @param options - Server options (source) or args extractor (destination)
  * @returns Source when called with two arguments; Destination when called with one argument
  *
+ * @experimental
+ *
  * @example
  * ```typescript
  * // Source route (MCP tool)

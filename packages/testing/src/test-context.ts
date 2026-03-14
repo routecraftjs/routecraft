@@ -7,11 +7,16 @@ import type {
   EventHandler,
   RouteDefinition,
   RouteBuilder,
+  Exchange,
+  ExchangeHeaders,
 } from "@routecraft/routecraft";
 import {
   ContextBuilder,
-  isRouteCraftError,
-  RouteCraftError,
+  DefaultExchange,
+  ADAPTER_DIRECT_STORE,
+  sanitizeEndpoint,
+  isRoutecraftError,
+  RoutecraftError,
   rcError,
   logger,
 } from "@routecraft/routecraft";
@@ -37,17 +42,20 @@ export interface TestOptions {
 
 /**
  * Test-friendly wrapper around CraftContext. Runs the real context but manages
- * lifecycle (start → wait routes ready → drain → stop) and collects errors.
+ * lifecycle (start, wait routes ready, drain, stop) and collects errors.
  * t.logger is a spy logger (vi.fn() methods) for asserting on log calls.
+ *
+ * @beta
  */
 export class TestContext {
   readonly ctx: CraftContext;
   /** Spy logger; e.g. expect(t.logger.info).toHaveBeenCalledWith(...) */
   readonly logger: SpyLogger;
-  readonly errors: RouteCraftError[] = [];
+  readonly errors: RoutecraftError[] = [];
   private readonly routesReadyTimeoutMs: number;
 
   private restoreLoggerChild?: () => void;
+  private loggerChildRestored = false;
   private startedPromise?: Promise<void>;
 
   constructor(
@@ -66,8 +74,8 @@ export class TestContext {
     ctx.on("error", (payload) => {
       const err = payload.details.error;
       this.errors.push(
-        isRouteCraftError(err)
-          ? (err as RouteCraftError)
+        isRoutecraftError(err)
+          ? (err as RoutecraftError)
           : rcError("RC9901", err),
       );
     });
@@ -179,7 +187,7 @@ export class TestContext {
         await ctx.stop();
         await started;
       } finally {
-        this.restoreLoggerChild?.();
+        this.restoreLoggerChildOnce();
       }
     }
   }
@@ -189,16 +197,58 @@ export class TestContext {
   }
 
   async stop(): Promise<void> {
-    await this.ctx.stop();
-    if (this.startedPromise !== undefined) {
-      await this.startedPromise;
+    try {
+      await this.ctx.stop();
+      if (this.startedPromise !== undefined) {
+        await this.startedPromise;
+      }
+    } finally {
+      this.restoreLoggerChildOnce();
     }
+  }
+
+  private restoreLoggerChildOnce(): void {
+    if (this.loggerChildRestored) return;
+    this.restoreLoggerChild?.();
+    this.loggerChildRestored = true;
+  }
+
+  /**
+   * Send a message to a direct endpoint and return the result.
+   * Use after {@link startAndWaitReady} so the channel exists.
+   *
+   * @param endpoint Direct endpoint name (must match the endpoint string passed to `direct(endpoint, options)`)
+   * @param body Request body
+   * @param headers Optional exchange headers
+   * @returns The response body from the route
+   */
+  async send<T = unknown, R = T>(
+    endpoint: string,
+    body: T,
+    headers?: ExchangeHeaders,
+  ): Promise<R> {
+    const store = this.ctx.getStore(ADAPTER_DIRECT_STORE);
+    const sanitized = sanitizeEndpoint(endpoint);
+    const channel = store?.get(sanitized);
+    if (!channel) {
+      throw new Error(
+        `No direct channel for endpoint "${endpoint}". Did you call startAndWaitReady() first?`,
+      );
+    }
+    const exchange = new DefaultExchange(this.ctx, {
+      body,
+      ...(headers !== undefined && { headers }),
+    });
+    const result = await channel.send(sanitized, exchange);
+    return (result as Exchange).body as R;
   }
 }
 
 /**
  * Builder that returns TestContext instead of CraftContext.
  * Same API as ContextBuilder (routes, on, with, store).
+ *
+ * @beta
  */
 export class TestContextBuilder {
   private builder = new ContextBuilder();
@@ -267,6 +317,7 @@ export class TestContextBuilder {
 /**
  * Create a test context builder. Use .routes(...).build(), await the result, then await t.test().
  *
+ * @beta
  * @example
  * const builder = testContext();
  * const t = await builder.routes(myRoutes).build();

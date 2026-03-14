@@ -15,7 +15,7 @@ export interface StdioClientManagerOptions {
   restartBackoffMultiplier: number;
 }
 
-/** Logger interface matching pino child logger shape used in RouteCraft. */
+/** Logger interface matching pino child logger shape used in Routecraft. */
 interface Logger {
   info(obj: Record<string, unknown>, msg: string): void;
   warn(obj: Record<string, unknown>, msg: string): void;
@@ -41,7 +41,7 @@ interface McpSdkClient {
  *
  * Delegates to the MCP SDK's Client + StdioClientTransport for process spawning,
  * protocol handling, and tool listing. Adds auto-restart with exponential backoff
- * and event bridging into RouteCraft's event system.
+ * and event bridging into Routecraft's event system.
  */
 export class StdioClientManager {
   private client: McpSdkClient | null = null;

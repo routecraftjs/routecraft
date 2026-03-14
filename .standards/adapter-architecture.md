@@ -1,6 +1,6 @@
 # Adapter Architecture
 
-Patterns, file structure, authoring guide, and anti-patterns for RouteCraft adapters. This document is the single authority for how adapters are structured internally.
+Patterns, file structure, authoring guide, and anti-patterns for Routecraft adapters. This document is the single authority for how adapters are structured internally.
 
 For user-facing adapter documentation, see the [adapters reference](https://routecraft.dev/docs/reference/adapters) and [custom adapters guide](https://routecraft.dev/docs/advanced/custom-adapters).
 

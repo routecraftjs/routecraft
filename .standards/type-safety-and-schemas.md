@@ -1,12 +1,12 @@
 # Type Safety and Schemas
 
-Type flow policy, Standard Schema usage, and plugin vs config guidance for RouteCraft.
+Type flow policy, Standard Schema usage, and plugin vs config guidance for Routecraft.
 
 ---
 
 ## Type Safety Policy
 
-RouteCraft must be **100% type safe**. The exchange body (or destination result) type must be **passed by every operation always** -- no operation should drop or widen the type to `unknown` unless that is the explicit contract (e.g., a source with no schema).
+Routecraft must be **100% type safe**. The exchange body (or destination result) type must be **passed by every operation always** -- no operation should drop or widen the type to `unknown` unless that is the explicit contract (e.g., a source with no schema).
 
 ### What this means
 

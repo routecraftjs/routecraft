@@ -2,7 +2,7 @@
 title: Contribution Guide
 ---
 
-How to contribute to RouteCraft. {% .lead %}
+How to contribute to Routecraft. {% .lead %}
 
 ## Getting Started
 

@@ -1,5 +1,6 @@
 import { describe, test, expect, vi } from "vitest";
-import { LogDestinationAdapter, log, debug } from "../src/index.ts";
+import { log, debug } from "../src/index.ts";
+import { LogDestinationAdapter } from "../src/adapters/log/index.ts";
 import type { Exchange } from "../src/exchange.ts";
 
 function mockExchange<T = unknown>(

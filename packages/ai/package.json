@@ -1,7 +1,7 @@
 {
   "name": "@routecraft/ai",
   "version": "0.4.0",
-  "description": "AI and MCP integrations for RouteCraft",
+  "description": "AI and MCP integrations for Routecraft",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

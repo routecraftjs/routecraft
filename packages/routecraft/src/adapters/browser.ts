@@ -467,6 +467,7 @@ export class BrowserAdapter<
  * Session is derived from exchange.id so split/aggregate get isolated sessions.
  * Use with `.to()`, `.enrich()`, or `.tap()`. Requires `agent-browser` as a dependency.
  *
+ * @beta
  * @param command - Agent-browser command (e.g. `open`, `click`, `snapshot`, `get`)
  * @param options - Command-specific options plus base options (session, headed, timeout, json)
  * @returns A Destination that runs the command and returns `{ stdout, parsed?, exitCode }`

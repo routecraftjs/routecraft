@@ -126,7 +126,7 @@ If the handler throws, all three fire: `error:invoked`, `error:failed`, and `exc
 Use `ctx.on()` to listen. Wildcards let you monitor error handling across all routes:
 
 ```ts
-const ctx = context()
+const ctx = new ContextBuilder()
   .routes(myRoutes)
   .on('route:*:operation:error:invoked', ({ details }) => {
     console.log(

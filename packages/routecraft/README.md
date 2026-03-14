@@ -2,7 +2,7 @@
 
 Give AI access to your automation, not control over your system.
 
-RouteCraft is a TypeScript-first framework for building automation capabilities that agents can invoke. Write deterministic pipelines for Software 1.0. Hand them to an AI agent as tools for Software 3.0. Both, from the same code.
+Routecraft is a TypeScript-first framework for building automation capabilities that agents can invoke. Write deterministic pipelines for Software 1.0. Hand them to an AI agent as tools for Software 3.0. Both, from the same code.
 
 ## Installation
 
@@ -81,9 +81,9 @@ Operations transform or gate the data flowing through a capability:
 Group capabilities into a context for lifecycle management:
 
 ```typescript
-import { context } from '@routecraft/routecraft';
+import { ContextBuilder } from '@routecraft/routecraft';
 
-const ctx = context()
+const ctx = new ContextBuilder()
   .routes([sendEmail, syncUsers, processWebhook])
   .build();
 
@@ -100,7 +100,7 @@ await ctx.start();
 
 ## Event System
 
-RouteCraft emits structured events throughout a capability's lifecycle, useful for observability, cost tracking, and debugging.
+Routecraft emits structured events throughout a capability's lifecycle, useful for observability, cost tracking, and debugging.
 
 ### Event Naming
 
@@ -117,9 +117,9 @@ plugin:<pluginId>:started
 ### Subscribing
 
 ```typescript
-import { context } from '@routecraft/routecraft';
+import { ContextBuilder } from '@routecraft/routecraft';
 
-const ctx = context()
+const ctx = new ContextBuilder()
   .routes([...])
   .on('route:*:exchange:completed', ({ details }) => {
     console.log('Exchange completed on', details.routeId);

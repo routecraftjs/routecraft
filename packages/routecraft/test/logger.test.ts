@@ -1,12 +1,7 @@
 import { describe, test, expect } from "vitest";
 import { testContext } from "@routecraft/testing";
-import {
-  logger,
-  childBindings,
-  DefaultExchange,
-  craft,
-  simple,
-} from "@routecraft/routecraft";
+import { logger, DefaultExchange, craft, simple } from "@routecraft/routecraft";
+import { childBindings } from "../src/logger.ts";
 
 describe("logger", () => {
   /**

@@ -12,7 +12,7 @@ System requirements, manual setup, and production builds. {% .lead %}
 
 ## Create a new project
 
-Scaffold a complete RouteCraft project with one command:
+Scaffold a complete Routecraft project with one command:
 
 {% code-tabs %}
 {% code-tab label="npm" language="bash" %}
@@ -52,7 +52,7 @@ For all flags and options, see [CLI -- create](/docs/reference/cli#create).
 
 ## Manual installation
 
-Add RouteCraft to an existing project:
+Add Routecraft to an existing project:
 
 {% code-tabs %}
 {% code-tab label="npm" language="bash" %}
@@ -89,7 +89,7 @@ import { craft, simple, log } from "@routecraft/routecraft";
 
 export default craft()
   .id("my-first-capability")
-  .from(simple("Hello, RouteCraft!"))
+  .from(simple("Hello, Routecraft!"))
   .to(log());
 ```
 
@@ -103,7 +103,7 @@ On Node 22.6+, the CLI strips TypeScript at runtime with no `tsc` step required.
 
 ## TypeScript configuration
 
-RouteCraft is TypeScript-first. The recommended `tsconfig.json` for a capabilities project:
+Routecraft is TypeScript-first. The recommended `tsconfig.json` for a capabilities project:
 
 ```json
 {
@@ -153,7 +153,7 @@ bun run build && bun run start
 
 The build step compiles your capabilities to JavaScript. The compiled output in `dist/` is what runs in production with no Node flags and no runtime overhead.
 
-## Embedding RouteCraft in your app
+## Embedding Routecraft in your app
 
 If you're running capabilities from within an existing Node application instead of using the CLI, use `CraftContext` directly:
 
@@ -165,7 +165,7 @@ await ctx.load("capabilities/");
 await ctx.start();
 ```
 
-This gives you full programmatic control: load specific capability files, run a single capability for a batch job, or integrate RouteCraft into a larger Express or Fastify server.
+This gives you full programmatic control: load specific capability files, run a single capability for a batch job, or integrate Routecraft into a larger Express or Fastify server.
 
 ---
 
@@ -174,6 +174,6 @@ This gives you full programmatic control: load specific capability files, run a 
 {% quick-links %}
 
 {% quick-link title="CLI reference" icon="installation" href="/docs/reference/cli" description="All CLI commands and options." /%}
-{% quick-link title="Project structure" icon="presets" href="/docs/introduction/project-structure" description="Understand the layout of a RouteCraft project." /%}
+{% quick-link title="Project structure" icon="presets" href="/docs/introduction/project-structure" description="Understand the layout of a Routecraft project." /%}
 
 {% /quick-links %}

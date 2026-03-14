@@ -33,6 +33,8 @@ function toModelConfig<P extends LlmModelConfig["provider"]>(
  *
  * Advanced users can set the store directly: context.setStore(ADAPTER_LLM_PROVIDERS, map)
  * and context.setStore(ADAPTER_LLM_OPTIONS, partialOptions) without using this plugin.
+ *
+ * @experimental
  */
 export function llmPlugin(
   options: LlmPluginOptions = { providers: {} },

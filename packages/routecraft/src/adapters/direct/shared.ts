@@ -10,6 +10,7 @@ import type { Exchange } from "../../exchange";
 
 /**
  * Store key for the direct channel map (endpoint name -> channel instance).
+ * @internal
  */
 export const ADAPTER_DIRECT_STORE = Symbol.for(
   "routecraft.adapter.direct.store",
@@ -17,6 +18,7 @@ export const ADAPTER_DIRECT_STORE = Symbol.for(
 
 /**
  * Store key for merged direct adapter options.
+ * @internal
  */
 export const ADAPTER_DIRECT_OPTIONS = Symbol.for(
   "routecraft.adapter.direct.options",
@@ -24,6 +26,7 @@ export const ADAPTER_DIRECT_OPTIONS = Symbol.for(
 
 /**
  * Store key for the direct route registry (endpoint -> metadata).
+ * @internal
  */
 export const ADAPTER_DIRECT_REGISTRY = Symbol.for(
   "routecraft.adapter.direct.registry",

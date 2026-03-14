@@ -2,7 +2,7 @@
 title: Events
 ---
 
-Full catalog of lifecycle and runtime events emitted by the RouteCraft context. {% .lead %}
+Full catalog of lifecycle and runtime events emitted by the Routecraft context. {% .lead %}
 
 ## Event payload
 

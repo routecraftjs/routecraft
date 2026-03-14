@@ -22,9 +22,11 @@ const pipelineCache = new Map<string, CachedPipeline>();
  * Dispose all cached HuggingFace pipelines and clear the cache. Call on context
  * shutdown so pipeline.dispose() releases native/ONNX resources.
  *
- * Callers must avoid process.exit() after this — let the event loop drain
+ * Callers must avoid process.exit() after this -- let the event loop drain
  * naturally so ONNX Runtime's C++ statics aren't torn down prematurely
  * (onnxruntime#25038: "mutex lock failed: Invalid argument").
+ *
+ * @experimental
  */
 export async function disposeEmbeddingPipelineCache(): Promise<void> {
   const entries = [...pipelineCache.entries()];

@@ -2,7 +2,7 @@
 title: CLI
 ---
 
-Run RouteCraft capabilities from the command line. {% .lead %}
+Run Routecraft capabilities from the command line. {% .lead %}
 
 ## Basic usage
 
@@ -69,7 +69,7 @@ Options:
 
 ### run
 
-Load one or more capabilities from a TypeScript file and start the RouteCraft context. The process runs as long as the capabilities run -- finite capabilities exit after completing; long-lived sources keep the process running until the context is stopped or a signal is received.
+Load one or more capabilities from a TypeScript file and start the Routecraft context. The process runs as long as the capabilities run -- finite capabilities exit after completing; long-lived sources keep the process running until the context is stopped or a signal is received.
 
 ```bash
 craft run <file> [--env <.env path>]

@@ -1,9 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { BRAND, setBrand } from "./brand.ts";
-import { ContextBuilder } from "./builder.ts";
 import { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
-import { error as rcError, RC } from "./error.ts";
-import { isRouteCraftError } from "./brand.ts";
+import { rcError, RC } from "./error.ts";
+import { isRoutecraftError } from "./brand.ts";
 import { logger, childBindings } from "./logger.ts";
 import {
   type EventHandler,
@@ -567,7 +566,7 @@ export class CraftContext {
    * Register routes with this context.
    *
    * @param definitions Route definitions to register
-   * @throws {RouteCraftError} If there are duplicate route IDs or invalid route definitions
+   * @throws {RoutecraftError} If there are duplicate route IDs or invalid route definitions
    *
    * @example
    * ```typescript
@@ -734,7 +733,7 @@ export class CraftContext {
           this.logger.info({ route: route.definition.id }, "Route stopped");
           return { routeId: route.definition.id, success: true as const };
         } catch (error) {
-          const msg = isRouteCraftError(error)
+          const msg = isRoutecraftError(error)
             ? (error as { meta: { message: string } }).meta.message
             : error instanceof Error
               ? error.message
@@ -764,7 +763,7 @@ export class CraftContext {
         }
       })
       .catch((error) => {
-        const msg = isRouteCraftError(error)
+        const msg = isRoutecraftError(error)
           ? (error as { meta: { message: string } }).meta.message
           : error instanceof Error
             ? error.message
@@ -878,27 +877,4 @@ export class CraftContext {
       throw drainError;
     }
   }
-}
-
-/**
- * Create a new context builder.
- *
- * This is the entry point for creating a new application context.
- *
- * @returns A new ContextBuilder instance
- *
- * @example
- * ```typescript
- * // Create and configure a context
- * const ctx = context()
- *   .routes(myRoute)
- *   .on('context:starting', () => console.log('Starting...'))
- *   .build();
- *
- * // Start processing
- * await ctx.start();
- * ```
- */
-export function context(): ContextBuilder {
-  return new ContextBuilder();
 }

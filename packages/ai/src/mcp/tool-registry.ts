@@ -8,6 +8,8 @@ import type { McpToolRegistryEntry } from "./types.ts";
  * - "local": mcp() routes from ADAPTER_DIRECT_REGISTRY (tools exposed by this context)
  * - stdio clients: long-lived subprocess MCP servers
  * - HTTP clients: remote HTTP MCP servers (tools refreshed periodically)
+ *
+ * @experimental
  */
 export class McpToolRegistry {
   /** Nested Map: source -> toolName -> McpToolRegistryEntry */

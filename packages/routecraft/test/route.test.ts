@@ -6,10 +6,10 @@ import {
   simple,
   log,
   noop,
-  defaultAggregate,
   DefaultExchange,
   getExchangeContext,
 } from "@routecraft/routecraft";
+import { defaultAggregate } from "../src/operations/aggregate.ts";
 import type { Exchange } from "@routecraft/routecraft";
 
 describe("Route Behavior", () => {

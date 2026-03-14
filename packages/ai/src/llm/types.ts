@@ -1,12 +1,18 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Exchange } from "@routecraft/routecraft";
 
-/** Store key for plugin-registered providers (provider id → LlmModelConfig). */
+/**
+ * Store key for plugin-registered providers (provider id -> LlmModelConfig).
+ * @experimental
+ */
 export const ADAPTER_LLM_PROVIDERS = Symbol.for(
   "routecraft.adapter.llm.providers",
 );
 
-/** Store key for context-level default LLM options. */
+/**
+ * Store key for context-level default LLM options.
+ * @experimental
+ */
 export const ADAPTER_LLM_OPTIONS = Symbol.for("routecraft.adapter.llm.options");
 
 declare module "@routecraft/routecraft" {

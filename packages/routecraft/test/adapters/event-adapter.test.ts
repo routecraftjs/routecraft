@@ -1,12 +1,7 @@
 import { describe, test, expect, afterEach } from "vitest";
 import { testContext, type TestContext } from "@routecraft/testing";
-import {
-  EventSourceAdapter,
-  craft,
-  event,
-  log,
-  simple,
-} from "@routecraft/routecraft";
+import { craft, event, log, simple } from "@routecraft/routecraft";
+import { EventSourceAdapter } from "../../src/adapters/sources/event/index.ts";
 
 describe("Event Source Adapter", () => {
   let t: TestContext;
@@ -319,7 +314,7 @@ describe("Event Source Adapter", () => {
   });
 
   /**
-   * @case Event source adapter prefers RouteCraft-style meta.message in warn logs
+   * @case Event source adapter prefers Routecraft-style meta.message in warn logs
    * @preconditions Direct EventSourceAdapter subscription with a throwing handler object containing both meta.message and message
    * @expectedResult Warn log uses meta.message while preserving the original error object in bindings
    */
@@ -332,7 +327,7 @@ describe("Event Source Adapter", () => {
       t.ctx,
       async () => {
         throw {
-          meta: { message: "RouteCraft handler error" },
+          meta: { message: "Routecraft handler error" },
           message: "Plain handler error",
         };
       },
@@ -345,12 +340,12 @@ describe("Event Source Adapter", () => {
     expect(
       t.logger.warn.mock.calls.some(
         ([fields, message]) =>
-          message === "RouteCraft handler error" &&
+          message === "Routecraft handler error" &&
           (
             fields as {
               err?: { meta?: { message?: string }; message?: string };
             }
-          ).err?.meta?.message === "RouteCraft handler error" &&
+          ).err?.meta?.message === "Routecraft handler error" &&
           (
             fields as {
               err?: { meta?: { message?: string }; message?: string };

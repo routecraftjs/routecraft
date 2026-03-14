@@ -2,7 +2,7 @@
 title: DigitalOcean
 ---
 
-Deploy RouteCraft to DigitalOcean App Platform. {% .lead %}
+Deploy Routecraft to DigitalOcean App Platform. {% .lead %}
 
 ## App Platform
 

@@ -1,12 +1,8 @@
 import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
 import { testContext, type TestContext } from "@routecraft/testing";
-import {
-  craft,
-  simple,
-  csv,
-  CsvAdapter,
-  type CallableDestination,
-} from "@routecraft/routecraft";
+import { craft, simple, csv } from "@routecraft/routecraft";
+import { CsvAdapter } from "../src/adapters/csv.ts";
+import type { CallableDestination } from "../src/operations/to.ts";
 import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";

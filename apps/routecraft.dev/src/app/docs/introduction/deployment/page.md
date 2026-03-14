@@ -2,11 +2,11 @@
 title: Deployment
 ---
 
-Deploy RouteCraft as a Node.js process or a Docker container. {% .lead %}
+Deploy Routecraft as a Node.js process or a Docker container. {% .lead %}
 
 ## Node.js server
 
-RouteCraft runs on any provider that supports Node.js. Add a `start` script to your `package.json`:
+Routecraft runs on any provider that supports Node.js. Add a `start` script to your `package.json`:
 
 ```json
 {

@@ -1,6 +1,6 @@
 # @routecraft/ai
 
-AI adapters and MCP integration for RouteCraft. Call LLMs, run agents, generate embeddings, and expose your capabilities to Claude, Cursor, and other MCP clients.
+AI adapters and MCP integration for Routecraft. Call LLMs, run agents, generate embeddings, and expose your capabilities to Claude, Cursor, and other MCP clients.
 
 ## Installation
 
@@ -21,10 +21,10 @@ Define a capability and expose it as an MCP tool:
 ```typescript
 // capabilities/fetch-webpage.ts
 import { mcp } from '@routecraft/ai';
-import { craft, context, http } from '@routecraft/routecraft';
+import { craft, ContextBuilder, http } from '@routecraft/routecraft';
 import { z } from 'zod';
 
-const ctx = context()
+const ctx = new ContextBuilder()
   .routes([
     craft()
       .id('fetch-webpage')
@@ -55,10 +55,10 @@ Use `mcp()` as a `.from()` source. This registers the capability as an MCP tool 
 
 ```typescript
 import { mcp, llm, llmPlugin } from '@routecraft/ai';
-import { craft, context, http } from '@routecraft/routecraft';
+import { craft, ContextBuilder, http } from '@routecraft/routecraft';
 import { z } from 'zod';
 
-const ctx = context()
+const ctx = new ContextBuilder()
   .plugins([
     llmPlugin({
       providers: { anthropic: { apiKey: process.env.ANTHROPIC_API_KEY! } },

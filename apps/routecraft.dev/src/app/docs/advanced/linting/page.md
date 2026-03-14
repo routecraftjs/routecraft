@@ -2,7 +2,7 @@
 title: Linting
 ---
 
-Enforce RouteCraft best practices with ESLint. {% .lead %}
+Enforce Routecraft best practices with ESLint. {% .lead %}
 
 ## Installation
 

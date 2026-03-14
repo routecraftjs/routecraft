@@ -1,6 +1,6 @@
 # @routecraft/eslint-plugin-routecraft
 
-ESLint plugin for RouteCraft with rules to enforce capability authoring best practices.
+ESLint plugin for Routecraft with rules to enforce capability authoring best practices.
 
 ## Installation
 
@@ -88,7 +88,7 @@ export default [
 
 ## Documentation
 
-For more information about RouteCraft, visit [routecraft.dev](https://routecraft.dev).
+For more information about Routecraft, visit [routecraft.dev](https://routecraft.dev).
 
 ## License
 

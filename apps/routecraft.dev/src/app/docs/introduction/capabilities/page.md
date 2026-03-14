@@ -6,7 +6,7 @@ Define what your AI can do, and exactly how it does it. {% .lead %}
 
 ## What is a capability?
 
-A capability is a TypeScript file that defines a secure, type-safe action your system can perform. It uses the RouteCraft DSL to wire a **source** through **operations** to a **destination**.
+A capability is a TypeScript file that defines a secure, type-safe action your system can perform. It uses the Routecraft DSL to wire a **source** through **operations** to a **destination**.
 
 ```ts
 // capabilities/send-email.ts
@@ -36,7 +36,7 @@ craft()
 `.id()` is what identifies the capability at runtime, not the filename. Name your files descriptively, but the ID is what matters.
 
 {% callout type="note" title="Always set an ID" %}
-It is recommended to give every capability a unique `.id()`. Without one, RouteCraft generates an ID automatically but it may change between runs, making debugging and MCP tool discovery harder. The `require-named-route` ESLint rule enforces this and can be disabled per-project.
+It is recommended to give every capability a unique `.id()`. Without one, Routecraft generates an ID automatically but it may change between runs, making debugging and MCP tool discovery harder. The `require-named-route` ESLint rule enforces this and can be disabled per-project.
 {% /callout %}
 
 ## Source types

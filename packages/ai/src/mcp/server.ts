@@ -3,7 +3,7 @@ import {
   ADAPTER_DIRECT_REGISTRY,
   ADAPTER_DIRECT_STORE,
   DefaultExchange,
-  isRouteCraftError,
+  isRoutecraftError,
 } from "@routecraft/routecraft";
 import { createServer } from "node:http";
 import type { McpPluginOptions } from "./types.ts";
@@ -18,11 +18,13 @@ type McpServerResolvedOptions = Required<
   Pick<McpPluginOptions, "tools">;
 
 /**
- * McpServer wraps the MCP SDK and bridges it to RouteCraft's DirectChannel infrastructure.
+ * McpServer wraps the MCP SDK and bridges it to Routecraft's DirectChannel infrastructure.
  * It reads the MCP route registry lazily (on first tools/list request) to ensure routes have subscribed.
  *
  * Note: Uses dynamic imports to avoid TypeScript compatibility issues with the MCP SDK.
  * Supports both stdio and streamable-http transports.
+ *
+ * @experimental
  */
 export class McpServer {
   private context: CraftContext;
@@ -75,7 +77,7 @@ export class McpServer {
       );
       this.logExposedToolsOnce();
     } catch (error) {
-      const msg = isRouteCraftError(error)
+      const msg = isRoutecraftError(error)
         ? (error as unknown as { meta: { message: string } }).meta.message
         : error instanceof Error
           ? error.message
@@ -205,7 +207,7 @@ export class McpServer {
       try {
         await handleRequest.call(this.transport, req, res);
       } catch (err) {
-        const msg = isRouteCraftError(err)
+        const msg = isRoutecraftError(err)
           ? (err as unknown as { meta: { message: string } }).meta.message
           : err instanceof Error
             ? err.message
@@ -221,7 +223,7 @@ export class McpServer {
     await new Promise<void>((resolve, reject) => {
       this.httpServer!.listen(port, host, () => resolve());
       this.httpServer!.on("error", (err) => {
-        const msg = isRouteCraftError(err)
+        const msg = isRoutecraftError(err)
           ? (err as unknown as { meta: { message: string } }).meta.message
           : err instanceof Error
             ? err.message
@@ -322,7 +324,7 @@ export class McpServer {
       this.running = false;
       this.context.logger.info({}, "MCP server stopped");
     } catch (error) {
-      const msg = isRouteCraftError(error)
+      const msg = isRoutecraftError(error)
         ? (error as unknown as { meta: { message: string } }).meta.message
         : error instanceof Error
           ? error.message
@@ -380,7 +382,7 @@ export class McpServer {
   }
 
   /**
-   * Convert RouteCraft mcp() route metadata to MCP tool format
+   * Convert Routecraft mcp() route metadata to MCP tool format
    */
   private metadataToMcpTool(
     metadata: DirectRouteMetadata,
@@ -515,7 +517,7 @@ export class McpServer {
         content: [{ type: "text", text: resultText }],
       };
     } catch (error) {
-      const msg = isRouteCraftError(error)
+      const msg = isRoutecraftError(error)
         ? (error as unknown as { meta: { message: string } }).meta.message
         : error instanceof Error
           ? error.message

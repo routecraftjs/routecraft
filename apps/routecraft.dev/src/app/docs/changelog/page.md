@@ -2,9 +2,9 @@
 title: Changelog
 ---
 
-All notable changes to RouteCraft. {% .lead %}
+All notable changes to Routecraft. {% .lead %}
 
-RouteCraft is in active development -- APIs may change between minor versions.
+Routecraft is in active development -- APIs may change between minor versions.
 
 ---
 
