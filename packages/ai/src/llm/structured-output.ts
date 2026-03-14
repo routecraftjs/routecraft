@@ -6,7 +6,7 @@ import { Output, jsonSchema } from "ai";
  * structured output (OpenAI response_format, Ollama format, etc.) and validation.
  *
  * The AI SDK accepts Zod directly in Output.object({ schema: z.object(...) }).
- * This package uses Standard Schema (per .cursor/rules/standard-schema.mdc), so
+ * This package uses Standard Schema (per .standards/type-safety-and-schemas.md), so
  * it cannot depend on Zod. This helper bridges any Standard Schema (Zod, Valibot,
  * ArkType, etc.) by using the SDK’s lower-level jsonSchema(jsonSchemaObj, {
  * validate }): we get the JSON schema from ~standard.jsonSchema.output/.input

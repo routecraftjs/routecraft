@@ -10,7 +10,7 @@ Every change -- feature, fix, refactor -- must satisfy the checklists below befo
 - [ ] JSDoc on any public API you touched is accurate and up to date (`@param`, `@returns`, `@example`)
 - [ ] No `@ts-ignore` or `@ts-expect-error` without an explanation comment
 - [ ] No `any` types in production code (test files are exempt)
-- [ ] Use the `/git-commit-message` slash command to generate commit messages
+- [ ] Write commit messages following [Conventional Commits](https://www.conventionalcommits.org/); use the `/git-commit-message` slash command for detailed formatting
 - [ ] Do not use em-dashes in documentation, JSDoc, comments, or written output
 
 ## When you add or modify an adapter
