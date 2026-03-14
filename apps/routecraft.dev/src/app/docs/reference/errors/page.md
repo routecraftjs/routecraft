@@ -101,7 +101,7 @@ Ensure the route isn't aborted before `start()`. Verify adapter configuration.
 
 **Example**
 ```ts
-const ctx = new ContextBuilder().routes(myRoute).build();
+const ctx = await new ContextBuilder().routes(myRoute).build();
 await ctx.start();
 ```
 
@@ -116,7 +116,8 @@ Validate plugin exports and global configuration.
 
 **Example**
 ```ts
-new ContextBuilder().routes(validRoutes).build().start()
+const ctx = await new ContextBuilder().routes(validRoutes).build()
+await ctx.start()
 ```
 
 ## RC5001

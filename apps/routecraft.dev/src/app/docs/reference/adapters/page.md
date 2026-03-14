@@ -403,7 +403,7 @@ craft()
   .process(fetchAndSummarize)
 
 // Later, query discoverable routes from context
-const ctx = new ContextBuilder().routes(...).build()
+const ctx = await new ContextBuilder().routes(...).build()
 await ctx.start()
 
 const registry = ctx.getStore(DirectAdapter.ADAPTER_DIRECT_REGISTRY)
@@ -423,7 +423,7 @@ Make HTTP requests. Returns a `Destination` adapter that works with both `.to()`
 
 **Current support:** Routecraft currently exports `http()` only as an outbound/client adapter for making HTTP requests.
 
-**Planned inbound support:** Routecraft does **not** yet ship an inbound HTTP source/server adapter. The planned design is shown in [Planned inbound/server HTTP support](#planned-inbound-server-http-support) below and may change before implementation.
+**Planned inbound support:** Routecraft does **not** yet ship an inbound HTTP source/server adapter. The planned design is shown in [Planned inbound/server HTTP support](#planned-inboundserver-http-support) below and may change before implementation.
 
 **With `.enrich()` (merge result into body):**
 
