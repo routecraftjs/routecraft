@@ -1,5 +1,5 @@
 import { describe, test, expect, afterEach, vi } from "vitest";
-import { testContext, type TestContext } from "@routecraft/testing";
+import { testContext, spy, type TestContext } from "@routecraft/testing";
 import { craft, simple } from "@routecraft/routecraft";
 
 describe("Async Tap Execution", () => {
@@ -62,7 +62,7 @@ describe("Async Tap Execution", () => {
    * @expectedResult Tap receives new ID and preserves correlation ID
    */
   test("tap receives exchange snapshot with correlation", async () => {
-    const tapSpy = vi.fn();
+    const tapSpy = spy();
     let originalCorrelationId: string | undefined;
 
     t = await testContext()
@@ -85,8 +85,8 @@ describe("Async Tap Execution", () => {
     // Wait for tap to execute
     await new Promise((resolve) => setTimeout(resolve, 25));
 
-    expect(tapSpy).toHaveBeenCalledTimes(1);
-    const tapExchange = tapSpy.mock.calls[0][0];
+    expect(tapSpy.received).toHaveLength(1);
+    const tapExchange = tapSpy.received[0];
 
     // Tap exchange should have new ID (snapshot)
     expect(tapExchange.id).toBeDefined();
@@ -104,7 +104,7 @@ describe("Async Tap Execution", () => {
    * @expectedResult Route completes successfully despite tap error
    */
   test("tap errors don't affect main route", async () => {
-    const routeCompleted = vi.fn();
+    const s = spy();
 
     t = await testContext()
       .routes(
@@ -114,14 +114,14 @@ describe("Async Tap Execution", () => {
           .tap(async () => {
             throw new Error("Tap failed");
           })
-          .to(routeCompleted),
+          .to(s),
       )
       .build();
 
     await t.ctx.start();
 
     // Route should complete successfully
-    expect(routeCompleted).toHaveBeenCalledTimes(1);
+    expect(s.received).toHaveLength(1);
   });
 
   /**
@@ -130,7 +130,7 @@ describe("Async Tap Execution", () => {
    * @expectedResult Body unchanged, return value discarded
    */
   test("tap return values are ignored", async () => {
-    const destSpy = vi.fn();
+    const s = spy();
 
     t = await testContext()
       .routes(
@@ -140,15 +140,14 @@ describe("Async Tap Execution", () => {
           .tap(async () => {
             return { tapResult: "ignored" };
           })
-          .to(destSpy),
+          .to(s),
       )
       .build();
 
     await t.ctx.start();
 
-    expect(destSpy).toHaveBeenCalledTimes(1);
-    const finalBody = destSpy.mock.calls[0][0].body;
-    expect(finalBody).toEqual({ original: "data" });
+    expect(s.received).toHaveLength(1);
+    expect(s.received[0].body).toEqual({ original: "data" });
   });
 
   /**

@@ -1,5 +1,5 @@
-import { describe, test, expect, afterEach, vi } from "vitest";
-import { testContext, type TestContext } from "@routecraft/testing";
+import { describe, test, expect, afterEach } from "vitest";
+import { testContext, spy, type TestContext } from "@routecraft/testing";
 import { craft, simple, html, type HtmlResult } from "@routecraft/routecraft";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
@@ -19,7 +19,7 @@ describe("HTML Adapter", () => {
      * @expectedResult Single string (text content) is returned
      */
     test("extracts text from single element (body as HTML string)", async () => {
-      const destSpy = vi.fn();
+      const s = spy();
       const htmlString = "<html><title>Hello World</title></html>";
 
       t = await testContext()
@@ -28,14 +28,14 @@ describe("HTML Adapter", () => {
             .id("html-text-single")
             .from(simple(htmlString))
             .transform(html({ selector: "title", extract: "text" }))
-            .to(destSpy),
+            .to(s),
         )
         .build();
 
       await t.ctx.start();
 
-      expect(destSpy).toHaveBeenCalledTimes(1);
-      const body = destSpy.mock.calls[0][0].body as HtmlResult;
+      expect(s.received).toHaveLength(1);
+      const body = s.received[0].body as HtmlResult;
       expect(body).toBe("Hello World");
     });
 
@@ -45,7 +45,7 @@ describe("HTML Adapter", () => {
      * @expectedResult Inner HTML string is returned
      */
     test("extracts html from single element", async () => {
-      const destSpy = vi.fn();
+      const s = spy();
       const htmlString = '<div class="wrap"><span>inner</span></div>';
 
       t = await testContext()
@@ -54,14 +54,14 @@ describe("HTML Adapter", () => {
             .id("html-html-single")
             .from(simple(htmlString))
             .transform(html({ selector: ".wrap", extract: "html" }))
-            .to(destSpy),
+            .to(s),
         )
         .build();
 
       await t.ctx.start();
 
-      expect(destSpy).toHaveBeenCalledTimes(1);
-      const body = destSpy.mock.calls[0][0].body as HtmlResult;
+      expect(s.received).toHaveLength(1);
+      const body = s.received[0].body as HtmlResult;
       expect(body).toContain("<span>inner</span>");
     });
 
@@ -71,7 +71,7 @@ describe("HTML Adapter", () => {
      * @expectedResult Attribute value string is returned
      */
     test("extracts attr from single element", async () => {
-      const destSpy = vi.fn();
+      const s = spy();
       const htmlString = '<a href="https://example.com">link</a>';
 
       t = await testContext()
@@ -80,14 +80,14 @@ describe("HTML Adapter", () => {
             .id("html-attr-single")
             .from(simple(htmlString))
             .transform(html({ selector: "a", extract: "attr", attr: "href" }))
-            .to(destSpy),
+            .to(s),
         )
         .build();
 
       await t.ctx.start();
 
-      expect(destSpy).toHaveBeenCalledTimes(1);
-      const body = destSpy.mock.calls[0][0].body as HtmlResult;
+      expect(s.received).toHaveLength(1);
+      const body = s.received[0].body as HtmlResult;
       expect(body).toBe("https://example.com");
     });
 
@@ -97,7 +97,7 @@ describe("HTML Adapter", () => {
      * @expectedResult Text content is returned
      */
     test("default extract is text", async () => {
-      const destSpy = vi.fn();
+      const s = spy();
 
       t = await testContext()
         .routes(
@@ -105,13 +105,13 @@ describe("HTML Adapter", () => {
             .id("html-default-extract")
             .from(simple("<p>Default text</p>"))
             .transform(html({ selector: "p" }))
-            .to(destSpy),
+            .to(s),
         )
         .build();
 
       await t.ctx.start();
 
-      const body = destSpy.mock.calls[0][0].body as HtmlResult;
+      const body = s.received[0].body as HtmlResult;
       expect(body).toBe("Default text");
     });
   });
@@ -123,7 +123,7 @@ describe("HTML Adapter", () => {
      * @expectedResult Array of extracted values
      */
     test("returns array when selector matches multiple elements", async () => {
-      const destSpy = vi.fn();
+      const s = spy();
       const htmlString = "<ul><li>one</li><li>two</li><li>three</li></ul>";
 
       t = await testContext()
@@ -132,14 +132,14 @@ describe("HTML Adapter", () => {
             .id("html-multi")
             .from(simple(htmlString))
             .transform(html({ selector: "li", extract: "text" }))
-            .to(destSpy),
+            .to(s),
         )
         .build();
 
       await t.ctx.start();
 
-      expect(destSpy).toHaveBeenCalledTimes(1);
-      const body = destSpy.mock.calls[0][0].body as HtmlResult;
+      expect(s.received).toHaveLength(1);
+      const body = s.received[0].body as HtmlResult;
       expect(Array.isArray(body)).toBe(true);
       expect(body).toEqual(["one", "two", "three"]);
     });
@@ -150,7 +150,7 @@ describe("HTML Adapter", () => {
      * @expectedResult Array of href values
      */
     test("multi-element attr returns array", async () => {
-      const destSpy = vi.fn();
+      const s = spy();
       const htmlString = '<a href="/a">A</a><a href="/b">B</a>';
 
       t = await testContext()
@@ -159,13 +159,13 @@ describe("HTML Adapter", () => {
             .id("html-multi-attr")
             .from(simple(htmlString))
             .transform(html({ selector: "a", extract: "attr", attr: "href" }))
-            .to(destSpy),
+            .to(s),
         )
         .build();
 
       await t.ctx.start();
 
-      const body = destSpy.mock.calls[0][0].body as HtmlResult;
+      const body = s.received[0].body as HtmlResult;
       expect(body).toEqual(["/a", "/b"]);
     });
   });
@@ -177,7 +177,7 @@ describe("HTML Adapter", () => {
      * @expectedResult Extraction uses body.body
      */
     test("default uses body.body when body is object with body property", async () => {
-      const destSpy = vi.fn();
+      const s = spy();
       const httpLike = {
         status: 200,
         headers: {} as Record<string, string>,
@@ -191,13 +191,13 @@ describe("HTML Adapter", () => {
             .id("html-default-body-body")
             .from(simple(httpLike))
             .transform(html({ selector: "title", extract: "text" }))
-            .to(destSpy),
+            .to(s),
         )
         .build();
 
       await t.ctx.start();
 
-      const body = destSpy.mock.calls[0][0].body as HtmlResult;
+      const body = s.received[0].body as HtmlResult;
       expect(body).toBe("From body.body");
     });
 
@@ -207,7 +207,7 @@ describe("HTML Adapter", () => {
      * @expectedResult Extraction uses the plucked HTML
      */
     test("from option plucks HTML from nested body", async () => {
-      const destSpy = vi.fn();
+      const s = spy();
       const wrapped = {
         status: 200,
         body: "<html><h1>From nested</h1></html>",
@@ -225,13 +225,13 @@ describe("HTML Adapter", () => {
                 extract: "text",
               }),
             )
-            .to(destSpy),
+            .to(s),
         )
         .build();
 
       await t.ctx.start();
 
-      const body = destSpy.mock.calls[0][0].body as HtmlResult;
+      const body = s.received[0].body as HtmlResult;
       expect(body).toBe("From nested");
     });
   });
@@ -243,7 +243,7 @@ describe("HTML Adapter", () => {
      * @expectedResult Body is { ...body, field: extractedValue }
      */
     test("to option writes result to sub-field", async () => {
-      const destSpy = vi.fn();
+      const s = spy();
       const wrapped = {
         id: 1,
         body: "<html><title>Sub-field title</title></html>",
@@ -262,13 +262,13 @@ describe("HTML Adapter", () => {
                 to: (body, result) => ({ ...body, title: result }),
               }),
             )
-            .to(destSpy),
+            .to(s),
         )
         .build();
 
       await t.ctx.start();
 
-      const body = destSpy.mock.calls[0][0].body as {
+      const body = s.received[0].body as {
         id: number;
         body: string;
         title: string;
@@ -286,7 +286,7 @@ describe("HTML Adapter", () => {
      * @expectedResult Empty string is returned
      */
     test("returns empty string when no match", async () => {
-      const destSpy = vi.fn();
+      const s = spy();
 
       t = await testContext()
         .routes(
@@ -294,13 +294,13 @@ describe("HTML Adapter", () => {
             .id("html-no-match")
             .from(simple("<div>content</div>"))
             .transform(html({ selector: ".missing", extract: "text" }))
-            .to(destSpy),
+            .to(s),
         )
         .build();
 
       await t.ctx.start();
 
-      const body = destSpy.mock.calls[0][0].body as HtmlResult;
+      const body = s.received[0].body as HtmlResult;
       expect(body).toBe("");
     });
   });
@@ -333,21 +333,21 @@ describe("HTML Adapter", () => {
         "<html><head><title>File Title</title></head><body><h1>Hello from file</h1></body></html>",
       );
 
-      const destSpy = vi.fn();
+      const s = spy();
 
       t = await testContext()
         .routes(
           craft()
             .id("html-source-text")
             .from(html({ path: testFile, selector: "h1", extract: "text" }))
-            .to(destSpy),
+            .to(s),
         )
         .build();
 
       await t.ctx.start();
 
-      expect(destSpy).toHaveBeenCalledTimes(1);
-      const body = destSpy.mock.calls[0][0].body as HtmlResult;
+      expect(s.received).toHaveLength(1);
+      const body = s.received[0].body as HtmlResult;
       expect(body).toBe("Hello from file");
     });
 
@@ -364,21 +364,21 @@ describe("HTML Adapter", () => {
         "<html><body><ul><li>Item 1</li><li>Item 2</li><li>Item 3</li></ul></body></html>",
       );
 
-      const destSpy = vi.fn();
+      const s = spy();
 
       t = await testContext()
         .routes(
           craft()
             .id("html-source-multi")
             .from(html({ path: testFile, selector: "li", extract: "text" }))
-            .to(destSpy),
+            .to(s),
         )
         .build();
 
       await t.ctx.start();
 
-      expect(destSpy).toHaveBeenCalledTimes(1);
-      const body = destSpy.mock.calls[0][0].body as HtmlResult;
+      expect(s.received).toHaveLength(1);
+      const body = s.received[0].body as HtmlResult;
       expect(Array.isArray(body)).toBe(true);
       expect(body).toEqual(["Item 1", "Item 2", "Item 3"]);
     });
@@ -396,7 +396,7 @@ describe("HTML Adapter", () => {
         '<html><body><a href="https://example.com">Link</a></body></html>',
       );
 
-      const destSpy = vi.fn();
+      const s = spy();
 
       t = await testContext()
         .routes(
@@ -410,14 +410,14 @@ describe("HTML Adapter", () => {
                 attr: "href",
               }),
             )
-            .to(destSpy),
+            .to(s),
         )
         .build();
 
       await t.ctx.start();
 
-      expect(destSpy).toHaveBeenCalledTimes(1);
-      const body = destSpy.mock.calls[0][0].body as HtmlResult;
+      expect(s.received).toHaveLength(1);
+      const body = s.received[0].body as HtmlResult;
       expect(body).toBe("https://example.com");
     });
   });

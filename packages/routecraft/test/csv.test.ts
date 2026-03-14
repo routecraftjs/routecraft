@@ -1,8 +1,7 @@
-import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
-import { testContext, type TestContext } from "@routecraft/testing";
+import { describe, test, expect, afterEach, beforeEach } from "vitest";
+import { testContext, spy, type TestContext } from "@routecraft/testing";
 import { craft, simple, csv } from "@routecraft/routecraft";
 import { CsvAdapter } from "../src/adapters/csv.ts";
-import type { CallableDestination } from "../src/operations/to.ts";
 import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -37,21 +36,21 @@ Alice,30,NYC
 Bob,25,LA`;
       await fsp.writeFile(filePath, csvContent, "utf-8");
 
-      const destSpy = vi.fn();
+      const s = spy();
 
       t = await testContext()
         .routes(
           craft()
             .id("csv-read-headers")
             .from(csv({ path: filePath, header: true }))
-            .to(destSpy as CallableDestination<unknown, void>),
+            .to(s),
         )
         .build();
 
       await t.ctx.start();
 
-      expect(destSpy).toHaveBeenCalledTimes(1);
-      expect(destSpy.mock.calls[0][0].body).toEqual([
+      expect(s.received).toHaveLength(1);
+      expect(s.received[0].body).toEqual([
         { name: "Alice", age: "30", city: "NYC" },
         { name: "Bob", age: "25", city: "LA" },
       ]);
@@ -68,21 +67,21 @@ Bob,25,LA`;
 Bob,25,LA`;
       await fsp.writeFile(filePath, csvContent, "utf-8");
 
-      const destSpy = vi.fn();
+      const s = spy();
 
       t = await testContext()
         .routes(
           craft()
             .id("csv-read-no-headers")
             .from(csv({ path: filePath, header: false }))
-            .to(destSpy as CallableDestination<unknown, void>),
+            .to(s),
         )
         .build();
 
       await t.ctx.start();
 
-      expect(destSpy).toHaveBeenCalledTimes(1);
-      expect(destSpy.mock.calls[0][0].body).toEqual([
+      expect(s.received).toHaveLength(1);
+      expect(s.received[0].body).toEqual([
         ["Alice", "30", "NYC"],
         ["Bob", "25", "LA"],
       ]);
@@ -100,21 +99,21 @@ Alice\t30\tNYC
 Bob\t25\tLA`;
       await fsp.writeFile(filePath, csvContent, "utf-8");
 
-      const destSpy = vi.fn();
+      const s = spy();
 
       t = await testContext()
         .routes(
           craft()
             .id("csv-read-delimiter")
             .from(csv({ path: filePath, header: true, delimiter: "\t" }))
-            .to(destSpy as CallableDestination<unknown, void>),
+            .to(s),
         )
         .build();
 
       await t.ctx.start();
 
-      expect(destSpy).toHaveBeenCalledTimes(1);
-      expect(destSpy.mock.calls[0][0].body).toEqual([
+      expect(s.received).toHaveLength(1);
+      expect(s.received[0].body).toEqual([
         { name: "Alice", age: "30", city: "NYC" },
         { name: "Bob", age: "25", city: "LA" },
       ]);
@@ -135,21 +134,21 @@ Bob,25,LA
 `;
       await fsp.writeFile(filePath, csvContent, "utf-8");
 
-      const destSpy = vi.fn();
+      const s = spy();
 
       t = await testContext()
         .routes(
           craft()
             .id("csv-read-skip-empty")
             .from(csv({ path: filePath, header: true, skipEmptyLines: true }))
-            .to(destSpy as CallableDestination<unknown, void>),
+            .to(s),
         )
         .build();
 
       await t.ctx.start();
 
-      expect(destSpy).toHaveBeenCalledTimes(1);
-      expect(destSpy.mock.calls[0][0].body).toEqual([
+      expect(s.received).toHaveLength(1);
+      expect(s.received[0].body).toEqual([
         { name: "Alice", age: "30", city: "NYC" },
         { name: "Bob", age: "25", city: "LA" },
       ]);
@@ -168,21 +167,21 @@ Alice,30
 Bob,25`;
       await fsp.writeFile(filePath, csvContent, "utf-8");
 
-      const destSpy = vi.fn();
+      const s = spy();
 
       t = await testContext()
         .routes(
           craft()
             .id("csv-edge-case")
             .from(csv({ path: filePath, header: true }))
-            .to(destSpy as CallableDestination<unknown, void>),
+            .to(s),
         )
         .build();
 
       await t.ctx.start();
 
       // Should parse successfully
-      expect(destSpy).toHaveBeenCalled();
+      expect(s.received.length).toBeGreaterThan(0);
     });
   });
 
@@ -375,7 +374,7 @@ Alice,30
     test("body is unchanged after destination (returns void)", async () => {
       const filePath = path.join(tmpDir, "output.csv");
       const data = [{ name: "Alice", age: 30 }];
-      const destSpy = vi.fn();
+      const s = spy();
 
       t = await testContext()
         .routes(
@@ -383,15 +382,15 @@ Alice,30
             .id("csv-no-body-change")
             .from(simple(data))
             .to(csv({ path: filePath, header: true, mode: "append" }))
-            .to(destSpy as CallableDestination<unknown, void>),
+            .to(s),
         )
         .build();
 
       await t.ctx.start();
 
-      // simple(array) emits each item, so destSpy receives individual objects
-      expect(destSpy).toHaveBeenCalledTimes(1);
-      expect(destSpy.mock.calls[0][0].body).toEqual({ name: "Alice", age: 30 });
+      // simple(array) emits each item, so spy receives individual objects
+      expect(s.received).toHaveLength(1);
+      expect(s.received[0].body).toEqual({ name: "Alice", age: 30 });
     });
   });
 

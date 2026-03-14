@@ -1,5 +1,5 @@
 import { describe, test, expect, afterEach, vi, beforeEach } from "vitest";
-import { testContext, type TestContext } from "@routecraft/testing";
+import { testContext, spy, type TestContext } from "@routecraft/testing";
 import { craft, simple, json, type Source } from "@routecraft/routecraft";
 import { JsonAdapter } from "../src/adapters/json.ts";
 import * as fs from "node:fs/promises";
@@ -20,7 +20,7 @@ describe("JSON Adapter", () => {
      * @expectedResult Full parsed object is returned
      */
     test("parses JSON string and returns full object when no path", async () => {
-      const destSpy = vi.fn();
+      const s = spy();
       const payload = { data: { name: "test" } };
 
       t = await testContext()
@@ -29,14 +29,14 @@ describe("JSON Adapter", () => {
             .id("json-parse-full")
             .from(simple(JSON.stringify(payload)))
             .transform(json())
-            .to(destSpy),
+            .to(s),
         )
         .build();
 
       await t.ctx.start();
 
-      expect(destSpy).toHaveBeenCalledTimes(1);
-      expect(destSpy.mock.calls[0][0].body).toEqual(payload);
+      expect(s.received).toHaveLength(1);
+      expect(s.received[0].body).toEqual(payload);
     });
 
     /**
@@ -45,7 +45,7 @@ describe("JSON Adapter", () => {
      * @expectedResult Parsed JSON from body.body is returned
      */
     test("default uses body.body when body is object (e.g. after http)", async () => {
-      const destSpy = vi.fn();
+      const s = spy();
       const payload = { id: 1, title: "From body.body" };
       const httpLike = {
         status: 200,
@@ -60,13 +60,13 @@ describe("JSON Adapter", () => {
             .id("json-default-body-body")
             .from(simple(httpLike))
             .transform(json())
-            .to(destSpy),
+            .to(s),
         )
         .build();
 
       await t.ctx.start();
 
-      expect(destSpy.mock.calls[0][0].body).toEqual(payload);
+      expect(s.received[0].body).toEqual(payload);
     });
 
     /**
@@ -89,7 +89,7 @@ describe("JSON Adapter", () => {
      * @expectedResult Value at path is returned
      */
     test("path extracts nested value", async () => {
-      const destSpy = vi.fn();
+      const s = spy();
       const payload = { data: { user: { name: "Alice" } } };
 
       t = await testContext()
@@ -98,13 +98,13 @@ describe("JSON Adapter", () => {
             .id("json-path-nested")
             .from(simple(JSON.stringify(payload)))
             .transform(json({ path: "data.user.name" }))
-            .to(destSpy),
+            .to(s),
         )
         .build();
 
       await t.ctx.start();
 
-      expect(destSpy.mock.calls[0][0].body).toBe("Alice");
+      expect(s.received[0].body).toBe("Alice");
     });
 
     /**
@@ -113,7 +113,7 @@ describe("JSON Adapter", () => {
      * @expectedResult Value at path including array element is returned
      */
     test("path with array index", async () => {
-      const destSpy = vi.fn();
+      const s = spy();
       const payload = { items: [{ id: 1 }, { id: 2 }] };
 
       t = await testContext()
@@ -122,13 +122,13 @@ describe("JSON Adapter", () => {
             .id("json-path-array")
             .from(simple(JSON.stringify(payload)))
             .transform(json({ path: "items[0].id" }))
-            .to(destSpy),
+            .to(s),
         )
         .build();
 
       await t.ctx.start();
 
-      expect(destSpy.mock.calls[0][0].body).toBe(1);
+      expect(s.received[0].body).toBe(1);
     });
 
     /**
@@ -137,7 +137,7 @@ describe("JSON Adapter", () => {
      * @expectedResult undefined is returned
      */
     test("path to missing key returns undefined", async () => {
-      const destSpy = vi.fn();
+      const s = spy();
 
       t = await testContext()
         .routes(
@@ -145,13 +145,13 @@ describe("JSON Adapter", () => {
             .id("json-path-missing")
             .from(simple(JSON.stringify({ a: 1 })))
             .transform(json({ path: "b.c" }))
-            .to(destSpy),
+            .to(s),
         )
         .build();
 
       await t.ctx.start();
 
-      expect(destSpy.mock.calls[0][0].body).toBeUndefined();
+      expect(s.received[0].body).toBeUndefined();
     });
   });
 
@@ -162,7 +162,7 @@ describe("JSON Adapter", () => {
      * @expectedResult Parsed JSON from that string is returned
      */
     test("from option plucks JSON string from custom property", async () => {
-      const destSpy = vi.fn();
+      const s = spy();
       const payload = { value: 42 };
       const wrapped = { raw: JSON.stringify(payload) };
 
@@ -172,13 +172,13 @@ describe("JSON Adapter", () => {
             .id("json-from")
             .from(simple(wrapped))
             .transform(json({ from: (b) => b.raw }))
-            .to(destSpy),
+            .to(s),
         )
         .build();
 
       await t.ctx.start();
 
-      expect(destSpy.mock.calls[0][0].body).toEqual(payload);
+      expect(s.received[0].body).toEqual(payload);
     });
   });
 
@@ -189,7 +189,7 @@ describe("JSON Adapter", () => {
      * @expectedResult Body is the return value of getValue
      */
     test("getValue transforms path result and replaces body", async () => {
-      const destSpy = vi.fn();
+      const s = spy();
       const payload = { data: { name: "Alice", count: 2 } };
 
       t = await testContext()
@@ -206,13 +206,13 @@ describe("JSON Adapter", () => {
                     : { extracted: "" },
               }),
             )
-            .to(destSpy),
+            .to(s),
         )
         .build();
 
       await t.ctx.start();
 
-      expect(destSpy.mock.calls[0][0].body).toEqual({
+      expect(s.received[0].body).toEqual({
         extracted: "Alice",
       });
     });
@@ -225,7 +225,7 @@ describe("JSON Adapter", () => {
      * @expectedResult Body is { ...body, parsed: result }
      */
     test("to option writes result to sub-field", async () => {
-      const destSpy = vi.fn();
+      const s = spy();
       const payload = { data: { x: 1 } };
       const wrapped = {
         status: 200,
@@ -242,13 +242,13 @@ describe("JSON Adapter", () => {
                 to: (body, result) => ({ ...body, parsed: result }),
               }),
             )
-            .to(destSpy),
+            .to(s),
         )
         .build();
 
       await t.ctx.start();
 
-      const out = destSpy.mock.calls[0][0].body as {
+      const out = s.received[0].body as {
         status: number;
         body: string;
         parsed: unknown;
@@ -283,20 +283,20 @@ describe("JSON Adapter", () => {
       const data = { name: "Alice", age: 30 };
       await fs.writeFile(testFilePath, JSON.stringify(data));
 
-      const destSpy = vi.fn();
+      const s = spy();
 
       const adapter = json({
         path: testFilePath,
       }) as unknown as Source<unknown>;
 
       t = await testContext()
-        .routes(craft().id("json-source-read").from(adapter).to(destSpy))
+        .routes(craft().id("json-source-read").from(adapter).to(s))
         .build();
 
       await t.ctx.start();
 
-      expect(destSpy).toHaveBeenCalledTimes(1);
-      expect(destSpy.mock.calls[0][0].body).toEqual(data);
+      expect(s.received).toHaveLength(1);
+      expect(s.received[0].body).toEqual(data);
     });
 
     /**
@@ -307,14 +307,14 @@ describe("JSON Adapter", () => {
     test("invalid JSON file throws error", async () => {
       await fs.writeFile(testFilePath, "{ invalid json }");
 
-      const destSpy = vi.fn();
+      const s = spy();
 
       t = await testContext()
         .routes(
           craft()
             .id("json-source-invalid")
             .from(json({ path: testFilePath }) as unknown as Source<unknown>)
-            .to(destSpy),
+            .to(s),
         )
         .build();
 
@@ -336,14 +336,14 @@ describe("JSON Adapter", () => {
     test("missing file throws error", async () => {
       const nonExistentPath = path.join(tempDir, "nonexistent.json");
 
-      const destSpy = vi.fn();
+      const s = spy();
 
       t = await testContext()
         .routes(
           craft()
             .id("json-source-missing")
             .from(json({ path: nonExistentPath }) as unknown as Source<unknown>)
-            .to(destSpy),
+            .to(s),
         )
         .build();
 
@@ -503,7 +503,7 @@ describe("JSON Adapter", () => {
      * @expectedResult Uses transformer mode (dot-notation extraction)
      */
     test("uses transformer mode for dot-notation path without file options", async () => {
-      const destSpy = vi.fn();
+      const s = spy();
       const payload = { data: { items: [{ id: 1 }] } };
 
       t = await testContext()
@@ -512,13 +512,13 @@ describe("JSON Adapter", () => {
             .id("json-mode-transformer")
             .from(simple(JSON.stringify(payload)))
             .transform(json({ path: "data.items" }))
-            .to(destSpy),
+            .to(s),
         )
         .build();
 
       await t.ctx.start();
 
-      expect(destSpy.mock.calls[0][0].body).toEqual([{ id: 1 }]);
+      expect(s.received[0].body).toEqual([{ id: 1 }]);
     });
 
     /**
