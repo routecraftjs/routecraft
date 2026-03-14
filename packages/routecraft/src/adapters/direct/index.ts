@@ -2,6 +2,7 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Exchange } from "../../exchange";
 import type { Source } from "../../operations/from";
 import type { Destination } from "../../operations/to";
+import type { RegisteredDirectEndpoint } from "../../registry";
 import { DirectSourceAdapter } from "./source";
 import { DirectDestinationAdapter } from "./destination";
 import type { DirectServerOptions, DirectClientOptions } from "./types";
@@ -21,27 +22,27 @@ import type { DirectServerOptions, DirectClientOptions } from "./types";
  * @example
  * ```typescript
  * // Source route (server)
- * .from(direct('/ingest', { schema: mySchema, description: 'Ingest API' }))
+ * .from(direct('ingest', { schema: mySchema, description: 'Ingest API' }))
  *
  * // Destination (client)
- * .to(direct('/ingest'))
+ * .to(direct('ingest'))
  * .to(direct((ex) => ex.headers['x-endpoint'] as string))
  * ```
  */
 export function direct<S extends StandardSchemaV1 | undefined = undefined>(
-  endpoint: string,
+  endpoint: RegisteredDirectEndpoint,
   options: Partial<DirectServerOptions> & { schema?: S },
 ): Source<
   S extends StandardSchemaV1 ? StandardSchemaV1.InferOutput<S> : unknown
 >;
 export function direct<T = unknown>(
-  endpoint: string | ((exchange: Exchange<T>) => string),
+  endpoint: RegisteredDirectEndpoint | ((exchange: Exchange<T>) => string),
 ): Destination<T, T>;
 export function direct<
   S extends StandardSchemaV1 | undefined = undefined,
   T = unknown,
 >(
-  endpoint: string | ((exchange: Exchange<T>) => string),
+  endpoint: RegisteredDirectEndpoint | ((exchange: Exchange<T>) => string),
   options?: (Partial<DirectServerOptions> | Partial<DirectClientOptions>) & {
     schema?: S;
   },

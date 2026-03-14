@@ -1,13 +1,14 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { CraftContext } from "../../context";
 import type { Exchange } from "../../exchange";
+import type { RegisteredDirectEndpoint } from "../../registry";
 
 export type DirectChannelType<T extends DirectChannel> = new (
   endpoint: string,
 ) => T;
 
 export type DirectEndpoint<T = unknown> =
-  | string
+  | RegisteredDirectEndpoint
   | ((exchange: Exchange<T>) => string);
 
 /**

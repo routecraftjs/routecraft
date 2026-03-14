@@ -68,6 +68,13 @@ export {
   isExchange,
 } from "./brand.ts";
 
+export {
+  type DirectEndpointRegistry,
+  type PluginEventRegistry,
+  type ResolveKey,
+  type RegisteredDirectEndpoint,
+} from "./registry.ts";
+
 export { logger } from "./logger.ts";
 
 export {
