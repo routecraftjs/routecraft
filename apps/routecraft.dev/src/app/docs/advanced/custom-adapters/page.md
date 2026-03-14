@@ -151,7 +151,7 @@ class DbAdapter implements Destination<any, void> {
 }
 ```
 
-See [Plugins](/docs/introduction/plugins) for how to populate the context store at startup.
+See [Plugins](/docs/advanced/plugins) for how to populate the context store at startup.
 
 ---
 

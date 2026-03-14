@@ -180,7 +180,7 @@ See [Expose as MCP](/docs/advanced/expose-as-mcp) and [Call an MCP](/docs/advanc
 
 {% quick-links %}
 
-{% quick-link title="Plugins" icon="presets" href="/docs/introduction/plugins" description="How to write and register plugins." /%}
+{% quick-link title="Plugins" icon="presets" href="/docs/advanced/plugins" description="How to write and register plugins." /%}
 {% quick-link title="Adapters reference" icon="presets" href="/docs/reference/adapters" description="llm, embedding, and mcp adapter signatures and options." /%}
 
 {% /quick-links %}

@@ -98,6 +98,6 @@ export const craftConfig: CraftConfig = {
 {% quick-links %}
 
 {% quick-link title="Events reference" icon="presets" href="/docs/reference/events" description="Full event catalog with payload shapes and wildcard patterns." /%}
-{% quick-link title="Plugins" icon="plugins" href="/docs/introduction/plugins" description="How to write and register plugins." /%}
+{% quick-link title="Plugins" icon="plugins" href="/docs/advanced/plugins" description="How to write and register plugins." /%}
 
 {% /quick-links %}
