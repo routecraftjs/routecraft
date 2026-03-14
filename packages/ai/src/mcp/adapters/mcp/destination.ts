@@ -4,6 +4,7 @@ import type { McpClientOptions, McpArgsExtractor } from "../../types.ts";
 import { ADAPTER_MCP_CLIENT_SERVERS, MCP_STDIO_MANAGERS } from "../../types.ts";
 import type { McpClientHttpConfig } from "./types.ts";
 import { BRAND_MCP_ADAPTER } from "./shared.ts";
+import { extractContent } from "../../extract-content.ts";
 
 /** Ensure inline url is HTTP(S) only. Stdio clients are resolved via MCP_STDIO_MANAGERS store. */
 function assertHttpUrl(url: string): void {
@@ -225,15 +226,7 @@ export class McpDestinationAdapter implements Destination<unknown, unknown> {
         arguments: args,
       });
 
-      const content = response?.content;
-      if (Array.isArray(content) && content.length > 0) {
-        const first = content[0];
-        if (first && typeof first === "object" && "text" in first)
-          return first.text;
-        if (first && typeof first === "object" && "data" in first)
-          return (first as { data?: string }).data;
-      }
-      return response;
+      return extractContent(response);
     } finally {
       const clientCleanup = client as unknown as {
         close?: () => void | Promise<void>;

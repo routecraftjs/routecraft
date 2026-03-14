@@ -1,4 +1,5 @@
 import type { McpTool } from "./types.ts";
+import { extractContent } from "./extract-content.ts";
 
 const MCP_SDK_INSTALL =
   'MCP stdio client requires "@modelcontextprotocol/sdk". Install it with: pnpm add @modelcontextprotocol/sdk';
@@ -22,6 +23,19 @@ interface Logger {
   debug(obj: Record<string, unknown>, msg: string): void;
 }
 
+/** Typed subset of the MCP SDK Client used by StdioClientManager. */
+interface McpSdkClient {
+  connect(transport: unknown): Promise<void>;
+  close(): Promise<void>;
+  listTools(): Promise<{ tools: McpTool[] }>;
+  callTool(params: {
+    name: string;
+    arguments?: Record<string, unknown>;
+  }): Promise<{
+    content?: Array<{ type: string; text?: string; data?: string }>;
+  }>;
+}
+
 /**
  * Manages a single stdio MCP client subprocess.
  *
@@ -30,12 +44,13 @@ interface Logger {
  * and event bridging into RouteCraft's event system.
  */
 export class StdioClientManager {
-  private client: unknown = null;
+  private client: McpSdkClient | null = null;
   private transport: unknown = null;
   private running = false;
   private stopping = false;
   private restartCount = 0;
   private restartTimer: ReturnType<typeof setTimeout> | null = null;
+  private stabilityTimer: ReturnType<typeof setTimeout> | null = null;
   private tools: McpTool[] = [];
 
   /**
@@ -151,13 +166,10 @@ export class StdioClientManager {
           },
         },
       },
-    );
+    ) as unknown as McpSdkClient;
 
     // Connect (performs MCP initialize handshake)
-    const clientWithConnect = this.client as {
-      connect(transport: unknown): Promise<void>;
-    };
-    await clientWithConnect.connect(this.transport);
+    await this.client.connect(this.transport);
 
     this.running = true;
 
@@ -182,19 +194,18 @@ export class StdioClientManager {
       clearTimeout(this.restartTimer);
       this.restartTimer = null;
     }
+    if (this.stabilityTimer) {
+      clearTimeout(this.stabilityTimer);
+      this.stabilityTimer = null;
+    }
 
     const { serverId } = this.options;
 
     if (this.client) {
-      const clientWithClose = this.client as {
-        close?: () => void | Promise<void>;
-      };
-      if (typeof clientWithClose.close === "function") {
-        try {
-          await Promise.resolve(clientWithClose.close());
-        } catch {
-          // Ignore cleanup errors
-        }
+      try {
+        await this.client.close();
+      } catch {
+        // Ignore cleanup errors
       }
       this.client = null;
     }
@@ -239,27 +250,12 @@ export class StdioClientManager {
       );
     }
 
-    const clientWithCallTool = this.client as {
-      callTool(params: {
-        name: string;
-        arguments?: Record<string, unknown>;
-      }): Promise<{ content?: Array<{ type: string; text?: string }> }>;
-    };
-
-    const response = await clientWithCallTool.callTool({
+    const response = await this.client.callTool({
       name,
       arguments: args,
     });
 
-    const content = response?.content;
-    if (Array.isArray(content) && content.length > 0) {
-      const first = content[0];
-      if (first && typeof first === "object" && "text" in first)
-        return first.text;
-      if (first && typeof first === "object" && "data" in first)
-        return (first as { data?: string }).data;
-    }
-    return response;
+    return extractContent(response);
   }
 
   /** @returns The current list of tools advertised by this server. */
@@ -277,12 +273,8 @@ export class StdioClientManager {
 
     const { serverId } = this.options;
 
-    const clientWithListTools = this.client as {
-      listTools(): Promise<{ tools: McpTool[] }>;
-    };
-
     try {
-      const result = await clientWithListTools.listTools();
+      const result = await this.client.listTools();
       this.tools = result.tools ?? [];
       this.onToolsUpdated(serverId, this.tools);
       this.onEvent(`plugin:mcp:client:${serverId}:tools:listed`, {
@@ -361,8 +353,14 @@ export class StdioClientManager {
         serverId,
         restartCount: this.restartCount,
       });
-      // Reset restart count on successful restart
-      this.restartCount = 0;
+      // Reset restart count only after process stays alive for a stability period.
+      // This prevents a flapping process from resetting the counter on every
+      // momentary connection and bypassing maxRestarts.
+      const stableMs = this.options.restartDelayMs * 2;
+      this.stabilityTimer = setTimeout(() => {
+        this.stabilityTimer = null;
+        if (this.running) this.restartCount = 0;
+      }, stableMs);
     } catch (err) {
       this.logger.error(
         { serverId, err, restartCount: this.restartCount },

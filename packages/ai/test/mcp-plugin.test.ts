@@ -218,11 +218,11 @@ describe("MCP Plugin Integration", () => {
   });
 
   /**
-   * @case MCP_TOOL_REGISTRY is populated with local tools after context starts
+   * @case Tool registry does not include local mcp() routes
    * @preconditions Plugin applied with mcp() routes, context started
-   * @expectedResult Registry contains local tools from mcp() routes
+   * @expectedResult Registry is empty (local routes are not MCP tools)
    */
-  test("tool registry is populated with local tools after context starts", async () => {
+  test("tool registry does not include local mcp() routes", async () => {
     t = await testContext()
       .routes([
         craft()
@@ -244,14 +244,9 @@ describe("MCP Plugin Integration", () => {
 
     const registry = t.ctx.getStore(MCP_TOOL_REGISTRY_KEY) as McpToolRegistry;
     const tools = registry.getTools();
-    const names = tools.map((t) => t.name);
-    expect(names).toContain("tool-a");
-    expect(names).toContain("tool-b");
-    // direct() route without description should not appear
-    expect(names).not.toContain("internal");
-    // All local tools should have transport "local"
-    expect(tools.every((t) => t.transport === "local")).toBe(true);
-    expect(tools.every((t) => t.source === "local")).toBe(true);
+    // Local routes should not appear in the MCP tool registry.
+    // The registry is for external tools (stdio/HTTP clients) only.
+    expect(tools).toHaveLength(0);
   });
 
   describe("validation", () => {
