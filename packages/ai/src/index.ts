@@ -40,7 +40,10 @@ export {
   mcp,
   mcpPlugin,
   McpServer,
+  McpToolRegistry,
   MCP_PLUGIN_REGISTERED,
+  MCP_STDIO_MANAGERS,
+  MCP_TOOL_REGISTRY,
   validateWithSchema,
   type McpArgsExtractor,
   type McpClientHttpConfig,
@@ -49,6 +52,7 @@ export {
   type McpPluginOptions,
   type McpServerOptions,
   type McpTool,
+  type McpToolRegistryEntry,
   type McpToolResult,
 } from "./mcp/index.ts";
 export type {

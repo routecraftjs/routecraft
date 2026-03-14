@@ -27,7 +27,7 @@ export const navigation = [
     title: 'Advanced',
     href: '/docs/advanced',
     links: [
-      { title: 'Plugins', href: '/docs/introduction/plugins' },
+      { title: 'Plugins', href: '/docs/advanced/plugins' },
       { title: 'Events', href: '/docs/introduction/events' },
       {
         title: 'Composing Capabilities',

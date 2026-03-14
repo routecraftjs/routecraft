@@ -6,7 +6,7 @@ Deeper patterns, integrations, and operational topics. {% .lead %}
 
 {% quick-links %}
 
-{% quick-link title="Plugins" icon="plugins" href="/docs/introduction/plugins" description="Extend the runtime with cross-cutting behaviour." /%}
+{% quick-link title="Plugins" icon="plugins" href="/docs/advanced/plugins" description="Extend the runtime with cross-cutting behaviour." /%}
 {% quick-link title="Events" icon="theming" href="/docs/introduction/events" description="Lifecycle and runtime events." /%}
 {% quick-link title="Composing Capabilities" icon="presets" href="/docs/advanced/composing-capabilities" description="Build modular systems with direct() and reusable capability chains." /%}
 {% quick-link title="Error Handling" icon="presets" href="/docs/advanced/error-handling" description="Catch pipeline errors and recover with .error()." /%}

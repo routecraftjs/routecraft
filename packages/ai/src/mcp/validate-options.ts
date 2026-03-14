@@ -29,6 +29,68 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
       throw new TypeError("mcpPlugin: when provided, host must be a string");
     }
   }
+
+  // Validate stdio client configs
+  if (options.clients) {
+    for (const [name, config] of Object.entries(options.clients)) {
+      if (
+        typeof config === "object" &&
+        config !== null &&
+        "transport" in config &&
+        config.transport === "stdio"
+      ) {
+        if (!config.command || typeof config.command !== "string") {
+          throw new TypeError(
+            `mcpPlugin: stdio client "${name}" must have a non-empty command string`,
+          );
+        }
+      }
+    }
+  }
+
+  // Validate restart options
+  if (options.maxRestarts !== undefined) {
+    if (
+      typeof options.maxRestarts !== "number" ||
+      !Number.isInteger(options.maxRestarts) ||
+      options.maxRestarts < 0
+    ) {
+      throw new TypeError(
+        "mcpPlugin: maxRestarts must be a non-negative integer",
+      );
+    }
+  }
+  if (options.restartDelayMs !== undefined) {
+    if (
+      typeof options.restartDelayMs !== "number" ||
+      options.restartDelayMs <= 0
+    ) {
+      throw new TypeError(
+        "mcpPlugin: restartDelayMs must be a positive number",
+      );
+    }
+  }
+  if (options.restartBackoffMultiplier !== undefined) {
+    if (
+      typeof options.restartBackoffMultiplier !== "number" ||
+      options.restartBackoffMultiplier < 1
+    ) {
+      throw new TypeError("mcpPlugin: restartBackoffMultiplier must be >= 1");
+    }
+  }
+
+  // Validate HTTP tool refresh interval
+  if (options.toolRefreshIntervalMs !== undefined) {
+    if (
+      typeof options.toolRefreshIntervalMs !== "number" ||
+      !Number.isInteger(options.toolRefreshIntervalMs) ||
+      options.toolRefreshIntervalMs < 0
+    ) {
+      throw new TypeError(
+        "mcpPlugin: toolRefreshIntervalMs must be a non-negative integer",
+      );
+    }
+  }
 }
 
 /**

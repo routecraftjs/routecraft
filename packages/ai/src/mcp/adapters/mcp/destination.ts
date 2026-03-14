@@ -1,11 +1,12 @@
 import type { Exchange, Destination } from "@routecraft/routecraft";
 import { getExchangeContext } from "@routecraft/routecraft";
 import type { McpClientOptions, McpArgsExtractor } from "../../types.ts";
-import { ADAPTER_MCP_CLIENT_SERVERS } from "../../types.ts";
+import { ADAPTER_MCP_CLIENT_SERVERS, MCP_STDIO_MANAGERS } from "../../types.ts";
 import type { McpClientHttpConfig } from "./types.ts";
 import { BRAND_MCP_ADAPTER } from "./shared.ts";
+import { extractContent } from "../../extract-content.ts";
 
-/** Ensure inline url is HTTP(S) only; stdio is not supported in routes. */
+/** Ensure inline url is HTTP(S) only. Stdio clients are resolved via MCP_STDIO_MANAGERS store. */
 function assertHttpUrl(url: string): void {
   const trimmed = url.trim().toLowerCase();
   if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
@@ -91,7 +92,6 @@ export class McpDestinationAdapter implements Destination<unknown, unknown> {
 
   async send(exchange: Exchange<unknown>): Promise<unknown> {
     const context = getExchangeContext(exchange);
-    const url = resolveUrl(this.options, context);
     const toolName =
       this.options.tool ??
       (typeof exchange.body === "object" &&
@@ -108,6 +108,55 @@ export class McpDestinationAdapter implements Destination<unknown, unknown> {
     const argsExtractor = this.options.args ?? defaultArgs;
     const args = argsExtractor(exchange);
 
+    // Check for stdio manager first (registered via mcpPlugin)
+    if (this.options.serverId && context) {
+      const stdioManagers = context.getStore(
+        MCP_STDIO_MANAGERS as keyof import("@routecraft/routecraft").StoreRegistry,
+      ) as
+        | Map<
+            string,
+            {
+              callTool(
+                name: string,
+                args: Record<string, unknown>,
+              ): Promise<unknown>;
+            }
+          >
+        | undefined;
+      const manager = stdioManagers?.get(this.options.serverId);
+      if (manager) {
+        const result = await manager.callTool(toolName, args);
+        if (result && typeof result === "object") {
+          (result as Record<string, unknown>)["metadata"] = {
+            toolName,
+            transport: "stdio",
+            serverId: this.options.serverId,
+          };
+        }
+        return result;
+      }
+
+      // Guard: if the registered config is stdio-type but the manager is missing,
+      // throw a clear error instead of falling through to HTTP (which would fail
+      // confusingly since stdio configs have no url property).
+      const servers = context.getStore(
+        ADAPTER_MCP_CLIENT_SERVERS as keyof import("@routecraft/routecraft").StoreRegistry,
+      ) as Map<string, unknown> | undefined;
+      const serverConfig = servers?.get(this.options.serverId);
+      if (
+        serverConfig &&
+        typeof serverConfig === "object" &&
+        "transport" in serverConfig &&
+        (serverConfig as { transport: string }).transport === "stdio"
+      ) {
+        throw new Error(
+          `MCP client: stdio server "${this.options.serverId}" is not running. Ensure mcpPlugin is applied and the stdio client started successfully.`,
+        );
+      }
+    }
+
+    // Fall through to HTTP
+    const url = resolveUrl(this.options, context);
     const result = await this.callRemoteTool(url, toolName, args);
 
     // Attach metadata to result for getMetadata() to read (eliminates race condition)
@@ -133,7 +182,7 @@ export class McpDestinationAdapter implements Destination<unknown, unknown> {
     }
     return {
       toolName: "unknown",
-      transport: "http",
+      transport: "unknown",
     };
   }
 
@@ -195,15 +244,7 @@ export class McpDestinationAdapter implements Destination<unknown, unknown> {
         arguments: args,
       });
 
-      const content = response?.content;
-      if (Array.isArray(content) && content.length > 0) {
-        const first = content[0];
-        if (first && typeof first === "object" && "text" in first)
-          return first.text;
-        if (first && typeof first === "object" && "data" in first)
-          return (first as { data?: string }).data;
-      }
-      return response;
+      return extractContent(response);
     } finally {
       const clientCleanup = client as unknown as {
         close?: () => void | Promise<void>;

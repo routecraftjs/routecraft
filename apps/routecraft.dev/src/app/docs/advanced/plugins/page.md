@@ -97,6 +97,31 @@ class DbAdapter implements Destination<any, void> {
 
 This keeps connection strings and tokens out of every capability file.
 
+## Managing external services
+
+Plugins can manage long-lived external processes. The built-in `mcpPlugin` demonstrates this pattern: it spawns stdio MCP server subprocesses, monitors their health, and restarts them with exponential backoff when they crash.
+
+```ts
+import { mcpPlugin } from '@routecraft/ai'
+
+const config: CraftConfig = {
+  plugins: [
+    mcpPlugin({
+      clients: {
+        filesystem: {
+          transport: 'stdio',
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
+        },
+      },
+      maxRestarts: 5,
+    }),
+  ],
+}
+```
+
+The plugin starts each subprocess when the context starts and tears them down when it stops. Tools from all sources (local routes, stdio clients, HTTP clients) are collected into a unified registry accessible from the context store.
+
 ## Lifecycle events
 
 Plugins subscribe to events using `context.on(eventName, handler)`. Common events include `route:started`, `route:stopped`, `context:started`, `context:stopped`, and `error`. See the [Events reference](/docs/reference/events) for the full list.
