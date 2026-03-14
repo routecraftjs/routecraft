@@ -60,6 +60,7 @@ export class StdioClientManager {
   /** Spawn the child process, perform the MCP handshake, and list initial tools. */
   async start(): Promise<void> {
     if (this.running) return;
+    this.stopping = false;
 
     type SdkClientModule =
       typeof import("@modelcontextprotocol/sdk/client/index.js");
@@ -299,6 +300,12 @@ export class StdioClientManager {
   private handleDisconnect(): void {
     const { serverId, maxRestarts, restartDelayMs, restartBackoffMultiplier } =
       this.options;
+
+    // Clear stale tools so consumers don't see tools from a dead process
+    if (this.tools.length > 0) {
+      this.tools = [];
+      this.onToolsUpdated(serverId, []);
+    }
 
     this.logger.warn(
       { serverId },
