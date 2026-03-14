@@ -8,15 +8,19 @@ import {
   DefaultExchange,
   EXCHANGE_INTERNALS,
 } from "./exchange.ts";
+import { type RegisteredDirectEndpoint } from "./registry.ts";
 
 /**
  * Function that forwards a payload to another route via the direct adapter and returns its result.
  *
- * @param routeId - The target route's direct endpoint id
+ * @param endpoint - The target route's direct endpoint
  * @param payload - The data to send
  * @returns The result of the target route's pipeline
  */
-export type ForwardFn = (routeId: string, payload: unknown) => Promise<unknown>;
+export type ForwardFn = (
+  endpoint: RegisteredDirectEndpoint,
+  payload: unknown,
+) => Promise<unknown>;
 
 /**
  * Error handler invoked when a step in the route pipeline throws an unhandled error.

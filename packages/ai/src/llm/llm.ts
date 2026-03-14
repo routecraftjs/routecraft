@@ -1,7 +1,8 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Destination } from "@routecraft/routecraft";
 import { LlmDestinationAdapter } from "./destination.ts";
-import type { LlmModelId, LlmOptions, LlmResultWithOutput } from "./types.ts";
+import type { LlmOptions, LlmResultWithOutput } from "./types.ts";
+import type { RegisteredLlmModelId } from "../registry.ts";
 
 /**
  * Creates an LLM destination that calls a provider with a model. Use with .enrich() or .to().
@@ -14,7 +15,7 @@ import type { LlmModelId, LlmOptions, LlmResultWithOutput } from "./types.ts";
  * @param options - Optional overrides (systemPrompt, userPrompt, temperature, maxTokens, outputSchema, etc.). User prompt defaults to exchange.body.
  */
 export function llm<S extends StandardSchemaV1 | undefined = undefined>(
-  modelId: LlmModelId,
+  modelId: RegisteredLlmModelId,
   options?: Partial<LlmOptions> & { outputSchema?: S },
 ): Destination<unknown, LlmResultWithOutput<S>> {
   return new LlmDestinationAdapter<S>(modelId, options);
