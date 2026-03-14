@@ -77,6 +77,12 @@ export class StdioClientManager {
     if (this.running) return;
     this.stopping = false;
 
+    // Cancel any pending restart to avoid race with externally-initiated start
+    if (this.restartTimer) {
+      clearTimeout(this.restartTimer);
+      this.restartTimer = null;
+    }
+
     type SdkClientModule =
       typeof import("@modelcontextprotocol/sdk/client/index.js");
     type SdkStdioModule =
@@ -114,8 +120,8 @@ export class StdioClientManager {
 
     transport.onerror = (error: Error) => {
       this.logger.error(
-        { serverId, err: error },
-        `Stdio client "${serverId}" transport error`,
+        { err: error, serverId },
+        "Stdio client transport error",
       );
       this.onEvent(`plugin:mcp:client:${serverId}:error`, {
         serverId,
@@ -135,7 +141,7 @@ export class StdioClientManager {
       transport.stderr.on("data", (data: unknown) => {
         this.logger.debug(
           { serverId, stderr: String(data).trimEnd() },
-          `Stdio client "${serverId}" stderr`,
+          "Stdio client stderr output",
         );
       });
     }
@@ -178,7 +184,7 @@ export class StdioClientManager {
 
     this.logger.info(
       { serverId, toolCount: this.tools.length },
-      `Stdio client "${serverId}" started`,
+      "Stdio client started",
     );
     this.onEvent(`plugin:mcp:client:${serverId}:started`, {
       serverId,
@@ -225,7 +231,7 @@ export class StdioClientManager {
     }
 
     this.running = false;
-    this.logger.info({ serverId }, `Stdio client "${serverId}" stopped`);
+    this.logger.info({ serverId }, "Stdio client stopped");
     this.onEvent(`plugin:mcp:client:${serverId}:stopped`, {
       serverId,
       reason: "graceful",
@@ -283,8 +289,8 @@ export class StdioClientManager {
       });
     } catch (err) {
       this.logger.warn(
-        { serverId, err },
-        `Failed to list tools for stdio client "${serverId}"`,
+        { err, serverId },
+        "Failed to list tools for stdio client",
       );
     }
   }
@@ -299,10 +305,7 @@ export class StdioClientManager {
       this.onToolsUpdated(serverId, []);
     }
 
-    this.logger.warn(
-      { serverId },
-      `Stdio client "${serverId}" disconnected unexpectedly`,
-    );
+    this.logger.warn({ serverId }, "Stdio client disconnected unexpectedly");
     this.onEvent(`plugin:mcp:client:${serverId}:stopped`, {
       serverId,
       reason: "unexpected",
@@ -311,7 +314,7 @@ export class StdioClientManager {
     if (this.restartCount >= maxRestarts) {
       this.logger.error(
         { serverId, restartCount: this.restartCount, maxRestarts },
-        `Stdio client "${serverId}" exceeded max restarts (${maxRestarts}). Giving up.`,
+        "Stdio client exceeded max restarts, giving up",
       );
       this.onEvent(`plugin:mcp:client:${serverId}:error`, {
         serverId,
@@ -326,7 +329,7 @@ export class StdioClientManager {
       restartDelayMs * Math.pow(restartBackoffMultiplier, this.restartCount);
     this.logger.info(
       { serverId, restartCount: this.restartCount, delayMs: delay },
-      `Scheduling restart for stdio client "${serverId}" in ${delay}ms`,
+      "Scheduling stdio client restart",
     );
 
     this.restartTimer = setTimeout(() => {
@@ -347,7 +350,7 @@ export class StdioClientManager {
       await this.start();
       this.logger.info(
         { serverId, restartCount: this.restartCount },
-        `Stdio client "${serverId}" restarted successfully`,
+        "Stdio client restarted successfully",
       );
       this.onEvent(`plugin:mcp:client:${serverId}:restarted`, {
         serverId,
@@ -363,8 +366,8 @@ export class StdioClientManager {
       }, stableMs);
     } catch (err) {
       this.logger.error(
-        { serverId, err, restartCount: this.restartCount },
-        `Stdio client "${serverId}" restart failed`,
+        { err, serverId, restartCount: this.restartCount },
+        "Stdio client restart failed",
       );
       this.onEvent(`plugin:mcp:client:${serverId}:error`, {
         serverId,

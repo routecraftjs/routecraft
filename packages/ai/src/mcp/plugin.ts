@@ -126,7 +126,10 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
         try {
           await client.close();
         } catch (error) {
-          ctx.logger.error(error, `Error closing HTTP client "${serverId}"`);
+          ctx.logger.error(
+            { err: error, serverId, operation: "close" },
+            "Failed to close HTTP client",
+          );
         }
       }
       httpClients.clear();
@@ -136,7 +139,10 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
         try {
           await manager.stop();
         } catch (error) {
-          ctx.logger.error(error, `Error stopping stdio client "${serverId}"`);
+          ctx.logger.error(
+            { err: error, serverId, operation: "stop" },
+            "Failed to stop stdio client",
+          );
         }
       }
       stdioManagers.clear();
@@ -145,7 +151,10 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
         try {
           await server.stop();
         } catch (error) {
-          ctx.logger.error(error, "Error stopping MCP server plugin");
+          ctx.logger.error(
+            { err: error, operation: "stop" },
+            "Failed to stop MCP server plugin",
+          );
         }
         server = null;
       }
@@ -205,7 +214,10 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
     try {
       await manager.start();
     } catch (error) {
-      ctx.logger.error(error, `Failed to start stdio client "${serverId}"`);
+      ctx.logger.error(
+        { err: error, serverId, operation: "start" },
+        "Failed to start stdio client",
+      );
       ctx.emit(
         `plugin:mcp:client:${serverId}:error` as EventName,
         {
@@ -289,8 +301,8 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
       // Connection may have gone stale; discard so next attempt reconnects
       httpClients.delete(serverId);
       ctx.logger.warn(
-        error,
-        `Failed to list tools from HTTP client "${serverId}" at ${url}`,
+        { err: error, serverId, url, operation: "listTools" },
+        "Failed to list tools from HTTP client",
       );
     }
   }

@@ -135,6 +135,24 @@ export class McpDestinationAdapter implements Destination<unknown, unknown> {
         }
         return result;
       }
+
+      // Guard: if the registered config is stdio-type but the manager is missing,
+      // throw a clear error instead of falling through to HTTP (which would fail
+      // confusingly since stdio configs have no url property).
+      const servers = context.getStore(
+        ADAPTER_MCP_CLIENT_SERVERS as keyof import("@routecraft/routecraft").StoreRegistry,
+      ) as Map<string, unknown> | undefined;
+      const serverConfig = servers?.get(this.options.serverId);
+      if (
+        serverConfig &&
+        typeof serverConfig === "object" &&
+        "transport" in serverConfig &&
+        (serverConfig as { transport: string }).transport === "stdio"
+      ) {
+        throw new Error(
+          `MCP client: stdio server "${this.options.serverId}" is not running. Ensure mcpPlugin is applied and the stdio client started successfully.`,
+        );
+      }
     }
 
     // Fall through to HTTP
