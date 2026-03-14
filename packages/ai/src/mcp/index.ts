@@ -12,6 +12,7 @@ export { McpToolRegistry } from "./tool-registry.ts";
 export {
   ADAPTER_MCP_CLIENT_SERVERS,
   MCP_PLUGIN_REGISTERED,
+  MCP_STDIO_MANAGERS,
   MCP_TOOL_REGISTRY,
   type McpOptions,
   type McpPluginOptions,

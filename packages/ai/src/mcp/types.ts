@@ -18,6 +18,9 @@ export const ADAPTER_MCP_CLIENT_SERVERS = Symbol.for(
 /** Store key for the unified MCP tool registry. Used by agent adapter for tool discovery. */
 export const MCP_TOOL_REGISTRY = Symbol.for("routecraft.mcp.tool.registry");
 
+/** Store key for stdio client managers. Used by destination adapter to call tools on stdio clients. */
+export const MCP_STDIO_MANAGERS = Symbol.for("routecraft.mcp.stdio.managers");
+
 declare module "@routecraft/routecraft" {
   interface StoreRegistry {
     [MCP_PLUGIN_REGISTERED]: boolean;
@@ -26,6 +29,12 @@ declare module "@routecraft/routecraft" {
       McpClientHttpConfig | McpClientStdioConfig | string
     >;
     [MCP_TOOL_REGISTRY]: McpToolRegistry;
+    [MCP_STDIO_MANAGERS]: Map<
+      string,
+      {
+        callTool(name: string, args: Record<string, unknown>): Promise<unknown>;
+      }
+    >;
   }
 }
 
@@ -139,9 +148,11 @@ export type McpArgsExtractor = (
  * Options for mcp() when used as a Client in .to() to call a remote MCP server.
  * Provide either url (inline HTTP) or serverId (from plugin/store); tool is required.
  *
- * **Stdio is not supported in routes.** Only HTTP is allowed: use `url` for an inline
- * HTTP endpoint or `serverId` for a named backend from mcpPlugin({ clients }) or
- * context store. Stdio MCP clients are managed by the plugin lifecycle only.
+ * Supported transports:
+ * - **HTTP:** use `url` for an inline endpoint or `serverId` for a named backend.
+ * - **Stdio:** use `serverId` referencing a stdio client from mcpPlugin({ clients }).
+ *   The destination adapter resolves the manager from the context store and calls
+ *   tools directly on the subprocess -- no HTTP involved.
  */
 export interface McpClientOptions {
   /** URL of the remote MCP server (HTTP/HTTPS only). Omit when using serverId. */

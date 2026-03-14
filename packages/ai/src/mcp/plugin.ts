@@ -9,6 +9,7 @@ import { McpServer } from "./server.ts";
 import {
   ADAPTER_MCP_CLIENT_SERVERS,
   MCP_PLUGIN_REGISTERED,
+  MCP_STDIO_MANAGERS,
   MCP_TOOL_REGISTRY,
 } from "./types.ts";
 import type {
@@ -54,6 +55,20 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
       ctx.setStore(
         MCP_TOOL_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry,
         toolRegistry,
+      );
+
+      // Store stdio managers map so destination adapter can call tools on stdio clients
+      ctx.setStore(
+        MCP_STDIO_MANAGERS as keyof import("@routecraft/routecraft").StoreRegistry,
+        stdioManagers as unknown as Map<
+          string,
+          {
+            callTool(
+              name: string,
+              args: Record<string, unknown>,
+            ): Promise<unknown>;
+          }
+        >,
       );
 
       if (options.clients && Object.keys(options.clients).length > 0) {

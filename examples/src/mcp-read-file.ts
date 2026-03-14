@@ -35,7 +35,7 @@ export default craft()
   .from(simple({ path: "/tmp/hello.txt" }))
   .to(
     mcp("filesystem:read_file", {
-      args: (ex) => ({ path: ex.body.path }),
+      args: (ex) => ({ path: (ex.body as { path: string }).path }),
     }),
   )
   .tap(log());
