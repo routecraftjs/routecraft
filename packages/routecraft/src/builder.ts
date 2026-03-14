@@ -901,7 +901,7 @@ export class RouteBuilder<Current = unknown> {
    *   .process((ex) => ({ ...ex, body: (ex.body as string).toUpperCase() }))
    *   .to(destination)
    *   .build();
-   * const ctx = await context().routes(definitions).build();
+   * const ctx = await new ContextBuilder().routes(definitions).build();
    * await ctx.start();
    * ```
    */

@@ -14,6 +14,7 @@ import {
   ContextBuilder,
   DefaultExchange,
   ADAPTER_DIRECT_STORE,
+  sanitizeEndpoint,
   isRoutecraftError,
   RoutecraftError,
   rcError,
@@ -54,6 +55,7 @@ export class TestContext {
   private readonly routesReadyTimeoutMs: number;
 
   private restoreLoggerChild?: () => void;
+  private loggerChildRestored = false;
   private startedPromise?: Promise<void>;
 
   constructor(
@@ -185,7 +187,7 @@ export class TestContext {
         await ctx.stop();
         await started;
       } finally {
-        this.restoreLoggerChild?.();
+        this.restoreLoggerChildOnce();
       }
     }
   }
@@ -195,10 +197,20 @@ export class TestContext {
   }
 
   async stop(): Promise<void> {
-    await this.ctx.stop();
-    if (this.startedPromise !== undefined) {
-      await this.startedPromise;
+    try {
+      await this.ctx.stop();
+      if (this.startedPromise !== undefined) {
+        await this.startedPromise;
+      }
+    } finally {
+      this.restoreLoggerChildOnce();
     }
+  }
+
+  private restoreLoggerChildOnce(): void {
+    if (this.loggerChildRestored) return;
+    this.restoreLoggerChild?.();
+    this.loggerChildRestored = true;
   }
 
   /**
@@ -216,7 +228,7 @@ export class TestContext {
     headers?: ExchangeHeaders,
   ): Promise<R> {
     const store = this.ctx.getStore(ADAPTER_DIRECT_STORE);
-    const sanitized = encodeURIComponent(endpoint);
+    const sanitized = sanitizeEndpoint(endpoint);
     const channel = store?.get(sanitized);
     if (!channel) {
       throw new Error(

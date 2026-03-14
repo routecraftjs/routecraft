@@ -403,7 +403,7 @@ craft()
   .process(fetchAndSummarize)
 
 // Later, query discoverable routes from context
-const ctx = context().routes(...).build()
+const ctx = new ContextBuilder().routes(...).build()
 await ctx.start()
 
 const registry = ctx.getStore(DirectAdapter.ADAPTER_DIRECT_REGISTRY)

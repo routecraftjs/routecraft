@@ -262,35 +262,6 @@ export class JsonFileAdapter
 }
 
 /**
- * Creates a JSON adapter.
- *
- * @beta
- * **Transformer mode** (when no `path` option):
- * Parses a JSON string and optionally extracts a value by path.
- * By default uses body (or body.body when object) as the JSON string and replaces the body with the result.
- *
- * **Source/Destination mode** (when `path` option is provided):
- * As a **source** (.from): Reads and parses JSON files
- * As a **destination** (.to): Stringifies and writes JSON files with optional formatting
- *
- * @param options - Transformer options (`from`, `getValue`, `to`) or file options (`path`, `space`, etc.)
- * @returns A Transformer (transformer mode) or Source/Destination adapter (file mode)
- *
- * @example
- * ```typescript
- * // Transformer mode
- * .transform(json({ path: 'data.items' }))
- * .transform(json({ from: (b) => b.raw, getValue: (p) => p as User[] }))
- *
- * // Source mode
- * .from(json({ path: './data.json' }))
- *
- * // Destination mode
- * .to(json({ path: './output.json', space: 2 }))
- * .to(json({ path: (ex) => `./data/${ex.body.id}.json`, createDirs: true }))
- * ```
- */
-/**
  * Detect if options indicate file mode vs transformer mode.
  * File mode is indicated by:
  * - path is a function (dynamic file paths), OR
@@ -346,6 +317,35 @@ function isFileMode<T = unknown, R = unknown, V = unknown>(
   return hasPathSeparator || hasWindowsDrive;
 }
 
+/**
+ * Creates a JSON adapter.
+ *
+ * @beta
+ * **Transformer mode** (when no `path` option):
+ * Parses a JSON string and optionally extracts a value by path.
+ * By default uses body (or body.body when object) as the JSON string and replaces the body with the result.
+ *
+ * **Source/Destination mode** (when `path` option is provided):
+ * As a **source** (.from): Reads and parses JSON files
+ * As a **destination** (.to): Stringifies and writes JSON files with optional formatting
+ *
+ * @param options - Transformer options (`from`, `getValue`, `to`) or file options (`path`, `space`, etc.)
+ * @returns A Transformer (transformer mode) or Source/Destination adapter (file mode)
+ *
+ * @example
+ * ```typescript
+ * // Transformer mode
+ * .transform(json({ path: 'data.items' }))
+ * .transform(json({ from: (b) => b.raw, getValue: (p) => p as User[] }))
+ *
+ * // Source mode
+ * .from(json({ path: './data.json' }))
+ *
+ * // Destination mode
+ * .to(json({ path: './output.json', space: 2 }))
+ * .to(json({ path: (ex) => `./data/${ex.body.id}.json`, createDirs: true }))
+ * ```
+ */
 export function json<T, R, V>(
   options: JsonTransformerOptions<T, R, V> & {
     getValue: (parsed: unknown) => V;

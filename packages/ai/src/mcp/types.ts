@@ -7,7 +7,7 @@ import type { McpToolRegistry } from "./tool-registry.ts";
 
 /**
  * Store key set by mcpPlugin() when applied; routes using .from(mcp(...)) require it.
- * @experimental
+ * @internal
  */
 export const MCP_PLUGIN_REGISTERED = Symbol.for(
   "routecraft.mcp.plugin.registered",
@@ -15,7 +15,7 @@ export const MCP_PLUGIN_REGISTERED = Symbol.for(
 
 /**
  * Store key for named remote MCP servers (mcpPlugin({ clients })). Used by McpClient to resolve serverId.
- * @experimental
+ * @internal
  */
 export const ADAPTER_MCP_CLIENT_SERVERS = Symbol.for(
   "routecraft.mcp.client.servers",
@@ -23,13 +23,13 @@ export const ADAPTER_MCP_CLIENT_SERVERS = Symbol.for(
 
 /**
  * Store key for the unified MCP tool registry. Used by agent adapter for tool discovery.
- * @experimental
+ * @internal
  */
 export const MCP_TOOL_REGISTRY = Symbol.for("routecraft.mcp.tool.registry");
 
 /**
  * Store key for stdio client managers. Used by destination adapter to call tools on stdio clients.
- * @experimental
+ * @internal
  */
 export const MCP_STDIO_MANAGERS = Symbol.for("routecraft.mcp.stdio.managers");
 

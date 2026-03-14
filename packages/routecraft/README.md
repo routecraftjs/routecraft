@@ -81,9 +81,9 @@ Operations transform or gate the data flowing through a capability:
 Group capabilities into a context for lifecycle management:
 
 ```typescript
-import { context } from '@routecraft/routecraft';
+import { ContextBuilder } from '@routecraft/routecraft';
 
-const ctx = context()
+const ctx = new ContextBuilder()
   .routes([sendEmail, syncUsers, processWebhook])
   .build();
 
@@ -117,9 +117,9 @@ plugin:<pluginId>:started
 ### Subscribing
 
 ```typescript
-import { context } from '@routecraft/routecraft';
+import { ContextBuilder } from '@routecraft/routecraft';
 
-const ctx = context()
+const ctx = new ContextBuilder()
   .routes([...])
   .on('route:*:exchange:completed', ({ details }) => {
     console.log('Exchange completed on', details.routeId);

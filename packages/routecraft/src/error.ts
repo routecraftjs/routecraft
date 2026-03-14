@@ -250,6 +250,7 @@ export function rcError(
     ...(overrides || {}),
     docs: overrides?.docs ?? base.docs,
   };
-  const parsed = cause ? RoutecraftError.parse(cause).error : undefined;
+  const parsed =
+    cause !== undefined ? RoutecraftError.parse(cause).error : undefined;
   return new RoutecraftError(rc, meta, parsed);
 }

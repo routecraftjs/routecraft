@@ -115,6 +115,7 @@ export {
   ADAPTER_DIRECT_STORE,
   ADAPTER_DIRECT_OPTIONS,
   ADAPTER_DIRECT_REGISTRY,
+  sanitizeEndpoint,
 } from "./adapters/direct/index.ts";
 export { type TimerOptions } from "./adapters/timer/index.ts";
 export {

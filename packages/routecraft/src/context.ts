@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { BRAND, setBrand } from "./brand.ts";
-import { ContextBuilder } from "./builder.ts";
 import { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
 import { rcError, RC } from "./error.ts";
 import { isRoutecraftError } from "./brand.ts";
@@ -878,27 +877,4 @@ export class CraftContext {
       throw drainError;
     }
   }
-}
-
-/**
- * Create a new context builder.
- *
- * This is the entry point for creating a new application context.
- *
- * @returns A new ContextBuilder instance
- *
- * @example
- * ```typescript
- * // Create and configure a context
- * const ctx = context()
- *   .routes(myRoute)
- *   .on('context:starting', () => console.log('Starting...'))
- *   .build();
- *
- * // Start processing
- * await ctx.start();
- * ```
- */
-export function context(): ContextBuilder {
-  return new ContextBuilder();
 }

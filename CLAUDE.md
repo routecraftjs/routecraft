@@ -42,7 +42,7 @@ See [DEFINITION_OF_DONE.md](DEFINITION_OF_DONE.md) for what must be satisfied be
 | `@routecraft/routecraft` | `packages/routecraft` | Core library (builder, DSL, context, adapters, consumers) |
 | `@routecraft/ai` | `packages/ai` | AI and MCP integrations |
 | `@routecraft/cli` | `packages/cli` | CLI (`craft`) to run routes and contexts |
-| `@routecraft/testing` | `packages/testing` | Test utilities (spy adapter, testContext, invoke) |
+| `@routecraft/testing` | `packages/testing` | Test utilities (spy logger, testContext, pseudo, fixtures) |
 | `@routecraft/eslint-plugin-routecraft` | `packages/eslint-plugin-routecraft` | ESLint plugin |
 | `create-routecraft` | `packages/create-routecraft` | Project scaffolder |
 
