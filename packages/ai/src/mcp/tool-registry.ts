@@ -10,12 +10,8 @@ import type { McpToolRegistryEntry } from "./types.ts";
  * - HTTP clients: remote HTTP MCP servers (tools refreshed periodically)
  */
 export class McpToolRegistry {
-  /** Map<"source:toolName", McpToolRegistryEntry> for uniqueness across sources. */
-  private tools = new Map<string, McpToolRegistryEntry>();
-
-  private key(source: string, name: string): string {
-    return `${source}:${name}`;
-  }
+  /** Nested Map: source -> toolName -> McpToolRegistryEntry */
+  private tools = new Map<string, Map<string, McpToolRegistryEntry>>();
 
   /**
    * Set all tools for a given source (replaces previous tools from that source).
@@ -34,10 +30,8 @@ export class McpToolRegistry {
       inputSchema: Record<string, unknown>;
     }>,
   ): void {
-    // Remove existing tools for this source
-    this.removeSource(source);
+    const sourceMap = new Map<string, McpToolRegistryEntry>();
 
-    // Add new tools
     for (const tool of tools) {
       const entry: McpToolRegistryEntry = {
         name: tool.name,
@@ -48,8 +42,10 @@ export class McpToolRegistry {
       if (tool.description !== undefined) {
         entry.description = tool.description;
       }
-      this.tools.set(this.key(source, tool.name), entry);
+      sourceMap.set(tool.name, entry);
     }
+
+    this.tools.set(source, sourceMap);
   }
 
   /**
@@ -58,12 +54,7 @@ export class McpToolRegistry {
    * @param source - Source identifier whose tools should be removed
    */
   removeSource(source: string): void {
-    const prefix = `${source}:`;
-    for (const key of this.tools.keys()) {
-      if (key.startsWith(prefix)) {
-        this.tools.delete(key);
-      }
-    }
+    this.tools.delete(source);
   }
 
   /**
@@ -72,7 +63,13 @@ export class McpToolRegistry {
    * @returns Array of every registered tool entry
    */
   getTools(): McpToolRegistryEntry[] {
-    return Array.from(this.tools.values());
+    const result: McpToolRegistryEntry[] = [];
+    for (const sourceMap of this.tools.values()) {
+      for (const entry of sourceMap.values()) {
+        result.push(entry);
+      }
+    }
+    return result;
   }
 
   /**
@@ -82,7 +79,9 @@ export class McpToolRegistry {
    * @returns Array of tool entries belonging to that source
    */
   getToolsByServer(serverId: string): McpToolRegistryEntry[] {
-    return this.getTools().filter((t) => t.source === serverId);
+    const sourceMap = this.tools.get(serverId);
+    if (!sourceMap) return [];
+    return Array.from(sourceMap.values());
   }
 
   /**
@@ -92,8 +91,9 @@ export class McpToolRegistry {
    * @returns The first matching entry, or undefined
    */
   getTool(name: string): McpToolRegistryEntry | undefined {
-    for (const entry of this.tools.values()) {
-      if (entry.name === name) return entry;
+    for (const sourceMap of this.tools.values()) {
+      const entry = sourceMap.get(name);
+      if (entry) return entry;
     }
     return undefined;
   }
@@ -109,6 +109,6 @@ export class McpToolRegistry {
     source: string,
     name: string,
   ): McpToolRegistryEntry | undefined {
-    return this.tools.get(this.key(source, name));
+    return this.tools.get(source)?.get(name);
   }
 }

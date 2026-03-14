@@ -205,6 +205,7 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
     url: string,
     registry: McpToolRegistry,
   ): Promise<void> {
+    let client: { close(): Promise<void> } | undefined;
     try {
       const { Client } =
         await import("@modelcontextprotocol/sdk/client/index.js");
@@ -212,16 +213,16 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
         await import("@modelcontextprotocol/sdk/client/streamableHttp.js");
 
       const transport = new StreamableHTTPClientTransport(new URL(url));
-      const client = new Client(
+      client = new Client(
         { name: "routecraft-mcp-client", version: "1.0.0" },
         { capabilities: {} },
-      );
-      await (client as { connect(t: unknown): Promise<void> }).connect(
-        transport,
-      );
+      ) as unknown as { close(): Promise<void> };
+      await (
+        client as unknown as { connect(t: unknown): Promise<void> }
+      ).connect(transport);
 
       const result = await (
-        client as { listTools(): Promise<{ tools: McpTool[] }> }
+        client as unknown as { listTools(): Promise<{ tools: McpTool[] }> }
       ).listTools();
 
       const tools = result.tools ?? [];
@@ -251,14 +252,19 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
           toolCount: tools.length,
         } as Record<string, unknown>,
       );
-
-      // Close the ephemeral connection
-      await (client as { close(): Promise<void> }).close();
     } catch (error) {
       ctx.logger.warn(
         error,
         `Failed to list tools from HTTP client "${serverId}" at ${url}`,
       );
+    } finally {
+      if (client) {
+        try {
+          await client.close();
+        } catch {
+          // best-effort cleanup
+        }
+      }
     }
   }
 
@@ -315,13 +321,15 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
     const standard = (schema as Record<string, unknown>)["~standard"] as
       | {
           jsonSchema?: {
-            input?: (opts: { target: string }) => Record<string, unknown>;
+            input?: (opts: {
+              target: "draft-2020-12" | "draft-07" | "openapi-3.0";
+            }) => Record<string, unknown>;
           };
         }
       | undefined;
     if (standard?.jsonSchema?.input) {
       try {
-        return standard.jsonSchema.input({ target: "jsonSchema7" });
+        return standard.jsonSchema.input({ target: "draft-07" });
       } catch {
         // Fall through to generic schema
       }

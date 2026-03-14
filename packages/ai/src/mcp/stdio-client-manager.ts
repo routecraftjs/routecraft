@@ -263,7 +263,7 @@ export class StdioClientManager {
 
   /** @returns The current list of tools advertised by this server. */
   getTools(): McpTool[] {
-    return this.tools;
+    return [...this.tools];
   }
 
   /** @returns Whether the subprocess is connected and running. */

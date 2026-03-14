@@ -152,7 +152,7 @@ export default config
 | `maxRestarts` | `number` | `5` | Max automatic restarts for stdio clients before giving up |
 | `restartDelayMs` | `number` | `1000` | Initial delay before first restart attempt (ms) |
 | `restartBackoffMultiplier` | `number` | `2` | Multiplier applied to delay on each successive restart |
-| `toolRefreshIntervalMs` | `number` | `0` | Polling interval for HTTP client tool lists (0 = no polling) |
+| `toolRefreshIntervalMs` | `number` | `60000` | Polling interval for HTTP client tool lists (0 = no polling) |
 
 **HTTP client config (`McpClientHttpConfig`):**
 
