@@ -1,4 +1,4 @@
-# RouteCraft
+# Routecraft
 
 Type-safe integration and automation framework. Monorepo with pnpm workspaces.
 

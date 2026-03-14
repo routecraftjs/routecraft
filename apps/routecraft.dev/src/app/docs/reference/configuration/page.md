@@ -55,7 +55,7 @@ When using the CLI, pass `--log-level` or `--log-file` to set the corresponding 
 
 ## Environment variables
 
-RouteCraft automatically loads environment variables from `.env` files when using the CLI:
+Routecraft automatically loads environment variables from `.env` files when using the CLI:
 
 ```bash
 # .env

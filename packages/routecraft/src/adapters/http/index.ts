@@ -6,6 +6,7 @@ import type { HttpOptions, HttpResult } from "./types";
  * Creates an HTTP client destination. Use with `.to()`, `.enrich()`, or `.tap()`.
  * Supports dynamic url, headers, query, and body from the exchange.
  *
+ * @beta
  * @param options - method, url (string or (exchange) => string), optional headers, query, body, timeoutMs, throwOnHttpError
  * @returns A Destination that returns { status, headers, body, url }
  *

@@ -6,7 +6,7 @@ import {
   isRoute,
   isRouteBuilder,
   isRouteDefinition,
-  isRouteCraftError,
+  isRoutecraftError,
   isExchange,
   rcError,
 } from "@routecraft/routecraft";
@@ -87,15 +87,15 @@ describe("Brand type guards (cross-instance identity)", () => {
   });
 
   /**
-   * @case Brand guard identifies RouteCraftError instance (cross-instance safe)
-   * @preconditions rcError() returns a RouteCraftError
-   * @expectedResult isRouteCraftError true for RC error, false for plain Error
+   * @case Brand guard identifies RoutecraftError instance (cross-instance safe)
+   * @preconditions rcError() returns a RoutecraftError
+   * @expectedResult isRoutecraftError true for RC error, false for plain Error
    */
-  test("isRouteCraftError returns true for RouteCraftError instance", () => {
+  test("isRoutecraftError returns true for RoutecraftError instance", () => {
     const err = rcError("RC9901", new Error("cause"));
-    expect(isRouteCraftError(err)).toBe(true);
-    expect(isRouteCraftError(new Error("plain"))).toBe(false);
-    expect(isRouteCraftError(null)).toBe(false);
+    expect(isRoutecraftError(err)).toBe(true);
+    expect(isRoutecraftError(new Error("plain"))).toBe(false);
+    expect(isRoutecraftError(null)).toBe(false);
   });
 
   /**

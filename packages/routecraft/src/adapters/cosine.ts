@@ -36,6 +36,7 @@ function cosineSimilarity(a: number[], b: number[]): number {
  * Creates a comparator that groups items by cosine similarity of a numeric vector field.
  * Use with `group({ comparator: cosine(options) })`.
  *
+ * @beta
  * @param options - `field` (path to number[] on each item), optional `threshold` (default 0.82)
  * @returns A Comparator that returns true when two items' vectors have similarity > threshold
  *

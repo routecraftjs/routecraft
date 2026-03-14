@@ -4,9 +4,9 @@ title: FAQ
 
 Answers to common questions. {% .lead %}
 
-## What is RouteCraft?
+## What is Routecraft?
 
-RouteCraft is a developer-first automation and integration framework for building data processing pipelines using a fluent DSL.
+Routecraft is a developer-first automation and integration framework for building data processing pipelines using a fluent DSL.
 
 ## What is the difference between a capability and a context?
 

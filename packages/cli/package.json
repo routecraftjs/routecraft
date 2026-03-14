@@ -1,7 +1,7 @@
 {
   "name": "@routecraft/cli",
   "version": "0.4.0",
-  "description": "CLI for running RouteCraft routes",
+  "description": "CLI for running Routecraft routes",
   "private": false,
   "type": "module",
   "main": "./dist/index.js",

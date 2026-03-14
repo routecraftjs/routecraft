@@ -2,7 +2,7 @@
 title: Errors
 ---
 
-Short, actionable RC error codes used across RouteCraft. {% .lead %}
+Short, actionable RC error codes used across Routecraft. {% .lead %}
 
 Each error includes a code, message, a brief suggestion, and underlying error. Codes follow RCcnnn where c is category and nnn is the number. All codes are framework-owned; adapters use them with specific message/suggestion overrides via `rcError(rc, cause, { message, suggestion })`. When the framework logs an error, structured meta (`rc`, `message`, `suggestion`, `causeMessage`, `causeStack`) is included so you can search and alert in your log aggregator.
 

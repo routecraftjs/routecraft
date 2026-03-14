@@ -1,4 +1,4 @@
-# Contributing to RouteCraft
+# Contributing to Routecraft
 
 Thanks for your interest in contributing!
 

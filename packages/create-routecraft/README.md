@@ -1,6 +1,6 @@
 # create-routecraft
 
-Scaffold a new RouteCraft project with best practices and example capabilities.
+Scaffold a new Routecraft project with best practices and example capabilities.
 
 ## Usage
 
@@ -50,7 +50,7 @@ npm run dev
 
 ## Documentation
 
-For more information about RouteCraft, visit [routecraft.dev](https://routecraft.dev).
+For more information about Routecraft, visit [routecraft.dev](https://routecraft.dev).
 
 ## License
 

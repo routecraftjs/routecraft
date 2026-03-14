@@ -62,7 +62,7 @@ export enum HeadersKeys {
  * Standard headers used by the Routecraft framework.
  * These headers provide critical metadata for processing exchanges.
  */
-export interface RouteCraftHeaders {
+export interface RoutecraftHeaders {
   /** The current operation being performed */
   [HeadersKeys.OPERATION]: OperationType;
 
@@ -84,7 +84,7 @@ export interface RouteCraftHeaders {
 }
 
 /**
- * Allowed types for a single header value. Custom headers can use any of these; standard headers use specific types (see RouteCraftHeaders).
+ * Allowed types for a single header value. Custom headers can use any of these; standard headers use specific types (see RoutecraftHeaders).
  */
 export type HeaderValue = string | number | boolean | undefined | string[];
 
@@ -92,7 +92,7 @@ export type HeaderValue = string | number | boolean | undefined | string[];
  * Complete set of headers for an exchange.
  * Includes both standard Routecraft headers and custom headers.
  */
-export type ExchangeHeaders = Partial<RouteCraftHeaders> &
+export type ExchangeHeaders = Partial<RoutecraftHeaders> &
   Record<string, HeaderValue>;
 
 /**

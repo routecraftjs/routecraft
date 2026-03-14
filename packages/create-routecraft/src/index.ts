@@ -107,7 +107,7 @@ function isUrl(example: string): boolean {
 }
 
 /**
- * Validate that the downloaded content contains expected RouteCraft project files
+ * Validate that the downloaded content contains expected Routecraft project files
  * @param sourceDir Path to the source directory to validate
  */
 async function validateExampleContent(sourceDir: string): Promise<void> {
@@ -144,7 +144,7 @@ async function validateExampleContent(sourceDir: string): Promise<void> {
 
     if (!hasPackageJson && !hasRouteFiles && !hasRouteSubdirs) {
       throw new Error(
-        "Downloaded content doesn't appear to be a valid RouteCraft project. " +
+        "Downloaded content doesn't appear to be a valid Routecraft project. " +
           "Expected to find package.json or route files (.ts, .js, .mjs).",
       );
     }
@@ -278,13 +278,13 @@ async function main() {
   try {
     await initCommand(projectName, options);
   } catch (error) {
-    console.error("❌ Failed to create RouteCraft project:", error);
+    console.error("❌ Failed to create Routecraft project:", error);
     process.exit(1);
   }
 }
 
 /**
- * Initialize a new RouteCraft project
+ * Initialize a new Routecraft project
  */
 async function initCommand(
   projectName?: string,
@@ -313,7 +313,7 @@ async function initCommand(
 
     // Success message
     console.log(`
-🎉 Successfully created RouteCraft project: ${answers.projectName}
+🎉 Successfully created Routecraft project: ${answers.projectName}
 
 Next steps:
   cd ${answers.projectName}
@@ -626,7 +626,7 @@ function getPackageManagerCommand(packageManager: PackageManager): string {
 
 function showHelp() {
   console.log(`
-Create a new RouteCraft project
+Create a new Routecraft project
 
 Usage:
   npm create routecraft@latest <project-name> [options]

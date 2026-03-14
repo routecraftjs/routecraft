@@ -220,6 +220,7 @@ export class CsvAdapter implements Source<CsvData>, Destination<unknown, void> {
 /**
  * Creates a CSV adapter for reading or writing CSV files.
  *
+ * @beta
  * As a **source** (.from):
  * - Reads CSV file and parses to array of objects
  * - Optionally watches for changes

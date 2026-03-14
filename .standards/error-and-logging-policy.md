@@ -1,18 +1,18 @@
 # Error and Logging Policy
 
-Authoritative rules for error handling, logging, and eventing in RouteCraft.
+Authoritative rules for error handling, logging, and eventing in Routecraft.
 
 ---
 
 ## 1. Throw specific, log at boundary
 
-- **Throw:** Create a `RouteCraftError` with specific `message` and `suggestion` overrides, or throw a plain `Error` (the framework preserves it). Throwing does not obligate the thrower to log.
+- **Throw:** Create a `RoutecraftError` with specific `message` and `suggestion` overrides, or throw a plain `Error` (the framework preserves it). Throwing does not obligate the thrower to log.
 - **Boundary:** The catch that **handles** the error (does not re-throw) is the boundary. Only the boundary logs.
 - **Never catch-log-throw:** If a catch block re-throws, it must NOT log. Logging and re-throwing creates duplicate log lines.
 
 ## 2. Use the error's own message as the pino log string
 
-At a boundary, use `err.meta.message` (`RouteCraftError`) or `err.message` (plain `Error`) as the pino message string. Variable context (route, operation, adapter, tool) goes in the first-arg bindings object. Do not use generic strings like "Step failed" as the log message; the error already says what went wrong.
+At a boundary, use `err.meta.message` (`RoutecraftError`) or `err.message` (plain `Error`) as the pino message string. Variable context (route, operation, adapter, tool) goes in the first-arg bindings object. Do not use generic strings like "Step failed" as the log message; the error already says what went wrong.
 
 ## 3. Stable message for non-error logs; context in bindings
 
@@ -37,11 +37,11 @@ Use **info** for context and route lifecycle so start and stop are visible at de
 
 ## 6. Structured error in bindings
 
-When logging a failure, put the error in bindings (e.g., `{ err, operation, adapter }`). `RouteCraftError` implements `toJSON()` so `rc`, `message`, `suggestion`, `docs`, `causeMessage`, `causeStack` appear in serialized logs.
+When logging a failure, put the error in bindings (e.g., `{ err, operation, adapter }`). `RoutecraftError` implements `toJSON()` so `rc`, `message`, `suggestion`, `docs`, `causeMessage`, `causeStack` appear in serialized logs.
 
 ## 7. Validation and cause serialization
 
-When creating `RouteCraftError` for validation (e.g., RC5002), ensure the **cause** serializes to something useful in logs (e.g., `JSON.stringify(issues)` or a normalized object). Never pass an object that will log as `[object Object]`.
+When creating `RoutecraftError` for validation (e.g., RC5002), ensure the **cause** serializes to something useful in logs (e.g., `JSON.stringify(issues)` or a normalized object). Never pass an object that will log as `[object Object]`.
 
 ---
 
@@ -57,7 +57,7 @@ Each boundary handles the error (does not re-throw it to another boundary). Do n
 | **route.trackTask** | Background task (e.g., tap) rejection | error | `{ err, route }` |
 | **AI server tool handler** | Tool call errors | error | `{ tool, err }` |
 
-All boundaries use `err.meta.message` (`RouteCraftError`) or `err.message` (plain `Error`) as the log message, with a fallback string specific to the boundary.
+All boundaries use `err.meta.message` (`RoutecraftError`) or `err.message` (plain `Error`) as the log message, with a fallback string specific to the boundary.
 
 ---
 

@@ -162,6 +162,7 @@ export class FileAdapter implements Source<string>, Destination<unknown, void> {
 /**
  * Creates a file adapter for reading or writing plain text files.
  *
+ * @beta
  * As a **source** (.from):
  * - Reads file content as a string
  *

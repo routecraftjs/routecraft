@@ -72,6 +72,8 @@ function buildText<T>(
  * Embedding destination adapter. Expects model id as "providerId:modelName"
  * (e.g. huggingface:all-MiniLM-L6-v2), resolves the provider from the plugin store,
  * and returns { embedding: number[] }. Use with .enrich(embedding("provider:model", { using: ... })).
+ *
+ * @experimental
  */
 export class EmbeddingDestinationAdapter<T = unknown>
   implements Destination<T, EmbeddingResult>, MergedOptions<EmbeddingOptions>

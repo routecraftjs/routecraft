@@ -25,6 +25,7 @@ Every change -- feature, fix, refactor -- must satisfy the checklists below befo
 - [ ] Add or update the conceptual guide if the adapter introduces a new pattern
 - [ ] Export the adapter from the package's `index.ts`
 - [ ] If it is an AI adapter (`packages/ai/`), also update the AI package exports
+- [ ] New adapters must include a JSDoc release tag on the factory function: `@experimental` for early-stage adapters, or `@beta` for adapters that are usable but whose API may still change. Only promote to stable (no tag) after the API has proven itself across releases
 
 ## When you add or modify an operation
 

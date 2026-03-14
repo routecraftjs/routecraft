@@ -2,15 +2,15 @@
 title: Introduction
 ---
 
-What RouteCraft is and how it works. {% .lead %}
+What Routecraft is and how it works. {% .lead %}
 
-## What is RouteCraft?
+## What is Routecraft?
 
-RouteCraft is a **code-first automation platform** for TypeScript that bridges traditional integration (Software 1.0) and AI-native workflows (Software 3.0).
+Routecraft is a **code-first automation platform** for TypeScript that bridges traditional integration (Software 1.0) and AI-native workflows (Software 3.0).
 
-Whether you need to process a daily CSV on a cron job, route incoming webhooks, or give Claude the ability to manage your Google Calendar, RouteCraft handles it all through a single, unified DSL.
+Whether you need to process a daily CSV on a cron job, route incoming webhooks, or give Claude the ability to manage your Google Calendar, Routecraft handles it all through a single, unified DSL.
 
-RouteCraft is built for both eras of software:
+Routecraft is built for both eras of software:
 
 - **Traditional Automation:** Build robust data pipelines, process webhooks, and run scheduled tasks with a type-safe DSL.
 - **AI-Native Tools:** Expose those exact same capabilities to Claude, ChatGPT, Cursor, and other agents via MCP.
@@ -18,9 +18,9 @@ RouteCraft is built for both eras of software:
 TypeScript all the way. Full IDE support, version controlled, and testable.
 
 **Safe by Design**
-Free-thinking models should not have free reign over your system. RouteCraft inverts the default: nothing is accessible until you explicitly write a capability for it. Write a **deterministic** capability for predictable, code-controlled actions. Write a **non-deterministic** one and the agent reasons within the boundary you defined. Either way, you stay in control.
+Free-thinking models should not have free reign over your system. Routecraft inverts the default: nothing is accessible until you explicitly write a capability for it. Write a **deterministic** capability for predictable, code-controlled actions. Write a **non-deterministic** one and the agent reasons within the boundary you defined. Either way, you stay in control.
 
-![RouteCraft as mission control: AI agents on the left connect via MCP, RouteCraft capabilities in the center, Software 1.0 systems on the right via Adapters, and outbound MCP clients below](/diagrams/architecture.png)
+![Routecraft as mission control: AI agents on the left connect via MCP, Routecraft capabilities in the center, Software 1.0 systems on the right via Adapters, and outbound MCP clients below](/diagrams/architecture.png)
 
 ---
 
@@ -36,7 +36,7 @@ Capabilities can be fully **deterministic** (the same input always produces the 
 
 ### The DSL
 
-RouteCraft uses a **fluent DSL (Domain-Specific Language)** to author capabilities. It reads like a pipeline:
+Routecraft uses a **fluent DSL (Domain-Specific Language)** to author capabilities. It reads like a pipeline:
 
 ```ts
 craft()
@@ -59,7 +59,7 @@ Adapters are **connectors** that let your capabilities interact with the outside
 - **Processors**: steps that modify or enrich the exchange.
 - **Destinations**: where the data ends up (logs, databases, APIs).
 
-Adapters make RouteCraft extensible. You can use the built-ins or create your own.
+Adapters make Routecraft extensible. You can use the built-ins or create your own.
 
 ### Exchange
 
@@ -80,7 +80,7 @@ Every step passes along an **exchange**. An exchange carries the **body** (the m
 
 ### Context
 
-The **RouteCraft context** is the runtime that manages your capabilities. It handles:
+The **Routecraft context** is the runtime that manages your capabilities. It handles:
 
 - Loading capabilities.
 - Starting and stopping them.
@@ -98,7 +98,7 @@ You can drive a context through the CLI, or embed it programmatically in your ow
 - **Exchange** is the data that flows through.
 - **Context** is the engine that runs everything.
 
-These concepts make RouteCraft a **developer-first automation framework**: straightforward to start, and powerful enough to grow with your needs.
+These concepts make Routecraft a **developer-first automation framework**: straightforward to start, and powerful enough to grow with your needs.
 
 ---
 

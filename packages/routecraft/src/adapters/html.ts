@@ -260,6 +260,7 @@ export class HtmlAdapter<T = unknown, R = HtmlResult>
 /**
  * Create an HTML adapter that extracts data from HTML using CSS selectors (cheerio).
  *
+ * @beta
  * **Transformer mode** (no path option):
  * - Extracts data from HTML string in exchange body
  * - By default uses body (or body.body when object) as HTML source

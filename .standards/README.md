@@ -1,8 +1,8 @@
-# RouteCraft Internal Standards
+# Routecraft Internal Standards
 
-Internal development standards for RouteCraft contributors (human and AI). These complement the public documentation at [routecraft.dev](https://routecraft.dev), which covers user-facing guides and API reference.
+Internal development standards for Routecraft contributors (human and AI). These complement the public documentation at [routecraft.dev](https://routecraft.dev), which covers user-facing guides and API reference.
 
-**Boundary:** If it tells you how to _use_ RouteCraft, it belongs in the docs site. If it tells you how to _build_ RouteCraft internally, it belongs here.
+**Boundary:** If it tells you how to _use_ Routecraft, it belongs in the docs site. If it tells you how to _build_ Routecraft internally, it belongs here.
 
 ## Standards
 

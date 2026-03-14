@@ -2,7 +2,7 @@
 title: Project structure
 ---
 
-A conventional folder layout that RouteCraft expects out of the box. {% .lead %}
+A conventional folder layout that Routecraft expects out of the box. {% .lead %}
 
 ## Folder layout
 
@@ -24,7 +24,7 @@ my-app
 └── .env
 ```
 
-All application code can live at the project root or inside an optional `src` folder. RouteCraft treats both layouts identically.
+All application code can live at the project root or inside an optional `src` folder. Routecraft treats both layouts identically.
 
 ## Folders
 
@@ -32,7 +32,7 @@ All application code can live at the project root or inside an optional `src` fo
 | --- | --- |
 | `capabilities/` | Your capabilities as `.ts` files. Nest them freely in sub-folders. |
 | `adapters/` | Custom adapters that connect to external systems. Each implements one of the adapter interfaces: `subscribe`, `send`, or `process`. |
-| `plugins/` | Runtime plugins that hook into the RouteCraft context lifecycle, such as MCP transport or custom telemetry. |
+| `plugins/` | Runtime plugins that hook into the Routecraft context lifecycle, such as MCP transport or custom telemetry. |
 
 **Adapters vs plugins:** an adapter connects to an external system (a queue, an API, a file system). A plugin extends the runtime itself (exposing MCP, adding metrics, wiring up observability).
 
@@ -47,7 +47,7 @@ All application code can live at the project root or inside an optional `src` fo
 
 ## craft.config.ts
 
-The config file is the entry point for the RouteCraft runtime. A minimal setup:
+The config file is the entry point for the Routecraft runtime. A minimal setup:
 
 ```ts
 // craft.config.ts

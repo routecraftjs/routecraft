@@ -6,7 +6,7 @@ Run your capabilities as MCP tools for Claude, Cursor, and other AI clients. {% 
 
 ## How it works
 
-RouteCraft uses the Model Context Protocol (MCP) to expose capabilities as typed tools. You define the tool as a capability using the `mcp()` source adapter, run it with `craft run`, and point your AI client at the process. The AI can then call your tool with validated inputs -- nothing else is accessible.
+Routecraft uses the Model Context Protocol (MCP) to expose capabilities as typed tools. You define the tool as a capability using the `mcp()` source adapter, run it with `craft run`, and point your AI client at the process. The AI can then call your tool with validated inputs -- nothing else is accessible.
 
 ## Install
 
@@ -102,7 +102,7 @@ Use absolute paths in production to avoid working-directory ambiguity.
 
 ## Security
 
-- **Validate all inputs** -- every capability should have a Zod schema; RouteCraft enforces it before execution
+- **Validate all inputs** -- every capability should have a Zod schema; Routecraft enforces it before execution
 - **Guardrails** -- use `.filter()` to reject exchanges that fail a business rule, and `.transform()` to sanitize or normalise values before they reach downstream systems
 - **Principle of least privilege** -- only expose capabilities the AI actually needs
 - **Audit trail** -- add `.tap(log())` to record every invocation

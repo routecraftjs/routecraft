@@ -2,7 +2,7 @@
 title: Plugins
 ---
 
-Extend the RouteCraft runtime with cross-cutting behaviour. {% .lead %}
+Extend the Routecraft runtime with cross-cutting behaviour. {% .lead %}
 
 ## What is a plugin?
 

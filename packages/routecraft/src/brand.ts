@@ -8,7 +8,7 @@ export const BRAND = {
   DefaultRoute: Symbol.for("routecraft.DefaultRoute"),
   RouteBuilder: Symbol.for("routecraft.RouteBuilder"),
   RouteDefinition: Symbol.for("routecraft.RouteDefinition"),
-  RouteCraftError: Symbol.for("routecraft.RouteCraftError"),
+  RoutecraftError: Symbol.for("routecraft.RoutecraftError"),
   Exchange: Symbol.for("routecraft.Exchange"),
 } as const;
 
@@ -76,9 +76,9 @@ export function isRouteDefinition(obj: unknown): boolean {
   return isBranded(obj, BRAND.RouteDefinition);
 }
 
-/** Returns true if the value is a RouteCraftError instance. */
-export function isRouteCraftError(obj: unknown): boolean {
-  return isBranded(obj, BRAND.RouteCraftError);
+/** Returns true if the value is a RoutecraftError instance. */
+export function isRoutecraftError(obj: unknown): boolean {
+  return isBranded(obj, BRAND.RoutecraftError);
 }
 
 /** Returns true if the value is an Exchange instance. */

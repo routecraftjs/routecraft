@@ -101,7 +101,7 @@ export default craft()
 
 ## Schema validation on receive
 
-The source side of `direct()` accepts a `schema` option. RouteCraft validates the incoming body before the capability runs and throws `RC5002` if validation fails.
+The source side of `direct()` accepts a `schema` option. Routecraft validates the incoming body before the capability runs and throws `RC5002` if validation fails.
 
 ```ts
 import { z } from 'zod'

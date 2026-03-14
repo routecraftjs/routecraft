@@ -52,7 +52,7 @@ export {
 } from "./builder.ts";
 
 export {
-  RouteCraftError,
+  RoutecraftError,
   type RCCode,
   type RCMeta,
   rcError,
@@ -64,7 +64,7 @@ export {
   isRoute,
   isRouteBuilder,
   isRouteDefinition,
-  isRouteCraftError,
+  isRoutecraftError,
   isExchange,
 } from "./brand.ts";
 
@@ -118,9 +118,6 @@ export {
 } from "./adapters/direct/index.ts";
 export { type TimerOptions } from "./adapters/timer/index.ts";
 export {
-  type PseudoAdapter,
-  type PseudoFactory,
-  type PseudoKeyedFactory,
   type PseudoOptions,
   type PseudoKeyedOptions,
 } from "@routecraft/testing";

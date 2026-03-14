@@ -110,13 +110,13 @@ If you need to combine multiple messages from split branches, use the `aggregate
 **Note:** The `error()` operation is documented here but not yet implemented. Implementation is planned for a future release.
 
 ```ts
-error(handler: (error: RouteCraftError, exchange: Exchange, stepInfo: StepInfo) => void | Exchange | Promise<void | Exchange | string>): RouteBuilder<Current>
+error(handler: (error: RoutecraftError, exchange: Exchange, stepInfo: StepInfo) => void | Exchange | Promise<void | Exchange | string>): RouteBuilder<Current>
 ```
 
 Configure route-level error handling. This is a **route-level configuration**, not a step wrapper - it applies to all errors in the entire route regardless of where it's called in the builder chain. Convention is to place it near the top with other route-level options like `id()` and `batch()`.
 
 The error handler receives:
-- `error`: The RouteCraftError that occurred
+- `error`: The RoutecraftError that occurred
 - `exchange`: The exchange that failed
 - `stepInfo`: Information about which step failed (operation type, step index)
 
@@ -252,7 +252,7 @@ By default, `retry` checks the error's `retryable` property:
 ```ts
 // Default retryOn logic
 (error) => {
-  if (error instanceof RouteCraftError && error.retryable === false) {
+  if (error instanceof RoutecraftError && error.retryable === false) {
     return false;
   }
   return true;
@@ -690,7 +690,7 @@ The key is computed from the body at the moment the operation executes. If the b
 - Circular references
 - Streams (must be materialized to bytes/string/JSON first, or provide a `keyFn`)
 
-When the body contains an unsupported type, a `RouteCraftError` is thrown indicating that a `keyFn` is required.
+When the body contains an unsupported type, a `RoutecraftError` is thrown indicating that a `keyFn` is required.
 
 {% callout type="note" title="When to provide a keyFn" %}
 Use an explicit `keyFn` when you need stable identity across body changes. For example, if the body is enriched or transformed before `dedupe`/`cache`, but identity should be based on a header set earlier by an adapter.

@@ -65,7 +65,7 @@ Headers can be static values or derived from the exchange at runtime.
 
 ## Built-in headers
 
-RouteCraft sets a number of `routecraft.*` headers automatically on every exchange:
+Routecraft sets a number of `routecraft.*` headers automatically on every exchange:
 
 | Header | Description |
 | --- | --- |

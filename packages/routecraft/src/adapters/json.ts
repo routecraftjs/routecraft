@@ -264,6 +264,7 @@ export class JsonFileAdapter
 /**
  * Creates a JSON adapter.
  *
+ * @beta
  * **Transformer mode** (when no `path` option):
  * Parses a JSON string and optionally extracts a value by path.
  * By default uses body (or body.body when object) as the JSON string and replaces the body with the result.

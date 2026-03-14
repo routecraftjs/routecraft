@@ -15,6 +15,8 @@ function validateModelId(modelId: string): void {
 /**
  * Agent destination adapter.
  * Use via agent(); do not instantiate AgentRunner directly.
+ *
+ * @experimental
  */
 export class AgentDestinationAdapter implements Destination<
   unknown,

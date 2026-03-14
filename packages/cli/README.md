@@ -1,6 +1,6 @@
 # @routecraft/cli
 
-Run RouteCraft capabilities from the terminal.
+Run Routecraft capabilities from the terminal.
 
 ## Installation
 

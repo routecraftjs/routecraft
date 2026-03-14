@@ -6,7 +6,7 @@ Observe and react to what happens inside the runtime without touching capability
 
 ## What is the event system?
 
-Every significant thing that happens in RouteCraft emits an event: context startup, capability lifecycle, individual exchange progress, retry attempts, batch flushes. You can subscribe to any of these from a plugin, an adapter, or anywhere you have access to the `CraftContext`.
+Every significant thing that happens in Routecraft emits an event: context startup, capability lifecycle, individual exchange progress, retry attempts, batch flushes. You can subscribe to any of these from a plugin, an adapter, or anywhere you have access to the `CraftContext`.
 
 Events are the primary hook for cross-cutting concerns: logging, metrics, tracing, alerting, and audit trails.
 

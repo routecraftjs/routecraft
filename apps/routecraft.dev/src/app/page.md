@@ -40,13 +40,13 @@ Run it instantly without any setup:
 npx @routecraft/cli run capabilities/hello-world.ts
 ```
 
-This pattern (source, enrich, transform, destination) is the foundation of every RouteCraft capability.
+This pattern (source, enrich, transform, destination) is the foundation of every Routecraft capability.
 
 ---
 
 ## Play Online
 
-Try RouteCraft in your browser or a cloud environment:
+Try Routecraft in your browser or a cloud environment:
 
 {% quick-links %}
 
@@ -56,13 +56,13 @@ Try RouteCraft in your browser or a cloud environment:
 
 {% /quick-links %}
 
-**GitHub Codespaces** is recommended since RouteCraft is terminal-first and works best with full shell access.
+**GitHub Codespaces** is recommended since Routecraft is terminal-first and works best with full shell access.
 
 ---
 
 ## Create a new project
 
-Scaffold a complete RouteCraft project with all configuration:
+Scaffold a complete Routecraft project with all configuration:
 
 {% code-tabs %}
 {% code-tab label="npm" language="bash" %}
@@ -145,7 +145,7 @@ You should see your capabilities start and log output in your terminal.
 
 {% quick-links %}
 
-{% quick-link title="Introduction" icon="lightbulb" href="/docs/introduction" description="Learn what RouteCraft is and understand the core concepts." /%}
+{% quick-link title="Introduction" icon="lightbulb" href="/docs/introduction" description="Learn what Routecraft is and understand the core concepts." /%}
 {% quick-link title="Installation" icon="installation" href="/docs/introduction/installation" description="System requirements, production builds, and manual setup." /%}
 {% quick-link title="Examples" icon="plugins" href="/docs/examples" description="See complete working capabilities across common use cases." /%}
 

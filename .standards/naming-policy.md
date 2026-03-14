@@ -1,6 +1,6 @@
 # Naming Policy
 
-Naming conventions for RouteCraft adapters, interfaces, and option types.
+Naming conventions for Routecraft adapters, interfaces, and option types.
 
 ---
 

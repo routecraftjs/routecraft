@@ -421,9 +421,9 @@ http<T, R>(options: HttpOptions<T>): Destination<T, HttpResult<R>>
 
 Make HTTP requests. Returns a `Destination` adapter that works with both `.to()` and `.enrich()`.
 
-**Current support:** RouteCraft currently exports `http()` only as an outbound/client adapter for making HTTP requests.
+**Current support:** Routecraft currently exports `http()` only as an outbound/client adapter for making HTTP requests.
 
-**Planned inbound support:** RouteCraft does **not** yet ship an inbound HTTP source/server adapter. The planned design is shown in [Planned inbound/server HTTP support](#planned-inbound-server-http-support) below and may change before implementation.
+**Planned inbound support:** Routecraft does **not** yet ship an inbound HTTP source/server adapter. The planned design is shown in [Planned inbound/server HTTP support](#planned-inbound-server-http-support) below and may change before implementation.
 
 **With `.enrich()` (merge result into body):**
 
@@ -515,7 +515,7 @@ The final exchange becomes the HTTP response; no explicit `.to()` step is requir
 Response behavior:
 
 - The final exchange is returned to the HTTP client. If the final body is an object with optional fields `{ status?: number, headers?: Record<string,string>, body?: unknown }`, those fields are used to build the response.
-- If `status` or `headers` are not provided, RouteCraft returns the body with `200` status and no additional headers.
+- If `status` or `headers` are not provided, Routecraft returns the body with `200` status and no additional headers.
 - For serialization and setting `Content-Type`, use a formatting step in your capability (e.g., a `.transform(...)` that sets appropriate headers).
 
 ## Test adapters

@@ -6,7 +6,7 @@ Call tools on external MCP servers from within a capability. {% .lead %}
 
 ## How it works
 
-The `mcpPlugin` connects your RouteCraft context to one or more remote MCP servers. Once registered, you can call any tool on those servers using `.to(mcp('server:tool'))` or `.enrich(mcp('server:tool'))` inside any capability.
+The `mcpPlugin` connects your Routecraft context to one or more remote MCP servers. Once registered, you can call any tool on those servers using `.to(mcp('server:tool'))` or `.enrich(mcp('server:tool'))` inside any capability.
 
 ## Install
 
@@ -50,7 +50,7 @@ import { craft, simple, log } from '@routecraft/routecraft'
 
 export default craft()
   .id('web.search')
-  .from(simple({ query: 'RouteCraft documentation' }))
+  .from(simple({ query: 'Routecraft documentation' }))
   .to(mcp('search:web_search'))
   .to(log())
 ```

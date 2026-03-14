@@ -161,7 +161,7 @@ export const RC: Record<RCCode, RCMeta> = {
   },
 };
 
-export class RouteCraftError extends Error {
+export class RoutecraftError extends Error {
   /**
    * Whether this error should be retried by the retry wrapper.
    */
@@ -173,9 +173,9 @@ export class RouteCraftError extends Error {
     cause?: unknown,
   ) {
     super(meta.message, { cause });
-    this.name = "RouteCraftError";
+    this.name = "RoutecraftError";
     this.retryable = meta.retryable;
-    setBrand(this, BRAND.RouteCraftError);
+    setBrand(this, BRAND.RoutecraftError);
   }
 
   override toString(): string {
@@ -206,7 +206,7 @@ export class RouteCraftError extends Error {
     const causeStack =
       this.cause instanceof Error ? this.cause.stack : undefined;
     return {
-      type: "RouteCraftError",
+      type: "RoutecraftError",
       name: this.name,
       rc: this.rc,
       message: this.meta.message,
@@ -227,12 +227,12 @@ export class RouteCraftError extends Error {
 }
 
 /**
- * Creates a RouteCraftError with the given code and optional cause/overrides.
+ * Creates a RoutecraftError with the given code and optional cause/overrides.
  *
  * @param rc - Error code from the RC registry (e.g. "RC5001", "RC1002")
  * @param cause - Optional underlying error (stored as cause, message can be overridden)
  * @param overrides - Optional overrides for message, suggestion, or docs
- * @returns A RouteCraftError instance (branded, with retryable from RC meta)
+ * @returns A RoutecraftError instance (branded, with retryable from RC meta)
  *
  * @example
  * ```typescript
@@ -243,13 +243,13 @@ export function rcError(
   rc: RCCode,
   cause?: unknown,
   overrides?: Partial<Pick<RCMeta, "message" | "suggestion" | "docs">>,
-): RouteCraftError {
+): RoutecraftError {
   const base = RC[rc];
   const meta: RCMeta = {
     ...base,
     ...(overrides || {}),
     docs: overrides?.docs ?? base.docs,
   };
-  const parsed = cause ? RouteCraftError.parse(cause).error : undefined;
-  return new RouteCraftError(rc, meta, parsed);
+  const parsed = cause ? RoutecraftError.parse(cause).error : undefined;
+  return new RoutecraftError(rc, meta, parsed);
 }

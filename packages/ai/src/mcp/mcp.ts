@@ -5,5 +5,7 @@
  * - .to(mcp({ url | serverId, tool, args? })) — remote tool (MCP client).
  * - .to(mcp("server:tool", { args? })) — remote tool by name.
  * For in-process use direct("endpoint"), not mcp().
+ *
+ * @experimental
  */
 export { mcp } from "./adapters/mcp/index.ts";

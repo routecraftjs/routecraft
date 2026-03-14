@@ -6,7 +6,7 @@ Connectors that link your capabilities to the outside world. {% .lead %}
 
 ## What are adapters?
 
-Adapters are the boundary between RouteCraft and external systems. They handle the integration details -- making HTTP calls, reading files, triggering on a schedule -- so your capabilities stay focused on business logic.
+Adapters are the boundary between Routecraft and external systems. They handle the integration details -- making HTTP calls, reading files, triggering on a schedule -- so your capabilities stay focused on business logic.
 
 Every capability starts with a source adapter in `.from()` and ends with a destination adapter in `.to()`. Operations in the middle can also use adapters to enrich data or observe side effects.
 

@@ -13,6 +13,6 @@ Single reference hub for the DSL, Adapters, and Errors. {% .lead %}
 {% quick-link title="Errors" icon="warning" href="/docs/reference/errors" description="RC error codes and fixes." /%}
 {% quick-link title="Plugins" icon="plugins" href="/docs/reference/plugins" description="Plugin interfaces and built-in plugins." /%}
 {% quick-link title="Events" icon="theming" href="/docs/reference/events" description="Lifecycle and runtime events." /%}
-{% quick-link title="Linting" icon="warning" href="/docs/reference/linting" description="ESLint rules for RouteCraft projects." /%}
+{% quick-link title="Linting" icon="warning" href="/docs/reference/linting" description="ESLint rules for Routecraft projects." /%}
 
 {% /quick-links %}

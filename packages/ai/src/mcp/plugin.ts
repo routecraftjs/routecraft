@@ -32,6 +32,8 @@ function isStdioConfig(config: ClientConfig): config is McpClientStdioConfig {
  * Stdio clients are spawned as subprocesses with auto-restart; HTTP clients are used for ephemeral tool calls.
  * All discovered external tools (stdio, HTTP) are stored in a unified McpToolRegistry for agent adapter discovery.
  * Required when any route uses .from(mcp(...)); the route will fail at start if this plugin is not applied.
+ *
+ * @experimental
  */
 export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
   validateMcpPluginOptions(options);

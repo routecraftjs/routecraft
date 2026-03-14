@@ -1,7 +1,7 @@
 {
   "name": "@routecraft/testing",
   "version": "0.4.0",
-  "description": "Test utilities for RouteCraft routes",
+  "description": "Test utilities for Routecraft routes",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

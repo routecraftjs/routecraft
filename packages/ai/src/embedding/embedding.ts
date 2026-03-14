@@ -11,6 +11,7 @@ import type {
  * Use with .enrich(). Pass model id as "providerId:modelName" (e.g. huggingface:all-MiniLM-L6-v2).
  * The provider must be registered via embeddingPlugin({ providers: { huggingface: {} } }).
  *
+ * @experimental
  * @param modelId - "providerId:modelName"; the provider is resolved from the plugin.
  * @param options - using(exchange) returns the string (or string[]) to embed.
  */

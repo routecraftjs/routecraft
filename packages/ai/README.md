@@ -1,6 +1,6 @@
 # @routecraft/ai
 
-AI adapters and MCP integration for RouteCraft. Call LLMs, run agents, generate embeddings, and expose your capabilities to Claude, Cursor, and other MCP clients.
+AI adapters and MCP integration for Routecraft. Call LLMs, run agents, generate embeddings, and expose your capabilities to Claude, Cursor, and other MCP clients.
 
 ## Installation
 
