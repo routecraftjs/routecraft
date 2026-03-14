@@ -4,9 +4,9 @@ import {
   craft,
   simple,
   browser,
-  sanitizeSessionId,
   type BrowserResult,
 } from "@routecraft/routecraft";
+import { sanitizeSessionId } from "../src/adapters/browser.ts";
 
 const { executeCommandMock, BrowserManagerMock } = vi.hoisted(() => ({
   executeCommandMock: vi.fn<

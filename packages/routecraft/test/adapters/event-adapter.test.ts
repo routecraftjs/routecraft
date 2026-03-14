@@ -1,12 +1,7 @@
 import { describe, test, expect, afterEach } from "vitest";
 import { testContext, type TestContext } from "@routecraft/testing";
-import {
-  EventSourceAdapter,
-  craft,
-  event,
-  log,
-  simple,
-} from "@routecraft/routecraft";
+import { craft, event, log, simple } from "@routecraft/routecraft";
+import { EventSourceAdapter } from "../../src/adapters/sources/event/index.ts";
 
 describe("Event Source Adapter", () => {
   let t: TestContext;

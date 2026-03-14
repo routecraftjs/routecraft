@@ -1,12 +1,7 @@
 import { describe, test, expect, afterEach, vi } from "vitest";
 import { testContext, type TestContext } from "@routecraft/testing";
-import {
-  craft,
-  simple,
-  direct,
-  type CallableDestination,
-  type Source,
-} from "@routecraft/routecraft";
+import { craft, simple, direct, type Source } from "@routecraft/routecraft";
+import type { CallableDestination } from "../src/operations/to.ts";
 
 describe("Direct adapter", () => {
   let t: TestContext;

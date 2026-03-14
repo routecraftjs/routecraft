@@ -2,7 +2,6 @@ import { describe, test, expect } from "vitest";
 import {
   craft,
   simple,
-  context,
   isCraftContext,
   isRoute,
   isRouteBuilder,
@@ -11,22 +10,23 @@ import {
   isExchange,
   rcError,
 } from "@routecraft/routecraft";
+import { testContext } from "@routecraft/testing";
 
 describe("Brand type guards (cross-instance identity)", () => {
   /**
    * @case Brand guard identifies CraftContext instance (cross-instance safe)
-   * @preconditions Context built from context().routes().build()
+   * @preconditions Context built from testContext().routes().build()
    * @expectedResult isCraftContext true for context, false for null/plain object
    */
   test("isCraftContext returns true for CraftContext instance", async () => {
-    const ctx = await context()
+    const t = await testContext()
       .routes(
         craft()
           .from(simple(1))
           .to(() => {}),
       )
       .build();
-    expect(isCraftContext(ctx)).toBe(true);
+    expect(isCraftContext(t.ctx)).toBe(true);
     expect(isCraftContext(null)).toBe(false);
     expect(isCraftContext({})).toBe(false);
     expect(isCraftContext(undefined)).toBe(false);
@@ -38,20 +38,20 @@ describe("Brand type guards (cross-instance identity)", () => {
    * @expectedResult isRoute true for route instance, false for null/plain object
    */
   test("isRoute returns true for DefaultRoute instance", async () => {
-    const ctx = await context()
+    const t = await testContext()
       .routes(
         craft()
           .from(simple(1))
           .to(() => {}),
       )
       .build();
-    await ctx.start();
-    const routes = ctx.getRoutes();
+    await t.startAndWaitReady();
+    const routes = t.ctx.getRoutes();
     expect(routes.length).toBeGreaterThan(0);
     expect(isRoute(routes[0])).toBe(true);
     expect(isRoute(null)).toBe(false);
     expect(isRoute({})).toBe(false);
-    await ctx.stop();
+    await t.stop();
   });
 
   /**
@@ -105,7 +105,7 @@ describe("Brand type guards (cross-instance identity)", () => {
    */
   test("isExchange returns true for exchange passed to destination", async () => {
     let captured: unknown;
-    const ctx = await context()
+    const t = await testContext()
       .routes(
         craft()
           .id("ex-test")
@@ -115,10 +115,10 @@ describe("Brand type guards (cross-instance identity)", () => {
           }),
       )
       .build();
-    await ctx.start();
+    await t.startAndWaitReady();
     expect(captured).toBeDefined();
     expect(isExchange(captured)).toBe(true);
     expect(isExchange({})).toBe(false);
-    await ctx.stop();
+    await t.stop();
   });
 });

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { BRAND, setBrand } from "./brand.ts";
 import { ContextBuilder } from "./builder.ts";
 import { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
-import { error as rcError, RC } from "./error.ts";
+import { rcError, RC } from "./error.ts";
 import { isRouteCraftError } from "./brand.ts";
 import { logger, childBindings } from "./logger.ts";
 import {

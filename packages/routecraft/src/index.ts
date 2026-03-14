@@ -9,7 +9,6 @@ export {
 } from "./exchange.ts";
 
 export {
-  context,
   CraftContext,
   type MergedOptions,
   type StoreRegistry,
@@ -27,61 +26,23 @@ export {
   type ForwardFn,
 } from "./route.ts";
 
-export { type Source, type CallableSource } from "./operations/from.ts";
+export { type Source } from "./operations/from.ts";
 
-export {
-  ProcessStep,
-  type Processor,
-  type CallableProcessor,
-} from "./operations/process.ts";
+export { type Processor } from "./operations/process.ts";
 
-export {
-  ToStep,
-  type Destination,
-  type CallableDestination,
-} from "./operations/to.ts";
+export { type Destination } from "./operations/to.ts";
 
-export {
-  SplitStep,
-  type Splitter,
-  type CallableSplitter,
-} from "./operations/split.ts";
+export { type Splitter } from "./operations/split.ts";
 
-export {
-  type Aggregator,
-  type CallableAggregator,
-  defaultAggregate,
-  AggregateStep,
-} from "./operations/aggregate.ts";
+export { type Aggregator } from "./operations/aggregate.ts";
 
-export {
-  TransformStep,
-  type Transformer,
-  type CallableTransformer,
-} from "./operations/transform.ts";
+export { type Transformer } from "./operations/transform.ts";
 
-export {
-  type Filter,
-  type CallableFilter,
-  FilterStep,
-} from "./operations/filter.ts";
+export { type Filter } from "./operations/filter.ts";
 
-export {
-  type CallableHeaderSetter,
-  type HeaderSetter,
-  HeaderStep,
-} from "./operations/header.ts";
+export { type HeaderSetter } from "./operations/header.ts";
 
-export {
-  type DestinationAggregator,
-  EnrichStep,
-  only,
-  none,
-} from "./operations/enrich.ts";
-
-export { TapStep } from "./operations/tap.ts";
-
-export { ValidateStep } from "./operations/validate.ts";
+export { type DestinationAggregator, only, none } from "./operations/enrich.ts";
 
 export {
   ContextBuilder,
@@ -95,14 +56,10 @@ export {
   type RCCode,
   type RCMeta,
   rcError,
-  error,
   RC,
 } from "./error.ts";
 
 export {
-  BRAND,
-  ENRICH_MERGE_TYPE,
-  INTERNALS_KEY,
   isCraftContext,
   isRoute,
   isRouteBuilder,
@@ -111,15 +68,12 @@ export {
   isExchange,
 } from "./brand.ts";
 
-export { logger, childBindings } from "./logger.ts";
+export { logger } from "./logger.ts";
 export type { Logger } from "pino";
 
 export {
   type Adapter,
-  type Step,
   type Consumer,
-  type ConsumerType,
-  type Message,
   type EventName,
   type EventHandler,
 } from "./types.ts";
@@ -143,15 +97,8 @@ export { csv } from "./adapters/csv.ts";
 export { group } from "./adapters/group.ts";
 export { event } from "./adapters/sources/event/index.ts";
 
-export { SimpleSourceAdapter } from "./adapters/simple/index.ts";
+export { type LogOptions, type LogLevel } from "./adapters/log/index.ts";
 export {
-  LogDestinationAdapter,
-  type LogOptions,
-  type LogLevel,
-} from "./adapters/log/index.ts";
-export { NoopAdapter } from "./adapters/noop.ts";
-export {
-  HttpDestinationAdapter,
   type HttpOptions,
   type HttpResult,
   type HttpMethod,
@@ -169,10 +116,7 @@ export {
   ADAPTER_DIRECT_OPTIONS,
   ADAPTER_DIRECT_REGISTRY,
 } from "./adapters/direct/index.ts";
-export {
-  TimerSourceAdapter,
-  type TimerOptions,
-} from "./adapters/timer/index.ts";
+export { type TimerOptions } from "./adapters/timer/index.ts";
 export {
   type PseudoAdapter,
   type PseudoFactory,
@@ -181,36 +125,26 @@ export {
   type PseudoKeyedOptions,
 } from "@routecraft/testing";
 export {
-  BrowserAdapter,
   type BrowserBaseOptions,
   type BrowserCommandMap,
   type BrowserCommand,
   type BrowserResult,
-  type Resolvable,
-  sanitizeSessionId,
 } from "./adapters/browser.ts";
-export { FileAdapter, type FileOptions } from "./adapters/file.ts";
+export { type FileOptions } from "./adapters/file.ts";
+export { type HtmlOptions, type HtmlResult } from "./adapters/html.ts";
 export {
-  HtmlAdapter,
-  type HtmlOptions,
-  type HtmlResult,
-} from "./adapters/html.ts";
-export {
-  JsonAdapter,
-  JsonFileAdapter,
   type JsonOptions,
   type JsonTransformerOptions,
   type JsonFileOptions,
 } from "./adapters/json.ts";
-export { CsvAdapter, type CsvOptions } from "./adapters/csv.ts";
-export { GroupAdapter, type GroupOptions } from "./adapters/group.ts";
+export { type CsvOptions } from "./adapters/csv.ts";
+export { type GroupOptions } from "./adapters/group.ts";
 export {
   cosine,
   type CosineOptions,
   type Comparator,
 } from "./adapters/cosine.ts";
 export {
-  EventSourceAdapter,
   type EventFilter,
   type EventSourceOptions,
 } from "./adapters/sources/event/index.ts";

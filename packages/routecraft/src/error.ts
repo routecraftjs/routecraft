@@ -253,6 +253,3 @@ export function rcError(
   const parsed = cause ? RouteCraftError.parse(cause).error : undefined;
   return new RouteCraftError(rc, meta, parsed);
 }
-
-/** @deprecated Use rcError. Kept for API compatibility. */
-export const error = rcError;
