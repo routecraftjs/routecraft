@@ -39,6 +39,8 @@ export type SpyAdapter<T = unknown> = {
  *
  * @beta
  *
+ * @returns A spy adapter that records exchanges and tracks call counts
+ *
  * @example
  * ```ts
  * const s = spy();
