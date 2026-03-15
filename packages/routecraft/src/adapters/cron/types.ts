@@ -1,3 +1,4 @@
+/** Configuration options for the cron source adapter. */
 export interface CronOptions {
   /**
    * IANA timezone for the cron schedule (e.g., "America/New_York")

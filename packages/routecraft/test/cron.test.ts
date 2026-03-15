@@ -292,6 +292,62 @@ describe("CronSourceAdapter", () => {
   }, 5000);
 
   /**
+   * @case jitterMs delays handler execution without leaking timeouts
+   * @preconditions CronSourceAdapter with per-second expression, jitterMs=200, maxFires=1
+   * @expectedResult Handler is called exactly once after jitter delay
+   */
+  test("jitterMs delays handler execution correctly", async () => {
+    const adapter = new CronSourceAdapter("* * * * * *", {
+      maxFires: 1,
+      jitterMs: 200,
+    });
+    const context = mockContext();
+    const abortController = new AbortController();
+    const handler = vi.fn().mockResolvedValue({} as Exchange);
+
+    const promise = adapter.subscribe(context, handler, abortController);
+
+    await vi.waitFor(
+      () => {
+        expect(handler).toHaveBeenCalledTimes(1);
+      },
+      { timeout: 5000 },
+    );
+
+    abortController.abort();
+    await promise;
+
+    // Wait extra to verify no additional calls leak after resolve
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(handler).toHaveBeenCalledTimes(1);
+  }, 10000);
+
+  /**
+   * @case Aborting during jitter delay does not fire handler
+   * @preconditions CronSourceAdapter with per-second expression and jitterMs=5000, aborted before jitter elapses
+   * @expectedResult Handler is never called, subscribe resolves cleanly
+   */
+  test("abort during jitter delay prevents handler call", async () => {
+    const adapter = new CronSourceAdapter("* * * * * *", {
+      jitterMs: 5000,
+    });
+    const context = mockContext();
+    const abortController = new AbortController();
+    const handler = vi.fn().mockResolvedValue({} as Exchange);
+
+    const promise = adapter.subscribe(context, handler, abortController);
+
+    // Wait for the cron to fire (triggers every second), then abort
+    // before the 5000ms jitter elapses
+    await new Promise((r) => setTimeout(r, 1200));
+    abortController.abort();
+    await promise;
+
+    // Handler should not have been called since jitter hadn't elapsed
+    expect(handler).toHaveBeenCalledTimes(0);
+  }, 10000);
+
+  /**
    * @case nextRun header is provided when there is a next run
    * @preconditions CronSourceAdapter with per-second expression and maxFires=1
    * @expectedResult Headers contain a valid nextRun ISO string

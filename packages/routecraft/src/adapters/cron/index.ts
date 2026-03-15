@@ -7,6 +7,7 @@ import type { CronOptions } from "./types";
  *
  * Supports standard 5-field cron, 6-field (with seconds), and nicknames (@daily, @weekly, @hourly, @monthly, @yearly, @annually, @midnight).
  *
+ * @experimental
  * @param expression - Cron expression string
  * @param options - timezone, maxFires, jitterMs, name
  * @returns A Source usable with `.from(cron(expression, options))`
