@@ -36,6 +36,7 @@ import type { ResolveKey } from "@routecraft/routecraft";
  *
  * @experimental
  */
+// biome-ignore lint/suspicious/noEmptyInterface: marker interface populated via declaration merging
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type -- Marker interface, populated via declaration merging
 export interface LlmProviderRegistry {}
 
@@ -48,6 +49,7 @@ export interface LlmProviderRegistry {}
  *
  * @experimental
  */
+// biome-ignore lint/suspicious/noEmptyInterface: marker interface populated via declaration merging
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type -- Marker interface, populated via declaration merging
 export interface McpServerRegistry {}
 

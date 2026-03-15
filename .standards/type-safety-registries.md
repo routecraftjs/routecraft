@@ -43,11 +43,11 @@ craft()
   .from(...)
 ```
 
-The value type in the registry (`PaymentRequest`, `OrderRequest`, etc.) is reserved for future use. For now, set it to `unknown` if you do not care:
+The value type in the registry (`PaymentRequest`, `OrderRequest`, etc.) is used by `ResolveBody` to infer the body type when calling `direct(endpoint)` as a destination. When you write `.to(direct('payments'))`, TypeScript constrains the exchange body to `PaymentRequest`. Set values to the actual request body type for full inference:
 
 ```typescript
 interface DirectEndpointRegistry {
-  'payments': unknown;
+  'payments': PaymentRequest;
 }
 ```
 
@@ -195,7 +195,7 @@ The core limitation is that TypeScript cannot scan your project to discover endp
 
 ### What `craft typegen` would do
 
-```
+```bash
 pnpm craft typegen
 ```
 
@@ -233,7 +233,7 @@ declare module '@routecraft/ai' {
 
 ### Watch mode
 
-```
+```bash
 pnpm craft typegen --watch
 ```
 
@@ -243,7 +243,7 @@ Re-runs on file save. As soon as you add `craft().from(direct('invoices', {}))`,
 
 The generated file should be committed. This gives the team a clear diff when endpoints or providers change, and CI can verify the file is not stale:
 
-```
+```bash
 pnpm craft typegen && git diff --exit-code src/types/routecraft.generated.d.ts
 ```
 

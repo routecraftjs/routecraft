@@ -11,11 +11,11 @@ import { craft, simple, only, type HeaderValue } from "../src/index.ts";
  */
 describe("header propagation through full builder chain", () => {
   /**
-   * @case from() seeds empty headers; no keys are pre-typed
+   * @case from() seeds framework headers only; user headers are untracked
    * @preconditions craft().from(source) with no .header() calls
-   * @expectedResult exchange.headers inside process() does not expose arbitrary string keys
+   * @expectedResult exchange.headers exposes framework headers but not arbitrary user keys
    */
-  test("from() seeds empty headers -- no untracked keys pre-typed", () => {
+  test("from() seeds framework headers only -- user headers are untracked", () => {
     craft()
       .from(simple("test"))
       .process((exchange) => {
