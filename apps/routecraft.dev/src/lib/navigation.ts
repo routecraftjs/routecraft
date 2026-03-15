@@ -41,6 +41,7 @@ export const navigation = [
       { title: 'Testing', href: '/docs/introduction/testing' },
       { title: 'Deployment', href: '/docs/introduction/deployment' },
       { title: 'Monitoring', href: '/docs/introduction/monitoring' },
+      { title: 'Terminal UI', href: '/docs/introduction/tui' },
     ],
   },
   {
