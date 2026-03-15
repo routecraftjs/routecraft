@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { craft, simple, log } from "@routecraft/routecraft";
-import { telemetry } from "../src/telemetry/index.ts";
+import { telemetry } from "@routecraft/routecraft";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const Database = require("better-sqlite3");
