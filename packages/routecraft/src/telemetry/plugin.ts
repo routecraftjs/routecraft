@@ -46,14 +46,14 @@ interface BufferedEvent {
  * @example
  * ```typescript
  * import { CraftContext } from "@routecraft/routecraft";
- * import { TelemetryPlugin } from "@routecraft/routecraft/telemetry";
+ * import { telemetry } from "@routecraft/routecraft/telemetry";
  *
  * const ctx = new CraftContext({
- *   plugins: [new TelemetryPlugin()],
+ *   plugins: [telemetry()],
  * });
  * ```
  */
-export class TelemetryPlugin implements CraftPlugin {
+class TelemetryPlugin implements CraftPlugin {
   private readonly dbPath: string;
   private readonly walMode: boolean;
   private readonly batchSize: number;
@@ -437,6 +437,26 @@ export class TelemetryPlugin implements CraftPlugin {
       // Non-blocking: swallow DB errors to never affect the running engine
     }
   }
+}
+
+/**
+ * Create a telemetry plugin that persists framework events to a local SQLite database.
+ *
+ * @param options - Optional configuration for database path, WAL mode, batch size, and flush interval
+ * @returns A CraftPlugin instance
+ *
+ * @example
+ * ```typescript
+ * import { CraftContext } from "@routecraft/routecraft";
+ * import { telemetry } from "@routecraft/routecraft/telemetry";
+ *
+ * const ctx = new CraftContext({
+ *   plugins: [telemetry()],
+ * });
+ * ```
+ */
+export function telemetry(options?: TelemetryOptions): CraftPlugin {
+  return new TelemetryPlugin(options);
 }
 
 /**
