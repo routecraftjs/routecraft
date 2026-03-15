@@ -1,4 +1,5 @@
 import { mcpPlugin, jwt } from "@routecraft/ai";
+import { telemetry } from "@routecraft/routecraft";
 
 const jwtSecret = process.env["JWT_SECRET"];
 if (!jwtSecret) {
@@ -7,6 +8,7 @@ if (!jwtSecret) {
 
 export default {
   plugins: [
+    telemetry(),
     mcpPlugin({
       name: "routecraft",
       version: "1.0.0",
