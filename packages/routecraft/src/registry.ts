@@ -27,25 +27,18 @@
  * Keys are endpoint strings (e.g. 'payments'), values are the body type
  * for that endpoint. Populate via declaration merging to constrain
  * `direct()`, `ForwardFn`, and related APIs.
+ *
+ * @experimental
  */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type -- Marker interface, populated via declaration merging
 export interface DirectEndpointRegistry {}
-
-/**
- * Registry for plugin event names.
- *
- * Keys are event name strings, values are the event payload type.
- * Plugin packages can ship their own `declare module` blocks to
- * augment this registry automatically on import.
- */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- Marker interface, populated via declaration merging
-export interface PluginEventRegistry {}
 
 /**
  * Resolves a registry to its string keys when populated,
  * or falls back to `string` when the registry is empty.
  *
  * @template Registry - The registry interface to resolve
+ * @experimental
  */
 export type ResolveKey<Registry> = keyof Registry extends never
   ? string
@@ -55,5 +48,7 @@ export type ResolveKey<Registry> = keyof Registry extends never
  * Resolved direct endpoint type.
  * Constrained to registered endpoints when `DirectEndpointRegistry` is populated,
  * falls back to `string` when empty.
+ *
+ * @experimental
  */
 export type RegisteredDirectEndpoint = ResolveKey<DirectEndpointRegistry>;

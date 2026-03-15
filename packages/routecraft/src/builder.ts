@@ -712,7 +712,7 @@ export class RouteBuilder<
       | CallableTransformer<Current, Return>,
   ): RouteBuilder<Return, Headers> {
     this.addStep(new TransformStep<Current, Return>(transformer));
-    return this.withType<Return>();
+    return this.withType<Return, Headers>();
   }
 
   /**
@@ -823,7 +823,7 @@ export class RouteBuilder<
           | CallableDestination<Current, unknown>,
       ),
     );
-    return this.withType<Current>();
+    return this.withType<Current, Headers>();
   }
 
   /**
@@ -854,7 +854,7 @@ export class RouteBuilder<
         filter as Filter<Current> | CallableFilter<Current>,
       ),
     );
-    return this.withType<Current>();
+    return this.withType<Current, Headers>();
   }
 
   /**
@@ -878,7 +878,7 @@ export class RouteBuilder<
     schema: S,
   ): RouteBuilder<StandardSchemaV1.InferOutput<S>, Headers> {
     this.addStep(new ValidateStep(schema));
-    return this.withType<StandardSchemaV1.InferOutput<S>>();
+    return this.withType<StandardSchemaV1.InferOutput<S>, Headers>();
   }
 
   /**
