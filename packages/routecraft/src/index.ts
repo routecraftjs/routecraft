@@ -119,7 +119,11 @@ export {
   sanitizeEndpoint,
 } from "./adapters/direct/index.ts";
 export { type TimerOptions } from "./adapters/timer/index.ts";
-export { type CronOptions } from "./adapters/cron/index.ts";
+export {
+  type CronExpression,
+  type CronOptions,
+  ADAPTER_CRON_OPTIONS,
+} from "./adapters/cron/index.ts";
 export {
   type PseudoOptions,
   type PseudoKeyedOptions,

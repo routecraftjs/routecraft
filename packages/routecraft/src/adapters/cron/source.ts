@@ -5,8 +5,24 @@ import {
   type ExchangeHeaders,
 } from "../../exchange";
 import { type Source } from "../../operations/from";
-import { CraftContext } from "../../context";
-import type { CronOptions } from "./types";
+import { type CraftContext, type MergedOptions } from "../../context";
+import type { CronExpression, CronOptions } from "./types";
+
+/**
+ * Store key for merged cron adapter options.
+ * Set context-level defaults (e.g., jitterMs) once and share across all
+ * cron sources in the same context.
+ * @internal
+ */
+export const ADAPTER_CRON_OPTIONS = Symbol.for(
+  "routecraft.adapter.cron.options",
+);
+
+declare module "@routecraft/routecraft" {
+  interface StoreRegistry {
+    [ADAPTER_CRON_OPTIONS]: Partial<CronOptions>;
+  }
+}
 
 /**
  * Source adapter that fires on a cron schedule using the `croner` library.
@@ -17,14 +33,40 @@ import type { CronOptions } from "./types";
  *
  * Supports standard 5-field cron (minute granularity), extended 6-field
  * (second granularity), and nicknames (`@daily`, `@hourly`, etc.).
+ *
+ * Options can be set per-adapter or globally via `CraftContext` store
+ * using the `ADAPTER_CRON_OPTIONS` key. Per-adapter options take precedence.
  */
-export class CronSourceAdapter implements Source<undefined> {
+export class CronSourceAdapter
+  implements Source<undefined>, MergedOptions<CronOptions>
+{
   readonly adapterId = "routecraft.adapter.cron";
+  public options: Partial<CronOptions>;
 
   constructor(
-    private readonly expression: string,
-    private readonly options?: CronOptions,
-  ) {}
+    private readonly expression: CronExpression,
+    options?: CronOptions,
+  ) {
+    this.options = options ?? {};
+  }
+
+  /**
+   * Merge adapter-level options with context-level options.
+   * Per-adapter values take precedence over context-level defaults.
+   *
+   * @param context - The CraftContext
+   * @returns Merged options
+   */
+  mergedOptions(context: CraftContext): CronOptions {
+    const contextOptions =
+      (context.getStore(ADAPTER_CRON_OPTIONS) as
+        | Partial<CronOptions>
+        | undefined) ?? {};
+    return {
+      ...contextOptions,
+      ...this.options,
+    };
+  }
 
   /**
    * Subscribe to cron-scheduled triggers.
@@ -33,13 +75,13 @@ export class CronSourceAdapter implements Source<undefined> {
    * the handler on each scheduled fire. The returned promise resolves
    * when the job is stopped (via abort, maxFires, or handler error).
    *
-   * @param _context - CraftContext for logging
+   * @param context - CraftContext for logging and merged options
    * @param handler - Called with `undefined` body and cron headers on each fire
    * @param abortController - Abort signal to stop the cron job
    * @param onReady - Called once the job is scheduled and ready
    */
   subscribe(
-    _context: CraftContext,
+    context: CraftContext,
     handler: (
       message: undefined,
       headers?: ExchangeHeaders,
@@ -52,10 +94,22 @@ export class CronSourceAdapter implements Source<undefined> {
       maxFires = Infinity,
       jitterMs = 0,
       name,
-    } = this.options || {};
+    } = this.mergedOptions(context);
+
+    if (Number.isNaN(maxFires) || maxFires < 0) {
+      throw new Error("cron maxFires must be a non-negative number");
+    }
+    if (Number.isNaN(jitterMs) || jitterMs < 0) {
+      throw new Error("cron jitterMs must be a non-negative number");
+    }
 
     return new Promise<void>((resolve) => {
       let counter = 0;
+
+      const settle = () => {
+        job.stop();
+        resolve();
+      };
 
       const job = new Cron(
         this.expression,
@@ -65,18 +119,11 @@ export class CronSourceAdapter implements Source<undefined> {
         },
         async () => {
           if (abortController.signal.aborted) {
-            job.stop();
-            resolve();
+            settle();
             return;
           }
 
           counter++;
-          if (counter > maxFires) {
-            job.stop();
-            resolve();
-            return;
-          }
-
           const firedTime = new Date();
 
           // Apply jitter delay before firing (blocking, not fire-and-forget)
@@ -84,8 +131,7 @@ export class CronSourceAdapter implements Source<undefined> {
             const jitter = Math.floor(Math.random() * jitterMs);
             await new Promise((r) => setTimeout(r, jitter));
             if (abortController.signal.aborted) {
-              job.stop();
-              resolve();
+              settle();
               return;
             }
           }
@@ -115,18 +161,20 @@ export class CronSourceAdapter implements Source<undefined> {
                 : error instanceof Error
                   ? error.message
                   : "Cron handler failed";
-            _context.logger.error({ adapter: "cron", err: error }, msg);
-            job.stop();
+            context.logger.error({ adapter: "cron", err: error }, msg);
             abortController.abort();
-            resolve();
+            settle();
+            return;
+          }
+
+          // Stop immediately after the Nth fire (no extra tick)
+          if (counter >= maxFires) {
+            settle();
           }
         },
       );
 
-      abortController.signal.addEventListener("abort", () => {
-        job.stop();
-        resolve();
-      });
+      abortController.signal.addEventListener("abort", () => settle());
 
       onReady?.();
     });

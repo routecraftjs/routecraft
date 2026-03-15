@@ -1,3 +1,26 @@
+/**
+ * Cron expression with autocomplete for nicknames and common patterns.
+ * Accepts any valid cron string (5-field or 6-field) as well.
+ */
+export type CronExpression =
+  | "@yearly" // Once a year (Jan 1 at midnight)
+  | "@annually" // Once a year (Jan 1 at midnight)
+  | "@monthly" // Once a month (1st at midnight)
+  | "@weekly" // Once a week (Sunday at midnight)
+  | "@daily" // Once a day (at midnight)
+  | "@midnight" // Once a day (at midnight)
+  | "@hourly" // Once an hour (at minute 0)
+  | "* * * * *" // Every minute
+  | "*/5 * * * *" // Every 5 minutes
+  | "*/15 * * * *" // Every 15 minutes
+  | "*/30 * * * *" // Every 30 minutes
+  | "0 * * * *" // Every hour (at minute 0)
+  | "0 0 * * *" // Daily at midnight
+  | "0 0 * * 0" // Weekly on Sunday at midnight
+  | "0 0 1 * *" // Monthly on the 1st at midnight
+  | "0 0 1 1 *" // Yearly on Jan 1 at midnight
+  | (string & {}); // Any valid 5-field or 6-field cron expression
+
 /** Configuration options for the cron source adapter. */
 export interface CronOptions {
   /**
@@ -13,7 +36,10 @@ export interface CronOptions {
   maxFires?: number;
 
   /**
-   * Random delay in milliseconds added to each trigger to prevent synchronized spikes
+   * Random delay in milliseconds added to each trigger to prevent
+   * synchronized spikes in distributed deployments.
+   * Recommended: 1000-30000 for production workloads.
+   * Can be set globally via `ADAPTER_CRON_OPTIONS` in the context store.
    * @default 0
    */
   jitterMs?: number;

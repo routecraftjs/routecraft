@@ -9,6 +9,7 @@ import {
 import { CraftContext } from "../src/context.ts";
 
 function mockContext(): CraftContext {
+  const store = new Map();
   return {
     logger: {
       trace: vi.fn(),
@@ -18,6 +19,8 @@ function mockContext(): CraftContext {
       error: vi.fn(),
       fatal: vi.fn(),
     },
+    getStore: (key: symbol) => store.get(key),
+    setStore: (key: symbol, value: unknown) => store.set(key, value),
   } as unknown as CraftContext;
 }
 

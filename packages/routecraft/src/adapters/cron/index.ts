@@ -1,6 +1,6 @@
 import type { Source } from "../../operations/from";
 import { CronSourceAdapter } from "./source";
-import type { CronOptions } from "./types";
+import type { CronExpression, CronOptions } from "./types";
 
 /**
  * Creates a source that emits on a cron schedule. Body is undefined; cron metadata is in exchange headers (routecraft.cron.*).
@@ -20,11 +20,11 @@ import type { CronOptions } from "./types";
  * ```
  */
 export function cron(
-  expression: string,
+  expression: CronExpression,
   options?: CronOptions,
 ): Source<undefined> {
   return new CronSourceAdapter(expression, options);
 }
 
-export { CronSourceAdapter } from "./source";
-export type { CronOptions } from "./types";
+export { CronSourceAdapter, ADAPTER_CRON_OPTIONS } from "./source";
+export type { CronExpression, CronOptions } from "./types";
