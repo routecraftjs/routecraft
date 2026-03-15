@@ -63,5 +63,10 @@
   "repository": "https://github.com/routecraftjs/routecraft",
   "dependencies": {
     "chokidar": "^5.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3"
+    ]
   }
 }
