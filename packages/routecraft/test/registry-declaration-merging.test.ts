@@ -1,6 +1,7 @@
 import { describe, test, expectTypeOf } from "vitest";
 import {
   direct,
+  type Destination,
   type ForwardFn,
   type RegisteredDirectEndpoint,
   type ResolveKey,
@@ -50,8 +51,12 @@ describe("Declaration merging: DirectEndpointRegistry", () => {
    * @expectedResult direct('/payments') compiles, return type is Destination
    */
   test("direct() constrains endpoint to registered keys", () => {
-    expectTypeOf(direct("/payments")).toMatchTypeOf<unknown>();
-    expectTypeOf(direct("/orders")).toMatchTypeOf<unknown>();
+    expectTypeOf(direct("/payments")).toEqualTypeOf<
+      Destination<{ amount: number }, unknown>
+    >();
+    expectTypeOf(direct("/orders")).toEqualTypeOf<
+      Destination<{ id: string }, unknown>
+    >();
   });
 
   /**
