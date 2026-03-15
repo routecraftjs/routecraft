@@ -87,6 +87,7 @@ export { noop } from "./adapters/noop.ts";
 export { log, debug } from "./adapters/log/index.ts";
 export { direct } from "./adapters/direct/index.ts";
 export { timer } from "./adapters/timer/index.ts";
+export { cron } from "./adapters/cron/index.ts";
 export { http } from "./adapters/http/index.ts";
 export { pseudo } from "@routecraft/testing";
 export { browser } from "./adapters/browser.ts";
@@ -118,6 +119,7 @@ export {
   sanitizeEndpoint,
 } from "./adapters/direct/index.ts";
 export { type TimerOptions } from "./adapters/timer/index.ts";
+export { type CronOptions } from "./adapters/cron/index.ts";
 export {
   type PseudoOptions,
   type PseudoKeyedOptions,
