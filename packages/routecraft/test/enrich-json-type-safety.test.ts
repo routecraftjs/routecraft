@@ -2,6 +2,7 @@ import { describe, test, expectTypeOf } from "vitest";
 import { z } from "zod";
 import { craft, simple, only, json } from "../src/index.ts";
 import type { RouteBuilder } from "../src/builder.ts";
+import type { RoutecraftHeaders } from "../src/exchange.ts";
 
 describe("validate() type safety", () => {
   const nameSchema = z.object({ name: z.string() });
@@ -9,13 +10,15 @@ describe("validate() type safety", () => {
   /**
    * @case validate(schema) narrows body type to schema output
    * @preconditions .from(simple({ id: 0 })).validate(nameSchema)
-   * @expectedResult RouteBuilder<{ name: string }> (StandardSchemaV1.InferOutput of schema)
+   * @expectedResult RouteBuilder<{ name: string }, Partial<RoutecraftHeaders>> (headers seeded with framework headers from from())
    */
   test("validate(schema) infers RouteBuilder with schema output type", () => {
     const route = craft()
       .from(simple({ id: 0 }))
       .validate(nameSchema);
-    expectTypeOf(route).toEqualTypeOf<RouteBuilder<{ name: string }>>();
+    expectTypeOf(route).toEqualTypeOf<
+      RouteBuilder<{ name: string }, Partial<RoutecraftHeaders>>
+    >();
   });
 });
 
@@ -23,14 +26,17 @@ describe("enrich() without aggregator type safety", () => {
   /**
    * @case enrich(dest) with no aggregator infers Current & R from destination
    * @preconditions .from(simple({ userId: 1 })).enrich(async () => ({ links: [...] }))
-   * @expectedResult RouteBuilder<{ userId: number } & { links: string[] }>
+   * @expectedResult RouteBuilder<{ userId: number } & { links: string[] }, Partial<RoutecraftHeaders>>
    */
   test("enrich(destination) infers Current & R from destination result type", () => {
     const route = craft()
       .from(simple({ userId: 1 }))
       .enrich(async () => ({ links: ["a", "b"] as string[] }));
     expectTypeOf(route).toEqualTypeOf<
-      RouteBuilder<{ userId: number } & { links: string[] }>
+      RouteBuilder<
+        { userId: number } & { links: string[] },
+        Partial<RoutecraftHeaders>
+      >
     >();
   });
 });
@@ -39,7 +45,7 @@ describe("only() and json() type safety", () => {
   /**
    * @case only(getValue, into) with string literal into: enrich infers body type as Current & { [into]: V }
    * @preconditions only((r) => r.links, "links") with r typed
-   * @expectedResult Route after .enrich(..., only(..., "links")) is RouteBuilder<{ userId: number } & { links: string[] }>
+   * @expectedResult Route after .enrich(..., only(..., "links")) is RouteBuilder<{ userId: number } & { links: string[] }, Partial<RoutecraftHeaders>>
    */
   test("enrich with only(..., literal into) infers merged body type", () => {
     const enricher = async () => ({ links: ["a", "b"] as string[] });
@@ -51,7 +57,10 @@ describe("only() and json() type safety", () => {
       );
 
     expectTypeOf(route).toEqualTypeOf<
-      RouteBuilder<{ userId: number } & { links: string[] }>
+      RouteBuilder<
+        { userId: number } & { links: string[] },
+        Partial<RoutecraftHeaders>
+      >
     >();
   });
 

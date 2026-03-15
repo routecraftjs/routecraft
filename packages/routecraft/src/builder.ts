@@ -21,6 +21,7 @@ import {
 } from "./types.ts";
 import {
   type Exchange,
+  type RoutecraftHeaders,
   DefaultExchange,
   getExchangeContext,
 } from "./exchange.ts";
@@ -61,6 +62,7 @@ import {
   EnrichStep,
   type DestinationAggregator,
   type EnrichMergeShape,
+  type EnrichAggregatorOption,
 } from "./operations/enrich.ts";
 import { HeaderStep } from "./operations/header.ts";
 import { type HeaderValue } from "./exchange.ts";
@@ -224,14 +226,14 @@ export class ContextBuilder {
   routes(
     routes:
       | RouteDefinition[]
-      | RouteBuilder<unknown, Record<string, HeaderValue>>[]
+      | RouteBuilder<unknown, Partial<Record<string, HeaderValue>>>[]
       | RouteDefinition
-      | RouteBuilder<unknown, Record<string, HeaderValue>>,
+      | RouteBuilder<unknown, Partial<Record<string, HeaderValue>>>,
   ): this {
     const addOne = (
       route:
         | RouteDefinition
-        | RouteBuilder<unknown, Record<string, HeaderValue>>,
+        | RouteBuilder<unknown, Partial<Record<string, HeaderValue>>>,
     ): void => {
       if (isRouteBuilder(route)) {
         this.definitions.push(
@@ -328,7 +330,10 @@ export type RouteOptions = Partial<Pick<RouteDefinition, "consumer">> & {
  */
 export class RouteBuilder<
   Current = unknown,
-  Headers extends Record<string, HeaderValue> = Record<string, HeaderValue>,
+  Headers extends Partial<Record<string, HeaderValue>> = Record<
+    string,
+    HeaderValue
+  >,
 > {
   protected currentRoute?: RouteDefinition;
   protected routes: RouteDefinition[] = [];
@@ -360,7 +365,7 @@ export class RouteBuilder<
    */
   private withType<
     T,
-    H extends Record<string, HeaderValue> = Headers,
+    H extends Partial<Record<string, HeaderValue>> = Headers,
   >(): RouteBuilder<T, H> {
     return this as unknown as RouteBuilder<T, H>;
   }
@@ -461,7 +466,7 @@ export class RouteBuilder<
    */
   from<T>(
     source: Source<T> | CallableSource<T>,
-  ): RouteBuilder<T, Record<string, HeaderValue>> {
+  ): RouteBuilder<T, Partial<RoutecraftHeaders>> {
     const id = this.pendingOptions?.id ?? randomUUID();
     const consumer = this.pendingOptions?.consumer ?? {
       type: SimpleConsumer as unknown as ConsumerType<Consumer>,
@@ -487,7 +492,7 @@ export class RouteBuilder<
     this.pendingOptions = undefined;
 
     this.routes.push(this.currentRoute);
-    return this.withType<T, Record<string, HeaderValue>>();
+    return this.withType<T, Partial<RoutecraftHeaders>>();
   }
 
   /**
@@ -577,7 +582,7 @@ export class RouteBuilder<
     destination:
       | Destination<Current, R>
       | ((exchange: Exchange<Current, Headers>) => Promise<R> | R),
-  ): RouteBuilder<R, Headers> {
+  ): RouteBuilder<R extends void ? Current : R, Headers> {
     const route = this.requireSource();
     logger.trace({ route: route.id }, "Adding destination step to route");
     route.steps.push(
@@ -587,7 +592,7 @@ export class RouteBuilder<
           | CallableDestination<Current, R>,
       ),
     );
-    return this.withType<R>();
+    return this.withType<R extends void ? Current : R>();
   }
 
   /**
@@ -905,59 +910,33 @@ export class RouteBuilder<
    *   })
    * )
    */
-  enrich<R>(
+  enrich<
+    R,
+    A extends
+      | DestinationAggregator<Current, R>
+      | (DestinationAggregator<unknown, unknown> & {
+          [ENRICH_MERGE_TYPE]?: EnrichMergeShape;
+        })
+      | undefined = undefined,
+  >(
     destination:
       | Destination<Current, R>
       | ((exchange: Exchange<Current, Headers>) => Promise<R> | R),
-  ): RouteBuilder<Current & R, Headers>;
-  enrich<
-    R = Current,
-    A extends
-      | DestinationAggregator<Current, unknown>
-      | (DestinationAggregator<unknown, unknown> & {
-          [ENRICH_MERGE_TYPE]?: EnrichMergeShape;
-        })
-      | undefined = DestinationAggregator<Current, unknown> | undefined,
-  >(
-    destination:
-      | Destination<Current, Partial<R>>
-      | ((
-          exchange: Exchange<Current, Headers>,
-        ) => Promise<Partial<R>> | Partial<R>),
-    aggregator: A,
-  ): RouteBuilder<
-    A extends { [ENRICH_MERGE_TYPE]: infer M } ? Current & M : R,
-    Headers
-  >;
-  enrich<
-    R = Current,
-    A extends
-      | DestinationAggregator<Current, unknown>
-      | (DestinationAggregator<unknown, unknown> & {
-          [ENRICH_MERGE_TYPE]?: EnrichMergeShape;
-        })
-      | undefined = DestinationAggregator<Current, unknown> | undefined,
-  >(
-    destination:
-      | Destination<Current, Partial<R>>
-      | ((
-          exchange: Exchange<Current, Headers>,
-        ) => Promise<Partial<R>> | Partial<R>),
     aggregator?: A,
   ): RouteBuilder<
-    A extends { [ENRICH_MERGE_TYPE]: infer M } ? Current & M : R,
+    A extends { [ENRICH_MERGE_TYPE]: infer M } ? Current & M : Current & R,
     Headers
   > {
     this.addStep(
-      new EnrichStep<Current, Partial<R>>(
+      new EnrichStep<Current, R>(
         destination as
-          | Destination<Current, Partial<R>>
-          | CallableDestination<Current, Partial<R>>,
-        aggregator,
+          | Destination<Current, R>
+          | CallableDestination<Current, R>,
+        aggregator as EnrichAggregatorOption<Current, R> | undefined,
       ),
     );
     return this.withType<
-      A extends { [ENRICH_MERGE_TYPE]: infer M } ? Current & M : R
+      A extends { [ENRICH_MERGE_TYPE]: infer M } ? Current & M : Current & R
     >();
   }
 

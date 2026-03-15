@@ -71,6 +71,7 @@ export {
 export {
   type DirectEndpointRegistry,
   type ResolveKey,
+  type ResolveBody,
   type RegisteredDirectEndpoint,
 } from "./registry.ts";
 
