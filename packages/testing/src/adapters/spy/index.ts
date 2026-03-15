@@ -1,7 +1,10 @@
-import type { Destination, Processor, Exchange } from "@routecraft/routecraft";
+import {
+  HeadersKeys,
+  type Destination,
+  type Processor,
+  type Exchange,
+} from "@routecraft/routecraft";
 import { createSpyState } from "./shared.ts";
-
-/* eslint-disable @typescript-eslint/no-explicit-any -- input position must accept any exchange for DSL assignability */
 
 /**
  * A spy adapter that records all exchanges passing through it.
@@ -26,9 +29,9 @@ export type SpyAdapter<T = unknown> = {
 
   /** Array of just the body values from received exchanges. */
   receivedBodies(): T[];
+  /* eslint-disable @typescript-eslint/no-explicit-any -- both positions use any: Destination so the spy is assignable regardless of body type, Processor so spy<unknown>() is assignable in typed pipelines */
 } & Destination<any, void> &
   Processor<any, T>;
-
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 /**
@@ -64,7 +67,7 @@ export function spy<T = unknown>(): SpyAdapter<T> {
     send(exchange: Exchange<T>): void {
       state.received.push(exchange);
 
-      const operation = exchange.headers?.["routecraft.operation"];
+      const operation = exchange.headers?.[HeadersKeys.OPERATION];
       if (operation === "enrich") {
         state.calls.enrich++;
       } else {

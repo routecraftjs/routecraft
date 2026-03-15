@@ -566,10 +566,10 @@ expect(spyAdapter.calls.send).toBe(1)
 
 | Field | Type | Default | Required | Description |
 |-------|------|---------|----------|-------------|
-| `received` | `Exchange[]` | `[]` | -- | All exchanges recorded |
-| `calls.send` | `number` | `0` | -- | Number of times used as destination |
-| `calls.process` | `number` | `0` | -- | Number of times used as processor |
-| `calls.enrich` | `number` | `0` | -- | Number of times used as enricher |
+| `received` | `Exchange[]` | `[]` | No | All exchanges recorded |
+| `calls.send` | `number` | `0` | No | Number of times used as destination |
+| `calls.process` | `number` | `0` | No | Number of times used as processor |
+| `calls.enrich` | `number` | `0` | No | Number of times used as enricher |
 
 **Methods:**
 
