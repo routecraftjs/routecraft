@@ -1,14 +1,16 @@
 import { describe, test, expect, vi, expectTypeOf } from "vitest";
-import { testContext } from "@routecraft/testing";
+import {
+  testContext,
+  pseudo,
+  type PseudoFactory,
+  type PseudoKeyedFactory,
+} from "@routecraft/testing";
 import {
   craft,
   simple,
   timer,
   log,
-  pseudo,
   type RouteBuilder,
-  type PseudoFactory,
-  type PseudoKeyedFactory,
 } from "@routecraft/routecraft";
 import type { Exchange } from "@routecraft/routecraft";
 

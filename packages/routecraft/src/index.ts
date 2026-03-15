@@ -69,7 +69,6 @@ export {
 } from "./brand.ts";
 
 export { logger } from "./logger.ts";
-export type { Logger } from "pino";
 
 export {
   type Adapter,
@@ -88,7 +87,6 @@ export { log, debug } from "./adapters/log/index.ts";
 export { direct } from "./adapters/direct/index.ts";
 export { timer } from "./adapters/timer/index.ts";
 export { http } from "./adapters/http/index.ts";
-export { pseudo } from "@routecraft/testing";
 export { browser } from "./adapters/browser.ts";
 export { file } from "./adapters/file.ts";
 export { html } from "./adapters/html.ts";
@@ -118,10 +116,6 @@ export {
   sanitizeEndpoint,
 } from "./adapters/direct/index.ts";
 export { type TimerOptions } from "./adapters/timer/index.ts";
-export {
-  type PseudoOptions,
-  type PseudoKeyedOptions,
-} from "@routecraft/testing";
 export {
   type BrowserBaseOptions,
   type BrowserCommandMap,
