@@ -46,7 +46,7 @@ interface BufferedEvent {
  * @example
  * ```typescript
  * import { CraftContext } from "@routecraft/routecraft";
- * import { telemetry } from "@routecraft/routecraft/telemetry";
+ * import { telemetry } from "@routecraft/routecraft";
  *
  * const ctx = new CraftContext({
  *   plugins: [telemetry()],
@@ -448,7 +448,7 @@ class TelemetryPlugin implements CraftPlugin {
  * @example
  * ```typescript
  * import { CraftContext } from "@routecraft/routecraft";
- * import { telemetry } from "@routecraft/routecraft/telemetry";
+ * import { telemetry } from "@routecraft/routecraft";
  *
  * const ctx = new CraftContext({
  *   plugins: [telemetry()],
