@@ -56,6 +56,19 @@ export enum HeadersKeys {
   TIMER_COUNTER = "routecraft.timer.counter",
   /** The next timestamp when the timer will fire, in ISO 8601 format */
   TIMER_NEXT_RUN = "routecraft.timer.nextRun",
+
+  /** The cron expression that triggered this exchange */
+  CRON_EXPRESSION = "routecraft.cron.expression",
+  /** The timestamp when the cron job fired, in ISO 8601 format */
+  CRON_FIRED_TIME = "routecraft.cron.firedTime",
+  /** The next timestamp when the cron job will fire, in ISO 8601 format */
+  CRON_NEXT_RUN = "routecraft.cron.nextRun",
+  /** The number of times the cron job has fired */
+  CRON_COUNTER = "routecraft.cron.counter",
+  /** The IANA timezone for the cron schedule */
+  CRON_TIMEZONE = "routecraft.cron.timezone",
+  /** The human-readable name for the cron job */
+  CRON_NAME = "routecraft.cron.name",
 }
 
 /**
@@ -81,6 +94,14 @@ export interface RoutecraftHeaders {
   [HeadersKeys.TIMER_PERIOD_MS]?: number;
   [HeadersKeys.TIMER_COUNTER]?: number;
   [HeadersKeys.TIMER_NEXT_RUN]?: string;
+
+  /** Cron-specific headers */
+  [HeadersKeys.CRON_EXPRESSION]?: string;
+  [HeadersKeys.CRON_FIRED_TIME]?: string;
+  [HeadersKeys.CRON_NEXT_RUN]?: string;
+  [HeadersKeys.CRON_COUNTER]?: number;
+  [HeadersKeys.CRON_TIMEZONE]?: string;
+  [HeadersKeys.CRON_NAME]?: string;
 }
 
 /**
