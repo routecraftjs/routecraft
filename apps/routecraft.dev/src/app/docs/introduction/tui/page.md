@@ -60,20 +60,18 @@ A chronological list of individual exchange records. Select a route from the Das
 | Duration | Processing time in milliseconds |
 | Error | Error message if the exchange failed |
 
-### Logs (3)
+### Events (e)
 
-A tail of raw framework events in chronological order -- context lifecycle, route lifecycle, exchange events, and operation events. Useful for debugging unexpected behaviour.
+A chronological tail of framework events with human-readable summaries -- context lifecycle, route lifecycle, exchange events, and operation events. Useful for debugging unexpected behaviour.
 
 ## Keyboard shortcuts
 
 | Key | Action |
 | --- | --- |
-| `1` | Switch to Dashboard view |
-| `2` | Switch to Exchanges view |
-| `3` | Switch to Logs view |
 | `j` / `↓` | Move selection down |
 | `k` / `↑` | Move selection up |
 | `Enter` | Drill into the selected route's exchanges |
+| `e` | Switch to Events view |
 | `Esc` | Go back to the previous view |
 | `q` | Quit |
 

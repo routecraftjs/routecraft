@@ -4,11 +4,28 @@ import { resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { testContext, type TestContext } from "@routecraft/testing";
-import { craft, simple, log } from "@routecraft/routecraft";
-import { telemetry } from "@routecraft/routecraft";
+import {
+  craft,
+  simple,
+  log,
+  telemetry,
+  SqliteTelemetrySink,
+} from "@routecraft/routecraft";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const Database = require("better-sqlite3");
+
+/**
+ * Helper: create a pre-opened SqliteTelemetrySink wired into a telemetry() plugin.
+ */
+async function sqliteTelemetry(
+  dbPath: string,
+  pluginOpts?: { batchSize?: number; flushIntervalMs?: number },
+) {
+  const sink = new SqliteTelemetrySink();
+  await sink.open({ dbPath });
+  return telemetry({ sink, ...pluginOpts });
+}
 
 describe("TelemetryPlugin", () => {
   let t: TestContext;
@@ -25,19 +42,18 @@ describe("TelemetryPlugin", () => {
     if (t) {
       await t.stop();
     }
-    // Clean up test database
     if (existsSync(testDir)) {
       rmSync(testDir, { recursive: true, force: true });
     }
   });
 
   /**
-   * @case TelemetryPlugin creates the SQLite database file on apply
+   * @case telemetry() with SQLite sink creates the database file
    * @preconditions Fresh temp directory, no existing database
    * @expectedResult Database file exists after context starts
    */
   test("creates database file on apply", async () => {
-    const plugin = telemetry({ dbPath });
+    const plugin = await sqliteTelemetry(dbPath);
 
     const route = craft()
       .id("test-route")
@@ -55,12 +71,12 @@ describe("TelemetryPlugin", () => {
   });
 
   /**
-   * @case TelemetryPlugin creates all required tables
+   * @case telemetry() with SQLite sink creates all required tables
    * @preconditions Fresh database
    * @expectedResult events, routes, and exchanges tables exist
    */
   test("creates all required tables", async () => {
-    const plugin = telemetry({ dbPath });
+    const plugin = await sqliteTelemetry(dbPath);
 
     const route = craft()
       .id("schema-test")
@@ -89,12 +105,12 @@ describe("TelemetryPlugin", () => {
   });
 
   /**
-   * @case TelemetryPlugin enables WAL mode by default
+   * @case telemetry() with SQLite sink enables WAL mode by default
    * @preconditions Fresh database with default options
    * @expectedResult SQLite journal_mode is wal
    */
   test("enables WAL mode by default", async () => {
-    const plugin = telemetry({ dbPath });
+    const plugin = await sqliteTelemetry(dbPath);
 
     const route = craft()
       .id("wal-test")
@@ -118,15 +134,12 @@ describe("TelemetryPlugin", () => {
   });
 
   /**
-   * @case TelemetryPlugin records route registrations
-   * @preconditions Context with one route and TelemetryPlugin
+   * @case telemetry() records route registrations via the sink
+   * @preconditions Context with one route and telemetry plugin
    * @expectedResult Route appears in the routes table after context starts
    */
   test("records route registrations", async () => {
-    const plugin = telemetry({
-      dbPath,
-      flushIntervalMs: 100,
-    });
+    const plugin = await sqliteTelemetry(dbPath, { flushIntervalMs: 100 });
 
     const route = craft()
       .id("recorded-route")
@@ -138,7 +151,6 @@ describe("TelemetryPlugin", () => {
       .build();
 
     await t.ctx.start();
-    // Wait for flush
     await new Promise((r) => setTimeout(r, 200));
 
     const db = new Database(dbPath, { readonly: true });
@@ -156,13 +168,12 @@ describe("TelemetryPlugin", () => {
   });
 
   /**
-   * @case TelemetryPlugin records exchange lifecycle events
+   * @case telemetry() records exchange lifecycle via the sink
    * @preconditions Context with simple source producing 3 messages
    * @expectedResult Exchange records appear in the exchanges table with correct status
    */
   test("records exchange lifecycle", async () => {
-    const plugin = telemetry({
-      dbPath,
+    const plugin = await sqliteTelemetry(dbPath, {
       flushIntervalMs: 100,
       batchSize: 5,
     });
@@ -177,7 +188,6 @@ describe("TelemetryPlugin", () => {
       .build();
 
     await t.ctx.start();
-    // Wait for processing and flush
     await new Promise((r) => setTimeout(r, 300));
 
     const db = new Database(dbPath, { readonly: true });
@@ -199,13 +209,12 @@ describe("TelemetryPlugin", () => {
   });
 
   /**
-   * @case TelemetryPlugin records events in the events table
+   * @case telemetry() records events in the events table via the sink
    * @preconditions Context with simple source
    * @expectedResult Events table contains entries after context runs
    */
   test("records events to events table", async () => {
-    const plugin = telemetry({
-      dbPath,
+    const plugin = await sqliteTelemetry(dbPath, {
       flushIntervalMs: 100,
       batchSize: 5,
     });
@@ -220,7 +229,6 @@ describe("TelemetryPlugin", () => {
       .build();
 
     await t.ctx.start();
-    // Wait for flush
     await new Promise((r) => setTimeout(r, 300));
 
     const db = new Database(dbPath, { readonly: true });
@@ -229,18 +237,17 @@ describe("TelemetryPlugin", () => {
       .get() as { cnt: number };
     db.close();
 
-    // Should have at least context:starting, context:started, route events, exchange events
     expect(eventCount.cnt).toBeGreaterThan(0);
   });
 
   /**
-   * @case TelemetryPlugin custom dbPath option works
+   * @case telemetry() with custom dbPath creates database at specified location
    * @preconditions Custom path in a nested temp directory
    * @expectedResult Database is created at the specified custom path
    */
   test("respects custom dbPath option", async () => {
     const customPath = resolve(testDir, "nested", "custom.db");
-    const plugin = telemetry({ dbPath: customPath });
+    const plugin = await sqliteTelemetry(customPath);
 
     const route = craft()
       .id("custom-path")
@@ -258,15 +265,14 @@ describe("TelemetryPlugin", () => {
   });
 
   /**
-   * @case TelemetryPlugin teardown flushes and closes the database
-   * @preconditions Context with TelemetryPlugin that has buffered events
-   * @expectedResult All buffered events are flushed before database closes
+   * @case telemetry() teardown flushes and closes the sink
+   * @preconditions Context with telemetry that has buffered events
+   * @expectedResult All buffered events are flushed before sink closes
    */
   test("teardown flushes buffered events", async () => {
-    const plugin = telemetry({
-      dbPath,
-      flushIntervalMs: 60000, // Very long interval so events stay buffered
-      batchSize: 1000, // Very large batch so events stay buffered
+    const plugin = await sqliteTelemetry(dbPath, {
+      flushIntervalMs: 60000,
+      batchSize: 1000,
     });
 
     const route = craft()
@@ -279,8 +285,6 @@ describe("TelemetryPlugin", () => {
       .build();
 
     await t.ctx.start();
-    // Events are buffered but not flushed yet (long interval, large batch)
-    // Context stop triggers plugin teardown which flushes
 
     const db = new Database(dbPath, { readonly: true });
     const eventCount = db
@@ -288,8 +292,6 @@ describe("TelemetryPlugin", () => {
       .get() as { cnt: number };
     db.close();
 
-    // After context.start() completes (which calls stop() when all routes finish),
-    // teardown should have flushed all events
     expect(eventCount.cnt).toBeGreaterThan(0);
   });
 });

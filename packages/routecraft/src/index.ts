@@ -155,8 +155,11 @@ export {
 } from "./adapters/sources/event/index.ts";
 
 export { telemetry } from "./telemetry/index.ts";
+export { SqliteTelemetrySink } from "./telemetry/index.ts";
 export type {
+  TelemetrySink,
   TelemetryOptions,
+  SqliteSinkOptions,
   TelemetryEvent,
   TelemetryRoute,
   TelemetryExchange,

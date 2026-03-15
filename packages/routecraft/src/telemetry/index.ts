@@ -1,6 +1,9 @@
 export { telemetry } from "./plugin.ts";
+export { SqliteTelemetrySink } from "./sqlite-sink.ts";
 export type {
+  TelemetrySink,
   TelemetryOptions,
+  SqliteSinkOptions,
   TelemetryEvent,
   TelemetryRoute,
   TelemetryExchange,

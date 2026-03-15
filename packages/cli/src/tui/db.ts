@@ -1,8 +1,4 @@
-import type {
-  TelemetryEvent,
-  TelemetryRoute,
-  TelemetryExchange,
-} from "@routecraft/routecraft";
+import type { TelemetryEvent, TelemetryExchange } from "@routecraft/routecraft";
 
 /**
  * Minimal type for the better-sqlite3 database to avoid hard dependency.
@@ -26,29 +22,28 @@ type DatabaseConstructor = new (
 /**
  * Read-only accessor for the telemetry SQLite database.
  * Used by the TUI to query historical data without affecting the running engine.
+ *
+ * Use the static `open()` factory instead of the constructor directly.
  */
 export class TelemetryDb {
   private db: Database;
 
-  constructor(dbPath: string) {
-    // Dynamic import is handled by the caller; we receive the already-constructed db
-    // But for simplicity, we construct it here with readonly mode
-    const mod = TelemetryDb.loadDriver();
-    this.db = new mod(dbPath, { readonly: true });
-    this.db.pragma("journal_mode = WAL");
+  private constructor(db: Database) {
+    this.db = db;
   }
 
   /**
-   * Load the better-sqlite3 driver synchronously.
-   * Throws if the package is not installed.
+   * Open a telemetry database in read-only mode.
+   *
+   * Uses dynamic `import()` so the module resolves correctly under pnpm's
+   * strict hoisting (CJS `require()` from an ESM bundle does not follow
+   * the package's own dependency graph).
    */
-  private static loadDriver(): DatabaseConstructor {
+  static async open(dbPath: string): Promise<TelemetryDb> {
+    let Database: DatabaseConstructor;
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const mod = require("better-sqlite3") as
-        | DatabaseConstructor
-        | { default: DatabaseConstructor };
-      return (
+      const mod = await import("better-sqlite3");
+      Database = (
         "default" in mod && typeof mod.default === "function"
           ? mod.default
           : mod
@@ -58,42 +53,49 @@ export class TelemetryDb {
         "better-sqlite3 is not installed. Install it with: pnpm add better-sqlite3",
       );
     }
+
+    const db = new Database(dbPath, { readonly: true });
+    db.pragma("journal_mode = WAL");
+    return new TelemetryDb(db);
   }
 
   /**
    * Get a summary of all routes with aggregated metrics.
+   * Routes are grouped by ID across all context runs so that restarting
+   * the same application does not create duplicate rows.
    */
-  getRouteSummary(): Array<
-    TelemetryRoute & {
-      totalExchanges: number;
-      completedExchanges: number;
-      failedExchanges: number;
-      avgDurationMs: number | null;
-    }
-  > {
+  getRouteSummary(): Array<{
+    id: string;
+    status: string;
+    totalExchanges: number;
+    completedExchanges: number;
+    failedExchanges: number;
+    avgDurationMs: number | null;
+  }> {
     const stmt = this.db.prepare(`
       SELECT
         r.id,
-        r.context_id AS contextId,
-        r.registered_at AS registeredAt,
-        r.status,
+        -- latest status across all context runs for this route
+        (SELECT r2.status FROM routes r2
+         WHERE r2.id = r.id
+         ORDER BY r2.registered_at DESC LIMIT 1) AS status,
         COALESCE(COUNT(e.id), 0) AS totalExchanges,
         COALESCE(SUM(CASE WHEN e.status = 'completed' THEN 1 ELSE 0 END), 0) AS completedExchanges,
         COALESCE(SUM(CASE WHEN e.status = 'failed' THEN 1 ELSE 0 END), 0) AS failedExchanges,
         AVG(e.duration_ms) AS avgDurationMs
       FROM routes r
-      LEFT JOIN exchanges e ON r.id = e.route_id AND r.context_id = e.context_id
-      GROUP BY r.id, r.context_id
-      ORDER BY r.registered_at DESC
+      LEFT JOIN exchanges e ON r.id = e.route_id
+      GROUP BY r.id
+      ORDER BY MAX(r.registered_at) DESC
     `);
-    return stmt.all() as Array<
-      TelemetryRoute & {
-        totalExchanges: number;
-        completedExchanges: number;
-        failedExchanges: number;
-        avgDurationMs: number | null;
-      }
-    >;
+    return stmt.all() as Array<{
+      id: string;
+      status: string;
+      totalExchanges: number;
+      completedExchanges: number;
+      failedExchanges: number;
+      avgDurationMs: number | null;
+    }>;
   }
 
   /**
