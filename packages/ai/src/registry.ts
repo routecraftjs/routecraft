@@ -33,6 +33,8 @@ import type { ResolveKey } from "@routecraft/routecraft";
  * Keys are provider names (e.g. 'openai', 'anthropic', 'ollama'),
  * values should be `true`. Populate via declaration merging to constrain
  * the `llm()` adapter's model ID prefix.
+ *
+ * @experimental
  */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type -- Marker interface, populated via declaration merging
 export interface LlmProviderRegistry {}
@@ -43,6 +45,8 @@ export interface LlmProviderRegistry {}
  * Keys are server names (e.g. 'github', 'local-postgres'),
  * values should be `true`. Populate via declaration merging to constrain
  * the `mcp()` adapter's shorthand syntax.
+ *
+ * @experimental
  */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type -- Marker interface, populated via declaration merging
 export interface McpServerRegistry {}
@@ -51,6 +55,8 @@ export interface McpServerRegistry {}
  * Resolved LLM model ID type.
  * When `LlmProviderRegistry` is populated, constrains to `'provider:modelName'`
  * where provider must be a registered key. Falls back to `string` when empty.
+ *
+ * @experimental
  */
 export type RegisteredLlmModelId = keyof LlmProviderRegistry extends never
   ? string
@@ -60,6 +66,8 @@ export type RegisteredLlmModelId = keyof LlmProviderRegistry extends never
  * Resolved MCP server ID type.
  * When `McpServerRegistry` is populated, constrains to `'server:tool'`
  * where server must be a registered key. Falls back to `` `${string}:${string}` `` when empty.
+ *
+ * @experimental
  */
 export type RegisteredMcpServer = ResolveKey<McpServerRegistry>;
 
@@ -67,6 +75,8 @@ export type RegisteredMcpServer = ResolveKey<McpServerRegistry>;
  * Resolved MCP shorthand type for 'server:tool' syntax.
  * When `McpServerRegistry` is populated, constrains the server prefix.
  * Falls back to `` `${string}:${string}` `` when empty.
+ *
+ * @experimental
  */
 export type RegisteredMcpShorthand = keyof McpServerRegistry extends never
   ? `${string}:${string}`

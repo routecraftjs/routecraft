@@ -70,7 +70,6 @@ export {
 
 export {
   type DirectEndpointRegistry,
-  type PluginEventRegistry,
   type ResolveKey,
   type RegisteredDirectEndpoint,
 } from "./registry.ts";
