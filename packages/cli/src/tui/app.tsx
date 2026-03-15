@@ -159,8 +159,7 @@ function DashboardView({
         {routes.length === 0 ? (
           <Text dimColor>
             {" "}
-            No routes recorded yet. Start a context with TelemetryPlugin
-            enabled.
+            No routes recorded yet. Start a context with telemetry() enabled.
           </Text>
         ) : (
           routes.map((route, i) => (
@@ -458,7 +457,7 @@ export async function renderTui(dbPath: string): Promise<void> {
     process.stderr.write(`Failed to open telemetry database: ${msg}\n`);
     process.stderr.write(`Path: ${dbPath}\n`);
     process.stderr.write(
-      "Make sure you have a running Routecraft context with TelemetryPlugin enabled.\n",
+      "Make sure you have a running Routecraft context with telemetry() enabled.\n",
     );
     process.exit(1);
   }
