@@ -35,7 +35,12 @@
     },
     "baseUrl": "."
   },
-  "include": ["packages/*/src/**/*", "packages/*/test/**/*", "tests/**/*"],
+  "include": [
+    "packages/*/src/**/*",
+    "packages/*/test/**/*",
+    "tests/**/*",
+    "examples/src/**/*"
+  ],
   "exclude": [
     "packages/ai/test/agent.test.ts",
     "packages/ai/test/embedding.test.ts",

@@ -105,18 +105,13 @@ export type ExchangeHeaders = Partial<RoutecraftHeaders> &
  * - Logging capabilities
  *
  * @template T The type of data in the body
- * @template H Tracked user-set headers. Defaults to `Record<string, HeaderValue>` (any key valid).
- *   When narrowed (e.g. via `.header()` in the builder), only known keys and framework headers are valid.
  */
-export type Exchange<
-  T = unknown,
-  H extends Partial<Record<string, HeaderValue>> = Record<string, HeaderValue>,
-> = {
+export type Exchange<T = unknown> = {
   /** Unique identifier for this exchange */
   readonly id: string;
 
   /** Headers containing metadata */
-  readonly headers: H;
+  readonly headers: ExchangeHeaders;
 
   /** The data being processed */
   body: T;
