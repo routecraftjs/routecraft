@@ -28,6 +28,7 @@ Every change -- feature, fix, refactor -- must satisfy the checklists below befo
 - [ ] Export the adapter from the package's `index.ts`
 - [ ] If it is an AI adapter (`packages/ai/`), also update the AI package exports
 - [ ] New adapters must include a JSDoc release tag on the factory function (see General Checklist)
+- [ ] If the adapter depends on a third-party package, add it as an optional `peerDependency` (with `peerDependenciesMeta`) in `@routecraft/routecraft` and as a regular `dependency` in `@routecraft/cli` so the CLI bundles it
 
 ## When you add or modify an operation
 
