@@ -1,5 +1,5 @@
 import { describe, test, expect, afterEach, vi } from "vitest";
-import { testContext, type TestContext } from "@routecraft/testing";
+import { testContext, spy, type TestContext } from "@routecraft/testing";
 import { craft, simple, direct } from "@routecraft/routecraft";
 
 describe("Error handler (.error())", () => {
@@ -15,7 +15,7 @@ describe("Error handler (.error())", () => {
    * @expectedResult The destination receives the handler's return value instead of the original body
    */
   test("returns static fallback when a step throws", async () => {
-    const destSpy = vi.fn();
+    const s = spy();
 
     t = await testContext()
       .routes(
@@ -29,7 +29,7 @@ describe("Error handler (.error())", () => {
           .transform(() => {
             throw new Error("boom");
           })
-          .to(destSpy),
+          .to(s),
       )
       .build();
 
@@ -38,7 +38,7 @@ describe("Error handler (.error())", () => {
     // Pipeline stops after error handler; destination before the throw was not reached,
     // but the exchange body should be the handler's return value
     expect(t.errors).toHaveLength(0);
-    expect(destSpy).not.toHaveBeenCalled();
+    expect(s.received).toHaveLength(0);
   });
 
   /**
@@ -82,7 +82,7 @@ describe("Error handler (.error())", () => {
    */
   test("pipeline does not resume after error handler", async () => {
     const afterThrowSpy = vi.fn((body: unknown) => body);
-    const destSpy = vi.fn();
+    const s = spy();
 
     t = await testContext()
       .routes(
@@ -94,14 +94,14 @@ describe("Error handler (.error())", () => {
             throw new Error("stop here");
           })
           .transform(afterThrowSpy)
-          .to(destSpy),
+          .to(s),
       )
       .build();
 
     await t.test();
 
     expect(afterThrowSpy).not.toHaveBeenCalled();
-    expect(destSpy).not.toHaveBeenCalled();
+    expect(s.received).toHaveLength(0);
   });
 
   /**
@@ -110,7 +110,7 @@ describe("Error handler (.error())", () => {
    * @expectedResult The error handler delegates to the error capability and the forward resolves with its result
    */
   test("forwards to another capability via forward()", async () => {
-    const errorCapabilitySpy = vi.fn();
+    const errorCapSpy = spy();
     const handlerResultSpy = vi.fn();
 
     t = await testContext()
@@ -136,16 +136,15 @@ describe("Error handler (.error())", () => {
             const data = body as { originalBody: string; reason: string };
             return { recovered: true, from: data.originalBody };
           })
-          .to(errorCapabilitySpy),
+          .to(errorCapSpy),
       ])
       .build();
 
     await t.test();
 
     // The error capability received the forwarded payload
-    expect(errorCapabilitySpy).toHaveBeenCalledTimes(1);
-    const receivedExchange = errorCapabilitySpy.mock.calls[0][0];
-    expect(receivedExchange.body).toEqual({
+    expect(errorCapSpy.received).toHaveLength(1);
+    expect(errorCapSpy.received[0].body).toEqual({
       recovered: true,
       from: "payload",
     });

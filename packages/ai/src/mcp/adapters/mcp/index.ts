@@ -10,6 +10,7 @@ import type {
   McpClientOptions,
   McpServerOptions,
 } from "../../types.ts";
+import type { RegisteredMcpShorthand } from "../../../registry.ts";
 import { McpSourceAdapter } from "./source.ts";
 import { McpDestinationAdapter } from "./destination.ts";
 import type { McpMessage } from "./types.ts";
@@ -56,7 +57,7 @@ export function mcp(
   clientOptions: McpClientOptions,
 ): Destination<unknown, unknown>;
 export function mcp(
-  shorthand: `${string}:${string}`,
+  shorthand: RegisteredMcpShorthand,
   options?: { args?: McpArgsExtractor },
 ): Destination<unknown, unknown>;
 export function mcp<S extends StandardSchemaV1 | undefined = undefined>(

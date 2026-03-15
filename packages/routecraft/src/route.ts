@@ -8,15 +8,19 @@ import {
   DefaultExchange,
   EXCHANGE_INTERNALS,
 } from "./exchange.ts";
+import { type RegisteredDirectEndpoint } from "./registry.ts";
 
 /**
  * Function that forwards a payload to another route via the direct adapter and returns its result.
  *
- * @param routeId - The target route's direct endpoint id
+ * @param endpoint - The target route's direct endpoint
  * @param payload - The data to send
  * @returns The result of the target route's pipeline
  */
-export type ForwardFn = (routeId: string, payload: unknown) => Promise<unknown>;
+export type ForwardFn = (
+  endpoint: RegisteredDirectEndpoint,
+  payload: unknown,
+) => Promise<unknown>;
 
 /**
  * Error handler invoked when a step in the route pipeline throws an unhandled error.
@@ -557,17 +561,17 @@ export class DefaultRoute implements Route {
    * @returns A forward function
    * @private
    */
-  private buildForward(): (
-    routeId: string,
-    payload: unknown,
-  ) => Promise<unknown> {
-    return async (routeId: string, payload: unknown): Promise<unknown> => {
+  private buildForward(): ForwardFn {
+    return async (
+      endpoint: RegisteredDirectEndpoint,
+      payload: unknown,
+    ): Promise<unknown> => {
       const { getDirectChannel, sanitizeEndpoint } =
         await import("./adapters/direct/shared.ts");
-      const endpoint = sanitizeEndpoint(routeId);
-      const channel = getDirectChannel(this.context, endpoint, {});
+      const sanitized = sanitizeEndpoint(endpoint as string);
+      const channel = getDirectChannel(this.context, sanitized, {});
       const forwardExchange = this.buildExchange(payload);
-      const result = await channel.send(endpoint, forwardExchange);
+      const result = await channel.send(sanitized, forwardExchange);
       return result.body;
     };
   }

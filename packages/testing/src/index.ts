@@ -27,6 +27,9 @@ export {
   type PseudoKeyedOptions,
 } from "./adapters/pseudo";
 
+// Re-export spy adapter
+export { spy, type SpyAdapter } from "./adapters/spy";
+
 /**
  * Load a JSON fixture file and return the parsed value.
  *

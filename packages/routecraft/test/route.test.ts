@@ -1,6 +1,6 @@
 import { type } from "arktype";
 import { describe, test, expect, afterEach, vi, beforeEach } from "vitest";
-import { testContext, type TestContext } from "@routecraft/testing";
+import { testContext, spy, type TestContext } from "@routecraft/testing";
 import {
   craft,
   simple,
@@ -32,7 +32,7 @@ describe("Route Behavior", () => {
    */
   test("processes messages through pipeline", async () => {
     const transformerSpy = vi.fn((body) => body);
-    const destSpy = vi.fn();
+    const s = spy();
 
     t = await testContext()
       .routes(
@@ -40,16 +40,15 @@ describe("Route Behavior", () => {
           .id("test-pipeline")
           .from(simple("test-message"))
           .transform(transformerSpy)
-          .to(destSpy),
+          .to(s),
       )
       .build();
 
     await t.ctx.start();
 
     expect(transformerSpy).toHaveBeenCalled();
-    expect(destSpy).toHaveBeenCalledTimes(1);
-    const sentExchange = destSpy.mock.calls[0][0];
-    expect(sentExchange.body).toBe("test-message");
+    expect(s.received).toHaveLength(1);
+    expect(s.received[0].body).toBe("test-message");
   });
 
   /**
@@ -58,8 +57,8 @@ describe("Route Behavior", () => {
    * @expectedResult The route can continue after the to step has been called.
    */
   test("route can continue after a to step has been called", async () => {
-    const destSpy1 = vi.fn();
-    const destSpy2 = vi.fn();
+    const s1 = spy();
+    const s2 = spy();
     const processorSpy = vi.fn((exchange) => exchange);
 
     t = await testContext()
@@ -67,16 +66,16 @@ describe("Route Behavior", () => {
         craft()
           .id("test-route")
           .from(simple("test-message"))
-          .to(destSpy1)
-          .to(destSpy2)
+          .to(s1)
+          .to(s2)
           .process(processorSpy),
       )
       .build();
 
     await t.ctx.start();
 
-    expect(destSpy1).toHaveBeenCalledTimes(1);
-    expect(destSpy2).toHaveBeenCalledTimes(1);
+    expect(s1.received).toHaveLength(1);
+    expect(s2.received).toHaveLength(1);
     expect(processorSpy).toHaveBeenCalled();
   });
 
@@ -126,7 +125,7 @@ describe("Route Behavior", () => {
    * @expectedResult Should continue running and log error
    */
   test("handles processor errors gracefully", async () => {
-    const spyDest = vi.fn();
+    const s = spy();
 
     t = await testContext()
       .routes(
@@ -136,14 +135,14 @@ describe("Route Behavior", () => {
           .process(() => {
             throw new Error("Processor error");
           })
-          .to(spyDest),
+          .to(s),
       )
       .build();
 
     await t.ctx.start();
 
     expect(t.logger.error).toHaveBeenCalled();
-    expect(spyDest).toHaveBeenCalledTimes(0);
+    expect(s.received).toHaveLength(0);
     expect((t.logger.error as ReturnType<typeof vi.fn>).mock.calls[0][1]).toBe(
       "Processor error",
     );
@@ -265,7 +264,7 @@ describe("Route Behavior", () => {
    */
   test("continues processing after message failure", async () => {
     const messages = ["success1", "fail", "success2"];
-    const spyDest = vi.fn();
+    const s = spy();
     let processedCount = 0;
 
     t = await testContext()
@@ -286,7 +285,7 @@ describe("Route Behavior", () => {
             processedCount++;
             return exchange;
           })
-          .to(spyDest),
+          .to(s),
       )
       .build();
 
@@ -300,7 +299,7 @@ describe("Route Behavior", () => {
 
     // Verify successful messages were processed
     expect(processedCount).toBe(2); // Both success1 and success2 should be processed
-    expect(spyDest).toHaveBeenCalledTimes(2);
+    expect(s.received).toHaveLength(2);
   });
 
   /**
@@ -376,7 +375,7 @@ describe("Route Behavior", () => {
    * @expectedResult Body should be correctly transformed through pipeline
    */
   test("handles body transformations", async () => {
-    const spyDest = vi.fn();
+    const s = spy();
 
     t = await testContext()
       .routes(
@@ -394,14 +393,13 @@ describe("Route Behavior", () => {
             };
             return exchange;
           })
-          .to(spyDest),
+          .to(s),
       )
       .build();
 
     await t.ctx.start();
 
-    const receivedBodies = spyDest.mock.calls.map((call) => call[0].body);
-    expect(receivedBodies).toEqual([{ value: 4 }]);
+    expect(s.receivedBodies()).toEqual([{ value: 4 }]);
   });
 
   /**
@@ -410,7 +408,7 @@ describe("Route Behavior", () => {
    * @expectedResult Should maintain type safety and handle transformations
    */
   test("handles processor return values correctly", async () => {
-    const spyDest = vi.fn();
+    const s = spy();
 
     t = await testContext()
       .routes(
@@ -424,14 +422,13 @@ describe("Route Behavior", () => {
           .transform((body) => {
             return `processed-${body}`;
           })
-          .to(spyDest),
+          .to(s),
       )
       .build();
 
     await t.ctx.start();
 
-    const receivedBodies = spyDest.mock.calls.map((call) => call[0].body);
-    expect(receivedBodies).toEqual(["processed-1"]);
+    expect(s.receivedBodies()).toEqual(["processed-1"]);
   });
 
   /**
@@ -440,8 +437,8 @@ describe("Route Behavior", () => {
    * @expectedResult The message is split, processed, and all split exchanges (with new IDs) are sent downstream.
    */
   test("splits message into multiple exchanges", async () => {
-    const spyTap = vi.fn();
-    const spyDest = vi.fn();
+    const tapSpy = spy();
+    const destSpy = spy();
 
     t = await testContext()
       .routes(
@@ -460,8 +457,8 @@ describe("Route Behavior", () => {
                 }),
             );
           })
-          .tap(spyTap)
-          .to(spyDest),
+          .tap(tapSpy)
+          .to(destSpy),
       )
       .build();
 
@@ -471,21 +468,23 @@ describe("Route Behavior", () => {
     await t.drain();
 
     // Expect the original "hello-world" to be split into two parts: "hello" and "world".
-    const tapBodies = spyTap.mock.calls.map((call) => call[0].body);
-    expect(tapBodies).toEqual(expect.arrayContaining(["hello", "world"]));
-    const destBodies = spyDest.mock.calls.map((call) => call[0].body);
-    expect(destBodies).toEqual(expect.arrayContaining(["hello", "world"]));
+    expect(tapSpy.receivedBodies()).toEqual(
+      expect.arrayContaining(["hello", "world"]),
+    );
+    expect(destSpy.receivedBodies()).toEqual(
+      expect.arrayContaining(["hello", "world"]),
+    );
 
     // There should be at least two distinct exchange IDs (i.e. each split gets a new ID).
     const allIds = [
-      ...spyTap.mock.calls.map((call) => call[0].id),
-      ...spyDest.mock.calls.map((call) => call[0].id),
+      ...tapSpy.received.map((e) => e.id),
+      ...destSpy.received.map((e) => e.id),
     ];
     expect(new Set(allIds).size).toBeGreaterThan(1);
 
     // All captured correlation IDs should be identical.
-    const correlationIds = spyTap.mock.calls.map(
-      (call) => call[0].headers["routecraft.correlation_id"],
+    const correlationIds = tapSpy.received.map(
+      (e) => e.headers["routecraft.correlation_id"],
     );
     expect(new Set(correlationIds).size).toBe(1);
   });
@@ -496,7 +495,7 @@ describe("Route Behavior", () => {
    * @expectedResult No exchanges are sent to the destination.
    */
   test("handles empty split output gracefully", async () => {
-    const spyDest = vi.fn();
+    const s = spy();
 
     t = await testContext()
       .routes(
@@ -504,13 +503,13 @@ describe("Route Behavior", () => {
           .id("empty-split-test")
           .from(simple("unused-message"))
           .split(() => [])
-          .to(spyDest),
+          .to(s),
       )
       .build();
 
     await t.ctx.start();
     // Since splitter returns an empty array, send should not be called.
-    expect(spyDest).toHaveBeenCalledTimes(0);
+    expect(s.received).toHaveLength(0);
   });
 
   /**
@@ -519,7 +518,7 @@ describe("Route Behavior", () => {
    * @expectedResult All exchanges produced by the split step have the same correlation ID.
    */
   test("maintains correlation ID across split exchanges", async () => {
-    const spyTap = vi.fn();
+    const tapSpy = spy();
 
     t = await testContext()
       .routes(
@@ -538,7 +537,7 @@ describe("Route Behavior", () => {
                 }),
             );
           })
-          .tap(spyTap)
+          .tap(tapSpy)
           .to(noop()),
       )
       .build();
@@ -548,9 +547,9 @@ describe("Route Behavior", () => {
     // Wait for async tap jobs to complete
     await t.drain();
 
-    expect(spyTap).toHaveBeenCalledTimes(2);
-    const correlationIds = spyTap.mock.calls.map(
-      (call) => call[0].headers["routecraft.correlation_id"],
+    expect(tapSpy.received).toHaveLength(2);
+    const correlationIds = tapSpy.received.map(
+      (e) => e.headers["routecraft.correlation_id"],
     );
     expect(new Set(correlationIds).size).toBe(1);
   });
@@ -561,7 +560,7 @@ describe("Route Behavior", () => {
    * @expectedResult The split exchanges are aggregated into a single exchange with the expected aggregated body.
    */
   test("aggregates split exchanges correctly", async () => {
-    const spyDest = vi.fn();
+    const s = spy();
     const split = {
       split: (exchange) => {
         const ctx = getExchangeContext(exchange)!;
@@ -592,7 +591,7 @@ describe("Route Behavior", () => {
           .split(split)
           .process(processorSpy)
           .aggregate(agg)
-          .to(spyDest),
+          .to(s),
       )
       .build();
 
@@ -601,9 +600,8 @@ describe("Route Behavior", () => {
     expect(splitSpy).toHaveBeenCalledTimes(1);
     expect(processorSpy).toHaveBeenCalledTimes(3);
     expect(aggSpy).toHaveBeenCalledTimes(1);
-    expect(spyDest).toHaveBeenCalledTimes(1);
-    const receivedBodies = spyDest.mock.calls.map((call) => call[0].body);
-    expect(receivedBodies).toEqual(["a,b,c"]);
+    expect(s.received).toHaveLength(1);
+    expect(s.receivedBodies()).toEqual(["a,b,c"]);
   });
 
   /**
@@ -612,7 +610,7 @@ describe("Route Behavior", () => {
    * @expectedResult The aggregator receives a single exchange and modifies its body accordingly.
    */
   test("aggregate step with no preceding split", async () => {
-    const spyDest = vi.fn();
+    const s = spy();
 
     t = await testContext()
       .routes(
@@ -626,15 +624,14 @@ describe("Route Behavior", () => {
               body: exchanges[0].body + "-aggregated",
             };
           })
-          .to(spyDest),
+          .to(s),
       )
       .build();
 
     await t.ctx.start();
 
-    expect(spyDest).toHaveBeenCalledTimes(1);
-    const receivedBodies = spyDest.mock.calls.map((call) => call[0].body);
-    expect(receivedBodies).toEqual(["original-aggregated"]);
+    expect(s.received).toHaveLength(1);
+    expect(s.receivedBodies()).toEqual(["original-aggregated"]);
   });
 
   /**
@@ -643,7 +640,7 @@ describe("Route Behavior", () => {
    * @expectedResult The default aggregator collects all exchange bodies into an array
    */
   test("default aggregate collects bodies into array", async () => {
-    const spyDest = vi.fn();
+    const s = spy();
 
     t = await testContext()
       .routes(
@@ -656,15 +653,14 @@ describe("Route Behavior", () => {
             body: exchange.body * 2,
           }))
           .aggregate<number[]>() // No aggregator provided - use default
-          .to(spyDest),
+          .to(s),
       )
       .build();
 
     await t.ctx.start();
 
-    expect(spyDest).toHaveBeenCalledTimes(1);
-    const receivedBodies = spyDest.mock.calls.map((call) => call[0].body);
-    expect(receivedBodies).toEqual([[2, 4, 6]]);
+    expect(s.received).toHaveLength(1);
+    expect(s.receivedBodies()).toEqual([[2, 4, 6]]);
   });
 
   /**
@@ -736,7 +732,7 @@ describe("Route Behavior", () => {
    * @expectedResult All split exchanges should contain the original custom headers
    */
   test("split exchanges maintain custom headers", async () => {
-    const spyTap = vi.fn();
+    const tapSpy = spy();
 
     t = await testContext()
       .routes(
@@ -757,7 +753,7 @@ describe("Route Behavior", () => {
                 }),
             );
           })
-          .tap(spyTap)
+          .tap(tapSpy)
           .to(noop()),
       )
       .build();
@@ -768,9 +764,9 @@ describe("Route Behavior", () => {
     await t.drain();
 
     // Both split exchanges should have the original custom header
-    expect(spyTap).toHaveBeenCalledTimes(2);
-    expect(spyTap.mock.calls[0][0].headers["custom.header"]).toBe("test-value");
-    expect(spyTap.mock.calls[1][0].headers["custom.header"]).toBe("test-value");
+    expect(tapSpy.received).toHaveLength(2);
+    expect(tapSpy.received[0].headers["custom.header"]).toBe("test-value");
+    expect(tapSpy.received[1].headers["custom.header"]).toBe("test-value");
   });
 
   /**
@@ -779,7 +775,7 @@ describe("Route Behavior", () => {
    * @expectedResult Aggregated result should reflect individual processing
    */
   test("split exchanges can be processed independently before aggregation", async () => {
-    const spyDest = vi.fn();
+    const s = spy();
 
     t = await testContext()
       .routes(
@@ -811,15 +807,14 @@ describe("Route Behavior", () => {
               .join(",");
             return { ...exchanges[0], body: aggregatedBody };
           })
-          .to(spyDest),
+          .to(s),
       )
       .build();
 
     await t.ctx.start();
 
-    expect(spyDest).toHaveBeenCalledTimes(1);
-    const receivedBodies = spyDest.mock.calls.map((call) => call[0].body);
-    expect(receivedBodies).toEqual(["2,4,6"]);
+    expect(s.received).toHaveLength(1);
+    expect(s.receivedBodies()).toEqual(["2,4,6"]);
   });
 
   /**
@@ -828,7 +823,7 @@ describe("Route Behavior", () => {
    * @expectedResult Failed exchanges should not prevent aggregation of successful ones
    */
   test("aggregation handles failed split processing gracefully", async () => {
-    const spyDest = vi.fn();
+    const s = spy();
 
     t = await testContext()
       .routes(
@@ -855,7 +850,7 @@ describe("Route Behavior", () => {
             const aggregatedBody = exchanges.map((e) => e.body).join(",");
             return { ...exchanges[0], body: aggregatedBody };
           })
-          .to(spyDest),
+          .to(s),
       )
       .build();
 
@@ -868,9 +863,8 @@ describe("Route Behavior", () => {
     );
 
     // Verify successful exchanges were aggregated
-    expect(spyDest).toHaveBeenCalledTimes(1);
-    const receivedBodies = spyDest.mock.calls.map((call) => call[0].body);
-    expect(receivedBodies).toEqual(["success1,success2"]);
+    expect(s.received).toHaveLength(1);
+    expect(s.receivedBodies()).toEqual(["success1,success2"]);
   });
 
   /**
@@ -879,8 +873,8 @@ describe("Route Behavior", () => {
    * @expectedResult Messages should be split correctly at each level and maintain correlation while aggregating into groups
    */
   test("handles nested split operations", async () => {
-    const spyTap = vi.fn();
-    const spyDest = vi.fn();
+    const tapSpy = spy();
+    const destSpy = spy();
     const processorSpy = vi.fn((exchange) => exchange);
     const processorSpy2 = vi.fn((exchange) => exchange);
     const processorSpy3 = vi.fn((exchange) => exchange);
@@ -942,11 +936,11 @@ describe("Route Behavior", () => {
             );
           })
           .process(processorSpy3)
-          .tap(spyTap)
+          .tap(tapSpy)
           .aggregate(agg)
           .process(processorSpy4)
           .aggregate(agg2)
-          .to(spyDest),
+          .to(destSpy),
       )
       .build();
 
@@ -960,7 +954,7 @@ describe("Route Behavior", () => {
     expect(processorSpy3).toHaveBeenCalledTimes(6);
 
     // Should have split into individual numbers and letters
-    const tapBodies = spyTap.mock.calls.map((call) => call[0].body);
+    const tapBodies = tapSpy.receivedBodies();
     expect(tapBodies).toContain("A");
     expect(tapBodies).toContain("1");
     expect(tapBodies).toContain("2");
@@ -973,12 +967,12 @@ describe("Route Behavior", () => {
     expect(aggSpy2).toHaveBeenCalledTimes(2);
 
     // All exchanges should share the same correlation ID
-    const correlationIds = spyTap.mock.calls.map(
-      (call) => call[0].headers["routecraft.correlation_id"],
+    const correlationIds = tapSpy.received.map(
+      (e) => e.headers["routecraft.correlation_id"],
     );
     expect(new Set(correlationIds).size).toBe(1);
 
-    expect(spyDest).toHaveBeenCalledTimes(2);
+    expect(destSpy.received).toHaveLength(2);
   });
 
   /**
@@ -987,8 +981,8 @@ describe("Route Behavior", () => {
    * @expectedResult Only messages that pass the filter condition should reach the destination
    */
   test("filters messages based on condition", async () => {
-    const spyTap = vi.fn();
-    const spyDest = vi.fn();
+    const tapSpy = spy();
+    const destSpy = spy();
     const numbers = [1, 2, 3, 4, 5, 6];
 
     t = await testContext()
@@ -997,8 +991,8 @@ describe("Route Behavior", () => {
           .id("filter-test")
           .from(simple(numbers))
           .filter<number>((exchange) => exchange.body % 2 === 0) // Only allow even numbers
-          .tap(spyTap)
-          .to(spyDest),
+          .tap(tapSpy)
+          .to(destSpy),
       )
       .build();
 
@@ -1008,11 +1002,9 @@ describe("Route Behavior", () => {
     await t.drain();
 
     // Should only have even numbers
-    const tapBodies = spyTap.mock.calls.map((call) => call[0].body);
-    expect(tapBodies).toEqual([2, 4, 6]);
-    expect(spyDest).toHaveBeenCalledTimes(3);
-    const receivedBodies = spyDest.mock.calls.map((call) => call[0].body);
-    expect(receivedBodies).toEqual([2, 4, 6]);
+    expect(tapSpy.receivedBodies()).toEqual([2, 4, 6]);
+    expect(destSpy.received).toHaveLength(3);
+    expect(destSpy.receivedBodies()).toEqual([2, 4, 6]);
   });
 
   /**
@@ -1055,7 +1047,7 @@ describe("Route Behavior", () => {
     const dest1Spy = vi.fn(async () => ({ result: 1 }));
     const dest2Spy = vi.fn(async () => ({ result: 2 }));
     const dest3Spy = vi.fn(async () => ({ result: 3 }));
-    const finalSpy = vi.fn();
+    const s = spy();
 
     t = await testContext()
       .routes(
@@ -1065,7 +1057,7 @@ describe("Route Behavior", () => {
           .to(dest1Spy)
           .to(dest2Spy)
           .to(dest3Spy)
-          .to(finalSpy),
+          .to(s),
       )
       .build();
 
@@ -1075,10 +1067,10 @@ describe("Route Behavior", () => {
     expect(dest1Spy).toHaveBeenCalledTimes(1);
     expect(dest2Spy).toHaveBeenCalledTimes(1);
     expect(dest3Spy).toHaveBeenCalledTimes(1);
-    expect(finalSpy).toHaveBeenCalledTimes(1);
+    expect(s.received).toHaveLength(1);
 
     // Body should be the last result
-    expect(finalSpy.mock.calls[0][0].body).toEqual({
+    expect(s.received[0].body).toEqual({
       result: 3,
     });
   });

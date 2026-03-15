@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
-import { testContext, type TestContext } from "@routecraft/testing";
+import { testContext, spy, type TestContext } from "@routecraft/testing";
 import {
   craft,
   simple,
@@ -33,7 +33,7 @@ describe("Unified Destination Adapter", () => {
    * @expectedResult Body unchanged, log called
    */
   test(".to() with void-returning adapter ignores result", async () => {
-    const destSpy = vi.fn();
+    const s = spy();
 
     t = await testContext()
       .routes(
@@ -41,15 +41,14 @@ describe("Unified Destination Adapter", () => {
           .id("test-void-adapter")
           .from(simple({ userId: 1, name: "John" }))
           .to(log())
-          .to(destSpy),
+          .to(s),
       )
       .build();
 
     await t.test();
 
-    expect(destSpy).toHaveBeenCalledTimes(1);
-    const finalBody = destSpy.mock.calls[0][0].body;
-    expect(finalBody).toEqual({ userId: 1, name: "John" });
+    expect(s.received).toHaveLength(1);
+    expect(s.received[0].body).toEqual({ userId: 1, name: "John" });
   });
 
   /**
@@ -58,7 +57,7 @@ describe("Unified Destination Adapter", () => {
    * @expectedResult Body replaced with HttpResult
    */
   test(".to() with result-returning adapter replaces body", async () => {
-    const destSpy = vi.fn();
+    const s = spy();
 
     fetchMock.mockResolvedValue({
       ok: true,
@@ -74,14 +73,14 @@ describe("Unified Destination Adapter", () => {
           .id("test-default-to")
           .from(simple({ original: "data" }))
           .to(http({ url: "https://api.example.com/endpoint" }))
-          .to(destSpy),
+          .to(s),
       )
       .build();
 
     await t.test();
 
-    expect(destSpy).toHaveBeenCalledTimes(1);
-    const finalBody = destSpy.mock.calls[0][0].body;
+    expect(s.received).toHaveLength(1);
+    const finalBody = s.received[0].body;
     // Body should be replaced with HttpResult
     expect(finalBody.status).toBe(200);
     expect(finalBody.body).toEqual({ apiData: "value" });
@@ -93,7 +92,7 @@ describe("Unified Destination Adapter", () => {
    * @expectedResult Each .to() that returns data replaces the body
    */
   test(".to() chains with body transformation", async () => {
-    const destSpy = vi.fn();
+    const s = spy();
 
     t = await testContext()
       .routes(
@@ -102,15 +101,14 @@ describe("Unified Destination Adapter", () => {
           .from(simple({ step: 0 }))
           .to(async (ex) => ({ ...ex.body, step: 1 }))
           .to(async (ex) => ({ ...ex.body, step: 2 }))
-          .to(destSpy),
+          .to(s),
       )
       .build();
 
     await t.test();
 
-    expect(destSpy).toHaveBeenCalledTimes(1);
-    const finalBody = destSpy.mock.calls[0][0].body;
-    expect(finalBody).toEqual({
+    expect(s.received).toHaveLength(1);
+    expect(s.received[0].body).toEqual({
       step: 2,
     });
   });
@@ -121,7 +119,7 @@ describe("Unified Destination Adapter", () => {
    * @expectedResult Result merged into body
    */
   test(".enrich() with result-returning adapter merges by default", async () => {
-    const destSpy = vi.fn();
+    const s = spy();
 
     fetchMock.mockResolvedValue({
       ok: true,
@@ -137,14 +135,14 @@ describe("Unified Destination Adapter", () => {
           .id("test-default-enrich")
           .from(simple({ userId: 1 }))
           .enrich(http({ url: "https://api.example.com/profile" }))
-          .to(destSpy),
+          .to(s),
       )
       .build();
 
     await t.test();
 
-    expect(destSpy).toHaveBeenCalledTimes(1);
-    const finalBody = destSpy.mock.calls[0][0].body;
+    expect(s.received).toHaveLength(1);
+    const finalBody = s.received[0].body;
     // HttpResult is merged into body
     expect(finalBody).toMatchObject({
       userId: 1,
@@ -159,7 +157,7 @@ describe("Unified Destination Adapter", () => {
    * @expectedResult Result merged via custom logic
    */
   test(".enrich() with custom aggregator uses custom logic", async () => {
-    const destSpy = vi.fn();
+    const s = spy();
 
     fetchMock.mockResolvedValue({
       ok: true,
@@ -184,15 +182,14 @@ describe("Unified Destination Adapter", () => {
               },
             }),
           )
-          .to(destSpy),
+          .to(s),
       )
       .build();
 
     await t.test();
 
-    expect(destSpy).toHaveBeenCalledTimes(1);
-    const finalBody = destSpy.mock.calls[0][0].body;
-    expect(finalBody).toEqual({
+    expect(s.received).toHaveLength(1);
+    expect(s.received[0].body).toEqual({
       userId: 1,
       userDetails: { name: "John", role: "Admin" },
     });
@@ -204,7 +201,7 @@ describe("Unified Destination Adapter", () => {
    * @expectedResult Body has links key set to extracted value
    */
   test(".enrich() with only(getValue, into) sets body key", async () => {
-    const destSpy = vi.fn();
+    const s = spy();
     const enricher = vi.fn(async () => ({ output: { links: ["a", "b"] } }));
 
     t = await testContext()
@@ -216,14 +213,14 @@ describe("Unified Destination Adapter", () => {
             enricher,
             only((r) => r.output?.links, "links"),
           )
-          .to(destSpy),
+          .to(s),
       )
       .build();
 
     await t.test();
 
-    expect(destSpy).toHaveBeenCalledTimes(1);
-    expect(destSpy.mock.calls[0][0].body).toEqual({
+    expect(s.received).toHaveLength(1);
+    expect(s.received[0].body).toEqual({
       userId: 1,
       links: ["a", "b"],
     });
@@ -235,7 +232,7 @@ describe("Unified Destination Adapter", () => {
    * @expectedResult Body gets spread with object keys
    */
   test(".enrich() with only(getValue) spreads plain object onto body", async () => {
-    const destSpy = vi.fn();
+    const s = spy();
     const enricher = vi.fn(async () => ({
       output: { links: ["x"], count: 1 },
     }));
@@ -249,14 +246,14 @@ describe("Unified Destination Adapter", () => {
             enricher,
             only((r) => r.output),
           )
-          .to(destSpy),
+          .to(s),
       )
       .build();
 
     await t.test();
 
-    expect(destSpy).toHaveBeenCalledTimes(1);
-    expect(destSpy.mock.calls[0][0].body).toEqual({
+    expect(s.received).toHaveLength(1);
+    expect(s.received[0].body).toEqual({
       userId: 1,
       links: ["x"],
       count: 1,
@@ -269,7 +266,7 @@ describe("Unified Destination Adapter", () => {
    * @expectedResult Body has stdout key set to string
    */
   test(".enrich() with only(getValue) puts string in body.stdout", async () => {
-    const destSpy = vi.fn();
+    const s = spy();
     const enricher = vi.fn(async () => "hello");
 
     t = await testContext()
@@ -281,14 +278,14 @@ describe("Unified Destination Adapter", () => {
             enricher,
             only((r) => r),
           )
-          .to(destSpy),
+          .to(s),
       )
       .build();
 
     await t.test();
 
-    expect(destSpy).toHaveBeenCalledTimes(1);
-    expect(destSpy.mock.calls[0][0].body).toEqual({
+    expect(s.received).toHaveLength(1);
+    expect(s.received[0].body).toEqual({
       userId: 1,
       stdout: "hello",
     });
@@ -300,7 +297,7 @@ describe("Unified Destination Adapter", () => {
    * @expectedResult Body has array key set to array value
    */
   test(".enrich() with only(getValue) puts array in body.array", async () => {
-    const destSpy = vi.fn();
+    const s = spy();
     const enricher = vi.fn(async () => [1, 2, 3]);
 
     t = await testContext()
@@ -312,14 +309,14 @@ describe("Unified Destination Adapter", () => {
             enricher,
             only((r) => r),
           )
-          .to(destSpy),
+          .to(s),
       )
       .build();
 
     await t.test();
 
-    expect(destSpy).toHaveBeenCalledTimes(1);
-    expect(destSpy.mock.calls[0][0].body).toEqual({
+    expect(s.received).toHaveLength(1);
+    expect(s.received[0].body).toEqual({
       userId: 1,
       array: [1, 2, 3],
     });
@@ -331,7 +328,7 @@ describe("Unified Destination Adapter", () => {
    * @expectedResult Body unchanged (no merge)
    */
   test(".enrich() with only() leaves body unchanged when value is null or undefined", async () => {
-    const destSpy = vi.fn();
+    const s = spy();
     const enricherNull = vi.fn(async () => ({ output: null }));
     const enricherUndef = vi.fn(async () => ({ output: undefined }));
 
@@ -344,15 +341,16 @@ describe("Unified Destination Adapter", () => {
             enricherNull,
             only((r) => r.output),
           )
-          .to(destSpy),
+          .to(s),
       )
       .build();
 
     await t.test();
-    expect(destSpy.mock.calls[0][0].body).toEqual({ userId: 1 });
+    expect(s.received[0].body).toEqual({ userId: 1 });
 
     await t.stop();
 
+    const s2 = spy();
     t = await testContext()
       .routes(
         craft()
@@ -362,12 +360,12 @@ describe("Unified Destination Adapter", () => {
             enricherUndef,
             only((r) => r.output),
           )
-          .to(destSpy),
+          .to(s2),
       )
       .build();
 
     await t.test();
-    expect(destSpy.mock.calls[1][0].body).toEqual({ userId: 1 });
+    expect(s2.received[0].body).toEqual({ userId: 1 });
   });
 
   /**
@@ -376,7 +374,7 @@ describe("Unified Destination Adapter", () => {
    * @expectedResult Body unchanged (optional chain yields undefined)
    */
   test(".enrich() with only() optional chain missing path leaves body unchanged", async () => {
-    const destSpy = vi.fn();
+    const s = spy();
     const enricher = vi.fn(async () => ({}));
 
     t = await testContext()
@@ -388,14 +386,14 @@ describe("Unified Destination Adapter", () => {
             enricher,
             only((r) => r.output?.links),
           )
-          .to(destSpy),
+          .to(s),
       )
       .build();
 
     await t.test();
 
-    expect(destSpy).toHaveBeenCalledTimes(1);
-    expect(destSpy.mock.calls[0][0].body).toEqual({ userId: 1 });
+    expect(s.received).toHaveLength(1);
+    expect(s.received[0].body).toEqual({ userId: 1 });
   });
 
   /**
@@ -404,7 +402,7 @@ describe("Unified Destination Adapter", () => {
    * @expectedResult Last result-returning .to() determines body
    */
   test("multiple .to() calls replace body sequentially", async () => {
-    const destSpy = vi.fn();
+    const s = spy();
 
     fetchMock
       .mockResolvedValueOnce({
@@ -429,14 +427,14 @@ describe("Unified Destination Adapter", () => {
           .from(simple({ original: "value" }))
           .to(http({ url: "https://api.example.com/endpoint1" }))
           .to(http({ url: "https://api.example.com/endpoint2" }))
-          .to(destSpy),
+          .to(s),
       )
       .build();
 
     await t.test();
 
-    expect(destSpy).toHaveBeenCalledTimes(1);
-    const finalBody = destSpy.mock.calls[0][0].body;
+    expect(s.received).toHaveLength(1);
+    const finalBody = s.received[0].body;
     // Body should be the last HttpResult
     expect(finalBody).toMatchObject({
       status: 200,
@@ -450,7 +448,7 @@ describe("Unified Destination Adapter", () => {
    * @expectedResult .to() replaces body, .enrich() merges
    */
   test("mixing .to() and .enrich() works correctly", async () => {
-    const destSpy = vi.fn();
+    const s = spy();
 
     fetchMock
       .mockResolvedValueOnce({
@@ -483,14 +481,14 @@ describe("Unified Destination Adapter", () => {
           .enrich(http({ url: "https://api.example.com/user" })) // Merges
           .to(http({ url: "https://api.example.com/webhook" })) // Replaces body
           .enrich(http({ url: "https://api.example.com/role" })) // Merges
-          .to(destSpy),
+          .to(s),
       )
       .build();
 
     await t.test();
 
-    expect(destSpy).toHaveBeenCalledTimes(1);
-    const finalBody = destSpy.mock.calls[0][0].body;
+    expect(s.received).toHaveLength(1);
+    const finalBody = s.received[0].body;
     // Body flow: start with userId -> enrich merges user data -> .to() replaces with webhook result -> enrich merges role
     expect(finalBody).toMatchObject({
       body: { role: "Admin" },
@@ -504,7 +502,7 @@ describe("Unified Destination Adapter", () => {
    * @expectedResult Body unchanged
    */
   test(".enrich() with undefined result returns original", async () => {
-    const destSpy = vi.fn();
+    const s = spy();
     const undefinedAdapter: Destination<any, void> = {
       async send() {
         return undefined;
@@ -517,16 +515,15 @@ describe("Unified Destination Adapter", () => {
           .id("test-undefined-enrich")
           .from(simple({ original: "data" }))
           .enrich(undefinedAdapter)
-          .to(destSpy),
+          .to(s),
       )
       .build();
 
     await t.test();
 
-    expect(destSpy).toHaveBeenCalledTimes(1);
-    const finalBody = destSpy.mock.calls[0][0].body;
+    expect(s.received).toHaveLength(1);
     // Body should be unchanged when enrich returns undefined
-    expect(finalBody).toEqual({ original: "data" });
+    expect(s.received[0].body).toEqual({ original: "data" });
   });
 
   /**
@@ -535,7 +532,7 @@ describe("Unified Destination Adapter", () => {
    * @expectedResult Body unchanged
    */
   test(".enrich() with null result returns original", async () => {
-    const destSpy = vi.fn();
+    const s = spy();
     const nullAdapter: Destination<any, null> = {
       async send() {
         return null;
@@ -548,16 +545,15 @@ describe("Unified Destination Adapter", () => {
           .id("test-null-enrich")
           .from(simple({ original: "data" }))
           .enrich(nullAdapter)
-          .to(destSpy),
+          .to(s),
       )
       .build();
 
     await t.test();
 
-    expect(destSpy).toHaveBeenCalledTimes(1);
-    const finalBody = destSpy.mock.calls[0][0].body;
+    expect(s.received).toHaveLength(1);
     // Body should be unchanged when enrich returns null
-    expect(finalBody).toEqual({ original: "data" });
+    expect(s.received[0].body).toEqual({ original: "data" });
   });
 
   /**
@@ -567,7 +563,7 @@ describe("Unified Destination Adapter", () => {
    */
   test(".to() with callable destination function", async () => {
     const callableSpy = vi.fn(async () => ({ result: "replaced" }));
-    const destSpy = vi.fn();
+    const s = spy();
 
     t = await testContext()
       .routes(
@@ -575,16 +571,15 @@ describe("Unified Destination Adapter", () => {
           .id("test-callable-to")
           .from(simple({ data: "value" }))
           .to(callableSpy)
-          .to(destSpy),
+          .to(s),
       )
       .build();
 
     await t.test();
 
     expect(callableSpy).toHaveBeenCalledTimes(1);
-    expect(destSpy).toHaveBeenCalledTimes(1);
-    const finalBody = destSpy.mock.calls[0][0].body;
-    expect(finalBody).toEqual({ result: "replaced" });
+    expect(s.received).toHaveLength(1);
+    expect(s.received[0].body).toEqual({ result: "replaced" });
   });
 
   /**
@@ -594,7 +589,7 @@ describe("Unified Destination Adapter", () => {
    */
   test(".enrich() with callable destination function", async () => {
     const callableEnricher = vi.fn(async () => ({ enriched: "data" }));
-    const destSpy = vi.fn();
+    const s = spy();
 
     t = await testContext()
       .routes(
@@ -602,15 +597,14 @@ describe("Unified Destination Adapter", () => {
           .id("test-callable-enrich")
           .from(simple({ original: "value" }))
           .enrich(callableEnricher)
-          .to(destSpy),
+          .to(s),
       )
       .build();
 
     await t.test();
 
     expect(callableEnricher).toHaveBeenCalledTimes(1);
-    expect(destSpy).toHaveBeenCalledTimes(1);
-    const finalBody = destSpy.mock.calls[0][0].body;
-    expect(finalBody).toEqual({ original: "value", enriched: "data" });
+    expect(s.received).toHaveLength(1);
+    expect(s.received[0].body).toEqual({ original: "value", enriched: "data" });
   });
 });

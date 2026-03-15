@@ -68,8 +68,14 @@ export {
   isExchange,
 } from "./brand.ts";
 
+export {
+  type DirectEndpointRegistry,
+  type ResolveKey,
+  type ResolveBody,
+  type RegisteredDirectEndpoint,
+} from "./registry.ts";
+
 export { logger } from "./logger.ts";
-export type { Logger } from "pino";
 
 export {
   type Adapter,
@@ -89,7 +95,6 @@ export { direct } from "./adapters/direct/index.ts";
 export { timer } from "./adapters/timer/index.ts";
 export { cron } from "./adapters/cron/index.ts";
 export { http } from "./adapters/http/index.ts";
-export { pseudo } from "@routecraft/testing";
 export { browser } from "./adapters/browser.ts";
 export { file } from "./adapters/file.ts";
 export { html } from "./adapters/html.ts";
@@ -124,10 +129,6 @@ export {
   type CronOptions,
   ADAPTER_CRON_OPTIONS,
 } from "./adapters/cron/index.ts";
-export {
-  type PseudoOptions,
-  type PseudoKeyedOptions,
-} from "@routecraft/testing";
 export {
   type BrowserBaseOptions,
   type BrowserCommandMap,

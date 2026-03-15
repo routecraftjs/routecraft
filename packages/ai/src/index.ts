@@ -1,6 +1,15 @@
 // Cross-instance identity (Symbol.for) for MCP adapters
 export { BRAND, isMcpAdapter } from "./brand.ts";
 
+// Type registries for compile-time safety
+export type {
+  LlmProviderRegistry,
+  McpServerRegistry,
+  RegisteredLlmModelId,
+  RegisteredMcpServer,
+  RegisteredMcpShorthand,
+} from "./registry.ts";
+
 // LLM adapter and plugin
 export {
   ADAPTER_LLM_PROVIDERS,
