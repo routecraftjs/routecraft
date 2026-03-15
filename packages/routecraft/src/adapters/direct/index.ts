@@ -44,10 +44,7 @@ export function direct<S extends StandardSchemaV1 | undefined = undefined>(
 >;
 export function direct<K extends RegisteredDirectEndpoint>(
   endpoint: K,
-): Destination<
-  ResolveBody<DirectEndpointRegistry, K>,
-  ResolveBody<DirectEndpointRegistry, K>
->;
+): Destination<ResolveBody<DirectEndpointRegistry, K>, unknown>;
 export function direct<T = unknown>(
   endpoint: DirectEndpoint<T>,
 ): Destination<T, T>;
