@@ -61,6 +61,7 @@ import {
   EnrichStep,
   type DestinationAggregator,
   type EnrichMergeShape,
+  type EnrichAggregatorOption,
 } from "./operations/enrich.ts";
 import { HeaderStep } from "./operations/header.ts";
 import { type HeaderValue } from "./exchange.ts";
@@ -550,11 +551,11 @@ export class RouteBuilder<Current = unknown> {
    */
   to<R = void>(
     destination: Destination<Current, R> | CallableDestination<Current, R>,
-  ): RouteBuilder<R> {
+  ): RouteBuilder<R extends void ? Current : R> {
     const route = this.requireSource();
     logger.trace({ route: route.id }, "Adding destination step to route");
     route.steps.push(new ToStep<Current, R>(destination));
-    return this.withType<R>();
+    return this.withType<R extends void ? Current : R>();
   }
 
   /**
@@ -849,42 +850,28 @@ export class RouteBuilder<Current = unknown> {
    *   })
    * )
    */
-  enrich<R>(
+  enrich<
+    R,
+    A extends
+      | DestinationAggregator<Current, R>
+      | (DestinationAggregator<unknown, unknown> & {
+          [ENRICH_MERGE_TYPE]?: EnrichMergeShape;
+        })
+      | undefined = undefined,
+  >(
     destination: Destination<Current, R> | CallableDestination<Current, R>,
-  ): RouteBuilder<Current & R>;
-  enrich<
-    R = Current,
-    A extends
-      | DestinationAggregator<Current, unknown>
-      | (DestinationAggregator<unknown, unknown> & {
-          [ENRICH_MERGE_TYPE]?: EnrichMergeShape;
-        })
-      | undefined = DestinationAggregator<Current, unknown> | undefined,
-  >(
-    destination:
-      | Destination<Current, Partial<R>>
-      | CallableDestination<Current, Partial<R>>,
-    aggregator: A,
-  ): RouteBuilder<A extends { [ENRICH_MERGE_TYPE]: infer M } ? Current & M : R>;
-  enrich<
-    R = Current,
-    A extends
-      | DestinationAggregator<Current, unknown>
-      | (DestinationAggregator<unknown, unknown> & {
-          [ENRICH_MERGE_TYPE]?: EnrichMergeShape;
-        })
-      | undefined = DestinationAggregator<Current, unknown> | undefined,
-  >(
-    destination:
-      | Destination<Current, Partial<R>>
-      | CallableDestination<Current, Partial<R>>,
     aggregator?: A,
   ): RouteBuilder<
-    A extends { [ENRICH_MERGE_TYPE]: infer M } ? Current & M : R
+    A extends { [ENRICH_MERGE_TYPE]: infer M } ? Current & M : Current & R
   > {
-    this.addStep(new EnrichStep<Current, Partial<R>>(destination, aggregator));
+    this.addStep(
+      new EnrichStep<Current, R>(
+        destination,
+        aggregator as EnrichAggregatorOption<Current, R> | undefined,
+      ),
+    );
     return this.withType<
-      A extends { [ENRICH_MERGE_TYPE]: infer M } ? Current & M : R
+      A extends { [ENRICH_MERGE_TYPE]: infer M } ? Current & M : Current & R
     >();
   }
 

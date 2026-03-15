@@ -1,10 +1,18 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import type { Exchange } from "../../exchange";
 import type { Source } from "../../operations/from";
 import type { Destination } from "../../operations/to";
+import type {
+  RegisteredDirectEndpoint,
+  DirectEndpointRegistry,
+  ResolveBody,
+} from "../../registry";
 import { DirectSourceAdapter } from "./source";
 import { DirectDestinationAdapter } from "./destination";
-import type { DirectServerOptions, DirectClientOptions } from "./types";
+import type {
+  DirectEndpoint,
+  DirectServerOptions,
+  DirectClientOptions,
+} from "./types";
 
 /**
  * Creates a direct adapter for synchronous, in-process inter-route messaging.
@@ -15,33 +23,36 @@ import type { DirectServerOptions, DirectClientOptions } from "./types";
  * Semantics: single consumer per endpoint (last subscriber wins), blocking send (sender waits for response).
  *
  * @param endpoint - Endpoint name (string) or function (exchange) => endpoint string
- * @param options - Optional. If provided (even `{}`), returns a Source; if omitted, returns a Destination
+ * @param options - Optional. If provided (even `{}`), returns a Source; if omitted or `undefined`, returns a Destination
  * @returns Source when options is provided; Destination when options is omitted
  *
  * @example
  * ```typescript
  * // Source route (server)
- * .from(direct('/ingest', { schema: mySchema, description: 'Ingest API' }))
+ * .from(direct('ingest', { schema: mySchema, description: 'Ingest API' }))
  *
  * // Destination (client)
- * .to(direct('/ingest'))
+ * .to(direct('ingest'))
  * .to(direct((ex) => ex.headers['x-endpoint'] as string))
  * ```
  */
 export function direct<S extends StandardSchemaV1 | undefined = undefined>(
-  endpoint: string,
+  endpoint: RegisteredDirectEndpoint,
   options: Partial<DirectServerOptions> & { schema?: S },
 ): Source<
   S extends StandardSchemaV1 ? StandardSchemaV1.InferOutput<S> : unknown
 >;
+export function direct<K extends RegisteredDirectEndpoint>(
+  endpoint: K,
+): Destination<ResolveBody<DirectEndpointRegistry, K>, unknown>;
 export function direct<T = unknown>(
-  endpoint: string | ((exchange: Exchange<T>) => string),
+  endpoint: DirectEndpoint<T>,
 ): Destination<T, T>;
 export function direct<
   S extends StandardSchemaV1 | undefined = undefined,
   T = unknown,
 >(
-  endpoint: string | ((exchange: Exchange<T>) => string),
+  endpoint: DirectEndpoint<T>,
   options?: (Partial<DirectServerOptions> | Partial<DirectClientOptions>) & {
     schema?: S;
   },
@@ -50,8 +61,7 @@ export function direct<
       S extends StandardSchemaV1 ? StandardSchemaV1.InferOutput<S> : unknown
     >
   | Destination<T, T> {
-  // Use structural type guard: check arguments.length === 2
-  if (arguments.length === 2) {
+  if (options !== undefined) {
     return new DirectSourceAdapter(
       endpoint as string,
       options as Partial<DirectServerOptions>,

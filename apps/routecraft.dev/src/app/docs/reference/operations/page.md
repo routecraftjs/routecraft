@@ -20,7 +20,7 @@ DSL operators with signatures and examples. {% .lead %}
 |-----------|----------|-------------|
 | [`id`](#id) | Route | Set the unique identifier for the route |
 | [`batch`](#batch) | Route | Process exchanges in batches instead of one at a time |
-| [`error`](#error) | Route | Configure route-level error handling {% badge %}wip{% /badge %} |
+| [`error`](#error) | Route | Configure route-level error handling |
 | [`from`](#from) | Route | Define the source of data for the capability |
 | [`retry`](#retry) | Wrapper | Retry the next operation on failure {% badge %}wip{% /badge %} |
 | [`throttle`](#throttle) | Wrapper | Rate limit the next operation {% badge %}wip{% /badge %} |
@@ -105,81 +105,54 @@ The `batch()` operation only works with asynchronous message sources like `timer
 If you need to combine multiple messages from split branches, use the `aggregate()` operation instead.
 {% /callout %}
 
-### error {% badge %}wip{% /badge %}
-
-**Note:** The `error()` operation is documented here but not yet implemented. Implementation is planned for a future release.
+### error
 
 ```ts
-error(handler: (error: RoutecraftError, exchange: Exchange, stepInfo: StepInfo) => void | Exchange | Promise<void | Exchange | string>): RouteBuilder<Current>
+error(handler: (error: unknown, exchange: Exchange, forward: ForwardFn) => unknown | Promise<unknown>): this
 ```
 
-Configure route-level error handling. This is a **route-level configuration**, not a step wrapper - it applies to all errors in the entire route regardless of where it's called in the builder chain. Convention is to place it near the top with other route-level options like `id()` and `batch()`.
+Define a catch-all error handler for unhandled errors in the route's step pipeline. Must be called before `.from()`. When any step throws an unhandled error, this handler is invoked instead of the default log-and-swallow behavior. The pipeline does not resume after the handler runs; its return value becomes the route's final exchange body.
+
+This is a **route-level configuration**, not a step wrapper. Convention is to place it near the top with other route-level options like `id()` and `batch()`.
 
 The error handler receives:
-- `error`: The RoutecraftError that occurred
-- `exchange`: The exchange that failed
-- `stepInfo`: Information about which step failed (operation type, step index)
+- `error`: The thrown error (`unknown`, not necessarily a `RoutecraftError`)
+- `exchange`: The exchange at the point of failure
+- `forward`: A function to delegate to another route via the direct adapter: `(endpoint: RegisteredDirectEndpoint, payload: unknown) => Promise<unknown>`
 
 The error handler can:
-- Return `void` to drop the exchange and stop processing
-- Return an `Exchange` to continue processing with a modified exchange (fallback value)
-- Return a `string` (direct endpoint name) to route to another direct route for fallback handling
+- Return nothing to silently handle the error
+- Return a value to use as the route's final exchange body
+- Call `forward(endpoint, payload)` to delegate to a direct route and return its result
 - Rethrow the error to propagate it to the context level
 
 ```ts
-// Drop exchanges that fail
+// Log and swallow
 craft()
   .id('with-error-handler')
-  .error((error, exchange, stepInfo) => {
-    console.error(`Step ${stepInfo.operation} failed:`, error);
-    // Return void = drop exchange
-  })
-  .from(source())
-  .process(mightFail)
-  .to(destination)
-
-// Continue with fallback value
-craft()
-  .id('with-fallback')
   .error((error, exchange) => {
-    exchange.logger.warn(error, 'Using fallback');
-    return { ...exchange, body: { fallback: true } };
+    exchange.logger.error(error, 'Step failed');
   })
   .from(source())
   .process(mightFail)
   .to(destination)
 
-// Route to fallback handler (direct route)
+// Forward to a fallback route via the direct adapter
 craft()
-  .id('with-fallback-route')
-  .error((error, exchange, stepInfo) => {
-    if (error.code === 'RC5001') return 'validation-error-handler';
-    return 'generic-error-handler';
+  .id('with-forward')
+  .error((error, exchange, forward) => {
+    return forward('error-route', { reason: (error as Error).message })
   })
   .from(source())
   .process(mightFail)
   .to(destination)
 
-// Conditional error handling based on step
-craft()
-  .id('conditional-error-handling')
-  .error((error, exchange, stepInfo) => {
-    if (stepInfo.operation === 'TRANSFORM' && stepInfo.index === 0) {
-      return { ...exchange, body: { recovered: true } };
-    }
-    throw error; // Rethrow for other steps
-  })
-  .from(source())
-  .transform(mightFail)
-  .process(alsoMightFail)
-  .to(destination)
-
-// Rethrow to context level
+// Rethrow critical errors to context level
 craft()
   .id('rethrow-critical')
-  .error((error, exchange) => {
-    if (error.code === 'CRITICAL') throw error;
-    return { ...exchange, body: { handled: true } };
+  .error((error) => {
+    if (error instanceof RoutecraftError && error.code === 'CRITICAL') throw error;
+    // Non-critical errors are swallowed
   })
   .from(source())
   .process(mightFail)

@@ -10,6 +10,8 @@ Every change -- feature, fix, refactor -- must satisfy the checklists below befo
 - [ ] JSDoc on any public API you touched is accurate and up to date (`@param`, `@returns`, `@example`)
 - [ ] No `@ts-ignore` or `@ts-expect-error` without an explanation comment
 - [ ] No `any` types in production code (test files are exempt)
+- [ ] Every new public API symbol has a TSDoc release tag: `@experimental`, `@beta`, or stable (no tag). Only promote maturity level after the API has proven itself across releases
+- [ ] Symbols marked `@internal` are **never** re-exported from a package's public entry point (`index.ts`). Internal helpers must stay internal
 - [ ] Write commit messages following [Conventional Commits](https://www.conventionalcommits.org/); use the `/git-commit-message` slash command for detailed formatting
 - [ ] Do not use em-dashes in documentation, JSDoc, comments, or written output
 
@@ -25,7 +27,7 @@ Every change -- feature, fix, refactor -- must satisfy the checklists below befo
 - [ ] Add or update the conceptual guide if the adapter introduces a new pattern
 - [ ] Export the adapter from the package's `index.ts`
 - [ ] If it is an AI adapter (`packages/ai/`), also update the AI package exports
-- [ ] New adapters must include a JSDoc release tag on the factory function: `@experimental` for early-stage adapters, or `@beta` for adapters that are usable but whose API may still change. Only promote to stable (no tag) after the API has proven itself across releases
+- [ ] New adapters must include a JSDoc release tag on the factory function (see General Checklist)
 
 ## When you add or modify an operation
 
