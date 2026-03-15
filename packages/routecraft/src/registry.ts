@@ -45,6 +45,26 @@ export type ResolveKey<Registry> = keyof Registry extends never
   : Extract<keyof Registry, string>;
 
 /**
+ * Resolves the body type for a registry endpoint.
+ * When the registry is populated and the key exists, returns the mapped value type.
+ * Falls back to `Fallback` (default `unknown`) when the registry is empty or key is unregistered.
+ *
+ * @template Registry - The registry interface to look up
+ * @template K - The endpoint key to resolve
+ * @template Fallback - Fallback type when key is not found (default `unknown`)
+ * @experimental
+ */
+export type ResolveBody<
+  Registry,
+  K extends string,
+  Fallback = unknown,
+> = keyof Registry extends never
+  ? Fallback
+  : K extends keyof Registry
+    ? Registry[K]
+    : Fallback;
+
+/**
  * Resolved direct endpoint type.
  * Constrained to registered endpoints when `DirectEndpointRegistry` is populated,
  * falls back to `string` when empty.

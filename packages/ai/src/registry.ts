@@ -63,9 +63,11 @@ export type RegisteredLlmModelId = keyof LlmProviderRegistry extends never
   : `${Extract<keyof LlmProviderRegistry, string>}:${string}`;
 
 /**
- * Resolved MCP server ID type.
- * When `McpServerRegistry` is populated, constrains to `'server:tool'`
- * where server must be a registered key. Falls back to `` `${string}:${string}` `` when empty.
+ * Resolved MCP server key type.
+ * When `McpServerRegistry` is populated, resolves to the union of registered server keys
+ * (e.g. `'github' | 'local-postgres'`). Falls back to `string` when empty.
+ *
+ * For the full `'server:tool'` shorthand format, see `RegisteredMcpShorthand`.
  *
  * @experimental
  */

@@ -110,13 +110,13 @@ export type ExchangeHeaders = Partial<RoutecraftHeaders> &
  */
 export type Exchange<
   T = unknown,
-  H extends Record<string, HeaderValue> = Record<string, HeaderValue>,
+  H extends Partial<Record<string, HeaderValue>> = Record<string, HeaderValue>,
 > = {
   /** Unique identifier for this exchange */
   readonly id: string;
 
   /** Headers containing metadata */
-  readonly headers: Partial<RoutecraftHeaders> & H;
+  readonly headers: H;
 
   /** The data being processed */
   body: T;

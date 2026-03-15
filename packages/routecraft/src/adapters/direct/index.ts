@@ -1,7 +1,11 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Source } from "../../operations/from";
 import type { Destination } from "../../operations/to";
-import type { RegisteredDirectEndpoint } from "../../registry";
+import type {
+  RegisteredDirectEndpoint,
+  DirectEndpointRegistry,
+  ResolveBody,
+} from "../../registry";
 import { DirectSourceAdapter } from "./source";
 import { DirectDestinationAdapter } from "./destination";
 import type {
@@ -37,6 +41,12 @@ export function direct<S extends StandardSchemaV1 | undefined = undefined>(
   options: Partial<DirectServerOptions> & { schema?: S },
 ): Source<
   S extends StandardSchemaV1 ? StandardSchemaV1.InferOutput<S> : unknown
+>;
+export function direct<K extends RegisteredDirectEndpoint>(
+  endpoint: K,
+): Destination<
+  ResolveBody<DirectEndpointRegistry, K>,
+  ResolveBody<DirectEndpointRegistry, K>
 >;
 export function direct<T = unknown>(
   endpoint: DirectEndpoint<T>,
