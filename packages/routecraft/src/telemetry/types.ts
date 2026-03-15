@@ -1,5 +1,5 @@
 /**
- * Configuration options for the TelemetryPlugin.
+ * Configuration options for the telemetry plugin.
  */
 export interface TelemetryOptions {
   /**

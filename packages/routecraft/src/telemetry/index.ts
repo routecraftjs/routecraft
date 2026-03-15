@@ -1,4 +1,4 @@
-export { TelemetryPlugin } from "./plugin.ts";
+export { telemetry } from "./plugin.ts";
 export type {
   TelemetryOptions,
   TelemetryEvent,

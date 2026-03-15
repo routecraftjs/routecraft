@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { craft, simple, log } from "@routecraft/routecraft";
-import { TelemetryPlugin } from "../src/telemetry/index.ts";
+import { telemetry } from "../src/telemetry/index.ts";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const Database = require("better-sqlite3");
@@ -37,7 +37,7 @@ describe("TelemetryPlugin", () => {
    * @expectedResult Database file exists after context starts
    */
   test("creates database file on apply", async () => {
-    const plugin = new TelemetryPlugin({ dbPath });
+    const plugin = telemetry({ dbPath });
 
     const route = craft()
       .id("test-route")
@@ -60,7 +60,7 @@ describe("TelemetryPlugin", () => {
    * @expectedResult events, routes, and exchanges tables exist
    */
   test("creates all required tables", async () => {
-    const plugin = new TelemetryPlugin({ dbPath });
+    const plugin = telemetry({ dbPath });
 
     const route = craft()
       .id("schema-test")
@@ -94,7 +94,7 @@ describe("TelemetryPlugin", () => {
    * @expectedResult SQLite journal_mode is wal
    */
   test("enables WAL mode by default", async () => {
-    const plugin = new TelemetryPlugin({ dbPath });
+    const plugin = telemetry({ dbPath });
 
     const route = craft()
       .id("wal-test")
@@ -123,7 +123,7 @@ describe("TelemetryPlugin", () => {
    * @expectedResult Route appears in the routes table after context starts
    */
   test("records route registrations", async () => {
-    const plugin = new TelemetryPlugin({
+    const plugin = telemetry({
       dbPath,
       flushIntervalMs: 100,
     });
@@ -161,7 +161,7 @@ describe("TelemetryPlugin", () => {
    * @expectedResult Exchange records appear in the exchanges table with correct status
    */
   test("records exchange lifecycle", async () => {
-    const plugin = new TelemetryPlugin({
+    const plugin = telemetry({
       dbPath,
       flushIntervalMs: 100,
       batchSize: 5,
@@ -204,7 +204,7 @@ describe("TelemetryPlugin", () => {
    * @expectedResult Events table contains entries after context runs
    */
   test("records events to events table", async () => {
-    const plugin = new TelemetryPlugin({
+    const plugin = telemetry({
       dbPath,
       flushIntervalMs: 100,
       batchSize: 5,
@@ -240,7 +240,7 @@ describe("TelemetryPlugin", () => {
    */
   test("respects custom dbPath option", async () => {
     const customPath = resolve(testDir, "nested", "custom.db");
-    const plugin = new TelemetryPlugin({ dbPath: customPath });
+    const plugin = telemetry({ dbPath: customPath });
 
     const route = craft()
       .id("custom-path")
@@ -263,7 +263,7 @@ describe("TelemetryPlugin", () => {
    * @expectedResult All buffered events are flushed before database closes
    */
   test("teardown flushes buffered events", async () => {
-    const plugin = new TelemetryPlugin({
+    const plugin = telemetry({
       dbPath,
       flushIntervalMs: 60000, // Very long interval so events stay buffered
       batchSize: 1000, // Very large batch so events stay buffered

@@ -156,7 +156,7 @@ export {
   type EventSourceOptions,
 } from "./adapters/sources/event/index.ts";
 
-export { TelemetryPlugin } from "./telemetry/index.ts";
+export { telemetry } from "./telemetry/index.ts";
 export type {
   TelemetryOptions,
   TelemetryEvent,
