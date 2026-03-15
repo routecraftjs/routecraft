@@ -21,7 +21,6 @@ import {
 } from "./types.ts";
 import {
   type Exchange,
-  type RoutecraftHeaders,
   DefaultExchange,
   getExchangeContext,
 } from "./exchange.ts";
@@ -226,15 +225,11 @@ export class ContextBuilder {
   routes(
     routes:
       | RouteDefinition[]
-      | RouteBuilder<unknown, Partial<Record<string, HeaderValue>>>[]
+      | RouteBuilder<unknown>[]
       | RouteDefinition
-      | RouteBuilder<unknown, Partial<Record<string, HeaderValue>>>,
+      | RouteBuilder<unknown>,
   ): this {
-    const addOne = (
-      route:
-        | RouteDefinition
-        | RouteBuilder<unknown, Partial<Record<string, HeaderValue>>>,
-    ): void => {
+    const addOne = (route: RouteDefinition | RouteBuilder<unknown>): void => {
       if (isRouteBuilder(route)) {
         this.definitions.push(
           ...(route as { build: () => RouteDefinition[] }).build(),
@@ -328,13 +323,7 @@ export type RouteOptions = Partial<Pick<RouteDefinition, "consumer">> & {
  *   .to(log())
  * ```
  */
-export class RouteBuilder<
-  Current = unknown,
-  Headers extends Partial<Record<string, HeaderValue>> = Record<
-    string,
-    HeaderValue
-  >,
-> {
+export class RouteBuilder<Current = unknown> {
   protected currentRoute?: RouteDefinition;
   protected routes: RouteDefinition[] = [];
 
@@ -355,19 +344,15 @@ export class RouteBuilder<
   }
 
   /**
-   * Safe identity cast: same instance, type parameters updated for the next step.
-   * Used to propagate body type and tracked headers through the method chain.
+   * Safe identity cast: same instance, type parameter updated for the next step.
+   * Used to propagate body/result type through the method chain.
    *
    * @template T - The body type for the next step
-   * @template H - The tracked headers type for the next step (defaults to current Headers)
-   * @returns This builder typed as RouteBuilder<T, H>
+   * @returns This builder typed as RouteBuilder<T>
    * @private
    */
-  private withType<
-    T,
-    H extends Partial<Record<string, HeaderValue>> = Headers,
-  >(): RouteBuilder<T, H> {
-    return this as unknown as RouteBuilder<T, H>;
+  private withType<T>(): RouteBuilder<T> {
+    return this as unknown as RouteBuilder<T>;
   }
 
   /**
@@ -464,9 +449,7 @@ export class RouteBuilder<
    *   return response.json();
    * })
    */
-  from<T>(
-    source: Source<T> | CallableSource<T>,
-  ): RouteBuilder<T, Partial<RoutecraftHeaders>> {
+  from<T>(source: Source<T> | CallableSource<T>): RouteBuilder<T> {
     const id = this.pendingOptions?.id ?? randomUUID();
     const consumer = this.pendingOptions?.consumer ?? {
       type: SimpleConsumer as unknown as ConsumerType<Consumer>,
@@ -492,7 +475,7 @@ export class RouteBuilder<
     this.pendingOptions = undefined;
 
     this.routes.push(this.currentRoute);
-    return this.withType<T, Partial<RoutecraftHeaders>>();
+    return this.withType<T>();
   }
 
   /**
@@ -519,9 +502,7 @@ export class RouteBuilder<
    * @returns The current RouteBuilder instance
    * @private
    */
-  private addStep<T extends Adapter>(
-    step: Step<T>,
-  ): RouteBuilder<Current, Headers> {
+  private addStep<T extends Adapter>(step: Step<T>): RouteBuilder<Current> {
     const route = this.requireSource();
     logger.trace(
       { operation: step.operation, route: route.id },
@@ -544,19 +525,9 @@ export class RouteBuilder<
    * })
    */
   process<Return = Current>(
-    processor:
-      | Processor<Current, Return>
-      | ((
-          exchange: Exchange<Current, Headers>,
-        ) => Promise<Exchange<Return>> | Exchange<Return>),
-  ): RouteBuilder<Return, Headers> {
-    this.addStep(
-      new ProcessStep<Current, Return>(
-        processor as
-          | Processor<Current, Return>
-          | CallableProcessor<Current, Return>,
-      ),
-    );
+    processor: Processor<Current, Return> | CallableProcessor<Current, Return>,
+  ): RouteBuilder<Return> {
+    this.addStep(new ProcessStep<Current, Return>(processor));
     return this.withType<Return>();
   }
 
@@ -579,19 +550,11 @@ export class RouteBuilder<
    * // Body becomes HttpResult
    */
   to<R = void>(
-    destination:
-      | Destination<Current, R>
-      | ((exchange: Exchange<Current, Headers>) => Promise<R> | R),
-  ): RouteBuilder<R extends void ? Current : R, Headers> {
+    destination: Destination<Current, R> | CallableDestination<Current, R>,
+  ): RouteBuilder<R extends void ? Current : R> {
     const route = this.requireSource();
     logger.trace({ route: route.id }, "Adding destination step to route");
-    route.steps.push(
-      new ToStep<Current, R>(
-        destination as
-          | Destination<Current, R>
-          | CallableDestination<Current, R>,
-      ),
-    );
+    route.steps.push(new ToStep<Current, R>(destination));
     return this.withType<R extends void ? Current : R>();
   }
 
@@ -621,7 +584,7 @@ export class RouteBuilder<
     splitter?:
       | Splitter<Current, ItemType>
       | CallableSplitter<Current, ItemType>,
-  ): RouteBuilder<ItemType, Headers> {
+  ): RouteBuilder<ItemType> {
     const route = this.requireSource();
     logger.trace({ route: route.id }, "Adding split step to route");
 
@@ -686,7 +649,7 @@ export class RouteBuilder<
     aggregator?:
       | Aggregator<Current, ResultType>
       | CallableAggregator<Current, ResultType>,
-  ): RouteBuilder<ResultType, Headers> {
+  ): RouteBuilder<ResultType> {
     if (!aggregator) {
       // Use default aggregator which collects bodies into an array
       this.addStep(
@@ -715,9 +678,9 @@ export class RouteBuilder<
     transformer:
       | Transformer<Current, Return>
       | CallableTransformer<Current, Return>,
-  ): RouteBuilder<Return, Headers> {
+  ): RouteBuilder<Return> {
     this.addStep(new TransformStep<Current, Return>(transformer));
-    return this.withType<Return, Headers>();
+    return this.withType<Return>();
   }
 
   /**
@@ -737,25 +700,14 @@ export class RouteBuilder<
    * // Derived from headers
    * .header('correlation', (exchange) => exchange.headers['x-request-id'])
    */
-  header<K extends string>(
-    key: K,
+  header(
+    key: string,
     valueOrFn:
       | HeaderValue
-      | ((
-          exchange: Exchange<Current, Headers>,
-        ) => HeaderValue | Promise<HeaderValue>),
-  ): RouteBuilder<Current, Headers & Record<K, HeaderValue>> {
-    this.addStep(
-      new HeaderStep<Current>(
-        key,
-        valueOrFn as
-          | HeaderValue
-          | ((
-              exchange: Exchange<Current>,
-            ) => HeaderValue | Promise<HeaderValue>),
-      ),
-    );
-    return this.withType<Current, Headers & Record<K, HeaderValue>>();
+      | ((exchange: Exchange<Current>) => HeaderValue | Promise<HeaderValue>),
+  ): RouteBuilder<Current> {
+    this.addStep(new HeaderStep<Current>(key, valueOrFn));
+    return this.withType<Current>();
   }
 
   /**
@@ -777,7 +729,7 @@ export class RouteBuilder<
    */
   map<Return>(
     fieldMappings: Record<keyof Return, (src: Current) => Return[keyof Return]>,
-  ): RouteBuilder<Return, Headers> {
+  ): RouteBuilder<Return> {
     // Create a transformer function from the field mappings
     const transformer: CallableTransformer<Current, Return> = (
       message: Current,
@@ -819,16 +771,10 @@ export class RouteBuilder<
   tap(
     destination:
       | Destination<Current, unknown>
-      | ((exchange: Exchange<Current, Headers>) => Promise<unknown> | unknown),
-  ): RouteBuilder<Current, Headers> {
-    this.addStep(
-      new TapStep<Current>(
-        destination as
-          | Destination<Current, unknown>
-          | CallableDestination<Current, unknown>,
-      ),
-    );
-    return this.withType<Current, Headers>();
+      | CallableDestination<Current, unknown>,
+  ): RouteBuilder<Current> {
+    this.addStep(new TapStep<Current>(destination));
+    return this.withType<Current>();
   }
 
   /**
@@ -850,16 +796,10 @@ export class RouteBuilder<
    * .filter((exchange) => exchange.headers['x-priority'] === 'high')
    */
   filter(
-    filter:
-      | Filter<Current>
-      | ((exchange: Exchange<Current, Headers>) => Promise<boolean> | boolean),
-  ): RouteBuilder<Current, Headers> {
-    this.addStep(
-      new FilterStep<Current>(
-        filter as Filter<Current> | CallableFilter<Current>,
-      ),
-    );
-    return this.withType<Current, Headers>();
+    filter: Filter<Current> | CallableFilter<Current>,
+  ): RouteBuilder<Current> {
+    this.addStep(new FilterStep<Current>(filter));
+    return this.withType<Current>();
   }
 
   /**
@@ -881,9 +821,9 @@ export class RouteBuilder<
    */
   validate<S extends StandardSchemaV1>(
     schema: S,
-  ): RouteBuilder<StandardSchemaV1.InferOutput<S>, Headers> {
+  ): RouteBuilder<StandardSchemaV1.InferOutput<S>> {
     this.addStep(new ValidateStep(schema));
-    return this.withType<StandardSchemaV1.InferOutput<S>, Headers>();
+    return this.withType<StandardSchemaV1.InferOutput<S>>();
   }
 
   /**
@@ -919,19 +859,14 @@ export class RouteBuilder<
         })
       | undefined = undefined,
   >(
-    destination:
-      | Destination<Current, R>
-      | ((exchange: Exchange<Current, Headers>) => Promise<R> | R),
+    destination: Destination<Current, R> | CallableDestination<Current, R>,
     aggregator?: A,
   ): RouteBuilder<
-    A extends { [ENRICH_MERGE_TYPE]: infer M } ? Current & M : Current & R,
-    Headers
+    A extends { [ENRICH_MERGE_TYPE]: infer M } ? Current & M : Current & R
   > {
     this.addStep(
       new EnrichStep<Current, R>(
-        destination as
-          | Destination<Current, R>
-          | CallableDestination<Current, R>,
+        destination,
         aggregator as EnrichAggregatorOption<Current, R> | undefined,
       ),
     );
