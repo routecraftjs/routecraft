@@ -54,6 +54,7 @@
     "packages/routecraft/test/pseudo.test.ts",
     "packages/routecraft/test/queue.test.ts",
     "packages/routecraft/test/route.test.ts",
-    "packages/routecraft/test/unified-destination.test.ts"
+    "packages/routecraft/test/unified-destination.test.ts",
+    "packages/routecraft/test/registry-declaration-merging.test.ts"
   ]
 }
