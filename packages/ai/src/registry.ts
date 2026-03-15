@@ -67,9 +67,10 @@ export type RegisteredLlmModelId = keyof LlmProviderRegistry extends never
 /**
  * Resolved MCP server key type.
  * When `McpServerRegistry` is populated, resolves to the union of registered server keys
- * (e.g. `'github' | 'local-postgres'`). Falls back to `string` when empty.
+ * (e.g. `'github' | 'local-postgres'`) via `ResolveKey<McpServerRegistry>`.
+ * Falls back to `string` when empty.
  *
- * For the full `'server:tool'` shorthand format, see `RegisteredMcpShorthand`.
+ * For the `'server:tool'` shorthand format, see `RegisteredMcpShorthand`.
  *
  * @experimental
  */
