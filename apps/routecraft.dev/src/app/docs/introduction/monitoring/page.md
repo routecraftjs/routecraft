@@ -91,6 +91,43 @@ export const craftConfig: CraftConfig = {
 }
 ```
 
+## Telemetry plugin
+
+The built-in `telemetry()` plugin persists every framework event to a local SQLite database so you can inspect execution history after the fact -- or in real time via `craft tui`.
+
+```ts
+import { CraftContext, telemetry } from '@routecraft/routecraft'
+
+const ctx = new CraftContext({
+  plugins: [telemetry()],
+})
+```
+
+The database is written to `.routecraft/telemetry.db` in the current working directory. You can change this and other defaults:
+
+```ts
+telemetry({
+  dbPath: './logs/telemetry.db', // custom path
+  batchSize: 100,                // events buffered before flush (default 50)
+  flushIntervalMs: 2000,         // max ms between flushes (default 1000)
+  walMode: true,                 // WAL mode for concurrent reads (default true)
+})
+```
+
+`better-sqlite3` must be installed as it is an optional peer dependency:
+
+```bash
+npm install better-sqlite3
+```
+
+Once the plugin is active, launch the terminal UI in a separate terminal to browse routes, exchanges, and the live event stream:
+
+```bash
+craft tui
+```
+
+See the [Terminal UI guide](/docs/introduction/tui) for navigation and options.
+
 ---
 
 ## Related
@@ -99,5 +136,6 @@ export const craftConfig: CraftConfig = {
 
 {% quick-link title="Events reference" icon="presets" href="/docs/reference/events" description="Full event catalog with payload shapes and wildcard patterns." /%}
 {% quick-link title="Plugins" icon="plugins" href="/docs/advanced/plugins" description="How to write and register plugins." /%}
+{% quick-link title="Terminal UI" icon="installation" href="/docs/introduction/tui" description="Browse routes, exchanges, and live events from the terminal." /%}
 
 {% /quick-links %}
