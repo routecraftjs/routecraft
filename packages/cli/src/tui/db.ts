@@ -55,7 +55,11 @@ export class TelemetryDb {
     }
 
     const db = new Database(dbPath, { readonly: true });
-    db.pragma("journal_mode = WAL");
+    try {
+      db.pragma("journal_mode = WAL");
+    } catch {
+      // Read-only connection cannot change journal mode; safe to ignore
+    }
     return new TelemetryDb(db);
   }
 
@@ -170,18 +174,23 @@ export class TelemetryDb {
   getFailedExchanges(limit = 200): TelemetryExchange[] {
     const stmt = this.db.prepare(`
       SELECT
-        id,
-        route_id AS routeId,
-        context_id AS contextId,
-        correlation_id AS correlationId,
-        status,
-        started_at AS startedAt,
-        completed_at AS completedAt,
-        duration_ms AS durationMs,
-        error
-      FROM exchanges
-      WHERE status = 'failed'
-      ORDER BY started_at DESC
+        e.id,
+        e.route_id AS routeId,
+        e.context_id AS contextId,
+        e.correlation_id AS correlationId,
+        e.status,
+        e.started_at AS startedAt,
+        e.completed_at AS completedAt,
+        e.duration_ms AS durationMs,
+        e.error
+      FROM exchanges e
+      INNER JOIN (
+        SELECT correlation_id, MIN(ROWID) AS first_rowid
+        FROM exchanges
+        GROUP BY correlation_id
+      ) p ON e.correlation_id = p.correlation_id AND e.ROWID = p.first_rowid
+      WHERE e.status = 'failed'
+      ORDER BY e.started_at DESC
       LIMIT ?
     `);
     return stmt.all(limit) as TelemetryExchange[];
@@ -267,9 +276,9 @@ export class TelemetryDb {
       SELECT
         (SELECT COUNT(DISTINCT id) FROM routes) AS totalRoutes,
         COUNT(*) AS totalExchanges,
-        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completedExchanges,
-        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failedExchanges,
-        SUM(CASE WHEN status = 'dropped' THEN 1 ELSE 0 END) AS droppedExchanges,
+        COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0) AS completedExchanges,
+        COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS failedExchanges,
+        COALESCE(SUM(CASE WHEN status = 'dropped' THEN 1 ELSE 0 END), 0) AS droppedExchanges,
         AVG(duration_ms) AS avgDurationMs
       FROM exchanges
     `);

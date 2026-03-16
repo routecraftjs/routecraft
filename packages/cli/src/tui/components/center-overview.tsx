@@ -100,7 +100,7 @@ export function CenterOverview({
         })()}
         {recentExchanges.length > recentRows && (
           <Text dimColor>
-            {"\u2191"} {recentExchanges.length - recentRows} more
+            {"\u2193"} {recentExchanges.length - recentRows} more
           </Text>
         )}
       </Box>

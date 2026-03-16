@@ -205,9 +205,17 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
       }
     }
 
-    const aggregatedExchange = await Promise.resolve(
-      this.adapter.aggregate(aggregationGroup as Exchange<T>[]),
-    );
+    let aggregatedExchange: Exchange<R>;
+    try {
+      aggregatedExchange = await Promise.resolve(
+        this.adapter.aggregate(aggregationGroup as Exchange<T>[]),
+      );
+    } finally {
+      // Clean up the stored parent reference even on error
+      if (currentGroupId) {
+        parentMap?.delete(currentGroupId);
+      }
+    }
 
     // Restore the parent exchange identity
     const target = parentExchange ?? exchange;
@@ -223,9 +231,6 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
     } else {
       delete (target.headers as ExchangeHeaders)[HeadersKeys.SPLIT_HIERARCHY];
     }
-
-    // Clean up the stored parent reference
-    parentMap?.delete(currentGroupId!);
 
     if (context) {
       context.emit(`route:${routeId}:step:completed` as const, {

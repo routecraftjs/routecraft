@@ -286,6 +286,9 @@ describe("TelemetryPlugin", () => {
 
     await t.ctx.start();
 
+    // Trigger teardown to flush buffered events before querying
+    await t.stop();
+
     const db = new Database(dbPath, { readonly: true });
     const eventCount = db
       .prepare("SELECT COUNT(*) AS cnt FROM events")

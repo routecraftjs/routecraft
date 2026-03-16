@@ -47,8 +47,6 @@ export class SqliteTelemetrySink implements TelemetrySink {
       : resolve(process.cwd(), dbPathRaw);
     const walMode = options?.walMode !== false;
 
-    mkdirSync(dirname(dbPath), { recursive: true });
-
     let Database: BetterSqlite3Constructor;
     try {
       const mod = await import("better-sqlite3");
@@ -57,62 +55,74 @@ export class SqliteTelemetrySink implements TelemetrySink {
       return false;
     }
 
-    this.db = new Database(dbPath);
+    try {
+      mkdirSync(dirname(dbPath), { recursive: true });
 
-    if (walMode) {
-      this.db.pragma("journal_mode = WAL");
-    }
+      this.db = new Database(dbPath);
 
-    for (const ddl of ALL_DDL) {
-      this.db.exec(ddl);
-    }
-
-    this.insertEventStmt = this.db.prepare(
-      "INSERT INTO events (timestamp, context_id, event_name, details) VALUES (?, ?, ?, ?)",
-    );
-
-    this.upsertRouteStmt = this.db.prepare(
-      `INSERT INTO routes (id, context_id, registered_at, status)
-       VALUES (?, ?, ?, 'registered')
-       ON CONFLICT(id, context_id) DO UPDATE SET status = 'registered'`,
-    );
-
-    this.updateRouteStatusStmt = this.db.prepare(
-      "UPDATE routes SET status = ? WHERE id = ? AND context_id = ?",
-    );
-
-    this.insertExchangeStmt = this.db.prepare(
-      `INSERT OR IGNORE INTO exchanges (id, route_id, context_id, correlation_id, status, started_at)
-       VALUES (?, ?, ?, ?, 'started', ?)`,
-    );
-
-    this.updateExchangeCompletedStmt = this.db.prepare(
-      `UPDATE exchanges SET status = 'completed', completed_at = ?, duration_ms = ?
-       WHERE id = ? AND context_id = ?`,
-    );
-
-    this.updateExchangeFailedStmt = this.db.prepare(
-      `UPDATE exchanges SET status = 'failed', completed_at = ?, duration_ms = ?, error = ?
-       WHERE id = ? AND context_id = ?`,
-    );
-
-    this.updateExchangeDroppedStmt = this.db.prepare(
-      `UPDATE exchanges SET status = 'dropped', completed_at = ?, duration_ms = 0, error = ?
-       WHERE id = ? AND context_id = ?`,
-    );
-
-    this.insertManyTxn = this.db.transaction((events: TelemetryEvent[]) => {
-      for (const event of events) {
-        this.insertEventStmt!.run(
-          event.timestamp,
-          event.contextId,
-          event.eventName,
-          event.details,
-        );
+      if (walMode) {
+        this.db.pragma("journal_mode = WAL");
       }
-    });
 
-    return true;
+      for (const ddl of ALL_DDL) {
+        this.db.exec(ddl);
+      }
+
+      this.insertEventStmt = this.db.prepare(
+        "INSERT INTO events (timestamp, context_id, event_name, details) VALUES (?, ?, ?, ?)",
+      );
+
+      this.upsertRouteStmt = this.db.prepare(
+        `INSERT INTO routes (id, context_id, registered_at, status)
+         VALUES (?, ?, ?, 'registered')
+         ON CONFLICT(id, context_id) DO UPDATE SET status = 'registered'`,
+      );
+
+      this.updateRouteStatusStmt = this.db.prepare(
+        "UPDATE routes SET status = ? WHERE id = ? AND context_id = ?",
+      );
+
+      this.insertExchangeStmt = this.db.prepare(
+        `INSERT OR IGNORE INTO exchanges (id, route_id, context_id, correlation_id, status, started_at)
+         VALUES (?, ?, ?, ?, 'started', ?)`,
+      );
+
+      this.updateExchangeCompletedStmt = this.db.prepare(
+        `UPDATE exchanges SET status = 'completed', completed_at = ?, duration_ms = ?
+         WHERE id = ? AND context_id = ?`,
+      );
+
+      this.updateExchangeFailedStmt = this.db.prepare(
+        `UPDATE exchanges SET status = 'failed', completed_at = ?, duration_ms = ?, error = ?
+         WHERE id = ? AND context_id = ?`,
+      );
+
+      this.updateExchangeDroppedStmt = this.db.prepare(
+        `UPDATE exchanges SET status = 'dropped', completed_at = ?, duration_ms = 0, error = ?
+         WHERE id = ? AND context_id = ?`,
+      );
+
+      this.insertManyTxn = this.db.transaction((events: TelemetryEvent[]) => {
+        for (const event of events) {
+          this.insertEventStmt!.run(
+            event.timestamp,
+            event.contextId,
+            event.eventName,
+            event.details,
+          );
+        }
+      });
+
+      return true;
+    } catch {
+      try {
+        this.db?.close();
+      } catch {
+        // Ignore close errors during cleanup
+      }
+      this.db = undefined;
+      return false;
+    }
   }
 
   writeEvents(events: TelemetryEvent[]): void {

@@ -218,18 +218,20 @@ export class DirectSourceAdapter<T = unknown>
     exchange: Exchange<T>,
     error: unknown,
   ): void {
+    const routeId = (exchange.headers[HeadersKeys.ROUTE_ID] ??
+      endpoint) as string;
     const correlationId = (exchange.headers[HeadersKeys.CORRELATION_ID] ??
       exchange.id) as string;
 
-    context.emit(`route:${endpoint}:exchange:started` as EventName, {
-      routeId: endpoint,
-      exchangeId: correlationId,
+    context.emit(`route:${routeId}:exchange:started` as EventName, {
+      routeId,
+      exchangeId: exchange.id,
       correlationId,
     });
 
-    context.emit(`route:${endpoint}:exchange:failed` as EventName, {
-      routeId: endpoint,
-      exchangeId: correlationId,
+    context.emit(`route:${routeId}:exchange:failed` as EventName, {
+      routeId,
+      exchangeId: exchange.id,
       correlationId,
       duration: 0,
       error,

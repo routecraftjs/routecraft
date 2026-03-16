@@ -69,6 +69,9 @@
     "agent-browser": {
       "optional": true
     },
+    "better-sqlite3": {
+      "optional": true
+    },
     "cheerio": {
       "optional": true
     },

@@ -98,7 +98,14 @@ export function barChart(
   if (values.length === 0) {
     return Array.from({ length: chartHeight }, () => " ".repeat(maxWidth));
   }
-  const data = values.slice(0, maxWidth);
+  const data =
+    values.length <= maxWidth
+      ? values
+      : Array.from({ length: maxWidth }, (_, i) => {
+          const start = Math.floor((i * values.length) / maxWidth);
+          const end = Math.floor(((i + 1) * values.length) / maxWidth);
+          return Math.max(...values.slice(start, end), 0);
+        });
   const max = Math.max(...data, 1);
 
   const rows: string[] = [];

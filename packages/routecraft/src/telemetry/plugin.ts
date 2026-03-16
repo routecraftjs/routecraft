@@ -52,9 +52,13 @@ class TelemetryPlugin implements CraftPlugin {
   private unsubscribers: Array<() => void> = [];
 
   constructor(options?: TelemetryOptions) {
-    this.batchSize = options?.batchSize ?? DEFAULT_BATCH_SIZE;
+    const batchSize = Math.trunc(options?.batchSize ?? DEFAULT_BATCH_SIZE);
+    const flushIntervalMs = Math.trunc(
+      options?.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS,
+    );
+    this.batchSize = batchSize > 0 ? batchSize : DEFAULT_BATCH_SIZE;
     this.flushIntervalMs =
-      options?.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS;
+      flushIntervalMs > 0 ? flushIntervalMs : DEFAULT_FLUSH_INTERVAL_MS;
     this.providedSink = options?.sink;
     // Preserve any extra keys the caller passed for the default SQLite sink.
     // TelemetryOptions no longer has dbPath/walMode, but callers migrating
@@ -107,12 +111,14 @@ class TelemetryPlugin implements CraftPlugin {
           contextId: string;
           details: { route: { definition: { id: string } } };
         }) => {
-          this.sink!.writeRoute({
-            id: payload.details.route.definition.id,
-            contextId: payload.contextId,
-            registeredAt: payload.ts,
-            status: "registered",
-          });
+          this.safeSinkCall((sink) =>
+            sink.writeRoute({
+              id: payload.details.route.definition.id,
+              contextId: payload.contextId,
+              registeredAt: payload.ts,
+              status: "registered",
+            }),
+          );
         }) as EventHandler<EventName>,
       ),
     );
@@ -125,10 +131,12 @@ class TelemetryPlugin implements CraftPlugin {
           contextId: string;
           details: { route: { definition: { id: string } } };
         }) => {
-          this.sink!.updateRouteStatus(
-            payload.details.route.definition.id,
-            payload.contextId,
-            "started",
+          this.safeSinkCall((sink) =>
+            sink.updateRouteStatus(
+              payload.details.route.definition.id,
+              payload.contextId,
+              "started",
+            ),
           );
         }) as EventHandler<EventName>,
       ),
@@ -142,10 +150,12 @@ class TelemetryPlugin implements CraftPlugin {
           contextId: string;
           details: { route: { definition: { id: string } } };
         }) => {
-          this.sink!.updateRouteStatus(
-            payload.details.route.definition.id,
-            payload.contextId,
-            "stopped",
+          this.safeSinkCall((sink) =>
+            sink.updateRouteStatus(
+              payload.details.route.definition.id,
+              payload.contextId,
+              "stopped",
+            ),
           );
         }) as EventHandler<EventName>,
       ),
@@ -158,17 +168,19 @@ class TelemetryPlugin implements CraftPlugin {
         contextId: string;
         details: { routeId: string; exchangeId: string; correlationId: string };
       }) => {
-        this.sink!.writeExchange({
-          id: payload.details.exchangeId,
-          routeId: payload.details.routeId,
-          contextId: payload.contextId,
-          correlationId: payload.details.correlationId,
-          status: "started",
-          startedAt: payload.ts,
-          completedAt: null,
-          durationMs: null,
-          error: null,
-        });
+        this.safeSinkCall((sink) =>
+          sink.writeExchange({
+            id: payload.details.exchangeId,
+            routeId: payload.details.routeId,
+            contextId: payload.contextId,
+            correlationId: payload.details.correlationId,
+            status: "started",
+            startedAt: payload.ts,
+            completedAt: null,
+            durationMs: null,
+            error: null,
+          }),
+        );
       }) as EventHandler<EventName>),
     );
 
@@ -178,11 +190,13 @@ class TelemetryPlugin implements CraftPlugin {
         contextId: string;
         details: { exchangeId: string; duration: number };
       }) => {
-        this.sink!.completeExchange(
-          payload.details.exchangeId,
-          payload.contextId,
-          payload.ts,
-          payload.details.duration,
+        this.safeSinkCall((sink) =>
+          sink.completeExchange(
+            payload.details.exchangeId,
+            payload.contextId,
+            payload.ts,
+            payload.details.duration,
+          ),
         );
       }) as EventHandler<EventName>),
     );
@@ -197,12 +211,14 @@ class TelemetryPlugin implements CraftPlugin {
           payload.details.error instanceof Error
             ? payload.details.error.message
             : String(payload.details.error);
-        this.sink!.failExchange(
-          payload.details.exchangeId,
-          payload.contextId,
-          payload.ts,
-          payload.details.duration,
-          errorStr,
+        this.safeSinkCall((sink) =>
+          sink.failExchange(
+            payload.details.exchangeId,
+            payload.contextId,
+            payload.ts,
+            payload.details.duration,
+            errorStr,
+          ),
         );
       }) as EventHandler<EventName>),
     );
@@ -214,14 +230,16 @@ class TelemetryPlugin implements CraftPlugin {
         contextId: string;
         details: { exchangeId: string; reason?: string };
       }) => {
-        if (this.sink!.dropExchange) {
-          this.sink!.dropExchange(
-            payload.details.exchangeId,
-            payload.contextId,
-            payload.ts,
-            payload.details.reason ?? "dropped",
-          );
-        }
+        this.safeSinkCall((sink) => {
+          if (sink.dropExchange) {
+            sink.dropExchange(
+              payload.details.exchangeId,
+              payload.contextId,
+              payload.ts,
+              payload.details.reason ?? "dropped",
+            );
+          }
+        });
       }) as EventHandler<EventName>),
     );
 
@@ -276,10 +294,19 @@ class TelemetryPlugin implements CraftPlugin {
     }
   }
 
+  private safeSinkCall(call: (sink: TelemetrySink) => void): void {
+    if (!this.sink) return;
+    try {
+      call(this.sink);
+    } catch {
+      // Non-blocking: sink errors must not destabilize event processing
+    }
+  }
+
   private flush(): void {
     if (this.buffer.length === 0 || !this.sink) return;
     const batch = this.buffer.splice(0, this.buffer.length);
-    this.sink.writeEvents(batch);
+    this.safeSinkCall((sink) => sink.writeEvents(batch));
   }
 }
 
@@ -311,8 +338,16 @@ export function telemetry(options?: TelemetryOptions): CraftPlugin {
  * Safely stringify a value to JSON, handling circular references.
  */
 function safeStringify(value: unknown): string {
+  const seen = new WeakSet<object>();
   try {
     return JSON.stringify(value, (_key, val: unknown) => {
+      if (val instanceof Error) {
+        return {
+          name: val.name,
+          message: val.message,
+          ...(typeof val.stack === "string" ? { stack: val.stack } : {}),
+        };
+      }
       if (
         val &&
         typeof val === "object" &&
@@ -330,6 +365,10 @@ function safeStringify(value: unknown): string {
       ) {
         const ctx = val as { contextId: string };
         return { contextId: ctx.contextId };
+      }
+      if (val && typeof val === "object") {
+        if (seen.has(val as object)) return "[Circular]";
+        seen.add(val as object);
       }
       return val;
     });
