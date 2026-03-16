@@ -339,26 +339,30 @@ export class DefaultRoute implements Route {
     ] as string;
     this.context.emit(`route:${this.definition.id}:exchange:started` as const, {
       routeId: this.definition.id,
-      exchangeId: correlationId,
+      exchangeId: exchange.id,
       correlationId,
     });
 
     // Run steps (tap adds tasks via route.trackTask)
     const handlerPromise = this.runSteps(exchange, startTime).then((result) => {
-      const duration = Date.now() - startTime;
-      const correlationId = exchange.headers[
-        HeadersKeys.CORRELATION_ID
-      ] as string;
-      this.context.emit(
-        `route:${this.definition.id}:exchange:completed` as const,
-        {
-          routeId: this.definition.id,
-          exchangeId: correlationId,
-          correlationId,
-          duration,
-        },
-      );
-      return result;
+      // runSteps swallows errors and emits exchange:failed internally,
+      // so only emit exchange:completed if the exchange was not failed.
+      if (!result.failed) {
+        const duration = Date.now() - startTime;
+        const correlationId = exchange.headers[
+          HeadersKeys.CORRELATION_ID
+        ] as string;
+        this.context.emit(
+          `route:${this.definition.id}:exchange:completed` as const,
+          {
+            routeId: this.definition.id,
+            exchangeId: exchange.id,
+            correlationId,
+            duration,
+          },
+        );
+      }
+      return result.exchange;
     });
 
     this.inFlight.add(handlerPromise);
@@ -378,18 +382,65 @@ export class DefaultRoute implements Route {
   private async runSteps(
     exchange: Exchange,
     startTime: number,
-  ): Promise<Exchange> {
+  ): Promise<{ exchange: Exchange; failed: boolean }> {
     const queue: { exchange: Exchange; steps: Step<Adapter>[] }[] = [
       { exchange: exchange, steps: [...this.definition.steps] },
     ];
 
     let lastProcessedExchange: Exchange = exchange;
+    let failed = false;
+    // Track child exchanges so we can emit exchange:started/completed for them.
+    // The parent exchange (first one) is handled by handler().
+    const parentExchangeId = exchange.id;
+    const seenChildExchanges = new Set<string>();
+    const childStartTimes = new Map<string, number>();
+    const failedChildExchanges = new Set<string>();
 
     while (queue.length > 0) {
       const { exchange, steps } = queue.shift()!;
       if (steps.length === 0) {
+        // Emit exchange:completed for child exchanges when their steps are done
+        if (
+          exchange.id !== parentExchangeId &&
+          seenChildExchanges.has(exchange.id) &&
+          !failedChildExchanges.has(exchange.id)
+        ) {
+          const childStart = childStartTimes.get(exchange.id) ?? startTime;
+          const correlationId = exchange.headers[
+            HeadersKeys.CORRELATION_ID
+          ] as string;
+          this.context.emit(
+            `route:${this.definition.id}:exchange:completed` as const,
+            {
+              routeId: this.definition.id,
+              exchangeId: exchange.id,
+              correlationId,
+              duration: Date.now() - childStart,
+            },
+          );
+        }
         lastProcessedExchange = exchange;
         continue;
+      }
+
+      // Emit exchange:started for child exchanges on first encounter
+      if (
+        exchange.id !== parentExchangeId &&
+        !seenChildExchanges.has(exchange.id)
+      ) {
+        seenChildExchanges.add(exchange.id);
+        childStartTimes.set(exchange.id, Date.now());
+        const correlationId = exchange.headers[
+          HeadersKeys.CORRELATION_ID
+        ] as string;
+        this.context.emit(
+          `route:${this.definition.id}:exchange:started` as const,
+          {
+            routeId: this.definition.id,
+            exchangeId: exchange.id,
+            correlationId,
+          },
+        );
       }
 
       const [step, ...remainingSteps] = steps;
@@ -411,34 +462,38 @@ export class DefaultRoute implements Route {
         HeadersKeys.CORRELATION_ID
       ] as string;
 
-      // Emit step:started event
-      this.context.emit(`route:${this.definition.id}:step:started` as const, {
-        routeId: this.definition.id,
-        exchangeId: correlationId,
-        correlationId,
-        operation: step.operation,
-        ...(adapterLabel ? { adapter: adapterLabel } : {}),
-      });
+      // Emit step:started event unless the step manages its own events
+      if (!step.skipStepEvents) {
+        this.context.emit(`route:${this.definition.id}:step:started` as const, {
+          routeId: this.definition.id,
+          exchangeId: exchange.id,
+          correlationId,
+          operation: step.operation,
+          ...(adapterLabel ? { adapter: adapterLabel } : {}),
+        });
+      }
 
       try {
         await step.execute(exchange, remainingSteps, queue);
 
-        // Emit step:completed event
-        const stepDuration = Date.now() - stepStartTime;
-        const correlationId = exchange.headers[
-          HeadersKeys.CORRELATION_ID
-        ] as string;
-        this.context.emit(
-          `route:${this.definition.id}:step:completed` as const,
-          {
-            routeId: this.definition.id,
-            exchangeId: correlationId,
-            correlationId,
-            operation: step.operation,
-            ...(adapterLabel ? { adapter: adapterLabel } : {}),
-            duration: stepDuration,
-          },
-        );
+        // Emit step:completed event unless the step manages its own events
+        if (!step.skipStepEvents) {
+          const stepDuration = Date.now() - stepStartTime;
+          const correlationId = exchange.headers[
+            HeadersKeys.CORRELATION_ID
+          ] as string;
+          this.context.emit(
+            `route:${this.definition.id}:step:completed` as const,
+            {
+              routeId: this.definition.id,
+              exchangeId: exchange.id,
+              correlationId,
+              operation: step.operation,
+              ...(adapterLabel ? { adapter: adapterLabel } : {}),
+              duration: stepDuration,
+            },
+          );
+        }
       } catch (error) {
         const err = this.processError(step.operation, error);
         const correlationId = exchange.headers[
@@ -510,16 +565,21 @@ export class DefaultRoute implements Route {
               `route:${this.definition.id}:exchange:failed` as const,
               {
                 routeId: this.definition.id,
-                exchangeId: correlationId,
+                exchangeId: exchange.id,
                 correlationId,
                 duration,
                 error: handlerErr,
               },
             );
+            if (exchange.id !== parentExchangeId) {
+              failedChildExchanges.add(exchange.id);
+            } else {
+              failed = true;
+            }
           }
 
           // Pipeline does not resume after error handler (success or failure)
-          return lastProcessedExchange;
+          return { exchange: lastProcessedExchange, failed };
         }
 
         // Default behavior: log, emit, swallow
@@ -540,19 +600,24 @@ export class DefaultRoute implements Route {
           `route:${this.definition.id}:exchange:failed` as const,
           {
             routeId: this.definition.id,
-            exchangeId: correlationId,
+            exchangeId: exchange.id,
             correlationId,
             duration,
             error: err,
           },
         );
+        if (exchange.id !== parentExchangeId) {
+          failedChildExchanges.add(exchange.id);
+        } else {
+          failed = true;
+        }
 
         // Don't re-throw - error is fully handled via events and logging
         // Re-throwing would create unhandled rejections
         // Do NOT return here: the while loop continues so other queue items (e.g. split children) are processed
       }
     }
-    return lastProcessedExchange;
+    return { exchange: lastProcessedExchange, failed };
   }
 
   /**

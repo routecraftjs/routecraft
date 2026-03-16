@@ -43,9 +43,15 @@ Fired per exchange, scoped to the capability that owns it. `routeId` is the capa
 
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `route:{routeId}:exchange:started` | Exchange enters the pipeline | `{ routeId, exchangeId, correlationId }` |
-| `route:{routeId}:exchange:completed` | Exchange finished successfully | `{ routeId, exchangeId, correlationId, duration }` |
-| `route:{routeId}:exchange:failed` | Exchange failed | `{ routeId, exchangeId, correlationId, duration, error }` |
+| `route:{routeId}:exchange:started` | Exchange enters the pipeline (parent or child) | `{ routeId, exchangeId, correlationId }` |
+| `route:{routeId}:exchange:completed` | Exchange finished successfully (or consumed by aggregate) | `{ routeId, exchangeId, correlationId, duration }` |
+| `route:{routeId}:exchange:failed` | Exchange encountered an unrecoverable error | `{ routeId, exchangeId, correlationId, duration, error }` |
+| `route:{routeId}:exchange:dropped` | Exchange intentionally removed from the pipeline | `{ routeId, exchangeId, correlationId, reason }` |
+| `route:{routeId}:exchange:restored` | Exchange restored from cache, skipping steps | `{ routeId, exchangeId, correlationId, source }` |
+
+The `exchangeId` field is the exchange's own ID, not the correlation ID. Use `correlationId` to group related exchanges (e.g. a parent and its split children share the same correlation ID).
+
+**Lifecycle guarantee:** every `exchange:started` is eventually followed by exactly one of `completed`, `failed`, or `dropped`.
 
 ## Operation events
 
@@ -72,14 +78,14 @@ The `metadata` field is populated by the adapter's `getMetadata()` method. For e
 
 `reason` is `'size'` when the batch hit its size limit, `'time'` when the flush interval elapsed.
 
-### Split and aggregate operations
+### Split and aggregate
 
-| Event | When it fires | Details |
-| --- | --- | --- |
-| `route:{routeId}:operation:split:started` | Exchange being split into items | `{ routeId, exchangeId, correlationId }` |
-| `route:{routeId}:operation:split:stopped` | Split completed | `{ routeId, exchangeId, correlationId }` |
-| `route:{routeId}:operation:aggregate:started` | Aggregation started | `{ routeId, exchangeId, correlationId }` |
-| `route:{routeId}:operation:aggregate:stopped` | Aggregation completed | `{ routeId, exchangeId, correlationId }` |
+Split and aggregate use standard `step:started`/`step:completed` events (not dedicated operation events). Operation-specific data is in the `metadata` field:
+
+- **Split** `step:completed` includes `metadata.childCount` -- the number of child exchanges created
+- **Aggregate** `step:completed` includes `metadata.inputCount` -- the number of exchanges merged
+
+After a split, each child exchange emits its own `exchange:started`. When aggregate consumes children, it emits `exchange:completed` for each child before continuing on the parent exchange.
 
 ### Retry operations
 

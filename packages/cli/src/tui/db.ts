@@ -70,23 +70,33 @@ export class TelemetryDb {
     totalExchanges: number;
     completedExchanges: number;
     failedExchanges: number;
+    droppedExchanges: number;
     avgDurationMs: number | null;
   }> {
     const stmt = this.db.prepare(`
+      WITH unique_routes AS (
+        SELECT
+          id,
+          MAX(registered_at) AS registered_at,
+          -- latest status across all context runs
+          (SELECT r2.status FROM routes r2
+           WHERE r2.id = r.id
+           ORDER BY r2.registered_at DESC LIMIT 1) AS status
+        FROM routes r
+        GROUP BY id
+      )
       SELECT
-        r.id,
-        -- latest status across all context runs for this route
-        (SELECT r2.status FROM routes r2
-         WHERE r2.id = r.id
-         ORDER BY r2.registered_at DESC LIMIT 1) AS status,
+        ur.id,
+        ur.status,
         COALESCE(COUNT(e.id), 0) AS totalExchanges,
         COALESCE(SUM(CASE WHEN e.status = 'completed' THEN 1 ELSE 0 END), 0) AS completedExchanges,
         COALESCE(SUM(CASE WHEN e.status = 'failed' THEN 1 ELSE 0 END), 0) AS failedExchanges,
+        COALESCE(SUM(CASE WHEN e.status = 'dropped' THEN 1 ELSE 0 END), 0) AS droppedExchanges,
         AVG(e.duration_ms) AS avgDurationMs
-      FROM routes r
-      LEFT JOIN exchanges e ON r.id = e.route_id
-      GROUP BY r.id
-      ORDER BY MAX(r.registered_at) DESC
+      FROM unique_routes ur
+      LEFT JOIN exchanges e ON ur.id = e.route_id
+      GROUP BY ur.id
+      ORDER BY ur.registered_at DESC
     `);
     return stmt.all() as Array<{
       id: string;
@@ -94,6 +104,7 @@ export class TelemetryDb {
       totalExchanges: number;
       completedExchanges: number;
       failedExchanges: number;
+      droppedExchanges: number;
       avgDurationMs: number | null;
     }>;
   }
@@ -102,6 +113,61 @@ export class TelemetryDb {
    * Get exchanges for a specific route, ordered by most recent first.
    */
   getExchangesByRoute(routeId: string, limit = 50): TelemetryExchange[] {
+    const stmt = this.db.prepare(`
+      SELECT
+        e.id,
+        e.route_id AS routeId,
+        e.context_id AS contextId,
+        e.correlation_id AS correlationId,
+        e.status,
+        e.started_at AS startedAt,
+        e.completed_at AS completedAt,
+        e.duration_ms AS durationMs,
+        e.error
+      FROM exchanges e
+      INNER JOIN (
+        SELECT correlation_id, MIN(ROWID) AS first_rowid
+        FROM exchanges
+        GROUP BY correlation_id
+      ) p ON e.correlation_id = p.correlation_id AND e.ROWID = p.first_rowid
+      WHERE e.route_id = ?
+      ORDER BY e.started_at DESC
+      LIMIT ?
+    `);
+    return stmt.all(routeId, limit) as TelemetryExchange[];
+  }
+
+  /**
+   * Get all exchanges across all routes, ordered by most recent first.
+   */
+  getAllExchanges(limit = 200): TelemetryExchange[] {
+    const stmt = this.db.prepare(`
+      SELECT
+        e.id,
+        e.route_id AS routeId,
+        e.context_id AS contextId,
+        e.correlation_id AS correlationId,
+        e.status,
+        e.started_at AS startedAt,
+        e.completed_at AS completedAt,
+        e.duration_ms AS durationMs,
+        e.error
+      FROM exchanges e
+      INNER JOIN (
+        SELECT correlation_id, MIN(ROWID) AS first_rowid
+        FROM exchanges
+        GROUP BY correlation_id
+      ) p ON e.correlation_id = p.correlation_id AND e.ROWID = p.first_rowid
+      ORDER BY e.started_at DESC
+      LIMIT ?
+    `);
+    return stmt.all(limit) as TelemetryExchange[];
+  }
+
+  /**
+   * Get all failed exchanges across all routes, ordered by most recent first.
+   */
+  getFailedExchanges(limit = 200): TelemetryExchange[] {
     const stmt = this.db.prepare(`
       SELECT
         id,
@@ -114,17 +180,22 @@ export class TelemetryDb {
         duration_ms AS durationMs,
         error
       FROM exchanges
-      WHERE route_id = ?
+      WHERE status = 'failed'
       ORDER BY started_at DESC
       LIMIT ?
     `);
-    return stmt.all(routeId, limit) as TelemetryExchange[];
+    return stmt.all(limit) as TelemetryExchange[];
   }
 
   /**
-   * Get events for a specific exchange (by correlation/exchange ID).
+   * Get events for an exchange and all related exchanges sharing the
+   * same correlation ID. Searches the details JSON for the correlation ID.
    */
-  getEventsByExchange(exchangeId: string): TelemetryEvent[] {
+  getEventsByExchange(
+    exchangeId: string,
+    correlationId: string,
+  ): TelemetryEvent[] {
+    const searchId = correlationId || exchangeId;
     const stmt = this.db.prepare(`
       SELECT
         id,
@@ -133,11 +204,10 @@ export class TelemetryDb {
         event_name AS eventName,
         details
       FROM events
-      WHERE event_name LIKE '%' || ? || '%'
-         OR details LIKE '%' || ? || '%'
+      WHERE details LIKE '%' || ? || '%'
       ORDER BY id ASC
     `);
-    return stmt.all(exchangeId, exchangeId) as TelemetryEvent[];
+    return stmt.all(searchId) as TelemetryEvent[];
   }
 
   /**
@@ -189,6 +259,7 @@ export class TelemetryDb {
     totalExchanges: number;
     completedExchanges: number;
     failedExchanges: number;
+    droppedExchanges: number;
     errorRate: number;
     avgDurationMs: number | null;
   } {
@@ -198,6 +269,7 @@ export class TelemetryDb {
         COUNT(*) AS totalExchanges,
         SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completedExchanges,
         SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failedExchanges,
+        SUM(CASE WHEN status = 'dropped' THEN 1 ELSE 0 END) AS droppedExchanges,
         AVG(duration_ms) AS avgDurationMs
       FROM exchanges
     `);
@@ -206,6 +278,7 @@ export class TelemetryDb {
       totalExchanges: number;
       completedExchanges: number;
       failedExchanges: number;
+      droppedExchanges: number;
       avgDurationMs: number | null;
     };
     return {
@@ -216,32 +289,41 @@ export class TelemetryDb {
   }
 
   /**
-   * Get exchange counts bucketed by minute for the last N minutes.
-   * Used to render a traffic sparkline in the dashboard.
+   * Get exchange counts for the last hour in fixed 5-minute buckets.
+   * Returns 12 values (oldest first, newest last), sliding left as time passes.
    */
-  getTrafficBuckets(minutes = 30): number[] {
+  getTrafficBuckets(): number[] {
+    const buckets = 12;
+    const bucketWidthSec = 300; // 5 minutes
+
+    // Snap "now" to a 5-minute boundary so buckets don't shift between polls
+    const nowSec = Math.floor(Date.now() / 1000);
+    const snappedNowSec = Math.floor(nowSec / bucketWidthSec) * bucketWidthSec;
+    const windowStartSec = snappedNowSec - buckets * bucketWidthSec;
+
     const stmt = this.db.prepare(`
-      WITH RECURSIVE mins(m) AS (
-        SELECT 0
-        UNION ALL
-        SELECT m + 1 FROM mins WHERE m < ? - 1
-      )
       SELECT
-        COALESCE(c.cnt, 0) AS cnt
-      FROM mins
-      LEFT JOIN (
-        SELECT
-          CAST((strftime('%s', 'now') - strftime('%s', started_at)) / 60 AS INTEGER) AS ago,
-          COUNT(*) AS cnt
-        FROM exchanges
-        WHERE started_at >= datetime('now', '-' || ? || ' minutes')
-        GROUP BY ago
-      ) c ON c.ago = mins.m
-      ORDER BY mins.m DESC
+        CAST((CAST(strftime('%s', started_at) AS INTEGER) - ?) / ? AS INTEGER) AS bucket,
+        COUNT(*) AS cnt
+      FROM exchanges
+      WHERE CAST(strftime('%s', started_at) AS INTEGER) >= ?
+        AND CAST(strftime('%s', started_at) AS INTEGER) <= ?
+      GROUP BY bucket
     `);
-    return (stmt.all(minutes, minutes) as Array<{ cnt: number }>).map(
-      (r) => r.cnt,
-    );
+    const rows = stmt.all(
+      windowStartSec,
+      bucketWidthSec,
+      windowStartSec,
+      snappedNowSec,
+    ) as Array<{ bucket: number; cnt: number }>;
+
+    const result = new Array(buckets).fill(0) as number[];
+    for (const row of rows) {
+      if (row.bucket >= 0 && row.bucket < buckets) {
+        result[row.bucket] += row.cnt;
+      }
+    }
+    return result;
   }
 
   /**

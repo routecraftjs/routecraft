@@ -34,6 +34,13 @@ export interface TelemetrySink {
     durationMs: number,
     error: string,
   ): void;
+  /** Mark an exchange as dropped (filtered, debounced, etc.). */
+  dropExchange?(
+    exchangeId: string,
+    contextId: string,
+    droppedAt: string,
+    reason: string,
+  ): void;
   /** Flush pending data and release resources. Called during plugin teardown. */
   close(): void | Promise<void>;
 }

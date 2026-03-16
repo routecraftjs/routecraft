@@ -32,6 +32,7 @@ export class SqliteTelemetrySink implements TelemetrySink {
   private insertExchangeStmt: BetterSqlite3Statement | undefined;
   private updateExchangeCompletedStmt: BetterSqlite3Statement | undefined;
   private updateExchangeFailedStmt: BetterSqlite3Statement | undefined;
+  private updateExchangeDroppedStmt: BetterSqlite3Statement | undefined;
   private insertManyTxn: ((events: TelemetryEvent[]) => void) | undefined;
 
   /**
@@ -92,6 +93,11 @@ export class SqliteTelemetrySink implements TelemetrySink {
 
     this.updateExchangeFailedStmt = this.db.prepare(
       `UPDATE exchanges SET status = 'failed', completed_at = ?, duration_ms = ?, error = ?
+       WHERE id = ? AND context_id = ?`,
+    );
+
+    this.updateExchangeDroppedStmt = this.db.prepare(
+      `UPDATE exchanges SET status = 'dropped', completed_at = ?, duration_ms = 0, error = ?
        WHERE id = ? AND context_id = ?`,
     );
 
@@ -183,6 +189,25 @@ export class SqliteTelemetrySink implements TelemetrySink {
         completedAt,
         durationMs,
         error,
+        exchangeId,
+        contextId,
+      );
+    } catch {
+      // Non-blocking
+    }
+  }
+
+  dropExchange(
+    exchangeId: string,
+    contextId: string,
+    droppedAt: string,
+    reason: string,
+  ): void {
+    if (!this.updateExchangeDroppedStmt) return;
+    try {
+      this.updateExchangeDroppedStmt.run(
+        droppedAt,
+        reason,
         exchangeId,
         contextId,
       );

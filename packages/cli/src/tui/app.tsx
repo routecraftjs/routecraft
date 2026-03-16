@@ -2,8 +2,28 @@ import { useState, useEffect, useCallback } from "react";
 import { render, Box, Text, useInput, useApp, useStdout } from "ink";
 import { TelemetryDb } from "./db.js";
 
-type CenterView = "overview" | "exchanges" | "exchange-detail";
-type TopView = "dashboard" | "events";
+type NavItem = "capabilities" | "exchanges" | "errors" | "events";
+type DrillView = "none" | "exchange-list" | "exchange-detail";
+
+type NavSection = {
+  label?: string;
+  items: { key: NavItem; label: string; shortcut: string }[];
+};
+
+const NAV_SECTIONS: NavSection[] = [
+  {
+    items: [{ key: "capabilities", label: "Capabilities", shortcut: "1" }],
+  },
+  {
+    items: [
+      { key: "exchanges", label: "Exchanges", shortcut: "2" },
+      { key: "errors", label: "Errors", shortcut: "3" },
+      { key: "events", label: "Events", shortcut: "4" },
+    ],
+  },
+];
+
+const ALL_NAV_ITEMS = NAV_SECTIONS.flatMap((s) => s.items);
 
 interface RouteSummary {
   id: string;
@@ -11,6 +31,7 @@ interface RouteSummary {
   totalExchanges: number;
   completedExchanges: number;
   failedExchanges: number;
+  droppedExchanges: number;
   avgDurationMs: number | null;
 }
 
@@ -39,6 +60,7 @@ interface Metrics {
   totalExchanges: number;
   completedExchanges: number;
   failedExchanges: number;
+  droppedExchanges: number;
   errorRate: number;
   avgDurationMs: number | null;
 }
@@ -64,6 +86,7 @@ function statusColor(status: string): string {
     case "failed":
       return "red";
     case "stopped":
+    case "dropped":
       return "yellow";
     default:
       return "white";
@@ -79,6 +102,28 @@ function col(str: string, len: number): string {
 function formatDetails(_eventName: string, raw: string): string {
   try {
     const d = JSON.parse(raw) as Record<string, unknown>;
+
+    // Step/operation events: show operation + adapter + duration
+    if ("operation" in d && "routeId" in d) {
+      const parts: string[] = [String(d["operation"])];
+      if ("adapter" in d) parts.push(`(${d["adapter"]})`);
+      if ("adapterId" in d) parts.push(`(${d["adapterId"]})`);
+      if ("duration" in d) parts.push(formatDuration(d["duration"] as number));
+      if (
+        "metadata" in d &&
+        typeof d["metadata"] === "object" &&
+        d["metadata"] !== null
+      ) {
+        const meta = d["metadata"] as Record<string, unknown>;
+        const keys = Object.keys(meta).slice(0, 2);
+        if (keys.length > 0) {
+          parts.push(keys.map((k) => `${k}=${meta[k]}`).join(" "));
+        }
+      }
+      return parts.join(" ");
+    }
+
+    // Exchange events: show route + exchange ID + duration/error
     if ("routeId" in d && "exchangeId" in d) {
       const exId = String(d["exchangeId"]).slice(0, 8);
       const dur =
@@ -86,6 +131,8 @@ function formatDetails(_eventName: string, raw: string): string {
       const err = "error" in d ? " ERROR" : "";
       return `${d["routeId"]} ex=${exId}${dur}${err}`;
     }
+
+    // Route lifecycle events
     if ("route" in d && typeof d["route"] === "object" && d["route"] !== null) {
       const route = d["route"] as {
         routeId?: string;
@@ -93,6 +140,7 @@ function formatDetails(_eventName: string, raw: string): string {
       };
       return `${route.routeId ?? route.definition?.id ?? "?"}`;
     }
+
     if ("pluginId" in d) return `plugin=${d["pluginId"]}`;
     if ("error" in d) {
       const err = d["error"];
@@ -106,22 +154,49 @@ function formatDetails(_eventName: string, raw: string): string {
   }
 }
 
-function sparkline(values: number[], maxWidth: number): string {
-  if (values.length === 0) return "";
-  const blocks = [
-    " ",
-    "\u2581",
-    "\u2582",
-    "\u2583",
-    "\u2584",
-    "\u2585",
-    "\u2586",
-    "\u2587",
-    "\u2588",
-  ];
+/**
+ * Render a multi-row bar chart from bucket values.
+ * Each column is one bucket; rows build from bottom to top.
+ * Returns an array of strings, one per row (top row first).
+ */
+function barChart(
+  values: number[],
+  maxWidth: number,
+  chartHeight: number,
+): string[] {
+  if (values.length === 0) {
+    return Array.from({ length: chartHeight }, () => " ".repeat(maxWidth));
+  }
   const data = values.slice(0, maxWidth);
   const max = Math.max(...data, 1);
-  return data.map((v) => blocks[Math.round((v / max) * 8)]!).join("");
+
+  const rows: string[] = [];
+  for (let row = chartHeight - 1; row >= 0; row--) {
+    const threshold = (row / chartHeight) * max;
+    let line = "";
+    for (const v of data) {
+      if (v > threshold) {
+        // How full is this cell? Map to block character
+        const cellFill = Math.min((v - threshold) / (max / chartHeight), 1);
+        const blocks = [
+          " ",
+          "\u2581",
+          "\u2582",
+          "\u2583",
+          "\u2584",
+          "\u2585",
+          "\u2586",
+          "\u2587",
+          "\u2588",
+        ];
+        line += blocks[Math.round(cellFill * 8)];
+      } else {
+        line += " ";
+      }
+    }
+    rows.push(line.padEnd(maxWidth));
+  }
+  return rows;
 }
 
 function fmtNum(n: number): string {
@@ -187,6 +262,15 @@ function CenterOverview({
               >
                 {fmtNum(route.failedExchanges)}
               </Text>
+              {"    "}Dropped:{" "}
+              <Text
+                bold
+                {...(route.droppedExchanges > 0
+                  ? { color: "yellow" as const }
+                  : {})}
+              >
+                {fmtNum(route.droppedExchanges)}
+              </Text>
               {"    "}Avg:{" "}
               <Text bold>{formatDuration(route.avgDurationMs)}</Text>
             </Text>
@@ -207,23 +291,27 @@ function CenterOverview({
           RECENT EXCHANGES
         </Text>
         <Text dimColor>{"\u2500".repeat(Math.max(centerWidth - 4, 20))}</Text>
-        {recentExchanges.length === 0 ? (
-          <Text dimColor>No exchanges yet</Text>
-        ) : (
-          recentExchanges.slice(offset, offset + recentRows).map((ex) => (
-            <Text key={ex.id + ex.contextId} wrap="truncate">
-              <Text dimColor>{truncate(ex.id, 8)}</Text>
-              {"  "}
-              <Text color={statusColor(ex.status)}>{col(ex.status, 9)}</Text>
-              {"  "}
-              <Text>{formatDuration(ex.durationMs).padStart(7)}</Text>
-              {"  "}
-              <Text dimColor>
-                {ex.startedAt.replace("T", " ").slice(11, 19)}
+        {(() => {
+          // Fixed columns: status(9) + duration(7) + time(8) + gaps(8) = 32
+          const idColWidth = Math.max(centerWidth - 36, 12);
+          return recentExchanges.length === 0 ? (
+            <Text dimColor>No exchanges yet</Text>
+          ) : (
+            recentExchanges.slice(offset, offset + recentRows).map((ex) => (
+              <Text key={ex.id + ex.contextId} wrap="truncate">
+                <Text dimColor>{col(ex.id, idColWidth)}</Text>
+                {"  "}
+                <Text color={statusColor(ex.status)}>{col(ex.status, 9)}</Text>
+                {"  "}
+                <Text>{formatDuration(ex.durationMs).padStart(7)}</Text>
+                {"  "}
+                <Text dimColor>
+                  {ex.startedAt.replace("T", " ").slice(11, 19)}
+                </Text>
               </Text>
-            </Text>
-          ))
-        )}
+            ))
+          );
+        })()}
         {recentExchanges.length > recentRows && (
           <Text dimColor>
             {"\u2191"} {recentExchanges.length - recentRows} more
@@ -314,20 +402,103 @@ function CenterExchangeList({
 
 // -- Center panel: Exchange detail --
 
+/**
+ * Parse event details JSON safely, returning null on failure.
+ */
+function parseDetails(raw: string): Record<string, unknown> | null {
+  try {
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Group events by exchangeId to show parent/child flow.
+ *
+ * Operation events (split/aggregate) use their own exchangeId but
+ * logically belong to the parent pipeline. Step events with a
+ * different exchangeId are actual children.
+ */
+function groupEventsByExchange(
+  events: EventRecord[],
+  parentExchangeId: string,
+): { exchangeId: string; label: string; events: EventRecord[] }[] {
+  const groups = new Map<
+    string,
+    { exchangeId: string; label: string; events: EventRecord[] }
+  >();
+  let childIndex = 0;
+
+  // Ensure parent group exists first
+  groups.set(parentExchangeId, {
+    exchangeId: parentExchangeId,
+    label: "parent",
+    events: [],
+  });
+
+  for (const ev of events) {
+    const d = parseDetails(ev.details);
+    const exId = d ? String(d["exchangeId"] ?? "") : "";
+    const key = !exId || exId === parentExchangeId ? parentExchangeId : exId;
+
+    if (!groups.has(key)) {
+      childIndex++;
+      groups.set(key, {
+        exchangeId: key,
+        label: `child ${childIndex}`,
+        events: [],
+      });
+    }
+    groups.get(key)!.events.push(ev);
+  }
+
+  return Array.from(groups.values());
+}
+
 function CenterExchangeDetail({
   exchange,
   events,
   centerWidth,
   bodyHeight,
+  scrollIndex,
 }: {
   exchange: ExchangeRecord;
   events: EventRecord[];
   centerWidth: number;
   bodyHeight: number;
+  scrollIndex: number;
 }) {
   const eventColWidth = Math.min(Math.max(centerWidth - 30, 15), 40);
   const detailsColWidth = Math.max(centerWidth - eventColWidth - 28, 5);
-  const eventRows = Math.max(bodyHeight - 14, 3);
+  const eventRows = Math.max(bodyHeight - 8, 3);
+
+  const groups = groupEventsByExchange(events, exchange.id);
+  const hasChildren = groups.length > 1;
+
+  // Flatten groups into displayable rows with headers
+  const displayRows: {
+    type: "header" | "event";
+    text?: string;
+    event?: EventRecord;
+    indent: number;
+  }[] = [];
+  for (const group of groups) {
+    if (hasChildren) {
+      displayRows.push({
+        type: "header",
+        text: `${group.label} (${group.exchangeId.slice(0, 8)}) - ${group.events.length} events`,
+        indent: 0,
+      });
+    }
+    for (const ev of group.events) {
+      displayRows.push({
+        type: "event",
+        event: ev,
+        indent: hasChildren ? 2 : 0,
+      });
+    }
+  }
 
   return (
     <Box flexDirection="column" width={centerWidth} flexGrow={1}>
@@ -367,32 +538,48 @@ function CenterExchangeDetail({
         flexGrow={1}
       >
         <Text bold dimColor>
-          RELATED EVENTS ({events.length})
+          {hasChildren
+            ? `EXCHANGE FLOW (${groups.length} exchanges, ${events.length} events)`
+            : `RELATED EVENTS (${events.length})`}
         </Text>
         <Text dimColor>{"\u2500".repeat(Math.max(centerWidth - 4, 20))}</Text>
-        {events.length === 0 ? (
+        {displayRows.length === 0 ? (
           <Text dimColor>No related events found</Text>
         ) : (
-          events.slice(0, eventRows).map((ev) => (
-            <Text key={ev.id ?? ev.timestamp} wrap="truncate">
-              <Text dimColor>
-                {ev.timestamp.replace("T", " ").slice(11, 19)}
-              </Text>
-              {"  "}
-              <Text color="cyan">{col(ev.eventName, eventColWidth)}</Text>
-              {"  "}
-              <Text>
-                {truncate(
-                  formatDetails(ev.eventName, ev.details),
-                  detailsColWidth,
-                )}
-              </Text>
-            </Text>
-          ))
+          displayRows
+            .slice(scrollIndex, scrollIndex + eventRows)
+            .map((row, i) => {
+              if (row.type === "header") {
+                return (
+                  <Text key={`h-${i}`} bold color="yellow">
+                    {row.text}
+                  </Text>
+                );
+              }
+              const ev = row.event!;
+              const indent = " ".repeat(row.indent);
+              return (
+                <Text key={ev.id ?? `${ev.timestamp}-${i}`} wrap="truncate">
+                  <Text dimColor>
+                    {indent}
+                    {ev.timestamp.replace("T", " ").slice(11, 19)}
+                  </Text>
+                  {"  "}
+                  <Text color="cyan">{col(ev.eventName, eventColWidth)}</Text>
+                  {"  "}
+                  <Text>
+                    {truncate(
+                      formatDetails(ev.eventName, ev.details),
+                      detailsColWidth,
+                    )}
+                  </Text>
+                </Text>
+              );
+            })
         )}
-        {events.length > eventRows && (
+        {displayRows.length > scrollIndex + eventRows && (
           <Text dimColor>
-            {"\u2193"} {events.length - eventRows} more
+            {"\u2193"} {displayRows.length - scrollIndex - eventRows} more
           </Text>
         )}
       </Box>
@@ -400,7 +587,7 @@ function CenterExchangeDetail({
   );
 }
 
-// -- Full-screen Events view --
+// -- Events panel (inline, no help bar) --
 
 function EventsView({
   events,
@@ -415,70 +602,111 @@ function EventsView({
 }) {
   const eventColWidth = Math.min(Math.max(Math.floor(width * 0.3), 20), 45);
   const detailsColWidth = Math.max(width - eventColWidth - 28, 10);
-  const tableRows = Math.max(height - 9, 5);
+  const tableRows = Math.max(height - 6, 5);
   const offset = scrollOffset(selectedIndex, events.length, tableRows);
 
   return (
-    <Box flexDirection="column" width={width} height={height}>
-      <Box borderStyle="round" borderColor="cyan" paddingX={1} width={width}>
-        <Text bold color="cyan">
-          Events
-        </Text>
-        <Text dimColor> ({events.length} total)</Text>
-      </Box>
-
-      <Box
-        marginTop={1}
-        flexDirection="column"
-        borderStyle="round"
-        borderColor="gray"
-        paddingX={1}
-        width={width}
-        flexGrow={1}
-      >
-        <Text bold dimColor>
-          {"  "}
-          {col("Timestamp", 19)}
-          {"  "}
-          {col("Event", eventColWidth)}
-          {"  "}Details
-        </Text>
-        <Text dimColor>{"  " + "\u2500".repeat(Math.max(width - 6, 50))}</Text>
-        {events.length === 0 ? (
-          <Text dimColor>No events recorded yet.</Text>
-        ) : (
-          events.slice(offset, offset + tableRows).map((ev, vi) => {
-            const i = offset + vi;
-            return (
-              <Text key={ev.id ?? ev.timestamp} wrap="truncate">
-                <Text
-                  {...(i === selectedIndex ? { color: "cyan" as const } : {})}
-                  bold={i === selectedIndex}
-                >
-                  {i === selectedIndex ? "> " : "  "}
-                  {ev.timestamp.replace("T", " ").slice(0, 19)}
-                </Text>
-                {"  "}
-                <Text color="cyan">{col(ev.eventName, eventColWidth)}</Text>
-                {"  "}
-                <Text>
-                  {truncate(
-                    formatDetails(ev.eventName, ev.details),
-                    detailsColWidth,
-                  )}
-                </Text>
+    <Box
+      flexDirection="column"
+      width={width}
+      borderStyle="round"
+      borderColor="gray"
+      paddingX={1}
+      flexGrow={1}
+    >
+      <Text bold>
+        EVENTS <Text dimColor>({events.length} total)</Text>
+      </Text>
+      <Text dimColor>{"\u2500".repeat(Math.max(width - 4, 20))}</Text>
+      <Text bold dimColor>
+        {"  "}
+        {col("Timestamp", 19)}
+        {"  "}
+        {col("Event", eventColWidth)}
+        {"  "}Details
+      </Text>
+      {events.length === 0 ? (
+        <Text dimColor>No events recorded yet.</Text>
+      ) : (
+        events.slice(offset, offset + tableRows).map((ev, vi) => {
+          const i = offset + vi;
+          return (
+            <Text key={ev.id ?? ev.timestamp} wrap="truncate">
+              <Text
+                {...(i === selectedIndex ? { color: "cyan" as const } : {})}
+                bold={i === selectedIndex}
+              >
+                {i === selectedIndex ? "> " : "  "}
+                {ev.timestamp.replace("T", " ").slice(0, 19)}
               </Text>
-            );
-          })
-        )}
-      </Box>
-
-      <Box gap={2} paddingX={1}>
-        <Text dimColor>j/k: Navigate</Text>
-        <Text dimColor>Esc: Back</Text>
-        <Text dimColor>q: Quit</Text>
-      </Box>
+              {"  "}
+              <Text color="cyan">{col(ev.eventName, eventColWidth)}</Text>
+              {"  "}
+              <Text>
+                {truncate(
+                  formatDetails(ev.eventName, ev.details),
+                  detailsColWidth,
+                )}
+              </Text>
+            </Text>
+          );
+        })
+      )}
+      {events.length > tableRows && (
+        <Text dimColor>
+          {offset + tableRows < events.length ? "\u2193 " : "  "}
+          {events.length} total
+        </Text>
+      )}
     </Box>
+  );
+}
+
+// -- Capability list (left nav sub-panel) --
+
+function CapabilityList({
+  routes,
+  selectedIndex,
+  visibleRows,
+  colWidth,
+}: {
+  routes: RouteSummary[];
+  selectedIndex: number;
+  visibleRows: number;
+  colWidth: number;
+}) {
+  const offset = scrollOffset(selectedIndex, routes.length, visibleRows);
+
+  return (
+    <>
+      <Text> </Text>
+      <Text bold dimColor>
+        {"\u2500".repeat(colWidth + 2)}
+      </Text>
+      {routes.length === 0 ? (
+        <Text dimColor>No capabilities</Text>
+      ) : (
+        routes.slice(offset, offset + visibleRows).map((route, vi) => {
+          const i = offset + vi;
+          return (
+            <Text key={route.id} wrap="truncate">
+              <Text
+                {...(i === selectedIndex ? { color: "cyan" as const } : {})}
+                bold={i === selectedIndex}
+              >
+                {i === selectedIndex ? "> " : "  "}
+                {truncate(route.id, colWidth)}
+              </Text>
+            </Text>
+          );
+        })
+      )}
+      {routes.length > visibleRows && (
+        <Text dimColor>
+          {selectedIndex + 1}/{routes.length}
+        </Text>
+      )}
+    </>
   );
 }
 
@@ -490,8 +718,8 @@ function App({ db }: { db: TelemetryDb }) {
   const width = stdout?.columns ?? 80;
   const height = stdout?.rows ?? 24;
 
-  const [topView, setTopView] = useState<TopView>("dashboard");
-  const [centerView, setCenterView] = useState<CenterView>("overview");
+  const [activeNav, setActiveNav] = useState<NavItem>("capabilities");
+  const [drillView, setDrillView] = useState<DrillView>("none");
 
   const [routes, setRoutes] = useState<RouteSummary[]>([]);
   const [metrics, setMetrics] = useState<Metrics>({
@@ -499,6 +727,7 @@ function App({ db }: { db: TelemetryDb }) {
     totalExchanges: 0,
     completedExchanges: 0,
     failedExchanges: 0,
+    droppedExchanges: 0,
     errorRate: 0,
     avgDurationMs: null,
   });
@@ -513,32 +742,41 @@ function App({ db }: { db: TelemetryDb }) {
   const [exchangeEvents, setExchangeEvents] = useState<EventRecord[]>([]);
   const [events, setEvents] = useState<EventRecord[]>([]);
   const [selectedEventIndex, setSelectedEventIndex] = useState(0);
+  const [detailScrollIndex, setDetailScrollIndex] = useState(0);
 
   const refresh = useCallback(() => {
     try {
       const routeSummary = db.getRouteSummary();
       setRoutes(routeSummary);
       setMetrics(db.getMetrics());
-      setTraffic(db.getTrafficBuckets(30));
+      setTraffic(db.getTrafficBuckets());
 
-      if (topView === "dashboard") {
+      if (activeNav === "capabilities") {
         const route = routeSummary[selectedRouteIndex];
         if (route) {
-          if (centerView === "overview") {
+          if (drillView === "none") {
             setRecentExchanges(db.getExchangesByRoute(route.id, 50));
-          } else if (centerView === "exchanges") {
+          } else if (drillView === "exchange-list") {
             setExchanges(db.getExchangesByRoute(route.id));
           }
         }
       }
 
-      if (topView === "events") {
+      if (activeNav === "exchanges") {
+        setExchanges(db.getAllExchanges(200));
+      }
+
+      if (activeNav === "errors") {
+        setExchanges(db.getFailedExchanges(200));
+      }
+
+      if (activeNav === "events") {
         setEvents(db.getRecentEvents({ limit: 200 }));
       }
     } catch {
       // Database may be temporarily locked
     }
-  }, [db, topView, centerView, selectedRouteIndex]);
+  }, [db, activeNav, drillView, selectedRouteIndex]);
 
   useEffect(() => {
     refresh();
@@ -559,6 +797,18 @@ function App({ db }: { db: TelemetryDb }) {
     [db, routes],
   );
 
+  const switchNav = useCallback(
+    (nav: NavItem) => {
+      setActiveNav(nav);
+      setDrillView("none");
+      if (nav === "events") {
+        setSelectedEventIndex(0);
+        setEvents(db.getRecentEvents({ limit: 200 }));
+      }
+    },
+    [db],
+  );
+
   useInput((input, key) => {
     if (input === "q") {
       db.close();
@@ -566,18 +816,42 @@ function App({ db }: { db: TelemetryDb }) {
       return;
     }
 
-    if (topView === "events") {
+    // Number shortcuts to switch nav (always available)
+    const navByShortcut = ALL_NAV_ITEMS.find((n) => n.shortcut === input);
+    if (navByShortcut) {
+      switchNav(navByShortcut.key);
+      return;
+    }
+
+    if (activeNav === "events") {
       if (input === "j" || key.downArrow) {
         setSelectedEventIndex((i) => Math.min(i + 1, events.length - 1));
       } else if (input === "k" || key.upArrow) {
         setSelectedEventIndex((i) => Math.max(i - 1, 0));
-      } else if (key.escape || key.backspace || key.delete) {
-        setTopView("dashboard");
       }
       return;
     }
 
-    if (centerView === "overview") {
+    if (
+      (activeNav === "exchanges" || activeNav === "errors") &&
+      drillView === "none"
+    ) {
+      if (input === "j" || key.downArrow) {
+        setSelectedExchangeIndex((i) => Math.min(i + 1, exchanges.length - 1));
+      } else if (input === "k" || key.upArrow) {
+        setSelectedExchangeIndex((i) => Math.max(i - 1, 0));
+      } else if (key.return) {
+        const ex = exchanges[selectedExchangeIndex];
+        if (ex) {
+          setSelectedExchange(ex);
+          setExchangeEvents(db.getEventsByExchange(ex.id, ex.correlationId));
+          setDrillView("exchange-detail");
+        }
+      }
+      return;
+    }
+
+    if (activeNav === "capabilities" && drillView === "none") {
       if (input === "j" || key.downArrow) {
         selectRoute(Math.min(selectedRouteIndex + 1, routes.length - 1));
       } else if (input === "k" || key.upArrow) {
@@ -587,14 +861,10 @@ function App({ db }: { db: TelemetryDb }) {
         if (route) {
           setSelectedExchangeIndex(0);
           setExchanges(db.getExchangesByRoute(route.id));
-          setCenterView("exchanges");
+          setDrillView("exchange-list");
         }
-      } else if (input === "e") {
-        setSelectedEventIndex(0);
-        setEvents(db.getRecentEvents({ limit: 200 }));
-        setTopView("events");
       }
-    } else if (centerView === "exchanges") {
+    } else if (drillView === "exchange-list") {
       if (input === "j" || key.downArrow) {
         setSelectedExchangeIndex((i) => Math.min(i + 1, exchanges.length - 1));
       } else if (input === "k" || key.upArrow) {
@@ -603,50 +873,55 @@ function App({ db }: { db: TelemetryDb }) {
         const ex = exchanges[selectedExchangeIndex];
         if (ex) {
           setSelectedExchange(ex);
-          setExchangeEvents(db.getEventsByExchange(ex.id));
-          setCenterView("exchange-detail");
+          setExchangeEvents(db.getEventsByExchange(ex.id, ex.correlationId));
+          setDrillView("exchange-detail");
         }
       } else if (key.escape || key.backspace || key.delete) {
-        setCenterView("overview");
+        setDrillView("none");
       }
-    } else if (centerView === "exchange-detail") {
-      if (key.escape || key.backspace || key.delete) {
-        setCenterView("exchanges");
+    } else if (drillView === "exchange-detail") {
+      if (input === "j" || key.downArrow) {
+        setDetailScrollIndex((i) => i + 1);
+      } else if (input === "k" || key.upArrow) {
+        setDetailScrollIndex((i) => Math.max(i - 1, 0));
+      } else if (key.escape || key.backspace || key.delete) {
+        setDetailScrollIndex(0);
+        setDrillView(
+          activeNav === "exchanges" || activeNav === "errors"
+            ? "none"
+            : "exchange-list",
+        );
       }
     }
   });
 
-  // Full-screen events view
-  if (topView === "events") {
-    return (
-      <EventsView
-        events={events}
-        selectedIndex={selectedEventIndex}
-        width={width}
-        height={height}
-      />
-    );
-  }
-
-  // 3-column dashboard
+  // Layout dimensions
   const leftWidth = Math.max(Math.min(Math.floor(width * 0.18), 26), 16);
   const rightWidth = Math.max(Math.min(Math.floor(width * 0.22), 30), 20);
   const centerWidth = Math.max(width - leftWidth - rightWidth, 30);
   const bodyHeight = Math.max(height - 5, 10);
-  const routeListRows = Math.max(bodyHeight - 4, 3);
-  const routeOffset = scrollOffset(
-    selectedRouteIndex,
-    routes.length,
-    routeListRows,
-  );
+  // Keymap box: border (2) + title (1) + items (dynamic, estimate max 6)
+  const keymapHeight = 9;
+  // Nav header: border (2) + title (1) + separator (1) + nav items (4) + spacer (1) + separator (1)
+  const navHeaderRows = 10;
+  const navListHeight = Math.max(bodyHeight - keymapHeight - navHeaderRows, 3);
   const selectedRoute = routes[selectedRouteIndex];
 
-  const helpItems =
-    centerView === "overview"
-      ? ["j/k: Navigate", "Enter: Exchanges", "e: Events", "q: Quit"]
-      : centerView === "exchanges"
-        ? ["j/k: Navigate", "Enter: Detail", "Esc: Back", "q: Quit"]
-        : ["Esc: Back", "q: Quit"];
+  // Keymap items based on context
+  const keymapItems: { key: string; action: string }[] = [];
+  keymapItems.push({ key: "j/k", action: "Navigate" });
+  if (activeNav === "capabilities" && drillView === "none") {
+    keymapItems.push({ key: "Enter", action: "Drill-down" });
+  }
+  if (drillView === "exchange-list") {
+    keymapItems.push({ key: "Enter", action: "Detail" });
+    keymapItems.push({ key: "Esc", action: "Back" });
+  }
+  if (drillView === "exchange-detail") {
+    keymapItems.push({ key: "Esc", action: "Back" });
+  }
+  keymapItems.push({ key: "1/2/3", action: "Switch view" });
+  keymapItems.push({ key: "q", action: "Quit" });
 
   return (
     <Box flexDirection="column" width={width} height={height}>
@@ -661,47 +936,78 @@ function App({ db }: { db: TelemetryDb }) {
 
       {/* 3-column body */}
       <Box flexDirection="row" width={width} flexGrow={1}>
-        {/* Left: Capabilities list */}
-        <Box
-          flexDirection="column"
-          width={leftWidth}
-          borderStyle="round"
-          borderColor={centerView === "overview" ? "cyan" : "gray"}
-          paddingX={1}
-        >
-          <Text bold color="cyan">
-            CAPABILITIES
-          </Text>
-          <Text dimColor>{"\u2500".repeat(leftWidth - 4)}</Text>
-          {routes.length === 0 ? (
-            <Text dimColor>None</Text>
-          ) : (
-            routes
-              .slice(routeOffset, routeOffset + routeListRows)
-              .map((route, vi) => {
-                const i = routeOffset + vi;
-                return (
-                  <Text key={route.id} wrap="truncate">
+        {/* Left column: Navigation (top) + Keymap (bottom) */}
+        <Box flexDirection="column" width={leftWidth}>
+          {/* Navigation */}
+          <Box
+            flexDirection="column"
+            borderStyle="round"
+            borderColor="cyan"
+            paddingX={1}
+            flexGrow={1}
+          >
+            <Text bold color="cyan">
+              NAVIGATION
+            </Text>
+            <Text dimColor>{"\u2500".repeat(leftWidth - 4)}</Text>
+            {NAV_SECTIONS.map((section, si) => (
+              <Box key={section.label ?? si} flexDirection="column">
+                {si > 0 && <Text> </Text>}
+                {section.label && (
+                  <Text dimColor bold>
+                    {section.label}
+                  </Text>
+                )}
+                {section.items.map((item) => (
+                  <Text key={item.key}>
                     <Text
-                      {...(i === selectedRouteIndex
+                      bold={activeNav === item.key}
+                      {...(activeNav === item.key
                         ? { color: "cyan" as const }
                         : {})}
-                      bold={i === selectedRouteIndex}
                     >
-                      {i === selectedRouteIndex ? "> " : "  "}
-                      {truncate(route.id, leftWidth - 6)}
+                      {activeNav === item.key ? "> " : "  "}
+                      {item.label}
                     </Text>
+                    <Text dimColor> ({item.shortcut})</Text>
                   </Text>
-                );
-              })
-          )}
-          {routes.length > routeListRows && (
-            <Text dimColor>{routes.length} total</Text>
-          )}
+                ))}
+              </Box>
+            ))}
+
+            {/* Inline list for capabilities nav */}
+            {activeNav === "capabilities" && (
+              <CapabilityList
+                routes={routes}
+                selectedIndex={selectedRouteIndex}
+                visibleRows={navListHeight}
+                colWidth={leftWidth - 6}
+              />
+            )}
+          </Box>
+
+          {/* Keymap */}
+          <Box
+            flexDirection="column"
+            borderStyle="round"
+            borderColor="gray"
+            paddingX={1}
+          >
+            <Text bold color="cyan">
+              KEYMAP
+            </Text>
+            {keymapItems.map((item) => (
+              <Text key={item.key}>
+                <Text color="yellow">[{item.key}]</Text>
+                {"  "}
+                <Text>{item.action}</Text>
+              </Text>
+            ))}
+          </Box>
         </Box>
 
         {/* Center */}
-        {centerView === "overview" && (
+        {activeNav === "capabilities" && drillView === "none" && (
           <CenterOverview
             route={selectedRoute}
             recentExchanges={recentExchanges}
@@ -709,7 +1015,7 @@ function App({ db }: { db: TelemetryDb }) {
             bodyHeight={bodyHeight}
           />
         )}
-        {centerView === "exchanges" && (
+        {activeNav === "capabilities" && drillView === "exchange-list" && (
           <CenterExchangeList
             capabilityId={selectedRoute?.id ?? ""}
             exchanges={exchanges}
@@ -718,12 +1024,63 @@ function App({ db }: { db: TelemetryDb }) {
             bodyHeight={bodyHeight}
           />
         )}
-        {centerView === "exchange-detail" && selectedExchange && (
-          <CenterExchangeDetail
-            exchange={selectedExchange}
-            events={exchangeEvents}
+        {activeNav === "capabilities" &&
+          drillView === "exchange-detail" &&
+          selectedExchange && (
+            <CenterExchangeDetail
+              exchange={selectedExchange}
+              events={exchangeEvents}
+              centerWidth={centerWidth}
+              bodyHeight={bodyHeight}
+              scrollIndex={detailScrollIndex}
+            />
+          )}
+        {activeNav === "exchanges" && drillView === "none" && (
+          <CenterExchangeList
+            capabilityId="All Capabilities"
+            exchanges={exchanges}
+            selectedIndex={selectedExchangeIndex}
             centerWidth={centerWidth}
             bodyHeight={bodyHeight}
+          />
+        )}
+        {activeNav === "exchanges" &&
+          drillView === "exchange-detail" &&
+          selectedExchange && (
+            <CenterExchangeDetail
+              exchange={selectedExchange}
+              events={exchangeEvents}
+              centerWidth={centerWidth}
+              bodyHeight={bodyHeight}
+              scrollIndex={detailScrollIndex}
+            />
+          )}
+        {activeNav === "errors" && drillView === "none" && (
+          <CenterExchangeList
+            capabilityId="Failed Exchanges"
+            exchanges={exchanges}
+            selectedIndex={selectedExchangeIndex}
+            centerWidth={centerWidth}
+            bodyHeight={bodyHeight}
+          />
+        )}
+        {activeNav === "errors" &&
+          drillView === "exchange-detail" &&
+          selectedExchange && (
+            <CenterExchangeDetail
+              exchange={selectedExchange}
+              events={exchangeEvents}
+              centerWidth={centerWidth}
+              bodyHeight={bodyHeight}
+              scrollIndex={detailScrollIndex}
+            />
+          )}
+        {activeNav === "events" && (
+          <EventsView
+            events={events}
+            selectedIndex={selectedEventIndex}
+            width={centerWidth}
+            height={bodyHeight}
           />
         )}
 
@@ -740,9 +1097,12 @@ function App({ db }: { db: TelemetryDb }) {
           </Text>
           <Text dimColor>{"\u2500".repeat(rightWidth - 4)}</Text>
 
-          <Text color="green">{sparkline(traffic, rightWidth - 4)}</Text>
-          <Text dimColor>Traffic (last 30m)</Text>
-          <Text> </Text>
+          {barChart(traffic, rightWidth - 4, 5).map((row, i) => (
+            <Text key={i} color="green">
+              {row}
+            </Text>
+          ))}
+          <Text dimColor>Traffic (last hour)</Text>
 
           <Text>
             {"Exchanges:".padEnd(14)}
@@ -760,6 +1120,15 @@ function App({ db }: { db: TelemetryDb }) {
             {"Errors:".padEnd(14)}
             <Text bold color={metrics.failedExchanges > 0 ? "red" : "green"}>
               {fmtNum(metrics.failedExchanges).padStart(rightWidth - 18)}
+            </Text>
+          </Text>
+          <Text>
+            {"Dropped:".padEnd(14)}
+            <Text
+              bold
+              color={metrics.droppedExchanges > 0 ? "yellow" : "green"}
+            >
+              {fmtNum(metrics.droppedExchanges).padStart(rightWidth - 18)}
             </Text>
           </Text>
           <Text>
@@ -783,15 +1152,6 @@ function App({ db }: { db: TelemetryDb }) {
             </Text>
           </Text>
         </Box>
-      </Box>
-
-      {/* Help bar */}
-      <Box gap={2} paddingX={1}>
-        {helpItems.map((item) => (
-          <Text key={item} dimColor>
-            {item}
-          </Text>
-        ))}
       </Box>
     </Box>
   );

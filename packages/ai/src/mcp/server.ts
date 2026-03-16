@@ -440,7 +440,10 @@ export class McpServer {
   private async handleToolCall(
     toolName: string,
     args: Record<string, unknown>,
-  ): Promise<{ content: Array<{ type: "text"; text: string }> }> {
+  ): Promise<{
+    content: Array<{ type: "text"; text: string }>;
+    isError?: boolean;
+  }> {
     try {
       // Get the direct channel store
       const channelStore = this.context.getStore(ADAPTER_DIRECT_STORE) as
@@ -526,6 +529,7 @@ export class McpServer {
       this.context.emit("error", { error });
       return {
         content: [{ type: "text", text: `Error: ${msg}` }],
+        isError: true,
       };
     }
   }
