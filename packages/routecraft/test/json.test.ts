@@ -319,7 +319,7 @@ describe("JSON Adapter", () => {
         .build();
 
       const errSpy = vi.fn();
-      t.ctx.on("error", errSpy);
+      t.ctx.on("context:error", errSpy);
       await t.ctx.start();
       await new Promise((r) => setTimeout(r, 0));
       expect(errSpy).toHaveBeenCalled();
@@ -348,7 +348,7 @@ describe("JSON Adapter", () => {
         .build();
 
       const errSpy = vi.fn();
-      t.ctx.on("error", errSpy);
+      t.ctx.on("context:error", errSpy);
       await t.ctx.start();
       await new Promise((r) => setTimeout(r, 0));
       expect(errSpy).toHaveBeenCalled();
