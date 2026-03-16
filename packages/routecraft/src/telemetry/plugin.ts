@@ -98,36 +98,57 @@ class TelemetryPlugin implements CraftPlugin {
       }) as EventHandler<EventName>),
     );
 
-    // Route lifecycle
+    // Route lifecycle (wildcard, cast to avoid union narrowing issues)
     this.unsubscribers.push(
-      ctx.on("route:registered", (payload) => {
-        this.sink!.writeRoute({
-          id: payload.details.route.definition.id,
-          contextId: payload.contextId,
-          registeredAt: payload.ts,
-          status: "registered",
-        });
-      }),
+      ctx.on(
+        "route:*:registered" as EventName,
+        ((payload: {
+          ts: string;
+          contextId: string;
+          details: { route: { definition: { id: string } } };
+        }) => {
+          this.sink!.writeRoute({
+            id: payload.details.route.definition.id,
+            contextId: payload.contextId,
+            registeredAt: payload.ts,
+            status: "registered",
+          });
+        }) as EventHandler<EventName>,
+      ),
     );
 
     this.unsubscribers.push(
-      ctx.on("route:started", (payload) => {
-        this.sink!.updateRouteStatus(
-          payload.details.route.definition.id,
-          payload.contextId,
-          "started",
-        );
-      }),
+      ctx.on(
+        "route:*:started" as EventName,
+        ((payload: {
+          ts: string;
+          contextId: string;
+          details: { route: { definition: { id: string } } };
+        }) => {
+          this.sink!.updateRouteStatus(
+            payload.details.route.definition.id,
+            payload.contextId,
+            "started",
+          );
+        }) as EventHandler<EventName>,
+      ),
     );
 
     this.unsubscribers.push(
-      ctx.on("route:stopped", (payload) => {
-        this.sink!.updateRouteStatus(
-          payload.details.route.definition.id,
-          payload.contextId,
-          "stopped",
-        );
-      }),
+      ctx.on(
+        "route:*:stopped" as EventName,
+        ((payload: {
+          ts: string;
+          contextId: string;
+          details: { route: { definition: { id: string } } };
+        }) => {
+          this.sink!.updateRouteStatus(
+            payload.details.route.definition.id,
+            payload.contextId,
+            "stopped",
+          );
+        }) as EventHandler<EventName>,
+      ),
     );
 
     // Exchange lifecycle (wildcard, cast to avoid union narrowing issues)

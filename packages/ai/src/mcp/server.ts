@@ -452,7 +452,7 @@ export class McpServer {
 
       if (!channelStore) {
         const err = new Error("No direct channels available");
-        this.context.emit("error", { error: err });
+        this.context.emit("context:error", { error: err });
         return {
           content: [
             { type: "text", text: `Error: No direct channels available` },
@@ -464,7 +464,7 @@ export class McpServer {
       const channel = channelStore.get(toolName);
       if (!channel) {
         const err = new Error(`Tool not found: ${toolName}`);
-        this.context.emit("error", { error: err });
+        this.context.emit("context:error", { error: err });
         return {
           content: [
             { type: "text", text: `Error: Tool not found: ${toolName}` },
@@ -526,7 +526,7 @@ export class McpServer {
           ? error.message
           : String(error);
       this.context.logger.error({ tool: toolName, err: error }, msg);
-      this.context.emit("error", { error });
+      this.context.emit("context:error", { error });
       return {
         content: [{ type: "text", text: `Error: ${msg}` }],
         isError: true,

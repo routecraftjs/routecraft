@@ -1,7 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { CraftContext } from "../context.ts";
 import { type RouteDefinition } from "../route.ts";
-import { type ProcessingQueue, type Message, type Consumer } from "../types.ts";
+import {
+  type ProcessingQueue,
+  type Message,
+  type Consumer,
+  type EventName,
+  type EventHandler,
+} from "../types.ts";
 import {
   type Exchange,
   type ExchangeHeaders,
@@ -144,32 +150,35 @@ export class BatchConsumer implements Consumer<BatchOptions> {
     });
 
     // Listen for route stopping to emit batch:stopped
-    const unsubscribe = this.context.on("route:stopping", ({ details }) => {
-      if (details.route.definition.id === this.definition.id) {
-        // Clear any pending timer
-        if (timer) {
-          clearTimeout(timer);
-          timer = null;
+    const unsubscribe = this.context.on(
+      "route:*:stopping" as EventName,
+      ((payload: { details: { route: { definition: { id: string } } } }) => {
+        if (payload.details.route.definition.id === this.definition.id) {
+          // Clear any pending timer
+          if (timer) {
+            clearTimeout(timer);
+            timer = null;
+          }
+
+          // Reject all pending promises to prevent memory leaks
+          for (const { reject } of resolvers) {
+            reject(new Error("BatchConsumerStopped: Route is shutting down"));
+          }
+          resolvers.length = 0;
+
+          // Emit batch:stopped event
+          this.context.emit(
+            `route:${this.definition.id}:operation:batch:stopped` as const,
+            {
+              routeId: this.definition.id,
+              batchId,
+            },
+          );
+
+          // Unsubscribe after emitting
+          unsubscribe();
         }
-
-        // Reject all pending promises to prevent memory leaks
-        for (const { reject } of resolvers) {
-          reject(new Error("BatchConsumerStopped: Route is shutting down"));
-        }
-        resolvers.length = 0;
-
-        // Emit batch:stopped event
-        this.context.emit(
-          `route:${this.definition.id}:operation:batch:stopped` as const,
-          {
-            routeId: this.definition.id,
-            batchId,
-          },
-        );
-
-        // Unsubscribe after emitting
-        unsubscribe();
-      }
-    });
+      }) as EventHandler<EventName>,
+    );
   }
 }

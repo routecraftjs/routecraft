@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { type CraftContext } from "./context.ts";
+import type { EventName } from "./types.ts";
 import {
   type Exchange,
   HeadersKeys,
@@ -198,12 +199,14 @@ export class DefaultRoute implements Route {
     // Emit routeStopping/routeStopped when the controller is aborted externally
     this.abortController.signal.addEventListener("abort", (event) => {
       try {
-        this.context.emit("route:stopping", {
+        this.context.emit(`route:${this.definition.id}:stopping` as EventName, {
           route: this,
           reason: (event as unknown as { reason?: unknown })?.reason,
         });
       } finally {
-        this.context.emit("route:stopped", { route: this });
+        this.context.emit(`route:${this.definition.id}:stopped` as EventName, {
+          route: this,
+        });
       }
     });
   }
@@ -288,7 +291,9 @@ export class DefaultRoute implements Route {
     const onReady = () => {
       if (!emitted) {
         emitted = true;
-        this.context.emit("route:started", { route: this });
+        this.context.emit(`route:${this.definition.id}:started` as EventName, {
+          route: this,
+        });
       }
     };
 
@@ -501,19 +506,18 @@ export class DefaultRoute implements Route {
         ] as string;
         const duration = Date.now() - startTime;
 
-        if (this.definition.errorHandler) {
-          // Emit error:invoked event
-          this.context.emit(
-            `route:${this.definition.id}:operation:error:invoked` as const,
-            {
-              routeId: this.definition.id,
-              exchangeId: correlationId,
-              correlationId,
-              originalError: err,
-              failedOperation: step.operation,
-            },
-          );
+        // Emit step-level error
+        this.context.emit(
+          `route:${this.definition.id}:step:${step.operation}:error` as EventName,
+          {
+            error: err,
+            route: this,
+            exchange,
+            operation: step.operation,
+          },
+        );
 
+        if (this.definition.errorHandler) {
           try {
             const forward = this.buildForward();
             const result = await this.definition.errorHandler(
@@ -524,15 +528,13 @@ export class DefaultRoute implements Route {
             exchange.body = result;
             lastProcessedExchange = exchange;
 
+            // Error handler recovered
             this.context.emit(
-              `route:${this.definition.id}:operation:error:recovered` as const,
+              `route:${this.definition.id}:error:caught` as EventName,
               {
-                routeId: this.definition.id,
-                exchangeId: correlationId,
-                correlationId,
-                originalError: err,
-                failedOperation: step.operation,
-                recoveryStrategy: "errorHandler",
+                error: err,
+                route: this,
+                exchange,
               },
             );
           } catch (handlerError) {
@@ -545,22 +547,20 @@ export class DefaultRoute implements Route {
               },
               handlerErr.meta.message,
             );
-            this.context.emit("error", {
+            // Error handler rethrew -- route-level + context-level error
+            this.context.emit(
+              `route:${this.definition.id}:error` as EventName,
+              {
+                error: handlerErr,
+                route: this,
+                exchange,
+              },
+            );
+            this.context.emit("context:error", {
               error: handlerErr,
               route: this,
               exchange,
             });
-            this.context.emit(
-              `route:${this.definition.id}:operation:error:failed` as const,
-              {
-                routeId: this.definition.id,
-                exchangeId: correlationId,
-                correlationId,
-                originalError: err,
-                failedOperation: step.operation,
-                recoveryStrategy: "errorHandler",
-              },
-            );
             this.context.emit(
               `route:${this.definition.id}:exchange:failed` as const,
               {
@@ -582,7 +582,7 @@ export class DefaultRoute implements Route {
           return { exchange: lastProcessedExchange, failed };
         }
 
-        // Default behavior: log, emit, swallow
+        // No error handler -- route-level error
         exchange.logger.error(
           {
             operation: step.operation,
@@ -591,10 +591,16 @@ export class DefaultRoute implements Route {
           },
           err.meta.message,
         );
-        this.context.emit("error", {
+        // No error handler -- route-level + context-level error
+        this.context.emit(`route:${this.definition.id}:error` as EventName, {
           error: err,
           route: this,
-          exchange: exchange,
+          exchange,
+        });
+        this.context.emit("context:error", {
+          error: err,
+          route: this,
+          exchange,
         });
         this.context.emit(
           `route:${this.definition.id}:exchange:failed` as const,

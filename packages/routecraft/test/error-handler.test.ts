@@ -240,7 +240,7 @@ describe("Error handler (.error())", () => {
     const events: string[] = [];
 
     t = await testContext()
-      .on("error", () => {
+      .on("context:error", () => {
         events.push("error");
       })
       .on("route:*:exchange:failed" as const, () => {

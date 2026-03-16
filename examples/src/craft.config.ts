@@ -7,7 +7,7 @@ export default {
     mcpPlugin({
       name: "routecraft",
       version: "1.0.0",
-      transport: "stdio",
+      transport: "http",
     }),
   ],
 };

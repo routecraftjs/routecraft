@@ -114,24 +114,31 @@ export type ContextEventName =
   | "context:starting"
   | "context:started"
   | "context:stopping"
-  | "context:stopped";
+  | "context:stopped"
+  | "context:error";
 
 /**
- * Route lifecycle events.
+ * Route lifecycle events (hierarchical naming with routeId).
  *
  * Emitted during route registration and lifecycle:
- * - `route:registered` - Route registered with context (during build or registerRoutes)
- * - `route:starting` - Route is about to start
- * - `route:started` - Route has started and is ready to process exchanges
- * - `route:stopping` - Route is about to stop
- * - `route:stopped` - Route has stopped
+ * - `route:<routeId>:registered` - Route registered with context
+ * - `route:<routeId>:starting` - Route is about to start
+ * - `route:<routeId>:started` - Route has started and is ready to process exchanges
+ * - `route:<routeId>:stopping` - Route is about to stop
+ * - `route:<routeId>:stopped` - Route has stopped
+ * - `route:<routeId>:error` - Unhandled error in route pipeline
+ * - `route:<routeId>:error:caught` - Route error handler recovered
  */
 export type RouteEventName =
-  | "route:registered"
-  | "route:starting"
-  | "route:started"
-  | "route:stopping"
-  | "route:stopped";
+  | `route:${string}:registered`
+  | `route:${string}:starting`
+  | `route:${string}:started`
+  | `route:${string}:stopping`
+  | `route:${string}:stopped`
+  | `route:${string}:error`
+  | `route:${string}:error:caught`
+  | `route:${string}:step:${string}:error`
+  | `route:${string}:step:${string}:error:caught`;
 
 /**
  * Exchange lifecycle events (hierarchical naming with routeId).
@@ -313,19 +320,8 @@ export type SpecialOperationEventName =
   | `route:${string}:operation:error:failed`;
 
 /**
- * System-wide error event.
- *
- * Emitted when errors occur during context startup, route processing, or step execution.
- * Always subscribe to this event to handle errors gracefully.
- *
- * @example
- * ```typescript
- * ctx.on('error', ({ details }) => {
- *   console.error('Error:', details.error);
- *   if (details.route) console.error('Route:', details.route.definition.id);
- *   if (details.exchange) console.error('Exchange:', details.exchange.id);
- * });
- * ```
+ * @deprecated Use `context:error` or `route:<routeId>:error` instead.
+ * Kept for backward compatibility during transition.
  */
 export type SystemEventName = "error";
 
@@ -364,19 +360,13 @@ export type StaticEventDetails = {
   "context:started": Record<string, never>;
   "context:stopping": { reason?: unknown };
   "context:stopped": Record<string, never>;
-
-  // Route
-  "route:registered": { route: Route };
-  "route:starting": { route: Route };
-  "route:started": { route: Route };
-  "route:stopping": {
-    route: Route;
-    reason?: unknown;
+  "context:error": {
+    error: unknown;
+    route?: Route;
     exchange?: Exchange<unknown>;
   };
-  "route:stopped": { route: Route; exchange?: Exchange<unknown> };
 
-  // System
+  // System (deprecated, use context:error or route:<routeId>:error)
   error: { error: unknown; route?: Route; exchange?: Exchange<unknown> };
 };
 
@@ -600,7 +590,53 @@ export type EventDetailsMapping<K extends EventName = EventName> =
                                                               pluginId: string;
                                                               pluginIndex: number;
                                                             }
-                                                          : never;
+                                                          : // Route lifecycle (at end to avoid matching multi-segment patterns)
+                                                            K extends `route:${string}:registered`
+                                                            ? { route: Route }
+                                                            : K extends `route:${string}:starting`
+                                                              ? { route: Route }
+                                                              : K extends `route:${string}:started`
+                                                                ? {
+                                                                    route: Route;
+                                                                  }
+                                                                : K extends `route:${string}:stopping`
+                                                                  ? {
+                                                                      route: Route;
+                                                                      reason?: unknown;
+                                                                      exchange?: Exchange<unknown>;
+                                                                    }
+                                                                  : K extends `route:${string}:stopped`
+                                                                    ? {
+                                                                        route: Route;
+                                                                        exchange?: Exchange<unknown>;
+                                                                      }
+                                                                    : K extends `route:${string}:step:${string}:error:caught`
+                                                                      ? {
+                                                                          error: unknown;
+                                                                          route?: Route;
+                                                                          exchange?: Exchange<unknown>;
+                                                                          operation: string;
+                                                                        }
+                                                                      : K extends `route:${string}:step:${string}:error`
+                                                                        ? {
+                                                                            error: unknown;
+                                                                            route?: Route;
+                                                                            exchange?: Exchange<unknown>;
+                                                                            operation: string;
+                                                                          }
+                                                                        : K extends `route:${string}:error:caught`
+                                                                          ? {
+                                                                              error: unknown;
+                                                                              route?: Route;
+                                                                              exchange?: Exchange<unknown>;
+                                                                            }
+                                                                          : K extends `route:${string}:error`
+                                                                            ? {
+                                                                                error: unknown;
+                                                                                route?: Route;
+                                                                                exchange?: Exchange<unknown>;
+                                                                              }
+                                                                            : never;
 
 export type EventPayload<K extends EventName> = {
   ts: string;

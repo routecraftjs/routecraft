@@ -33,7 +33,7 @@ Full catalog of adapters with signatures and options. {% .lead %}
 simple<T>(producer: (() => T | Promise<T>) | T): Source<T>
 ```
 
-Create a static or dynamic data source. Can produce a single value, an array of values, or use a function to generate data.
+Create a static or dynamic data source. When the producer returns an **array**, each element becomes a separate exchange processed independently through the pipeline.
 
 ```ts
 // Static value
