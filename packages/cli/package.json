@@ -23,7 +23,7 @@
   },
   "dependencies": {
     "@routecraft/routecraft": "workspace:^0.4.0",
-    "agent-browser": "^0.15.1",
+    "agent-browser": "^0.20.13",
     "cheerio": "^1.2.0",
     "commander": "^14.0.3",
     "croner": "^10.0.1",

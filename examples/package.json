@@ -18,6 +18,6 @@
     "@routecraft/testing": "workspace:^0.4.0",
     "tsup": "^8.5.1",
     "tsx": "^4.21.0",
-    "vitest": "^4.0.18"
+    "vitest": "^4.1.0"
   }
 }
