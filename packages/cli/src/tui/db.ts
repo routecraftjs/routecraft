@@ -216,6 +216,35 @@ export class TelemetryDb {
   }
 
   /**
+   * Get exchange counts bucketed by minute for the last N minutes.
+   * Used to render a traffic sparkline in the dashboard.
+   */
+  getTrafficBuckets(minutes = 30): number[] {
+    const stmt = this.db.prepare(`
+      WITH RECURSIVE mins(m) AS (
+        SELECT 0
+        UNION ALL
+        SELECT m + 1 FROM mins WHERE m < ? - 1
+      )
+      SELECT
+        COALESCE(c.cnt, 0) AS cnt
+      FROM mins
+      LEFT JOIN (
+        SELECT
+          CAST((strftime('%s', 'now') - strftime('%s', started_at)) / 60 AS INTEGER) AS ago,
+          COUNT(*) AS cnt
+        FROM exchanges
+        WHERE started_at >= datetime('now', '-' || ? || ' minutes')
+        GROUP BY ago
+      ) c ON c.ago = mins.m
+      ORDER BY mins.m DESC
+    `);
+    return (stmt.all(minutes, minutes) as Array<{ cnt: number }>).map(
+      (r) => r.cnt,
+    );
+  }
+
+  /**
    * Get the maximum event ID (for tailing/polling).
    */
   getMaxEventId(): number {
