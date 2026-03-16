@@ -1,5 +1,6 @@
 import withMarkdoc from '@markdoc/next.js'
 
+import withDocsMarkdown from './src/markdoc/docs-markdown.mjs'
 import withSearch from './src/markdoc/search.mjs'
 
 const normalizePath = (value) => {
@@ -24,6 +25,6 @@ const nextConfig = {
   },
 }
 
-export default withSearch(
-  withMarkdoc({ schemaPath: './src/markdoc' })(nextConfig),
+export default withDocsMarkdown(
+  withSearch(withMarkdoc({ schemaPath: './src/markdoc' })(nextConfig)),
 )

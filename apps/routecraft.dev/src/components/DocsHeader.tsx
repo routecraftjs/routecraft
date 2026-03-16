@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation'
 
 import { navigation } from '@/lib/navigation'
 import { Badge } from '@/components/Badge'
+import { CopyDocsButton } from '@/components/CopyDocsButton'
 
 export function DocsHeader({
   title,
@@ -24,9 +25,12 @@ export function DocsHeader({
   return (
     <header className="mb-9 space-y-1">
       {section && (
-        <p className="font-display text-sm font-medium text-sky-500">
-          {section.title}
-        </p>
+        <div className="flex items-center justify-between">
+          <p className="font-display text-sm font-medium text-sky-500">
+            {section.title}
+          </p>
+          <CopyDocsButton />
+        </div>
       )}
       {title && (
         <h1 className="font-display text-3xl tracking-tight text-gray-900 dark:text-white">
