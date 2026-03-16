@@ -1,7 +1,12 @@
-import type { ExchangeHeaders, Exchange } from "../../exchange";
+import {
+  type ExchangeHeaders,
+  type Exchange,
+  HeadersKeys,
+} from "../../exchange";
 import type { Source } from "../../operations/from";
 import type { CraftContext, MergedOptions } from "../../context";
 import { rcError } from "../../error";
+import type { EventName } from "../../types";
 import type { DirectServerOptions } from "./types";
 import type { DirectOptionsMerged } from "./shared";
 import {
@@ -72,7 +77,7 @@ export class DirectSourceAdapter<T = unknown>
 
     // Wrap handler with validation if schema provided
     const wrappedHandler = this.hasValidation(merged)
-      ? this.createValidatedHandler(handler, endpoint, merged)
+      ? this.createValidatedHandler(handler, endpoint, merged, context)
       : async (exchange: Exchange<T>) => {
           const result = await handler(exchange.body as T, exchange.headers);
           return result as Exchange<T>;
@@ -129,6 +134,7 @@ export class DirectSourceAdapter<T = unknown>
     handler: (message: T, headers?: ExchangeHeaders) => Promise<Exchange>,
     endpoint: string,
     options: DirectOptionsMerged,
+    context: CraftContext,
   ): (exchange: Exchange<T>) => Promise<Exchange<T>> {
     return async (exchange: Exchange<T>) => {
       let validatedBody = exchange.body;
@@ -145,9 +151,11 @@ export class DirectSourceAdapter<T = unknown>
             typeof bodyIssues === "object"
               ? JSON.stringify(bodyIssues)
               : String(bodyIssues);
-          throw rcError("RC5002", new Error(causeMessage), {
+          const err = rcError("RC5002", new Error(causeMessage), {
             message: `Body validation failed for direct route "${endpoint}"`,
           });
+          this.emitValidationFailure(context, endpoint, exchange, err);
+          throw err;
         }
 
         // Use validated/coerced value if schema transformed it
@@ -170,9 +178,11 @@ export class DirectSourceAdapter<T = unknown>
             typeof headerIssues === "object"
               ? JSON.stringify(headerIssues)
               : String(headerIssues);
-          throw rcError("RC5002", new Error(causeMessage), {
+          const err = rcError("RC5002", new Error(causeMessage), {
             message: `Header validation failed for direct route "${endpoint}"`,
           });
+          this.emitValidationFailure(context, endpoint, exchange, err);
+          throw err;
         }
 
         // Use validated/coerced headers if schema transformed them
@@ -195,5 +205,34 @@ export class DirectSourceAdapter<T = unknown>
         validatedExchange.headers,
       ) as Promise<Exchange<T>>;
     };
+  }
+
+  /**
+   * Emit exchange:started and exchange:failed events for pre-pipeline
+   * validation errors. This ensures the failed exchange is recorded in
+   * telemetry even though it never reached the route handler.
+   */
+  private emitValidationFailure(
+    context: CraftContext,
+    endpoint: string,
+    exchange: Exchange<T>,
+    error: unknown,
+  ): void {
+    const correlationId = (exchange.headers[HeadersKeys.CORRELATION_ID] ??
+      exchange.id) as string;
+
+    context.emit(`route:${endpoint}:exchange:started` as EventName, {
+      routeId: endpoint,
+      exchangeId: correlationId,
+      correlationId,
+    });
+
+    context.emit(`route:${endpoint}:exchange:failed` as EventName, {
+      routeId: endpoint,
+      exchangeId: correlationId,
+      correlationId,
+      duration: 0,
+      error,
+    });
   }
 }

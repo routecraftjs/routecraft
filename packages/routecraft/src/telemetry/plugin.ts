@@ -186,6 +186,24 @@ class TelemetryPlugin implements CraftPlugin {
       }) as EventHandler<EventName>),
     );
 
+    // Dropped exchanges (filtered, debounced, sampled, etc.)
+    this.unsubscribers.push(
+      ctx.on("route:*:exchange:dropped", ((payload: {
+        ts: string;
+        contextId: string;
+        details: { exchangeId: string; reason?: string };
+      }) => {
+        if (this.sink!.dropExchange) {
+          this.sink!.dropExchange(
+            payload.details.exchangeId,
+            payload.contextId,
+            payload.ts,
+            payload.details.reason ?? "dropped",
+          );
+        }
+      }) as EventHandler<EventName>),
+    );
+
     // Flush timer
     this.flushTimer = setInterval(() => {
       this.flush();
@@ -223,11 +241,12 @@ class TelemetryPlugin implements CraftPlugin {
     ts: string;
     contextId: string;
     details: unknown;
+    _event?: string;
   }): void {
     this.buffer.push({
       timestamp: payload.ts,
       contextId: payload.contextId,
-      eventName: extractEventName(payload),
+      eventName: payload._event ?? extractEventName(payload),
       details: safeStringify(payload.details),
     });
 

@@ -34,6 +34,13 @@ export interface Step<T extends Adapter> {
   adapter: T;
 
   /**
+   * When true, runSteps will not emit generic step:started/step:completed
+   * events for this step. The step is responsible for emitting its own
+   * lifecycle events with the correct exchange identity.
+   */
+  skipStepEvents?: boolean;
+
+  /**
    * Optional metadata populated by the adapter during execution.
    * Used for observability, metrics, and cost tracking.
    * Guidelines: small values only (IDs, names, counts, codes), no large bodies.
@@ -153,7 +160,9 @@ export type RouteEventName =
 export type ExchangeEventName =
   | `route:${string}:exchange:started`
   | `route:${string}:exchange:completed`
-  | `route:${string}:exchange:failed`;
+  | `route:${string}:exchange:failed`
+  | `route:${string}:exchange:dropped`
+  | `route:${string}:exchange:restored`;
 
 /**
  * Operation lifecycle events (Wave 3 - granular adapter tracking).
@@ -255,8 +264,6 @@ export type PluginEventName =
  * });
  * ```
  *
- * @deprecated Step events are being replaced by operation events in Wave 3.
- * Use operation events for more granular adapter-level monitoring.
  */
 export type StepEventName =
   | `route:${string}:step:started`
@@ -270,11 +277,8 @@ export type StepEventName =
  * - `route:<routeId>:operation:batch:flushed` - Batch released for processing
  * - `route:<routeId>:operation:batch:stopped` - Route stops batching
  *
- * **Split/Aggregate operations (exchange-level):**
- * - `route:<routeId>:operation:split:started` - Exchange being split into children
- * - `route:<routeId>:operation:split:stopped` - Split completed, children created
- * - `route:<routeId>:operation:aggregate:started` - Aggregating child exchanges
- * - `route:<routeId>:operation:aggregate:stopped` - Aggregation completed
+ * **Split/Aggregate:** Use standard `step:started`/`step:completed` events with
+ * operation-specific data in the `metadata` field (e.g. `childCount`, `inputCount`).
  *
  * **Retry operations (exchange-level):**
  * - `route:<routeId>:operation:retry:started` - Retry sequence started
@@ -303,10 +307,6 @@ export type SpecialOperationEventName =
   | `route:${string}:operation:batch:started`
   | `route:${string}:operation:batch:flushed`
   | `route:${string}:operation:batch:stopped`
-  | `route:${string}:operation:split:started`
-  | `route:${string}:operation:split:stopped`
-  | `route:${string}:operation:aggregate:started`
-  | `route:${string}:operation:aggregate:stopped`
   | `route:${string}:operation:retry:started`
   | `route:${string}:operation:retry:attempt`
   | `route:${string}:operation:retry:stopped`
@@ -445,103 +445,110 @@ export type EventDetailsMapping<K extends EventName = EventName> =
               duration: number;
               error: unknown;
             }
-          : K extends `route:${string}:operation:batch:started`
+          : K extends `route:${string}:exchange:dropped`
             ? {
                 routeId: string;
-                batchSize: number;
-                batchId: string;
+                exchangeId: string;
+                correlationId: string;
+                reason: string;
               }
-            : K extends `route:${string}:operation:batch:flushed`
+            : K extends `route:${string}:exchange:restored`
               ? {
                   routeId: string;
-                  batchSize: number;
-                  batchId: string;
-                  waitTime: number;
-                  reason: "size" | "time";
+                  exchangeId: string;
+                  correlationId: string;
+                  source: string;
                 }
-              : K extends `route:${string}:operation:batch:stopped`
+              : K extends `route:${string}:operation:batch:started`
                 ? {
                     routeId: string;
+                    batchSize: number;
                     batchId: string;
                   }
-                : K extends `route:${string}:operation:split:started`
+                : K extends `route:${string}:operation:batch:flushed`
                   ? {
                       routeId: string;
-                      exchangeId: string;
-                      correlationId: string;
+                      batchSize: number;
+                      batchId: string;
+                      waitTime: number;
+                      reason: "size" | "time";
                     }
-                  : K extends `route:${string}:operation:split:stopped`
+                  : K extends `route:${string}:operation:batch:stopped`
                     ? {
                         routeId: string;
-                        exchangeId: string;
-                        correlationId: string;
-                        childCount: number;
+                        batchId: string;
                       }
-                    : K extends `route:${string}:operation:aggregate:started`
+                    : K extends `route:${string}:operation:retry:started`
                       ? {
                           routeId: string;
                           exchangeId: string;
                           correlationId: string;
+                          maxAttempts: number;
                         }
-                      : K extends `route:${string}:operation:aggregate:stopped`
+                      : K extends `route:${string}:operation:retry:attempt`
                         ? {
                             routeId: string;
                             exchangeId: string;
                             correlationId: string;
-                            inputCount: number;
+                            attemptNumber: number;
+                            maxAttempts: number;
+                            backoffMs: number;
+                            lastError?: unknown;
                           }
-                        : K extends `route:${string}:operation:retry:started`
+                        : K extends `route:${string}:operation:retry:stopped`
                           ? {
                               routeId: string;
                               exchangeId: string;
                               correlationId: string;
-                              maxAttempts: number;
+                              attemptNumber: number;
+                              success: boolean;
                             }
-                          : K extends `route:${string}:operation:retry:attempt`
+                          : K extends `route:${string}:operation:error:invoked`
                             ? {
                                 routeId: string;
                                 exchangeId: string;
                                 correlationId: string;
-                                attemptNumber: number;
-                                maxAttempts: number;
-                                backoffMs: number;
-                                lastError?: unknown;
+                                originalError: unknown;
+                                failedOperation: string;
                               }
-                            : K extends `route:${string}:operation:retry:stopped`
+                            : K extends `route:${string}:operation:error:recovered`
                               ? {
                                   routeId: string;
                                   exchangeId: string;
                                   correlationId: string;
-                                  attemptNumber: number;
-                                  success: boolean;
+                                  originalError: unknown;
+                                  failedOperation: string;
+                                  recoveryStrategy: string;
                                 }
-                              : K extends `route:${string}:operation:error:invoked`
+                              : K extends `route:${string}:operation:error:failed`
                                 ? {
                                     routeId: string;
                                     exchangeId: string;
                                     correlationId: string;
                                     originalError: unknown;
                                     failedOperation: string;
+                                    recoveryStrategy?: string;
                                   }
-                                : K extends `route:${string}:operation:error:recovered`
+                                : K extends `route:${string}:operation:from:${string}:started`
                                   ? {
                                       routeId: string;
                                       exchangeId: string;
                                       correlationId: string;
-                                      originalError: unknown;
-                                      failedOperation: string;
-                                      recoveryStrategy: string;
+                                      operation: OperationType;
+                                      adapterId: string;
+                                      metadata?: Record<string, unknown>;
                                     }
-                                  : K extends `route:${string}:operation:error:failed`
+                                  : K extends `route:${string}:operation:from:${string}:stopped`
                                     ? {
                                         routeId: string;
                                         exchangeId: string;
                                         correlationId: string;
-                                        originalError: unknown;
-                                        failedOperation: string;
-                                        recoveryStrategy?: string;
+                                        operation: OperationType;
+                                        adapterId: string;
+                                        duration: number;
+                                        metadata?: Record<string, unknown>;
                                       }
-                                    : K extends `route:${string}:operation:from:${string}:started`
+                                    : K extends `route:${string}:operation:to:${string}:started`
                                       ? {
                                           routeId: string;
                                           exchangeId: string;
@@ -550,7 +557,7 @@ export type EventDetailsMapping<K extends EventName = EventName> =
                                           adapterId: string;
                                           metadata?: Record<string, unknown>;
                                         }
-                                      : K extends `route:${string}:operation:from:${string}:stopped`
+                                      : K extends `route:${string}:operation:to:${string}:stopped`
                                         ? {
                                             routeId: string;
                                             exchangeId: string;
@@ -560,107 +567,86 @@ export type EventDetailsMapping<K extends EventName = EventName> =
                                             duration: number;
                                             metadata?: Record<string, unknown>;
                                           }
-                                        : K extends `route:${string}:operation:to:${string}:started`
+                                        : K extends `route:${string}:operation:${string}:started`
                                           ? {
                                               routeId: string;
                                               exchangeId: string;
                                               correlationId: string;
                                               operation: OperationType;
-                                              adapterId: string;
                                               metadata?: Record<
                                                 string,
                                                 unknown
                                               >;
                                             }
-                                          : K extends `route:${string}:operation:to:${string}:stopped`
+                                          : K extends `route:${string}:operation:${string}:stopped`
                                             ? {
                                                 routeId: string;
                                                 exchangeId: string;
                                                 correlationId: string;
                                                 operation: OperationType;
-                                                adapterId: string;
                                                 duration: number;
                                                 metadata?: Record<
                                                   string,
                                                   unknown
                                                 >;
                                               }
-                                            : K extends `route:${string}:operation:${string}:started`
+                                            : K extends `route:${string}:step:started`
                                               ? {
                                                   routeId: string;
                                                   exchangeId: string;
                                                   correlationId: string;
                                                   operation: OperationType;
-                                                  metadata?: Record<
-                                                    string,
-                                                    unknown
-                                                  >;
+                                                  adapter?: string;
                                                 }
-                                              : K extends `route:${string}:operation:${string}:stopped`
+                                              : K extends `route:${string}:step:completed`
                                                 ? {
                                                     routeId: string;
                                                     exchangeId: string;
                                                     correlationId: string;
                                                     operation: OperationType;
+                                                    adapter?: string;
                                                     duration: number;
                                                     metadata?: Record<
                                                       string,
                                                       unknown
                                                     >;
                                                   }
-                                                : K extends `route:${string}:step:started`
+                                                : K extends `plugin:${string}:registered`
                                                   ? {
-                                                      routeId: string;
-                                                      exchangeId: string;
-                                                      correlationId: string;
-                                                      operation: OperationType;
-                                                      adapter?: string;
+                                                      pluginId: string;
+                                                      pluginIndex: number;
                                                     }
-                                                  : K extends `route:${string}:step:completed`
+                                                  : K extends `plugin:${string}:starting`
                                                     ? {
-                                                        routeId: string;
-                                                        exchangeId: string;
-                                                        correlationId: string;
-                                                        operation: OperationType;
-                                                        adapter?: string;
-                                                        duration: number;
+                                                        pluginId: string;
+                                                        pluginIndex: number;
                                                       }
-                                                    : K extends `plugin:${string}:registered`
+                                                    : K extends `plugin:${string}:started`
                                                       ? {
                                                           pluginId: string;
                                                           pluginIndex: number;
                                                         }
-                                                      : K extends `plugin:${string}:starting`
+                                                      : K extends `plugin:${string}:stopping`
                                                         ? {
                                                             pluginId: string;
                                                             pluginIndex: number;
                                                           }
-                                                        : K extends `plugin:${string}:started`
+                                                        : K extends `plugin:${string}:stopped`
                                                           ? {
                                                               pluginId: string;
                                                               pluginIndex: number;
                                                             }
-                                                          : K extends `plugin:${string}:stopping`
-                                                            ? {
-                                                                pluginId: string;
-                                                                pluginIndex: number;
-                                                              }
-                                                            : K extends `plugin:${string}:stopped`
-                                                              ? {
-                                                                  pluginId: string;
-                                                                  pluginIndex: number;
-                                                                }
-                                                              : K extends `plugin:${string}:${string}:${string}:${string}`
-                                                                ? Record<
-                                                                    string,
-                                                                    unknown
-                                                                  >
-                                                                : K extends `plugin:${string}:${string}:${string}`
-                                                                  ? Record<
-                                                                      string,
-                                                                      unknown
-                                                                    >
-                                                                  : never;
+                                                          : K extends `plugin:${string}:${string}:${string}:${string}`
+                                                            ? Record<
+                                                                string,
+                                                                unknown
+                                                              >
+                                                            : K extends `plugin:${string}:${string}:${string}`
+                                                              ? Record<
+                                                                  string,
+                                                                  unknown
+                                                                >
+                                                              : never;
 
 export type EventPayload<K extends EventName> = {
   ts: string;

@@ -1,5 +1,16 @@
-import { type Adapter, type Step, getAdapterLabel } from "../types.ts";
-import { type Exchange, OperationType } from "../exchange.ts";
+import {
+  type Adapter,
+  type Step,
+  getAdapterLabel,
+  type EventName,
+} from "../types.ts";
+import {
+  type Exchange,
+  OperationType,
+  HeadersKeys,
+  getExchangeContext,
+  getExchangeRoute,
+} from "../exchange.ts";
 import { rcError } from "../error.ts";
 
 /**
@@ -28,6 +39,7 @@ export interface Filter<T = unknown> extends Adapter {
 export class FilterStep<T = unknown> implements Step<Filter<T>> {
   operation: OperationType = OperationType.FILTER;
   adapter: Filter<T>;
+  skipStepEvents = true;
 
   constructor(adapter: Filter<T> | CallableFilter<T>) {
     this.adapter =
@@ -39,7 +51,28 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
     remainingSteps: Step<Adapter>[],
     queue: { exchange: Exchange<T>; steps: Step<Adapter>[] }[],
   ): Promise<void> {
+    const context = getExchangeContext(exchange);
+    const route = getExchangeRoute(exchange);
+    const routeId =
+      route?.definition.id ??
+      (exchange.headers[HeadersKeys.ROUTE_ID] as string);
+    const correlationId = exchange.headers[
+      HeadersKeys.CORRELATION_ID
+    ] as string;
     const adapterLabel = getAdapterLabel(this.adapter);
+    const stepStart = Date.now();
+
+    // Emit step:started
+    if (context) {
+      context.emit(`route:${routeId}:step:started` as EventName, {
+        routeId,
+        exchangeId: exchange.id,
+        correlationId,
+        operation: this.operation,
+        ...(adapterLabel ? { adapter: adapterLabel } : {}),
+      });
+    }
+
     try {
       const result = await Promise.resolve(this.adapter.filter(exchange));
       if (!result) {
@@ -50,6 +83,25 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
           },
           "Filter rejected exchange",
         );
+
+        if (context) {
+          // Emit step:completed first, then exchange:dropped
+          context.emit(`route:${routeId}:step:completed` as EventName, {
+            routeId,
+            exchangeId: exchange.id,
+            correlationId,
+            operation: this.operation,
+            ...(adapterLabel ? { adapter: adapterLabel } : {}),
+            duration: Date.now() - stepStart,
+          });
+
+          context.emit(`route:${routeId}:exchange:dropped` as EventName, {
+            routeId,
+            exchangeId: exchange.id,
+            correlationId,
+            reason: "filtered",
+          });
+        }
         return;
       }
     } catch (error: unknown) {
@@ -57,6 +109,19 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
         message: "Filter predicate threw",
       });
     }
+
+    // Emit step:completed for passed exchanges
+    if (context) {
+      context.emit(`route:${routeId}:step:completed` as EventName, {
+        routeId,
+        exchangeId: exchange.id,
+        correlationId,
+        operation: this.operation,
+        ...(adapterLabel ? { adapter: adapterLabel } : {}),
+        duration: Date.now() - stepStart,
+      });
+    }
+
     queue.push({ exchange, steps: remainingSteps });
   }
 }
