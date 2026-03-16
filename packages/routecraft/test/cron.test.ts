@@ -331,8 +331,11 @@ describe("CronSourceAdapter", () => {
    * @expectedResult Handler is never called, subscribe resolves cleanly
    */
   test("abort during jitter delay prevents handler call", async () => {
+    // Force Math.random to return a high value so jitter is always large
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.99);
+
     const adapter = new CronSourceAdapter("* * * * * *", {
-      jitterMs: 5000,
+      jitterMs: 10000,
     });
     const context = mockContext();
     const abortController = new AbortController();
@@ -341,10 +344,12 @@ describe("CronSourceAdapter", () => {
     const promise = adapter.subscribe(context, handler, abortController);
 
     // Wait for the cron to fire (triggers every second), then abort
-    // before the 5000ms jitter elapses
-    await new Promise((r) => setTimeout(r, 1200));
+    // before the ~9900ms jitter elapses
+    await new Promise((r) => setTimeout(r, 1500));
     abortController.abort();
     await promise;
+
+    randomSpy.mockRestore();
 
     // Handler should not have been called since jitter hadn't elapsed
     expect(handler).toHaveBeenCalledTimes(0);

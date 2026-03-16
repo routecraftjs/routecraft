@@ -112,23 +112,23 @@ export function CopyDocsButton() {
   }
 
   function handleCopyPage() {
-    const md = getPageMarkdown(pathname) as string | null
+    const md = getPageMarkdown(pathname)
     if (md) copyToClipboard(md, 'page')
   }
 
   function handleCopyPageLink() {
-    const rawUrl = getPageRawUrl(pathname, basePath) as string
+    const rawUrl = getPageRawUrl(pathname, basePath)
     const fullUrl = `${window.location.origin}${rawUrl}`
     copyToClipboard(fullUrl, 'pageLink')
   }
 
   function handleCopyAllDocs() {
-    const md = getAllDocsMarkdown() as string
+    const md = getAllDocsMarkdown()
     copyToClipboard(md, 'allDocs')
   }
 
   function handleCopyAllDocsLink() {
-    const rawUrl = getAllDocsRawUrl(basePath) as string
+    const rawUrl = getAllDocsRawUrl(basePath)
     const fullUrl = `${window.location.origin}${rawUrl}`
     copyToClipboard(fullUrl, 'allDocsLink')
   }
