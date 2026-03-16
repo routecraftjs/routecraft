@@ -158,19 +158,19 @@ describe("Error handler (.error())", () => {
   });
 
   /**
-   * @case Emits error:invoked and error:recovered events on successful recovery
+   * @case Emits step error and error:caught events on successful recovery
    * @preconditions Route with .error() handler that succeeds
-   * @expectedResult Both invoked and recovered events fire; no exchange:failed
+   * @expectedResult step:error and error:caught events fire; no exchange:failed
    */
-  test("emits error:invoked and error:recovered events", async () => {
+  test("emits step error and error:caught events on recovery", async () => {
     const events: string[] = [];
 
     t = await testContext()
-      .on("route:*:operation:error:invoked" as const, () => {
-        events.push("error:invoked");
+      .on("route:*:step:*:error" as const, () => {
+        events.push("step:error");
       })
-      .on("route:*:operation:error:recovered" as const, () => {
-        events.push("error:recovered");
+      .on("route:*:error:caught" as const, () => {
+        events.push("error:caught");
       })
       .on("route:*:exchange:failed" as const, () => {
         events.push("exchange:failed");
@@ -188,25 +188,28 @@ describe("Error handler (.error())", () => {
 
     await t.test();
 
-    expect(events).toContain("error:invoked");
-    expect(events).toContain("error:recovered");
+    expect(events).toContain("step:error");
+    expect(events).toContain("error:caught");
     expect(events).not.toContain("exchange:failed");
   });
 
   /**
-   * @case Emits error:invoked and error:failed events when the handler itself throws
+   * @case Emits step error, route error, context error, and exchange:failed when handler throws
    * @preconditions Route with .error() handler that throws
-   * @expectedResult invoked, failed, and exchange:failed events fire
+   * @expectedResult step:error, route:error, context:error, and exchange:failed events fire
    */
-  test("emits error:failed and exchange:failed when handler throws", async () => {
+  test("emits route error and exchange:failed when handler throws", async () => {
     const events: string[] = [];
 
     t = await testContext()
-      .on("route:*:operation:error:invoked" as const, () => {
-        events.push("error:invoked");
+      .on("route:*:step:*:error" as const, () => {
+        events.push("step:error");
       })
-      .on("route:*:operation:error:failed" as const, () => {
-        events.push("error:failed");
+      .on("route:*:error" as const, () => {
+        events.push("route:error");
+      })
+      .on("context:error", () => {
+        events.push("context:error");
       })
       .on("route:*:exchange:failed" as const, () => {
         events.push("exchange:failed");
@@ -226,8 +229,9 @@ describe("Error handler (.error())", () => {
 
     await t.test();
 
-    expect(events).toContain("error:invoked");
-    expect(events).toContain("error:failed");
+    expect(events).toContain("step:error");
+    expect(events).toContain("route:error");
+    expect(events).toContain("context:error");
     expect(events).toContain("exchange:failed");
   });
 

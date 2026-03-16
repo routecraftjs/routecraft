@@ -81,12 +81,6 @@ export class TestContext {
     ctx.on("context:error", (payload) => {
       pushError(payload.details.error);
     });
-    ctx.on(
-      "route:*:error" as EventName,
-      ((payload: { details: { error: unknown } }) => {
-        pushError(payload.details.error);
-      }) as EventHandler<EventName>,
-    );
   }
 
   /**
