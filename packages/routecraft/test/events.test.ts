@@ -524,40 +524,6 @@ describe("Event ordering", () => {
     return events;
   }
 
-  /** Format a captured event as a readable string with key details. */
-  function fmt(e: CapturedEvent): string {
-    const d = e.details;
-    const parts: string[] = [e.event];
-
-    // Show exchangeId (short) if present
-    if (d["exchangeId"])
-      parts.push(`ex=${String(d["exchangeId"]).slice(0, 8)}`);
-    // Show operation if present
-    if (d["operation"]) parts.push(`op=${d["operation"]}`);
-    // Show adapter if present
-    if (d["adapter"]) parts.push(`adapter=${d["adapter"]}`);
-    // Show duration if present
-    if (d["duration"] !== undefined) parts.push(`dur=${d["duration"]}`);
-    // Show error if present
-    if (d["error"]) parts.push("ERROR");
-    // Show reason if present
-    if (d["reason"]) parts.push(`reason=${d["reason"]}`);
-    // Show metadata if present
-    if (d["metadata"] && typeof d["metadata"] === "object") {
-      const meta = d["metadata"] as Record<string, unknown>;
-      const keys = Object.keys(meta);
-      if (keys.length > 0)
-        parts.push(`meta={${keys.map((k) => `${k}:${meta[k]}`).join(",")}}`);
-    }
-    // Show route info for lifecycle events
-    if (d["route"] && typeof d["route"] === "object") {
-      const route = d["route"] as { definition?: { id?: string } };
-      if (route.definition?.id) parts.push(`route=${route.definition.id}`);
-    }
-
-    return parts.join("  ");
-  }
-
   /** Helper to run a route and return ALL events. */
   async function runAndCollect(
     route: ReturnType<typeof craft>,
@@ -569,11 +535,10 @@ describe("Event ordering", () => {
   }
 
   /**
-   * @case Discovery: print actual events for each scenario
-   * @preconditions Various route configurations
-   * @expectedResult Prints ALL events so we can verify and lock in expected sequences
+   * @case Happy path: from -> transform -> to
+   * @preconditions Simple source, one transform, log destination
+   * @expectedResult Full lifecycle in order with no duplicates
    */
-
   test("1. simple: from -> transform -> to", async () => {
     const events = await runAndCollect(
       craft()
@@ -582,16 +547,33 @@ describe("Event ordering", () => {
         .transform((b) => b)
         .to(log()),
     );
-    console.log("\n=== 1. SIMPLE ===");
-    events.forEach((e) => console.log(`  ${fmt(e)}`));
-    // TODO: replace with exact assertion once verified
-    expect(events.length).toBeGreaterThan(0);
+    const names = events.map((e) => e.event);
+    expect(names).toEqual([
+      "context:starting",
+      "context:started",
+      "route:r:starting",
+      "route:r:started",
+      "route:r:exchange:started",
+      "route:r:step:started", // transform
+      "route:r:step:completed", // transform
+      "route:r:step:started", // to
+      "route:r:step:completed", // to
+      "route:r:exchange:completed",
+      "route:r:stopping",
+      "route:r:stopped",
+      "context:stopping",
+      "context:stopped",
+    ]);
+    // Verify step details
+    const steps = events.filter((e) => e.event === "route:r:step:started");
+    expect(steps[0].details["operation"]).toBe("transform");
+    expect(steps[1].details["operation"]).toBe("to");
   });
 
   /**
    * @case Transform throws with no error handler
    * @preconditions Route where transform throws
-   * @expectedResult step error, route error, context error, exchange failed
+   * @expectedResult step error -> route error -> context error -> exchange failed
    */
   test("2. failed: transform throws", async () => {
     const events = await runAndCollect(
@@ -603,15 +585,34 @@ describe("Event ordering", () => {
         })
         .to(log()),
     );
-    console.log("\n=== 2. FAILED ===");
-    events.forEach((e) => console.log(`  ${fmt(e)}`));
-    expect(events.length).toBeGreaterThan(0);
+    const names = events.map((e) => e.event);
+    expect(names).toEqual([
+      "context:starting",
+      "context:started",
+      "route:r:starting",
+      "route:r:started",
+      "route:r:exchange:started",
+      "route:r:step:started", // transform
+      "route:r:step:transform:error",
+      "route:r:error",
+      "context:error",
+      "route:r:exchange:failed",
+      "route:r:stopping",
+      "route:r:stopped",
+      "context:stopping",
+      "context:stopped",
+    ]);
+    // No step:completed for the failed step
+    const completed = events.filter(
+      (e) => e.event === "route:r:step:completed",
+    );
+    expect(completed).toHaveLength(0);
   });
 
   /**
    * @case Split and aggregate with 2 children
    * @preconditions Single exchange split into 2 children, transformed, aggregated
-   * @expectedResult Parent and child lifecycle events in correct order
+   * @expectedResult Parent starts -> split -> children start/complete -> aggregate -> parent completes
    */
   test("3. split/aggregate: '1,2' -> transform to array -> split -> transform -> aggregate -> to", async () => {
     const events = await runAndCollect(
@@ -624,15 +625,68 @@ describe("Event ordering", () => {
         .aggregate()
         .to(log()),
     );
-    console.log("\n=== 3. SPLIT/AGGREGATE ===");
-    events.forEach((e) => console.log(`  ${fmt(e)}`));
-    expect(events.length).toBeGreaterThan(0);
+    const names = events.map((e) => e.event);
+    expect(names).toEqual([
+      "context:starting",
+      "context:started",
+      "route:r:starting",
+      "route:r:started",
+      // Parent exchange
+      "route:r:exchange:started",
+      "route:r:step:started", // transform (parent)
+      "route:r:step:completed", // transform (parent)
+      "route:r:step:started", // split
+      "route:r:step:completed", // split (meta={childCount:2})
+      // Child 1
+      "route:r:exchange:started",
+      "route:r:step:started", // transform (child 1)
+      "route:r:step:completed", // transform (child 1)
+      // Child 2
+      "route:r:exchange:started",
+      "route:r:step:started", // transform (child 2)
+      "route:r:step:completed", // transform (child 2)
+      // Aggregate restores parent
+      "route:r:step:started", // aggregate
+      "route:r:exchange:completed", // child 1
+      "route:r:exchange:completed", // child 2
+      "route:r:step:completed", // aggregate (meta={inputCount:2})
+      // Parent continues
+      "route:r:step:started", // to
+      "route:r:step:completed", // to
+      "route:r:exchange:completed", // parent
+      "route:r:stopping",
+      "route:r:stopped",
+      "context:stopping",
+      "context:stopped",
+    ]);
+    // Verify split metadata
+    const splitCompleted = events.find(
+      (e) =>
+        e.event === "route:r:step:completed" &&
+        e.details["operation"] === "split",
+    );
+    expect(
+      (splitCompleted!.details["metadata"] as Record<string, unknown>)[
+        "childCount"
+      ],
+    ).toBe(2);
+    // Verify aggregate metadata
+    const aggCompleted = events.find(
+      (e) =>
+        e.event === "route:r:step:completed" &&
+        e.details["operation"] === "aggregate",
+    );
+    expect(
+      (aggCompleted!.details["metadata"] as Record<string, unknown>)[
+        "inputCount"
+      ],
+    ).toBe(2);
   });
 
   /**
    * @case Filter drops one child exchange
    * @preconditions Split into 2, filter drops body=1
-   * @expectedResult Dropped child gets exchange:dropped, surviving child completes
+   * @expectedResult Dropped child gets exchange:dropped with reason, surviving child completes
    */
   test("4. filter drops child: '1,2' -> split -> filter(!1) -> transform -> aggregate -> to", async () => {
     const events = await runAndCollect(
@@ -646,15 +700,62 @@ describe("Event ordering", () => {
         .aggregate()
         .to(log()),
     );
-    console.log("\n=== 4. FILTER DROPS CHILD ===");
-    events.forEach((e) => console.log(`  ${fmt(e)}`));
-    expect(events.length).toBeGreaterThan(0);
+    const names = events.map((e) => e.event);
+    expect(names).toEqual([
+      "context:starting",
+      "context:started",
+      "route:r:starting",
+      "route:r:started",
+      // Parent
+      "route:r:exchange:started",
+      "route:r:step:started", // transform (parent)
+      "route:r:step:completed", // transform (parent)
+      "route:r:step:started", // split
+      "route:r:step:completed", // split (meta={childCount:2})
+      // Child 1 (filtered)
+      "route:r:exchange:started",
+      "route:r:step:started", // filter (child 1)
+      "route:r:step:completed", // filter (child 1)
+      "route:r:exchange:dropped", // child 1 dropped
+      // Child 2 (passes filter)
+      "route:r:exchange:started",
+      "route:r:step:started", // filter (child 2)
+      "route:r:step:completed", // filter (child 2)
+      "route:r:step:started", // transform (child 2)
+      "route:r:step:completed", // transform (child 2)
+      // Aggregate
+      "route:r:step:started", // aggregate
+      "route:r:exchange:completed", // child 2
+      "route:r:step:completed", // aggregate (meta={inputCount:1})
+      // Parent continues
+      "route:r:step:started", // to
+      "route:r:step:completed", // to
+      "route:r:exchange:completed", // parent
+      "route:r:stopping",
+      "route:r:stopped",
+      "context:stopping",
+      "context:stopped",
+    ]);
+    // Verify dropped reason
+    const dropped = events.find((e) => e.event === "route:r:exchange:dropped");
+    expect(dropped!.details["reason"]).toBe("filtered");
+    // Aggregate only got 1 child
+    const aggCompleted = events.find(
+      (e) =>
+        e.event === "route:r:step:completed" &&
+        e.details["operation"] === "aggregate",
+    );
+    expect(
+      (aggCompleted!.details["metadata"] as Record<string, unknown>)[
+        "inputCount"
+      ],
+    ).toBe(1);
   });
 
   /**
    * @case Split child throws error
    * @preconditions Split into 2, child 1 throws in transform
-   * @expectedResult Failed child gets step error + exchange:failed, surviving child completes
+   * @expectedResult Failed child gets step error + route error + context error + exchange:failed
    */
   test("5. split child error: '1,2' -> split -> transform(throw if 1) -> aggregate -> to", async () => {
     const events = await runAndCollect(
@@ -670,9 +771,45 @@ describe("Event ordering", () => {
         .aggregate()
         .to(log()),
     );
-    console.log("\n=== 5. SPLIT CHILD ERROR ===");
-    events.forEach((e) => console.log(`  ${fmt(e)}`));
-    expect(events.length).toBeGreaterThan(0);
+    const names = events.map((e) => e.event);
+    expect(names).toEqual([
+      "context:starting",
+      "context:started",
+      "route:r:starting",
+      "route:r:started",
+      // Parent
+      "route:r:exchange:started",
+      "route:r:step:started", // transform (parent)
+      "route:r:step:completed", // transform (parent)
+      "route:r:step:started", // split
+      "route:r:step:completed", // split (meta={childCount:2})
+      // Child 1 (fails)
+      "route:r:exchange:started",
+      "route:r:step:started", // transform (child 1)
+      "route:r:step:transform:error",
+      "route:r:error",
+      "context:error",
+      "route:r:exchange:failed",
+      // Child 2 (succeeds)
+      "route:r:exchange:started",
+      "route:r:step:started", // transform (child 2)
+      "route:r:step:completed", // transform (child 2)
+      // Aggregate
+      "route:r:step:started", // aggregate
+      "route:r:exchange:completed", // child 2
+      "route:r:step:completed", // aggregate (meta={inputCount:1})
+      // Parent continues
+      "route:r:step:started", // to
+      "route:r:step:completed", // to
+      "route:r:exchange:completed", // parent
+      "route:r:stopping",
+      "route:r:stopped",
+      "context:stopping",
+      "context:stopped",
+    ]);
+    // Failed child error bubbles up to route + context
+    const errors = events.filter((e) => e.event.includes("error"));
+    expect(errors).toHaveLength(3); // step, route, context
   });
 
   /**
@@ -695,8 +832,65 @@ describe("Event ordering", () => {
         .aggregate()
         .to(log()),
     );
-    console.log("\n=== 6. COMBO (filter + error + success) ===");
-    events.forEach((e) => console.log(`  ${fmt(e)}`));
-    expect(events.length).toBeGreaterThan(0);
+    const names = events.map((e) => e.event);
+    expect(names).toEqual([
+      "context:starting",
+      "context:started",
+      "route:r:starting",
+      "route:r:started",
+      // Parent
+      "route:r:exchange:started",
+      "route:r:step:started", // transform (parent)
+      "route:r:step:completed", // transform (parent)
+      "route:r:step:started", // split
+      "route:r:step:completed", // split (meta={childCount:3})
+      // Child 1 (filtered)
+      "route:r:exchange:started",
+      "route:r:step:started", // filter (child 1)
+      "route:r:step:completed", // filter (child 1)
+      "route:r:exchange:dropped",
+      // Child 2 (passes filter, fails transform)
+      "route:r:exchange:started",
+      "route:r:step:started", // filter (child 2)
+      "route:r:step:completed", // filter (child 2)
+      // Child 3 (passes filter)
+      "route:r:exchange:started",
+      "route:r:step:started", // filter (child 3)
+      "route:r:step:completed", // filter (child 3)
+      // Child 2 transform fails
+      "route:r:step:started", // transform (child 2)
+      "route:r:step:transform:error",
+      "route:r:error",
+      "context:error",
+      "route:r:exchange:failed",
+      // Child 3 transform succeeds
+      "route:r:step:started", // transform (child 3)
+      "route:r:step:completed", // transform (child 3)
+      // Aggregate
+      "route:r:step:started", // aggregate
+      "route:r:exchange:completed", // child 3
+      "route:r:step:completed", // aggregate (meta={inputCount:1})
+      // Parent continues
+      "route:r:step:started", // to
+      "route:r:step:completed", // to
+      "route:r:exchange:completed", // parent
+      "route:r:stopping",
+      "route:r:stopped",
+      "context:stopping",
+      "context:stopped",
+    ]);
+    // Verify all three child terminal events present
+    expect(
+      events.filter((e) => e.event === "route:r:exchange:dropped"),
+    ).toHaveLength(1);
+    expect(
+      events.filter((e) => e.event === "route:r:exchange:failed"),
+    ).toHaveLength(1);
+    // 3 completed: child 2 (non-filtered survivor) + parent + child 3
+    // Actually: child 3 completed + parent completed = 2
+    // Child 2 failed, child 1 dropped
+    expect(
+      events.filter((e) => e.event === "route:r:exchange:completed"),
+    ).toHaveLength(2);
   });
 });
