@@ -111,6 +111,20 @@ export { SimpleConsumer } from "./consumers/simple.ts";
 
 export { BatchConsumer, type BatchOptions } from "./consumers/batch.ts";
 
+export { cli } from "./adapters/cli/index.ts";
+export {
+  type CliServerOptions,
+  type CliClientOptions,
+  type CliOptions,
+  type CliRouteMetadata,
+  type CliParsedArgs,
+  ADAPTER_CLI_REGISTRY,
+  ADAPTER_CLI_ARGS,
+  CliSourceAdapter,
+  generateHelp,
+  generateCommandHelp,
+} from "./adapters/cli/index.ts";
+
 export { simple } from "./adapters/simple/index.ts";
 export { noop } from "./adapters/noop/index.ts";
 export { log, debug } from "./adapters/log/index.ts";

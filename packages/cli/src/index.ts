@@ -71,6 +71,7 @@ program
   .name("craft")
   .description("A modern routing framework for TypeScript")
   .version("0.5.0")
+  .enablePositionalOptions()
   .option(
     "--log-level <level>",
     "Log level (e.g. info, warn, error, silent to disable)",
@@ -97,16 +98,22 @@ if (process.argv.length <= 2) {
  *
  * Example:
  * craft run ./my-routes.ts
+ * craft run ./my-cli.ts greet --name World
  */
 program
   .command("run")
   .description("Run routes from a single TypeScript/JavaScript file")
   .argument("<file>", "Path to a file containing routes")
+  .argument(
+    "[args...]",
+    "CLI command and flags to pass through to CLI adapter routes",
+  )
   .option(
     "--env <path>",
     "Load environment variables from a .env file (default: .env)",
   )
-  .action(async (filePath, options) => {
+  .passThroughOptions()
+  .action(async (filePath, args: string[], options) => {
     // Apply global log options to env before any import that creates the logger
     const globalOpts = program.opts();
     if (globalOpts["logLevel"] !== undefined) {
@@ -126,7 +133,7 @@ program
     }
 
     const { runCommand } = await import("./run.js");
-    const result = await runCommand(filePath);
+    const result = await runCommand(filePath, args);
     if (!result.success) {
       if (result.message) {
         // eslint-disable-next-line no-console
