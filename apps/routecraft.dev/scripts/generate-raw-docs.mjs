@@ -26,6 +26,16 @@ const NAV_ORDER = navigation.map((section) => ({
   pages: section.links.map((link) => link.href).filter((href) => href !== '/'),
 }))
 
+// Pages excluded from the combined docs.md (changelog has no how-to value,
+// section landing pages are just navigation links repeated from child pages).
+// /docs/introduction is kept because it has real content ("What is Routecraft").
+const SKIP_IN_COMBINED = new Set([
+  '/docs/changelog',
+  ...navigation
+    .map((s) => s.href)
+    .filter((href) => href !== '/' && href !== '/docs/introduction'),
+])
+
 function extractTitle(md) {
   const match = md.match(/^---[\s\S]*?---/)
   if (!match) return undefined
@@ -38,7 +48,7 @@ function extractTitle(md) {
 // Build a map of url -> { title, cleaned markdown }
 const pages = new Map()
 
-const files = glob.sync('**/page.md', { cwd: APP_DIR })
+const files = glob.sync('**/page.md', { cwd: APP_DIR }).sort()
 for (const file of files) {
   const url = file === 'page.md' ? '/' : `/${file.replace(/\/page\.md$/, '')}`
   const md = fs.readFileSync(path.join(APP_DIR, file), 'utf8')
@@ -55,34 +65,41 @@ for (const [url, { cleaned }] of pages) {
   fs.writeFileSync(outPath, cleaned, 'utf8')
 }
 
-// Write combined docs.md in navigation order
+// Write combined docs.md in navigation order, skipping excluded pages
 const parts = []
 const seen = new Set()
 for (const { section, pages: urls } of NAV_ORDER) {
+  const sectionPages = urls.filter((u) => !SKIP_IN_COMBINED.has(u))
+  if (sectionPages.length === 0) continue
   parts.push(`# ${section}\n`)
-  for (const url of urls) {
+  for (const url of sectionPages) {
     if (seen.has(url)) continue
     seen.add(url)
     const page = pages.get(url)
     if (!page) continue
     parts.push(page.cleaned)
-    parts.push('\n---\n')
   }
 }
-// Include any pages not in navigation
+// Include any pages not in navigation (excluding root and skipped)
 for (const [url, { cleaned }] of pages) {
-  if (!seen.has(url)) {
-    parts.push(cleaned)
-    parts.push('\n---\n')
-  }
+  if (url === '/' || seen.has(url) || SKIP_IN_COMBINED.has(url)) continue
+  parts.push(cleaned)
 }
 
-const combined =
-  parts
-    .join('\n')
-    .replace(/\n---\s*$/, '')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim() + '\n'
+let combined = parts.join('\n')
+
+// Token-reduction passes for LLM consumption:
+// 1. Remove duplicate consecutive H1 headings (section title + page title)
+combined = combined.replace(/^(# .+)\n\n# .+$/gm, '$1')
+// 2. Strip image lines (LLMs cannot see images)
+combined = combined.replace(/^!\[.*?\]\(.*?\)\n?/gm, '')
+// 3. Keep only pnpm install blocks, strip npm/yarn/bun variants
+combined = combined.replace(
+  /\*\*(?:npm|yarn|bun):?\*\*:?\n```\w*\n.*?\n```\n?/gs,
+  '',
+)
+// 4. Collapse whitespace
+combined = combined.replace(/\n{3,}/g, '\n\n').trim() + '\n'
 const docsPath = path.join(OUT_DIR, 'docs.md')
 fs.mkdirSync(path.dirname(docsPath), { recursive: true })
 fs.writeFileSync(docsPath, combined, 'utf8')

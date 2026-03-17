@@ -161,6 +161,7 @@ export function CopyDocsButton() {
     window.open(
       `https://claude.ai/new?q=${encodeURIComponent(prompt)}`,
       '_blank',
+      'noopener,noreferrer',
     )
   }
 
