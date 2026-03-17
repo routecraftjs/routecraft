@@ -28,7 +28,7 @@ import type {
  * ```typescript
  * // Fetch mail via .enrich() (primary pattern)
  * craft()
- *   .from(cron('* /5 * * * *'))
+ *   .from(cron('0 0/5 * * * *'))
  *   .enrich(mail('INBOX'))
  *   .to(processMessages())
  *
