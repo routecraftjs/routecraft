@@ -80,5 +80,25 @@ Options:
 
 | Option | Description |
 | --- | --- |
-| \<file\> | TypeScript or JavaScript file (.ts/.mjs/.js/.cjs) to execute |
-| --env \<path\> | Load environment variables from a .env file |
+| `<file>` | TypeScript or JavaScript file (.ts/.mjs/.js/.cjs) to execute |
+| `[args...]` | Optional CLI command and flags forwarded to `cli()` adapter routes |
+| `--env <path>` | Load environment variables from a .env file |
+
+#### CLI adapter mode
+
+When all routes in `<file>` use `cli()` sources, `craft run` enters CLI adapter mode. In this mode the file exposes multiple commands, each defined by a `cli()` source:
+
+```bash
+# Show help listing all commands
+craft run mycli.ts
+
+# Run a specific command
+craft run mycli.ts <command> [--flag value ...]
+
+# Show per-command help with flag list
+craft run mycli.ts <command> --help
+```
+
+Arguments after `<file>` are forwarded as-is to the CLI adapter routes. The first non-flag token is treated as the command name; remaining tokens are parsed as `--flag value` pairs and validated against the command's schema.
+
+See the [cli adapter reference](/docs/reference/adapters#cli) for schema options and examples.

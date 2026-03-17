@@ -8,10 +8,10 @@ import {
   type RouteBuilder,
   type RouteDefinition,
   ADAPTER_CLI_ARGS,
-  CliSourceAdapter,
-  generateHelp,
-  generateCommandHelp,
+  isCliSource,
+  getCliRegistry,
 } from "@routecraft/routecraft";
+import { generateHelp, generateCommandHelp } from "./cli-help";
 import { registerContextSignalHandlers } from "./util";
 
 const SUPPORTED_EXTENSIONS = [".mjs", ".js", ".cjs", ".ts"] as const;
@@ -63,16 +63,14 @@ export async function runCommand(
 
     // Detect whether this is a CLI-mode file (any route uses cli() source)
     const definitions = collectDefinitions(module.default);
-    const isCliMode = definitions.some((def) =>
-      CliSourceAdapter.isCli(def.source),
-    );
+    const isCliMode = definitions.some((def) => isCliSource(def.source));
 
     if (isCliMode) {
       return runCliMode(
         contextBuilder,
         definitions,
         cliArgs,
-        basename(filePath),
+        `craft run ${basename(filePath)}`,
       );
     }
 
@@ -113,9 +111,7 @@ async function runCliMode(
     command !== undefined ? cliArgs.slice(cliArgs.indexOf(command) + 1) : [];
 
   // Enforce: all routes in a CLI-mode file must use cli() sources
-  const nonCliRoutes = definitions.filter(
-    (def) => !CliSourceAdapter.isCli(def.source),
-  );
+  const nonCliRoutes = definitions.filter((def) => !isCliSource(def.source));
   if (nonCliRoutes.length > 0) {
     const ids = nonCliRoutes.map((d) => d.id).join(", ");
     return {
@@ -136,7 +132,7 @@ async function runCliMode(
   });
   await discoveryContext.start();
 
-  const registry = CliSourceAdapter.getRegistry(discoveryContext);
+  const registry = getCliRegistry(discoveryContext);
 
   // Show global help if no command given
   if (command === undefined) {
@@ -162,7 +158,7 @@ async function runCliMode(
     console.error(
       `Unknown command: "${command}"\n` +
         `Available commands: ${available || "(none)"}\n\n` +
-        `Run 'craft run ${scriptName}' to see all commands.`,
+        `Run '${scriptName}' to see all commands.`,
     );
     return {
       success: false,
@@ -277,4 +273,82 @@ function collectDefinitions(defaultExport: unknown): RouteDefinition[] {
   }
 
   return [];
+}
+
+/**
+ * Run routecraft routes as a standalone CLI application.
+ *
+ * Creates a context from the given routes and enters CLI mode: the first
+ * non-flag token in `argv` is treated as the command name and dispatched
+ * to the matching `cli()` source. Running without a command shows help.
+ *
+ * Use this to package a routecraft file as a named binary (e.g. `myclid`)
+ * instead of requiring `craft run`.
+ *
+ * @param routes - Array of route definitions or route builders using `cli()` sources
+ * @param options - Runner options
+ * @param options.name - Binary name shown in help text (defaults to `basename(process.argv[1])`)
+ * @param options.argv - CLI arguments (defaults to `process.argv.slice(2)`)
+ *
+ * @example
+ * ```typescript
+ * #!/usr/bin/env tsx
+ * import { craft, cli } from '@routecraft/routecraft';
+ * import { cliRunner } from '@routecraft/cli';
+ * import { z } from 'zod';
+ *
+ * const routes = [
+ *   craft().id('greet')
+ *     .from(cli('greet', {
+ *       schema: z.object({ name: z.string() }),
+ *       description: 'Say hello',
+ *     }))
+ *     .transform(({ name }) => `Hello, ${name}!`)
+ *     .to(cli.stdout()),
+ * ];
+ *
+ * export default routes;
+ * await cliRunner(routes, { name: 'myclid' });
+ * ```
+ *
+ * @experimental
+ */
+export async function cliRunner(
+  routes: Array<RouteDefinition | RouteBuilder<unknown>>,
+  options?: { name?: string; argv?: string[] },
+): Promise<void> {
+  const cliArgs = options?.argv ?? process.argv.slice(2);
+  const scriptName = options?.name ?? basename(process.argv[1] ?? "cli");
+
+  const contextBuilder = new ContextBuilder();
+  for (const route of routes) {
+    contextBuilder.routes(route);
+  }
+
+  const definitions = routes.flatMap((item): RouteDefinition[] => {
+    if (isRouteDefinition(item)) return [item as RouteDefinition];
+    if (isRouteBuilder(item)) {
+      return (
+        item as RouteBuilder<unknown> & {
+          build: () => RouteDefinition[];
+        }
+      ).build();
+    }
+    return [];
+  });
+
+  const result = await runCliMode(
+    contextBuilder,
+    definitions,
+    cliArgs,
+    scriptName,
+  );
+
+  if (!result.success) {
+    if (result.message) {
+      // eslint-disable-next-line no-console
+      console.error(result.message);
+    }
+    process.exit(result.code ?? 1);
+  }
 }

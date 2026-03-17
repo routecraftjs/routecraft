@@ -4,23 +4,28 @@ import type { CliRouteMetadata } from "./types";
 
 /**
  * Store key for the CLI route registry (command -> metadata).
- * @internal
+ *
+ * Access after `context.start()` to retrieve registered command metadata.
+ * @experimental
  */
 export const ADAPTER_CLI_REGISTRY = Symbol.for(
   "routecraft.adapter.cli.registry",
 );
 
 /**
- * Store key for parsed CLI arguments set by the CLI runner before context.start().
- * @internal
+ * Store key for parsed CLI arguments set by the CLI runner before `context.start()`.
+ *
+ * Set this store before calling `context.start()` to dispatch a CLI command.
+ * @experimental
  */
 export const ADAPTER_CLI_ARGS = Symbol.for("routecraft.adapter.cli.args");
 
 /**
  * Parsed CLI invocation stored in context before route execution.
+ * @experimental
  */
 export interface CliParsedArgs {
-  /** The command name from argv, or undefined if none provided. */
+  /** The command name from argv, or undefined if none provided (discovery pass). */
   command: string | undefined;
   /** Raw argument tokens after the command name. */
   rawArgs: string[];
@@ -34,7 +39,47 @@ declare module "@routecraft/routecraft" {
 }
 
 /**
+ * Returns true if the given source adapter is a CLI source adapter.
+ *
+ * Use this to detect whether a file is in CLI mode before calling
+ * `context.start()`.
+ *
+ * @param source - Any value; typically a `Source` from a `RouteDefinition`
+ * @returns `true` if the source was created with `cli()`
+ * @experimental
+ */
+export function isCliSource(source: unknown): boolean {
+  return (
+    typeof source === "object" &&
+    source !== null &&
+    "adapterId" in source &&
+    (source as { adapterId: unknown }).adapterId === "routecraft.adapter.cli"
+  );
+}
+
+/**
+ * Retrieve the CLI command registry from a built context.
+ *
+ * Returns the map of command name to metadata populated during `context.start()`.
+ * Returns an empty map if the context has no CLI routes.
+ *
+ * @param context - A built `CraftContext` after `start()` has been called
+ * @returns Map of command name to `CliRouteMetadata`
+ * @experimental
+ */
+export function getCliRegistry(
+  context: CraftContext,
+): Map<string, CliRouteMetadata> {
+  return (
+    (context.getStore(ADAPTER_CLI_REGISTRY) as
+      | Map<string, CliRouteMetadata>
+      | undefined) ?? new Map()
+  );
+}
+
+/**
  * Register a CLI command in the context store for discovery and help generation.
+ * Called internally by `CliSourceAdapter.subscribe()`.
  */
 export function registerCliRoute(
   context: CraftContext,
@@ -65,10 +110,11 @@ export function registerCliRoute(
  * - `--flag value` for string/number flags
  * - `--flag` for boolean flags (presence = true)
  * - `--no-flag` for negated booleans (false)
+ * - kebab-case flags are converted to camelCase keys
  *
- * @param rawArgs - Tokens after the command name
- * @param jsonSchema - JSON Schema describing the expected flags (optional)
- * @returns Parsed object
+ * @param rawArgs - Token array after the command name (e.g. `["--name", "Alice"]`)
+ * @param jsonSchema - JSON Schema object describing the expected properties (optional)
+ * @returns Parsed key-value object ready for Standard Schema validation
  */
 export function parseFlags(
   rawArgs: string[],
@@ -103,7 +149,7 @@ export function parseFlags(
       | undefined;
     const propType = propSchema?.["type"] as string | undefined;
 
-    // Boolean flag: no next value or next value is another flag
+    // Boolean flag: presence alone means true
     if (propType === "boolean") {
       result[flagName] = true;
       i++;
@@ -132,15 +178,20 @@ export function parseFlags(
 }
 
 /**
- * Extract JSON Schema from a Standard Schema instance.
- * Falls back to `{ type: "object" }` if extraction fails.
+ * Extract a JSON Schema object from a Standard Schema instance.
+ *
+ * Used to derive flag names, types, and descriptions for help generation
+ * and flag parsing. Falls back to `{ type: "object" }` if the schema does
+ * not expose a JSON Schema accessor.
+ *
+ * @param schema - Any Standard Schema instance
+ * @returns JSON Schema object (draft-2020-12 format)
  */
 export function extractJsonSchema(
   schema: StandardSchemaV1,
 ): Record<string, unknown> {
   const standard = schema["~standard"];
 
-  // Try input JSON Schema (preferred for CLI flag generation)
   const jsonSchemaAccessor = standard as {
     jsonSchema?: {
       input?: (opts: { target: string }) => unknown;
@@ -160,108 +211,9 @@ export function extractJsonSchema(
 }
 
 /**
- * Generate formatted help text for all registered CLI commands.
- */
-export function generateHelp(
-  scriptName: string,
-  registry: Map<string, CliRouteMetadata>,
-): string {
-  const lines: string[] = [];
-  lines.push("");
-  lines.push(`Usage: craft run ${scriptName} <command> [flags]`);
-  lines.push("");
-  lines.push("Commands:");
-
-  // Find max command length for alignment
-  const commands = [...registry.entries()];
-  const maxLen = Math.max(...commands.map(([cmd]) => cmd.length), 0);
-
-  for (const [command, meta] of commands) {
-    const desc = meta.description ?? "";
-    lines.push(`  ${command.padEnd(maxLen + 2)} ${desc}`);
-  }
-
-  lines.push("");
-  lines.push(
-    `Run 'craft run ${scriptName} <command> --help' for command details.`,
-  );
-  lines.push("");
-  return lines.join("\n");
-}
-
-/**
- * Generate help text for a single CLI command, including its flags.
- */
-export function generateCommandHelp(
-  scriptName: string,
-  command: string,
-  meta: CliRouteMetadata,
-): string {
-  const lines: string[] = [];
-  lines.push("");
-  lines.push(`${command}${meta.description ? " - " + meta.description : ""}`);
-  lines.push("");
-  lines.push(`Usage: craft run ${scriptName} ${command} [flags]`);
-
-  if (meta.schema) {
-    const jsonSchema = extractJsonSchema(meta.schema);
-    const properties = (jsonSchema["properties"] ?? {}) as Record<
-      string,
-      Record<string, unknown>
-    >;
-    const required = (jsonSchema["required"] ?? []) as string[];
-
-    if (Object.keys(properties).length > 0) {
-      lines.push("");
-      lines.push("Flags:");
-
-      const flagEntries = Object.entries(properties);
-      const maxLen = Math.max(
-        ...flagEntries.map(([name]) => kebabCase(name).length + 4),
-        0,
-      );
-
-      for (const [name, prop] of flagEntries) {
-        const flagName = `--${kebabCase(name)}`;
-        const type = (prop["type"] as string) ?? "string";
-        const isRequired = required.includes(name);
-        const desc = (prop["description"] as string) ?? "";
-        const defaultVal = prop["default"];
-
-        let line = `  ${flagName.padEnd(maxLen + 2)}`;
-        if (type !== "boolean") {
-          line += ` <${type}>`;
-        }
-        if (isRequired) {
-          line += " (required)";
-        }
-        if (defaultVal !== undefined) {
-          line += ` [default: ${JSON.stringify(defaultVal)}]`;
-        }
-        if (desc) {
-          line += `  ${desc}`;
-        }
-        lines.push(line);
-      }
-    }
-  }
-
-  lines.push("");
-  return lines.join("\n");
-}
-
-/**
  * Convert kebab-case to camelCase.
- * @example "my-flag" -> "myFlag"
+ * @example "my-flag" => "myFlag"
  */
 function camelCase(str: string): string {
   return str.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
-}
-
-/**
- * Convert camelCase to kebab-case.
- * @example "myFlag" -> "my-flag"
- */
-function kebabCase(str: string): string {
-  return str.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
 }

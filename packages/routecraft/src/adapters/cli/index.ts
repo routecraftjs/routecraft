@@ -8,13 +8,19 @@ import type { CliServerOptions } from "./types";
 /**
  * Creates a CLI adapter for exposing routecraft routes as CLI commands.
  *
- * - **Source (for `.from()`):** `cli('command', options)` -- defines a CLI command with
- *   flags derived from the schema's object properties.
- * - **Destination (for `.to()`):** `cli.stdout()` or `cli.stderr()` -- writes output.
+ * When used as a **source** (`.from()`), each call defines one CLI command.
+ * Schema properties become named flags (`--flag-name <value>`). Help text is
+ * auto-generated from schema descriptions.
  *
- * All commands in a file are exposed under a single entrypoint:
- * - `craft run mycli.ts` -- shows help listing all commands
- * - `craft run mycli.ts <command> [--flag value ...]` -- runs the matching command
+ * When all routes in a file use `cli()` sources, `craft run` enters CLI mode:
+ * - `craft run mycli.ts` -- lists all commands
+ * - `craft run mycli.ts <command> [--flag value ...]` -- runs the matched command
+ *
+ * Use `cli.stdout()` and `cli.stderr()` as destinations to write output.
+ *
+ * @param command - Command name as it appears on the CLI (e.g. `"greet"`)
+ * @param options - Command options: `schema` and `description`
+ * @returns A `Source` that fires once when the named command is invoked
  *
  * @example
  * ```typescript
@@ -27,10 +33,14 @@ import type { CliServerOptions } from "./types";
  *       schema: z.object({ name: z.string(), loud: z.boolean().optional() }),
  *       description: 'Greet someone',
  *     }))
- *     .transform(({ name, loud }) => loud ? `HELLO ${name.toUpperCase()}!` : `Hello, ${name}!`)
+ *     .transform(({ name, loud }) =>
+ *       loud ? `HELLO ${name.toUpperCase()}!` : `Hello, ${name}!`
+ *     )
  *     .to(cli.stdout()),
  * ];
  * ```
+ *
+ * @experimental
  */
 export function cli<S extends StandardSchemaV1>(
   command: string,
@@ -49,7 +59,12 @@ export function cli(
 
 /**
  * Writes route output to stdout.
- * Strings pass through as-is; objects/arrays are JSON.stringify'd.
+ *
+ * Strings are written as-is with a trailing newline. Objects and arrays are
+ * pretty-printed as JSON. All other values are converted via `String()`.
+ *
+ * @returns A `Destination` that writes to `process.stdout`
+ * @experimental
  */
 cli.stdout = function (): Destination<unknown, void> {
   return new CliDestinationAdapter({ stream: "stdout" });
@@ -57,13 +72,18 @@ cli.stdout = function (): Destination<unknown, void> {
 
 /**
  * Writes route output to stderr.
- * Strings pass through as-is; objects/arrays are JSON.stringify'd.
+ *
+ * Strings are written as-is with a trailing newline. Objects and arrays are
+ * pretty-printed as JSON. All other values are converted via `String()`.
+ *
+ * @returns A `Destination` that writes to `process.stderr`
+ * @experimental
  */
 cli.stderr = function (): Destination<unknown, void> {
   return new CliDestinationAdapter({ stream: "stderr" });
 };
 
-// Re-export types
+// Re-export public types
 export type {
   CliServerOptions,
   CliClientOptions,
@@ -71,14 +91,13 @@ export type {
   CliRouteMetadata,
 } from "./types";
 
-// Re-export store keys, utilities, and help generators for CLI runner
+// Re-export store keys, parsed args type, and discovery utilities
 export {
   ADAPTER_CLI_REGISTRY,
   ADAPTER_CLI_ARGS,
   type CliParsedArgs,
-  generateHelp,
-  generateCommandHelp,
+  isCliSource,
+  getCliRegistry,
+  parseFlags,
+  extractJsonSchema,
 } from "./shared";
-
-// Re-export adapter class for detection and registry access in the CLI runner
-export { CliSourceAdapter } from "./source";

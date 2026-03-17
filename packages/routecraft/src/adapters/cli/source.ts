@@ -5,20 +5,22 @@ import { rcError } from "../../error";
 import type { CliServerOptions } from "./types";
 import {
   ADAPTER_CLI_ARGS,
-  ADAPTER_CLI_REGISTRY,
   extractJsonSchema,
   parseFlags,
   registerCliRoute,
 } from "./shared";
 
 /**
- * CliSourceAdapter implements the Source interface for the CLI adapter.
+ * Source adapter that receives a single CLI command invocation.
  *
- * When `.from(cli('command', options))` is used, this adapter:
- * 1. Registers the command in the context store for help generation
- * 2. Checks if this command was invoked via argv
- * 3. If yes: parses flags, validates with schema, calls handler once, then stops
- * 4. If no (different command invoked): resolves without calling handler
+ * Registered via `cli('command', options)`. On `subscribe()`:
+ * 1. Registers command metadata in the context store for help generation.
+ * 2. Reads parsed args from the `ADAPTER_CLI_ARGS` store (set by the CLI runner).
+ * 3. If this command was invoked: parses flags, validates via Standard Schema, calls
+ *    handler once, then aborts the route.
+ * 4. If a different command was invoked (or no args in store): returns immediately.
+ *
+ * @internal Use the `cli()` factory instead of constructing this directly.
  */
 export class CliSourceAdapter<T = unknown> implements Source<T> {
   readonly adapterId: string = "routecraft.adapter.cli";
@@ -51,20 +53,20 @@ export class CliSourceAdapter<T = unknown> implements Source<T> {
     // Read parsed CLI invocation from context store (set by craft run before start)
     const parsedArgs = context.getStore(ADAPTER_CLI_ARGS);
 
-    // If no CLI args in context, this is not a CLI-dispatched run -- do nothing
+    // No CLI args in store: not a CLI-dispatched run -- register only, do not fire
     if (!parsedArgs) {
       context.logger.debug(
         { command: this.command, adapter: "cli" },
-        "No CLI args in context store; skipping CLI source",
+        "No CLI args in context store; CLI source registered without firing",
       );
       return;
     }
 
-    // Only fire if this command was invoked
+    // Only fire if this command matches the invoked command
     if (parsedArgs.command !== this.command) {
       context.logger.debug(
         { command: this.command, invoked: parsedArgs.command, adapter: "cli" },
-        "CLI command not invoked; skipping",
+        "CLI command not matched; skipping",
       );
       return;
     }
@@ -74,12 +76,12 @@ export class CliSourceAdapter<T = unknown> implements Source<T> {
       "CLI command matched; parsing flags",
     );
 
-    // Extract JSON Schema for flag parsing (if schema provided)
+    // Extract JSON Schema for flag type hints (used by flag parser for coercion)
     const jsonSchema = this.options.schema
       ? extractJsonSchema(this.options.schema)
       : undefined;
 
-    // Parse raw argv flags into an object
+    // Parse raw argv tokens into an object
     const parsed = parseFlags(parsedArgs.rawArgs, jsonSchema);
 
     // Validate with Standard Schema if provided
@@ -114,32 +116,5 @@ export class CliSourceAdapter<T = unknown> implements Source<T> {
     } finally {
       abortController.abort();
     }
-  }
-
-  /**
-   * Check whether this adapter is the CLI source adapter.
-   * Used by the CLI runner to detect CLI-mode files.
-   */
-  static isCli(source: unknown): source is CliSourceAdapter {
-    return (
-      typeof source === "object" &&
-      source !== null &&
-      "adapterId" in source &&
-      (source as { adapterId: string }).adapterId === "routecraft.adapter.cli"
-    );
-  }
-
-  /**
-   * Collect all CLI route metadata from registered sources in the CLI registry.
-   * Used by run.ts for help generation after context.build().
-   */
-  static getRegistry(
-    context: CraftContext,
-  ): Map<string, import("./types").CliRouteMetadata> {
-    return (
-      (context.getStore(ADAPTER_CLI_REGISTRY) as
-        | Map<string, import("./types").CliRouteMetadata>
-        | undefined) ?? new Map()
-    );
   }
 }

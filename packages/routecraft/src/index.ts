@@ -120,9 +120,10 @@ export {
   type CliParsedArgs,
   ADAPTER_CLI_REGISTRY,
   ADAPTER_CLI_ARGS,
-  CliSourceAdapter,
-  generateHelp,
-  generateCommandHelp,
+  isCliSource,
+  getCliRegistry,
+  parseFlags,
+  extractJsonSchema,
 } from "./adapters/cli/index.ts";
 
 export { simple } from "./adapters/simple/index.ts";
