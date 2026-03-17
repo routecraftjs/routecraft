@@ -1073,15 +1073,15 @@ craft()
 **Destination mode -- call a remote MCP tool:**
 
 ```ts
-// By server id registered in mcpPlugin clients
+// Recommended: by server id registered in mcpPlugin({ clients }).
+// Auth is inherited from the client config automatically.
 .enrich(mcp('browser:browser_navigate', { args: (ex) => ({ url: ex.body.url }) }))
 
-// By URL and tool name
+// By URL and tool name (no auth)
 .enrich(mcp({ url: 'http://127.0.0.1:8089/mcp', tool: 'browser_navigate' }, { args: (ex) => ({ url: ex.body.url }) }))
-
-// By URL with bearer token auth
-.enrich(mcp({ url: 'https://my-server/mcp', tool: 'my-tool', auth: { token: process.env.MCP_TOKEN! } }))
 ```
+
+When using the `serverId` path (recommended), auth configured on the client in `mcpPlugin({ clients })` flows to the destination automatically. Inline `auth` on `McpClientOptions` is available as an escape hatch for the raw `url` path or to override registered config, but prefer centralizing credentials in the plugin config.
 
 **Options (McpServerOptions -- source):**
 
@@ -1100,7 +1100,7 @@ craft()
 | `serverId` | `string` | One of url/serverId | Named server registered via `mcpPlugin({ clients })` |
 | `tool` | `string` | No | Tool name to invoke (or set `exchange.body.tool`) |
 | `args` | `(exchange) => Record<string, unknown>` | No | Extractor for tool arguments; defaults to `exchange.body` |
-| `auth` | `McpClientAuthOptions` | No | Auth credentials for inline HTTP connections (see below) |
+| `auth` | `McpClientAuthOptions` | No | Override auth for inline `url` connections; for `serverId` auth flows from `mcpPlugin({ clients })` automatically |
 
 **McpClientAuthOptions:**
 
