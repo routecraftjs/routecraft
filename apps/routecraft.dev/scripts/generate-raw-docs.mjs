@@ -4,7 +4,7 @@
  * Generates clean markdown files in public/raw/ for each docs page
  * and a combined all-docs file at public/raw/docs.md.
  *
- * Run as: node scripts/generate-raw-docs.mjs
+ * Run as: node --experimental-strip-types scripts/generate-raw-docs.mjs
  */
 
 import * as fs from 'fs'
@@ -12,69 +12,19 @@ import * as path from 'path'
 import { fileURLToPath } from 'url'
 import glob from 'fast-glob'
 import { cleanMarkdoc } from '../src/lib/clean-markdoc.mjs'
+import { navigation } from '../src/lib/navigation.ts'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(__dirname, '..')
 const APP_DIR = path.join(ROOT, 'src', 'app')
 const OUT_DIR = path.join(ROOT, 'public', 'raw')
 
-// Navigation order (matches src/lib/navigation.ts)
-const NAV_ORDER = [
-  { section: 'Getting Started', pages: ['/', '/docs/changelog'] },
-  {
-    section: 'Introduction',
-    pages: [
-      '/docs/introduction',
-      '/docs/introduction/installation',
-      '/docs/introduction/project-structure',
-      '/docs/introduction/capabilities',
-      '/docs/introduction/exchange',
-      '/docs/introduction/operations',
-      '/docs/introduction/adapters',
-    ],
-  },
-  {
-    section: 'Advanced',
-    pages: [
-      '/docs/advanced/plugins',
-      '/docs/introduction/events',
-      '/docs/advanced/composing-capabilities',
-      '/docs/advanced/error-handling',
-      '/docs/advanced/custom-adapters',
-      '/docs/advanced/expose-as-mcp',
-      '/docs/advanced/call-an-mcp',
-      '/docs/advanced/linting',
-      '/docs/introduction/testing',
-      '/docs/introduction/deployment',
-      '/docs/introduction/monitoring',
-    ],
-  },
-  {
-    section: 'Reference',
-    pages: [
-      '/docs/reference/adapters',
-      '/docs/reference/operations',
-      '/docs/reference/events',
-      '/docs/reference/configuration',
-      '/docs/reference/cli',
-      '/docs/reference/plugins',
-      '/docs/reference/linting',
-      '/docs/reference/errors',
-    ],
-  },
-  {
-    section: 'Examples',
-    pages: ['/docs/examples', '/docs/examples/api-sync'],
-  },
-  {
-    section: 'Community',
-    pages: [
-      '/docs/community',
-      '/docs/community/contribution-guide',
-      '/docs/community/faq',
-    ],
-  },
-]
+// Derive section ordering from the shared navigation config.
+// Skip the root page ('/') since it will become the marketing page.
+const NAV_ORDER = navigation.map((section) => ({
+  section: section.title,
+  pages: section.links.map((link) => link.href).filter((href) => href !== '/'),
+}))
 
 function extractTitle(md) {
   const match = md.match(/^---[\s\S]*?---/)
@@ -83,11 +33,6 @@ function extractTitle(md) {
   return titleMatch
     ? titleMatch[1].trim().replace(/^["']|["']$/g, '')
     : undefined
-}
-
-function urlToFilePath(url) {
-  if (url === '/') return path.join(APP_DIR, 'page.md')
-  return path.join(APP_DIR, url.replace(/^\//, ''), 'page.md')
 }
 
 // Build a map of url -> { title, cleaned markdown }
@@ -135,6 +80,7 @@ for (const [url, { cleaned }] of pages) {
 const combined =
   parts
     .join('\n')
+    .replace(/\n---\s*$/, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim() + '\n'
 const docsPath = path.join(OUT_DIR, 'docs.md')

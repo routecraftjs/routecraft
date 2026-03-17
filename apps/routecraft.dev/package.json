@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "prebuild": "node scripts/generate-raw-docs.mjs",
+    "prebuild": "node --experimental-strip-types scripts/generate-raw-docs.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"

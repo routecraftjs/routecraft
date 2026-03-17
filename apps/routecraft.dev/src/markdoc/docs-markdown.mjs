@@ -28,7 +28,7 @@ export default function withDocsMarkdown(nextConfig = {}) {
             let pagesDir = path.resolve('./src/app')
             this.addContextDependency(pagesDir)
 
-            let files = glob.sync('**/page.md', { cwd: pagesDir })
+            let files = glob.sync('**/page.md', { cwd: pagesDir }).sort()
             let pageMap = {}
             let allParts = []
 
@@ -49,7 +49,9 @@ export default function withDocsMarkdown(nextConfig = {}) {
               }
 
               pageMap[pageUrl] = cleaned
-              allParts.push(cleaned)
+              if (file.startsWith('docs/')) {
+                allParts.push(cleaned)
+              }
             }
 
             let allDocs = allParts.join('\n---\n\n')

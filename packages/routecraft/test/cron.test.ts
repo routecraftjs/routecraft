@@ -1,4 +1,4 @@
-import { describe, test, expect, vi, afterEach } from "vitest";
+import { describe, test, expect, vi, afterEach, beforeEach } from "vitest";
 import { cron } from "../src/index.ts";
 import { CronSourceAdapter } from "../src/adapters/cron/index.ts";
 import {
@@ -24,8 +24,27 @@ function mockContext(): CraftContext {
   } as unknown as CraftContext;
 }
 
+/**
+ * Advance fake timers by the given milliseconds, flushing microtasks at each
+ * step to allow croner's internal scheduling and async handler callbacks to
+ * execute.
+ */
+async function advanceTime(ms: number, step = 1000) {
+  const steps = Math.ceil(ms / step);
+  for (let i = 0; i < steps; i++) {
+    vi.advanceTimersByTime(step);
+    // Flush microtasks so croner's setTimeout callbacks and async handlers run
+    await vi.advanceTimersByTimeAsync(0);
+  }
+}
+
 describe("CronSourceAdapter", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -68,25 +87,19 @@ describe("CronSourceAdapter", () => {
       onReady,
     );
 
-    // Wait for the cron to fire (every second)
-    await vi.waitFor(
-      () => {
-        expect(handler).toHaveBeenCalledTimes(1);
-      },
-      { timeout: 3000 },
-    );
+    await advanceTime(2000);
 
-    // Clean up
     abortController.abort();
     await promise;
 
     expect(onReady).toHaveBeenCalledTimes(1);
+    expect(handler).toHaveBeenCalledTimes(1);
 
     const headers: ExchangeHeaders = handler.mock.calls[0][1];
     expect(headers[HeadersKeys.CRON_EXPRESSION]).toBe("* * * * * *");
     expect(headers[HeadersKeys.CRON_FIRED_TIME]).toBeDefined();
     expect(headers[HeadersKeys.CRON_COUNTER]).toBe(1);
-  }, 5000);
+  });
 
   /**
    * @case maxFires limits execution count
@@ -101,20 +114,13 @@ describe("CronSourceAdapter", () => {
 
     const promise = adapter.subscribe(context, handler, abortController);
 
-    await vi.waitFor(
-      () => {
-        expect(handler).toHaveBeenCalledTimes(2);
-      },
-      { timeout: 5000 },
-    );
+    await advanceTime(5000);
 
-    // Give it a moment to ensure it stops
-    await new Promise((r) => setTimeout(r, 1500));
     expect(handler).toHaveBeenCalledTimes(2);
 
     abortController.abort();
     await promise;
-  }, 10000);
+  });
 
   /**
    * @case AbortController stops the cron job
@@ -130,10 +136,13 @@ describe("CronSourceAdapter", () => {
       return {} as Exchange;
     });
 
-    await adapter.subscribe(context, handler, abortController);
+    const promise = adapter.subscribe(context, handler, abortController);
+
+    await advanceTime(2000);
+    await promise;
 
     expect(handler).toHaveBeenCalledTimes(1);
-  }, 5000);
+  });
 
   /**
    * @case Timezone option is passed in headers
@@ -151,19 +160,15 @@ describe("CronSourceAdapter", () => {
 
     const promise = adapter.subscribe(context, handler, abortController);
 
-    await vi.waitFor(
-      () => {
-        expect(handler).toHaveBeenCalledTimes(1);
-      },
-      { timeout: 3000 },
-    );
+    await advanceTime(2000);
 
     abortController.abort();
     await promise;
 
+    expect(handler).toHaveBeenCalledTimes(1);
     const headers: ExchangeHeaders = handler.mock.calls[0][1];
     expect(headers[HeadersKeys.CRON_TIMEZONE]).toBe("America/New_York");
-  }, 5000);
+  });
 
   /**
    * @case Name option is passed in headers
@@ -181,19 +186,15 @@ describe("CronSourceAdapter", () => {
 
     const promise = adapter.subscribe(context, handler, abortController);
 
-    await vi.waitFor(
-      () => {
-        expect(handler).toHaveBeenCalledTimes(1);
-      },
-      { timeout: 3000 },
-    );
+    await advanceTime(2000);
 
     abortController.abort();
     await promise;
 
+    expect(handler).toHaveBeenCalledTimes(1);
     const headers: ExchangeHeaders = handler.mock.calls[0][1];
     expect(headers[HeadersKeys.CRON_NAME]).toBe("test-job");
-  }, 5000);
+  });
 
   /**
    * @case Handler error stops the cron and aborts
@@ -206,7 +207,10 @@ describe("CronSourceAdapter", () => {
     const abortController = new AbortController();
     const handler = vi.fn().mockRejectedValue(new Error("test error"));
 
-    await adapter.subscribe(context, handler, abortController);
+    const promise = adapter.subscribe(context, handler, abortController);
+
+    await advanceTime(2000);
+    await promise;
 
     expect(handler).toHaveBeenCalledTimes(1);
     expect(abortController.signal.aborted).toBe(true);
@@ -214,7 +218,7 @@ describe("CronSourceAdapter", () => {
       expect.objectContaining({ adapter: "cron" }),
       "test error",
     );
-  }, 5000);
+  });
 
   /**
    * @case Counter increments on each fire
@@ -229,21 +233,17 @@ describe("CronSourceAdapter", () => {
 
     const promise = adapter.subscribe(context, handler, abortController);
 
-    await vi.waitFor(
-      () => {
-        expect(handler).toHaveBeenCalledTimes(2);
-      },
-      { timeout: 5000 },
-    );
+    await advanceTime(5000);
 
     abortController.abort();
     await promise;
 
+    expect(handler).toHaveBeenCalledTimes(2);
     const firstHeaders: ExchangeHeaders = handler.mock.calls[0][1];
     const secondHeaders: ExchangeHeaders = handler.mock.calls[1][1];
     expect(firstHeaders[HeadersKeys.CRON_COUNTER]).toBe(1);
     expect(secondHeaders[HeadersKeys.CRON_COUNTER]).toBe(2);
-  }, 10000);
+  });
 
   /**
    * @case Cron expression nicknames are supported
@@ -279,20 +279,16 @@ describe("CronSourceAdapter", () => {
       abortController,
     );
 
-    await vi.waitFor(
-      () => {
-        expect(handler).toHaveBeenCalledTimes(1);
-      },
-      { timeout: 3000 },
-    );
+    await advanceTime(2000);
 
     abortController.abort();
     await promise;
 
+    expect(handler).toHaveBeenCalledTimes(1);
     const headers: ExchangeHeaders = handler.mock.calls[0][1];
     expect(headers[HeadersKeys.CRON_NAME]).toBe("factory-test");
     expect(headers[HeadersKeys.CRON_TIMEZONE]).toBe("UTC");
-  }, 5000);
+  });
 
   /**
    * @case jitterMs delays handler execution without leaking timeouts
@@ -310,20 +306,13 @@ describe("CronSourceAdapter", () => {
 
     const promise = adapter.subscribe(context, handler, abortController);
 
-    await vi.waitFor(
-      () => {
-        expect(handler).toHaveBeenCalledTimes(1);
-      },
-      { timeout: 5000 },
-    );
+    await advanceTime(3000);
 
     abortController.abort();
     await promise;
 
-    // Wait extra to verify no additional calls leak after resolve
-    await new Promise((r) => setTimeout(r, 1500));
     expect(handler).toHaveBeenCalledTimes(1);
-  }, 10000);
+  });
 
   /**
    * @case Aborting during jitter delay does not fire handler
@@ -331,7 +320,6 @@ describe("CronSourceAdapter", () => {
    * @expectedResult Handler is never called, subscribe resolves cleanly
    */
   test("abort during jitter delay prevents handler call", async () => {
-    // Force Math.random to return a high value so jitter is always large
     const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.99);
 
     const adapter = new CronSourceAdapter("* * * * * *", {
@@ -343,17 +331,16 @@ describe("CronSourceAdapter", () => {
 
     const promise = adapter.subscribe(context, handler, abortController);
 
-    // Wait for the cron to fire (triggers every second), then abort
-    // before the ~9900ms jitter elapses
-    await new Promise((r) => setTimeout(r, 1500));
+    // Advance past the first cron tick but not past the ~9900ms jitter
+    await advanceTime(2000);
     abortController.abort();
+    await advanceTime(1000);
     await promise;
 
     randomSpy.mockRestore();
 
-    // Handler should not have been called since jitter hadn't elapsed
     expect(handler).toHaveBeenCalledTimes(0);
-  }, 10000);
+  });
 
   /**
    * @case nextRun header is provided when there is a next run
@@ -368,19 +355,15 @@ describe("CronSourceAdapter", () => {
 
     const promise = adapter.subscribe(context, handler, abortController);
 
-    await vi.waitFor(
-      () => {
-        expect(handler).toHaveBeenCalledTimes(1);
-      },
-      { timeout: 3000 },
-    );
+    await advanceTime(2000);
 
     abortController.abort();
     await promise;
 
+    expect(handler).toHaveBeenCalledTimes(1);
     const headers: ExchangeHeaders = handler.mock.calls[0][1];
     const nextRun = headers[HeadersKeys.CRON_NEXT_RUN];
     expect(nextRun).toBeDefined();
     expect(new Date(nextRun as string).getTime()).toBeGreaterThan(0);
-  }, 5000);
+  });
 });

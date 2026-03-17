@@ -13,7 +13,7 @@ export function DocsHeader({
   title?: string
   titleBadges?: Array<{ text: string; color?: string }>
 }) {
-  let pathname = usePathname()
+  let pathname = usePathname().replace(/\/+$/, '') || '/'
   let section = navigation.find((section) =>
     section.links.find((link) => link.href === pathname),
   )
@@ -24,14 +24,16 @@ export function DocsHeader({
 
   return (
     <header className="mb-9 space-y-1">
-      {section && (
-        <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between">
+        {section ? (
           <p className="font-display text-sm font-medium text-sky-500">
             {section.title}
           </p>
-          <CopyDocsButton />
-        </div>
-      )}
+        ) : (
+          <span />
+        )}
+        <CopyDocsButton />
+      </div>
       {title && (
         <h1 className="font-display text-3xl tracking-tight text-gray-900 dark:text-white">
           <span className="inline-flex items-center gap-2">
