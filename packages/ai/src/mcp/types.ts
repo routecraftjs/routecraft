@@ -57,6 +57,8 @@ declare module "@routecraft/routecraft" {
 export interface McpClientHttpConfig {
   transport?: "streamable-http";
   url: string;
+  /** Auth credentials sent on every request to this server. */
+  auth?: McpClientAuthOptions;
 }
 
 /**
@@ -80,6 +82,52 @@ export interface McpClientStdioConfig {
 export type McpClientServerConfig = McpClientHttpConfig | McpClientStdioConfig;
 
 /**
+ * Authentication options for the MCP HTTP server.
+ * Only applies when `transport` is `"http"`. Ignored for stdio.
+ *
+ * Accepted tokens are validated against the `Authorization: Bearer <token>` header.
+ * Use a single string or an array to support multiple users. Tokens are compared
+ * using a timing-safe algorithm.
+ *
+ * @example
+ * ```ts
+ * // Single shared token
+ * auth: { tokens: process.env.MCP_TOKEN! }
+ *
+ * // Per-user tokens (e.g. comma-separated env var)
+ * auth: { tokens: process.env.MCP_TOKENS!.split(",") }
+ * ```
+ *
+ * @experimental
+ */
+export interface McpHttpAuthOptions {
+  /**
+   * Bearer token(s) that are accepted. Each token grants full access.
+   * Can be a single string or an array (e.g., one token per user).
+   */
+  tokens: string | string[];
+}
+
+/**
+ * Auth config for an outbound MCP HTTP client connection.
+ * Passed as request headers on every connection to the remote server.
+ *
+ * @experimental
+ */
+export interface McpClientAuthOptions {
+  /**
+   * Bearer token sent in the `Authorization` header.
+   * Builds `Authorization: Bearer <token>`.
+   */
+  token?: string;
+  /**
+   * Additional headers to include on every request to the remote server.
+   * If `Authorization` is set here, it overrides `token`.
+   */
+  headers?: Record<string, string>;
+}
+
+/**
  * Options for the MCP plugin (mcpPlugin).
  * One plugin per adapter: this is the single options type for the MCP plugin.
  */
@@ -98,6 +146,17 @@ export interface McpPluginOptions {
 
   /** Host to bind to. Default: "localhost" (only used with transport: "http") */
   host?: string;
+
+  /**
+   * Authentication for the HTTP transport. When set, every request to `/mcp` must
+   * include a valid `Authorization: Bearer <token>` header. Ignored for stdio.
+   *
+   * @example
+   * ```ts
+   * auth: { tokens: process.env.MCP_TOKENS!.split(",") }
+   * ```
+   */
+  auth?: McpHttpAuthOptions;
 
   /**
    * Filter which tools to expose. Default: all mcp() routes.
@@ -178,6 +237,11 @@ export interface McpClientOptions {
    * Default: body as object -> use as args; otherwise { input: body }.
    */
   args?: McpArgsExtractor;
+  /**
+   * Auth credentials for inline HTTP connections (when using `url` directly).
+   * When using `serverId`, auth comes from the registered client config in `mcpPlugin({ clients })`.
+   */
+  auth?: McpClientAuthOptions;
 }
 
 /**

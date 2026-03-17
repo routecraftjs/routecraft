@@ -30,6 +30,33 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
     }
   }
 
+  // Validate auth options
+  if (options.auth !== undefined) {
+    const { tokens } = options.auth;
+    if (typeof tokens === "string") {
+      if (tokens.length === 0) {
+        throw new TypeError(
+          "mcpPlugin: auth.tokens must be a non-empty string",
+        );
+      }
+    } else if (Array.isArray(tokens)) {
+      if (tokens.length === 0) {
+        throw new TypeError("mcpPlugin: auth.tokens array must not be empty");
+      }
+      for (let i = 0; i < tokens.length; i++) {
+        if (typeof tokens[i] !== "string" || tokens[i].length === 0) {
+          throw new TypeError(
+            `mcpPlugin: auth.tokens[${i}] must be a non-empty string`,
+          );
+        }
+      }
+    } else {
+      throw new TypeError(
+        "mcpPlugin: auth.tokens must be a string or an array of strings",
+      );
+    }
+  }
+
   // Validate stdio client configs
   if (options.clients) {
     for (const [name, config] of Object.entries(options.clients)) {

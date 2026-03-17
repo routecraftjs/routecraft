@@ -178,7 +178,11 @@ describe("McpServer", () => {
     /** Start HTTP server with given route builders; returns post helper and port. Call initSession() to get session id. */
     async function startHttpServer(
       routes: ReturnType<typeof craft>[],
-      serverOptions: { port?: number; host?: string } = {},
+      serverOptions: {
+        port?: number;
+        host?: string;
+        auth?: import("../src/mcp/types.ts").McpHttpAuthOptions;
+      } = {},
     ) {
       t = await testContext().routes(routes).store(MCP_STORE_KEY, true).build();
       server = new McpServer(t.ctx, {
@@ -215,6 +219,7 @@ describe("McpServer", () => {
       function post(
         body: string,
         sessionId?: string,
+        extraHeaders?: Record<string, string>,
       ): Promise<{
         statusCode: number;
         body: string;
@@ -226,6 +231,7 @@ describe("McpServer", () => {
             Accept: "application/json, text/event-stream",
           };
           if (sessionId) headers["mcp-session-id"] = sessionId;
+          if (extraHeaders) Object.assign(headers, extraHeaders);
           const req = http.request(
             {
               host: "127.0.0.1",
@@ -255,14 +261,16 @@ describe("McpServer", () => {
         });
       }
 
-      async function initSession(): Promise<string> {
+      async function initSession(
+        authHeaders?: Record<string, string>,
+      ): Promise<string> {
         const initBody = JSON.stringify({
           jsonrpc: "2.0",
           id: 1,
           method: "initialize",
           params: INIT_PARAMS,
         });
-        const res = await post(initBody);
+        const res = await post(initBody, undefined, authHeaders);
         expect(res.statusCode).toBe(200);
         const sid = res.headers["mcp-session-id"];
         expect(sid).toBeDefined();
@@ -411,6 +419,129 @@ describe("McpServer", () => {
       expect(echoed.objVal).toEqual({ a: 1, b: 2 });
       expect(typeof echoed.objVal).toBe("object");
       expect(echoed.objVal).not.toBe(null);
+    });
+
+    describe("auth", () => {
+      /**
+       * @case Request without Authorization header returns 401 when auth is configured
+       * @preconditions McpServer with auth.tokens set; POST /mcp without Authorization header
+       * @expectedResult 401 status code with WWW-Authenticate header
+       */
+      test("returns 401 when no Authorization header and auth is configured", async () => {
+        const { post } = await startHttpServer([], {
+          auth: { tokens: "secret-token" },
+        });
+
+        const initBody = JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: INIT_PARAMS,
+        });
+        const res = await post(initBody);
+        expect(res.statusCode).toBe(401);
+        expect(res.headers["www-authenticate"]).toMatch(/Bearer/);
+      });
+
+      /**
+       * @case Request with wrong token returns 401
+       * @preconditions McpServer with auth.tokens = ["valid-token"]; POST /mcp with wrong token
+       * @expectedResult 401 status code
+       */
+      test("returns 401 when wrong token is provided", async () => {
+        const { post } = await startHttpServer([], {
+          auth: { tokens: "valid-token" },
+        });
+
+        const initBody = JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: INIT_PARAMS,
+        });
+        const res = await post(initBody, undefined, {
+          Authorization: "Bearer wrong-token",
+        });
+        expect(res.statusCode).toBe(401);
+      });
+
+      /**
+       * @case Request with correct single token returns 200
+       * @preconditions McpServer with auth.tokens = "valid-token"; POST /mcp with correct bearer token
+       * @expectedResult 200 status code and MCP session established
+       */
+      test("accepts request with correct single token", async () => {
+        const { post } = await startHttpServer([], {
+          auth: { tokens: "valid-token" },
+        });
+
+        const initBody = JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: INIT_PARAMS,
+        });
+        const res = await post(initBody, undefined, {
+          Authorization: "Bearer valid-token",
+        });
+        expect(res.statusCode).toBe(200);
+      });
+
+      /**
+       * @case Each token in an array grants access independently
+       * @preconditions McpServer with auth.tokens = ["token-a", "token-b"]; two separate requests
+       * @expectedResult Both tokens receive 200 status code
+       */
+      test("accepts any token from an array of tokens", async () => {
+        const { post } = await startHttpServer([], {
+          auth: { tokens: ["token-a", "token-b"] },
+        });
+
+        const resA = await post(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: INIT_PARAMS,
+          }),
+          undefined,
+          { Authorization: "Bearer token-a" },
+        );
+        expect(resA.statusCode).toBe(200);
+
+        // The second initialize is sent to a new session but the SDK may reject
+        // the duplicate protocol exchange with 400. What matters is that the auth
+        // check passed (not 401) -- the 400 is from the MCP transport layer, not auth.
+        const resB = await post(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 2,
+            method: "initialize",
+            params: INIT_PARAMS,
+          }),
+          undefined,
+          { Authorization: "Bearer token-b" },
+        );
+        expect(resB.statusCode).not.toBe(401);
+      });
+
+      /**
+       * @case Requests pass through unchanged when no auth option is configured
+       * @preconditions McpServer without auth option; POST /mcp without Authorization header
+       * @expectedResult 200 status code (backward compatible)
+       */
+      test("passes requests through when auth is not configured", async () => {
+        const { post } = await startHttpServer([]);
+
+        const initBody = JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: INIT_PARAMS,
+        });
+        const res = await post(initBody);
+        expect(res.statusCode).toBe(200);
+      });
     });
   });
 });

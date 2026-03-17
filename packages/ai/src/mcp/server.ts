@@ -5,8 +5,21 @@ import {
   DefaultExchange,
   isRoutecraftError,
 } from "@routecraft/routecraft";
+import { timingSafeEqual as cryptoTimingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
-import type { McpPluginOptions } from "./types.ts";
+import type { IncomingMessage } from "node:http";
+import type { McpHttpAuthOptions, McpPluginOptions } from "./types.ts";
+
+/**
+ * Constant-time string comparison to prevent timing attacks on token comparison.
+ * Returns false immediately if lengths differ (length is not secret).
+ */
+function timingSafeStringEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return cryptoTimingSafeEqual(bufA, bufB);
+}
 
 const MCP_SDK_INSTALL =
   'MCP server requires "@modelcontextprotocol/sdk". Install it with: pnpm add @modelcontextprotocol/sdk';
@@ -15,7 +28,7 @@ const MCP_SDK_INSTALL =
 type McpServerResolvedOptions = Required<
   Pick<McpPluginOptions, "name" | "version" | "transport" | "port" | "host">
 > &
-  Pick<McpPluginOptions, "tools">;
+  Pick<McpPluginOptions, "tools" | "auth">;
 
 /**
  * McpServer wraps the MCP SDK and bridges it to Routecraft's DirectChannel infrastructure.
@@ -204,6 +217,14 @@ export class McpServer {
         res.end(JSON.stringify({ error: "Not Found", path: url }));
         return;
       }
+      if (this.options.auth && !this.validateAuth(req)) {
+        res.writeHead(401, {
+          "Content-Type": "application/json",
+          "WWW-Authenticate": 'Bearer realm="mcp"',
+        });
+        res.end(JSON.stringify({ error: "Unauthorized" }));
+        return;
+      }
       try {
         await handleRequest.call(this.transport, req, res);
       } catch (err) {
@@ -249,6 +270,26 @@ export class McpServer {
       return (addr as { port: number }).port;
     }
     return undefined;
+  }
+
+  /**
+   * Validate the Authorization header against configured tokens.
+   * Uses timing-safe comparison to prevent timing attacks.
+   * Returns true if auth passes; false if the request should be rejected.
+   */
+  private validateAuth(req: IncomingMessage): boolean {
+    const authOptions = this.options.auth as McpHttpAuthOptions | undefined;
+    if (!authOptions) return true;
+
+    const header = req.headers["authorization"];
+    if (!header || !header.startsWith("Bearer ")) return false;
+
+    const token = header.slice(7); // length of "Bearer "
+    const allowed = Array.isArray(authOptions.tokens)
+      ? authOptions.tokens
+      : [authOptions.tokens];
+
+    return allowed.some((t) => timingSafeStringEqual(t, token));
   }
 
   /**

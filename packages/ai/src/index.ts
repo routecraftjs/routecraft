@@ -65,9 +65,11 @@ export {
   type McpToolResult,
 } from "./mcp/index.ts";
 export type {
+  McpClientAuthOptions,
   McpClientOptions,
   McpClientServerConfig,
   McpClientStdioConfig,
+  McpHttpAuthOptions,
 } from "./mcp/types.ts";
 
 // Agent adapter (Phase 1: pass-through)

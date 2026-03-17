@@ -1,5 +1,6 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Exchange } from "@routecraft/routecraft";
+import type { McpClientAuthOptions } from "../../types.ts";
 
 /** Message type derived from schema S when present; otherwise unknown. */
 export type McpMessage<S extends StandardSchemaV1 | undefined> =
@@ -19,4 +20,6 @@ export type McpArgsExtractor = (
 export interface McpClientHttpConfig {
   transport?: "streamable-http";
   url: string;
+  /** Auth credentials sent on every request to this server. */
+  auth?: McpClientAuthOptions;
 }
