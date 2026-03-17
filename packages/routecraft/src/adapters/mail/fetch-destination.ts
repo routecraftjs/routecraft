@@ -2,7 +2,6 @@ import type { Destination } from "../../operations/to.ts";
 import type { Exchange } from "../../exchange.ts";
 import { getExchangeContext } from "../../exchange.ts";
 import type { MergedOptions } from "../../context.ts";
-import { rcError } from "../../error.ts";
 import type {
   MailFetchResult,
   MailOptionsMerged,
@@ -12,6 +11,7 @@ import {
   getMergedImapOptions,
   createImapClient,
   fetchMessages,
+  throwMailConnectionError,
 } from "./shared.ts";
 
 /**
@@ -21,7 +21,7 @@ import {
  * @example
  * ```typescript
  * craft()
- *   .from(cron('* /5 * * * *'))
+ *   .from(cron('0 0/5 * * * *'))
  *   .enrich(mail('INBOX'))
  *   .to(processMessages())
  * ```
@@ -63,20 +63,12 @@ export class MailFetchDestinationAdapter
     try {
       await client.connect();
     } catch (error) {
-      const isAuthError =
-        error instanceof Error &&
-        (error.message.includes("auth") ||
-          error.message.includes("credentials") ||
-          error.message.includes("login") ||
-          error.message.includes("AUTHENTICATIONFAILED"));
-
-      throw rcError(
-        isAuthError ? "RC5011" : "RC5010",
-        error instanceof Error ? error : undefined,
-        {
-          message: `Mail adapter IMAP ${isAuthError ? "authentication" : "connection"} failed: ${error instanceof Error ? error.message : String(error)}`,
-        },
-      );
+      try {
+        client.close();
+      } catch {
+        // Ignore cleanup errors
+      }
+      throwMailConnectionError(error, "IMAP");
     }
 
     try {

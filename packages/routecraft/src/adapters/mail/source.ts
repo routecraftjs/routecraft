@@ -2,7 +2,6 @@ import type { CraftContext } from "../../context.ts";
 import type { Source } from "../../operations/from.ts";
 import type { Exchange, ExchangeHeaders } from "../../exchange.ts";
 import type { MergedOptions } from "../../context.ts";
-import { rcError } from "../../error.ts";
 import type {
   MailMessage,
   MailOptionsMerged,
@@ -12,6 +11,7 @@ import {
   getMergedImapOptions,
   createImapClient,
   fetchMessages,
+  throwMailConnectionError,
 } from "./shared.ts";
 
 /**
@@ -63,20 +63,12 @@ export class MailSourceAdapter
     try {
       await client.connect();
     } catch (error) {
-      const isAuthError =
-        error instanceof Error &&
-        (error.message.includes("auth") ||
-          error.message.includes("credentials") ||
-          error.message.includes("login") ||
-          error.message.includes("AUTHENTICATIONFAILED"));
-
-      throw rcError(
-        isAuthError ? "RC5011" : "RC5010",
-        error instanceof Error ? error : undefined,
-        {
-          message: `Mail adapter IMAP ${isAuthError ? "authentication" : "connection"} failed: ${error instanceof Error ? error.message : String(error)}`,
-        },
-      );
+      try {
+        client.close();
+      } catch {
+        // Ignore cleanup errors
+      }
+      throwMailConnectionError(error, "IMAP");
     }
 
     // Clean up on abort
@@ -160,10 +152,9 @@ export class MailSourceAdapter
       try {
         // idle() resolves when new mail arrives or IDLE is interrupted
         await client.idle();
-      } catch {
+      } catch (error) {
         if (abortController.signal.aborted) return;
-        // Reconnect on IDLE failure
-        break;
+        throwMailConnectionError(error, "IMAP");
       }
 
       if (abortController.signal.aborted) return;

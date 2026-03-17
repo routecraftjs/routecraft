@@ -178,6 +178,43 @@ export async function createSmtpTransport(
 }
 
 /**
+ * Check whether an error is an authentication failure based on common error message patterns.
+ *
+ * @param error - The caught error
+ * @returns true if the error indicates an auth failure
+ */
+export function isMailAuthError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const msg = error.message.toLowerCase();
+  return (
+    msg.includes("auth") ||
+    msg.includes("credentials") ||
+    msg.includes("login") ||
+    msg.includes("535")
+  );
+}
+
+/**
+ * Throw a RoutecraftError for a mail connection or authentication failure.
+ *
+ * @param error - The caught error
+ * @param protocol - Which protocol failed (IMAP or SMTP)
+ */
+export function throwMailConnectionError(
+  error: unknown,
+  protocol: "IMAP" | "SMTP",
+): never {
+  const auth = isMailAuthError(error);
+  throw rcError(
+    auth ? "RC5011" : "RC5010",
+    error instanceof Error ? error : undefined,
+    {
+      message: `Mail adapter ${protocol} ${auth ? "authentication" : "connection"} failed: ${error instanceof Error ? error.message : String(error)}`,
+    },
+  );
+}
+
+/**
  * Build IMAP search criteria from server options.
  *
  * @param options - Resolved IMAP options
@@ -202,9 +239,8 @@ export function buildSearchCriteria(
 /**
  * Convert an imapflow message object to a MailMessage.
  *
- * @param msg - Raw message data from imapflow (envelope + parsed content)
- * @param uid - IMAP UID
- * @param flags - IMAP flags
+ * @param msg - Raw message data with uid, flags, and envelope
+ * @param content - Parsed text/html/attachments content
  * @returns Parsed MailMessage
  */
 export function toMailMessage(
@@ -295,9 +331,10 @@ export async function fetchMessages(
       envelope: true,
       uid: true,
       flags: true,
-      bodyStructure: true,
       source: true,
     };
+
+    const { simpleParser } = await import("mailparser");
 
     for await (const msg of client.fetch(searchQuery, fetchOptions)) {
       // Parse the source to get text/html content
@@ -314,7 +351,6 @@ export async function fetchMessages(
 
       if (msg.source) {
         try {
-          const { simpleParser } = await import("mailparser");
           const parsed = await simpleParser(msg.source);
           if (parsed.text) content.text = parsed.text;
           if (typeof parsed.html === "string") content.html = parsed.html;

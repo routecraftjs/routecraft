@@ -2,14 +2,17 @@ import type { Destination } from "../../operations/to.ts";
 import type { Exchange } from "../../exchange.ts";
 import { getExchangeContext } from "../../exchange.ts";
 import type { MergedOptions } from "../../context.ts";
-import { rcError } from "../../error.ts";
 import type {
   MailSendPayload,
   MailSendResult,
   MailOptionsMerged,
   MailClientOptions,
 } from "./types.ts";
-import { getMergedSmtpOptions, createSmtpTransport } from "./shared.ts";
+import {
+  getMergedSmtpOptions,
+  createSmtpTransport,
+  throwMailConnectionError,
+} from "./shared.ts";
 
 /**
  * Destination adapter that sends email via SMTP.
@@ -34,6 +37,8 @@ export class MailSendDestinationAdapter
 {
   readonly adapterId = "routecraft.adapter.mail";
   public options: Partial<MailOptionsMerged>;
+  private cachedTransporter?: Awaited<ReturnType<typeof createSmtpTransport>>;
+  private cachedTransporterKey?: string;
 
   constructor(options?: Partial<MailClientOptions>) {
     this.options = (options ?? {}) as Partial<MailOptionsMerged>;
@@ -57,7 +62,12 @@ export class MailSendDestinationAdapter
         )
       : (this.options as MailClientOptions);
 
-    const transporter = await createSmtpTransport(resolved);
+    const key = `${resolved.host}:${resolved.port}:${resolved.auth?.user}`;
+    if (!this.cachedTransporter || this.cachedTransporterKey !== key) {
+      this.cachedTransporter = await createSmtpTransport(resolved);
+      this.cachedTransporterKey = key;
+    }
+    const transporter = this.cachedTransporter;
     const payload = exchange.body;
 
     const mailOptions = {
@@ -86,19 +96,7 @@ export class MailSendDestinationAdapter
         response: info.response ?? "",
       };
     } catch (error) {
-      const isAuthError =
-        error instanceof Error &&
-        (error.message.includes("auth") ||
-          error.message.includes("credentials") ||
-          error.message.includes("535"));
-
-      throw rcError(
-        isAuthError ? "RC5011" : "RC5010",
-        error instanceof Error ? error : undefined,
-        {
-          message: `Mail adapter SMTP ${isAuthError ? "authentication" : "send"} failed: ${error instanceof Error ? error.message : String(error)}`,
-        },
-      );
+      throwMailConnectionError(error, "SMTP");
     }
   }
 
