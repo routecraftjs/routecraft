@@ -233,9 +233,9 @@ describe("Mail Adapter", () => {
 
       await t.ctx.start();
 
-      expect(mockMessageFlagsAdd).toHaveBeenCalledWith({ uid: [42] }, [
-        "\\Seen",
-      ]);
+      expect(mockMessageFlagsAdd).toHaveBeenCalledWith("42", ["\\Seen"], {
+        uid: true,
+      });
     });
 
     /**

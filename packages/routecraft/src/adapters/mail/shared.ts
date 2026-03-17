@@ -9,7 +9,20 @@ import type {
 
 /**
  * Store key for merged mail adapter options.
- * @internal
+ * Set in the context store to configure auth, hosts, and defaults for all mail routes.
+ *
+ * @example
+ * ```typescript
+ * new ContextBuilder()
+ *   .store(ADAPTER_MAIL_OPTIONS, {
+ *     auth: { user: 'me@gmail.com', pass: 'app-password' },
+ *     imapHost: 'imap.gmail.com',
+ *     smtpHost: 'smtp.gmail.com',
+ *     from: 'me@gmail.com',
+ *   })
+ * ```
+ *
+ * @experimental
  */
 export const ADAPTER_MAIL_OPTIONS = Symbol.for(
   "routecraft.adapter.mail.options",
@@ -266,12 +279,7 @@ export function toMailMessage(
  * @returns Array of parsed MailMessages
  */
 export async function fetchMessages(
-  client: {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ImapFlow.fetch returns AsyncGenerator with library-specific types
-    fetch: (...args: any[]) => AsyncIterable<any>;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ImapFlow messageFlagsAdd with library-specific types
-    messageFlagsAdd: (...args: any[]) => Promise<any>;
-  },
+  client: InstanceType<typeof import("imapflow").ImapFlow>,
   options: MailServerOptions,
 ): Promise<MailMessage[]> {
   const criteria = buildSearchCriteria(options);
@@ -331,7 +339,14 @@ export async function fetchMessages(
         }
       }
 
-      const mailMessage = toMailMessage(msg, content);
+      const mailMessage = toMailMessage(
+        {
+          uid: msg.uid,
+          flags: msg.flags ?? new Set(),
+          envelope: msg.envelope ?? {},
+        },
+        content,
+      );
       messages.push(mailMessage);
 
       if (options.limit && messages.length >= options.limit) {
@@ -343,7 +358,7 @@ export async function fetchMessages(
     if (options.markSeen !== false && messages.length > 0) {
       const uids = messages.map((m) => m.uid);
       try {
-        await client.messageFlagsAdd({ uid: uids }, ["\\Seen"]);
+        await client.messageFlagsAdd(uids.join(","), ["\\Seen"], { uid: true });
       } catch {
         // Non-fatal: log but do not throw if flagging fails
       }
