@@ -43,6 +43,10 @@ import type {
  *   .to(mail())
  * ```
  *
+ * @param folder - IMAP mailbox folder name (e.g. 'INBOX')
+ * @param options - Server options for IMAP connection and fetch behavior
+ * @returns Source, Fetch Destination, or Send Destination depending on arguments
+ *
  * @experimental
  */
 export function mail(
