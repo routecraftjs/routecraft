@@ -119,8 +119,15 @@ const config: CraftConfig = {
     mcpPlugin({
       transport: 'http',
       port: 3001,
+      auth: {
+        // One token per user; split a comma-separated env var for convenience
+        tokens: process.env.MCP_TOKENS!.split(','),
+      },
       clients: {
-        browser: { url: 'http://127.0.0.1:8089/mcp' },
+        browser: {
+          url: 'http://127.0.0.1:8089/mcp',
+          auth: { token: process.env.BROWSER_MCP_TOKEN! },
+        },
         search: { url: 'http://127.0.0.1:8090/mcp' },
         filesystem: {
           transport: 'stdio',
@@ -147,6 +154,7 @@ export default config
 | `transport` | `'http' \| 'stdio'` | `'stdio'` | Transport protocol for the MCP server |
 | `port` | `number` | `3001` | HTTP port (http transport only) |
 | `host` | `string` | `'localhost'` | HTTP host (http transport only) |
+| `auth` | `McpHttpAuthOptions` | -- | Bearer token auth for the HTTP endpoint (http transport only; see below) |
 | `tools` | `string[] \| (meta) => boolean` | -- | Allowlist of tool names to expose, or a filter function |
 | `clients` | `Record<string, McpClientHttpConfig \| McpClientStdioConfig>` | -- | Named remote MCP servers (see below) |
 | `maxRestarts` | `number` | `5` | Max automatic restarts for stdio clients before giving up |
@@ -154,11 +162,35 @@ export default config
 | `restartBackoffMultiplier` | `number` | `2` | Multiplier applied to delay on each successive restart |
 | `toolRefreshIntervalMs` | `number` | `60000` | Polling interval for HTTP client tool lists (0 = no polling) |
 
+**HTTP server auth (`McpHttpAuthOptions`):**
+
+When `auth` is set and `transport` is `'http'`, every request to `/mcp` must include a valid `Authorization: Bearer <token>` header. Tokens are compared using a timing-safe algorithm.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `tokens` | `string \| string[]` | Accepted bearer token(s). Use an array to support multiple users. |
+
+```ts
+// Single token
+auth: { tokens: process.env.MCP_TOKEN! }
+
+// Multiple users via comma-separated env var
+auth: { tokens: process.env.MCP_TOKENS!.split(',') }
+```
+
 **HTTP client config (`McpClientHttpConfig`):**
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `url` | `string` | Yes | Full URL of the remote MCP server |
+| `auth` | `McpClientAuthOptions` | No | Auth credentials sent on every request to this server |
+
+**McpClientAuthOptions:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `token` | `string` | Bearer token sent as `Authorization: Bearer <token>` |
+| `headers` | `Record<string, string>` | Additional request headers; overrides `token` if `Authorization` is set |
 
 **Stdio client config (`McpClientStdioConfig`):**
 

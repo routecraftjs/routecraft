@@ -1078,6 +1078,9 @@ craft()
 
 // By URL and tool name
 .enrich(mcp({ url: 'http://127.0.0.1:8089/mcp', tool: 'browser_navigate' }, { args: (ex) => ({ url: ex.body.url }) }))
+
+// By URL with bearer token auth
+.enrich(mcp({ url: 'https://my-server/mcp', tool: 'my-tool', auth: { token: process.env.MCP_TOKEN! } }))
 ```
 
 **Options (McpServerOptions -- source):**
@@ -1088,6 +1091,23 @@ craft()
 | `schema` | `StandardSchemaV1` | No | Body validation schema (Zod, Valibot, ArkType) |
 | `headerSchema` | `StandardSchemaV1` | No | Header validation schema |
 | `keywords` | `string[]` | No | Keywords for discovery and categorization |
+
+**Options (McpClientOptions -- destination):**
+
+| Option | Type | Required | Description |
+|--------|------|----------|-------------|
+| `url` | `string` | One of url/serverId | Direct HTTP URL of the remote MCP server |
+| `serverId` | `string` | One of url/serverId | Named server registered via `mcpPlugin({ clients })` |
+| `tool` | `string` | No | Tool name to invoke (or set `exchange.body.tool`) |
+| `args` | `(exchange) => Record<string, unknown>` | No | Extractor for tool arguments; defaults to `exchange.body` |
+| `auth` | `McpClientAuthOptions` | No | Auth credentials for inline HTTP connections (see below) |
+
+**McpClientAuthOptions:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `token` | `string` | Bearer token sent as `Authorization: Bearer <token>` |
+| `headers` | `Record<string, string>` | Additional request headers; overrides `token` if `Authorization` is set |
 
 **Relation to `direct()`:** `mcp()` is built on `direct()`. The key difference is that `description` is required when passing options, ensuring every exposed tool is discoverable by AI agents.
 
