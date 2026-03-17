@@ -105,6 +105,7 @@ export { json } from "./adapters/json.ts";
 export { csv } from "./adapters/csv.ts";
 export { group } from "./adapters/group.ts";
 export { event } from "./adapters/sources/event/index.ts";
+export { mail } from "./adapters/mail/index.ts";
 
 export { type LogOptions, type LogLevel } from "./adapters/log/index.ts";
 export {
@@ -170,3 +171,15 @@ export type {
   TelemetrySqliteOptions,
   TelemetryEvent,
 } from "./telemetry/index.ts";
+export {
+  type MailAuth,
+  type MailServerOptions,
+  type MailClientOptions,
+  type MailOptions,
+  type MailMessage,
+  type MailAttachment,
+  type MailSendPayload,
+  type MailSendResult,
+  type MailFetchResult,
+  ADAPTER_MAIL_OPTIONS,
+} from "./adapters/mail/index.ts";
