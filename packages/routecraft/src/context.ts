@@ -466,7 +466,7 @@ export class CraftContext {
    * - "route:*" matches all route events (route:started, route:stopped, etc.)
    * - "exchange:*" matches all exchange events
    * - "route:myroute:*" matches all events for a specific route
-   * - "route:*:operation:from:*" matches hierarchical patterns at any level
+   * - "route:*:step:*" matches hierarchical patterns at any level
    *
    * @param event - Event name to match
    * @param pattern - Wildcard pattern
@@ -512,7 +512,7 @@ export class CraftContext {
    *
    * Examples:
    * - "route:**" matches "route:started", "route:payment:exchange:started", etc.
-   * - "route:*:operation:**" matches "route:api:operation:from:mcp:started", etc.
+   * - "route:*:step:**" matches "route:api:step:started", etc.
    */
   private matchesGlobstarPattern(event: string, pattern: string): boolean {
     const eventSegments = event.split(":");

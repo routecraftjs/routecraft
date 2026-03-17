@@ -250,7 +250,7 @@ describe("Error handler (.error())", () => {
       .on("route:*:exchange:failed" as const, () => {
         events.push("exchange:failed");
       })
-      .on("route:*:operation:error:invoked" as const, () => {
+      .on("route:*:error-handler:invoked" as const, () => {
         events.push("error:invoked");
       })
       .routes(

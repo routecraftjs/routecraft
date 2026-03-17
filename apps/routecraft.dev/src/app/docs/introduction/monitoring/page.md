@@ -93,32 +93,82 @@ export const craftConfig: CraftConfig = {
 
 ## Telemetry plugin
 
-The built-in `telemetry()` plugin persists every framework event to a local SQLite database so you can inspect execution history after the fact -- or in real time via `craft tui`.
+The built-in `telemetry()` plugin instruments the framework with [OpenTelemetry](https://opentelemetry.io/) traces and persists data to a local SQLite database for `craft tui`.
 
 ```ts
-import { CraftContext, telemetry } from '@routecraft/routecraft'
+import { telemetry } from '@routecraft/routecraft'
 
-const ctx = new CraftContext({
+export const craftConfig = {
   plugins: [telemetry()],
-})
+}
 ```
 
-The database is written to `.routecraft/telemetry.db` in the current working directory. You can change this and other defaults:
+The database is written to `.routecraft/telemetry.db` in the current working directory. `better-sqlite3` must be installed:
+
+```bash
+pnpm add better-sqlite3
+```
+
+### Configuration
 
 ```ts
 telemetry({
-  dbPath: './logs/telemetry.db', // custom path
-  batchSize: 100,                // events buffered before flush (default 50)
-  flushIntervalMs: 2000,         // max ms between flushes (default 1000)
-  walMode: true,                 // WAL mode for concurrent reads (default true)
+  dbPath: './logs/telemetry.db',  // custom path (default .routecraft/telemetry.db)
+  eventBatchSize: 100,            // events buffered before flush (default 50)
+  eventFlushIntervalMs: 2000,     // max ms between flushes (default 1000)
 })
 ```
 
-`better-sqlite3` must be installed as it is an optional peer dependency:
+### Exporting traces to an external provider
+
+Because the telemetry plugin uses OpenTelemetry, you can export traces to any OTel-compatible backend alongside the local SQLite database. Install the OTel SDK and an OTLP exporter:
 
 ```bash
-npm install better-sqlite3
+pnpm add @opentelemetry/sdk-trace-base @opentelemetry/exporter-trace-otlp-http
 ```
+
+Then configure a `TracerProvider` and pass it to `telemetry()`. Here is an example using [Better Stack](https://betterstack.com/):
+
+```ts
+import { telemetry } from '@routecraft/routecraft'
+import { BasicTracerProvider, BatchSpanProcessor } from '@opentelemetry/sdk-trace-base'
+import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
+
+const tracerProvider = new BasicTracerProvider()
+tracerProvider.addSpanProcessor(
+  new BatchSpanProcessor(
+    new OTLPTraceExporter({
+      url: 'https://in-otel.logs.betterstack.com/traces',
+      headers: { Authorization: 'Bearer <YOUR_SOURCE_TOKEN>' },
+    })
+  )
+)
+tracerProvider.register()
+
+export const craftConfig = {
+  plugins: [telemetry({ tracerProvider })],
+}
+```
+
+This sends OTel traces to Better Stack while keeping the local SQLite database for the TUI. The same pattern works with Grafana Tempo, Datadog, Jaeger, or any backend that accepts OTLP -- just change the exporter URL and headers.
+
+To disable the SQLite backend entirely (external only):
+
+```ts
+telemetry({ tracerProvider, disableSqlite: true })
+```
+
+### What gets traced
+
+The plugin creates OTel spans for:
+
+- **Route lifecycle** -- registration, start, stop (long-lived spans)
+- **Exchange lifecycle** -- start, complete, fail, drop (per-message spans with duration)
+- **Step execution** -- each adapter operation as a child span (from, to, process, filter, etc.)
+
+Span attributes use the `routecraft.*` namespace (`routecraft.route.id`, `routecraft.exchange.id`, `routecraft.correlation.id`, etc.) so you can filter and query traces in your provider's UI.
+
+### Terminal UI
 
 Once the plugin is active, launch the terminal UI in a separate terminal to browse routes, exchanges, and the live event stream:
 

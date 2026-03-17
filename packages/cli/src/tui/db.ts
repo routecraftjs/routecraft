@@ -1,4 +1,17 @@
-import type { TelemetryEvent, TelemetryExchange } from "@routecraft/routecraft";
+import type { TelemetryEvent } from "@routecraft/routecraft";
+
+/** Exchange row shape from the telemetry SQLite database. */
+interface TelemetryExchange {
+  id: string;
+  routeId: string;
+  contextId: string;
+  correlationId: string;
+  status: string;
+  startedAt: string;
+  completedAt: string | null;
+  durationMs: number | null;
+  error: string | null;
+}
 
 /**
  * Minimal type for the better-sqlite3 database to avoid hard dependency.

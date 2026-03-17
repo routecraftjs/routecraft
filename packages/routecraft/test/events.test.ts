@@ -243,7 +243,7 @@ describe("Events API", () => {
   /**
    * @case Hierarchical wildcard patterns match events at any level
    * @preconditions Context with hierarchical event subscriptions
-   * @expectedResult Patterns like route:*:operation:from:* match correctly
+   * @expectedResult Patterns like route:*:batch:* match correctly
    */
   test("supports hierarchical wildcard patterns", async () => {
     const events: string[] = [];
@@ -253,46 +253,44 @@ describe("Events API", () => {
       .on("route:payment:*" as EventName, () => {
         events.push("route:payment:*");
       })
-      // Direction-specific subscription (any route)
-      .on("route:*:operation:from:*" as EventName, () => {
-        events.push("route:*:operation:from:*");
+      // Batch events on any route
+      .on("route:*:batch:*" as EventName, () => {
+        events.push("route:*:batch:*");
       })
-      // Adapter-specific subscription (MCP operations)
-      .on("route:*:operation:*:mcp:*" as EventName, () => {
-        events.push("route:*:operation:*:mcp:*");
+      // Step events with specific adapter segment
+      .on("route:*:step:*:mcp:*" as EventName, () => {
+        events.push("route:*:step:*:mcp:*");
       })
-      // All operations on any route
-      .on("route:*:operation:*" as EventName, () => {
-        events.push("route:*:operation:*");
+      // All step events on any route
+      .on("route:*:step:*" as EventName, () => {
+        events.push("route:*:step:*");
       })
       .build();
 
     // Emit test events
     t.ctx.emit("route:payment:started" as any, {} as any);
-    t.ctx.emit("route:payment:operation:from:http" as any, {} as any);
-    t.ctx.emit("route:payment:operation:to:mcp:tool" as any, {} as any);
-    t.ctx.emit("route:checkout:operation:from:channel" as any, {} as any);
+    t.ctx.emit("route:payment:batch:flushed" as any, {} as any);
+    t.ctx.emit("route:payment:step:completed:mcp:tool" as any, {} as any);
+    t.ctx.emit("route:checkout:batch:started" as any, {} as any);
 
     await new Promise((r) => setTimeout(r, 0));
 
     // route:payment:started should match route:payment:*
     expect(events.filter((e) => e === "route:payment:*").length).toBe(1);
 
-    // route:*:operation:from:* should match both:
-    // - route:payment:operation:from:http (5 segments)
-    // - route:checkout:operation:from:channel (5 segments)
-    const fromMatches = events.filter((e) => e === "route:*:operation:from:*");
-    expect(fromMatches.length).toBe(2);
+    // route:*:batch:* should match both:
+    // - route:payment:batch:flushed (4 segments)
+    // - route:checkout:batch:started (4 segments)
+    const batchMatches = events.filter((e) => e === "route:*:batch:*");
+    expect(batchMatches.length).toBe(2);
 
-    // route:*:operation:*:mcp:* should match:
-    // - route:payment:operation:to:mcp:tool (6 segments)
-    const mcpMatches = events.filter((e) => e === "route:*:operation:*:mcp:*");
+    // route:*:step:*:mcp:* should match:
+    // - route:payment:step:completed:mcp:tool (6 segments)
+    const mcpMatches = events.filter((e) => e === "route:*:step:*:mcp:*");
     expect(mcpMatches.length).toBe(1);
 
-    // Verify route:*:operation:* (4 segments) didn't match any 5 or 6 segment events
-    const fourSegmentMatches = events.filter(
-      (e) => e === "route:*:operation:*",
-    );
+    // Verify route:*:step:* (4 segments) didn't match any 6 segment events
+    const fourSegmentMatches = events.filter((e) => e === "route:*:step:*");
     expect(fourSegmentMatches.length).toBe(0);
   });
 
@@ -373,9 +371,9 @@ describe("Events API", () => {
       .on("route:**" as EventName, () => {
         events.push("route:**");
       })
-      // Match all operations at any adapter depth
-      .on("route:*:operation:**" as EventName, () => {
-        events.push("route:*:operation:**");
+      // Match all step events at any depth
+      .on("route:*:step:**" as EventName, () => {
+        events.push("route:*:step:**");
       })
       // Match all exchange events at any depth
       .on("route:*:exchange:**" as EventName, () => {
@@ -386,7 +384,7 @@ describe("Events API", () => {
     // Emit events with varying depths
     t.ctx.emit("route:started" as any, {} as any); // 2 segments
     t.ctx.emit("route:payment:exchange:started" as any, {} as any); // 4 segments
-    t.ctx.emit("route:payment:operation:from:http:started" as any, {} as any); // 6 segments
+    t.ctx.emit("route:payment:step:completed:from:http" as any, {} as any); // 6 segments
     t.ctx.emit("context:started" as any, {} as any); // Should NOT match
 
     await new Promise((r) => setTimeout(r, 0));
@@ -397,8 +395,8 @@ describe("Events API", () => {
     // route:*:exchange:** should match route:payment:exchange:started
     expect(events.filter((e) => e === "route:*:exchange:**").length).toBe(1);
 
-    // route:*:operation:** should match route:payment:operation:from:http:started
-    expect(events.filter((e) => e === "route:*:operation:**").length).toBe(1);
+    // route:*:step:** should match route:payment:step:completed:from:http
+    expect(events.filter((e) => e === "route:*:step:**").length).toBe(1);
 
     // context:started should not match any route:** patterns
     expect(events.filter((e) => e.includes("context")).length).toBe(0);

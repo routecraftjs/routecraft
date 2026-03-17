@@ -85,7 +85,7 @@ export class BatchConsumer implements Consumer<BatchOptions> {
 
         // Emit batch:flushed event
         this.context.emit(
-          `route:${this.definition.id}:operation:batch:flushed` as const,
+          `route:${this.definition.id}:batch:flushed` as const,
           {
             routeId: this.definition.id,
             batchSize: currentBatch.length,
@@ -127,7 +127,7 @@ export class BatchConsumer implements Consumer<BatchOptions> {
         batchStartTime = Date.now();
 
         this.context.emit(
-          `route:${this.definition.id}:operation:batch:started` as const,
+          `route:${this.definition.id}:batch:started` as const,
           {
             routeId: this.definition.id,
             batchSize: this.options.size!,
@@ -168,7 +168,7 @@ export class BatchConsumer implements Consumer<BatchOptions> {
 
           // Emit batch:stopped event
           this.context.emit(
-            `route:${this.definition.id}:operation:batch:stopped` as const,
+            `route:${this.definition.id}:batch:stopped` as const,
             {
               routeId: this.definition.id,
               batchId,

@@ -1,14 +1,18 @@
+import {
+  trace,
+  type Tracer,
+  type Span,
+  SpanStatusCode,
+} from "@opentelemetry/api";
 import type { CraftContext, CraftPlugin } from "../context.ts";
 import type { EventName, EventHandler } from "../types.ts";
-import type {
-  TelemetryOptions,
-  TelemetrySink,
-  TelemetryEvent,
-} from "./types.ts";
-import { SqliteTelemetrySink } from "./sqlite-sink.ts";
+import type { TelemetryOptions } from "./types.ts";
+import { SqliteConnection } from "./sqlite-connection.ts";
+import { SqliteSpanProcessor, ATTR, SPAN_KIND } from "./sqlite-processor.ts";
+import { SqliteEventWriter } from "./sqlite-event-writer.ts";
 
 /**
- * Default batch size for buffered writes.
+ * Default batch size for the event writer.
  */
 const DEFAULT_BATCH_SIZE = 50;
 
@@ -18,14 +22,14 @@ const DEFAULT_BATCH_SIZE = 50;
 const DEFAULT_FLUSH_INTERVAL_MS = 1000;
 
 /**
- * Telemetry plugin that subscribes to all framework events and delegates
- * writes to a pluggable {@link TelemetrySink}.
+ * Telemetry plugin that instruments the framework with OpenTelemetry traces
+ * and persists data to SQLite for the TUI.
  *
- * When no custom sink is provided, the built-in {@link SqliteTelemetrySink}
- * is used, persisting to `.routecraft/telemetry.db`.
+ * Fan-out architecture:
+ * - SQLite path: `SqliteSpanProcessor` (routes/exchanges) + `SqliteEventWriter` (events)
+ * - External path: user's `TracerProvider` creates real OTel spans
  *
- * Events are buffered and flushed in batches for performance. The plugin
- * never blocks the main thread or slows route execution.
+ * Both paths receive identical data.
  *
  * @experimental
  *
@@ -36,73 +40,135 @@ const DEFAULT_FLUSH_INTERVAL_MS = 1000;
  * // Default SQLite sink
  * telemetry()
  *
- * // Custom sink
- * telemetry({ sink: myOtelSink })
+ * // External provider (e.g. Better Stack)
+ * telemetry({ tracerProvider: myTracerProvider })
  * ```
  */
 class TelemetryPlugin implements CraftPlugin {
+  private readonly options: TelemetryOptions;
   private readonly batchSize: number;
   private readonly flushIntervalMs: number;
-  private readonly providedSink: TelemetrySink | undefined;
-  private readonly sqliteOptions: { dbPath?: string; walMode?: boolean };
 
-  private sink: TelemetrySink | undefined;
-  private buffer: TelemetryEvent[] = [];
-  private flushTimer: ReturnType<typeof setInterval> | undefined;
+  private connection: SqliteConnection | undefined;
+  private spanProcessor: SqliteSpanProcessor | undefined;
+  private eventWriter: SqliteEventWriter | undefined;
+  private tracer: Tracer | undefined;
   private unsubscribers: Array<() => void> = [];
 
+  // Track active spans for route lifecycle (long-lived)
+  private routeSpans = new Map<string, Span>();
+  // Track active spans for exchange lifecycle
+  private exchangeSpans = new Map<string, Span>();
+
   constructor(options?: TelemetryOptions) {
-    const batchSize = Math.trunc(options?.batchSize ?? DEFAULT_BATCH_SIZE);
+    this.options = options ?? {};
+    const batchSize = Math.trunc(
+      this.options.eventBatchSize ?? DEFAULT_BATCH_SIZE,
+    );
     const flushIntervalMs = Math.trunc(
-      options?.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS,
+      this.options.eventFlushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS,
     );
     this.batchSize = batchSize > 0 ? batchSize : DEFAULT_BATCH_SIZE;
     this.flushIntervalMs =
       flushIntervalMs > 0 ? flushIntervalMs : DEFAULT_FLUSH_INTERVAL_MS;
-    this.providedSink = options?.sink;
-    // Preserve any extra keys the caller passed for the default SQLite sink.
-    // TelemetryOptions no longer has dbPath/walMode, but callers migrating
-    // from the previous API may still pass them. We forward them silently.
-    const raw = (options ?? {}) as Record<string, unknown>;
-    const dbPath =
-      typeof raw["dbPath"] === "string" ? raw["dbPath"] : undefined;
-    const walMode =
-      typeof raw["walMode"] === "boolean" ? raw["walMode"] : undefined;
-    this.sqliteOptions = {
-      ...(dbPath !== undefined ? { dbPath } : {}),
-      ...(walMode !== undefined ? { walMode } : {}),
-    };
   }
 
   async apply(ctx: CraftContext): Promise<void> {
-    // Resolve sink
-    if (this.providedSink) {
-      this.sink = this.providedSink;
-    } else {
-      const sqliteSink = new SqliteTelemetrySink();
-      const opened = await sqliteSink.open(this.sqliteOptions);
-      if (!opened) {
+    // -- SQLite path --
+    if (!this.options.disableSqlite) {
+      const conn = await SqliteConnection.open(
+        this.options.dbPath !== undefined
+          ? { dbPath: this.options.dbPath }
+          : undefined,
+      );
+      if (conn) {
+        this.connection = conn;
+        this.spanProcessor = new SqliteSpanProcessor(conn);
+        this.eventWriter = new SqliteEventWriter(
+          conn,
+          this.batchSize,
+          this.flushIntervalMs,
+        );
+      } else {
         ctx.logger.warn(
           {},
-          "better-sqlite3 is not installed. Telemetry plugin disabled. Install it with: pnpm add better-sqlite3",
+          "better-sqlite3 is not installed. Telemetry SQLite backend disabled. Install it with: pnpm add better-sqlite3",
         );
-        return;
       }
-      this.sink = sqliteSink;
     }
 
-    // Subscribe to all events for the raw event log
+    // -- External OTel path --
+    if (this.options.tracerProvider) {
+      this.tracer = this.options.tracerProvider.getTracer(
+        "routecraft",
+        "0.4.0",
+      );
+    } else if (trace.getTracerProvider() !== undefined) {
+      // Use globally registered provider if no explicit one given
+      // (no-op if no SDK installed)
+      this.tracer = trace.getTracer("routecraft", "0.4.0");
+    }
+
+    // -- Subscribe to events --
+    this.subscribeAll(ctx);
+    this.subscribeRouteLifecycle(ctx);
+    this.subscribeExchangeLifecycle(ctx);
+  }
+
+  async teardown(): Promise<void> {
+    for (const unsub of this.unsubscribers) {
+      unsub();
+    }
+    this.unsubscribers = [];
+
+    // End any lingering route spans
+    for (const span of this.routeSpans.values()) {
+      span.end();
+    }
+    this.routeSpans.clear();
+
+    // End any lingering exchange spans
+    for (const span of this.exchangeSpans.values()) {
+      span.end();
+    }
+    this.exchangeSpans.clear();
+
+    if (this.eventWriter) {
+      this.eventWriter.close();
+      this.eventWriter = undefined;
+    }
+
+    if (this.connection) {
+      this.connection.close();
+      this.connection = undefined;
+    }
+  }
+
+  // -- Raw event log (events table) --
+
+  private subscribeAll(ctx: CraftContext): void {
     this.unsubscribers.push(
       ctx.on("**", ((payload: {
         ts: string;
         contextId: string;
         details: unknown;
+        _event?: string;
       }) => {
-        this.bufferEvent(payload);
+        if (!this.eventWriter) return;
+        this.eventWriter.write({
+          timestamp: payload.ts,
+          contextId: payload.contextId,
+          eventName: payload._event ?? extractEventName(payload),
+          details: safeStringify(payload.details),
+        });
       }) as EventHandler<EventName>),
     );
+  }
 
-    // Route lifecycle (wildcard, cast to avoid union narrowing issues)
+  // -- Route lifecycle (spans) --
+
+  private subscribeRouteLifecycle(ctx: CraftContext): void {
+    // Route registered
     this.unsubscribers.push(
       ctx.on(
         "route:*:registered" as EventName,
@@ -111,18 +177,32 @@ class TelemetryPlugin implements CraftPlugin {
           contextId: string;
           details: { route: { definition: { id: string } } };
         }) => {
-          this.safeSinkCall((sink) =>
-            sink.writeRoute({
-              id: payload.details.route.definition.id,
-              contextId: payload.contextId,
-              registeredAt: payload.ts,
-              status: "registered",
-            }),
+          const routeId = payload.details.route.definition.id;
+          const key = `${routeId}:${payload.contextId}`;
+
+          // SQLite
+          this.spanProcessor?.writeRoute(
+            routeId,
+            payload.contextId,
+            payload.ts,
           );
+
+          // OTel
+          if (this.tracer) {
+            const span = this.tracer.startSpan(`route:${routeId}`, {
+              attributes: {
+                [ATTR.SPAN_KIND]: SPAN_KIND.ROUTE,
+                [ATTR.ROUTE_ID]: routeId,
+                [ATTR.CONTEXT_ID]: payload.contextId,
+              },
+            });
+            this.routeSpans.set(key, span);
+          }
         }) as EventHandler<EventName>,
       ),
     );
 
+    // Route started
     this.unsubscribers.push(
       ctx.on(
         "route:*:started" as EventName,
@@ -131,17 +211,24 @@ class TelemetryPlugin implements CraftPlugin {
           contextId: string;
           details: { route: { definition: { id: string } } };
         }) => {
-          this.safeSinkCall((sink) =>
-            sink.updateRouteStatus(
-              payload.details.route.definition.id,
-              payload.contextId,
-              "started",
-            ),
+          const routeId = payload.details.route.definition.id;
+
+          // SQLite
+          this.spanProcessor?.updateRouteStatus(
+            routeId,
+            payload.contextId,
+            "started",
           );
+
+          // OTel: add event to existing span
+          const key = `${routeId}:${payload.contextId}`;
+          const span = this.routeSpans.get(key);
+          span?.addEvent("started");
         }) as EventHandler<EventName>,
       ),
     );
 
+    // Route stopped
     this.unsubscribers.push(
       ctx.on(
         "route:*:stopped" as EventName,
@@ -150,184 +237,192 @@ class TelemetryPlugin implements CraftPlugin {
           contextId: string;
           details: { route: { definition: { id: string } } };
         }) => {
-          this.safeSinkCall((sink) =>
-            sink.updateRouteStatus(
-              payload.details.route.definition.id,
-              payload.contextId,
-              "stopped",
-            ),
+          const routeId = payload.details.route.definition.id;
+
+          // SQLite
+          this.spanProcessor?.updateRouteStatus(
+            routeId,
+            payload.contextId,
+            "stopped",
           );
+
+          // OTel: end the route span
+          const key = `${routeId}:${payload.contextId}`;
+          const span = this.routeSpans.get(key);
+          if (span) {
+            span.addEvent("stopped");
+            span.end();
+            this.routeSpans.delete(key);
+          }
         }) as EventHandler<EventName>,
       ),
     );
+  }
 
-    // Exchange lifecycle (wildcard, cast to avoid union narrowing issues)
+  // -- Exchange lifecycle (spans) --
+
+  private subscribeExchangeLifecycle(ctx: CraftContext): void {
+    // Exchange started
     this.unsubscribers.push(
       ctx.on("route:*:exchange:started", ((payload: {
         ts: string;
         contextId: string;
-        details: { routeId: string; exchangeId: string; correlationId: string };
+        details: {
+          routeId: string;
+          exchangeId: string;
+          correlationId: string;
+        };
       }) => {
-        this.safeSinkCall((sink) =>
-          sink.writeExchange({
-            id: payload.details.exchangeId,
-            routeId: payload.details.routeId,
-            contextId: payload.contextId,
-            correlationId: payload.details.correlationId,
-            status: "started",
-            startedAt: payload.ts,
-            completedAt: null,
-            durationMs: null,
-            error: null,
-          }),
+        const { routeId, exchangeId, correlationId } = payload.details;
+        const key = `${exchangeId}:${payload.contextId}`;
+
+        // SQLite
+        this.spanProcessor?.writeExchange(
+          exchangeId,
+          routeId,
+          payload.contextId,
+          correlationId,
+          payload.ts,
         );
+
+        // OTel
+        if (this.tracer) {
+          const span = this.tracer.startSpan(`exchange:${exchangeId}`, {
+            attributes: {
+              [ATTR.SPAN_KIND]: SPAN_KIND.EXCHANGE,
+              [ATTR.ROUTE_ID]: routeId,
+              [ATTR.EXCHANGE_ID]: exchangeId,
+              [ATTR.CORRELATION_ID]: correlationId,
+              [ATTR.CONTEXT_ID]: payload.contextId,
+            },
+          });
+          this.exchangeSpans.set(key, span);
+        }
       }) as EventHandler<EventName>),
     );
 
+    // Exchange completed
     this.unsubscribers.push(
       ctx.on("route:*:exchange:completed", ((payload: {
         ts: string;
         contextId: string;
         details: { exchangeId: string; duration: number };
       }) => {
-        this.safeSinkCall((sink) =>
-          sink.completeExchange(
-            payload.details.exchangeId,
-            payload.contextId,
-            payload.ts,
-            payload.details.duration,
-          ),
+        const { exchangeId, duration } = payload.details;
+        const key = `${exchangeId}:${payload.contextId}`;
+
+        // SQLite
+        this.spanProcessor?.completeExchange(
+          exchangeId,
+          payload.contextId,
+          payload.ts,
+          duration,
         );
+
+        // OTel
+        const span = this.exchangeSpans.get(key);
+        if (span) {
+          span.setAttribute(ATTR.DURATION_MS, duration);
+          span.end();
+          this.exchangeSpans.delete(key);
+        }
       }) as EventHandler<EventName>),
     );
 
+    // Exchange failed
     this.unsubscribers.push(
       ctx.on("route:*:exchange:failed", ((payload: {
         ts: string;
         contextId: string;
-        details: { exchangeId: string; duration: number; error: unknown };
+        details: {
+          exchangeId: string;
+          duration: number;
+          error: unknown;
+        };
       }) => {
-        const errorStr =
-          payload.details.error instanceof Error
-            ? payload.details.error.message
-            : String(payload.details.error);
-        this.safeSinkCall((sink) =>
-          sink.failExchange(
-            payload.details.exchangeId,
-            payload.contextId,
-            payload.ts,
-            payload.details.duration,
-            errorStr,
-          ),
+        const { exchangeId, duration, error } = payload.details;
+        const key = `${exchangeId}:${payload.contextId}`;
+        const errorStr = error instanceof Error ? error.message : String(error);
+
+        // SQLite
+        this.spanProcessor?.failExchange(
+          exchangeId,
+          payload.contextId,
+          payload.ts,
+          duration,
+          errorStr,
         );
+
+        // OTel
+        const span = this.exchangeSpans.get(key);
+        if (span) {
+          span.setAttribute(ATTR.DURATION_MS, duration);
+          span.setAttribute(ATTR.ERROR, errorStr);
+          span.setStatus({
+            code: SpanStatusCode.ERROR,
+            message: errorStr,
+          });
+          span.end();
+          this.exchangeSpans.delete(key);
+        }
       }) as EventHandler<EventName>),
     );
 
-    // Dropped exchanges (filtered, debounced, sampled, etc.)
+    // Exchange dropped
     this.unsubscribers.push(
       ctx.on("route:*:exchange:dropped", ((payload: {
         ts: string;
         contextId: string;
         details: { exchangeId: string; reason?: string };
       }) => {
-        this.safeSinkCall((sink) => {
-          if (sink.dropExchange) {
-            sink.dropExchange(
-              payload.details.exchangeId,
-              payload.contextId,
-              payload.ts,
-              payload.details.reason ?? "dropped",
-            );
-          }
-        });
+        const { exchangeId, reason } = payload.details;
+        const key = `${exchangeId}:${payload.contextId}`;
+        const dropReason = reason ?? "dropped";
+
+        // SQLite
+        this.spanProcessor?.dropExchange(
+          exchangeId,
+          payload.contextId,
+          payload.ts,
+          dropReason,
+        );
+
+        // OTel
+        const span = this.exchangeSpans.get(key);
+        if (span) {
+          span.setAttribute(ATTR.DROPPED, true);
+          span.setAttribute(ATTR.DROP_REASON, dropReason);
+          span.end();
+          this.exchangeSpans.delete(key);
+        }
       }) as EventHandler<EventName>),
     );
-
-    // Flush timer
-    this.flushTimer = setInterval(() => {
-      this.flush();
-    }, this.flushIntervalMs);
-
-    if (
-      this.flushTimer &&
-      typeof this.flushTimer === "object" &&
-      "unref" in this.flushTimer
-    ) {
-      this.flushTimer.unref();
-    }
-  }
-
-  async teardown(): Promise<void> {
-    if (this.flushTimer !== undefined) {
-      clearInterval(this.flushTimer);
-      this.flushTimer = undefined;
-    }
-
-    for (const unsub of this.unsubscribers) {
-      unsub();
-    }
-    this.unsubscribers = [];
-
-    this.flush();
-
-    if (this.sink) {
-      await this.sink.close();
-      this.sink = undefined;
-    }
-  }
-
-  private bufferEvent(payload: {
-    ts: string;
-    contextId: string;
-    details: unknown;
-    _event?: string;
-  }): void {
-    this.buffer.push({
-      timestamp: payload.ts,
-      contextId: payload.contextId,
-      eventName: payload._event ?? extractEventName(payload),
-      details: safeStringify(payload.details),
-    });
-
-    if (this.buffer.length >= this.batchSize) {
-      this.flush();
-    }
-  }
-
-  private safeSinkCall(call: (sink: TelemetrySink) => void): void {
-    if (!this.sink) return;
-    try {
-      call(this.sink);
-    } catch {
-      // Non-blocking: sink errors must not destabilize event processing
-    }
-  }
-
-  private flush(): void {
-    if (this.buffer.length === 0 || !this.sink) return;
-    const batch = this.buffer.splice(0, this.buffer.length);
-    this.safeSinkCall((sink) => sink.writeEvents(batch));
   }
 }
 
 /**
- * Create a telemetry plugin that persists framework events to a pluggable sink.
+ * Create a telemetry plugin that instruments the framework with
+ * OpenTelemetry traces and persists data to SQLite for the TUI.
  *
- * When no `sink` is provided, the built-in SQLite sink is used (requires `better-sqlite3`).
+ * When no `tracerProvider` is given and `disableSqlite` is false (default),
+ * events are persisted to a local SQLite database for the TUI to read.
  *
  * @experimental
- * @param options - Sink, batch size, and flush interval configuration
+ * @param options - TracerProvider, SQLite path, and buffer configuration
  * @returns A CraftPlugin instance
  *
  * @example
  * ```typescript
  * import { telemetry } from "@routecraft/routecraft";
  *
- * // Default SQLite sink
+ * // Default SQLite backend
  * telemetry()
  *
- * // Custom sink
- * telemetry({ sink: myCustomSink })
+ * // Export to Better Stack via OTLP
+ * telemetry({ tracerProvider: myTracerProvider })
+ *
+ * // External only, no SQLite
+ * telemetry({ tracerProvider, disableSqlite: true })
  * ```
  */
 export function telemetry(options?: TelemetryOptions): CraftPlugin {

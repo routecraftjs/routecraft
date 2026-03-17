@@ -9,22 +9,20 @@ import {
   simple,
   log,
   telemetry,
-  SqliteTelemetrySink,
+  SqliteConnection,
 } from "@routecraft/routecraft";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const Database = require("better-sqlite3");
 
 /**
- * Helper: create a pre-opened SqliteTelemetrySink wired into a telemetry() plugin.
+ * Helper: create a telemetry() plugin wired to a specific SQLite database.
  */
-async function sqliteTelemetry(
+function sqliteTelemetry(
   dbPath: string,
-  pluginOpts?: { batchSize?: number; flushIntervalMs?: number },
+  pluginOpts?: { eventBatchSize?: number; eventFlushIntervalMs?: number },
 ) {
-  const sink = new SqliteTelemetrySink();
-  await sink.open({ dbPath });
-  return telemetry({ sink, ...pluginOpts });
+  return telemetry({ dbPath, ...pluginOpts });
 }
 
 describe("TelemetryPlugin", () => {
@@ -48,12 +46,12 @@ describe("TelemetryPlugin", () => {
   });
 
   /**
-   * @case telemetry() with SQLite sink creates the database file
+   * @case telemetry() with SQLite creates the database file
    * @preconditions Fresh temp directory, no existing database
    * @expectedResult Database file exists after context starts
    */
   test("creates database file on apply", async () => {
-    const plugin = await sqliteTelemetry(dbPath);
+    const plugin = sqliteTelemetry(dbPath);
 
     const route = craft()
       .id("test-route")
@@ -71,12 +69,12 @@ describe("TelemetryPlugin", () => {
   });
 
   /**
-   * @case telemetry() with SQLite sink creates all required tables
+   * @case telemetry() with SQLite creates all required tables
    * @preconditions Fresh database
    * @expectedResult events, routes, and exchanges tables exist
    */
   test("creates all required tables", async () => {
-    const plugin = await sqliteTelemetry(dbPath);
+    const plugin = sqliteTelemetry(dbPath);
 
     const route = craft()
       .id("schema-test")
@@ -105,12 +103,12 @@ describe("TelemetryPlugin", () => {
   });
 
   /**
-   * @case telemetry() with SQLite sink enables WAL mode by default
+   * @case telemetry() with SQLite enables WAL mode by default
    * @preconditions Fresh database with default options
    * @expectedResult SQLite journal_mode is wal
    */
   test("enables WAL mode by default", async () => {
-    const plugin = await sqliteTelemetry(dbPath);
+    const plugin = sqliteTelemetry(dbPath);
 
     const route = craft()
       .id("wal-test")
@@ -134,12 +132,12 @@ describe("TelemetryPlugin", () => {
   });
 
   /**
-   * @case telemetry() records route registrations via the sink
+   * @case telemetry() records route registrations via SqliteSpanProcessor
    * @preconditions Context with one route and telemetry plugin
    * @expectedResult Route appears in the routes table after context starts
    */
   test("records route registrations", async () => {
-    const plugin = await sqliteTelemetry(dbPath, { flushIntervalMs: 100 });
+    const plugin = sqliteTelemetry(dbPath, { eventFlushIntervalMs: 100 });
 
     const route = craft()
       .id("recorded-route")
@@ -168,14 +166,14 @@ describe("TelemetryPlugin", () => {
   });
 
   /**
-   * @case telemetry() records exchange lifecycle via the sink
+   * @case telemetry() records exchange lifecycle via SqliteSpanProcessor
    * @preconditions Context with simple source producing 3 messages
    * @expectedResult Exchange records appear in the exchanges table with correct status
    */
   test("records exchange lifecycle", async () => {
-    const plugin = await sqliteTelemetry(dbPath, {
-      flushIntervalMs: 100,
-      batchSize: 5,
+    const plugin = sqliteTelemetry(dbPath, {
+      eventFlushIntervalMs: 100,
+      eventBatchSize: 5,
     });
 
     const route = craft()
@@ -209,14 +207,14 @@ describe("TelemetryPlugin", () => {
   });
 
   /**
-   * @case telemetry() records events in the events table via the sink
+   * @case telemetry() records events in the events table via SqliteEventWriter
    * @preconditions Context with simple source
    * @expectedResult Events table contains entries after context runs
    */
   test("records events to events table", async () => {
-    const plugin = await sqliteTelemetry(dbPath, {
-      flushIntervalMs: 100,
-      batchSize: 5,
+    const plugin = sqliteTelemetry(dbPath, {
+      eventFlushIntervalMs: 100,
+      eventBatchSize: 5,
     });
 
     const route = craft()
@@ -247,7 +245,7 @@ describe("TelemetryPlugin", () => {
    */
   test("respects custom dbPath option", async () => {
     const customPath = resolve(testDir, "nested", "custom.db");
-    const plugin = await sqliteTelemetry(customPath);
+    const plugin = sqliteTelemetry(customPath);
 
     const route = craft()
       .id("custom-path")
@@ -265,14 +263,14 @@ describe("TelemetryPlugin", () => {
   });
 
   /**
-   * @case telemetry() teardown flushes and closes the sink
+   * @case telemetry() teardown flushes buffered events
    * @preconditions Context with telemetry that has buffered events
-   * @expectedResult All buffered events are flushed before sink closes
+   * @expectedResult All buffered events are flushed before close
    */
   test("teardown flushes buffered events", async () => {
-    const plugin = await sqliteTelemetry(dbPath, {
-      flushIntervalMs: 60000,
-      batchSize: 1000,
+    const plugin = sqliteTelemetry(dbPath, {
+      eventFlushIntervalMs: 60000,
+      eventBatchSize: 1000,
     });
 
     const route = craft()
@@ -296,5 +294,40 @@ describe("TelemetryPlugin", () => {
     db.close();
 
     expect(eventCount.cnt).toBeGreaterThan(0);
+  });
+
+  /**
+   * @case telemetry() with disableSqlite does not create database
+   * @preconditions disableSqlite: true, no tracerProvider
+   * @expectedResult No database file created
+   */
+  test("disableSqlite prevents database creation", async () => {
+    const plugin = telemetry({ disableSqlite: true });
+
+    const route = craft()
+      .id("no-sqlite")
+      .from(simple([1]))
+      .to(log());
+    t = await testContext()
+      .with({ plugins: [plugin] })
+      .routes(route)
+      .build();
+
+    await t.ctx.start();
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(existsSync(dbPath)).toBe(false);
+  });
+
+  /**
+   * @case SqliteConnection.open returns connection when better-sqlite3 available
+   * @preconditions better-sqlite3 installed
+   * @expectedResult Connection is non-null
+   */
+  test("SqliteConnection.open succeeds", async () => {
+    const conn = await SqliteConnection.open({ dbPath });
+    expect(conn).not.toBeNull();
+    conn!.close();
+    expect(existsSync(dbPath)).toBe(true);
   });
 });

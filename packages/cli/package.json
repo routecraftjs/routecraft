@@ -22,6 +22,7 @@
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
+    "@opentelemetry/sdk-trace-base": "^2.6.0",
     "@routecraft/routecraft": "workspace:^0.4.0",
     "agent-browser": "^0.15.3",
     "better-sqlite3": "^11.10.0",

@@ -42,10 +42,10 @@ describe("BatchConsumer", () => {
     const started: unknown[] = [];
     const flushed: unknown[] = [];
 
-    ctx.on("route:batched-route:operation:batch:started", ({ details }) => {
+    ctx.on("route:batched-route:batch:started", ({ details }) => {
       started.push(details);
     });
-    ctx.on("route:batched-route:operation:batch:flushed", ({ details }) => {
+    ctx.on("route:batched-route:batch:flushed", ({ details }) => {
       flushed.push(details);
     });
 
