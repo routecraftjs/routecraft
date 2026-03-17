@@ -12,7 +12,9 @@ import type { McpHttpAuthOptions, McpPluginOptions } from "./types.ts";
 
 /**
  * Constant-time string comparison to prevent timing attacks on token comparison.
- * Returns false immediately if lengths differ (length is not secret).
+ * Returns false immediately if lengths differ because crypto.timingSafeEqual
+ * requires equal-length buffers. This leaks token length but not content,
+ * which is an acceptable tradeoff for bearer tokens.
  */
 function timingSafeStringEqual(a: string, b: string): boolean {
   const bufA = Buffer.from(a);
@@ -289,7 +291,12 @@ export class McpServer {
       ? authOptions.tokens
       : [authOptions.tokens];
 
-    return allowed.some((t) => timingSafeStringEqual(t, token));
+    // Iterate all tokens without short-circuiting to avoid leaking which slot matched.
+    let match = false;
+    for (const t of allowed) {
+      if (timingSafeStringEqual(t, token)) match = true;
+    }
+    return match;
   }
 
   /**

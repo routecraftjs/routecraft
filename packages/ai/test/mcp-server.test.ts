@@ -3,6 +3,7 @@ import { McpServer } from "../src/mcp/server.ts";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { craft, direct, noop } from "@routecraft/routecraft";
 import { mcp, MCP_PLUGIN_REGISTERED } from "../src/index.ts";
+import { buildAuthHeaders } from "../src/mcp/build-auth-headers.ts";
 import { z } from "zod";
 import http from "node:http";
 
@@ -542,6 +543,61 @@ describe("McpServer", () => {
         const res = await post(initBody);
         expect(res.statusCode).toBe(200);
       });
+    });
+  });
+
+  describe("buildAuthHeaders", () => {
+    /**
+     * @case Returns undefined when auth is undefined
+     * @preconditions No auth options provided
+     * @expectedResult undefined (no headers needed)
+     */
+    test("returns undefined when auth is undefined", () => {
+      expect(buildAuthHeaders(undefined)).toBeUndefined();
+    });
+
+    /**
+     * @case Returns undefined when auth has no token or headers
+     * @preconditions Empty auth options object
+     * @expectedResult undefined (no headers needed)
+     */
+    test("returns undefined when auth has no token or headers", () => {
+      expect(buildAuthHeaders({})).toBeUndefined();
+    });
+
+    /**
+     * @case Builds Authorization header from token
+     * @preconditions auth.token is "my-token"
+     * @expectedResult Headers with Authorization: Bearer my-token
+     */
+    test("builds Authorization header from token", () => {
+      const result = buildAuthHeaders({ token: "my-token" });
+      expect(result).toEqual({ Authorization: "Bearer my-token" });
+    });
+
+    /**
+     * @case Passes through custom headers
+     * @preconditions auth.headers has X-Custom: "value"
+     * @expectedResult Headers with X-Custom: "value"
+     */
+    test("passes through custom headers", () => {
+      const result = buildAuthHeaders({
+        headers: { "X-Custom": "value" },
+      });
+      expect(result).toEqual({ "X-Custom": "value" });
+    });
+
+    /**
+     * @case Custom headers override token when Authorization is set
+     * @preconditions auth.token = "from-token" and auth.headers.Authorization = "Basic abc"
+     * @expectedResult Authorization is "Basic abc" (headers override token)
+     */
+    test("custom Authorization header overrides token", () => {
+      const result = buildAuthHeaders({
+        token: "from-token",
+        headers: { Authorization: "Basic abc" },
+      });
+      expect(result).toEqual({ Authorization: "Basic abc" });
     });
   });
 });

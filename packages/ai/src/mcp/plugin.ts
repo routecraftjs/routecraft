@@ -19,6 +19,7 @@ import type {
 import { validateMcpPluginOptions } from "./validate-options.ts";
 import { StdioClientManager } from "./stdio-client-manager.ts";
 import { McpToolRegistry } from "./tool-registry.ts";
+import { buildAuthHeaders } from "./build-auth-headers.ts";
 
 type ClientConfig = McpClientHttpConfig | McpClientStdioConfig;
 
@@ -253,17 +254,8 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
     const { StreamableHTTPClientTransport } =
       await import("@modelcontextprotocol/sdk/client/streamableHttp.js");
 
-    const requestHeaders: Record<string, string> = {};
-    if (auth?.token) {
-      requestHeaders["Authorization"] = `Bearer ${auth.token}`;
-    }
-    if (auth?.headers) {
-      Object.assign(requestHeaders, auth.headers);
-    }
-    const transportOptions =
-      Object.keys(requestHeaders).length > 0
-        ? { requestInit: { headers: requestHeaders } }
-        : undefined;
+    const headers = buildAuthHeaders(auth);
+    const transportOptions = headers ? { requestInit: { headers } } : undefined;
     const transport = new (StreamableHTTPClientTransport as new (
       url: URL,
       options?: { requestInit?: { headers?: Record<string, string> } },

@@ -4,11 +4,12 @@ import type {
   McpClientOptions,
   McpArgsExtractor,
   McpClientAuthOptions,
+  McpClientHttpConfig,
 } from "../../types.ts";
 import { ADAPTER_MCP_CLIENT_SERVERS, MCP_STDIO_MANAGERS } from "../../types.ts";
-import type { McpClientHttpConfig } from "./types.ts";
 import { BRAND_MCP_ADAPTER } from "./shared.ts";
 import { extractContent } from "../../extract-content.ts";
+import { buildAuthHeaders } from "../../build-auth-headers.ts";
 
 /** Ensure inline url is HTTP(S) only. Stdio clients are resolved via MCP_STDIO_MANAGERS store. */
 function assertHttpUrl(url: string): void {
@@ -18,6 +19,22 @@ function assertHttpUrl(url: string): void {
       `MCP client: url must be HTTP or HTTPS. Stdio is not supported in routes; register stdio clients via mcpPlugin({ clients: { name: { command, args } } }). Got: "${url.slice(0, 50)}${url.length > 50 ? "..." : ""}"`,
     );
   }
+}
+
+/**
+ * Look up the registered server config from the context store.
+ * Returns undefined when no context or no matching serverId.
+ * Backward-compat: store value may be a plain string (url only).
+ */
+function resolveServerConfig(
+  options: McpClientOptions,
+  context: ReturnType<typeof getExchangeContext>,
+): McpClientHttpConfig | string | undefined {
+  if (!options.serverId || !context) return undefined;
+  const servers = context.getStore(
+    ADAPTER_MCP_CLIENT_SERVERS as keyof import("@routecraft/routecraft").StoreRegistry,
+  ) as Map<string, McpClientHttpConfig | string> | undefined;
+  return servers?.get(options.serverId);
 }
 
 /**
@@ -38,10 +55,7 @@ function resolveUrl(
     );
   }
   if (options.serverId && context) {
-    const servers = context.getStore(
-      ADAPTER_MCP_CLIENT_SERVERS as keyof import("@routecraft/routecraft").StoreRegistry,
-    ) as Map<string, McpClientHttpConfig | string> | undefined;
-    const config = servers?.get(options.serverId);
+    const config = resolveServerConfig(options, context);
     if (!config) {
       throw new Error(
         `MCP client: serverId "${options.serverId}" not found in context store. Register it with context store key "${String(ADAPTER_MCP_CLIENT_SERVERS)}".`,
@@ -65,14 +79,9 @@ function resolveAuth(
   context: ReturnType<typeof getExchangeContext>,
 ): McpClientAuthOptions | undefined {
   if (options.auth) return options.auth;
-  if (options.serverId && context) {
-    const servers = context.getStore(
-      ADAPTER_MCP_CLIENT_SERVERS as keyof import("@routecraft/routecraft").StoreRegistry,
-    ) as Map<string, McpClientHttpConfig | string> | undefined;
-    const config = servers?.get(options.serverId);
-    if (config && typeof config === "object" && "auth" in config) {
-      return (config as McpClientHttpConfig).auth;
-    }
+  const config = resolveServerConfig(options, context);
+  if (config && typeof config === "object" && "auth" in config) {
+    return config.auth;
   }
   return undefined;
 }
@@ -248,17 +257,8 @@ export class McpDestinationAdapter implements Destination<unknown, unknown> {
       transportModule.StreamableHTTPClientTransport;
 
     const url = new URL(serverUrl);
-    const requestHeaders: Record<string, string> = {};
-    if (auth?.token) {
-      requestHeaders["Authorization"] = `Bearer ${auth.token}`;
-    }
-    if (auth?.headers) {
-      Object.assign(requestHeaders, auth.headers);
-    }
-    const transportOptions =
-      Object.keys(requestHeaders).length > 0
-        ? { requestInit: { headers: requestHeaders } }
-        : undefined;
+    const headers = buildAuthHeaders(auth);
+    const transportOptions = headers ? { requestInit: { headers } } : undefined;
     const transport = new StreamableHTTPClientTransport(url, transportOptions);
     const clientInfo = { name: "routecraft-mcp-client", version: "1.0.0" };
     const client = new (Client as new (
