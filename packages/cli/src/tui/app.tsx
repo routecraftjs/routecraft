@@ -3,24 +3,29 @@ import { render, Box, Text, useInput, useApp, useStdout } from "ink";
 import { TelemetryDb } from "./db.js";
 import type {
   NavItem,
-  DrillView,
   RouteSummary,
   ExchangeRecord,
   EventRecord,
   Metrics,
+  RouteActivity,
 } from "./types.js";
 import { NAV_SECTIONS, ALL_NAV_ITEMS } from "./types.js";
-import {
-  barChart,
-  fmtNum,
-  formatDuration,
-  adjustScrollOffset,
-} from "./utils.js";
-import { CenterOverview } from "./components/center-overview.js";
+import { fmtNum, formatDuration } from "./utils.js";
+import { useScrollList } from "./hooks/use-scroll-list.js";
+import { PANEL_TABLE_CHROME, DETAIL_INFO_CHROME, NAV_JUMP } from "./layout.js";
+import { Panel } from "./components/panel.js";
+import { DotGraph, DEFAULT_STEPS } from "./components/dot-graph.js";
 import { CenterExchangeList } from "./components/center-exchange-list.js";
 import { CenterExchangeDetail } from "./components/center-exchange-detail.js";
 import { EventsView } from "./components/events-view.js";
 import { CapabilityList } from "./components/capability-list.js";
+
+/**
+ * Focus tracks which panel owns the cursor.
+ * - "nav": left panel (route list / nav items)
+ * - "center": center panel (exchange list, events, detail)
+ */
+type Focus = "nav" | "center";
 
 function App({ db }: { db: TelemetryDb }) {
   const { exit } = useApp();
@@ -29,7 +34,8 @@ function App({ db }: { db: TelemetryDb }) {
   const height = stdout?.rows ?? 24;
 
   const [activeNav, setActiveNav] = useState<NavItem>("capabilities");
-  const [drillView, setDrillView] = useState<DrillView>("none");
+  const [focus, setFocus] = useState<Focus>("nav");
+  const [showDetail, setShowDetail] = useState(false);
 
   const [routes, setRoutes] = useState<RouteSummary[]>([]);
   const [metrics, setMetrics] = useState<Metrics>({
@@ -41,55 +47,75 @@ function App({ db }: { db: TelemetryDb }) {
     errorRate: 0,
     avgDurationMs: null,
   });
-  const [traffic, setTraffic] = useState<number[]>([]);
-  const [selectedRouteIndex, setSelectedRouteIndex] = useState(0);
-  const [routeScrollOffset, setRouteScrollOffset] = useState(0);
-  const [recentExchanges, setRecentExchanges] = useState<ExchangeRecord[]>([]);
+  const [liveTraffic, setLiveTraffic] = useState<number[]>([]);
+  const [selectedRouteActivity, setSelectedRouteActivity] = useState<
+    RouteActivity | undefined
+  >(undefined);
+  const routeScroll = useScrollList();
   const [exchanges, setExchanges] = useState<ExchangeRecord[]>([]);
-  const [selectedExchangeIndex, setSelectedExchangeIndex] = useState(0);
-  const [exchangeScrollOffset, setExchangeScrollOffset] = useState(0);
+  const exchangeScroll = useScrollList();
   const [selectedExchange, setSelectedExchange] = useState<
     ExchangeRecord | undefined
   >(undefined);
   const [exchangeEvents, setExchangeEvents] = useState<EventRecord[]>([]);
   const [events, setEvents] = useState<EventRecord[]>([]);
-  const [selectedEventIndex, setSelectedEventIndex] = useState(0);
-  const [eventScrollOffset, setEventScrollOffset] = useState(0);
+  const eventScroll = useScrollList();
   const [detailScrollIndex, setDetailScrollIndex] = useState(0);
+  const PAGE_SIZE = 50;
+  const JUMP = NAV_JUMP;
+
+  // Layout dimensions (needed by both refresh and render)
+  const leftWidth = Math.max(Math.min(Math.floor(width * 0.18), 26), 16);
+  const rightWidth = Math.max(Math.min(Math.floor(width * 0.22), 30), 20);
+  const centerWidth = Math.max(width - leftWidth - rightWidth, 30);
+  const bodyHeight = Math.max(height - 5, 10);
+  const navHeaderRows = 10;
+  const navListHeight = Math.max(bodyHeight - navHeaderRows, 3);
 
   const refresh = useCallback(() => {
     try {
+      // Always refresh: routes, metrics, graphs
       const routeSummary = db.getRouteSummary();
       setRoutes(routeSummary);
       setMetrics(db.getMetrics());
-      setTraffic(db.getTrafficBuckets());
+      const liveCols = rightWidth - 4;
+      setLiveTraffic(db.getLiveTrafficBuckets(liveCols, 5));
+
+      // Only load activity for the currently selected route
+      const routeCols = centerWidth - 4;
+      const curRoute = routeSummary[routeScroll.selectedIndex];
+      if (curRoute) {
+        setSelectedRouteActivity(
+          db.getSingleRouteActivity(curRoute.id, routeCols, 5),
+        );
+      }
+
+      // Skip list refresh when cursor is active (user is browsing)
+      if (focus === "center") return;
 
       if (activeNav === "capabilities") {
-        const route = routeSummary[selectedRouteIndex];
+        const route = routeSummary[routeScroll.selectedIndex];
         if (route) {
-          if (drillView === "none") {
-            setRecentExchanges(db.getExchangesByRoute(route.id, 50));
-          } else if (drillView === "exchange-list") {
-            setExchanges(db.getExchangesByRoute(route.id));
-          }
+          setExchanges(db.getExchangesByRoute(route.id, PAGE_SIZE));
         }
-      }
-
-      if (activeNav === "exchanges") {
-        setExchanges(db.getAllExchanges(200));
-      }
-
-      if (activeNav === "errors") {
-        setExchanges(db.getFailedExchanges(200));
-      }
-
-      if (activeNav === "events") {
+      } else if (activeNav === "exchanges") {
+        setExchanges(db.getAllExchanges(PAGE_SIZE));
+      } else if (activeNav === "errors") {
+        setExchanges(db.getFailedExchanges(PAGE_SIZE));
+      } else if (activeNav === "events") {
         setEvents(db.getRecentEvents({ limit: 200 }));
       }
     } catch {
       // Database may be temporarily locked
     }
-  }, [db, activeNav, drillView, selectedRouteIndex]);
+  }, [
+    db,
+    activeNav,
+    routeScroll.selectedIndex,
+    rightWidth,
+    centerWidth,
+    focus,
+  ]);
 
   useEffect(() => {
     refresh();
@@ -101,28 +127,51 @@ function App({ db }: { db: TelemetryDb }) {
 
   const selectRoute = useCallback(
     (index: number) => {
-      setSelectedRouteIndex(index);
+      routeScroll.moveTo(index, routes.length, navListHeight);
+      exchangeScroll.reset();
       const route = routes[index];
       if (route) {
-        setRecentExchanges(db.getExchangesByRoute(route.id, 50));
+        setExchanges(db.getExchangesByRoute(route.id, PAGE_SIZE));
       }
     },
-    [db, routes],
+    [db, routes, routeScroll, exchangeScroll, navListHeight],
   );
 
   const switchNav = useCallback(
     (nav: NavItem) => {
       setActiveNav(nav);
-      setDrillView("none");
-      setExchangeScrollOffset(0);
+      setShowDetail(false);
+      exchangeScroll.reset();
+      if (nav === "capabilities") {
+        setFocus("nav");
+      } else {
+        setFocus("center");
+        // Load all for browsing; auto-refresh uses PAGE_SIZE when not focused
+        if (nav === "exchanges") {
+          setExchanges(db.getAllExchanges());
+        } else if (nav === "errors") {
+          setExchanges(db.getFailedExchanges());
+        }
+      }
       if (nav === "events") {
-        setSelectedEventIndex(0);
-        setEventScrollOffset(0);
+        eventScroll.reset();
         setEvents(db.getRecentEvents({ limit: 200 }));
       }
     },
-    [db],
+    [db, exchangeScroll, eventScroll],
   );
+
+  const selectedRoute = routes[routeScroll.selectedIndex];
+
+  // Visible row counts mirror the view components
+  // Must match CenterExchangeList: 2 (capability + stats) + graphTermRows + 2 (label + spacer)
+  const graphTermRows = Math.ceil((DEFAULT_STEPS.length - 1) / 4);
+  const exchangeHeaderRows = selectedRoute ? 2 + graphTermRows + 2 : 0;
+  const exchangeTableRows = Math.max(
+    bodyHeight - PANEL_TABLE_CHROME - exchangeHeaderRows,
+    3,
+  );
+  const eventsTableRows = Math.max(bodyHeight - PANEL_TABLE_CHROME, 5);
 
   useInput((input, key) => {
     if (input === "q") {
@@ -138,139 +187,130 @@ function App({ db }: { db: TelemetryDb }) {
       return;
     }
 
-    // Visible row counts mirror the view components' tableRows computations
-    const eventsTableRows = Math.max(bodyHeight - 6, 5);
-    const exchangeTableRows = Math.max(bodyHeight - 6, 3);
-
+    // Events view
     if (activeNav === "events") {
+      const step = key.ctrl ? JUMP : 1;
       if (input === "j" || key.downArrow) {
-        const next = Math.min(selectedEventIndex + 1, events.length - 1);
-        setSelectedEventIndex(next);
-        setEventScrollOffset((off) =>
-          adjustScrollOffset(next, off, eventsTableRows),
-        );
+        eventScroll.moveBy(step, events.length, eventsTableRows);
       } else if (input === "k" || key.upArrow) {
-        const next = Math.max(selectedEventIndex - 1, 0);
-        setSelectedEventIndex(next);
-        setEventScrollOffset((off) =>
-          adjustScrollOffset(next, off, eventsTableRows),
-        );
+        eventScroll.moveBy(-step, events.length, eventsTableRows);
       }
       return;
     }
 
-    if (
-      (activeNav === "exchanges" || activeNav === "errors") &&
-      drillView === "none"
-    ) {
+    // Exchange detail (any nav)
+    if (showDetail) {
+      const hasExtra = selectedExchange?.error ? 2 : 0;
+      const detailEventRows = Math.max(
+        bodyHeight - DETAIL_INFO_CHROME - hasExtra,
+        3,
+      );
+      // Count group headers: when events span multiple exchanges, each group gets a header row
+      const uniqueExchangeIds = new Set(
+        exchangeEvents.map((ev) => {
+          try {
+            const d = JSON.parse(ev.details) as Record<string, unknown>;
+            return String(d["exchangeId"] ?? "");
+          } catch {
+            return "";
+          }
+        }),
+      );
+      const groupCount = Math.max(uniqueExchangeIds.size, 1);
+      const headerRows = groupCount > 1 ? groupCount : 0;
+      const totalDisplayRows = exchangeEvents.length + headerRows;
+      const maxScroll = Math.max(totalDisplayRows - detailEventRows - 1, 0);
+      const step = key.ctrl ? JUMP : 1;
       if (input === "j" || key.downArrow) {
-        const next = Math.min(selectedExchangeIndex + 1, exchanges.length - 1);
-        setSelectedExchangeIndex(next);
-        setExchangeScrollOffset((off) =>
-          adjustScrollOffset(next, off, exchangeTableRows),
-        );
+        setDetailScrollIndex((i) => Math.min(i + step, maxScroll));
       } else if (input === "k" || key.upArrow) {
-        const next = Math.max(selectedExchangeIndex - 1, 0);
-        setSelectedExchangeIndex(next);
-        setExchangeScrollOffset((off) =>
-          adjustScrollOffset(next, off, exchangeTableRows),
-        );
-      } else if (key.return) {
-        const ex = exchanges[selectedExchangeIndex];
-        if (ex) {
-          setSelectedExchange(ex);
-          setExchangeEvents(db.getEventsByExchange(ex.id, ex.correlationId));
-          setDrillView("exchange-detail");
-        }
-      }
-      return;
-    }
-
-    if (activeNav === "capabilities" && drillView === "none") {
-      if (input === "j" || key.downArrow) {
-        const next = Math.min(selectedRouteIndex + 1, routes.length - 1);
-        selectRoute(next);
-        setRouteScrollOffset((off) =>
-          adjustScrollOffset(next, off, navListHeight),
-        );
-      } else if (input === "k" || key.upArrow) {
-        const next = Math.max(selectedRouteIndex - 1, 0);
-        selectRoute(next);
-        setRouteScrollOffset((off) =>
-          adjustScrollOffset(next, off, navListHeight),
-        );
-      } else if (key.return) {
-        const route = routes[selectedRouteIndex];
-        if (route) {
-          setSelectedExchangeIndex(0);
-          setExchangeScrollOffset(0);
-          setExchanges(db.getExchangesByRoute(route.id));
-          setDrillView("exchange-list");
-        }
-      }
-    } else if (drillView === "exchange-list") {
-      if (input === "j" || key.downArrow) {
-        const next = Math.min(selectedExchangeIndex + 1, exchanges.length - 1);
-        setSelectedExchangeIndex(next);
-        setExchangeScrollOffset((off) =>
-          adjustScrollOffset(next, off, exchangeTableRows),
-        );
-      } else if (input === "k" || key.upArrow) {
-        const next = Math.max(selectedExchangeIndex - 1, 0);
-        setSelectedExchangeIndex(next);
-        setExchangeScrollOffset((off) =>
-          adjustScrollOffset(next, off, exchangeTableRows),
-        );
-      } else if (key.return) {
-        const ex = exchanges[selectedExchangeIndex];
-        if (ex) {
-          setSelectedExchange(ex);
-          setExchangeEvents(db.getEventsByExchange(ex.id, ex.correlationId));
-          setDrillView("exchange-detail");
-        }
-      } else if (key.escape || key.backspace || key.delete) {
-        setDrillView("none");
-      }
-    } else if (drillView === "exchange-detail") {
-      if (input === "j" || key.downArrow) {
-        setDetailScrollIndex((i) => i + 1);
-      } else if (input === "k" || key.upArrow) {
-        setDetailScrollIndex((i) => Math.max(i - 1, 0));
+        setDetailScrollIndex((i) => Math.max(i - step, 0));
       } else if (key.escape || key.backspace || key.delete) {
         setDetailScrollIndex(0);
-        setDrillView(
-          activeNav === "exchanges" || activeNav === "errors"
-            ? "none"
-            : "exchange-list",
-        );
+        setShowDetail(false);
       }
+      return;
+    }
+
+    // Capabilities: nav focus (left panel)
+    if (activeNav === "capabilities" && focus === "nav") {
+      if (input === "j" || key.downArrow) {
+        selectRoute(Math.min(routeScroll.selectedIndex + 1, routes.length - 1));
+      } else if (input === "k" || key.upArrow) {
+        selectRoute(Math.max(routeScroll.selectedIndex - 1, 0));
+      } else if (key.return) {
+        setFocus("center");
+        // Load all exchanges for browsing (auto-refresh uses PAGE_SIZE)
+        const route = routes[routeScroll.selectedIndex];
+        if (route) {
+          setExchanges(db.getExchangesByRoute(route.id));
+        }
+      }
+      return;
+    }
+
+    // Capabilities: center focus (exchange list)
+    if (activeNav === "capabilities" && focus === "center") {
+      const step = key.ctrl ? JUMP : 1;
+      if (input === "j" || key.downArrow) {
+        exchangeScroll.moveBy(step, exchanges.length, exchangeTableRows);
+      } else if (input === "k" || key.upArrow) {
+        exchangeScroll.moveBy(-step, exchanges.length, exchangeTableRows);
+      } else if (key.return) {
+        const ex = exchanges[exchangeScroll.selectedIndex];
+        if (ex) {
+          setSelectedExchange(ex);
+          setExchangeEvents(db.getEventsByExchange(ex.id, ex.correlationId));
+          setShowDetail(true);
+        }
+      } else if (key.escape || key.backspace || key.delete) {
+        setFocus("nav");
+        exchangeScroll.reset();
+      }
+      return;
+    }
+
+    // Exchanges / Errors: center focus
+    if (activeNav === "exchanges" || activeNav === "errors") {
+      const step = key.ctrl ? JUMP : 1;
+      if (input === "j" || key.downArrow) {
+        exchangeScroll.moveBy(step, exchanges.length, exchangeTableRows);
+      } else if (input === "k" || key.upArrow) {
+        exchangeScroll.moveBy(-step, exchanges.length, exchangeTableRows);
+      } else if (key.return) {
+        const ex = exchanges[exchangeScroll.selectedIndex];
+        if (ex) {
+          setSelectedExchange(ex);
+          setExchangeEvents(db.getEventsByExchange(ex.id, ex.correlationId));
+          setShowDetail(true);
+        }
+      }
+      return;
     }
   });
 
-  // Layout dimensions
-  const leftWidth = Math.max(Math.min(Math.floor(width * 0.18), 26), 16);
-  const rightWidth = Math.max(Math.min(Math.floor(width * 0.22), 30), 20);
-  const centerWidth = Math.max(width - leftWidth - rightWidth, 30);
-  const bodyHeight = Math.max(height - 5, 10);
-  const keymapHeight = 9;
-  const navHeaderRows = 10;
-  const navListHeight = Math.max(bodyHeight - keymapHeight - navHeaderRows, 3);
-  const selectedRoute = routes[selectedRouteIndex];
+  // Determine which panel is active for border highlighting
+  const navActive =
+    activeNav === "capabilities" && focus === "nav" && !showDetail;
+  const centerActive = !navActive;
 
   // Keymap items based on context
   const keymapItems: { key: string; action: string }[] = [];
   keymapItems.push({ key: "j/k", action: "Navigate" });
-  if (activeNav === "capabilities" && drillView === "none") {
-    keymapItems.push({ key: "Enter", action: "Drill-down" });
+  keymapItems.push({ key: "Ctrl+j/k", action: "Jump 10" });
+  if (activeNav === "capabilities" && focus === "nav") {
+    keymapItems.push({ key: "Enter", action: "Exchanges" });
   }
-  if (drillView === "exchange-list") {
+  if (
+    (activeNav === "capabilities" && focus === "center" && !showDetail) ||
+    ((activeNav === "exchanges" || activeNav === "errors") && !showDetail)
+  ) {
     keymapItems.push({ key: "Enter", action: "Detail" });
+  }
+  if ((activeNav === "capabilities" && focus === "center") || showDetail) {
     keymapItems.push({ key: "Esc", action: "Back" });
   }
-  if (drillView === "exchange-detail") {
-    keymapItems.push({ key: "Esc", action: "Back" });
-  }
-  keymapItems.push({ key: "1/2/3", action: "Switch view" });
+  keymapItems.push({ key: "1..4", action: "Switch view" });
   keymapItems.push({ key: "q", action: "Quit" });
 
   return (
@@ -288,18 +328,12 @@ function App({ db }: { db: TelemetryDb }) {
       <Box flexDirection="row" width={width} flexGrow={1}>
         {/* Left column: Navigation (top) + Keymap (bottom) */}
         <Box flexDirection="column" width={leftWidth}>
-          {/* Navigation */}
-          <Box
-            flexDirection="column"
-            borderStyle="round"
-            borderColor="cyan"
-            paddingX={1}
+          <Panel
+            title="NAVIGATION"
+            color={navActive ? "cyan" : "gray"}
+            width={leftWidth}
             flexGrow={1}
           >
-            <Text bold color="cyan">
-              NAVIGATION
-            </Text>
-            <Text dimColor>{"\u2500".repeat(leftWidth - 4)}</Text>
             {NAV_SECTIONS.map((section, si) => (
               <Box key={section.label ?? si} flexDirection="column">
                 {si > 0 && <Text> </Text>}
@@ -328,183 +362,162 @@ function App({ db }: { db: TelemetryDb }) {
             {activeNav === "capabilities" && (
               <CapabilityList
                 routes={routes}
-                selectedIndex={selectedRouteIndex}
-                listOffset={routeScrollOffset}
+                selectedIndex={routeScroll.selectedIndex}
+                listOffset={routeScroll.scrollOffset}
                 visibleRows={navListHeight}
-                colWidth={leftWidth - 6}
+                width={leftWidth - 6}
               />
             )}
-          </Box>
-
-          {/* Keymap */}
-          <Box
-            flexDirection="column"
-            borderStyle="round"
-            borderColor="gray"
-            paddingX={1}
-          >
-            <Text bold color="cyan">
-              KEYMAP
-            </Text>
-            {keymapItems.map((item) => (
-              <Text key={item.key}>
-                <Text color="yellow">[{item.key}]</Text>
-                {"  "}
-                <Text>{item.action}</Text>
-              </Text>
-            ))}
-          </Box>
+          </Panel>
         </Box>
 
         {/* Center */}
-        {activeNav === "capabilities" && drillView === "none" && (
-          <CenterOverview
-            route={selectedRoute}
-            recentExchanges={recentExchanges}
-            centerWidth={centerWidth}
-            bodyHeight={bodyHeight}
-          />
-        )}
-        {activeNav === "capabilities" && drillView === "exchange-list" && (
+        {activeNav === "capabilities" && !showDetail && (
           <CenterExchangeList
             capabilityId={selectedRoute?.id ?? ""}
+            route={selectedRoute}
             exchanges={exchanges}
-            selectedIndex={selectedExchangeIndex}
-            listOffset={exchangeScrollOffset}
-            centerWidth={centerWidth}
-            bodyHeight={bodyHeight}
+            selectedIndex={
+              focus === "center" ? exchangeScroll.selectedIndex : -1
+            }
+            scrollOffset={focus === "center" ? exchangeScroll.scrollOffset : 0}
+            width={centerWidth}
+            height={bodyHeight}
+            color={centerActive ? "cyan" : "gray"}
+            activity={selectedRouteActivity}
           />
         )}
-        {activeNav === "capabilities" &&
-          drillView === "exchange-detail" &&
-          selectedExchange && (
-            <CenterExchangeDetail
-              exchange={selectedExchange}
-              events={exchangeEvents}
-              centerWidth={centerWidth}
-              bodyHeight={bodyHeight}
-              scrollIndex={detailScrollIndex}
-            />
-          )}
-        {activeNav === "exchanges" && drillView === "none" && (
+        {activeNav === "capabilities" && showDetail && selectedExchange && (
+          <CenterExchangeDetail
+            exchange={selectedExchange}
+            events={exchangeEvents}
+            width={centerWidth}
+            height={bodyHeight}
+            scrollOffset={detailScrollIndex}
+            color="cyan"
+          />
+        )}
+        {activeNav === "exchanges" && !showDetail && (
           <CenterExchangeList
             capabilityId="All Capabilities"
             exchanges={exchanges}
-            selectedIndex={selectedExchangeIndex}
-            listOffset={exchangeScrollOffset}
-            centerWidth={centerWidth}
-            bodyHeight={bodyHeight}
+            selectedIndex={exchangeScroll.selectedIndex}
+            scrollOffset={exchangeScroll.scrollOffset}
+            width={centerWidth}
+            height={bodyHeight}
+            color="cyan"
           />
         )}
-        {activeNav === "exchanges" &&
-          drillView === "exchange-detail" &&
-          selectedExchange && (
-            <CenterExchangeDetail
-              exchange={selectedExchange}
-              events={exchangeEvents}
-              centerWidth={centerWidth}
-              bodyHeight={bodyHeight}
-              scrollIndex={detailScrollIndex}
-            />
-          )}
-        {activeNav === "errors" && drillView === "none" && (
+        {activeNav === "exchanges" && showDetail && selectedExchange && (
+          <CenterExchangeDetail
+            exchange={selectedExchange}
+            events={exchangeEvents}
+            width={centerWidth}
+            height={bodyHeight}
+            scrollOffset={detailScrollIndex}
+            color="cyan"
+          />
+        )}
+        {activeNav === "errors" && !showDetail && (
           <CenterExchangeList
             capabilityId="Failed Exchanges"
             exchanges={exchanges}
-            selectedIndex={selectedExchangeIndex}
-            listOffset={exchangeScrollOffset}
-            centerWidth={centerWidth}
-            bodyHeight={bodyHeight}
+            selectedIndex={exchangeScroll.selectedIndex}
+            scrollOffset={exchangeScroll.scrollOffset}
+            width={centerWidth}
+            height={bodyHeight}
+            color="cyan"
           />
         )}
-        {activeNav === "errors" &&
-          drillView === "exchange-detail" &&
-          selectedExchange && (
-            <CenterExchangeDetail
-              exchange={selectedExchange}
-              events={exchangeEvents}
-              centerWidth={centerWidth}
-              bodyHeight={bodyHeight}
-              scrollIndex={detailScrollIndex}
-            />
-          )}
+        {activeNav === "errors" && showDetail && selectedExchange && (
+          <CenterExchangeDetail
+            exchange={selectedExchange}
+            events={exchangeEvents}
+            width={centerWidth}
+            height={bodyHeight}
+            scrollOffset={detailScrollIndex}
+            color="cyan"
+          />
+        )}
         {activeNav === "events" && (
           <EventsView
             events={events}
-            selectedIndex={selectedEventIndex}
-            listOffset={eventScrollOffset}
+            selectedIndex={eventScroll.selectedIndex}
+            scrollOffset={eventScroll.scrollOffset}
             width={centerWidth}
             height={bodyHeight}
+            color="cyan"
           />
         )}
 
-        {/* Right: Metrics + sparkline */}
-        <Box
-          flexDirection="column"
-          width={rightWidth}
-          borderStyle="round"
-          borderColor="gray"
-          paddingX={1}
-        >
-          <Text bold color="cyan">
-            METRICS
-          </Text>
-          <Text dimColor>{"\u2500".repeat(rightWidth - 4)}</Text>
+        {/* Right: Metrics + Keymap */}
+        <Box flexDirection="column" width={rightWidth}>
+          <Panel title="METRICS" width={rightWidth} flexGrow={1}>
+            <DotGraph
+              values={liveTraffic}
+              columns={rightWidth - 4}
+              steps={[
+                { max: 0, color: "gray" },
+                ...(Array.from({ length: 7 }, (_, i) => ({
+                  max: (i + 1) * 5,
+                  color: "green",
+                })) as { max: number; color: string }[]),
+                ...(Array.from({ length: 7 }, (_, i) => ({
+                  max: 35 + (i + 1) * 10,
+                  color: "yellow",
+                })) as { max: number; color: string }[]),
+                ...(Array.from({ length: 6 }, (_, i) => ({
+                  max: 105 + (i + 1) * 25,
+                  color: "red",
+                })) as { max: number; color: string }[]),
+              ]}
+              label="Exchanges per 5s bucket"
+            />
+            <Text> </Text>
+            {(
+              [
+                ["Exchanges", fmtNum(metrics.totalExchanges), "cyan"],
+                ["Completed", fmtNum(metrics.completedExchanges), "green"],
+                [
+                  "Errors",
+                  fmtNum(metrics.failedExchanges),
+                  metrics.failedExchanges > 0 ? "red" : "green",
+                ],
+                [
+                  "Dropped",
+                  fmtNum(metrics.droppedExchanges),
+                  metrics.droppedExchanges > 0 ? "yellow" : "green",
+                ],
+                [
+                  "Error Rate",
+                  `${(metrics.errorRate * 100).toFixed(1)}%`,
+                  metrics.errorRate > 0.1 ? "red" : "green",
+                ],
+                ["Avg Duration", formatDuration(metrics.avgDurationMs), ""],
+                ["Capabilities", fmtNum(metrics.totalRoutes), ""],
+              ] as [string, string, string][]
+            ).map(([label, value, color]) => (
+              <Box key={label}>
+                <Text>{label}:</Text>
+                <Box flexGrow={1} justifyContent="flex-end">
+                  <Text bold {...(color ? { color } : {})}>
+                    {value}
+                  </Text>
+                </Box>
+              </Box>
+            ))}
+          </Panel>
 
-          {barChart(traffic, rightWidth - 4, 5).map((row, i) => (
-            <Text key={i} color="green">
-              {row}
-            </Text>
-          ))}
-          <Text dimColor>Traffic (last hour)</Text>
-
-          <Text>
-            {"Exchanges:".padEnd(14)}
-            <Text bold color="cyan">
-              {fmtNum(metrics.totalExchanges).padStart(rightWidth - 18)}
-            </Text>
-          </Text>
-          <Text>
-            {"Completed:".padEnd(14)}
-            <Text bold color="green">
-              {fmtNum(metrics.completedExchanges).padStart(rightWidth - 18)}
-            </Text>
-          </Text>
-          <Text>
-            {"Errors:".padEnd(14)}
-            <Text bold color={metrics.failedExchanges > 0 ? "red" : "green"}>
-              {fmtNum(metrics.failedExchanges).padStart(rightWidth - 18)}
-            </Text>
-          </Text>
-          <Text>
-            {"Dropped:".padEnd(14)}
-            <Text
-              bold
-              color={metrics.droppedExchanges > 0 ? "yellow" : "green"}
-            >
-              {fmtNum(metrics.droppedExchanges).padStart(rightWidth - 18)}
-            </Text>
-          </Text>
-          <Text>
-            {"Error Rate:".padEnd(14)}
-            <Text bold color={metrics.errorRate > 0.1 ? "red" : "green"}>
-              {`${(metrics.errorRate * 100).toFixed(1)}%`.padStart(
-                rightWidth - 18,
-              )}
-            </Text>
-          </Text>
-          <Text>
-            {"Avg Duration:".padEnd(14)}
-            <Text bold>
-              {formatDuration(metrics.avgDurationMs).padStart(rightWidth - 18)}
-            </Text>
-          </Text>
-          <Text>
-            {"Capabilities:".padEnd(14)}
-            <Text bold>
-              {fmtNum(metrics.totalRoutes).padStart(rightWidth - 18)}
-            </Text>
-          </Text>
+          <Panel title="KEYMAP" width={rightWidth}>
+            {keymapItems.map((item) => (
+              <Box key={item.key}>
+                <Text>{item.action}</Text>
+                <Box flexGrow={1} justifyContent="flex-end">
+                  <Text color="yellow">[{item.key}]</Text>
+                </Box>
+              </Box>
+            ))}
+          </Panel>
         </Box>
       </Box>
     </Box>

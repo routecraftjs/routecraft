@@ -25,6 +25,7 @@ interface Database {
 interface Statement {
   all(...params: unknown[]): unknown[];
   get(...params: unknown[]): unknown;
+  run(...params: unknown[]): unknown;
 }
 
 type DatabaseConstructor = new (
@@ -38,11 +39,27 @@ type DatabaseConstructor = new (
  *
  * Use the static `open()` factory instead of the constructor directly.
  */
+/** Escape LIKE metacharacters so they match literally. */
+function escapeLike(s: string): string {
+  return s.replace(/[%_\\]/g, "\\$&");
+}
+
 export class TelemetryDb {
   private db: Database;
+  private stmtCache = new Map<string, Statement>();
 
   private constructor(db: Database) {
     this.db = db;
+  }
+
+  /** Prepare and cache a statement by key. Avoids re-parsing on every call. */
+  private stmt(key: string, sql: string): Statement {
+    let s = this.stmtCache.get(key);
+    if (!s) {
+      s = this.db.prepare(sql);
+      this.stmtCache.set(key, s);
+    }
+    return s;
   }
 
   /**
@@ -73,6 +90,55 @@ export class TelemetryDb {
     } catch {
       // Read-only connection cannot change journal mode; safe to ignore
     }
+
+    // Ensure indexes exist for TUI query performance.
+    // If the DB was created before indexes were added, create them now
+    // using a separate writable connection.
+    {
+      const wdb = new Database(dbPath);
+      try {
+        wdb
+          .prepare(
+            "CREATE INDEX IF NOT EXISTS idx_exchanges_started_at ON exchanges(started_at)",
+          )
+          .run();
+        wdb
+          .prepare(
+            "CREATE INDEX IF NOT EXISTS idx_exchanges_route_started ON exchanges(route_id, started_at)",
+          )
+          .run();
+        wdb
+          .prepare(
+            "CREATE INDEX IF NOT EXISTS idx_exchanges_correlation_id ON exchanges(correlation_id)",
+          )
+          .run();
+        // Add exchange_id/correlation_id columns to events table if missing
+        const cols = wdb.prepare("PRAGMA table_info(events)").all() as Array<{
+          name: string;
+        }>;
+        if (!cols.some((c) => c.name === "exchange_id")) {
+          wdb.prepare("ALTER TABLE events ADD COLUMN exchange_id TEXT").run();
+          wdb
+            .prepare("ALTER TABLE events ADD COLUMN correlation_id TEXT")
+            .run();
+        }
+        wdb
+          .prepare(
+            "CREATE INDEX IF NOT EXISTS idx_events_exchange_id ON events(exchange_id)",
+          )
+          .run();
+        wdb
+          .prepare(
+            "CREATE INDEX IF NOT EXISTS idx_events_correlation_id ON events(correlation_id)",
+          )
+          .run();
+      } catch {
+        // Best-effort; the writer will create them on next restart
+      } finally {
+        wdb.close();
+      }
+    }
+
     return new TelemetryDb(db);
   }
 
@@ -90,32 +156,48 @@ export class TelemetryDb {
     droppedExchanges: number;
     avgDurationMs: number | null;
   }> {
-    const stmt = this.db.prepare(`
-      WITH unique_routes AS (
+    const s = this.stmt(
+      "routeSummary",
+      `WITH unique_routes AS (
         SELECT
           id,
           MAX(registered_at) AS registered_at,
-          -- latest status across all context runs
           (SELECT r2.status FROM routes r2
            WHERE r2.id = r.id
            ORDER BY r2.registered_at DESC LIMIT 1) AS status
         FROM routes r
         GROUP BY id
+      ),
+      exchange_counts AS (
+        SELECT
+          route_id,
+          COUNT(*) AS total,
+          SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed,
+          SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed,
+          SUM(CASE WHEN status = 'dropped' THEN 1 ELSE 0 END) AS dropped
+        FROM exchanges
+        GROUP BY route_id
+      ),
+      recent_avg AS (
+        SELECT route_id, AVG(duration_ms) AS avgDur
+        FROM exchanges
+        WHERE started_at >= datetime('now', '-5 minutes')
+        GROUP BY route_id
       )
       SELECT
         ur.id,
         ur.status,
-        COALESCE(COUNT(e.id), 0) AS totalExchanges,
-        COALESCE(SUM(CASE WHEN e.status = 'completed' THEN 1 ELSE 0 END), 0) AS completedExchanges,
-        COALESCE(SUM(CASE WHEN e.status = 'failed' THEN 1 ELSE 0 END), 0) AS failedExchanges,
-        COALESCE(SUM(CASE WHEN e.status = 'dropped' THEN 1 ELSE 0 END), 0) AS droppedExchanges,
-        AVG(e.duration_ms) AS avgDurationMs
+        COALESCE(ec.total, 0) AS totalExchanges,
+        COALESCE(ec.completed, 0) AS completedExchanges,
+        COALESCE(ec.failed, 0) AS failedExchanges,
+        COALESCE(ec.dropped, 0) AS droppedExchanges,
+        ra.avgDur AS avgDurationMs
       FROM unique_routes ur
-      LEFT JOIN exchanges e ON ur.id = e.route_id
-      GROUP BY ur.id
-      ORDER BY ur.registered_at DESC
-    `);
-    return stmt.all() as Array<{
+      LEFT JOIN exchange_counts ec ON ur.id = ec.route_id
+      LEFT JOIN recent_avg ra ON ur.id = ra.route_id
+      ORDER BY ur.registered_at DESC`,
+    );
+    return s.all() as Array<{
       id: string;
       status: string;
       totalExchanges: number;
@@ -129,56 +211,48 @@ export class TelemetryDb {
   /**
    * Get exchanges for a specific route, ordered by most recent first.
    */
-  getExchangesByRoute(routeId: string, limit = 50): TelemetryExchange[] {
-    const stmt = this.db.prepare(`
-      SELECT
-        e.id,
-        e.route_id AS routeId,
-        e.context_id AS contextId,
-        e.correlation_id AS correlationId,
-        e.status,
-        e.started_at AS startedAt,
-        e.completed_at AS completedAt,
-        e.duration_ms AS durationMs,
-        e.error
-      FROM exchanges e
-      INNER JOIN (
-        SELECT correlation_id, MIN(ROWID) AS first_rowid
-        FROM exchanges
-        GROUP BY correlation_id
-      ) p ON e.correlation_id = p.correlation_id AND e.ROWID = p.first_rowid
-      WHERE e.route_id = ?
-      ORDER BY e.started_at DESC
-      LIMIT ?
-    `);
-    return stmt.all(routeId, limit) as TelemetryExchange[];
+  getExchangesByRoute(routeId: string, limit = -1): TelemetryExchange[] {
+    const s = this.stmt(
+      "exchangesByRoute",
+      `SELECT
+        id,
+        route_id AS routeId,
+        context_id AS contextId,
+        correlation_id AS correlationId,
+        status,
+        started_at AS startedAt,
+        completed_at AS completedAt,
+        duration_ms AS durationMs,
+        error
+      FROM exchanges
+      WHERE route_id = ?
+      ORDER BY started_at DESC
+      LIMIT ?`,
+    );
+    return s.all(routeId, limit) as TelemetryExchange[];
   }
 
   /**
    * Get all exchanges across all routes, ordered by most recent first.
    */
-  getAllExchanges(limit = 200): TelemetryExchange[] {
-    const stmt = this.db.prepare(`
-      SELECT
-        e.id,
-        e.route_id AS routeId,
-        e.context_id AS contextId,
-        e.correlation_id AS correlationId,
-        e.status,
-        e.started_at AS startedAt,
-        e.completed_at AS completedAt,
-        e.duration_ms AS durationMs,
-        e.error
-      FROM exchanges e
-      INNER JOIN (
-        SELECT correlation_id, MIN(ROWID) AS first_rowid
-        FROM exchanges
-        GROUP BY correlation_id
-      ) p ON e.correlation_id = p.correlation_id AND e.ROWID = p.first_rowid
-      ORDER BY e.started_at DESC
-      LIMIT ?
-    `);
-    return stmt.all(limit) as TelemetryExchange[];
+  getAllExchanges(limit = -1): TelemetryExchange[] {
+    const s = this.stmt(
+      "allExchanges",
+      `SELECT
+        id,
+        route_id AS routeId,
+        context_id AS contextId,
+        correlation_id AS correlationId,
+        status,
+        started_at AS startedAt,
+        completed_at AS completedAt,
+        duration_ms AS durationMs,
+        error
+      FROM exchanges
+      ORDER BY started_at DESC
+      LIMIT ?`,
+    );
+    return s.all(limit) as TelemetryExchange[];
   }
 
   /**
@@ -186,9 +260,10 @@ export class TelemetryDb {
    * Shows every failed exchange including child exchanges from split/multicast,
    * without deduplication by correlation chain.
    */
-  getFailedExchanges(limit = 200): TelemetryExchange[] {
-    const stmt = this.db.prepare(`
-      SELECT
+  getFailedExchanges(limit = -1): TelemetryExchange[] {
+    const s = this.stmt(
+      "failedExchanges",
+      `SELECT
         id,
         route_id AS routeId,
         context_id AS contextId,
@@ -201,33 +276,71 @@ export class TelemetryDb {
       FROM exchanges
       WHERE status = 'failed'
       ORDER BY started_at DESC
-      LIMIT ?
-    `);
-    return stmt.all(limit) as TelemetryExchange[];
+      LIMIT ?`,
+    );
+    return s.all(limit) as TelemetryExchange[];
   }
 
   /**
    * Get events for an exchange and all related exchanges sharing the
-   * same correlation ID. Searches the details JSON for the correlation ID.
+   * same correlation ID. Uses indexed exchange_id/correlation_id columns
+   * with a fallback to details LIKE for databases created before the
+   * column migration.
    */
   getEventsByExchange(
     exchangeId: string,
     correlationId: string,
   ): TelemetryEvent[] {
     const searchId = correlationId || exchangeId;
-    const stmt = this.db.prepare(`
-      SELECT
+
+    // Try indexed column lookup first (fast path)
+    const hasColumns = this.hasEventIdColumns();
+    if (hasColumns) {
+      const s = this.stmt(
+        "eventsByExchangeIndexed",
+        `SELECT
+          id,
+          timestamp,
+          context_id AS contextId,
+          event_name AS eventName,
+          details
+        FROM events
+        WHERE exchange_id = ? OR correlation_id = ?
+        ORDER BY id ASC`,
+      );
+      return s.all(searchId, searchId) as TelemetryEvent[];
+    }
+
+    // Fallback: full-text LIKE scan for older databases
+    const s = this.stmt(
+      "eventsByExchangeFallback",
+      `SELECT
         id,
         timestamp,
         context_id AS contextId,
         event_name AS eventName,
         details
       FROM events
-      WHERE details LIKE '%' || ? || '%'
-      ORDER BY id ASC
-    `);
-    return stmt.all(searchId) as TelemetryEvent[];
+      WHERE details LIKE '%' || ? || '%' ESCAPE '\\'
+      ORDER BY id ASC`,
+    );
+    return s.all(escapeLike(searchId)) as TelemetryEvent[];
   }
+
+  /** Check whether the events table has the exchange_id column. */
+  private hasEventIdColumns(): boolean {
+    if (this._hasEventIdColumns !== undefined) return this._hasEventIdColumns;
+    try {
+      const info = this.db.prepare("PRAGMA table_info(events)").all() as Array<{
+        name: string;
+      }>;
+      this._hasEventIdColumns = info.some((col) => col.name === "exchange_id");
+    } catch {
+      this._hasEventIdColumns = false;
+    }
+    return this._hasEventIdColumns;
+  }
+  private _hasEventIdColumns: boolean | undefined;
 
   /**
    * Get recent events, optionally filtered by event name pattern or route ID.
@@ -254,13 +367,15 @@ export class TelemetryDb {
     const params: unknown[] = [sinceId];
 
     if (options?.eventNameFilter) {
-      sql += " AND event_name LIKE ?";
-      params.push(`%${options.eventNameFilter}%`);
+      sql += " AND event_name LIKE ? ESCAPE '\\'";
+      params.push(`%${escapeLike(options.eventNameFilter)}%`);
     }
 
     if (options?.routeIdFilter) {
-      sql += " AND (event_name LIKE ? OR details LIKE ?)";
-      params.push(`%${options.routeIdFilter}%`, `%${options.routeIdFilter}%`);
+      sql +=
+        " AND (event_name LIKE ? ESCAPE '\\' OR details LIKE ? ESCAPE '\\')";
+      const escaped = escapeLike(options.routeIdFilter);
+      params.push(`%${escaped}%`, `%${escaped}%`);
     }
 
     sql += " ORDER BY id DESC LIMIT ?";
@@ -282,17 +397,18 @@ export class TelemetryDb {
     errorRate: number;
     avgDurationMs: number | null;
   } {
-    const stmt = this.db.prepare(`
-      SELECT
+    const s = this.stmt(
+      "metrics",
+      `SELECT
         (SELECT COUNT(DISTINCT id) FROM routes) AS totalRoutes,
-        COUNT(*) AS totalExchanges,
-        COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0) AS completedExchanges,
-        COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS failedExchanges,
-        COALESCE(SUM(CASE WHEN status = 'dropped' THEN 1 ELSE 0 END), 0) AS droppedExchanges,
-        AVG(duration_ms) AS avgDurationMs
-      FROM exchanges
-    `);
-    const row = stmt.get() as {
+        (SELECT COUNT(*) FROM exchanges) AS totalExchanges,
+        (SELECT COUNT(*) FROM exchanges WHERE status = 'completed') AS completedExchanges,
+        (SELECT COUNT(*) FROM exchanges WHERE status = 'failed') AS failedExchanges,
+        (SELECT COUNT(*) FROM exchanges WHERE status = 'dropped') AS droppedExchanges,
+        (SELECT AVG(duration_ms) FROM exchanges
+         WHERE started_at >= datetime('now', '-5 minutes')) AS avgDurationMs`,
+    );
+    const row = s.get() as {
       totalRoutes: number;
       totalExchanges: number;
       completedExchanges: number;
@@ -308,41 +424,88 @@ export class TelemetryDb {
   }
 
   /**
-   * Get exchange counts for the last hour in fixed 5-minute buckets.
-   * Returns 12 values (oldest first, newest last), sliding left as time passes.
+   * Get exchange counts for a rolling window using fine-grained buckets.
+   * Default: 60 buckets of 5 seconds = 5-minute rolling window.
+   * Returns values oldest-first for sparkline rendering.
    */
-  getTrafficBuckets(): number[] {
-    const buckets = 12;
-    const bucketWidthSec = 300; // 5 minutes
-
-    // Snap "now" to a 5-minute boundary so buckets don't shift between polls
+  getLiveTrafficBuckets(bucketCount = 60, bucketWidthSec = 5): number[] {
     const nowSec = Math.floor(Date.now() / 1000);
-    const snappedNowSec = Math.floor(nowSec / bucketWidthSec) * bucketWidthSec;
-    const windowStartSec = snappedNowSec - buckets * bucketWidthSec;
+    const snapped = Math.floor(nowSec / bucketWidthSec) * bucketWidthSec;
+    const windowStart = snapped - bucketCount * bucketWidthSec;
 
-    const stmt = this.db.prepare(`
-      SELECT
+    const s = this.stmt(
+      "liveTraffic",
+      `SELECT
         CAST((CAST(strftime('%s', started_at) AS INTEGER) - ?) / ? AS INTEGER) AS bucket,
         COUNT(*) AS cnt
       FROM exchanges
       WHERE CAST(strftime('%s', started_at) AS INTEGER) >= ?
         AND CAST(strftime('%s', started_at) AS INTEGER) <= ?
-      GROUP BY bucket
-    `);
-    const rows = stmt.all(
-      windowStartSec,
+      GROUP BY bucket`,
+    );
+    const rows = s.all(
+      windowStart,
       bucketWidthSec,
-      windowStartSec,
-      snappedNowSec,
+      windowStart,
+      snapped,
     ) as Array<{ bucket: number; cnt: number }>;
 
-    const result = new Array(buckets).fill(0) as number[];
+    const result = new Array(bucketCount).fill(0) as number[];
     for (const row of rows) {
-      if (row.bucket >= 0 && row.bucket < buckets) {
+      if (row.bucket >= 0 && row.bucket < bucketCount) {
         result[row.bucket] += row.cnt;
       }
     }
     return result;
+  }
+
+  /**
+   * Get activity data for a single route: throughput sparkline + recent error count.
+   */
+  getSingleRouteActivity(
+    routeId: string,
+    bucketCount = 12,
+    bucketWidthSec = 5,
+  ): { throughput: number[]; recentErrors: number } {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const snapped = Math.floor(nowSec / bucketWidthSec) * bucketWidthSec;
+    const windowStart = snapped - bucketCount * bucketWidthSec;
+
+    const tStmt = this.stmt(
+      "singleRouteActivity",
+      `SELECT
+        CAST((CAST(strftime('%s', started_at) AS INTEGER) - ?) / ? AS INTEGER) AS bucket,
+        COUNT(*) AS cnt
+      FROM exchanges
+      WHERE route_id = ?
+        AND CAST(strftime('%s', started_at) AS INTEGER) >= ?
+      GROUP BY bucket`,
+    );
+    const tRows = tStmt.all(
+      windowStart,
+      bucketWidthSec,
+      routeId,
+      windowStart,
+    ) as Array<{ bucket: number; cnt: number }>;
+
+    const eStmt = this.stmt(
+      "singleRouteErrors",
+      `SELECT COUNT(*) AS cnt
+      FROM exchanges
+      WHERE route_id = ?
+        AND status = 'failed'
+        AND CAST(strftime('%s', started_at) AS INTEGER) >= ?`,
+    );
+    const eRow = eStmt.get(routeId, windowStart) as { cnt: number } | undefined;
+
+    const throughput = new Array(bucketCount).fill(0) as number[];
+    for (const row of tRows) {
+      if (row.bucket >= 0 && row.bucket < bucketCount) {
+        throughput[row.bucket] = row.cnt;
+      }
+    }
+
+    return { throughput, recentErrors: eRow?.cnt ?? 0 };
   }
 
   /**

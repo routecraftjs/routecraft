@@ -405,8 +405,7 @@ export class CraftContext {
       details,
     } as EventPayload<K>;
 
-    // Attach event name for wildcard subscribers (e.g. telemetry plugin)
-    (payload as Record<string, unknown>)["_event"] = event;
+    payload._event = event;
 
     // Collect all matching handlers (exact match + wildcards)
     const matchingHandlers: EventHandler<EventName>[] = [];

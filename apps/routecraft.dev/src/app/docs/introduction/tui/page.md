@@ -20,7 +20,7 @@ See [Monitoring](/docs/introduction/monitoring#telemetry-plugin) for full plugin
 
 ## Launching the TUI
 
-Start the TUI in a separate terminal while your context is running (or after it has stopped -- the database persists):
+Start the TUI in a separate terminal while your context is running (or after it has stopped; the database persists):
 
 ```bash
 craft tui
@@ -62,7 +62,7 @@ A chronological list of individual exchange records. Select a route from the Das
 
 ### Events (e)
 
-A chronological tail of framework events with human-readable summaries -- context lifecycle, route lifecycle, exchange events, and operation events. Useful for debugging unexpected behaviour.
+A chronological tail of framework events with human-readable summaries: context lifecycle, route lifecycle, exchange events, and operation events. Useful for debugging unexpected behaviour.
 
 ## Keyboard shortcuts
 

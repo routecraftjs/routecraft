@@ -38,7 +38,8 @@
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
-    "@types/react": "^18.3.28"
+    "@types/react": "^18.3.28",
+    "ink-testing-library": "^4.0.0"
   },
   "publishConfig": {
     "access": "public"

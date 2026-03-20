@@ -164,4 +164,8 @@ export {
   ATTR,
   SPAN_KIND,
 } from "./telemetry/index.ts";
-export type { TelemetryOptions, TelemetryEvent } from "./telemetry/index.ts";
+export type {
+  TelemetryOptions,
+  TelemetrySqliteOptions,
+  TelemetryEvent,
+} from "./telemetry/index.ts";

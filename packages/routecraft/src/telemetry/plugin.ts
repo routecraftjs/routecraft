@@ -6,10 +6,15 @@ import {
 } from "@opentelemetry/api";
 import type { CraftContext, CraftPlugin } from "../context.ts";
 import type { EventName, EventHandler } from "../types.ts";
-import type { TelemetryOptions } from "./types.ts";
+import type { TelemetryOptions, TelemetryEvent } from "./types.ts";
 import { SqliteConnection } from "./sqlite-connection.ts";
 import { SqliteSpanProcessor, ATTR, SPAN_KIND } from "./sqlite-processor.ts";
 import { SqliteEventWriter } from "./sqlite-event-writer.ts";
+
+/**
+ * Tracer instrumentation version. Update when releasing a new version.
+ */
+const TRACER_VERSION = "0.4.0";
 
 /**
  * Default batch size for the event writer.
@@ -20,6 +25,16 @@ const DEFAULT_BATCH_SIZE = 50;
  * Default flush interval in milliseconds.
  */
 const DEFAULT_FLUSH_INTERVAL_MS = 1000;
+
+/**
+ * Default maximum exchange rows for pruning.
+ */
+const DEFAULT_MAX_EXCHANGES = 50_000;
+
+/**
+ * Default maximum event rows for pruning.
+ */
+const DEFAULT_MAX_EVENTS = 100_000;
 
 /**
  * Telemetry plugin that instruments the framework with OpenTelemetry traces
@@ -62,11 +77,10 @@ class TelemetryPlugin implements CraftPlugin {
 
   constructor(options?: TelemetryOptions) {
     this.options = options ?? {};
-    const batchSize = Math.trunc(
-      this.options.eventBatchSize ?? DEFAULT_BATCH_SIZE,
-    );
+    const sqlite = this.options.sqlite ?? {};
+    const batchSize = Math.trunc(sqlite.eventBatchSize ?? DEFAULT_BATCH_SIZE);
     const flushIntervalMs = Math.trunc(
-      this.options.eventFlushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS,
+      sqlite.eventFlushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS,
     );
     this.batchSize = batchSize > 0 ? batchSize : DEFAULT_BATCH_SIZE;
     this.flushIntervalMs =
@@ -76,10 +90,14 @@ class TelemetryPlugin implements CraftPlugin {
   async apply(ctx: CraftContext): Promise<void> {
     // -- SQLite path --
     if (!this.options.disableSqlite) {
+      const sqlite = this.options.sqlite ?? {};
       const conn = await SqliteConnection.open(
-        this.options.dbPath !== undefined
-          ? { dbPath: this.options.dbPath }
-          : undefined,
+        {
+          ...(sqlite.dbPath !== undefined ? { dbPath: sqlite.dbPath } : {}),
+          maxExchanges: sqlite.maxExchanges ?? DEFAULT_MAX_EXCHANGES,
+          maxEvents: sqlite.maxEvents ?? DEFAULT_MAX_EVENTS,
+        },
+        ctx.logger,
       );
       if (conn) {
         this.connection = conn;
@@ -101,12 +119,12 @@ class TelemetryPlugin implements CraftPlugin {
     if (this.options.tracerProvider) {
       this.tracer = this.options.tracerProvider.getTracer(
         "routecraft",
-        "0.4.0",
+        TRACER_VERSION,
       );
     } else if (trace.getTracerProvider() !== undefined) {
       // Use globally registered provider if no explicit one given
       // (no-op if no SDK installed)
-      this.tracer = trace.getTracer("routecraft", "0.4.0");
+      this.tracer = trace.getTracer("routecraft", TRACER_VERSION);
     }
 
     // -- Subscribe to events --
@@ -155,12 +173,24 @@ class TelemetryPlugin implements CraftPlugin {
         _event?: string;
       }) => {
         if (!this.eventWriter) return;
-        this.eventWriter.write({
+        const d = payload.details as Record<string, unknown> | null;
+        const exchangeId =
+          d && typeof d["exchangeId"] === "string"
+            ? d["exchangeId"]
+            : undefined;
+        const corrId =
+          d && typeof d["correlationId"] === "string"
+            ? d["correlationId"]
+            : undefined;
+        const event: TelemetryEvent = {
           timestamp: payload.ts,
           contextId: payload.contextId,
           eventName: payload._event ?? extractEventName(payload),
           details: safeStringify(payload.details),
-        });
+        };
+        if (exchangeId) event.exchangeId = exchangeId;
+        if (corrId) event.correlationId = corrId;
+        this.eventWriter.write(event);
       }) as EventHandler<EventName>),
     );
   }
@@ -467,13 +497,18 @@ function safeStringify(value: unknown): string {
       }
       return val;
     });
-  } catch {
-    return "{}";
+  } catch (err) {
+    return JSON.stringify({ _serializationError: String(err) });
   }
 }
 
 /**
  * Extract a meaningful event name from a wildcard payload.
+ *
+ * This is a best-effort fallback for events that lack the `_event` field.
+ * The `_event` field (checked by the caller) is the authoritative source.
+ * These heuristics infer the event name from payload shape and may
+ * misclassify events with overlapping fields.
  */
 function extractEventName(payload: { details: unknown }): string {
   const d = payload.details as Record<string, unknown> | null;
@@ -495,13 +530,10 @@ function extractEventName(payload: { details: unknown }): string {
     return `route:${routeId}:exchange:started`;
   }
 
-  if ("routeId" in d && "operation" in d && "adapterId" in d) {
+  if ("routeId" in d && "operation" in d) {
     const routeId = d["routeId"] as string;
-    const adapterId = d["adapterId"] as string;
-    const op = d["operation"] as string;
-    if ("duration" in d)
-      return `route:${routeId}:operation:${op}:${adapterId}:stopped`;
-    return `route:${routeId}:operation:${op}:${adapterId}:started`;
+    if ("duration" in d) return `route:${routeId}:step:completed`;
+    return `route:${routeId}:step:started`;
   }
 
   if ("pluginId" in d) return "plugin:event";

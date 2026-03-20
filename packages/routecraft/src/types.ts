@@ -536,6 +536,8 @@ export type EventPayload<K extends EventName> = {
   ts: string;
   contextId: string;
   details: EventDetailsMapping<K>;
+  /** The exact event name that was emitted. Set by context.emit(). */
+  _event: string;
 };
 
 export type EventHandler<K extends EventName> = (

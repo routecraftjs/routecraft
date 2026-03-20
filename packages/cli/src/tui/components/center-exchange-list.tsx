@@ -1,81 +1,99 @@
 import { Box, Text } from "ink";
-import type { ExchangeRecord } from "../types.js";
-import { statusColor, formatDuration, col, truncate } from "../utils.js";
+import type { ExchangeRecord, RouteSummary, RouteActivity } from "../types.js";
+import { statusColor, formatDuration, col } from "../utils.js";
+import { PANEL_TABLE_CHROME } from "../layout.js";
+import { Panel } from "./panel.js";
+import { RouteHeader } from "./route-header.js";
+import { DotGraph, DEFAULT_STEPS } from "./dot-graph.js";
+import { Table, type ColumnDef } from "./table.js";
+import { selectorColumn } from "./event-columns.js";
+
+const exchangeColumns: ColumnDef<ExchangeRecord>[] = [
+  selectorColumn<ExchangeRecord>(),
+  {
+    header: "ID",
+    width: "flex",
+    render: (row, selected) => (
+      <Text {...(selected ? { color: "cyan" as const } : {})} bold={selected}>
+        {row.id}
+      </Text>
+    ),
+  },
+  {
+    header: "Status",
+    width: 9,
+    render: (row, _sel, w) => (
+      <Text color={statusColor(row.status)}>{col(row.status, w)}</Text>
+    ),
+  },
+  {
+    header: "Duration",
+    width: 8,
+    align: "right",
+    render: (row) => <Text>{formatDuration(row.durationMs).padStart(8)}</Text>,
+  },
+  {
+    header: "Time",
+    width: 8,
+    render: (row, _sel, w) => (
+      <Text dimColor>
+        {col(row.startedAt.replace("T", " ").slice(11, 19), w)}
+      </Text>
+    ),
+  },
+];
 
 export function CenterExchangeList({
   capabilityId,
+  route,
   exchanges,
   selectedIndex,
-  listOffset,
-  centerWidth,
-  bodyHeight,
+  scrollOffset,
+  width,
+  height,
+  color = "gray",
+  activity,
 }: {
   capabilityId: string;
+  route?: RouteSummary;
   exchanges: ExchangeRecord[];
   selectedIndex: number;
-  listOffset: number;
-  centerWidth: number;
-  bodyHeight: number;
+  scrollOffset: number;
+  width: number;
+  height: number;
+  color?: string;
+  activity?: RouteActivity | undefined;
 }) {
-  const idColWidth = Math.max(centerWidth - 50, 8);
-  const tableRows = Math.max(bodyHeight - 6, 3);
-  const offset = listOffset;
+  const graphTermRows = Math.ceil((DEFAULT_STEPS.length - 1) / 4);
+  const headerRows = route ? 2 + graphTermRows + 2 : 0;
+  const tableRows = Math.max(height - PANEL_TABLE_CHROME - headerRows, 3);
+
+  const title = route ? "EXCHANGES" : `EXCHANGES: ${capabilityId}`;
 
   return (
-    <Box
-      flexDirection="column"
-      width={centerWidth}
-      flexGrow={1}
-      borderStyle="round"
-      borderColor="gray"
-      paddingX={1}
-    >
-      <Text bold>
-        EXCHANGES: <Text color="cyan">{capabilityId}</Text>
-      </Text>
-      <Text dimColor>{"\u2500".repeat(Math.max(centerWidth - 4, 20))}</Text>
-      <Text bold dimColor>
-        {"  "}
-        {col("ID", idColWidth)}
-        {"  "}
-        {col("Status", 9)}
-        {"  "}
-        {"Duration".padStart(8)}
-        {"  "}
-        {"Time"}
-      </Text>
-      {exchanges.length === 0 ? (
-        <Text dimColor>No exchanges</Text>
-      ) : (
-        exchanges.slice(offset, offset + tableRows).map((ex, vi) => {
-          const i = offset + vi;
-          return (
-            <Text key={ex.id + ex.contextId} wrap="truncate">
-              <Text
-                {...(i === selectedIndex ? { color: "cyan" as const } : {})}
-                bold={i === selectedIndex}
-              >
-                {i === selectedIndex ? "> " : "  "}
-                {col(truncate(ex.id, idColWidth), idColWidth)}
-              </Text>
-              {"  "}
-              <Text color={statusColor(ex.status)}>{col(ex.status, 9)}</Text>
-              {"  "}
-              <Text>{formatDuration(ex.durationMs).padStart(8)}</Text>
-              {"  "}
-              <Text dimColor>
-                {ex.startedAt.replace("T", " ").slice(11, 19)}
-              </Text>
-            </Text>
-          );
-        })
+    <Box flexDirection="column" width={width} flexGrow={1}>
+      {route && (
+        <Panel width={width}>
+          <RouteHeader route={route} />
+          <Text> </Text>
+          <DotGraph
+            values={activity ? activity.throughput : []}
+            columns={width - 4}
+            label="Exchanges per 5s bucket"
+          />
+        </Panel>
       )}
-      {exchanges.length > tableRows && (
-        <Text dimColor>
-          {offset + tableRows < exchanges.length ? "\u2193 " : "  "}
-          {exchanges.length} total
-        </Text>
-      )}
+      <Panel title={title} width={width} flexGrow={1} color={color}>
+        <Table
+          columns={exchangeColumns}
+          data={exchanges}
+          rowKey={(ex) => ex.id + ex.contextId}
+          selectedIndex={selectedIndex}
+          scrollOffset={scrollOffset}
+          visibleRows={tableRows}
+          emptyMessage="No exchanges"
+        />
+      </Panel>
     </Box>
   );
 }

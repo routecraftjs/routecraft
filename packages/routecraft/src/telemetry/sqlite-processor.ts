@@ -1,4 +1,5 @@
 import type { SqliteConnection } from "./sqlite-connection.ts";
+import type { TelemetryLogger } from "./types.ts";
 
 /**
  * Semantic attribute keys used by the telemetry plugin to tag spans.
@@ -60,6 +61,7 @@ interface OTelSpan {
  * external export scenarios.
  */
 export class SqliteSpanProcessor {
+  private readonly logger: TelemetryLogger | undefined;
   private readonly upsertRouteStmt: { run(...params: unknown[]): unknown };
   private readonly updateRouteStatusStmt: {
     run(...params: unknown[]): unknown;
@@ -76,6 +78,7 @@ export class SqliteSpanProcessor {
   };
 
   constructor(connection: SqliteConnection) {
+    this.logger = connection.logger;
     this.upsertRouteStmt = connection.db.prepare(
       `INSERT INTO routes (id, context_id, registered_at, status)
        VALUES (?, ?, ?, 'registered')
@@ -112,16 +115,19 @@ export class SqliteSpanProcessor {
   writeRoute(routeId: string, contextId: string, registeredAt: string): void {
     try {
       this.upsertRouteStmt.run(routeId, contextId, registeredAt);
-    } catch {
-      // Non-blocking
+    } catch (err) {
+      this.logger?.warn({ err, routeId }, "Failed to write telemetry route");
     }
   }
 
   updateRouteStatus(routeId: string, contextId: string, status: string): void {
     try {
       this.updateRouteStatusStmt.run(status, routeId, contextId);
-    } catch {
-      // Non-blocking
+    } catch (err) {
+      this.logger?.warn(
+        { err, routeId, status },
+        "Failed to update telemetry route status",
+      );
     }
   }
 
@@ -140,8 +146,11 @@ export class SqliteSpanProcessor {
         correlationId,
         startedAt,
       );
-    } catch {
-      // Non-blocking
+    } catch (err) {
+      this.logger?.warn(
+        { err, exchangeId, routeId },
+        "Failed to write telemetry exchange",
+      );
     }
   }
 
@@ -158,8 +167,11 @@ export class SqliteSpanProcessor {
         exchangeId,
         contextId,
       );
-    } catch {
-      // Non-blocking
+    } catch (err) {
+      this.logger?.warn(
+        { err, exchangeId },
+        "Failed to complete telemetry exchange",
+      );
     }
   }
 
@@ -178,8 +190,11 @@ export class SqliteSpanProcessor {
         exchangeId,
         contextId,
       );
-    } catch {
-      // Non-blocking
+    } catch (err) {
+      this.logger?.warn(
+        { err, exchangeId },
+        "Failed to record telemetry exchange failure",
+      );
     }
   }
 
@@ -196,8 +211,11 @@ export class SqliteSpanProcessor {
         exchangeId,
         contextId,
       );
-    } catch {
-      // Non-blocking
+    } catch (err) {
+      this.logger?.warn(
+        { err, exchangeId },
+        "Failed to record telemetry exchange drop",
+      );
     }
   }
 

@@ -20,9 +20,9 @@ const Database = require("better-sqlite3");
  */
 function sqliteTelemetry(
   dbPath: string,
-  pluginOpts?: { eventBatchSize?: number; eventFlushIntervalMs?: number },
+  sqliteOpts?: { eventBatchSize?: number; eventFlushIntervalMs?: number },
 ) {
-  return telemetry({ dbPath, ...pluginOpts });
+  return telemetry({ sqlite: { dbPath, ...sqliteOpts } });
 }
 
 describe("TelemetryPlugin", () => {

@@ -1,5 +1,4 @@
 export type NavItem = "capabilities" | "exchanges" | "errors" | "events";
-export type DrillView = "none" | "exchange-list" | "exchange-detail";
 
 export type NavSection = {
   label?: string;
@@ -59,4 +58,9 @@ export interface Metrics {
   droppedExchanges: number;
   errorRate: number;
   avgDurationMs: number | null;
+}
+
+export interface RouteActivity {
+  throughput: number[];
+  recentErrors: number;
 }

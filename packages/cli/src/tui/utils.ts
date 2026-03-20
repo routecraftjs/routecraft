@@ -5,6 +5,7 @@ export function truncate(str: string, maxLen: number): string {
 
 export function formatDuration(ms: number | null): string {
   if (ms === null || ms === undefined) return "-";
+  if (ms === 0) return "<1ms";
   if (ms < 1000) return `${Math.round(ms)}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
 }
@@ -32,13 +33,13 @@ export function col(str: string, len: number): string {
 
 // Fixed column widths for the Details column so fields line up across rows.
 // All event types share the same 4-column layout:
-//   [col1: 10] [col2: 10] [ex=: 12] [dur: 6] [extra]
-// Step events:    operation  (adapter)  ex=…      dur   metadata
-// Exchange events: routeId   (status)   ex=…      dur
+//   [col1: 10] [col2: 10] [exId: 12] [dur: 6] [extra]
+// Step events:    operation  (adapter)  id…       dur   metadata
+// Exchange events: routeId   (status)   id…       dur
 const DET = {
   COL1: 10, // operation or routeId
   COL2: 10, // (adapter) or (err)/(reason)/(dropped)
-  EX: 12, // "ex=789003e7 "
+  EX: 12, // "789003e7    "
   DUR: 6, // "1ms   " "10.0s "
 } as const;
 
@@ -47,7 +48,7 @@ export function formatDetails(_eventName: string, raw: string): string {
     const d = JSON.parse(raw) as Record<string, unknown>;
 
     const exStr =
-      "exchangeId" in d ? `ex=${String(d["exchangeId"]).slice(0, 8)}` : "";
+      "exchangeId" in d ? `${String(d["exchangeId"]).slice(0, 8)}` : "";
     const durStr =
       "duration" in d ? formatDuration(d["duration"] as number) : "";
 
@@ -120,55 +121,108 @@ export function formatDetails(_eventName: string, raw: string): string {
   }
 }
 
-/**
- * Render a multi-row bar chart from bucket values.
- * Each column is one bucket; rows build from bottom to top.
- * Returns an array of strings, one per row (top row first).
- */
-export function barChart(
-  values: number[],
-  maxWidth: number,
-  chartHeight: number,
-): string[] {
-  if (values.length === 0) {
-    return Array.from({ length: chartHeight }, () => " ".repeat(maxWidth));
-  }
-  const data =
-    values.length <= maxWidth
-      ? values
-      : Array.from({ length: maxWidth }, (_, i) => {
-          const start = Math.floor((i * values.length) / maxWidth);
-          const end = Math.floor(((i + 1) * values.length) / maxWidth);
-          return Math.max(...values.slice(start, end), 0);
-        });
-  const max = Math.max(...data, 1);
+export interface DetailColumns {
+  step: string;
+  adapter: string;
+  exchange: string;
+  duration: string;
+  meta: string;
+}
 
-  const rows: string[] = [];
-  for (let row = chartHeight - 1; row >= 0; row--) {
-    const threshold = (row / chartHeight) * max;
-    let line = "";
-    for (const v of data) {
-      if (v > threshold) {
-        const cellFill = Math.min((v - threshold) / (max / chartHeight), 1);
-        const blocks = [
-          " ",
-          "\u2581",
-          "\u2582",
-          "\u2583",
-          "\u2584",
-          "\u2585",
-          "\u2586",
-          "\u2587",
-          "\u2588",
-        ];
-        line += blocks[Math.round(cellFill * 8)];
-      } else {
-        line += " ";
+/**
+ * Structured version of formatDetails that returns individual columns
+ * so the component can control alignment per-column.
+ */
+export function formatDetailColumns(
+  eventName: string,
+  raw: string,
+): DetailColumns {
+  const empty: DetailColumns = {
+    step: "",
+    adapter: "",
+    exchange: "",
+    duration: "",
+    meta: "",
+  };
+  try {
+    const d = JSON.parse(raw) as Record<string, unknown>;
+
+    const exchange =
+      "exchangeId" in d ? `${String(d["exchangeId"]).slice(0, 8)}` : "";
+    const duration =
+      "duration" in d ? formatDuration(d["duration"] as number) : "";
+
+    // Step/operation events
+    if ("operation" in d && "routeId" in d) {
+      const adapter =
+        "adapter" in d
+          ? `(${d["adapter"]})`
+          : "adapterId" in d
+            ? `(${d["adapterId"]})`
+            : "";
+      let meta = "";
+      if (
+        "metadata" in d &&
+        typeof d["metadata"] === "object" &&
+        d["metadata"] !== null
+      ) {
+        const m = d["metadata"] as Record<string, unknown>;
+        const keys = Object.keys(m).slice(0, 2);
+        if (keys.length > 0) meta = keys.map((k) => `${k}=${m[k]}`).join(" ");
       }
+      return {
+        step: String(d["operation"]),
+        adapter,
+        exchange,
+        duration,
+        meta,
+      };
     }
-    rows.push(line.padEnd(maxWidth));
+
+    // Exchange events
+    if ("routeId" in d && "exchangeId" in d) {
+      const qualifier =
+        "error" in d
+          ? "(err)"
+          : "reason" in d
+            ? `(${String(d["reason"]).slice(0, 8)})`
+            : "";
+      return {
+        step: "",
+        adapter: qualifier,
+        exchange,
+        duration,
+        meta: "",
+      };
+    }
+
+    // Fallback
+    return { ...empty, step: formatDetails(eventName, raw) };
+  } catch {
+    return { ...empty, step: raw };
   }
-  return rows;
+}
+
+/**
+ * Render a single-line sparkline from an array of values.
+ * Uses Unicode block characters (▁▂▃▄▅▆▇█).
+ * Empty/zero-only input returns spaces of the same length.
+ */
+export function sparkline(values: number[]): string {
+  if (values.length === 0) return "";
+  const blocks = [
+    " ",
+    "\u2581",
+    "\u2582",
+    "\u2583",
+    "\u2584",
+    "\u2585",
+    "\u2586",
+    "\u2587",
+    "\u2588",
+  ];
+  const max = Math.max(...values, 1);
+  return values.map((v) => blocks[Math.round((v / max) * 8)]).join("");
 }
 
 export function fmtNum(n: number): string {
@@ -194,14 +248,4 @@ export function adjustScrollOffset(
   if (selected >= currentOffset + visibleRows)
     return selected - visibleRows + 1;
   return currentOffset;
-}
-
-/** @deprecated Use adjustScrollOffset with tracked state instead. */
-export function scrollOffset(
-  selectedIndex: number,
-  totalItems: number,
-  visibleRows: number,
-): number {
-  if (totalItems <= visibleRows) return 0;
-  return adjustScrollOffset(selectedIndex, 0, visibleRows);
 }

@@ -10,6 +10,7 @@ import {
   EXCHANGE_INTERNALS,
 } from "./exchange.ts";
 import { type RegisteredDirectEndpoint } from "./registry.ts";
+import { SPLIT_PARENT_STORE } from "./operations/split.ts";
 
 /**
  * Function that forwards a payload to another route via the direct adapter and returns its result.
@@ -623,6 +624,31 @@ export class DefaultRoute implements Route {
         // Do NOT return here: the while loop continues so other queue items (e.g. split children) are processed
       }
     }
+
+    // Clean up orphaned split parent map entries. If all children of a split
+    // group were filtered/failed before reaching aggregate, the parent entry
+    // in the store is never cleaned up by aggregate. Remove any entries whose
+    // group IDs were seen in this runSteps call but not consumed by aggregate.
+    const parentMap = this.context.getStore(SPLIT_PARENT_STORE) as
+      | Map<string, Exchange>
+      | undefined;
+    if (parentMap && parentMap.size > 0) {
+      for (const groupId of Array.from(parentMap.keys())) {
+        // If no exchange in the (now empty) queue still references this group,
+        // the aggregate never ran for it. Safe to clean up.
+        const parentEx = parentMap.get(groupId);
+        if (parentEx) {
+          const hierarchy = parentEx.headers[HeadersKeys.SPLIT_HIERARCHY] as
+            | string[]
+            | undefined;
+          // Only clean up groups that belong to the current route's exchanges
+          if (!hierarchy || hierarchy.includes(groupId)) {
+            parentMap.delete(groupId);
+          }
+        }
+      }
+    }
+
     return { exchange: lastProcessedExchange, failed };
   }
 

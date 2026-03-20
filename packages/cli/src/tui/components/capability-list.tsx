@@ -2,18 +2,24 @@ import { Text } from "ink";
 import type { RouteSummary } from "../types.js";
 import { truncate } from "../utils.js";
 
+function dotColor(route: RouteSummary): string {
+  if (route.failedExchanges > 0) return "red";
+  if (route.totalExchanges > 0) return "green";
+  return "yellow";
+}
+
 export function CapabilityList({
   routes,
   selectedIndex,
   listOffset,
   visibleRows,
-  colWidth,
+  width,
 }: {
   routes: RouteSummary[];
   selectedIndex: number;
   listOffset: number;
   visibleRows: number;
-  colWidth: number;
+  width: number;
 }) {
   const offset = listOffset;
 
@@ -21,7 +27,7 @@ export function CapabilityList({
     <>
       <Text> </Text>
       <Text bold dimColor>
-        {"\u2500".repeat(colWidth + 2)}
+        {"\u2500".repeat(width + 2)}
       </Text>
       {routes.length === 0 ? (
         <Text dimColor>No capabilities</Text>
@@ -35,7 +41,13 @@ export function CapabilityList({
                 bold={i === selectedIndex}
               >
                 {i === selectedIndex ? "> " : "  "}
-                {truncate(route.id, colWidth)}
+              </Text>
+              <Text color={dotColor(route)}>{"\u25CF "}</Text>
+              <Text
+                {...(i === selectedIndex ? { color: "cyan" as const } : {})}
+                bold={i === selectedIndex}
+              >
+                {truncate(route.id, width - 2)}
               </Text>
             </Text>
           );

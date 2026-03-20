@@ -1,12 +1,10 @@
 import { Box, Text } from "ink";
 import type { ExchangeRecord, EventRecord } from "../types.js";
-import {
-  statusColor,
-  formatDuration,
-  formatDetails,
-  col,
-  truncate,
-} from "../utils.js";
+import { statusColor, formatDuration, col, truncate } from "../utils.js";
+import { DETAIL_INFO_CHROME } from "../layout.js";
+import { Panel } from "./panel.js";
+import { Table, type ColumnDef } from "./table.js";
+import { eventDetailColumns } from "./event-columns.js";
 
 function parseDetails(raw: string): Record<string, unknown> | null {
   try {
@@ -15,6 +13,13 @@ function parseDetails(raw: string): Record<string, unknown> | null {
     return null;
   }
 }
+
+type DisplayRow = {
+  type: "header" | "event";
+  text?: string;
+  event?: EventRecord;
+  indent: number;
+};
 
 /**
  * Group events by exchangeId to show parent/child flow.
@@ -54,32 +59,54 @@ function groupEventsByExchange(
   return Array.from(groups.values());
 }
 
+const detailColumns: ColumnDef<DisplayRow>[] = [
+  {
+    header: "Time",
+    width: 8,
+    render: (row, _sel, w) => {
+      if (!row.event) return <Text>{col("", w)}</Text>;
+      const indent = " ".repeat(row.indent);
+      return (
+        <Text dimColor>
+          {indent}
+          {row.event.timestamp.replace("T", " ").slice(11, 19)}
+        </Text>
+      );
+    },
+  },
+  {
+    header: "Event",
+    width: "flex",
+    render: (row) => {
+      if (!row.event) return <Text />;
+      return <Text color="cyan">{row.event.eventName}</Text>;
+    },
+  },
+  ...eventDetailColumns<DisplayRow>((row) => row.event),
+];
+
 export function CenterExchangeDetail({
   exchange,
   events,
-  centerWidth,
-  bodyHeight,
-  scrollIndex,
+  width,
+  height,
+  scrollOffset,
+  color = "gray",
 }: {
   exchange: ExchangeRecord;
   events: EventRecord[];
-  centerWidth: number;
-  bodyHeight: number;
-  scrollIndex: number;
+  width: number;
+  height: number;
+  scrollOffset: number;
+  color?: string;
 }) {
-  const eventColWidth = Math.min(Math.max(centerWidth - 30, 15), 40);
-  const detailsColWidth = Math.max(centerWidth - eventColWidth - 28, 5);
-  const eventRows = Math.max(bodyHeight - 8, 3);
+  const hasExtra = exchange.error ? 2 : 0;
+  const eventRows = Math.max(height - DETAIL_INFO_CHROME - hasExtra, 3);
 
   const groups = groupEventsByExchange(events, exchange.id);
   const hasChildren = groups.length > 1;
 
-  const displayRows: {
-    type: "header" | "event";
-    text?: string;
-    event?: EventRecord;
-    indent: number;
-  }[] = [];
+  const displayRows: DisplayRow[] = [];
   for (const group of groups) {
     if (hasChildren) {
       displayRows.push({
@@ -97,89 +124,78 @@ export function CenterExchangeDetail({
     }
   }
 
+  const eventsTitle = hasChildren
+    ? `EXCHANGE FLOW (${groups.length} exchanges, ${events.length} events)`
+    : `RELATED EVENTS (${events.length})`;
+
   return (
-    <Box flexDirection="column" width={centerWidth} flexGrow={1}>
-      <Box
-        flexDirection="column"
-        borderStyle="round"
-        borderColor="gray"
-        paddingX={1}
-      >
-        <Text bold>
-          EXCHANGE:{" "}
-          <Text color="cyan">{truncate(exchange.id, centerWidth - 14)}</Text>
+    <Box flexDirection="column" width={width} flexGrow={1}>
+      <Panel width={width}>
+        <Text>
+          Capability:{" "}
+          <Text bold color="cyan">
+            {exchange.routeId}
+          </Text>
         </Text>
         <Text>
-          Capability: <Text bold>{exchange.routeId}</Text>
-          {"    "}Status:{" "}
-          <Text color={statusColor(exchange.status)}>{exchange.status}</Text>
+          Exchange:{" "}
+          <Text bold color="cyan">
+            {truncate(exchange.id, width - 14)}
+          </Text>
+        </Text>
+        <Text>
+          Status:{" "}
+          <Text bold color={statusColor(exchange.status)}>
+            {exchange.status}
+          </Text>
           {exchange.durationMs !== null && (
             <Text>
-              {"    "}Duration:{" "}
+              {"  "}Duration:{" "}
               <Text bold>{formatDuration(exchange.durationMs)}</Text>
             </Text>
           )}
+          {"  "}Started: <Text bold>{exchange.startedAt}</Text>
+          {exchange.completedAt && (
+            <Text>
+              {"  "}Completed: <Text bold>{exchange.completedAt}</Text>
+            </Text>
+          )}
         </Text>
-        <Text dimColor>
-          Started: {exchange.startedAt}
-          {exchange.completedAt && `    Completed: ${exchange.completedAt}`}
-        </Text>
-        {exchange.error && <Text color="red">Error: {exchange.error}</Text>}
-      </Box>
+        {exchange.error && exchange.status === "failed" && (
+          <>
+            <Text> </Text>
+            <Text color="red">Error: {exchange.error}</Text>
+          </>
+        )}
+        {exchange.error && exchange.status === "dropped" && (
+          <>
+            <Text> </Text>
+            <Text color="yellow">Reason: {exchange.error}</Text>
+          </>
+        )}
+      </Panel>
 
-      <Box
-        flexDirection="column"
-        borderStyle="round"
-        borderColor="gray"
-        paddingX={1}
-        flexGrow={1}
-      >
-        <Text bold dimColor>
-          {hasChildren
-            ? `EXCHANGE FLOW (${groups.length} exchanges, ${events.length} events)`
-            : `RELATED EVENTS (${events.length})`}
-        </Text>
-        <Text dimColor>{"\u2500".repeat(Math.max(centerWidth - 4, 20))}</Text>
-        {displayRows.length === 0 ? (
-          <Text dimColor>No related events found</Text>
-        ) : (
-          displayRows
-            .slice(scrollIndex, scrollIndex + eventRows)
-            .map((row, i) => {
-              if (row.type === "header") {
-                return (
-                  <Text key={`h-${i}`} bold color="yellow">
-                    {row.text}
-                  </Text>
-                );
-              }
-              const ev = row.event!;
-              const indent = " ".repeat(row.indent);
-              return (
-                <Text key={ev.id ?? `${ev.timestamp}-${i}`} wrap="truncate">
-                  <Text dimColor>
-                    {indent}
-                    {ev.timestamp.replace("T", " ").slice(11, 19)}
-                  </Text>
-                  {"  "}
-                  <Text color="cyan">{col(ev.eventName, eventColWidth)}</Text>
-                  {"  "}
-                  <Text>
-                    {truncate(
-                      formatDetails(ev.eventName, ev.details),
-                      detailsColWidth,
-                    )}
-                  </Text>
-                </Text>
-              );
-            })
-        )}
-        {displayRows.length > scrollIndex + eventRows && (
-          <Text dimColor>
-            {"\u2193"} {displayRows.length - scrollIndex - eventRows} more
-          </Text>
-        )}
-      </Box>
+      <Panel title={eventsTitle} width={width} flexGrow={1} color={color}>
+        <Table
+          columns={detailColumns}
+          data={displayRows}
+          rowKey={(row, i) =>
+            row.type === "header"
+              ? `h-${i}`
+              : `${row.event?.id ?? row.event?.timestamp}-${i}`
+          }
+          scrollOffset={scrollOffset}
+          visibleRows={eventRows}
+          emptyMessage="No related events found"
+          renderFullRow={(row) =>
+            row.type === "header" ? (
+              <Text bold color="yellow">
+                {row.text}
+              </Text>
+            ) : undefined
+          }
+        />
+      </Panel>
     </Box>
   );
 }

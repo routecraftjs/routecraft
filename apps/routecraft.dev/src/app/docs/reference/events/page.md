@@ -82,8 +82,8 @@ The `metadata` field is populated by the adapter's `getMetadata()` method. For e
 
 Split and aggregate use standard `step:started`/`step:completed` events (not dedicated operation events). Operation-specific data is in the `metadata` field:
 
-- **Split** `step:completed` includes `metadata.childCount` -- the number of child exchanges created
-- **Aggregate** `step:completed` includes `metadata.inputCount` -- the number of exchanges merged
+- **Split** `step:completed` includes `metadata.childCount`: the number of child exchanges created
+- **Aggregate** `step:completed` includes `metadata.inputCount`: the number of exchanges merged
 
 After a split, each child exchange emits its own `exchange:started`. When aggregate consumes children, it emits `exchange:completed` for each child before continuing on the parent exchange.
 

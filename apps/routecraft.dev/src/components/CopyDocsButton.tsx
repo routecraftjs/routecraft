@@ -5,12 +5,7 @@ import { usePathname } from 'next/navigation'
 import { Menu, MenuButton, MenuItem, MenuItems } from '@headlessui/react'
 import clsx from 'clsx'
 
-import {
-  getPageMarkdown,
-  getAllDocsMarkdown,
-  getPageRawUrl,
-  getAllDocsRawUrl,
-} from '@/markdoc/docs-markdown.mjs'
+import { getPageMarkdown, getAllDocsRawUrl } from '@/markdoc/docs-markdown.mjs'
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || ''
 
@@ -23,23 +18,6 @@ function CopyIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
       {...props}
     >
       <path d="M208 0H332.1c12.7 0 24.9 5.1 33.9 14.1l67.9 67.9c9 9 14.1 21.2 14.1 33.9V336c0 26.5-21.5 48-48 48H208c-26.5 0-48-21.5-48-48V48c0-26.5 21.5-48 48-48zM48 128h80v64H64V448H256V416h64v48c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V176c0-26.5 21.5-48 48-48z" />
-    </svg>
-  )
-}
-
-function CheckIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      {...props}
-    >
-      <path d="M5 13l4 4L19 7" />
     </svg>
   )
 }
@@ -77,24 +55,6 @@ function LinkIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
   )
 }
 
-function DocsIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      {...props}
-    >
-      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-    </svg>
-  )
-}
-
 function ClaudeIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
   return (
     <svg
@@ -108,7 +68,15 @@ function ClaudeIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
   )
 }
 
-type CopiedState = null | 'page' | 'pageLink' | 'allDocs' | 'allDocsLink'
+function OpenAIIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" {...props}>
+      <path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z" />
+    </svg>
+  )
+}
+
+type CopiedState = null | 'page' | 'allDocsUrl'
 
 export function CopyDocsButton() {
   const pathname = usePathname()
@@ -132,37 +100,38 @@ export function CopyDocsButton() {
     }
   }
 
-  function handleCopyPage() {
-    const md = getPageMarkdown(pathname)
-    if (md) copyToClipboard(md, 'page')
-  }
-
-  function handleCopyPageLink() {
-    const rawUrl = getPageRawUrl(pathname, basePath)
-    const fullUrl = `${window.location.origin}${rawUrl}`
-    copyToClipboard(fullUrl, 'pageLink')
-  }
-
-  function handleCopyAllDocs() {
-    const md = getAllDocsMarkdown()
-    copyToClipboard(md, 'allDocs')
-  }
-
-  function handleCopyAllDocsLink() {
+  function getAllDocsFullUrl() {
     const rawUrl = getAllDocsRawUrl(basePath)
-    const fullUrl = `${window.location.origin}${rawUrl}`
-    copyToClipboard(fullUrl, 'allDocsLink')
+    return `${window.location.origin}${rawUrl}`
   }
 
   function handleOpenInClaude() {
-    const rawUrl = getAllDocsRawUrl(basePath)
-    const docsUrl = `${window.location.origin}${rawUrl}`
+    const docsUrl = getAllDocsFullUrl()
     const prompt = `I'd like to discuss the content from ${docsUrl}`
     window.open(
       `https://claude.ai/new?q=${encodeURIComponent(prompt)}`,
       '_blank',
       'noopener,noreferrer',
     )
+  }
+
+  function handleOpenInChatGPT() {
+    const docsUrl = getAllDocsFullUrl()
+    const prompt = `I'd like to discuss the content from ${docsUrl}`
+    window.open(
+      `https://chatgpt.com/?model=o3&q=${encodeURIComponent(prompt)}`,
+      '_blank',
+      'noopener,noreferrer',
+    )
+  }
+
+  function handleCopyPage() {
+    const md = getPageMarkdown(pathname)
+    if (md) copyToClipboard(md, 'page')
+  }
+
+  function handleCopyAllDocsUrl() {
+    copyToClipboard(getAllDocsFullUrl(), 'allDocsUrl')
   }
 
   const buttonBaseClass = clsx(
@@ -180,22 +149,18 @@ export function CopyDocsButton() {
           'dark:border-gray-700 dark:bg-gray-800/50',
         )}
       >
-        {/* Primary copy button */}
+        {/* Primary button: Chat with docs in Claude */}
         <button
           type="button"
-          onClick={handleCopyPage}
+          onClick={handleOpenInClaude}
           className={clsx(
             buttonBaseClass,
             'rounded-l-lg py-1.5 pr-2 pl-2.5',
             'hover:bg-gray-50 dark:hover:bg-gray-800',
           )}
         >
-          {copied === 'page' ? (
-            <CheckIcon className="h-3.5 w-3.5 text-green-500" />
-          ) : (
-            <CopyIcon className="h-3.5 w-3.5" />
-          )}
-          <span>{copied === 'page' ? 'Copied' : 'Copy page'}</span>
+          <ClaudeIcon className="h-3.5 w-3.5" />
+          <span>Ask Claude</span>
         </button>
 
         {/* Dropdown trigger */}
@@ -207,7 +172,7 @@ export function CopyDocsButton() {
             'text-gray-400 hover:text-gray-600',
             'dark:text-gray-500 dark:hover:text-gray-300',
           )}
-          aria-label="More copy options"
+          aria-label="More options"
         >
           <ChevronDownIcon className="h-4 w-4" />
         </MenuButton>
@@ -223,7 +188,7 @@ export function CopyDocsButton() {
           {({ focus }) => (
             <button
               type="button"
-              onClick={handleCopyAllDocs}
+              onClick={handleOpenInChatGPT}
               className={clsx(
                 'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors',
                 focus
@@ -231,48 +196,8 @@ export function CopyDocsButton() {
                   : 'text-gray-600 dark:text-gray-300',
               )}
             >
-              <DocsIcon className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
-              <span>{copied === 'allDocs' ? 'Copied!' : 'Copy all docs'}</span>
-            </button>
-          )}
-        </MenuItem>
-
-        <MenuItem>
-          {({ focus }) => (
-            <button
-              type="button"
-              onClick={handleCopyPageLink}
-              className={clsx(
-                'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors',
-                focus
-                  ? 'bg-gray-100 text-gray-900 dark:bg-gray-700 dark:text-white'
-                  : 'text-gray-600 dark:text-gray-300',
-              )}
-            >
-              <LinkIcon className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
-              <span>
-                {copied === 'pageLink' ? 'Copied!' : 'Copy page link'}
-              </span>
-            </button>
-          )}
-        </MenuItem>
-
-        <MenuItem>
-          {({ focus }) => (
-            <button
-              type="button"
-              onClick={handleCopyAllDocsLink}
-              className={clsx(
-                'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors',
-                focus
-                  ? 'bg-gray-100 text-gray-900 dark:bg-gray-700 dark:text-white'
-                  : 'text-gray-600 dark:text-gray-300',
-              )}
-            >
-              <LinkIcon className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
-              <span>
-                {copied === 'allDocsLink' ? 'Copied!' : 'Copy all docs link'}
-              </span>
+              <OpenAIIcon className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+              <span>Ask ChatGPT</span>
             </button>
           )}
         </MenuItem>
@@ -283,7 +208,7 @@ export function CopyDocsButton() {
           {({ focus }) => (
             <button
               type="button"
-              onClick={handleOpenInClaude}
+              onClick={handleCopyPage}
               className={clsx(
                 'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors',
                 focus
@@ -291,8 +216,28 @@ export function CopyDocsButton() {
                   : 'text-gray-600 dark:text-gray-300',
               )}
             >
-              <ClaudeIcon className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
-              <span>Chat in Claude.ai</span>
+              <CopyIcon className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+              <span>{copied === 'page' ? 'Copied!' : 'Copy page'}</span>
+            </button>
+          )}
+        </MenuItem>
+
+        <MenuItem>
+          {({ focus }) => (
+            <button
+              type="button"
+              onClick={handleCopyAllDocsUrl}
+              className={clsx(
+                'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors',
+                focus
+                  ? 'bg-gray-100 text-gray-900 dark:bg-gray-700 dark:text-white'
+                  : 'text-gray-600 dark:text-gray-300',
+              )}
+            >
+              <LinkIcon className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+              <span>
+                {copied === 'allDocsUrl' ? 'Copied!' : 'Copy raw docs URL'}
+              </span>
             </button>
           )}
         </MenuItem>

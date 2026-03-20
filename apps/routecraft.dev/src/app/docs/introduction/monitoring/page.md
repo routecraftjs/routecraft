@@ -113,9 +113,13 @@ pnpm add better-sqlite3
 
 ```ts
 telemetry({
-  dbPath: './logs/telemetry.db',  // custom path (default .routecraft/telemetry.db)
-  eventBatchSize: 100,            // events buffered before flush (default 50)
-  eventFlushIntervalMs: 2000,     // max ms between flushes (default 1000)
+  sqlite: {
+    dbPath: './logs/telemetry.db',  // custom path (default .routecraft/telemetry.db)
+    eventBatchSize: 100,            // events buffered before flush (default 50)
+    eventFlushIntervalMs: 2000,     // max ms between flushes (default 1000)
+    maxExchanges: 50_000,           // rows to retain (default 50000, 0 to disable)
+    maxEvents: 100_000,             // rows to retain (default 100000, 0 to disable)
+  },
 })
 ```
 
@@ -150,7 +154,7 @@ export const craftConfig = {
 }
 ```
 
-This sends OTel traces to Better Stack while keeping the local SQLite database for the TUI. The same pattern works with Grafana Tempo, Datadog, Jaeger, or any backend that accepts OTLP -- just change the exporter URL and headers.
+This sends OTel traces to Better Stack while keeping the local SQLite database for the TUI. The same pattern works with Grafana Tempo, Datadog, Jaeger, or any backend that accepts OTLP. Just change the exporter URL and headers.
 
 To disable the SQLite backend entirely (external only):
 
@@ -162,9 +166,9 @@ telemetry({ tracerProvider, disableSqlite: true })
 
 The plugin creates OTel spans for:
 
-- **Route lifecycle** -- registration, start, stop (long-lived spans)
-- **Exchange lifecycle** -- start, complete, fail, drop (per-message spans with duration)
-- **Step execution** -- each adapter operation as a child span (from, to, process, filter, etc.)
+- **Route lifecycle**: registration, start, stop (long-lived spans)
+- **Exchange lifecycle**: start, complete, fail, drop (per-message spans with duration)
+- **Step execution**: each adapter operation as a child span (from, to, process, filter, etc.)
 
 Span attributes use the `routecraft.*` namespace (`routecraft.route.id`, `routecraft.exchange.id`, `routecraft.correlation.id`, etc.) so you can filter and query traces in your provider's UI.
 

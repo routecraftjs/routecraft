@@ -1,78 +1,66 @@
-import { Box, Text } from "ink";
+import { Text } from "ink";
 import type { EventRecord } from "../types.js";
-import { col, truncate, formatDetails } from "../utils.js";
+import { col } from "../utils.js";
+import { PANEL_TABLE_CHROME } from "../layout.js";
+import { Panel } from "./panel.js";
+import { Table, type ColumnDef } from "./table.js";
+import { selectorColumn, eventDetailColumns } from "./event-columns.js";
+
+const eventColumns: ColumnDef<EventRecord>[] = [
+  selectorColumn<EventRecord>(),
+  {
+    header: "Time",
+    width: 19,
+    render: (row, selected, w) => (
+      <Text {...(selected ? { color: "cyan" as const } : {})} bold={selected}>
+        {col(row.timestamp.replace("T", " ").slice(0, 19), w)}
+      </Text>
+    ),
+  },
+  {
+    header: "Event",
+    width: "flex",
+    render: (row) => <Text color="cyan">{row.eventName}</Text>,
+  },
+  ...eventDetailColumns<EventRecord>((row) => row),
+];
 
 export function EventsView({
   events,
   selectedIndex,
-  listOffset,
+  scrollOffset,
   width,
   height,
+  color = "gray",
 }: {
   events: EventRecord[];
   selectedIndex: number;
-  listOffset: number;
+  scrollOffset: number;
   width: number;
   height: number;
+  color?: string;
 }) {
-  const eventColWidth = Math.min(Math.max(Math.floor(width * 0.3), 20), 45);
-  const detailsColWidth = Math.max(width - eventColWidth - 28, 10);
-  const tableRows = Math.max(height - 6, 5);
-  const offset = listOffset;
+  const tableRows = Math.max(height - PANEL_TABLE_CHROME, 5);
 
   return (
-    <Box
-      flexDirection="column"
+    <Panel
+      title="EVENTS"
+      subtitle={<Text dimColor>({events.length} total)</Text>}
       width={width}
-      borderStyle="round"
-      borderColor="gray"
-      paddingX={1}
       flexGrow={1}
+      color={color}
     >
-      <Text bold>
-        EVENTS <Text dimColor>({events.length} total)</Text>
-      </Text>
-      <Text dimColor>{"\u2500".repeat(Math.max(width - 4, 20))}</Text>
-      <Text bold dimColor>
-        {"  "}
-        {col("Timestamp", 19)}
-        {"  "}
-        {col("Event", eventColWidth)}
-        {"  "}Details
-      </Text>
-      {events.length === 0 ? (
-        <Text dimColor>No events recorded yet.</Text>
-      ) : (
-        events.slice(offset, offset + tableRows).map((ev, vi) => {
-          const i = offset + vi;
-          return (
-            <Text key={ev.id ?? ev.timestamp} wrap="truncate">
-              <Text
-                {...(i === selectedIndex ? { color: "cyan" as const } : {})}
-                bold={i === selectedIndex}
-              >
-                {i === selectedIndex ? "> " : "  "}
-                {ev.timestamp.replace("T", " ").slice(0, 19)}
-              </Text>
-              {"  "}
-              <Text color="cyan">{col(ev.eventName, eventColWidth)}</Text>
-              {"  "}
-              <Text>
-                {truncate(
-                  formatDetails(ev.eventName, ev.details),
-                  detailsColWidth,
-                )}
-              </Text>
-            </Text>
-          );
-        })
-      )}
-      {events.length > tableRows && (
-        <Text dimColor>
-          {offset + tableRows < events.length ? "\u2193 " : "  "}
-          {events.length} total
-        </Text>
-      )}
-    </Box>
+      <Table
+        columns={eventColumns}
+        data={events}
+        rowKey={(ev, i) =>
+          ev.id !== undefined ? String(ev.id) : `${ev.timestamp}-${i}`
+        }
+        selectedIndex={selectedIndex}
+        scrollOffset={scrollOffset}
+        visibleRows={tableRows}
+        emptyMessage="No events recorded yet."
+      />
+    </Panel>
   );
 }
