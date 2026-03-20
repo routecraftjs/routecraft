@@ -58,6 +58,9 @@ export interface Metrics {
   droppedExchanges: number;
   errorRate: number;
   avgDurationMs: number | null;
+  p90DurationMs: number | null;
+  p95DurationMs: number | null;
+  p99DurationMs: number | null;
 }
 
 export interface RouteActivity {

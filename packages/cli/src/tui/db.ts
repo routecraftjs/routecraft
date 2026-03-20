@@ -386,17 +386,10 @@ export class TelemetryDb {
   }
 
   /**
-   * Get aggregated metrics for the dashboard.
+   * Get aggregated metrics for the dashboard, including duration percentiles.
+   * Percentiles are computed over exchanges from the last 5 minutes.
    */
-  getMetrics(): {
-    totalRoutes: number;
-    totalExchanges: number;
-    completedExchanges: number;
-    failedExchanges: number;
-    droppedExchanges: number;
-    errorRate: number;
-    avgDurationMs: number | null;
-  } {
+  getMetrics(): import("./types.js").Metrics {
     const s = this.stmt(
       "metrics",
       `SELECT
@@ -416,10 +409,27 @@ export class TelemetryDb {
       droppedExchanges: number;
       avgDurationMs: number | null;
     };
+
+    // Compute percentiles from recent exchanges with non-null durations
+    const pctStmt = this.stmt(
+      "percentiles",
+      `SELECT duration_ms
+       FROM exchanges
+       WHERE duration_ms IS NOT NULL
+         AND started_at >= datetime('now', '-5 minutes')
+       ORDER BY duration_ms ASC`,
+    );
+    const durations = (pctStmt.all() as Array<{ duration_ms: number }>).map(
+      (r) => r.duration_ms,
+    );
+
     return {
       ...row,
       errorRate:
         row.totalExchanges > 0 ? row.failedExchanges / row.totalExchanges : 0,
+      p90DurationMs: percentile(durations, 0.9),
+      p95DurationMs: percentile(durations, 0.95),
+      p99DurationMs: percentile(durations, 0.99),
     };
   }
 
@@ -525,4 +535,17 @@ export class TelemetryDb {
   close(): void {
     this.db.close();
   }
+}
+
+/**
+ * Compute a percentile from a sorted array of numbers using linear interpolation.
+ * Returns null if the array is empty.
+ */
+function percentile(sorted: number[], p: number): number | null {
+  if (sorted.length === 0) return null;
+  const idx = p * (sorted.length - 1);
+  const lo = Math.floor(idx);
+  const hi = Math.ceil(idx);
+  if (lo === hi) return sorted[lo]!;
+  return sorted[lo]! + (sorted[hi]! - sorted[lo]!) * (idx - lo);
 }

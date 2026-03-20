@@ -90,5 +90,55 @@ export default function sitemap(): MetadataRoute.Sitemap {
     })
   }
 
+  // Add raw markdown files for AI crawlers and direct access
+  const rawDir = path.join(process.cwd(), 'public', 'raw')
+  const rawPages = collectRawMarkdown(rawDir, '/raw')
+  for (const { url, mtime } of rawPages) {
+    routes.push({
+      url: `${baseUrl}${url}`,
+      lastModified: mtime,
+      changeFrequency: 'monthly',
+      priority: 0.6,
+    })
+  }
+
+  // Add llms.txt and llms-full.txt
+  routes.push({
+    url: `${baseUrl}/llms.txt`,
+    lastModified: new Date(),
+    changeFrequency: 'weekly',
+    priority: 0.7,
+  })
+  routes.push({
+    url: `${baseUrl}/llms-full.txt`,
+    lastModified: new Date(),
+    changeFrequency: 'weekly',
+    priority: 0.7,
+  })
+
   return routes
+}
+
+function collectRawMarkdown(
+  dir: string,
+  urlPrefix: string,
+): Array<{ url: string; mtime: Date }> {
+  const pages: Array<{ url: string; mtime: Date }> = []
+  try {
+    const entries = fs.readdirSync(dir, { withFileTypes: true })
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name)
+      if (entry.isDirectory()) {
+        pages.push(
+          ...collectRawMarkdown(fullPath, `${urlPrefix}/${entry.name}`),
+        )
+      } else if (entry.name.endsWith('.md')) {
+        const stat = fs.statSync(fullPath)
+        pages.push({ url: `${urlPrefix}/${entry.name}`, mtime: stat.mtime })
+      }
+    }
+  } catch {
+    // Ignore missing directories
+  }
+  return pages
 }

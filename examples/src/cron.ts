@@ -1,3 +1,6 @@
-import { craft, log, cron } from "@routecraft/routecraft";
+import { craft, log, timer } from "@routecraft/routecraft";
 
-export default craft().id("cron").from(cron("*/1 * * * * *")).to(log());
+export default craft()
+  .id("cron")
+  .from(timer({ intervalMs: 10, jitterMs: 100 }))
+  .to(log());

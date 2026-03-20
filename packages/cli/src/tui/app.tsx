@@ -46,6 +46,9 @@ function App({ db }: { db: TelemetryDb }) {
     droppedExchanges: 0,
     errorRate: 0,
     avgDurationMs: null,
+    p90DurationMs: null,
+    p95DurationMs: null,
+    p99DurationMs: null,
   });
   const [liveTraffic, setLiveTraffic] = useState<number[]>([]);
   const [selectedRouteActivity, setSelectedRouteActivity] = useState<
@@ -474,6 +477,9 @@ function App({ db }: { db: TelemetryDb }) {
               label="Exchanges per 5s bucket"
             />
             <Text> </Text>
+            <Text bold dimColor>
+              THROUGHPUT
+            </Text>
             {(
               [
                 ["Exchanges", fmtNum(metrics.totalExchanges), "cyan"],
@@ -493,8 +499,28 @@ function App({ db }: { db: TelemetryDb }) {
                   `${(metrics.errorRate * 100).toFixed(1)}%`,
                   metrics.errorRate > 0.1 ? "red" : "green",
                 ],
-                ["Avg Duration", formatDuration(metrics.avgDurationMs), ""],
                 ["Capabilities", fmtNum(metrics.totalRoutes), ""],
+              ] as [string, string, string][]
+            ).map(([label, value, color]) => (
+              <Box key={label}>
+                <Text>{label}:</Text>
+                <Box flexGrow={1} justifyContent="flex-end">
+                  <Text bold {...(color ? { color } : {})}>
+                    {value}
+                  </Text>
+                </Box>
+              </Box>
+            ))}
+            <Text> </Text>
+            <Text bold dimColor>
+              LATENCY (5m)
+            </Text>
+            {(
+              [
+                ["Avg", formatDuration(metrics.avgDurationMs), ""],
+                ["p90", formatDuration(metrics.p90DurationMs), ""],
+                ["p95", formatDuration(metrics.p95DurationMs), ""],
+                ["p99", formatDuration(metrics.p99DurationMs), ""],
               ] as [string, string, string][]
             ).map(([label, value, color]) => (
               <Box key={label}>

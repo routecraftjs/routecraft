@@ -4,6 +4,8 @@ title: Terminal UI
 
 Inspect routes, exchanges, and live events from the terminal. {% .lead %}
 
+![Routecraft Terminal UI](/screenshots/tui.webp)
+
 ## Prerequisites
 
 The TUI reads from the SQLite database written by the `telemetry()` plugin. Enable it in your context before launching the UI:
@@ -34,45 +36,70 @@ craft tui --db ./logs/telemetry.db
 
 The TUI polls the database every 2 seconds. Because SQLite runs in WAL mode, reads never block the running context.
 
+## Layout
+
+The TUI uses a three-column layout:
+
+- **Left** -- Navigation panel (view switcher + capability list) and keymap
+- **Center** -- Main content (exchange lists, exchange detail, or event stream)
+- **Right** -- Metrics panel with throughput stats, latency percentiles (p90/p95/p99), and a live traffic sparkline
+
 ## Views
 
-### Dashboard (1)
+### Capabilities (1)
 
-An overview of all routes seen in the database, with aggregated metrics per route:
+The default view. The left panel lists all routes (capabilities) seen in the database. Select a route to see its summary in the center panel with recent exchanges.
 
-| Column | Description |
-| --- | --- |
-| Route ID | The route's `.id()` string |
-| Status | Last known status: `registered`, `started`, or `stopped` |
-| Total | Total exchanges processed |
-| OK | Exchanges that completed successfully |
-| Fail | Exchanges that failed |
-| Avg Duration | Mean exchange duration in milliseconds |
+Press `Enter` to drill into a route's exchange list in the center panel. Press `Esc` to return focus to the route list.
 
 ### Exchanges (2)
 
-A chronological list of individual exchange records. Select a route from the Dashboard and press `Enter` to drill into its exchanges, or press `2` to see all exchanges across all routes.
+A chronological list of all exchanges across all routes, ordered most recent first.
 
 | Column | Description |
 | --- | --- |
-| Exchange ID | Unique exchange identifier |
-| Status | `started`, `completed`, or `failed` |
-| Duration | Processing time in milliseconds |
-| Error | Error message if the exchange failed |
+| ID | Unique exchange identifier |
+| Status | `started`, `completed`, `failed`, or `dropped` |
+| Duration | Processing time |
+| Time | Timestamp of the exchange |
 
-### Events (e)
+Press `Enter` on any exchange to see its detail view with related events grouped by parent/child flow.
 
-A chronological tail of framework events with human-readable summaries: context lifecycle, route lifecycle, exchange events, and operation events. Useful for debugging unexpected behaviour.
+### Errors (3)
+
+Same layout as Exchanges but filtered to show only failed exchanges. Useful for quickly spotting and investigating failures.
+
+### Events (4)
+
+A chronological tail of all framework events with human-readable summaries: context lifecycle, route lifecycle, exchange events, and step events. Useful for debugging unexpected behaviour.
+
+| Column | Description |
+| --- | --- |
+| Timestamp | When the event occurred |
+| Event | Full event name (e.g. `route:myRoute:exchange:started`) |
+| Details | Formatted summary of the event payload |
 
 ## Keyboard shortcuts
+
+### Navigation
 
 | Key | Action |
 | --- | --- |
 | `j` / `↓` | Move selection down |
 | `k` / `↑` | Move selection up |
-| `Enter` | Drill into the selected route's exchanges |
-| `e` | Switch to Events view |
-| `Esc` | Go back to the previous view |
+| `Ctrl+j` / `Ctrl+↓` | Jump 10 rows down |
+| `Ctrl+k` / `Ctrl+↑` | Jump 10 rows up |
+
+### Views and drill-down
+
+| Key | Action |
+| --- | --- |
+| `1` | Switch to Capabilities view |
+| `2` | Switch to Exchanges view |
+| `3` | Switch to Errors view |
+| `4` | Switch to Events view |
+| `Enter` | Drill into selected item (route exchanges or exchange detail) |
+| `Esc` | Go back to the previous panel or view |
 | `q` | Quit |
 
 ---
