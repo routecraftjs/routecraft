@@ -1,0 +1,50 @@
+{
+  "name": "@routecraft/tools",
+  "version": "0.4.0",
+  "description": "System-native tooling for Routecraft: CLI commands, shell execution, and browser automation",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts",
+    "test": "vitest",
+    "test:coverage": "vitest --coverage",
+    "prepublishOnly": "pnpm run build"
+  },
+  "dependencies": {
+    "@routecraft/routecraft": "workspace:^0.4.0",
+    "@standard-schema/spec": "^1.1.0"
+  },
+  "devDependencies": {
+    "vitest": "^4.0.18",
+    "zod": "^4.3.6"
+  },
+  "peerDependencies": {
+    "@routecraft/routecraft": "*"
+  },
+  "keywords": [
+    "routecraft",
+    "tools",
+    "cli",
+    "shell"
+  ],
+  "author": "routecraftjs",
+  "license": "Apache-2.0",
+  "homepage": "https://routecraft.dev",
+  "bugs": "https://github.com/routecraftjs/routecraft/issues",
+  "repository": "https://github.com/routecraftjs/routecraft",
+  "publishConfig": {
+    "access": "public"
+  }
+}

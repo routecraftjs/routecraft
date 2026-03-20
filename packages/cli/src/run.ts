@@ -7,10 +7,12 @@ import {
   logger,
   type RouteBuilder,
   type RouteDefinition,
+} from "@routecraft/routecraft";
+import {
   ADAPTER_CLI_ARGS,
   isCliSource,
   getCliRegistry,
-} from "@routecraft/routecraft";
+} from "@routecraft/tools";
 import { generateHelp, generateCommandHelp } from "./cli-help";
 import { registerContextSignalHandlers } from "./util";
 
@@ -293,7 +295,8 @@ function collectDefinitions(defaultExport: unknown): RouteDefinition[] {
  * @example
  * ```typescript
  * #!/usr/bin/env tsx
- * import { craft, cli } from '@routecraft/routecraft';
+ * import { craft } from '@routecraft/routecraft';
+ * import { cli } from '@routecraft/tools';
  * import { cliRunner } from '@routecraft/cli';
  * import { z } from 'zod';
  *
@@ -325,17 +328,7 @@ export async function cliRunner(
     contextBuilder.routes(route);
   }
 
-  const definitions = routes.flatMap((item): RouteDefinition[] => {
-    if (isRouteDefinition(item)) return [item as RouteDefinition];
-    if (isRouteBuilder(item)) {
-      return (
-        item as RouteBuilder<unknown> & {
-          build: () => RouteDefinition[];
-        }
-      ).build();
-    }
-    return [];
-  });
+  const definitions = collectDefinitions(routes);
 
   const result = await runCliMode(
     contextBuilder,
@@ -345,10 +338,6 @@ export async function cliRunner(
   );
 
   if (!result.success) {
-    if (result.message) {
-      // eslint-disable-next-line no-console
-      console.error(result.message);
-    }
     process.exit(result.code ?? 1);
   }
 }

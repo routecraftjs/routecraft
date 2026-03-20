@@ -600,11 +600,12 @@ Expose routecraft routes as typed CLI commands. When all routes in a file use `c
 Schema properties automatically become named flags (`--flag-name <value>`). Help text is derived from property descriptions. Standard Schema validates all input before the route runs.
 
 ```ts
-import { craft, cli } from '@routecraft/routecraft';
+import { craft } from '@routecraft/routecraft';
+import { cli } from '@routecraft/tools';
 import { z } from 'zod';
 
 export default [
-  craft('greet')
+  craft().id('greet')
     .from(cli('greet', {
       schema: z.object({
         name: z.string().describe('Name to greet'),

@@ -1,5 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import type { CraftContext } from "../../context";
+import type { CraftContext } from "@routecraft/routecraft";
 import type { CliRouteMetadata } from "./types";
 
 /**

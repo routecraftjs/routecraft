@@ -1,6 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import type { Source } from "../../operations/from";
-import type { Destination } from "../../operations/to";
+import type { Source, Destination } from "@routecraft/routecraft";
 import { CliSourceAdapter } from "./source";
 import { CliDestinationAdapter } from "./destination";
 import type { CliServerOptions } from "./types";
@@ -24,11 +23,12 @@ import type { CliServerOptions } from "./types";
  *
  * @example
  * ```typescript
- * import { craft, cli } from '@routecraft/routecraft';
+ * import { craft } from '@routecraft/routecraft';
+ * import { cli } from '@routecraft/tools';
  * import { z } from 'zod';
  *
  * export default [
- *   craft('greet')
+ *   craft().id('greet')
  *     .from(cli('greet', {
  *       schema: z.object({ name: z.string(), loud: z.boolean().optional() }),
  *       description: 'Greet someone',

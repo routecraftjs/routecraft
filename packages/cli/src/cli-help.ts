@@ -1,7 +1,4 @@
-import {
-  type CliRouteMetadata,
-  extractJsonSchema,
-} from "@routecraft/routecraft";
+import { type CliRouteMetadata, extractJsonSchema } from "@routecraft/tools";
 
 function kebabCase(str: string): string {
   return str.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
@@ -55,7 +52,7 @@ export function generateCommandHelp(
   lines.push("");
   lines.push(`${command}${meta.description ? " - " + meta.description : ""}`);
   lines.push("");
-  lines.push(`Usage: craft run ${scriptName} ${command} [flags]`);
+  lines.push(`Usage: ${scriptName} ${command} [flags]`);
 
   if (meta.schema) {
     const jsonSchema = extractJsonSchema(meta.schema);

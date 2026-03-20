@@ -1,5 +1,5 @@
-import type { Exchange } from "../../exchange";
-import type { Destination } from "../../operations/to";
+import type { Exchange } from "@routecraft/routecraft";
+import type { Destination } from "@routecraft/routecraft";
 import type { CliClientOptions } from "./types";
 
 /**
