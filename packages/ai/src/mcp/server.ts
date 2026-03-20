@@ -291,6 +291,9 @@ export class McpServer {
     const token = schemeMatch[1];
 
     // Validator function: delegate entirely to the caller.
+    // If the validator returns false (or a falsy value), the server responds with 401.
+    // If the validator throws, the error propagates and the server responds with 500.
+    // Validators should catch expected failures (e.g. JWT expiry) and return false.
     if (typeof authOptions.tokens === "function") {
       return authOptions.tokens(token);
     }

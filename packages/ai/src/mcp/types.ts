@@ -128,6 +128,10 @@ export interface McpHttpAuthOptions {
  * Called on every incoming request when used as `auth.tokens`.
  * May be synchronous or asynchronous.
  *
+ * Return `true` to allow access, `false` to reject with 401.
+ * If the function throws, the server responds with 500.
+ * Validators should catch expected failures (e.g. JWT expiry) and return `false`.
+ *
  * @experimental
  */
 export type McpTokenValidator = (token: string) => boolean | Promise<boolean>;
