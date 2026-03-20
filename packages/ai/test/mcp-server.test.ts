@@ -667,8 +667,8 @@ describe("McpServer", () => {
      * @preconditions No auth options provided
      * @expectedResult undefined (no headers needed)
      */
-    test("returns undefined when auth is undefined", () => {
-      expect(buildAuthHeaders(undefined)).toBeUndefined();
+    test("returns undefined when auth is undefined", async () => {
+      expect(await buildAuthHeaders(undefined)).toBeUndefined();
     });
 
     /**
@@ -676,8 +676,8 @@ describe("McpServer", () => {
      * @preconditions Empty auth options object
      * @expectedResult undefined (no headers needed)
      */
-    test("returns undefined when auth has no token or headers", () => {
-      expect(buildAuthHeaders({})).toBeUndefined();
+    test("returns undefined when auth has no token or headers", async () => {
+      expect(await buildAuthHeaders({})).toBeUndefined();
     });
 
     /**
@@ -685,8 +685,8 @@ describe("McpServer", () => {
      * @preconditions auth.token is "my-token"
      * @expectedResult Headers with Authorization: Bearer my-token
      */
-    test("builds Authorization header from token", () => {
-      const result = buildAuthHeaders({ token: "my-token" });
+    test("builds Authorization header from token", async () => {
+      const result = await buildAuthHeaders({ token: "my-token" });
       expect(result).toEqual({ Authorization: "Bearer my-token" });
     });
 
@@ -695,8 +695,8 @@ describe("McpServer", () => {
      * @preconditions auth.headers has X-Custom: "value"
      * @expectedResult Headers with X-Custom: "value"
      */
-    test("passes through custom headers", () => {
-      const result = buildAuthHeaders({
+    test("passes through custom headers", async () => {
+      const result = await buildAuthHeaders({
         headers: { "X-Custom": "value" },
       });
       expect(result).toEqual({ "X-Custom": "value" });
@@ -707,8 +707,8 @@ describe("McpServer", () => {
      * @preconditions auth.token = "from-token" and auth.headers.Authorization = "Basic abc"
      * @expectedResult Authorization is "Basic abc" (headers override token)
      */
-    test("custom Authorization header overrides token", () => {
-      const result = buildAuthHeaders({
+    test("custom Authorization header overrides token", async () => {
+      const result = await buildAuthHeaders({
         token: "from-token",
         headers: { Authorization: "Basic abc" },
       });
@@ -720,8 +720,8 @@ describe("McpServer", () => {
      * @preconditions auth.token = "from-token" and auth.headers.authorization = "Basic abc"
      * @expectedResult Single canonical Authorization header with "Basic abc"
      */
-    test("lowercase authorization header overrides token case-insensitively", () => {
-      const result = buildAuthHeaders({
+    test("lowercase authorization header overrides token case-insensitively", async () => {
+      const result = await buildAuthHeaders({
         token: "from-token",
         headers: { authorization: "Basic abc" },
       });
@@ -733,8 +733,69 @@ describe("McpServer", () => {
      * @preconditions auth.token = ""
      * @expectedResult Error thrown about non-empty string
      */
-    test("throws when token is an empty string", () => {
-      expect(() => buildAuthHeaders({ token: "" })).toThrow(/non-empty string/);
+    test("throws when token is an empty string", async () => {
+      await expect(buildAuthHeaders({ token: "" })).rejects.toThrow(
+        /non-empty string/,
+      );
+    });
+
+    /**
+     * @case Resolves token from a string array using round-robin
+     * @preconditions auth.token is ["token-a", "token-b"]
+     * @expectedResult First call uses token-a, second uses token-b, third wraps to token-a
+     */
+    test("resolves token from array with round-robin", async () => {
+      const tokens = ["token-a", "token-b"];
+      const r1 = await buildAuthHeaders({ token: tokens });
+      expect(r1).toEqual({ Authorization: "Bearer token-a" });
+      const r2 = await buildAuthHeaders({ token: tokens });
+      expect(r2).toEqual({ Authorization: "Bearer token-b" });
+      const r3 = await buildAuthHeaders({ token: tokens });
+      expect(r3).toEqual({ Authorization: "Bearer token-a" });
+    });
+
+    /**
+     * @case Throws on empty token array
+     * @preconditions auth.token is []
+     * @expectedResult Error thrown about empty array
+     */
+    test("throws when token is an empty array", async () => {
+      await expect(buildAuthHeaders({ token: [] })).rejects.toThrow(
+        /must not be empty/,
+      );
+    });
+
+    /**
+     * @case Resolves token from a synchronous provider function
+     * @preconditions auth.token is () => "dynamic-token"
+     * @expectedResult Headers with Authorization: Bearer dynamic-token
+     */
+    test("resolves token from sync provider function", async () => {
+      const result = await buildAuthHeaders({ token: () => "dynamic-token" });
+      expect(result).toEqual({ Authorization: "Bearer dynamic-token" });
+    });
+
+    /**
+     * @case Resolves token from an async provider function
+     * @preconditions auth.token is async () => "async-token"
+     * @expectedResult Headers with Authorization: Bearer async-token
+     */
+    test("resolves token from async provider function", async () => {
+      const result = await buildAuthHeaders({
+        token: async () => "async-token",
+      });
+      expect(result).toEqual({ Authorization: "Bearer async-token" });
+    });
+
+    /**
+     * @case Throws when provider function returns empty string
+     * @preconditions auth.token is () => ""
+     * @expectedResult Error thrown about non-empty string
+     */
+    test("throws when provider function returns empty string", async () => {
+      await expect(buildAuthHeaders({ token: () => "" })).rejects.toThrow(
+        /non-empty string/,
+      );
     });
   });
 });

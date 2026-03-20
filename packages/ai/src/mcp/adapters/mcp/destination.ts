@@ -257,7 +257,7 @@ export class McpDestinationAdapter implements Destination<unknown, unknown> {
       transportModule.StreamableHTTPClientTransport;
 
     const url = new URL(serverUrl);
-    const headers = buildAuthHeaders(auth);
+    const headers = await buildAuthHeaders(auth);
     const transportOptions = headers ? { requestInit: { headers } } : undefined;
     const transport = new StreamableHTTPClientTransport(url, transportOptions);
     const clientInfo = { name: "routecraft-mcp-client", version: "1.0.0" };

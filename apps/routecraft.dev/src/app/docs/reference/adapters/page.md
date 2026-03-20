@@ -1106,7 +1106,7 @@ When using the `serverId` path (recommended), auth configured on the client in `
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `token` | `string` | Bearer token sent as `Authorization: Bearer <token>` |
+| `token` | `string \| string[] \| (() => string \| Promise<string>)` | Bearer token, array of tokens (round-robin), or provider function called per request |
 | `headers` | `Record<string, string>` | Additional request headers; overrides `token` if `Authorization` is set |
 
 **Relation to `direct()`:** `mcp()` is built on `direct()`. The key difference is that `description` is required when passing options, ensuring every exposed tool is discoverable by AI agents.

@@ -69,6 +69,7 @@ export type {
   McpClientOptions,
   McpClientServerConfig,
   McpClientStdioConfig,
+  McpClientTokenProvider,
   McpHttpAuthOptions,
   McpTokenValidator,
 } from "./mcp/types.ts";

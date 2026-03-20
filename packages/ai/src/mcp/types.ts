@@ -133,6 +133,15 @@ export interface McpHttpAuthOptions {
 export type McpTokenValidator = (token: string) => boolean | Promise<boolean>;
 
 /**
+ * A function that provides a bearer token for outbound requests.
+ * Called on every request; may be synchronous or asynchronous.
+ * Useful for dynamic tokens (JWT refresh, rotating API keys, etc.).
+ *
+ * @experimental
+ */
+export type McpClientTokenProvider = () => string | Promise<string>;
+
+/**
  * Auth config for an outbound MCP HTTP client connection.
  * Passed as request headers on every connection to the remote server.
  *
@@ -140,10 +149,14 @@ export type McpTokenValidator = (token: string) => boolean | Promise<boolean>;
  */
 export interface McpClientAuthOptions {
   /**
-   * Bearer token sent in the `Authorization` header.
+   * Bearer token(s) or provider for the `Authorization` header.
    * Builds `Authorization: Bearer <token>`.
+   *
+   * - `string` -- single static token.
+   * - `string[]` -- array of tokens; one is selected per request (round-robin).
+   * - `() => string | Promise<string>` -- called per request for dynamic tokens.
    */
-  token?: string;
+  token?: string | string[] | McpClientTokenProvider;
   /**
    * Additional headers to include on every request to the remote server.
    * If `Authorization` is set here, it overrides `token`.

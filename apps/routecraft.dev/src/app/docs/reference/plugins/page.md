@@ -192,7 +192,7 @@ auth: { tokens: async (token) => verifyJwt(token) }
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `token` | `string` | Bearer token sent as `Authorization: Bearer <token>` |
+| `token` | `string \| string[] \| (() => string \| Promise<string>)` | Bearer token, array of tokens (round-robin), or provider function called per request |
 | `headers` | `Record<string, string>` | Additional request headers; overrides `token` if `Authorization` is set |
 
 **Stdio client config (`McpClientStdioConfig`):**

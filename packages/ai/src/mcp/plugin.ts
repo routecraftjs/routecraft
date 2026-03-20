@@ -254,7 +254,7 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
     const { StreamableHTTPClientTransport } =
       await import("@modelcontextprotocol/sdk/client/streamableHttp.js");
 
-    const headers = buildAuthHeaders(auth);
+    const headers = await buildAuthHeaders(auth);
     const transportOptions = headers ? { requestInit: { headers } } : undefined;
     const transport = new (StreamableHTTPClientTransport as new (
       url: URL,
