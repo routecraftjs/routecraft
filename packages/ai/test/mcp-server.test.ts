@@ -423,14 +423,16 @@ describe("McpServer", () => {
     });
 
     describe("auth", () => {
+      const validPrincipal = { subject: "user-1", scheme: "bearer" };
+
       /**
        * @case Request without Authorization header returns 401 when auth is configured
-       * @preconditions McpServer with auth.tokens set; POST /mcp without Authorization header
+       * @preconditions McpServer with auth.validator set; POST /mcp without Authorization header
        * @expectedResult 401 status code with WWW-Authenticate header
        */
       test("returns 401 when no Authorization header and auth is configured", async () => {
         const { post } = await startHttpServer([], {
-          auth: { tokens: "secret-token" },
+          auth: { validator: () => validPrincipal },
         });
 
         const initBody = JSON.stringify({
@@ -445,13 +447,13 @@ describe("McpServer", () => {
       });
 
       /**
-       * @case Request with wrong token returns 401
-       * @preconditions McpServer with auth.tokens = ["valid-token"]; POST /mcp with wrong token
+       * @case Request with rejected token returns 401
+       * @preconditions McpServer with auth.validator that returns null; POST /mcp with token
        * @expectedResult 401 status code
        */
-      test("returns 401 when wrong token is provided", async () => {
+      test("returns 401 when validator returns null", async () => {
         const { post } = await startHttpServer([], {
-          auth: { tokens: "valid-token" },
+          auth: { validator: () => null },
         });
 
         const initBody = JSON.stringify({
@@ -467,13 +469,16 @@ describe("McpServer", () => {
       });
 
       /**
-       * @case Request with correct single token returns 200
-       * @preconditions McpServer with auth.tokens = "valid-token"; POST /mcp with correct bearer token
+       * @case Request with valid token returns 200
+       * @preconditions McpServer with auth.validator returning principal; POST /mcp with bearer token
        * @expectedResult 200 status code and MCP session established
        */
-      test("accepts request with correct single token", async () => {
+      test("accepts request when validator returns principal", async () => {
         const { post } = await startHttpServer([], {
-          auth: { tokens: "valid-token" },
+          auth: {
+            validator: (token) =>
+              token === "valid-token" ? validPrincipal : null,
+          },
         });
 
         const initBody = JSON.stringify({
@@ -489,51 +494,16 @@ describe("McpServer", () => {
       });
 
       /**
-       * @case Each token in an array grants access independently
-       * @preconditions McpServer with auth.tokens = ["token-a", "token-b"]; two separate requests
-       * @expectedResult Both tokens receive 200 status code
-       */
-      test("accepts any token from an array of tokens", async () => {
-        const { post } = await startHttpServer([], {
-          auth: { tokens: ["token-a", "token-b"] },
-        });
-
-        const resA = await post(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            id: 1,
-            method: "initialize",
-            params: INIT_PARAMS,
-          }),
-          undefined,
-          { Authorization: "Bearer token-a" },
-        );
-        expect(resA.statusCode).toBe(200);
-
-        // The second initialize is sent to a new session but the SDK may reject
-        // the duplicate protocol exchange with 400. What matters is that the auth
-        // check passed (not 401) -- the 400 is from the MCP transport layer, not auth.
-        const resB = await post(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            id: 2,
-            method: "initialize",
-            params: INIT_PARAMS,
-          }),
-          undefined,
-          { Authorization: "Bearer token-b" },
-        );
-        expect(resB.statusCode).not.toBe(401);
-      });
-
-      /**
        * @case Lowercase "bearer" scheme is accepted (RFC 9110 case-insensitive)
        * @preconditions McpServer with auth; POST /mcp with "bearer" (lowercase) scheme
        * @expectedResult 200 status code (auth passes)
        */
       test("accepts lowercase bearer scheme per RFC 9110", async () => {
         const { post } = await startHttpServer([], {
-          auth: { tokens: "valid-token" },
+          auth: {
+            validator: (token) =>
+              token === "valid-token" ? validPrincipal : null,
+          },
         });
 
         const initBody = JSON.stringify({
@@ -567,60 +537,15 @@ describe("McpServer", () => {
       });
 
       /**
-       * @case Sync validator function that returns true allows access
-       * @preconditions McpServer with auth.tokens as sync validator returning true
+       * @case Async validator that resolves to principal allows access
+       * @preconditions McpServer with async auth.validator resolving to AuthPrincipal
        * @expectedResult 200 status code
        */
-      test("accepts request when sync validator returns true", async () => {
-        const { post } = await startHttpServer([], {
-          auth: { tokens: (token) => token === "custom-valid" },
-        });
-
-        const initBody = JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "initialize",
-          params: INIT_PARAMS,
-        });
-        const res = await post(initBody, undefined, {
-          Authorization: "Bearer custom-valid",
-        });
-        expect(res.statusCode).toBe(200);
-      });
-
-      /**
-       * @case Sync validator function that returns false rejects access
-       * @preconditions McpServer with auth.tokens as sync validator returning false
-       * @expectedResult 401 status code
-       */
-      test("returns 401 when sync validator returns false", async () => {
-        const { post } = await startHttpServer([], {
-          auth: { tokens: () => false },
-        });
-
-        const initBody = JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "initialize",
-          params: INIT_PARAMS,
-        });
-        const res = await post(initBody, undefined, {
-          Authorization: "Bearer any-token",
-        });
-        expect(res.statusCode).toBe(401);
-      });
-
-      /**
-       * @case Async validator function that resolves true allows access
-       * @preconditions McpServer with auth.tokens as async validator resolving true
-       * @expectedResult 200 status code
-       */
-      test("accepts request when async validator resolves true", async () => {
+      test("accepts request when async validator resolves principal", async () => {
         const { post } = await startHttpServer([], {
           auth: {
-            tokens: async (token) => {
-              // Simulate async lookup (e.g. DB, JWT verify)
-              return token === "async-valid";
+            validator: async (token) => {
+              return token === "async-valid" ? validPrincipal : null;
             },
           },
         });
@@ -638,13 +563,13 @@ describe("McpServer", () => {
       });
 
       /**
-       * @case Async validator function that resolves false rejects access
-       * @preconditions McpServer with auth.tokens as async validator resolving false
+       * @case Async validator that resolves null rejects access
+       * @preconditions McpServer with async auth.validator resolving null
        * @expectedResult 401 status code
        */
-      test("returns 401 when async validator resolves false", async () => {
+      test("returns 401 when async validator resolves null", async () => {
         const { post } = await startHttpServer([], {
-          auth: { tokens: async () => false },
+          auth: { validator: async () => null },
         });
 
         const initBody = JSON.stringify({
@@ -657,6 +582,666 @@ describe("McpServer", () => {
           Authorization: "Bearer any-token",
         });
         expect(res.statusCode).toBe(401);
+      });
+    });
+  });
+
+  describe("plugin events", () => {
+    /**
+     * @case server:listening event is emitted with host, port, and path
+     * @preconditions McpServer with HTTP transport started on port 0
+     * @expectedResult Event emitted once with correct payload
+     */
+    test("emits plugin:mcp:server:listening on HTTP start", async () => {
+      t = await testContext().store(MCP_STORE_KEY, true).build();
+      server = new McpServer(t.ctx, {
+        transport: "http",
+        port: 0,
+        host: "127.0.0.1",
+      });
+
+      const events: Array<Record<string, unknown>> = [];
+      t.ctx.on("plugin:mcp:server:listening", (payload) => {
+        events.push(payload.details as Record<string, unknown>);
+      });
+
+      void t.ctx.start();
+      await server.start();
+
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        host: "127.0.0.1",
+        path: "/mcp",
+      });
+      expect(events[0]!.port).toBeTypeOf("number");
+      expect((events[0]!.port as number) > 0).toBe(true);
+    });
+
+    /**
+     * @case session:created event is emitted when HTTP session initializes
+     * @preconditions McpServer with HTTP transport; send initialize request
+     * @expectedResult Event emitted with sessionId string
+     */
+    test("emits plugin:mcp:session:created on initialize", async () => {
+      t = await testContext()
+        .routes([
+          craft()
+            .id("evt-tool")
+            .from(mcp("evt-tool", { description: "test" }))
+            .to(noop()),
+        ])
+        .store(MCP_STORE_KEY, true)
+        .build();
+      server = new McpServer(t.ctx, {
+        transport: "http",
+        port: 0,
+        host: "127.0.0.1",
+      });
+
+      const sessions: string[] = [];
+      t.ctx.on("plugin:mcp:session:created", (payload) => {
+        const d = payload.details as { sessionId: string };
+        sessions.push(d.sessionId);
+      });
+
+      const total = t.ctx.getRoutes().length;
+      const routesReady = new Promise<void>((resolve, reject) => {
+        let ready = 0;
+        const timeout = setTimeout(() => reject(new Error("Timeout")), 3000);
+        t.ctx.on("route:started", () => {
+          ready++;
+          if (ready >= total) {
+            clearTimeout(timeout);
+            resolve();
+          }
+        });
+      });
+      void t.ctx.start();
+      await routesReady;
+      await server.start();
+      const port = server.getHttpPort()!;
+
+      // Send initialize to trigger session creation
+      await new Promise<void>((resolve, reject) => {
+        const req = http.request(
+          {
+            host: "127.0.0.1",
+            port,
+            path: "/mcp",
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json, text/event-stream",
+            },
+          },
+          (res) => {
+            let data = "";
+            res.on("data", (chunk) => (data += chunk));
+            res.on("end", () => resolve());
+          },
+        );
+        req.on("error", reject);
+        req.write(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: INIT_PARAMS,
+          }),
+        );
+        req.end();
+      });
+
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0]).toBeTypeOf("string");
+      expect(sessions[0]!.length).toBeGreaterThan(0);
+    });
+
+    /**
+     * @case tools:exposed event is emitted with tool names and count
+     * @preconditions McpServer with one mcp() route; request tools/list
+     * @expectedResult Event emitted with tools array and count
+     */
+    test("emits plugin:mcp:server:tools:exposed on first tools list", async () => {
+      t = await testContext()
+        .routes([
+          craft()
+            .id("exposed-evt")
+            .from(mcp("exposed-evt", { description: "test" }))
+            .to(noop()),
+        ])
+        .store(MCP_STORE_KEY, true)
+        .build();
+      server = new McpServer(t.ctx, {
+        transport: "http",
+        port: 0,
+        host: "127.0.0.1",
+      });
+
+      const exposed: Array<Record<string, unknown>> = [];
+      t.ctx.on("plugin:mcp:server:tools:exposed", (payload) => {
+        exposed.push(payload.details as Record<string, unknown>);
+      });
+
+      const total = t.ctx.getRoutes().length;
+      const routesReady = new Promise<void>((resolve, reject) => {
+        let ready = 0;
+        const timeout = setTimeout(() => reject(new Error("Timeout")), 3000);
+        t.ctx.on("route:started", () => {
+          ready++;
+          if (ready >= total) {
+            clearTimeout(timeout);
+            resolve();
+          }
+        });
+      });
+      void t.ctx.start();
+      await routesReady;
+      await server.start();
+
+      // tools:exposed fires on start or first tools/list
+      expect(exposed).toHaveLength(1);
+      expect(exposed[0]).toMatchObject({
+        tools: ["exposed-evt"],
+        count: 1,
+      });
+    });
+
+    /**
+     * @case tool:called, tool:completed events emitted on successful tool call
+     * @preconditions McpServer with HTTP transport; call a tool via JSON-RPC
+     * @expectedResult called event with tool name and args, completed event with tool name
+     */
+    test("emits tool:called and tool:completed on success", async () => {
+      t = await testContext()
+        .routes([
+          craft()
+            .id("call-evt")
+            .from(
+              mcp("call-evt", {
+                description: "test",
+                inputSchema: {
+                  type: "object",
+                  properties: { x: { type: "number" } },
+                },
+              }),
+            )
+            .to(noop()),
+        ])
+        .store(MCP_STORE_KEY, true)
+        .build();
+      server = new McpServer(t.ctx, {
+        transport: "http",
+        port: 0,
+        host: "127.0.0.1",
+      });
+
+      const called: Array<Record<string, unknown>> = [];
+      const completed: Array<Record<string, unknown>> = [];
+      t.ctx.on("plugin:mcp:tool:call-evt:called", (payload) => {
+        called.push(payload.details as Record<string, unknown>);
+      });
+      t.ctx.on("plugin:mcp:tool:call-evt:completed", (payload) => {
+        completed.push(payload.details as Record<string, unknown>);
+      });
+
+      const total = t.ctx.getRoutes().length;
+      const routesReady = new Promise<void>((resolve, reject) => {
+        let ready = 0;
+        const timeout = setTimeout(() => reject(new Error("Timeout")), 3000);
+        t.ctx.on("route:started", () => {
+          ready++;
+          if (ready >= total) {
+            clearTimeout(timeout);
+            resolve();
+          }
+        });
+      });
+      void t.ctx.start();
+      await routesReady;
+      await server.start();
+      const port = server.getHttpPort()!;
+
+      // Initialize session
+      const initRes = await new Promise<{
+        statusCode: number;
+        headers: Record<string, string | string[] | undefined>;
+      }>((resolve, reject) => {
+        const req = http.request(
+          {
+            host: "127.0.0.1",
+            port,
+            path: "/mcp",
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json, text/event-stream",
+            },
+          },
+          (res) => {
+            let data = "";
+            res.on("data", (chunk) => (data += chunk));
+            res.on("end", () =>
+              resolve({
+                statusCode: res.statusCode ?? 0,
+                headers: res.headers,
+              }),
+            );
+          },
+        );
+        req.on("error", reject);
+        req.write(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: INIT_PARAMS,
+          }),
+        );
+        req.end();
+      });
+
+      const sessionId = initRes.headers["mcp-session-id"] as string;
+
+      // Call the tool
+      await new Promise<void>((resolve, reject) => {
+        const req = http.request(
+          {
+            host: "127.0.0.1",
+            port,
+            path: "/mcp",
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json, text/event-stream",
+              "mcp-session-id": sessionId,
+            },
+          },
+          (res) => {
+            let data = "";
+            res.on("data", (chunk) => (data += chunk));
+            res.on("end", () => resolve());
+          },
+        );
+        req.on("error", reject);
+        req.write(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 2,
+            method: "tools/call",
+            params: { name: "call-evt", arguments: { x: 42 } },
+          }),
+        );
+        req.end();
+      });
+
+      expect(called).toHaveLength(1);
+      expect(called[0]).toMatchObject({ tool: "call-evt", args: { x: 42 } });
+
+      expect(completed).toHaveLength(1);
+      expect(completed[0]).toMatchObject({ tool: "call-evt" });
+    });
+
+    /**
+     * @case tool:failed event emitted when tool call errors
+     * @preconditions McpServer with HTTP transport; call a non-existent tool
+     * @expectedResult failed event with tool name and error message
+     */
+    test("emits tool:failed when tool not found", async () => {
+      t = await testContext()
+        .routes([
+          craft()
+            .id("exists-evt")
+            .from(mcp("exists-evt", { description: "test" }))
+            .to(noop()),
+        ])
+        .store(MCP_STORE_KEY, true)
+        .build();
+      server = new McpServer(t.ctx, {
+        transport: "http",
+        port: 0,
+        host: "127.0.0.1",
+      });
+
+      const failed: Array<Record<string, unknown>> = [];
+      t.ctx.on("plugin:mcp:tool:no-such-tool:failed", (payload) => {
+        failed.push(payload.details as Record<string, unknown>);
+      });
+
+      const total = t.ctx.getRoutes().length;
+      const routesReady = new Promise<void>((resolve, reject) => {
+        let ready = 0;
+        const timeout = setTimeout(() => reject(new Error("Timeout")), 3000);
+        t.ctx.on("route:started", () => {
+          ready++;
+          if (ready >= total) {
+            clearTimeout(timeout);
+            resolve();
+          }
+        });
+      });
+      void t.ctx.start();
+      await routesReady;
+      await server.start();
+      const port = server.getHttpPort()!;
+
+      // Initialize session
+      const initRes = await new Promise<{
+        headers: Record<string, string | string[] | undefined>;
+      }>((resolve, reject) => {
+        const req = http.request(
+          {
+            host: "127.0.0.1",
+            port,
+            path: "/mcp",
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json, text/event-stream",
+            },
+          },
+          (res) => {
+            let data = "";
+            res.on("data", (chunk) => (data += chunk));
+            res.on("end", () => resolve({ headers: res.headers }));
+          },
+        );
+        req.on("error", reject);
+        req.write(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: INIT_PARAMS,
+          }),
+        );
+        req.end();
+      });
+
+      const sessionId = initRes.headers["mcp-session-id"] as string;
+
+      // Call a tool that does not exist
+      await new Promise<void>((resolve, reject) => {
+        const req = http.request(
+          {
+            host: "127.0.0.1",
+            port,
+            path: "/mcp",
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json, text/event-stream",
+              "mcp-session-id": sessionId,
+            },
+          },
+          (res) => {
+            let data = "";
+            res.on("data", (chunk) => (data += chunk));
+            res.on("end", () => resolve());
+          },
+        );
+        req.on("error", reject);
+        req.write(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 2,
+            method: "tools/call",
+            params: { name: "no-such-tool", arguments: {} },
+          }),
+        );
+        req.end();
+      });
+
+      expect(failed).toHaveLength(1);
+      expect(failed[0]!.tool).toBe("no-such-tool");
+      expect(failed[0]!.error).toBeTypeOf("string");
+    });
+
+    /**
+     * @case Wildcard plugin:mcp:tool:** catches all tool events
+     * @preconditions McpServer with HTTP transport; subscribe with globstar pattern
+     * @expectedResult Both called and completed events captured by single wildcard handler
+     */
+    test("wildcard plugin:mcp:tool:** captures all tool events", async () => {
+      t = await testContext()
+        .routes([
+          craft()
+            .id("wc-tool")
+            .from(
+              mcp("wc-tool", {
+                description: "test",
+                inputSchema: { type: "object", properties: {} },
+              }),
+            )
+            .to(noop()),
+        ])
+        .store(MCP_STORE_KEY, true)
+        .build();
+      server = new McpServer(t.ctx, {
+        transport: "http",
+        port: 0,
+        host: "127.0.0.1",
+      });
+
+      const allToolEvents: string[] = [];
+      t.ctx.on("plugin:mcp:tool:**", (payload) => {
+        const d = payload.details as { tool?: string };
+        allToolEvents.push(d.tool ?? "unknown");
+      });
+
+      const total = t.ctx.getRoutes().length;
+      const routesReady = new Promise<void>((resolve, reject) => {
+        let ready = 0;
+        const timeout = setTimeout(() => reject(new Error("Timeout")), 3000);
+        t.ctx.on("route:started", () => {
+          ready++;
+          if (ready >= total) {
+            clearTimeout(timeout);
+            resolve();
+          }
+        });
+      });
+      void t.ctx.start();
+      await routesReady;
+      await server.start();
+      const port = server.getHttpPort()!;
+
+      // Initialize session
+      const initRes = await new Promise<{
+        headers: Record<string, string | string[] | undefined>;
+      }>((resolve, reject) => {
+        const req = http.request(
+          {
+            host: "127.0.0.1",
+            port,
+            path: "/mcp",
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json, text/event-stream",
+            },
+          },
+          (res) => {
+            let data = "";
+            res.on("data", (chunk) => (data += chunk));
+            res.on("end", () => resolve({ headers: res.headers }));
+          },
+        );
+        req.on("error", reject);
+        req.write(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: INIT_PARAMS,
+          }),
+        );
+        req.end();
+      });
+
+      const sessionId = initRes.headers["mcp-session-id"] as string;
+
+      // Call the tool
+      await new Promise<void>((resolve, reject) => {
+        const req = http.request(
+          {
+            host: "127.0.0.1",
+            port,
+            path: "/mcp",
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json, text/event-stream",
+              "mcp-session-id": sessionId,
+            },
+          },
+          (res) => {
+            let data = "";
+            res.on("data", (chunk) => (data += chunk));
+            res.on("end", () => resolve());
+          },
+        );
+        req.on("error", reject);
+        req.write(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 2,
+            method: "tools/call",
+            params: { name: "wc-tool", arguments: {} },
+          }),
+        );
+        req.end();
+      });
+
+      // Should capture both called and completed
+      expect(allToolEvents.length).toBeGreaterThanOrEqual(2);
+      expect(allToolEvents.filter((t) => t === "wc-tool")).toHaveLength(2);
+    });
+
+    /**
+     * @case auth:success event emitted with principal details on valid auth
+     * @preconditions McpServer with auth validator; send request with valid token
+     * @expectedResult Event emitted with subject, scheme, and source
+     */
+    test("emits auth:success on valid token", async () => {
+      t = await testContext().store(MCP_STORE_KEY, true).build();
+      server = new McpServer(t.ctx, {
+        transport: "http",
+        port: 0,
+        host: "127.0.0.1",
+        auth: {
+          validator: (token) =>
+            token === "good" ? { subject: "user-1", scheme: "bearer" } : null,
+        },
+      });
+
+      const successes: Array<Record<string, unknown>> = [];
+      t.ctx.on("auth:success", (payload) => {
+        successes.push(payload.details as Record<string, unknown>);
+      });
+
+      void t.ctx.start();
+      await server.start();
+      const port = server.getHttpPort()!;
+
+      await new Promise<void>((resolve, reject) => {
+        const req = http.request(
+          {
+            host: "127.0.0.1",
+            port,
+            path: "/mcp",
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json, text/event-stream",
+              Authorization: "Bearer good",
+            },
+          },
+          (res) => {
+            let data = "";
+            res.on("data", (chunk) => (data += chunk));
+            res.on("end", () => resolve());
+          },
+        );
+        req.on("error", reject);
+        req.write(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: INIT_PARAMS,
+          }),
+        );
+        req.end();
+      });
+
+      expect(successes).toHaveLength(1);
+      expect(successes[0]).toMatchObject({
+        subject: "user-1",
+        scheme: "bearer",
+        source: "mcp",
+      });
+    });
+
+    /**
+     * @case auth:rejected event emitted with reason on invalid token
+     * @preconditions McpServer with auth validator; send request with bad token
+     * @expectedResult Event emitted with reason and source
+     */
+    test("emits auth:rejected on invalid token", async () => {
+      t = await testContext().store(MCP_STORE_KEY, true).build();
+      server = new McpServer(t.ctx, {
+        transport: "http",
+        port: 0,
+        host: "127.0.0.1",
+        auth: { validator: () => null },
+      });
+
+      const rejections: Array<Record<string, unknown>> = [];
+      t.ctx.on("auth:rejected", (payload) => {
+        rejections.push(payload.details as Record<string, unknown>);
+      });
+
+      void t.ctx.start();
+      await server.start();
+      const port = server.getHttpPort()!;
+
+      await new Promise<void>((resolve, reject) => {
+        const req = http.request(
+          {
+            host: "127.0.0.1",
+            port,
+            path: "/mcp",
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json, text/event-stream",
+              Authorization: "Bearer bad",
+            },
+          },
+          (res) => {
+            let data = "";
+            res.on("data", (chunk) => (data += chunk));
+            res.on("end", () => resolve());
+          },
+        );
+        req.on("error", reject);
+        req.write(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: INIT_PARAMS,
+          }),
+        );
+        req.end();
+      });
+
+      expect(rejections).toHaveLength(1);
+      expect(rejections[0]).toMatchObject({
+        reason: "invalid_token",
+        scheme: "bearer",
+        source: "mcp",
       });
     });
   });

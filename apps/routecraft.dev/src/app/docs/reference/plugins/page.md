@@ -111,7 +111,7 @@ Starts an MCP server so capabilities exposed with `.from(mcp(...))` are reachabl
 All tools from every source (local routes, stdio clients, HTTP clients) are collected into a unified `McpToolRegistry` stored in the context store under `MCP_TOOL_REGISTRY`.
 
 ```ts
-import { mcpPlugin } from '@routecraft/ai'
+import { mcpPlugin, jwt } from '@routecraft/ai'
 import type { CraftConfig } from '@routecraft/routecraft'
 
 const config: CraftConfig = {
@@ -119,10 +119,7 @@ const config: CraftConfig = {
     mcpPlugin({
       transport: 'http',
       port: 3001,
-      auth: {
-        // One token per user; split a comma-separated env var for convenience
-        tokens: process.env.MCP_TOKENS!.split(',').map((t) => t.trim()).filter(Boolean),
-      },
+      auth: jwt({ secret: process.env.JWT_SECRET! }),
       clients: {
         browser: {
           url: 'http://127.0.0.1:8089/mcp',
@@ -154,7 +151,7 @@ export default config
 | `transport` | `'http' \| 'stdio'` | `'stdio'` | Transport protocol for the MCP server |
 | `port` | `number` | `3001` | HTTP port (http transport only) |
 | `host` | `string` | `'localhost'` | HTTP host (http transport only) |
-| `auth` | `McpHttpAuthOptions` | -- | Bearer token auth for the HTTP endpoint (http transport only; see below) |
+| `auth` | `McpHttpAuthOptions` | -- | Auth for the HTTP endpoint (http transport only; see below) |
 | `tools` | `string[] \| (meta) => boolean` | -- | Allowlist of tool names to expose, or a filter function |
 | `clients` | `Record<string, McpClientHttpConfig \| McpClientStdioConfig>` | -- | Named remote MCP servers (see below) |
 | `maxRestarts` | `number` | `5` | Max automatic restarts for stdio clients before giving up |
@@ -164,21 +161,65 @@ export default config
 
 **HTTP server auth (`McpHttpAuthOptions`):**
 
-When `auth` is set and `transport` is `'http'`, every request to `/mcp` must include a valid `Authorization: Bearer <token>` header. Static tokens are compared using a timing-safe algorithm. Alternatively, pass a validator function for custom auth logic (JWT verification, database lookup, etc.).
+When `auth` is set and `transport` is `'http'`, every request to `/mcp` must include a valid `Authorization: Bearer <token>` header. The `auth` object requires a `validator` function that receives the raw bearer token and returns an `AuthPrincipal` on success or `null` to reject. The principal is made available on exchange headers so routes can read the caller's identity.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `tokens` | `string \| string[] \| (token: string) => boolean \| Promise<boolean>` | Accepted bearer token(s), or a validator function called per request with the raw bearer token. |
+| `validator` | `(token: string) => AuthPrincipal \| null \| Promise<AuthPrincipal \| null>` | Validates the bearer token and returns the caller's identity, or `null` to reject with 401. |
+
+**AuthPrincipal:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `subject` | `string` | Yes | Unique identifier for the caller (user ID, service name, API key ID) |
+| `scheme` | `string` | Yes | Auth scheme used (`'bearer'`, `'basic'`, `'api-key'`) |
+| `roles` | `string[]` | No | Assigned roles |
+| `scopes` | `string[]` | No | Granted scopes / permissions |
+| `email` | `string` | No | Email address |
+| `name` | `string` | No | Display name |
+| `issuer` | `string` | No | Token issuer (JWT `iss`) |
+| `audience` | `string[]` | No | Intended audience (JWT `aud`) |
+| `expiresAt` | `number` | No | Expiry as epoch seconds (JWT `exp`) |
+| `claims` | `Record<string, unknown>` | No | Raw claims / custom attributes |
+
+### Built-in `jwt()` helper
+
+The `jwt()` helper creates a validator that verifies JWT signatures, checks expiry, and maps standard claims to `AuthPrincipal` fields. Zero dependencies (uses `node:crypto`).
 
 ```ts
-// Single token
-auth: { tokens: process.env.MCP_TOKEN! }
+import { mcpPlugin, jwt } from '@routecraft/ai'
+```
 
-// Multiple users via comma-separated env var
-auth: { tokens: process.env.MCP_TOKENS!.split(',').map((t) => t.trim()).filter(Boolean) }
+**HMAC (HS256 / HS384 / HS512):**
 
-// Custom validator (sync or async)
-auth: { tokens: async (token) => verifyJwt(token) }
+```ts
+auth: jwt({ secret: process.env.JWT_SECRET! })
+
+// Explicit algorithm
+auth: jwt({ algorithm: 'HS384', secret: process.env.JWT_SECRET! })
+```
+
+**RSA (RS256):**
+
+```ts
+import fs from 'node:fs'
+
+auth: jwt({
+  algorithm: 'RS256',
+  publicKey: fs.readFileSync('./public.pem', 'utf-8'),
+})
+```
+
+**Custom validator:**
+
+```ts
+auth: {
+  validator: async (token) => {
+    const user = await db.verifyApiKey(token)
+    if (!user) return null
+    return { subject: user.id, scheme: 'api-key', roles: user.roles }
+  },
+}
 ```
 
 **HTTP client config (`McpClientHttpConfig`):**

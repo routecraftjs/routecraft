@@ -1,27 +1,30 @@
-import type { CraftContext, DirectRouteMetadata } from "@routecraft/routecraft";
+import type {
+  CraftContext,
+  DirectRouteMetadata,
+  EventName,
+} from "@routecraft/routecraft";
 import {
   ADAPTER_DIRECT_REGISTRY,
   ADAPTER_DIRECT_STORE,
   DefaultExchange,
   isRoutecraftError,
 } from "@routecraft/routecraft";
-import { timingSafeEqual as cryptoTimingSafeEqual } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createServer } from "node:http";
 import type { IncomingMessage } from "node:http";
-import type { McpHttpAuthOptions, McpPluginOptions } from "./types.ts";
+import { McpHeadersKeys } from "./types.ts";
+import type {
+  AuthPrincipal,
+  McpHttpAuthOptions,
+  McpPluginOptions,
+} from "./types.ts";
 
 /**
- * Constant-time string comparison to prevent timing attacks on token comparison.
- * Returns false immediately if lengths differ because crypto.timingSafeEqual
- * requires equal-length buffers. This leaks token length but not content,
- * which is an acceptable tradeoff for bearer tokens.
+ * Request-scoped storage for the authenticated principal.
+ * Set in the HTTP request handler after auth validation;
+ * read in handleToolCall to populate exchange headers.
  */
-function timingSafeStringEqual(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) return false;
-  return cryptoTimingSafeEqual(bufA, bufB);
-}
+const principalStore = new AsyncLocalStorage<AuthPrincipal | undefined>();
 
 const MCP_SDK_INSTALL =
   'MCP server requires "@modelcontextprotocol/sdk". Install it with: pnpm add @modelcontextprotocol/sdk';
@@ -48,6 +51,11 @@ export class McpServer {
   private transport: unknown = null;
   /** Node HTTP server when transport is http; used to listen on port and close on stop. */
   private httpServer: ReturnType<typeof createServer> | null = null;
+  /** Active HTTP sessions keyed by session ID (each session has its own server+transport pair). */
+  private httpSessions = new Map<
+    string,
+    { server: unknown; transport: unknown }
+  >();
   private running = false;
   private toolsListLogged = false;
 
@@ -142,18 +150,20 @@ export class McpServer {
 
   /**
    * Start HTTP transport (streamable-http).
-   * The SDK transport does not create or listen on a port; we create a Node HTTP server
-   * and call transport.handleRequest(req, res) for each request to /mcp.
+   * Creates a Node HTTP server that manages per-session MCP server+transport pairs.
+   * Each client session (identified by the `mcp-session-id` header) gets its own
+   * Server and StreamableHTTPServerTransport so that reconnecting clients can
+   * establish fresh sessions without restarting the process.
    */
   private async startHttp(): Promise<void> {
-    let Server: new (
+    let ServerCtor: new (
       info: { name: string; version: string },
       options: { capabilities: { tools: Record<string, unknown> } },
     ) => unknown;
     try {
       const serverModule =
         await import("@modelcontextprotocol/sdk/server/index.js");
-      Server = serverModule.Server;
+      ServerCtor = serverModule.Server;
     } catch {
       throw new Error(MCP_SDK_INSTALL);
     }
@@ -164,9 +174,13 @@ export class McpServer {
       );
     const TransportClass = (
       streamableModule as Record<string, unknown> | null
-    )?.["StreamableHTTPServerTransport"] as new (options?: {
-      sessionIdGenerator?: () => string;
-    }) => unknown;
+    )?.["StreamableHTTPServerTransport"] as
+      | (new (options?: {
+          sessionIdGenerator?: () => string;
+          onsessioninitialized?: (sessionId: string) => void;
+          enableJsonResponse?: boolean;
+        }) => unknown)
+      | undefined;
 
     if (!TransportClass) {
       throw new Error(
@@ -174,43 +188,85 @@ export class McpServer {
       );
     }
 
-    this.server = new Server(
-      {
-        name: this.options.name,
-        version: this.options.version,
-      },
-      { capabilities: { tools: {} } },
-    );
-
-    await this.setupRequestHandlers();
-
     const port = this.options.port;
     const host = this.options.host;
 
-    // Transport options: sessionIdGenerator and enableJsonResponse (no port/host – we create the server below).
-    // enableJsonResponse: true so we return plain JSON per request instead of SSE (simpler for clients).
-    this.transport = new TransportClass({
-      sessionIdGenerator: () => crypto.randomUUID(),
-      enableJsonResponse: true,
-    } as { sessionIdGenerator?: () => string; enableJsonResponse?: boolean });
-
-    const srvWithConnect = this.server as Record<
-      string,
-      (transport: unknown) => Promise<void>
-    >;
-    await srvWithConnect["connect"](this.transport);
-
-    const handleRequest = (
-      this.transport as Record<
-        string,
-        (req: unknown, res: unknown, parsedBody?: unknown) => Promise<void>
-      >
-    )["handleRequest"];
-    if (typeof handleRequest !== "function") {
-      throw new Error(
-        "StreamableHTTPServerTransport.handleRequest not found - SDK may have changed",
+    /**
+     * Creates a new MCP Server + Transport pair for a single session.
+     * Called on every initialization request (no session ID header).
+     */
+    const createSession = async (): Promise<{
+      transport: unknown;
+      handleRequest: (
+        req: unknown,
+        res: unknown,
+        parsedBody?: unknown,
+      ) => Promise<void>;
+    }> => {
+      const server = new ServerCtor(
+        { name: this.options.name, version: this.options.version },
+        { capabilities: { tools: {} } },
       );
-    }
+
+      // Wire up request handlers on this server instance.
+      await this.setupRequestHandlersOn(server);
+
+      const transport = new TransportClass({
+        sessionIdGenerator: () => crypto.randomUUID(),
+        onsessioninitialized: (sessionId: string) => {
+          this.httpSessions.set(sessionId, { server, transport });
+          this.context.logger.debug({ sessionId }, "MCP session created");
+          this.context.emit(
+            "plugin:mcp:session:created" as EventName,
+            { sessionId } as Record<string, unknown>,
+          );
+        },
+        enableJsonResponse: true,
+      });
+
+      const srvWithConnect = server as Record<
+        string,
+        (t: unknown) => Promise<void>
+      >;
+      await srvWithConnect["connect"](transport);
+
+      // Clean up on transport close so the session map does not leak.
+      const tr = transport as Record<string, unknown>;
+      const prevOnClose = tr["onclose"] as (() => void) | undefined;
+      tr["onclose"] = () => {
+        const sid = (transport as { sessionId?: string }).sessionId;
+        if (sid) {
+          this.httpSessions.delete(sid);
+          this.context.logger.debug({ sessionId: sid }, "MCP session closed");
+          this.context.emit(
+            "plugin:mcp:session:closed" as EventName,
+            { sessionId: sid } as Record<string, unknown>,
+          );
+        }
+        prevOnClose?.();
+      };
+
+      const handleRequest = (
+        transport as Record<
+          string,
+          (req: unknown, res: unknown, parsedBody?: unknown) => Promise<void>
+        >
+      )["handleRequest"];
+      if (typeof handleRequest !== "function") {
+        throw new Error(
+          "StreamableHTTPServerTransport.handleRequest not found - SDK may have changed",
+        );
+      }
+
+      return {
+        transport,
+        handleRequest: handleRequest.bind(transport) as (
+          req: unknown,
+          res: unknown,
+          parsedBody?: unknown,
+        ) => Promise<void>,
+      };
+    };
 
     this.httpServer = createServer(async (req, res) => {
       const url = req.url?.split("?")[0] ?? "";
@@ -219,16 +275,55 @@ export class McpServer {
         res.end(JSON.stringify({ error: "Not Found", path: url }));
         return;
       }
-      if (this.options.auth && !(await this.validateAuth(req))) {
-        res.writeHead(401, {
-          "Content-Type": "application/json",
-          "WWW-Authenticate": 'Bearer realm="mcp"',
-        });
-        res.end(JSON.stringify({ error: "Unauthorized" }));
-        return;
+      // Resolve principal when auth is configured; skip for unauthenticated servers.
+      let principal: AuthPrincipal | undefined;
+      if (this.options.auth) {
+        const result = await this.validateAuth(req);
+        if (!result) {
+          res.writeHead(401, {
+            "Content-Type": "application/json",
+            "WWW-Authenticate": 'Bearer realm="mcp"',
+          });
+          res.end(JSON.stringify({ error: "Unauthorized" }));
+          return;
+        }
+        principal = result;
       }
+
+      const sessionId = req.headers["mcp-session-id"] as string | undefined;
+
+      // Run the SDK handler inside AsyncLocalStorage so handleToolCall
+      // can read the principal without threading it through the SDK.
+      const runWithPrincipal = <T>(fn: () => Promise<T>): Promise<T> =>
+        principalStore.run(principal, fn);
+
       try {
-        await handleRequest.call(this.transport, req, res);
+        if (sessionId && this.httpSessions.has(sessionId)) {
+          // Existing session: route to the corresponding transport.
+          const session = this.httpSessions.get(sessionId)!;
+          const hr = (
+            session.transport as Record<
+              string,
+              (
+                req: unknown,
+                res: unknown,
+                parsedBody?: unknown,
+              ) => Promise<void>
+            >
+          )["handleRequest"];
+          await runWithPrincipal(() => hr.call(session.transport, req, res));
+        } else if (!sessionId || req.method === "POST") {
+          // No session ID or unknown session on POST: create a new session.
+          // The SDK will respond with 400 for non-initialize requests without a
+          // session ID, so it is safe to always create a session here and let
+          // the SDK enforce protocol rules.
+          const { handleRequest } = await createSession();
+          await runWithPrincipal(() => handleRequest(req, res));
+        } else {
+          // GET/DELETE with unknown session ID: reject.
+          res.writeHead(404, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Session not found" }));
+        }
       } catch (err) {
         const msg = isRoutecraftError(err)
           ? (err as unknown as { meta: { message: string } }).meta.message
@@ -257,9 +352,11 @@ export class McpServer {
     });
 
     const boundPort = this.getHttpPort() ?? port;
-    this.context.logger.info(
-      { host, port: boundPort, path: "/mcp" },
-      "MCP HTTP server listening",
+    const listenDetail = { host, port: boundPort, path: "/mcp" };
+    this.context.logger.info(listenDetail, "MCP HTTP server listening");
+    this.context.emit(
+      "plugin:mcp:server:listening" as EventName,
+      listenDetail as Record<string, unknown>,
     );
   }
 
@@ -275,46 +372,85 @@ export class McpServer {
   }
 
   /**
-   * Validate the Authorization header against configured tokens or a validator function.
-   * Uses timing-safe comparison for static tokens to prevent timing attacks.
-   * Returns true if auth passes; false if the request should be rejected.
+   * Validate the Authorization header using the configured validator.
+   * Returns the authenticated principal on success, or `null` to reject with 401.
    */
-  private async validateAuth(req: IncomingMessage): Promise<boolean> {
+  private async validateAuth(
+    req: IncomingMessage,
+  ): Promise<AuthPrincipal | null> {
     const authOptions = this.options.auth as McpHttpAuthOptions | undefined;
-    if (!authOptions) return true;
+    if (!authOptions) return null;
 
     const rawHeader = req.headers["authorization"];
-    if (!rawHeader || Array.isArray(rawHeader)) return false;
+    if (!rawHeader || Array.isArray(rawHeader)) {
+      const detail = {
+        reason: "missing_header",
+        scheme: "bearer",
+        source: "mcp",
+      };
+      this.context.logger.warn(
+        detail,
+        "Auth rejected: missing or malformed Authorization header",
+      );
+      this.context.emit("auth:rejected", detail);
+      return null;
+    }
 
     const schemeMatch = /^bearer\s+(.+)$/i.exec(rawHeader);
-    if (!schemeMatch) return false;
+    if (!schemeMatch) {
+      const detail = {
+        reason: "unsupported_scheme",
+        scheme: "bearer",
+        source: "mcp",
+      };
+      this.context.logger.warn(
+        detail,
+        "Auth rejected: unsupported authorization scheme",
+      );
+      this.context.emit("auth:rejected", detail);
+      return null;
+    }
     const token = schemeMatch[1];
 
-    // Validator function: delegate entirely to the caller.
-    // If the validator returns false (or a falsy value), the server responds with 401.
-    // If the validator throws, the error propagates and the server responds with 500.
-    // Validators should catch expected failures (e.g. JWT expiry) and return false.
-    if (typeof authOptions.tokens === "function") {
-      return authOptions.tokens(token);
+    // Delegate to the validator. It must return an AuthPrincipal on success
+    // or null/false to reject. Throws propagate as 500.
+    const result = await authOptions.validator(token);
+    if (!result) {
+      const detail = {
+        reason: "invalid_token",
+        scheme: "bearer",
+        source: "mcp",
+      };
+      this.context.logger.warn(
+        detail,
+        "Auth rejected: token validation failed",
+      );
+      this.context.emit("auth:rejected", detail);
+      return null;
     }
 
-    const allowed = Array.isArray(authOptions.tokens)
-      ? authOptions.tokens
-      : [authOptions.tokens];
-
-    // Iterate all tokens without short-circuiting to avoid leaking which slot matched.
-    let found = false;
-    for (const t of allowed) {
-      if (timingSafeStringEqual(t, token)) found = true;
-    }
-    return found;
+    const successDetail = {
+      subject: result.subject,
+      scheme: result.scheme,
+      source: "mcp",
+    };
+    this.context.logger.info(successDetail, "Auth succeeded");
+    this.context.emit("auth:success", successDetail);
+    return result;
   }
 
   /**
-   * Set up request handlers (shared by both transports).
-   * Uses SDK request schemas so setRequestHandler receives a proper schema (method literal).
+   * Set up request handlers on this.server (used by stdio transport).
    */
   private async setupRequestHandlers(): Promise<void> {
+    await this.setupRequestHandlersOn(this.server);
+  }
+
+  /**
+   * Set up request handlers on the given server instance.
+   * Uses SDK request schemas so setRequestHandler receives a proper schema (method literal).
+   */
+  private async setupRequestHandlersOn(server: unknown): Promise<void> {
     let typesModule: Record<string, unknown>;
     try {
       typesModule =
@@ -335,7 +471,7 @@ export class McpServer {
       );
     }
 
-    const srv = this.server as Record<
+    const srv = server as Record<
       string,
       (schema: unknown, handler: (request: unknown) => Promise<unknown>) => void
     >;
@@ -369,6 +505,15 @@ export class McpServer {
 
     try {
       if (this.httpServer) {
+        // Close all active HTTP sessions.
+        for (const [, session] of this.httpSessions) {
+          const tr = session.transport as Record<string, () => Promise<void>>;
+          if (typeof tr["close"] === "function") {
+            await tr["close"]();
+          }
+        }
+        this.httpSessions.clear();
+
         await new Promise<void>((resolve) => {
           this.httpServer!.close(() => resolve());
         });
@@ -400,9 +545,11 @@ export class McpServer {
     const tools = this.getAvailableTools();
     if (tools.length === 0) return;
     const names = tools.map((t) => (t["name"] as string) ?? "?");
-    this.context.logger.info(
-      { tools: names, count: names.length },
-      "Exposing MCP tools",
+    const exposedDetail = { tools: names, count: names.length };
+    this.context.logger.info(exposedDetail, "Exposing MCP tools");
+    this.context.emit(
+      "plugin:mcp:server:tools:exposed" as EventName,
+      exposedDetail as Record<string, unknown>,
     );
     this.toolsListLogged = true;
   }
@@ -509,6 +656,10 @@ export class McpServer {
       if (!channelStore) {
         const err = new Error("No direct channels available");
         this.context.emit("error", { error: err });
+        this.context.emit(
+          `plugin:mcp:tool:${toolName}:failed` as EventName,
+          { tool: toolName, error: err.message } as Record<string, unknown>,
+        );
         return {
           content: [
             { type: "text", text: `Error: No direct channels available` },
@@ -521,6 +672,10 @@ export class McpServer {
       if (!channel) {
         const err = new Error(`Tool not found: ${toolName}`);
         this.context.emit("error", { error: err });
+        this.context.emit(
+          `plugin:mcp:tool:${toolName}:failed` as EventName,
+          { tool: toolName, error: err.message } as Record<string, unknown>,
+        );
         return {
           content: [
             { type: "text", text: `Error: Tool not found: ${toolName}` },
@@ -547,14 +702,37 @@ export class McpServer {
         "MCP tool call exchange body",
       );
 
-      // Create an exchange with the tool arguments
+      // Build exchange headers, including auth principal if present.
+      const principal = principalStore.getStore();
+      const headers: Record<string, string | string[] | undefined> = {
+        [McpHeadersKeys.TOOL]: toolName,
+        [McpHeadersKeys.SESSION]: `mcp-${Date.now()}`,
+      };
+      if (principal) {
+        headers[McpHeadersKeys.AUTH_SUBJECT] = principal.subject;
+        headers[McpHeadersKeys.AUTH_SCHEME] = principal.scheme;
+        if (principal.roles)
+          headers[McpHeadersKeys.AUTH_ROLES] = principal.roles;
+        if (principal.scopes)
+          headers[McpHeadersKeys.AUTH_SCOPES] = principal.scopes;
+        if (principal.email)
+          headers[McpHeadersKeys.AUTH_EMAIL] = principal.email;
+        if (principal.name) headers[McpHeadersKeys.AUTH_NAME] = principal.name;
+        if (principal.issuer)
+          headers[McpHeadersKeys.AUTH_ISSUER] = principal.issuer;
+        if (principal.audience)
+          headers[McpHeadersKeys.AUTH_AUDIENCE] = principal.audience;
+      }
+
       const exchange = new DefaultExchange(this.context, {
         body,
-        headers: {
-          "routecraft.mcp.tool": toolName,
-          "routecraft.mcp.session": `mcp-${Date.now()}`,
-        },
+        headers,
       });
+
+      this.context.emit(
+        `plugin:mcp:tool:${toolName}:called` as EventName,
+        { tool: toolName, args } as Record<string, unknown>,
+      );
 
       // Send the exchange through the direct channel
       const channelTyped = channel as Record<
@@ -572,6 +750,11 @@ export class McpServer {
           ? (resultExchange["body"] as string)
           : JSON.stringify(resultExchange["body"]);
 
+      this.context.emit(
+        `plugin:mcp:tool:${toolName}:completed` as EventName,
+        { tool: toolName } as Record<string, unknown>,
+      );
+
       return {
         content: [{ type: "text", text: resultText }],
       };
@@ -583,6 +766,10 @@ export class McpServer {
           : String(error);
       this.context.logger.error({ tool: toolName, err: error }, msg);
       this.context.emit("error", { error });
+      this.context.emit(
+        `plugin:mcp:tool:${toolName}:failed` as EventName,
+        { tool: toolName, error: msg } as Record<string, unknown>,
+      );
       return {
         content: [{ type: "text", text: `Error: ${msg}` }],
       };

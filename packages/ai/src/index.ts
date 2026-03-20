@@ -46,7 +46,9 @@ export {
   ADAPTER_MCP_CLIENT_SERVERS,
   BRAND_MCP_ADAPTER,
   defaultArgs,
+  jwt,
   mcp,
+  McpHeadersKeys,
   mcpPlugin,
   McpServer,
   McpToolRegistry,
@@ -54,6 +56,9 @@ export {
   MCP_STDIO_MANAGERS,
   MCP_TOOL_REGISTRY,
   validateWithSchema,
+  type AuthPrincipal,
+  type JwtAuthOptions,
+  type JwtHmacOptions,
   type McpArgsExtractor,
   type McpClientHttpConfig,
   type McpMessage,
@@ -65,13 +70,13 @@ export {
   type McpToolResult,
 } from "./mcp/index.ts";
 export type {
+  McpAuthValidator,
   McpClientAuthOptions,
   McpClientOptions,
   McpClientServerConfig,
   McpClientStdioConfig,
   McpClientTokenProvider,
   McpHttpAuthOptions,
-  McpTokenValidator,
 } from "./mcp/types.ts";
 
 // Agent adapter (Phase 1: pass-through)

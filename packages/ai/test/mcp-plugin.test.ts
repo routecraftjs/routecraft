@@ -380,71 +380,38 @@ describe("MCP Plugin Integration", () => {
 
   describe("auth option validation", () => {
     /**
-     * @case mcpPlugin accepts a single non-empty string token
-     * @preconditions auth.tokens is a non-empty string
+     * @case mcpPlugin accepts a validator function
+     * @preconditions auth.validator is a function
      * @expectedResult Plugin created without error
      */
-    test("accepts a single string token", () => {
+    test("accepts a validator function", () => {
       const p = mcpPlugin({
         transport: "http",
-        auth: { tokens: "my-secret-token" },
+        auth: { validator: () => ({ subject: "test", scheme: "bearer" }) },
       });
       expect(typeof p.apply).toBe("function");
     });
 
     /**
-     * @case mcpPlugin accepts an array of non-empty string tokens
-     * @preconditions auth.tokens is a non-empty array of strings
-     * @expectedResult Plugin created without error
+     * @case mcpPlugin rejects a non-function validator
+     * @preconditions auth.validator is not a function
+     * @expectedResult TypeError thrown
      */
-    test("accepts an array of string tokens", () => {
-      const p = mcpPlugin({
-        transport: "http",
-        auth: { tokens: ["token-a", "token-b"] },
-      });
-      expect(typeof p.apply).toBe("function");
-    });
-
-    /**
-     * @case mcpPlugin rejects an empty string token
-     * @preconditions auth.tokens is an empty string
-     * @expectedResult TypeError thrown with message about non-empty string
-     */
-    test("rejects empty string token", () => {
+    test("rejects non-function validator", () => {
       expect(() =>
-        mcpPlugin({ transport: "http", auth: { tokens: "" } }),
+        mcpPlugin({
+          transport: "http",
+          // @ts-expect-error testing runtime validation of non-function validator
+          auth: { validator: "not-a-function" },
+        }),
       ).toThrow(TypeError);
       expect(() =>
-        mcpPlugin({ transport: "http", auth: { tokens: "" } }),
-      ).toThrow(/non-empty string/);
-    });
-
-    /**
-     * @case mcpPlugin rejects an empty array of tokens
-     * @preconditions auth.tokens is an empty array
-     * @expectedResult TypeError thrown with message about empty array
-     */
-    test("rejects empty tokens array", () => {
-      expect(() =>
-        mcpPlugin({ transport: "http", auth: { tokens: [] } }),
-      ).toThrow(TypeError);
-      expect(() =>
-        mcpPlugin({ transport: "http", auth: { tokens: [] } }),
-      ).toThrow(/must not be empty/);
-    });
-
-    /**
-     * @case mcpPlugin rejects an array containing an empty string token
-     * @preconditions auth.tokens is an array with one empty string
-     * @expectedResult TypeError thrown referencing the index
-     */
-    test("rejects array with empty string entry", () => {
-      expect(() =>
-        mcpPlugin({ transport: "http", auth: { tokens: ["valid", ""] } }),
-      ).toThrow(TypeError);
-      expect(() =>
-        mcpPlugin({ transport: "http", auth: { tokens: ["valid", ""] } }),
-      ).toThrow(/\[1\]/);
+        mcpPlugin({
+          transport: "http",
+          // @ts-expect-error testing runtime validation of non-function validator
+          auth: { validator: "not-a-function" },
+        }),
+      ).toThrow(/auth\.validator must be a function/);
     });
   });
 });
