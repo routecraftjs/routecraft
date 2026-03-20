@@ -164,11 +164,11 @@ export default config
 
 **HTTP server auth (`McpHttpAuthOptions`):**
 
-When `auth` is set and `transport` is `'http'`, every request to `/mcp` must include a valid `Authorization: Bearer <token>` header. Tokens are compared using a timing-safe algorithm.
+When `auth` is set and `transport` is `'http'`, every request to `/mcp` must include a valid `Authorization: Bearer <token>` header. Static tokens are compared using a timing-safe algorithm. Alternatively, pass a validator function for custom auth logic (JWT verification, database lookup, etc.).
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `tokens` | `string \| string[]` | Accepted bearer token(s). Use an array to support multiple users. |
+| `tokens` | `string \| string[] \| (token: string) => boolean \| Promise<boolean>` | Accepted bearer token(s), or a validator function called per request with the raw bearer token. |
 
 ```ts
 // Single token
@@ -176,6 +176,9 @@ auth: { tokens: process.env.MCP_TOKEN! }
 
 // Multiple users via comma-separated env var
 auth: { tokens: process.env.MCP_TOKENS!.split(',').map((t) => t.trim()).filter(Boolean) }
+
+// Custom validator (sync or async)
+auth: { tokens: async (token) => verifyJwt(token) }
 ```
 
 **HTTP client config (`McpClientHttpConfig`):**
