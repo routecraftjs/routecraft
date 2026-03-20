@@ -1,29 +1,25 @@
 import { Box, Text } from "ink";
 import type { ExchangeRecord } from "../types.js";
-import {
-  statusColor,
-  formatDuration,
-  col,
-  truncate,
-  scrollOffset,
-} from "../utils.js";
+import { statusColor, formatDuration, col, truncate } from "../utils.js";
 
 export function CenterExchangeList({
   capabilityId,
   exchanges,
   selectedIndex,
+  listOffset,
   centerWidth,
   bodyHeight,
 }: {
   capabilityId: string;
   exchanges: ExchangeRecord[];
   selectedIndex: number;
+  listOffset: number;
   centerWidth: number;
   bodyHeight: number;
 }) {
   const idColWidth = Math.max(centerWidth - 50, 8);
   const tableRows = Math.max(bodyHeight - 6, 3);
-  const offset = scrollOffset(selectedIndex, exchanges.length, tableRows);
+  const offset = listOffset;
 
   return (
     <Box

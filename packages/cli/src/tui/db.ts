@@ -183,27 +183,24 @@ export class TelemetryDb {
 
   /**
    * Get all failed exchanges across all routes, ordered by most recent first.
+   * Shows every failed exchange including child exchanges from split/multicast,
+   * without deduplication by correlation chain.
    */
   getFailedExchanges(limit = 200): TelemetryExchange[] {
     const stmt = this.db.prepare(`
       SELECT
-        e.id,
-        e.route_id AS routeId,
-        e.context_id AS contextId,
-        e.correlation_id AS correlationId,
-        e.status,
-        e.started_at AS startedAt,
-        e.completed_at AS completedAt,
-        e.duration_ms AS durationMs,
-        e.error
-      FROM exchanges e
-      INNER JOIN (
-        SELECT correlation_id, MIN(ROWID) AS first_rowid
-        FROM exchanges
-        GROUP BY correlation_id
-      ) p ON e.correlation_id = p.correlation_id AND e.ROWID = p.first_rowid
-      WHERE e.status = 'failed'
-      ORDER BY e.started_at DESC
+        id,
+        route_id AS routeId,
+        context_id AS contextId,
+        correlation_id AS correlationId,
+        status,
+        started_at AS startedAt,
+        completed_at AS completedAt,
+        duration_ms AS durationMs,
+        error
+      FROM exchanges
+      WHERE status = 'failed'
+      ORDER BY started_at DESC
       LIMIT ?
     `);
     return stmt.all(limit) as TelemetryExchange[];

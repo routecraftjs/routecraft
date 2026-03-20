@@ -10,7 +10,12 @@ import type {
   Metrics,
 } from "./types.js";
 import { NAV_SECTIONS, ALL_NAV_ITEMS } from "./types.js";
-import { barChart, fmtNum, formatDuration } from "./utils.js";
+import {
+  barChart,
+  fmtNum,
+  formatDuration,
+  adjustScrollOffset,
+} from "./utils.js";
 import { CenterOverview } from "./components/center-overview.js";
 import { CenterExchangeList } from "./components/center-exchange-list.js";
 import { CenterExchangeDetail } from "./components/center-exchange-detail.js";
@@ -38,15 +43,18 @@ function App({ db }: { db: TelemetryDb }) {
   });
   const [traffic, setTraffic] = useState<number[]>([]);
   const [selectedRouteIndex, setSelectedRouteIndex] = useState(0);
+  const [routeScrollOffset, setRouteScrollOffset] = useState(0);
   const [recentExchanges, setRecentExchanges] = useState<ExchangeRecord[]>([]);
   const [exchanges, setExchanges] = useState<ExchangeRecord[]>([]);
   const [selectedExchangeIndex, setSelectedExchangeIndex] = useState(0);
+  const [exchangeScrollOffset, setExchangeScrollOffset] = useState(0);
   const [selectedExchange, setSelectedExchange] = useState<
     ExchangeRecord | undefined
   >(undefined);
   const [exchangeEvents, setExchangeEvents] = useState<EventRecord[]>([]);
   const [events, setEvents] = useState<EventRecord[]>([]);
   const [selectedEventIndex, setSelectedEventIndex] = useState(0);
+  const [eventScrollOffset, setEventScrollOffset] = useState(0);
   const [detailScrollIndex, setDetailScrollIndex] = useState(0);
 
   const refresh = useCallback(() => {
@@ -106,8 +114,10 @@ function App({ db }: { db: TelemetryDb }) {
     (nav: NavItem) => {
       setActiveNav(nav);
       setDrillView("none");
+      setExchangeScrollOffset(0);
       if (nav === "events") {
         setSelectedEventIndex(0);
+        setEventScrollOffset(0);
         setEvents(db.getRecentEvents({ limit: 200 }));
       }
     },
@@ -128,11 +138,23 @@ function App({ db }: { db: TelemetryDb }) {
       return;
     }
 
+    // Visible row counts mirror the view components' tableRows computations
+    const eventsTableRows = Math.max(bodyHeight - 6, 5);
+    const exchangeTableRows = Math.max(bodyHeight - 6, 3);
+
     if (activeNav === "events") {
       if (input === "j" || key.downArrow) {
-        setSelectedEventIndex((i) => Math.min(i + 1, events.length - 1));
+        const next = Math.min(selectedEventIndex + 1, events.length - 1);
+        setSelectedEventIndex(next);
+        setEventScrollOffset((off) =>
+          adjustScrollOffset(next, off, eventsTableRows),
+        );
       } else if (input === "k" || key.upArrow) {
-        setSelectedEventIndex((i) => Math.max(i - 1, 0));
+        const next = Math.max(selectedEventIndex - 1, 0);
+        setSelectedEventIndex(next);
+        setEventScrollOffset((off) =>
+          adjustScrollOffset(next, off, eventsTableRows),
+        );
       }
       return;
     }
@@ -142,9 +164,17 @@ function App({ db }: { db: TelemetryDb }) {
       drillView === "none"
     ) {
       if (input === "j" || key.downArrow) {
-        setSelectedExchangeIndex((i) => Math.min(i + 1, exchanges.length - 1));
+        const next = Math.min(selectedExchangeIndex + 1, exchanges.length - 1);
+        setSelectedExchangeIndex(next);
+        setExchangeScrollOffset((off) =>
+          adjustScrollOffset(next, off, exchangeTableRows),
+        );
       } else if (input === "k" || key.upArrow) {
-        setSelectedExchangeIndex((i) => Math.max(i - 1, 0));
+        const next = Math.max(selectedExchangeIndex - 1, 0);
+        setSelectedExchangeIndex(next);
+        setExchangeScrollOffset((off) =>
+          adjustScrollOffset(next, off, exchangeTableRows),
+        );
       } else if (key.return) {
         const ex = exchanges[selectedExchangeIndex];
         if (ex) {
@@ -158,22 +188,39 @@ function App({ db }: { db: TelemetryDb }) {
 
     if (activeNav === "capabilities" && drillView === "none") {
       if (input === "j" || key.downArrow) {
-        selectRoute(Math.min(selectedRouteIndex + 1, routes.length - 1));
+        const next = Math.min(selectedRouteIndex + 1, routes.length - 1);
+        selectRoute(next);
+        setRouteScrollOffset((off) =>
+          adjustScrollOffset(next, off, navListHeight),
+        );
       } else if (input === "k" || key.upArrow) {
-        selectRoute(Math.max(selectedRouteIndex - 1, 0));
+        const next = Math.max(selectedRouteIndex - 1, 0);
+        selectRoute(next);
+        setRouteScrollOffset((off) =>
+          adjustScrollOffset(next, off, navListHeight),
+        );
       } else if (key.return) {
         const route = routes[selectedRouteIndex];
         if (route) {
           setSelectedExchangeIndex(0);
+          setExchangeScrollOffset(0);
           setExchanges(db.getExchangesByRoute(route.id));
           setDrillView("exchange-list");
         }
       }
     } else if (drillView === "exchange-list") {
       if (input === "j" || key.downArrow) {
-        setSelectedExchangeIndex((i) => Math.min(i + 1, exchanges.length - 1));
+        const next = Math.min(selectedExchangeIndex + 1, exchanges.length - 1);
+        setSelectedExchangeIndex(next);
+        setExchangeScrollOffset((off) =>
+          adjustScrollOffset(next, off, exchangeTableRows),
+        );
       } else if (input === "k" || key.upArrow) {
-        setSelectedExchangeIndex((i) => Math.max(i - 1, 0));
+        const next = Math.max(selectedExchangeIndex - 1, 0);
+        setSelectedExchangeIndex(next);
+        setExchangeScrollOffset((off) =>
+          adjustScrollOffset(next, off, exchangeTableRows),
+        );
       } else if (key.return) {
         const ex = exchanges[selectedExchangeIndex];
         if (ex) {
@@ -282,6 +329,7 @@ function App({ db }: { db: TelemetryDb }) {
               <CapabilityList
                 routes={routes}
                 selectedIndex={selectedRouteIndex}
+                listOffset={routeScrollOffset}
                 visibleRows={navListHeight}
                 colWidth={leftWidth - 6}
               />
@@ -322,6 +370,7 @@ function App({ db }: { db: TelemetryDb }) {
             capabilityId={selectedRoute?.id ?? ""}
             exchanges={exchanges}
             selectedIndex={selectedExchangeIndex}
+            listOffset={exchangeScrollOffset}
             centerWidth={centerWidth}
             bodyHeight={bodyHeight}
           />
@@ -342,6 +391,7 @@ function App({ db }: { db: TelemetryDb }) {
             capabilityId="All Capabilities"
             exchanges={exchanges}
             selectedIndex={selectedExchangeIndex}
+            listOffset={exchangeScrollOffset}
             centerWidth={centerWidth}
             bodyHeight={bodyHeight}
           />
@@ -362,6 +412,7 @@ function App({ db }: { db: TelemetryDb }) {
             capabilityId="Failed Exchanges"
             exchanges={exchanges}
             selectedIndex={selectedExchangeIndex}
+            listOffset={exchangeScrollOffset}
             centerWidth={centerWidth}
             bodyHeight={bodyHeight}
           />
@@ -381,6 +432,7 @@ function App({ db }: { db: TelemetryDb }) {
           <EventsView
             events={events}
             selectedIndex={selectedEventIndex}
+            listOffset={eventScrollOffset}
             width={centerWidth}
             height={bodyHeight}
           />

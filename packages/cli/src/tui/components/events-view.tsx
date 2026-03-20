@@ -1,22 +1,24 @@
 import { Box, Text } from "ink";
 import type { EventRecord } from "../types.js";
-import { col, truncate, formatDetails, scrollOffset } from "../utils.js";
+import { col, truncate, formatDetails } from "../utils.js";
 
 export function EventsView({
   events,
   selectedIndex,
+  listOffset,
   width,
   height,
 }: {
   events: EventRecord[];
   selectedIndex: number;
+  listOffset: number;
   width: number;
   height: number;
 }) {
   const eventColWidth = Math.min(Math.max(Math.floor(width * 0.3), 20), 45);
   const detailsColWidth = Math.max(width - eventColWidth - 28, 10);
   const tableRows = Math.max(height - 6, 5);
-  const offset = scrollOffset(selectedIndex, events.length, tableRows);
+  const offset = listOffset;
 
   return (
     <Box

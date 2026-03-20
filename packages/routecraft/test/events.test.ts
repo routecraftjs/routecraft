@@ -533,6 +533,151 @@ describe("Event ordering", () => {
   }
 
   /**
+   * @case Every event type carries its required payload fields
+   * @preconditions Route with transform -> to (produces all standard event types)
+   * @expectedResult exchange events have routeId/exchangeId/correlationId; step events add operation/adapter; route lifecycle events have route; context events are present
+   */
+  test("0. payload fields: all standard events carry required fields", async () => {
+    const events = await runAndCollect(
+      craft()
+        .id("r")
+        .from(simple("hi"))
+        .transform((b) => b)
+        .to(log()),
+    );
+
+    const byName = (name: string) => events.filter((e) => e.event === name);
+    const one = (name: string) => {
+      const found = byName(name);
+      expect(found).toHaveLength(1);
+      return found[0].details;
+    };
+
+    // -- Context events --
+    one("context:starting");
+    one("context:started");
+    one("context:stopping");
+    one("context:stopped");
+
+    // -- Route lifecycle events: must carry { route } --
+    // Note: route:r:registered fires during build() before the collector subscribes,
+    // so it is intentionally excluded here.
+    for (const ev of [
+      "route:r:starting",
+      "route:r:started",
+      "route:r:stopping",
+      "route:r:stopped",
+    ]) {
+      const d = one(ev);
+      expect(d, `${ev} missing 'route'`).toHaveProperty("route");
+    }
+
+    // -- Exchange events --
+    const exStarted = one("route:r:exchange:started");
+    expect(exStarted).toMatchObject({
+      routeId: "r",
+      exchangeId: expect.any(String),
+      correlationId: expect.any(String),
+    });
+
+    const exCompleted = one("route:r:exchange:completed");
+    expect(exCompleted).toMatchObject({
+      routeId: "r",
+      exchangeId: expect.any(String),
+      correlationId: expect.any(String),
+      duration: expect.any(Number),
+    });
+
+    // exchangeId is consistent across all exchange events
+    expect(exStarted["exchangeId"]).toBe(exCompleted["exchangeId"]);
+    expect(exStarted["correlationId"]).toBe(exCompleted["correlationId"]);
+
+    // -- Step events: must carry routeId, exchangeId, correlationId, operation --
+    const stepStarted = byName("route:r:step:started");
+    expect(stepStarted).toHaveLength(2); // transform + to
+    for (const step of stepStarted) {
+      expect(step.details).toMatchObject({
+        routeId: "r",
+        exchangeId: expect.any(String),
+        correlationId: expect.any(String),
+        operation: expect.any(String),
+      });
+      // exchangeId matches the exchange
+      expect(step.details["exchangeId"]).toBe(exStarted["exchangeId"]);
+    }
+
+    const stepCompleted = byName("route:r:step:completed");
+    expect(stepCompleted).toHaveLength(2);
+    for (const step of stepCompleted) {
+      expect(step.details).toMatchObject({
+        routeId: "r",
+        exchangeId: expect.any(String),
+        correlationId: expect.any(String),
+        operation: expect.any(String),
+        duration: expect.any(Number),
+      });
+    }
+
+    // -- Specific operations and adapters --
+    const transformStarted = stepStarted.find(
+      (e) => e.details["operation"] === "transform",
+    );
+    expect(transformStarted).toBeDefined();
+
+    const toStep = stepStarted.find((e) => e.details["operation"] === "to");
+    expect(toStep).toBeDefined();
+    expect(toStep!.details["adapter"]).toBe("log");
+  });
+
+  /**
+   * @case exchange:failed carries error and exchange:dropped carries reason
+   * @preconditions One route that throws, one that filters
+   * @expectedResult failed event has error field, dropped event has reason field
+   */
+  test("0b. payload fields: exchange:failed has error, exchange:dropped has reason", async () => {
+    // exchange:failed
+    const failEvents = await runAndCollect(
+      craft()
+        .id("r")
+        .from(simple("hi"))
+        .transform(() => {
+          throw new Error("boom");
+        })
+        .to(log()),
+    );
+    const failed = failEvents.find(
+      (e) => e.event === "route:r:exchange:failed",
+    );
+    expect(failed).toBeDefined();
+    expect(failed!.details).toMatchObject({
+      routeId: "r",
+      exchangeId: expect.any(String),
+      correlationId: expect.any(String),
+      duration: expect.any(Number),
+      error: expect.anything(),
+    });
+
+    // exchange:dropped
+    const dropEvents = await runAndCollect(
+      craft()
+        .id("r")
+        .from(simple("hi"))
+        .filter(() => false)
+        .to(log()),
+    );
+    const dropped = dropEvents.find(
+      (e) => e.event === "route:r:exchange:dropped",
+    );
+    expect(dropped).toBeDefined();
+    expect(dropped!.details).toMatchObject({
+      routeId: "r",
+      exchangeId: expect.any(String),
+      correlationId: expect.any(String),
+      reason: expect.any(String),
+    });
+  });
+
+  /**
    * @case Happy path: from -> transform -> to
    * @preconditions Simple source, one transform, log destination
    * @expectedResult Full lifecycle in order with no duplicates

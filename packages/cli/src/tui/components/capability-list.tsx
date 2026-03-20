@@ -1,19 +1,21 @@
 import { Text } from "ink";
 import type { RouteSummary } from "../types.js";
-import { truncate, scrollOffset } from "../utils.js";
+import { truncate } from "../utils.js";
 
 export function CapabilityList({
   routes,
   selectedIndex,
+  listOffset,
   visibleRows,
   colWidth,
 }: {
   routes: RouteSummary[];
   selectedIndex: number;
+  listOffset: number;
   visibleRows: number;
   colWidth: number;
 }) {
-  const offset = scrollOffset(selectedIndex, routes.length, visibleRows);
+  const offset = listOffset;
 
   return (
     <>
