@@ -565,6 +565,99 @@ describe("McpServer", () => {
         const res = await post(initBody);
         expect(res.statusCode).toBe(200);
       });
+
+      /**
+       * @case Sync validator function that returns true allows access
+       * @preconditions McpServer with auth.tokens as sync validator returning true
+       * @expectedResult 200 status code
+       */
+      test("accepts request when sync validator returns true", async () => {
+        const { post } = await startHttpServer([], {
+          auth: { tokens: (token) => token === "custom-valid" },
+        });
+
+        const initBody = JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: INIT_PARAMS,
+        });
+        const res = await post(initBody, undefined, {
+          Authorization: "Bearer custom-valid",
+        });
+        expect(res.statusCode).toBe(200);
+      });
+
+      /**
+       * @case Sync validator function that returns false rejects access
+       * @preconditions McpServer with auth.tokens as sync validator returning false
+       * @expectedResult 401 status code
+       */
+      test("returns 401 when sync validator returns false", async () => {
+        const { post } = await startHttpServer([], {
+          auth: { tokens: () => false },
+        });
+
+        const initBody = JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: INIT_PARAMS,
+        });
+        const res = await post(initBody, undefined, {
+          Authorization: "Bearer any-token",
+        });
+        expect(res.statusCode).toBe(401);
+      });
+
+      /**
+       * @case Async validator function that resolves true allows access
+       * @preconditions McpServer with auth.tokens as async validator resolving true
+       * @expectedResult 200 status code
+       */
+      test("accepts request when async validator resolves true", async () => {
+        const { post } = await startHttpServer([], {
+          auth: {
+            tokens: async (token) => {
+              // Simulate async lookup (e.g. DB, JWT verify)
+              return token === "async-valid";
+            },
+          },
+        });
+
+        const initBody = JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: INIT_PARAMS,
+        });
+        const res = await post(initBody, undefined, {
+          Authorization: "Bearer async-valid",
+        });
+        expect(res.statusCode).toBe(200);
+      });
+
+      /**
+       * @case Async validator function that resolves false rejects access
+       * @preconditions McpServer with auth.tokens as async validator resolving false
+       * @expectedResult 401 status code
+       */
+      test("returns 401 when async validator resolves false", async () => {
+        const { post } = await startHttpServer([], {
+          auth: { tokens: async () => false },
+        });
+
+        const initBody = JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: INIT_PARAMS,
+        });
+        const res = await post(initBody, undefined, {
+          Authorization: "Bearer any-token",
+        });
+        expect(res.statusCode).toBe(401);
+      });
     });
   });
 

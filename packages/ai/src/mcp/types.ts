@@ -89,6 +89,13 @@ export type McpClientServerConfig = McpClientHttpConfig | McpClientStdioConfig;
  * Use a single string or an array to support multiple users. Tokens are compared
  * using a timing-safe algorithm.
  *
+ * Alternatively, pass a validator function to handle authentication yourself
+ * (e.g. JWT verification, database lookup). The function receives the raw
+ * bearer token and must return `true`/`false` (or a `Promise` thereof).
+ *
+ * **Note:** When using a validator function, timing-safe comparison is the
+ * caller's responsibility if constant-time equality matters for the use case.
+ *
  * @example
  * ```ts
  * // Single shared token
@@ -96,17 +103,34 @@ export type McpClientServerConfig = McpClientHttpConfig | McpClientStdioConfig;
  *
  * // Per-user tokens (e.g. comma-separated env var)
  * auth: { tokens: process.env.MCP_TOKENS!.split(",") }
+ *
+ * // Custom validator (called per request)
+ * auth: { tokens: (token) => verifyJwt(token) }
  * ```
  *
  * @experimental
  */
 export interface McpHttpAuthOptions {
   /**
-   * Bearer token(s) that are accepted. Each token grants full access.
-   * Can be a single string or an array (e.g., one token per user).
+   * Bearer token(s) that are accepted, or a validator function.
+   *
+   * - `string` -- single static token (timing-safe comparison).
+   * - `string[]` -- multiple static tokens (timing-safe comparison).
+   * - `(token: string) => boolean | Promise<boolean>` -- custom validator
+   *   called with the raw bearer token on every request. Return `true` to
+   *   allow access. May be async.
    */
-  tokens: string | string[];
+  tokens: string | string[] | McpTokenValidator;
 }
+
+/**
+ * A function that validates a bearer token.
+ * Called on every incoming request when used as `auth.tokens`.
+ * May be synchronous or asynchronous.
+ *
+ * @experimental
+ */
+export type McpTokenValidator = (token: string) => boolean | Promise<boolean>;
 
 /**
  * Auth config for an outbound MCP HTTP client connection.

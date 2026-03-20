@@ -33,7 +33,9 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
   // Validate auth options
   if (options.auth !== undefined) {
     const { tokens } = options.auth;
-    if (typeof tokens === "string") {
+    if (typeof tokens === "function") {
+      // Validator function -- no further checks needed.
+    } else if (typeof tokens === "string") {
       if (tokens.length === 0) {
         throw new TypeError(
           "mcpPlugin: auth.tokens must be a non-empty string",
@@ -52,7 +54,7 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
       }
     } else {
       throw new TypeError(
-        "mcpPlugin: auth.tokens must be a string or an array of strings",
+        "mcpPlugin: auth.tokens must be a string, an array of strings, or a validator function",
       );
     }
   }

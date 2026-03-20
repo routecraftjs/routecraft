@@ -70,6 +70,7 @@ export type {
   McpClientServerConfig,
   McpClientStdioConfig,
   McpHttpAuthOptions,
+  McpTokenValidator,
 } from "./mcp/types.ts";
 
 // Agent adapter (Phase 1: pass-through)

@@ -219,7 +219,7 @@ export class McpServer {
         res.end(JSON.stringify({ error: "Not Found", path: url }));
         return;
       }
-      if (this.options.auth && !this.validateAuth(req)) {
+      if (this.options.auth && !(await this.validateAuth(req))) {
         res.writeHead(401, {
           "Content-Type": "application/json",
           "WWW-Authenticate": 'Bearer realm="mcp"',
@@ -275,11 +275,11 @@ export class McpServer {
   }
 
   /**
-   * Validate the Authorization header against configured tokens.
-   * Uses timing-safe comparison to prevent timing attacks.
+   * Validate the Authorization header against configured tokens or a validator function.
+   * Uses timing-safe comparison for static tokens to prevent timing attacks.
    * Returns true if auth passes; false if the request should be rejected.
    */
-  private validateAuth(req: IncomingMessage): boolean {
+  private async validateAuth(req: IncomingMessage): Promise<boolean> {
     const authOptions = this.options.auth as McpHttpAuthOptions | undefined;
     if (!authOptions) return true;
 
@@ -289,6 +289,12 @@ export class McpServer {
     const schemeMatch = /^bearer\s+(.+)$/i.exec(rawHeader);
     if (!schemeMatch) return false;
     const token = schemeMatch[1];
+
+    // Validator function: delegate entirely to the caller.
+    if (typeof authOptions.tokens === "function") {
+      return authOptions.tokens(token);
+    }
+
     const allowed = Array.isArray(authOptions.tokens)
       ? authOptions.tokens
       : [authOptions.tokens];
