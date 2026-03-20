@@ -121,7 +121,7 @@ const config: CraftConfig = {
       port: 3001,
       auth: {
         // One token per user; split a comma-separated env var for convenience
-        tokens: process.env.MCP_TOKENS!.split(','),
+        tokens: process.env.MCP_TOKENS!.split(',').map((t) => t.trim()).filter(Boolean),
       },
       clients: {
         browser: {
@@ -175,7 +175,7 @@ When `auth` is set and `transport` is `'http'`, every request to `/mcp` must inc
 auth: { tokens: process.env.MCP_TOKEN! }
 
 // Multiple users via comma-separated env var
-auth: { tokens: process.env.MCP_TOKENS!.split(',') }
+auth: { tokens: process.env.MCP_TOKENS!.split(',').map((t) => t.trim()).filter(Boolean) }
 ```
 
 **HTTP client config (`McpClientHttpConfig`):**

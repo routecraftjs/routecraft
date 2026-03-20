@@ -1077,7 +1077,7 @@ craft()
 // Auth is inherited from the client config automatically.
 .enrich(mcp('browser:browser_navigate', { args: (ex) => ({ url: ex.body.url }) }))
 
-// By URL and tool name (no auth)
+// By URL and tool name (use inline auth if needed)
 .enrich(mcp({ url: 'http://127.0.0.1:8089/mcp', tool: 'browser_navigate' }, { args: (ex) => ({ url: ex.body.url }) }))
 ```
 
@@ -1100,7 +1100,7 @@ When using the `serverId` path (recommended), auth configured on the client in `
 | `serverId` | `string` | One of url/serverId | Named server registered via `mcpPlugin({ clients })` |
 | `tool` | `string` | No | Tool name to invoke (or set `exchange.body.tool`) |
 | `args` | `(exchange) => Record<string, unknown>` | No | Extractor for tool arguments; defaults to `exchange.body` |
-| `auth` | `McpClientAuthOptions` | No | Override auth for inline `url` connections; for `serverId` auth flows from `mcpPlugin({ clients })` automatically |
+| `auth` | `McpClientAuthOptions` | No | Auth credentials for HTTP requests. Auto-inherited from `mcpPlugin({ clients })` when using `serverId`; use to override or for inline `url` connections |
 
 **McpClientAuthOptions:**
 

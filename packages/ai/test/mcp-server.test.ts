@@ -527,6 +527,28 @@ describe("McpServer", () => {
       });
 
       /**
+       * @case Lowercase "bearer" scheme is accepted (RFC 9110 case-insensitive)
+       * @preconditions McpServer with auth; POST /mcp with "bearer" (lowercase) scheme
+       * @expectedResult 200 status code (auth passes)
+       */
+      test("accepts lowercase bearer scheme per RFC 9110", async () => {
+        const { post } = await startHttpServer([], {
+          auth: { tokens: "valid-token" },
+        });
+
+        const initBody = JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: INIT_PARAMS,
+        });
+        const res = await post(initBody, undefined, {
+          Authorization: "bearer valid-token",
+        });
+        expect(res.statusCode).toBe(200);
+      });
+
+      /**
        * @case Requests pass through unchanged when no auth option is configured
        * @preconditions McpServer without auth option; POST /mcp without Authorization header
        * @expectedResult 200 status code (backward compatible)
@@ -598,6 +620,28 @@ describe("McpServer", () => {
         headers: { Authorization: "Basic abc" },
       });
       expect(result).toEqual({ Authorization: "Basic abc" });
+    });
+
+    /**
+     * @case Lowercase authorization header overrides token case-insensitively
+     * @preconditions auth.token = "from-token" and auth.headers.authorization = "Basic abc"
+     * @expectedResult Single canonical Authorization header with "Basic abc"
+     */
+    test("lowercase authorization header overrides token case-insensitively", () => {
+      const result = buildAuthHeaders({
+        token: "from-token",
+        headers: { authorization: "Basic abc" },
+      });
+      expect(result).toEqual({ Authorization: "Basic abc" });
+    });
+
+    /**
+     * @case Throws on empty token string
+     * @preconditions auth.token = ""
+     * @expectedResult Error thrown about non-empty string
+     */
+    test("throws when token is an empty string", () => {
+      expect(() => buildAuthHeaders({ token: "" })).toThrow(/non-empty string/);
     });
   });
 });

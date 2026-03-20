@@ -283,20 +283,22 @@ export class McpServer {
     const authOptions = this.options.auth as McpHttpAuthOptions | undefined;
     if (!authOptions) return true;
 
-    const header = req.headers["authorization"];
-    if (!header || !header.startsWith("Bearer ")) return false;
+    const rawHeader = req.headers["authorization"];
+    if (!rawHeader || Array.isArray(rawHeader)) return false;
 
-    const token = header.slice(7); // length of "Bearer "
+    const schemeMatch = /^bearer\s+(.+)$/i.exec(rawHeader);
+    if (!schemeMatch) return false;
+    const token = schemeMatch[1];
     const allowed = Array.isArray(authOptions.tokens)
       ? authOptions.tokens
       : [authOptions.tokens];
 
     // Iterate all tokens without short-circuiting to avoid leaking which slot matched.
-    let match = false;
+    let found = false;
     for (const t of allowed) {
-      if (timingSafeStringEqual(t, token)) match = true;
+      if (timingSafeStringEqual(t, token)) found = true;
     }
-    return match;
+    return found;
   }
 
   /**
