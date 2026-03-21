@@ -1,7 +1,7 @@
 import type { Destination } from "../../operations/to.ts";
 import type { Exchange } from "../../exchange.ts";
 import { getExchangeContext } from "../../exchange.ts";
-import type { MergedOptions } from "../../context.ts";
+import type { CraftContext, MergedOptions } from "../../context.ts";
 import type {
   MailFetchResult,
   MailOptionsMerged,
@@ -40,9 +40,7 @@ export class MailFetchDestinationAdapter
     this.options = options as Partial<MailOptionsMerged>;
   }
 
-  mergedOptions(
-    context: import("../../context.ts").CraftContext,
-  ): MailOptionsMerged {
+  mergedOptions(context: CraftContext): MailOptionsMerged {
     return getMergedImapOptions(
       context,
       this.options as Partial<MailServerOptions>,
