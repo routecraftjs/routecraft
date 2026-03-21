@@ -11,6 +11,7 @@ import type {
 import {
   getMergedSmtpOptions,
   createSmtpTransport,
+  asMergedOptions,
   throwMailConnectionError,
 } from "./shared.ts";
 
@@ -45,10 +46,9 @@ export class MailSendDestinationAdapter
   }
 
   mergedOptions(context: CraftContext): MailOptionsMerged {
-    return getMergedSmtpOptions(
-      context,
-      this.options as Partial<MailClientOptions>,
-    ) as unknown as MailOptionsMerged;
+    return asMergedOptions(
+      getMergedSmtpOptions(context, this.options as Partial<MailClientOptions>),
+    );
   }
 
   async send(exchange: Exchange<MailSendPayload>): Promise<MailSendResult> {

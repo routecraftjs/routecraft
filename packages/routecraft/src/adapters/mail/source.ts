@@ -11,6 +11,7 @@ import {
   getMergedImapOptions,
   createImapClient,
   fetchMessages,
+  asMergedOptions,
   throwMailConnectionError,
 } from "./shared.ts";
 
@@ -38,10 +39,9 @@ export class MailSourceAdapter
   }
 
   mergedOptions(context: CraftContext): MailOptionsMerged {
-    return getMergedImapOptions(
-      context,
-      this.options as Partial<MailServerOptions>,
-    ) as unknown as MailOptionsMerged;
+    return asMergedOptions(
+      getMergedImapOptions(context, this.options as Partial<MailServerOptions>),
+    );
   }
 
   async subscribe(

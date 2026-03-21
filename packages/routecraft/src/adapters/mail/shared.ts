@@ -113,6 +113,19 @@ export function getMergedSmtpOptions(
 }
 
 /**
+ * Cast protocol-specific resolved options to the merged options type
+ * expected by the {@link MergedOptions} interface. At runtime the shapes
+ * are compatible; the type mismatch exists because `MailServerOptions` and
+ * `MailClientOptions` use `host`/`port`/`secure` while `MailOptionsMerged`
+ * uses prefixed `imapHost`/`smtpHost` fields.
+ */
+export function asMergedOptions(
+  opts: MailServerOptions | MailClientOptions,
+): MailOptionsMerged {
+  return opts as unknown as MailOptionsMerged;
+}
+
+/**
  * Create an ImapFlow client instance from resolved server options.
  * Validates that required fields (host, auth) are present.
  *
