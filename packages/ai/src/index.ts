@@ -59,6 +59,7 @@ export {
   type AuthPrincipal,
   type JwtAuthOptions,
   type JwtHmacOptions,
+  type JwtRsaOptions,
   type McpArgsExtractor,
   type McpClientHttpConfig,
   type McpMessage,

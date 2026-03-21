@@ -1,8 +1,4 @@
-import type {
-  CraftContext,
-  DirectRouteMetadata,
-  EventName,
-} from "@routecraft/routecraft";
+import type { CraftContext, DirectRouteMetadata } from "@routecraft/routecraft";
 import {
   ADAPTER_DIRECT_REGISTRY,
   ADAPTER_DIRECT_STORE,
@@ -216,10 +212,7 @@ export class McpServer {
         onsessioninitialized: (sessionId: string) => {
           this.httpSessions.set(sessionId, { server, transport });
           this.context.logger.debug({ sessionId }, "MCP session created");
-          this.context.emit(
-            "plugin:mcp:session:created" as EventName,
-            { sessionId } as Record<string, unknown>,
-          );
+          this.context.emit("plugin:mcp:session:created", { sessionId });
         },
         enableJsonResponse: true,
       });
@@ -238,10 +231,9 @@ export class McpServer {
         if (sid) {
           this.httpSessions.delete(sid);
           this.context.logger.debug({ sessionId: sid }, "MCP session closed");
-          this.context.emit(
-            "plugin:mcp:session:closed" as EventName,
-            { sessionId: sid } as Record<string, unknown>,
-          );
+          this.context.emit("plugin:mcp:session:closed", {
+            sessionId: sid,
+          });
         }
         prevOnClose?.();
       };
@@ -354,10 +346,7 @@ export class McpServer {
     const boundPort = this.getHttpPort() ?? port;
     const listenDetail = { host, port: boundPort, path: "/mcp" };
     this.context.logger.info(listenDetail, "MCP HTTP server listening");
-    this.context.emit(
-      "plugin:mcp:server:listening" as EventName,
-      listenDetail as Record<string, unknown>,
-    );
+    this.context.emit("plugin:mcp:server:listening", listenDetail);
   }
 
   /**
@@ -547,10 +536,7 @@ export class McpServer {
     const names = tools.map((t) => (t["name"] as string) ?? "?");
     const exposedDetail = { tools: names, count: names.length };
     this.context.logger.info(exposedDetail, "Exposing MCP tools");
-    this.context.emit(
-      "plugin:mcp:server:tools:exposed" as EventName,
-      exposedDetail as Record<string, unknown>,
-    );
+    this.context.emit("plugin:mcp:server:tools:exposed", exposedDetail);
     this.toolsListLogged = true;
   }
 
@@ -656,10 +642,10 @@ export class McpServer {
       if (!channelStore) {
         const err = new Error("No direct channels available");
         this.context.emit("error", { error: err });
-        this.context.emit(
-          `plugin:mcp:tool:${toolName}:failed` as EventName,
-          { tool: toolName, error: err.message } as Record<string, unknown>,
-        );
+        this.context.emit(`plugin:mcp:tool:${toolName}:failed`, {
+          tool: toolName,
+          error: err.message,
+        });
         return {
           content: [
             { type: "text", text: `Error: No direct channels available` },
@@ -672,10 +658,10 @@ export class McpServer {
       if (!channel) {
         const err = new Error(`Tool not found: ${toolName}`);
         this.context.emit("error", { error: err });
-        this.context.emit(
-          `plugin:mcp:tool:${toolName}:failed` as EventName,
-          { tool: toolName, error: err.message } as Record<string, unknown>,
-        );
+        this.context.emit(`plugin:mcp:tool:${toolName}:failed`, {
+          tool: toolName,
+          error: err.message,
+        });
         return {
           content: [
             { type: "text", text: `Error: Tool not found: ${toolName}` },
@@ -729,10 +715,10 @@ export class McpServer {
         headers,
       });
 
-      this.context.emit(
-        `plugin:mcp:tool:${toolName}:called` as EventName,
-        { tool: toolName, args } as Record<string, unknown>,
-      );
+      this.context.emit(`plugin:mcp:tool:${toolName}:called`, {
+        tool: toolName,
+        args,
+      });
 
       // Send the exchange through the direct channel
       const channelTyped = channel as Record<
@@ -750,10 +736,9 @@ export class McpServer {
           ? (resultExchange["body"] as string)
           : JSON.stringify(resultExchange["body"]);
 
-      this.context.emit(
-        `plugin:mcp:tool:${toolName}:completed` as EventName,
-        { tool: toolName } as Record<string, unknown>,
-      );
+      this.context.emit(`plugin:mcp:tool:${toolName}:completed`, {
+        tool: toolName,
+      });
 
       return {
         content: [{ type: "text", text: resultText }],
@@ -766,10 +751,10 @@ export class McpServer {
           : String(error);
       this.context.logger.error({ tool: toolName, err: error }, msg);
       this.context.emit("error", { error });
-      this.context.emit(
-        `plugin:mcp:tool:${toolName}:failed` as EventName,
-        { tool: toolName, error: msg } as Record<string, unknown>,
-      );
+      this.context.emit(`plugin:mcp:tool:${toolName}:failed`, {
+        tool: toolName,
+        error: msg,
+      });
       return {
         content: [{ type: "text", text: `Error: ${msg}` }],
       };

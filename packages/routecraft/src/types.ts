@@ -231,7 +231,9 @@ export type PluginEventName =
   | `plugin:${string}:starting`
   | `plugin:${string}:started`
   | `plugin:${string}:stopping`
-  | `plugin:${string}:stopped`;
+  | `plugin:${string}:stopped`
+  | `plugin:${string}:${string}:${string}`
+  | `plugin:${string}:${string}:${string}:${string}`;
 
 /**
  * Step lifecycle events (hierarchical naming with routeId).
@@ -648,7 +650,17 @@ export type EventDetailsMapping<K extends EventName = EventName> =
                                                                   pluginId: string;
                                                                   pluginIndex: number;
                                                                 }
-                                                              : never;
+                                                              : K extends `plugin:${string}:${string}:${string}:${string}`
+                                                                ? Record<
+                                                                    string,
+                                                                    unknown
+                                                                  >
+                                                                : K extends `plugin:${string}:${string}:${string}`
+                                                                  ? Record<
+                                                                      string,
+                                                                      unknown
+                                                                    >
+                                                                  : never;
 
 export type EventPayload<K extends EventName> = {
   ts: string;

@@ -398,20 +398,17 @@ describe("MCP Plugin Integration", () => {
      * @expectedResult TypeError thrown
      */
     test("rejects non-function validator", () => {
-      expect(() =>
+      const createWithInvalidValidator = () =>
         mcpPlugin({
           transport: "http",
           // @ts-expect-error testing runtime validation of non-function validator
           auth: { validator: "not-a-function" },
-        }),
-      ).toThrow(TypeError);
-      expect(() =>
-        mcpPlugin({
-          transport: "http",
-          // @ts-expect-error testing runtime validation of non-function validator
-          auth: { validator: "not-a-function" },
-        }),
-      ).toThrow(/auth\.validator must be a function/);
+        });
+
+      expect(createWithInvalidValidator).toThrow(TypeError);
+      expect(createWithInvalidValidator).toThrow(
+        /auth\.validator must be a function/,
+      );
     });
   });
 });

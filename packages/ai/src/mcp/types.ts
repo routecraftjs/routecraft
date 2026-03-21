@@ -286,7 +286,8 @@ export interface McpPluginOptions {
    *
    * @example
    * ```ts
-   * auth: { tokens: process.env.MCP_TOKENS!.split(",") }
+   * import { jwt } from "@routecraft/ai";
+   * auth: jwt({ secret: process.env.JWT_SECRET! })
    * ```
    */
   auth?: McpHttpAuthOptions;

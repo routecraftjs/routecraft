@@ -147,7 +147,8 @@ function buildPrincipal(
   if (typeof payload["name"] === "string") principal.name = payload["name"];
 
   const aud = payload["aud"];
-  if (Array.isArray(aud)) principal.audience = aud as string[];
+  if (Array.isArray(aud))
+    principal.audience = aud.filter((a): a is string => typeof a === "string");
   else if (typeof aud === "string") principal.audience = [aud];
 
   const scope = payload["scope"];
@@ -155,7 +156,9 @@ function buildPrincipal(
     principal.scopes = scope.split(" ").filter(Boolean);
 
   if (Array.isArray(payload["roles"]))
-    principal.roles = payload["roles"] as string[];
+    principal.roles = (payload["roles"] as unknown[]).filter(
+      (r): r is string => typeof r === "string",
+    );
 
   return principal;
 }

@@ -38,16 +38,16 @@ function resolveServerConfig(
 }
 
 /**
- * Resolves the URL for the MCP server from options or context (serverId).
- * Store holds McpClientHttpConfig (with url); backward-compat: value may be string.
+ * Resolves the URL and auth for the MCP server from options or context (serverId).
+ * Returns both in a single lookup to avoid duplicate store reads.
  */
-function resolveUrl(
+function resolveConnection(
   options: McpClientOptions,
   context: ReturnType<typeof getExchangeContext>,
-): string {
+): { url: string; auth?: McpClientAuthOptions | undefined } {
   if (options.url) {
     assertHttpUrl(options.url);
-    return options.url;
+    return { url: options.url, auth: options.auth };
   }
   if (options.serverId && !context) {
     throw new Error(
@@ -61,29 +61,17 @@ function resolveUrl(
         `MCP client: serverId "${options.serverId}" not found in context store. Register it with context store key "${String(ADAPTER_MCP_CLIENT_SERVERS)}".`,
       );
     }
-    if (typeof config === "string") return config;
-    return config.url;
+    const url = typeof config === "string" ? config : config.url;
+    const auth =
+      options.auth ??
+      (typeof config === "object" && "auth" in config
+        ? config.auth
+        : undefined);
+    return { url, auth };
   }
   throw new Error(
     "MCP client: either url or serverId must be provided in McpClientOptions.",
   );
-}
-
-/**
- * Resolves auth for the MCP client connection.
- * Prefers auth from McpClientOptions (inline url case); falls back to auth from
- * the registered server config (serverId case).
- */
-function resolveAuth(
-  options: McpClientOptions,
-  context: ReturnType<typeof getExchangeContext>,
-): McpClientAuthOptions | undefined {
-  if (options.auth) return options.auth;
-  const config = resolveServerConfig(options, context);
-  if (config && typeof config === "object" && "auth" in config) {
-    return config.auth;
-  }
-  return undefined;
 }
 
 /**
@@ -191,8 +179,7 @@ export class McpDestinationAdapter implements Destination<unknown, unknown> {
     }
 
     // Fall through to HTTP
-    const url = resolveUrl(this.options, context);
-    const auth = resolveAuth(this.options, context);
+    const { url, auth } = resolveConnection(this.options, context);
     const result = await this.callRemoteTool(url, toolName, args, auth);
 
     // Attach metadata to result for getMetadata() to read (eliminates race condition)

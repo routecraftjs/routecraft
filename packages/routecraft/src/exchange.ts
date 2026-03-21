@@ -137,10 +137,22 @@ export interface RoutecraftHeaders {
 export type HeaderValue = string | number | boolean | undefined | string[];
 
 /**
+ * Mapped type that surfaces keys declared via {@link HeaderKeysRegistry}
+ * as optional header properties. Plugins that augment `HeaderKeysRegistry`
+ * get autocomplete and type-checking on `exchange.headers`.
+ */
+type RegistryHeaders = {
+  [K in keyof HeaderKeysRegistry as HeaderKeysRegistry[K] extends string
+    ? HeaderKeysRegistry[K]
+    : never]?: HeaderValue;
+};
+
+/**
  * Complete set of headers for an exchange.
- * Includes both standard Routecraft headers and custom headers.
+ * Includes standard Routecraft headers, plugin-registered headers, and custom headers.
  */
 export type ExchangeHeaders = Partial<RoutecraftHeaders> &
+  RegistryHeaders &
   Record<string, HeaderValue>;
 
 /**
