@@ -53,15 +53,15 @@ export const craftConfig: CraftConfig = {
 
 For the full event catalog see the [Events reference](/docs/reference/events).
 
-## Observability plugin
+## Writing a custom monitoring plugin
 
-For reusable observability logic, encapsulate it in a plugin:
+If event subscriptions in `craft.config.ts` become unwieldy, extract them into a plugin so they can be reused across projects:
 
 ```ts
-// plugins/observability.ts
+// plugins/monitoring.ts
 import { type CraftContext } from '@routecraft/routecraft'
 
-export default function observability(ctx: CraftContext) {
+export default function monitoring(ctx: CraftContext) {
   ctx.on('route:started', ({ details: { route } }) => {
     metrics.increment('route.started', { route: route.definition.id })
   })
@@ -80,14 +80,14 @@ export default function observability(ctx: CraftContext) {
 }
 ```
 
-Register it in `craft.config.ts`:
+Then register it in `craft.config.ts`:
 
 ```ts
-import observability from './plugins/observability'
+import monitoring from './plugins/monitoring'
 import type { CraftConfig } from '@routecraft/routecraft'
 
 export const craftConfig: CraftConfig = {
-  plugins: [observability],
+  plugins: [monitoring],
 }
 ```
 
