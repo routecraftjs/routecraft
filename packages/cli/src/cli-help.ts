@@ -1,4 +1,4 @@
-import { type CliRouteMetadata, extractJsonSchema } from "@routecraft/tools";
+import { type CliRouteMetadata, extractJsonSchema } from "@routecraft/os";
 
 function kebabCase(str: string): string {
   return str.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);

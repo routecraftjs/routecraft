@@ -13,7 +13,7 @@ For standalone packaging, the `cliRunner()` helper lets you bypass `craft run` e
 ## Install
 
 ```bash
-npm install @routecraft/routecraft @routecraft/tools @routecraft/cli zod
+npm install @routecraft/routecraft @routecraft/os @routecraft/cli zod
 ```
 
 Any [Standard Schema](https://standardschema.dev)-compliant library works in place of Zod (Valibot, ArkType, etc.).
@@ -25,7 +25,7 @@ Each `cli()` call registers one command. Pass a schema to define flags and a des
 ```ts
 // mycli.ts
 import { craft } from '@routecraft/routecraft';
-import { cli } from '@routecraft/tools';
+import { cli } from '@routecraft/os';
 import { z } from 'zod';
 
 export default [
@@ -74,7 +74,7 @@ Use `cliRunner()` to run routes directly without `craft run`. Import it from `@r
 #!/usr/bin/env tsx
 // mycli.ts
 import { craft } from '@routecraft/routecraft';
-import { cli } from '@routecraft/tools';
+import { cli } from '@routecraft/os';
 import { cliRunner } from '@routecraft/cli/runner';
 import { z } from 'zod';
 

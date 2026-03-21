@@ -9,7 +9,7 @@ import {
   isCliSource,
   parseFlags,
   extractJsonSchema,
-} from "@routecraft/tools";
+} from "@routecraft/os";
 
 /**
  * CLI adapter tests

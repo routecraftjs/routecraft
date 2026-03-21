@@ -262,12 +262,12 @@ importers:
       '@opentelemetry/sdk-trace-base':
         specifier: ^2.6.0
         version: 2.6.0(@opentelemetry/api@1.9.0)
+      '@routecraft/os':
+        specifier: workspace:^0.4.0
+        version: link:../os
       '@routecraft/routecraft':
         specifier: ^0.5.0
         version: link:../routecraft
-      '@routecraft/tools':
-        specifier: workspace:^0.4.0
-        version: link:../tools
       agent-browser:
         specifier: ^0.17.1
         version: 0.17.1(puppeteer-core@24.22.0)
@@ -356,6 +356,22 @@ importers:
         specifier: ^4.1.0
         version: 4.1.0(@opentelemetry/api@1.9.0)(@types/node@25.5.0)(vite@7.3.1(@types/node@25.5.0)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.21.0)(yaml@2.8.2))
 
+  packages/os:
+    dependencies:
+      '@routecraft/routecraft':
+        specifier: workspace:^0.4.0
+        version: link:../routecraft
+      '@standard-schema/spec':
+        specifier: ^1.1.0
+        version: 1.1.0
+    devDependencies:
+      vitest:
+        specifier: ^4.0.18
+        version: 4.1.0(@opentelemetry/api@1.9.0)(@types/node@25.5.0)(vite@7.3.1(@types/node@25.5.0)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.21.0)(yaml@2.8.2))
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+
   packages/routecraft:
     dependencies:
       '@opentelemetry/api':
@@ -430,22 +446,6 @@ importers:
       vitest:
         specifier: ^4.1.0
         version: 4.1.0(@opentelemetry/api@1.9.0)(@types/node@25.5.0)(vite@7.3.1(@types/node@25.5.0)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.21.0)(yaml@2.8.2))
-
-  packages/tools:
-    dependencies:
-      '@routecraft/routecraft':
-        specifier: workspace:^0.4.0
-        version: link:../routecraft
-      '@standard-schema/spec':
-        specifier: ^1.1.0
-        version: 1.1.0
-    devDependencies:
-      vitest:
-        specifier: ^4.0.18
-        version: 4.1.0(@opentelemetry/api@1.9.0)(@types/node@25.5.0)(vite@7.3.1(@types/node@25.5.0)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.21.0)(yaml@2.8.2))
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
 
 packages:
 

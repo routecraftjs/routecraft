@@ -601,7 +601,7 @@ Schema properties automatically become named flags (`--flag-name <value>`). Help
 
 ```ts
 import { craft } from '@routecraft/routecraft';
-import { cli } from '@routecraft/tools';
+import { cli } from '@routecraft/os';
 import { z } from 'zod';
 
 export default [

@@ -1,7 +1,7 @@
 {
-  "name": "@routecraft/tools",
+  "name": "@routecraft/os",
   "version": "0.4.0",
-  "description": "System-native tooling for Routecraft: CLI commands, shell execution, and browser automation",
+  "description": "System-native adapters for Routecraft: CLI commands, shell execution, and browser automation",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -35,7 +35,7 @@
   },
   "keywords": [
     "routecraft",
-    "tools",
+    "os",
     "cli",
     "shell"
   ],

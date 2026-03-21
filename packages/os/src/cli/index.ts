@@ -24,7 +24,7 @@ import type { CliServerOptions } from "./types";
  * @example
  * ```typescript
  * import { craft } from '@routecraft/routecraft';
- * import { cli } from '@routecraft/tools';
+ * import { cli } from '@routecraft/os';
  * import { z } from 'zod';
  *
  * export default [

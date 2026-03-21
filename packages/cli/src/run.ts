@@ -8,11 +8,7 @@ import {
   type RouteBuilder,
   type RouteDefinition,
 } from "@routecraft/routecraft";
-import {
-  ADAPTER_CLI_ARGS,
-  isCliSource,
-  getCliRegistry,
-} from "@routecraft/tools";
+import { ADAPTER_CLI_ARGS, isCliSource, getCliRegistry } from "@routecraft/os";
 import { generateHelp, generateCommandHelp } from "./cli-help";
 import { registerContextSignalHandlers } from "./util";
 
@@ -296,7 +292,7 @@ function collectDefinitions(defaultExport: unknown): RouteDefinition[] {
  * ```typescript
  * #!/usr/bin/env tsx
  * import { craft } from '@routecraft/routecraft';
- * import { cli } from '@routecraft/tools';
+ * import { cli } from '@routecraft/os';
  * import { cliRunner } from '@routecraft/cli';
  * import { z } from 'zod';
  *
