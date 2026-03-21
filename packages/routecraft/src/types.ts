@@ -277,12 +277,6 @@ export type SpecialEventName =
 export type AuthEventName = "auth:success" | "auth:rejected";
 
 /**
- * @deprecated Use `context:error` or `route:<routeId>:error` instead.
- * Kept for backward compatibility during transition.
- */
-export type SystemEventName = "error";
-
-/**
  * Union of all event names supported by the event system.
  *
  * Supports hierarchical event naming with wildcards:
@@ -297,7 +291,7 @@ export type SystemEventName = "error";
  * @see StepEventName - Step lifecycle events
  * @see PluginEventName - Plugin lifecycle events
  * @see SpecialEventName - Batch, retry, error-handler events
- * @see SystemEventName - System error events (deprecated)
+ * @see AuthEventName - Authentication events
  */
 export type EventName =
   | ContextEventName
@@ -306,8 +300,7 @@ export type EventName =
   | StepEventName
   | PluginEventName
   | SpecialEventName
-  | AuthEventName
-  | SystemEventName;
+  | AuthEventName;
 
 // Static event details mapping (non-hierarchical events)
 export type StaticEventDetails = {
@@ -332,8 +325,6 @@ export type StaticEventDetails = {
     scheme: string;
     source: string;
   };
-
-  error: { error: unknown; route?: Route; exchange?: Exchange<unknown> };
 };
 
 // -- Category-level detail types for EventDetailsMapping --

@@ -644,8 +644,7 @@ export class McpServer {
 
       if (!channelStore) {
         const err = new Error("No direct channels available");
-        this.context.emit("context:error", { error: err });
-        this.context.emit(`plugin:mcp:tool:${toolName}:failed`, {
+        this.context.emit(`plugin:mcp:tool:failed`, {
           tool: toolName,
           error: err.message,
         });
@@ -660,8 +659,7 @@ export class McpServer {
       const channel = channelStore.get(toolName);
       if (!channel) {
         const err = new Error(`Tool not found: ${toolName}`);
-        this.context.emit("context:error", { error: err });
-        this.context.emit(`plugin:mcp:tool:${toolName}:failed`, {
+        this.context.emit(`plugin:mcp:tool:failed`, {
           tool: toolName,
           error: err.message,
         });
@@ -718,7 +716,7 @@ export class McpServer {
         headers,
       });
 
-      this.context.emit(`plugin:mcp:tool:${toolName}:called`, {
+      this.context.emit(`plugin:mcp:tool:called`, {
         tool: toolName,
         args,
       });
@@ -739,7 +737,7 @@ export class McpServer {
           ? (resultExchange["body"] as string)
           : JSON.stringify(resultExchange["body"]);
 
-      this.context.emit(`plugin:mcp:tool:${toolName}:completed`, {
+      this.context.emit(`plugin:mcp:tool:completed`, {
         tool: toolName,
       });
 
@@ -753,8 +751,7 @@ export class McpServer {
           ? error.message
           : String(error);
       this.context.logger.error({ tool: toolName, err: error }, msg);
-      this.context.emit("context:error", { error });
-      this.context.emit(`plugin:mcp:tool:${toolName}:failed`, {
+      this.context.emit(`plugin:mcp:tool:failed`, {
         tool: toolName,
         error: msg,
       });

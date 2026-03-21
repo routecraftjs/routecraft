@@ -537,7 +537,7 @@ function extractEventName(payload: { details: unknown }): string {
   }
 
   if ("pluginId" in d) return "plugin:event";
-  if ("error" in d && !("routeId" in d)) return "error";
+  if ("error" in d && !("routeId" in d)) return "context:error";
 
   return "context:event";
 }

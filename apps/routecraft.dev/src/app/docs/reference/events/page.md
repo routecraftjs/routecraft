@@ -146,19 +146,11 @@ Events emitted by the MCP plugin during server and tool lifecycle. Subscribe wit
 
 ### Tool call events
 
-Scoped per tool name. Use `plugin:mcp:tool:**` to capture all tool events.
-
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `plugin:mcp:tool:{toolName}:called` | Tool invocation started | `{ tool, args }` |
-| `plugin:mcp:tool:{toolName}:completed` | Tool invocation succeeded | `{ tool }` |
-| `plugin:mcp:tool:{toolName}:failed` | Tool invocation failed | `{ tool, error }` |
-
-## System events
-
-| Event | When it fires | Details |
-| --- | --- | --- |
-| `error` | Any unhandled error in a capability or the context | `{ error, route?, exchange? }` |
+| `plugin:mcp:tool:called` | Tool invocation started | `{ tool, args }` |
+| `plugin:mcp:tool:completed` | Tool invocation succeeded | `{ tool }` |
+| `plugin:mcp:tool:failed` | Tool invocation failed | `{ tool, error }` |
 
 ---
 
