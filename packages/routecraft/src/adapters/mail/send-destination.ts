@@ -1,7 +1,7 @@
 import type { Destination } from "../../operations/to.ts";
 import type { Exchange } from "../../exchange.ts";
 import { getExchangeContext } from "../../exchange.ts";
-import type { MergedOptions } from "../../context.ts";
+import type { CraftContext, MergedOptions } from "../../context.ts";
 import type {
   MailSendPayload,
   MailSendResult,
@@ -44,9 +44,7 @@ export class MailSendDestinationAdapter
     this.options = (options ?? {}) as Partial<MailOptionsMerged>;
   }
 
-  mergedOptions(
-    context: import("../../context.ts").CraftContext,
-  ): MailOptionsMerged {
+  mergedOptions(context: CraftContext): MailOptionsMerged {
     return getMergedSmtpOptions(
       context,
       this.options as Partial<MailClientOptions>,
@@ -62,7 +60,7 @@ export class MailSendDestinationAdapter
         )
       : (this.options as MailClientOptions);
 
-    const key = `${resolved.host}:${resolved.port}:${resolved.auth?.user}`;
+    const key = `${resolved.host}:${resolved.port}:${resolved.auth?.user}:${resolved.auth?.pass}`;
     if (!this.cachedTransporter || this.cachedTransporterKey !== key) {
       this.cachedTransporter = await createSmtpTransport(resolved);
       this.cachedTransporterKey = key;

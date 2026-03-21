@@ -206,7 +206,7 @@ export function throwMailConnectionError(
 ): never {
   const auth = isMailAuthError(error);
   throw rcError(
-    auth ? "RC5011" : "RC5010",
+    auth ? "RC5012" : "RC5010",
     error instanceof Error ? error : undefined,
     {
       message: `Mail adapter ${protocol} ${auth ? "authentication" : "connection"} failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -371,7 +371,8 @@ export async function fetchMessages(
             });
           }
         } catch {
-          // If parsing fails, continue without content
+          // If parsing fails, continue without content.
+          // TODO: log when fetchMessages accepts a logger parameter
         }
       }
 

@@ -540,11 +540,11 @@ describe("Mail Adapter", () => {
     });
 
     /**
-     * @case Throws RC5011 on IMAP auth failure
+     * @case Throws RC5012 on IMAP auth failure
      * @preconditions ImapFlow connect throws authentication error
-     * @expectedResult RoutecraftError with code RC5011
+     * @expectedResult RoutecraftError with code RC5012
      */
-    test("throws RC5011 on IMAP auth failure", async () => {
+    test("throws RC5012 on IMAP auth failure", async () => {
       mockConnect.mockRejectedValue(new Error("AUTHENTICATIONFAILED"));
 
       const adapter = mail({
@@ -560,7 +560,7 @@ describe("Mail Adapter", () => {
       } as any;
 
       await expect((adapter as any).send(exchange)).rejects.toMatchObject({
-        rc: "RC5011",
+        rc: "RC5012",
       });
     });
   });
