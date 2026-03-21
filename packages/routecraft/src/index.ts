@@ -3,9 +3,11 @@ export {
   type Exchange,
   type ExchangeHeaders,
   getExchangeContext,
+  type HeaderKeysRegistry,
   HeadersKeys,
   type HeaderValue,
   OperationType,
+  type RoutecraftHeaders,
 } from "./exchange.ts";
 
 export {

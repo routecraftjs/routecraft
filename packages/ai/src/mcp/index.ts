@@ -4,14 +4,18 @@ export type {
   McpArgsExtractor,
   McpClientHttpConfig,
 } from "./adapters/mcp/index.ts";
+export { jwt } from "./jwt.ts";
+export type { JwtAuthOptions, JwtHmacOptions, JwtRsaOptions } from "./jwt.ts";
 export { mcpPlugin } from "./plugin.ts";
 export { McpServer } from "./server.ts";
 export { McpToolRegistry } from "./tool-registry.ts";
 export {
   ADAPTER_MCP_CLIENT_SERVERS,
+  McpHeadersKeys,
   MCP_PLUGIN_REGISTERED,
   MCP_STDIO_MANAGERS,
   MCP_TOOL_REGISTRY,
+  type AuthPrincipal,
   type McpOptions,
   type McpPluginOptions,
   type McpServerOptions,

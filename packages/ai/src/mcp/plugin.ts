@@ -19,6 +19,7 @@ import type {
 import { validateMcpPluginOptions } from "./validate-options.ts";
 import { StdioClientManager } from "./stdio-client-manager.ts";
 import { McpToolRegistry } from "./tool-registry.ts";
+import { buildAuthHeaders } from "./build-auth-headers.ts";
 
 type ClientConfig = McpClientHttpConfig | McpClientStdioConfig;
 
@@ -101,8 +102,15 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
               serverId,
               httpConfig.url,
               toolRegistry,
+              httpConfig.auth,
             );
-            setupHttpToolRefresh(ctx, serverId, httpConfig.url, toolRegistry);
+            setupHttpToolRefresh(
+              ctx,
+              serverId,
+              httpConfig.url,
+              toolRegistry,
+              httpConfig.auth,
+            );
           }
 
           const transport = isStdioConfig(config) ? "stdio" : "http";
@@ -233,6 +241,7 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
   async function getOrCreateHttpClient(
     serverId: string,
     url: string,
+    auth?: McpClientHttpConfig["auth"],
   ): Promise<{
     close(): Promise<void>;
     listTools(): Promise<{ tools: McpTool[] }>;
@@ -245,7 +254,12 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
     const { StreamableHTTPClientTransport } =
       await import("@modelcontextprotocol/sdk/client/streamableHttp.js");
 
-    const transport = new StreamableHTTPClientTransport(new URL(url));
+    const headers = await buildAuthHeaders(auth);
+    const transportOptions = headers ? { requestInit: { headers } } : undefined;
+    const transport = new (StreamableHTTPClientTransport as new (
+      url: URL,
+      options?: { requestInit?: { headers?: Record<string, string> } },
+    ) => unknown)(new URL(url), transportOptions);
     const rawClient = new Client(
       { name: "routecraft-mcp-client", version: "1.0.0" },
       { capabilities: {} },
@@ -267,9 +281,10 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
     serverId: string,
     url: string,
     registry: McpToolRegistry,
+    auth?: McpClientHttpConfig["auth"],
   ): Promise<void> {
     try {
-      const client = await getOrCreateHttpClient(serverId, url);
+      const client = await getOrCreateHttpClient(serverId, url, auth);
 
       const result = await client.listTools();
       const tools = result.tools ?? [];
@@ -314,12 +329,13 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
     serverId: string,
     url: string,
     registry: McpToolRegistry,
+    auth?: McpClientHttpConfig["auth"],
   ): void {
     const interval = options.toolRefreshIntervalMs ?? 60_000;
     if (interval <= 0) return;
 
     const timer = setInterval(() => {
-      void listHttpClientTools(ctx, serverId, url, registry);
+      void listHttpClientTools(ctx, serverId, url, registry, auth);
     }, interval);
     httpRefreshTimers.push(timer);
   }

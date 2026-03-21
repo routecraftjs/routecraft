@@ -377,4 +377,38 @@ describe("MCP Plugin Integration", () => {
       expect(typeof p.apply).toBe("function");
     });
   });
+
+  describe("auth option validation", () => {
+    /**
+     * @case mcpPlugin accepts a validator function
+     * @preconditions auth.validator is a function
+     * @expectedResult Plugin created without error
+     */
+    test("accepts a validator function", () => {
+      const p = mcpPlugin({
+        transport: "http",
+        auth: { validator: () => ({ subject: "test", scheme: "bearer" }) },
+      });
+      expect(typeof p.apply).toBe("function");
+    });
+
+    /**
+     * @case mcpPlugin rejects a non-function validator
+     * @preconditions auth.validator is not a function
+     * @expectedResult TypeError thrown
+     */
+    test("rejects non-function validator", () => {
+      const createWithInvalidValidator = () =>
+        mcpPlugin({
+          transport: "http",
+          // @ts-expect-error testing runtime validation of non-function validator
+          auth: { validator: "not-a-function" },
+        });
+
+      expect(createWithInvalidValidator).toThrow(TypeError);
+      expect(createWithInvalidValidator).toThrow(
+        /auth\.validator must be a function/,
+      );
+    });
+  });
 });

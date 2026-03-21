@@ -37,71 +37,98 @@ export enum OperationType {
  * Standard header keys used in exchanges.
  * These keys provide metadata and context for processing exchanges.
  */
-export enum HeadersKeys {
+/**
+ * Registry of known header keys. Plugins can extend this via module
+ * augmentation so that their keys appear in `ExchangeHeaders` autocomplete.
+ *
+ * @example
+ * ```ts
+ * // In a plugin package
+ * declare module "@routecraft/routecraft" {
+ *   interface HeaderKeysRegistry {
+ *     MY_KEY: "routecraft.my.key";
+ *   }
+ * }
+ * ```
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface HeaderKeysRegistry {}
+
+/**
+ * Standard header keys used in exchanges.
+ * These keys provide metadata and context for processing exchanges.
+ *
+ * Plugins can register additional keys by augmenting the
+ * {@link HeaderKeysRegistry} interface.
+ */
+export const HeadersKeys = {
   /** The operation type (from, process, to) */
-  OPERATION = "routecraft.operation",
+  OPERATION: "routecraft.operation",
   /** The route id */
-  ROUTE_ID = "routecraft.route",
+  ROUTE_ID: "routecraft.route",
   /** The correlation id */
-  CORRELATION_ID = "routecraft.correlation_id",
+  CORRELATION_ID: "routecraft.correlation_id",
   /** The hierarchy of split groups this exchange belongs to */
-  SPLIT_HIERARCHY = "routecraft.split_hierarchy",
+  SPLIT_HIERARCHY: "routecraft.split_hierarchy",
   /** The exact timestamp when the timer fired, in ISO 8601 format */
-  TIMER_TIME = "routecraft.timer.time",
+  TIMER_TIME: "routecraft.timer.time",
   /** The timestamp when the exchange was created, in ISO 8601 format */
-  TIMER_FIRED_TIME = "routecraft.timer.firedTime",
+  TIMER_FIRED_TIME: "routecraft.timer.firedTime",
   /** The period in milliseconds between timer firings */
-  TIMER_PERIOD_MS = "routecraft.timer.periodMs",
+  TIMER_PERIOD_MS: "routecraft.timer.periodMs",
   /** The number of times the timer has fired */
-  TIMER_COUNTER = "routecraft.timer.counter",
+  TIMER_COUNTER: "routecraft.timer.counter",
   /** The next timestamp when the timer will fire, in ISO 8601 format */
-  TIMER_NEXT_RUN = "routecraft.timer.nextRun",
+  TIMER_NEXT_RUN: "routecraft.timer.nextRun",
 
   /** The cron expression that triggered this exchange */
-  CRON_EXPRESSION = "routecraft.cron.expression",
+  CRON_EXPRESSION: "routecraft.cron.expression",
   /** The timestamp when the cron job fired, in ISO 8601 format */
-  CRON_FIRED_TIME = "routecraft.cron.firedTime",
+  CRON_FIRED_TIME: "routecraft.cron.firedTime",
   /** The next timestamp when the cron job will fire, in ISO 8601 format */
-  CRON_NEXT_RUN = "routecraft.cron.nextRun",
+  CRON_NEXT_RUN: "routecraft.cron.nextRun",
   /** The number of times the cron job has fired */
-  CRON_COUNTER = "routecraft.cron.counter",
+  CRON_COUNTER: "routecraft.cron.counter",
   /** The IANA timezone for the cron schedule */
-  CRON_TIMEZONE = "routecraft.cron.timezone",
+  CRON_TIMEZONE: "routecraft.cron.timezone",
   /** The human-readable name for the cron job */
-  CRON_NAME = "routecraft.cron.name",
-}
+  CRON_NAME: "routecraft.cron.name",
+} as const satisfies Record<string, string>;
 
 /**
  * Standard headers used by the Routecraft framework.
  * These headers provide critical metadata for processing exchanges.
+ *
+ * Plugins can extend this via module augmentation alongside
+ * {@link HeaderKeysRegistry} to add typed headers.
  */
 export interface RoutecraftHeaders {
   /** The current operation being performed */
-  [HeadersKeys.OPERATION]: OperationType;
+  "routecraft.operation": OperationType;
 
   /** The ID of the route processing this exchange */
-  [HeadersKeys.ROUTE_ID]: string;
+  "routecraft.route": string;
 
   /** Unique identifier for correlating related exchanges */
-  [HeadersKeys.CORRELATION_ID]: string;
+  "routecraft.correlation_id": string;
 
   /** Hierarchy path for split operations */
-  [HeadersKeys.SPLIT_HIERARCHY]?: string[];
+  "routecraft.split_hierarchy"?: string[];
 
   /** Timer-specific headers */
-  [HeadersKeys.TIMER_TIME]?: string;
-  [HeadersKeys.TIMER_FIRED_TIME]?: string;
-  [HeadersKeys.TIMER_PERIOD_MS]?: number;
-  [HeadersKeys.TIMER_COUNTER]?: number;
-  [HeadersKeys.TIMER_NEXT_RUN]?: string;
+  "routecraft.timer.time"?: string;
+  "routecraft.timer.firedTime"?: string;
+  "routecraft.timer.periodMs"?: number;
+  "routecraft.timer.counter"?: number;
+  "routecraft.timer.nextRun"?: string;
 
   /** Cron-specific headers */
-  [HeadersKeys.CRON_EXPRESSION]?: string;
-  [HeadersKeys.CRON_FIRED_TIME]?: string;
-  [HeadersKeys.CRON_NEXT_RUN]?: string;
-  [HeadersKeys.CRON_COUNTER]?: number;
-  [HeadersKeys.CRON_TIMEZONE]?: string;
-  [HeadersKeys.CRON_NAME]?: string;
+  "routecraft.cron.expression"?: string;
+  "routecraft.cron.firedTime"?: string;
+  "routecraft.cron.nextRun"?: string;
+  "routecraft.cron.counter"?: number;
+  "routecraft.cron.timezone"?: string;
+  "routecraft.cron.name"?: string;
 }
 
 /**
@@ -110,10 +137,22 @@ export interface RoutecraftHeaders {
 export type HeaderValue = string | number | boolean | undefined | string[];
 
 /**
+ * Mapped type that surfaces keys declared via {@link HeaderKeysRegistry}
+ * as optional header properties. Plugins that augment `HeaderKeysRegistry`
+ * get autocomplete and type-checking on `exchange.headers`.
+ */
+type RegistryHeaders = {
+  [K in keyof HeaderKeysRegistry as HeaderKeysRegistry[K] extends string
+    ? HeaderKeysRegistry[K]
+    : never]?: HeaderValue;
+};
+
+/**
  * Complete set of headers for an exchange.
- * Includes both standard Routecraft headers and custom headers.
+ * Includes standard Routecraft headers, plugin-registered headers, and custom headers.
  */
 export type ExchangeHeaders = Partial<RoutecraftHeaders> &
+  RegistryHeaders &
   Record<string, HeaderValue>;
 
 /**

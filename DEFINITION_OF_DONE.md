@@ -12,8 +12,28 @@ Every change -- feature, fix, refactor -- must satisfy the checklists below befo
 - [ ] No `any` types in production code (test files are exempt)
 - [ ] Every new public API symbol has a TSDoc release tag: `@experimental`, `@beta`, or stable (no tag). Only promote maturity level after the API has proven itself across releases
 - [ ] Symbols marked `@internal` are **never** re-exported from a package's public entry point (`index.ts`). Internal helpers must stay internal
+- [ ] Magic strings (header keys, store keys, event prefixes) used by consumers are exported as named constants or enums from the package's public entry point so users get autocomplete and type safety
+- [ ] Any meaningful behavior (lifecycle transition, operation execution, success, failure) emits a typed event via `CraftContext`. See the **Events and Tracing** checklist below
 - [ ] Write commit messages following [Conventional Commits](https://www.conventionalcommits.org/); use the `/git-commit-message` slash command for detailed formatting
 - [ ] Do not use em-dashes in documentation, JSDoc, comments, or written output
+
+## Events and Tracing (every change that introduces observable behavior)
+
+> Routecraft's event system is the foundation for metrics, tracing, alerting, and auditing.
+> Every meaningful thing that happens must be observable through events.
+> Event types live in `packages/routecraft/src/types.ts`.
+> Event docs are at `apps/routecraft.dev/src/app/docs/reference/events/page.md`.
+
+- [ ] New behavior emits events for at least: started, completed/stopped, and failed states
+- [ ] Event names follow the existing hierarchical convention (e.g., `route:{routeId}:operation:{type}:{adapterId}:started`)
+- [ ] Event payloads are type-safe: add a new entry to `EventDetailsMapping` in `types.ts` with a typed payload shape
+- [ ] Payloads include enough context for correlation: `contextId`, `routeId`, `exchangeId`, or `correlationId` as appropriate
+- [ ] Duration-sensitive operations include timing information (start timestamp at minimum; duration where practical)
+- [ ] Failure events include the error or reason for failure
+- [ ] Adapter operations expose structured `metadata` in their event payloads (IDs, status codes, counts -- not large bodies)
+- [ ] Wildcard subscriptions still work: new event names must be compatible with `*` and `**` glob patterns
+- [ ] New events are documented on the events reference page with their payload shape and when they fire
+- [ ] If the change removes or renames an event, treat it as a breaking change and document the migration path
 
 ## When you add or modify an adapter
 

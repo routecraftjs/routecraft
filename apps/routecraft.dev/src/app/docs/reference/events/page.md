@@ -109,6 +109,45 @@ Plugin events are scoped to a plugin ID.
 | `plugin:{pluginId}:stopping` | Plugin is about to stop | `{ pluginId, pluginIndex }` |
 | `plugin:{pluginId}:stopped` | Plugin has stopped | `{ pluginId, pluginIndex }` |
 
+## Authentication events
+
+Emitted by auth-enabled adapters (currently MCP HTTP) on every auth attempt. The `source` field identifies which adapter emitted the event.
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `auth:success` | Token validated and principal resolved | `{ subject, scheme, source }` |
+| `auth:rejected` | Auth failed (missing header, bad scheme, or invalid token) | `{ reason, scheme, source }` |
+
+`reason` is one of `"missing_header"`, `"unsupported_scheme"`, or `"invalid_token"`.
+
+## MCP plugin events
+
+Events emitted by the MCP plugin during server and tool lifecycle. Subscribe with wildcards (e.g. `plugin:mcp:tool:**`) for broad observability.
+
+### Server events
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `plugin:mcp:server:listening` | HTTP server is ready to accept connections | `{ host, port, path }` |
+| `plugin:mcp:server:tools:exposed` | Tool list logged for the first time | `{ tools, count }` |
+
+### Session events
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `plugin:mcp:session:created` | New HTTP client session initialized | `{ sessionId }` |
+| `plugin:mcp:session:closed` | HTTP client session transport closed | `{ sessionId }` |
+
+### Tool call events
+
+Scoped per tool name. Use `plugin:mcp:tool:**` to capture all tool events.
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `plugin:mcp:tool:{toolName}:called` | Tool invocation started | `{ tool, args }` |
+| `plugin:mcp:tool:{toolName}:completed` | Tool invocation succeeded | `{ tool }` |
+| `plugin:mcp:tool:{toolName}:failed` | Tool invocation failed | `{ tool, error }` |
+
 ## System events
 
 | Event | When it fires | Details |

@@ -41,7 +41,11 @@ export default craft()
 
 The `schema` is validated before the capability runs. Invalid inputs are rejected with a structured error before any business logic executes.
 
-## Configure Claude Desktop
+## Stdio transport (default)
+
+Stdio is the simplest transport. The AI client spawns Routecraft as a subprocess and communicates over stdin/stdout. No networking, no auth required.
+
+### Claude Desktop
 
 Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
 
@@ -60,11 +64,11 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
 }
 ```
 
-Restart Claude Desktop completely after saving. Look for the hammer icon in the input area -- your capabilities will appear in the tool picker.
+Restart Claude Desktop completely after saving. Look for the hammer icon in the input area.
 
-## Configure Cursor
+### Cursor
 
-Open **Cursor Settings** → **Features** → **Model Context Protocol**, then add:
+Open **Cursor Settings** > **Features** > **Model Context Protocol**, then add:
 
 ```json
 {
@@ -78,6 +82,122 @@ Open **Cursor Settings** → **Features** → **Model Context Protocol**, then a
   }
 }
 ```
+
+### Claude Code
+
+Add the following to your `.mcp.json` (project-level) or `~/.claude/mcp.json` (global):
+
+```json
+{
+  "mcpServers": {
+    "my-tools": {
+      "command": "npx",
+      "args": [
+        "@routecraft/cli",
+        "run",
+        "./capabilities/search-orders.ts"
+      ]
+    }
+  }
+}
+```
+
+## HTTP transport
+
+Use the HTTP transport when you want a long-running server that multiple clients can connect to, or when you need authentication. Add `mcpPlugin` to your config with `transport: 'http'`:
+
+```ts
+// craft.config.ts
+import { mcpPlugin, jwt } from '@routecraft/ai'
+
+export default {
+  plugins: [
+    mcpPlugin({
+      transport: 'http',
+      port: 3001,
+      auth: jwt({ secret: process.env.JWT_SECRET! }),
+    }),
+  ],
+}
+```
+
+Start the server with `craft run`, then point your AI client at it.
+
+### Claude Desktop (HTTP)
+
+```json
+{
+  "mcpServers": {
+    "my-tools": {
+      "url": "http://localhost:3001/mcp",
+      "headers": {
+        "Authorization": "Bearer <your-jwt-token>"
+      }
+    }
+  }
+}
+```
+
+### Cursor (HTTP)
+
+```json
+{
+  "my-tools": {
+    "url": "http://localhost:3001/mcp",
+    "headers": {
+      "Authorization": "Bearer <your-jwt-token>"
+    }
+  }
+}
+```
+
+### Claude Code (HTTP)
+
+```json
+{
+  "mcpServers": {
+    "my-tools": {
+      "url": "http://localhost:3001/mcp",
+      "headers": {
+        "Authorization": "Bearer <your-jwt-token>"
+      }
+    }
+  }
+}
+```
+
+## Authentication
+
+When using HTTP transport, secure the endpoint with the `auth` option. Routecraft ships with a built-in `jwt()` helper that verifies JWT signatures using `node:crypto` (zero dependencies).
+
+```ts
+import { jwt } from '@routecraft/ai'
+
+// HMAC (HS256, default)
+auth: jwt({ secret: process.env.JWT_SECRET! })
+
+// RSA (RS256)
+auth: jwt({
+  algorithm: 'RS256',
+  publicKey: fs.readFileSync('./public.pem', 'utf-8'),
+})
+```
+
+For other auth schemes, pass a custom `validator` function:
+
+```ts
+auth: {
+  validator: async (token) => {
+    const user = await db.verifyApiKey(token)
+    if (!user) return null
+    return { subject: user.id, scheme: 'api-key', roles: user.roles }
+  },
+}
+```
+
+The validator receives the raw bearer token and returns an `AuthPrincipal` on success or `null` to reject with 401. The principal's fields (`subject`, `scheme`, `roles`, etc.) are set as exchange headers so your routes can read the caller's identity.
+
+See the [plugins reference](/docs/reference/plugins#mcpplugin) for the full `AuthPrincipal` field list.
 
 ## Production
 
@@ -103,9 +223,10 @@ Use absolute paths in production to avoid working-directory ambiguity.
 ## Security
 
 - **Validate all inputs** -- every capability should have a Zod schema; Routecraft enforces it before execution
+- **Authenticate HTTP endpoints** -- always set `auth` when using HTTP transport in production
 - **Guardrails** -- use `.filter()` to reject exchanges that fail a business rule, and `.transform()` to sanitize or normalise values before they reach downstream systems
 - **Principle of least privilege** -- only expose capabilities the AI actually needs
-- **Audit trail** -- add `.tap(log())` to record every invocation
+- **Audit trail** -- add `.tap(log())` to record every invocation; subscribe to `plugin:mcp:tool:**` events for MCP-specific tracing
 - **Never hardcode credentials** -- use `process.env` and `.env` files
 
 ---

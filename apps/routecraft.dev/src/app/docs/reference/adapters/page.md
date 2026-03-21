@@ -1073,12 +1073,15 @@ craft()
 **Destination mode -- call a remote MCP tool:**
 
 ```ts
-// By server id registered in mcpPlugin clients
+// Recommended: by server id registered in mcpPlugin({ clients }).
+// Auth is inherited from the client config automatically.
 .enrich(mcp('browser:browser_navigate', { args: (ex) => ({ url: ex.body.url }) }))
 
-// By URL and tool name
+// By URL and tool name (use inline auth if needed)
 .enrich(mcp({ url: 'http://127.0.0.1:8089/mcp', tool: 'browser_navigate' }, { args: (ex) => ({ url: ex.body.url }) }))
 ```
+
+When using the `serverId` path (recommended), auth configured on the client in `mcpPlugin({ clients })` flows to the destination automatically. Inline `auth` on `McpClientOptions` is available as an escape hatch for the raw `url` path or to override registered config, but prefer centralizing credentials in the plugin config.
 
 **Options (McpServerOptions -- source):**
 
@@ -1088,6 +1091,23 @@ craft()
 | `schema` | `StandardSchemaV1` | No | Body validation schema (Zod, Valibot, ArkType) |
 | `headerSchema` | `StandardSchemaV1` | No | Header validation schema |
 | `keywords` | `string[]` | No | Keywords for discovery and categorization |
+
+**Options (McpClientOptions -- destination):**
+
+| Option | Type | Required | Description |
+|--------|------|----------|-------------|
+| `url` | `string` | One of url/serverId | Direct HTTP URL of the remote MCP server |
+| `serverId` | `string` | One of url/serverId | Named server registered via `mcpPlugin({ clients })` |
+| `tool` | `string` | No | Tool name to invoke (or set `exchange.body.tool`) |
+| `args` | `(exchange) => Record<string, unknown>` | No | Extractor for tool arguments; defaults to `exchange.body` |
+| `auth` | `McpClientAuthOptions` | No | Auth credentials for HTTP requests. Auto-inherited from `mcpPlugin({ clients })` when using `serverId`; use to override or for inline `url` connections |
+
+**McpClientAuthOptions:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `token` | `string \| string[] \| (() => string \| Promise<string>)` | Bearer token, array of tokens (round-robin), or provider function called per request |
+| `headers` | `Record<string, string>` | Additional request headers; overrides `token` if `Authorization` is set |
 
 **Relation to `direct()`:** `mcp()` is built on `direct()`. The key difference is that `description` is required when passing options, ensuring every exposed tool is discoverable by AI agents.
 

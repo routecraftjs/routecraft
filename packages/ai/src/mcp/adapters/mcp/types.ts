@@ -12,11 +12,5 @@ export type McpArgsExtractor = (
   exchange: Exchange<unknown>,
 ) => Record<string, unknown>;
 
-/**
- * HTTP client config for a remote MCP server (Streamable HTTP).
- * Used in mcpPlugin({ clients: { name: config } }).
- */
-export interface McpClientHttpConfig {
-  transport?: "streamable-http";
-  url: string;
-}
+// Re-export from canonical location to avoid interface drift.
+export type { McpClientHttpConfig } from "../../types.ts";

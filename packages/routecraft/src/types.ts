@@ -231,7 +231,9 @@ export type PluginEventName =
   | `plugin:${string}:starting`
   | `plugin:${string}:started`
   | `plugin:${string}:stopping`
-  | `plugin:${string}:stopped`;
+  | `plugin:${string}:stopped`
+  | `plugin:${string}:${string}:${string}`
+  | `plugin:${string}:${string}:${string}:${string}`;
 
 /**
  * Step lifecycle events (hierarchical naming with routeId).
@@ -313,6 +315,27 @@ export type SpecialOperationEventName =
   | `route:${string}:operation:error:failed`;
 
 /**
+ * Authentication events.
+ *
+ * Emitted by auth-enabled adapters on every auth attempt.
+ * `details.source` identifies the adapter that emitted the event (e.g. `"mcp"`).
+ *
+ * - `auth:success` - Token validated, principal resolved
+ * - `auth:rejected` - Auth failed (missing header, bad scheme, invalid token)
+ *
+ * @example
+ * ```typescript
+ * ctx.on('auth:success', ({ details }) => {
+ *   audit.log(details.source, details.subject, details.scheme);
+ * });
+ * ctx.on('auth:rejected', ({ details }) => {
+ *   metrics.increment('auth.rejected', { source: details.source, reason: details.reason });
+ * });
+ * ```
+ */
+export type AuthEventName = "auth:success" | "auth:rejected";
+
+/**
  * System-wide error event.
  *
  * Emitted when errors occur during context startup, route processing, or step execution.
@@ -355,6 +378,7 @@ export type EventName =
   | OperationEventName
   | PluginEventName
   | SpecialOperationEventName
+  | AuthEventName
   | SystemEventName;
 
 // Static event details mapping (non-hierarchical events)
@@ -375,6 +399,18 @@ export type StaticEventDetails = {
     exchange?: Exchange<unknown>;
   };
   "route:stopped": { route: Route; exchange?: Exchange<unknown> };
+
+  // Auth
+  "auth:success": {
+    subject: string;
+    scheme: string;
+    source: string;
+  };
+  "auth:rejected": {
+    reason: string;
+    scheme: string;
+    source: string;
+  };
 
   // System
   error: { error: unknown; route?: Route; exchange?: Exchange<unknown> };
@@ -614,7 +650,17 @@ export type EventDetailsMapping<K extends EventName = EventName> =
                                                                   pluginId: string;
                                                                   pluginIndex: number;
                                                                 }
-                                                              : never;
+                                                              : K extends `plugin:${string}:${string}:${string}:${string}`
+                                                                ? Record<
+                                                                    string,
+                                                                    unknown
+                                                                  >
+                                                                : K extends `plugin:${string}:${string}:${string}`
+                                                                  ? Record<
+                                                                      string,
+                                                                      unknown
+                                                                    >
+                                                                  : never;
 
 export type EventPayload<K extends EventName> = {
   ts: string;

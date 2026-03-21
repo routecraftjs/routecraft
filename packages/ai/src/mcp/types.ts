@@ -48,6 +48,29 @@ declare module "@routecraft/routecraft" {
       }
     >;
   }
+
+  interface RoutecraftHeaders {
+    /** The MCP tool name that triggered this exchange. */
+    "routecraft.mcp.tool"?: string;
+    /** The MCP session identifier. */
+    "routecraft.mcp.session"?: string;
+    /** Authenticated subject (from AuthPrincipal). */
+    "routecraft.auth.subject"?: string;
+    /** Authentication scheme used. */
+    "routecraft.auth.scheme"?: string;
+    /** Roles assigned to the authenticated principal. */
+    "routecraft.auth.roles"?: string[];
+    /** Scopes granted to the authenticated principal. */
+    "routecraft.auth.scopes"?: string[];
+    /** Email of the authenticated principal. */
+    "routecraft.auth.email"?: string;
+    /** Display name of the authenticated principal. */
+    "routecraft.auth.name"?: string;
+    /** Token issuer (JWT `iss`). */
+    "routecraft.auth.issuer"?: string;
+    /** Intended audience (JWT `aud`). */
+    "routecraft.auth.audience"?: string[];
+  }
 }
 
 /**
@@ -57,6 +80,8 @@ declare module "@routecraft/routecraft" {
 export interface McpClientHttpConfig {
   transport?: "streamable-http";
   url: string;
+  /** Auth credentials sent on every request to this server. */
+  auth?: McpClientAuthOptions;
 }
 
 /**
@@ -80,6 +105,162 @@ export interface McpClientStdioConfig {
 export type McpClientServerConfig = McpClientHttpConfig | McpClientStdioConfig;
 
 /**
+ * Header keys set on exchanges created by the MCP server.
+ * Use these with `exchange.headers[McpHeadersKeys.AUTH_SUBJECT]` for type-safe access.
+ *
+ * @example
+ * ```ts
+ * import { McpHeadersKeys } from '@routecraft/ai'
+ *
+ * .process((ex) => {
+ *   const user = ex.headers[McpHeadersKeys.AUTH_SUBJECT]
+ *   const tool = ex.headers[McpHeadersKeys.TOOL]
+ * })
+ * ```
+ */
+export enum McpHeadersKeys {
+  /** The MCP tool name that triggered this exchange. */
+  TOOL = "routecraft.mcp.tool",
+  /** The MCP session identifier. */
+  SESSION = "routecraft.mcp.session",
+  /** Authenticated subject (from AuthPrincipal). */
+  AUTH_SUBJECT = "routecraft.auth.subject",
+  /** Authentication scheme used. */
+  AUTH_SCHEME = "routecraft.auth.scheme",
+  /** Roles assigned to the authenticated principal. */
+  AUTH_ROLES = "routecraft.auth.roles",
+  /** Scopes granted to the authenticated principal. */
+  AUTH_SCOPES = "routecraft.auth.scopes",
+  /** Email of the authenticated principal. */
+  AUTH_EMAIL = "routecraft.auth.email",
+  /** Display name of the authenticated principal. */
+  AUTH_NAME = "routecraft.auth.name",
+  /** Token issuer (JWT `iss`). */
+  AUTH_ISSUER = "routecraft.auth.issuer",
+  /** Intended audience (JWT `aud`). */
+  AUTH_AUDIENCE = "routecraft.auth.audience",
+}
+
+/**
+ * Authenticated user principal resolved from an incoming request.
+ * Returned by the auth validator to populate exchange headers for logging,
+ * filtering, and access control inside routes.
+ *
+ * `subject` and `scheme` are always required; everything else is
+ * scheme-dependent and may be absent.
+ *
+ * @experimental
+ */
+export interface AuthPrincipal {
+  /** Unique user/client identifier (JWT `sub`, username, API key ID, etc.). */
+  subject: string;
+  /** Authentication scheme that produced this principal. */
+  scheme: "bearer" | "basic" | "api-key" | (string & {});
+  /** Role names granted to this principal. */
+  roles?: string[];
+  /** OAuth 2.0 / JWT scopes. */
+  scopes?: string[];
+  /** Email address, if known. */
+  email?: string;
+  /** Display name, if known. */
+  name?: string;
+  /** Token issuer (JWT `iss`). */
+  issuer?: string;
+  /** Intended audiences (JWT `aud`). */
+  audience?: string[];
+  /** Expiry as Unix epoch seconds (JWT `exp`, session expiry). */
+  expiresAt?: number;
+  /** Arbitrary extra claims. For JWTs this holds the full decoded payload. */
+  claims?: Record<string, unknown>;
+}
+
+/**
+ * Authentication options for the MCP HTTP server.
+ * Only applies when `transport` is `"http"`. Ignored for stdio.
+ *
+ * The validator receives the raw bearer token from the `Authorization` header
+ * on every request and must return an {@link AuthPrincipal} on success or
+ * `null` / `false` to reject with 401. Use the built-in `jwt()` helper for
+ * HMAC-signed JWTs or supply a custom function for other schemes.
+ *
+ * @example
+ * ```ts
+ * // Built-in JWT helper (HMAC / HS256)
+ * import { jwt } from "@routecraft/ai";
+ * auth: jwt({ secret: process.env.JWT_SECRET! })
+ *
+ * // Custom validator
+ * auth: {
+ *   validator: async (token) => {
+ *     const user = await lookupApiKey(token);
+ *     if (!user) return null;
+ *     return { subject: user.id, scheme: "api-key", roles: user.roles };
+ *   }
+ * }
+ * ```
+ *
+ * @experimental
+ */
+export interface McpHttpAuthOptions {
+  /**
+   * Validator function called with the raw bearer token on every request.
+   *
+   * Return an {@link AuthPrincipal} to allow access; return `null` or `false`
+   * to reject with 401. May be async.
+   *
+   * If the function throws, the server responds with 500.
+   * Validators should catch expected failures (e.g. JWT expiry) and return `null`.
+   */
+  validator: McpAuthValidator;
+}
+
+/**
+ * A function that validates a bearer token and resolves the authenticated principal.
+ * Called on every incoming HTTP request.
+ * May be synchronous or asynchronous.
+ *
+ * Return an {@link AuthPrincipal} to allow access, or `null` / `false` to reject with 401.
+ * If the function throws, the server responds with 500.
+ *
+ * @experimental
+ */
+export type McpAuthValidator = (
+  token: string,
+) => AuthPrincipal | null | false | Promise<AuthPrincipal | null | false>;
+
+/**
+ * A function that provides a bearer token for outbound requests.
+ * Called on every request; may be synchronous or asynchronous.
+ * Useful for dynamic tokens (JWT refresh, rotating API keys, etc.).
+ *
+ * @experimental
+ */
+export type McpClientTokenProvider = () => string | Promise<string>;
+
+/**
+ * Auth config for an outbound MCP HTTP client connection.
+ * Passed as request headers on every connection to the remote server.
+ *
+ * @experimental
+ */
+export interface McpClientAuthOptions {
+  /**
+   * Bearer token(s) or provider for the `Authorization` header.
+   * Builds `Authorization: Bearer <token>`.
+   *
+   * - `string` -- single static token.
+   * - `string[]` -- array of tokens; one is selected per request (round-robin).
+   * - `() => string | Promise<string>` -- called per request for dynamic tokens.
+   */
+  token?: string | string[] | McpClientTokenProvider;
+  /**
+   * Additional headers to include on every request to the remote server.
+   * If `Authorization` is set here, it overrides `token`.
+   */
+  headers?: Record<string, string>;
+}
+
+/**
  * Options for the MCP plugin (mcpPlugin).
  * One plugin per adapter: this is the single options type for the MCP plugin.
  */
@@ -98,6 +279,18 @@ export interface McpPluginOptions {
 
   /** Host to bind to. Default: "localhost" (only used with transport: "http") */
   host?: string;
+
+  /**
+   * Authentication for the HTTP transport. When set, every request to `/mcp` must
+   * include a valid `Authorization: Bearer <token>` header. Ignored for stdio.
+   *
+   * @example
+   * ```ts
+   * import { jwt } from "@routecraft/ai";
+   * auth: jwt({ secret: process.env.JWT_SECRET! })
+   * ```
+   */
+  auth?: McpHttpAuthOptions;
 
   /**
    * Filter which tools to expose. Default: all mcp() routes.
@@ -178,6 +371,13 @@ export interface McpClientOptions {
    * Default: body as object -> use as args; otherwise { input: body }.
    */
   args?: McpArgsExtractor;
+  /**
+   * Auth credentials for the outbound HTTP connection.
+   * When using `serverId`, auth flows automatically from `mcpPlugin({ clients })`
+   * so this field is rarely needed. Use it to override registered auth or to
+   * supply credentials when using inline `url`.
+   */
+  auth?: McpClientAuthOptions;
 }
 
 /**

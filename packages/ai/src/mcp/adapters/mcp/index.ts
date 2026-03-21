@@ -73,7 +73,28 @@ export function mcp<S extends StandardSchemaV1 | undefined = undefined>(
     endpointOrOptions !== null &&
     ("url" in endpointOrOptions || "serverId" in endpointOrOptions)
   ) {
-    return new McpDestinationAdapter(endpointOrOptions as McpClientOptions);
+    const clientOpts = endpointOrOptions as McpClientOptions;
+    if (typeof clientOpts.auth?.token === "string") {
+      if (clientOpts.auth.token.trim().length === 0) {
+        throw new TypeError(
+          "mcp(): auth.token must be a non-empty string when provided",
+        );
+      }
+    }
+    if (Array.isArray(clientOpts.auth?.token)) {
+      if (clientOpts.auth.token.length === 0) {
+        throw new TypeError("mcp(): auth.token array must not be empty");
+      }
+      for (let i = 0; i < clientOpts.auth.token.length; i++) {
+        const entry = clientOpts.auth.token[i];
+        if (typeof entry !== "string" || entry.trim().length === 0) {
+          throw new TypeError(
+            `mcp(): auth.token[${i}] must be a non-empty string`,
+          );
+        }
+      }
+    }
+    return new McpDestinationAdapter(clientOpts);
   }
 
   // Client: "server:tool" string with optional args

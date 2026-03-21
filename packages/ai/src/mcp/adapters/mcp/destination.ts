@@ -1,10 +1,15 @@
 import type { Exchange, Destination } from "@routecraft/routecraft";
 import { getExchangeContext } from "@routecraft/routecraft";
-import type { McpClientOptions, McpArgsExtractor } from "../../types.ts";
+import type {
+  McpClientOptions,
+  McpArgsExtractor,
+  McpClientAuthOptions,
+  McpClientHttpConfig,
+} from "../../types.ts";
 import { ADAPTER_MCP_CLIENT_SERVERS, MCP_STDIO_MANAGERS } from "../../types.ts";
-import type { McpClientHttpConfig } from "./types.ts";
 import { BRAND_MCP_ADAPTER } from "./shared.ts";
 import { extractContent } from "../../extract-content.ts";
+import { buildAuthHeaders } from "../../build-auth-headers.ts";
 
 /** Ensure inline url is HTTP(S) only. Stdio clients are resolved via MCP_STDIO_MANAGERS store. */
 function assertHttpUrl(url: string): void {
@@ -17,16 +22,32 @@ function assertHttpUrl(url: string): void {
 }
 
 /**
- * Resolves the URL for the MCP server from options or context (serverId).
- * Store holds McpClientHttpConfig (with url); backward-compat: value may be string.
+ * Look up the registered server config from the context store.
+ * Returns undefined when no context or no matching serverId.
+ * Backward-compat: store value may be a plain string (url only).
  */
-function resolveUrl(
+function resolveServerConfig(
   options: McpClientOptions,
   context: ReturnType<typeof getExchangeContext>,
-): string {
+): McpClientHttpConfig | string | undefined {
+  if (!options.serverId || !context) return undefined;
+  const servers = context.getStore(
+    ADAPTER_MCP_CLIENT_SERVERS as keyof import("@routecraft/routecraft").StoreRegistry,
+  ) as Map<string, McpClientHttpConfig | string> | undefined;
+  return servers?.get(options.serverId);
+}
+
+/**
+ * Resolves the URL and auth for the MCP server from options or context (serverId).
+ * Returns both in a single lookup to avoid duplicate store reads.
+ */
+function resolveConnection(
+  options: McpClientOptions,
+  context: ReturnType<typeof getExchangeContext>,
+): { url: string; auth?: McpClientAuthOptions | undefined } {
   if (options.url) {
     assertHttpUrl(options.url);
-    return options.url;
+    return { url: options.url, auth: options.auth };
   }
   if (options.serverId && !context) {
     throw new Error(
@@ -34,17 +55,19 @@ function resolveUrl(
     );
   }
   if (options.serverId && context) {
-    const servers = context.getStore(
-      ADAPTER_MCP_CLIENT_SERVERS as keyof import("@routecraft/routecraft").StoreRegistry,
-    ) as Map<string, McpClientHttpConfig | string> | undefined;
-    const config = servers?.get(options.serverId);
+    const config = resolveServerConfig(options, context);
     if (!config) {
       throw new Error(
         `MCP client: serverId "${options.serverId}" not found in context store. Register it with context store key "${String(ADAPTER_MCP_CLIENT_SERVERS)}".`,
       );
     }
-    if (typeof config === "string") return config;
-    return config.url;
+    const url = typeof config === "string" ? config : config.url;
+    const auth =
+      options.auth ??
+      (typeof config === "object" && "auth" in config
+        ? config.auth
+        : undefined);
+    return { url, auth };
   }
   throw new Error(
     "MCP client: either url or serverId must be provided in McpClientOptions.",
@@ -156,8 +179,8 @@ export class McpDestinationAdapter implements Destination<unknown, unknown> {
     }
 
     // Fall through to HTTP
-    const url = resolveUrl(this.options, context);
-    const result = await this.callRemoteTool(url, toolName, args);
+    const { url, auth } = resolveConnection(this.options, context);
+    const result = await this.callRemoteTool(url, toolName, args, auth);
 
     // Attach metadata to result for getMetadata() to read (eliminates race condition)
     if (result && typeof result === "object") {
@@ -190,6 +213,7 @@ export class McpDestinationAdapter implements Destination<unknown, unknown> {
     serverUrl: string,
     toolName: string,
     args: Record<string, unknown>,
+    auth?: McpClientAuthOptions,
   ): Promise<unknown> {
     let clientModule: {
       Client: new (
@@ -200,7 +224,10 @@ export class McpDestinationAdapter implements Destination<unknown, unknown> {
     let transportModule: {
       StreamableHTTPClientTransport: new (
         url: URL,
-        options?: { sessionId?: string },
+        options?: {
+          sessionId?: string;
+          requestInit?: { headers?: Record<string, string> };
+        },
       ) => unknown;
     };
     try {
@@ -217,7 +244,9 @@ export class McpDestinationAdapter implements Destination<unknown, unknown> {
       transportModule.StreamableHTTPClientTransport;
 
     const url = new URL(serverUrl);
-    const transport = new StreamableHTTPClientTransport(url);
+    const headers = await buildAuthHeaders(auth);
+    const transportOptions = headers ? { requestInit: { headers } } : undefined;
+    const transport = new StreamableHTTPClientTransport(url, transportOptions);
     const clientInfo = { name: "routecraft-mcp-client", version: "1.0.0" };
     const client = new (Client as new (
       info: { name: string; version: string },
