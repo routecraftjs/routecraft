@@ -9,7 +9,7 @@ import type { CronExpression, CronOptions } from "./types";
  *
  * @experimental
  * @param expression - Cron expression string
- * @param options - timezone, maxFires, jitterMs, name
+ * @param options - timezone, maxFires, jitterMs, name, protect, startAt, stopAt
  * @returns A Source usable with `.from(cron(expression, options))`
  *
  * @example

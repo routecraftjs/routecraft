@@ -344,26 +344,153 @@ describe("CronSourceAdapter", () => {
 
   /**
    * @case nextRun header is provided when there is a next run
-   * @preconditions CronSourceAdapter with per-second expression and maxFires=1
-   * @expectedResult Headers contain a valid nextRun ISO string
+   * @preconditions CronSourceAdapter with per-second expression and maxFires=2
+   * @expectedResult First fire headers contain a valid nextRun ISO string
    */
   test("nextRun header is populated", async () => {
-    const adapter = new CronSourceAdapter("* * * * * *", { maxFires: 1 });
+    const adapter = new CronSourceAdapter("* * * * * *", { maxFires: 2 });
     const context = mockContext();
     const abortController = new AbortController();
     const handler = vi.fn().mockResolvedValue({} as Exchange);
 
     const promise = adapter.subscribe(context, handler, abortController);
 
+    await advanceTime(5000);
+
+    abortController.abort();
+    await promise;
+
+    expect(handler).toHaveBeenCalledTimes(2);
+    const headers: ExchangeHeaders = handler.mock.calls[0][1];
+    const nextRun = headers[HeadersKeys.CRON_NEXT_RUN];
+    expect(nextRun).toBeDefined();
+    expect(new Date(nextRun as string).getTime()).toBeGreaterThan(0);
+  });
+
+  /**
+   * @case protect option prevents concurrent handler execution
+   * @preconditions CronSourceAdapter with per-second expression, protect=true (default), slow handler
+   * @expectedResult Max in-flight count never exceeds 1
+   */
+  test("protect: true prevents concurrent handler execution", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const adapter = new CronSourceAdapter("* * * * * *", {
+      maxFires: 3,
+    });
+    const context = mockContext();
+    const abortController = new AbortController();
+    const handler = vi.fn().mockImplementation(async () => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      // Simulate slow work spanning multiple tick intervals
+      await new Promise((r) => setTimeout(r, 2500));
+      inFlight--;
+      return {} as Exchange;
+    });
+
+    const promise = adapter.subscribe(context, handler, abortController);
+
+    await advanceTime(10000);
+
+    abortController.abort();
+    await promise;
+
+    expect(maxInFlight).toBe(1);
+    expect(handler).toHaveBeenCalled();
+  });
+
+  /**
+   * @case protect: false allows concurrent handler execution
+   * @preconditions CronSourceAdapter with per-second expression, protect=false, slow handler
+   * @expectedResult Max in-flight count exceeds 1 (overlap occurs)
+   */
+  test("protect: false allows overlapping handler calls", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const adapter = new CronSourceAdapter("* * * * * *", {
+      protect: false,
+      maxFires: 3,
+    });
+    const context = mockContext();
+    const abortController = new AbortController();
+    const handler = vi.fn().mockImplementation(async () => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      // Simulate slow work spanning multiple tick intervals
+      await new Promise((r) => setTimeout(r, 2500));
+      inFlight--;
+      return {} as Exchange;
+    });
+
+    const promise = adapter.subscribe(context, handler, abortController);
+
+    await advanceTime(10000);
+
+    abortController.abort();
+    await promise;
+
+    expect(maxInFlight).toBeGreaterThan(1);
+    expect(handler).toHaveBeenCalledTimes(3);
+  });
+
+  /**
+   * @case stopAt prevents firing after the specified date
+   * @preconditions CronSourceAdapter with per-second expression and stopAt set 3 seconds in the future
+   * @expectedResult Handler fires only while current time is before stopAt
+   */
+  test("stopAt stops the cron job at the specified date", async () => {
+    const now = new Date();
+    const stopAt = new Date(now.getTime() + 3000);
+
+    const adapter = new CronSourceAdapter("* * * * * *", {
+      stopAt,
+    });
+    const context = mockContext();
+    const abortController = new AbortController();
+    const handler = vi.fn().mockResolvedValue({} as Exchange);
+
+    const promise = adapter.subscribe(context, handler, abortController);
+
+    await advanceTime(6000);
+
+    abortController.abort();
+    await promise;
+
+    // Should have fired approximately 2-3 times (before stopAt), not 5-6
+    expect(handler.mock.calls.length).toBeLessThanOrEqual(3);
+    expect(handler.mock.calls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  /**
+   * @case startAt delays firing until the specified date
+   * @preconditions CronSourceAdapter with per-second expression and startAt set 3 seconds in the future
+   * @expectedResult Handler does not fire before startAt
+   */
+  test("startAt delays cron firing until the specified date", async () => {
+    const now = new Date();
+    const startAt = new Date(now.getTime() + 3000);
+
+    const adapter = new CronSourceAdapter("* * * * * *", {
+      startAt,
+      maxFires: 1,
+    });
+    const context = mockContext();
+    const abortController = new AbortController();
+    const handler = vi.fn().mockResolvedValue({} as Exchange);
+
+    const promise = adapter.subscribe(context, handler, abortController);
+
+    // Advance 2 seconds -- handler should not have fired yet
     await advanceTime(2000);
+    expect(handler).toHaveBeenCalledTimes(0);
+
+    // Advance past startAt
+    await advanceTime(3000);
 
     abortController.abort();
     await promise;
 
     expect(handler).toHaveBeenCalledTimes(1);
-    const headers: ExchangeHeaders = handler.mock.calls[0][1];
-    const nextRun = headers[HeadersKeys.CRON_NEXT_RUN];
-    expect(nextRun).toBeDefined();
-    expect(new Date(nextRun as string).getTime()).toBeGreaterThan(0);
   });
 });

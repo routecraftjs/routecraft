@@ -94,6 +94,9 @@ export class CronSourceAdapter
       maxFires = Infinity,
       jitterMs = 0,
       name,
+      protect = true,
+      startAt,
+      stopAt,
     } = this.mergedOptions(context);
 
     if (Number.isNaN(maxFires) || maxFires < 0) {
@@ -103,10 +106,19 @@ export class CronSourceAdapter
       throw new Error("cron jitterMs must be a non-negative number");
     }
 
+    // Resolve immediately if already aborted (avoids hanging when
+    // startAt/stopAt postpone the first tick indefinitely).
+    if (abortController.signal.aborted) {
+      return Promise.resolve();
+    }
+
     return new Promise<void>((resolve) => {
       let counter = 0;
+      let settled = false;
 
       const settle = () => {
+        if (settled) return;
+        settled = true;
         job.stop();
         resolve();
       };
@@ -115,10 +127,14 @@ export class CronSourceAdapter
         this.expression,
         {
           ...(timezone ? { timezone } : {}),
+          protect,
+          ...(maxFires !== Infinity ? { maxRuns: maxFires } : {}),
+          ...(startAt ? { startAt } : {}),
+          ...(stopAt ? { stopAt } : {}),
           paused: false,
         },
         async () => {
-          if (abortController.signal.aborted) {
+          if (settled || abortController.signal.aborted) {
             settle();
             return;
           }
@@ -167,8 +183,8 @@ export class CronSourceAdapter
             return;
           }
 
-          // Stop immediately after the Nth fire (no extra tick)
-          if (counter >= maxFires) {
+          // Settle when croner has exhausted maxRuns
+          if (job.runsLeft() === 0) {
             settle();
           }
         },
