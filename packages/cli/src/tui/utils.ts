@@ -5,6 +5,7 @@ export function truncate(str: string, maxLen: number): string {
 
 export function formatDuration(ms: number | null): string {
   if (ms === null || ms === undefined) return "-";
+  if (!Number.isFinite(ms) || ms < 0) return "-";
   if (ms === 0) return "<1ms";
   if (ms < 1000) return `${Math.round(ms)}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
@@ -44,84 +45,6 @@ const DET = {
   DUR: 6, // "1ms   " "10.0s "
 } as const;
 
-export function formatDetails(_eventName: string, raw: string): string {
-  try {
-    const d = JSON.parse(raw) as Record<string, unknown>;
-
-    const exStr =
-      "exchangeId" in d ? `${String(d["exchangeId"]).slice(0, 8)}` : "";
-    const durStr =
-      "duration" in d ? formatDuration(d["duration"] as number) : "";
-
-    // Step/operation events
-    if ("operation" in d && "routeId" in d) {
-      const adapterRaw =
-        "adapter" in d
-          ? `(${d["adapter"]})`
-          : "adapterId" in d
-            ? `(${d["adapterId"]})`
-            : "";
-      let meta = "";
-      if (
-        "metadata" in d &&
-        typeof d["metadata"] === "object" &&
-        d["metadata"] !== null
-      ) {
-        const m = d["metadata"] as Record<string, unknown>;
-        const keys = Object.keys(m).slice(0, 2);
-        if (keys.length > 0) meta = keys.map((k) => `${k}=${m[k]}`).join(" ");
-      }
-      return [
-        col(String(d["operation"]), DET.COL1),
-        col(adapterRaw, DET.COL2),
-        col(exStr, DET.EX),
-        col(durStr, DET.DUR),
-        meta,
-      ]
-        .join(" ")
-        .trimEnd();
-    }
-
-    // Exchange events -- col2 shows qualifier: (err), (dropped), (reason), or empty
-    if ("routeId" in d && "exchangeId" in d) {
-      const qualifier =
-        "error" in d
-          ? "(err)"
-          : "reason" in d
-            ? `(${String(d["reason"]).slice(0, 8)})`
-            : "";
-      return [
-        col(String(d["routeId"]), DET.COL1),
-        col(qualifier, DET.COL2),
-        col(exStr, DET.EX),
-        col(durStr, DET.DUR),
-      ]
-        .join(" ")
-        .trimEnd();
-    }
-
-    // Route lifecycle events
-    if ("route" in d && typeof d["route"] === "object" && d["route"] !== null) {
-      const route = d["route"] as {
-        routeId?: string;
-        definition?: { id?: string };
-      };
-      return route.routeId ?? route.definition?.id ?? "?";
-    }
-
-    if ("pluginId" in d) return `plugin=${d["pluginId"]}`;
-    if ("error" in d) {
-      const err = d["error"];
-      if (typeof err === "object" && err !== null && "message" in err)
-        return String((err as { message: string }).message);
-      return String(err);
-    }
-    return raw.length > 100 ? raw.slice(0, 97) + "..." : raw;
-  } catch {
-    return raw;
-  }
-}
-
 export interface DetailColumns {
   step: string;
   adapter: string;
@@ -131,20 +54,10 @@ export interface DetailColumns {
 }
 
 /**
- * Structured version of formatDetails that returns individual columns
- * so the component can control alignment per-column.
+ * Parse a JSON event detail string into structured columns.
+ * Shared normalizer used by both formatDetails and formatDetailColumns.
  */
-export function formatDetailColumns(
-  eventName: string,
-  raw: string,
-): DetailColumns {
-  const empty: DetailColumns = {
-    step: "",
-    adapter: "",
-    exchange: "",
-    duration: "",
-    meta: "",
-  };
+function parseEventDetail(raw: string): DetailColumns | null {
   try {
     const d = JSON.parse(raw) as Record<string, unknown>;
 
@@ -197,11 +110,89 @@ export function formatDetailColumns(
       };
     }
 
-    // Fallback
-    return { ...empty, step: formatDetails(eventName, raw) };
+    // Route lifecycle events
+    if ("route" in d && typeof d["route"] === "object" && d["route"] !== null) {
+      const route = d["route"] as {
+        routeId?: string;
+        definition?: { id?: string };
+      };
+      return {
+        step: route.routeId ?? route.definition?.id ?? "?",
+        adapter: "",
+        exchange: "",
+        duration: "",
+        meta: "",
+      };
+    }
+
+    // Plugin events
+    if ("pluginId" in d) {
+      return {
+        step: `plugin=${d["pluginId"]}`,
+        adapter: "",
+        exchange: "",
+        duration: "",
+        meta: "",
+      };
+    }
+
+    // Error events
+    if ("error" in d) {
+      const err = d["error"];
+      const msg =
+        typeof err === "object" && err !== null && "message" in err
+          ? String((err as { message: string }).message)
+          : String(err);
+      return {
+        step: msg,
+        adapter: "",
+        exchange: "",
+        duration: "",
+        meta: "",
+      };
+    }
+
+    return null;
   } catch {
-    return { ...empty, step: raw };
+    return null;
   }
+}
+
+export function formatDetails(_eventName: string, raw: string): string {
+  const parsed = parseEventDetail(raw);
+  if (!parsed) {
+    return raw.length > 100 ? raw.slice(0, 97) + "..." : raw;
+  }
+
+  // Non-columnar events (plugin, route lifecycle, error) have no exchange/duration
+  if (!parsed.exchange && !parsed.duration && !parsed.adapter) {
+    return parsed.step;
+  }
+
+  return [
+    col(parsed.step, DET.COL1),
+    col(parsed.adapter, DET.COL2),
+    col(parsed.exchange, DET.EX),
+    col(parsed.duration, DET.DUR),
+    parsed.meta,
+  ]
+    .join(" ")
+    .trimEnd();
+}
+
+/**
+ * Structured version of formatDetails that returns individual columns
+ * so the component can control alignment per-column.
+ */
+export function formatDetailColumns(
+  _eventName: string,
+  raw: string,
+): DetailColumns {
+  const parsed = parseEventDetail(raw);
+  if (!parsed) {
+    return { step: raw, adapter: "", exchange: "", duration: "", meta: "" };
+  }
+  return parsed;
 }
 
 /**
@@ -223,7 +214,12 @@ export function sparkline(values: number[]): string {
     "\u2588",
   ];
   const max = Math.max(...values, 1);
-  return values.map((v) => blocks[Math.round((v / max) * 8)]).join("");
+  return values
+    .map((v) => {
+      const idx = Math.max(0, Math.min(8, Math.round((v / max) * 8)));
+      return blocks[Number.isFinite(idx) ? idx : 0];
+    })
+    .join("");
 }
 
 export function fmtNum(n: number): string {
@@ -245,6 +241,7 @@ export function adjustScrollOffset(
   currentOffset: number,
   visibleRows: number,
 ): number {
+  if (visibleRows <= 0) return currentOffset;
   if (selected < currentOffset) return selected;
   if (selected >= currentOffset + visibleRows)
     return selected - visibleRows + 1;

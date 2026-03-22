@@ -81,7 +81,14 @@ export function formatJson(raw: string, maxWidth: number): string[] {
         : line;
     });
   } catch {
-    return [raw];
+    const clampedMax = Math.max(1, maxWidth);
+    return raw
+      .split("\n")
+      .map((line) =>
+        line.length > clampedMax
+          ? line.slice(0, Math.max(0, clampedMax - 1)) + "\u2026"
+          : line,
+      );
   }
 }
 

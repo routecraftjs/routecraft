@@ -129,6 +129,9 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
             exchange,
           });
         }
+        // Mark the exchange as dropped so the route engine does not emit
+        // exchange:completed for it after runSteps finishes.
+        exchange.headers["routecraft.dropped"] = true;
         return;
       }
     } catch (error: unknown) {

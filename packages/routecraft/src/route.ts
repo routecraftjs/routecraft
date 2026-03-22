@@ -353,7 +353,7 @@ export class DefaultRoute implements Route {
     const handlerPromise = this.runSteps(exchange, startTime).then((result) => {
       // runSteps swallows errors and emits exchange:failed internally,
       // so only emit exchange:completed if the exchange was not failed.
-      if (!result.failed) {
+      if (!result.failed && !result.dropped) {
         const duration = Date.now() - startTime;
         const correlationId = exchange.headers[
           HeadersKeys.CORRELATION_ID
@@ -389,19 +389,29 @@ export class DefaultRoute implements Route {
   private async runSteps(
     exchange: Exchange,
     startTime: number,
-  ): Promise<{ exchange: Exchange; failed: boolean }> {
+  ): Promise<{ exchange: Exchange; failed: boolean; dropped: boolean }> {
     const queue: { exchange: Exchange; steps: Step<Adapter>[] }[] = [
       { exchange: exchange, steps: [...this.definition.steps] },
     ];
 
     let lastProcessedExchange: Exchange = exchange;
     let failed = false;
+    let dropped = false;
     // Track child exchanges so we can emit exchange:started/completed for them.
     // The parent exchange (first one) is handled by handler().
     const parentExchangeId = exchange.id;
     const seenChildExchanges = new Set<string>();
     const childStartTimes = new Map<string, number>();
     const failedChildExchanges = new Set<string>();
+
+    // Snapshot existing split parent keys so cleanup only touches groups
+    // created during THIS invocation, not groups from concurrent handlers.
+    const parentMap = this.context.getStore(SPLIT_PARENT_STORE) as
+      | Map<string, Exchange>
+      | undefined;
+    const preExistingGroups = parentMap
+      ? new Set(parentMap.keys())
+      : new Set<string>();
 
     while (queue.length > 0) {
       const { exchange, steps } = queue.shift()!;
@@ -585,7 +595,7 @@ export class DefaultRoute implements Route {
           }
 
           // Pipeline does not resume after error handler (success or failure)
-          return { exchange: lastProcessedExchange, failed };
+          return { exchange: lastProcessedExchange, failed, dropped };
         }
 
         // No error handler -- route-level error
@@ -631,17 +641,12 @@ export class DefaultRoute implements Route {
       }
     }
 
-    // Clean up orphaned split parent map entries. If all children of a split
-    // group were filtered/failed before reaching aggregate, the parent entry
-    // in the store is never cleaned up by aggregate. Remove any entries whose
-    // group IDs were seen in this runSteps call but not consumed by aggregate.
-    const parentMap = this.context.getStore(SPLIT_PARENT_STORE) as
-      | Map<string, Exchange>
-      | undefined;
+    // Clean up orphaned split parent map entries added during THIS invocation.
+    // Only touch groups that did not exist before runSteps started, to avoid
+    // deleting entries owned by concurrent handlers on the same context.
     if (parentMap && parentMap.size > 0) {
       for (const groupId of Array.from(parentMap.keys())) {
-        // If no exchange in the (now empty) queue still references this group,
-        // the aggregate never ran for it. Safe to clean up.
+        if (preExistingGroups.has(groupId)) continue;
         const parentEx = parentMap.get(groupId);
         if (parentEx) {
           const hierarchy = parentEx.headers[HeadersKeys.SPLIT_HIERARCHY] as
@@ -655,7 +660,12 @@ export class DefaultRoute implements Route {
       }
     }
 
-    return { exchange: lastProcessedExchange, failed };
+    // Check if the root exchange was dropped (e.g. by a filter)
+    if (exchange.headers["routecraft.dropped"] === true) {
+      dropped = true;
+    }
+
+    return { exchange: lastProcessedExchange, failed, dropped };
   }
 
   /**
