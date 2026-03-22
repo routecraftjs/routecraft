@@ -292,13 +292,13 @@ describe("CronSourceAdapter", () => {
 
   /**
    * @case jitterMs delays handler execution without leaking timeouts
-   * @preconditions CronSourceAdapter with per-second expression, jitterMs=200, maxFires=1
+   * @preconditions CronSourceAdapter with per-second expression, jitterMs=2000, maxFires=1
    * @expectedResult Handler is called exactly once after jitter delay
    */
   test("jitterMs delays handler execution correctly", async () => {
     const adapter = new CronSourceAdapter("* * * * * *", {
       maxFires: 1,
-      jitterMs: 200,
+      jitterMs: 2000,
     });
     const context = mockContext();
     const abortController = new AbortController();
@@ -306,7 +306,7 @@ describe("CronSourceAdapter", () => {
 
     const promise = adapter.subscribe(context, handler, abortController);
 
-    await advanceTime(3000);
+    await advanceTime(5000);
 
     abortController.abort();
     await promise;
