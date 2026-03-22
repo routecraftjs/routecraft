@@ -59,7 +59,17 @@ export function html<T = unknown, R = HtmlResult>(
   return {
     adapterId: "routecraft.adapter.html",
     transform: transformer.transform.bind(transformer),
-  } as unknown as HtmlAdapter<T, R>;
+    subscribe: () => {
+      throw new Error(
+        "html adapter: source mode requires path option to be provided",
+      );
+    },
+    send: () => {
+      throw new Error(
+        "html adapter: destination mode requires path option to be provided",
+      );
+    },
+  } as HtmlAdapter<T, R>;
 }
 
 // Re-export types

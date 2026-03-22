@@ -50,9 +50,7 @@ export class AgentBrowserDestinationAdapter<
         continue;
       const v = raw[key];
       if (typeof v === "function")
-        (resolved as Record<string, unknown>)[key] = (
-          v as (e: Exchange<T>) => unknown
-        )(exchange);
+        resolved[key] = (v as (e: Exchange<T>) => unknown)(exchange);
       else resolved[key] = v;
     }
 

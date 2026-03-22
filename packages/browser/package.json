@@ -25,16 +25,12 @@
     "@routecraft/routecraft": "workspace:^0.4.0"
   },
   "devDependencies": {
+    "@routecraft/testing": "workspace:^0.4.0",
     "agent-browser": "^0.17.1",
     "vitest": "^4.1.0"
   },
   "peerDependencies": {
-    "agent-browser": "^0.15.1"
-  },
-  "peerDependenciesMeta": {
-    "agent-browser": {
-      "optional": false
-    }
+    "agent-browser": "^0.17.1"
   },
   "keywords": [
     "routecraft",

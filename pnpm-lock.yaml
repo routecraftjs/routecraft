@@ -247,6 +247,9 @@ importers:
         specifier: workspace:^0.4.0
         version: link:../routecraft
     devDependencies:
+      '@routecraft/testing':
+        specifier: workspace:^0.4.0
+        version: link:../testing
       agent-browser:
         specifier: ^0.17.1
         version: 0.17.1(puppeteer-core@24.22.0)

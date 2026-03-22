@@ -1,7 +1,6 @@
 import { describe, test, expect, afterEach, vi, beforeEach } from "vitest";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
 import { craft, simple, json, type Source } from "@routecraft/routecraft";
-import { JsonTransformerAdapter as JsonAdapter } from "../src/adapters/json/transformer.ts";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -75,7 +74,7 @@ describe("JSON Adapter", () => {
      * @expectedResult transform() throws with message containing "failed to parse"
      */
     test("invalid JSON throws from transform", () => {
-      const adapter = new JsonAdapter({});
+      const adapter = json({});
       expect(() => adapter.transform("not json {")).toThrow(
         /json adapter: failed to parse/,
       );
