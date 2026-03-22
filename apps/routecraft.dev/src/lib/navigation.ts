@@ -67,6 +67,7 @@ export const navigation = [
     title: 'Community',
     href: '/docs/community',
     links: [
+      { title: 'Registry', href: '/docs/registry' },
       {
         title: 'Contribution Guide',
         href: '/docs/community/contribution-guide',

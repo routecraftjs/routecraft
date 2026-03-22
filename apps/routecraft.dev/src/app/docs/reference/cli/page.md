@@ -21,6 +21,36 @@ Global options:
 `dev`, `build`, `start`, and `exec` are planned for future releases.
 {% /callout %}
 
+## Commands
+
+### add
+
+Download a capability from the [community registry](/docs/registry), verify its SHA-256 hash, install dependencies, and update `index.ts`.
+
+```bash
+craft add <specifier> [options]
+```
+
+The specifier is a capability id or `id@version`:
+
+```bash
+craft add elastic-logs
+craft add elastic-logs@1.0.0
+```
+
+Options:
+
+| Option | Description |
+| --- | --- |
+| --registry \<url\> | Registry URL (default: routecraftjs/routecraft-registry on GitHub) |
+| --dir \<path\> | Target directory for capability files (default: ./capabilities) |
+| --no-index | Skip updating index.ts |
+| --no-verify | Skip SHA verification (not recommended) |
+
+If the capability declares `requiredCapabilities`, they are installed recursively. Circular dependencies are detected and rejected.
+
+See the [Registry page](/docs/registry) for full details on the trust model and manifest format.
+
 ## Project scaffolding
 
 New projects are created via `npm create routecraft`, a separate scaffolding package -- not a `craft` subcommand:
@@ -64,8 +94,7 @@ Options:
 | --use-npm, --use-pnpm, --use-yarn, --use-bun | Choose package manager |
 | --no-src-dir | Place project files at root instead of src/ |
 | --no-git | Skip git initialization |
-
-## Commands
+| --list | List available examples from the registry |
 
 ### run
 

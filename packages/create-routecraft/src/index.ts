@@ -14,6 +14,27 @@ import { cp, rm } from "node:fs/promises";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = join(__dirname, "../templates");
 
+const DEFAULT_REGISTRY =
+  "https://raw.githubusercontent.com/routecraftjs/routecraft-registry/refs/heads/main/";
+
+/**
+ * Registry example entry from registry/examples.json
+ */
+interface RegistryExampleEntry {
+  versions: Record<
+    string,
+    {
+      description?: string;
+      name?: string;
+      dependencies?: Record<string, string>;
+      env?: string[];
+      tags?: string[];
+    }
+  >;
+}
+
+type RegistryExamplesJson = Record<string, RegistryExampleEntry>;
+
 /**
  * Package manager types
  */
@@ -98,6 +119,55 @@ function processTemplate(
 }
 
 // Template files are now stored in the templates/ directory
+
+/**
+ * Fetch the registry examples list from the remote registry.
+ * Returns null if the fetch fails (e.g. offline).
+ */
+async function fetchRegistryExamples(): Promise<RegistryExamplesJson | null> {
+  try {
+    const url = `${DEFAULT_REGISTRY}registry/examples.json`;
+    const res = await globalThis.fetch(url);
+    if (!res.ok) return null;
+    return (await res.json()) as RegistryExamplesJson;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * List available examples from the registry.
+ */
+async function listExamples(): Promise<void> {
+  console.log("Fetching examples from registry...\n");
+  const examples = await fetchRegistryExamples();
+
+  if (!examples || Object.keys(examples).length === 0) {
+    console.log(
+      "No examples found in the registry (or registry is unreachable).",
+    );
+    console.log("Built-in examples: hello-world");
+    return;
+  }
+
+  console.log("Available examples:\n");
+  for (const [id, entry] of Object.entries(examples)) {
+    const versions = Object.keys(entry.versions);
+    const latest = versions[versions.length - 1] ?? "unknown";
+    const meta = entry.versions[latest];
+    const name = meta?.name ?? id;
+    const desc = meta?.description ?? "";
+    console.log(`  ${name} (${id}@${latest})`);
+    if (desc) {
+      console.log(`    ${desc.slice(0, 120)}`);
+    }
+    console.log("");
+  }
+
+  console.log(
+    "Install with: pnpm create routecraft@latest my-app --example <id>",
+  );
+}
 
 /**
  * Check if an example string is a URL
@@ -229,6 +299,12 @@ async function main() {
     process.exit(0);
   }
 
+  // Check for --list flag
+  if (args.includes("--list")) {
+    await listExamples();
+    process.exit(0);
+  }
+
   // npm create passes the project name as the first argument
   const projectName = args[0];
 
@@ -352,15 +428,39 @@ async function getUserInput(
       (options["example"] as ExampleType) ||
       (skipPrompts
         ? "none"
-        : await select<string>({
-            message: "Choose an example:",
-            choices: [
+        : await (async () => {
+            // Build choices from built-in + registry examples
+            const baseChoices: { name: string; value: string }[] = [
               { name: "None - empty project", value: "none" },
               { name: "Hello World - basic example", value: "hello-world" },
-              { name: "Custom URL (GitHub)", value: "custom-url" },
-            ],
-            default: "none",
-          }).then(async (choice) => {
+            ];
+
+            // Attempt to fetch registry examples
+            const registryExamples = await fetchRegistryExamples();
+            if (registryExamples) {
+              for (const [id, entry] of Object.entries(registryExamples)) {
+                const versions = Object.keys(entry.versions);
+                const latest = versions[versions.length - 1];
+                const meta = latest ? entry.versions[latest] : undefined;
+                const name = meta?.name ?? id;
+                baseChoices.push({
+                  name: `${name} (registry)`,
+                  value: `registry:${id}`,
+                });
+              }
+            }
+
+            baseChoices.push({
+              name: "Custom URL (GitHub)",
+              value: "custom-url",
+            });
+
+            const choice = await select<string>({
+              message: "Choose an example:",
+              choices: baseChoices,
+              default: "none",
+            });
+
             if (choice === "custom-url") {
               return await input({
                 message: "Enter GitHub URL:",
@@ -371,7 +471,7 @@ async function getUserInput(
               });
             }
             return choice;
-          })),
+          })()),
 
     packageManager:
       (options["packageManager"] as PackageManager) ||
@@ -510,7 +610,58 @@ async function generateProjectStructure(
 
   // Add example routes if requested
   if (options.example !== "none") {
-    if (isUrl(options.example)) {
+    if (options.example.startsWith("registry:")) {
+      // Handle registry examples -- download from the registry repo
+      const exampleId = options.example.slice("registry:".length);
+      const registryExamples = await fetchRegistryExamples();
+      if (!registryExamples || !registryExamples[exampleId]) {
+        throw new Error(
+          `Registry example "${exampleId}" not found. Run with --list to see available examples.`,
+        );
+      }
+      const entry = registryExamples[exampleId]!;
+      const versions = Object.keys(entry.versions);
+      const latestVer = versions[versions.length - 1] ?? "1.0.0";
+
+      // Download from registry GitHub repo
+      const exampleUrl = `https://github.com/routecraftjs/routecraft-registry/tree/main/examples/${exampleId}/${latestVer}`;
+      const tempExampleDir = await downloadGitHubExample(exampleUrl);
+      try {
+        await cp(tempExampleDir, baseDir, {
+          recursive: true,
+          force: true,
+          filter: (src) => {
+            const relativePath = src
+              .replace(tempExampleDir, "")
+              .replace(/^\//, "");
+            return (
+              !relativePath.includes("node_modules") &&
+              !relativePath.includes(".git") &&
+              !relativePath.includes("package-lock.json") &&
+              !relativePath.includes("yarn.lock") &&
+              !relativePath.includes("pnpm-lock.yaml") &&
+              !relativePath.includes("craft.yml")
+            );
+          },
+        });
+        console.log(`\u2705 Added ${exampleId} example from registry`);
+
+        // Print env vars if present
+        const meta = entry.versions[latestVer];
+        if (meta?.env && meta.env.length > 0) {
+          console.log("\n   Required env vars:");
+          for (const v of meta.env) {
+            console.log(`     ${v}`);
+          }
+        }
+      } finally {
+        try {
+          await rm(tempExampleDir, { recursive: true, force: true });
+        } catch {
+          // Ignore cleanup errors
+        }
+      }
+    } else if (isUrl(options.example)) {
       // Handle GitHub URL examples
       const tempExampleDir = await downloadGitHubExample(options.example);
       try {
@@ -634,6 +785,7 @@ Usage:
 
 Options:
   -e, --example <name|url>  Example to include (none, hello-world) or GitHub URL
+  --list                    List available examples from the registry
   --use-npm                 Use npm as package manager
   --use-pnpm                Use pnpm as package manager
   --use-yarn                Use yarn as package manager
@@ -649,6 +801,7 @@ Examples:
   npm create routecraft@latest my-app
   npm create routecraft@latest my-app --example hello-world --use-pnpm
   npm create routecraft@latest my-app --yes --example hello-world
+  npm create routecraft@latest --list
   npx create-routecraft my-app --force
   npm create routecraft@latest my-app --example https://github.com/user/repo
   npm create routecraft@latest my-app --example https://github.com/user/repo/tree/main/examples/api

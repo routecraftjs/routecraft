@@ -141,12 +141,19 @@ You should see your capabilities start and log output in your terminal.
 
 ---
 
+{% callout type="note" title="Community capabilities" %}
+Looking for ready-made capabilities? Browse the [community registry](/docs/registry) and install with a single command: `pnpm craft add elastic-logs`
+{% /callout %}
+
+---
+
 ## Related
 
 {% quick-links %}
 
 {% quick-link title="Introduction" icon="lightbulb" href="/docs/introduction" description="Learn what Routecraft is and understand the core concepts." /%}
 {% quick-link title="Installation" icon="installation" href="/docs/introduction/installation" description="System requirements, production builds, and manual setup." /%}
+{% quick-link title="Registry" icon="plugins" href="/docs/registry" description="Install community capabilities in one command." /%}
 {% quick-link title="Examples" icon="plugins" href="/docs/examples" description="See complete working capabilities across common use cases." /%}
 
 {% /quick-links %}

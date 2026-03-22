@@ -143,6 +143,43 @@ program
   });
 
 /**
+ * The 'add' command downloads a capability from the registry.
+ *
+ * Example:
+ * craft add elastic-logs
+ * craft add elastic-logs@1.0.0
+ * craft add elastic-logs --registry https://registry.acme.com
+ */
+program
+  .command("add")
+  .description(
+    "Download a capability from the registry, verify its SHA, and install dependencies",
+  )
+  .argument(
+    "<specifier>",
+    "Capability id or id@version (e.g. elastic-logs@1.0.0)",
+  )
+  .option(
+    "--registry <url>",
+    "Registry URL (default: routecraftjs/routecraft-registry on GitHub)",
+  )
+  .option(
+    "--dir <path>",
+    "Target directory for capability files (default: ./capabilities)",
+  )
+  .option("--no-index", "Skip updating index.ts")
+  .option("--no-verify", "Skip SHA verification (not recommended)")
+  .action(async (specifier, options) => {
+    const { addCommand } = await import("./add.js");
+    await addCommand(specifier, {
+      registry: options["registry"],
+      dir: options["dir"],
+      noIndex: options["index"] === false,
+      noVerify: options["verify"] === false,
+    });
+  });
+
+/**
  * The 'tui' command launches the Terminal UI for monitoring Routecraft execution.
  *
  * Example:
