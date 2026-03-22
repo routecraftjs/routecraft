@@ -14,14 +14,31 @@ import {
 import { rcError } from "../error.ts";
 
 /**
- * Predicate over the full exchange. Return true to keep the exchange, false to drop it.
- * Use with `.filter(predicate)`. Can inspect headers, body, and other exchange fields.
+ * Returned by a filter predicate to drop an exchange with a reason.
+ * The reason is recorded in telemetry and shown in the TUI.
+ */
+export interface FilterDropResult {
+  reason: string;
+}
+
+/**
+ * Predicate over the full exchange. Return `true` to keep the exchange,
+ * `false` to drop it, or `{ reason: "..." }` to drop with an explanation.
  *
  * @template T - Body type of the exchange
+ *
+ * @example
+ * ```ts
+ * .filter((ex) => {
+ *   if (!ex.body.name) return { reason: "name is required" };
+ *   if (ex.body.age < 18) return { reason: "age must be 18 or older" };
+ *   return true;
+ * })
+ * ```
  */
 export type CallableFilter<T = unknown> = (
   exchange: Exchange<T>,
-) => Promise<boolean> | boolean;
+) => Promise<boolean | FilterDropResult> | boolean | FilterDropResult;
 
 /**
  * Filter adapter: keeps or drops the exchange based on a predicate. Used with `.filter()`.
@@ -75,10 +92,19 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
 
     try {
       const result = await Promise.resolve(this.adapter.filter(exchange));
-      if (!result) {
+
+      // Determine if the exchange should be dropped and extract the reason.
+      const dropReason = isFilterDrop(result)
+        ? result.reason
+        : result
+          ? undefined
+          : "filtered";
+
+      if (dropReason !== undefined) {
         exchange.logger.debug(
           {
             operation: "filter",
+            reason: dropReason,
             ...(adapterLabel ? { adapter: adapterLabel } : {}),
           },
           "Filter rejected exchange",
@@ -99,7 +125,8 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
             routeId,
             exchangeId: exchange.id,
             correlationId,
-            reason: "filtered",
+            reason: dropReason,
+            exchange,
           });
         }
         return;
@@ -124,4 +151,17 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
 
     queue.push({ exchange, steps: remainingSteps });
   }
+}
+
+/**
+ * Type guard for a {@link FilterDropResult} returned by a filter predicate.
+ */
+function isFilterDrop(
+  value: boolean | FilterDropResult,
+): value is FilterDropResult {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as FilterDropResult).reason === "string"
+  );
 }

@@ -131,6 +131,12 @@ export class SqliteConnection {
             )`,
           )
           .run(maxExchanges);
+
+        // Remove orphaned snapshots whose exchange was pruned
+        this.db.exec(
+          `DELETE FROM exchange_snapshots
+           WHERE exchange_id NOT IN (SELECT id FROM exchanges)`,
+        );
       }
       if (maxEvents > 0) {
         this.db

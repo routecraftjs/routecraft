@@ -81,6 +81,18 @@ CREATE INDEX IF NOT EXISTS idx_events_exchange_id ON events(exchange_id)`;
 export const CREATE_EVENTS_CORRELATION_ID_INDEX = `
 CREATE INDEX IF NOT EXISTS idx_events_correlation_id ON events(correlation_id)`;
 
+/** Create the exchange_snapshots table for storing exchange headers and body. */
+export const CREATE_EXCHANGE_SNAPSHOTS_TABLE = `
+CREATE TABLE IF NOT EXISTS exchange_snapshots (
+  exchange_id TEXT NOT NULL,
+  context_id TEXT NOT NULL,
+  headers TEXT NOT NULL,
+  body TEXT,
+  truncated INTEGER NOT NULL DEFAULT 0,
+  captured_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (exchange_id, context_id)
+)`;
+
 /** All DDL statements in execution order. */
 export const ALL_DDL = [
   CREATE_EVENTS_TABLE,
@@ -95,4 +107,5 @@ export const ALL_DDL = [
   CREATE_EXCHANGES_CORRELATION_INDEX,
   CREATE_EVENTS_EXCHANGE_ID_INDEX,
   CREATE_EVENTS_CORRELATION_ID_INDEX,
+  CREATE_EXCHANGE_SNAPSHOTS_TABLE,
 ] as const;

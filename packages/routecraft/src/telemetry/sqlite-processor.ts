@@ -77,8 +77,21 @@ export class SqliteSpanProcessor {
     run(...params: unknown[]): unknown;
   };
 
+  private readonly upsertSnapshotStmt: { run(...params: unknown[]): unknown };
+
   constructor(connection: SqliteConnection) {
     this.logger = connection.logger;
+
+    this.upsertSnapshotStmt = connection.db.prepare(
+      `INSERT INTO exchange_snapshots (exchange_id, context_id, headers, body, truncated)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(exchange_id, context_id) DO UPDATE
+         SET headers = excluded.headers,
+             body = excluded.body,
+             truncated = excluded.truncated,
+             captured_at = datetime('now')`,
+    );
+
     this.upsertRouteStmt = connection.db.prepare(
       `INSERT INTO routes (id, context_id, registered_at, status)
        VALUES (?, ?, ?, 'registered')
@@ -215,6 +228,29 @@ export class SqliteSpanProcessor {
       this.logger?.warn(
         { err, exchangeId },
         "Failed to record telemetry exchange drop",
+      );
+    }
+  }
+
+  writeSnapshot(
+    exchangeId: string,
+    contextId: string,
+    headers: string,
+    body: string | null,
+    truncated: boolean,
+  ): void {
+    try {
+      this.upsertSnapshotStmt.run(
+        exchangeId,
+        contextId,
+        headers,
+        body,
+        truncated ? 1 : 0,
+      );
+    } catch (err) {
+      this.logger?.warn(
+        { err, exchangeId },
+        "Failed to write exchange snapshot",
       );
     }
   }

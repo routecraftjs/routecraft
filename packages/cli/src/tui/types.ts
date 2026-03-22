@@ -63,6 +63,12 @@ export interface Metrics {
   p99DurationMs: number | null;
 }
 
+export interface ExchangeSnapshot {
+  headers: string;
+  body: string | null;
+  truncated: boolean;
+}
+
 export interface RouteActivity {
   throughput: number[];
   recentErrors: number;

@@ -144,7 +144,7 @@ describe("CenterExchangeDetail", () => {
       <CenterExchangeDetail
         exchange={exchange}
         events={events}
-        width={80}
+        width={100}
         height={30}
         scrollOffset={0}
       />,

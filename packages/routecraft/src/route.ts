@@ -365,6 +365,7 @@ export class DefaultRoute implements Route {
             exchangeId: exchange.id,
             correlationId,
             duration,
+            exchange: result.exchange,
           },
         );
       }
@@ -422,6 +423,7 @@ export class DefaultRoute implements Route {
               exchangeId: exchange.id,
               correlationId,
               duration: Date.now() - childStart,
+              exchange,
             },
           );
         }
@@ -570,6 +572,7 @@ export class DefaultRoute implements Route {
                 correlationId,
                 duration,
                 error: handlerErr,
+                exchange,
               },
             );
             if (exchange.id !== parentExchangeId) {
@@ -611,6 +614,7 @@ export class DefaultRoute implements Route {
             correlationId,
             duration,
             error: err,
+            exchange,
           },
         );
         if (exchange.id !== parentExchangeId) {

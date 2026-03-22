@@ -8,7 +8,7 @@ if (!jwtSecret) {
 
 export default {
   plugins: [
-    telemetry(),
+    telemetry({ sqlite: { captureSnapshots: true } }),
     mcpPlugin({
       name: "routecraft",
       version: "1.0.0",

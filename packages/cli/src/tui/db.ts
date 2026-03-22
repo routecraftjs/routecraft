@@ -132,6 +132,20 @@ export class TelemetryDb {
             "CREATE INDEX IF NOT EXISTS idx_events_correlation_id ON events(correlation_id)",
           )
           .run();
+        // Ensure exchange_snapshots table exists for older databases
+        wdb
+          .prepare(
+            `CREATE TABLE IF NOT EXISTS exchange_snapshots (
+              exchange_id TEXT NOT NULL,
+              context_id TEXT NOT NULL,
+              headers TEXT NOT NULL,
+              body TEXT,
+              truncated INTEGER NOT NULL DEFAULT 0,
+              captured_at TEXT NOT NULL DEFAULT (datetime('now')),
+              PRIMARY KEY (exchange_id, context_id)
+            )`,
+          )
+          .run();
       } catch {
         // Best-effort; the writer will create them on next restart
       } finally {
@@ -527,6 +541,36 @@ export class TelemetryDb {
     );
     const row = stmt.get() as { maxId: number };
     return row.maxId;
+  }
+
+  /**
+   * Get the exchange snapshot (headers and body) for a given exchange.
+   * Returns null if no snapshot was captured.
+   */
+  getExchangeSnapshot(
+    exchangeId: string,
+  ): import("./types.js").ExchangeSnapshot | null {
+    try {
+      const s = this.stmt(
+        "exchangeSnapshot",
+        `SELECT headers, body, truncated
+         FROM exchange_snapshots
+         WHERE exchange_id = ?
+         LIMIT 1`,
+      );
+      const row = s.get(exchangeId) as
+        | { headers: string; body: string | null; truncated: number }
+        | undefined;
+      if (!row) return null;
+      return {
+        headers: row.headers,
+        body: row.body,
+        truncated: row.truncated !== 0,
+      };
+    } catch {
+      // Table may not exist in very old databases
+      return null;
+    }
   }
 
   /**

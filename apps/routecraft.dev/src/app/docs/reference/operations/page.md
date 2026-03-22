@@ -546,22 +546,26 @@ Both operations use the same `Destination` adapters - the difference is only in 
 filter(fn: Filter<Current> | CallableFilter<Current>): RouteBuilder<Current>
 ```
 
-Filter exchanges based on a predicate. The predicate receives the full `Exchange` object, allowing you to filter based on headers, body, or other exchange properties. Only exchanges that return `true` continue through the route.
+Filter exchanges based on a predicate. The predicate receives the full `Exchange` object, allowing you to filter based on headers, body, or other exchange properties.
+
+Return `true` to keep the exchange, `false` to drop it, or `{ reason: "..." }` to drop with an explanation that is recorded in telemetry and shown in the TUI.
 
 ```ts
-// Filter based on body properties
+// Simple boolean filter
 .filter((exchange) => exchange.body.isActive)
+
+// Drop with a reason (shown in TUI traces)
+.filter((exchange) => {
+  if (!exchange.body.name) return { reason: "name is required" };
+  if (exchange.body.age < 18) return { reason: "age must be 18 or older" };
+  return true;
+})
+
+// Async filter
 .filter(async (exchange) => await isValidOrder(exchange.body))
 
 // Filter based on headers
 .filter((exchange) => exchange.headers['x-priority'] === 'high')
-.filter((exchange) => exchange.headers['user-role'] === 'admin')
-
-// Filter based on multiple criteria
-.filter((exchange) => 
-  exchange.body.status === 'active' && 
-  exchange.headers['x-environment'] === 'production'
-)
 ```
 
 {% callout type="note" title="Filter vs Transform" %}
@@ -571,10 +575,10 @@ Unlike `.transform()` which receives only the body, `.filter()` receives the ful
 ### validate
 
 ```ts
-validate(schema: StandardSchemaV1): RouteBuilder<Current>
+validate(schema: StandardSchemaV1): RouteBuilder<InferOutput<S>>
 ```
 
-Validate the exchange body against a schema. Invalid exchanges will cause the capability to emit an error event.
+Validate the exchange body against a Standard Schema. If validation fails the exchange is dropped with a reason describing which fields failed. The route builder type is narrowed to the schema's output type.
 
 ```ts
 import { z } from 'zod'
@@ -586,6 +590,7 @@ const userSchema = z.object({
 })
 
 .validate(userSchema)
+// Dropped exchanges show: "validation failed: "email": Invalid email; "age": Number must be greater than or equal to 0"
 ```
 
 ### dedupe {% badge %}wip{% /badge %}

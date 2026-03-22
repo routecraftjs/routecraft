@@ -341,6 +341,11 @@ type RouteEventDetails<S extends string> =
           exchangeId: string;
           correlationId: string;
           duration: number;
+          exchange?: {
+            id: string;
+            headers: Record<string, unknown>;
+            body: unknown;
+          };
         }
       : S extends "exchange:failed"
         ? {
@@ -349,6 +354,11 @@ type RouteEventDetails<S extends string> =
             correlationId: string;
             duration: number;
             error: unknown;
+            exchange?: {
+              id: string;
+              headers: Record<string, unknown>;
+              body: unknown;
+            };
           }
         : S extends "exchange:dropped"
           ? {
@@ -356,6 +366,11 @@ type RouteEventDetails<S extends string> =
               exchangeId: string;
               correlationId: string;
               reason: string;
+              exchange?: {
+                id: string;
+                headers: Record<string, unknown>;
+                body: unknown;
+              };
             }
           : S extends "exchange:restored"
             ? {

@@ -5,6 +5,7 @@ import type {
   NavItem,
   RouteSummary,
   ExchangeRecord,
+  ExchangeSnapshot,
   EventRecord,
   Metrics,
   RouteActivity,
@@ -18,6 +19,8 @@ import { DotGraph, DEFAULT_STEPS } from "./components/dot-graph.js";
 import { CenterExchangeList } from "./components/center-exchange-list.js";
 import { CenterExchangeDetail } from "./components/center-exchange-detail.js";
 import { EventsView } from "./components/events-view.js";
+import { EventDetail } from "./components/event-detail.js";
+import { ExchangeDeepView } from "./components/exchange-deep-view.js";
 import { CapabilityList } from "./components/capability-list.js";
 
 /**
@@ -63,7 +66,16 @@ function App({ db }: { db: TelemetryDb }) {
   const [exchangeEvents, setExchangeEvents] = useState<EventRecord[]>([]);
   const [events, setEvents] = useState<EventRecord[]>([]);
   const eventScroll = useScrollList();
-  const [detailScrollIndex, setDetailScrollIndex] = useState(0);
+  const detailScroll = useScrollList();
+  const [selectedEvent, setSelectedEvent] = useState<EventRecord | undefined>(
+    undefined,
+  );
+  const [showEventDetail, setShowEventDetail] = useState(false);
+  const [eventDetailScroll, setEventDetailScroll] = useState(0);
+  const [showDeepView, setShowDeepView] = useState(false);
+  const [deepViewScroll, setDeepViewScroll] = useState(0);
+  const [exchangeSnapshot, setExchangeSnapshot] =
+    useState<ExchangeSnapshot | null>(null);
   const PAGE_SIZE = 50;
   const JUMP = NAV_JUMP;
 
@@ -144,19 +156,15 @@ function App({ db }: { db: TelemetryDb }) {
     (nav: NavItem) => {
       setActiveNav(nav);
       setShowDetail(false);
+      setShowEventDetail(false);
+      setShowDeepView(false);
+      setFocus("nav");
       exchangeScroll.reset();
-      if (nav === "capabilities") {
-        setFocus("nav");
-      } else {
-        setFocus("center");
-        // Load all for browsing; auto-refresh uses PAGE_SIZE when not focused
-        if (nav === "exchanges") {
-          setExchanges(db.getAllExchanges());
-        } else if (nav === "errors") {
-          setExchanges(db.getFailedExchanges());
-        }
-      }
-      if (nav === "events") {
+      if (nav === "exchanges") {
+        setExchanges(db.getAllExchanges(PAGE_SIZE));
+      } else if (nav === "errors") {
+        setExchanges(db.getFailedExchanges(PAGE_SIZE));
+      } else if (nav === "events") {
         eventScroll.reset();
         setEvents(db.getRecentEvents({ limit: 200 }));
       }
@@ -190,19 +198,62 @@ function App({ db }: { db: TelemetryDb }) {
       return;
     }
 
-    // Events view
+    // Events view: overview -> browse -> detail
     if (activeNav === "events") {
+      if (showEventDetail) {
+        // Detail view: scroll JSON, Esc to go back to list
+        const step = key.ctrl ? JUMP : 1;
+        if (input === "j" || key.downArrow) {
+          setEventDetailScroll((i) => i + step);
+        } else if (input === "k" || key.upArrow) {
+          setEventDetailScroll((i) => Math.max(i - step, 0));
+        } else if (key.escape || key.backspace || key.delete) {
+          setShowEventDetail(false);
+          setEventDetailScroll(0);
+        }
+        return;
+      }
+      if (focus === "nav") {
+        if (key.return) {
+          setFocus("center");
+        }
+      } else {
+        const step = key.ctrl ? JUMP : 1;
+        if (input === "j" || key.downArrow) {
+          eventScroll.moveBy(step, events.length, eventsTableRows);
+        } else if (input === "k" || key.upArrow) {
+          eventScroll.moveBy(-step, events.length, eventsTableRows);
+        } else if (key.return) {
+          const ev = events[eventScroll.selectedIndex];
+          if (ev) {
+            setSelectedEvent(ev);
+            setEventDetailScroll(0);
+            setShowEventDetail(true);
+          }
+        } else if (key.escape || key.backspace || key.delete) {
+          setFocus("nav");
+          eventScroll.reset();
+        }
+      }
+      return;
+    }
+
+    // Exchange deep view: scrollable JSON of headers + body
+    if (showDeepView) {
       const step = key.ctrl ? JUMP : 1;
       if (input === "j" || key.downArrow) {
-        eventScroll.moveBy(step, events.length, eventsTableRows);
+        setDeepViewScroll((i) => i + step);
       } else if (input === "k" || key.upArrow) {
-        eventScroll.moveBy(-step, events.length, eventsTableRows);
+        setDeepViewScroll((i) => Math.max(i - step, 0));
+      } else if (key.escape || key.backspace || key.delete) {
+        setShowDeepView(false);
+        setDeepViewScroll(0);
       }
       return;
     }
 
     // Exchange detail (any nav)
-    if (showDetail) {
+    if (showDetail && !showEventDetail) {
       const hasExtra = selectedExchange?.error ? 2 : 0;
       const detailEventRows = Math.max(
         bodyHeight - DETAIL_INFO_CHROME - hasExtra,
@@ -222,15 +273,67 @@ function App({ db }: { db: TelemetryDb }) {
       const groupCount = Math.max(uniqueExchangeIds.size, 1);
       const headerRows = groupCount > 1 ? groupCount : 0;
       const totalDisplayRows = exchangeEvents.length + headerRows;
-      const maxScroll = Math.max(totalDisplayRows - detailEventRows - 1, 0);
       const step = key.ctrl ? JUMP : 1;
       if (input === "j" || key.downArrow) {
-        setDetailScrollIndex((i) => Math.min(i + step, maxScroll));
+        detailScroll.moveBy(step, totalDisplayRows, detailEventRows);
       } else if (input === "k" || key.upArrow) {
-        setDetailScrollIndex((i) => Math.max(i - step, 0));
+        detailScroll.moveBy(-step, totalDisplayRows, detailEventRows);
+      } else if (key.return) {
+        // Resolve the selected display row to an EventRecord (skip headers)
+        // Build the same display row list the component builds
+        let rowIndex = 0;
+        let targetEvent: EventRecord | undefined;
+        const parentId = selectedExchange?.id ?? "";
+        const groups = new Map<string, EventRecord[]>();
+        groups.set(parentId, []);
+        for (const ev of exchangeEvents) {
+          try {
+            const d = JSON.parse(ev.details) as Record<string, unknown>;
+            const exId = String(d["exchangeId"] ?? "");
+            const gKey = !exId || exId === parentId ? parentId : exId;
+            if (!groups.has(gKey)) groups.set(gKey, []);
+            groups.get(gKey)!.push(ev);
+          } catch {
+            groups.get(parentId)!.push(ev);
+          }
+        }
+        const hasChildren = groups.size > 1;
+        for (const [, groupEvents] of groups) {
+          if (hasChildren) rowIndex++; // header row
+          for (const ev of groupEvents) {
+            if (rowIndex === detailScroll.selectedIndex) {
+              targetEvent = ev;
+            }
+            rowIndex++;
+          }
+        }
+        if (targetEvent) {
+          setSelectedEvent(targetEvent);
+          setEventDetailScroll(0);
+          setShowEventDetail(true);
+        }
+      } else if (input === "e" && selectedExchange) {
+        const snapshot = db.getExchangeSnapshot(selectedExchange.id);
+        setExchangeSnapshot(snapshot);
+        setDeepViewScroll(0);
+        setShowDeepView(true);
       } else if (key.escape || key.backspace || key.delete) {
-        setDetailScrollIndex(0);
+        detailScroll.reset();
         setShowDetail(false);
+      }
+      return;
+    }
+
+    // Event detail from exchange detail: Esc goes back to exchange detail
+    if (showDetail && showEventDetail) {
+      const step = key.ctrl ? JUMP : 1;
+      if (input === "j" || key.downArrow) {
+        setEventDetailScroll((i) => i + step);
+      } else if (input === "k" || key.upArrow) {
+        setEventDetailScroll((i) => Math.max(i - step, 0));
+      } else if (key.escape || key.backspace || key.delete) {
+        setShowEventDetail(false);
+        setEventDetailScroll(0);
       }
       return;
     }
@@ -264,6 +367,8 @@ function App({ db }: { db: TelemetryDb }) {
         if (ex) {
           setSelectedExchange(ex);
           setExchangeEvents(db.getEventsByExchange(ex.id, ex.correlationId));
+          detailScroll.reset();
+          setShowEventDetail(false);
           setShowDetail(true);
         }
       } else if (key.escape || key.backspace || key.delete) {
@@ -273,19 +378,38 @@ function App({ db }: { db: TelemetryDb }) {
       return;
     }
 
-    // Exchanges / Errors: center focus
+    // Exchanges / Errors: overview (nav focus) or browsing (center focus)
     if (activeNav === "exchanges" || activeNav === "errors") {
-      const step = key.ctrl ? JUMP : 1;
-      if (input === "j" || key.downArrow) {
-        exchangeScroll.moveBy(step, exchanges.length, exchangeTableRows);
-      } else if (input === "k" || key.upArrow) {
-        exchangeScroll.moveBy(-step, exchanges.length, exchangeTableRows);
-      } else if (key.return) {
-        const ex = exchanges[exchangeScroll.selectedIndex];
-        if (ex) {
-          setSelectedExchange(ex);
-          setExchangeEvents(db.getEventsByExchange(ex.id, ex.correlationId));
-          setShowDetail(true);
+      if (focus === "nav") {
+        // Overview mode: Enter to freeze and browse
+        if (key.return) {
+          setFocus("center");
+          // Load full data set for browsing
+          if (activeNav === "exchanges") {
+            setExchanges(db.getAllExchanges());
+          } else {
+            setExchanges(db.getFailedExchanges());
+          }
+        }
+      } else {
+        // Browsing mode: navigate with pointer
+        const step = key.ctrl ? JUMP : 1;
+        if (input === "j" || key.downArrow) {
+          exchangeScroll.moveBy(step, exchanges.length, exchangeTableRows);
+        } else if (input === "k" || key.upArrow) {
+          exchangeScroll.moveBy(-step, exchanges.length, exchangeTableRows);
+        } else if (key.return) {
+          const ex = exchanges[exchangeScroll.selectedIndex];
+          if (ex) {
+            setSelectedExchange(ex);
+            setExchangeEvents(db.getEventsByExchange(ex.id, ex.correlationId));
+            detailScroll.reset();
+            setShowEventDetail(false);
+            setShowDetail(true);
+          }
+        } else if (key.escape || key.backspace || key.delete) {
+          setFocus("nav");
+          exchangeScroll.reset();
         }
       }
       return;
@@ -299,19 +423,32 @@ function App({ db }: { db: TelemetryDb }) {
 
   // Keymap items based on context
   const keymapItems: { key: string; action: string }[] = [];
-  keymapItems.push({ key: "j/k", action: "Navigate" });
-  keymapItems.push({ key: "Ctrl+j/k", action: "Jump 10" });
-  if (activeNav === "capabilities" && focus === "nav") {
-    keymapItems.push({ key: "Enter", action: "Exchanges" });
-  }
-  if (
-    (activeNav === "capabilities" && focus === "center" && !showDetail) ||
-    ((activeNav === "exchanges" || activeNav === "errors") && !showDetail)
-  ) {
-    keymapItems.push({ key: "Enter", action: "Detail" });
-  }
-  if ((activeNav === "capabilities" && focus === "center") || showDetail) {
+  if (showDeepView) {
+    keymapItems.push({ key: "j/k", action: "Scroll" });
+    keymapItems.push({ key: "Ctrl+j/k", action: "Jump 10" });
     keymapItems.push({ key: "Esc", action: "Back" });
+  } else if (focus === "center") {
+    keymapItems.push({ key: "j/k", action: "Navigate" });
+    keymapItems.push({ key: "Ctrl+j/k", action: "Jump 10" });
+  }
+  if (!showDeepView) {
+    if (focus === "nav") {
+      if (activeNav === "capabilities") {
+        keymapItems.push({ key: "j/k", action: "Navigate" });
+        keymapItems.push({ key: "Enter", action: "Exchanges" });
+      } else {
+        keymapItems.push({ key: "Enter", action: "Browse" });
+      }
+    } else if (!showDetail && !showEventDetail) {
+      keymapItems.push({ key: "Enter", action: "Detail" });
+      keymapItems.push({ key: "Esc", action: "Back" });
+    } else if (showDetail && !showEventDetail) {
+      keymapItems.push({ key: "Enter", action: "Event detail" });
+      keymapItems.push({ key: "e", action: "Snapshot" });
+      keymapItems.push({ key: "Esc", action: "Back" });
+    } else {
+      keymapItems.push({ key: "Esc", action: "Back" });
+    }
   }
   keymapItems.push({ key: "1..4", action: "Switch view" });
   keymapItems.push({ key: "q", action: "Quit" });
@@ -390,65 +527,162 @@ function App({ db }: { db: TelemetryDb }) {
             activity={selectedRouteActivity}
           />
         )}
-        {activeNav === "capabilities" && showDetail && selectedExchange && (
-          <CenterExchangeDetail
+        {activeNav === "capabilities" && showDeepView && selectedExchange && (
+          <ExchangeDeepView
             exchange={selectedExchange}
-            events={exchangeEvents}
+            snapshot={exchangeSnapshot}
             width={centerWidth}
             height={bodyHeight}
-            scrollOffset={detailScrollIndex}
+            scrollOffset={deepViewScroll}
             color="cyan"
           />
         )}
+        {activeNav === "capabilities" &&
+          showDetail &&
+          selectedExchange &&
+          !showEventDetail &&
+          !showDeepView && (
+            <CenterExchangeDetail
+              exchange={selectedExchange}
+              events={exchangeEvents}
+              width={centerWidth}
+              height={bodyHeight}
+              selectedIndex={detailScroll.selectedIndex}
+              scrollOffset={detailScroll.scrollOffset}
+              color="cyan"
+            />
+          )}
+        {activeNav === "capabilities" &&
+          showDetail &&
+          showEventDetail &&
+          !showDeepView &&
+          selectedEvent && (
+            <EventDetail
+              event={selectedEvent}
+              width={centerWidth}
+              height={bodyHeight}
+              scrollOffset={eventDetailScroll}
+              color="cyan"
+            />
+          )}
         {activeNav === "exchanges" && !showDetail && (
           <CenterExchangeList
             capabilityId="All Capabilities"
             exchanges={exchanges}
-            selectedIndex={exchangeScroll.selectedIndex}
-            scrollOffset={exchangeScroll.scrollOffset}
+            selectedIndex={
+              focus === "center" ? exchangeScroll.selectedIndex : -1
+            }
+            scrollOffset={focus === "center" ? exchangeScroll.scrollOffset : 0}
             width={centerWidth}
             height={bodyHeight}
-            color="cyan"
+            color={focus === "center" ? "cyan" : "gray"}
           />
         )}
-        {activeNav === "exchanges" && showDetail && selectedExchange && (
-          <CenterExchangeDetail
+        {activeNav === "exchanges" && showDeepView && selectedExchange && (
+          <ExchangeDeepView
             exchange={selectedExchange}
-            events={exchangeEvents}
+            snapshot={exchangeSnapshot}
             width={centerWidth}
             height={bodyHeight}
-            scrollOffset={detailScrollIndex}
+            scrollOffset={deepViewScroll}
             color="cyan"
           />
         )}
+        {activeNav === "exchanges" &&
+          showDetail &&
+          selectedExchange &&
+          !showEventDetail &&
+          !showDeepView && (
+            <CenterExchangeDetail
+              exchange={selectedExchange}
+              events={exchangeEvents}
+              width={centerWidth}
+              height={bodyHeight}
+              selectedIndex={detailScroll.selectedIndex}
+              scrollOffset={detailScroll.scrollOffset}
+              color="cyan"
+            />
+          )}
+        {activeNav === "exchanges" &&
+          showDetail &&
+          showEventDetail &&
+          !showDeepView &&
+          selectedEvent && (
+            <EventDetail
+              event={selectedEvent}
+              width={centerWidth}
+              height={bodyHeight}
+              scrollOffset={eventDetailScroll}
+              color="cyan"
+            />
+          )}
         {activeNav === "errors" && !showDetail && (
           <CenterExchangeList
             capabilityId="Failed Exchanges"
             exchanges={exchanges}
-            selectedIndex={exchangeScroll.selectedIndex}
-            scrollOffset={exchangeScroll.scrollOffset}
+            selectedIndex={
+              focus === "center" ? exchangeScroll.selectedIndex : -1
+            }
+            scrollOffset={focus === "center" ? exchangeScroll.scrollOffset : 0}
             width={centerWidth}
             height={bodyHeight}
-            color="cyan"
+            color={focus === "center" ? "cyan" : "gray"}
           />
         )}
-        {activeNav === "errors" && showDetail && selectedExchange && (
-          <CenterExchangeDetail
+        {activeNav === "errors" && showDeepView && selectedExchange && (
+          <ExchangeDeepView
             exchange={selectedExchange}
-            events={exchangeEvents}
+            snapshot={exchangeSnapshot}
             width={centerWidth}
             height={bodyHeight}
-            scrollOffset={detailScrollIndex}
+            scrollOffset={deepViewScroll}
             color="cyan"
           />
         )}
-        {activeNav === "events" && (
+        {activeNav === "errors" &&
+          showDetail &&
+          selectedExchange &&
+          !showEventDetail &&
+          !showDeepView && (
+            <CenterExchangeDetail
+              exchange={selectedExchange}
+              events={exchangeEvents}
+              width={centerWidth}
+              height={bodyHeight}
+              selectedIndex={detailScroll.selectedIndex}
+              scrollOffset={detailScroll.scrollOffset}
+              color="cyan"
+            />
+          )}
+        {activeNav === "errors" &&
+          showDetail &&
+          showEventDetail &&
+          !showDeepView &&
+          selectedEvent && (
+            <EventDetail
+              event={selectedEvent}
+              width={centerWidth}
+              height={bodyHeight}
+              scrollOffset={eventDetailScroll}
+              color="cyan"
+            />
+          )}
+        {activeNav === "events" && !showEventDetail && (
           <EventsView
             events={events}
-            selectedIndex={eventScroll.selectedIndex}
-            scrollOffset={eventScroll.scrollOffset}
+            selectedIndex={focus === "center" ? eventScroll.selectedIndex : -1}
+            scrollOffset={focus === "center" ? eventScroll.scrollOffset : 0}
             width={centerWidth}
             height={bodyHeight}
+            color={focus === "center" ? "cyan" : "gray"}
+          />
+        )}
+        {activeNav === "events" && showEventDetail && selectedEvent && (
+          <EventDetail
+            event={selectedEvent}
+            width={centerWidth}
+            height={bodyHeight}
+            scrollOffset={eventDetailScroll}
             color="cyan"
           />
         )}

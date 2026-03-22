@@ -4,15 +4,8 @@ import { statusColor, formatDuration, col, truncate } from "../utils.js";
 import { DETAIL_INFO_CHROME } from "../layout.js";
 import { Panel } from "./panel.js";
 import { Table, type ColumnDef } from "./table.js";
-import { eventDetailColumns } from "./event-columns.js";
-
-function parseDetails(raw: string): Record<string, unknown> | null {
-  try {
-    return JSON.parse(raw) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
+import { selectorColumn, eventDetailColumns } from "./event-columns.js";
+import { parseDetails } from "./json-format.js";
 
 type DisplayRow = {
   type: "header" | "event";
@@ -60,6 +53,7 @@ function groupEventsByExchange(
 }
 
 const detailColumns: ColumnDef<DisplayRow>[] = [
+  selectorColumn<DisplayRow>(),
   {
     header: "Time",
     width: 8,
@@ -91,6 +85,7 @@ export function CenterExchangeDetail({
   width,
   height,
   scrollOffset,
+  selectedIndex = -1,
   color = "gray",
 }: {
   exchange: ExchangeRecord;
@@ -98,6 +93,7 @@ export function CenterExchangeDetail({
   width: number;
   height: number;
   scrollOffset: number;
+  selectedIndex?: number;
   color?: string;
 }) {
   const hasExtra = exchange.error ? 2 : 0;
@@ -184,6 +180,7 @@ export function CenterExchangeDetail({
               ? `h-${i}`
               : `${row.event?.id ?? row.event?.timestamp}-${i}`
           }
+          selectedIndex={selectedIndex}
           scrollOffset={scrollOffset}
           visibleRows={eventRows}
           emptyMessage="No related events found"

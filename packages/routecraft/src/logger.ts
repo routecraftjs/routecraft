@@ -180,12 +180,22 @@ export function childBindings(
     const ex = context as Exchange;
     const ctx = getExchangeContext(ex);
     if (ctx) {
-      return {
+      const bindings: Record<string, unknown> = {
         contextId: ctx.contextId,
         route: ex.headers[HeadersKeys.ROUTE_ID],
         correlationId: ex.headers[HeadersKeys.CORRELATION_ID],
         exchangeId: ex.id,
       };
+
+      // Include non-PII auth identifiers from exchange headers when
+      // present. Only subject and issuer are safe for logs; fields like
+      // email, name, and roles are omitted to avoid leaking PII.
+      const sub = ex.headers["routecraft.auth.subject"];
+      if (sub !== undefined) bindings["auth.subject"] = sub;
+      const iss = ex.headers["routecraft.auth.issuer"];
+      if (iss !== undefined) bindings["auth.issuer"] = iss;
+
+      return bindings;
     }
   }
   return {};

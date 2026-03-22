@@ -1,23 +1,63 @@
-import { log, craft, simple, http } from "@routecraft/routecraft";
+import { log, craft, simple, direct, noop } from "@routecraft/routecraft";
+import { z } from "zod";
 
-export default craft()
-  .id("split")
-  .from(simple("1,2,3"))
-  .transform((b) => b.split(",").map((i) => ({ userId: Number(i) })))
-  .tap(log())
-  .split()
-  .filter((ex) => ex.body.userId !== 1)
-  .transform((b) => {
-    if (b.userId === 2) throw new Error("userId 2 is not allowed");
-    return b;
-  })
-  .enrich(
-    http<{ userId: number }, { name: string }>({
-      method: "GET",
-      url: (ex) =>
-        `https://jsonplaceholder.typicode.com/users/${ex.body.userId}`,
+const OrderItemSchema = z.object({
+  sku: z.string().min(1),
+  name: z.string().min(1),
+  quantity: z.number().int().positive(),
+  unitPrice: z.number().positive(),
+});
+
+type OrderItem = z.infer<typeof OrderItemSchema>;
+
+export interface PricedItem extends OrderItem {
+  total: number;
+  discounted: boolean;
+}
+
+const priceCheck = craft()
+  .id("price-check")
+  .from(
+    direct("price-check", {
+      schema: OrderItemSchema,
+      description: "Validate and price a single order item",
     }),
   )
-  .transform((result) => `Hello, ${result.body.name}!`)
+  .filter((ex) => {
+    if (ex.body.quantity > 100) return { reason: "quantity exceeds limit" };
+    return true;
+  })
+  .transform<PricedItem>((item) => {
+    if (item.sku === "GADGET-B") throw new Error("GADGET-B recalled");
+    const discount = item.quantity >= 10 ? 0.9 : 1;
+    return {
+      ...item,
+      total: Math.round(item.unitPrice * item.quantity * discount * 100) / 100,
+      discounted: discount < 1,
+    };
+  })
+  .to(noop());
+
+const processOrder = craft()
+  .id("process-order")
+  .from(
+    simple({
+      orderId: "ORD-2026-001",
+      customer: "Acme Corp",
+      items: [
+        { sku: "WIDGET-A", name: "Widget A", quantity: 5, unitPrice: 12.99 },
+        { sku: "GADGET-B", name: "Gadget B", quantity: 15, unitPrice: 8.5 },
+        { sku: "GIZMO-C", name: "Gizmo C", quantity: 200, unitPrice: 3.0 },
+        { sku: "THING-D", name: "Thing D", quantity: 1, unitPrice: 149.99 },
+      ],
+    }),
+  )
+  .tap(log())
+  .transform((order) => order.items)
+  .split()
+  .validate(OrderItemSchema)
+  .to(direct<OrderItem>("price-check"))
   .aggregate()
   .to(log());
+
+export default [priceCheck, processOrder];

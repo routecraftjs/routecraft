@@ -1,4 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import { formatSchemaIssues } from "@routecraft/routecraft";
 import type { McpPluginOptions } from "./types.ts";
 
 /** Standard Schema validate result: success has value, failure has issues. */
@@ -136,7 +137,7 @@ export async function validateWithSchema(
   }
   if (result.issues) {
     throw new Error(
-      `mcpPlugin options validation failed: ${JSON.stringify(result.issues)}`,
+      `mcpPlugin options validation failed: ${formatSchemaIssues(result.issues)}`,
     );
   }
   // Guard against schemas that pass (no issues) but omit value

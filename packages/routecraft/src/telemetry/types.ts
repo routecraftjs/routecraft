@@ -39,6 +39,27 @@ export interface TelemetrySqliteOptions {
    * Defaults to `100000`.
    */
   maxEvents?: number;
+
+  /**
+   * Capture exchange headers and body at terminal lifecycle events
+   * (completed, failed, dropped). Stored in a separate
+   * `exchange_snapshots` table for on-demand inspection in the TUI.
+   *
+   * Disabled by default because bodies may contain sensitive data
+   * and serialization adds overhead per exchange.
+   *
+   * Defaults to `false`.
+   */
+  captureSnapshots?: boolean;
+
+  /**
+   * Maximum serialized snapshot size in bytes. Bodies exceeding this
+   * limit are truncated and flagged. Only applies when
+   * `captureSnapshots` is `true`.
+   *
+   * Defaults to `65536` (64 KB).
+   */
+  maxSnapshotBytes?: number;
 }
 
 /**

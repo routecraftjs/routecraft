@@ -5,7 +5,7 @@ import {
 } from "../../exchange";
 import type { Source } from "../../operations/from";
 import type { CraftContext, MergedOptions } from "../../context";
-import { rcError } from "../../error";
+import { rcError, formatSchemaIssues } from "../../error";
 import type { EventName } from "../../types";
 import type { DirectServerOptions } from "./types";
 import type { DirectOptionsMerged } from "./shared";
@@ -147,13 +147,13 @@ export class DirectSourceAdapter<T = unknown>
 
         const bodyIssues = (result as { issues?: unknown }).issues;
         if (bodyIssues !== undefined && bodyIssues !== null) {
-          const causeMessage =
-            typeof bodyIssues === "object"
-              ? JSON.stringify(bodyIssues)
-              : String(bodyIssues);
-          const err = rcError("RC5002", new Error(causeMessage), {
-            message: `Body validation failed for direct route "${endpoint}"`,
-          });
+          const err = rcError(
+            "RC5002",
+            new Error(formatSchemaIssues(bodyIssues)),
+            {
+              message: `Body validation failed for direct route "${endpoint}"`,
+            },
+          );
           this.emitValidationFailure(context, endpoint, exchange, err);
           throw err;
         }
@@ -174,13 +174,13 @@ export class DirectSourceAdapter<T = unknown>
 
         const headerIssues = (result as { issues?: unknown }).issues;
         if (headerIssues !== undefined && headerIssues !== null) {
-          const causeMessage =
-            typeof headerIssues === "object"
-              ? JSON.stringify(headerIssues)
-              : String(headerIssues);
-          const err = rcError("RC5002", new Error(causeMessage), {
-            message: `Header validation failed for direct route "${endpoint}"`,
-          });
+          const err = rcError(
+            "RC5002",
+            new Error(formatSchemaIssues(headerIssues)),
+            {
+              message: `Header validation failed for direct route "${endpoint}"`,
+            },
+          );
           this.emitValidationFailure(context, endpoint, exchange, err);
           throw err;
         }
@@ -208,9 +208,9 @@ export class DirectSourceAdapter<T = unknown>
   }
 
   /**
-   * Emit exchange:started and exchange:failed events for pre-pipeline
-   * validation errors. This ensures the failed exchange is recorded in
-   * telemetry even though it never reached the route handler.
+   * Emit exchange:started and exchange:dropped events for pre-pipeline
+   * validation errors. Uses "dropped" (not "failed") because the exchange
+   * was rejected before entering the route handler, similar to a filter.
    */
   private emitValidationFailure(
     context: CraftContext,
@@ -218,8 +218,11 @@ export class DirectSourceAdapter<T = unknown>
     exchange: Exchange<T>,
     error: unknown,
   ): void {
-    const routeId = (exchange.headers[HeadersKeys.ROUTE_ID] ??
-      endpoint) as string;
+    // Use the endpoint name as routeId so the exchange appears under the
+    // correct route in telemetry. The exchange header contains a random UUID
+    // (set by DefaultExchange) because validation runs before the route
+    // handler assigns the real route ID.
+    const routeId = endpoint;
     const correlationId = (exchange.headers[HeadersKeys.CORRELATION_ID] ??
       exchange.id) as string;
 
@@ -229,12 +232,17 @@ export class DirectSourceAdapter<T = unknown>
       correlationId,
     });
 
-    context.emit(`route:${routeId}:exchange:failed` as EventName, {
+    const reason =
+      error instanceof Error
+        ? `input validation failed: ${error.cause instanceof Error ? error.cause.message : error.message}`
+        : "input validation failed";
+
+    context.emit(`route:${routeId}:exchange:dropped` as EventName, {
       routeId,
       exchangeId: exchange.id,
       correlationId,
-      duration: 0,
-      error,
+      reason,
+      exchange,
     });
   }
 }

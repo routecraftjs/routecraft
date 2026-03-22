@@ -59,10 +59,17 @@ const DEFAULT_MAX_EVENTS = 100_000;
  * telemetry({ tracerProvider: myTracerProvider })
  * ```
  */
+/**
+ * Default maximum snapshot body size in bytes.
+ */
+const DEFAULT_MAX_SNAPSHOT_BYTES = 65_536;
+
 class TelemetryPlugin implements CraftPlugin {
   private readonly options: TelemetryOptions;
   private readonly batchSize: number;
   private readonly flushIntervalMs: number;
+  private readonly captureSnapshots: boolean;
+  private readonly maxSnapshotBytes: number;
 
   private connection: SqliteConnection | undefined;
   private spanProcessor: SqliteSpanProcessor | undefined;
@@ -85,6 +92,10 @@ class TelemetryPlugin implements CraftPlugin {
     this.batchSize = batchSize > 0 ? batchSize : DEFAULT_BATCH_SIZE;
     this.flushIntervalMs =
       flushIntervalMs > 0 ? flushIntervalMs : DEFAULT_FLUSH_INTERVAL_MS;
+    this.captureSnapshots = sqlite.captureSnapshots === true;
+    this.maxSnapshotBytes = Math.trunc(
+      sqlite.maxSnapshotBytes ?? DEFAULT_MAX_SNAPSHOT_BYTES,
+    );
   }
 
   async apply(ctx: CraftContext): Promise<void> {
@@ -289,6 +300,33 @@ class TelemetryPlugin implements CraftPlugin {
     );
   }
 
+  /**
+   * Serialize and persist an exchange snapshot when capture is enabled.
+   */
+  private captureExchangeSnapshot(
+    exchange: { id: string; headers: Record<string, unknown>; body: unknown },
+    contextId: string,
+  ): void {
+    if (!this.captureSnapshots || !this.spanProcessor) return;
+
+    const headers = safeStringify(exchange.headers);
+    let body = safeStringify(exchange.body);
+    let truncated = false;
+
+    if (body.length > this.maxSnapshotBytes) {
+      body = body.slice(0, this.maxSnapshotBytes);
+      truncated = true;
+    }
+
+    this.spanProcessor.writeSnapshot(
+      exchange.id,
+      contextId,
+      headers,
+      body,
+      truncated,
+    );
+  }
+
   // -- Exchange lifecycle (spans) --
 
   private subscribeExchangeLifecycle(ctx: CraftContext): void {
@@ -336,9 +374,17 @@ class TelemetryPlugin implements CraftPlugin {
       ctx.on("route:*:exchange:completed", ((payload: {
         ts: string;
         contextId: string;
-        details: { exchangeId: string; duration: number };
+        details: {
+          exchangeId: string;
+          duration: number;
+          exchange?: {
+            id: string;
+            headers: Record<string, unknown>;
+            body: unknown;
+          };
+        };
       }) => {
-        const { exchangeId, duration } = payload.details;
+        const { exchangeId, duration, exchange } = payload.details;
         const key = `${exchangeId}:${payload.contextId}`;
 
         // SQLite
@@ -348,6 +394,11 @@ class TelemetryPlugin implements CraftPlugin {
           payload.ts,
           duration,
         );
+
+        // Snapshot
+        if (exchange) {
+          this.captureExchangeSnapshot(exchange, payload.contextId);
+        }
 
         // OTel
         const span = this.exchangeSpans.get(key);
@@ -368,9 +419,14 @@ class TelemetryPlugin implements CraftPlugin {
           exchangeId: string;
           duration: number;
           error: unknown;
+          exchange?: {
+            id: string;
+            headers: Record<string, unknown>;
+            body: unknown;
+          };
         };
       }) => {
-        const { exchangeId, duration, error } = payload.details;
+        const { exchangeId, duration, error, exchange } = payload.details;
         const key = `${exchangeId}:${payload.contextId}`;
         const errorStr = error instanceof Error ? error.message : String(error);
 
@@ -382,6 +438,11 @@ class TelemetryPlugin implements CraftPlugin {
           duration,
           errorStr,
         );
+
+        // Snapshot
+        if (exchange) {
+          this.captureExchangeSnapshot(exchange, payload.contextId);
+        }
 
         // OTel
         const span = this.exchangeSpans.get(key);
@@ -403,9 +464,17 @@ class TelemetryPlugin implements CraftPlugin {
       ctx.on("route:*:exchange:dropped", ((payload: {
         ts: string;
         contextId: string;
-        details: { exchangeId: string; reason?: string };
+        details: {
+          exchangeId: string;
+          reason?: string;
+          exchange?: {
+            id: string;
+            headers: Record<string, unknown>;
+            body: unknown;
+          };
+        };
       }) => {
-        const { exchangeId, reason } = payload.details;
+        const { exchangeId, reason, exchange } = payload.details;
         const key = `${exchangeId}:${payload.contextId}`;
         const dropReason = reason ?? "dropped";
 
@@ -416,6 +485,11 @@ class TelemetryPlugin implements CraftPlugin {
           payload.ts,
           dropReason,
         );
+
+        // Snapshot
+        if (exchange) {
+          this.captureExchangeSnapshot(exchange, payload.contextId);
+        }
 
         // OTel
         const span = this.exchangeSpans.get(key);
@@ -472,6 +546,18 @@ function safeStringify(value: unknown): string {
           message: val.message,
           ...(typeof val.stack === "string" ? { stack: val.stack } : {}),
         };
+      }
+      // Reduce Exchange objects to a lightweight reference
+      if (
+        val &&
+        typeof val === "object" &&
+        "id" in val &&
+        "headers" in val &&
+        "body" in val &&
+        "logger" in val
+      ) {
+        const ex = val as { id: string };
+        return { exchangeId: ex.id };
       }
       if (
         val &&

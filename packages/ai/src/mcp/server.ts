@@ -745,18 +745,29 @@ export class McpServer {
         content: [{ type: "text", text: resultText }],
       };
     } catch (error) {
-      const msg = isRoutecraftError(error)
+      const logMsg = isRoutecraftError(error)
         ? (error as unknown as { meta: { message: string } }).meta.message
         : error instanceof Error
           ? error.message
           : String(error);
-      this.context.logger.error({ tool: toolName, err: error }, msg);
+      this.context.logger.error({ tool: toolName, err: error }, logMsg);
       this.context.emit(`plugin:mcp:tool:failed`, {
         tool: toolName,
-        error: msg,
+        error: logMsg,
       });
+
+      // Build a clean user-facing message: include the cause (e.g. schema
+      // field errors) but never expose stack traces or internal details.
+      let userMsg = logMsg;
+      if (isRoutecraftError(error)) {
+        const cause = (error as { cause?: Error }).cause;
+        if (cause?.message) {
+          userMsg = `${logMsg}: ${cause.message}`;
+        }
+      }
+
       return {
-        content: [{ type: "text", text: `Error: ${msg}` }],
+        content: [{ type: "text", text: `Error: ${userMsg}` }],
         isError: true,
       };
     }
