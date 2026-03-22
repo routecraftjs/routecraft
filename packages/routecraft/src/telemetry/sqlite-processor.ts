@@ -292,7 +292,7 @@ export class SqliteSpanProcessor {
       const exchangeId = attrs[ATTR.EXCHANGE_ID] as string;
       const durationMs = Number(attrs[ATTR.DURATION_MS] ?? 0);
 
-      if (attrs[ATTR.DROPPED]) {
+      if (attrs[ATTR.DROPPED] === true) {
         const reason = (attrs[ATTR.DROP_REASON] as string) ?? "dropped";
         this.dropExchange(exchangeId, contextId, ts, reason);
       } else if (span.status.code === 2) {

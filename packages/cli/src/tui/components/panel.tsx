@@ -36,7 +36,7 @@ export function Panel({
             {title}
             {subtitle && <> {subtitle}</>}
           </Text>
-          <Text dimColor>{"\u2500".repeat(Math.max(innerWidth, 10))}</Text>
+          <Text dimColor>{"\u2500".repeat(Math.max(innerWidth, 1))}</Text>
         </>
       )}
       {children}

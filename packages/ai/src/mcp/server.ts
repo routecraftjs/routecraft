@@ -649,6 +649,7 @@ export class McpServer {
           error: err.message,
         });
         return {
+          isError: true,
           content: [
             { type: "text", text: `Error: No direct channels available` },
           ],
@@ -664,6 +665,7 @@ export class McpServer {
           error: err.message,
         });
         return {
+          isError: true,
           content: [
             { type: "text", text: `Error: Tool not found: ${toolName}` },
           ],

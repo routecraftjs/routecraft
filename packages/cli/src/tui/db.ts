@@ -455,7 +455,7 @@ export class TelemetryDb {
   getLiveTrafficBuckets(bucketCount = 60, bucketWidthSec = 5): number[] {
     const nowSec = Math.floor(Date.now() / 1000);
     const snapped = Math.floor(nowSec / bucketWidthSec) * bucketWidthSec;
-    const windowStart = snapped - bucketCount * bucketWidthSec;
+    const windowStart = snapped - (bucketCount - 1) * bucketWidthSec;
 
     const s = this.stmt(
       "liveTraffic",
@@ -471,7 +471,7 @@ export class TelemetryDb {
       windowStart,
       bucketWidthSec,
       windowStart,
-      snapped,
+      snapped + bucketWidthSec,
     ) as Array<{ bucket: number; cnt: number }>;
 
     const result = new Array(bucketCount).fill(0) as number[];
@@ -493,7 +493,7 @@ export class TelemetryDb {
   ): { throughput: number[]; recentErrors: number } {
     const nowSec = Math.floor(Date.now() / 1000);
     const snapped = Math.floor(nowSec / bucketWidthSec) * bucketWidthSec;
-    const windowStart = snapped - bucketCount * bucketWidthSec;
+    const windowStart = snapped - (bucketCount - 1) * bucketWidthSec;
 
     const tStmt = this.stmt(
       "singleRouteActivity",

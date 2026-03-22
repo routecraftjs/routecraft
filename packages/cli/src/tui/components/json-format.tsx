@@ -74,11 +74,12 @@ export function formatJson(raw: string, maxWidth: number): string[] {
   try {
     const parsed = JSON.parse(raw) as unknown;
     const pretty = JSON.stringify(parsed, null, 2);
-    return pretty
-      .split("\n")
-      .map((line) =>
-        line.length > maxWidth ? line.slice(0, maxWidth - 1) + "\u2026" : line,
-      );
+    return pretty.split("\n").map((line) => {
+      const clampedMax = Math.max(1, maxWidth);
+      return line.length > clampedMax
+        ? line.slice(0, Math.max(0, clampedMax - 1)) + "\u2026"
+        : line;
+    });
   } catch {
     return [raw];
   }
@@ -106,7 +107,15 @@ export function ColoredJsonLine({ line }: { line: string }) {
  */
 export function parseDetails(raw: string): Record<string, unknown> | null {
   try {
-    return JSON.parse(raw) as Record<string, unknown>;
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      Array.isArray(parsed)
+    ) {
+      return null;
+    }
+    return parsed as Record<string, unknown>;
   } catch {
     return null;
   }

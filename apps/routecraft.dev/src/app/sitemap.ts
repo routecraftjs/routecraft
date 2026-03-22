@@ -137,8 +137,17 @@ function collectRawMarkdown(
         pages.push({ url: `${urlPrefix}/${entry.name}`, mtime: stat.mtime })
       }
     }
-  } catch {
-    // Ignore missing directories
+  } catch (err: unknown) {
+    if (
+      typeof err === 'object' &&
+      err !== null &&
+      'code' in err &&
+      (err as { code: string }).code === 'ENOENT'
+    ) {
+      // Ignore missing directories
+    } else {
+      throw err
+    }
   }
   return pages
 }

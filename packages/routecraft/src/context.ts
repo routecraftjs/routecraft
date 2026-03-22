@@ -157,8 +157,8 @@ export class CraftContext {
   /** Teardown callbacks registered by plugins; run during stop() before context:stopped */
   private readonly teardownCallbacks: Array<() => void | Promise<void>> = [];
 
-  /** Guard to prevent double stop() (auto-stop from start() + explicit stop()) */
-  private stopping = false;
+  /** Cached shutdown promise so concurrent stop() callers all await the same teardown */
+  private shutdownPromise: Promise<void> | null = null;
 
   /**
    * Create a new CraftContext instance.
@@ -720,7 +720,7 @@ export class CraftContext {
    * ```
    */
   async start(): Promise<void> {
-    this.stopping = false;
+    this.shutdownPromise = null;
     this.logger.info(
       { routeCount: this.routes.length },
       "Starting Routecraft context",
@@ -816,8 +816,12 @@ export class CraftContext {
    * ```
    */
   async stop(): Promise<void> {
-    if (this.stopping) return;
-    this.stopping = true;
+    if (this.shutdownPromise) return this.shutdownPromise;
+    this.shutdownPromise = this.performShutdown();
+    return this.shutdownPromise;
+  }
+
+  private async performShutdown(): Promise<void> {
     this.logger.info({}, "Stopping Routecraft context");
     this.emit("context:stopping", { reason: undefined });
 

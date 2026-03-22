@@ -163,6 +163,13 @@ export type RouteEventName =
  *   console.log(`Route ${details.routeId}: ${details.exchangeId}`);
  * });
  * ```
+ *
+ * Exchange lifecycle events:
+ * - `exchange:started` - Exchange entered the route pipeline
+ * - `exchange:completed` - Exchange processed successfully
+ * - `exchange:failed` - Exchange processing failed with an error
+ * - `exchange:dropped` - Exchange rejected before or during processing (e.g. filter, validation)
+ * - `exchange:restored` - Exchange restored from a previously dropped state
  */
 export type ExchangeEventName =
   | `route:${string}:exchange:started`
@@ -213,7 +220,8 @@ export type PluginEventName =
  */
 export type StepEventName =
   | `route:${string}:step:started`
-  | `route:${string}:step:completed`;
+  | `route:${string}:step:completed`
+  | `route:${string}:step:failed`;
 
 /**
  * Special route-level events for batch, retry, and error handling.
@@ -398,118 +406,128 @@ type RouteEventDetails<S extends string> =
                     duration: number;
                     metadata?: Record<string, unknown>;
                   }
-                : // Batch
-                  S extends "batch:started"
-                  ? { routeId: string; batchSize: number; batchId: string }
-                  : S extends "batch:flushed"
-                    ? {
-                        routeId: string;
-                        batchSize: number;
-                        batchId: string;
-                        waitTime: number;
-                        reason: "size" | "time";
-                      }
-                    : S extends "batch:stopped"
-                      ? { routeId: string; batchId: string }
-                      : // Retry
-                        S extends "retry:started"
-                        ? {
-                            routeId: string;
-                            exchangeId: string;
-                            correlationId: string;
-                            maxAttempts: number;
-                          }
-                        : S extends "retry:attempt"
+                : S extends "step:failed"
+                  ? {
+                      routeId: string;
+                      exchangeId: string;
+                      correlationId: string;
+                      operation: OperationType;
+                      adapter?: string;
+                      duration: number;
+                      error: string;
+                    }
+                  : // Batch
+                    S extends "batch:started"
+                    ? { routeId: string; batchSize: number; batchId: string }
+                    : S extends "batch:flushed"
+                      ? {
+                          routeId: string;
+                          batchSize: number;
+                          batchId: string;
+                          waitTime: number;
+                          reason: "size" | "time";
+                        }
+                      : S extends "batch:stopped"
+                        ? { routeId: string; batchId: string }
+                        : // Retry
+                          S extends "retry:started"
                           ? {
                               routeId: string;
                               exchangeId: string;
                               correlationId: string;
-                              attemptNumber: number;
                               maxAttempts: number;
-                              backoffMs: number;
-                              lastError?: unknown;
                             }
-                          : S extends "retry:stopped"
+                          : S extends "retry:attempt"
                             ? {
                                 routeId: string;
                                 exchangeId: string;
                                 correlationId: string;
                                 attemptNumber: number;
-                                success: boolean;
+                                maxAttempts: number;
+                                backoffMs: number;
+                                lastError?: unknown;
                               }
-                            : // Error handler
-                              S extends "error-handler:invoked"
+                            : S extends "retry:stopped"
                               ? {
                                   routeId: string;
                                   exchangeId: string;
                                   correlationId: string;
-                                  originalError: unknown;
-                                  failedOperation: string;
+                                  attemptNumber: number;
+                                  success: boolean;
                                 }
-                              : S extends "error-handler:recovered"
+                              : // Error handler
+                                S extends "error-handler:invoked"
                                 ? {
                                     routeId: string;
                                     exchangeId: string;
                                     correlationId: string;
                                     originalError: unknown;
                                     failedOperation: string;
-                                    recoveryStrategy: string;
                                   }
-                                : S extends "error-handler:failed"
+                                : S extends "error-handler:recovered"
                                   ? {
                                       routeId: string;
                                       exchangeId: string;
                                       correlationId: string;
                                       originalError: unknown;
                                       failedOperation: string;
-                                      recoveryStrategy?: string;
+                                      recoveryStrategy: string;
                                     }
-                                  : // Step errors (multi-segment suffix)
-                                    S extends `step:${string}:error:caught`
+                                  : S extends "error-handler:failed"
                                     ? {
-                                        error: unknown;
-                                        route?: Route;
-                                        exchange?: Exchange<unknown>;
-                                        operation: string;
+                                        routeId: string;
+                                        exchangeId: string;
+                                        correlationId: string;
+                                        originalError: unknown;
+                                        failedOperation: string;
+                                        recoveryStrategy?: string;
                                       }
-                                    : S extends `step:${string}:error`
+                                    : // Step errors (multi-segment suffix)
+                                      S extends `step:${string}:error:caught`
                                       ? {
                                           error: unknown;
                                           route?: Route;
                                           exchange?: Exchange<unknown>;
                                           operation: string;
                                         }
-                                      : // Route errors
-                                        S extends "error:caught"
+                                      : S extends `step:${string}:error`
                                         ? {
                                             error: unknown;
                                             route?: Route;
                                             exchange?: Exchange<unknown>;
+                                            operation: string;
                                           }
-                                        : S extends "error"
+                                        : // Route errors
+                                          S extends "error:caught"
                                           ? {
                                               error: unknown;
                                               route?: Route;
                                               exchange?: Exchange<unknown>;
                                             }
-                                          : // Route lifecycle (must be last to avoid matching multi-segment suffixes)
-                                            S extends
-                                                | "registered"
-                                                | "starting"
-                                                | "started"
-                                            ? { route: Route }
-                                            : S extends "stopping"
-                                              ? {
-                                                  route: Route;
-                                                  reason?: unknown;
-                                                  exchange?: Exchange<unknown>;
-                                                }
-                                              : S extends "stopped"
+                                          : S extends "error"
+                                            ? {
+                                                error: unknown;
+                                                route?: Route;
+                                                exchange?: Exchange<unknown>;
+                                              }
+                                            : // Route lifecycle (must be last to avoid matching multi-segment suffixes)
+                                              S extends
+                                                  | "registered"
+                                                  | "starting"
+                                                  | "started"
+                                              ? { route: Route }
+                                              : S extends "stopping"
                                                 ? {
                                                     route: Route;
+                                                    reason?: unknown;
                                                     exchange?: Exchange<unknown>;
                                                   }
-                                                : never;
+                                                : S extends "stopped"
+                                                  ? {
+                                                      route: Route;
+                                                      exchange?: Exchange<unknown>;
+                                                    }
+                                                  : never;
 
 /** Detail types for `plugin:<pluginId>:<suffix>` events. */
 type PluginEventDetails<S extends string> = S extends
@@ -525,7 +543,7 @@ type PluginEventDetails<S extends string> = S extends
  * Maps an event name to its detail payload type.
  *
  * Uses category extraction to keep nesting shallow:
- * 1. Static events (context, system) via lookup
+ * 1. Static events (context) via lookup
  * 2. Route events via `RouteEventDetails`
  * 3. Plugin events via `PluginEventDetails`
  */

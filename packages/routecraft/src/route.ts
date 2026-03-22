@@ -437,7 +437,9 @@ export class DefaultRoute implements Route {
         !seenChildExchanges.has(exchange.id)
       ) {
         seenChildExchanges.add(exchange.id);
-        childStartTimes.set(exchange.id, Date.now());
+        const childNow = Date.now();
+        childStartTimes.set(exchange.id, childNow);
+        exchange.headers["routecraft.startedAt"] = childNow;
         const correlationId = exchange.headers[
           HeadersKeys.CORRELATION_ID
         ] as string;
@@ -645,8 +647,8 @@ export class DefaultRoute implements Route {
           const hierarchy = parentEx.headers[HeadersKeys.SPLIT_HIERARCHY] as
             | string[]
             | undefined;
-          // Only clean up groups that belong to the current route's exchanges
-          if (!hierarchy || hierarchy.includes(groupId)) {
+          // Only clean up groups that are NOT part of a nested hierarchy
+          if (!hierarchy || !hierarchy.includes(groupId)) {
             parentMap.delete(groupId);
           }
         }

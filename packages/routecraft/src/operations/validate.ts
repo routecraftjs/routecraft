@@ -23,7 +23,11 @@ export class ValidateStep<T = unknown> extends FilterStep<T> {
       if (rawResult instanceof Promise) rawResult = await rawResult;
       const result = rawResult as StandardSchemaResult;
 
-      if (result.issues !== undefined && result.issues !== null) {
+      if (
+        result.issues !== undefined &&
+        result.issues !== null &&
+        (Array.isArray(result.issues) ? result.issues.length > 0 : true)
+      ) {
         return {
           reason: `validation failed: ${formatSchemaIssues(result.issues)}`,
         };

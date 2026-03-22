@@ -132,6 +132,17 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
         return;
       }
     } catch (error: unknown) {
+      if (context) {
+        context.emit(`route:${routeId}:step:failed` as EventName, {
+          routeId,
+          exchangeId: exchange.id,
+          correlationId,
+          operation: this.operation,
+          ...(adapterLabel ? { adapter: adapterLabel } : {}),
+          duration: Date.now() - stepStart,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
       throw rcError("RC5001", error, {
         message: "Filter predicate threw",
       });

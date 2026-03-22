@@ -65,8 +65,7 @@ export function EventDetail({
           </Text>
         </Text>
         <Text>
-          Time:{" "}
-          <Text bold>{event.timestamp.replace("T", " ").slice(0, 19)}</Text>
+          Time: <Text bold>{event.timestamp.replace("T", " ")}</Text>
         </Text>
       </Panel>
 

@@ -93,7 +93,21 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
       ...(adapterLabel ? { adapter: adapterLabel } : {}),
     });
 
-    const splitExchanges = await Promise.resolve(this.adapter.split(exchange));
+    let splitExchanges: Exchange<R>[];
+    try {
+      splitExchanges = await Promise.resolve(this.adapter.split(exchange));
+    } catch (error: unknown) {
+      context.emit(`route:${routeId}:step:failed` as const, {
+        routeId,
+        exchangeId: exchange.id,
+        correlationId,
+        operation: this.operation,
+        ...(adapterLabel ? { adapter: adapterLabel } : {}),
+        duration: Date.now() - stepStart,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
     const groupId = randomUUID();
 
     // Stash the parent exchange so aggregate can restore it

@@ -9,8 +9,12 @@ export interface ColumnDef<T> {
   width: number | "flex";
   /** Text alignment. Default: "left" */
   align?: "left" | "right";
-  /** Render cell content. Receives row data, selection state, and resolved column width. */
-  render: (row: T, selected: boolean, colWidth: number) => ReactNode;
+  /** Render cell content. `colWidth` is the resolved width for fixed columns, undefined for flex. */
+  render: (
+    row: T,
+    selected: boolean,
+    colWidth: number | undefined,
+  ) => ReactNode;
 }
 
 export interface TableProps<T> {
@@ -115,7 +119,7 @@ export function Table<T>({
             {columns.map((c, ci) => {
               const isLast = ci === columns.length - 1;
               const after = isLast ? "" : gapStr;
-              const resolved = c.width === "flex" ? 0 : c.width;
+              const resolved = c.width === "flex" ? undefined : c.width;
               const cell = c.render(row, selected, resolved);
 
               if (c.width === "flex") {

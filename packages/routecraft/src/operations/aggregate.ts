@@ -196,11 +196,13 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
     // Emit exchange:completed for each child being aggregated
     if (context) {
       for (const child of aggregationGroup) {
+        const childStart =
+          (child.headers["routecraft.startedAt"] as number) ?? Date.now();
         context.emit(`route:${routeId}:exchange:completed` as const, {
           routeId,
           exchangeId: child.id,
           correlationId: child.headers[HeadersKeys.CORRELATION_ID] as string,
-          duration: 0,
+          duration: Date.now() - childStart,
         });
       }
     }

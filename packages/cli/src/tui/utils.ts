@@ -25,7 +25,8 @@ export function statusColor(status: string): string {
   }
 }
 
-export function col(str: string, len: number): string {
+export function col(str: string, len: number | undefined): string {
+  if (len === undefined) return str;
   if (len <= 0) return "";
   if (str.length > len) return str.slice(0, len - 1) + "\u2026";
   return str.padEnd(len);
@@ -188,7 +189,7 @@ export function formatDetailColumns(
             ? `(${String(d["reason"]).slice(0, 8)})`
             : "";
       return {
-        step: "",
+        step: String(d["routeId"]),
         adapter: qualifier,
         exchange,
         duration,

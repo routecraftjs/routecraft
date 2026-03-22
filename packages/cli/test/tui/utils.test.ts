@@ -179,7 +179,7 @@ describe("formatDetailColumns", () => {
    * @preconditions JSON with routeId and exchangeId but no operation
    * @expectedResult Empty step, exchange ID truncated to 8 chars
    */
-  test("parses exchange event with empty step", () => {
+  test("parses exchange event with routeId in step", () => {
     const details = JSON.stringify({
       routeId: "my-route",
       exchangeId: "abcdef1234567890",
@@ -189,7 +189,7 @@ describe("formatDetailColumns", () => {
       "route:my-route:exchange:completed",
       details,
     );
-    expect(result.step).toBe("");
+    expect(result.step).toBe("my-route");
     expect(result.exchange).toBe("abcdef12");
     expect(result.duration).toBe("3.2s");
   });
