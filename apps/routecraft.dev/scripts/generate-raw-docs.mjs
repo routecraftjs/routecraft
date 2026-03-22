@@ -100,18 +100,40 @@ combined = combined.replace(
 )
 // 4. Collapse whitespace
 combined = combined.replace(/\n{3,}/g, '\n\n').trim() + '\n'
-const docsPath = path.join(OUT_DIR, 'docs.md')
-fs.mkdirSync(path.dirname(docsPath), { recursive: true })
-fs.writeFileSync(docsPath, combined, 'utf8')
 
-// -- Generate llms-full.txt (copy of docs.md for the llms.txt spec) --
-const llmsFullPath = path.join(ROOT, 'public', 'llms-full.txt')
-fs.writeFileSync(llmsFullPath, combined, 'utf8')
-
-// -- Generate llms.txt (structured index with links to raw markdown) --
+// -- Shared constants for generated docs headers --
 const BASE_URL = 'https://routecraft.dev'
 const DESCRIPTION =
   'Routecraft is a code-first TypeScript automation framework that bridges traditional integration patterns (ETL, webhooks, cron jobs) and AI-native workflows (MCP tool use). Write deterministic capabilities in TypeScript, expose them to AI agents via Model Context Protocol, and keep full control over what AI can access.'
+
+const PROJECT_LINKS = [
+  `- Website: <${BASE_URL}>`,
+  `- GitHub: <https://github.com/routecraftjs/routecraft>`,
+  `- npm: [@routecraft/routecraft](https://www.npmjs.com/package/@routecraft/routecraft)`,
+  `- npm: [@routecraft/ai](https://www.npmjs.com/package/@routecraft/ai)`,
+  `- npm: [@routecraft/cli](https://www.npmjs.com/package/@routecraft/cli)`,
+  `- npm: [@routecraft/browser](https://www.npmjs.com/package/@routecraft/browser)`,
+  `- npm: [@routecraft/testing](https://www.npmjs.com/package/@routecraft/testing)`,
+].join('\n')
+
+const docsHeader =
+  [
+    `# Routecraft`,
+    `> ${DESCRIPTION}`,
+    `## Links\n\n${PROJECT_LINKS}`,
+    '---',
+  ].join('\n\n') + '\n\n'
+
+// -- Write docs.md, llms-full.txt (both get the links header) --
+const withHeader = docsHeader + combined
+const docsPath = path.join(OUT_DIR, 'docs.md')
+fs.mkdirSync(path.dirname(docsPath), { recursive: true })
+fs.writeFileSync(docsPath, withHeader, 'utf8')
+
+const llmsFullPath = path.join(ROOT, 'public', 'llms-full.txt')
+fs.writeFileSync(llmsFullPath, withHeader, 'utf8')
+
+// -- Generate llms.txt (structured index with links to raw markdown) --
 
 // Build a short description for each page from its first non-heading paragraph
 function extractBlurb(cleaned) {
@@ -158,6 +180,7 @@ const llmsTxt =
   [
     `# Routecraft`,
     `> ${DESCRIPTION}`,
+    `## Links\n\n${PROJECT_LINKS}`,
     ...llmsSections,
     `## Optional`,
     [

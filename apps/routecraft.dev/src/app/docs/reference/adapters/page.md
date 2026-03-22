@@ -21,6 +21,7 @@ Full catalog of adapters with signatures and options. {% .lead %}
 | [`json`](#json) | File | JSON file handling with parsing | `Source`, `Destination`, `Transformer` |
 | [`csv`](#csv) | File | CSV file processing | `Source`, `Destination` |
 | [`html`](#html) | File | HTML parsing and file handling | `Source`, `Destination`, `Transformer` |
+| [`mail`](#mail) | Messaging | Read email via IMAP or send via SMTP | `Source`, `Destination` |
 | [`agentBrowser`](#agentbrowser) | Browser | Automate a browser session (navigate, click, snapshot, etc.) | `Destination` |
 | [`mcp`](#mcp) | AI | Expose capabilities as MCP tools or call remote MCP servers | `Source`, `Destination` |
 | [`llm`](#llm) | AI | Call a language model and get text or structured output | `Destination` |
@@ -1046,6 +1047,151 @@ All transformer options above, plus:
 - **Destination mode**: Writes HTML string (from `exchange.body` or `exchange.body.body`) to file
 
 **Exported types:** `HtmlAdapter`, `HtmlOptions`, `HtmlResult`
+
+## Messaging adapters
+
+### mail
+
+```ts
+mail(folder: string, options: Partial<MailServerOptions>): Source<MailMessage>
+mail(folder: string): Destination<unknown, MailFetchResult>
+mail(options: Partial<MailServerOptions>): Destination<unknown, MailFetchResult>
+mail(options?: Partial<MailClientOptions>): Destination<MailSendPayload, MailSendResult>
+```
+
+Read email via IMAP or send via SMTP. The adapter has three modes determined by the arguments you pass.
+
+**Source mode (IMAP push):** Pass a folder and options to receive new messages via IMAP IDLE or polling. Each new email becomes a separate exchange.
+
+```ts
+craft()
+  .id('inbox-watcher')
+  .from(mail('INBOX', { markSeen: true }))
+  .to(log())
+```
+
+**Fetch destination (IMAP pull):** Pass a folder string or server options to fetch messages. Use with `.enrich()` to pull mail on demand.
+
+```ts
+craft()
+  .id('check-inbox')
+  .from(cron('0 */5 * * * *'))
+  .enrich(mail('INBOX'))
+  .to(log())
+```
+
+**Send destination (SMTP):** Call with no arguments or client options to send email. The exchange body must be a `MailSendPayload`.
+
+```ts
+craft()
+  .id('send-welcome')
+  .from(direct('outbound', {}))
+  .to(mail())
+```
+
+**Combined read and send:**
+
+```ts
+// Forward unread mail to a different address
+craft()
+  .id('mail-forwarder')
+  .from(mail('INBOX', { unseen: true, markSeen: true }))
+  .transform((ex) => ({
+    to: 'team@example.com',
+    subject: `Fwd: ${ex.body.subject}`,
+    text: ex.body.text ?? '',
+  }))
+  .to(mail())
+```
+
+**Configuration via context store:**
+
+Mail connection details can be set once on the context so individual routes do not need to repeat them:
+
+```ts
+import { ContextBuilder, ADAPTER_MAIL_OPTIONS } from '@routecraft/routecraft'
+
+const ctx = new ContextBuilder()
+  .set(ADAPTER_MAIL_OPTIONS, {
+    auth: { user: 'me@gmail.com', pass: process.env.MAIL_APP_PASSWORD! },
+    imapHost: 'imap.gmail.com',
+    smtpHost: 'smtp.gmail.com',
+    from: 'me@gmail.com',
+  })
+  .routes([inboxWatcher, sendWelcome])
+  .build()
+```
+
+**Server options (`MailServerOptions`):**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `host` | `string` | | IMAP host (e.g. `'imap.gmail.com'`) |
+| `port` | `number` | `993` | IMAP port |
+| `secure` | `boolean` | `true` | Use TLS |
+| `auth` | `MailAuth` | | `{ user, pass }` credentials |
+| `folder` | `string` | `'INBOX'` | IMAP mailbox folder |
+| `markSeen` | `boolean` | `true` | Mark fetched messages as seen |
+| `since` | `Date` | | Only fetch messages since this date |
+| `unseen` | `boolean` | `true` | Only fetch unseen messages |
+| `limit` | `number` | | Maximum messages per fetch |
+| `pollIntervalMs` | `number` | | Poll interval in ms (default: IMAP IDLE) |
+
+**Client options (`MailClientOptions`):**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `host` | `string` | | SMTP host (e.g. `'smtp.gmail.com'`) |
+| `port` | `number` | `465` | SMTP port |
+| `secure` | `boolean` | `true` | Use TLS |
+| `auth` | `MailAuth` | | `{ user, pass }` credentials |
+| `from` | `string` | | Default sender address |
+| `replyTo` | `string` | | Default reply-to address |
+
+**`MailMessage` (exchange body in source/fetch modes):**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `uid` | `number` | IMAP UID |
+| `messageId` | `string` | Message-ID header |
+| `from` | `string` | Sender address |
+| `to` | `string \| string[]` | Recipient address(es) |
+| `subject` | `string` | Subject line |
+| `date` | `Date` | Date sent |
+| `text` | `string?` | Plain text body |
+| `html` | `string?` | HTML body |
+| `cc` | `string[]?` | CC recipients |
+| `bcc` | `string[]?` | BCC recipients |
+| `replyTo` | `string?` | Reply-to address |
+| `attachments` | `MailAttachment[]?` | File attachments |
+| `flags` | `Set<string>` | IMAP flags (e.g. `\Seen`, `\Flagged`) |
+
+**`MailSendPayload` (exchange body for `.to(mail())`):**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `to` | `string \| string[]` | Recipient address(es) |
+| `subject` | `string` | Subject line |
+| `text` | `string?` | Plain text body |
+| `html` | `string?` | HTML body |
+| `cc` | `string \| string[]?` | CC recipients |
+| `bcc` | `string \| string[]?` | BCC recipients |
+| `from` | `string?` | Sender (overrides option-level `from`) |
+| `replyTo` | `string?` | Reply-to (overrides option-level `replyTo`) |
+| `attachments` | `Array<{ filename, content, contentType? }>?` | File attachments |
+
+**`MailSendResult`:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `messageId` | `string` | Message-ID of the sent email |
+| `accepted` | `string[]` | Accepted recipient addresses |
+| `rejected` | `string[]` | Rejected recipient addresses |
+| `response` | `string` | SMTP server response string |
+
+**Exported types:** `MailAuth`, `MailServerOptions`, `MailClientOptions`, `MailOptions`, `MailMessage`, `MailAttachment`, `MailSendPayload`, `MailSendResult`, `MailFetchResult`, `ADAPTER_MAIL_OPTIONS`
+
+---
 
 ## Browser adapters
 

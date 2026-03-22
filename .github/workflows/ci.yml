@@ -282,7 +282,7 @@ jobs:
       - name: Restore repo (only paths set-version touched)
         run: |
           git checkout -- package.json examples/package.json \
-            packages/ai/package.json packages/cli/package.json \
+            packages/ai/package.json packages/browser/package.json packages/cli/package.json \
             packages/create-routecraft/package.json packages/eslint-plugin-routecraft/package.json packages/routecraft/package.json packages/testing/package.json \
             packages/cli/src/index.ts \
             apps/routecraft.dev/package.json apps/routecraft.dev/src/components/VersionSelector.tsx
@@ -290,7 +290,7 @@ jobs:
   publish-canary:
     needs: [changes, build, cli-test]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.packages == 'true'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     concurrency:
       group: publish-canary-${{ github.ref }}
       cancel-in-progress: true
@@ -358,7 +358,7 @@ jobs:
 
       - name: Publish canary to npm
         run: |
-          for pkg in packages/routecraft packages/cli packages/create-routecraft packages/eslint-plugin-routecraft packages/ai packages/testing; do
+          for pkg in packages/routecraft packages/cli packages/create-routecraft packages/eslint-plugin-routecraft packages/ai packages/browser packages/testing; do
             echo "Publishing $pkg..."
             npm publish "./$pkg" --tag canary --access public --provenance
           done
@@ -407,7 +407,7 @@ jobs:
   publish:
     needs: [build, cli-test]
     if: github.event_name == 'release'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     permissions:
       id-token: write
       contents: read
@@ -453,7 +453,7 @@ jobs:
 
       - name: Publish packages to npm
         run: |
-          for pkg in packages/routecraft packages/cli packages/create-routecraft packages/eslint-plugin-routecraft packages/ai packages/testing; do
+          for pkg in packages/routecraft packages/cli packages/create-routecraft packages/eslint-plugin-routecraft packages/ai packages/browser packages/testing; do
             echo "Publishing $pkg..."
             npm publish "./$pkg" --access public --provenance
           done

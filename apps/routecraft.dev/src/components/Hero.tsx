@@ -9,7 +9,6 @@ import { HeroBackground } from '@/components/HeroBackground'
 import blurCyanImage from '@/images/blur-cyan.png'
 import blurIndigoImage from '@/images/blur-indigo.png'
 
-const codeLanguage = 'typescript'
 const aiToolExample = `import { mcp } from '@routecraft/ai'
 import { craft, mail } from '@routecraft/routecraft'
 import { z } from 'zod'
@@ -21,12 +20,30 @@ export default craft()
     schema: z.object({
       to: z.string().email(),
       subject: z.string(),
-      message: z.string()
+      text: z.string()
     })
   }))
-  // Guardrail: Only allow emails to company domain
-  .filter(({ to }) => to.endsWith('@company.com'))
+  // Guardrail: only allow emails to company domain
+  .filter((ex) => ex.body.to.endsWith('@company.com'))
   .to(mail())`
+
+const contextExample = `import { ContextBuilder, ADAPTER_MAIL_OPTIONS }
+  from '@routecraft/routecraft'
+import sendTeamEmail from './capabilities/send-email'
+
+const ctx = new ContextBuilder()
+  .set(ADAPTER_MAIL_OPTIONS, {
+    auth: {
+      user: process.env.MAIL_USER!,
+      pass: process.env.MAIL_APP_PASSWORD!
+    },
+    smtpHost: 'smtp.gmail.com',
+    from: process.env.MAIL_USER!
+  })
+  .routes([sendTeamEmail])
+  .build()
+
+await ctx.start()`
 
 const mcpConfigExample = `{
   "mcpServers": {
@@ -45,10 +62,19 @@ const mcpConfigExample = `{
   }
 }`
 
-type CodeTab = { name: string; code: string }
+type CodeTab = { name: string; code: string; language: string }
 const tabs: CodeTab[] = [
-  { name: 'capabilities/send-email.ts', code: aiToolExample },
-  { name: 'claude_desktop_config.json', code: mcpConfigExample },
+  {
+    name: 'capabilities/send-email.ts',
+    code: aiToolExample,
+    language: 'typescript',
+  },
+  { name: 'context.ts', code: contextExample, language: 'typescript' },
+  {
+    name: 'claude_desktop_config.json',
+    code: mcpConfigExample,
+    language: 'json',
+  },
 ]
 
 function TrafficLightsIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
@@ -67,6 +93,7 @@ export function Hero() {
   )
   const active = tabs.find((t) => t.name === activeTab) ?? tabs[0]
   const code = active.code
+  const language = active.language
   return (
     <div className="overflow-hidden bg-gray-50 dark:-mt-19 dark:-mb-32 dark:bg-gray-950 dark:pt-19 dark:pb-32">
       <div className="py-16 sm:px-2 lg:relative lg:px-0 lg:py-20">
@@ -178,7 +205,7 @@ export function Hero() {
                     </div>
                     <Highlight
                       code={code}
-                      language={codeLanguage}
+                      language={language}
                       theme={{ plain: {}, styles: [] }}
                     >
                       {({
