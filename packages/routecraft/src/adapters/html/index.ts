@@ -1,6 +1,7 @@
 import type { Source } from "../../operations/from.ts";
 import type { Destination } from "../../operations/to.ts";
 import type { Transformer } from "../../operations/transform.ts";
+import type { Exchange } from "../../exchange.ts";
 import type { HtmlOptions, HtmlResult } from "./types.ts";
 import { HtmlTransformerAdapter } from "./transformer.ts";
 import { HtmlSourceAdapter } from "./source.ts";
@@ -27,7 +28,7 @@ export type HtmlAdapter<T = unknown, R = HtmlResult> = Transformer<T, R> &
  * - Supports file options: encoding, createDirs, mode
  *
  * @param options - selector, extract type, optional path for file I/O, optional from/to for transformer mode
- * @returns Combined adapter with Transformer, Source, and Destination interfaces
+ * @returns Transformer when no path; full HtmlAdapter (Transformer + Source + Destination) when path is provided
  *
  * @example
  * ```typescript
@@ -42,12 +43,23 @@ export type HtmlAdapter<T = unknown, R = HtmlResult> = Transformer<T, R> &
  * ```
  */
 export function html<T = unknown, R = HtmlResult>(
+  options: HtmlOptions<T, R> & {
+    path: string | ((exchange: Exchange) => string);
+  },
+): HtmlAdapter<T, R>;
+export function html<T = unknown, R = HtmlResult>(
+  options: HtmlOptions<T, R> & { path?: undefined },
+): Transformer<T, R> & { readonly adapterId: string };
+export function html<T = unknown, R = HtmlResult>(
   options: HtmlOptions<T, R>,
-): HtmlAdapter<T, R> {
+): Transformer<T, R> & { readonly adapterId: string };
+export function html<T = unknown, R = HtmlResult>(
+  options: HtmlOptions<T, R>,
+): (Transformer<T, R> & { readonly adapterId: string }) | HtmlAdapter<T, R> {
+  const transformer = new HtmlTransformerAdapter<T, R>(options);
   if (options.path) {
-    const transformer = new HtmlTransformerAdapter<T, R>(options);
     const source = new HtmlSourceAdapter<T, R>(options);
-    const destination = new HtmlDestinationAdapter<T, R>(options);
+    const destination = new HtmlDestinationAdapter(options);
     return {
       adapterId: "routecraft.adapter.html",
       transform: transformer.transform.bind(transformer),
@@ -55,21 +67,10 @@ export function html<T = unknown, R = HtmlResult>(
       send: destination.send,
     };
   }
-  const transformer = new HtmlTransformerAdapter<T, R>(options);
   return {
     adapterId: "routecraft.adapter.html",
     transform: transformer.transform.bind(transformer),
-    subscribe: () => {
-      throw new Error(
-        "html adapter: source mode requires path option to be provided",
-      );
-    },
-    send: () => {
-      throw new Error(
-        "html adapter: destination mode requires path option to be provided",
-      );
-    },
-  } as HtmlAdapter<T, R>;
+  };
 }
 
 // Re-export types

@@ -1,3 +1,4 @@
+import type { Destination } from "../../operations/to.ts";
 import { NoopDestinationAdapter } from "./destination.ts";
 
 /**
@@ -6,8 +7,8 @@ import { NoopDestinationAdapter } from "./destination.ts";
  * This can be useful for testing or as a placeholder.
  *
  * @template T The type of data this adapter processes
- * @returns A NoopDestinationAdapter instance
+ * @returns A Destination that discards all messages
  */
-export function noop<T = unknown>(): NoopDestinationAdapter<T> {
+export function noop<T = unknown>(): Destination<T> {
   return new NoopDestinationAdapter<T>();
 }

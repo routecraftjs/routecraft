@@ -1,21 +1,25 @@
 import type { Destination, CallableDestination } from "../../operations/to.ts";
 import type { Exchange } from "../../exchange.ts";
-import type { HtmlOptions, HtmlResult } from "./types.ts";
 import type { FileOptions } from "../file/types.ts";
 import { file } from "../file/index.ts";
+
+/** File-related options extracted from HtmlOptions. */
+interface HtmlFileFields {
+  path?: string | ((exchange: Exchange) => string);
+  mode?: "read" | "write" | "append";
+  encoding?: BufferEncoding;
+  createDirs?: boolean;
+}
 
 /**
  * HtmlDestinationAdapter writes HTML strings to files.
  * Only available when path option is provided.
  */
-export class HtmlDestinationAdapter<
-  T = unknown,
-  R = HtmlResult,
-> implements Destination<unknown, void> {
+export class HtmlDestinationAdapter implements Destination<unknown, void> {
   readonly adapterId = "routecraft.adapter.html";
   private readonly fileAdapter;
 
-  constructor(options: HtmlOptions<T, R>) {
+  constructor(options: HtmlFileFields) {
     if (!options.path) {
       throw new Error(
         "html adapter: destination mode requires path option to be provided",

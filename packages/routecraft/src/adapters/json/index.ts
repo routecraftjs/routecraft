@@ -1,3 +1,5 @@
+import type { Source } from "../../operations/from.ts";
+import type { Destination } from "../../operations/to.ts";
 import type { Transformer } from "../../operations/transform.ts";
 import type {
   JsonTransformerOptions,
@@ -9,11 +11,15 @@ import { JsonSourceAdapter } from "./source.ts";
 import { JsonDestinationAdapter } from "./destination.ts";
 import { isFileMode } from "./shared.ts";
 
+/** Combined JSON file adapter type exposing Source and Destination interfaces. */
+export type JsonFileAdapterType = Source<unknown> &
+  Destination<unknown, void> & { readonly adapterId: string };
+
 /**
  * JsonFileAdapter combines source and destination for JSON file operations.
  * Source is created lazily since dynamic paths are only valid for destinations.
  */
-export class JsonFileAdapter {
+class JsonFileAdapter implements JsonFileAdapterType {
   readonly adapterId = "routecraft.adapter.json.file";
   private _source: JsonSourceAdapter | undefined;
   private readonly destination: JsonDestinationAdapter;
@@ -74,10 +80,10 @@ export function json<T, R, V>(
 export function json<T = unknown, R = unknown, V = unknown>(
   options?: JsonTransformerOptions<T, R, V>,
 ): Transformer<T, R>;
-export function json(options: JsonFileOptions): JsonFileAdapter;
+export function json(options: JsonFileOptions): JsonFileAdapterType;
 export function json<T = unknown, R = unknown, V = unknown>(
   options: JsonOptions<T, R, V> = {},
-): Transformer<T, R> | Transformer<T, V> | JsonFileAdapter {
+): Transformer<T, R> | Transformer<T, V> | JsonFileAdapterType {
   if (isFileMode(options)) {
     return new JsonFileAdapter(options as JsonFileOptions);
   }
