@@ -43,7 +43,6 @@ export class AgentBrowserDestinationAdapter<
       if (
         key === "session" ||
         key === "headed" ||
-        key === "timeout" ||
         key === "json" ||
         key === "args"
       )
@@ -56,7 +55,10 @@ export class AgentBrowserDestinationAdapter<
 
     const cmds = buildLibraryCommand(exchange.id, this.command, resolved);
     if (cmds.length === 0) {
-      return { stdout: "", exitCode: 0 };
+      return {
+        stdout: `agent-browser: no command could be built for action "${this.command}"`,
+        exitCode: 1,
+      };
     }
 
     const manager = await getOrCreateManager(session, headed);

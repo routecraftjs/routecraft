@@ -17,7 +17,9 @@ interface HtmlFileFields {
  */
 export class HtmlDestinationAdapter implements Destination<unknown, void> {
   readonly adapterId = "routecraft.adapter.html";
-  private readonly fileAdapter;
+  private readonly fileAdapter: ReturnType<typeof file> | null;
+  private readonly fileBaseOpts: Omit<FileOptions, "path">;
+  private readonly pathOption: string | ((exchange: Exchange) => string);
 
   constructor(options: HtmlFileFields) {
     if (!options.path) {
@@ -25,15 +27,29 @@ export class HtmlDestinationAdapter implements Destination<unknown, void> {
         "html adapter: destination mode requires path option to be provided",
       );
     }
-    const fileOpts: FileOptions = { path: options.path };
-    if (options.mode !== undefined) fileOpts.mode = options.mode;
-    if (options.encoding !== undefined) fileOpts.encoding = options.encoding;
+    this.pathOption = options.path;
+    this.fileBaseOpts = {};
+    if (options.mode !== undefined) this.fileBaseOpts.mode = options.mode;
+    if (options.encoding !== undefined)
+      this.fileBaseOpts.encoding = options.encoding;
     if (options.createDirs !== undefined)
-      fileOpts.createDirs = options.createDirs;
-    this.fileAdapter = file(fileOpts);
+      this.fileBaseOpts.createDirs = options.createDirs;
+
+    // For static paths, create file adapter once; for dynamic paths, defer
+    if (typeof options.path === "string") {
+      this.fileAdapter = file({ path: options.path, ...this.fileBaseOpts });
+    } else {
+      this.fileAdapter = null;
+    }
   }
 
   send: CallableDestination<unknown, void> = async (exchange) => {
+    // Resolve dynamic path from the ORIGINAL exchange before mutating body
+    const resolvedPath =
+      typeof this.pathOption === "function"
+        ? this.pathOption(exchange)
+        : this.pathOption;
+
     // Extract HTML string from exchange body
     let htmlContent: string;
     if (typeof exchange.body === "string") {
@@ -57,7 +73,10 @@ export class HtmlDestinationAdapter implements Destination<unknown, void> {
       body: htmlContent,
     };
 
-    // Use file adapter to write HTML
-    await this.fileAdapter.send(modifiedExchange);
+    // Use pre-built adapter for static paths, or create one for dynamic paths
+    const adapter =
+      this.fileAdapter ?? file({ path: resolvedPath, ...this.fileBaseOpts });
+
+    await adapter.send(modifiedExchange);
   };
 }

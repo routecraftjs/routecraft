@@ -9,8 +9,6 @@ export interface AgentBrowserBaseOptions<T = unknown> {
   session?: Resolvable<T, string>;
   /** Run browser in headed mode (show window). */
   headed?: boolean;
-  /** Timeout in milliseconds. */
-  timeout?: number;
   /** Request JSON output and parse into result.parsed. */
   json?: boolean;
   /** Escape hatch: extra CLI flags (ignored in library mode). */
@@ -59,10 +57,6 @@ export interface AgentBrowserCommandMap<T = unknown> {
   };
   wait: {
     selector?: Resolvable<T, string>;
-    text?: string;
-    url?: string;
-    load?: string;
-    fn?: string;
     ms?: number;
   };
   close: Record<string, never>;

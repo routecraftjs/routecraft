@@ -44,6 +44,7 @@ interface AgentBrowserProtocolCommand {
 
 /** Session store: one BrowserManager per session id for split/aggregate isolation. */
 const sessionManagers = new Map<string, BrowserManager>();
+const sessionLaunches = new Map<string, Promise<BrowserManager>>();
 
 /**
  * Build agent-browser library command object from our (command, opts).
@@ -255,9 +256,15 @@ export async function getOrCreateManager(
   sessionId: string,
   headed: boolean,
 ): Promise<BrowserManager> {
-  let manager = sessionManagers.get(sessionId);
-  if (!manager) {
-    manager = new BrowserManager();
+  const existing = sessionManagers.get(sessionId);
+  if (existing) return existing;
+
+  // Deduplicate concurrent launches for the same session
+  const inFlight = sessionLaunches.get(sessionId);
+  if (inFlight) return inFlight;
+
+  const launch = (async () => {
+    const manager = new BrowserManager();
     await executeCommand(
       {
         id: sessionId,
@@ -267,8 +274,15 @@ export async function getOrCreateManager(
       manager,
     );
     sessionManagers.set(sessionId, manager);
+    return manager;
+  })();
+
+  sessionLaunches.set(sessionId, launch);
+  try {
+    return await launch;
+  } finally {
+    sessionLaunches.delete(sessionId);
   }
-  return manager;
 }
 
 /** Map agent-browser response data to stdout string for AgentBrowserResult. */

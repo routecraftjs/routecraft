@@ -1119,7 +1119,7 @@ craft()
 | `screenshot` | | Take a screenshot (optional `path`, `full`, `annotate`) |
 | `eval` | `js` | Evaluate JavaScript in the page |
 | `get` | `info` | Get page info: `text`, `html`, `value`, `title`, `url`, `count`, `attr`, `box`, `styles` (optional `selector`, `attr`) |
-| `wait` | | Wait for a condition (optional `selector`, `text`, `url`, `load`, `fn`, `ms`) |
+| `wait` | | Wait for a selector or timeout (optional `selector`, `ms`) |
 | `close` | | Close the browser session |
 | `back` | | Navigate back |
 | `forward` | | Navigate forward |
@@ -1134,7 +1134,6 @@ Command-specific option values that accept `Resolvable<T, V>` can be a static va
 |--------|------|---------|-------------|
 | `session` | `string \| (exchange) => string` | `exchange.id` | Override auto-session derived from exchange ID |
 | `headed` | `boolean` | `false` | Run browser in headed mode (show window) |
-| `timeout` | `number` | | Timeout in milliseconds |
 | `json` | `boolean` | `false` | Parse command output into `result.parsed` |
 | `args` | `string[]` | | Extra CLI flags (ignored in library mode) |
 

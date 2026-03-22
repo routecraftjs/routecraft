@@ -1,5 +1,5 @@
 import { describe, test, expect } from "vitest";
-import { cosine, type Comparator } from "../src/adapters/cosine/index.ts";
+import { cosine, type Comparator } from "@routecraft/routecraft";
 
 describe("cosine()", () => {
   /**

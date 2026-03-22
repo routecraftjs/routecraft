@@ -106,6 +106,12 @@ export class CronSourceAdapter
       throw new Error("cron jitterMs must be a non-negative number");
     }
 
+    // Resolve immediately if already aborted (avoids hanging when
+    // startAt/stopAt postpone the first tick indefinitely).
+    if (abortController.signal.aborted) {
+      return Promise.resolve();
+    }
+
     return new Promise<void>((resolve) => {
       let counter = 0;
       let settled = false;

@@ -35,7 +35,17 @@ export class JsonDestinationAdapter implements Destination<unknown, void> {
 
     let jsonString: string;
     try {
-      jsonString = JSON.stringify(exchange.body, replacer as never, formatting);
+      const result = JSON.stringify(
+        exchange.body,
+        replacer as never,
+        formatting,
+      );
+      if (result === undefined) {
+        throw new Error(
+          "value is not JSON-serializable (top-level undefined, function, or symbol)",
+        );
+      }
+      jsonString = result;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       throw new Error(`json adapter: failed to stringify JSON: ${message}`);

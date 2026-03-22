@@ -21,6 +21,11 @@ export class HtmlSourceAdapter<
         "html adapter: source mode requires path option to be provided",
       );
     }
+    if (typeof options.path !== "string") {
+      throw new Error(
+        "html adapter: source mode requires a static string path (dynamic paths are only supported for destinations)",
+      );
+    }
     const fileOpts: FileOptions = { path: options.path };
     if (options.mode !== undefined) fileOpts.mode = options.mode;
     if (options.encoding !== undefined) fileOpts.encoding = options.encoding;

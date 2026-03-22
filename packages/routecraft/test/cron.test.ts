@@ -369,49 +369,68 @@ describe("CronSourceAdapter", () => {
 
   /**
    * @case protect option prevents concurrent handler execution
-   * @preconditions CronSourceAdapter with per-second expression, jitterMs=2000, protect=true (default)
-   * @expectedResult Handler is called exactly once despite overlapping ticks during jitter
+   * @preconditions CronSourceAdapter with per-second expression, protect=true (default), slow handler
+   * @expectedResult Max in-flight count never exceeds 1
    */
   test("protect: true prevents concurrent handler execution", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
     const adapter = new CronSourceAdapter("* * * * * *", {
-      maxFires: 1,
-      jitterMs: 2000,
+      maxFires: 3,
     });
     const context = mockContext();
     const abortController = new AbortController();
-    const handler = vi.fn().mockResolvedValue({} as Exchange);
+    const handler = vi.fn().mockImplementation(async () => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      // Simulate slow work spanning multiple tick intervals
+      await new Promise((r) => setTimeout(r, 2500));
+      inFlight--;
+      return {} as Exchange;
+    });
 
     const promise = adapter.subscribe(context, handler, abortController);
 
-    await advanceTime(5000);
+    await advanceTime(10000);
 
     abortController.abort();
     await promise;
 
-    expect(handler).toHaveBeenCalledTimes(1);
+    expect(maxInFlight).toBe(1);
+    expect(handler).toHaveBeenCalled();
   });
 
   /**
    * @case protect: false allows concurrent handler execution
-   * @preconditions CronSourceAdapter with per-second expression, protect=false, maxFires=3
-   * @expectedResult Handler can be called concurrently when protect is disabled
+   * @preconditions CronSourceAdapter with per-second expression, protect=false, slow handler
+   * @expectedResult Max in-flight count exceeds 1 (overlap occurs)
    */
   test("protect: false allows overlapping handler calls", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
     const adapter = new CronSourceAdapter("* * * * * *", {
       protect: false,
       maxFires: 3,
     });
     const context = mockContext();
     const abortController = new AbortController();
-    const handler = vi.fn().mockResolvedValue({} as Exchange);
+    const handler = vi.fn().mockImplementation(async () => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      // Simulate slow work spanning multiple tick intervals
+      await new Promise((r) => setTimeout(r, 2500));
+      inFlight--;
+      return {} as Exchange;
+    });
 
     const promise = adapter.subscribe(context, handler, abortController);
 
-    await advanceTime(5000);
+    await advanceTime(10000);
 
     abortController.abort();
     await promise;
 
+    expect(maxInFlight).toBeGreaterThan(1);
     expect(handler).toHaveBeenCalledTimes(3);
   });
 
