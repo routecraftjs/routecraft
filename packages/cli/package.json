@@ -10,17 +10,13 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
-    },
-    "./runner": {
-      "import": "./dist/runner.js",
-      "types": "./dist/runner.d.ts"
     }
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsup src/index.ts src/runner.ts src/tui/app.tsx src/tui/db.ts --format esm --dts --external react --external ink --external better-sqlite3",
+    "build": "tsup src/index.ts src/tui/app.tsx src/tui/db.ts --format esm --dts --external react --external ink --external better-sqlite3",
     "test": "vitest",
     "test:coverage": "vitest --coverage",
     "prepublishOnly": "pnpm run build"
@@ -28,7 +24,6 @@
   "dependencies": {
     "@opentelemetry/sdk-trace-base": "^2.6.0",
     "@routecraft/routecraft": "^0.5.0",
-    "@routecraft/os": "workspace:^0.5.0",
     "agent-browser": "^0.17.1",
     "better-sqlite3": "^11.10.0",
     "cheerio": "^1.2.0",

@@ -6,14 +6,14 @@ Turn your capabilities into a typed CLI tool with flags, help text, and schema v
 
 ## How it works
 
-The `cli()` adapter turns routecraft routes into CLI commands. Each `cli()` source defines one command; its schema properties become named flags. When all routes in a file use `cli()` sources, `craft run` enters CLI mode and dispatches to the right command based on argv.
+The `cli()` adapter turns routecraft routes into CLI commands. Each `cli()` source defines one command; its schema properties become named flags. The adapter handles everything internally: help printing, unknown-command errors, flag parsing, validation, and dispatch.
 
 For standalone packaging, the `cliRunner()` helper lets you bypass `craft run` entirely and ship your file as a named binary.
 
 ## Install
 
 ```bash
-npm install @routecraft/routecraft @routecraft/os @routecraft/cli zod
+npm install @routecraft/routecraft @routecraft/os zod
 ```
 
 Any [Standard Schema](https://standardschema.dev)-compliant library works in place of Zod (Valibot, ArkType, etc.).
@@ -68,14 +68,13 @@ craft run mycli.ts greet --help
 
 ## Package as a standalone binary
 
-Use `cliRunner()` to run routes directly without `craft run`. Import it from `@routecraft/cli/runner` to avoid triggering the CLI argument parser.
+Use `cliRunner()` from `@routecraft/os` to run routes directly without `craft run`.
 
 ```ts
 #!/usr/bin/env tsx
 // mycli.ts
 import { craft } from '@routecraft/routecraft';
-import { cli } from '@routecraft/os';
-import { cliRunner } from '@routecraft/cli/runner';
+import { cli, cliRunner } from '@routecraft/os';
 import { z } from 'zod';
 
 const routes = [
@@ -90,7 +89,7 @@ const routes = [
 ];
 
 export default routes;
-await cliRunner(routes, { name: 'myclid' });
+await cliRunner(routes, { name: 'mycli' });
 ```
 
 Add a `bin` entry to your `package.json`:
@@ -98,7 +97,7 @@ Add a `bin` entry to your `package.json`:
 ```json
 {
   "bin": {
-    "myclid": "./src/mycli.ts"
+    "mycli": "./src/mycli.ts"
   }
 }
 ```
@@ -106,9 +105,9 @@ Add a `bin` entry to your `package.json`:
 After `npm link` or publishing:
 
 ```bash
-myclid greet --name World    # Hello, World!
-myclid                        # shows help
-myclid greet --help           # per-command help
+mycli greet --name World    # Hello, World!
+mycli                        # shows help
+mycli greet --help           # per-command help
 ```
 
 ### cliRunner options
@@ -172,10 +171,6 @@ Help is auto-generated from command metadata:
 - **Per-command help** (`<command> --help`): shows flags with types, required markers, defaults, and descriptions
 
 Flag descriptions come from the schema's `.describe()` calls (Zod) or equivalent in your schema library.
-
-## One file per CLI
-
-All routes in a CLI-mode file must use `cli()` sources. Mixing `cli()` with other adapters (`http`, `mcp`, `direct`, etc.) in the same file produces an error. Move non-CLI routes to a separate file.
 
 ---
 

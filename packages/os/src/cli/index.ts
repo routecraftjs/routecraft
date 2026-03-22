@@ -11,9 +11,9 @@ import type { CliServerOptions } from "./types";
  * Schema properties become named flags (`--flag-name <value>`). Help text is
  * auto-generated from schema descriptions.
  *
- * When all routes in a file use `cli()` sources, `craft run` enters CLI mode:
- * - `craft run mycli.ts` -- lists all commands
- * - `craft run mycli.ts <command> [--flag value ...]` -- runs the matched command
+ * The adapter is self-sufficient: it handles help printing, unknown-command
+ * errors, flag parsing, validation, and dispatch internally. No external
+ * runner needs to know about CLI-specific logic.
  *
  * Use `cli.stdout()` and `cli.stderr()` as destinations to write output.
  *
@@ -91,13 +91,15 @@ export type {
   CliRouteMetadata,
 } from "./types";
 
-// Re-export store keys, parsed args type, and discovery utilities
+// Re-export store keys, discovery utilities, and help generators
 export {
   ADAPTER_CLI_REGISTRY,
-  ADAPTER_CLI_ARGS,
-  type CliParsedArgs,
   isCliSource,
   getCliRegistry,
   parseFlags,
   extractJsonSchema,
 } from "./shared";
+
+export { generateHelp, generateCommandHelp } from "./help";
+
+export { cliRunner } from "./runner";

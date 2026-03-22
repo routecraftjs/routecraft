@@ -13,36 +13,23 @@ export const ADAPTER_CLI_REGISTRY = Symbol.for(
 );
 
 /**
- * Store key for parsed CLI arguments set by the CLI runner before `context.start()`.
- *
- * Set this store before calling `context.start()` to dispatch a CLI command.
- * @experimental
+ * Store key used internally to ensure help/error output is printed at most
+ * once when multiple CLI sources detect a help or unknown-command condition.
+ * @internal
  */
-export const ADAPTER_CLI_ARGS = Symbol.for("routecraft.adapter.cli.args");
-
-/**
- * Parsed CLI invocation stored in context before route execution.
- * @experimental
- */
-export interface CliParsedArgs {
-  /** The command name from argv, or undefined if none provided (discovery pass). */
-  command: string | undefined;
-  /** Raw argument tokens after the command name. */
-  rawArgs: string[];
-}
+export const ADAPTER_CLI_HELP_HANDLED = Symbol.for(
+  "routecraft.adapter.cli.help-handled",
+);
 
 declare module "@routecraft/routecraft" {
   interface StoreRegistry {
     [ADAPTER_CLI_REGISTRY]: Map<string, CliRouteMetadata>;
-    [ADAPTER_CLI_ARGS]: CliParsedArgs;
+    [ADAPTER_CLI_HELP_HANDLED]: boolean;
   }
 }
 
 /**
  * Returns true if the given source adapter is a CLI source adapter.
- *
- * Use this to detect whether a file is in CLI mode before calling
- * `context.start()`.
  *
  * @param source - Any value; typically a `Source` from a `RouteDefinition`
  * @returns `true` if the source was created with `cli()`

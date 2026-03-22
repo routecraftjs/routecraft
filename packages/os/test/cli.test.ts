@@ -1,10 +1,9 @@
 import { describe, test, expect, afterEach, vi } from "vitest";
 import { z } from "zod";
 import { testContext, type TestContext } from "@routecraft/testing";
-import { craft, noop } from "@routecraft/routecraft";
+import { craft, noop, RUNNER_ARGV } from "@routecraft/routecraft";
 import {
   cli,
-  ADAPTER_CLI_ARGS,
   ADAPTER_CLI_REGISTRY,
   isCliSource,
   parseFlags,
@@ -191,17 +190,14 @@ describe("CLI source adapter dispatch", () => {
 
   /**
    * @case Matched command fires handler with parsed flags
-   * @preconditions ADAPTER_CLI_ARGS store set with matching command and flags
+   * @preconditions RUNNER_ARGV store set with matching command and flags
    * @expectedResult Handler called once with parsed flag values
    */
   test("matched command dispatches with parsed flags", async () => {
     const consumer = vi.fn();
 
     t = await testContext()
-      .store(ADAPTER_CLI_ARGS, {
-        command: "greet",
-        rawArgs: ["--name", "Alice"],
-      })
+      .store(RUNNER_ARGV, ["greet", "--name", "Alice"])
       .routes([craft().id("greet").from(cli("greet")).to(consumer)])
       .build();
 
@@ -212,14 +208,14 @@ describe("CLI source adapter dispatch", () => {
 
   /**
    * @case Unmatched command does not fire handler
-   * @preconditions ADAPTER_CLI_ARGS has a different command name
+   * @preconditions RUNNER_ARGV has a different command name
    * @expectedResult Handler is never called
    */
   test("unmatched command does not fire handler", async () => {
     const consumer = vi.fn();
 
     t = await testContext()
-      .store(ADAPTER_CLI_ARGS, { command: "other", rawArgs: [] })
+      .store(RUNNER_ARGV, ["other"])
       .routes([craft().id("greet").from(cli("greet")).to(consumer)])
       .build();
 
@@ -228,11 +224,11 @@ describe("CLI source adapter dispatch", () => {
   });
 
   /**
-   * @case No CLI args in store does not fire handler
-   * @preconditions ADAPTER_CLI_ARGS not set in context (discovery pass)
+   * @case No RUNNER_ARGV in store does not fire handler
+   * @preconditions RUNNER_ARGV not set in context (programmatic use)
    * @expectedResult Handler is never called
    */
-  test("no CLI args in store skips handler", async () => {
+  test("no RUNNER_ARGV in store skips handler", async () => {
     const consumer = vi.fn();
 
     t = await testContext()
@@ -253,10 +249,7 @@ describe("CLI source adapter dispatch", () => {
     const deployConsumer = vi.fn();
 
     t = await testContext()
-      .store(ADAPTER_CLI_ARGS, {
-        command: "greet",
-        rawArgs: ["--name", "World"],
-      })
+      .store(RUNNER_ARGV, ["greet", "--name", "World"])
       .routes([
         craft().id("greet").from(cli("greet")).to(greetConsumer),
         craft().id("deploy").from(cli("deploy")).to(deployConsumer),
@@ -270,12 +263,12 @@ describe("CLI source adapter dispatch", () => {
 
   /**
    * @case CLI registry is populated during subscribe
-   * @preconditions Two CLI routes built and started with discovery args
+   * @preconditions Two CLI routes built and started with RUNNER_ARGV
    * @expectedResult Both commands appear in ADAPTER_CLI_REGISTRY store
    */
   test("commands are registered in CLI registry", async () => {
     t = await testContext()
-      .store(ADAPTER_CLI_ARGS, { command: undefined, rawArgs: [] })
+      .store(RUNNER_ARGV, [])
       .routes([
         craft()
           .id("greet")
@@ -295,6 +288,60 @@ describe("CLI source adapter dispatch", () => {
     expect(registry!.has("greet")).toBe(true);
     expect(registry!.get("greet")!.description).toBe("Say hello");
     expect(registry!.has("deploy")).toBe(true);
+  });
+
+  /**
+   * @case Help is printed when no command given
+   * @preconditions RUNNER_ARGV is empty array
+   * @expectedResult console.log called with help text containing command names
+   */
+  test("prints help when no command given", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    t = await testContext()
+      .store(RUNNER_ARGV, [])
+      .routes([
+        craft()
+          .id("greet")
+          .from(cli("greet", { description: "Say hello" }))
+          .to(noop()),
+        craft()
+          .id("deploy")
+          .from(cli("deploy", { description: "Deploy the app" }))
+          .to(noop()),
+      ])
+      .build();
+
+    await t.test();
+
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    const helpText = logSpy.mock.calls[0]![0] as string;
+    expect(helpText).toContain("greet");
+    expect(helpText).toContain("deploy");
+    expect(helpText).toContain("Say hello");
+    logSpy.mockRestore();
+  });
+
+  /**
+   * @case Unknown command prints error
+   * @preconditions RUNNER_ARGV contains a command not in any route
+   * @expectedResult console.error called with unknown command message
+   */
+  test("prints error for unknown command", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    t = await testContext()
+      .store(RUNNER_ARGV, ["nonexistent"])
+      .routes([craft().id("greet").from(cli("greet")).to(noop())])
+      .build();
+
+    await t.test();
+
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    const errorText = errorSpy.mock.calls[0]![0] as string;
+    expect(errorText).toContain('Unknown command: "nonexistent"');
+    expect(errorText).toContain("greet");
+    errorSpy.mockRestore();
   });
 });
 
@@ -318,10 +365,7 @@ describe("CLI source adapter schema validation", () => {
     const schema = z.object({ name: z.string(), count: z.number() });
 
     t = await testContext()
-      .store(ADAPTER_CLI_ARGS, {
-        command: "run",
-        rawArgs: ["--name", "test", "--count", "5"],
-      })
+      .store(RUNNER_ARGV, ["run", "--name", "test", "--count", "5"])
       .routes([craft().id("run").from(cli("run", { schema })).to(consumer)])
       .build();
 
@@ -340,7 +384,7 @@ describe("CLI source adapter schema validation", () => {
     const schema = z.object({ name: z.string() });
 
     t = await testContext()
-      .store(ADAPTER_CLI_ARGS, { command: "greet", rawArgs: [] })
+      .store(RUNNER_ARGV, ["greet"])
       .routes([craft().id("greet").from(cli("greet", { schema })).to(consumer)])
       .build();
 
@@ -363,7 +407,7 @@ describe("CLI source adapter schema validation", () => {
     });
 
     t = await testContext()
-      .store(ADAPTER_CLI_ARGS, { command: "greet", rawArgs: ["--name", "Bob"] })
+      .store(RUNNER_ARGV, ["greet", "--name", "Bob"])
       .routes([craft().id("greet").from(cli("greet", { schema })).to(consumer)])
       .build();
 
@@ -396,7 +440,7 @@ describe("CLI destination adapter", () => {
       .mockImplementation(() => true);
 
     t = await testContext()
-      .store(ADAPTER_CLI_ARGS, { command: "hello", rawArgs: [] })
+      .store(RUNNER_ARGV, ["hello"])
       .routes([
         craft()
           .id("hello")
@@ -422,7 +466,7 @@ describe("CLI destination adapter", () => {
       .mockImplementation(() => true);
 
     t = await testContext()
-      .store(ADAPTER_CLI_ARGS, { command: "info", rawArgs: [] })
+      .store(RUNNER_ARGV, ["info"])
       .routes([
         craft()
           .id("info")
@@ -453,7 +497,7 @@ describe("CLI destination adapter", () => {
       .mockImplementation(() => true);
 
     t = await testContext()
-      .store(ADAPTER_CLI_ARGS, { command: "err", rawArgs: [] })
+      .store(RUNNER_ARGV, ["err"])
       .routes([
         craft()
           .id("err")

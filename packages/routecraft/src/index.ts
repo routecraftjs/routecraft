@@ -14,6 +14,7 @@ export {
   CraftContext,
   type MergedOptions,
   type StoreRegistry,
+  RUNNER_ARGV,
   type CraftConfig,
   type CraftPlugin,
 } from "./context.ts";

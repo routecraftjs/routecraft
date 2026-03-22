@@ -1,4 +1,5 @@
-import { type CliRouteMetadata, extractJsonSchema } from "@routecraft/os";
+import type { CliRouteMetadata } from "./types";
+import { extractJsonSchema } from "./shared";
 
 function kebabCase(str: string): string {
   return str.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
@@ -7,7 +8,7 @@ function kebabCase(str: string): string {
 /**
  * Generate formatted help text listing all registered CLI commands.
  *
- * @param scriptName - Basename of the script file (e.g. "mycli.ts")
+ * @param scriptName - Binary/script name shown in usage line
  * @param registry - Map of command name to metadata from the CLI registry
  * @returns Formatted multi-line help string
  */
@@ -38,7 +39,7 @@ export function generateHelp(
 /**
  * Generate help text for a single CLI command, including its flags.
  *
- * @param scriptName - Basename of the script file
+ * @param scriptName - Binary/script name shown in usage line
  * @param command - The command name
  * @param meta - Command metadata from the CLI registry
  * @returns Formatted multi-line help string
