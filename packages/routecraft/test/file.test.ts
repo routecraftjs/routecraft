@@ -1,7 +1,6 @@
 import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
 import { craft, simple, file } from "@routecraft/routecraft";
-import { FileAdapter } from "../src/adapters/file.ts";
 import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -110,7 +109,7 @@ describe("File Adapter", () => {
      * @expectedResult Error indicating dynamic paths only for destinations
      */
     test("throws error when path is function in source mode", async () => {
-      const adapter = new FileAdapter({ path: () => "dynamic.txt" });
+      const adapter = file({ path: () => "dynamic.txt" });
 
       await expect(
         adapter.subscribe(
@@ -360,7 +359,7 @@ describe("File Adapter", () => {
      * @expectedResult adapterId is "routecraft.adapter.file"
      */
     test("has correct adapterId", () => {
-      const adapter = new FileAdapter({ path: "test.txt" });
+      const adapter = file({ path: "test.txt" });
       expect(adapter.adapterId).toBe("routecraft.adapter.file");
     });
   });

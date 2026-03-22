@@ -92,18 +92,17 @@ export { SimpleConsumer } from "./consumers/simple.ts";
 export { BatchConsumer, type BatchOptions } from "./consumers/batch.ts";
 
 export { simple } from "./adapters/simple/index.ts";
-export { noop } from "./adapters/noop.ts";
+export { noop } from "./adapters/noop/index.ts";
 export { log, debug } from "./adapters/log/index.ts";
 export { direct } from "./adapters/direct/index.ts";
 export { timer } from "./adapters/timer/index.ts";
 export { cron } from "./adapters/cron/index.ts";
 export { http } from "./adapters/http/index.ts";
-export { browser } from "./adapters/browser.ts";
-export { file } from "./adapters/file.ts";
-export { html } from "./adapters/html.ts";
-export { json } from "./adapters/json.ts";
-export { csv } from "./adapters/csv.ts";
-export { group } from "./adapters/group.ts";
+export { file } from "./adapters/file/index.ts";
+export { html } from "./adapters/html/index.ts";
+export { json } from "./adapters/json/index.ts";
+export { csv } from "./adapters/csv/index.ts";
+export { group } from "./adapters/group/index.ts";
 export { event } from "./adapters/sources/event/index.ts";
 
 export { type LogOptions, type LogLevel } from "./adapters/log/index.ts";
@@ -132,26 +131,20 @@ export {
   type CronOptions,
   ADAPTER_CRON_OPTIONS,
 } from "./adapters/cron/index.ts";
-export {
-  type BrowserBaseOptions,
-  type BrowserCommandMap,
-  type BrowserCommand,
-  type BrowserResult,
-} from "./adapters/browser.ts";
-export { type FileOptions } from "./adapters/file.ts";
-export { type HtmlOptions, type HtmlResult } from "./adapters/html.ts";
+export { type FileOptions } from "./adapters/file/index.ts";
+export { type HtmlOptions, type HtmlResult } from "./adapters/html/index.ts";
 export {
   type JsonOptions,
   type JsonTransformerOptions,
   type JsonFileOptions,
-} from "./adapters/json.ts";
-export { type CsvOptions } from "./adapters/csv.ts";
-export { type GroupOptions } from "./adapters/group.ts";
+} from "./adapters/json/index.ts";
+export { type CsvOptions } from "./adapters/csv/index.ts";
+export { type GroupOptions } from "./adapters/group/index.ts";
 export {
   cosine,
   type CosineOptions,
   type Comparator,
-} from "./adapters/cosine.ts";
+} from "./adapters/cosine/index.ts";
 export {
   type EventFilter,
   type EventSourceOptions,

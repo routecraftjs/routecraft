@@ -1,35 +1,30 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
+import { craft, simple } from "@routecraft/routecraft";
 import {
-  craft,
-  simple,
-  browser,
-  type BrowserResult,
-} from "@routecraft/routecraft";
-import { sanitizeSessionId } from "../src/adapters/browser.ts";
+  agentBrowser,
+  type AgentBrowserResult,
+  sanitizeSessionId,
+} from "@routecraft/browser";
+
+type CommandArg = { id: string; action: string; [key: string]: unknown };
+type CommandResult = Promise<{
+  success: boolean;
+  data?: Record<string, unknown>;
+  error?: string;
+}>;
 
 const { executeCommandMock, BrowserManagerMock } = vi.hoisted(() => ({
-  executeCommandMock: vi.fn<
-    [
-      cmd: { id: string; action: string; [key: string]: unknown },
-      manager: unknown,
-    ],
-    Promise<{
-      success: boolean;
-      data?: Record<string, unknown>;
-      error?: string;
-    }>
-  >(),
+  executeCommandMock:
+    vi.fn<(cmd: CommandArg, manager: unknown) => CommandResult>(),
   BrowserManagerMock: vi.fn(function BrowserManager(this: unknown) {
     return {};
   }),
 }));
 
 vi.mock("agent-browser/dist/actions.js", () => ({
-  executeCommand: (
-    cmd: { id: string; action: string; [key: string]: unknown },
-    manager: unknown,
-  ) => executeCommandMock(cmd, manager),
+  executeCommand: (cmd: CommandArg, manager: unknown) =>
+    executeCommandMock(cmd, manager),
 }));
 
 vi.mock("agent-browser/dist/browser.js", () => ({
@@ -41,22 +36,20 @@ describe("Browser Adapter", () => {
 
   beforeEach(() => {
     executeCommandMock.mockClear();
-    executeCommandMock.mockImplementation(
-      async (cmd: { action: string; [key: string]: unknown }) => {
-        if (cmd.action === "launch")
-          return { success: true, data: { launched: true } };
-        if (cmd.action === "navigate")
-          return {
-            success: true,
-            data: { url: cmd.url ?? "", title: "" },
-          };
-        if (cmd.action === "snapshot")
-          return { success: true, data: { snapshot: "mock stdout" } };
-        if (cmd.action === "close")
-          return { success: true, data: { closed: true } };
-        return { success: true, data: {} };
-      },
-    );
+    executeCommandMock.mockImplementation(async (cmd: CommandArg) => {
+      if (cmd.action === "launch")
+        return { success: true, data: { launched: true } };
+      if (cmd.action === "navigate")
+        return {
+          success: true,
+          data: { url: cmd["url"] ?? "", title: "" },
+        };
+      if (cmd.action === "snapshot")
+        return { success: true, data: { snapshot: "mock stdout" } };
+      if (cmd.action === "close")
+        return { success: true, data: { closed: true } };
+      return { success: true, data: {} };
+    });
   });
 
   afterEach(async () => {
@@ -100,7 +93,7 @@ describe("Browser Adapter", () => {
   describe("argument building and session", () => {
     /**
      * @case Browser adapter calls executeCommand with snapshot and session via manager
-     * @preconditions Route with browser("snapshot") enrich step
+     * @preconditions Route with agentBrowser("snapshot") enrich step
      * @expectedResult executeCommand called with launch then snapshot (session isolation)
      */
     test("executeCommand called with snapshot after launch for session", async () => {
@@ -111,7 +104,7 @@ describe("Browser Adapter", () => {
           craft()
             .id("browser-session-test")
             .from(simple("trigger"))
-            .enrich(browser("snapshot"))
+            .enrich(agentBrowser("snapshot"))
             .to(s),
         )
         .build();
@@ -126,10 +119,10 @@ describe("Browser Adapter", () => {
 
     /**
      * @case open command results in navigate with url
-     * @preconditions browser("open", { url }) in route
+     * @preconditions agentBrowser("open", { url }) in route
      * @expectedResult executeCommand called with navigate action and url
      */
-    test("browser(open, { url }) calls navigate with url", async () => {
+    test("agentBrowser(open, { url }) calls navigate with url", async () => {
       const s = spy();
       const url = "https://example.com";
 
@@ -138,7 +131,7 @@ describe("Browser Adapter", () => {
           craft()
             .id("browser-open-test")
             .from(simple("trigger"))
-            .enrich(browser("open", { url }))
+            .enrich(agentBrowser("open", { url }))
             .to(s),
         )
         .build();
@@ -149,12 +142,12 @@ describe("Browser Adapter", () => {
         (c) => c[0].action === "navigate",
       );
       expect(navigateCall).toBeDefined();
-      expect(navigateCall![0].url).toBe(url);
+      expect(navigateCall![0]["url"]).toBe(url);
     });
 
     /**
      * @case open url resolved from exchange body via function option
-     * @preconditions browser("open", { url: (e) => e.body.link }) with body containing link
+     * @preconditions agentBrowser("open", { url: (e) => e.body.link }) with body containing link
      * @expectedResult executeCommand navigate uses resolved url from exchange
      */
     test("dynamic url from exchange body", async () => {
@@ -165,7 +158,7 @@ describe("Browser Adapter", () => {
           craft()
             .id("browser-dynamic-url")
             .from(simple({ link: "https://dynamic.example.com" }))
-            .enrich(browser("open", { url: (e) => e.body.link }))
+            .enrich(agentBrowser("open", { url: (e) => e.body.link }))
             .to(s),
         )
         .build();
@@ -176,15 +169,15 @@ describe("Browser Adapter", () => {
         (c) => c[0].action === "navigate",
       );
       expect(navigateCall).toBeDefined();
-      expect(navigateCall![0].url).toBe("https://dynamic.example.com");
+      expect(navigateCall![0]["url"]).toBe("https://dynamic.example.com");
     });
 
     /**
      * @case close command invokes close action
-     * @preconditions browser("close") in route
+     * @preconditions agentBrowser("close") in route
      * @expectedResult executeCommand called with close action
      */
-    test("browser(close) passes close command", async () => {
+    test("agentBrowser(close) passes close command", async () => {
       const s = spy();
 
       t = await testContext()
@@ -192,7 +185,7 @@ describe("Browser Adapter", () => {
           craft()
             .id("browser-close-test")
             .from(simple("trigger"))
-            .to(browser("close"))
+            .to(agentBrowser("close"))
             .to(s),
         )
         .build();
@@ -208,11 +201,11 @@ describe("Browser Adapter", () => {
 
   describe("option resolution", () => {
     /**
-     * @case enrich with browser returns result with stdout and exitCode
-     * @preconditions Route with browser("snapshot") enrich, mock returns snapshot data
-     * @expectedResult Enriched body has stdout and exitCode from BrowserResult
+     * @case enrich with agentBrowser returns result with stdout and exitCode
+     * @preconditions Route with agentBrowser("snapshot") enrich, mock returns snapshot data
+     * @expectedResult Enriched body has stdout and exitCode from AgentBrowserResult
      */
-    test("returns BrowserResult with stdout and exitCode", async () => {
+    test("returns AgentBrowserResult with stdout and exitCode", async () => {
       const s = spy();
 
       t = await testContext()
@@ -220,7 +213,7 @@ describe("Browser Adapter", () => {
           craft()
             .id("browser-result-test")
             .from(simple("trigger"))
-            .enrich(browser("snapshot"))
+            .enrich(agentBrowser("snapshot"))
             .to(s),
         )
         .build();
@@ -228,7 +221,7 @@ describe("Browser Adapter", () => {
       await t.ctx.start();
 
       expect(s.received).toHaveLength(1);
-      const enrichedBody = s.received[0].body as BrowserResult & {
+      const enrichedBody = s.received[0].body as AgentBrowserResult & {
         stdout: string;
         exitCode: number;
       };
@@ -238,11 +231,11 @@ describe("Browser Adapter", () => {
 
     /**
      * @case json option sets result.parsed to response data
-     * @preconditions browser("snapshot", { json: true })
+     * @preconditions agentBrowser("snapshot", { json: true })
      * @expectedResult result.parsed is the command response data
      */
     test("json option parses stdout into result.parsed", async () => {
-      executeCommandMock.mockImplementation(async (cmd) => {
+      executeCommandMock.mockImplementation(async (cmd: CommandArg) => {
         if (cmd.action === "launch")
           return { success: true, data: { launched: true } };
         if (cmd.action === "snapshot")
@@ -259,7 +252,7 @@ describe("Browser Adapter", () => {
           craft()
             .id("browser-json-test")
             .from(simple("trigger"))
-            .enrich(browser("snapshot", { json: true }))
+            .enrich(agentBrowser("snapshot", { json: true }))
             .to(s),
         )
         .build();
@@ -267,7 +260,7 @@ describe("Browser Adapter", () => {
       await t.ctx.start();
 
       expect(s.received).toHaveLength(1);
-      const result = s.received[0].body as BrowserResult;
+      const result = s.received[0].body as AgentBrowserResult;
       expect(result.parsed).toEqual({
         snapshot: "tree",
         refs: { e1: { role: "button" } },

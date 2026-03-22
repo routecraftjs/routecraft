@@ -30,7 +30,8 @@ export interface CronOptions {
   timezone?: string;
 
   /**
-   * Maximum number of times the cron job will fire before stopping
+   * Maximum number of times the cron job will fire before stopping.
+   * Delegated to croner's `maxRuns` option.
    * @default Infinity
    */
   maxFires?: number;
@@ -49,4 +50,26 @@ export interface CronOptions {
    * @default undefined
    */
   name?: string;
+
+  /**
+   * If true, prevents the job from running if the previous execution
+   * (including any jitter delay) is still in progress. Delegated to
+   * croner's `protect` option.
+   * @default true
+   */
+  protect?: boolean;
+
+  /**
+   * Date or ISO 8601 string at which the cron job should start running.
+   * Ticks before this date are skipped.
+   * @default undefined (starts immediately)
+   */
+  startAt?: Date | string;
+
+  /**
+   * Date or ISO 8601 string at which the cron job should stop running.
+   * The job is permanently stopped once this date is reached.
+   * @default undefined (runs indefinitely)
+   */
+  stopAt?: Date | string;
 }
