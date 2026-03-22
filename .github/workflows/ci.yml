@@ -367,7 +367,7 @@ jobs:
     name: approve
     runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [cli-test]
-    if: github.event_name == 'pull_request_target' && github.actor == 'dependabot[bot]' && success()
+    if: github.event_name == 'pull_request_target' && github.actor == 'dependabot[bot]' && !failure() && !cancelled()
     permissions:
       pull-requests: write
     steps:
