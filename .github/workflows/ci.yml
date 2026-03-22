@@ -23,7 +23,7 @@ concurrency:
 
 jobs:
   setup:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -81,7 +81,7 @@ jobs:
 
   validate:
     needs: setup
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -112,7 +112,7 @@ jobs:
 
   test:
     needs: setup
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -146,7 +146,7 @@ jobs:
 
   build:
     needs: [setup]
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -206,7 +206,7 @@ jobs:
 
   cli-test:
     needs: [validate, test, build]
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -262,7 +262,7 @@ jobs:
   publish-canary:
     needs: [build, cli-test]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     concurrency:
       group: publish-canary-${{ github.ref }}
       cancel-in-progress: true
@@ -337,7 +337,7 @@ jobs:
 
   approve:
     name: approve
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [cli-test]
     if: github.event_name == 'pull_request_target' && github.actor == 'dependabot[bot]' && success()
     permissions:
@@ -357,7 +357,7 @@ jobs:
 
   merge:
     name: merge
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [approve]
     if: github.event_name == 'pull_request_target' && github.actor == 'dependabot[bot]' && success()
     permissions:
@@ -379,7 +379,7 @@ jobs:
   publish:
     needs: [build, cli-test]
     if: github.event_name == 'release'
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       id-token: write
       contents: read
@@ -433,7 +433,7 @@ jobs:
   deploy-pages:
     needs: [build, cli-test]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     concurrency:
       group: pages
       cancel-in-progress: false
