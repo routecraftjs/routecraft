@@ -105,8 +105,12 @@ export class CronSourceAdapter
 
     return new Promise<void>((resolve) => {
       let counter = 0;
+      let settled = false;
+      let busy = false;
 
       const settle = () => {
+        if (settled) return;
+        settled = true;
         job.stop();
         resolve();
       };
@@ -118,11 +122,12 @@ export class CronSourceAdapter
           paused: false,
         },
         async () => {
-          if (abortController.signal.aborted) {
-            settle();
+          if (settled || busy || abortController.signal.aborted) {
+            if (!busy) settle();
             return;
           }
 
+          busy = true;
           counter++;
           const firedTime = new Date();
 
@@ -130,7 +135,7 @@ export class CronSourceAdapter
           if (jitterMs > 0) {
             const jitter = Math.floor(Math.random() * jitterMs);
             await new Promise((r) => setTimeout(r, jitter));
-            if (abortController.signal.aborted) {
+            if (settled || abortController.signal.aborted) {
               settle();
               return;
             }
@@ -167,9 +172,12 @@ export class CronSourceAdapter
             return;
           }
 
+          busy = false;
+
           // Stop immediately after the Nth fire (no extra tick)
           if (counter >= maxFires) {
             settle();
+            return;
           }
         },
       );
