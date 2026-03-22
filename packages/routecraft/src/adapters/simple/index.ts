@@ -2,8 +2,14 @@ import type { Source } from "../../operations/from";
 import { SimpleSourceAdapter } from "./source";
 
 /**
- * Creates a source that produces a single value (or one value per call from a function).
+ * Creates a source that produces one or more exchanges.
  * Use as the first step in a route with `.from(simple(...))`.
+ *
+ * When the producer returns (or is) an **array**, each element becomes a
+ * separate exchange processed independently through the pipeline. This is
+ * useful for seeding multiple messages from a single source. To pass an
+ * array as the body of a single exchange, wrap it:
+ * `simple({ items: [1, 2, 3] })` or use a transform after a string source.
  *
  * **Note:** If you need to emit a function itself as a value (not call it as a producer),
  * use `simple.value(myFunction)` instead of `simple(myFunction)`.
@@ -14,9 +20,20 @@ import { SimpleSourceAdapter } from "./source";
  *
  * @example
  * ```typescript
+ * // Single exchange with string body
  * .from(simple('hello'))
+ *
+ * // Two separate exchanges (one per array element)
+ * .from(simple([1, 2]))
+ *
+ * // Single exchange with array body (wrap in object)
+ * .from(simple({ items: [1, 2] }))
+ *
+ * // Async producer
  * .from(simple(() => fetch('/api/data').then(r => r.json())))
- * .from(simple.value(myCallback)) // To emit a function value
+ *
+ * // Emit a function as a value
+ * .from(simple.value(myCallback))
  * ```
  */
 export function simple<T = unknown>(

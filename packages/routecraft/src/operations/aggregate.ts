@@ -8,6 +8,7 @@ import {
   getExchangeRoute,
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
+import { SPLIT_PARENT_STORE } from "./split.ts";
 
 /**
  * Function form of an aggregator: takes an array of exchanges and returns one combined exchange.
@@ -105,6 +106,7 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
 > {
   operation: OperationType = OperationType.AGGREGATE;
   adapter: Aggregator<T, R>;
+  skipStepEvents = true;
 
   constructor(adapter: Aggregator<T, R> | CallableAggregator<T, R>) {
     this.adapter =
@@ -121,37 +123,51 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
     const routeId =
       route?.definition.id ??
       (exchange.headers[HeadersKeys.ROUTE_ID] as string);
-
-    // Emit aggregate:started event
-    if (context) {
-      context.emit(`route:${routeId}:operation:aggregate:started` as const, {
-        routeId,
-        exchangeId: exchange.id,
-        correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
-      });
-    }
+    const correlationId = exchange.headers[
+      HeadersKeys.CORRELATION_ID
+    ] as string;
+    const stepStartTime = Date.now();
 
     const splitHierarchy = exchange.headers[
       HeadersKeys.SPLIT_HIERARCHY
     ] as string[];
+    const currentGroupId = splitHierarchy?.[splitHierarchy.length - 1];
+
+    // Look up the parent exchange early so step events use its ID
+    const parentMap = context?.getStore(SPLIT_PARENT_STORE) as
+      | Map<string, Exchange>
+      | undefined;
+    const parentExchange = currentGroupId
+      ? parentMap?.get(currentGroupId)
+      : undefined;
+    const stepExchangeId = parentExchange?.id ?? exchange.id;
+
+    if (context) {
+      context.emit(`route:${routeId}:step:started` as const, {
+        routeId,
+        exchangeId: stepExchangeId,
+        correlationId,
+        operation: this.operation,
+      });
+    }
 
     // If there's no split hierarchy, just aggregate the single exchange
     if (!splitHierarchy) {
       const aggregatedExchange = await Promise.resolve(
         this.adapter.aggregate([exchange]),
       );
-      // Copy aggregated properties back to original exchange
       exchange.body = aggregatedExchange.body as unknown as T;
       (exchange as { headers: ExchangeHeaders }).headers =
         aggregatedExchange.headers;
 
-      // Emit aggregate:stopped event
       if (context) {
-        context.emit(`route:${routeId}:operation:aggregate:stopped` as const, {
+        context.emit(`route:${routeId}:step:completed` as const, {
           routeId,
           exchangeId: exchange.id,
           correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
-          inputCount: 1,
+          operation: this.operation,
+          duration: Date.now() - stepStartTime,
+          metadata: { inputCount: 1 },
         });
       }
 
@@ -162,7 +178,6 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
       return;
     }
 
-    const currentGroupId = splitHierarchy[splitHierarchy.length - 1];
     const aggregationGroup: Exchange[] = [exchange];
 
     for (let i = 0; i < queue.length; ) {
@@ -178,36 +193,60 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
       }
     }
 
-    const aggregatedExchange = await Promise.resolve(
-      this.adapter.aggregate(aggregationGroup as Exchange<T>[]),
-    );
+    // Emit exchange:completed for each child being aggregated
+    if (context) {
+      for (const child of aggregationGroup) {
+        const childStart =
+          (child.headers["routecraft.startedAt"] as number) ?? Date.now();
+        context.emit(`route:${routeId}:exchange:completed` as const, {
+          routeId,
+          exchangeId: child.id,
+          correlationId: child.headers[HeadersKeys.CORRELATION_ID] as string,
+          duration: Date.now() - childStart,
+        });
+      }
+    }
 
-    // Copy aggregated properties back to original exchange
-    exchange.body = aggregatedExchange.body as unknown as T;
-    (exchange as { headers: ExchangeHeaders }).headers =
+    let aggregatedExchange: Exchange<R>;
+    try {
+      aggregatedExchange = await Promise.resolve(
+        this.adapter.aggregate(aggregationGroup as Exchange<T>[]),
+      );
+    } finally {
+      // Clean up the stored parent reference even on error
+      if (currentGroupId) {
+        parentMap?.delete(currentGroupId);
+      }
+    }
+
+    // Restore the parent exchange identity
+    const target = parentExchange ?? exchange;
+    target.body = aggregatedExchange.body as unknown as T;
+    (target as { headers: ExchangeHeaders }).headers =
       aggregatedExchange.headers;
 
     // Remove the current group from hierarchy after aggregation
     const remainingHierarchy = splitHierarchy.slice(0, -1);
     if (remainingHierarchy.length > 0) {
-      (exchange.headers as ExchangeHeaders)[HeadersKeys.SPLIT_HIERARCHY] =
+      (target.headers as ExchangeHeaders)[HeadersKeys.SPLIT_HIERARCHY] =
         remainingHierarchy;
     } else {
-      delete (exchange.headers as ExchangeHeaders)[HeadersKeys.SPLIT_HIERARCHY];
+      delete (target.headers as ExchangeHeaders)[HeadersKeys.SPLIT_HIERARCHY];
     }
 
-    // Emit aggregate:stopped event
     if (context) {
-      context.emit(`route:${routeId}:operation:aggregate:stopped` as const, {
+      context.emit(`route:${routeId}:step:completed` as const, {
         routeId,
-        exchangeId: exchange.id,
-        correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
-        inputCount: aggregationGroup.length,
+        exchangeId: target.id,
+        correlationId: target.headers[HeadersKeys.CORRELATION_ID] as string,
+        operation: this.operation,
+        duration: Date.now() - stepStartTime,
+        metadata: { inputCount: aggregationGroup.length },
       });
     }
 
     queue.push({
-      exchange: exchange as unknown as Exchange<R>,
+      exchange: target as unknown as Exchange<R>,
       steps: remainingSteps,
     });
   }

@@ -783,14 +783,22 @@ export class RouteBuilder<Current = unknown> {
    * The predicate receives the full Exchange object, allowing filtering based on
    * headers, body, or other exchange properties.
    *
-   * @param filter A function that receives the Exchange and returns true to keep it, false to drop it
+   * Return `true` to keep the exchange, `false` to drop it, or
+   * `{ reason: "..." }` to drop with an explanation that is recorded
+   * in telemetry and shown in the TUI.
+   *
+   * @param filter A function that returns true to keep, false to drop, or \{ reason \} to drop with detail
    * @returns A RouteBuilder with the same type
    * @example
-   * // Filter based on body value
-   * .filter((exchange) => exchange.body > 10)
+   * // Simple boolean filter
+   * .filter((exchange) => exchange.body.age >= 18)
    *
-   * // Filter based on body properties
-   * .filter((exchange) => exchange.body.age >= 18 && exchange.body.status === 'active')
+   * // Drop with a reason
+   * .filter((exchange) => {
+   *   if (!exchange.body.name) return { reason: "name is required" };
+   *   if (exchange.body.age < 18) return { reason: "age must be 18 or older" };
+   *   return true;
+   * })
    *
    * // Filter based on headers
    * .filter((exchange) => exchange.headers['x-priority'] === 'high')
@@ -803,21 +811,20 @@ export class RouteBuilder<Current = unknown> {
   }
 
   /**
-   * Validate data against a schema.
-   * Throws an error if validation fails.
+   * Validate data against a Standard Schema. If validation fails, the
+   * exchange is dropped with a reason describing which fields failed.
    *
-   * @param schema A JSON schema to validate against
-   * @returns A RouteBuilder with the same type
+   * @param schema A Standard Schema (Zod, Valibot, ArkType, etc.)
+   * @returns A RouteBuilder narrowed to the schema's output type
    * @example
-   * // Validate with JSON schema
-   * .validate({
-   *   type: 'object',
-   *   properties: {
-   *     name: { type: 'string' },
-   *     age: { type: 'number', minimum: 0 }
-   *   },
-   *   required: ['name', 'age']
-   * })
+   * ```ts
+   * import { z } from "zod";
+   *
+   * craft()
+   *   .from(direct("endpoint", { schema: z.object({ name: z.string() }) }))
+   *   .validate(z.object({ name: z.string().min(1) }))
+   *   .to(consumer)
+   * ```
    */
   validate<S extends StandardSchemaV1>(
     schema: S,

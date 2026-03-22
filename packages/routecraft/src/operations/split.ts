@@ -13,6 +13,19 @@ import {
 import type { Route } from "../route.ts";
 
 /**
+ * Store key for the map of split group IDs to their parent exchanges.
+ * Used by the aggregate step to restore the parent exchange identity
+ * after merging children.
+ */
+export const SPLIT_PARENT_STORE = "routecraft.split.parents" as const;
+
+declare module "@routecraft/routecraft" {
+  interface StoreRegistry {
+    [SPLIT_PARENT_STORE]: Map<string, Exchange>;
+  }
+}
+
+/**
  * Function form of a splitter: takes the current exchange and returns an array of exchanges.
  * Use with `.split(splitter)` or no-arg `.split()` for arrays. The framework overlays
  * `routecraft.split_hierarchy` and assigns new ids for aggregation.
@@ -45,6 +58,7 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
 > {
   operation: OperationType = OperationType.SPLIT;
   adapter: Splitter<T, R>;
+  skipStepEvents = true;
 
   constructor(adapter: Splitter<T, R> | CallableSplitter<T, R>) {
     this.adapter = typeof adapter === "function" ? { split: adapter } : adapter;
@@ -62,18 +76,49 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
       throw new Error("Exchange has no context — cannot execute split");
     }
 
-    // Emit split:started event
     const routeId =
       route?.definition.id ??
       (exchange.headers[HeadersKeys.ROUTE_ID] as string);
-    context.emit(`route:${routeId}:operation:split:started` as const, {
+    const correlationId = exchange.headers[
+      HeadersKeys.CORRELATION_ID
+    ] as string;
+    const adapterLabel = getAdapterLabel(this.adapter);
+    const stepStart = Date.now();
+
+    context.emit(`route:${routeId}:step:started` as const, {
       routeId,
       exchangeId: exchange.id,
-      correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
+      correlationId,
+      operation: this.operation,
+      ...(adapterLabel ? { adapter: adapterLabel } : {}),
     });
 
-    const splitExchanges = await Promise.resolve(this.adapter.split(exchange));
+    let splitExchanges: Exchange<R>[];
+    try {
+      splitExchanges = await Promise.resolve(this.adapter.split(exchange));
+    } catch (error: unknown) {
+      context.emit(`route:${routeId}:step:failed` as const, {
+        routeId,
+        exchangeId: exchange.id,
+        correlationId,
+        operation: this.operation,
+        ...(adapterLabel ? { adapter: adapterLabel } : {}),
+        duration: Date.now() - stepStart,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
     const groupId = randomUUID();
+
+    // Stash the parent exchange so aggregate can restore it
+    let parentMap = context.getStore(SPLIT_PARENT_STORE) as
+      | Map<string, Exchange>
+      | undefined;
+    if (!parentMap) {
+      parentMap = new Map<string, Exchange>();
+      context.setStore(SPLIT_PARENT_STORE, parentMap);
+    }
+    parentMap.set(groupId, exchange);
 
     const existingHierarchy =
       (exchange.headers[HeadersKeys.SPLIT_HIERARCHY] as string[]) || [];
@@ -118,12 +163,14 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
       });
     }
 
-    // Emit split:stopped event with childCount
-    context.emit(`route:${routeId}:operation:split:stopped` as const, {
+    context.emit(`route:${routeId}:step:completed` as const, {
       routeId,
       exchangeId: exchange.id,
-      correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
-      childCount: splitExchanges.length,
+      correlationId,
+      operation: this.operation,
+      ...(adapterLabel ? { adapter: adapterLabel } : {}),
+      duration: Date.now() - stepStart,
+      metadata: { childCount: splitExchanges.length },
     });
   }
 }

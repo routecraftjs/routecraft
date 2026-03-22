@@ -34,5 +34,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# generated raw docs
+# generated raw docs and llms.txt
 /public/raw/
+/public/llms.txt
+/public/llms-full.txt

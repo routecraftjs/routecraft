@@ -13,3 +13,4 @@ dist/
 .cursor/hooks/state/
 .idea/
 .claude/worktrees/
+.routecraft/

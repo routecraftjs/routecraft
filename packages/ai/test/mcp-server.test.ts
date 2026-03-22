@@ -202,7 +202,7 @@ describe("McpServer", () => {
                 () => reject(new Error("Timeout waiting for routes")),
                 3000,
               );
-              t.ctx.on("route:started", () => {
+              t.ctx.on("route:*:started" as const, () => {
                 ready++;
                 if (ready >= total) {
                   clearTimeout(timeout);
@@ -648,7 +648,7 @@ describe("McpServer", () => {
       const routesReady = new Promise<void>((resolve, reject) => {
         let ready = 0;
         const timeout = setTimeout(() => reject(new Error("Timeout")), 3000);
-        t.ctx.on("route:started", () => {
+        t.ctx.on("route:*:started" as const, () => {
           ready++;
           if (ready >= total) {
             clearTimeout(timeout);
@@ -727,7 +727,7 @@ describe("McpServer", () => {
       const routesReady = new Promise<void>((resolve, reject) => {
         let ready = 0;
         const timeout = setTimeout(() => reject(new Error("Timeout")), 3000);
-        t.ctx.on("route:started", () => {
+        t.ctx.on("route:*:started" as const, () => {
           ready++;
           if (ready >= total) {
             clearTimeout(timeout);
@@ -778,10 +778,10 @@ describe("McpServer", () => {
 
       const called: Array<Record<string, unknown>> = [];
       const completed: Array<Record<string, unknown>> = [];
-      t.ctx.on("plugin:mcp:tool:call-evt:called", (payload) => {
+      t.ctx.on("plugin:mcp:tool:called", (payload) => {
         called.push(payload.details as Record<string, unknown>);
       });
-      t.ctx.on("plugin:mcp:tool:call-evt:completed", (payload) => {
+      t.ctx.on("plugin:mcp:tool:completed", (payload) => {
         completed.push(payload.details as Record<string, unknown>);
       });
 
@@ -789,7 +789,7 @@ describe("McpServer", () => {
       const routesReady = new Promise<void>((resolve, reject) => {
         let ready = 0;
         const timeout = setTimeout(() => reject(new Error("Timeout")), 3000);
-        t.ctx.on("route:started", () => {
+        t.ctx.on("route:*:started" as const, () => {
           ready++;
           if (ready >= total) {
             clearTimeout(timeout);
@@ -904,7 +904,7 @@ describe("McpServer", () => {
       });
 
       const failed: Array<Record<string, unknown>> = [];
-      t.ctx.on("plugin:mcp:tool:no-such-tool:failed", (payload) => {
+      t.ctx.on("plugin:mcp:tool:failed", (payload) => {
         failed.push(payload.details as Record<string, unknown>);
       });
 
@@ -912,7 +912,7 @@ describe("McpServer", () => {
       const routesReady = new Promise<void>((resolve, reject) => {
         let ready = 0;
         const timeout = setTimeout(() => reject(new Error("Timeout")), 3000);
-        t.ctx.on("route:started", () => {
+        t.ctx.on("route:*:started" as const, () => {
           ready++;
           if (ready >= total) {
             clearTimeout(timeout);
@@ -1033,7 +1033,7 @@ describe("McpServer", () => {
       const routesReady = new Promise<void>((resolve, reject) => {
         let ready = 0;
         const timeout = setTimeout(() => reject(new Error("Timeout")), 3000);
-        t.ctx.on("route:started", () => {
+        t.ctx.on("route:*:started" as const, () => {
           ready++;
           if (ready >= total) {
             clearTimeout(timeout);

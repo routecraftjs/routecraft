@@ -1,4 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import { formatSchemaIssues } from "@routecraft/routecraft";
 import { Output, jsonSchema } from "ai";
 
 /**
@@ -81,11 +82,7 @@ export function toAiOutputSpec(schema: StandardSchemaV1): unknown {
     if (hasIssues) {
       return {
         success: false,
-        error: new Error(
-          typeof result.issues === "string"
-            ? result.issues
-            : JSON.stringify(result.issues),
-        ),
+        error: new Error(formatSchemaIssues(result.issues)),
       };
     }
     return { success: true, value: result.value };

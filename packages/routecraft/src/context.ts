@@ -157,6 +157,9 @@ export class CraftContext {
   /** Teardown callbacks registered by plugins; run during stop() before context:stopped */
   private readonly teardownCallbacks: Array<() => void | Promise<void>> = [];
 
+  /** Cached shutdown promise so concurrent stop() callers all await the same teardown */
+  private shutdownPromise: Promise<void> | null = null;
+
   /**
    * Create a new CraftContext instance.
    *
@@ -235,7 +238,7 @@ export class CraftContext {
             { pluginIndex, err },
             "Invalid plugin: expected object with apply(ctx) method.",
           );
-          this.emit("error", { error: err });
+          this.emit("context:error", { error: err });
           throw err;
         }
 
@@ -266,7 +269,7 @@ export class CraftContext {
           { pluginIndex, err },
           "Plugin threw during initPlugins. Check stack and plugin implementation.",
         );
-        this.emit("error", { error: err });
+        this.emit("context:error", { error: err });
         throw err;
       }
     }
@@ -402,6 +405,8 @@ export class CraftContext {
       details,
     } as EventPayload<K>;
 
+    payload._event = event;
+
     // Collect all matching handlers (exact match + wildcards)
     const matchingHandlers: EventHandler<EventName>[] = [];
 
@@ -428,26 +433,26 @@ export class CraftContext {
         if (result && typeof result.then === "function") {
           void result.catch((err: unknown) => {
             // Log async handler errors at error level for error events, warn for others
-            const logLevel = event === "error" ? "error" : "warn";
+            const logLevel = event === "context:error" ? "error" : "warn";
             this.logger[logLevel](
               { event, err },
               "Async event handler rejected. Handler should not throw; errors are emitted as context 'error' event.",
             );
-            if (event !== "error") {
-              this.emit("error", { error: err });
+            if (event !== "context:error") {
+              this.emit("context:error", { error: err });
             }
           });
         }
       } catch (err) {
         // Swallow synchronous handler errors but log them and emit system error
         // Log error events at error level, others at warn
-        const logLevel = event === "error" ? "error" : "warn";
+        const logLevel = event === "context:error" ? "error" : "warn";
         this.logger[logLevel](
           { event, err },
           "Event handler threw. Handler should not throw; errors are emitted as context 'error' event.",
         );
-        if (event !== "error") {
-          this.emit("error", { error: err });
+        if (event !== "context:error") {
+          this.emit("context:error", { error: err });
         }
       }
     }
@@ -460,7 +465,7 @@ export class CraftContext {
    * - "route:*" matches all route events (route:started, route:stopped, etc.)
    * - "exchange:*" matches all exchange events
    * - "route:myroute:*" matches all events for a specific route
-   * - "route:*:operation:from:*" matches hierarchical patterns at any level
+   * - "route:*:step:*" matches hierarchical patterns at any level
    *
    * @param event - Event name to match
    * @param pattern - Wildcard pattern
@@ -506,7 +511,7 @@ export class CraftContext {
    *
    * Examples:
    * - "route:**" matches "route:started", "route:payment:exchange:started", etc.
-   * - "route:*:operation:**" matches "route:api:operation:from:mcp:started", etc.
+   * - "route:*:step:**" matches "route:api:step:started", etc.
    */
   private matchesGlobstarPattern(event: string, pattern: string): boolean {
     const eventSegments = event.split(":");
@@ -620,8 +625,7 @@ export class CraftContext {
       this.controllers.set(definition.id, controller);
       const route = new DefaultRoute(this, definition, controller);
       this.routes.push(route);
-      // Event: routeRegistered
-      this.emit("route:registered", { route });
+      this.emit(`route:${definition.id}:registered` as EventName, { route });
     }
   }
 
@@ -716,6 +720,7 @@ export class CraftContext {
    * ```
    */
   async start(): Promise<void> {
+    this.shutdownPromise = null;
     this.logger.info(
       { routeCount: this.routes.length },
       "Starting Routecraft context",
@@ -728,7 +733,9 @@ export class CraftContext {
       this.routes.map(async (route) => {
         try {
           this.logger.info({ route: route.definition.id }, "Starting route");
-          this.emit("route:starting", { route });
+          this.emit(`route:${route.definition.id}:starting` as EventName, {
+            route,
+          });
           await route.start();
           this.logger.info({ route: route.definition.id }, "Route stopped");
           return { routeId: route.definition.id, success: true as const };
@@ -739,7 +746,7 @@ export class CraftContext {
               ? error.message
               : "Route failed to start";
           this.logger.fatal({ route: route.definition.id, err: error }, msg);
-          this.emit("error", { error, route });
+          this.emit("context:error", { error, route });
           // Abort just this failing route
           const controller = this.controllers.get(route.definition.id);
           controller?.abort();
@@ -769,7 +776,7 @@ export class CraftContext {
             ? error.message
             : "Context start failed";
         this.logger.fatal({ err: error }, msg);
-        this.emit("error", { error });
+        this.emit("context:error", { error });
         throw error;
       });
   }
@@ -809,6 +816,12 @@ export class CraftContext {
    * ```
    */
   async stop(): Promise<void> {
+    if (this.shutdownPromise) return this.shutdownPromise;
+    this.shutdownPromise = this.performShutdown();
+    return this.shutdownPromise;
+  }
+
+  private async performShutdown(): Promise<void> {
     this.logger.info({}, "Stopping Routecraft context");
     this.emit("context:stopping", { reason: undefined });
 

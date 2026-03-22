@@ -227,6 +227,58 @@ export class RoutecraftError extends Error {
 }
 
 /**
+ * Standard Schema issue shape (subset of StandardSchemaV1.Issue).
+ * Used to format validation errors into human-readable messages.
+ */
+interface SchemaIssue {
+  readonly message: string;
+  readonly path?: ReadonlyArray<PropertyKey | { key: PropertyKey }>;
+}
+
+/**
+ * Formats Standard Schema validation issues into a human-readable string.
+ * Each issue becomes "path: message" (or just "message" when there is no path).
+ *
+ * @param issues - The raw issues value from a Standard Schema validation result
+ * @returns A formatted string describing what failed
+ *
+ * @example
+ * ```
+ * formatSchemaIssues([{ message: "Required", path: ["name"] }])
+ * // => '"name": Required'
+ * ```
+ */
+export function formatSchemaIssues(issues: unknown): string {
+  if (!Array.isArray(issues) || issues.length === 0) {
+    return typeof issues === "object" ? JSON.stringify(issues) : String(issues);
+  }
+
+  return (issues as SchemaIssue[])
+    .map((issue) => {
+      const path = formatIssuePath(issue.path);
+      const msg = issue.message ?? "unknown error";
+      return path ? `"${path}": ${msg}` : msg;
+    })
+    .join("; ");
+}
+
+/**
+ * Converts a Standard Schema path array into a dot-separated string.
+ */
+function formatIssuePath(
+  path: SchemaIssue["path"] | undefined,
+): string | undefined {
+  if (!path || path.length === 0) return undefined;
+  return path
+    .map((segment) =>
+      typeof segment === "object" && segment !== null && "key" in segment
+        ? String(segment.key)
+        : String(segment),
+    )
+    .join(".");
+}
+
+/**
  * Creates a RoutecraftError with the given code and optional cause/overrides.
  *
  * @param rc - Error code from the RC registry (e.g. "RC5001", "RC1002")

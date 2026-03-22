@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { type CraftContext } from "./context.ts";
+import type { EventName } from "./types.ts";
 import {
   type Exchange,
   HeadersKeys,
@@ -9,6 +10,7 @@ import {
   EXCHANGE_INTERNALS,
 } from "./exchange.ts";
 import { type RegisteredDirectEndpoint } from "./registry.ts";
+import { SPLIT_PARENT_STORE } from "./operations/split.ts";
 
 /**
  * Function that forwards a payload to another route via the direct adapter and returns its result.
@@ -198,12 +200,14 @@ export class DefaultRoute implements Route {
     // Emit routeStopping/routeStopped when the controller is aborted externally
     this.abortController.signal.addEventListener("abort", (event) => {
       try {
-        this.context.emit("route:stopping", {
+        this.context.emit(`route:${this.definition.id}:stopping` as EventName, {
           route: this,
           reason: (event as unknown as { reason?: unknown })?.reason,
         });
       } finally {
-        this.context.emit("route:stopped", { route: this });
+        this.context.emit(`route:${this.definition.id}:stopped` as EventName, {
+          route: this,
+        });
       }
     });
   }
@@ -288,7 +292,9 @@ export class DefaultRoute implements Route {
     const onReady = () => {
       if (!emitted) {
         emitted = true;
-        this.context.emit("route:started", { route: this });
+        this.context.emit(`route:${this.definition.id}:started` as EventName, {
+          route: this,
+        });
       }
     };
 
@@ -339,26 +345,31 @@ export class DefaultRoute implements Route {
     ] as string;
     this.context.emit(`route:${this.definition.id}:exchange:started` as const, {
       routeId: this.definition.id,
-      exchangeId: correlationId,
+      exchangeId: exchange.id,
       correlationId,
     });
 
     // Run steps (tap adds tasks via route.trackTask)
     const handlerPromise = this.runSteps(exchange, startTime).then((result) => {
-      const duration = Date.now() - startTime;
-      const correlationId = exchange.headers[
-        HeadersKeys.CORRELATION_ID
-      ] as string;
-      this.context.emit(
-        `route:${this.definition.id}:exchange:completed` as const,
-        {
-          routeId: this.definition.id,
-          exchangeId: correlationId,
-          correlationId,
-          duration,
-        },
-      );
-      return result;
+      // runSteps swallows errors and emits exchange:failed internally,
+      // so only emit exchange:completed if the exchange was not failed.
+      if (!result.failed && !result.dropped) {
+        const duration = Date.now() - startTime;
+        const correlationId = exchange.headers[
+          HeadersKeys.CORRELATION_ID
+        ] as string;
+        this.context.emit(
+          `route:${this.definition.id}:exchange:completed` as const,
+          {
+            routeId: this.definition.id,
+            exchangeId: exchange.id,
+            correlationId,
+            duration,
+            exchange: result.exchange,
+          },
+        );
+      }
+      return result.exchange;
     });
 
     this.inFlight.add(handlerPromise);
@@ -378,18 +389,78 @@ export class DefaultRoute implements Route {
   private async runSteps(
     exchange: Exchange,
     startTime: number,
-  ): Promise<Exchange> {
+  ): Promise<{ exchange: Exchange; failed: boolean; dropped: boolean }> {
     const queue: { exchange: Exchange; steps: Step<Adapter>[] }[] = [
       { exchange: exchange, steps: [...this.definition.steps] },
     ];
 
     let lastProcessedExchange: Exchange = exchange;
+    let failed = false;
+    let dropped = false;
+    // Track child exchanges so we can emit exchange:started/completed for them.
+    // The parent exchange (first one) is handled by handler().
+    const parentExchangeId = exchange.id;
+    const seenChildExchanges = new Set<string>();
+    const childStartTimes = new Map<string, number>();
+    const failedChildExchanges = new Set<string>();
+
+    // Snapshot existing split parent keys so cleanup only touches groups
+    // created during THIS invocation, not groups from concurrent handlers.
+    const parentMap = this.context.getStore(SPLIT_PARENT_STORE) as
+      | Map<string, Exchange>
+      | undefined;
+    const preExistingGroups = parentMap
+      ? new Set(parentMap.keys())
+      : new Set<string>();
 
     while (queue.length > 0) {
       const { exchange, steps } = queue.shift()!;
       if (steps.length === 0) {
+        // Emit exchange:completed for child exchanges when their steps are done
+        if (
+          exchange.id !== parentExchangeId &&
+          seenChildExchanges.has(exchange.id) &&
+          !failedChildExchanges.has(exchange.id)
+        ) {
+          const childStart = childStartTimes.get(exchange.id) ?? startTime;
+          const correlationId = exchange.headers[
+            HeadersKeys.CORRELATION_ID
+          ] as string;
+          this.context.emit(
+            `route:${this.definition.id}:exchange:completed` as const,
+            {
+              routeId: this.definition.id,
+              exchangeId: exchange.id,
+              correlationId,
+              duration: Date.now() - childStart,
+              exchange,
+            },
+          );
+        }
         lastProcessedExchange = exchange;
         continue;
+      }
+
+      // Emit exchange:started for child exchanges on first encounter
+      if (
+        exchange.id !== parentExchangeId &&
+        !seenChildExchanges.has(exchange.id)
+      ) {
+        seenChildExchanges.add(exchange.id);
+        const childNow = Date.now();
+        childStartTimes.set(exchange.id, childNow);
+        exchange.headers["routecraft.startedAt"] = childNow;
+        const correlationId = exchange.headers[
+          HeadersKeys.CORRELATION_ID
+        ] as string;
+        this.context.emit(
+          `route:${this.definition.id}:exchange:started` as const,
+          {
+            routeId: this.definition.id,
+            exchangeId: exchange.id,
+            correlationId,
+          },
+        );
       }
 
       const [step, ...remainingSteps] = steps;
@@ -411,34 +482,38 @@ export class DefaultRoute implements Route {
         HeadersKeys.CORRELATION_ID
       ] as string;
 
-      // Emit step:started event
-      this.context.emit(`route:${this.definition.id}:step:started` as const, {
-        routeId: this.definition.id,
-        exchangeId: correlationId,
-        correlationId,
-        operation: step.operation,
-        ...(adapterLabel ? { adapter: adapterLabel } : {}),
-      });
+      // Emit step:started event unless the step manages its own events
+      if (!step.skipStepEvents) {
+        this.context.emit(`route:${this.definition.id}:step:started` as const, {
+          routeId: this.definition.id,
+          exchangeId: exchange.id,
+          correlationId,
+          operation: step.operation,
+          ...(adapterLabel ? { adapter: adapterLabel } : {}),
+        });
+      }
 
       try {
         await step.execute(exchange, remainingSteps, queue);
 
-        // Emit step:completed event
-        const stepDuration = Date.now() - stepStartTime;
-        const correlationId = exchange.headers[
-          HeadersKeys.CORRELATION_ID
-        ] as string;
-        this.context.emit(
-          `route:${this.definition.id}:step:completed` as const,
-          {
-            routeId: this.definition.id,
-            exchangeId: correlationId,
-            correlationId,
-            operation: step.operation,
-            ...(adapterLabel ? { adapter: adapterLabel } : {}),
-            duration: stepDuration,
-          },
-        );
+        // Emit step:completed event unless the step manages its own events
+        if (!step.skipStepEvents) {
+          const stepDuration = Date.now() - stepStartTime;
+          const correlationId = exchange.headers[
+            HeadersKeys.CORRELATION_ID
+          ] as string;
+          this.context.emit(
+            `route:${this.definition.id}:step:completed` as const,
+            {
+              routeId: this.definition.id,
+              exchangeId: exchange.id,
+              correlationId,
+              operation: step.operation,
+              ...(adapterLabel ? { adapter: adapterLabel } : {}),
+              duration: stepDuration,
+            },
+          );
+        }
       } catch (error) {
         const err = this.processError(step.operation, error);
         const correlationId = exchange.headers[
@@ -446,19 +521,18 @@ export class DefaultRoute implements Route {
         ] as string;
         const duration = Date.now() - startTime;
 
-        if (this.definition.errorHandler) {
-          // Emit error:invoked event
-          this.context.emit(
-            `route:${this.definition.id}:operation:error:invoked` as const,
-            {
-              routeId: this.definition.id,
-              exchangeId: correlationId,
-              correlationId,
-              originalError: err,
-              failedOperation: step.operation,
-            },
-          );
+        // Emit step-level error
+        this.context.emit(
+          `route:${this.definition.id}:step:${step.operation}:error` as EventName,
+          {
+            error: err,
+            route: this,
+            exchange,
+            operation: step.operation,
+          },
+        );
 
+        if (this.definition.errorHandler) {
           try {
             const forward = this.buildForward();
             const result = await this.definition.errorHandler(
@@ -469,15 +543,13 @@ export class DefaultRoute implements Route {
             exchange.body = result;
             lastProcessedExchange = exchange;
 
+            // Error handler recovered
             this.context.emit(
-              `route:${this.definition.id}:operation:error:recovered` as const,
+              `route:${this.definition.id}:error:caught` as EventName,
               {
-                routeId: this.definition.id,
-                exchangeId: correlationId,
-                correlationId,
-                originalError: err,
-                failedOperation: step.operation,
-                recoveryStrategy: "errorHandler",
+                error: err,
+                route: this,
+                exchange,
               },
             );
           } catch (handlerError) {
@@ -490,39 +562,43 @@ export class DefaultRoute implements Route {
               },
               handlerErr.meta.message,
             );
-            this.context.emit("error", {
+            // Error handler rethrew -- route-level + context-level error
+            this.context.emit(
+              `route:${this.definition.id}:error` as EventName,
+              {
+                error: handlerErr,
+                route: this,
+                exchange,
+              },
+            );
+            this.context.emit("context:error", {
               error: handlerErr,
               route: this,
               exchange,
             });
             this.context.emit(
-              `route:${this.definition.id}:operation:error:failed` as const,
-              {
-                routeId: this.definition.id,
-                exchangeId: correlationId,
-                correlationId,
-                originalError: err,
-                failedOperation: step.operation,
-                recoveryStrategy: "errorHandler",
-              },
-            );
-            this.context.emit(
               `route:${this.definition.id}:exchange:failed` as const,
               {
                 routeId: this.definition.id,
-                exchangeId: correlationId,
+                exchangeId: exchange.id,
                 correlationId,
                 duration,
                 error: handlerErr,
+                exchange,
               },
             );
+            if (exchange.id !== parentExchangeId) {
+              failedChildExchanges.add(exchange.id);
+            } else {
+              failed = true;
+            }
           }
 
           // Pipeline does not resume after error handler (success or failure)
-          return lastProcessedExchange;
+          return { exchange: lastProcessedExchange, failed, dropped };
         }
 
-        // Default behavior: log, emit, swallow
+        // No error handler -- route-level error
         exchange.logger.error(
           {
             operation: step.operation,
@@ -531,28 +607,65 @@ export class DefaultRoute implements Route {
           },
           err.meta.message,
         );
-        this.context.emit("error", {
+        // No error handler -- route-level + context-level error
+        this.context.emit(`route:${this.definition.id}:error` as EventName, {
           error: err,
           route: this,
-          exchange: exchange,
+          exchange,
+        });
+        this.context.emit("context:error", {
+          error: err,
+          route: this,
+          exchange,
         });
         this.context.emit(
           `route:${this.definition.id}:exchange:failed` as const,
           {
             routeId: this.definition.id,
-            exchangeId: correlationId,
+            exchangeId: exchange.id,
             correlationId,
             duration,
             error: err,
+            exchange,
           },
         );
+        if (exchange.id !== parentExchangeId) {
+          failedChildExchanges.add(exchange.id);
+        } else {
+          failed = true;
+        }
 
         // Don't re-throw - error is fully handled via events and logging
         // Re-throwing would create unhandled rejections
         // Do NOT return here: the while loop continues so other queue items (e.g. split children) are processed
       }
     }
-    return lastProcessedExchange;
+
+    // Clean up orphaned split parent map entries added during THIS invocation.
+    // Only touch groups that did not exist before runSteps started, to avoid
+    // deleting entries owned by concurrent handlers on the same context.
+    if (parentMap && parentMap.size > 0) {
+      for (const groupId of Array.from(parentMap.keys())) {
+        if (preExistingGroups.has(groupId)) continue;
+        const parentEx = parentMap.get(groupId);
+        if (parentEx) {
+          const hierarchy = parentEx.headers[HeadersKeys.SPLIT_HIERARCHY] as
+            | string[]
+            | undefined;
+          // Only clean up groups that are NOT part of a nested hierarchy
+          if (!hierarchy || !hierarchy.includes(groupId)) {
+            parentMap.delete(groupId);
+          }
+        }
+      }
+    }
+
+    // Check if the root exchange was dropped (e.g. by a filter)
+    if (exchange.headers["routecraft.dropped"] === true) {
+      dropped = true;
+    }
+
+    return { exchange: lastProcessedExchange, failed, dropped };
   }
 
   /**

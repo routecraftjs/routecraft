@@ -40,7 +40,7 @@ export { type Aggregator } from "./operations/aggregate.ts";
 
 export { type Transformer } from "./operations/transform.ts";
 
-export { type Filter } from "./operations/filter.ts";
+export { type Filter, type FilterDropResult } from "./operations/filter.ts";
 
 export { type HeaderSetter } from "./operations/header.ts";
 
@@ -58,6 +58,7 @@ export {
   type RCCode,
   type RCMeta,
   rcError,
+  formatSchemaIssues,
   RC,
 } from "./error.ts";
 
@@ -155,3 +156,17 @@ export {
   type EventFilter,
   type EventSourceOptions,
 } from "./adapters/sources/event/index.ts";
+
+export { telemetry } from "./telemetry/index.ts";
+export {
+  SqliteSpanProcessor,
+  SqliteConnection,
+  SqliteEventWriter,
+  ATTR,
+  SPAN_KIND,
+} from "./telemetry/index.ts";
+export type {
+  TelemetryOptions,
+  TelemetrySqliteOptions,
+  TelemetryEvent,
+} from "./telemetry/index.ts";

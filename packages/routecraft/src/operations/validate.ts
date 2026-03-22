@@ -1,7 +1,7 @@
 import { type StandardSchemaV1 } from "@standard-schema/spec";
 import { FilterStep } from "./filter.ts";
 import { OperationType } from "../exchange.ts";
-import { rcError } from "../error.ts";
+import { formatSchemaIssues } from "../error.ts";
 
 /** Standard Schema validate() result shape: success has value, failure has issues. */
 interface StandardSchemaResult {
@@ -11,7 +11,8 @@ interface StandardSchemaResult {
 
 /**
  * Step that validates the exchange body against a Standard Schema.
- * On success, the exchange continues; on failure, throws RC5002 with validation issues.
+ * On success the exchange continues; on failure the exchange is dropped
+ * with a reason describing which fields failed validation.
  * Use with `.validate(schema)`.
  */
 export class ValidateStep<T = unknown> extends FilterStep<T> {
@@ -22,14 +23,14 @@ export class ValidateStep<T = unknown> extends FilterStep<T> {
       if (rawResult instanceof Promise) rawResult = await rawResult;
       const result = rawResult as StandardSchemaResult;
 
-      if (result.issues !== undefined && result.issues !== null) {
-        const causeMessage =
-          typeof result.issues === "object"
-            ? JSON.stringify(result.issues)
-            : String(result.issues);
-        throw rcError("RC5002", new Error(causeMessage), {
-          message: "Validation failed",
-        });
+      if (
+        result.issues !== undefined &&
+        result.issues !== null &&
+        (Array.isArray(result.issues) ? result.issues.length > 0 : true)
+      ) {
+        return {
+          reason: `validation failed: ${formatSchemaIssues(result.issues)}`,
+        };
       }
       return true;
     });

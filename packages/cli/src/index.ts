@@ -135,5 +135,30 @@ program
     // Runtime cleanup (onnxruntime#25038: "mutex lock failed").
   });
 
+/**
+ * The 'tui' command launches the Terminal UI for monitoring Routecraft execution.
+ *
+ * Example:
+ * craft tui
+ * craft tui --db .routecraft/telemetry.db
+ */
+program
+  .command("tui")
+  .description("Launch the Terminal UI to monitor Routecraft execution history")
+  .option(
+    "--db <path>",
+    "Path to the telemetry SQLite database",
+    ".routecraft/telemetry.db",
+  )
+  .action(async (options) => {
+    const { resolve, isAbsolute } = await import("node:path");
+    const dbPath = isAbsolute(options.db)
+      ? options.db
+      : resolve(process.cwd(), options.db);
+
+    const { renderTui } = await import("./tui/app.js");
+    await renderTui(dbPath);
+  });
+
 // Parse the command line arguments and execute the appropriate command
 program.parse();

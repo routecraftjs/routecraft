@@ -71,13 +71,15 @@ export class TestContext {
       this.restoreLoggerChild = options.restoreLoggerChild;
     this.routesReadyTimeoutMs =
       options?.routesReadyTimeoutMs ?? DEFAULT_ROUTES_READY_TIMEOUT_MS;
-    ctx.on("error", (payload) => {
-      const err = payload.details.error;
+    const pushError = (err: unknown) => {
       this.errors.push(
         isRoutecraftError(err)
           ? (err as RoutecraftError)
           : rcError("RC9901", err),
       );
+    };
+    ctx.on("context:error", (payload) => {
+      pushError(payload.details.error);
     });
   }
 
@@ -102,18 +104,21 @@ export class TestContext {
               reject(new Error("Timeout waiting for routes to start"));
             }, this.routesReadyTimeoutMs);
 
-            const offRouteStarted = ctx.on("route:started", () => {
-              if (settled) return;
-              ready++;
-              if (ready >= total) {
-                settled = true;
-                clearTimeout(timeoutId);
-                offRouteStarted();
-                offError();
-                resolve();
-              }
-            });
-            const offError = ctx.on("error", (payload) => {
+            const offRouteStarted = ctx.on(
+              "route:*:started" as EventName,
+              (() => {
+                if (settled) return;
+                ready++;
+                if (ready >= total) {
+                  settled = true;
+                  clearTimeout(timeoutId);
+                  offRouteStarted();
+                  offError();
+                  resolve();
+                }
+              }) as EventHandler<EventName>,
+            );
+            const offError = ctx.on("context:error", (payload) => {
               if (settled) return;
               settled = true;
               clearTimeout(timeoutId);
@@ -149,15 +154,18 @@ export class TestContext {
                 reject(new Error("Timeout waiting for routes to start"));
               }, this.routesReadyTimeoutMs);
 
-            const offRouteStarted = ctx.on("route:started", () => {
-              if (settled) return;
-              ready++;
-              if (ready >= total) {
-                cleanup();
-                resolve();
-              }
-            });
-            const offError = ctx.on("error", (payload) => {
+            const offRouteStarted = ctx.on(
+              "route:*:started" as EventName,
+              (() => {
+                if (settled) return;
+                ready++;
+                if (ready >= total) {
+                  cleanup();
+                  resolve();
+                }
+              }) as EventHandler<EventName>,
+            );
+            const offError = ctx.on("context:error", (payload) => {
               if (settled) return;
               cleanup();
               reject(payload.details.error);

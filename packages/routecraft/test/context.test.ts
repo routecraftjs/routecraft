@@ -115,7 +115,7 @@ describe("Error Handling", () => {
 
     // Start won't reject because we emit errors and continue; verify error event fires
     const errSpy = vi.fn();
-    t.ctx.on("error", errSpy);
+    t.ctx.on("context:error", errSpy);
     await t.ctx.start();
     await new Promise((r) => setTimeout(r, 0));
     expect(errSpy).toHaveBeenCalled();

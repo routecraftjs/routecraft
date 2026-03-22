@@ -9,7 +9,11 @@ export default craft()
     mcp("greet-user", {
       description: "Greet a user by name",
       schema: z.object({
-        user: z.string().describe("The user to greet."),
+        user: z
+          .string()
+          .trim()
+          .min(1, { message: "User is required." })
+          .describe("The user to greet."),
       }),
     }),
   )

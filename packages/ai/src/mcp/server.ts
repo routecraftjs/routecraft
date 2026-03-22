@@ -632,7 +632,10 @@ export class McpServer {
   private async handleToolCall(
     toolName: string,
     args: Record<string, unknown>,
-  ): Promise<{ content: Array<{ type: "text"; text: string }> }> {
+  ): Promise<{
+    content: Array<{ type: "text"; text: string }>;
+    isError?: boolean;
+  }> {
     try {
       // Get the direct channel store
       const channelStore = this.context.getStore(ADAPTER_DIRECT_STORE) as
@@ -641,12 +644,12 @@ export class McpServer {
 
       if (!channelStore) {
         const err = new Error("No direct channels available");
-        this.context.emit("error", { error: err });
-        this.context.emit(`plugin:mcp:tool:${toolName}:failed`, {
+        this.context.emit(`plugin:mcp:tool:failed`, {
           tool: toolName,
           error: err.message,
         });
         return {
+          isError: true,
           content: [
             { type: "text", text: `Error: No direct channels available` },
           ],
@@ -657,12 +660,12 @@ export class McpServer {
       const channel = channelStore.get(toolName);
       if (!channel) {
         const err = new Error(`Tool not found: ${toolName}`);
-        this.context.emit("error", { error: err });
-        this.context.emit(`plugin:mcp:tool:${toolName}:failed`, {
+        this.context.emit(`plugin:mcp:tool:failed`, {
           tool: toolName,
           error: err.message,
         });
         return {
+          isError: true,
           content: [
             { type: "text", text: `Error: Tool not found: ${toolName}` },
           ],
@@ -715,7 +718,7 @@ export class McpServer {
         headers,
       });
 
-      this.context.emit(`plugin:mcp:tool:${toolName}:called`, {
+      this.context.emit(`plugin:mcp:tool:called`, {
         tool: toolName,
         args,
       });
@@ -736,7 +739,7 @@ export class McpServer {
           ? (resultExchange["body"] as string)
           : JSON.stringify(resultExchange["body"]);
 
-      this.context.emit(`plugin:mcp:tool:${toolName}:completed`, {
+      this.context.emit(`plugin:mcp:tool:completed`, {
         tool: toolName,
       });
 
@@ -744,19 +747,30 @@ export class McpServer {
         content: [{ type: "text", text: resultText }],
       };
     } catch (error) {
-      const msg = isRoutecraftError(error)
+      const logMsg = isRoutecraftError(error)
         ? (error as unknown as { meta: { message: string } }).meta.message
         : error instanceof Error
           ? error.message
           : String(error);
-      this.context.logger.error({ tool: toolName, err: error }, msg);
-      this.context.emit("error", { error });
-      this.context.emit(`plugin:mcp:tool:${toolName}:failed`, {
+      this.context.logger.error({ tool: toolName, err: error }, logMsg);
+      this.context.emit(`plugin:mcp:tool:failed`, {
         tool: toolName,
-        error: msg,
+        error: logMsg,
       });
+
+      // Build a clean user-facing message: include the cause (e.g. schema
+      // field errors) but never expose stack traces or internal details.
+      let userMsg = logMsg;
+      if (isRoutecraftError(error)) {
+        const cause = (error as { cause?: Error }).cause;
+        if (cause?.message) {
+          userMsg = `${logMsg}: ${cause.message}`;
+        }
+      }
+
       return {
-        content: [{ type: "text", text: `Error: ${msg}` }],
+        content: [{ type: "text", text: `Error: ${userMsg}` }],
+        isError: true,
       };
     }
   }

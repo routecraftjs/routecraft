@@ -104,8 +104,73 @@ const docsPath = path.join(OUT_DIR, 'docs.md')
 fs.mkdirSync(path.dirname(docsPath), { recursive: true })
 fs.writeFileSync(docsPath, combined, 'utf8')
 
+// -- Generate llms-full.txt (copy of docs.md for the llms.txt spec) --
+const llmsFullPath = path.join(ROOT, 'public', 'llms-full.txt')
+fs.writeFileSync(llmsFullPath, combined, 'utf8')
+
+// -- Generate llms.txt (structured index with links to raw markdown) --
+const BASE_URL = 'https://routecraft.dev'
+const DESCRIPTION =
+  'Routecraft is a code-first TypeScript automation framework that bridges traditional integration patterns (ETL, webhooks, cron jobs) and AI-native workflows (MCP tool use). Write deterministic capabilities in TypeScript, expose them to AI agents via Model Context Protocol, and keep full control over what AI can access.'
+
+// Build a short description for each page from its first non-heading paragraph
+function extractBlurb(cleaned) {
+  const lines = cleaned.split('\n')
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (
+      !trimmed ||
+      trimmed.startsWith('#') ||
+      trimmed.startsWith('|') ||
+      trimmed.startsWith('```') ||
+      trimmed.startsWith('---') ||
+      trimmed.startsWith('{%')
+    )
+      continue
+    // Strip markdown links/bold/code
+    const plain = trimmed
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/\*\*([^*]+)\*\*/g, '$1')
+      .replace(/`([^`]+)`/g, '$1')
+    // Cap at ~120 chars
+    return plain.length > 120 ? plain.slice(0, 117) + '...' : plain
+  }
+  return ''
+}
+
+const llmsSections = []
+for (const { section, pages: urls } of NAV_ORDER) {
+  const links = []
+  for (const url of urls) {
+    const page = pages.get(url)
+    if (!page) continue
+    const rawPath = `${url.replace(/^\//, '')}.md`
+    const blurb = extractBlurb(page.cleaned)
+    const desc = blurb ? `: ${blurb}` : ''
+    links.push(`- [${page.title}](${BASE_URL}/raw/${rawPath})${desc}`)
+  }
+  if (links.length > 0) {
+    llmsSections.push(`## ${section}\n\n${links.join('\n')}`)
+  }
+}
+
+const llmsTxt =
+  [
+    `# Routecraft`,
+    `> ${DESCRIPTION}`,
+    ...llmsSections,
+    `## Optional`,
+    [
+      `- [Full Documentation (single file)](${BASE_URL}/llms-full.txt): All documentation concatenated into one markdown file for bulk ingestion`,
+      `- [Changelog](${BASE_URL}/raw/docs/changelog.md)`,
+    ].join('\n'),
+  ].join('\n\n') + '\n'
+
+const llmsPath = path.join(ROOT, 'public', 'llms.txt')
+fs.writeFileSync(llmsPath, llmsTxt, 'utf8')
+
 const pageCount = pages.size
 const sizeKb = Math.round(Buffer.byteLength(combined) / 1024)
 console.log(
-  `Generated ${pageCount} raw markdown files and docs.md (${sizeKb} KB) in public/raw/`,
+  `Generated ${pageCount} raw markdown files, docs.md (${sizeKb} KB), llms.txt, and llms-full.txt in public/`,
 )

@@ -17,30 +17,30 @@ import type { EventFilter } from "./types";
  * ```typescript
  * // ❌ DON'T: This creates an infinite loop
  * craft()
- *   .from(event('route:*:operation:**'))
- *   .to(http(...))  // Emits route:X:operation:to:http:started → loop!
+ *   .from(event('route:*:step:**'))
+ *   .to(http(...))  // Emits route:X:step:started -> loop!
  * ```
  *
  * **Safe Patterns:**
  * ```typescript
- * // ✅ SAFE: Use non-operation destinations
+ * // ✅ SAFE: Use non-step destinations
  * craft()
- *   .from(event('route:*:operation:**'))
- *   .to(log())  // log() doesn't emit operation events
+ *   .from(event('route:*:step:**'))
+ *   .to(log())  // log() doesn't emit step events
  *
  * // ✅ SAFE: Filter to avoid self-reference
  * craft()
- *   .from(event('route:*:operation:to:llm:*'))
+ *   .from(event('route:*:step:completed'))
  *   .filter((ex) => ex.body.details.routeId !== 'monitoring-route')
  *   .to(metrics())
  *
- * // ✅ SAFE: Subscribe to non-operation events only
+ * // ✅ SAFE: Subscribe to non-step events only
  * craft()
  *   .from(event('route:*:started'))
  *   .to(http(...))  // Route lifecycle events don't cause loops
  * ```
  *
- * Use operation events for observability routes that don't emit more operations.
+ * Use step events for observability routes that don't emit more step events.
  */
 export class EventSourceAdapter implements Source<EventPayload<EventName>> {
   readonly adapterId = "routecraft.adapter.event";
