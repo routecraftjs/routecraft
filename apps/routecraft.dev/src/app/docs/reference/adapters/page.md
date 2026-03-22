@@ -205,6 +205,10 @@ Supports standard 5-field cron (minute granularity), extended 6-field (second gr
 // With jitter to prevent thundering herd
 .id('distributed-poll')
 .from(cron('*/5 * * * *', { jitterMs: 5000 }))
+
+// Run only during Q1 2026
+.id('q1-campaign')
+.from(cron('@daily', { startAt: '2026-01-01', stopAt: '2026-04-01' }))
 ```
 
 Options:
@@ -212,9 +216,12 @@ Options:
 | Field | Type | Default | Required | Description |
 | --- | --- | --- | --- | --- |
 | `timezone` | `string` | System local | No | IANA timezone (e.g., `"America/New_York"`, `"UTC"`) |
-| `maxFires` | `number` | `Infinity` | No | Maximum number of fires before stopping |
+| `maxFires` | `number` | `Infinity` | No | Maximum number of fires before stopping (delegated to croner's `maxRuns`) |
 | `jitterMs` | `number` | `0` | No | Random delay in milliseconds added to each fire |
 | `name` | `string` | -- | No | Human-readable job name for observability |
+| `protect` | `boolean` | `true` | No | Prevents overlapping handler execution when the previous run is still in progress |
+| `startAt` | `Date \| string` | -- | No | Date or ISO 8601 string at which the cron job should start running |
+| `stopAt` | `Date \| string` | -- | No | Date or ISO 8601 string at which the cron job should stop running |
 
 **Cron expression format:**
 
