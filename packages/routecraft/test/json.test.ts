@@ -1,7 +1,7 @@
 import { describe, test, expect, afterEach, vi, beforeEach } from "vitest";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
 import { craft, simple, json, type Source } from "@routecraft/routecraft";
-import { JsonAdapter } from "../src/adapters/json.ts";
+import { JsonTransformerAdapter as JsonAdapter } from "../src/adapters/json/transformer.ts";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";

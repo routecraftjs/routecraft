@@ -1,12 +1,11 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
+import { craft, simple } from "@routecraft/routecraft";
 import {
-  craft,
-  simple,
-  browser,
-  type BrowserResult,
-} from "@routecraft/routecraft";
-import { sanitizeSessionId } from "../src/adapters/browser.ts";
+  agentBrowser,
+  type AgentBrowserResult,
+  sanitizeSessionId,
+} from "@routecraft/browser";
 
 const { executeCommandMock, BrowserManagerMock } = vi.hoisted(() => ({
   executeCommandMock: vi.fn<

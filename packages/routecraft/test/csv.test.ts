@@ -1,7 +1,7 @@
 import { describe, test, expect, afterEach, beforeEach } from "vitest";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
 import { craft, simple, csv } from "@routecraft/routecraft";
-import { CsvAdapter } from "../src/adapters/csv.ts";
+import { csv as createCsvAdapter } from "../src/adapters/csv/index.ts";
 import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -401,7 +401,7 @@ Alice,30
      * @expectedResult adapterId is "routecraft.adapter.csv"
      */
     test("has correct adapterId", () => {
-      const adapter = new CsvAdapter({ path: "test.csv" });
+      const adapter = createCsvAdapter({ path: "test.csv" });
       expect(adapter.adapterId).toBe("routecraft.adapter.csv");
     });
   });

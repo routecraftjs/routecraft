@@ -1,0 +1,54 @@
+{
+  "name": "@routecraft/browser",
+  "version": "0.4.0",
+  "description": "Agent browser automation adapter for Routecraft",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts",
+    "test": "vitest",
+    "prepublishOnly": "pnpm run build"
+  },
+  "dependencies": {
+    "@routecraft/routecraft": "workspace:^0.4.0"
+  },
+  "devDependencies": {
+    "agent-browser": "^0.17.1",
+    "vitest": "^4.1.0"
+  },
+  "peerDependencies": {
+    "agent-browser": "^0.15.1"
+  },
+  "peerDependenciesMeta": {
+    "agent-browser": {
+      "optional": false
+    }
+  },
+  "keywords": [
+    "routecraft",
+    "browser",
+    "automation",
+    "agent-browser",
+    "playwright"
+  ],
+  "author": "routecraftjs",
+  "license": "Apache-2.0",
+  "homepage": "https://routecraft.dev",
+  "bugs": "https://github.com/routecraftjs/routecraft/issues",
+  "repository": "https://github.com/routecraftjs/routecraft",
+  "publishConfig": {
+    "access": "public"
+  }
+}

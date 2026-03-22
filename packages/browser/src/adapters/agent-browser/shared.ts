@@ -1,93 +1,9 @@
-import { type Destination } from "../operations/to.ts";
-import { type Exchange } from "../exchange.ts";
+import type { Exchange } from "@routecraft/routecraft";
+import type { AgentBrowserCommand, Resolvable } from "./types.ts";
 
-// agent-browser library API (internal package paths – see agent-browser docs)
+// agent-browser library API (internal package paths)
 import { BrowserManager } from "agent-browser/dist/browser.js";
 import { executeCommand } from "agent-browser/dist/actions.js";
-
-/** Option value that can be static or resolved from the exchange. */
-export type Resolvable<T, V> = V | ((exchange: Exchange<T>) => V);
-
-/** Shared options available on every command. */
-export interface BrowserBaseOptions<T = unknown> {
-  /** Override auto-session derived from exchange.id */
-  session?: Resolvable<T, string>;
-  /** Run browser in headed mode (show window). */
-  headed?: boolean;
-  /** Timeout in milliseconds. */
-  timeout?: number;
-  /** Request JSON output and parse into result.parsed. */
-  json?: boolean;
-  /** Escape hatch: extra CLI flags (ignored in library mode). */
-  args?: string[];
-}
-
-/** Command-specific options for autocomplete. */
-export interface BrowserCommandMap<T = unknown> {
-  open: { url: Resolvable<T, string> };
-  click: { selector: Resolvable<T, string>; newTab?: boolean };
-  dblclick: { selector: Resolvable<T, string> };
-  fill: {
-    selector: Resolvable<T, string>;
-    value: Resolvable<T, string>;
-  };
-  type: {
-    selector: Resolvable<T, string>;
-    value: Resolvable<T, string>;
-  };
-  press: { key: string };
-  hover: { selector: Resolvable<T, string> };
-  focus: { selector: Resolvable<T, string> };
-  select: { selector: Resolvable<T, string>; value: string };
-  check: { selector: Resolvable<T, string> };
-  uncheck: { selector: Resolvable<T, string> };
-  scroll: {
-    direction: "up" | "down" | "left" | "right";
-    pixels?: number;
-  };
-  snapshot: { interactive?: boolean };
-  screenshot: { path?: string; full?: boolean; annotate?: boolean };
-  eval: { js: Resolvable<T, string> };
-  get: {
-    info:
-      | "text"
-      | "html"
-      | "value"
-      | "title"
-      | "url"
-      | "count"
-      | "attr"
-      | "box"
-      | "styles";
-    selector?: Resolvable<T, string>;
-    attr?: string;
-  };
-  wait: {
-    selector?: Resolvable<T, string>;
-    text?: string;
-    url?: string;
-    load?: string;
-    fn?: string;
-    ms?: number;
-  };
-  close: Record<string, never>;
-  back: Record<string, never>;
-  forward: Record<string, never>;
-  reload: Record<string, never>;
-  tab: {
-    action?: "new" | "close" | "list";
-    index?: number;
-    url?: string;
-  };
-}
-
-export type BrowserCommand = keyof BrowserCommandMap;
-
-export interface BrowserResult {
-  stdout: string;
-  parsed?: unknown;
-  exitCode: number;
-}
 
 /** Sanitize exchange id to agent-browser session name: alphanumeric, hyphen, underscore only. */
 export function sanitizeSessionId(id: string): string {
@@ -96,7 +12,7 @@ export function sanitizeSessionId(id: string): string {
 
 type ResolvedCommandOptions = Record<string, unknown>;
 
-function resolve<T, V>(
+export function resolve<T, V>(
   val: Resolvable<T, V> | undefined,
   exchange: Exchange<T>,
 ): V | undefined {
@@ -113,12 +29,14 @@ function requireOpt(
 ): string {
   const v = opts[key];
   if (v === undefined || v === null)
-    throw new Error(`Browser adapter: required option "${label}" was missing`);
+    throw new Error(
+      `agentBrowser adapter: required option "${label}" was missing`,
+    );
   return String(v);
 }
 
 /** Agent-browser protocol command shape (internal API). */
-interface AgentBrowserCommand {
+interface AgentBrowserProtocolCommand {
   id: string;
   action: string;
   [key: string]: unknown;
@@ -130,12 +48,12 @@ const sessionManagers = new Map<string, BrowserManager>();
 /**
  * Build agent-browser library command object from our (command, opts).
  */
-function buildLibraryCommand(
+export function buildLibraryCommand(
   id: string,
-  command: BrowserCommand,
+  command: AgentBrowserCommand,
   opts: ResolvedCommandOptions,
-): AgentBrowserCommand[] {
-  const cmds: AgentBrowserCommand[] = [];
+): AgentBrowserProtocolCommand[] {
+  const cmds: AgentBrowserProtocolCommand[] = [];
   const base = { id };
 
   switch (command) {
@@ -333,7 +251,7 @@ function buildLibraryCommand(
 }
 
 /** Get or create BrowserManager for session; launch if needed. */
-async function getOrCreateManager(
+export async function getOrCreateManager(
   sessionId: string,
   headed: boolean,
 ): Promise<BrowserManager> {
@@ -353,8 +271,8 @@ async function getOrCreateManager(
   return manager;
 }
 
-/** Map agent-browser response data to stdout string for BrowserResult. */
-function dataToStdout(data: Record<string, unknown>): string {
+/** Map agent-browser response data to stdout string for AgentBrowserResult. */
+export function dataToStdout(data: Record<string, unknown>): string {
   if (data["snapshot"] != null) return String(data["snapshot"]);
   if (data["text"] != null) return String(data["text"]);
   if (data["html"] != null) return String(data["html"]);
@@ -370,121 +288,7 @@ function dataToStdout(data: Record<string, unknown>): string {
   return JSON.stringify(data);
 }
 
-/** Internal: merged command options + base for a given command. */
-type BrowserOptionsMerged<
-  T,
-  C extends BrowserCommand,
-> = BrowserCommandMap<T>[C] & BrowserBaseOptions<T>;
-
-export class BrowserAdapter<
-  T = unknown,
-  C extends BrowserCommand = BrowserCommand,
-> implements Destination<T, BrowserResult> {
-  readonly adapterId = "routecraft.adapter.browser";
-
-  constructor(
-    private readonly command: C,
-    private readonly options: BrowserOptionsMerged<
-      T,
-      C
-    > = {} as BrowserOptionsMerged<T, C>,
-  ) {}
-
-  async send(exchange: Exchange<T>): Promise<BrowserResult> {
-    const session =
-      resolve(this.options.session, exchange) ?? sanitizeSessionId(exchange.id);
-    const headed = this.options.headed ?? false;
-
-    const resolved: ResolvedCommandOptions = {};
-    const raw = this.options as Record<string, unknown>;
-    for (const key of Object.keys(raw)) {
-      if (
-        key === "session" ||
-        key === "headed" ||
-        key === "timeout" ||
-        key === "json" ||
-        key === "args"
-      )
-        continue;
-      const v = raw[key];
-      if (typeof v === "function")
-        (resolved as Record<string, unknown>)[key] = (
-          v as (e: Exchange<T>) => unknown
-        )(exchange);
-      else resolved[key] = v;
-    }
-
-    const cmds = buildLibraryCommand(exchange.id, this.command, resolved);
-    if (cmds.length === 0) {
-      return { stdout: "", exitCode: 0 };
-    }
-
-    const manager = await getOrCreateManager(session, headed);
-
-    try {
-      let lastData: Record<string, unknown> = {};
-      for (const cmd of cmds) {
-        const response = await executeCommand(
-          cmd as Parameters<typeof executeCommand>[0],
-          manager,
-        );
-        const res = response as {
-          success: boolean;
-          data?: Record<string, unknown>;
-          error?: string;
-        };
-        if (!res.success) {
-          return {
-            stdout: res.error ?? "Unknown error",
-            exitCode: 1,
-          };
-        }
-        if (res.data) lastData = res.data;
-      }
-
-      if (this.command === "close" && typeof manager.close === "function") {
-        await manager.close().catch(() => {});
-      }
-      const stdout = dataToStdout(lastData);
-      const result: BrowserResult = { stdout, exitCode: 0 };
-      if (this.options.json) {
-        result.parsed = lastData;
-      }
-      return result;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return { stdout: message, exitCode: 1 };
-    } finally {
-      if (this.command === "close") {
-        sessionManagers.delete(session);
-      }
-    }
-  }
-}
-
-/**
- * Creates a browser destination adapter using the agent-browser library.
- * Session is derived from exchange.id so split/aggregate get isolated sessions.
- * Use with `.to()`, `.enrich()`, or `.tap()`. Requires `agent-browser` as a dependency.
- *
- * @beta
- * @param command - Agent-browser command (e.g. `open`, `click`, `snapshot`, `get`)
- * @param options - Command-specific options plus base options (session, headed, timeout, json)
- * @returns A Destination that runs the command and returns `{ stdout, parsed?, exitCode }`
- *
- * @example
- * ```typescript
- * .to(browser('open', { url: (ex) => ex.body.url }))
- * .tap(browser('snapshot', { json: true }))
- * .enrich(browser('get', { info: 'text', selector: 'h1' }), only((r) => r.stdout, 'title'))
- * ```
- */
-export function browser<T = unknown, C extends BrowserCommand = BrowserCommand>(
-  command: C,
-  options?: BrowserCommandMap<T>[C] & BrowserBaseOptions<T>,
-): Destination<T, BrowserResult> {
-  return new BrowserAdapter<T, C>(
-    command,
-    (options ?? {}) as BrowserOptionsMerged<T, C>,
-  );
+/** Delete a session manager (called on close). */
+export function deleteSessionManager(sessionId: string): void {
+  sessionManagers.delete(sessionId);
 }
