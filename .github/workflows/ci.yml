@@ -22,6 +22,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    outputs:
+      packages: ${{ steps.filter.outputs.packages }}
+      docs: ${{ steps.filter.outputs.docs }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
+
+      - name: Detect changed paths
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            packages:
+              - 'packages/**'
+              - 'examples/**'
+              - 'pnpm-lock.yaml'
+              - 'tsconfig*.json'
+              - '.github/workflows/**'
+              - '.github/scripts/**'
+            docs:
+              - 'apps/routecraft.dev/**'
+              - '.github/workflows/**'
+
   setup:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
@@ -205,7 +232,8 @@ jobs:
           if-no-files-found: error
 
   cli-test:
-    needs: [validate, test, build]
+    needs: [changes, validate, test, build]
+    if: needs.changes.outputs.packages == 'true' || github.event_name == 'release'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Checkout
@@ -260,8 +288,8 @@ jobs:
             apps/routecraft.dev/package.json apps/routecraft.dev/src/components/VersionSelector.tsx
 
   publish-canary:
-    needs: [build, cli-test]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [changes, build, cli-test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.packages == 'true'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     concurrency:
       group: publish-canary-${{ github.ref }}
@@ -431,8 +459,8 @@ jobs:
           done
 
   deploy-pages:
-    needs: [build, cli-test]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [changes, build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.docs == 'true'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     concurrency:
       group: pages
