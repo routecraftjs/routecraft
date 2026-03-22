@@ -3,12 +3,12 @@ import type { Exchange } from "../../exchange.ts";
 import type { FileOptions } from "../file/types.ts";
 import { file } from "../file/index.ts";
 
-/** File-related options extracted from HtmlOptions. */
+/** File-related options extracted from HtmlOptions (destination only). */
 interface HtmlFileFields {
   path?: string | ((exchange: Exchange) => string);
-  mode?: "read" | "write" | "append";
-  encoding?: BufferEncoding;
-  createDirs?: boolean;
+  mode?: "write" | "append" | undefined;
+  encoding?: BufferEncoding | undefined;
+  createDirs?: boolean | undefined;
 }
 
 /**

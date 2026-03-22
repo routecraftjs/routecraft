@@ -1,9 +1,34 @@
 import type { Exchange } from "@routecraft/routecraft";
 import type { AgentBrowserCommand, Resolvable } from "./types.ts";
 
-// agent-browser library API (internal package paths)
-import { BrowserManager } from "agent-browser/dist/browser.js";
-import { executeCommand } from "agent-browser/dist/actions.js";
+// agent-browser types resolved lazily so the peer dep stays optional.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type BrowserManager = any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type ExecuteCommandFn = (cmd: any, mgr: any) => Promise<any>;
+
+interface AgentBrowserLib {
+  BrowserManager: new () => BrowserManager;
+  executeCommand: ExecuteCommandFn;
+}
+
+let cached: AgentBrowserLib | null = null;
+
+async function loadAgentBrowser(): Promise<AgentBrowserLib> {
+  if (cached) return cached;
+  try {
+    const [{ BrowserManager }, { executeCommand }] = await Promise.all([
+      import("agent-browser/dist/browser.js"),
+      import("agent-browser/dist/actions.js"),
+    ]);
+    cached = { BrowserManager, executeCommand };
+    return cached;
+  } catch {
+    throw new Error(
+      '@routecraft/browser: the "agent-browser" package is required for this adapter. Install it with: npm install agent-browser',
+    );
+  }
+}
 
 /** Sanitize exchange id to agent-browser session name: alphanumeric, hyphen, underscore only. */
 export function sanitizeSessionId(id: string): string {
@@ -43,8 +68,10 @@ interface AgentBrowserProtocolCommand {
 }
 
 /** Session store: one BrowserManager per session id for split/aggregate isolation. */
-const sessionManagers = new Map<string, BrowserManager>();
-const sessionLaunches = new Map<string, Promise<BrowserManager>>();
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const sessionManagers = new Map<string, any>();
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const sessionLaunches = new Map<string, Promise<any>>();
 
 /**
  * Build agent-browser library command object from our (command, opts).
@@ -263,14 +290,16 @@ export async function getOrCreateManager(
   const inFlight = sessionLaunches.get(sessionId);
   if (inFlight) return inFlight;
 
+  // Set the in-flight promise synchronously before any await to prevent races
   const launch = (async () => {
+    const { BrowserManager, executeCommand } = await loadAgentBrowser();
     const manager = new BrowserManager();
     await executeCommand(
       {
         id: sessionId,
         action: "launch",
         headless: !headed,
-      } as Parameters<typeof executeCommand>[0],
+      },
       manager,
     );
     sessionManagers.set(sessionId, manager);
@@ -283,6 +312,12 @@ export async function getOrCreateManager(
   } finally {
     sessionLaunches.delete(sessionId);
   }
+}
+
+/** Lazy-load executeCommand for use in destination adapter. */
+export async function loadExecuteCommand(): Promise<ExecuteCommandFn> {
+  const { executeCommand } = await loadAgentBrowser();
+  return executeCommand;
 }
 
 /** Map agent-browser response data to stdout string for AgentBrowserResult. */

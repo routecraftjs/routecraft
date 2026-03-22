@@ -11,8 +11,8 @@ import {
   getOrCreateManager,
   dataToStdout,
   deleteSessionManager,
+  loadExecuteCommand,
 } from "./shared.ts";
-import { executeCommand } from "agent-browser/dist/actions.js";
 
 /**
  * AgentBrowserDestinationAdapter implements the Destination interface for browser automation.
@@ -62,14 +62,12 @@ export class AgentBrowserDestinationAdapter<
     }
 
     const manager = await getOrCreateManager(session, headed);
+    const executeCommand = await loadExecuteCommand();
 
     try {
       let lastData: Record<string, unknown> = {};
       for (const cmd of cmds) {
-        const response = await executeCommand(
-          cmd as Parameters<typeof executeCommand>[0],
-          manager,
-        );
+        const response = await executeCommand(cmd, manager);
         const res = response as {
           success: boolean;
           data?: Record<string, unknown>;

@@ -59,7 +59,13 @@ export function html<T = unknown, R = HtmlResult>(
   const transformer = new HtmlTransformerAdapter<T, R>(options);
   if (options.path) {
     const source = new HtmlSourceAdapter<T, R>(options);
-    const destination = new HtmlDestinationAdapter(options);
+    const destMode = options.mode === "read" ? undefined : options.mode;
+    const destination = new HtmlDestinationAdapter({
+      path: options.path,
+      mode: destMode,
+      encoding: options.encoding,
+      createDirs: options.createDirs,
+    });
     return {
       adapterId: "routecraft.adapter.html",
       transform: transformer.transform.bind(transformer),
