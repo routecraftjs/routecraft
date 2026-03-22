@@ -84,7 +84,7 @@ export interface AgentBrowserResult {
   exitCode: number;
 }
 
-/** Internal: merged command options + base for a given command. */
+/** @internal Merged command options + base for a given command. */
 export type AgentBrowserOptionsMerged<
   T,
   C extends AgentBrowserCommand,

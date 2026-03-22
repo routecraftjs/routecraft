@@ -266,8 +266,8 @@ importers:
         specifier: workspace:^0.4.0
         version: link:../routecraft
       agent-browser:
-        specifier: ^0.15.3
-        version: 0.15.3(puppeteer-core@24.22.0)
+        specifier: ^0.17.1
+        version: 0.17.1(puppeteer-core@24.22.0)
       better-sqlite3:
         specifier: ^11.10.0
         version: 11.10.0
@@ -2082,10 +2082,6 @@ packages:
   agent-base@7.1.4:
     resolution: {integrity: sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==}
     engines: {node: '>= 14'}
-
-  agent-browser@0.15.3:
-    resolution: {integrity: sha512-0HUhEc9kGPzQmDbGgjvc3BkAEQkfyQeY19d/ITgP+dSlUvoDRM09YwFhOM8dBbfvNiKtLnlIEFoxD6kmFB5h0A==}
-    hasBin: true
 
   agent-browser@0.17.1:
     resolution: {integrity: sha512-KNV+6F3nYStxgTrsdcfMBsxtLdnaUu2NTuQ9EL8CvnYUgAzdoYztYVJzkr1KbconGEyLdSgXZedSsKw0TPiL/g==}
@@ -6794,7 +6790,7 @@ snapshots:
 
   '@types/ws@8.18.1':
     dependencies:
-      '@types/node': 20.19.37
+      '@types/node': 25.5.0
 
   '@types/yauzl@2.10.3':
     dependencies:
@@ -7113,22 +7109,6 @@ snapshots:
   acorn@8.16.0: {}
 
   agent-base@7.1.4: {}
-
-  agent-browser@0.15.3(puppeteer-core@24.22.0):
-    dependencies:
-      node-simctl: 7.7.5
-      playwright-core: 1.58.2
-      webdriverio: 9.26.1(puppeteer-core@24.22.0)
-      ws: 8.19.0
-      zod: 3.25.76
-    transitivePeerDependencies:
-      - bare-abort-controller
-      - bare-buffer
-      - bufferutil
-      - puppeteer-core
-      - react-native-b4a
-      - supports-color
-      - utf-8-validate
 
   agent-browser@0.17.1(puppeteer-core@24.22.0):
     dependencies:
