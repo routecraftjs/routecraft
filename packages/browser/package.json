@@ -32,7 +32,6 @@
   "peerDependencies": {
     "agent-browser": "^0.17.1"
   },
-  "peerDependenciesMeta": {},
   "keywords": [
     "routecraft",
     "browser",
