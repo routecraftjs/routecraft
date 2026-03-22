@@ -1,4 +1,4 @@
-import { logger, CraftContext } from "@routecraft/routecraft";
+import { logger } from "@routecraft/routecraft";
 import { resolve } from "node:path";
 import { config as loadDotenv } from "dotenv";
 
@@ -67,33 +67,3 @@ export function loadEnvFile(path?: string) {
   return envLocalResult;
 }
 
-/**
- * Registers SIGINT and SIGTERM handlers for a CraftContext instance.
- *
- * First signal triggers graceful shutdown (stop sources, drain in-flight work,
- * tear down servers and plugins). A second signal during shutdown forces an
- * immediate exit.
- *
- * @param context The CraftContext instance
- */
-export function registerContextSignalHandlers(
-  context: InstanceType<typeof CraftContext>,
-) {
-  let shuttingDown = false;
-
-  const shutdown = async (signal: string) => {
-    if (shuttingDown) {
-      context.logger.warn(`Received ${signal} again, forcing exit`);
-      process.exit(1);
-    }
-
-    shuttingDown = true;
-    context.logger.info(`Shutting down (${signal})...`);
-    await context.stop();
-    context.logger.info("Cleanup complete");
-    process.exit(0);
-  };
-
-  process.on("SIGINT", () => shutdown("SIGINT"));
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
-}

@@ -1,5 +1,6 @@
 import {
   ContextBuilder,
+  registerShutdownHandlers,
   RUNNER_ARGV,
   type RouteDefinition,
   type RouteBuilder,
@@ -56,5 +57,6 @@ export async function cliRunner(
 
   const context = await contextBuilder.build();
   context.setStore(RUNNER_ARGV, argv);
+  registerShutdownHandlers(context);
   await context.start();
 }

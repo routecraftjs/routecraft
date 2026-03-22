@@ -101,6 +101,8 @@ export {
 
 export { logger } from "./logger.ts";
 
+export { registerShutdownHandlers } from "./shutdown.ts";
+
 export {
   type Adapter,
   type Consumer,

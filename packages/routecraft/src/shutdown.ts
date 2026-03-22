@@ -1,0 +1,49 @@
+import type { CraftContext } from "./context.ts";
+
+/**
+ * Register SIGINT/SIGTERM handlers for graceful two-stage shutdown.
+ *
+ * **First signal** (Ctrl+C): stops accepting new requests, drains in-flight
+ * routes, runs plugin teardown, then exits cleanly.
+ *
+ * **Second signal** (Ctrl+C again): forces an immediate exit for when
+ * graceful shutdown is stuck or taking too long.
+ *
+ * @param context - A built `CraftContext` to shut down on signal
+ *
+ * @example
+ * ```typescript
+ * const context = await builder.build();
+ * registerShutdownHandlers(context);
+ * await context.start();
+ * ```
+ *
+ * @experimental
+ */
+export function registerShutdownHandlers(context: CraftContext): void {
+  let shuttingDown = false;
+
+  const onSignal = async (signal: string) => {
+    if (shuttingDown) {
+      context.logger.warn(
+        `Received ${signal} during shutdown; forcing exit now`,
+      );
+      process.exit(1);
+    }
+
+    shuttingDown = true;
+    context.logger.info(
+      `Received ${signal}; shutting down gracefully (press Ctrl+C again to force)...`,
+    );
+
+    try {
+      await context.stop();
+    } catch {
+      context.logger.warn("Error during graceful shutdown; exiting");
+      process.exit(1);
+    }
+  };
+
+  process.on("SIGINT", () => void onSignal("SIGINT"));
+  process.on("SIGTERM", () => void onSignal("SIGTERM"));
+}

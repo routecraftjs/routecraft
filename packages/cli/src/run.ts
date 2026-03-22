@@ -5,11 +5,11 @@ import {
   isRouteBuilder,
   isRouteDefinition,
   logger,
+  registerShutdownHandlers,
   RUNNER_ARGV,
   type RouteBuilder,
   type RouteDefinition,
 } from "@routecraft/routecraft";
-import { registerContextSignalHandlers } from "./util";
 
 const SUPPORTED_EXTENSIONS = [".mjs", ".js", ".cjs", ".ts"] as const;
 
@@ -73,7 +73,7 @@ export async function runCommand(
     // the runner needing to know which adapters are in use.
     const context = await contextBuilder.build();
     context.setStore(RUNNER_ARGV, cliArgs);
-    registerContextSignalHandlers(context);
+    registerShutdownHandlers(context);
     await context.start();
 
     return { success: true };
