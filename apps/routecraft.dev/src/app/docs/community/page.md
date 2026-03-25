@@ -18,5 +18,5 @@ See the repository `README.md` for contribution guidelines and licensing.
 
 ## Community resources
 
-- **[routecraft-registry](https://github.com/routecraftjs/routecraft-registry)** -- contribute and install capabilities, agents, and skills
-- **[awesome-routecraft](https://github.com/routecraftjs/awesome-routecraft)** -- tutorials, tools, and community projects
+- **[routecraft-registry](https://github.com/routecraftjs/routecraft-registry)**: contribute and install capabilities, agents, and skills
+- **[awesome-routecraft](https://github.com/routecraftjs/awesome-routecraft)**: tutorials, tools, and community projects

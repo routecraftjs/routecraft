@@ -152,7 +152,9 @@ async function listExamples(): Promise<void> {
 
   console.log("Available examples:\n");
   for (const [id, entry] of Object.entries(examples)) {
-    const versions = Object.keys(entry.versions);
+    const versions = Object.keys(entry.versions).sort((a, b) =>
+      a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }),
+    );
     const latest = versions[versions.length - 1] ?? "unknown";
     const meta = entry.versions[latest];
     const name = meta?.name ?? id;
@@ -439,7 +441,12 @@ async function getUserInput(
             const registryExamples = await fetchRegistryExamples();
             if (registryExamples) {
               for (const [id, entry] of Object.entries(registryExamples)) {
-                const versions = Object.keys(entry.versions);
+                const versions = Object.keys(entry.versions).sort((a, b) =>
+                  a.localeCompare(b, undefined, {
+                    numeric: true,
+                    sensitivity: "base",
+                  }),
+                );
                 const latest = versions[versions.length - 1];
                 const meta = latest ? entry.versions[latest] : undefined;
                 const name = meta?.name ?? id;
@@ -620,7 +627,9 @@ async function generateProjectStructure(
         );
       }
       const entry = registryExamples[exampleId]!;
-      const versions = Object.keys(entry.versions);
+      const versions = Object.keys(entry.versions).sort((a, b) =>
+        a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }),
+      );
       const latestVer = versions[versions.length - 1] ?? "1.0.0";
 
       // Download from registry GitHub repo

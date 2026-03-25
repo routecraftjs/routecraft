@@ -1,12 +1,12 @@
 /**
- * craft add -- download a capability from the registry, verify its SHA,
+ * craft add: download a capability from the registry, verify its SHA,
  * install dependencies, and optionally update index.ts.
  */
 
 import { resolve, join, basename } from "node:path";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 
 const DEFAULT_REGISTRY =
   "https://raw.githubusercontent.com/routecraftjs/routecraft-registry/refs/heads/main/";
@@ -20,6 +20,9 @@ const OFFICIAL_DOMAINS = [
   "github.com/routecraftjs/",
   "registry.routecraft.dev",
 ] as const;
+
+/** Safe pattern for npm package names (scoped or unscoped). */
+const SAFE_PKG_RE = /^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/;
 
 function isOfficialRegistry(url: string): boolean {
   return OFFICIAL_DOMAINS.some((domain) => url.includes(domain));
@@ -53,15 +56,15 @@ interface AddOptions {
  * Resolve the latest version from a registry entry.
  */
 function latestVersion(entry: RegistryEntry): string {
-  const versions = Object.keys(entry.versions).sort((a, b) => {
-    const pa = a.split(".").map(Number);
-    const pb = b.split(".").map(Number);
-    for (let i = 0; i < 3; i++) {
-      if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) - (pb[i] ?? 0);
-    }
-    return 0;
-  });
-  return versions[versions.length - 1]!;
+  const versions = Object.keys(entry.versions);
+  if (versions.length === 0) {
+    throw new Error("No versions available");
+  }
+  return versions
+    .sort((a, b) =>
+      a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }),
+    )
+    .pop()!;
 }
 
 /**
@@ -74,7 +77,7 @@ function toImportName(id: string): string {
 }
 
 /**
- * Fetch JSON from a URL with basic retry.
+ * Fetch JSON from a URL.
  */
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url);
@@ -85,21 +88,21 @@ async function fetchJson<T>(url: string): Promise<T> {
 }
 
 /**
- * Fetch text content from a URL.
+ * Fetch raw bytes from a URL.
  */
-async function fetchText(url: string): Promise<string> {
+async function fetchBuffer(url: string): Promise<Buffer> {
   const res = await fetch(url);
   if (!res.ok) {
     throw new Error(`Failed to fetch ${url}: ${res.status} ${res.statusText}`);
   }
-  return res.text();
+  return Buffer.from(await res.arrayBuffer());
 }
 
 /**
- * Compute SHA-256 hex digest of a string.
+ * Compute SHA-256 hex digest of a Buffer.
  */
-function sha256(content: string): string {
-  return createHash("sha256").update(content, "utf-8").digest("hex");
+function sha256(content: Buffer): string {
+  return createHash("sha256").update(content).digest("hex");
 }
 
 /**
@@ -164,10 +167,6 @@ async function installCapability(
   // Circular dependency check
   checkCircularDeps(id, resolvedVersion, chain);
 
-  // Check type -- only capabilities supported for now
-  // We infer from which registry JSON we are using (capabilities.json)
-  // Agent/skill types will be handled when those features ship
-
   // Install required capabilities first (recursive)
   const allEnvVars: string[] = [];
   const allDeps: Record<string, string> = {};
@@ -195,11 +194,11 @@ async function installCapability(
     : options.registry + "/";
 
   // Try common file extensions
-  let content: string | null = null;
+  let rawContent: Buffer | null = null;
   let fileExt = ".mjs";
   for (const ext of [".mjs", ".ts", ".js"]) {
     try {
-      content = await fetchText(
+      rawContent = await fetchBuffer(
         `${registryBase}capabilities/${id}/${resolvedVersion}/${id}${ext}`,
       );
       fileExt = ext;
@@ -209,7 +208,7 @@ async function installCapability(
     }
   }
 
-  if (content === null) {
+  if (rawContent === null) {
     throw new Error(
       `Could not fetch capability file for ${id}@${resolvedVersion} from registry`,
     );
@@ -217,7 +216,7 @@ async function installCapability(
 
   // SHA verification
   if (!options.noVerify) {
-    const computedSha = sha256(content);
+    const computedSha = sha256(rawContent);
     if (computedSha !== versionData.sha256) {
       // eslint-disable-next-line no-console
       console.error(`
@@ -239,11 +238,11 @@ async function installCapability(
     );
   }
 
-  // Write file
+  // Write file (raw bytes to preserve exact content)
   const targetDir = resolve(options.dir);
   mkdirSync(targetDir, { recursive: true });
   const targetFile = join(targetDir, `${id}${fileExt}`);
-  writeFileSync(targetFile, content, "utf-8");
+  writeFileSync(targetFile, rawContent);
 
   const suffix = parentId ? `  (required by ${parentId})` : "";
   // eslint-disable-next-line no-console
@@ -268,6 +267,9 @@ async function installCapability(
 
 /**
  * Update index.ts to include the new capability import.
+ *
+ * Only handles simple single-line `export default [...]` patterns.
+ * Falls back to printing manual instructions for complex exports.
  */
 function updateIndexTs(dir: string, ids: string[]): void {
   // Look for index.ts in the parent of the capabilities dir
@@ -297,7 +299,7 @@ function updateIndexTs(dir: string, ids: string[]): void {
         continue;
       }
 
-      // Append import before the last export or at end
+      // Match simple single-line export default [...] only
       const exportMatch = content.match(/export\s+default\s+\[([^\]]*)\]/s);
       if (exportMatch) {
         // Add import before the export
@@ -342,13 +344,7 @@ function updateIndexTs(dir: string, ids: string[]): void {
 
 export async function addCommand(
   specifier: string,
-  options: {
-    registry?: string;
-    dir?: string;
-    noIndex?: boolean;
-    noVerify?: boolean;
-    allowUnofficial?: boolean;
-  },
+  options: Partial<AddOptions>,
 ): Promise<void> {
   const { id, version } = parseSpecifier(specifier);
   const registryUrl = options.registry ?? DEFAULT_REGISTRY;
@@ -412,25 +408,35 @@ export async function addCommand(
     [],
   );
 
-  // Install dependencies via pnpm
+  // Install dependencies via pnpm (using execFileSync to avoid shell injection)
   if (Object.keys(result.installedDeps).length > 0) {
-    const depArgs = Object.entries(result.installedDeps)
-      .map(([pkg, ver]) => `${pkg}@${ver}`)
-      .join(" ");
-    try {
-      // eslint-disable-next-line no-console
-      console.log("");
-      execSync(`pnpm add ${depArgs}`, {
-        stdio: "inherit",
-        cwd: resolve(dir, ".."),
-      });
-      // eslint-disable-next-line no-console
-      console.log(`\u2713  dependencies installed`);
-    } catch {
-      // eslint-disable-next-line no-console
-      console.warn(
-        `\u26A0  Failed to install dependencies. Run manually:\n   pnpm add ${depArgs}`,
-      );
+    const depList = Object.entries(result.installedDeps)
+      .filter(([pkg]) => {
+        if (!SAFE_PKG_RE.test(pkg)) {
+          // eslint-disable-next-line no-console
+          console.warn(`\u26A0  Skipping invalid package name: ${pkg}`);
+          return false;
+        }
+        return true;
+      })
+      .map(([pkg, ver]) => `${pkg}@${ver}`);
+
+    if (depList.length > 0) {
+      try {
+        // eslint-disable-next-line no-console
+        console.log("");
+        execFileSync("pnpm", ["add", ...depList], {
+          stdio: "inherit",
+          cwd: resolve(dir, ".."),
+        });
+        // eslint-disable-next-line no-console
+        console.log(`\u2713  dependencies installed`);
+      } catch {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `\u26A0  Failed to install dependencies. Run manually:\n   pnpm add ${depList.join(" ")}`,
+        );
+      }
     }
   }
 

@@ -39,10 +39,10 @@ capabilities/elastic-logs/1.0.0/
 
 Capabilities are **not trusted by default**. The registry CI pipeline validates every submission:
 
-1. **Schema validation** -- required fields, valid semver, valid type
-2. **Static analysis** -- no `eval()`, no `child_process`, no filesystem writes
-3. **Immutability** -- once a version is merged, its content cannot change
-4. **SHA-256 hash** -- computed by CI, never by the author
+1. **Schema validation**: required fields, valid semver, valid type
+2. **Static analysis**: no `eval()`, no `child_process`, no filesystem writes
+3. **Immutability**: once a version is merged, its content cannot change
+4. **SHA-256 hash**: computed by CI, never by the author
 
 When you run `craft add`, the CLI fetches the file and computes its hash locally. If it does not match the registry hash, the install is rejected. This means even if the raw file host is compromised, tampered files are caught.
 
@@ -97,7 +97,7 @@ env:
 | dependencies | No | npm packages to install (package name to version range) |
 | requiredCapabilities | No | Other registry capabilities this one depends on |
 | env | No | Environment variable names the capability requires |
-| sha256 | -- | Computed by CI. Never authored manually. |
+| sha256 | No | Computed by CI. Never authored manually. |
 
 The same manifest format is used for all types. The `type` field is used for routing and display only.
 
@@ -115,7 +115,7 @@ pnpm craft add elastic-logs
 pnpm craft add elastic-logs@1.0.0
 
 # Custom registry (e.g. your company's private registry)
-pnpm craft add elastic-logs --registry https://registry.acme.com
+pnpm craft add elastic-logs --registry https://registry.acme.com --allow-unofficial
 
 # Custom target directory
 pnpm craft add elastic-logs --dir ./packages/my-service/capabilities
@@ -167,10 +167,10 @@ The `craft add` command works with any static file server that serves the same d
 
 1. Create a repository with the same layout (`capabilities/<id>/<version>/`)
 2. Include `registry/capabilities.json` with SHA entries
-3. Use the `--registry` flag or set the `CRAFT_REGISTRY` environment variable
+3. Use the `--registry` and `--allow-unofficial` flags
 
 ```bash
-pnpm craft add my-internal-cap --registry https://registry.internal.acme.com
+pnpm craft add my-internal-cap --registry https://registry.internal.acme.com --allow-unofficial
 ```
 
 The CI scripts (`scripts/validate-manifest.js`, `scripts/compute-sha.js`, `scripts/scan-static.js`) are open source under Apache 2.0 and can be reused in your own CI pipeline.
@@ -180,7 +180,7 @@ The CI scripts (`scripts/validate-manifest.js`, `scripts/compute-sha.js`, `scrip
 ## Agents and skills
 
 {% callout type="note" title="Coming soon" %}
-The registry format supports `agent` and `skill` types in the manifest, but `craft add` currently only handles capabilities. Agent and skill support will ship in a future release. The manifest format will not change -- agents and skills define their persona, tool scope, and instructions in the capability file itself.
+The registry format supports `agent` and `skill` types in the manifest, but `craft add` currently only handles capabilities. Agent and skill support will ship in a future release. The manifest format will not change. Agents and skills define their persona, tool scope, and instructions in the capability file itself.
 {% /callout %}
 
 ---

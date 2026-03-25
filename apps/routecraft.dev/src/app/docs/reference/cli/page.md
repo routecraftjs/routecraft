@@ -46,6 +46,7 @@ Options:
 | --dir \<path\> | Target directory for capability files (default: ./capabilities) |
 | --no-index | Skip updating index.ts |
 | --no-verify | Skip SHA verification (not recommended) |
+| --allow-unofficial | Allow installing from non-official registries |
 
 If the capability declares `requiredCapabilities`, they are installed recursively. Circular dependencies are detected and rejected.
 
@@ -53,7 +54,7 @@ See the [Registry page](/docs/registry) for full details on the trust model and 
 
 ## Project scaffolding
 
-New projects are created via `npm create routecraft`, a separate scaffolding package -- not a `craft` subcommand:
+New projects are created via `npm create routecraft`, a separate scaffolding package (not a `craft` subcommand):
 
 {% code-tabs %}
 {% code-tab label="npm" language="bash" %}
@@ -98,7 +99,7 @@ Options:
 
 ### run
 
-Load one or more capabilities from a TypeScript file and start the Routecraft context. The process runs as long as the capabilities run -- finite capabilities exit after completing; long-lived sources keep the process running until the context is stopped or a signal is received.
+Load one or more capabilities from a TypeScript file and start the Routecraft context. The process runs as long as the capabilities run. Finite capabilities exit after completing; long-lived sources keep the process running until the context is stopped or a signal is received.
 
 ```bash
 craft run <file> [--env <.env path>]
