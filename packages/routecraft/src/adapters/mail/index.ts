@@ -3,6 +3,7 @@ import type { Destination } from "../../operations/to.ts";
 import { MailSourceAdapter } from "./source.ts";
 import { MailFetchDestinationAdapter } from "./fetch-destination.ts";
 import { MailSendDestinationAdapter } from "./send-destination.ts";
+import { MailOperationDestinationAdapter } from "./operation-destination.ts";
 import type {
   MailServerOptions,
   MailClientOptions,
@@ -10,10 +11,12 @@ import type {
   MailFetchResult,
   MailSendPayload,
   MailSendResult,
+  MailAction,
 } from "./types.ts";
 
 /**
- * Creates a mail adapter for reading email via IMAP or sending via SMTP.
+ * Creates a mail adapter for reading email via IMAP, sending via SMTP,
+ * or performing IMAP operations (move, copy, delete, flag, unflag, append).
  *
  * **Source (for `.from()`):** Call with two arguments: `mail(folder, options)`.
  * Uses IMAP IDLE or polling to push new messages to the route.
@@ -23,6 +26,9 @@ import type {
  *
  * **Send Destination (for `.to()`):** Call with no arguments or client options.
  * Sends email via SMTP using the exchange body as the payload.
+ *
+ * **Operation Destination (for `.to()`):** Call with a MailAction object.
+ * Performs IMAP operations (move, copy, delete, flag, unflag, append) on messages.
  *
  * @example
  * ```typescript
@@ -41,11 +47,21 @@ import type {
  * craft()
  *   .from(direct('outbound', {}))
  *   .to(mail())
+ *
+ * // IMAP operations
+ * craft()
+ *   .from(mail('INBOX', { unseen: true }))
+ *   .to(mail({ action: 'move', folder: 'Archive' }))
+ *
+ * // Named account
+ * craft()
+ *   .from(mail('INBOX', { account: 'support' }))
+ *   .to(mail({ action: 'flag', flags: '\\Seen', account: 'support' }))
  * ```
  *
  * @param folder - IMAP mailbox folder name (e.g. 'INBOX')
  * @param options - Server options for IMAP connection and fetch behavior
- * @returns Source, Fetch Destination, or Send Destination depending on arguments
+ * @returns Source, Fetch Destination, Send Destination, or Operation Destination depending on arguments
  *
  * @experimental
  */
@@ -57,6 +73,7 @@ export function mail(folder: string): Destination<unknown, MailFetchResult>;
 export function mail(
   options: Partial<MailServerOptions>,
 ): Destination<unknown, MailFetchResult>;
+export function mail(action: MailAction): Destination<unknown, void>;
 export function mail(
   options?: Partial<MailClientOptions>,
 ): Destination<MailSendPayload, MailSendResult>;
@@ -64,12 +81,14 @@ export function mail(
   folderOrOptions?:
     | string
     | Partial<MailServerOptions>
-    | Partial<MailClientOptions>,
+    | Partial<MailClientOptions>
+    | MailAction,
   options?: Partial<MailServerOptions>,
 ):
   | Source<MailMessage>
   | Destination<unknown, MailFetchResult>
-  | Destination<MailSendPayload, MailSendResult> {
+  | Destination<MailSendPayload, MailSendResult>
+  | Destination<unknown, void> {
   // 2 args: string + object -> Source (matches direct(endpoint, options) pattern)
   if (typeof folderOrOptions === "string" && options !== undefined) {
     return new MailSourceAdapter(
@@ -83,6 +102,13 @@ export function mail(
     return new MailFetchDestinationAdapter({
       folder: folderOrOptions,
     }) as Destination<unknown, MailFetchResult>;
+  }
+
+  // Action discriminator -> Operation Destination (checked before hasServerKeys)
+  if (folderOrOptions && "action" in folderOrOptions) {
+    return new MailOperationDestinationAdapter(
+      folderOrOptions as MailAction,
+    ) as Destination<unknown, void>;
   }
 
   // Object with server-specific keys -> Fetch Destination
@@ -124,7 +150,20 @@ export type {
   MailSendPayload,
   MailSendResult,
   MailFetchResult,
+  MailContextConfig,
+  MailAccountConfig,
+  MailAccountImapConfig,
+  MailAccountSmtpConfig,
+  MailAction,
+  MailMoveAction,
+  MailCopyAction,
+  MailDeleteAction,
+  MailFlagAction,
+  MailUnflagAction,
+  MailAppendAction,
+  MailTargetExtractor,
 } from "./types.ts";
 
-// Re-export constants for registry access
-export { ADAPTER_MAIL_OPTIONS } from "./shared.ts";
+// Re-export store key and client manager
+export { MAIL_CLIENT_MANAGER } from "./shared.ts";
+export { MailClientManager } from "./client-manager.ts";

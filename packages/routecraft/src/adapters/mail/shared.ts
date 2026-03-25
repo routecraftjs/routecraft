@@ -1,136 +1,166 @@
 import type { CraftContext } from "../../context.ts";
+import type { Exchange } from "../../exchange.ts";
 import { rcError } from "../../error.ts";
 import type {
   MailMessage,
-  MailOptionsMerged,
   MailServerOptions,
   MailClientOptions,
+  MailSendPayload,
+  MailTargetExtractor,
 } from "./types.ts";
+import type { MailClientManager } from "./client-manager.ts";
+
+// ---------------------------------------------------------------------------
+// Store keys
+// ---------------------------------------------------------------------------
 
 /**
- * Store key for merged mail adapter options.
- * Set in the context store to configure auth, hosts, and defaults for all mail routes.
- *
- * @example
- * ```typescript
- * new ContextBuilder()
- *   .store(ADAPTER_MAIL_OPTIONS, {
- *     auth: { user: 'me@gmail.com', pass: 'app-password' },
- *     imapHost: 'imap.gmail.com',
- *     smtpHost: 'smtp.gmail.com',
- *     from: 'me@gmail.com',
- *   })
- * ```
- *
- * @experimental
+ * Store key for the mail client manager.
+ * Set internally by the ContextBuilder when `mail` config is present.
+ * @internal
  */
-export const ADAPTER_MAIL_OPTIONS = Symbol.for(
-  "routecraft.adapter.mail.options",
+export const MAIL_CLIENT_MANAGER = Symbol.for(
+  "routecraft.adapter.mail.client-manager",
 );
 
 declare module "@routecraft/routecraft" {
   interface StoreRegistry {
-    [ADAPTER_MAIL_OPTIONS]: Partial<MailOptionsMerged>;
+    [MAIL_CLIENT_MANAGER]: MailClientManager;
   }
 }
 
+// ---------------------------------------------------------------------------
+// Header constants
+// ---------------------------------------------------------------------------
+
+/** Header key for the IMAP UID of the source message. */
+export const HEADER_MAIL_UID = "routecraft.mail.uid";
+
+/** Header key for the IMAP folder of the source message. */
+export const HEADER_MAIL_FOLDER = "routecraft.mail.folder";
+
+// ---------------------------------------------------------------------------
+// Client manager access
+// ---------------------------------------------------------------------------
+
 /**
- * Resolve IMAP connection options by merging context store with adapter-level options.
- * Context store fields `imapHost`/`imapPort`/`imapSecure` map to `host`/`port`/`secure`.
- * Adapter-level options take precedence over context store values.
- *
- * @param context - The CraftContext
- * @param adapterOptions - Options passed to the adapter constructor
- * @returns Resolved MailServerOptions with host/port/auth populated
+ * Get the MailClientManager from the exchange context.
+ * Returns null if no mail config was provided (standalone mode).
  */
-export function getMergedImapOptions(
-  context: CraftContext,
-  adapterOptions: Partial<MailServerOptions>,
-): MailServerOptions {
-  const store = (context.getStore(ADAPTER_MAIL_OPTIONS) ??
-    {}) as Partial<MailOptionsMerged>;
-
-  const result: MailServerOptions = {
-    port: adapterOptions.port ?? store.imapPort ?? 993,
-    secure: adapterOptions.secure ?? store.imapSecure ?? true,
-    folder: adapterOptions.folder ?? store.folder ?? "INBOX",
-    markSeen: adapterOptions.markSeen ?? store.markSeen ?? true,
-    unseen: adapterOptions.unseen ?? true,
-  };
-
-  const host = adapterOptions.host ?? store.imapHost;
-  if (host !== undefined) result.host = host;
-
-  const auth = adapterOptions.auth ?? store.auth;
-  if (auth !== undefined) result.auth = auth;
-
-  if (adapterOptions.since !== undefined) result.since = adapterOptions.since;
-  if (adapterOptions.limit !== undefined) result.limit = adapterOptions.limit;
-  if (adapterOptions.description !== undefined)
-    result.description = adapterOptions.description;
-  if (adapterOptions.keywords !== undefined)
-    result.keywords = adapterOptions.keywords;
-  if (adapterOptions.pollIntervalMs !== undefined)
-    result.pollIntervalMs = adapterOptions.pollIntervalMs;
-
-  return result;
+export function getClientManager(
+  context: CraftContext | undefined,
+): MailClientManager | null {
+  if (!context) return null;
+  return (
+    (context.getStore(MAIL_CLIENT_MANAGER) as MailClientManager | undefined) ??
+    null
+  );
 }
 
 /**
- * Resolve SMTP connection options by merging context store with adapter-level options.
- * Context store fields `smtpHost`/`smtpPort`/`smtpSecure` map to `host`/`port`/`secure`.
- * Adapter-level options take precedence over context store values.
- *
- * @param context - The CraftContext
- * @param adapterOptions - Options passed to the adapter constructor
- * @returns Resolved MailClientOptions with host/port/auth populated
+ * Get the MailClientManager from the exchange context, throwing if not found.
  */
-export function getMergedSmtpOptions(
-  context: CraftContext,
-  adapterOptions: Partial<MailClientOptions>,
-): MailClientOptions {
-  const store = (context.getStore(ADAPTER_MAIL_OPTIONS) ??
-    {}) as Partial<MailOptionsMerged>;
+export function requireClientManager(
+  context: CraftContext | undefined,
+): MailClientManager {
+  const manager = getClientManager(context);
+  if (!manager) {
+    throw rcError("RC5003", undefined, {
+      message:
+        "Mail adapter requires mail configuration. Add mail config via .with({ mail: { accounts: {...} } }).",
+    });
+  }
+  return manager;
+}
 
-  const result: MailClientOptions = {
-    port: adapterOptions.port ?? store.smtpPort ?? 465,
-    secure: adapterOptions.secure ?? store.smtpSecure ?? true,
-  };
+// ---------------------------------------------------------------------------
+// Target resolution
+// ---------------------------------------------------------------------------
 
-  const host = adapterOptions.host ?? store.smtpHost;
-  if (host !== undefined) result.host = host;
+/**
+ * Resolve the UIDs and folder for a mail operation.
+ * Three-tier: custom extractor > headers > body fallback (single or array).
+ */
+export function resolveMailTarget(
+  exchange: Exchange<unknown>,
+  extractor?: MailTargetExtractor,
+): { uids: number[]; folder: string } {
+  // 1. Custom extractor
+  if (extractor) return extractor(exchange);
 
-  const auth = adapterOptions.auth ?? store.auth;
-  if (auth !== undefined) result.auth = auth;
+  // 2. Headers (survive .transform())
+  const headerUid = exchange.headers[HEADER_MAIL_UID];
+  const headerFolder = exchange.headers[HEADER_MAIL_FOLDER];
+  if (headerUid !== undefined && headerFolder !== undefined) {
+    return { uids: [Number(headerUid)], folder: String(headerFolder) };
+  }
 
-  const from = adapterOptions.from ?? store.from;
-  if (from !== undefined) result.from = from;
+  // 3a. Body: array (batch from .enrich())
+  const body = exchange.body;
+  if (
+    Array.isArray(body) &&
+    body.length > 0 &&
+    "uid" in body[0] &&
+    "folder" in body[0]
+  ) {
+    return {
+      uids: body.map((m: { uid: number }) => m.uid),
+      folder: (body[0] as { folder: string }).folder,
+    };
+  }
 
-  const replyTo = adapterOptions.replyTo ?? store.replyTo;
-  if (replyTo !== undefined) result.replyTo = replyTo;
+  // 3b. Body: single message
+  if (body && typeof body === "object" && "uid" in body && "folder" in body) {
+    const msg = body as { uid: number; folder: string };
+    return { uids: [msg.uid], folder: msg.folder };
+  }
 
-  return result;
+  throw rcError("RC5003", undefined, {
+    message:
+      "Mail operation requires a mail message context. Ensure the exchange originates from a mail source, has routecraft.mail.uid/routecraft.mail.folder headers, or provide a custom target extractor.",
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Normalize a string or string array to an array.
+ */
+export function toArray(value: string | string[]): string[] {
+  return Array.isArray(value) ? value : [value];
 }
 
 /**
- * Cast protocol-specific resolved options to the merged options type
- * expected by the {@link MergedOptions} interface. At runtime the shapes
- * are compatible; the type mismatch exists because `MailServerOptions` and
- * `MailClientOptions` use `host`/`port`/`secure` while `MailOptionsMerged`
- * uses prefixed `imapHost`/`smtpHost` fields.
+ * Build a raw MIME message from a MailSendPayload using nodemailer's MailComposer.
  */
-export function asMergedOptions(
-  opts: MailServerOptions | MailClientOptions,
-): MailOptionsMerged {
-  return opts as unknown as MailOptionsMerged;
+export async function buildMimeMessage(
+  payload: MailSendPayload,
+  smtpDefaults: MailClientOptions,
+): Promise<Buffer> {
+  const MailComposer = (await import("nodemailer/lib/mail-composer")).default;
+  const composer = new MailComposer({
+    from: payload.from ?? smtpDefaults.from,
+    to: payload.to,
+    subject: payload.subject,
+    text: payload.text,
+    html: payload.html,
+    cc: payload.cc ?? smtpDefaults.cc,
+    bcc: payload.bcc ?? smtpDefaults.bcc,
+    replyTo: payload.replyTo ?? smtpDefaults.replyTo,
+    attachments: payload.attachments,
+  });
+  return composer.compile().build();
 }
 
+// ---------------------------------------------------------------------------
+// Standalone IMAP client (for inline overrides without named account)
+// ---------------------------------------------------------------------------
+
 /**
- * Create an ImapFlow client instance from resolved server options.
- * Validates that required fields (host, auth) are present.
- *
- * @param options - Resolved IMAP options
- * @returns ImapFlow client (not yet connected)
+ * Create a standalone ImapFlow client from resolved server options.
+ * Used when an adapter provides inline host/auth overrides (no named account).
  */
 export async function createImapClient(
   options: MailServerOptions,
@@ -138,13 +168,13 @@ export async function createImapClient(
   if (!options.host) {
     throw rcError("RC5003", undefined, {
       message:
-        "Mail adapter IMAP host is required. Set host in adapter options or imapHost in context store.",
+        "Mail adapter IMAP host is required. Set host in account config or adapter options.",
     });
   }
   if (!options.auth) {
     throw rcError("RC5003", undefined, {
       message:
-        "Mail adapter auth is required. Set auth in adapter options or context store.",
+        "Mail adapter auth is required. Set auth in account config or adapter options.",
     });
   }
 
@@ -160,10 +190,7 @@ export async function createImapClient(
 
 /**
  * Create a nodemailer SMTP transporter from resolved client options.
- * Validates that required fields (host, auth) are present.
- *
- * @param options - Resolved SMTP options
- * @returns nodemailer Transporter
+ * Used when an adapter provides inline host/auth overrides (no named account).
  */
 export async function createSmtpTransport(
   options: MailClientOptions,
@@ -171,13 +198,13 @@ export async function createSmtpTransport(
   if (!options.host) {
     throw rcError("RC5003", undefined, {
       message:
-        "Mail adapter SMTP host is required. Set host in adapter options or smtpHost in context store.",
+        "Mail adapter SMTP host is required. Set host in account config or adapter options.",
     });
   }
   if (!options.auth) {
     throw rcError("RC5003", undefined, {
       message:
-        "Mail adapter auth is required. Set auth in adapter options or context store.",
+        "Mail adapter auth is required. Set auth in account config or adapter options.",
     });
   }
 
@@ -190,11 +217,12 @@ export async function createSmtpTransport(
   });
 }
 
+// ---------------------------------------------------------------------------
+// Error helpers
+// ---------------------------------------------------------------------------
+
 /**
- * Check whether an error is an authentication failure based on common error message patterns.
- *
- * @param error - The caught error
- * @returns true if the error indicates an auth failure
+ * Check whether an error is an authentication failure.
  */
 export function isMailAuthError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
@@ -209,9 +237,6 @@ export function isMailAuthError(error: unknown): boolean {
 
 /**
  * Throw a RoutecraftError for a mail connection or authentication failure.
- *
- * @param error - The caught error
- * @param protocol - Which protocol failed (IMAP or SMTP)
  */
 export function throwMailConnectionError(
   error: unknown,
@@ -227,11 +252,12 @@ export function throwMailConnectionError(
   );
 }
 
+// ---------------------------------------------------------------------------
+// IMAP search and message parsing
+// ---------------------------------------------------------------------------
+
 /**
  * Build IMAP search criteria from server options.
- *
- * @param options - Resolved IMAP options
- * @returns Search criteria object for ImapFlow
  */
 export function buildSearchCriteria(
   options: MailServerOptions,
@@ -253,8 +279,8 @@ export function buildSearchCriteria(
  * Convert an imapflow message object to a MailMessage.
  *
  * @param msg - Raw message data with uid, flags, and envelope
+ * @param folder - The IMAP folder this message was fetched from
  * @param content - Parsed text/html/attachments content
- * @returns Parsed MailMessage
  */
 export function toMailMessage(
   msg: {
@@ -271,6 +297,7 @@ export function toMailMessage(
       date?: Date;
     };
   },
+  folder: string,
   content?: {
     text?: string;
     html?: string;
@@ -307,6 +334,7 @@ export function toMailMessage(
       .map((a) => a.address)
       .filter((a): a is string => a !== undefined),
     flags: msg.flags,
+    folder,
   };
 
   if (content?.text !== undefined) result.text = content.text;
@@ -325,11 +353,12 @@ export function toMailMessage(
  *
  * @param client - Connected ImapFlow client with open mailbox
  * @param options - Resolved IMAP options (for search criteria, limit, markSeen)
- * @returns Array of parsed MailMessages
+ * @param folder - The folder name (for setting on MailMessage)
  */
 export async function fetchMessages(
   client: InstanceType<typeof import("imapflow").ImapFlow>,
   options: MailServerOptions,
+  folder: string,
 ): Promise<MailMessage[]> {
   const criteria = buildSearchCriteria(options);
   const messages: MailMessage[] = [];
@@ -385,7 +414,6 @@ export async function fetchMessages(
           }
         } catch {
           // If parsing fails, continue without content.
-          // TODO: log when fetchMessages accepts a logger parameter
         }
       }
 
@@ -395,6 +423,7 @@ export async function fetchMessages(
           flags: msg.flags ?? new Set(),
           envelope: msg.envelope ?? {},
         },
+        folder,
         content,
       );
       messages.push(mailMessage);
@@ -408,7 +437,9 @@ export async function fetchMessages(
     if (options.markSeen !== false && messages.length > 0) {
       const uids = messages.map((m) => m.uid);
       try {
-        await client.messageFlagsAdd(uids.join(","), ["\\Seen"], { uid: true });
+        await client.messageFlagsAdd(uids.join(","), ["\\Seen"], {
+          uid: true,
+        });
       } catch {
         // Non-fatal: log but do not throw if flagging fails
       }

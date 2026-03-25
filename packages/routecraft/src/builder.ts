@@ -104,7 +104,7 @@ export class ContextBuilder {
   protected eventHandlers = new Map<EventName, Set<EventHandler<EventName>>>();
   protected onceHandlers = new Map<EventName, Set<EventHandler<EventName>>>();
   protected plugins: Array<import("./context.ts").CraftPlugin> = [];
-  // Binder registry removed
+  protected mailConfig?: import("./adapters/mail/types.ts").MailContextConfig;
 
   constructor() {}
 
@@ -144,6 +144,11 @@ export class ContextBuilder {
 
     // Note: config.once handlers are registered by the CraftContext constructor directly,
     // so we do not copy them into onceHandlers here to avoid double-registration.
+
+    // Extract mail config if provided
+    if (config.mail) {
+      this.mailConfig = config.mail;
+    }
 
     // Extract plugins if provided
     if (config.plugins) {
@@ -281,6 +286,19 @@ export class ContextBuilder {
       for (const handler of handlers) {
         ctx.once(event as EventName, handler as EventHandler<EventName>);
       }
+    }
+
+    // Set up mail client manager if mail config is present
+    if (this.mailConfig) {
+      const { MailClientManager } =
+        await import("./adapters/mail/client-manager.ts");
+      const { MAIL_CLIENT_MANAGER } = await import("./adapters/mail/shared.ts");
+      const manager = new MailClientManager(this.mailConfig);
+      ctx.setStore(
+        MAIL_CLIENT_MANAGER as keyof import("./context.ts").StoreRegistry,
+        manager,
+      );
+      ctx.registerTeardown(() => manager.drain());
     }
 
     // Run plugins before routes are registered (context runs config.plugins)

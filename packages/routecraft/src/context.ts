@@ -90,6 +90,8 @@ export type CraftConfig = {
   direct?: DirectConfig;
   /** Reserved: HTTP server config for inbound (no-op today) */
   http?: HttpConfig;
+  /** Mail adapter configuration with named accounts */
+  mail?: import("./adapters/mail/types.ts").MailContextConfig;
 };
 
 /**

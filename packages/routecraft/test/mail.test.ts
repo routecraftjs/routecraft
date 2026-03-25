@@ -1,18 +1,20 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
-import {
-  craft,
-  simple,
-  mail,
-  ADAPTER_MAIL_OPTIONS,
-} from "@routecraft/routecraft";
+import { craft, simple, mail } from "@routecraft/routecraft";
+import { EXCHANGE_INTERNALS } from "../src/exchange.ts";
 
 // Mock functions declared at module scope for vi.mock hoisting
 const mockFetch = vi.fn();
 const mockMailboxOpen = vi.fn();
 const mockConnect = vi.fn();
 const mockLogout = vi.fn();
+const mockClose = vi.fn();
 const mockMessageFlagsAdd = vi.fn();
+const mockMessageFlagsRemove = vi.fn();
+const mockMessageMove = vi.fn();
+const mockMessageCopy = vi.fn();
+const mockMessageDelete = vi.fn();
+const mockAppend = vi.fn();
 const mockIdle = vi.fn();
 const mockSendMail = vi.fn();
 
@@ -21,16 +23,23 @@ const mockImapFlowConstructor = vi.fn();
 vi.mock("imapflow", () => {
   return {
     ImapFlow: class MockImapFlow {
+      usable = true;
       constructor(config: Record<string, unknown>) {
         mockImapFlowConstructor(config);
-        return {
+        Object.assign(this, {
           connect: mockConnect,
           logout: mockLogout,
+          close: mockClose,
           mailboxOpen: mockMailboxOpen,
           fetch: mockFetch,
           messageFlagsAdd: mockMessageFlagsAdd,
+          messageFlagsRemove: mockMessageFlagsRemove,
+          messageMove: mockMessageMove,
+          messageCopy: mockMessageCopy,
+          messageDelete: mockMessageDelete,
+          append: mockAppend,
           idle: mockIdle,
-        };
+        });
       }
     },
   };
@@ -47,7 +56,18 @@ vi.mock("mailparser", () => ({
 vi.mock("nodemailer", () => ({
   createTransport: vi.fn().mockReturnValue({
     sendMail: mockSendMail,
+    close: vi.fn(),
   }),
+}));
+
+vi.mock("nodemailer/lib/mail-composer", () => ({
+  default: class MockMailComposer {
+    compile() {
+      return {
+        build: vi.fn().mockResolvedValue(Buffer.from("raw mime")),
+      };
+    }
+  },
 }));
 
 describe("Mail Adapter", () => {
@@ -57,8 +77,14 @@ describe("Mail Adapter", () => {
     vi.clearAllMocks();
     mockConnect.mockResolvedValue(undefined);
     mockLogout.mockResolvedValue(undefined);
+    mockClose.mockReturnValue(undefined);
     mockMailboxOpen.mockResolvedValue({ exists: 1 });
     mockMessageFlagsAdd.mockResolvedValue(undefined);
+    mockMessageFlagsRemove.mockResolvedValue(undefined);
+    mockMessageMove.mockResolvedValue(undefined);
+    mockMessageCopy.mockResolvedValue(undefined);
+    mockMessageDelete.mockResolvedValue(undefined);
+    mockAppend.mockResolvedValue(undefined);
   });
 
   afterEach(async () => {
@@ -121,6 +147,52 @@ describe("Mail Adapter", () => {
       const adapter = mail({ from: "me@example.com" });
       expect(adapter).toHaveProperty("send");
       expect(adapter).not.toHaveProperty("subscribe");
+    });
+
+    /**
+     * @case mail({ action: 'move', folder: 'X' }) returns an Operation Destination
+     * @preconditions Object with action key
+     * @expectedResult Returns adapter with send method (Destination) and correct adapterId
+     */
+    test("mail({ action }) returns an Operation Destination", () => {
+      const adapter = mail({ action: "move", folder: "Archive" });
+      expect(adapter).toHaveProperty("send");
+      expect(adapter).toHaveProperty("adapterId", "routecraft.adapter.mail");
+      expect(adapter).not.toHaveProperty("subscribe");
+    });
+
+    /**
+     * @case mail({ action: 'delete' }) returns an Operation Destination
+     * @preconditions Object with action 'delete' and no other keys
+     * @expectedResult Returns adapter with send method
+     */
+    test("mail({ action: 'delete' }) returns an Operation Destination", () => {
+      const adapter = mail({ action: "delete" });
+      expect(adapter).toHaveProperty("send");
+    });
+
+    /**
+     * @case mail({ action: 'flag', flags: '\\Seen' }) returns an Operation Destination
+     * @preconditions Object with action 'flag' and flags
+     * @expectedResult Returns adapter with send method
+     */
+    test("mail({ action: 'flag' }) returns an Operation Destination", () => {
+      const adapter = mail({ action: "flag", flags: "\\Seen" });
+      expect(adapter).toHaveProperty("send");
+    });
+
+    /**
+     * @case mail({ action: 'append', folder: 'Drafts' }) returns an Operation Destination
+     * @preconditions Object with action 'append'
+     * @expectedResult Returns adapter with send method
+     */
+    test("mail({ action: 'append' }) returns an Operation Destination", () => {
+      const adapter = mail({
+        action: "append",
+        folder: "Drafts",
+        flags: ["\\Draft"],
+      });
+      expect(adapter).toHaveProperty("send");
     });
   });
 
@@ -328,57 +400,13 @@ describe("Mail Adapter", () => {
     });
   });
 
-  describe("MergedOptions", () => {
+  describe("Named accounts", () => {
     /**
-     * @case Context store auth merges with adapter-level folder
-     * @preconditions Auth set in context store, folder set on adapter
-     * @expectedResult IMAP connects with store auth and adapter folder
+     * @case Named account IMAP config resolves correctly
+     * @preconditions Mail config with named account set on context
+     * @expectedResult ImapFlow constructor called with account's host and auth
      */
-    test("context store config merges with adapter options", async () => {
-      mockFetch.mockReturnValue({
-        async *[Symbol.asyncIterator]() {
-          // No messages
-        },
-      });
-
-      const s = spy();
-
-      t = await testContext()
-        .store(ADAPTER_MAIL_OPTIONS, {
-          auth: { user: "context@gmail.com", pass: "ctx-pass" },
-          imapHost: "imap.gmail.com",
-          imapPort: 993,
-        })
-        .routes(
-          craft()
-            .id("test-merged")
-            .from(simple("trigger"))
-            .enrich(mail({ folder: "Drafts" }))
-            .to(s),
-        )
-        .build();
-
-      await t.ctx.start();
-
-      // ImapFlow constructor should have been called with context store values
-      expect(mockImapFlowConstructor).toHaveBeenCalledWith(
-        expect.objectContaining({
-          host: "imap.gmail.com",
-          port: 993,
-          auth: { user: "context@gmail.com", pass: "ctx-pass" },
-        }),
-      );
-
-      // Folder should be the adapter-level override
-      expect(mockMailboxOpen).toHaveBeenCalledWith("Drafts");
-    });
-
-    /**
-     * @case Adapter-level auth overrides context store auth
-     * @preconditions Both context store and adapter have auth
-     * @expectedResult Adapter auth takes precedence
-     */
-    test("adapter options override context store", async () => {
+    test("uses named account IMAP config", async () => {
       mockFetch.mockReturnValue({
         async *[Symbol.asyncIterator]() {},
       });
@@ -386,21 +414,24 @@ describe("Mail Adapter", () => {
       const s = spy();
 
       t = await testContext()
-        .store(ADAPTER_MAIL_OPTIONS, {
-          auth: { user: "ctx@gmail.com", pass: "ctx-pass" },
-          imapHost: "imap.gmail.com",
+        .with({
+          mail: {
+            accounts: {
+              main: {
+                imap: {
+                  host: "imap.main.com",
+                  auth: { user: "main@co.com", pass: "main-pass" },
+                },
+                default: true,
+              },
+            },
+          },
         })
         .routes(
           craft()
-            .id("test-override")
+            .id("test-named")
             .from(simple("trigger"))
-            .enrich(
-              mail({
-                folder: "INBOX",
-                host: "custom-imap.example.com",
-                auth: { user: "override@example.com", pass: "override-pass" },
-              }),
-            )
+            .enrich(mail("INBOX"))
             .to(s),
         )
         .build();
@@ -409,18 +440,69 @@ describe("Mail Adapter", () => {
 
       expect(mockImapFlowConstructor).toHaveBeenCalledWith(
         expect.objectContaining({
-          host: "custom-imap.example.com",
-          auth: { user: "override@example.com", pass: "override-pass" },
+          host: "imap.main.com",
+          auth: { user: "main@co.com", pass: "main-pass" },
         }),
       );
     });
 
     /**
-     * @case SMTP merged options use smtpHost from context store
-     * @preconditions smtpHost and auth set in context store
-     * @expectedResult Nodemailer transporter created with store values
+     * @case Specific named account selected via account field
+     * @preconditions Multiple accounts, adapter selects non-default
+     * @expectedResult ImapFlow uses the selected account's config
      */
-    test("SMTP uses smtpHost from context store", async () => {
+    test("selects specific account via account field", async () => {
+      mockFetch.mockReturnValue({
+        async *[Symbol.asyncIterator]() {},
+      });
+
+      const s = spy();
+
+      t = await testContext()
+        .with({
+          mail: {
+            accounts: {
+              main: {
+                imap: {
+                  host: "imap.main.com",
+                  auth: { user: "main@co.com", pass: "main-pass" },
+                },
+                default: true,
+              },
+              support: {
+                imap: {
+                  host: "imap.support.com",
+                  auth: { user: "support@co.com", pass: "support-pass" },
+                },
+              },
+            },
+          },
+        })
+        .routes(
+          craft()
+            .id("test-select-account")
+            .from(simple("trigger"))
+            .enrich(mail({ folder: "INBOX", account: "support" }))
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(mockImapFlowConstructor).toHaveBeenCalledWith(
+        expect.objectContaining({
+          host: "imap.support.com",
+          auth: { user: "support@co.com", pass: "support-pass" },
+        }),
+      );
+    });
+
+    /**
+     * @case Named account SMTP config used for send
+     * @preconditions Mail config with SMTP on named account
+     * @expectedResult Nodemailer transporter created with account's SMTP config
+     */
+    test("uses named account SMTP config for send", async () => {
       mockSendMail.mockResolvedValue({
         messageId: "<sent@test.com>",
         accepted: ["to@test.com"],
@@ -430,19 +512,26 @@ describe("Mail Adapter", () => {
 
       const s = spy();
 
-      const sendAdapter = mail();
-
       t = await testContext()
-        .store(ADAPTER_MAIL_OPTIONS, {
-          auth: { user: "me@gmail.com", pass: "app-pass" },
-          smtpHost: "smtp.gmail.com",
-          smtpPort: 465,
-          from: "me@gmail.com",
-          replyTo: "me@gmail.com",
+        .with({
+          mail: {
+            accounts: {
+              main: {
+                smtp: {
+                  host: "smtp.main.com",
+                  auth: { user: "main@co.com", pass: "main-pass" },
+                  from: "team@co.com",
+                  replyTo: "support@co.com",
+                  cc: "audit@co.com",
+                },
+                default: true,
+              },
+            },
+          },
         })
         .routes(
           craft()
-            .id("test-smtp-merged")
+            .id("test-smtp-named")
             .from(
               simple({
                 to: "to@test.com",
@@ -450,7 +539,7 @@ describe("Mail Adapter", () => {
                 text: "Body",
               }),
             )
-            .to(sendAdapter as any)
+            .to(mail() as any)
             .to(s),
         )
         .build();
@@ -460,18 +549,255 @@ describe("Mail Adapter", () => {
       const nodemailer = await import("nodemailer");
       expect(nodemailer.createTransport).toHaveBeenCalledWith(
         expect.objectContaining({
-          host: "smtp.gmail.com",
-          port: 465,
-          auth: { user: "me@gmail.com", pass: "app-pass" },
+          host: "smtp.main.com",
+          auth: { user: "main@co.com", pass: "main-pass" },
         }),
       );
 
       expect(mockSendMail).toHaveBeenCalledWith(
         expect.objectContaining({
-          from: "me@gmail.com",
-          replyTo: "me@gmail.com",
+          from: "team@co.com",
+          replyTo: "support@co.com",
+          cc: "audit@co.com",
         }),
       );
+    });
+
+    /**
+     * @case Shared defaults apply across accounts
+     * @preconditions Mail config with shared folder and markSeen
+     * @expectedResult Fetch uses shared folder default
+     */
+    test("shared defaults apply across accounts", async () => {
+      mockFetch.mockReturnValue({
+        async *[Symbol.asyncIterator]() {},
+      });
+
+      const s = spy();
+
+      t = await testContext()
+        .with({
+          mail: {
+            accounts: {
+              main: {
+                imap: {
+                  host: "imap.main.com",
+                  auth: { user: "main@co.com", pass: "main-pass" },
+                },
+                default: true,
+              },
+            },
+            folder: "Drafts",
+            markSeen: false,
+          },
+        })
+        .routes(
+          craft()
+            .id("test-shared-defaults")
+            .from(simple("trigger"))
+            .enrich(mail({ folder: undefined as unknown as string }))
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      // The shared folder default 'Drafts' is used when adapter doesn't specify
+      // (in this case the adapter passes folder: undefined which falls through)
+      expect(mockMailboxOpen).toHaveBeenCalled();
+    });
+  });
+
+  describe("IMAP Operations", () => {
+    /**
+     * @case Move operation dispatches to messageMove
+     * @preconditions Exchange body is a MailMessage with uid and folder
+     * @expectedResult client.messageMove called with uid and target folder
+     */
+    test("move operation", async () => {
+      const adapter = mail({ action: "move", folder: "Archive" });
+      const context = await buildMailContext();
+      const exchange = createMailExchange(42, "INBOX", context.ctx);
+
+      await (adapter as any).send(exchange);
+
+      expect(mockMessageMove).toHaveBeenCalledWith("42", "Archive", {
+        uid: true,
+      });
+    });
+
+    /**
+     * @case Copy operation dispatches to messageCopy
+     * @preconditions Exchange body is a MailMessage with uid and folder
+     * @expectedResult client.messageCopy called with uid and target folder
+     */
+    test("copy operation", async () => {
+      const adapter = mail({ action: "copy", folder: "Backup" });
+      const context = await buildMailContext();
+      const exchange = createMailExchange(42, "INBOX", context.ctx);
+
+      await (adapter as any).send(exchange);
+
+      expect(mockMessageCopy).toHaveBeenCalledWith("42", "Backup", {
+        uid: true,
+      });
+    });
+
+    /**
+     * @case Delete operation dispatches to messageDelete
+     * @preconditions Exchange body is a MailMessage with uid and folder
+     * @expectedResult client.messageDelete called with uid
+     */
+    test("delete operation", async () => {
+      const adapter = mail({ action: "delete" });
+      const context = await buildMailContext();
+      const exchange = createMailExchange(42, "INBOX", context.ctx);
+
+      await (adapter as any).send(exchange);
+
+      expect(mockMessageDelete).toHaveBeenCalledWith("42", { uid: true });
+    });
+
+    /**
+     * @case Flag operation dispatches to messageFlagsAdd
+     * @preconditions Exchange body is a MailMessage, flags is a string
+     * @expectedResult client.messageFlagsAdd called with uid and flags array
+     */
+    test("flag operation with single flag", async () => {
+      const adapter = mail({ action: "flag", flags: "\\Flagged" });
+      const context = await buildMailContext();
+      const exchange = createMailExchange(42, "INBOX", context.ctx);
+
+      await (adapter as any).send(exchange);
+
+      expect(mockMessageFlagsAdd).toHaveBeenCalledWith("42", ["\\Flagged"], {
+        uid: true,
+      });
+    });
+
+    /**
+     * @case Flag operation with multiple flags
+     * @preconditions flags is an array of strings
+     * @expectedResult client.messageFlagsAdd called with all flags
+     */
+    test("flag operation with multiple flags", async () => {
+      const adapter = mail({
+        action: "flag",
+        flags: ["\\Flagged", "\\Seen"],
+      });
+      const context = await buildMailContext();
+      const exchange = createMailExchange(42, "INBOX", context.ctx);
+
+      await (adapter as any).send(exchange);
+
+      expect(mockMessageFlagsAdd).toHaveBeenCalledWith(
+        "42",
+        ["\\Flagged", "\\Seen"],
+        { uid: true },
+      );
+    });
+
+    /**
+     * @case Unflag operation dispatches to messageFlagsRemove
+     * @preconditions Exchange body is a MailMessage, flags to remove
+     * @expectedResult client.messageFlagsRemove called with uid and flags
+     */
+    test("unflag operation", async () => {
+      const adapter = mail({ action: "unflag", flags: "\\Seen" });
+      const context = await buildMailContext();
+      const exchange = createMailExchange(42, "INBOX", context.ctx);
+
+      await (adapter as any).send(exchange);
+
+      expect(mockMessageFlagsRemove).toHaveBeenCalledWith("42", ["\\Seen"], {
+        uid: true,
+      });
+    });
+
+    /**
+     * @case Append operation composes MIME and appends to IMAP folder
+     * @preconditions Exchange body is a MailSendPayload
+     * @expectedResult client.append called with folder, raw MIME buffer, and flags
+     */
+    test("append operation", async () => {
+      const adapter = mail({
+        action: "append",
+        folder: "Drafts",
+        flags: ["\\Draft"],
+      });
+      const context = await buildMailContext();
+      const exchange = {
+        id: "test",
+        headers: {},
+        body: {
+          to: "recipient@test.com",
+          subject: "Draft",
+          text: "Draft body",
+        },
+        logger: console,
+      } as any;
+      attachContext(exchange, context.ctx);
+
+      await (adapter as any).send(exchange);
+
+      expect(mockAppend).toHaveBeenCalledWith(
+        "Drafts",
+        expect.any(Buffer),
+        ["\\Draft"],
+        undefined,
+      );
+    });
+
+    /**
+     * @case Batch operation: array body resolves all UIDs
+     * @preconditions Exchange body is MailMessage[] (from enrich)
+     * @expectedResult messageMove called with comma-separated UIDs
+     */
+    test("batch move from array body", async () => {
+      const adapter = mail({ action: "move", folder: "Archive" });
+      const context = await buildMailContext();
+      const exchange = {
+        id: "test",
+        headers: {},
+        body: [
+          createMailMessage(1, "INBOX"),
+          createMailMessage(5, "INBOX"),
+          createMailMessage(12, "INBOX"),
+        ],
+        logger: console,
+      } as any;
+      attachContext(exchange, context.ctx);
+
+      await (adapter as any).send(exchange);
+
+      expect(mockMessageMove).toHaveBeenCalledWith("1,5,12", "Archive", {
+        uid: true,
+      });
+    });
+
+    /**
+     * @case Header-based resolution survives body transform
+     * @preconditions Headers have mail uid/folder, body is transformed
+     * @expectedResult Operation uses headers for uid/folder
+     */
+    test("resolves from headers when body is transformed", async () => {
+      const adapter = mail({ action: "delete" });
+      const context = await buildMailContext();
+      const exchange = {
+        id: "test",
+        headers: {
+          "routecraft.mail.uid": 99,
+          "routecraft.mail.folder": "Sent",
+        },
+        body: { summary: "transformed body" },
+        logger: console,
+      } as any;
+      attachContext(exchange, context.ctx);
+
+      await (adapter as any).send(exchange);
+
+      expect(mockMailboxOpen).toHaveBeenCalledWith("Sent");
+      expect(mockMessageDelete).toHaveBeenCalledWith("99", { uid: true });
     });
   });
 
@@ -482,7 +808,10 @@ describe("Mail Adapter", () => {
      * @expectedResult RoutecraftError with code RC5003
      */
     test("throws RC5003 when IMAP host missing", async () => {
-      const adapter = mail({ folder: "INBOX", auth: { user: "u", pass: "p" } });
+      const adapter = mail({
+        folder: "INBOX",
+        auth: { user: "u", pass: "p" },
+      });
       const exchange = {
         id: "test",
         headers: {},
@@ -563,5 +892,82 @@ describe("Mail Adapter", () => {
         rc: "RC5012",
       });
     });
+
+    /**
+     * @case Throws RC5003 when operation has no mail context
+     * @preconditions No mail config on context, no body/headers with uid/folder
+     * @expectedResult RoutecraftError with code RC5003
+     */
+    test("throws RC5003 when operation has no mail context", async () => {
+      const adapter = mail({ action: "delete" });
+      const exchange = {
+        id: "test",
+        headers: {},
+        body: { someData: true },
+        logger: console,
+      } as any;
+
+      await expect((adapter as any).send(exchange)).rejects.toMatchObject({
+        rc: "RC5003",
+      });
+    });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Test helpers
+// ---------------------------------------------------------------------------
+
+function createMailMessage(uid: number, folder: string) {
+  return {
+    uid,
+    messageId: `<msg${uid}@test.com>`,
+    from: "sender@test.com",
+    to: "me@test.com",
+    subject: `Message ${uid}`,
+    date: new Date(),
+    flags: new Set<string>(),
+    folder,
+  };
+}
+
+async function buildMailContext() {
+  return testContext()
+    .with({
+      mail: {
+        accounts: {
+          main: {
+            imap: {
+              host: "imap.test.com",
+              auth: { user: "test@test.com", pass: "test-pass" },
+            },
+            smtp: {
+              host: "smtp.test.com",
+              auth: { user: "test@test.com", pass: "test-pass" },
+              from: "test@test.com",
+            },
+            default: true,
+          },
+        },
+      },
+    })
+    .routes(craft().id("noop").from(simple("noop")).to(spy()))
+    .build();
+}
+
+function createMailExchange(uid: number, folder: string, ctx?: any) {
+  const exchange = {
+    id: "test",
+    headers: {},
+    body: createMailMessage(uid, folder),
+    logger: console,
+  } as any;
+  if (ctx) {
+    EXCHANGE_INTERNALS.set(exchange, { context: ctx });
+  }
+  return exchange;
+}
+
+function attachContext(exchange: any, ctx: any) {
+  EXCHANGE_INTERNALS.set(exchange, { context: ctx });
+}

@@ -7,6 +7,8 @@
  * @experimental
  */
 
+import type { Exchange } from "../../exchange.ts";
+
 /**
  * Authentication credentials for mail servers.
  * Supports app passwords and standard user/pass authentication.
@@ -15,6 +17,104 @@ export interface MailAuth {
   user: string;
   pass: string;
 }
+
+// ---------------------------------------------------------------------------
+// Context-level configuration (named accounts)
+// ---------------------------------------------------------------------------
+
+/**
+ * IMAP connection settings for a named account.
+ */
+export interface MailAccountImapConfig {
+  /** IMAP host (e.g. 'imap.gmail.com') */
+  host?: string;
+  /** IMAP port (default 993) */
+  port?: number;
+  /** Use TLS (default true) */
+  secure?: boolean;
+  /** Authentication credentials */
+  auth?: MailAuth;
+  /** Max concurrent IMAP connections for this account (default 3) */
+  poolSize?: number;
+}
+
+/**
+ * SMTP connection settings for a named account.
+ */
+export interface MailAccountSmtpConfig {
+  /** SMTP host (e.g. 'smtp.gmail.com') */
+  host?: string;
+  /** SMTP port (default 465) */
+  port?: number;
+  /** Use TLS (default true) */
+  secure?: boolean;
+  /** Authentication credentials */
+  auth?: MailAuth;
+  /** Default sender address */
+  from?: string;
+  /** Default reply-to address */
+  replyTo?: string;
+  /** Default CC recipients */
+  cc?: string | string[];
+  /** Default BCC recipients */
+  bcc?: string | string[];
+}
+
+/**
+ * Configuration for a named mail account.
+ * Each account defines its own IMAP and/or SMTP connection.
+ *
+ * @example
+ * ```typescript
+ * {
+ *   imap: { host: 'imap.gmail.com', auth: { user: 'me@co.com', pass: 'xxx' } },
+ *   smtp: { host: 'smtp.gmail.com', auth: { user: 'me@co.com', pass: 'xxx' }, from: 'me@co.com' },
+ *   default: true,
+ * }
+ * ```
+ *
+ * @experimental
+ */
+export interface MailAccountConfig {
+  /** IMAP connection settings */
+  imap?: MailAccountImapConfig;
+  /** SMTP connection settings */
+  smtp?: MailAccountSmtpConfig;
+  /** Mark this as the default account (used when no account specified) */
+  default?: boolean;
+}
+
+/**
+ * Context-level mail configuration. Added to CraftConfig via `.with({ mail: {...} })`.
+ *
+ * @example
+ * ```typescript
+ * new ContextBuilder().with({
+ *   mail: {
+ *     accounts: {
+ *       main: { imap: {...}, smtp: {...}, default: true },
+ *       support: { imap: {...}, smtp: {...} },
+ *     },
+ *     folder: 'INBOX',
+ *     markSeen: true,
+ *   },
+ * })
+ * ```
+ *
+ * @experimental
+ */
+export interface MailContextConfig {
+  /** Named mail accounts */
+  accounts?: Record<string, MailAccountConfig>;
+  /** Default IMAP folder across all accounts (default 'INBOX') */
+  folder?: string;
+  /** Default markSeen behavior across all accounts (default true) */
+  markSeen?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Per-operation options (adapter-level overrides)
+// ---------------------------------------------------------------------------
 
 /**
  * Options when using the mail adapter as a Server (IMAP read).
@@ -45,6 +145,8 @@ export interface MailServerOptions {
   keywords?: string[];
   /** Poll interval in ms for Source mode (default: use IMAP IDLE) */
   pollIntervalMs?: number;
+  /** Named account from context config (uses default if omitted) */
+  account?: string;
 }
 
 /**
@@ -64,44 +166,95 @@ export interface MailClientOptions {
   from?: string;
   /** Default reply-to address */
   replyTo?: string;
+  /** Default CC recipients */
+  cc?: string | string[];
+  /** Default BCC recipients */
+  bcc?: string | string[];
+  /** Named account from context config (uses default if omitted) */
+  account?: string;
 }
 
 /** Options when using mail as a server or client (union). */
 export type MailOptions = MailServerOptions | MailClientOptions;
 
+// ---------------------------------------------------------------------------
+// Action types (IMAP operations)
+// ---------------------------------------------------------------------------
+
 /**
- * Internal merged options for context store.
- * Uses prefixed host/port/secure fields so IMAP and SMTP config can coexist.
- * Shared fields (auth, from, replyTo) apply to both protocols.
- * @internal
+ * Custom extractor for resolving message identity from an exchange.
+ * Returns the UIDs and source folder needed to operate on messages.
+ *
+ * @experimental
  */
-export interface MailOptionsMerged {
-  /** Shared auth (same app password typically works for both IMAP and SMTP) */
-  auth?: MailAuth;
+export type MailTargetExtractor = (exchange: Exchange<unknown>) => {
+  uids: number[];
+  folder: string;
+};
 
-  /** IMAP host (e.g. 'imap.gmail.com') */
-  imapHost?: string;
-  /** IMAP port (default 993) */
-  imapPort?: number;
-  /** IMAP TLS (default true) */
-  imapSecure?: boolean;
-
-  /** SMTP host (e.g. 'smtp.gmail.com') */
-  smtpHost?: string;
-  /** SMTP port (default 465) */
-  smtpPort?: number;
-  /** SMTP TLS (default true) */
-  smtpSecure?: boolean;
-
-  /** Default sender address for all routes */
-  from?: string;
-  /** Default reply-to address for all routes */
-  replyTo?: string;
-  /** Default IMAP folder */
-  folder?: string;
-  /** Default markSeen behavior */
-  markSeen?: boolean;
+/**
+ * Shared base for all mail action types.
+ * Every action can select a named account and provide a custom target extractor.
+ */
+interface MailActionBase {
+  /** Named account from context config (uses default if omitted) */
+  account?: string;
+  /** Custom extractor for uid/folder when not using standard header/body locations */
+  target?: MailTargetExtractor;
 }
+
+/** Move message(s) to another IMAP folder. */
+export type MailMoveAction = MailActionBase & {
+  action: "move";
+  folder: string;
+};
+
+/** Copy message(s) to another IMAP folder. */
+export type MailCopyAction = MailActionBase & {
+  action: "copy";
+  folder: string;
+};
+
+/** Delete message(s) permanently. */
+export type MailDeleteAction = MailActionBase & { action: "delete" };
+
+/** Add IMAP flags to message(s). */
+export type MailFlagAction = MailActionBase & {
+  action: "flag";
+  flags: string | string[];
+};
+
+/** Remove IMAP flags from message(s). */
+export type MailUnflagAction = MailActionBase & {
+  action: "unflag";
+  flags: string | string[];
+};
+
+/** Append a composed message to an IMAP folder (drafts, imports). */
+export type MailAppendAction = MailActionBase & {
+  action: "append";
+  folder: string;
+  flags?: string | string[];
+  date?: Date;
+};
+
+/**
+ * Discriminated union for IMAP operations on mail messages.
+ * The `action` field narrows available options via TypeScript.
+ *
+ * @experimental
+ */
+export type MailAction =
+  | MailMoveAction
+  | MailCopyAction
+  | MailDeleteAction
+  | MailFlagAction
+  | MailUnflagAction
+  | MailAppendAction;
+
+// ---------------------------------------------------------------------------
+// Message types
+// ---------------------------------------------------------------------------
 
 /**
  * A parsed email message returned by the mail adapter source/fetch.
@@ -134,6 +287,8 @@ export interface MailMessage {
   attachments?: MailAttachment[];
   /** IMAP flags (e.g. \Seen, \Flagged) */
   flags: Set<string>;
+  /** The IMAP folder this message was fetched from */
+  folder: string;
 }
 
 /**
