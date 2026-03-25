@@ -24,6 +24,8 @@ import { log, debug, type LogOptions } from "./adapters/log/index.ts";
  * Primitive step kinds. Used as documentation in DslRegistration to
  * indicate which core step the sugar delegates to. Not enforced at
  * runtime since the factory creates the step directly.
+ *
+ * @experimental
  */
 export type PrimitiveKind =
   | "process"
@@ -32,14 +34,18 @@ export type PrimitiveKind =
   | "filter"
   | "validate";
 
-/** Registration descriptor for a DSL sugar method. */
+/**
+ * Registration descriptor for a DSL sugar method.
+ *
+ * @experimental
+ */
 export interface DslRegistration {
   /** The core primitive step kind this DSL method delegates to. */
   kind: PrimitiveKind;
   /** Display label shown in traces, logs, and step events. */
   label: string;
   /** Factory that receives the user's call-site arguments and returns a Step. */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- factory must accept arbitrary call-site args; actual types come from module augmentation
   factory: (...args: any[]) => Step<Adapter>;
 }
 
@@ -51,6 +57,7 @@ export interface DslRegistration {
  * TypeScript types for the new method must be provided separately via
  * module augmentation (see below for built-in examples).
  *
+ * @experimental
  * @param name - Method name to add to RouteBuilder
  * @param registration - Kind, label, and factory for the sugar method
  * @throws If a method with the given name already exists on RouteBuilder
@@ -79,14 +86,14 @@ export function registerDsl(name: string, registration: DslRegistration): void {
 
   const { label, factory } = registration;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic prototype patching requires indexing with a string key
   (RouteBuilder.prototype as Record<string, any>)[name] = function (
     this: RouteBuilder<unknown>,
     ...args: unknown[]
   ) {
     const step = factory(...args);
     step.label = label;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Symbol-keyed method not visible on the public type
     (this as any)[PUSH_STEP](step);
     return this;
   };

@@ -69,7 +69,6 @@ export {
   type PrimitiveKind,
   type DslRegistration,
 } from "./dsl.ts";
-export { PUSH_STEP } from "./dsl-symbol.ts";
 // Side-effect import: triggers built-in sugar registrations (.log, .debug, .map, .schema)
 import "./dsl.ts";
 

@@ -108,7 +108,7 @@ export default craft()
 
   .id("calendar.create-event")
   .from(http({ path: "/calendar/events", method: "POST" }))
-  .validate(eventSchema)
+  .schema(eventSchema)
   .to(googleCalendar())
 ```
 

@@ -19,6 +19,32 @@ describe("schema() type safety", () => {
   });
 });
 
+describe("validate() type safety", () => {
+  /**
+   * @case validate(callable) narrows body type via generic R
+   * @preconditions .from(simple("42")).validate<number>(...)
+   * @expectedResult RouteBuilder<number>
+   */
+  test("validate(callable) infers RouteBuilder with return type R", () => {
+    const route = craft()
+      .from(simple("42"))
+      .validate<number>((exchange) => Number(exchange.body));
+    expectTypeOf(route).toEqualTypeOf<RouteBuilder<number>>();
+  });
+
+  /**
+   * @case validate(Validator adapter) narrows body type via generic R
+   * @preconditions .from(simple("hello")).validate<string>({ validate: ... })
+   * @expectedResult RouteBuilder<string>
+   */
+  test("validate(adapter) infers RouteBuilder with return type R", () => {
+    const route = craft()
+      .from(simple("hello"))
+      .validate<string>({ validate: (ex) => ex.body.toUpperCase() });
+    expectTypeOf(route).toEqualTypeOf<RouteBuilder<string>>();
+  });
+});
+
 describe("enrich() without aggregator type safety", () => {
   /**
    * @case enrich(dest) with no aggregator infers Current & R from destination

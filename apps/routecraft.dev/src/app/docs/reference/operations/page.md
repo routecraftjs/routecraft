@@ -575,10 +575,32 @@ Unlike `.transform()` which receives only the body, `.filter()` receives the ful
 ### validate
 
 ```ts
-validate(schema: StandardSchemaV1): RouteBuilder<InferOutput<S>>
+validate<R = Current>(validator: Validator<Current, R> | CallableValidator<Current, R>): RouteBuilder<R>
 ```
 
-Validate the exchange body against a Standard Schema. If validation fails the exchange is dropped with a reason describing which fields failed. The route builder type is narrowed to the schema's output type.
+Validate the exchange body using a Validator adapter or callable function. On success the (possibly coerced) return value replaces the body. On failure the adapter throws and the route error handler (if configured) or the default error path handles it.
+
+For Standard Schema validation, use the `.schema()` sugar or pass the `schema()` factory.
+
+```ts
+// Custom validator
+.validate((exchange) => {
+  if (!exchange.body.email) throw new Error("email required");
+  return exchange.body;
+})
+
+// Standard Schema via factory
+import { schema } from '@routecraft/routecraft'
+.validate(schema(z.object({ name: z.string() })))
+```
+
+### schema
+
+```ts
+schema<S extends StandardSchemaV1>(standardSchema: S): RouteBuilder<StandardSchemaV1.InferOutput<S>>
+```
+
+Validate the exchange body against a Standard Schema. Sugar for `.validate(schema(standardSchema))`. On failure throws RC5002 with formatted issue details. The route builder type is narrowed to the schema's output type.
 
 ```ts
 import { z } from 'zod'
@@ -589,8 +611,8 @@ const userSchema = z.object({
   age: z.number().min(0)
 })
 
-.validate(userSchema)
-// Dropped exchanges show: "validation failed: "email": Invalid email; "age": Number must be greater than or equal to 0"
+.schema(userSchema)
+// Validation failures throw RC5002: "Validation failed: "email": Invalid email; "age": Number must be greater than or equal to 0"
 ```
 
 ### dedupe {% badge color="purple" %}planned{% /badge %}

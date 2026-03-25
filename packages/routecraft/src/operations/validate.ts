@@ -13,6 +13,7 @@ interface StandardSchemaResult {
  * Callable validator function. Receives the full exchange, returns the
  * validated (possibly coerced) body value. Throws on failure.
  *
+ * @experimental
  * @template T - Input body type
  * @template R - Output body type (may differ if the validator coerces)
  */
@@ -24,6 +25,7 @@ export type CallableValidator<T = unknown, R = T> = (
  * Validator adapter: validates the exchange body and returns the validated
  * value. Throws on failure (e.g., RC5002 for schema violations).
  *
+ * @experimental
  * @template T - Input body type
  * @template R - Output body type
  */
@@ -67,8 +69,9 @@ export class ValidateStep<T = unknown, R = T> implements Step<Validator<T, R>> {
  *
  * Use with `.validate(schema(...))` or the `.schema()` sugar method.
  *
+ * @experimental
  * @param standardSchema - Any Standard Schema v1 implementation (Zod, Valibot, ArkType, etc.)
- * @returns A Validator adapter
+ * @returns A Validator adapter that throws RC5002 on failure
  *
  * @example
  * ```ts

@@ -37,7 +37,7 @@ The distinction between them is how much of the exchange they expose. `.transfor
 
 Flow control operations decide which exchanges continue and how they are split or merged.
 
-`.filter()` drops exchanges that do not match a predicate -- the exchange simply does not continue downstream. Return `{ reason: "..." }` instead of `false` to record why in telemetry. `.validate()` checks the body against a StandardSchema (Zod, Valibot, ArkType); invalid exchanges are dropped with a reason describing which fields failed. `.split()` fans an array body out into one exchange per item, so each can be processed independently. `.aggregate()` collects those back into a single exchange. `.choice()` {% badge color="purple" %}planned{% /badge %} routes to different sub-pipelines based on conditions, like a switch statement for data flows.
+`.filter()` drops exchanges that do not match a predicate -- the exchange simply does not continue downstream. Return `{ reason: "..." }` instead of `false` to record why in telemetry. `.validate()` checks the body using a Validator adapter or callable function; on failure it throws (hitting the error handler if configured). `.schema()` is sugar for `.validate(schema(...))` and validates against a Standard Schema (Zod, Valibot, ArkType), throwing RC5002 with formatted issue details on failure. `.split()` fans an array body out into one exchange per item, so each can be processed independently. `.aggregate()` collects those back into a single exchange. `.choice()` {% badge color="purple" %}planned{% /badge %} routes to different sub-pipelines based on conditions, like a switch statement for data flows.
 
 ### Wrappers
 

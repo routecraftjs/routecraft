@@ -30,10 +30,11 @@ export interface Transformer<T = unknown, R = T> extends Adapter {
  *
  * Use with `.transform(mapper({...}))` or the `.map()` sugar method.
  *
+ * @experimental
  * @template T - Source body type
  * @template R - Result body type
  * @param fieldMappings - Object mapping output field names to extractor functions
- * @returns A callable transformer function
+ * @returns A callable transformer that maps each field via the provided functions
  *
  * @example
  * ```ts
