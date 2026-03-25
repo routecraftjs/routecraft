@@ -120,17 +120,26 @@ function processTemplate(
 
 // Template files are now stored in the templates/ directory
 
+let cachedRegistryExamples: RegistryExamplesJson | null | undefined;
+
 /**
  * Fetch the registry examples list from the remote registry.
- * Returns null if the fetch fails (e.g. offline).
+ * Returns null if the fetch fails (e.g. offline). Caches the result
+ * so repeated calls within one process do not re-fetch.
  */
 async function fetchRegistryExamples(): Promise<RegistryExamplesJson | null> {
+  if (cachedRegistryExamples !== undefined) return cachedRegistryExamples;
   try {
     const url = `${DEFAULT_REGISTRY}registry/examples.json`;
     const res = await globalThis.fetch(url);
-    if (!res.ok) return null;
-    return (await res.json()) as RegistryExamplesJson;
+    if (!res.ok) {
+      cachedRegistryExamples = null;
+      return null;
+    }
+    cachedRegistryExamples = (await res.json()) as RegistryExamplesJson;
+    return cachedRegistryExamples;
   } catch {
+    cachedRegistryExamples = null;
     return null;
   }
 }
@@ -618,7 +627,7 @@ async function generateProjectStructure(
   // Add example routes if requested
   if (options.example !== "none") {
     if (options.example.startsWith("registry:")) {
-      // Handle registry examples -- download from the registry repo
+      // Handle registry examples: download from the registry repo
       const exampleId = options.example.slice("registry:".length);
       const registryExamples = await fetchRegistryExamples();
       if (!registryExamples || !registryExamples[exampleId]) {

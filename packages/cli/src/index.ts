@@ -171,14 +171,20 @@ program
   .option("--no-verify", "Skip SHA verification (not recommended)")
   .option("--allow-unofficial", "Allow installing from non-official registries")
   .action(async (specifier, options) => {
-    const { addCommand } = await import("./add.js");
-    await addCommand(specifier, {
-      registry: options["registry"],
-      dir: options["dir"],
-      noIndex: options["index"] === false,
-      noVerify: options["verify"] === false,
-      allowUnofficial: options["allowUnofficial"] === true,
-    });
+    try {
+      const { addCommand } = await import("./add.js");
+      await addCommand(specifier, {
+        registry: options["registry"],
+        dir: options["dir"],
+        noIndex: options["index"] === false,
+        noVerify: options["verify"] === false,
+        allowUnofficial: options["allowUnofficial"] === true,
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(err instanceof Error ? err.message : err);
+      process.exit(1);
+    }
   });
 
 /**

@@ -218,18 +218,14 @@ async function installCapability(
   if (!options.noVerify) {
     const computedSha = sha256(rawContent);
     if (computedSha !== versionData.sha256) {
-      // eslint-disable-next-line no-console
-      console.error(`
-\u2717  SHA verification failed: ${id}@${resolvedVersion}
-   Expected:  ${versionData.sha256}
-   Received:  ${computedSha}
-
-   The source file has been modified since this version was registered.
-   Do not install. Report at: github.com/routecraftjs/routecraft-registry/issues
-
-   To install anyway: pnpm craft add ${id} --no-verify
-`);
-      process.exit(1);
+      throw new Error(
+        `SHA verification failed: ${id}@${resolvedVersion}\n` +
+          `   Expected:  ${versionData.sha256}\n` +
+          `   Received:  ${computedSha}\n\n` +
+          `   The source file has been modified since this version was registered.\n` +
+          `   Do not install. Report at: github.com/routecraftjs/routecraft-registry/issues\n\n` +
+          `   To install anyway: pnpm craft add ${id} --no-verify`,
+      );
     }
   } else {
     // eslint-disable-next-line no-console
@@ -342,6 +338,18 @@ function updateIndexTs(dir: string, ids: string[]): void {
   }
 }
 
+/**
+ * Download a capability from the registry, verify its SHA-256, install
+ * dependencies, and optionally update index.ts.
+ *
+ * @param specifier - Capability id or id@version (e.g. "elastic-logs@1.0.0")
+ * @param options - Registry URL, target directory, and verification flags
+ *
+ * @example
+ * ```ts
+ * await addCommand("elastic-logs@1.0.0", { dir: "./capabilities" });
+ * ```
+ */
 export async function addCommand(
   specifier: string,
   options: Partial<AddOptions>,
@@ -352,14 +360,12 @@ export async function addCommand(
 
   // Block unofficial registries unless explicitly allowed
   if (!isOfficialRegistry(registryUrl) && !options.allowUnofficial) {
-    // eslint-disable-next-line no-console
-    console.error(
-      `\u2717  Unofficial registry: ${registryUrl}\n\n` +
+    throw new Error(
+      `Unofficial registry: ${registryUrl}\n\n` +
         `   Only official Routecraft registries are allowed by default.\n` +
         `   If you trust this registry, re-run with --allow-unofficial:\n\n` +
-        `     pnpm craft add ${specifier} --registry ${registryUrl} --allow-unofficial\n`,
+        `     pnpm craft add ${specifier} --registry ${registryUrl} --allow-unofficial`,
     );
-    process.exit(1);
   }
 
   const addOpts: AddOptions = {
@@ -375,27 +381,14 @@ export async function addCommand(
     ? registryUrl
     : registryUrl + "/";
 
-  let registry: RegistryJson;
-  try {
-    registry = await fetchJson<RegistryJson>(
-      `${registryBase}registry/capabilities.json`,
-    );
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error(
-      `Failed to fetch registry from ${registryBase}registry/capabilities.json`,
-    );
-    // eslint-disable-next-line no-console
-    console.error(err instanceof Error ? err.message : err);
-    process.exit(1);
-  }
+  const registry = await fetchJson<RegistryJson>(
+    `${registryBase}registry/capabilities.json`,
+  );
 
   // Check if the entry exists and if its type is supported
   const entry = registry[id];
   if (!entry) {
-    // eslint-disable-next-line no-console
-    console.error(`Capability "${id}" not found in the registry.`);
-    process.exit(1);
+    throw new Error(`Capability "${id}" not found in the registry.`);
   }
 
   const installed = new Set<string>();
@@ -460,3 +453,14 @@ export async function addCommand(
   // eslint-disable-next-line no-console
   console.log("");
 }
+
+// Export internals for testing
+export const _test = {
+  latestVersion,
+  toImportName,
+  parseSpecifier,
+  checkCircularDeps,
+  sha256,
+  isOfficialRegistry,
+  SAFE_PKG_RE,
+} as const;
