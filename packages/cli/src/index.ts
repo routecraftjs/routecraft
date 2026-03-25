@@ -169,6 +169,7 @@ program
   )
   .option("--no-index", "Skip updating index.ts")
   .option("--no-verify", "Skip SHA verification (not recommended)")
+  .option("--allow-unofficial", "Allow installing from non-official registries")
   .action(async (specifier, options) => {
     const { addCommand } = await import("./add.js");
     await addCommand(specifier, {
@@ -176,6 +177,7 @@ program
       dir: options["dir"],
       noIndex: options["index"] === false,
       noVerify: options["verify"] === false,
+      allowUnofficial: options["allowUnofficial"] === true,
     });
   });
 

@@ -11,6 +11,20 @@ import { execSync } from "node:child_process";
 const DEFAULT_REGISTRY =
   "https://raw.githubusercontent.com/routecraftjs/routecraft-registry/refs/heads/main/";
 
+/**
+ * Domains considered official / trusted by default.
+ * Any registry URL not matching one of these requires --allow-unofficial.
+ */
+const OFFICIAL_DOMAINS = [
+  "raw.githubusercontent.com/routecraftjs/",
+  "github.com/routecraftjs/",
+  "registry.routecraft.dev",
+] as const;
+
+function isOfficialRegistry(url: string): boolean {
+  return OFFICIAL_DOMAINS.some((domain) => url.includes(domain));
+}
+
 interface RegistryEntry {
   versions: Record<
     string,
@@ -32,6 +46,7 @@ interface AddOptions {
   dir: string;
   noIndex: boolean;
   noVerify: boolean;
+  allowUnofficial: boolean;
 }
 
 /**
@@ -332,17 +347,31 @@ export async function addCommand(
     dir?: string;
     noIndex?: boolean;
     noVerify?: boolean;
+    allowUnofficial?: boolean;
   },
 ): Promise<void> {
   const { id, version } = parseSpecifier(specifier);
   const registryUrl = options.registry ?? DEFAULT_REGISTRY;
   const dir = options.dir ?? join(process.cwd(), "capabilities");
 
+  // Block unofficial registries unless explicitly allowed
+  if (!isOfficialRegistry(registryUrl) && !options.allowUnofficial) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `\u2717  Unofficial registry: ${registryUrl}\n\n` +
+        `   Only official Routecraft registries are allowed by default.\n` +
+        `   If you trust this registry, re-run with --allow-unofficial:\n\n` +
+        `     pnpm craft add ${specifier} --registry ${registryUrl} --allow-unofficial\n`,
+    );
+    process.exit(1);
+  }
+
   const addOpts: AddOptions = {
     registry: registryUrl,
     dir,
     noIndex: options.noIndex ?? false,
     noVerify: options.noVerify ?? false,
+    allowUnofficial: options.allowUnofficial ?? false,
   };
 
   // Fetch registry
