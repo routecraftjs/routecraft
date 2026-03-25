@@ -24,7 +24,8 @@
   },
   "dependencies": {
     "@routecraft/routecraft": "workspace:^0.4.0",
-    "@standard-schema/spec": "^1.1.0"
+    "@standard-schema/spec": "^1.1.0",
+    "commander": "^14.0.3"
   },
   "devDependencies": {
     "vitest": "^4.0.18",

@@ -1,6 +1,7 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { CraftContext } from "@routecraft/routecraft";
-import type { CliRouteMetadata } from "./types";
+import type { CliRouteMetadata } from "./types.ts";
+import type { CliParseResult } from "./parser.ts";
 
 /**
  * Store key for the CLI route registry (command -> metadata).
@@ -13,18 +14,28 @@ export const ADAPTER_CLI_REGISTRY = Symbol.for(
 );
 
 /**
- * Store key used internally to ensure help/error output is printed at most
- * once when multiple CLI sources detect a help or unknown-command condition.
+ * Store key for the cached CLI parse result.
+ *
+ * Set by the first CLI source to reach the async phase after all sources
+ * have registered. Subsequent sources read this instead of re-parsing.
  * @internal
  */
-export const ADAPTER_CLI_HELP_HANDLED = Symbol.for(
-  "routecraft.adapter.cli.help-handled",
-);
+export const ADAPTER_CLI_PARSED = Symbol.for("routecraft.adapter.cli.parsed");
+
+/**
+ * Store key for an optional script name override.
+ *
+ * Set by `cliRunner()` from `options.name`. CLI sources read this to
+ * determine the binary name shown in help text.
+ * @internal
+ */
+export const ADAPTER_CLI_NAME = Symbol.for("routecraft.adapter.cli.name");
 
 declare module "@routecraft/routecraft" {
   interface StoreRegistry {
     [ADAPTER_CLI_REGISTRY]: Map<string, CliRouteMetadata>;
-    [ADAPTER_CLI_HELP_HANDLED]: boolean;
+    [ADAPTER_CLI_PARSED]: CliParseResult;
+    [ADAPTER_CLI_NAME]: string;
   }
 }
 
@@ -92,6 +103,10 @@ export function registerCliRoute(
 
 /**
  * Parse raw CLI flag tokens into a key-value object using JSON Schema type hints.
+ *
+ * Used as a fallback for schema-less commands where commander cannot parse
+ * flags (since no options are defined). For schema-ful commands, commander
+ * handles flag parsing natively.
  *
  * Supports:
  * - `--flag value` for string/number flags

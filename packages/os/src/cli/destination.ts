@@ -1,6 +1,5 @@
-import type { Exchange } from "@routecraft/routecraft";
-import type { Destination } from "@routecraft/routecraft";
-import type { CliClientOptions } from "./types";
+import type { Exchange, Destination } from "@routecraft/routecraft";
+import type { CliClientOptions } from "./types.ts";
 
 /**
  * CliDestinationAdapter implements the Destination interface for the CLI adapter.

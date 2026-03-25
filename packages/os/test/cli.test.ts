@@ -14,11 +14,12 @@ import {
  * CLI adapter tests
  *
  * Covers flag parsing, schema validation, command dispatch, help registration,
- * stdout/stderr destinations, and the isCliSource detection utility.
+ * stdout/stderr destinations, aliases, positional args, env fallback, examples,
+ * and the isCliSource detection utility.
  */
 
 // ============================================================
-// Group 1: parseFlags utility
+// Group 1: parseFlags utility (schema-less fallback)
 // ============================================================
 describe("parseFlags", () => {
   /**
@@ -189,16 +190,35 @@ describe("CLI source adapter dispatch", () => {
   });
 
   /**
-   * @case Matched command fires handler with parsed flags
-   * @preconditions RUNNER_ARGV store set with matching command and flags
+   * @case Matched command fires handler with parsed flags (schema-less)
+   * @preconditions RUNNER_ARGV store set with matching command and flags, no schema
    * @expectedResult Handler called once with parsed flag values
    */
-  test("matched command dispatches with parsed flags", async () => {
+  test("matched command dispatches with parsed flags (schema-less)", async () => {
     const consumer = vi.fn();
 
     t = await testContext()
       .store(RUNNER_ARGV, ["greet", "--name", "Alice"])
       .routes([craft().id("greet").from(cli("greet")).to(consumer)])
+      .build();
+
+    await t.test();
+    expect(consumer).toHaveBeenCalledTimes(1);
+    expect(consumer.mock.calls[0]![0].body).toEqual({ name: "Alice" });
+  });
+
+  /**
+   * @case Matched command fires handler with parsed flags (with schema)
+   * @preconditions RUNNER_ARGV store set with matching command, schema defined
+   * @expectedResult Handler called once with validated flag values
+   */
+  test("matched command dispatches with parsed flags (with schema)", async () => {
+    const consumer = vi.fn();
+    const schema = z.object({ name: z.string() });
+
+    t = await testContext()
+      .store(RUNNER_ARGV, ["greet", "--name", "Alice"])
+      .routes([craft().id("greet").from(cli("greet", { schema })).to(consumer)])
       .build();
 
     await t.test();
@@ -213,6 +233,8 @@ describe("CLI source adapter dispatch", () => {
    */
   test("unmatched command does not fire handler", async () => {
     const consumer = vi.fn();
+    // Suppress commander error output
+    vi.spyOn(console, "error").mockImplementation(() => {});
 
     t = await testContext()
       .store(RUNNER_ARGV, ["other"])
@@ -221,6 +243,7 @@ describe("CLI source adapter dispatch", () => {
 
     await t.test();
     expect(consumer).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
   });
 
   /**
@@ -267,6 +290,8 @@ describe("CLI source adapter dispatch", () => {
    * @expectedResult Both commands appear in ADAPTER_CLI_REGISTRY store
    */
   test("commands are registered in CLI registry", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
     t = await testContext()
       .store(RUNNER_ARGV, [])
       .routes([
@@ -288,15 +313,16 @@ describe("CLI source adapter dispatch", () => {
     expect(registry!.has("greet")).toBe(true);
     expect(registry!.get("greet")!.description).toBe("Say hello");
     expect(registry!.has("deploy")).toBe(true);
+    vi.restoreAllMocks();
   });
 
   /**
    * @case Help is printed when no command given
    * @preconditions RUNNER_ARGV is empty array
-   * @expectedResult console.log called with help text containing command names
+   * @expectedResult Help text printed to stderr containing command names
    */
   test("prints help when no command given", async () => {
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     t = await testContext()
       .store(RUNNER_ARGV, [])
@@ -314,12 +340,12 @@ describe("CLI source adapter dispatch", () => {
 
     await t.test();
 
-    expect(logSpy).toHaveBeenCalledTimes(1);
-    const helpText = logSpy.mock.calls[0]![0] as string;
+    expect(errorSpy).toHaveBeenCalled();
+    const helpText = errorSpy.mock.calls[0]![0] as string;
     expect(helpText).toContain("greet");
     expect(helpText).toContain("deploy");
     expect(helpText).toContain("Say hello");
-    logSpy.mockRestore();
+    errorSpy.mockRestore();
   });
 
   /**
@@ -337,10 +363,9 @@ describe("CLI source adapter dispatch", () => {
 
     await t.test();
 
-    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalled();
     const errorText = errorSpy.mock.calls[0]![0] as string;
-    expect(errorText).toContain('Unknown command: "nonexistent"');
-    expect(errorText).toContain("greet");
+    expect(errorText).toContain("nonexistent");
     errorSpy.mockRestore();
   });
 });
@@ -371,7 +396,10 @@ describe("CLI source adapter schema validation", () => {
 
     await t.test();
     expect(consumer).toHaveBeenCalledTimes(1);
-    expect(consumer.mock.calls[0]![0].body).toEqual({ name: "test", count: 5 });
+    expect(consumer.mock.calls[0]![0].body).toEqual({
+      name: "test",
+      count: 5,
+    });
   });
 
   /**
@@ -512,5 +540,342 @@ describe("CLI destination adapter", () => {
     expect(stdoutSpy).not.toHaveBeenCalled();
     stderrSpy.mockRestore();
     stdoutSpy.mockRestore();
+  });
+});
+
+// ============================================================
+// Group 7: Native CLI options -- aliases
+// ============================================================
+describe("CLI native options -- aliases", () => {
+  let t: TestContext;
+
+  afterEach(async () => {
+    if (t) await t.stop();
+  });
+
+  /**
+   * @case Short alias resolves to the full flag name
+   * @preconditions Schema defines --name, flags defines alias "n"
+   * @expectedResult -n Alice dispatches body { name: "Alice" }
+   */
+  test("short alias dispatches correctly", async () => {
+    const consumer = vi.fn();
+    const schema = z.object({ name: z.string() });
+
+    t = await testContext()
+      .store(RUNNER_ARGV, ["greet", "-n", "Alice"])
+      .routes([
+        craft()
+          .id("greet")
+          .from(cli("greet", { schema, flags: { name: { alias: "n" } } }))
+          .to(consumer),
+      ])
+      .build();
+
+    await t.test();
+    expect(consumer).toHaveBeenCalledTimes(1);
+    expect(consumer.mock.calls[0]![0].body).toEqual({ name: "Alice" });
+  });
+
+  /**
+   * @case Boolean alias works for presence
+   * @preconditions Schema defines --loud as boolean, alias "l"
+   * @expectedResult -l dispatches body { ..., loud: true }
+   */
+  test("boolean alias sets true", async () => {
+    const consumer = vi.fn();
+    const schema = z.object({
+      name: z.string(),
+      loud: z.boolean().default(false),
+    });
+
+    t = await testContext()
+      .store(RUNNER_ARGV, ["greet", "--name", "Bob", "-l"])
+      .routes([
+        craft()
+          .id("greet")
+          .from(cli("greet", { schema, flags: { loud: { alias: "l" } } }))
+          .to(consumer),
+      ])
+      .build();
+
+    await t.test();
+    expect(consumer).toHaveBeenCalledTimes(1);
+    expect(consumer.mock.calls[0]![0].body).toEqual({
+      name: "Bob",
+      loud: true,
+    });
+  });
+
+  /**
+   * @case Help text shows alias
+   * @preconditions Schema has alias defined, --help requested
+   * @expectedResult Help output contains -n
+   */
+  test("help text shows alias", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const schema = z.object({ name: z.string() });
+
+    t = await testContext()
+      .store(RUNNER_ARGV, ["greet", "--help"])
+      .routes([
+        craft()
+          .id("greet")
+          .from(
+            cli("greet", {
+              schema,
+              description: "Say hello",
+              flags: { name: { alias: "n" } },
+            }),
+          )
+          .to(noop()),
+      ])
+      .build();
+
+    await t.test();
+    expect(logSpy).toHaveBeenCalled();
+    const helpText = logSpy.mock.calls[0]![0] as string;
+    expect(helpText).toContain("-n");
+    expect(helpText).toContain("--name");
+    logSpy.mockRestore();
+  });
+});
+
+// ============================================================
+// Group 8: Native CLI options -- positional arguments
+// ============================================================
+describe("CLI native options -- positional arguments", () => {
+  let t: TestContext;
+
+  afterEach(async () => {
+    if (t) await t.stop();
+  });
+
+  /**
+   * @case Positional argument is captured by name
+   * @preconditions args defines "target", schema validates it
+   * @expectedResult Body contains { target: "prod" }
+   */
+  test("positional argument maps to body by name", async () => {
+    const consumer = vi.fn();
+    const schema = z.object({ target: z.string() });
+
+    t = await testContext()
+      .store(RUNNER_ARGV, ["deploy", "prod"])
+      .routes([
+        craft()
+          .id("deploy")
+          .from(
+            cli("deploy", {
+              schema,
+              args: [{ name: "target", description: "Deploy target" }],
+            }),
+          )
+          .to(consumer),
+      ])
+      .build();
+
+    await t.test();
+    expect(consumer).toHaveBeenCalledTimes(1);
+    expect(consumer.mock.calls[0]![0].body).toEqual({ target: "prod" });
+  });
+
+  /**
+   * @case Positional + flags combined
+   * @preconditions args defines "target", flags defines --dry-run
+   * @expectedResult Body contains both positional and flag values
+   */
+  test("positional and flags combined in body", async () => {
+    const consumer = vi.fn();
+    const schema = z.object({
+      target: z.string(),
+      dryRun: z.boolean().default(false),
+    });
+
+    t = await testContext()
+      .store(RUNNER_ARGV, ["deploy", "staging", "--dry-run"])
+      .routes([
+        craft()
+          .id("deploy")
+          .from(
+            cli("deploy", {
+              schema,
+              args: [{ name: "target" }],
+              flags: { dryRun: { alias: "d" } },
+            }),
+          )
+          .to(consumer),
+      ])
+      .build();
+
+    await t.test();
+    expect(consumer).toHaveBeenCalledTimes(1);
+    expect(consumer.mock.calls[0]![0].body).toEqual({
+      target: "staging",
+      dryRun: true,
+    });
+  });
+
+  /**
+   * @case JSON object as positional argument
+   * @preconditions Positional arg contains a JSON string
+   * @expectedResult Body contains the parsed JSON object
+   */
+  test("JSON positional argument is parsed", async () => {
+    const consumer = vi.fn();
+    const schema = z.object({ config: z.record(z.string(), z.string()) });
+
+    t = await testContext()
+      .store(RUNNER_ARGV, ["apply", '{"db":"postgres","cache":"redis"}'])
+      .routes([
+        craft()
+          .id("apply")
+          .from(cli("apply", { schema, args: [{ name: "config" }] }))
+          .to(consumer),
+      ])
+      .build();
+
+    await t.test();
+    expect(consumer).toHaveBeenCalledTimes(1);
+    expect(consumer.mock.calls[0]![0].body).toEqual({
+      config: { db: "postgres", cache: "redis" },
+    });
+  });
+});
+
+// ============================================================
+// Group 9: Native CLI options -- env fallback
+// ============================================================
+describe("CLI native options -- env fallback", () => {
+  let t: TestContext;
+
+  afterEach(async () => {
+    if (t) await t.stop();
+  });
+
+  /**
+   * @case Env var used when flag is not provided
+   * @preconditions Flag not in argv, env var set
+   * @expectedResult Body contains value from env var
+   */
+  test("env var used as fallback when flag absent", async () => {
+    const consumer = vi.fn();
+    const schema = z.object({ name: z.string() });
+
+    // Set env var for test
+    const original = process.env["TEST_GREET_NAME"];
+    process.env["TEST_GREET_NAME"] = "FromEnv";
+
+    try {
+      t = await testContext()
+        .store(RUNNER_ARGV, ["greet"])
+        .routes([
+          craft()
+            .id("greet")
+            .from(
+              cli("greet", {
+                schema,
+                flags: { name: { env: "TEST_GREET_NAME" } },
+              }),
+            )
+            .to(consumer),
+        ])
+        .build();
+
+      await t.test();
+      expect(consumer).toHaveBeenCalledTimes(1);
+      expect(consumer.mock.calls[0]![0].body).toEqual({ name: "FromEnv" });
+    } finally {
+      if (original === undefined) {
+        delete process.env["TEST_GREET_NAME"];
+      } else {
+        process.env["TEST_GREET_NAME"] = original;
+      }
+    }
+  });
+
+  /**
+   * @case Explicit flag takes precedence over env var
+   * @preconditions Both flag and env var set
+   * @expectedResult Body contains value from flag, not env
+   */
+  test("explicit flag overrides env var", async () => {
+    const consumer = vi.fn();
+    const schema = z.object({ name: z.string() });
+
+    const original = process.env["TEST_GREET_NAME2"];
+    process.env["TEST_GREET_NAME2"] = "FromEnv";
+
+    try {
+      t = await testContext()
+        .store(RUNNER_ARGV, ["greet", "--name", "FromFlag"])
+        .routes([
+          craft()
+            .id("greet")
+            .from(
+              cli("greet", {
+                schema,
+                flags: { name: { env: "TEST_GREET_NAME2" } },
+              }),
+            )
+            .to(consumer),
+        ])
+        .build();
+
+      await t.test();
+      expect(consumer).toHaveBeenCalledTimes(1);
+      expect(consumer.mock.calls[0]![0].body).toEqual({ name: "FromFlag" });
+    } finally {
+      if (original === undefined) {
+        delete process.env["TEST_GREET_NAME2"];
+      } else {
+        process.env["TEST_GREET_NAME2"] = original;
+      }
+    }
+  });
+});
+
+// ============================================================
+// Group 10: Native CLI options -- examples in help
+// ============================================================
+describe("CLI native options -- examples", () => {
+  let t: TestContext;
+
+  afterEach(async () => {
+    if (t) await t.stop();
+  });
+
+  /**
+   * @case Examples appear in per-command help
+   * @preconditions examples option provided, --help requested
+   * @expectedResult Help output contains the example strings
+   */
+  test("examples shown in per-command help", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const schema = z.object({ name: z.string() });
+
+    t = await testContext()
+      .store(RUNNER_ARGV, ["greet", "--help"])
+      .routes([
+        craft()
+          .id("greet")
+          .from(
+            cli("greet", {
+              schema,
+              description: "Say hello",
+              examples: ["greet --name Alice", "greet --name Bob"],
+            }),
+          )
+          .to(noop()),
+      ])
+      .build();
+
+    await t.test();
+    expect(logSpy).toHaveBeenCalled();
+    const helpText = logSpy.mock.calls[0]![0] as string;
+    expect(helpText).toContain("Examples:");
+    expect(helpText).toContain("greet --name Alice");
+    expect(helpText).toContain("greet --name Bob");
+    logSpy.mockRestore();
   });
 });

@@ -3,15 +3,14 @@ import type { Exchange, ExchangeHeaders } from "@routecraft/routecraft";
 import type { Source } from "@routecraft/routecraft";
 import type { CraftContext } from "@routecraft/routecraft";
 import { rcError, RUNNER_ARGV } from "@routecraft/routecraft";
-import type { CliServerOptions } from "./types";
+import type { CliServerOptions } from "./types.ts";
 import {
-  ADAPTER_CLI_HELP_HANDLED,
-  extractJsonSchema,
+  ADAPTER_CLI_PARSED,
+  ADAPTER_CLI_NAME,
   getCliRegistry,
-  parseFlags,
   registerCliRoute,
-} from "./shared";
-import { generateHelp, generateCommandHelp } from "./help";
+} from "./shared.ts";
+import { buildAndParse, type CliParseResult } from "./parser.ts";
 
 /**
  * Source adapter that receives a single CLI command invocation.
@@ -19,9 +18,9 @@ import { generateHelp, generateCommandHelp } from "./help";
  * Registered via `cli('command', options)`. On `subscribe()`:
  * 1. Registers command metadata in the context store (synchronous).
  * 2. Yields one microtask so all concurrent sources finish registering.
- * 3. Reads argv from the `RUNNER_ARGV` store (set by runner or `cliRunner()`).
- * 4. If no argv in store: registers only, does not fire.
- * 5. Handles help printing, unknown-command errors, and dispatch internally.
+ * 3. First source to continue builds a commander program from the full
+ *    registry and parses argv; result is cached in the context store.
+ * 4. Each source reads the cached result and dispatches if matched.
  *
  * @internal Use the `cli()` factory instead of constructing this directly.
  */
@@ -41,7 +40,7 @@ export class CliSourceAdapter<T = unknown> implements Source<T> {
   ): Promise<void> {
     // 1. Register command metadata synchronously so all concurrent sources
     //    populate the registry before any async work begins.
-    const metadata: import("./types").CliRouteMetadata = {
+    const metadata: import("./types.ts").CliRouteMetadata = {
       command: this.command,
     };
     if (this.options.description !== undefined) {
@@ -49,6 +48,15 @@ export class CliSourceAdapter<T = unknown> implements Source<T> {
     }
     if (this.options.schema !== undefined) {
       metadata.schema = this.options.schema;
+    }
+    if (this.options.args !== undefined) {
+      metadata.args = this.options.args;
+    }
+    if (this.options.flags !== undefined) {
+      metadata.flags = this.options.flags;
+    }
+    if (this.options.examples !== undefined) {
+      metadata.examples = this.options.examples;
     }
     registerCliRoute(context, this.command, metadata);
 
@@ -71,74 +79,52 @@ export class CliSourceAdapter<T = unknown> implements Source<T> {
     //    is available.
     await Promise.resolve();
 
-    // 4. Parse command from argv
-    const command = argv.find((a) => !a.startsWith("-"));
-    const rawArgs =
-      command !== undefined ? argv.slice(argv.indexOf(command) + 1) : [];
-
-    const registry = getCliRegistry(context);
-    const scriptName = context.getStore(ADAPTER_CLI_HELP_HANDLED)
-      ? undefined
-      : this.resolveScriptName();
-
-    // 5a. No command or global --help: show help (once across all sources)
-    if (command === undefined || (rawArgs.length === 0 && isHelpFlag(argv))) {
-      this.handleOnce(context, () => {
-        // eslint-disable-next-line no-console
-        console.log(generateHelp(scriptName ?? "cli", registry));
-      });
-      return;
+    // 4. First source to continue runs the centralized commander parser;
+    //    result is cached for all subsequent sources. Only the first source
+    //    prints output (help, errors) to avoid duplicates.
+    let parsed = context.getStore(ADAPTER_CLI_PARSED) as
+      | CliParseResult
+      | undefined;
+    const isFirstSource = !parsed;
+    if (!parsed) {
+      const scriptName = this.resolveScriptName(context);
+      const registry = getCliRegistry(context);
+      parsed = buildAndParse(scriptName, registry, argv);
+      context.setStore(ADAPTER_CLI_PARSED, parsed);
     }
 
-    // 5b. Per-command --help
-    if (rawArgs.includes("--help") || rawArgs.includes("-h")) {
-      if (command === this.command) {
-        // eslint-disable-next-line no-console
-        console.log(
-          generateCommandHelp(scriptName ?? "cli", command, metadata),
-        );
+    // 5. Handle output (help, version, errors) -- first source only
+    if (parsed.kind === "output") {
+      if (isFirstSource) {
+        if (parsed.exitCode === 0) {
+          // eslint-disable-next-line no-console
+          console.log(parsed.text);
+        } else {
+          // eslint-disable-next-line no-console
+          console.error(parsed.text);
+        }
       }
       return;
     }
 
-    // 5c. Unknown command: show error (once across all sources)
-    if (!registry.has(command)) {
-      this.handleOnce(context, () => {
-        const available = [...registry.keys()].join(", ");
-        // eslint-disable-next-line no-console
-        console.error(
-          `Unknown command: "${command}"\n` +
-            `Available commands: ${available || "(none)"}\n\n` +
-            `Run '${scriptName ?? "cli"}' to see all commands.`,
-        );
-      });
-      return;
-    }
-
     // 6. Not my command: return silently
-    if (command !== this.command) {
+    if (parsed.command !== this.command) {
       context.logger.debug(
-        { command: this.command, invoked: command, adapter: "cli" },
+        { command: this.command, invoked: parsed.command, adapter: "cli" },
         "CLI command not matched; skipping",
       );
       return;
     }
 
-    // 7. Matched! Parse flags and validate.
+    // 7. Matched! Validate body with schema if present.
     context.logger.debug(
       { command: this.command, adapter: "cli" },
-      "CLI command matched; parsing flags",
+      "CLI command matched; dispatching",
     );
 
-    const jsonSchema = this.options.schema
-      ? extractJsonSchema(this.options.schema)
-      : undefined;
-
-    const parsed = parseFlags(rawArgs, jsonSchema);
-
-    let body: T = parsed as T;
+    let body: T = parsed.body as T;
     if (this.options.schema) {
-      let result = this.options.schema["~standard"].validate(parsed);
+      let result = this.options.schema["~standard"].validate(parsed.body);
       if (result instanceof Promise) result = await result;
 
       const issues = (result as { issues?: unknown }).issues;
@@ -170,26 +156,14 @@ export class CliSourceAdapter<T = unknown> implements Source<T> {
   }
 
   /**
-   * Execute `fn` at most once across all CLI sources in this context.
-   * Uses a store flag so the first source to reach this point acts;
-   * subsequent sources skip.
-   */
-  private handleOnce(context: CraftContext, fn: () => void): void {
-    const handled = context.getStore(ADAPTER_CLI_HELP_HANDLED);
-    if (handled) return;
-    context.setStore(ADAPTER_CLI_HELP_HANDLED, true);
-    fn();
-  }
-
-  /**
    * Derive a human-readable script name for help text.
-   * Uses basename of the entry script from process.argv.
+   * Prefers ADAPTER_CLI_NAME from context (set by cliRunner), falls back
+   * to basename of the entry script from process.argv.
    */
-  private resolveScriptName(): string {
-    return basename(process.argv[1] ?? "cli");
+  private resolveScriptName(context: CraftContext): string {
+    return (
+      (context.getStore(ADAPTER_CLI_NAME) as string | undefined) ??
+      basename(process.argv[1] ?? "cli")
+    );
   }
-}
-
-function isHelpFlag(argv: string[]): boolean {
-  return argv.includes("--help") || argv.includes("-h");
 }

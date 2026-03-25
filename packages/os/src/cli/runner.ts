@@ -5,6 +5,7 @@ import {
   type RouteDefinition,
   type RouteBuilder,
 } from "@routecraft/routecraft";
+import { ADAPTER_CLI_NAME } from "./shared.ts";
 
 /**
  * Run routecraft routes as a standalone CLI application.
@@ -57,6 +58,9 @@ export async function cliRunner(
 
   const context = await contextBuilder.build();
   context.setStore(RUNNER_ARGV, argv);
+  if (options?.name) {
+    context.setStore(ADAPTER_CLI_NAME, options.name);
+  }
   registerShutdownHandlers(context);
   await context.start();
 }
