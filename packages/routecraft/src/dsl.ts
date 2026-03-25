@@ -12,30 +12,25 @@ import type { Exchange } from "./exchange.ts";
 import { RouteBuilder } from "./builder.ts";
 import { PUSH_STEP } from "./dsl-symbol.ts";
 import { TapStep } from "./operations/tap.ts";
-import { TransformStep } from "./operations/transform.ts";
+import { TransformStep, mapper } from "./operations/transform.ts";
 import { ValidateStep, schema } from "./operations/validate.ts";
-import { mapper } from "./operations/transform.ts";
 import { log, debug, type LogOptions } from "./adapters/log/index.ts";
 
 // ---------------------------------------------------------------------------
 // registerDsl
 // ---------------------------------------------------------------------------
 
-/** Primitive step kinds that registerDsl can delegate to. */
+/**
+ * Primitive step kinds. Used as documentation in DslRegistration to
+ * indicate which core step the sugar delegates to. Not enforced at
+ * runtime since the factory creates the step directly.
+ */
 export type PrimitiveKind =
   | "process"
   | "transform"
   | "tap"
   | "filter"
   | "validate";
-
-const ALLOWED_KINDS = new Set<PrimitiveKind>([
-  "process",
-  "transform",
-  "tap",
-  "filter",
-  "validate",
-]);
 
 /** Registration descriptor for a DSL sugar method. */
 export interface DslRegistration {
@@ -59,7 +54,6 @@ export interface DslRegistration {
  * @param name - Method name to add to RouteBuilder
  * @param registration - Kind, label, and factory for the sugar method
  * @throws If a method with the given name already exists on RouteBuilder
- * @throws If the kind is not one of the allowed primitives
  *
  * @example
  * ```ts
@@ -80,11 +74,6 @@ export function registerDsl(name: string, registration: DslRegistration): void {
   if (name in RouteBuilder.prototype) {
     throw new Error(
       `Cannot register DSL method "${name}": already exists on RouteBuilder`,
-    );
-  }
-  if (!ALLOWED_KINDS.has(registration.kind)) {
-    throw new Error(
-      `Invalid DSL kind "${registration.kind}". Allowed: ${[...ALLOWED_KINDS].join(", ")}`,
     );
   }
 

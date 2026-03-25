@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-// StandardSchemaV1 no longer needed here -- validation via schema() factory
 import { BRAND, ENRICH_MERGE_TYPE, isRouteBuilder, setBrand } from "./brand.ts";
 import { type RouteDefinition, type ErrorHandler } from "./route.ts";
 import {
@@ -742,8 +741,6 @@ export class RouteBuilder<Current = unknown> {
     this.addStep(new HeaderStep<Current>(key, valueOrFn));
     return this.withType<Current>();
   }
-
-  // .map() is registered via registerDsl in dsl.ts
 
   /**
    * Execute a side effect without changing the data.

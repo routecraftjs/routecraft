@@ -26,21 +26,6 @@ describe("registerDsl", () => {
       }),
     ).toThrow('Cannot register DSL method "transform"');
   });
-
-  /**
-   * @case Registering with an invalid kind throws
-   * @preconditions kind is "to" which is not in the allowed set
-   * @expectedResult Throws with invalid kind message
-   */
-  test("throws on invalid kind", () => {
-    expect(() =>
-      registerDsl("myBadStep", {
-        kind: "to" as "tap",
-        label: "myBadStep",
-        factory: () => new TransformStep((x: unknown) => x),
-      }),
-    ).toThrow('Invalid DSL kind "to"');
-  });
 });
 
 describe(".log() sugar", () => {

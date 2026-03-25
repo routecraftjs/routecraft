@@ -1008,9 +1008,9 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @case Verifies that validate step correctly validates message types
-   * @preconditions A route with a validate step using arktype
-   * @expectedResult Only messages that match the type definition should reach the destination
+   * @case Verifies that schema step validates and rejects invalid types
+   * @preconditions A route with a schema step using arktype, input is an array with mixed types
+   * @expectedResult Only string messages reach the destination; non-string values produce RC5002 errors
    */
   test("validates messages using arktype", async () => {
     const messages = ["valid string", 123, "another string", { key: "value" }];
@@ -1036,6 +1036,10 @@ describe("Route Behavior", () => {
 
     // Should only have string messages
     expect(capturedMessages).toEqual(["valid string", "another string"]);
+
+    // Non-string values should have thrown RC5002 (validation failure)
+    const validationErrors = t.errors.filter((e) => e.rc === "RC5002");
+    expect(validationErrors).toHaveLength(2);
   });
 
   /**
