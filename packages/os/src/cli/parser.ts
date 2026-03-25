@@ -107,6 +107,9 @@ export function buildAndParse(
         let option: Option;
         if (type === "boolean") {
           option = new Option(`${aliasStr}--${kebab}`, desc);
+          cmd.addOption(option);
+          // Add --no-flag so users can negate booleans (e.g. --no-loud)
+          cmd.addOption(new Option(`--no-${kebab}`));
         } else {
           const typeLabel =
             type === "number" || type === "integer" ? "number" : "value";
@@ -114,14 +117,12 @@ export function buildAndParse(
           if (type === "number" || type === "integer") {
             option.argParser(parseFloat);
           }
+          const defaultVal = propSchema["default"];
+          if (defaultVal !== undefined) {
+            option.default(defaultVal);
+          }
+          cmd.addOption(option);
         }
-
-        const defaultVal = propSchema["default"];
-        if (defaultVal !== undefined) {
-          option.default(defaultVal);
-        }
-
-        cmd.addOption(option);
       }
     } else if (isNativeMode) {
       // ── Native mode: use explicit flag/arg definitions ──
@@ -143,19 +144,21 @@ export function buildAndParse(
           let option: Option;
           if (type === "boolean") {
             option = new Option(`${aliasStr}--${kebab}`, desc);
+            if (flag.env) option.env(flag.env);
+            cmd.addOption(option);
+            // Add --no-flag so users can negate booleans (e.g. --no-loud)
+            cmd.addOption(new Option(`--no-${kebab}`));
           } else {
             const typeLabel = type === "number" ? "number" : "value";
             option = new Option(`${aliasStr}--${kebab} <${typeLabel}>`, desc);
             if (type === "number") {
               option.argParser(parseFloat);
             }
+            if (flag.env) option.env(flag.env);
+            if (flag.default !== undefined) option.default(flag.default);
+            if (flag.required) option.makeOptionMandatory();
+            cmd.addOption(option);
           }
-
-          if (flag.env) option.env(flag.env);
-          if (flag.default !== undefined) option.default(flag.default);
-          if (flag.required) option.makeOptionMandatory();
-
-          cmd.addOption(option);
         }
       }
     } else {

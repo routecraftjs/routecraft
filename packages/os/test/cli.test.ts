@@ -623,6 +623,31 @@ describe("Schema mode -- auto-generated aliases", () => {
     expect(helpText).toContain("--name");
     logSpy.mockRestore();
   });
+
+  /**
+   * @case --no-flag negates a boolean in schema mode
+   * @preconditions Schema defines "loud" as boolean with default true
+   * @expectedResult --no-loud sets loud to false
+   */
+  test("--no-flag negates boolean", async () => {
+    const consumer = vi.fn();
+    const schema = z.object({
+      name: z.string(),
+      loud: z.boolean(),
+    });
+
+    t = await testContext()
+      .store(RUNNER_ARGV, ["greet", "--name", "Alice", "--no-loud"])
+      .routes([craft().id("greet").from(cli("greet", { schema })).to(consumer)])
+      .build();
+
+    await t.test();
+    expect(consumer).toHaveBeenCalledTimes(1);
+    expect(consumer.mock.calls[0]![0].body).toEqual({
+      name: "Alice",
+      loud: false,
+    });
+  });
 });
 
 // ============================================================
@@ -768,6 +793,33 @@ describe("Native mode -- positional arguments and flags", () => {
     await t.test();
     expect(consumer).toHaveBeenCalledTimes(1);
     expect(consumer.mock.calls[0]![0].body).toEqual({ count: 42 });
+  });
+
+  /**
+   * @case --no-flag negates boolean in native mode
+   * @preconditions Native flag type is "boolean"
+   * @expectedResult --no-verbose sets verbose to false
+   */
+  test("--no-flag negates boolean in native mode", async () => {
+    const consumer = vi.fn();
+
+    t = await testContext()
+      .store(RUNNER_ARGV, ["run", "--no-verbose"])
+      .routes([
+        craft()
+          .id("run")
+          .from(
+            cli("run", {
+              flags: { verbose: { alias: "v", type: "boolean" } },
+            }),
+          )
+          .to(consumer),
+      ])
+      .build();
+
+    await t.test();
+    expect(consumer).toHaveBeenCalledTimes(1);
+    expect(consumer.mock.calls[0]![0].body).toEqual({ verbose: false });
   });
 });
 
