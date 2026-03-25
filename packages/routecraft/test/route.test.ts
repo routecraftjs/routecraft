@@ -1021,7 +1021,7 @@ describe("Route Behavior", () => {
         craft()
           .id("validate-test")
           .from(simple(messages))
-          .validate(type("string"))
+          .schema(type("string"))
           .tap((exchange) => {
             capturedMessages.push(exchange.body);
           })

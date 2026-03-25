@@ -3,18 +3,18 @@ import { z } from "zod";
 import { craft, simple, only, json } from "../src/index.ts";
 import type { RouteBuilder } from "../src/builder.ts";
 
-describe("validate() type safety", () => {
+describe("schema() type safety", () => {
   const nameSchema = z.object({ name: z.string() });
 
   /**
-   * @case validate(schema) narrows body type to schema output
-   * @preconditions .from(simple({ id: 0 })).validate(nameSchema)
+   * @case schema(standardSchema) narrows body type to schema output
+   * @preconditions .from(simple({ id: 0 })).schema(nameSchema)
    * @expectedResult RouteBuilder<{ name: string }> (StandardSchemaV1.InferOutput of schema)
    */
-  test("validate(schema) infers RouteBuilder with schema output type", () => {
+  test("schema(standardSchema) infers RouteBuilder with schema output type", () => {
     const route = craft()
       .from(simple({ id: 0 }))
-      .validate(nameSchema);
+      .schema(nameSchema);
     expectTypeOf(route).toEqualTypeOf<RouteBuilder<{ name: string }>>();
   });
 });

@@ -55,6 +55,7 @@ export interface Filter<T = unknown> extends Adapter {
  */
 export class FilterStep<T = unknown> implements Step<Filter<T>> {
   operation: OperationType = OperationType.FILTER;
+  label?: string;
   adapter: Filter<T>;
   skipStepEvents = true;
 
@@ -78,6 +79,7 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
     ] as string;
     const adapterLabel = getAdapterLabel(this.adapter);
     const stepStart = Date.now();
+    const stepLabel = this.label ?? this.operation;
 
     // Emit step:started
     if (context) {
@@ -85,7 +87,7 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
         routeId,
         exchangeId: exchange.id,
         correlationId,
-        operation: this.operation,
+        operation: stepLabel,
         ...(adapterLabel ? { adapter: adapterLabel } : {}),
       });
     }
@@ -103,7 +105,7 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
       if (dropReason !== undefined) {
         exchange.logger.debug(
           {
-            operation: "filter",
+            operation: stepLabel,
             reason: dropReason,
             ...(adapterLabel ? { adapter: adapterLabel } : {}),
           },
@@ -116,7 +118,7 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
             routeId,
             exchangeId: exchange.id,
             correlationId,
-            operation: this.operation,
+            operation: stepLabel,
             ...(adapterLabel ? { adapter: adapterLabel } : {}),
             duration: Date.now() - stepStart,
           });
@@ -140,7 +142,7 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
           routeId,
           exchangeId: exchange.id,
           correlationId,
-          operation: this.operation,
+          operation: stepLabel,
           ...(adapterLabel ? { adapter: adapterLabel } : {}),
           duration: Date.now() - stepStart,
           error: error instanceof Error ? error.message : String(error),
@@ -157,7 +159,7 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
         routeId,
         exchangeId: exchange.id,
         correlationId,
-        operation: this.operation,
+        operation: stepLabel,
         ...(adapterLabel ? { adapter: adapterLabel } : {}),
         duration: Date.now() - stepStart,
       });

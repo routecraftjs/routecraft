@@ -55,7 +55,7 @@ const processOrder = craft()
   .tap(log())
   .transform((order) => order.items)
   .split()
-  .validate(OrderItemSchema)
+  .schema(OrderItemSchema)
   .to(direct<OrderItem>("price-check"))
   .aggregate()
   .to(log());
