@@ -47,13 +47,16 @@ export class CliSourceAdapter<T = unknown> implements Source<T> {
       metadata.description = this.options.description;
     }
     if (this.options.schema !== undefined) {
+      // Schema mode
       metadata.schema = this.options.schema;
-    }
-    if (this.options.args !== undefined) {
-      metadata.args = this.options.args;
-    }
-    if (this.options.flags !== undefined) {
-      metadata.flags = this.options.flags;
+    } else {
+      // Native mode -- copy args and flags if present
+      if (this.options.args !== undefined) {
+        metadata.args = this.options.args;
+      }
+      if (this.options.flags !== undefined) {
+        metadata.flags = this.options.flags;
+      }
     }
     if (this.options.examples !== undefined) {
       metadata.examples = this.options.examples;

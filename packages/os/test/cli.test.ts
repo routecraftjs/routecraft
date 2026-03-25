@@ -544,9 +544,9 @@ describe("CLI destination adapter", () => {
 });
 
 // ============================================================
-// Group 7: Native CLI options -- aliases
+// Group 7: Schema mode -- auto-generated aliases
 // ============================================================
-describe("CLI native options -- aliases", () => {
+describe("Schema mode -- auto-generated aliases", () => {
   let t: TestContext;
 
   afterEach(async () => {
@@ -554,22 +554,17 @@ describe("CLI native options -- aliases", () => {
   });
 
   /**
-   * @case Short alias resolves to the full flag name
-   * @preconditions Schema defines --name, flags defines alias "n"
+   * @case Auto-alias uses first letter of property name
+   * @preconditions Schema defines "name" property
    * @expectedResult -n Alice dispatches body { name: "Alice" }
    */
-  test("short alias dispatches correctly", async () => {
+  test("auto-alias from first letter works", async () => {
     const consumer = vi.fn();
     const schema = z.object({ name: z.string() });
 
     t = await testContext()
       .store(RUNNER_ARGV, ["greet", "-n", "Alice"])
-      .routes([
-        craft()
-          .id("greet")
-          .from(cli("greet", { schema, flags: { name: { alias: "n" } } }))
-          .to(consumer),
-      ])
+      .routes([craft().id("greet").from(cli("greet", { schema })).to(consumer)])
       .build();
 
     await t.test();
@@ -578,11 +573,11 @@ describe("CLI native options -- aliases", () => {
   });
 
   /**
-   * @case Boolean alias works for presence
-   * @preconditions Schema defines --loud as boolean, alias "l"
-   * @expectedResult -l dispatches body { ..., loud: true }
+   * @case Auto-alias for boolean flag
+   * @preconditions Schema defines "loud" as boolean
+   * @expectedResult -l sets loud to true
    */
-  test("boolean alias sets true", async () => {
+  test("auto-alias for boolean flag sets true", async () => {
     const consumer = vi.fn();
     const schema = z.object({
       name: z.string(),
@@ -591,12 +586,7 @@ describe("CLI native options -- aliases", () => {
 
     t = await testContext()
       .store(RUNNER_ARGV, ["greet", "--name", "Bob", "-l"])
-      .routes([
-        craft()
-          .id("greet")
-          .from(cli("greet", { schema, flags: { loud: { alias: "l" } } }))
-          .to(consumer),
-      ])
+      .routes([craft().id("greet").from(cli("greet", { schema })).to(consumer)])
       .build();
 
     await t.test();
@@ -608,11 +598,11 @@ describe("CLI native options -- aliases", () => {
   });
 
   /**
-   * @case Help text shows alias
-   * @preconditions Schema has alias defined, --help requested
-   * @expectedResult Help output contains -n
+   * @case Auto-alias shows in help text
+   * @preconditions Schema has "name" property, --help requested
+   * @expectedResult Help output contains -n and --name
    */
-  test("help text shows alias", async () => {
+  test("auto-alias shows in help text", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const schema = z.object({ name: z.string() });
 
@@ -621,13 +611,7 @@ describe("CLI native options -- aliases", () => {
       .routes([
         craft()
           .id("greet")
-          .from(
-            cli("greet", {
-              schema,
-              description: "Say hello",
-              flags: { name: { alias: "n" } },
-            }),
-          )
+          .from(cli("greet", { schema, description: "Say hello" }))
           .to(noop()),
       ])
       .build();
@@ -642,9 +626,9 @@ describe("CLI native options -- aliases", () => {
 });
 
 // ============================================================
-// Group 8: Native CLI options -- positional arguments
+// Group 8: Native mode -- positional arguments and flags
 // ============================================================
-describe("CLI native options -- positional arguments", () => {
+describe("Native mode -- positional arguments and flags", () => {
   let t: TestContext;
 
   afterEach(async () => {
@@ -653,12 +637,11 @@ describe("CLI native options -- positional arguments", () => {
 
   /**
    * @case Positional argument is captured by name
-   * @preconditions args defines "target", schema validates it
+   * @preconditions Native mode with args defining "target"
    * @expectedResult Body contains { target: "prod" }
    */
   test("positional argument maps to body by name", async () => {
     const consumer = vi.fn();
-    const schema = z.object({ target: z.string() });
 
     t = await testContext()
       .store(RUNNER_ARGV, ["deploy", "prod"])
@@ -667,7 +650,6 @@ describe("CLI native options -- positional arguments", () => {
           .id("deploy")
           .from(
             cli("deploy", {
-              schema,
               args: [{ name: "target", description: "Deploy target" }],
             }),
           )
@@ -681,16 +663,12 @@ describe("CLI native options -- positional arguments", () => {
   });
 
   /**
-   * @case Positional + flags combined
-   * @preconditions args defines "target", flags defines --dry-run
+   * @case Positional + flags combined in native mode
+   * @preconditions args for "target", flags for "dryRun"
    * @expectedResult Body contains both positional and flag values
    */
   test("positional and flags combined in body", async () => {
     const consumer = vi.fn();
-    const schema = z.object({
-      target: z.string(),
-      dryRun: z.boolean().default(false),
-    });
 
     t = await testContext()
       .store(RUNNER_ARGV, ["deploy", "staging", "--dry-run"])
@@ -699,9 +677,10 @@ describe("CLI native options -- positional arguments", () => {
           .id("deploy")
           .from(
             cli("deploy", {
-              schema,
               args: [{ name: "target" }],
-              flags: { dryRun: { alias: "d" } },
+              flags: {
+                dryRun: { alias: "d", type: "boolean" },
+              },
             }),
           )
           .to(consumer),
@@ -718,19 +697,18 @@ describe("CLI native options -- positional arguments", () => {
 
   /**
    * @case JSON object as positional argument
-   * @preconditions Positional arg contains a JSON string
+   * @preconditions Native mode positional arg contains a JSON string
    * @expectedResult Body contains the parsed JSON object
    */
   test("JSON positional argument is parsed", async () => {
     const consumer = vi.fn();
-    const schema = z.object({ config: z.record(z.string(), z.string()) });
 
     t = await testContext()
       .store(RUNNER_ARGV, ["apply", '{"db":"postgres","cache":"redis"}'])
       .routes([
         craft()
           .id("apply")
-          .from(cli("apply", { schema, args: [{ name: "config" }] }))
+          .from(cli("apply", { args: [{ name: "config" }] }))
           .to(consumer),
       ])
       .build();
@@ -741,12 +719,62 @@ describe("CLI native options -- positional arguments", () => {
       config: { db: "postgres", cache: "redis" },
     });
   });
+
+  /**
+   * @case Native mode alias dispatches correctly
+   * @preconditions Flags define alias "n" for name
+   * @expectedResult -n Alice dispatches body { name: "Alice" }
+   */
+  test("native mode alias dispatches correctly", async () => {
+    const consumer = vi.fn();
+
+    t = await testContext()
+      .store(RUNNER_ARGV, ["greet", "-n", "Alice"])
+      .routes([
+        craft()
+          .id("greet")
+          .from(
+            cli("greet", {
+              flags: { name: { alias: "n", type: "string" } },
+            }),
+          )
+          .to(consumer),
+      ])
+      .build();
+
+    await t.test();
+    expect(consumer).toHaveBeenCalledTimes(1);
+    expect(consumer.mock.calls[0]![0].body).toEqual({ name: "Alice" });
+  });
+
+  /**
+   * @case Native mode number coercion
+   * @preconditions Flag type is "number"
+   * @expectedResult Body value is a number, not a string
+   */
+  test("native mode number flag is coerced", async () => {
+    const consumer = vi.fn();
+
+    t = await testContext()
+      .store(RUNNER_ARGV, ["run", "--count", "42"])
+      .routes([
+        craft()
+          .id("run")
+          .from(cli("run", { flags: { count: { type: "number" } } }))
+          .to(consumer),
+      ])
+      .build();
+
+    await t.test();
+    expect(consumer).toHaveBeenCalledTimes(1);
+    expect(consumer.mock.calls[0]![0].body).toEqual({ count: 42 });
+  });
 });
 
 // ============================================================
-// Group 9: Native CLI options -- env fallback
+// Group 9: Native mode -- env fallback
 // ============================================================
-describe("CLI native options -- env fallback", () => {
+describe("Native mode -- env fallback", () => {
   let t: TestContext;
 
   afterEach(async () => {
@@ -760,9 +788,7 @@ describe("CLI native options -- env fallback", () => {
    */
   test("env var used as fallback when flag absent", async () => {
     const consumer = vi.fn();
-    const schema = z.object({ name: z.string() });
 
-    // Set env var for test
     const original = process.env["TEST_GREET_NAME"];
     process.env["TEST_GREET_NAME"] = "FromEnv";
 
@@ -774,8 +800,9 @@ describe("CLI native options -- env fallback", () => {
             .id("greet")
             .from(
               cli("greet", {
-                schema,
-                flags: { name: { env: "TEST_GREET_NAME" } },
+                flags: {
+                  name: { type: "string", env: "TEST_GREET_NAME" },
+                },
               }),
             )
             .to(consumer),
@@ -801,7 +828,6 @@ describe("CLI native options -- env fallback", () => {
    */
   test("explicit flag overrides env var", async () => {
     const consumer = vi.fn();
-    const schema = z.object({ name: z.string() });
 
     const original = process.env["TEST_GREET_NAME2"];
     process.env["TEST_GREET_NAME2"] = "FromEnv";
@@ -814,8 +840,9 @@ describe("CLI native options -- env fallback", () => {
             .id("greet")
             .from(
               cli("greet", {
-                schema,
-                flags: { name: { env: "TEST_GREET_NAME2" } },
+                flags: {
+                  name: { type: "string", env: "TEST_GREET_NAME2" },
+                },
               }),
             )
             .to(consumer),
@@ -836,9 +863,9 @@ describe("CLI native options -- env fallback", () => {
 });
 
 // ============================================================
-// Group 10: Native CLI options -- examples in help
+// Group 10: Examples in help
 // ============================================================
-describe("CLI native options -- examples", () => {
+describe("Examples in help", () => {
   let t: TestContext;
 
   afterEach(async () => {
@@ -846,13 +873,12 @@ describe("CLI native options -- examples", () => {
   });
 
   /**
-   * @case Examples appear in per-command help
+   * @case Examples appear in per-command help (native mode)
    * @preconditions examples option provided, --help requested
    * @expectedResult Help output contains the example strings
    */
   test("examples shown in per-command help", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    const schema = z.object({ name: z.string() });
 
     t = await testContext()
       .store(RUNNER_ARGV, ["greet", "--help"])
@@ -861,8 +887,8 @@ describe("CLI native options -- examples", () => {
           .id("greet")
           .from(
             cli("greet", {
-              schema,
               description: "Say hello",
+              flags: { name: { type: "string" } },
               examples: ["greet --name Alice", "greet --name Bob"],
             }),
           )

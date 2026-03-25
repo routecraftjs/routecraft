@@ -2,10 +2,12 @@
 export { cli } from "./cli/index.ts";
 export {
   type CliServerOptions,
+  type CliSchemaOptions,
+  type CliNativeOptions,
   type CliClientOptions,
   type CliRouteMetadata,
-  type CliArgOptions,
-  type CliFlagOptions,
+  type CliNativeArg,
+  type CliNativeFlag,
   ADAPTER_CLI_REGISTRY,
   isCliSource,
   getCliRegistry,

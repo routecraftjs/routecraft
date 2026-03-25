@@ -12,12 +12,37 @@ export type CliParseResult =
   | { kind: "output"; text: string; exitCode: number };
 
 /**
+ * Auto-generate single-letter aliases from property names.
+ * First property to claim a letter wins. Reserved letters (e.g. `h` for
+ * `--help`) are skipped.
+ */
+function autoAliases(
+  propertyNames: string[],
+  reserved: Set<string>,
+): Map<string, string> {
+  const aliases = new Map<string, string>();
+  const used = new Set(reserved);
+
+  for (const prop of propertyNames) {
+    const letter = prop[0]?.toLowerCase();
+    if (letter && !used.has(letter)) {
+      aliases.set(prop, letter);
+      used.add(letter);
+    }
+  }
+
+  return aliases;
+}
+
+/**
  * Build a commander program from the CLI registry and parse argv.
  *
- * Uses commander for command routing, help generation, and flag parsing.
- * For commands with a schema, flags are defined from schema properties
- * (enriched with alias/env/help from `flags` options). For schema-less
- * commands, raw flags are parsed via `parseFlags` as a fallback.
+ * Supports two modes based on what metadata is present:
+ * - **Schema mode** (`meta.schema`): flags are derived from JSON Schema
+ *   properties with auto-generated aliases.
+ * - **Native mode** (`meta.flags`/`meta.args`): flags and positional args
+ *   are defined explicitly by the user.
+ * - **No-config mode** (neither): accepts any flags via `parseFlags` fallback.
  *
  * @param scriptName - Binary name for help text
  * @param registry - Map of command name to metadata
@@ -56,48 +81,39 @@ export function buildAndParse(
     const cmd = program.command(name);
     if (meta.description) cmd.description(meta.description);
 
-    const hasSchema = !!meta.schema;
-    const jsonSchema = meta.schema ? extractJsonSchema(meta.schema) : undefined;
-    const properties = (jsonSchema?.["properties"] ?? {}) as Record<
-      string,
-      Record<string, unknown>
-    >;
-    const argNames = new Set((meta.args ?? []).map((a) => a.name));
-    const argDefs = meta.args ?? [];
+    const isSchemaMode = !!meta.schema;
+    const isNativeMode =
+      !isSchemaMode &&
+      ((meta.flags && Object.keys(meta.flags).length > 0) ||
+        (meta.args && meta.args.length > 0));
 
-    // Add positional arguments
-    for (const arg of argDefs) {
-      const bracket =
-        arg.required !== false ? `<${arg.name}>` : `[${arg.name}]`;
-      cmd.argument(bracket, arg.description);
-    }
+    if (isSchemaMode) {
+      // ── Schema mode: derive flags from JSON Schema with auto-aliases ──
+      const jsonSchema = extractJsonSchema(meta.schema!);
+      const properties = (jsonSchema["properties"] ?? {}) as Record<
+        string,
+        Record<string, unknown>
+      >;
+      const propNames = Object.keys(properties);
+      const aliases = autoAliases(propNames, new Set(["h"]));
 
-    if (hasSchema) {
-      // Define commander options from schema properties (excluding positionals)
       for (const [prop, propSchema] of Object.entries(properties)) {
-        if (argNames.has(prop)) continue;
-
-        const flagOpts = meta.flags?.[prop];
         const kebab = kebabCase(prop);
         const type = propSchema["type"] as string | undefined;
-        const desc =
-          flagOpts?.help ?? (propSchema["description"] as string) ?? "";
-        const alias = flagOpts?.alias ? `-${flagOpts.alias}, ` : "";
+        const desc = (propSchema["description"] as string) ?? "";
+        const alias = aliases.get(prop);
+        const aliasStr = alias ? `-${alias}, ` : "";
 
         let option: Option;
         if (type === "boolean") {
-          option = new Option(`${alias}--${kebab}`, desc);
+          option = new Option(`${aliasStr}--${kebab}`, desc);
         } else {
           const typeLabel =
             type === "number" || type === "integer" ? "number" : "value";
-          option = new Option(`${alias}--${kebab} <${typeLabel}>`, desc);
+          option = new Option(`${aliasStr}--${kebab} <${typeLabel}>`, desc);
           if (type === "number" || type === "integer") {
             option.argParser(parseFloat);
           }
-        }
-
-        if (flagOpts?.env) {
-          option.env(flagOpts.env);
         }
 
         const defaultVal = propSchema["default"];
@@ -107,8 +123,43 @@ export function buildAndParse(
 
         cmd.addOption(option);
       }
+    } else if (isNativeMode) {
+      // ── Native mode: use explicit flag/arg definitions ──
+      if (meta.args) {
+        for (const arg of meta.args) {
+          const bracket =
+            arg.required !== false ? `<${arg.name}>` : `[${arg.name}]`;
+          cmd.argument(bracket, arg.description);
+        }
+      }
+
+      if (meta.flags) {
+        for (const [prop, flag] of Object.entries(meta.flags)) {
+          const kebab = kebabCase(prop);
+          const type = flag.type ?? "string";
+          const desc = flag.description ?? "";
+          const aliasStr = flag.alias ? `-${flag.alias}, ` : "";
+
+          let option: Option;
+          if (type === "boolean") {
+            option = new Option(`${aliasStr}--${kebab}`, desc);
+          } else {
+            const typeLabel = type === "number" ? "number" : "value";
+            option = new Option(`${aliasStr}--${kebab} <${typeLabel}>`, desc);
+            if (type === "number") {
+              option.argParser(parseFloat);
+            }
+          }
+
+          if (flag.env) option.env(flag.env);
+          if (flag.default !== undefined) option.default(flag.default);
+          if (flag.required) option.makeOptionMandatory();
+
+          cmd.addOption(option);
+        }
+      }
     } else {
-      // Schema-less: accept unknown options and parse them with parseFlags
+      // ── No-config mode: accept anything, parse with parseFlags ──
       cmd.allowUnknownOption();
       cmd.allowExcessArguments();
     }
@@ -123,6 +174,8 @@ export function buildAndParse(
     }
 
     // Action handler
+    const argDefs = meta.args ?? [];
+    const nativeFlags = meta.flags;
     cmd.action((...actionArgs: unknown[]) => {
       const cmdObj = actionArgs[actionArgs.length - 1] as Command;
       actionArgs.pop(); // Command object
@@ -131,11 +184,11 @@ export function buildAndParse(
 
       const body: Record<string, unknown> = {};
 
-      if (hasSchema) {
-        // Commander parsed all known flags into opts
+      if (isSchemaMode || isNativeMode) {
+        // Commander parsed known flags into opts
         Object.assign(body, opts);
       } else {
-        // Schema-less: commander put unknown tokens in command.args
+        // No-config: extract flags from raw remaining args
         Object.assign(body, parseFlags(cmdObj.args));
       }
 
@@ -156,17 +209,29 @@ export function buildAndParse(
           }
         }
 
-        // Coerce based on schema type
+        // Coerce based on native arg type or schema type
         if (typeof value === "string") {
-          const propType = properties[argDef.name]?.["type"] as
-            | string
-            | undefined;
-          if (propType === "number" || propType === "integer") {
+          const argType = argDef.type ?? "string";
+          if (argType === "number") {
             value = Number(value);
           }
         }
 
         body[argDef.name] = value;
+      }
+
+      // Remove commander-injected defaults for native boolean flags
+      // that weren't actually passed (commander defaults booleans to undefined)
+      if (nativeFlags) {
+        for (const [prop, flag] of Object.entries(nativeFlags)) {
+          if (
+            flag.type === "boolean" &&
+            flag.default === undefined &&
+            body[prop] === undefined
+          ) {
+            delete body[prop];
+          }
+        }
       }
 
       result = { command: name, body };
