@@ -1,7 +1,9 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
-import { craft, simple, mail } from "@routecraft/routecraft";
+import { craft, simple, mail, replace } from "@routecraft/routecraft";
 import { EXCHANGE_INTERNALS } from "../src/exchange.ts";
+import { buildSearchCriteriaSets } from "../src/adapters/mail/shared.ts";
+import type { MailServerOptions } from "../src/adapters/mail/types.ts";
 
 // Mock functions declared at module scope for vi.mock hoisting
 const mockFetch = vi.fn();
@@ -906,6 +908,306 @@ describe("Mail Adapter", () => {
       await expect((adapter as any).send(exchange)).rejects.toMatchObject({
         rc: "RC5003",
       });
+    });
+  });
+
+  describe("buildSearchCriteriaSets", () => {
+    /**
+     * @case Returns base criteria when no search filters are set
+     * @preconditions Only unseen is set (default)
+     * @expectedResult Single criteria set with seen: false
+     */
+    test("returns base criteria with no filters", () => {
+      const opts: MailServerOptions = { unseen: true };
+      const sets = buildSearchCriteriaSets(opts);
+      expect(sets).toEqual([{ seen: false }]);
+    });
+
+    /**
+     * @case Single-value filter produces one criteria set
+     * @preconditions subject is a string
+     * @expectedResult Single criteria set with seen: false and subject key
+     */
+    test("single-value filter produces one set", () => {
+      const opts: MailServerOptions = { unseen: true, subject: "URGENT" };
+      const sets = buildSearchCriteriaSets(opts);
+      expect(sets).toEqual([{ seen: false, subject: "URGENT" }]);
+    });
+
+    /**
+     * @case Array filter produces OR branches (one set per value)
+     * @preconditions subject is an array of two values
+     * @expectedResult Two criteria sets, one per subject value
+     */
+    test("array filter produces OR branches", () => {
+      const opts: MailServerOptions = {
+        unseen: true,
+        subject: ["URGENT", "IMPORTANT"],
+      };
+      const sets = buildSearchCriteriaSets(opts);
+      expect(sets).toHaveLength(2);
+      expect(sets).toEqual([
+        { seen: false, subject: "URGENT" },
+        { seen: false, subject: "IMPORTANT" },
+      ]);
+    });
+
+    /**
+     * @case Cross-field cartesian product
+     * @preconditions subject has 2 values, body has 2 values
+     * @expectedResult 4 criteria sets (2x2 cartesian product)
+     */
+    test("cross-field cartesian product", () => {
+      const opts: MailServerOptions = {
+        unseen: false,
+        subject: ["A", "B"],
+        body: ["X", "Y"],
+      };
+      const sets = buildSearchCriteriaSets(opts);
+      expect(sets).toHaveLength(4);
+      expect(sets).toContainEqual({ subject: "A", body: "X" });
+      expect(sets).toContainEqual({ subject: "A", body: "Y" });
+      expect(sets).toContainEqual({ subject: "B", body: "X" });
+      expect(sets).toContainEqual({ subject: "B", body: "Y" });
+    });
+
+    /**
+     * @case Header filter expands as OR within a header key
+     * @preconditions header has Reply-To with array of two values
+     * @expectedResult Two criteria sets with different header values
+     */
+    test("header filter OR expansion", () => {
+      const opts: MailServerOptions = {
+        unseen: true,
+        header: { "Reply-To": ["noreply", "no-reply"] },
+      };
+      const sets = buildSearchCriteriaSets(opts);
+      expect(sets).toHaveLength(2);
+      expect(sets[0]).toEqual({
+        seen: false,
+        header: { "Reply-To": "noreply" },
+      });
+      expect(sets[1]).toEqual({
+        seen: false,
+        header: { "Reply-To": "no-reply" },
+      });
+    });
+
+    /**
+     * @case Multiple header keys produce AND between keys
+     * @preconditions Two header keys with single values each
+     * @expectedResult Single criteria set with both headers
+     */
+    test("multiple header keys AND", () => {
+      const opts: MailServerOptions = {
+        unseen: false,
+        header: { "Reply-To": "noreply", "List-Id": "announcements" },
+      };
+      const sets = buildSearchCriteriaSets(opts);
+      expect(sets).toHaveLength(1);
+      expect(sets[0]).toEqual({
+        header: { "Reply-To": "noreply", "List-Id": "announcements" },
+      });
+    });
+
+    /**
+     * @case since date is included in base criteria
+     * @preconditions since is set with a Date
+     * @expectedResult Criteria includes since field
+     */
+    test("since date in base criteria", () => {
+      const d = new Date("2026-01-01");
+      const opts: MailServerOptions = { unseen: true, since: d };
+      const sets = buildSearchCriteriaSets(opts);
+      expect(sets).toEqual([{ seen: false, since: d }]);
+    });
+  });
+
+  describe("replace() aggregator", () => {
+    /**
+     * @case replace() replaces exchange body with enrichment result
+     * @preconditions Enrich destination returns an array, replace() aggregator used
+     * @expectedResult Exchange body is the raw enrichment result, not merged
+     */
+    test("replaces body with enrichment result", async () => {
+      mockFetch.mockReturnValue({
+        async *[Symbol.asyncIterator]() {
+          yield {
+            uid: 1,
+            flags: new Set([]),
+            envelope: {
+              messageId: "<msg1@test.com>",
+              from: [{ address: "a@b.com" }],
+              to: [{ address: "c@d.com" }],
+              subject: "Test",
+              date: new Date("2026-03-17"),
+            },
+            source: Buffer.from("content"),
+          };
+        },
+      });
+
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("test-replace")
+            .from(simple("trigger"))
+            .enrich(
+              mail({
+                folder: "INBOX",
+                host: "imap.test.com",
+                auth: { user: "u", pass: "p" },
+              }),
+              replace(),
+            )
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(s.received).toHaveLength(1);
+      const body = s.received[0].body as any;
+      // With replace(), body is the raw MailMessage array
+      expect(Array.isArray(body)).toBe(true);
+      expect(body).toHaveLength(1);
+      expect(body[0].uid).toBe(1);
+      expect(body[0].from).toBe("a@b.com");
+    });
+  });
+
+  describe("includeHeaders / rawHeaders", () => {
+    /**
+     * @case includeHeaders populates rawHeaders on fetched messages
+     * @preconditions simpleParser returns headerLines, includeHeaders is true
+     * @expectedResult MailMessage has rawHeaders with parsed header values
+     */
+    test("includes raw headers when includeHeaders is set", async () => {
+      // Override simpleParser mock for this test to return headerLines
+      const { simpleParser } = await import("mailparser");
+      (simpleParser as any).mockResolvedValueOnce({
+        text: "Hello",
+        attachments: [],
+        headerLines: [
+          { key: "reply-to", line: "Reply-To: noreply@example.com" },
+          { key: "x-custom", line: "X-Custom: value1" },
+          { key: "x-custom", line: "X-Custom: value2" },
+        ],
+      });
+
+      mockFetch.mockReturnValue({
+        async *[Symbol.asyncIterator]() {
+          yield {
+            uid: 1,
+            flags: new Set([]),
+            envelope: {
+              messageId: "<msg1@test.com>",
+              from: [{ address: "a@b.com" }],
+              to: [{ address: "c@d.com" }],
+              subject: "Headers test",
+              date: new Date("2026-03-17"),
+            },
+            source: Buffer.from("raw email"),
+          };
+        },
+      });
+
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("test-headers")
+            .from(simple("trigger"))
+            .enrich(
+              mail({
+                folder: "INBOX",
+                host: "imap.test.com",
+                auth: { user: "u", pass: "p" },
+                includeHeaders: true,
+              }),
+              replace(),
+            )
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(s.received).toHaveLength(1);
+      const body = s.received[0].body as any;
+      expect(Array.isArray(body)).toBe(true);
+      expect(body[0].rawHeaders).toBeDefined();
+      expect(body[0].rawHeaders["reply-to"]).toBe("noreply@example.com");
+      // Multi-value header should be an array
+      expect(body[0].rawHeaders["x-custom"]).toEqual(["value1", "value2"]);
+    });
+
+    /**
+     * @case includeHeaders with specific header names filters results
+     * @preconditions includeHeaders is an array of header names
+     * @expectedResult Only requested headers appear in rawHeaders
+     */
+    test("filters headers by name when array provided", async () => {
+      const { simpleParser } = await import("mailparser");
+      (simpleParser as any).mockResolvedValueOnce({
+        text: "Hello",
+        attachments: [],
+        headerLines: [
+          { key: "reply-to", line: "Reply-To: noreply@example.com" },
+          { key: "x-spam", line: "X-Spam: yes" },
+          { key: "x-custom", line: "X-Custom: ignored" },
+        ],
+      });
+
+      mockFetch.mockReturnValue({
+        async *[Symbol.asyncIterator]() {
+          yield {
+            uid: 1,
+            flags: new Set([]),
+            envelope: {
+              messageId: "<msg1@test.com>",
+              from: [{ address: "a@b.com" }],
+              to: [{ address: "c@d.com" }],
+              subject: "Filtered headers",
+              date: new Date("2026-03-17"),
+            },
+            source: Buffer.from("raw email"),
+          };
+        },
+      });
+
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("test-filtered-headers")
+            .from(simple("trigger"))
+            .enrich(
+              mail({
+                folder: "INBOX",
+                host: "imap.test.com",
+                auth: { user: "u", pass: "p" },
+                includeHeaders: ["Reply-To", "X-Spam"],
+              }),
+              replace(),
+            )
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(s.received).toHaveLength(1);
+      const body = s.received[0].body as any;
+      expect(body[0].rawHeaders).toBeDefined();
+      expect(body[0].rawHeaders["reply-to"]).toBe("noreply@example.com");
+      expect(body[0].rawHeaders["x-spam"]).toBe("yes");
+      // x-custom was not requested
+      expect(body[0].rawHeaders["x-custom"]).toBeUndefined();
     });
   });
 });

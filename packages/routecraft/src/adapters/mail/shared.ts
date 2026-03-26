@@ -16,8 +16,8 @@ import type { MailClientManager } from "./client-manager.ts";
 
 /**
  * Store key for the mail client manager.
- * Set internally by the ContextBuilder when `mail` config is present.
- * @internal
+ * Set by the ContextBuilder when `mail` config is present.
+ * @experimental
  */
 export const MAIL_CLIENT_MANAGER = Symbol.for(
   "routecraft.adapter.mail.client-manager",
@@ -411,14 +411,6 @@ export function toMailMessage(
   return result;
 }
 
-/**
- * Fetch messages from an open IMAP mailbox using the given client.
- * The client must already be connected and have a mailbox open.
- *
- * @param client - Connected ImapFlow client with open mailbox
- * @param options - Resolved IMAP options (for search criteria, limit, markSeen)
- * @param folder - The folder name (for setting on MailMessage)
- */
 /**
  * Parse a single IMAP message into content fields using mailparser.
  */

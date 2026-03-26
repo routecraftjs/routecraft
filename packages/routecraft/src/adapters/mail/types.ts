@@ -323,7 +323,7 @@ export interface MailMessage {
   /** File attachments */
   attachments?: MailAttachment[];
   /**
-   * Raw email headers (only those requested via the `headers` option).
+   * Raw email headers (only those requested via the `includeHeaders` option).
    * Keys are lowercased header names, values are strings or arrays for
    * multi-value headers (e.g. multiple Received lines).
    */

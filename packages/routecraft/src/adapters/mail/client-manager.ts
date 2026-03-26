@@ -1,11 +1,10 @@
 /**
  * Mail client manager with per-account IMAP connection pools and SMTP transporter reuse.
  *
- * Created internally by the ContextBuilder when `mail` config is present.
+ * Created by the ContextBuilder when `mail` config is present.
  * Adapters access it via the context store to acquire/release connections.
  *
  * @experimental
- * @internal
  */
 
 import { rcError } from "../../error.ts";
@@ -170,7 +169,6 @@ export class ImapPool {
  * Created by the ContextBuilder when `mail` config is present.
  *
  * @experimental
- * @internal
  */
 export class MailClientManager {
   private readonly pools = new Map<string, ImapPool>();

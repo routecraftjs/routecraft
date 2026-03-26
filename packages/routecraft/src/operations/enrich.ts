@@ -158,6 +158,8 @@ export const none = <T = unknown, R = unknown>(): DestinationAggregator<
  * .enrich(mail({ folder: 'INBOX', unseen: true }), replace())
  * // body becomes MailMessage[] (the raw enrichment result)
  * ```
+ *
+ * @experimental
  */
 export const replace = <R>(): DestinationAggregator<unknown, R> => {
   return (

@@ -135,7 +135,12 @@ function hasServerKeys(opts: object): boolean {
     "since" in opts ||
     "unseen" in opts ||
     "limit" in opts ||
-    "pollIntervalMs" in opts
+    "pollIntervalMs" in opts ||
+    "subject" in opts ||
+    "to" in opts ||
+    "body" in opts ||
+    "header" in opts ||
+    "includeHeaders" in opts
   );
 }
 

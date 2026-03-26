@@ -91,6 +91,7 @@ export function registerContextSignalHandlers(
     context.logger.info(`Shutting down (${signal})...`);
     await context.stop();
     context.logger.info("Cleanup complete");
+    process.exit(0);
   };
 
   process.on("SIGINT", () => shutdown("SIGINT"));
