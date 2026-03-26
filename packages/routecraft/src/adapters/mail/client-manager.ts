@@ -30,9 +30,10 @@ export class ImapPool {
     inUse: boolean;
     currentMailbox: string | null;
   }> = [];
-  private readonly waitQueue: Array<
-    (client: InstanceType<typeof import("imapflow").ImapFlow>) => void
-  > = [];
+  private readonly waitQueue: Array<{
+    resolve: (client: InstanceType<typeof import("imapflow").ImapFlow>) => void;
+    reject: (error: Error) => void;
+  }> = [];
   private readonly poolSize: number;
   private readonly imapConfig: {
     host?: string;
@@ -89,7 +90,9 @@ export class ImapPool {
     }
 
     // 4. Queue and wait for release
-    return new Promise((resolve) => this.waitQueue.push(resolve));
+    return new Promise((resolve, reject) =>
+      this.waitQueue.push({ resolve, reject }),
+    );
   }
 
   /**
@@ -102,7 +105,7 @@ export class ImapPool {
     // If someone is waiting, hand directly
     const waiter = this.waitQueue.shift();
     if (waiter) {
-      waiter(client);
+      waiter.resolve(client);
       return;
     }
 
@@ -124,6 +127,10 @@ export class ImapPool {
    * Drain all connections. Called during context teardown.
    */
   async drain(): Promise<void> {
+    const drainError = new Error("IMAP pool drained during shutdown");
+    for (const waiter of this.waitQueue) {
+      waiter.reject(drainError);
+    }
     this.waitQueue.length = 0;
     for (const entry of this.entries) {
       await entry.client.logout().catch(() => {});

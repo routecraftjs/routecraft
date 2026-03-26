@@ -911,6 +911,191 @@ describe("Mail Adapter", () => {
     });
   });
 
+  describe("Source adapter", () => {
+    /**
+     * @case Source via poll mode delivers messages to handler
+     * @preconditions pollIntervalMs is set, abort triggered after first poll
+     * @expectedResult Messages from first poll are delivered, then source stops
+     */
+    test("poll mode fetches and delivers messages", async () => {
+      let pollCount = 0;
+      mockFetch.mockImplementation(() => ({
+        async *[Symbol.asyncIterator]() {
+          if (pollCount === 0) {
+            pollCount++;
+            yield {
+              uid: 1,
+              flags: new Set([]),
+              envelope: {
+                messageId: "<poll1@test.com>",
+                from: [{ address: "a@b.com" }],
+                to: [{ address: "c@d.com" }],
+                subject: "Poll message",
+                date: new Date("2026-03-17"),
+              },
+              source: Buffer.from("content"),
+            };
+          }
+          // Second poll yields nothing
+        },
+      }));
+
+      const s = spy();
+
+      t = await testContext()
+        .with({
+          mail: {
+            accounts: {
+              default: {
+                imap: {
+                  host: "imap.test.com",
+                  auth: { user: "u", pass: "p" },
+                },
+              },
+            },
+          },
+        })
+        .routes(
+          craft()
+            .id("test-poll-source")
+            .from(
+              mail("INBOX", {
+                pollIntervalMs: 50,
+                markSeen: false,
+                unseen: true,
+              }),
+            )
+            .to(s),
+        )
+        .build();
+
+      // Start context, let it poll once, then stop
+      const startPromise = t.ctx.start();
+      await new Promise((r) => setTimeout(r, 200));
+      await t.ctx.stop();
+      await startPromise.catch(() => {});
+
+      expect(mockMailboxOpen).toHaveBeenCalledWith("INBOX");
+      expect(s.received.length).toBeGreaterThanOrEqual(1);
+      expect((s.received[0].body as any).subject).toBe("Poll message");
+    });
+
+    /**
+     * @case Source sets mail UID and folder headers on exchanges
+     * @preconditions Source delivers a message with uid 42 from INBOX via poll mode
+     * @expectedResult Exchange headers contain routecraft.mail.uid and routecraft.mail.folder
+     */
+    test("sets mail UID and folder headers", async () => {
+      let callCount = 0;
+      mockFetch.mockImplementation(() => ({
+        async *[Symbol.asyncIterator]() {
+          if (callCount === 0) {
+            callCount++;
+            yield {
+              uid: 42,
+              flags: new Set([]),
+              envelope: {
+                messageId: "<hdr@test.com>",
+                from: [{ address: "a@b.com" }],
+                to: [{ address: "c@d.com" }],
+                subject: "Header test",
+                date: new Date("2026-03-17"),
+              },
+              source: Buffer.from("content"),
+            };
+          }
+        },
+      }));
+
+      const s = spy();
+
+      t = await testContext()
+        .with({
+          mail: {
+            accounts: {
+              default: {
+                imap: {
+                  host: "imap.test.com",
+                  auth: { user: "u", pass: "p" },
+                },
+              },
+            },
+          },
+        })
+        .routes(
+          craft()
+            .id("test-source-headers")
+            .from(
+              mail("INBOX", {
+                markSeen: false,
+                unseen: true,
+                pollIntervalMs: 50,
+              }),
+            )
+            .to(s),
+        )
+        .build();
+
+      const startPromise = t.ctx.start();
+      await new Promise((r) => setTimeout(r, 200));
+      await t.ctx.stop();
+      await startPromise.catch(() => {});
+
+      expect(s.received.length).toBeGreaterThanOrEqual(1);
+      const headers = s.received[0].headers as Record<string, unknown>;
+      expect(headers["routecraft.mail.uid"]).toBe(42);
+      expect(headers["routecraft.mail.folder"]).toBe("INBOX");
+    });
+
+    /**
+     * @case Source stops cleanly on abort
+     * @preconditions Abort is triggered while source is polling
+     * @expectedResult Source releases IMAP client and resolves
+     */
+    test("stops cleanly on abort", async () => {
+      mockFetch.mockReturnValue({
+        async *[Symbol.asyncIterator]() {},
+      });
+
+      const s = spy();
+
+      t = await testContext()
+        .with({
+          mail: {
+            accounts: {
+              default: {
+                imap: {
+                  host: "imap.test.com",
+                  auth: { user: "u", pass: "p" },
+                },
+              },
+            },
+          },
+        })
+        .routes(
+          craft()
+            .id("test-source-abort")
+            .from(
+              mail("INBOX", {
+                markSeen: false,
+                unseen: true,
+                pollIntervalMs: 50,
+              }),
+            )
+            .to(s),
+        )
+        .build();
+
+      const startPromise = t.ctx.start();
+      await new Promise((r) => setTimeout(r, 100));
+      await t.ctx.stop();
+      await startPromise.catch(() => {});
+
+      // Verify the pool connection was released (logout is called on drain)
+      expect(mockLogout).toHaveBeenCalled();
+    });
+  });
+
   describe("buildSearchCriteriaSets", () => {
     /**
      * @case Returns base criteria when no search filters are set
