@@ -9,8 +9,8 @@ import { HeroBackground } from '@/components/HeroBackground'
 import blurCyanImage from '@/images/blur-cyan.png'
 import blurIndigoImage from '@/images/blur-indigo.png'
 
-const codeLanguage = 'typescript'
-const aiToolExample = `import { mcp } from '@routecraft/ai'
+const aiToolExample = `export { craftConfig } from './craft.config'
+import { mcp } from '@routecraft/ai'
 import { craft, mail } from '@routecraft/routecraft'
 import { z } from 'zod'
 
@@ -21,12 +21,33 @@ export default craft()
     schema: z.object({
       to: z.string().email(),
       subject: z.string(),
-      message: z.string()
+      text: z.string()
     })
   }))
-  // Guardrail: Only allow emails to company domain
-  .filter(({ to }) => to.endsWith('@company.com'))
+  // Guardrail: only allow emails to company domain
+  .filter((ex) => ex.body.to.endsWith('@company.com'))
   .to(mail())`
+
+const configExample = `import type { CraftConfig } from '@routecraft/routecraft'
+import { mcpPlugin } from '@routecraft/ai'
+
+export const craftConfig: CraftConfig = {
+  mail: {
+    accounts: {
+      default: {
+        smtp: {
+          host: 'smtp.gmail.com',
+          auth: {
+            user: process.env.MAIL_USER!,
+            pass: process.env.MAIL_APP_PASSWORD!
+          },
+          from: process.env.MAIL_USER!
+        }
+      }
+    }
+  },
+  plugins: [mcpPlugin({ name: 'my-app' })]
+}`
 
 const mcpConfigExample = `{
   "mcpServers": {
@@ -45,10 +66,19 @@ const mcpConfigExample = `{
   }
 }`
 
-type CodeTab = { name: string; code: string }
+type CodeTab = { name: string; code: string; language: string }
 const tabs: CodeTab[] = [
-  { name: 'capabilities/send-email.ts', code: aiToolExample },
-  { name: 'claude_desktop_config.json', code: mcpConfigExample },
+  {
+    name: 'capabilities/send-email.ts',
+    code: aiToolExample,
+    language: 'typescript',
+  },
+  { name: 'craft.config.ts', code: configExample, language: 'typescript' },
+  {
+    name: 'claude_desktop_config.json',
+    code: mcpConfigExample,
+    language: 'json',
+  },
 ]
 
 function TrafficLightsIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
@@ -67,11 +97,12 @@ export function Hero() {
   )
   const active = tabs.find((t) => t.name === activeTab) ?? tabs[0]
   const code = active.code
+  const language = active.language
   return (
     <div className="overflow-hidden bg-gray-50 dark:-mt-19 dark:-mb-32 dark:bg-gray-950 dark:pt-19 dark:pb-32">
       <div className="py-16 sm:px-2 lg:relative lg:px-0 lg:py-20">
-        <div className="mx-auto grid max-w-2xl grid-cols-1 items-center gap-x-8 gap-y-16 px-4 lg:max-w-8xl lg:grid-cols-2 lg:px-8 xl:gap-x-16 xl:px-12">
-          <div className="relative z-10 md:text-center lg:text-left">
+        <div className="mx-auto grid max-w-2xl grid-cols-1 items-start gap-x-8 gap-y-16 px-4 lg:max-w-8xl lg:grid-cols-2 lg:px-8 xl:gap-x-16 xl:px-12">
+          <div className="relative z-10 pt-20 md:text-center lg:text-left">
             <Image
               className="absolute right-full bottom-full -mr-72 -mb-56 opacity-20 dark:opacity-50"
               src={blurCyanImage}
@@ -162,7 +193,7 @@ export function Hero() {
                       )
                     })}
                   </div>
-                  <div className="mt-6 flex items-start px-1 text-sm">
+                  <div className="mt-6 flex min-h-[24rem] items-start px-1 text-sm">
                     <div
                       aria-hidden="true"
                       className="border-r border-gray-200 pr-4 font-mono text-gray-400 select-none dark:border-gray-300/5 dark:text-gray-600"
@@ -178,7 +209,7 @@ export function Hero() {
                     </div>
                     <Highlight
                       code={code}
-                      language={codeLanguage}
+                      language={language}
                       theme={{ plain: {}, styles: [] }}
                     >
                       {({

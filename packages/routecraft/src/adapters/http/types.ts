@@ -1,5 +1,11 @@
 import type { Exchange } from "../../exchange";
 
+/**
+ * Reserved config for HTTP (future: inbound server port, host).
+ * No-op today; used by built-in HTTP server when implemented.
+ */
+export type HttpConfig = Record<string, unknown>;
+
 export type HttpMethod =
   | "GET"
   | "POST"

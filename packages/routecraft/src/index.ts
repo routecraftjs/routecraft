@@ -16,9 +16,9 @@ export {
   type StoreRegistry,
   type CraftConfig,
   type CraftPlugin,
-  type DirectConfig,
-  type HttpConfig,
 } from "./context.ts";
+export { type DirectConfig } from "./adapters/direct/types.ts";
+export { type HttpConfig } from "./adapters/http/types.ts";
 
 export {
   DefaultRoute,
@@ -44,7 +44,12 @@ export { type Filter, type FilterDropResult } from "./operations/filter.ts";
 
 export { type HeaderSetter } from "./operations/header.ts";
 
-export { type DestinationAggregator, only, none } from "./operations/enrich.ts";
+export {
+  type DestinationAggregator,
+  only,
+  none,
+  replace,
+} from "./operations/enrich.ts";
 
 export {
   ContextBuilder,
@@ -104,6 +109,7 @@ export { json } from "./adapters/json/index.ts";
 export { csv } from "./adapters/csv/index.ts";
 export { group } from "./adapters/group/index.ts";
 export { event } from "./adapters/sources/event/index.ts";
+export { mail } from "./adapters/mail/index.ts";
 
 export { type LogOptions, type LogLevel } from "./adapters/log/index.ts";
 export {
@@ -163,3 +169,28 @@ export type {
   TelemetrySqliteOptions,
   TelemetryEvent,
 } from "./telemetry/index.ts";
+export {
+  type MailAuth,
+  type MailServerOptions,
+  type MailClientOptions,
+  type MailOptions,
+  type MailMessage,
+  type MailAttachment,
+  type MailSendPayload,
+  type MailSendResult,
+  type MailFetchResult,
+  type MailContextConfig,
+  type MailAccountConfig,
+  type MailAccountImapConfig,
+  type MailAccountSmtpConfig,
+  type MailAction,
+  type MailMoveAction,
+  type MailCopyAction,
+  type MailDeleteAction,
+  type MailFlagAction,
+  type MailUnflagAction,
+  type MailAppendAction,
+  type MailTargetExtractor,
+  MAIL_CLIENT_MANAGER,
+  MailClientManager,
+} from "./adapters/mail/index.ts";

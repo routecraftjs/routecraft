@@ -69,21 +69,31 @@ export function loadEnvFile(path?: string) {
 
 /**
  * Registers SIGINT and SIGTERM handlers for a CraftContext instance.
- * Ensures graceful shutdown and logging.
+ *
+ * First signal triggers graceful shutdown (stop sources, drain in-flight work,
+ * tear down servers and plugins). A second signal during shutdown forces an
+ * immediate exit.
  *
  * @param context The CraftContext instance
  */
 export function registerContextSignalHandlers(
   context: InstanceType<typeof CraftContext>,
 ) {
-  process.on("SIGINT", async () => {
-    context.logger.info("Shutting down (SIGINT)...");
+  let shuttingDown = false;
+
+  const shutdown = async (signal: string) => {
+    if (shuttingDown) {
+      context.logger.warn(`Received ${signal} again, forcing exit`);
+      process.exit(1);
+    }
+
+    shuttingDown = true;
+    context.logger.info(`Shutting down (${signal})...`);
     await context.stop();
     context.logger.info("Cleanup complete");
-  });
-  process.on("SIGTERM", async () => {
-    context.logger.info("Shutting down (SIGTERM)...");
-    await context.stop();
-    context.logger.info("Cleanup complete");
-  });
+    process.exit(0);
+  };
+
+  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
 }

@@ -61,7 +61,7 @@ function createAdapter<R>(
 /**
  * Creates a pseudo (placeholder) adapter for use in tests or as a stub during development.
  *
- * @beta
+ * @experimental
  */
 // Overload: string-first (keyed) factory
 export function pseudo<
