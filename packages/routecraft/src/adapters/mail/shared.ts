@@ -92,7 +92,13 @@ export function resolveMailTarget(
   const headerUid = exchange.headers[HEADER_MAIL_UID];
   const headerFolder = exchange.headers[HEADER_MAIL_FOLDER];
   if (headerUid !== undefined && headerFolder !== undefined) {
-    return { uids: [Number(headerUid)], folder: String(headerFolder) };
+    const uid = Number(headerUid);
+    if (!Number.isFinite(uid) || uid < 1) {
+      throw rcError("RC5003", undefined, {
+        message: `Invalid mail UID header value: ${String(headerUid)}`,
+      });
+    }
+    return { uids: [uid], folder: String(headerFolder) };
   }
 
   // 3a. Body: array (batch from .enrich())
@@ -155,16 +161,25 @@ export async function buildMimeMessage(
 }
 
 // ---------------------------------------------------------------------------
-// Standalone IMAP client (for inline overrides without named account)
+// Shared IMAP config builder
 // ---------------------------------------------------------------------------
 
 /**
- * Create a standalone ImapFlow client from resolved server options.
- * Used when an adapter provides inline host/auth overrides (no named account).
+ * Validate IMAP connection options and return a config object for ImapFlow.
+ * Shared by both standalone `createImapClient` and `ImapPool.createClient`.
  */
-export async function createImapClient(
-  options: MailServerOptions,
-): Promise<InstanceType<typeof import("imapflow").ImapFlow>> {
+export function buildImapConfig(options: {
+  host?: string;
+  port?: number;
+  secure?: boolean;
+  auth?: { user: string; pass: string };
+}): {
+  host: string;
+  port: number;
+  secure: boolean;
+  auth: { user: string; pass: string };
+  logger: false;
+} {
   if (!options.host) {
     throw rcError("RC5003", undefined, {
       message:
@@ -177,15 +192,29 @@ export async function createImapClient(
         "Mail adapter auth is required. Set auth in account config or adapter options.",
     });
   }
-
-  const { ImapFlow } = await import("imapflow");
-  return new ImapFlow({
+  return {
     host: options.host,
     port: options.port ?? 993,
     secure: options.secure ?? true,
     auth: options.auth,
     logger: false,
-  });
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Standalone IMAP client (for inline overrides without named account)
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a standalone ImapFlow client from resolved server options.
+ * Used when an adapter provides inline host/auth overrides (no named account).
+ */
+export async function createImapClient(
+  options: MailServerOptions,
+): Promise<InstanceType<typeof import("imapflow").ImapFlow>> {
+  const config = buildImapConfig(options);
+  const { ImapFlow } = await import("imapflow");
+  return new ImapFlow(config);
 }
 
 /**

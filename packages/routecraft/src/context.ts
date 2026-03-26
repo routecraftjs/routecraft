@@ -7,7 +7,10 @@ import { logger, childBindings } from "./logger.ts";
 import { type DirectConfig } from "./adapters/direct/types.ts";
 import { type HttpConfig } from "./adapters/http/types.ts";
 import { type MailContextConfig } from "./adapters/mail/types.ts";
+import { MailClientManager } from "./adapters/mail/client-manager.ts";
+import { MAIL_CLIENT_MANAGER } from "./adapters/mail/shared.ts";
 import { type TelemetryOptions } from "./telemetry/types.ts";
+import { telemetry } from "./telemetry/index.ts";
 
 import {
   type EventHandler,
@@ -194,6 +197,18 @@ export class CraftContext {
           }
         }
       }
+      // Set up mail client manager if mail config is present
+      if (config.mail) {
+        const manager = new MailClientManager(config.mail);
+        this.store.set(MAIL_CLIENT_MANAGER as keyof StoreRegistry, manager);
+        this.teardownCallbacks.push(() => manager.drain());
+      }
+
+      // Convert telemetry config into a plugin
+      if (config.telemetry) {
+        this.plugins.push(telemetry(config.telemetry));
+      }
+
       if (config.plugins?.length) {
         this.plugins.push(...config.plugins);
       }

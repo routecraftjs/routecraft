@@ -19,7 +19,7 @@ pnpm add @routecraft/browser agent-browser
 ## Quick Start
 
 ```typescript
-import { craft, ContextBuilder } from '@routecraft/routecraft';
+import { craft, simple, ContextBuilder } from '@routecraft/routecraft';
 import { agentBrowser } from '@routecraft/browser';
 
 const scrape = craft()
@@ -109,6 +109,9 @@ interface AgentBrowserResult {
 ### Examples
 
 ```typescript
+import { craft, simple } from '@routecraft/routecraft';
+import { agentBrowser } from '@routecraft/browser';
+
 // Open a page, grab the title, then close
 craft()
   .id('get-title')

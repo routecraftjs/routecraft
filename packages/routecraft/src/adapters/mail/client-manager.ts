@@ -14,6 +14,7 @@ import type {
   MailClientOptions,
   MailAuth,
 } from "./types.ts";
+import { buildImapConfig } from "./shared.ts";
 
 // ---------------------------------------------------------------------------
 // ImapPool: fixed-size, mailbox-aware IMAP connection pool for one account
@@ -141,27 +142,9 @@ export class ImapPool {
   private async createClient(): Promise<
     InstanceType<typeof import("imapflow").ImapFlow>
   > {
-    if (!this.imapConfig.host) {
-      throw rcError("RC5003", undefined, {
-        message:
-          "Mail adapter IMAP host is required. Set host in account config or adapter options.",
-      });
-    }
-    if (!this.imapConfig.auth) {
-      throw rcError("RC5003", undefined, {
-        message:
-          "Mail adapter IMAP auth is required. Set auth in account config or adapter options.",
-      });
-    }
-
+    const config = buildImapConfig(this.imapConfig);
     const { ImapFlow } = await import("imapflow");
-    const client = new ImapFlow({
-      host: this.imapConfig.host,
-      port: this.imapConfig.port ?? 993,
-      secure: this.imapConfig.secure ?? true,
-      auth: this.imapConfig.auth,
-      logger: false,
-    });
+    const client = new ImapFlow(config);
     await client.connect();
     return client;
   }

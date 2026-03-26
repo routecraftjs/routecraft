@@ -57,7 +57,12 @@ export class MailSendDestinationAdapter implements Destination<
 
     // Get transporter: pooled or standalone (with caching)
     let transporter: Awaited<ReturnType<typeof createSmtpTransport>>;
-    const usePool = !!manager && !this.adapterOptions.host;
+    const hasConnectionOverride =
+      this.adapterOptions.host !== undefined ||
+      this.adapterOptions.port !== undefined ||
+      this.adapterOptions.secure !== undefined ||
+      this.adapterOptions.auth !== undefined;
+    const usePool = !!manager && !hasConnectionOverride;
 
     if (usePool) {
       transporter = await manager!.getSmtp(account);

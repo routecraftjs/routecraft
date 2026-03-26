@@ -65,7 +65,12 @@ export class MailSourceAdapter implements Source<MailMessage> {
 
     // Acquire client: pooled or standalone
     let client: InstanceType<typeof import("imapflow").ImapFlow>;
-    const usePool = !!manager && !this.adapterOptions.host;
+    const hasConnectionOverride =
+      this.adapterOptions.host !== undefined ||
+      this.adapterOptions.port !== undefined ||
+      this.adapterOptions.secure !== undefined ||
+      this.adapterOptions.auth !== undefined;
+    const usePool = !!manager && !hasConnectionOverride;
 
     if (usePool) {
       client = await manager!.acquireImap(account, folder);
@@ -83,14 +88,19 @@ export class MailSourceAdapter implements Source<MailMessage> {
       }
     }
 
-    // Clean up on abort
-    const onAbort = () => {
+    // Guard against double-release of the IMAP client
+    let released = false;
+    const releaseClient = () => {
+      if (released) return;
+      released = true;
       if (usePool) {
         manager!.releaseImap(account, client);
       } else {
         client.logout().catch(() => {});
       }
     };
+
+    const onAbort = () => releaseClient();
     abortController.signal.addEventListener("abort", onAbort, { once: true });
 
     try {
@@ -128,11 +138,7 @@ export class MailSourceAdapter implements Source<MailMessage> {
       }
     } finally {
       abortController.signal.removeEventListener("abort", onAbort);
-      if (usePool) {
-        manager!.releaseImap(account, client);
-      } else {
-        await client.logout().catch(() => {});
-      }
+      releaseClient();
     }
   }
 
@@ -143,24 +149,31 @@ export class MailSourceAdapter implements Source<MailMessage> {
     handler: (message: MailMessage) => Promise<Exchange>,
     abortController: AbortController,
   ): Promise<void> {
+    const processedUids = new Set<number>();
+
     while (!abortController.signal.aborted) {
       const messages = await fetchMessages(client, options, folder);
 
       for (const message of messages) {
         if (abortController.signal.aborted) break;
+        if (processedUids.has(message.uid)) continue;
+        processedUids.add(message.uid);
         await handler(message);
       }
 
       if (abortController.signal.aborted) break;
 
-      // Wait for the poll interval
+      // Wait for the poll interval, cleaning up the abort listener on timeout
       await new Promise<void>((resolve) => {
-        const timeout = setTimeout(resolve, options.pollIntervalMs);
-        const cleanup = () => {
+        const timeout = setTimeout(() => {
+          abortController.signal.removeEventListener("abort", onAbort);
+          resolve();
+        }, options.pollIntervalMs);
+        const onAbort = () => {
           clearTimeout(timeout);
           resolve();
         };
-        abortController.signal.addEventListener("abort", cleanup, {
+        abortController.signal.addEventListener("abort", onAbort, {
           once: true,
         });
       });
@@ -174,10 +187,14 @@ export class MailSourceAdapter implements Source<MailMessage> {
     handler: (message: MailMessage) => Promise<Exchange>,
     abortController: AbortController,
   ): Promise<void> {
+    const processedUids = new Set<number>();
+
     // Fetch existing messages first
     const existing = await fetchMessages(client, options, folder);
     for (const message of existing) {
       if (abortController.signal.aborted) return;
+      if (processedUids.has(message.uid)) continue;
+      processedUids.add(message.uid);
       await handler(message);
     }
 
@@ -195,6 +212,8 @@ export class MailSourceAdapter implements Source<MailMessage> {
       const newMessages = await fetchMessages(client, options, folder);
       for (const message of newMessages) {
         if (abortController.signal.aborted) return;
+        if (processedUids.has(message.uid)) continue;
+        processedUids.add(message.uid);
         await handler(message);
       }
     }

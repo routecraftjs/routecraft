@@ -48,7 +48,12 @@ export class MailFetchDestinationAdapter implements Destination<
       : (this.adapterOptions as MailServerOptions);
 
     const folder = resolved.folder ?? "INBOX";
-    const usePool = !!manager && !this.adapterOptions.host;
+    const hasConnectionOverride =
+      this.adapterOptions.host !== undefined ||
+      this.adapterOptions.port !== undefined ||
+      this.adapterOptions.secure !== undefined ||
+      this.adapterOptions.auth !== undefined;
+    const usePool = !!manager && !hasConnectionOverride;
 
     let client: InstanceType<typeof import("imapflow").ImapFlow>;
 
