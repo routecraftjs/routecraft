@@ -131,13 +131,22 @@ function checkCircularDeps(id: string, version: string, chain: string[]): void {
 /**
  * Install a single capability from the registry.
  * Returns env vars that need to be set.
+ *
+ * Tracks installed capabilities by id (not id@version). If the same id
+ * is requested again (e.g. by two different parent capabilities), the
+ * second request is skipped since only one version can exist in the
+ * flat capabilities/ directory.
+ *
+ * Required capabilities always resolve to latest regardless of what
+ * version the parent pinned. The pinned version is treated as a minimum
+ * compatibility hint, not an install target.
  */
 async function installCapability(
   id: string,
   version: string | undefined,
   registry: RegistryJson,
   options: AddOptions,
-  installed: Set<string>,
+  installed: Map<string, string>,
   chain: string[],
   parentId?: string,
 ): Promise<{ envVars: string[]; installedDeps: Record<string, string> }> {
@@ -148,7 +157,12 @@ async function installCapability(
     );
   }
 
-  const resolvedVersion = version ?? latestVersion(entry);
+  // Always resolve to latest for required capabilities (parentId set).
+  // Only honour an explicit version for top-level user requests.
+  const resolvedVersion =
+    parentId !== undefined
+      ? latestVersion(entry)
+      : (version ?? latestVersion(entry));
   const versionData = entry.versions[resolvedVersion];
   if (!versionData) {
     const available = Object.keys(entry.versions).join(", ");
@@ -157,14 +171,13 @@ async function installCapability(
     );
   }
 
-  const key = `${id}@${resolvedVersion}`;
-
-  // Skip if already installed in this session
-  if (installed.has(key)) {
+  // Skip if this id is already installed (by id, not id@version)
+  if (installed.has(id)) {
     return { envVars: [], installedDeps: {} };
   }
 
   // Circular dependency check
+  const key = `${id}@${resolvedVersion}`;
   checkCircularDeps(id, resolvedVersion, chain);
 
   // Install required capabilities first (recursive)
@@ -173,10 +186,10 @@ async function installCapability(
 
   if (versionData.requiredCapabilities) {
     for (const reqSpec of versionData.requiredCapabilities) {
-      const { id: reqId, version: reqVersion } = parseSpecifier(reqSpec);
+      const { id: reqId } = parseSpecifier(reqSpec);
       const result = await installCapability(
         reqId,
-        reqVersion,
+        undefined,
         registry,
         options,
         installed,
@@ -246,7 +259,7 @@ async function installCapability(
     `\u2713  ${id}@${resolvedVersion} \u2192 ${basename(targetDir)}/${id}${fileExt}${suffix}`,
   );
 
-  installed.add(key);
+  installed.set(id, resolvedVersion);
 
   // Collect dependencies
   if (versionData.dependencies) {
@@ -391,7 +404,7 @@ export async function addCommand(
     throw new Error(`Capability "${id}" not found in the registry.`);
   }
 
-  const installed = new Set<string>();
+  const installed = new Map<string, string>();
   const result = await installCapability(
     id,
     version,
@@ -435,7 +448,7 @@ export async function addCommand(
 
   // Update index.ts
   if (!addOpts.noIndex) {
-    const installedIds = [...installed].map((k) => k.split("@")[0]!);
+    const installedIds = [...installed.keys()];
     updateIndexTs(dir, installedIds);
   }
 
