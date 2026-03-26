@@ -100,6 +100,7 @@ export class ImapPool {
    * Release an IMAP client back to the pool.
    */
   release(client: InstanceType<typeof import("imapflow").ImapFlow>): void {
+    if (!client.usable) return;
     const entry = this.entries.find((c) => c.client === client);
     if (!entry) return;
 

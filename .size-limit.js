@@ -7,77 +7,58 @@ import { readFileSync } from "node:fs";
 function readExternals(pkgPath) {
   const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
   return [
-    ...Object.keys(pkg.peerDependencies || {}),
-    ...Object.keys(pkg.optionalDependencies || {}),
+    ...new Set([
+      ...Object.keys(pkg.peerDependencies || {}),
+      ...Object.keys(pkg.optionalDependencies || {}),
+    ]),
   ];
 }
 
 /** Node built-ins should never count toward bundle size. */
 const nodeBuiltins = ["node:*"];
 
+function makeNodeEsmConfig(name, path, limit, pkgJsonPath) {
+  return {
+    name,
+    path,
+    limit,
+    running: false,
+    modifyEsbuildConfig(config) {
+      config.platform = "node";
+      config.format = "esm";
+      config.external = [
+        ...(config.external || []),
+        ...nodeBuiltins,
+        ...readExternals(pkgJsonPath),
+      ];
+      return config;
+    },
+  };
+}
+
 export default [
-  {
-    name: "@routecraft/routecraft",
-    path: "packages/routecraft/dist/index.js",
-    limit: "100 kb",
-    running: false,
-    modifyEsbuildConfig(config) {
-      config.platform = "node";
-      config.format = "esm";
-      config.external = [
-        ...(config.external || []),
-        ...nodeBuiltins,
-        ...readExternals("packages/routecraft/package.json"),
-      ];
-      return config;
-    },
-  },
-  {
-    name: "@routecraft/ai",
-    path: "packages/ai/dist/index.js",
-    limit: "150 kb",
-    running: false,
-    modifyEsbuildConfig(config) {
-      config.platform = "node";
-      config.format = "esm";
-      config.external = [
-        ...(config.external || []),
-        ...nodeBuiltins,
-        ...readExternals("packages/ai/package.json"),
-      ];
-      return config;
-    },
-  },
-  {
-    name: "@routecraft/browser",
-    path: "packages/browser/dist/index.js",
-    limit: "100 kb",
-    running: false,
-    modifyEsbuildConfig(config) {
-      config.platform = "node";
-      config.format = "esm";
-      config.external = [
-        ...(config.external || []),
-        ...nodeBuiltins,
-        ...readExternals("packages/browser/package.json"),
-      ];
-      return config;
-    },
-  },
-  {
-    name: "@routecraft/testing",
-    path: "packages/testing/dist/index.js",
-    limit: "100 kb",
-    running: false,
-    modifyEsbuildConfig(config) {
-      config.platform = "node";
-      config.format = "esm";
-      config.external = [
-        ...(config.external || []),
-        ...nodeBuiltins,
-        ...readExternals("packages/testing/package.json"),
-      ];
-      return config;
-    },
-  },
+  makeNodeEsmConfig(
+    "@routecraft/routecraft",
+    "packages/routecraft/dist/index.js",
+    "100 kb",
+    "packages/routecraft/package.json",
+  ),
+  makeNodeEsmConfig(
+    "@routecraft/ai",
+    "packages/ai/dist/index.js",
+    "150 kb",
+    "packages/ai/package.json",
+  ),
+  makeNodeEsmConfig(
+    "@routecraft/browser",
+    "packages/browser/dist/index.js",
+    "100 kb",
+    "packages/browser/package.json",
+  ),
+  makeNodeEsmConfig(
+    "@routecraft/testing",
+    "packages/testing/dist/index.js",
+    "100 kb",
+    "packages/testing/package.json",
+  ),
 ];
