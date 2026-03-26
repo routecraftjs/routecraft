@@ -126,13 +126,13 @@ pnpm craft add elastic-logs --no-index
 
 ### Required capabilities
 
-If a capability declares `requiredCapabilities`, they are installed automatically:
+If a capability declares `requiredCapabilities`, they are installed automatically. Required capabilities always resolve to the latest available version:
 
 ```
 pnpm craft add elastic-logs
 
 elastic-logs@1.0.0 -> capabilities/elastic-logs.mjs
-history-search@1.0.0 -> capabilities/history-search.mjs  (required by elastic-logs)
+history-search@2.0.0 -> capabilities/history-search.mjs  (required by elastic-logs)
 dependencies installed
 index.ts updated
 

@@ -158,7 +158,7 @@ describe("craft add internals", () => {
      * @expectedResult No error thrown
      */
     test("does not throw for empty chain", () => {
-      expect(() => checkCircularDeps("a", "1.0.0", [])).not.toThrow();
+      expect(() => checkCircularDeps("a", [])).not.toThrow();
     });
 
     /**
@@ -167,20 +167,18 @@ describe("craft add internals", () => {
      * @expectedResult No error thrown
      */
     test("does not throw when id not in chain", () => {
-      expect(() =>
-        checkCircularDeps("c", "1.0.0", ["a@1.0.0", "b@1.0.0"]),
-      ).not.toThrow();
+      expect(() => checkCircularDeps("c", ["a", "b"])).not.toThrow();
     });
 
     /**
-     * @case Throws when id@version already in chain
-     * @preconditions Chain contains "a@1.0.0" and we check "a" at "1.0.0"
+     * @case Throws when id already in chain
+     * @preconditions Chain contains "a" and we check "a"
      * @expectedResult Throws with circular dependency message
      */
     test("throws on circular dependency", () => {
-      expect(() =>
-        checkCircularDeps("a", "1.0.0", ["a@1.0.0", "b@1.0.0"]),
-      ).toThrow("Circular dependency detected");
+      expect(() => checkCircularDeps("a", ["a", "b"])).toThrow(
+        "Circular dependency detected",
+      );
     });
   });
 

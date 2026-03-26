@@ -117,13 +117,26 @@ function parseSpecifier(spec: string): { id: string; version?: string } {
 }
 
 /**
- * Detect circular dependencies during recursive install.
+ * Merge dependency ranges from a child install into the parent map.
  */
-function checkCircularDeps(id: string, version: string, chain: string[]): void {
-  const key = `${id}@${version}`;
-  if (chain.includes(key)) {
+function mergeDeps(
+  target: Map<string, Set<string>>,
+  source: Map<string, Set<string>>,
+): void {
+  for (const [pkg, ranges] of source) {
+    if (!target.has(pkg)) target.set(pkg, new Set());
+    for (const r of ranges) target.get(pkg)!.add(r);
+  }
+}
+
+/**
+ * Detect circular dependencies during recursive install.
+ * Uses id-only keys to match the id-based dedup strategy.
+ */
+function checkCircularDeps(id: string, chain: string[]): void {
+  if (chain.includes(id)) {
     throw new Error(
-      `Circular dependency detected: ${[...chain, key].join(" -> ")}`,
+      `Circular dependency detected: ${[...chain, id].join(" -> ")}`,
     );
   }
 }
@@ -149,7 +162,7 @@ async function installCapability(
   installed: Map<string, string>,
   chain: string[],
   parentId?: string,
-): Promise<{ envVars: string[]; installedDeps: Record<string, string> }> {
+): Promise<{ envVars: string[]; installedDeps: Map<string, Set<string>> }> {
   const entry = registry[id];
   if (!entry) {
     throw new Error(
@@ -173,16 +186,15 @@ async function installCapability(
 
   // Skip if this id is already installed (by id, not id@version)
   if (installed.has(id)) {
-    return { envVars: [], installedDeps: {} };
+    return { envVars: [], installedDeps: new Map() };
   }
 
-  // Circular dependency check
-  const key = `${id}@${resolvedVersion}`;
-  checkCircularDeps(id, resolvedVersion, chain);
+  // Circular dependency check (by id, matching dedup strategy)
+  checkCircularDeps(id, chain);
 
   // Install required capabilities first (recursive)
   const allEnvVars: string[] = [];
-  const allDeps: Record<string, string> = {};
+  const allDeps = new Map<string, Set<string>>();
 
   if (versionData.requiredCapabilities) {
     for (const reqSpec of versionData.requiredCapabilities) {
@@ -193,11 +205,11 @@ async function installCapability(
         registry,
         options,
         installed,
-        [...chain, key],
+        [...chain, id],
         id,
       );
       allEnvVars.push(...result.envVars);
-      Object.assign(allDeps, result.installedDeps);
+      mergeDeps(allDeps, result.installedDeps);
     }
   }
 
@@ -263,7 +275,10 @@ async function installCapability(
 
   // Collect dependencies
   if (versionData.dependencies) {
-    Object.assign(allDeps, versionData.dependencies);
+    for (const [pkg, range] of Object.entries(versionData.dependencies)) {
+      if (!allDeps.has(pkg)) allDeps.set(pkg, new Set());
+      allDeps.get(pkg)!.add(range);
+    }
   }
 
   // Collect env vars
@@ -415,17 +430,28 @@ export async function addCommand(
   );
 
   // Install dependencies via pnpm (using execFileSync to avoid shell injection)
-  if (Object.keys(result.installedDeps).length > 0) {
-    const depList = Object.entries(result.installedDeps)
-      .filter(([pkg]) => {
-        if (!SAFE_PKG_RE.test(pkg)) {
-          // eslint-disable-next-line no-console
-          console.warn(`\u26A0  Skipping invalid package name: ${pkg}`);
-          return false;
-        }
-        return true;
-      })
-      .map(([pkg, ver]) => `${pkg}@${ver}`);
+  if (result.installedDeps.size > 0) {
+    // Warn about conflicting version ranges
+    for (const [pkg, ranges] of result.installedDeps) {
+      if (ranges.size > 1) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `\u26A0  Multiple version ranges for ${pkg}: ${[...ranges].join(", ")}`,
+        );
+      }
+    }
+
+    const depList: string[] = [];
+    for (const [pkg, ranges] of result.installedDeps) {
+      if (!SAFE_PKG_RE.test(pkg)) {
+        // eslint-disable-next-line no-console
+        console.warn(`\u26A0  Skipping invalid package name: ${pkg}`);
+        continue;
+      }
+      // Use the most specific range (last in sorted order)
+      const range = [...ranges].sort().pop()!;
+      depList.push(`${pkg}@${range}`);
+    }
 
     if (depList.length > 0) {
       try {
