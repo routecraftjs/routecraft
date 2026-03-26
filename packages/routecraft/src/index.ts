@@ -16,9 +16,9 @@ export {
   type StoreRegistry,
   type CraftConfig,
   type CraftPlugin,
-  type DirectConfig,
-  type HttpConfig,
 } from "./context.ts";
+export { type DirectConfig } from "./adapters/direct/types.ts";
+export { type HttpConfig } from "./adapters/http/types.ts";
 
 export {
   DefaultRoute,
@@ -44,7 +44,12 @@ export { type Filter, type FilterDropResult } from "./operations/filter.ts";
 
 export { type HeaderSetter } from "./operations/header.ts";
 
-export { type DestinationAggregator, only, none } from "./operations/enrich.ts";
+export {
+  type DestinationAggregator,
+  only,
+  none,
+  replace,
+} from "./operations/enrich.ts";
 
 export {
   ContextBuilder,

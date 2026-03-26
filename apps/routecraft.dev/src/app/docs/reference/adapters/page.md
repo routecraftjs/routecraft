@@ -173,7 +173,6 @@ Options:
 **Headers added:** Timer metadata including fired time, counter, period, and next run time
 
 ### cron
-
 ```ts
 cron(expression: string, options?: CronOptions): Source<undefined>
 ```
@@ -481,7 +480,6 @@ const routes = registry ? Array.from(registry.values()) : []
 Useful for runtime introspection, documentation generation, and building dynamic routing systems.
 
 ### http
-
 ```ts
 http<T, R>(options: HttpOptions<T>): Destination<T, HttpResult<R>>
 ```
@@ -557,7 +555,7 @@ Options:
 
 **Returns:** `HttpResult` object with `status`, `headers`, `body`, and `url`
 
-#### Planned inbound/server HTTP support {% badge %}wip{% /badge %}
+#### Planned inbound/server HTTP support {% badge color="purple" %}planned{% /badge %}
 
 Tentative source signature: `http({ path, method, ...options })`.
 
@@ -604,7 +602,6 @@ A no-operation adapter that discards messages. Useful for testing, development, 
 ```
 
 ### spy
-
 ```ts
 spy<T>(): SpyAdapter<T>
 ```
@@ -649,7 +646,6 @@ expect(spyAdapter.calls.send).toBe(1)
 See [Testing](/docs/introduction/testing) for full usage patterns.
 
 ### pseudo
-
 ```ts
 pseudo<Opts>(name?: string, options?: PseudoOptions): PseudoFactory<Opts>
 pseudo<Opts>(name: string, options: PseudoKeyedOptions): PseudoKeyedFactory<Opts>
@@ -724,7 +720,6 @@ import { mcp } from "@routecraft/mcp-adapter";
 ## File adapters
 
 ### file
-
 ```ts
 file(options: FileOptions): FileAdapter
 ```
@@ -768,7 +763,6 @@ Read and write plain text files. For structured data, use `json` or `csv` adapte
 **Exported types:** `FileAdapter`, `FileOptions`
 
 ### json
-
 ```ts
 json(options?: JsonOptions): JsonAdapter | JsonFileAdapter
 ```
@@ -858,7 +852,6 @@ Parse and format JSON data, or read/write JSON files.
 **Exported types:** `JsonAdapter`, `JsonFileAdapter`, `JsonOptions`, `JsonTransformerOptions`, `JsonFileOptions`
 
 ### csv
-
 ```ts
 csv(options: CsvOptions): CsvAdapter
 ```
@@ -941,7 +934,6 @@ npm install papaparse
 **Exported types:** `CsvAdapter`, `CsvOptions`
 
 ### html
-
 ```ts
 html(options: HtmlOptions): HtmlAdapter
 ```
@@ -1051,15 +1043,15 @@ All transformer options above, plus:
 ## Messaging adapters
 
 ### mail
-
 ```ts
 mail(folder: string, options: Partial<MailServerOptions>): Source<MailMessage>
 mail(folder: string): Destination<unknown, MailFetchResult>
 mail(options: Partial<MailServerOptions>): Destination<unknown, MailFetchResult>
+mail(action: MailAction): Destination<unknown, void>
 mail(options?: Partial<MailClientOptions>): Destination<MailSendPayload, MailSendResult>
 ```
 
-Read email via IMAP or send via SMTP. The adapter has three modes determined by the arguments you pass.
+Read email via IMAP, send via SMTP, or perform IMAP operations. The adapter has four modes determined by the arguments you pass.
 
 **Source mode (IMAP push):** Pass a folder and options to receive new messages via IMAP IDLE or polling. Each new email becomes a separate exchange.
 
@@ -1096,30 +1088,74 @@ craft()
 craft()
   .id('mail-forwarder')
   .from(mail('INBOX', { unseen: true, markSeen: true }))
-  .transform((ex) => ({
+  .transform((msg) => ({
     to: 'team@example.com',
-    subject: `Fwd: ${ex.body.subject}`,
-    text: ex.body.text ?? '',
+    subject: `Fwd: ${msg.subject}`,
+    text: msg.text ?? '',
   }))
   .to(mail())
 ```
 
-**Configuration via context store:**
-
-Mail connection details can be set once on the context so individual routes do not need to repeat them:
+**IMAP operations:** Call with a `MailAction` object to move, copy, delete, flag, unflag, or append messages.
 
 ```ts
-import { ContextBuilder, ADAPTER_MAIL_OPTIONS } from '@routecraft/routecraft'
+// Archive after processing
+craft()
+  .id('archive-processed')
+  .from(mail('INBOX', { unseen: true }))
+  .tap(processMessage)
+  .to(mail({ action: 'move', folder: 'Archive' }))
 
-const ctx = new ContextBuilder()
-  .set(ADAPTER_MAIL_OPTIONS, {
-    auth: { user: 'me@gmail.com', pass: process.env.MAIL_APP_PASSWORD! },
-    imapHost: 'imap.gmail.com',
-    smtpHost: 'smtp.gmail.com',
-    from: 'me@gmail.com',
-  })
-  .routes([inboxWatcher, sendWelcome])
-  .build()
+// Flag important messages
+craft()
+  .id('flag-important')
+  .from(mail('INBOX', { subject: 'URGENT' }))
+  .to(mail({ action: 'flag', flags: '\\Flagged' }))
+```
+
+**Configuration via named accounts:**
+
+Mail connection details are set once in your `craft.config.ts` so individual routes do not need to repeat them. Each capability file re-exports the config:
+
+```ts
+// craft.config.ts
+import type { CraftConfig } from '@routecraft/routecraft'
+
+export const craftConfig: CraftConfig = {
+  mail: {
+    accounts: {
+      default: {
+        imap: {
+          host: 'imap.gmail.com',
+          auth: { user: process.env.MAIL_USER!, pass: process.env.MAIL_APP_PASSWORD! },
+        },
+        smtp: {
+          host: 'smtp.gmail.com',
+          auth: { user: process.env.MAIL_USER!, pass: process.env.MAIL_APP_PASSWORD! },
+          from: process.env.MAIL_USER!,
+        },
+      },
+    },
+  },
+}
+```
+
+```ts
+// capabilities/inbox-watcher.ts
+export { craftConfig } from '../craft.config'
+import { craft, mail, log } from '@routecraft/routecraft'
+
+export default craft()
+  .id('inbox-watcher')
+  .from(mail('INBOX', { markSeen: true }))
+  .to(log())
+```
+
+When multiple accounts are configured, select one per adapter call with the `account` option:
+
+```ts
+.from(mail('INBOX', { account: 'support' }))
+.to(mail({ account: 'notifications' }))
 ```
 
 **Server options (`MailServerOptions`):**
@@ -1134,8 +1170,15 @@ const ctx = new ContextBuilder()
 | `markSeen` | `boolean` | `true` | Mark fetched messages as seen |
 | `since` | `Date` | | Only fetch messages since this date |
 | `unseen` | `boolean` | `true` | Only fetch unseen messages |
+| `from` | `string \| string[]` | | Filter by sender (IMAP FROM search). Array = OR |
+| `to` | `string \| string[]` | | Filter by recipient (IMAP TO search). Array = OR |
+| `subject` | `string \| string[]` | | Filter by subject text (IMAP SUBJECT search). Array = OR |
+| `body` | `string \| string[]` | | Filter by body text (IMAP TEXT search). Array = OR |
+| `header` | `Record<string, string \| string[]>` | | Filter by arbitrary IMAP headers. Array values = OR |
+| `includeHeaders` | `true \| string[]` | | Raw headers to include on fetched messages. `true` = all |
 | `limit` | `number` | | Maximum messages per fetch |
 | `pollIntervalMs` | `number` | | Poll interval in ms (default: IMAP IDLE) |
+| `account` | `string` | | Named account from context config (uses default if omitted) |
 
 **Client options (`MailClientOptions`):**
 
@@ -1147,6 +1190,9 @@ const ctx = new ContextBuilder()
 | `auth` | `MailAuth` | | `{ user, pass }` credentials |
 | `from` | `string` | | Default sender address |
 | `replyTo` | `string` | | Default reply-to address |
+| `cc` | `string \| string[]` | | Default CC recipients |
+| `bcc` | `string \| string[]` | | Default BCC recipients |
+| `account` | `string` | | Named account from context config (uses default if omitted) |
 
 **`MailMessage` (exchange body in source/fetch modes):**
 
@@ -1164,7 +1210,9 @@ const ctx = new ContextBuilder()
 | `bcc` | `string[]?` | BCC recipients |
 | `replyTo` | `string?` | Reply-to address |
 | `attachments` | `MailAttachment[]?` | File attachments |
+| `rawHeaders` | `Record<string, string \| string[]>?` | Raw email headers (when `includeHeaders` is set) |
 | `flags` | `Set<string>` | IMAP flags (e.g. `\Seen`, `\Flagged`) |
+| `folder` | `string` | The IMAP folder this message was fetched from |
 
 **`MailSendPayload` (exchange body for `.to(mail())`):**
 
@@ -1189,14 +1237,13 @@ const ctx = new ContextBuilder()
 | `rejected` | `string[]` | Rejected recipient addresses |
 | `response` | `string` | SMTP server response string |
 
-**Exported types:** `MailAuth`, `MailServerOptions`, `MailClientOptions`, `MailOptions`, `MailMessage`, `MailAttachment`, `MailSendPayload`, `MailSendResult`, `MailFetchResult`, `ADAPTER_MAIL_OPTIONS`
+**Exported types:** `MailAuth`, `MailServerOptions`, `MailClientOptions`, `MailOptions`, `MailMessage`, `MailAttachment`, `MailSendPayload`, `MailSendResult`, `MailFetchResult`, `MailContextConfig`, `MailAccountConfig`, `MailAction`, `MailClientManager`, `MAIL_CLIENT_MANAGER`
 
 ---
 
 ## Browser adapters
 
 ### agentBrowser
-
 ```ts
 import { agentBrowser } from '@routecraft/browser'
 ```
@@ -1296,7 +1343,6 @@ Command-specific option values that accept `Resolvable<T, V>` can be a static va
 ## AI adapters
 
 ### mcp
-
 ```ts
 import { mcp } from '@routecraft/ai'
 ```
@@ -1368,7 +1414,6 @@ When using the `serverId` path (recommended), auth configured on the client in `
 See [Expose as MCP](/docs/advanced/expose-as-mcp) and [Call an MCP](/docs/advanced/call-an-mcp).
 
 ### llm
-
 ```ts
 import { llm } from '@routecraft/ai'
 ```
@@ -1439,7 +1484,6 @@ Model ID format: `"provider:model-name"` (e.g., `"ollama:llama3.2"`, `"anthropic
 Provider credentials are configured once in `llmPlugin()` and shared across all `llm()` calls. See [Plugins reference](/docs/reference/plugins).
 
 ### embedding
-
 ```ts
 import { embedding } from '@routecraft/ai'
 ```

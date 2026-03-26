@@ -4,6 +4,11 @@ import { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
 import { rcError, RC } from "./error.ts";
 import { isRoutecraftError } from "./brand.ts";
 import { logger, childBindings } from "./logger.ts";
+import { type DirectConfig } from "./adapters/direct/types.ts";
+import { type HttpConfig } from "./adapters/http/types.ts";
+import { type MailContextConfig } from "./adapters/mail/types.ts";
+import { type TelemetryOptions } from "./telemetry/types.ts";
+
 import {
   type EventHandler,
   type EventName,
@@ -59,18 +64,6 @@ export interface CraftPlugin {
 }
 
 /**
- * Reserved config for direct adapter (future: channel type, whitelist, timeouts).
- * No-op today; used by built-in direct handling when implemented.
- */
-export type DirectConfig = Record<string, unknown>;
-
-/**
- * Reserved config for HTTP (future: inbound server port, host).
- * No-op today; used by built-in HTTP server when implemented.
- */
-export type HttpConfig = Record<string, unknown>;
-
-/**
  * Configuration options for creating a CraftContext.
  */
 export type CraftConfig = {
@@ -91,7 +84,9 @@ export type CraftConfig = {
   /** Reserved: HTTP server config for inbound (no-op today) */
   http?: HttpConfig;
   /** Mail adapter configuration with named accounts */
-  mail?: import("./adapters/mail/types.ts").MailContextConfig;
+  mail?: MailContextConfig;
+  /** Telemetry plugin configuration (SQLite, OpenTelemetry) */
+  telemetry?: TelemetryOptions;
 };
 
 /**
@@ -739,7 +734,10 @@ export class CraftContext {
             route,
           });
           await route.start();
-          this.logger.info({ route: route.definition.id }, "Route stopped");
+          // Only log if the route completed on its own (not via context.stop())
+          if (!this.shutdownPromise) {
+            this.logger.info({ route: route.definition.id }, "Route completed");
+          }
           return { routeId: route.definition.id, success: true as const };
         } catch (error) {
           const msg = isRoutecraftError(error)
@@ -757,6 +755,9 @@ export class CraftContext {
       }),
     )
       .then((results) => {
+        // Skip if shutdown was already triggered (e.g. via signal handler)
+        if (this.shutdownPromise) return this.shutdownPromise;
+
         // Check if all routes completed successfully
         const allFulfilled = results.every((r) => r.status === "fulfilled");
         if (allFulfilled) {

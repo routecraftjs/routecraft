@@ -184,10 +184,10 @@ export class MailClientManager {
   constructor(config: MailContextConfig) {
     this.config = config;
 
-    // Determine default account: first with default: true, or first defined
+    // Determine default account: key named "default", or first defined
     const accounts = config.accounts ?? {};
-    const defaultEntry = Object.entries(accounts).find(([, v]) => v.default);
-    this.defaultAccount = defaultEntry?.[0] ?? Object.keys(accounts)[0] ?? "";
+    this.defaultAccount =
+      "default" in accounts ? "default" : (Object.keys(accounts)[0] ?? "");
   }
 
   /**
@@ -302,6 +302,15 @@ export class MailClientManager {
     if (overrides.limit !== undefined) result.limit = overrides.limit;
     if (overrides.pollIntervalMs !== undefined)
       result.pollIntervalMs = overrides.pollIntervalMs;
+    if (overrides.includeHeaders !== undefined)
+      result.includeHeaders = overrides.includeHeaders;
+
+    // Pass through search filters
+    if (overrides.from !== undefined) result.from = overrides.from;
+    if (overrides.to !== undefined) result.to = overrides.to;
+    if (overrides.subject !== undefined) result.subject = overrides.subject;
+    if (overrides.body !== undefined) result.body = overrides.body;
+    if (overrides.header !== undefined) result.header = overrides.header;
 
     return result;
   }

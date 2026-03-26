@@ -150,6 +150,26 @@ export const none = <T = unknown, R = unknown>(): DestinationAggregator<
 };
 
 /**
+ * Aggregator for `.enrich()` that replaces the exchange body with the enrichment result instead of merging.
+ * Use when the enrichment returns the data you want as the new body (e.g. an array of messages).
+ *
+ * @example
+ * ```typescript
+ * .enrich(mail({ folder: 'INBOX', unseen: true }), replace())
+ * // body becomes MailMessage[] (the raw enrichment result)
+ * ```
+ */
+export const replace = <R>(): DestinationAggregator<unknown, R> => {
+  return (
+    original: Exchange<unknown>,
+    enrichmentData: R,
+  ): Exchange<unknown> => {
+    original.body = enrichmentData;
+    return original;
+  };
+};
+
+/**
  * Aggregator type accepted by EnrichStep. Includes `only()` return type (with [ENRICH_MERGE_TYPE]) for body-type inference.
  */
 export type EnrichAggregatorOption<T, R> =

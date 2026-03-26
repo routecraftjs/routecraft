@@ -417,12 +417,11 @@ describe("Mail Adapter", () => {
         .with({
           mail: {
             accounts: {
-              main: {
+              default: {
                 imap: {
                   host: "imap.main.com",
                   auth: { user: "main@co.com", pass: "main-pass" },
                 },
-                default: true,
               },
             },
           },
@@ -462,12 +461,11 @@ describe("Mail Adapter", () => {
         .with({
           mail: {
             accounts: {
-              main: {
+              default: {
                 imap: {
                   host: "imap.main.com",
                   auth: { user: "main@co.com", pass: "main-pass" },
                 },
-                default: true,
               },
               support: {
                 imap: {
@@ -516,7 +514,7 @@ describe("Mail Adapter", () => {
         .with({
           mail: {
             accounts: {
-              main: {
+              default: {
                 smtp: {
                   host: "smtp.main.com",
                   auth: { user: "main@co.com", pass: "main-pass" },
@@ -524,7 +522,6 @@ describe("Mail Adapter", () => {
                   replyTo: "support@co.com",
                   cc: "audit@co.com",
                 },
-                default: true,
               },
             },
           },
@@ -579,12 +576,11 @@ describe("Mail Adapter", () => {
         .with({
           mail: {
             accounts: {
-              main: {
+              default: {
                 imap: {
                   host: "imap.main.com",
                   auth: { user: "main@co.com", pass: "main-pass" },
                 },
-                default: true,
               },
             },
             folder: "Drafts",
@@ -936,7 +932,7 @@ async function buildMailContext() {
     .with({
       mail: {
         accounts: {
-          main: {
+          default: {
             imap: {
               host: "imap.test.com",
               auth: { user: "test@test.com", pass: "test-pass" },
@@ -946,7 +942,6 @@ async function buildMailContext() {
               auth: { user: "test@test.com", pass: "test-pass" },
               from: "test@test.com",
             },
-            default: true,
           },
         },
       },

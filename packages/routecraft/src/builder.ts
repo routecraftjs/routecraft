@@ -24,6 +24,9 @@ import {
   DefaultExchange,
   getExchangeContext,
 } from "./exchange.ts";
+import { MailClientManager } from "./adapters/mail/client-manager.ts";
+import { MAIL_CLIENT_MANAGER } from "./adapters/mail/shared.ts";
+import { telemetry } from "./telemetry/index.ts";
 import {
   type Processor,
   type CallableProcessor,
@@ -148,6 +151,11 @@ export class ContextBuilder {
     // Extract mail config if provided
     if (config.mail) {
       this.mailConfig = config.mail;
+    }
+
+    // Convert telemetry config into a plugin
+    if (config.telemetry) {
+      this.plugins.push(telemetry(config.telemetry));
     }
 
     // Extract plugins if provided
@@ -290,14 +298,8 @@ export class ContextBuilder {
 
     // Set up mail client manager if mail config is present
     if (this.mailConfig) {
-      const { MailClientManager } =
-        await import("./adapters/mail/client-manager.ts");
-      const { MAIL_CLIENT_MANAGER } = await import("./adapters/mail/shared.ts");
       const manager = new MailClientManager(this.mailConfig);
-      ctx.setStore(
-        MAIL_CLIENT_MANAGER as keyof import("./context.ts").StoreRegistry,
-        manager,
-      );
+      ctx.setStore(MAIL_CLIENT_MANAGER as keyof StoreRegistry, manager);
       ctx.registerTeardown(() => manager.drain());
     }
 

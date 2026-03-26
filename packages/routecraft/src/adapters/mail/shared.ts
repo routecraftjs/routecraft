@@ -257,22 +257,84 @@ export function throwMailConnectionError(
 // ---------------------------------------------------------------------------
 
 /**
- * Build IMAP search criteria from server options.
+ * Normalize a search field value to an array.
  */
-export function buildSearchCriteria(
+function toSearchArray(value: string | string[] | undefined): string[] {
+  if (value === undefined) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+/**
+ * Build one or more IMAP search criteria sets from server options.
+ *
+ * Scalar filters (unseen, since) are shared across all sets.
+ * Array filters (from, to, subject, body) produce the cartesian product
+ * so each combination is a separate IMAP search (OR within a field,
+ * AND between fields). Results are deduped by UID after fetching.
+ */
+export function buildSearchCriteriaSets(
   options: MailServerOptions,
-): Record<string, unknown> {
-  const criteria: Record<string, unknown> = {};
+): Record<string, unknown>[] {
+  // Shared base criteria (AND between fields)
+  const base: Record<string, unknown> = {};
+  if (options.unseen !== false) base["seen"] = false;
+  if (options.since) base["since"] = options.since;
 
-  if (options.unseen !== false) {
-    criteria["seen"] = false;
+  // Collect per-field arrays
+  const fromValues = toSearchArray(options.from);
+  const toValues = toSearchArray(options.to);
+  const subjectValues = toSearchArray(options.subject);
+  const bodyValues = toSearchArray(options.body);
+
+  // Build field entries: [imapKey, values[]]
+  const fields: Array<[string, string[]]> = [];
+  if (fromValues.length > 0) fields.push(["from", fromValues]);
+  if (toValues.length > 0) fields.push(["to", toValues]);
+  if (subjectValues.length > 0) fields.push(["subject", subjectValues]);
+  if (bodyValues.length > 0) fields.push(["body", bodyValues]);
+
+  // Raw header filters: each header key expands as OR, AND between keys
+  const headerEntries: Array<[string, string[]]> = [];
+  if (options.header) {
+    for (const [headerName, headerValue] of Object.entries(options.header)) {
+      const values = toSearchArray(headerValue);
+      if (values.length > 0) headerEntries.push([headerName, values]);
+    }
   }
 
-  if (options.since) {
-    criteria["since"] = options.since;
+  if (fields.length === 0 && headerEntries.length === 0) return [base];
+
+  // Cartesian product of all field values
+  let combinations: Record<string, unknown>[] = [{ ...base }];
+  for (const [key, values] of fields) {
+    const expanded: Record<string, unknown>[] = [];
+    for (const combo of combinations) {
+      for (const val of values) {
+        expanded.push({ ...combo, [key]: val });
+      }
+    }
+    combinations = expanded;
   }
 
-  return criteria;
+  // Expand header filters into the cartesian product.
+  // ImapFlow expects: { header: { "Header-Name": "value" } }
+  // Each header key with multiple values produces OR branches.
+  for (const [headerName, values] of headerEntries) {
+    const expanded: Record<string, unknown>[] = [];
+    for (const combo of combinations) {
+      for (const val of values) {
+        const existingHeader =
+          (combo["header"] as Record<string, string> | undefined) ?? {};
+        expanded.push({
+          ...combo,
+          header: { ...existingHeader, [headerName]: val },
+        });
+      }
+    }
+    combinations = expanded;
+  }
+
+  return combinations;
 }
 
 /**
@@ -307,6 +369,7 @@ export function toMailMessage(
       size: number;
       content: Buffer;
     }>;
+    rawHeaders?: Record<string, string | string[]>;
   },
 ): MailMessage {
   const envelope = msg.envelope;
@@ -343,6 +406,7 @@ export function toMailMessage(
     result.replyTo = replyToAddrs[0].address;
   if (content?.attachments !== undefined)
     result.attachments = content.attachments;
+  if (content?.rawHeaders !== undefined) result.rawHeaders = content.rawHeaders;
 
   return result;
 }
@@ -355,18 +419,108 @@ export function toMailMessage(
  * @param options - Resolved IMAP options (for search criteria, limit, markSeen)
  * @param folder - The folder name (for setting on MailMessage)
  */
+/**
+ * Parse a single IMAP message into content fields using mailparser.
+ */
+async function parseMessageContent(
+  source: Buffer | undefined,
+  simpleParser: typeof import("mailparser").simpleParser,
+  requestedHeaders?: true | string[],
+): Promise<{
+  text?: string;
+  html?: string;
+  attachments?: Array<{
+    filename?: string;
+    contentType: string;
+    size: number;
+    content: Buffer;
+  }>;
+  rawHeaders?: Record<string, string | string[]>;
+}> {
+  if (!source) return {};
+  try {
+    const parsed = await simpleParser(source);
+    const content: {
+      text?: string;
+      html?: string;
+      attachments?: Array<{
+        filename?: string;
+        contentType: string;
+        size: number;
+        content: Buffer;
+      }>;
+      rawHeaders?: Record<string, string | string[]>;
+    } = {};
+    if (parsed.text) content.text = parsed.text;
+    if (typeof parsed.html === "string") content.html = parsed.html;
+    if (parsed.attachments && parsed.attachments.length > 0) {
+      content.attachments = parsed.attachments.map((att) => {
+        const a: {
+          filename?: string;
+          contentType: string;
+          size: number;
+          content: Buffer;
+        } = {
+          contentType: att.contentType,
+          size: att.size,
+          content: att.content,
+        };
+        if (att.filename) a.filename = att.filename;
+        return a;
+      });
+    }
+    if (requestedHeaders && parsed.headerLines) {
+      const hdrs: Record<string, string | string[]> = {};
+      const wanted =
+        requestedHeaders === true
+          ? null
+          : new Set(requestedHeaders.map((h) => h.toLowerCase()));
+      for (const entry of parsed.headerLines as Array<{
+        key: string;
+        line: string;
+      }>) {
+        if (wanted && !wanted.has(entry.key)) continue;
+        // Extract value portion after "Header-Name: "
+        const colonIdx = entry.line.indexOf(":");
+        const value =
+          colonIdx >= 0 ? entry.line.slice(colonIdx + 1).trim() : entry.line;
+        // Accumulate multi-value headers (e.g. Received) as arrays
+        const existing = hdrs[entry.key];
+        if (existing === undefined) {
+          hdrs[entry.key] = value;
+        } else if (Array.isArray(existing)) {
+          existing.push(value);
+        } else {
+          hdrs[entry.key] = [existing, value];
+        }
+      }
+      if (Object.keys(hdrs).length > 0) content.rawHeaders = hdrs;
+    }
+    return content;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Fetch messages from an open IMAP mailbox using the given client.
+ * The client must already be connected and have a mailbox open.
+ *
+ * When search options contain array values (OR semantics within a field),
+ * multiple IMAP searches are executed and results are deduped by UID.
+ *
+ * @param client - Connected ImapFlow client with open mailbox
+ * @param options - Resolved IMAP options (for search criteria, limit, markSeen)
+ * @param folder - The folder name (for setting on MailMessage)
+ */
 export async function fetchMessages(
   client: InstanceType<typeof import("imapflow").ImapFlow>,
   options: MailServerOptions,
   folder: string,
 ): Promise<MailMessage[]> {
-  const criteria = buildSearchCriteria(options);
+  const criteriaSets = buildSearchCriteriaSets(options);
   const messages: MailMessage[] = [];
-
-  let searchQuery: Record<string, unknown> | string = criteria;
-  if (Object.keys(criteria).length === 0) {
-    searchQuery = "1:*";
-  }
+  const seenUids = new Set<number>();
 
   try {
     const fetchOptions = {
@@ -378,56 +532,40 @@ export async function fetchMessages(
 
     const { simpleParser } = await import("mailparser");
 
-    for await (const msg of client.fetch(searchQuery, fetchOptions)) {
-      // Parse the source to get text/html content
-      const content: {
-        text?: string;
-        html?: string;
-        attachments?: Array<{
-          filename?: string;
-          contentType: string;
-          size: number;
-          content: Buffer;
-        }>;
-      } = {};
+    for (const criteria of criteriaSets) {
+      let searchQuery: Record<string, unknown> | string = criteria;
+      if (Object.keys(criteria).length === 0) {
+        searchQuery = "1:*";
+      }
 
-      if (msg.source) {
-        try {
-          const parsed = await simpleParser(msg.source);
-          if (parsed.text) content.text = parsed.text;
-          if (typeof parsed.html === "string") content.html = parsed.html;
-          if (parsed.attachments && parsed.attachments.length > 0) {
-            content.attachments = parsed.attachments.map((att) => {
-              const a: {
-                filename?: string;
-                contentType: string;
-                size: number;
-                content: Buffer;
-              } = {
-                contentType: att.contentType,
-                size: att.size,
-                content: att.content,
-              };
-              if (att.filename) a.filename = att.filename;
-              return a;
-            });
-          }
-        } catch {
-          // If parsing fails, continue without content.
+      for await (const msg of client.fetch(searchQuery, fetchOptions)) {
+        // Dedupe across criteria sets
+        if (seenUids.has(msg.uid)) continue;
+        seenUids.add(msg.uid);
+
+        const content = await parseMessageContent(
+          msg.source,
+          simpleParser,
+          options.includeHeaders,
+        );
+
+        const mailMessage = toMailMessage(
+          {
+            uid: msg.uid,
+            flags: msg.flags ?? new Set(),
+            envelope: msg.envelope ?? {},
+          },
+          folder,
+          content,
+        );
+        messages.push(mailMessage);
+
+        if (options.limit && messages.length >= options.limit) {
+          break;
         }
       }
 
-      const mailMessage = toMailMessage(
-        {
-          uid: msg.uid,
-          flags: msg.flags ?? new Set(),
-          envelope: msg.envelope ?? {},
-        },
-        folder,
-        content,
-      );
-      messages.push(mailMessage);
-
+      // Stop searching further criteria sets if limit reached
       if (options.limit && messages.length >= options.limit) {
         break;
       }

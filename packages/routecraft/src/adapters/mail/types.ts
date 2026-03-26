@@ -69,7 +69,6 @@ export interface MailAccountSmtpConfig {
  * {
  *   imap: { host: 'imap.gmail.com', auth: { user: 'me@co.com', pass: 'xxx' } },
  *   smtp: { host: 'smtp.gmail.com', auth: { user: 'me@co.com', pass: 'xxx' }, from: 'me@co.com' },
- *   default: true,
  * }
  * ```
  *
@@ -80,8 +79,6 @@ export interface MailAccountConfig {
   imap?: MailAccountImapConfig;
   /** SMTP connection settings */
   smtp?: MailAccountSmtpConfig;
-  /** Mark this as the default account (used when no account specified) */
-  default?: boolean;
 }
 
 /**
@@ -92,7 +89,7 @@ export interface MailAccountConfig {
  * new ContextBuilder().with({
  *   mail: {
  *     accounts: {
- *       main: { imap: {...}, smtp: {...}, default: true },
+ *       default: { imap: {...}, smtp: {...} },
  *       support: { imap: {...}, smtp: {...} },
  *     },
  *     folder: 'INBOX',
@@ -137,6 +134,31 @@ export interface MailServerOptions {
   since?: Date;
   /** Only fetch unseen messages (default true) */
   unseen?: boolean;
+  /** Filter by sender address (IMAP FROM search, case-insensitive). Array = OR. */
+  from?: string | string[];
+  /** Filter by recipient address (IMAP TO search, case-insensitive). Array = OR. */
+  to?: string | string[];
+  /** Filter by subject text (IMAP SUBJECT search, case-insensitive). Array = OR. */
+  subject?: string | string[];
+  /** Filter by body text (IMAP TEXT search, case-insensitive). Array = OR. */
+  body?: string | string[];
+  /**
+   * Filter by arbitrary IMAP headers (IMAP HEADER search).
+   * Keys are header names, values are substring matches. Array values = OR.
+   *
+   * @example
+   * ```typescript
+   * // Match emails with Reply-To containing "no-reply"
+   * mail({ header: { "Reply-To": "no-reply" } })
+   *
+   * // Match emails with a specific List-Id
+   * mail({ header: { "List-Id": "announcements.example.com" } })
+   *
+   * // OR within a header: match "noreply" or "no-reply" in Reply-To
+   * mail({ header: { "Reply-To": ["noreply", "no-reply"] } })
+   * ```
+   */
+  header?: Record<string, string | string[]>;
   /** Maximum number of messages to fetch per call */
   limit?: number;
   /** Human-readable description for route discovery */
@@ -147,6 +169,21 @@ export interface MailServerOptions {
   pollIntervalMs?: number;
   /** Named account from context config (uses default if omitted) */
   account?: string;
+  /**
+   * Raw email headers to include on fetched messages.
+   * Pass `true` to include all headers, or an array of header names to
+   * include only specific ones (case-insensitive). Defaults to none.
+   *
+   * @example
+   * ```typescript
+   * // Include all headers (useful for discovery)
+   * mail('INBOX', { includeHeaders: true })
+   *
+   * // Include specific headers only (keeps exchange size small)
+   * mail('INBOX', { includeHeaders: ['Return-Path', 'DKIM-Signature', 'X-Spam-Status'] })
+   * ```
+   */
+  includeHeaders?: true | string[];
 }
 
 /**
@@ -285,6 +322,12 @@ export interface MailMessage {
   replyTo?: string;
   /** File attachments */
   attachments?: MailAttachment[];
+  /**
+   * Raw email headers (only those requested via the `headers` option).
+   * Keys are lowercased header names, values are strings or arrays for
+   * multi-value headers (e.g. multiple Received lines).
+   */
+  rawHeaders?: Record<string, string | string[]>;
   /** IMAP flags (e.g. \Seen, \Flagged) */
   flags: Set<string>;
   /** The IMAP folder this message was fetched from */

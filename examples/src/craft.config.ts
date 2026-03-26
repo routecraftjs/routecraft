@@ -1,19 +1,42 @@
-import { mcpPlugin, jwt } from "@routecraft/ai";
-import { telemetry } from "@routecraft/routecraft";
+import { mcpPlugin, jwt, llmPlugin } from "@routecraft/ai";
+import type { CraftConfig } from "@routecraft/routecraft";
+import { version } from "package.json";
 
-const jwtSecret = process.env["JWT_SECRET"];
-if (!jwtSecret) {
-  throw new Error("JWT_SECRET environment variable is required");
-}
-
-export default {
+export const craftConfig: CraftConfig = {
+  telemetry: { sqlite: { captureSnapshots: true } },
+  mail: {
+    accounts: {
+      default: {
+        imap: {
+          host: "imap.gmail.com",
+          auth: {
+            user: process.env["MAIL_USER"] ?? "",
+            pass: process.env["MAIL_APP_PASSWORD"] ?? "",
+          },
+        },
+        smtp: {
+          host: "smtp.gmail.com",
+          auth: {
+            user: process.env["MAIL_USER"] ?? "",
+            pass: process.env["MAIL_APP_PASSWORD"] ?? "",
+          },
+          from: process.env["MAIL_USER"] ?? "",
+        },
+      },
+    },
+  },
   plugins: [
-    telemetry({ sqlite: { captureSnapshots: true } }),
     mcpPlugin({
       name: "routecraft",
-      version: "1.0.0",
+      version: version,
       transport: "http",
-      auth: jwt({ secret: jwtSecret }),
+      auth: jwt({ secret: process.env["JWT_SECRET"] ?? "" }),
+    }),
+    llmPlugin({
+      providers: {
+        gemini: { apiKey: process.env["GEMINI_API_KEY"] ?? "" },
+        openrouter: { apiKey: process.env["OPENROUTER_API_KEY"] ?? "" },
+      },
     }),
   ],
 };

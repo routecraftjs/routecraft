@@ -36,6 +36,13 @@ if (hasTSFile && !process.env["CRAFT_TSX_LOADER"]) {
   const { createRequire } = await import("node:module");
   // Resolve tsx/esm relative to the CLI package so it works regardless of CWD
   const tsxEsmPath = createRequire(import.meta.url).resolve("tsx/esm");
+
+  // Let the child handle SIGINT/SIGTERM for graceful shutdown.
+  // Without this the parent dies on the first signal, orphaning the child
+  // mid-teardown (connections not closed, logs truncated).
+  process.on("SIGINT", () => {});
+  process.on("SIGTERM", () => {});
+
   try {
     execFileSync(
       process.execPath,

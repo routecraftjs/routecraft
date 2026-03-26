@@ -22,14 +22,14 @@ DSL operators with signatures and examples. {% .lead %}
 | [`batch`](#batch) | Route | Process exchanges in batches instead of one at a time |
 | [`error`](#error) | Route | Configure route-level error handling |
 | [`from`](#from) | Route | Define the source of data for the capability |
-| [`retry`](#retry) | Wrapper | Retry the next operation on failure {% badge %}wip{% /badge %} |
-| [`throttle`](#throttle) | Wrapper | Rate limit the next operation {% badge %}wip{% /badge %} |
-| [`cache`](#cache) | Wrapper | Cache and reuse results of the next operation {% badge %}wip{% /badge %} |
-| [`sample`](#sample) | Flow Control | Take every Nth exchange or time-based sampling {% badge %}wip{% /badge %} |
-| [`debounce`](#debounce) | Flow Control | Only pass exchanges after a quiet period {% badge %}wip{% /badge %} |
-| [`timeout`](#timeout) | Wrapper | Cancel the next operation if it exceeds a duration {% badge %}wip{% /badge %} |
-| [`delay`](#delay) | Wrapper | Add delay before the next operation {% badge %}wip{% /badge %} |
-| [`onError`](#onError) | Wrapper | Handle errors from the next operation {% badge %}wip{% /badge %} |
+| [`retry`](#retry) | Wrapper | Retry the next operation on failure {% badge color="purple" %}planned{% /badge %} |
+| [`throttle`](#throttle) | Wrapper | Rate limit the next operation {% badge color="purple" %}planned{% /badge %} |
+| [`cache`](#cache) | Wrapper | Cache and reuse results of the next operation {% badge color="purple" %}planned{% /badge %} |
+| [`sample`](#sample) | Flow Control | Take every Nth exchange or time-based sampling {% badge color="purple" %}planned{% /badge %} |
+| [`debounce`](#debounce) | Flow Control | Only pass exchanges after a quiet period {% badge color="purple" %}planned{% /badge %} |
+| [`timeout`](#timeout) | Wrapper | Cancel the next operation if it exceeds a duration {% badge color="purple" %}planned{% /badge %} |
+| [`delay`](#delay) | Wrapper | Add delay before the next operation {% badge color="purple" %}planned{% /badge %} |
+| [`onError`](#onError) | Wrapper | Handle errors from the next operation {% badge color="purple" %}planned{% /badge %} |
 | [`transform`](#transform) | Transform | Transform data using a function (body only) |
 | [`map`](#map) | Transform | Map fields from source to target object |
 | [`process`](#process) | Transform | Process data with full exchange access |
@@ -37,12 +37,12 @@ DSL operators with signatures and examples. {% .lead %}
 | [`enrich`](#enrich) | Transform | Add additional data to current data |
 | [`filter`](#filter) | Flow Control | Filter data based on predicate |
 | [`validate`](#validate) | Flow Control | Validate data against schema |
-| [`dedupe`](#dedupe) | Flow Control | Suppress duplicate exchanges based on a key {% badge %}wip{% /badge %} |
-| [`choice`](#choice) | Flow Control | Route to different paths based on conditions {% badge %}wip{% /badge %} |
+| [`dedupe`](#dedupe) | Flow Control | Suppress duplicate exchanges based on a key {% badge color="purple" %}planned{% /badge %} |
+| [`choice`](#choice) | Flow Control | Route to different paths based on conditions {% badge color="purple" %}planned{% /badge %} |
 | [`split`](#split) | Flow Control | Split arrays into individual items |
 | [`aggregate`](#aggregate) | Flow Control | Combine multiple items into single result |
-| [`multicast`](#multicast) | Flow Control | Send exchange to multiple destinations {% badge %}wip{% /badge %} |
-| [`loop`](#loop) | Flow Control | Repeat operations while condition is true {% badge %}wip{% /badge %} |
+| [`multicast`](#multicast) | Flow Control | Send exchange to multiple destinations {% badge color="purple" %}planned{% /badge %} |
+| [`loop`](#loop) | Flow Control | Repeat operations while condition is true {% badge color="purple" %}planned{% /badge %} |
 | [`tap`](#tap) | Side Effect | Fire-and-forget side effect, does not block the pipeline |
 | [`to`](#to) | Side Effect | Send data to a destination adapter and end the pipeline |
 
@@ -190,7 +190,7 @@ Defines the source adapter and creates the capability. Must come after all other
 
 Wrappers apply to the **next operation only** in outside-in order. See [Operations](/docs/introduction/operations#chaining-wrappers) for chaining semantics.
 
-### retry {% badge %}wip{% /badge %}
+### retry {% badge color="purple" %}planned{% /badge %}
 
 ```ts
 retry(options?: {
@@ -260,7 +260,7 @@ craft()
   .to(destination)
 ```
 
-### throttle {% badge %}wip{% /badge %}
+### throttle {% badge color="purple" %}planned{% /badge %}
 
 ```ts
 throttle(options: { requestsPerSecond: number } | { requestsPerMinute: number }): RouteBuilder<Current>
@@ -277,7 +277,7 @@ craft()
   .to(destination)
 ```
 
-### timeout {% badge %}wip{% /badge %}
+### timeout {% badge color="purple" %}planned{% /badge %}
 
 ```ts
 timeout(timeoutMs: number): RouteBuilder<Current>
@@ -296,7 +296,7 @@ craft()
 
 See [chaining wrappers](#chaining-wrappers) for combining with `retry` or `onError`.
 
-### delay {% badge %}wip{% /badge %}
+### delay {% badge color="purple" %}planned{% /badge %}
 
 ```ts
 delay(delayMs: number): RouteBuilder<Current>
@@ -313,7 +313,7 @@ craft()
   .to(destination)
 ```
 
-### onError {% badge %}wip{% /badge %}
+### onError {% badge color="purple" %}planned{% /badge %}
 
 ```ts
 onError(handler: (error: Error, exchange: Exchange<Current>) => Exchange<Current> | void): RouteBuilder<Current>
@@ -333,7 +333,7 @@ craft()
   .to(destination)
 ```
 
-### cache {% badge %}wip{% /badge %}
+### cache {% badge color="purple" %}planned{% /badge %}
 
 ```ts
 cache(options?: CacheOptions): RouteBuilder<Current>
@@ -593,7 +593,7 @@ const userSchema = z.object({
 // Dropped exchanges show: "validation failed: "email": Invalid email; "age": Number must be greater than or equal to 0"
 ```
 
-### dedupe {% badge %}wip{% /badge %}
+### dedupe {% badge color="purple" %}planned{% /badge %}
 
 ```ts
 dedupe(options?: DedupeOptions): RouteBuilder<Current>
@@ -674,7 +674,7 @@ When the body contains an unsupported type, a `RoutecraftError` is thrown indica
 Use an explicit `keyFn` when you need stable identity across body changes. For example, if the body is enriched or transformed before `dedupe`/`cache`, but identity should be based on a header set earlier by an adapter.
 {% /callout %}
 
-### choice {% badge %}wip{% /badge %}
+### choice {% badge color="purple" %}planned{% /badge %}
 
 ```ts
 choice<T = Current>(routes: Array<{ when: (body: Current) => boolean; then: RouteBuilder<T> }>): RouteBuilder<T>
@@ -767,7 +767,7 @@ If no aggregator is provided, exchange bodies are automatically collected into a
 }))
 ```
 
-### multicast {% badge %}wip{% /badge %}
+### multicast {% badge color="purple" %}planned{% /badge %}
 
 ```ts
 multicast(destinations: Array<RouteBuilder<any>>): RouteBuilder<Current>
@@ -784,7 +784,7 @@ Send the same exchange to multiple destinations simultaneously. Each destination
 ```
 
 
-### loop {% badge %}wip{% /badge %}
+### loop {% badge color="purple" %}planned{% /badge %}
 
 ```ts
 loop(condition: (body: Current, iteration: number) => boolean, maxIterations?: number): RouteBuilder<Current>
@@ -801,7 +801,7 @@ Repeat the subsequent operations while the condition remains true. Includes safe
 .process(fetchNextPage)
 ```
 
-### sample {% badge %}wip{% /badge %}
+### sample {% badge color="purple" %}planned{% /badge %}
 
 ```ts
 sample(options: { every?: number; intervalMs?: number }): RouteBuilder<Current>
@@ -823,7 +823,7 @@ Take every Nth exchange or sample at time intervals. Useful for reducing data vo
 .to(database({ operation: 'save' }))
 ```
 
-### debounce {% badge %}wip{% /badge %}
+### debounce {% badge color="purple" %}planned{% /badge %}
 
 ```ts
 debounce(options: { quietMs: number }): RouteBuilder<Current>
