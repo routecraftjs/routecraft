@@ -412,6 +412,15 @@ jobs:
       id-token: write
       contents: read
     steps:
+      - name: Validate release name matches tag
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          NAME="${{ github.event.release.name }}"
+          if [ "$TAG" != "$NAME" ]; then
+            echo "::error::Release name ('$NAME') does not match tag ('$TAG'). They must be identical."
+            exit 1
+          fi
+
       - uses: actions/checkout@v6
 
       - name: Install pnpm
