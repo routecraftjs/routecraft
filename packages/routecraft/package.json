@@ -24,7 +24,6 @@
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.0",
-    "@routecraft/testing": "workspace:^0.4.0",
     "@standard-schema/spec": "^1.1.0",
     "pino": "^10.3.1"
   },
@@ -33,6 +32,7 @@
   },
   "devDependencies": {
     "@opentelemetry/sdk-trace-base": "^2.6.0",
+    "@routecraft/testing": "workspace:^0.4.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/mailparser": "^3.4.6",
     "@types/nodemailer": "^6.4.17",

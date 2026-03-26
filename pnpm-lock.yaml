@@ -352,9 +352,6 @@ importers:
       '@opentelemetry/api':
         specifier: ^1.9.0
         version: 1.9.0
-      '@routecraft/testing':
-        specifier: workspace:^0.4.0
-        version: link:../testing
       '@standard-schema/spec':
         specifier: ^1.1.0
         version: 1.1.0
@@ -368,6 +365,9 @@ importers:
       '@opentelemetry/sdk-trace-base':
         specifier: ^2.6.0
         version: 2.6.0(@opentelemetry/api@1.9.0)
+      '@routecraft/testing':
+        specifier: workspace:^0.4.0
+        version: link:../testing
       '@types/better-sqlite3':
         specifier: ^7.6.13
         version: 7.6.13
