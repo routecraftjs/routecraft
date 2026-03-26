@@ -83,11 +83,24 @@ export class ImapPool {
       this.entries.splice(this.entries.indexOf(idle), 1);
     }
 
-    // 3. Create new if under limit
+    // 3. Create new if under limit (reserve slot before async connect)
     if (this.entries.length < this.poolSize) {
-      const client = await this.createClient();
-      this.entries.push({ client, inUse: true, currentMailbox: null });
-      return client;
+      const placeholder = {
+        client: null as unknown as InstanceType<
+          typeof import("imapflow").ImapFlow
+        >,
+        inUse: true,
+        currentMailbox: null,
+      };
+      this.entries.push(placeholder);
+      try {
+        const client = await this.createClient();
+        placeholder.client = client;
+        return client;
+      } catch (error) {
+        this.entries.splice(this.entries.indexOf(placeholder), 1);
+        throw error;
+      }
     }
 
     // 4. Queue and wait for release
@@ -100,9 +113,14 @@ export class ImapPool {
    * Release an IMAP client back to the pool.
    */
   release(client: InstanceType<typeof import("imapflow").ImapFlow>): void {
-    if (!client.usable) return;
     const entry = this.entries.find((c) => c.client === client);
     if (!entry) return;
+
+    // Remove dead connections so their slot can be reused
+    if (!client.usable) {
+      this.entries.splice(this.entries.indexOf(entry), 1);
+      return;
+    }
 
     // If someone is waiting, hand directly
     const waiter = this.waitQueue.shift();

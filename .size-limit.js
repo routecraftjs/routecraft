@@ -18,6 +18,7 @@ function readExternals(pkgPath) {
 const nodeBuiltins = ["node:*"];
 
 function makeNodeEsmConfig(name, path, limit, pkgJsonPath) {
+  const pkgExternals = readExternals(pkgJsonPath);
   return {
     name,
     path,
@@ -29,7 +30,7 @@ function makeNodeEsmConfig(name, path, limit, pkgJsonPath) {
       config.external = [
         ...(config.external || []),
         ...nodeBuiltins,
-        ...readExternals(pkgJsonPath),
+        ...pkgExternals,
       ];
       return config;
     },
