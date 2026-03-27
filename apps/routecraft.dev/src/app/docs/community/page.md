@@ -12,3 +12,9 @@ See the repository `README.md` for contribution guidelines and licensing.
 {% quick-link title="FAQ" icon="installation" href="/docs/community/faq" description="Answers to common questions." /%}
 
 {% /quick-links %}
+
+---
+
+## Community resources
+
+- **[awesome-routecraft](https://github.com/routecraftjs/awesome-routecraft)**: tutorials, tools, and community projects
