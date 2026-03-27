@@ -177,12 +177,9 @@ declare module "./builder.ts" {
      * })
      * ```
      */
-    map<Return>(
-      fieldMappings: Record<
-        keyof Return,
-        (src: Current) => Return[keyof Return]
-      >,
-    ): RouteBuilder<Return>;
+    map<Return>(fieldMappings: {
+      [K in keyof Return]: (src: Current) => Return[K];
+    }): RouteBuilder<Return>;
 
     /**
      * Validate the exchange body against a Standard Schema. Sugar for

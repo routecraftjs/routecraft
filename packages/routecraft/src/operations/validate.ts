@@ -91,17 +91,15 @@ export function schema<S extends StandardSchemaV1>(
       if (rawResult instanceof Promise) rawResult = await rawResult;
       const result = rawResult as StandardSchemaResult;
 
-      if (
-        result.issues !== undefined &&
-        result.issues !== null &&
-        (Array.isArray(result.issues) ? result.issues.length > 0 : true)
-      ) {
+      if (result.issues) {
         throw rcError("RC5002", new Error(formatSchemaIssues(result.issues)), {
           message: `Validation failed: ${formatSchemaIssues(result.issues)}`,
         });
       }
 
-      return (result.value ?? exchange.body) as StandardSchemaV1.InferOutput<S>;
+      return (
+        "value" in result ? result.value : exchange.body
+      ) as StandardSchemaV1.InferOutput<S>;
     },
   };
 }

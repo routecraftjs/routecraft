@@ -47,16 +47,14 @@ export interface Transformer<T = unknown, R = T> extends Adapter {
  *   .to(dest)
  * ```
  */
-export function mapper<T, R>(
-  fieldMappings: Record<keyof R, (src: T) => R[keyof R]>,
-): CallableTransformer<T, R> {
+export function mapper<T, R>(fieldMappings: {
+  [K in keyof R]: (src: T) => R[K];
+}): CallableTransformer<T, R> {
   return (message: T): R => {
     const result = {} as R;
-    for (const [targetField, mapperFn] of Object.entries(fieldMappings) as [
-      keyof R,
-      (src: T) => R[keyof R],
-    ][]) {
-      result[targetField as keyof R] = mapperFn(message);
+    for (const key in fieldMappings) {
+      const k = key as keyof R;
+      result[k] = fieldMappings[k](message);
     }
     return result;
   };
