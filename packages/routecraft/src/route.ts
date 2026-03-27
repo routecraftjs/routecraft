@@ -465,13 +465,16 @@ export class DefaultRoute implements Route {
 
       const [step, ...remainingSteps] = steps;
 
+      // Prefer the DSL label (e.g., "log") over the raw OperationType (e.g., "tap")
+      const stepLabel = step.label ?? step.operation;
+
       // Update operation header for this step
-      exchange.headers[HeadersKeys.OPERATION] = step.operation;
+      exchange.headers[HeadersKeys.OPERATION] = stepLabel;
 
       const adapterLabel = getAdapterLabel(step.adapter);
       exchange.logger.debug(
         {
-          operation: step.operation,
+          operation: stepLabel,
           ...(adapterLabel ? { adapter: adapterLabel } : {}),
         },
         "Processing step",
@@ -488,7 +491,7 @@ export class DefaultRoute implements Route {
           routeId: this.definition.id,
           exchangeId: exchange.id,
           correlationId,
-          operation: step.operation,
+          operation: stepLabel,
           ...(adapterLabel ? { adapter: adapterLabel } : {}),
         });
       }
@@ -508,14 +511,14 @@ export class DefaultRoute implements Route {
               routeId: this.definition.id,
               exchangeId: exchange.id,
               correlationId,
-              operation: step.operation,
+              operation: stepLabel,
               ...(adapterLabel ? { adapter: adapterLabel } : {}),
               duration: stepDuration,
             },
           );
         }
       } catch (error) {
-        const err = this.processError(step.operation, error);
+        const err = this.processError(stepLabel, error);
         const correlationId = exchange.headers[
           HeadersKeys.CORRELATION_ID
         ] as string;
@@ -523,12 +526,12 @@ export class DefaultRoute implements Route {
 
         // Emit step-level error
         this.context.emit(
-          `route:${this.definition.id}:step:${step.operation}:error` as EventName,
+          `route:${this.definition.id}:step:${stepLabel}:error` as EventName,
           {
             error: err,
             route: this,
             exchange,
-            operation: step.operation,
+            operation: stepLabel,
           },
         );
 
@@ -553,10 +556,10 @@ export class DefaultRoute implements Route {
               },
             );
           } catch (handlerError) {
-            const handlerErr = this.processError(step.operation, handlerError);
+            const handlerErr = this.processError(stepLabel, handlerError);
             exchange.logger.error(
               {
-                operation: step.operation,
+                operation: stepLabel,
                 err: handlerErr,
                 context: "error handler",
               },
@@ -601,7 +604,7 @@ export class DefaultRoute implements Route {
         // No error handler -- route-level error
         exchange.logger.error(
           {
-            operation: step.operation,
+            operation: stepLabel,
             ...(adapterLabel ? { adapter: adapterLabel } : {}),
             err,
           },
@@ -729,7 +732,7 @@ export class DefaultRoute implements Route {
    * @private
    */
   private processError(
-    _operation: OperationType,
+    _operation: OperationType | string,
     error: unknown,
   ): RoutecraftError {
     if (isRoutecraftError(error)) {

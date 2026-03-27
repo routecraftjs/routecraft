@@ -103,8 +103,8 @@ export const HeadersKeys = {
  * {@link HeaderKeysRegistry} to add typed headers.
  */
 export interface RoutecraftHeaders {
-  /** The current operation being performed */
-  "routecraft.operation": OperationType;
+  /** The current operation being performed (OperationType or DSL label) */
+  "routecraft.operation": OperationType | string;
 
   /** The ID of the route processing this exchange */
   "routecraft.route": string;

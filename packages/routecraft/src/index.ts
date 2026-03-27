@@ -38,7 +38,13 @@ export { type Splitter } from "./operations/split.ts";
 
 export { type Aggregator } from "./operations/aggregate.ts";
 
-export { type Transformer } from "./operations/transform.ts";
+export { type Transformer, mapper } from "./operations/transform.ts";
+
+export {
+  type Validator,
+  type CallableValidator,
+  schema,
+} from "./operations/validate.ts";
 
 export { type Filter, type FilterDropResult } from "./operations/filter.ts";
 
@@ -57,6 +63,14 @@ export {
   RouteBuilder,
   type RouteOptions,
 } from "./builder.ts";
+
+export {
+  registerDsl,
+  type PrimitiveKind,
+  type DslRegistration,
+} from "./dsl.ts";
+// Side-effect import: triggers built-in sugar registrations (.log, .debug, .map, .schema)
+import "./dsl.ts";
 
 export {
   RoutecraftError,

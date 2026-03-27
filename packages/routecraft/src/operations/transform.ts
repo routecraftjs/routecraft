@@ -24,6 +24,43 @@ export interface Transformer<T = unknown, R = T> extends Adapter {
 }
 
 /**
+ * Creates a transformer from declarative field mappings. Each key in the
+ * mapping corresponds to a field in the output type, with a function that
+ * extracts the value from the source body.
+ *
+ * Use with `.transform(mapper({...}))` or the `.map()` sugar method.
+ *
+ * @experimental
+ * @template T - Source body type
+ * @template R - Result body type
+ * @param fieldMappings - Object mapping output field names to extractor functions
+ * @returns A callable transformer that maps each field via the provided functions
+ *
+ * @example
+ * ```ts
+ * craft()
+ *   .from(source)
+ *   .transform(mapper<ApiUser, DbUser>({
+ *     id: (user) => user.userId,
+ *     name: (user) => user.fullName,
+ *   }))
+ *   .to(dest)
+ * ```
+ */
+export function mapper<T, R>(fieldMappings: {
+  [K in keyof R]: (src: T) => R[K];
+}): CallableTransformer<T, R> {
+  return (message: T): R => {
+    const result = {} as R;
+    for (const key in fieldMappings) {
+      const k = key as keyof R;
+      result[k] = fieldMappings[k](message);
+    }
+    return result;
+  };
+}
+
+/**
  * Step that replaces the exchange body with the result of the transformer.
  * Headers and id are unchanged.
  */
@@ -31,6 +68,7 @@ export class TransformStep<T = unknown, R = T> implements Step<
   Transformer<T, R>
 > {
   operation: OperationType = OperationType.TRANSFORM;
+  label?: string;
   adapter: Transformer<T, R>;
 
   constructor(adapter: Transformer<T, R> | CallableTransformer<T, R>) {

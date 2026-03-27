@@ -3,19 +3,45 @@ import { z } from "zod";
 import { craft, simple, only, json } from "../src/index.ts";
 import type { RouteBuilder } from "../src/builder.ts";
 
-describe("validate() type safety", () => {
+describe("schema() type safety", () => {
   const nameSchema = z.object({ name: z.string() });
 
   /**
-   * @case validate(schema) narrows body type to schema output
-   * @preconditions .from(simple({ id: 0 })).validate(nameSchema)
+   * @case schema(standardSchema) narrows body type to schema output
+   * @preconditions .from(simple({ id: 0 })).schema(nameSchema)
    * @expectedResult RouteBuilder<{ name: string }> (StandardSchemaV1.InferOutput of schema)
    */
-  test("validate(schema) infers RouteBuilder with schema output type", () => {
+  test("schema(standardSchema) infers RouteBuilder with schema output type", () => {
     const route = craft()
       .from(simple({ id: 0 }))
-      .validate(nameSchema);
+      .schema(nameSchema);
     expectTypeOf(route).toEqualTypeOf<RouteBuilder<{ name: string }>>();
+  });
+});
+
+describe("validate() type safety", () => {
+  /**
+   * @case validate(callable) narrows body type via generic R
+   * @preconditions .from(simple("42")).validate<number>(...)
+   * @expectedResult RouteBuilder<number>
+   */
+  test("validate(callable) infers RouteBuilder with return type R", () => {
+    const route = craft()
+      .from(simple("42"))
+      .validate<number>((exchange) => Number(exchange.body));
+    expectTypeOf(route).toEqualTypeOf<RouteBuilder<number>>();
+  });
+
+  /**
+   * @case validate(Validator adapter) narrows body type via generic R
+   * @preconditions .from(simple("hello")).validate<string>({ validate: ... })
+   * @expectedResult RouteBuilder<string>
+   */
+  test("validate(adapter) infers RouteBuilder with return type R", () => {
+    const route = craft()
+      .from(simple("hello"))
+      .validate<string>({ validate: (ex) => ex.body.toUpperCase() });
+    expectTypeOf(route).toEqualTypeOf<RouteBuilder<string>>();
   });
 });
 

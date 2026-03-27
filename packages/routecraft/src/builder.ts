@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { BRAND, ENRICH_MERGE_TYPE, isRouteBuilder, setBrand } from "./brand.ts";
 import { type RouteDefinition, type ErrorHandler } from "./route.ts";
 import {
@@ -59,7 +58,11 @@ import {
   type Filter,
   FilterStep,
 } from "./operations/filter.ts";
-import { ValidateStep } from "./operations/validate.ts";
+import {
+  type Validator,
+  type CallableValidator,
+  ValidateStep,
+} from "./operations/validate.ts";
 import {
   EnrichStep,
   type DestinationAggregator,
@@ -68,7 +71,7 @@ import {
 } from "./operations/enrich.ts";
 import { HeaderStep } from "./operations/header.ts";
 import { type HeaderValue } from "./exchange.ts";
-// Binder mechanism removed
+import { PUSH_STEP } from "./dsl-symbol.ts";
 
 /**
  * Builder for creating a Routecraft context with routes and configuration.
@@ -533,6 +536,15 @@ export class RouteBuilder<Current = unknown> {
   }
 
   /**
+   * Symbol-keyed method for registerDsl to add steps without exposing
+   * addStep as public API. Not visible in autocomplete.
+   */
+  [PUSH_STEP]<T extends Adapter>(step: Step<T>): this {
+    this.addStep(step);
+    return this;
+  }
+
+  /**
    * Process the data with a custom function.
    *
    * @template Return The resulting type after processing (defaults to Current if not specified)
@@ -731,46 +743,6 @@ export class RouteBuilder<Current = unknown> {
   }
 
   /**
-   * Map fields from the current data to create a new object of a specified type.
-   * This is a specialized transformer that creates a new object by mapping fields
-   * from the source object.
-   *
-   * @template Return The resulting type after mapping
-   * @param fieldMappings An object where keys are field names in the output type and values are
-   *                      functions that extract the corresponding values from the source
-   * @returns A RouteBuilder with the new type Return
-   * @example
-   * // Map from API response to database model
-   * .map<DbUser>({
-   *   id: (apiUser) => apiUser.userId,
-   *   name: (apiUser) => apiUser.fullName,
-   *   email: (apiUser) => apiUser.emailAddress
-   * })
-   */
-  map<Return>(
-    fieldMappings: Record<keyof Return, (src: Current) => Return[keyof Return]>,
-  ): RouteBuilder<Return> {
-    // Create a transformer function from the field mappings
-    const transformer: CallableTransformer<Current, Return> = (
-      message: Current,
-    ): Return => {
-      const result = {} as Return;
-
-      for (const [targetField, mapperFn] of Object.entries(fieldMappings) as [
-        keyof Return,
-        (src: Current) => Return[keyof Return],
-      ][]) {
-        result[targetField as keyof Return] = mapperFn(message);
-      }
-
-      return result;
-    };
-
-    // Use the transform method with our created transformer
-    return this.transform<Return>(transformer);
-  }
-
-  /**
    * Execute a side effect without changing the data.
    * This is useful for logging, metrics, or other operations that don't modify the data.
    * The type remains the same after tapping.
@@ -831,26 +803,34 @@ export class RouteBuilder<Current = unknown> {
   }
 
   /**
-   * Validate data against a Standard Schema. If validation fails, the
-   * exchange is dropped with a reason describing which fields failed.
+   * Validate the exchange body using a Validator adapter or callable
+   * function. On success the (possibly coerced) return value replaces
+   * the body. On failure the adapter throws and the route error handler
+   * (if configured) or the default error path handles it.
    *
-   * @param schema A Standard Schema (Zod, Valibot, ArkType, etc.)
-   * @returns A RouteBuilder narrowed to the schema's output type
+   * For Standard Schema validation, use the `.schema()` sugar or pass
+   * the `schema()` factory: `.validate(schema(z.object({...})))`.
+   *
+   * @template R - Output body type after validation (defaults to Current)
+   * @param validator - A Validator adapter or callable function
+   * @returns A RouteBuilder with the validated type R
    * @example
    * ```ts
-   * import { z } from "zod";
+   * // Custom validator
+   * .validate((exchange) => {
+   *   if (!exchange.body.email) throw new Error("email required");
+   *   return exchange.body;
+   * })
    *
-   * craft()
-   *   .from(direct("endpoint", { schema: z.object({ name: z.string() }) }))
-   *   .validate(z.object({ name: z.string().min(1) }))
-   *   .to(consumer)
+   * // Standard Schema via factory
+   * .validate(schema(z.object({ name: z.string() })))
    * ```
    */
-  validate<S extends StandardSchemaV1>(
-    schema: S,
-  ): RouteBuilder<StandardSchemaV1.InferOutput<S>> {
-    this.addStep(new ValidateStep(schema));
-    return this.withType<StandardSchemaV1.InferOutput<S>>();
+  validate<R = Current>(
+    validator: Validator<Current, R> | CallableValidator<Current, R>,
+  ): RouteBuilder<R> {
+    this.addStep(new ValidateStep<Current, R>(validator));
+    return this.withType<R>();
   }
 
   /**

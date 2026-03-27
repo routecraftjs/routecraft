@@ -35,6 +35,7 @@ function snapshotExchange<T>(
  */
 export class TapStep<T = unknown> implements Step<Destination<T, unknown>> {
   operation: OperationType = OperationType.TAP;
+  label?: string;
   adapter: Destination<T, unknown>;
   metadata?: Record<string, unknown>;
 
@@ -77,12 +78,16 @@ export class TapStep<T = unknown> implements Step<Destination<T, unknown>> {
           suggestion:
             "Tap errors can be handled in the route-level error() operation.",
         });
-        context.emit(`route:${route.definition.id}:step:tap:error` as const, {
-          error: err,
-          route,
-          exchange: snapshot,
-          operation: "tap",
-        });
+        const tapLabel = this.label ?? "tap";
+        context.emit(
+          `route:${route.definition.id}:step:${tapLabel}:error` as const,
+          {
+            error: err,
+            route,
+            exchange: snapshot,
+            operation: tapLabel,
+          },
+        );
         throw err; // Reject for observability
       }
     })();

@@ -34,6 +34,14 @@ export interface Step<T extends Adapter> {
   adapter: T;
 
   /**
+   * Display name shown in traces, logs, and step events instead of the
+   * raw OperationType. Set automatically by registerDsl for sugar methods
+   * (e.g., "log" instead of "tap", "schema" instead of "validate").
+   * When absent, the operation field is used.
+   */
+  label?: string;
+
+  /**
    * When true, runSteps will not emit generic step:started/step:completed
    * events for this step. The step is responsible for emitting its own
    * lifecycle events with the correct exchange identity.
@@ -393,7 +401,7 @@ type RouteEventDetails<S extends string> =
                   routeId: string;
                   exchangeId: string;
                   correlationId: string;
-                  operation: OperationType;
+                  operation: OperationType | string;
                   adapter?: string;
                 }
               : S extends "step:completed"
@@ -401,7 +409,7 @@ type RouteEventDetails<S extends string> =
                     routeId: string;
                     exchangeId: string;
                     correlationId: string;
-                    operation: OperationType;
+                    operation: OperationType | string;
                     adapter?: string;
                     duration: number;
                     metadata?: Record<string, unknown>;
@@ -411,7 +419,7 @@ type RouteEventDetails<S extends string> =
                       routeId: string;
                       exchangeId: string;
                       correlationId: string;
-                      operation: OperationType;
+                      operation: OperationType | string;
                       adapter?: string;
                       duration: number;
                       error: string;
