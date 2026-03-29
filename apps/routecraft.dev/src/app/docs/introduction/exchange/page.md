@@ -76,6 +76,30 @@ Routecraft sets a number of `routecraft.*` headers automatically on every exchan
 
 These are useful for logging, debugging, and correlating exchanges across capability chains.
 
+### Adapter-specific headers
+
+Chunked file-based adapters set additional headers on each emitted exchange:
+
+| Header | Type | Set by | Description |
+| --- | --- | --- | --- |
+| `routecraft.file.line` | `number` | `file({ chunked: true })` | 1-based line number in the source file |
+| `routecraft.file.path` | `string` | `file({ chunked: true })` | Path of the source file |
+| `routecraft.csv.row` | `number` | `csv({ chunked: true })` | 1-based data row number (excludes header row) |
+| `routecraft.csv.path` | `string` | `csv({ chunked: true })` | Path of the source CSV file |
+| `routecraft.jsonl.line` | `number` | `jsonl({ chunked: true })` | 1-based line number in the source JSONL file |
+| `routecraft.jsonl.path` | `string` | `jsonl({ chunked: true })` | Path of the source JSONL file |
+
+Access these via the exported `HeadersKeys` constant for type safety:
+
+```ts
+import { HeadersKeys } from '@routecraft/routecraft'
+
+.process((exchange) => {
+  const lineNum = exchange.headers[HeadersKeys.JSONL_LINE]
+  const filePath = exchange.headers[HeadersKeys.JSONL_PATH]
+  return exchange
+})
+
 ## Body vs full exchange access
 
 Most operations give you a choice: work with just the body, or the full exchange.

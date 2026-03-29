@@ -722,7 +722,8 @@ import { mcp } from "@routecraft/mcp-adapter";
 
 ### file
 ```ts
-file(options: FileOptions): FileAdapter
+file(options: FileOptions & { chunked: true }): Source<string>
+file(options: FileOptions): FileAdapter   // Source<string> & Destination<unknown, void>
 ```
 
 Read and write plain text files. For structured data, use `json` or `csv` adapters.
@@ -862,7 +863,8 @@ Parse and format JSON data, or read/write JSON files.
 
 ### csv
 ```ts
-csv(options: CsvOptions): CsvAdapter
+csv(options: CsvOptions & { chunked: true }): Source<CsvRow>
+csv(options: CsvOptions): CsvAdapter   // Source<CsvData> & Destination<unknown, void>
 ```
 
 Read and write CSV files with automatic parsing/formatting. **Requires `papaparse` as a peer dependency.**
