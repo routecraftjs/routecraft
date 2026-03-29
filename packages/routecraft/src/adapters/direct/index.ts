@@ -91,3 +91,4 @@ export {
   ADAPTER_DIRECT_REGISTRY,
   sanitizeEndpoint,
 } from "./shared";
+export { directPlugin } from "./plugin";

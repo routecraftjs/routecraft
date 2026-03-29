@@ -34,6 +34,7 @@ export const navigation = [
         href: '/docs/advanced/composing-capabilities',
       },
       { title: 'Error Handling', href: '/docs/advanced/error-handling' },
+      { title: 'Merged Options', href: '/docs/advanced/merged-options' },
       { title: 'Creating adapters', href: '/docs/advanced/custom-adapters' },
       { title: 'Expose as MCP', href: '/docs/advanced/expose-as-mcp' },
       { title: 'Call an MCP', href: '/docs/advanced/call-an-mcp' },

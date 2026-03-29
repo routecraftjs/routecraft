@@ -138,20 +138,56 @@ export function myQueue(options: MyQueueOptions) {
 .to(myQueue({ queue: 'results' }))
 ```
 
-## Sharing state between adapters
+## Supporting merged options
 
-Adapters can use the context store to share state, read global configuration set by plugins, or maintain connections across exchanges.
+If your adapter has options that users might want to set once for the entire context (connection strings, timeouts, credentials), implement `MergedOptions<T>`. This lets users register defaults via a plugin while still allowing per-adapter overrides.
 
 ```ts
-class DbAdapter implements Destination<any, void> {
+import { type MergedOptions, type CraftContext } from '@routecraft/routecraft'
+
+const MY_OPTIONS = Symbol.for('acme.adapter.my-adapter.options')
+
+declare module '@routecraft/routecraft' {
+  interface StoreRegistry {
+    [MY_OPTIONS]: Partial<MyOptions>
+  }
+}
+
+class MyAdapter implements Destination<unknown, void>, MergedOptions<MyOptions> {
+  readonly adapterId = 'acme.adapter.my-adapter'
+  public options: Partial<MyOptions>
+
+  constructor(options?: Partial<MyOptions>) {
+    this.options = options ?? {}
+  }
+
+  mergedOptions(context: CraftContext): MyOptions {
+    const store = context.getStore(MY_OPTIONS) as Partial<MyOptions> | undefined
+    return { ...store, ...this.options }
+  }
+
   async send(exchange) {
-    const config = exchange.context.getStore('db.config')
-    await db(config.connectionString).insert(exchange.body)
+    const opts = this.mergedOptions(exchange.context)
+    // ...
   }
 }
 ```
 
-See [Plugins](/docs/advanced/plugins) for how to populate the context store at startup.
+Then ship a companion plugin so users have a typed, discoverable API:
+
+```ts
+export function myAdapterPlugin(defaults: Partial<MyOptions>): CraftPlugin {
+  return {
+    apply(ctx) { ctx.setStore(MY_OPTIONS, defaults) },
+  }
+}
+```
+
+See the [Merged Options guide](/docs/advanced/merged-options) for the full walkthrough and design rationale.
+
+## Sharing state between adapters
+
+Adapters can use the context store to share state, read global configuration set by plugins, or maintain connections across exchanges. See [Plugins](/docs/advanced/plugins) for how to populate the context store at startup.
 
 ---
 

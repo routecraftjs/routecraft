@@ -8,9 +8,84 @@ Full catalog of built-in plugins with options and behaviour. {% .lead %}
 
 | Plugin | Package | Description |
 |--------|---------|-------------|
+| [`cronPlugin`](#cronplugin) | `@routecraft/routecraft` | Set default options for all `cron()` sources |
+| [`directPlugin`](#directplugin) | `@routecraft/routecraft` | Set default options for all `direct()` adapters |
 | [`llmPlugin`](#llmplugin) | `@routecraft/ai` | Register LLM providers for use with `llm()` |
 | [`embeddingPlugin`](#embeddingplugin) | `@routecraft/ai` | Register embedding providers for use with `embedding()` |
 | [`mcpPlugin`](#mcpplugin) | `@routecraft/ai` | Start an MCP server and register remote MCP clients |
+
+## cronPlugin
+
+```ts
+import { cronPlugin } from '@routecraft/routecraft'
+```
+
+Registers context-level default options for all `cron()` sources. Options set here are merged into every `cron()` adapter in the same context. Per-adapter options always take precedence.
+
+```ts
+import { cronPlugin } from '@routecraft/routecraft'
+import type { CraftConfig } from '@routecraft/routecraft'
+
+const config: CraftConfig = {
+  plugins: [
+    cronPlugin({
+      timezone: 'UTC',
+      jitterMs: 2000,
+    }),
+  ],
+}
+
+export default config
+```
+
+**Options** (all fields from `CronOptions`, all optional):
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `timezone` | `string` | IANA timezone applied to all cron sources |
+| `maxFires` | `number` | Maximum fires before stopping |
+| `jitterMs` | `number` | Random delay in ms added to each fire |
+| `name` | `string` | Human-readable job name for observability |
+| `protect` | `boolean` | Prevent overlapping handler execution |
+| `startAt` | `Date \| string` | Date/ISO string at which cron jobs start |
+| `stopAt` | `Date \| string` | Date/ISO string at which cron jobs stop |
+
+See [`cron` adapter](/docs/reference/adapters#cron) for usage.
+
+## directPlugin
+
+```ts
+import { directPlugin } from '@routecraft/routecraft'
+```
+
+Registers context-level default options for all `direct()` adapters. Options set here are merged into every `direct()` source and destination in the same context. Per-adapter options always take precedence.
+
+```ts
+import { directPlugin } from '@routecraft/routecraft'
+import type { CraftConfig } from '@routecraft/routecraft'
+
+const config: CraftConfig = {
+  plugins: [
+    directPlugin({
+      description: 'Internal API',
+    }),
+  ],
+}
+
+export default config
+```
+
+**Options** (all fields from `DirectOptionsMerged`, all optional):
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `channelType` | `DirectChannelType` | Custom channel implementation for all direct endpoints |
+| `schema` | `StandardSchemaV1` | Default body schema |
+| `headerSchema` | `StandardSchemaV1` | Default header schema |
+| `description` | `string` | Default description for direct endpoints |
+| `keywords` | `string[]` | Default keywords for direct endpoints |
+
+See [`direct` adapter](/docs/reference/adapters#direct) for usage.
 
 ## llmPlugin
 
