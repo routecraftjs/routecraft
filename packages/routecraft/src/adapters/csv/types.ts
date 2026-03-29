@@ -46,6 +46,20 @@ export interface CsvOptions {
    * Default: 'write'
    */
   mode?: "write" | "append";
+
+  /**
+   * When true, emit one exchange per row instead of the entire parsed array.
+   * Only applies in source mode. Each exchange includes CSV_ROW and CSV_PATH headers.
+   * Default: false
+   */
+  chunked?: boolean;
+
+  /**
+   * How to handle rows that fail to parse in chunked mode.
+   * - 'throw': Abort on the first bad row (default)
+   * - 'skip': Log a warning and continue
+   */
+  onParseError?: "throw" | "skip";
 }
 
 export type CsvRow = Record<string, unknown> | string[];

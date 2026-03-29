@@ -121,6 +121,7 @@ export { file } from "./adapters/file/index.ts";
 export { html } from "./adapters/html/index.ts";
 export { json } from "./adapters/json/index.ts";
 export { csv } from "./adapters/csv/index.ts";
+export { jsonl } from "./adapters/jsonl/index.ts";
 export { group } from "./adapters/group/index.ts";
 export { event } from "./adapters/sources/event/index.ts";
 export { mail } from "./adapters/mail/index.ts";
@@ -158,7 +159,12 @@ export {
   type JsonTransformerOptions,
   type JsonFileOptions,
 } from "./adapters/json/index.ts";
-export { type CsvOptions } from "./adapters/csv/index.ts";
+export { type CsvOptions, type CsvRow } from "./adapters/csv/index.ts";
+export {
+  type JsonlOptions,
+  type JsonlSourceOptions,
+  type JsonlDestinationOptions,
+} from "./adapters/jsonl/index.ts";
 export { type GroupOptions } from "./adapters/group/index.ts";
 export {
   cosine,
