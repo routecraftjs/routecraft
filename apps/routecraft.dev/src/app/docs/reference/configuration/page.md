@@ -28,8 +28,8 @@ export const craftConfig = {
 | `store` | `Map<keyof StoreRegistry, StoreRegistry[keyof StoreRegistry]>` | No | — | Initial values for the context store |
 | `on` | `Partial<Record<EventName, EventHandler \| EventHandler[]>>` | No | — | Event handlers to register on context creation |
 | `once` | `Partial<Record<EventName, EventHandler \| EventHandler[]>>` | No | — | One-time event handlers that fire once then auto-unsubscribe |
-| `cron` | `Partial<CronOptions>` | No | — | Default options for all `cron()` sources ([details](#cron)) |
-| `direct` | `Partial<DirectOptionsMerged>` | No | — | Default options for all `direct()` adapters ([details](#direct)) |
+| `cron` | `Partial<CronOptions>` | No | -- | Default options for all `cron()` sources ([details](#cron)) |
+| `direct` | `Partial<DirectServerOptions>` | No | -- | Default options for all `direct()` adapters ([details](#direct)) |
 | `plugins` | `CraftPlugin[]` | No | — | Plugins to initialize before routes are registered |
 
 ## Core adapter defaults

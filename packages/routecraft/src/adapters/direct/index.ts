@@ -91,4 +91,3 @@ export {
   ADAPTER_DIRECT_REGISTRY,
   sanitizeEndpoint,
 } from "./shared";
-export type { DirectOptionsMerged } from "./shared";

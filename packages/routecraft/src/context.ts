@@ -4,8 +4,8 @@ import { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
 import { rcError, RC } from "./error.ts";
 import { isRoutecraftError } from "./brand.ts";
 import { logger, childBindings } from "./logger.ts";
-import { type DirectOptionsMerged } from "./adapters/direct/shared.ts";
 import { ADAPTER_DIRECT_OPTIONS } from "./adapters/direct/shared.ts";
+import { type DirectServerOptions } from "./adapters/direct/types.ts";
 import { type CronOptions } from "./adapters/cron/types.ts";
 import { ADAPTER_CRON_OPTIONS } from "./adapters/cron/source.ts";
 import { type HttpConfig } from "./adapters/http/types.ts";
@@ -88,7 +88,7 @@ export type CraftConfig = {
   /** Default options applied to all cron() sources in this context */
   cron?: Partial<CronOptions>;
   /** Default options applied to all direct() adapters in this context */
-  direct?: Partial<DirectOptionsMerged>;
+  direct?: Partial<DirectServerOptions>;
   /** Reserved: HTTP server config for inbound (no-op today) */
   http?: HttpConfig;
   /** Mail adapter configuration with named accounts */
