@@ -70,13 +70,13 @@ export default config
 
 The most common use of plugins and context configuration is setting default options for adapters so you do not repeat them in every capability.
 
-Core adapters (`cron`, `direct`) have dedicated fields on `CraftConfig`:
+Core adapters have dedicated fields on `CraftConfig`:
 
 ```ts
 // craft.config.ts
 const config: CraftConfig = {
   cron: { timezone: 'UTC', jitterMs: 2000 },
-  direct: { description: 'Internal API' },
+  direct: { channelType: KafkaChannel },
 }
 ```
 

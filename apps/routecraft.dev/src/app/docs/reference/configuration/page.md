@@ -29,7 +29,7 @@ export const craftConfig = {
 | `on` | `Partial<Record<EventName, EventHandler \| EventHandler[]>>` | No | — | Event handlers to register on context creation |
 | `once` | `Partial<Record<EventName, EventHandler \| EventHandler[]>>` | No | — | One-time event handlers that fire once then auto-unsubscribe |
 | `cron` | `Partial<CronOptions>` | No | -- | Default options for all `cron()` sources ([details](#cron)) |
-| `direct` | `Partial<DirectServerOptions>` | No | -- | Default options for all `direct()` adapters ([details](#direct)) |
+| `direct` | `{ channelType?: DirectChannelType }` | No | -- | Custom channel implementation for all `direct()` endpoints ([details](#direct)) |
 | `plugins` | `CraftPlugin[]` | No | — | Plugins to initialize before routes are registered |
 
 ## Core adapter defaults
@@ -58,21 +58,21 @@ const config: CraftConfig = {
 
 ### direct
 
-Default options applied to every `direct()` adapter in this context. Per-adapter options always take precedence.
+Sets the channel implementation used by all `direct()` endpoints in this context. Use this to swap the default in-memory channels for a distributed implementation (e.g. Kafka, Redis).
 
 ```ts
+import { KafkaChannel } from 'my-kafka-adapter'
+
 const config: CraftConfig = {
-  direct: { description: 'Internal API', keywords: ['internal'] },
+  direct: { channelType: KafkaChannel },
 }
 ```
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `channelType` | `DirectChannelType` | Custom channel implementation for all endpoints |
-| `schema` | `StandardSchemaV1` | Default body schema |
-| `headerSchema` | `StandardSchemaV1` | Default header schema |
-| `description` | `string` | Default description for direct endpoints |
-| `keywords` | `string[]` | Default keywords for direct endpoints |
+| `channelType` | `DirectChannelType` | Channel constructor used for all direct endpoints |
+
+When omitted, direct endpoints use the built-in in-memory channel (single-consumer, blocking send).
 
 ## Logging configuration
 

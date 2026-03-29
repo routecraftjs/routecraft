@@ -26,7 +26,6 @@ import type { CraftConfig } from '@routecraft/routecraft'
 
 const config: CraftConfig = {
   cron: { timezone: 'UTC', jitterMs: 2000 },
-  direct: { description: 'Internal API' },
 }
 
 export default config
@@ -65,12 +64,14 @@ const config: CraftConfig = {
 
 Plugins that manage additional concerns (like `llmPlugin` which also registers provider credentials) wrap `defaultOptions` inside a larger configuration object. See the [Plugins reference](/docs/reference/plugins) for the full options of each plugin.
 
+The `direct` adapter also supports a context-level `channelType` to swap all endpoints from in-memory to a distributed implementation. See [Configuration](/docs/reference/configuration#direct).
+
 ## Supported adapters
 
 | Adapter | How to set defaults | Location |
 |---------|-------------------|----------|
 | `cron()` | `CraftConfig.cron` | `craft.config.ts` |
-| `direct()` | `CraftConfig.direct` | `craft.config.ts` |
+| `direct()` | `CraftConfig.direct` (channelType only) | `craft.config.ts` |
 | `llm()` | `llmPlugin({ defaultOptions })` | `CraftConfig.plugins` |
 | `embedding()` | `embeddingPlugin({ defaultOptions })` | `CraftConfig.plugins` |
 

@@ -5,7 +5,7 @@ import { rcError, RC } from "./error.ts";
 import { isRoutecraftError } from "./brand.ts";
 import { logger, childBindings } from "./logger.ts";
 import { ADAPTER_DIRECT_OPTIONS } from "./adapters/direct/shared.ts";
-import { type DirectServerOptions } from "./adapters/direct/types.ts";
+import { type DirectBaseOptions } from "./adapters/direct/types.ts";
 import { type CronOptions } from "./adapters/cron/types.ts";
 import { ADAPTER_CRON_OPTIONS } from "./adapters/cron/source.ts";
 import { type HttpConfig } from "./adapters/http/types.ts";
@@ -87,8 +87,8 @@ export type CraftConfig = {
   plugins?: CraftPlugin[];
   /** Default options applied to all cron() sources in this context */
   cron?: Partial<CronOptions>;
-  /** Default options applied to all direct() adapters in this context */
-  direct?: Partial<DirectServerOptions>;
+  /** Default channel implementation for all direct() adapters (e.g. swap in-memory for Kafka) */
+  direct?: Pick<DirectBaseOptions, "channelType">;
   /** Reserved: HTTP server config for inbound (no-op today) */
   http?: HttpConfig;
   /** Mail adapter configuration with named accounts */
