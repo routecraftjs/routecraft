@@ -28,7 +28,51 @@ export const craftConfig = {
 | `store` | `Map<keyof StoreRegistry, StoreRegistry[keyof StoreRegistry]>` | No | — | Initial values for the context store |
 | `on` | `Partial<Record<EventName, EventHandler \| EventHandler[]>>` | No | — | Event handlers to register on context creation |
 | `once` | `Partial<Record<EventName, EventHandler \| EventHandler[]>>` | No | — | One-time event handlers that fire once then auto-unsubscribe |
+| `cron` | `Partial<CronOptions>` | No | -- | Default options for all `cron()` sources ([details](#cron)) |
+| `direct` | `{ channelType?: DirectChannelType }` | No | -- | Custom channel implementation for all `direct()` endpoints ([details](#direct)) |
 | `plugins` | `CraftPlugin[]` | No | — | Plugins to initialize before routes are registered |
+
+## Core adapter defaults
+
+Core adapters have dedicated config fields so you can set context-wide defaults without importing a plugin. See [Merged Options](/docs/advanced/merged-options) for how the merge hierarchy works.
+
+### cron
+
+Default options applied to every `cron()` source in this context. Per-adapter options always take precedence.
+
+```ts
+const config: CraftConfig = {
+  cron: { timezone: 'UTC', jitterMs: 2000 },
+}
+```
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `timezone` | `string` | IANA timezone (e.g. `"America/New_York"`, `"UTC"`) |
+| `maxFires` | `number` | Maximum fires before stopping |
+| `jitterMs` | `number` | Random delay in ms added to each fire |
+| `name` | `string` | Human-readable job name for observability |
+| `protect` | `boolean` | Prevent overlapping handler execution |
+| `startAt` | `Date \| string` | Date/ISO string at which cron jobs start |
+| `stopAt` | `Date \| string` | Date/ISO string at which cron jobs stop |
+
+### direct
+
+Sets the channel implementation used by all `direct()` endpoints in this context. Use this to swap the default in-memory channels for a distributed implementation (e.g. Kafka, Redis).
+
+```ts
+import { KafkaChannel } from 'my-kafka-adapter'
+
+const config: CraftConfig = {
+  direct: { channelType: KafkaChannel },
+}
+```
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `channelType` | `DirectChannelType` | Channel constructor used for all direct endpoints |
+
+When omitted, direct endpoints use the built-in in-memory channel (single-consumer, blocking send).
 
 ## Logging configuration
 

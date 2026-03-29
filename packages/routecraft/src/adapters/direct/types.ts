@@ -1,13 +1,14 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-
-/**
- * Reserved config for direct adapter (future: channel type, whitelist, timeouts).
- * No-op today; used by built-in direct handling when implemented.
- */
-export type DirectConfig = Record<string, unknown>;
 import type { CraftContext } from "../../context";
 import type { Exchange } from "../../exchange";
 import type { RegisteredDirectEndpoint } from "../../registry";
+
+/**
+ * @deprecated Use `CraftConfig.direct` (a `Pick<DirectBaseOptions, "channelType">`) instead.
+ * Previously a no-op placeholder (`Record<string, unknown>`), now removed.
+ * This alias exists only for migration; it will be removed in the next major version.
+ */
+export type DirectConfig = Pick<DirectBaseOptions, "channelType">;
 
 export type DirectChannelType<T extends DirectChannel> = new (
   endpoint: string,

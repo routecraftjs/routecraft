@@ -68,34 +68,39 @@ export default config
 
 ## Setting global adapter defaults
 
-The most common plugin pattern is writing to the context store so adapters can read global configuration instead of requiring it per-capability.
+The most common use of plugins and context configuration is setting default options for adapters so you do not repeat them in every capability.
+
+Core adapters have dedicated fields on `CraftConfig`:
 
 ```ts
-// plugins/defaults.ts
-export default function defaults(context: CraftContext) {
-  context.setStore('db.config', {
-    connectionString: process.env.DB_URL,
-    poolSize: 10,
-  })
-
-  context.setStore('api.defaults', {
-    headers: { Authorization: `Bearer ${process.env.API_TOKEN}` },
-  })
+// craft.config.ts
+const config: CraftConfig = {
+  cron: { timezone: 'UTC', jitterMs: 2000 },
+  direct: { channelType: KafkaChannel },
 }
 ```
 
-An adapter reads it at call time:
+External adapters (from `@routecraft/ai`, etc.) use companion plugins:
 
 ```ts
-class DbAdapter implements Destination<any, void> {
-  async send(exchange) {
-    const config = exchange.context.getStore('db.config') as { connectionString: string }
-    await db(config.connectionString).insert(exchange.body)
-  }
+import { llmPlugin } from '@routecraft/ai'
+
+const config: CraftConfig = {
+  cron: { timezone: 'UTC' },
+  plugins: [
+    llmPlugin({
+      providers: { anthropic: { apiKey: process.env.ANTHROPIC_API_KEY } },
+      defaultOptions: { temperature: 0.7 },
+    }),
+  ],
 }
+
+export default config
 ```
 
-This keeps connection strings and tokens out of every capability file.
+Every `cron()` source and `llm()` destination in the context inherits those defaults unless overridden per-adapter. This keeps shared configuration out of every capability file.
+
+For the full pattern -- how merged options work, which adapters support them, and how to add support to a custom adapter -- see the [Merged Options guide](/docs/advanced/merged-options).
 
 ## Managing external services
 

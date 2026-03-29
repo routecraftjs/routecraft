@@ -1,10 +1,11 @@
-import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { CraftContext } from "../../context";
 import { rcError } from "../../error";
 import type {
   DirectChannel,
   DirectChannelType,
   DirectRouteMetadata,
+  DirectBaseOptions,
+  DirectServerOptions,
 } from "./types";
 import type { Exchange } from "../../exchange";
 
@@ -17,7 +18,9 @@ export const ADAPTER_DIRECT_STORE = Symbol.for(
 );
 
 /**
- * Store key for merged direct adapter options.
+ * Store key for the context-level direct channel type.
+ * Set via `CraftConfig.direct` to swap all direct endpoints to a custom
+ * channel implementation (e.g. Kafka, Redis) instead of in-memory.
  * @internal
  */
 export const ADAPTER_DIRECT_OPTIONS = Symbol.for(
@@ -32,23 +35,28 @@ export const ADAPTER_DIRECT_REGISTRY = Symbol.for(
   "routecraft.adapter.direct.registry",
 );
 
-/**
- * Options that can be stored globally in the context.
- */
-export interface DirectOptionsMerged {
-  channelType?: DirectChannelType<DirectChannel>;
-  schema?: StandardSchemaV1;
-  headerSchema?: StandardSchemaV1;
-  description?: string;
-  keywords?: string[];
-}
-
 declare module "@routecraft/routecraft" {
   interface StoreRegistry {
     [ADAPTER_DIRECT_STORE]: Map<string, DirectChannel<Exchange>>;
-    [ADAPTER_DIRECT_OPTIONS]: Partial<DirectOptionsMerged>;
+    [ADAPTER_DIRECT_OPTIONS]: Pick<DirectBaseOptions, "channelType">;
     [ADAPTER_DIRECT_REGISTRY]: Map<string, DirectRouteMetadata>;
   }
+}
+
+/**
+ * Resolve the channel type to use for a given endpoint. Checks the
+ * per-adapter options first, then falls back to the context-level default
+ * set via `CraftConfig.direct`.
+ */
+function resolveChannelType(
+  context: CraftContext,
+  adapterOptions: Partial<DirectBaseOptions>,
+): DirectChannelType<DirectChannel> | undefined {
+  if (adapterOptions.channelType) return adapterOptions.channelType;
+  const store = context.getStore(ADAPTER_DIRECT_OPTIONS) as
+    | Pick<DirectBaseOptions, "channelType">
+    | undefined;
+  return store?.channelType;
 }
 
 /**
@@ -56,13 +64,13 @@ declare module "@routecraft/routecraft" {
  *
  * @param context - The CraftContext
  * @param endpoint - The sanitized endpoint name
- * @param options - Adapter options that may contain a custom channel type
+ * @param options - Per-adapter options that may contain a custom channel type
  * @returns The DirectChannel instance for this endpoint
  */
 export function getDirectChannel<T>(
   context: CraftContext,
   endpoint: string,
-  options: Partial<DirectOptionsMerged>,
+  options: Partial<DirectBaseOptions>,
 ): DirectChannel<Exchange<T>> {
   let store = context.getStore(ADAPTER_DIRECT_STORE) as
     | Map<string, DirectChannel<Exchange<T>>>
@@ -76,12 +84,11 @@ export function getDirectChannel<T>(
 
   // If the endpoint is not in the store, create a new one
   if (!store.has(endpoint)) {
-    const mergedOptions = getMergedOptions(context, options);
-    if (mergedOptions.channelType) {
-      const MyChannelType = mergedOptions.channelType;
+    const ChannelCtor = resolveChannelType(context, options);
+    if (ChannelCtor) {
       store.set(
         endpoint,
-        new MyChannelType(endpoint) as DirectChannel<Exchange<T>>,
+        new ChannelCtor(endpoint) as DirectChannel<Exchange<T>>,
       );
     } else {
       // Fallback to a default in-memory implementation
@@ -93,36 +100,16 @@ export function getDirectChannel<T>(
 }
 
 /**
- * Merge adapter-level options with context-level options.
- *
- * @param context - The CraftContext
- * @param adapterOptions - Options passed to the adapter constructor
- * @returns Merged options
- */
-export function getMergedOptions(
-  context: CraftContext,
-  adapterOptions: Partial<DirectOptionsMerged>,
-): DirectOptionsMerged {
-  const store = context.getStore(ADAPTER_DIRECT_OPTIONS) as
-    | Partial<DirectOptionsMerged>
-    | undefined;
-  return {
-    ...store,
-    ...adapterOptions,
-  };
-}
-
-/**
  * Register route metadata in context store for discovery.
  *
  * @param context - The CraftContext
  * @param endpoint - The sanitized endpoint name
- * @param options - Adapter options that may contain metadata
+ * @param options - Per-route options containing discovery metadata
  */
 export function registerRoute(
   context: CraftContext,
   endpoint: string,
-  options: Partial<DirectOptionsMerged>,
+  options: Partial<DirectServerOptions>,
 ): void {
   let registry = context.getStore(ADAPTER_DIRECT_REGISTRY) as
     | Map<string, DirectRouteMetadata>

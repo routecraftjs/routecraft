@@ -151,6 +151,9 @@ export class ContextBuilder {
     // Note: config.once handlers are registered by the CraftContext constructor directly,
     // so we do not copy them into onceHandlers here to avoid double-registration.
 
+    // Note: config.cron and config.direct are handled by the CraftContext
+    // constructor directly -- no extraction needed here.
+
     // Extract mail config if provided
     if (config.mail) {
       this.mailConfig = config.mail;
@@ -298,6 +301,9 @@ export class ContextBuilder {
         ctx.once(event as EventName, handler as EventHandler<EventName>);
       }
     }
+
+    // Note: cron and direct defaults are set by the CraftContext constructor
+    // via config.cron / config.direct -- no need to set them again here.
 
     // Set up mail client manager if mail config is present
     if (this.mailConfig) {
