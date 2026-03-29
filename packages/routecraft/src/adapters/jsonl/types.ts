@@ -62,4 +62,11 @@ export interface JsonlDestinationOptions {
   replacer?: (key: string, value: unknown) => unknown;
 }
 
-export type JsonlOptions = JsonlSourceOptions | JsonlDestinationOptions;
+/** Combined options for the source+destination overload (string path only). */
+export type JsonlCombinedOptions = JsonlSourceOptions &
+  Pick<JsonlDestinationOptions, "mode" | "createDirs" | "replacer">;
+
+export type JsonlOptions =
+  | JsonlSourceOptions
+  | JsonlDestinationOptions
+  | JsonlCombinedOptions;

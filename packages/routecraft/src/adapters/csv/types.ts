@@ -1,6 +1,6 @@
 import type { Exchange } from "../../exchange.ts";
 
-export interface CsvOptions {
+export interface CsvBaseOptions {
   /**
    * File path for source/destination mode.
    * Required for source/destination mode.
@@ -46,21 +46,28 @@ export interface CsvOptions {
    * Default: 'write'
    */
   mode?: "write" | "append";
-
-  /**
-   * When true, emit one exchange per row instead of the entire parsed array.
-   * Only applies in source mode. Each exchange includes CSV_ROW and CSV_PATH headers.
-   * Default: false
-   */
-  chunked?: boolean;
-
-  /**
-   * How to handle rows that fail to parse in chunked mode.
-   * - 'throw': Abort on the first bad row (default)
-   * - 'skip': Log a warning and continue
-   */
-  onParseError?: "throw" | "skip";
 }
+
+/** Options for CSV adapter. When chunked is true, onParseError is available. */
+export type CsvOptions = CsvBaseOptions &
+  (
+    | {
+        /**
+         * When true, emit one exchange per row instead of the entire parsed array.
+         * Only applies in source mode. Each exchange includes CSV_ROW and CSV_PATH headers.
+         */
+        chunked: true;
+        /**
+         * How to handle rows that fail to parse in chunked mode.
+         * - 'throw': Abort on the first bad row (default)
+         * - 'skip': Log a warning and continue
+         */
+        onParseError?: "throw" | "skip";
+      }
+    | {
+        chunked?: false | undefined;
+      }
+  );
 
 export type CsvRow = Record<string, unknown> | string[];
 export type CsvData = CsvRow[];

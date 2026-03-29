@@ -2,8 +2,7 @@ import * as fsp from "node:fs/promises";
 import type { Source, CallableSource } from "../../operations/from.ts";
 import type { JsonlSourceOptions } from "./types.ts";
 import { HeadersKeys, type ExchangeHeaders } from "../../exchange.ts";
-import { forEachLine } from "../shared/line-reader.ts";
-import { logger } from "../../logger.ts";
+import { forEachLine, throwFileError } from "../shared/line-reader.ts";
 
 /**
  * JsonlSourceAdapter reads JSON Lines files.
@@ -18,7 +17,7 @@ export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
   constructor(private readonly options: JsonlSourceOptions) {}
 
   subscribe: CallableSource<T | T[]> = async (
-    _context,
+    context,
     handler,
     abortController,
     onReady,
@@ -48,7 +47,8 @@ export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
               parsed = JSON.parse(trimmed, reviver) as T;
             } catch (err) {
               if (onParseError === "skip") {
-                logger.warn(
+                context.logger.warn(
+                  { adapter: "jsonl", line: lineNumber },
                   `jsonl adapter: skipping line ${lineNumber}: ${err instanceof Error ? err.message : String(err)}`,
                 );
                 return;
@@ -73,32 +73,12 @@ export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
         );
       } catch (err) {
         if (abortController.signal.aborted) return;
-        const message = err instanceof Error ? err.message : String(err);
-        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-          throw new Error(`jsonl adapter: file not found: ${filePath}`);
-        }
-        if ((err as NodeJS.ErrnoException).code === "EACCES") {
-          throw new Error(
-            `jsonl adapter: permission denied reading file: ${filePath}`,
-          );
-        }
-        throw new Error(`jsonl adapter: failed to read file: ${message}`);
+        throwFileError("jsonl", filePath, err);
       }
     } else {
       const content = await fsp
         .readFile(filePath, { encoding })
-        .catch((err) => {
-          const message = err instanceof Error ? err.message : String(err);
-          if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-            throw new Error(`jsonl adapter: file not found: ${filePath}`);
-          }
-          if ((err as NodeJS.ErrnoException).code === "EACCES") {
-            throw new Error(
-              `jsonl adapter: permission denied reading file: ${filePath}`,
-            );
-          }
-          throw new Error(`jsonl adapter: failed to read file: ${message}`);
-        });
+        .catch((err) => throwFileError("jsonl", filePath, err));
 
       if (abortController.signal.aborted) return;
 
@@ -113,7 +93,8 @@ export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
           results.push(JSON.parse(trimmed, reviver) as T);
         } catch (err) {
           if (onParseError === "skip") {
-            logger.warn(
+            context.logger.warn(
+              { adapter: "jsonl", line: i + 1 },
               `jsonl adapter: skipping line ${i + 1}: ${err instanceof Error ? err.message : String(err)}`,
             );
             continue;

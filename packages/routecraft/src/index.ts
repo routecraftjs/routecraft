@@ -164,6 +164,7 @@ export {
   type JsonlOptions,
   type JsonlSourceOptions,
   type JsonlDestinationOptions,
+  type JsonlCombinedOptions,
 } from "./adapters/jsonl/index.ts";
 export { type GroupOptions } from "./adapters/group/index.ts";
 export {

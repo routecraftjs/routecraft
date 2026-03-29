@@ -2,7 +2,7 @@ import * as fsp from "node:fs/promises";
 import type { Source, CallableSource } from "../../operations/from.ts";
 import type { FileOptions } from "./types.ts";
 import { HeadersKeys, type ExchangeHeaders } from "../../exchange.ts";
-import { forEachLine } from "../shared/line-reader.ts";
+import { forEachLine, throwFileError } from "../shared/line-reader.ts";
 
 /**
  * FileSourceAdapter implements the Source interface for reading files.
@@ -55,33 +55,12 @@ export class FileSourceAdapter implements Source<string> {
         );
       } catch (err) {
         if (abortController.signal.aborted) return;
-        const message = err instanceof Error ? err.message : String(err);
-        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-          throw new Error(`file adapter: file not found: ${filePath}`);
-        }
-        if ((err as NodeJS.ErrnoException).code === "EACCES") {
-          throw new Error(
-            `file adapter: permission denied reading file: ${filePath}`,
-          );
-        }
-        throw new Error(`file adapter: failed to read file: ${message}`);
+        throwFileError("file", filePath, err);
       }
     } else {
-      // Read file content
       const content = await fsp
         .readFile(filePath, { encoding })
-        .catch((err) => {
-          const message = err instanceof Error ? err.message : String(err);
-          if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-            throw new Error(`file adapter: file not found: ${filePath}`);
-          }
-          if ((err as NodeJS.ErrnoException).code === "EACCES") {
-            throw new Error(
-              `file adapter: permission denied reading file: ${filePath}`,
-            );
-          }
-          throw new Error(`file adapter: failed to read file: ${message}`);
-        });
+        .catch((err) => throwFileError("file", filePath, err));
 
       // Check if aborted before emitting
       if (abortController.signal.aborted) return;

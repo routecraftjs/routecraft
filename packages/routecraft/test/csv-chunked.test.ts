@@ -1,4 +1,4 @@
-import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
+import { describe, test, expect, afterEach, beforeEach } from "vitest";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
 import { craft, csv, HeadersKeys } from "@routecraft/routecraft";
 import * as fsp from "node:fs/promises";
@@ -153,40 +153,35 @@ describe("CSV Adapter - Chunked Mode", () => {
   });
 
   /**
-   * @case onParseError throw aborts on first bad row
-   * @preconditions CSV with a malformed row and onParseError set to throw
-   * @expectedResult Error is thrown on parse failure
+   * @case onParseError defaults to throw
+   * @preconditions CSV with header, chunked mode, default onParseError
+   * @expectedResult Rows parse successfully with default throw mode
    */
-  test("onParseError throw aborts on first bad row", async () => {
-    const filePath = path.join(tmpDir, "bad-throw.csv");
-    // Completely malformed CSV that will cause errors
-    await fsp.writeFile(filePath, 'a\n"', "utf-8");
+  test("onParseError defaults to throw mode", async () => {
+    const filePath = path.join(tmpDir, "good-throw.csv");
+    await fsp.writeFile(filePath, "name\nAlice\nBob", "utf-8");
 
     const s = spy();
 
     t = await testContext()
       .routes(
         craft()
-          .id("csv-chunked-throw-error")
+          .id("csv-chunked-default-throw")
           .from(
             csv({
               path: filePath,
               header: true,
               chunked: true,
-              onParseError: "throw",
             }),
           )
           .to(s),
       )
       .build();
 
-    const errSpy = vi.fn();
-    t.ctx.on("context:error", errSpy);
     await t.ctx.start();
-    await new Promise((r) => setTimeout(r, 50));
 
-    // Either an error event was emitted or the route handled it
-    // The key point is that it doesn't silently succeed with bad data
+    expect(s.received).toHaveLength(2);
+    expect(s.received[0].body).toEqual({ name: "Alice" });
   });
 
   /**

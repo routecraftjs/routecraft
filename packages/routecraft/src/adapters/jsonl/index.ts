@@ -1,6 +1,10 @@
 import type { Source } from "../../operations/from.ts";
 import type { Destination } from "../../operations/to.ts";
-import type { JsonlSourceOptions, JsonlDestinationOptions } from "./types.ts";
+import type {
+  JsonlSourceOptions,
+  JsonlDestinationOptions,
+  JsonlCombinedOptions,
+} from "./types.ts";
 import { JsonlSourceAdapter } from "./source.ts";
 import { JsonlDestinationAdapter } from "./destination.ts";
 
@@ -44,7 +48,7 @@ export function jsonl<T = unknown>(
  * ```
  */
 export function jsonl<T = unknown>(
-  options: JsonlSourceOptions,
+  options: JsonlCombinedOptions,
 ): Source<T[]> & Destination<unknown, void> & { readonly adapterId: string };
 /**
  * Creates a JSONL destination-only adapter.
@@ -55,9 +59,9 @@ export function jsonl<T = unknown>(
  */
 export function jsonl(
   options: JsonlDestinationOptions,
-): Destination<unknown, void>;
+): Destination<unknown, void> & { readonly adapterId: string };
 export function jsonl<T = unknown>(
-  options: JsonlSourceOptions | JsonlDestinationOptions,
+  options: JsonlSourceOptions | JsonlDestinationOptions | JsonlCombinedOptions,
 ):
   | Source<T>
   | Source<T[]>
@@ -84,21 +88,21 @@ export function jsonl<T = unknown>(
     } as Source<T>;
   }
 
-  const destOpts = options as JsonlDestinationOptions;
+  const combined = options as JsonlCombinedOptions;
   const destOptions: JsonlDestinationOptions = {
     path: sourceOptions.path,
   };
   if (sourceOptions.encoding) {
     destOptions.encoding = sourceOptions.encoding;
   }
-  if (destOpts.mode) {
-    destOptions.mode = destOpts.mode;
+  if (combined.mode) {
+    destOptions.mode = combined.mode;
   }
-  if (destOpts.createDirs) {
-    destOptions.createDirs = destOpts.createDirs;
+  if (combined.createDirs) {
+    destOptions.createDirs = combined.createDirs;
   }
-  if (destOpts.replacer) {
-    destOptions.replacer = destOpts.replacer;
+  if (combined.replacer) {
+    destOptions.replacer = combined.replacer;
   }
   const destination = new JsonlDestinationAdapter(destOptions);
 
@@ -113,5 +117,6 @@ export function jsonl<T = unknown>(
 export type {
   JsonlSourceOptions,
   JsonlDestinationOptions,
+  JsonlCombinedOptions,
   JsonlOptions,
 } from "./types.ts";

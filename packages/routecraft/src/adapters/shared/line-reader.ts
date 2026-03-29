@@ -44,3 +44,30 @@ export async function forEachLine(
     stream.destroy();
   }
 }
+
+/**
+ * Throws a standardized file-related error for an adapter.
+ * Handles ENOENT, EACCES, and generic errors.
+ *
+ * @internal Not exported from the package public API.
+ *
+ * @param adapter - Adapter name for the error prefix (e.g. 'file', 'csv', 'jsonl')
+ * @param filePath - The file path that caused the error
+ * @param err - The original error
+ */
+export function throwFileError(
+  adapter: string,
+  filePath: string,
+  err: unknown,
+): never {
+  const message = err instanceof Error ? err.message : String(err);
+  if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+    throw new Error(`${adapter} adapter: file not found: ${filePath}`);
+  }
+  if ((err as NodeJS.ErrnoException).code === "EACCES") {
+    throw new Error(
+      `${adapter} adapter: permission denied reading file: ${filePath}`,
+    );
+  }
+  throw new Error(`${adapter} adapter: failed to read file: ${message}`);
+}
