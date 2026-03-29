@@ -53,7 +53,7 @@ Now every `cron()` source in the context inherits `timezone: 'UTC'` and `jitterM
 | `llm()` | `llmPlugin()` | `@routecraft/ai` |
 | `embedding()` | `embeddingPlugin()` | `@routecraft/ai` |
 
-See the [Plugins reference](/docs/reference/plugins) for the full options of each plugin.
+Simple adapters like `cronPlugin()` and `directPlugin()` accept a flat `Partial<Options>`. Plugins that manage additional concerns (like `llmPlugin` which also registers provider credentials) wrap `defaultOptions` inside a larger configuration object. See the [Plugins reference](/docs/reference/plugins) for the full options of each plugin.
 
 ## How it works
 

@@ -21,6 +21,8 @@ import type { CronOptions } from "./types";
  *   ],
  * }
  * ```
+ *
+ * @experimental
  */
 export function cronPlugin(defaultOptions: Partial<CronOptions>): CraftPlugin {
   return {

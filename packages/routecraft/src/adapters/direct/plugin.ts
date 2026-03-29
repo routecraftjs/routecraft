@@ -20,6 +20,8 @@ import { ADAPTER_DIRECT_OPTIONS, type DirectOptionsMerged } from "./shared";
  *   ],
  * }
  * ```
+ *
+ * @experimental
  */
 export function directPlugin(
   defaultOptions: Partial<DirectOptionsMerged>,

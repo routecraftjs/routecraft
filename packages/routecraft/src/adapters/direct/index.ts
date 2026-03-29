@@ -84,11 +84,12 @@ export type {
   DirectOptions,
 } from "./types";
 
-// Re-export constants for registry access
+// Re-export constants and types for registry access
 export {
   ADAPTER_DIRECT_STORE,
   ADAPTER_DIRECT_OPTIONS,
   ADAPTER_DIRECT_REGISTRY,
   sanitizeEndpoint,
 } from "./shared";
+export type { DirectOptionsMerged } from "./shared";
 export { directPlugin } from "./plugin";
