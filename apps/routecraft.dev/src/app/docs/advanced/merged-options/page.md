@@ -77,7 +77,7 @@ The `direct` adapter also supports a context-level `channelType` to swap all end
 
 ## How it works
 
-Under the hood, merged options use the **context store** -- a typed key-value map on `CraftContext`. Config fields and plugins both write defaults to the store at startup. When an adapter needs its options (e.g. in `subscribe()` or `send()`), it calls its own `mergedOptions(context)` method, which reads the store and spreads per-adapter options on top.
+Under the hood, merged options use the **context store** -- a typed key-value map on `CraftContext`. Config fields and plugins both write defaults to the store at startup. When an adapter needs its options (e.g. in `subscribe()` or `send()`), it resolves them from the store, combining context-level defaults with per-adapter overrides. Per-adapter values always win.
 
 ```
 ┌──────────────┐               ┌────────────────┐
