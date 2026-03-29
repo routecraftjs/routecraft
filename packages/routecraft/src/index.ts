@@ -17,7 +17,6 @@ export {
   type CraftConfig,
   type CraftPlugin,
 } from "./context.ts";
-export { type DirectConfig } from "./adapters/direct/types.ts";
 export { type HttpConfig } from "./adapters/http/types.ts";
 
 export {
@@ -145,14 +144,12 @@ export {
   ADAPTER_DIRECT_OPTIONS,
   ADAPTER_DIRECT_REGISTRY,
   sanitizeEndpoint,
-  directPlugin,
 } from "./adapters/direct/index.ts";
 export { type TimerOptions } from "./adapters/timer/index.ts";
 export {
   type CronExpression,
   type CronOptions,
   ADAPTER_CRON_OPTIONS,
-  cronPlugin,
 } from "./adapters/cron/index.ts";
 export { type FileOptions } from "./adapters/file/index.ts";
 export { type HtmlOptions, type HtmlResult } from "./adapters/html/index.ts";

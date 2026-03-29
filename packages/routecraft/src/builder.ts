@@ -23,6 +23,8 @@ import {
   DefaultExchange,
   getExchangeContext,
 } from "./exchange.ts";
+import { ADAPTER_CRON_OPTIONS } from "./adapters/cron/source.ts";
+import { ADAPTER_DIRECT_OPTIONS } from "./adapters/direct/shared.ts";
 import { MailClientManager } from "./adapters/mail/client-manager.ts";
 import { MAIL_CLIENT_MANAGER } from "./adapters/mail/shared.ts";
 import { telemetry } from "./telemetry/index.ts";
@@ -111,6 +113,12 @@ export class ContextBuilder {
   protected onceHandlers = new Map<EventName, Set<EventHandler<EventName>>>();
   protected plugins: Array<import("./context.ts").CraftPlugin> = [];
   protected mailConfig?: import("./adapters/mail/types.ts").MailContextConfig;
+  protected cronConfig?: Partial<
+    import("./adapters/cron/types.ts").CronOptions
+  >;
+  protected directConfig?: Partial<
+    import("./adapters/direct/shared.ts").DirectOptionsMerged
+  >;
 
   constructor() {}
 
@@ -150,6 +158,14 @@ export class ContextBuilder {
 
     // Note: config.once handlers are registered by the CraftContext constructor directly,
     // so we do not copy them into onceHandlers here to avoid double-registration.
+
+    // Extract core adapter configs if provided
+    if (config.cron) {
+      this.cronConfig = config.cron;
+    }
+    if (config.direct) {
+      this.directConfig = config.direct;
+    }
 
     // Extract mail config if provided
     if (config.mail) {
@@ -297,6 +313,20 @@ export class ContextBuilder {
       for (const handler of handlers) {
         ctx.once(event as EventName, handler as EventHandler<EventName>);
       }
+    }
+
+    // Set up core adapter defaults in the store
+    if (this.cronConfig) {
+      ctx.setStore(
+        ADAPTER_CRON_OPTIONS as keyof StoreRegistry,
+        this.cronConfig,
+      );
+    }
+    if (this.directConfig) {
+      ctx.setStore(
+        ADAPTER_DIRECT_OPTIONS as keyof StoreRegistry,
+        this.directConfig,
+      );
     }
 
     // Set up mail client manager if mail config is present

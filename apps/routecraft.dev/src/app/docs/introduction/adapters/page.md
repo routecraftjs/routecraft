@@ -66,33 +66,30 @@ Most adapters accept an options object. Options can be static values or function
 }))
 ```
 
-### Merged options and plugins
+### Merged options and craft config
 
-Many adapters support **merged options**: they merge their own per-call options with context-level defaults registered via a plugin in `craft.config.ts`. This means you can define shared settings once and every adapter of that type picks them up automatically.
+Many adapters support **merged options**: they merge their own per-call options with context-level defaults set in `craft.config.ts`. This means you can define shared settings once and every adapter of that type picks them up automatically.
 
 ```ts
 // craft.config.ts
 import type { CraftConfig } from '@routecraft/routecraft'
-import { cronPlugin } from '@routecraft/routecraft'
 
 const config: CraftConfig = {
-  plugins: [
-    cronPlugin({ timezone: 'UTC', jitterMs: 2000 }),
-  ],
+  cron: { timezone: 'UTC', jitterMs: 2000 },
 }
 
 export default config
 ```
 
 ```ts
-// capability file -- timezone and jitterMs come from the plugin
+// capability file -- timezone and jitterMs come from the config
 .from(cron('@daily'))
 
 // Override timezone for this specific source
 .from(cron('0 9 * * 1-5', { timezone: 'America/New_York' }))
 ```
 
-Options passed directly to the adapter always take precedence over plugin defaults. See the [Merged Options guide](/docs/advanced/merged-options) for the full pattern and a list of adapters that support it.
+Options passed directly to the adapter always take precedence over config defaults. See the [Merged Options guide](/docs/advanced/merged-options) for the full pattern and a list of adapters that support it.
 
 ---
 

@@ -27,5 +27,4 @@ export function cron(
 }
 
 export { CronSourceAdapter, ADAPTER_CRON_OPTIONS } from "./source";
-export { cronPlugin } from "./plugin";
 export type { CronExpression, CronOptions } from "./types";

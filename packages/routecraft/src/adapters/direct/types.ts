@@ -1,10 +1,4 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-
-/**
- * Reserved config for direct adapter (future: channel type, whitelist, timeouts).
- * No-op today; used by built-in direct handling when implemented.
- */
-export type DirectConfig = Record<string, unknown>;
 import type { CraftContext } from "../../context";
 import type { Exchange } from "../../exchange";
 import type { RegisteredDirectEndpoint } from "../../registry";

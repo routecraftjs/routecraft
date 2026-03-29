@@ -68,17 +68,26 @@ export default config
 
 ## Setting global adapter defaults
 
-The most common plugin pattern is setting default options for adapters. Built-in adapters that support this ship a companion plugin function:
+The most common use of plugins and context configuration is setting default options for adapters so you do not repeat them in every capability.
+
+Core adapters (`cron`, `direct`) have dedicated fields on `CraftConfig`:
 
 ```ts
 // craft.config.ts
-import type { CraftConfig } from '@routecraft/routecraft'
-import { cronPlugin } from '@routecraft/routecraft'
+const config: CraftConfig = {
+  cron: { timezone: 'UTC', jitterMs: 2000 },
+  direct: { description: 'Internal API' },
+}
+```
+
+External adapters (from `@routecraft/ai`, etc.) use companion plugins:
+
+```ts
 import { llmPlugin } from '@routecraft/ai'
 
 const config: CraftConfig = {
+  cron: { timezone: 'UTC' },
   plugins: [
-    cronPlugin({ timezone: 'UTC', jitterMs: 2000 }),
     llmPlugin({
       providers: { anthropic: { apiKey: process.env.ANTHROPIC_API_KEY } },
       defaultOptions: { temperature: 0.7 },

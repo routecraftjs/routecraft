@@ -28,7 +28,51 @@ export const craftConfig = {
 | `store` | `Map<keyof StoreRegistry, StoreRegistry[keyof StoreRegistry]>` | No | — | Initial values for the context store |
 | `on` | `Partial<Record<EventName, EventHandler \| EventHandler[]>>` | No | — | Event handlers to register on context creation |
 | `once` | `Partial<Record<EventName, EventHandler \| EventHandler[]>>` | No | — | One-time event handlers that fire once then auto-unsubscribe |
+| `cron` | `Partial<CronOptions>` | No | — | Default options for all `cron()` sources ([details](#cron)) |
+| `direct` | `Partial<DirectOptionsMerged>` | No | — | Default options for all `direct()` adapters ([details](#direct)) |
 | `plugins` | `CraftPlugin[]` | No | — | Plugins to initialize before routes are registered |
+
+## Core adapter defaults
+
+Core adapters have dedicated config fields so you can set context-wide defaults without importing a plugin. See [Merged Options](/docs/advanced/merged-options) for how the merge hierarchy works.
+
+### cron
+
+Default options applied to every `cron()` source in this context. Per-adapter options always take precedence.
+
+```ts
+const config: CraftConfig = {
+  cron: { timezone: 'UTC', jitterMs: 2000 },
+}
+```
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `timezone` | `string` | IANA timezone (e.g. `"America/New_York"`, `"UTC"`) |
+| `maxFires` | `number` | Maximum fires before stopping |
+| `jitterMs` | `number` | Random delay in ms added to each fire |
+| `name` | `string` | Human-readable job name for observability |
+| `protect` | `boolean` | Prevent overlapping handler execution |
+| `startAt` | `Date \| string` | Date/ISO string at which cron jobs start |
+| `stopAt` | `Date \| string` | Date/ISO string at which cron jobs stop |
+
+### direct
+
+Default options applied to every `direct()` adapter in this context. Per-adapter options always take precedence.
+
+```ts
+const config: CraftConfig = {
+  direct: { description: 'Internal API', keywords: ['internal'] },
+}
+```
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `channelType` | `DirectChannelType` | Custom channel implementation for all endpoints |
+| `schema` | `StandardSchemaV1` | Default body schema |
+| `headerSchema` | `StandardSchemaV1` | Default header schema |
+| `description` | `string` | Default description for direct endpoints |
+| `keywords` | `string[]` | Default keywords for direct endpoints |
 
 ## Logging configuration
 

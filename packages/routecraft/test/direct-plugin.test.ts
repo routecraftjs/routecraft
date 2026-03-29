@@ -1,10 +1,15 @@
 import { describe, test, expect, vi } from "vitest";
-import { directPlugin } from "../src/adapters/direct/plugin.ts";
-import { ADAPTER_DIRECT_OPTIONS } from "../src/adapters/direct/shared.ts";
-import type { CraftContext } from "../src/context.ts";
+import {
+  ADAPTER_DIRECT_OPTIONS,
+  getMergedOptions,
+} from "../src/adapters/direct/shared.ts";
+import { CraftContext } from "../src/context.ts";
 
-function mockContext(): CraftContext {
+function mockContext(directDefaults?: Record<string, unknown>): CraftContext {
   const store = new Map();
+  if (directDefaults) {
+    store.set(ADAPTER_DIRECT_OPTIONS, directDefaults);
+  }
   return {
     logger: {
       trace: vi.fn(),
@@ -19,59 +24,46 @@ function mockContext(): CraftContext {
   } as unknown as CraftContext;
 }
 
-describe("directPlugin", () => {
+describe("CraftConfig.direct defaults", () => {
   /**
-   * @case directPlugin returns a CraftPlugin with an apply method
-   * @preconditions Called with partial DirectOptionsMerged
-   * @expectedResult Returns an object with an apply function
+   * @case CraftContext stores direct defaults when config.direct is provided
+   * @preconditions CraftConfig includes a direct field with description
+   * @expectedResult The context store contains the defaults under ADAPTER_DIRECT_OPTIONS
    */
-  test("returns a CraftPlugin with an apply method", () => {
-    const plugin = directPlugin({ description: "Internal API" });
-    expect(plugin).toHaveProperty("apply");
-    expect(typeof plugin.apply).toBe("function");
-  });
-
-  /**
-   * @case apply() writes default options to the context store
-   * @preconditions Plugin created with description and keywords defaults
-   * @expectedResult Context store contains the provided defaults under ADAPTER_DIRECT_OPTIONS
-   */
-  test("apply() writes default options to the context store", () => {
-    const defaults = {
-      description: "Internal API",
-      keywords: ["internal", "rpc"],
-    };
-    const plugin = directPlugin(defaults);
-    const ctx = mockContext();
-
-    plugin.apply(ctx);
+  test("stores direct defaults in the context store", () => {
+    const defaults = { description: "Internal API", keywords: ["internal"] };
+    const ctx = new CraftContext({ direct: defaults });
 
     const stored = ctx.getStore(ADAPTER_DIRECT_OPTIONS);
     expect(stored).toEqual(defaults);
   });
 
   /**
-   * @case apply() stores an empty object when called with no options
-   * @preconditions Plugin created with empty options
-   * @expectedResult Context store contains an empty object under ADAPTER_DIRECT_OPTIONS
+   * @case CraftContext does not set store when config.direct is omitted
+   * @preconditions CraftConfig does not include a direct field
+   * @expectedResult The context store returns undefined for ADAPTER_DIRECT_OPTIONS
    */
-  test("apply() stores an empty object when called with no options", () => {
-    const plugin = directPlugin({});
-    const ctx = mockContext();
-
-    plugin.apply(ctx);
+  test("does not set store when config.direct is omitted", () => {
+    const ctx = new CraftContext({});
 
     const stored = ctx.getStore(ADAPTER_DIRECT_OPTIONS);
-    expect(stored).toEqual({});
+    expect(stored).toBeUndefined();
   });
 
   /**
-   * @case Plugin has no teardown method
-   * @preconditions Plugin created with any options
-   * @expectedResult The teardown property is undefined
+   * @case getMergedOptions merges context defaults with per-adapter options
+   * @preconditions Context store has description default, adapter has keywords override
+   * @expectedResult merged result contains description from store and keywords from adapter
    */
-  test("does not define a teardown method", () => {
-    const plugin = directPlugin({ description: "test" });
-    expect(plugin.teardown).toBeUndefined();
+  test("getMergedOptions merges config defaults with per-adapter options", () => {
+    const ctx = mockContext({
+      description: "Internal API",
+      keywords: ["internal"],
+    });
+
+    const merged = getMergedOptions(ctx, { keywords: ["rpc", "custom"] });
+
+    expect(merged.description).toBe("Internal API");
+    expect(merged.keywords).toEqual(["rpc", "custom"]); // per-adapter wins
   });
 });

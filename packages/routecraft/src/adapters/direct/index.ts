@@ -92,4 +92,3 @@ export {
   sanitizeEndpoint,
 } from "./shared";
 export type { DirectOptionsMerged } from "./shared";
-export { directPlugin } from "./plugin";

@@ -4,7 +4,10 @@ import { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
 import { rcError, RC } from "./error.ts";
 import { isRoutecraftError } from "./brand.ts";
 import { logger, childBindings } from "./logger.ts";
-import { type DirectConfig } from "./adapters/direct/types.ts";
+import { type DirectOptionsMerged } from "./adapters/direct/shared.ts";
+import { ADAPTER_DIRECT_OPTIONS } from "./adapters/direct/shared.ts";
+import { type CronOptions } from "./adapters/cron/types.ts";
+import { ADAPTER_CRON_OPTIONS } from "./adapters/cron/source.ts";
 import { type HttpConfig } from "./adapters/http/types.ts";
 import { type MailContextConfig } from "./adapters/mail/types.ts";
 import { MailClientManager } from "./adapters/mail/client-manager.ts";
@@ -82,8 +85,10 @@ export type CraftConfig = {
   >;
   /** Plugins to run before routes are registered (call initPlugins() then registerRoutes) */
   plugins?: CraftPlugin[];
-  /** Reserved: direct adapter / channel config (no-op today) */
-  direct?: DirectConfig;
+  /** Default options applied to all cron() sources in this context */
+  cron?: Partial<CronOptions>;
+  /** Default options applied to all direct() adapters in this context */
+  direct?: Partial<DirectOptionsMerged>;
   /** Reserved: HTTP server config for inbound (no-op today) */
   http?: HttpConfig;
   /** Mail adapter configuration with named accounts */
@@ -197,6 +202,20 @@ export class CraftContext {
           }
         }
       }
+      // Set up core adapter defaults in the store
+      if (config.cron) {
+        this.store.set(
+          ADAPTER_CRON_OPTIONS as keyof StoreRegistry,
+          config.cron,
+        );
+      }
+      if (config.direct) {
+        this.store.set(
+          ADAPTER_DIRECT_OPTIONS as keyof StoreRegistry,
+          config.direct,
+        );
+      }
+
       // Set up mail client manager if mail config is present
       if (config.mail) {
         const manager = new MailClientManager(config.mail);
