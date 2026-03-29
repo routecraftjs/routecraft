@@ -18,6 +18,8 @@ export {
   type CraftPlugin,
 } from "./context.ts";
 export { type HttpConfig } from "./adapters/http/types.ts";
+/** @deprecated Use `CraftConfig.direct` instead. Will be removed in next major version. */
+export { type DirectConfig } from "./adapters/direct/types.ts";
 
 export {
   DefaultRoute,
