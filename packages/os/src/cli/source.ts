@@ -2,13 +2,15 @@ import { basename } from "node:path";
 import type { Exchange, ExchangeHeaders } from "@routecraft/routecraft";
 import type { Source } from "@routecraft/routecraft";
 import type { CraftContext } from "@routecraft/routecraft";
+import type { EventName } from "@routecraft/routecraft";
 import { rcError, RUNNER_ARGV } from "@routecraft/routecraft";
-import type { CliServerOptions } from "./types.ts";
+import type { CliServerOptions, CliNativeOptions } from "./types.ts";
 import {
   ADAPTER_CLI_PARSED,
   ADAPTER_CLI_NAME,
   getCliRegistry,
   registerCliRoute,
+  extractJsonSchema,
 } from "./shared.ts";
 import { buildAndParse, type CliParseResult } from "./parser.ts";
 
@@ -47,15 +49,18 @@ export class CliSourceAdapter<T = unknown> implements Source<T> {
       metadata.description = this.options.description;
     }
     if (this.options.schema !== undefined) {
-      // Schema mode
+      // Schema mode -- extract and cache JSON schema at registration time
+      // so the parser does not need to re-extract it.
       metadata.schema = this.options.schema;
+      metadata.jsonSchema = extractJsonSchema(this.options.schema);
     } else {
       // Native mode -- copy args and flags if present
-      if (this.options.args !== undefined) {
-        metadata.args = this.options.args;
+      const nativeOpts = this.options as CliNativeOptions;
+      if (nativeOpts.args !== undefined) {
+        metadata.args = nativeOpts.args;
       }
-      if (this.options.flags !== undefined) {
-        metadata.flags = this.options.flags;
+      if (nativeOpts.flags !== undefined) {
+        metadata.flags = nativeOpts.flags;
       }
     }
     if (this.options.examples !== undefined) {
@@ -99,13 +104,8 @@ export class CliSourceAdapter<T = unknown> implements Source<T> {
     // 5. Handle output (help, version, errors) -- first source only
     if (parsed.kind === "output") {
       if (isFirstSource) {
-        if (parsed.exitCode === 0) {
-          // eslint-disable-next-line no-console
-          console.log(parsed.text);
-        } else {
-          // eslint-disable-next-line no-console
-          console.error(parsed.text);
-        }
+        const stream = parsed.exitCode === 0 ? process.stdout : process.stderr;
+        stream.write(parsed.text + "\n");
       }
       return;
     }
@@ -125,6 +125,12 @@ export class CliSourceAdapter<T = unknown> implements Source<T> {
       "CLI command matched; dispatching",
     );
 
+    context.emit(`route:${this.command}:exchange:started` as EventName, {
+      routeId: this.command,
+      exchangeId: this.command,
+      correlationId: this.command,
+    });
+
     let body: T = parsed.body as T;
     if (this.options.schema) {
       let result = this.options.schema["~standard"].validate(parsed.body);
@@ -134,6 +140,14 @@ export class CliSourceAdapter<T = unknown> implements Source<T> {
       if (issues !== undefined && issues !== null) {
         const causeMessage =
           typeof issues === "object" ? JSON.stringify(issues) : String(issues);
+
+        context.emit(`route:${this.command}:exchange:dropped` as EventName, {
+          routeId: this.command,
+          exchangeId: this.command,
+          correlationId: this.command,
+          reason: `CLI flag validation failed: ${causeMessage}`,
+        });
+
         abortController.abort();
         throw rcError("RC5002", new Error(causeMessage), {
           message: `CLI flag validation failed for command "${this.command}"`,
@@ -153,6 +167,21 @@ export class CliSourceAdapter<T = unknown> implements Source<T> {
 
     try {
       await handler(body);
+      context.emit(`route:${this.command}:exchange:completed` as EventName, {
+        routeId: this.command,
+        exchangeId: this.command,
+        correlationId: this.command,
+        duration: 0,
+      });
+    } catch (err) {
+      context.emit(`route:${this.command}:exchange:failed` as EventName, {
+        routeId: this.command,
+        exchangeId: this.command,
+        correlationId: this.command,
+        duration: 0,
+        error: err,
+      });
+      throw err;
     } finally {
       abortController.abort();
     }

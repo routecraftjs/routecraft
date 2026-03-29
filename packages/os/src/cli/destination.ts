@@ -35,6 +35,8 @@ export class CliDestinationAdapter<T = unknown> implements Destination<
       text = String(body);
     }
 
-    output.write(text + "\n");
+    if (!output.write(text + "\n")) {
+      await new Promise<void>((resolve) => output.once("drain", resolve));
+    }
   }
 }

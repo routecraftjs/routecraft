@@ -1,6 +1,6 @@
 import { Command, CommanderError, Option } from "commander";
 import type { CliRouteMetadata } from "./types.ts";
-import { extractJsonSchema, parseFlags } from "./shared.ts";
+import { parseFlags } from "./shared.ts";
 
 function kebabCase(str: string): string {
   return str.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
@@ -89,7 +89,9 @@ export function buildAndParse(
 
     if (isSchemaMode) {
       // ── Schema mode: derive flags from JSON Schema with auto-aliases ──
-      const jsonSchema = extractJsonSchema(meta.schema!);
+      // Use cached jsonSchema from registration (populated by CliSourceAdapter)
+      // to avoid re-extracting on every parse call.
+      const jsonSchema = meta.jsonSchema ?? { type: "object" };
       const properties = (jsonSchema["properties"] ?? {}) as Record<
         string,
         Record<string, unknown>

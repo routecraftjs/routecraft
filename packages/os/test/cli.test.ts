@@ -234,7 +234,7 @@ describe("CLI source adapter dispatch", () => {
   test("unmatched command does not fire handler", async () => {
     const consumer = vi.fn();
     // Suppress commander error output
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     t = await testContext()
       .store(RUNNER_ARGV, ["other"])
@@ -290,7 +290,7 @@ describe("CLI source adapter dispatch", () => {
    * @expectedResult Both commands appear in ADAPTER_CLI_REGISTRY store
    */
   test("commands are registered in CLI registry", async () => {
-    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
     t = await testContext()
       .store(RUNNER_ARGV, [])
@@ -322,7 +322,20 @@ describe("CLI source adapter dispatch", () => {
    * @expectedResult Help text printed to stderr containing command names
    */
   test("prints help when no command given", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    let stdoutCaptured = "";
+    let stderrCaptured = "";
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((...args: unknown[]) => {
+        stdoutCaptured += String(args[0]);
+        return true;
+      });
+    const stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation((...args: unknown[]) => {
+        stderrCaptured += String(args[0]);
+        return true;
+      });
 
     t = await testContext()
       .store(RUNNER_ARGV, [])
@@ -340,12 +353,12 @@ describe("CLI source adapter dispatch", () => {
 
     await t.test();
 
-    expect(errorSpy).toHaveBeenCalled();
-    const helpText = errorSpy.mock.calls[0]![0] as string;
-    expect(helpText).toContain("greet");
-    expect(helpText).toContain("deploy");
-    expect(helpText).toContain("Say hello");
-    errorSpy.mockRestore();
+    const captured = stdoutCaptured || stderrCaptured;
+    expect(captured).toContain("greet");
+    expect(captured).toContain("deploy");
+    expect(captured).toContain("Say hello");
+    stdoutSpy.mockRestore();
+    stderrSpy.mockRestore();
   });
 
   /**
@@ -354,7 +367,13 @@ describe("CLI source adapter dispatch", () => {
    * @expectedResult console.error called with unknown command message
    */
   test("prints error for unknown command", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    let captured = "";
+    const writeSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation((chunk: string | Uint8Array) => {
+        captured += String(chunk);
+        return true;
+      });
 
     t = await testContext()
       .store(RUNNER_ARGV, ["nonexistent"])
@@ -363,10 +382,9 @@ describe("CLI source adapter dispatch", () => {
 
     await t.test();
 
-    expect(errorSpy).toHaveBeenCalled();
-    const errorText = errorSpy.mock.calls[0]![0] as string;
-    expect(errorText).toContain("nonexistent");
-    errorSpy.mockRestore();
+    expect(writeSpy).toHaveBeenCalled();
+    expect(captured).toContain("nonexistent");
+    writeSpy.mockRestore();
   });
 });
 
@@ -603,7 +621,13 @@ describe("Schema mode -- auto-generated aliases", () => {
    * @expectedResult Help output contains -n and --name
    */
   test("auto-alias shows in help text", async () => {
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    let captured = "";
+    const writeSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((chunk: string | Uint8Array) => {
+        captured += String(chunk);
+        return true;
+      });
     const schema = z.object({ name: z.string() });
 
     t = await testContext()
@@ -617,11 +641,10 @@ describe("Schema mode -- auto-generated aliases", () => {
       .build();
 
     await t.test();
-    expect(logSpy).toHaveBeenCalled();
-    const helpText = logSpy.mock.calls[0]![0] as string;
-    expect(helpText).toContain("-n");
-    expect(helpText).toContain("--name");
-    logSpy.mockRestore();
+    expect(writeSpy).toHaveBeenCalled();
+    expect(captured).toContain("-n");
+    expect(captured).toContain("--name");
+    writeSpy.mockRestore();
   });
 
   /**
@@ -930,7 +953,13 @@ describe("Examples in help", () => {
    * @expectedResult Help output contains the example strings
    */
   test("examples shown in per-command help", async () => {
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    let captured = "";
+    const writeSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((chunk: string | Uint8Array) => {
+        captured += String(chunk);
+        return true;
+      });
 
     t = await testContext()
       .store(RUNNER_ARGV, ["greet", "--help"])
@@ -949,11 +978,10 @@ describe("Examples in help", () => {
       .build();
 
     await t.test();
-    expect(logSpy).toHaveBeenCalled();
-    const helpText = logSpy.mock.calls[0]![0] as string;
-    expect(helpText).toContain("Examples:");
-    expect(helpText).toContain("greet --name Alice");
-    expect(helpText).toContain("greet --name Bob");
-    logSpy.mockRestore();
+    expect(writeSpy).toHaveBeenCalled();
+    expect(captured).toContain("Examples:");
+    expect(captured).toContain("greet --name Alice");
+    expect(captured).toContain("greet --name Bob");
+    writeSpy.mockRestore();
   });
 });

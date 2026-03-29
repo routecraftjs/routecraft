@@ -38,6 +38,8 @@ export function registerShutdownHandlers(context: CraftContext): void {
 
     try {
       await context.stop();
+      context.logger.info("Cleanup complete");
+      process.exit(0);
     } catch {
       context.logger.warn("Error during graceful shutdown; exiting");
       process.exit(1);

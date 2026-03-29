@@ -634,6 +634,14 @@ craft run mycli.ts greet --help            # per-command help with flag list
 | `schema` | `StandardSchemaV1` | - | No | Object schema; properties become `--flag` arguments |
 | `description` | `string` | - | No | One-line description shown in help output |
 
+**`CliClientOptions`** (for `.to()`):
+
+`cli.stdout()` and `cli.stderr()` are pre-configured factories. No user-facing options are exposed; the `stream` field is set internally by each factory.
+
+| Field | Type | Default | Required | Description |
+|-------|------|---------|----------|-------------|
+| `stream` | `"stdout" \| "stderr"` | `"stdout"` | No | Output stream to write to (set by factory) |
+
 **Notes:**
 - All routes in a CLI-mode file must use `cli()` sources. Mixing CLI and non-CLI sources in the same file is an error.
 - Schemas must describe flat objects. Nested objects are not currently converted to flags.

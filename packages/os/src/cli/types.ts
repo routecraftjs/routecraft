@@ -82,6 +82,10 @@ export interface CliNativeOptions {
  *
  * Pass a `schema` for schema mode (portable, auto-generated CLI) or
  * `args`/`flags` for native mode (full CLI control). Never both.
+ *
+ * Note: no `CliBaseOptions` type exists because server and client options
+ * share no common fields. This is intentional per the adapter architecture
+ * standard -- `XxxBaseOptions` is only warranted when there are shared fields.
  */
 export type CliServerOptions = CliSchemaOptions | CliNativeOptions;
 
@@ -96,6 +100,8 @@ export interface CliRouteMetadata {
   description?: string;
   /** Schema mode: Standard Schema for validation + flag derivation. */
   schema?: StandardSchemaV1;
+  /** Cached JSON Schema extracted from `schema` during registration. */
+  jsonSchema?: Record<string, unknown>;
   /** Native mode: positional argument definitions. */
   args?: CliNativeArg[];
   /** Native mode: flag definitions. */
