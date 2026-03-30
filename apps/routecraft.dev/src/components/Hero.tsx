@@ -119,7 +119,7 @@ export function Hero() {
               <p className="mt-3 text-2xl tracking-tight text-gray-600 dark:text-gray-400">
                 Write TypeScript capabilities that send emails, manage
                 calendars, and automate work. Expose them to Claude, Cursor, or
-                any AI agent via MCP. Your code becomes the AI's toolkit.
+                any AI agent via MCP. Your code becomes the AI&apos;s toolkit.
               </p>
               <div className="mt-8 flex gap-4 md:justify-center lg:justify-start">
                 <Button href="https://github.com/routecraftjs/routecraft">
