@@ -22,7 +22,7 @@ Routecraft is a code-first automation platform for TypeScript. Write routes that
 - ✅ **AI that does real work** - Send emails, schedule meetings, automate tasks
 - ✅ **Code, not configs** - TypeScript all the way with full IDE support
 - ✅ **Works with Claude & Cursor** - Expose tools via MCP automatically
-- ✅ **You stay in control** - AI only accesses the routes you code
+- ✅ **Secure by design** - AI only accesses the capabilities you expose
 
 ## Quick Start
 
