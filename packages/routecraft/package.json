@@ -1,6 +1,6 @@
 {
   "name": "@routecraft/routecraft",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Type-safe integration and automation framework for TypeScript/Node.js",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -32,7 +32,7 @@
   },
   "devDependencies": {
     "@opentelemetry/sdk-trace-base": "^2.6.0",
-    "@routecraft/testing": "workspace:^0.4.0",
+    "@routecraft/testing": "^0.5.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/mailparser": "^3.4.6",
     "@types/nodemailer": "^6.4.17",

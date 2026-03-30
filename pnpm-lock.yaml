@@ -176,20 +176,20 @@ importers:
   examples:
     dependencies:
       '@routecraft/ai':
-        specifier: workspace:^0.4.0
+        specifier: ^0.5.0
         version: link:../packages/ai
       '@routecraft/routecraft':
-        specifier: workspace:^0.4.0
+        specifier: ^0.5.0
         version: link:../packages/routecraft
       zod:
         specifier: ^4.3.6
         version: 4.3.6
     devDependencies:
       '@routecraft/cli':
-        specifier: workspace:^0.4.0
+        specifier: ^0.5.0
         version: link:../packages/cli
       '@routecraft/testing':
-        specifier: workspace:^0.4.0
+        specifier: ^0.5.0
         version: link:../packages/testing
       tsup:
         specifier: ^8.5.1
@@ -204,7 +204,7 @@ importers:
   packages/ai:
     dependencies:
       '@routecraft/routecraft':
-        specifier: workspace:^0.4.0
+        specifier: ^0.5.0
         version: link:../routecraft
       '@standard-schema/spec':
         specifier: ^1.1.0
@@ -244,11 +244,11 @@ importers:
   packages/browser:
     dependencies:
       '@routecraft/routecraft':
-        specifier: workspace:^0.4.0
+        specifier: ^0.5.0
         version: link:../routecraft
     devDependencies:
       '@routecraft/testing':
-        specifier: workspace:^0.4.0
+        specifier: ^0.5.0
         version: link:../testing
       agent-browser:
         specifier: ^0.17.1
@@ -263,7 +263,7 @@ importers:
         specifier: ^2.6.0
         version: 2.6.0(@opentelemetry/api@1.9.0)
       '@routecraft/routecraft':
-        specifier: workspace:^0.4.0
+        specifier: ^0.5.0
         version: link:../routecraft
       agent-browser:
         specifier: ^0.17.1
@@ -331,7 +331,7 @@ importers:
         version: 8.3.2(@types/node@25.5.0)
     devDependencies:
       '@routecraft/testing':
-        specifier: workspace:^0.4.0
+        specifier: ^0.5.0
         version: link:../testing
 
   packages/eslint-plugin-routecraft:
@@ -372,7 +372,7 @@ importers:
         specifier: ^2.6.0
         version: 2.6.0(@opentelemetry/api@1.9.0)
       '@routecraft/testing':
-        specifier: workspace:^0.4.0
+        specifier: ^0.5.0
         version: link:../testing
       '@types/better-sqlite3':
         specifier: ^7.6.13
@@ -421,7 +421,7 @@ importers:
   packages/testing:
     dependencies:
       '@routecraft/routecraft':
-        specifier: workspace:^0.4.0
+        specifier: ^0.5.0
         version: link:../routecraft
     devDependencies:
       vitest:
