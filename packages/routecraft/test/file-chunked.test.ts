@@ -6,15 +6,19 @@ import * as path from "node:path";
 import * as os from "node:os";
 
 describe("File Adapter - Chunked Mode", () => {
-  let t: TestContext;
+  let t: TestContext | undefined;
   let tmpDir: string;
 
   beforeEach(async () => {
+    t = undefined;
     tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), "file-chunked-test-"));
   });
 
   afterEach(async () => {
-    if (t) await t.stop();
+    if (t) {
+      await t.stop();
+      t = undefined;
+    }
     if (tmpDir) {
       await fsp.rm(tmpDir, { recursive: true, force: true });
     }
@@ -97,7 +101,7 @@ describe("File Adapter - Chunked Mode", () => {
           .process(async (exchange) => {
             // Abort after processing 3 exchanges
             if (s.received.length >= 2) {
-              t.ctx.stop();
+              t!.ctx.stop();
             }
             return exchange;
           })

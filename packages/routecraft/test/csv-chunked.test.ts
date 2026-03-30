@@ -6,15 +6,19 @@ import * as path from "node:path";
 import * as os from "node:os";
 
 describe("CSV Adapter - Chunked Mode", () => {
-  let t: TestContext;
+  let t: TestContext | undefined;
   let tmpDir: string;
 
   beforeEach(async () => {
+    t = undefined;
     tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), "csv-chunked-test-"));
   });
 
   afterEach(async () => {
-    if (t) await t.stop();
+    if (t) {
+      await t.stop();
+      t = undefined;
+    }
     if (tmpDir) {
       await fsp.rm(tmpDir, { recursive: true, force: true });
     }

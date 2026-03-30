@@ -6,15 +6,19 @@ import * as path from "node:path";
 import * as os from "node:os";
 
 describe("JSONL Adapter", () => {
-  let t: TestContext;
+  let t: TestContext | undefined;
   let tmpDir: string;
 
   beforeEach(async () => {
+    t = undefined;
     tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), "jsonl-adapter-test-"));
   });
 
   afterEach(async () => {
-    if (t) await t.stop();
+    if (t) {
+      await t.stop();
+      t = undefined;
+    }
     if (tmpDir) {
       await fsp.rm(tmpDir, { recursive: true, force: true });
     }
@@ -252,7 +256,7 @@ describe("JSONL Adapter", () => {
             .from(jsonl({ path: filePath, chunked: true }))
             .process(async (exchange) => {
               if (s.received.length >= 2) {
-                t.ctx.stop();
+                t!.ctx.stop();
               }
               return exchange;
             })
