@@ -93,6 +93,21 @@ export const HeadersKeys = {
   CRON_TIMEZONE: "routecraft.cron.timezone",
   /** The human-readable name for the cron job */
   CRON_NAME: "routecraft.cron.name",
+
+  /** The 1-based line number when reading a file in chunked mode */
+  FILE_LINE: "routecraft.file.line",
+  /** The file path when reading a file in chunked mode */
+  FILE_PATH: "routecraft.file.path",
+
+  /** The 1-based row number when reading a CSV file in chunked mode */
+  CSV_ROW: "routecraft.csv.row",
+  /** The file path when reading a CSV file in chunked mode */
+  CSV_PATH: "routecraft.csv.path",
+
+  /** The 1-based line number when reading a JSONL file in chunked mode */
+  JSONL_LINE: "routecraft.jsonl.line",
+  /** The file path when reading a JSONL file in chunked mode */
+  JSONL_PATH: "routecraft.jsonl.path",
 } as const satisfies Record<string, string>;
 
 /**
@@ -129,6 +144,18 @@ export interface RoutecraftHeaders {
   "routecraft.cron.counter"?: number;
   "routecraft.cron.timezone"?: string;
   "routecraft.cron.name"?: string;
+
+  /** File chunked-mode headers */
+  "routecraft.file.line"?: number;
+  "routecraft.file.path"?: string;
+
+  /** CSV chunked-mode headers */
+  "routecraft.csv.row"?: number;
+  "routecraft.csv.path"?: string;
+
+  /** JSONL chunked-mode headers */
+  "routecraft.jsonl.line"?: number;
+  "routecraft.jsonl.path"?: string;
 }
 
 /**

@@ -23,4 +23,10 @@ export interface FileOptions {
    * Default: false
    */
   createDirs?: boolean;
+  /**
+   * When true, emit one exchange per line instead of the entire file content.
+   * Only applies in source mode. Each exchange includes FILE_LINE and FILE_PATH headers.
+   * Default: false
+   */
+  chunked?: boolean;
 }
