@@ -17,7 +17,7 @@ export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
   constructor(private readonly options: JsonlSourceOptions) {}
 
   subscribe: CallableSource<T | T[]> = async (
-    context,
+    _context,
     handler,
     abortController,
     onReady,
@@ -28,11 +28,11 @@ export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
       path: filePath,
       encoding = "utf-8",
       chunked = false,
-      onParseError = "throw",
       reviver,
     } = this.options;
 
     if (chunked) {
+      if (onReady) onReady();
       try {
         await forEachLine(
           filePath,
@@ -42,21 +42,7 @@ export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
             const trimmed = line.trim();
             if (trimmed === "") return;
 
-            let parsed: T;
-            try {
-              parsed = JSON.parse(trimmed, reviver) as T;
-            } catch (err) {
-              if (onParseError === "skip") {
-                context.logger.warn(
-                  { adapter: "jsonl", line: lineNumber },
-                  `jsonl adapter: skipping line ${lineNumber}: ${err instanceof Error ? err.message : String(err)}`,
-                );
-                return;
-              }
-              throw new Error(
-                `jsonl adapter: parse error at line ${lineNumber}: ${err instanceof Error ? err.message : String(err)}`,
-              );
-            }
+            const parsed = JSON.parse(trimmed, reviver) as T;
 
             const headers: ExchangeHeaders = {
               [HeadersKeys.JSONL_LINE]: lineNumber,
@@ -88,21 +74,7 @@ export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
       for (let i = 0; i < lines.length; i++) {
         const trimmed = lines[i].trim();
         if (trimmed === "") continue;
-
-        try {
-          results.push(JSON.parse(trimmed, reviver) as T);
-        } catch (err) {
-          if (onParseError === "skip") {
-            context.logger.warn(
-              { adapter: "jsonl", line: i + 1 },
-              `jsonl adapter: skipping line ${i + 1}: ${err instanceof Error ? err.message : String(err)}`,
-            );
-            continue;
-          }
-          throw new Error(
-            `jsonl adapter: parse error at line ${i + 1}: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
+        results.push(JSON.parse(trimmed, reviver) as T);
       }
 
       await (
@@ -111,8 +83,8 @@ export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
           headers?: ExchangeHeaders,
         ) => Promise<import("../../exchange.ts").Exchange>
       )(results);
-    }
 
-    if (onReady) onReady();
+      if (onReady) onReady();
+    }
   };
 }

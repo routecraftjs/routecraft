@@ -115,73 +115,31 @@ describe("CSV Adapter - Chunked Mode", () => {
   });
 
   /**
-   * @case onParseError skip logs warning and continues
-   * @preconditions CSV with a malformed row and onParseError set to skip
-   * @expectedResult Valid rows are emitted, malformed row is skipped
+   * @case Chunked mode correctly emits rows from valid CSV
+   * @preconditions CSV with header and data rows, chunked mode
+   * @expectedResult All data rows emitted as individual exchanges
    */
-  test("onParseError skip continues past bad rows", async () => {
-    const filePath = path.join(tmpDir, "bad.csv");
-    // Create a CSV where quoting issues cause a parse error
-    await fsp.writeFile(
-      filePath,
-      'name,age\nAlice,30\n"unclosed,quote\nBob,25',
-      "utf-8",
-    );
+  test("emits all rows from valid CSV in chunked mode", async () => {
+    const filePath = path.join(tmpDir, "valid.csv");
+    await fsp.writeFile(filePath, "name\nAlice\nBob\nCarol", "utf-8");
 
     const s = spy();
 
     t = await testContext()
       .routes(
         craft()
-          .id("csv-chunked-skip-error")
-          .from(
-            csv({
-              path: filePath,
-              header: true,
-              chunked: true,
-              onParseError: "skip",
-            }),
-          )
+          .id("csv-chunked-valid")
+          .from(csv({ path: filePath, header: true, chunked: true }))
           .to(s),
       )
       .build();
 
     await t.ctx.start();
 
-    // At least the valid rows should be emitted
-    expect(s.received.length).toBeGreaterThanOrEqual(1);
-  });
-
-  /**
-   * @case onParseError defaults to throw
-   * @preconditions CSV with header, chunked mode, default onParseError
-   * @expectedResult Rows parse successfully with default throw mode
-   */
-  test("onParseError defaults to throw mode", async () => {
-    const filePath = path.join(tmpDir, "good-throw.csv");
-    await fsp.writeFile(filePath, "name\nAlice\nBob", "utf-8");
-
-    const s = spy();
-
-    t = await testContext()
-      .routes(
-        craft()
-          .id("csv-chunked-default-throw")
-          .from(
-            csv({
-              path: filePath,
-              header: true,
-              chunked: true,
-            }),
-          )
-          .to(s),
-      )
-      .build();
-
-    await t.ctx.start();
-
-    expect(s.received).toHaveLength(2);
+    expect(s.received).toHaveLength(3);
     expect(s.received[0].body).toEqual({ name: "Alice" });
+    expect(s.received[1].body).toEqual({ name: "Bob" });
+    expect(s.received[2].body).toEqual({ name: "Carol" });
   });
 
   /**

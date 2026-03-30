@@ -87,11 +87,11 @@ describe("JSONL Adapter", () => {
     });
 
     /**
-     * @case Throws on parse error by default
+     * @case Throws on parse error
      * @preconditions JSONL file with invalid JSON on line 2
      * @expectedResult Error with line number in message
      */
-    test("throws on parse error by default", async () => {
+    test("throws on parse error", async () => {
       const filePath = path.join(tmpDir, "bad.jsonl");
       await fsp.writeFile(
         filePath,
@@ -107,33 +107,7 @@ describe("JSONL Adapter", () => {
           async () => ({}) as any,
           new AbortController(),
         ),
-      ).rejects.toThrow(/parse error at line 2/);
-    });
-
-    /**
-     * @case Skips bad lines when onParseError is skip
-     * @preconditions JSONL file with invalid JSON on line 2, onParseError: skip
-     * @expectedResult Only valid lines are included in array
-     */
-    test("skips bad lines when onParseError is skip", async () => {
-      const filePath = path.join(tmpDir, "skip-bad.jsonl");
-      await fsp.writeFile(filePath, '{"a":1}\nnot-json\n{"b":2}', "utf-8");
-
-      const s = spy();
-
-      t = await testContext()
-        .routes(
-          craft()
-            .id("jsonl-skip-bad")
-            .from(jsonl({ path: filePath, onParseError: "skip" }))
-            .to(s),
-        )
-        .build();
-
-      await t.ctx.start();
-
-      expect(s.received).toHaveLength(1);
-      expect(s.received[0].body).toEqual([{ a: 1 }, { b: 2 }]);
+      ).rejects.toThrow(/not-json/);
     });
 
     /**
@@ -292,9 +266,9 @@ describe("JSONL Adapter", () => {
     });
 
     /**
-     * @case Chunked mode throws on parse error by default
+     * @case Chunked mode throws on parse error
      * @preconditions JSONL file with invalid JSON, chunked mode
-     * @expectedResult Error is thrown with line number
+     * @expectedResult Error is thrown
      */
     test("throws on parse error in chunked mode", async () => {
       const filePath = path.join(tmpDir, "bad-chunked.jsonl");
@@ -308,40 +282,7 @@ describe("JSONL Adapter", () => {
           async () => ({}) as any,
           new AbortController(),
         ),
-      ).rejects.toThrow(/parse error at line 2/);
-    });
-
-    /**
-     * @case Chunked mode skips bad lines with onParseError skip
-     * @preconditions JSONL file with invalid JSON, chunked mode, onParseError skip
-     * @expectedResult Valid lines are emitted, invalid lines are skipped
-     */
-    test("skips bad lines in chunked mode with onParseError skip", async () => {
-      const filePath = path.join(tmpDir, "skip-chunked.jsonl");
-      await fsp.writeFile(filePath, '{"a":1}\nnot-json\n{"b":2}', "utf-8");
-
-      const s = spy();
-
-      t = await testContext()
-        .routes(
-          craft()
-            .id("jsonl-chunked-skip")
-            .from(
-              jsonl({
-                path: filePath,
-                chunked: true,
-                onParseError: "skip",
-              }),
-            )
-            .to(s),
-        )
-        .build();
-
-      await t.ctx.start();
-
-      expect(s.received).toHaveLength(2);
-      expect(s.received[0].body).toEqual({ a: 1 });
-      expect(s.received[1].body).toEqual({ b: 2 });
+      ).rejects.toThrow(/not-json/);
     });
   });
 
@@ -372,7 +313,7 @@ describe("JSONL Adapter", () => {
     });
 
     /**
-     * @case Writes array body as multiple JSONL lines
+     * @case Writes array body as multiple JSONL lines via destination send
      * @preconditions Exchange body is an array of objects
      * @expectedResult File contains one JSON line per array element
      */
@@ -380,25 +321,22 @@ describe("JSONL Adapter", () => {
       const filePath = path.join(tmpDir, "array-output.jsonl");
       const data = [{ id: 1 }, { id: 2 }, { id: 3 }];
 
-      t = await testContext()
-        .routes(
-          craft()
-            .id("jsonl-write-array")
-            .from(simple(data))
-            .to(jsonl({ path: filePath })),
-        )
-        .build();
-
-      await t.ctx.start();
+      // Call destination.send directly with array body to test the
+      // Array.isArray branch (simple() destructures arrays into individual exchanges)
+      const dest = jsonl({ path: filePath });
+      await dest.send({
+        id: "test-exchange",
+        body: data,
+        headers: {},
+        properties: {},
+      } as any);
 
       const written = await fsp.readFile(filePath, "utf-8");
       const lines = written.trim().split("\n");
-      const parsed = lines.map((l) => JSON.parse(l));
-      // simple(array) emits each item individually, all should be written
-      expect(parsed).toHaveLength(3);
-      expect(parsed).toContainEqual({ id: 1 });
-      expect(parsed).toContainEqual({ id: 2 });
-      expect(parsed).toContainEqual({ id: 3 });
+      expect(lines).toHaveLength(3);
+      expect(JSON.parse(lines[0])).toEqual({ id: 1 });
+      expect(JSON.parse(lines[1])).toEqual({ id: 2 });
+      expect(JSON.parse(lines[2])).toEqual({ id: 3 });
     });
 
     /**

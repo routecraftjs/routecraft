@@ -1,5 +1,4 @@
 import { createReadStream } from "node:fs";
-import type { CraftContext } from "../../context.ts";
 import type { Source, CallableSource } from "../../operations/from.ts";
 import type { CsvOptions, CsvData, CsvRow } from "./types.ts";
 import { HeadersKeys, type ExchangeHeaders } from "../../exchange.ts";
@@ -31,21 +30,16 @@ export class CsvSourceAdapter implements Source<CsvData | CsvRow> {
       chunked = false,
     } = this.options;
 
-    const onParseError =
-      "onParseError" in this.options
-        ? (this.options.onParseError ?? "throw")
-        : "throw";
-
     if (chunked) {
+      if (onReady) onReady();
       await this.subscribeChunked(
         Papa,
-        context,
         handler as (
           message: CsvRow,
           headers?: ExchangeHeaders,
         ) => Promise<import("../../exchange.ts").Exchange>,
         abortController,
-        { header, delimiter, quoteChar, skipEmptyLines, onParseError },
+        { header, delimiter, quoteChar, skipEmptyLines },
       );
     } else {
       const fileAdapter = file({
@@ -80,15 +74,11 @@ export class CsvSourceAdapter implements Source<CsvData | CsvRow> {
         abortController,
         onReady,
       );
-      return;
     }
-
-    if (onReady) onReady();
   };
 
   private async subscribeChunked(
     Papa: ReturnType<typeof ensurePapaparse>,
-    context: CraftContext,
     handler: (
       message: CsvRow,
       headers?: ExchangeHeaders,
@@ -99,7 +89,6 @@ export class CsvSourceAdapter implements Source<CsvData | CsvRow> {
       delimiter: string;
       quoteChar: string;
       skipEmptyLines: boolean;
-      onParseError: "throw" | "skip";
     },
   ): Promise<void> {
     if (abortController.signal.aborted) return;
@@ -157,13 +146,6 @@ export class CsvSourceAdapter implements Source<CsvData | CsvRow> {
 
           if (results.errors.length > 0) {
             const firstError = results.errors[0];
-            if (parseOptions.onParseError === "skip") {
-              context.logger.warn(
-                { adapter: "csv", row: rowNumber },
-                `csv adapter: skipping row ${rowNumber}: ${firstError.message}`,
-              );
-              return;
-            }
             parser.abort();
             settle(() =>
               reject(

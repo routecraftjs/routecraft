@@ -19,13 +19,6 @@ export interface JsonlSourceOptions {
   chunked?: boolean;
 
   /**
-   * How to handle lines that fail to parse.
-   * - 'throw': Abort on the first bad line (default)
-   * - 'skip': Log a warning and continue
-   */
-  onParseError?: "throw" | "skip";
-
-  /**
    * Optional reviver function passed to JSON.parse.
    */
   reviver?: (key: string, value: unknown) => unknown;
@@ -57,9 +50,13 @@ export interface JsonlDestinationOptions {
   createDirs?: boolean;
 
   /**
-   * Optional replacer function or array passed to JSON.stringify.
+   * Optional replacer passed to JSON.stringify.
+   * Can be a function or an array of allowed keys.
    */
-  replacer?: (key: string, value: unknown) => unknown;
+  replacer?:
+    | ((key: string, value: unknown) => unknown)
+    | Array<string | number>
+    | null;
 }
 
 /** Combined options for the source+destination overload (string path only). */

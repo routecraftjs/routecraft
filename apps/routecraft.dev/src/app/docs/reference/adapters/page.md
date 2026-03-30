@@ -936,19 +936,15 @@ npm install papaparse
 | `mode` | `'write' \| 'append'` | `'write'` | File operation mode (destination only) |
 | `createDirs` | `boolean` | `false` | Create parent directories (destination only) |
 | `chunked` | `boolean` | `false` | Emit one exchange per row instead of entire array (source only) |
-| `onParseError` | `'throw' \| 'skip'` | `'throw'` | How to handle malformed rows (chunked mode only) |
 
 **Behavior:**
 - **Source** (default): Emits entire CSV as array of records (objects if `header: true`, arrays if `header: false`)
-- **Source** (`chunked: true`): Emits one exchange per row with `CSV_ROW` (1-based row number) and `CSV_PATH` headers. Returns `Source` only (no `Destination`)
+- **Source** (`chunked: true`): Emits one exchange per row with `CSV_ROW` (1-based row number) and `CSV_PATH` headers. Returns `Source` only (no `Destination`). Parse errors throw and are handled by the route's error handler.
 - **Destination**: Writes exchange body (array of objects/arrays) as CSV. For `mode: 'append'`, skips header row if file exists
 
 ```ts
 // Per-row emission
 .from(csv({ path: './big.csv', chunked: true }))
-
-// Skip malformed rows
-.from(csv({ path: './messy.csv', chunked: true, onParseError: 'skip' }))
 ```
 
 **Peer dependency:** Requires `papaparse` to be installed separately.
@@ -973,9 +969,6 @@ Read and write [JSON Lines](https://jsonlines.org/) files (one JSON object per l
 // Per-line emission (chunked)
 .from(jsonl({ path: './events.jsonl', chunked: true }))
 // Emits one exchange per line with JSONL_LINE and JSONL_PATH headers
-
-// Skip invalid lines
-.from(jsonl({ path: './messy.jsonl', onParseError: 'skip' }))
 
 // Custom reviver
 .from(jsonl({
@@ -1012,7 +1005,6 @@ Read and write [JSON Lines](https://jsonlines.org/) files (one JSON object per l
 | `path` | `string` | Required | File path to the JSONL file |
 | `encoding` | `BufferEncoding` | `'utf-8'` | Text encoding |
 | `chunked` | `boolean` | `false` | Emit one exchange per line instead of a single array |
-| `onParseError` | `'throw' \| 'skip'` | `'throw'` | How to handle lines that fail to parse |
 | `reviver` | `(key, value) => unknown` | - | Reviver function passed to `JSON.parse` |
 
 **Destination options (`JsonlDestinationOptions`):**
@@ -1023,11 +1015,11 @@ Read and write [JSON Lines](https://jsonlines.org/) files (one JSON object per l
 | `encoding` | `BufferEncoding` | `'utf-8'` | Text encoding |
 | `mode` | `'write' \| 'append'` | `'append'` | File operation mode |
 | `createDirs` | `boolean` | `false` | Create parent directories |
-| `replacer` | `(key, value) => unknown` | - | Replacer function passed to `JSON.stringify` |
+| `replacer` | `((key, value) => unknown) \| Array<string \| number> \| null` | - | Replacer passed to `JSON.stringify` |
 
 **Behavior:**
 - **Source** (default): Reads file, splits lines, parses each as JSON, emits `T[]` array. Empty lines are skipped.
-- **Source** (`chunked: true`): Emits one `T` exchange per line with `JSONL_LINE` (1-based) and `JSONL_PATH` headers. Returns `Source` only (no `Destination`).
+- **Source** (`chunked: true`): Emits one `T` exchange per line with `JSONL_LINE` (1-based) and `JSONL_PATH` headers. Returns `Source` only (no `Destination`). Parse errors throw and are handled by the route's error handler.
 - **Destination**: Stringifies body to `JSON.stringify(body) + '\n'`. Array bodies write one line per element. Default mode is append.
 
 **Chunked headers:**

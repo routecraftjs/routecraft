@@ -26,23 +26,19 @@ export class JsonlDestinationAdapter implements Destination<unknown, void> {
     const resolvedPath =
       typeof filePath === "function" ? filePath(exchange) : filePath;
 
+    const stringify = (value: unknown): string =>
+      Array.isArray(replacer)
+        ? JSON.stringify(value, replacer)
+        : JSON.stringify(
+            value,
+            replacer as ((key: string, value: unknown) => unknown) | undefined,
+          );
+
     let output: string;
     if (Array.isArray(exchange.body)) {
-      output =
-        exchange.body
-          .map((item) =>
-            JSON.stringify(
-              item,
-              replacer as Parameters<typeof JSON.stringify>[1],
-            ),
-          )
-          .join("\n") + "\n";
+      output = exchange.body.map((item) => stringify(item)).join("\n") + "\n";
     } else {
-      output =
-        JSON.stringify(
-          exchange.body,
-          replacer as Parameters<typeof JSON.stringify>[1],
-        ) + "\n";
+      output = stringify(exchange.body) + "\n";
     }
 
     const fileAdapter = file({
