@@ -1,6 +1,6 @@
 {
   "name": "@routecraft/cli",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "CLI for running Routecraft routes",
   "private": false,
   "type": "module",
@@ -23,7 +23,7 @@
   },
   "dependencies": {
     "@opentelemetry/sdk-trace-base": "^2.6.0",
-    "@routecraft/routecraft": "workspace:^0.4.0",
+    "@routecraft/routecraft": "^0.5.0",
     "agent-browser": "^0.17.1",
     "better-sqlite3": "^11.10.0",
     "cheerio": "^1.2.0",
