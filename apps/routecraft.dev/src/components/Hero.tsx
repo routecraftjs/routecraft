@@ -114,13 +114,12 @@ export function Hero() {
             />
             <div className="relative">
               <p className="inline bg-linear-to-r from-indigo-600 via-sky-500 to-indigo-600 bg-clip-text font-display text-5xl tracking-tight text-transparent dark:from-indigo-200 dark:via-sky-400 dark:to-indigo-200">
-                Give AI access, not control
+                AI automation as code
               </p>
               <p className="mt-3 text-2xl tracking-tight text-gray-600 dark:text-gray-400">
-                Define TypeScript capabilities that send emails, manage
-                calendars, and automate work. Expose them to the Routecraft
-                agent, Claude, ChatGPT, Cursor, or any AI agent via MCP. AI uses
-                your capabilities, not your computer.
+                Write TypeScript capabilities that send emails, manage
+                calendars, and automate work. Expose them to Claude, Cursor, or
+                any AI agent via MCP. Your code becomes the AI&apos;s toolkit.
               </p>
               <div className="mt-8 flex gap-4 md:justify-center lg:justify-start">
                 <Button href="https://github.com/routecraftjs/routecraft">

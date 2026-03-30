@@ -17,8 +17,8 @@ Routecraft is built for both eras of software:
 
 TypeScript all the way. Full IDE support, version controlled, and testable.
 
-**Safe by Design**
-Free-thinking models should not have free reign over your system. Routecraft inverts the default: nothing is accessible until you explicitly write a capability for it. Write a **deterministic** capability for predictable, code-controlled actions. Write a **non-deterministic** one and the agent reasons within the boundary you defined. Either way, you stay in control.
+**Secure by Design**
+Nothing is accessible until you explicitly write a capability for it. Write a **deterministic** capability for predictable, code-controlled actions. Write a **non-deterministic** one and the agent reasons within the boundary you defined. You define what AI can do, and the code enforces it.
 
 ![Routecraft as mission control: AI agents on the left connect via MCP, Routecraft capabilities in the center, Software 1.0 systems on the right via Adapters, and outbound MCP clients below](/diagrams/architecture.png)
 

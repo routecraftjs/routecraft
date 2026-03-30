@@ -24,10 +24,10 @@ const lexend = localFont({
 export const metadata: Metadata = {
   title: {
     template: '%s - Routecraft',
-    default: 'Routecraft - Give AI Access, Not Control',
+    default: 'Routecraft - AI Automation as Code',
   },
   description:
-    'Write TypeScript capabilities that send emails, manage calendars, and automate work. AI calls your code, not your computer. The code-first alternative to Make.com.',
+    'Write TypeScript capabilities that send emails, manage calendars, and automate work. Expose them to any AI agent via MCP. The code-first alternative to Make.com.',
   keywords: [
     'AI automation',
     'TypeScript automation',
@@ -45,9 +45,9 @@ export const metadata: Metadata = {
     'workflow automation',
   ],
   openGraph: {
-    title: 'Routecraft - Give AI Access, Not Control',
+    title: 'Routecraft - AI Automation as Code',
     description:
-      'Write TypeScript capabilities that send emails, manage calendars, and automate work. AI calls your code, not your computer.',
+      'Write TypeScript capabilities that send emails, manage calendars, and automate work. Expose them to any AI agent via MCP.',
     type: 'website',
   },
   icons: {

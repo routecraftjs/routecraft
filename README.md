@@ -2,7 +2,7 @@
 
   <img src="./routecraft-sticker.svg" alt="Routecraft" width="300" />
 
-  <p><strong>Give AI access, not control</strong></p>
+  <p><strong>AI automation as code</strong></p>
 
   <a href="https://github.com/routecraftjs/routecraft/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/routecraftjs/routecraft/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Node.js" src="https://img.shields.io/badge/Node.js-22%2B-3c873a?logo=node.js">
@@ -15,14 +15,14 @@
 
 ## About
 
-Routecraft is a code-first automation platform for TypeScript. Write routes that send emails, manage calendars, and automate work. AI calls your code, not your computer.
+Routecraft is a code-first automation platform for TypeScript. Write routes that send emails, manage calendars, and automate work. Expose them to any AI agent via MCP.
 
 ## Why Routecraft?
 
 - ✅ **AI that does real work** - Send emails, schedule meetings, automate tasks
 - ✅ **Code, not configs** - TypeScript all the way with full IDE support
 - ✅ **Works with Claude & Cursor** - Expose tools via MCP automatically
-- ✅ **You stay in control** - AI only accesses the routes you code
+- ✅ **Secure by design** - AI only accesses the capabilities you expose
 
 ## Quick Start
 
