@@ -1,17 +1,21 @@
+import { createReadStream } from "node:fs";
 import type { Source, CallableSource } from "../../operations/from.ts";
-import type { CsvOptions, CsvData } from "./types.ts";
+import type { CsvOptions, CsvData, CsvRow } from "./types.ts";
+import { HeadersKeys, type ExchangeHeaders } from "../../exchange.ts";
 import { file } from "../file/index.ts";
 import { ensurePapaparse } from "./shared.ts";
+import { throwFileError } from "../shared/line-reader.ts";
 
 /**
  * CsvSourceAdapter reads CSV files and parses them to arrays of objects.
+ * When chunked is true, emits one exchange per row.
  */
-export class CsvSourceAdapter implements Source<CsvData> {
+export class CsvSourceAdapter implements Source<CsvData | CsvRow> {
   readonly adapterId = "routecraft.adapter.csv";
 
   constructor(private readonly options: CsvOptions) {}
 
-  subscribe: CallableSource<CsvData> = async (
+  subscribe: CallableSource<CsvData | CsvRow> = async (
     context,
     handler,
     abortController,
@@ -23,17 +27,29 @@ export class CsvSourceAdapter implements Source<CsvData> {
       delimiter = ",",
       quoteChar = '"',
       skipEmptyLines = true,
+      chunked = false,
     } = this.options;
 
-    const fileAdapter = file({
-      path: this.options.path,
-      encoding: this.options.encoding || "utf-8",
-    });
+    if (chunked) {
+      if (onReady) onReady();
+      await this.subscribeChunked(
+        Papa,
+        handler as (
+          message: CsvRow,
+          headers?: ExchangeHeaders,
+        ) => Promise<import("../../exchange.ts").Exchange>,
+        abortController,
+        { header, delimiter, quoteChar, skipEmptyLines },
+      );
+    } else {
+      const fileAdapter = file({
+        path: this.options.path,
+        encoding: this.options.encoding || "utf-8",
+      });
 
-    await fileAdapter.subscribe(
-      context,
-      async (csvContent: string) => {
-        try {
+      await fileAdapter.subscribe(
+        context,
+        async (csvContent: string) => {
           const parseResult = Papa.parse(csvContent, {
             header,
             delimiter,
@@ -48,14 +64,133 @@ export class CsvSourceAdapter implements Source<CsvData> {
             );
           }
 
-          return await handler(parseResult.data as CsvData);
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          throw new Error(`csv adapter: failed to parse CSV: ${message}`);
-        }
-      },
-      abortController,
-      onReady,
-    );
+          return await (
+            handler as (
+              message: CsvData,
+              headers?: ExchangeHeaders,
+            ) => Promise<import("../../exchange.ts").Exchange>
+          )(parseResult.data as CsvData);
+        },
+        abortController,
+        onReady,
+      );
+    }
   };
+
+  private async subscribeChunked(
+    Papa: ReturnType<typeof ensurePapaparse>,
+    handler: (
+      message: CsvRow,
+      headers?: ExchangeHeaders,
+    ) => Promise<import("../../exchange.ts").Exchange>,
+    abortController: AbortController,
+    parseOptions: {
+      header: boolean;
+      delimiter: string;
+      quoteChar: string;
+      skipEmptyLines: boolean;
+    },
+  ): Promise<void> {
+    if (abortController.signal.aborted) return;
+
+    const filePath = this.options.path;
+    if (typeof filePath !== "string") {
+      throw new Error(
+        "csv adapter: path must be a string for source mode (dynamic paths are only supported for destinations)",
+      );
+    }
+
+    const encoding = this.options.encoding || "utf-8";
+
+    return new Promise<void>((resolve, reject) => {
+      const stream = createReadStream(filePath, { encoding });
+      let rowNumber = 0;
+      let aborted = false;
+      let settled = false;
+
+      const settle = (fn: () => void) => {
+        if (!settled) {
+          settled = true;
+          fn();
+        }
+      };
+
+      const onAbort = () => {
+        aborted = true;
+        stream.destroy();
+        settle(() => resolve());
+      };
+      abortController.signal.addEventListener("abort", onAbort, {
+        once: true,
+      });
+
+      Papa.parse(stream, {
+        header: parseOptions.header,
+        delimiter: parseOptions.delimiter,
+        quoteChar: parseOptions.quoteChar,
+        skipEmptyLines: parseOptions.skipEmptyLines,
+        step: (
+          results: { data: CsvRow; errors: Array<{ message: string }> },
+          parser: {
+            pause: () => void;
+            resume: () => void;
+            abort: () => void;
+          },
+        ) => {
+          if (aborted) {
+            parser.abort();
+            return;
+          }
+
+          rowNumber++;
+
+          if (results.errors.length > 0) {
+            const firstError = results.errors[0];
+            parser.abort();
+            settle(() =>
+              reject(
+                new Error(
+                  `csv adapter: parse error at row ${rowNumber}: ${firstError.message}`,
+                ),
+              ),
+            );
+            return;
+          }
+
+          parser.pause();
+          const headers: ExchangeHeaders = {
+            [HeadersKeys.CSV_ROW]: rowNumber,
+            [HeadersKeys.CSV_PATH]: filePath,
+          } as ExchangeHeaders;
+
+          handler(results.data as CsvRow, headers)
+            .then(() => {
+              if (!aborted) {
+                parser.resume();
+              }
+            })
+            .catch((err) => {
+              parser.abort();
+              settle(() => reject(err));
+            });
+        },
+        complete: () => {
+          abortController.signal.removeEventListener("abort", onAbort);
+          settle(() => resolve());
+        },
+        error: (err: Error) => {
+          abortController.signal.removeEventListener("abort", onAbort);
+          if (aborted) {
+            settle(() => resolve());
+            return;
+          }
+          try {
+            throwFileError("csv", filePath, err);
+          } catch (wrapped) {
+            settle(() => reject(wrapped));
+          }
+        },
+      });
+    });
+  }
 }

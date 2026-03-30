@@ -20,6 +20,7 @@ Full catalog of adapters with signatures and options. {% .lead %}
 | [`file`](#file) | File | Read/write text files | `Source`, `Destination` |
 | [`json`](#json) | File | JSON file handling with parsing | `Source`, `Destination`, `Transformer` |
 | [`csv`](#csv) | File | CSV file processing | `Source`, `Destination` |
+| [`jsonl`](#jsonl) | File | JSON Lines file processing | `Source`, `Destination` |
 | [`html`](#html) | File | HTML parsing and file handling | `Source`, `Destination`, `Transformer` |
 | [`mail`](#mail) | Messaging | Read email via IMAP or send via SMTP | `Source`, `Destination` |
 | [`agentBrowser`](#agentbrowser) | Browser | Automate a browser session (navigate, click, snapshot, etc.) | `Destination` |
@@ -721,7 +722,8 @@ import { mcp } from "@routecraft/mcp-adapter";
 
 ### file
 ```ts
-file(options: FileOptions): FileAdapter
+file(options: FileOptions & { chunked: true }): Source<string>
+file(options: FileOptions): FileAdapter   // Source<string> & Destination<unknown, void>
 ```
 
 Read and write plain text files. For structured data, use `json` or `csv` adapters.
@@ -759,6 +761,14 @@ Read and write plain text files. For structured data, use `json` or `csv` adapte
 | `mode` | `'read' \| 'write' \| 'append'` | `'read'` for source, `'write'` for destination | File operation mode |
 | `encoding` | `BufferEncoding` | `'utf-8'` | Text encoding |
 | `createDirs` | `boolean` | `false` | Create parent directories (destination only) |
+| `chunked` | `boolean` | `false` | Emit one exchange per line instead of entire file (source only) |
+
+**Chunked mode:** When `chunked: true`, the file source emits one exchange per line. Each exchange includes `FILE_LINE` (1-based line number) and `FILE_PATH` headers. When chunked, the adapter returns `Source` only (no `Destination`).
+
+```ts
+// Per-line emission
+.from(file({ path: './big.txt', chunked: true }))
+```
 
 **Exported types:** `FileAdapter`, `FileOptions`
 
@@ -853,7 +863,8 @@ Parse and format JSON data, or read/write JSON files.
 
 ### csv
 ```ts
-csv(options: CsvOptions): CsvAdapter
+csv(options: CsvOptions & { chunked: true }): Source<CsvRow>
+csv(options: CsvOptions): CsvAdapter   // Source<CsvData> & Destination<unknown, void>
 ```
 
 Read and write CSV files with automatic parsing/formatting. **Requires `papaparse` as a peer dependency.**
@@ -924,14 +935,101 @@ npm install papaparse
 | `encoding` | `BufferEncoding` | `'utf-8'` | Text encoding |
 | `mode` | `'write' \| 'append'` | `'write'` | File operation mode (destination only) |
 | `createDirs` | `boolean` | `false` | Create parent directories (destination only) |
+| `chunked` | `boolean` | `false` | Emit one exchange per row instead of entire array (source only) |
 
 **Behavior:**
-- **Source**: Emits entire CSV as array of records (objects if `header: true`, arrays if `header: false`)
-- **Destination**: Writes exchange body (array of objects/arrays) as CSV. For `mode: 'append'`, skips header row if file exists.
+- **Source** (default): Emits entire CSV as array of records (objects if `header: true`, arrays if `header: false`)
+- **Source** (`chunked: true`): Emits one exchange per row with `CSV_ROW` (1-based row number) and `CSV_PATH` headers. Returns `Source` only (no `Destination`). Parse errors throw and are handled by the route's error handler.
+- **Destination**: Writes exchange body (array of objects/arrays) as CSV. For `mode: 'append'`, skips header row if file exists
+
+```ts
+// Per-row emission
+.from(csv({ path: './big.csv', chunked: true }))
+```
 
 **Peer dependency:** Requires `papaparse` to be installed separately.
 
-**Exported types:** `CsvAdapter`, `CsvOptions`
+**Exported types:** `CsvAdapter`, `CsvOptions`, `CsvRow`, `CsvData`
+
+### jsonl
+```ts
+jsonl<T>(options: JsonlSourceOptions & { chunked: true }): Source<T>
+jsonl<T>(options: JsonlCombinedOptions): Source<T[]> & Destination<unknown, void>
+jsonl(options: JsonlDestinationOptions): Destination<unknown, void>
+```
+
+Read and write [JSON Lines](https://jsonlines.org/) files (one JSON object per line).
+
+**Source mode** (read JSONL files):
+```ts
+// Read all lines as array
+.from(jsonl({ path: './events.jsonl' }))
+// Emits: [{ type: 'click', ts: 1 }, { type: 'view', ts: 2 }, ...]
+
+// Per-line emission (chunked)
+.from(jsonl({ path: './events.jsonl', chunked: true }))
+// Emits one exchange per line with JSONL_LINE and JSONL_PATH headers
+
+// Custom reviver
+.from(jsonl({
+  path: './data.jsonl',
+  reviver: (key, value) => key === 'date' ? new Date(value) : value
+}))
+```
+
+**Destination mode** (write JSONL files):
+```ts
+// Append to JSONL file (default)
+.to(jsonl({ path: './output.jsonl' }))
+
+// Overwrite file
+.to(jsonl({ path: './output.jsonl', mode: 'write' }))
+
+// Dynamic path with directory creation
+.to(jsonl({
+  path: (exchange) => `./logs/${exchange.body.date}.jsonl`,
+  createDirs: true
+}))
+
+// Custom replacer (omit sensitive fields)
+.to(jsonl({
+  path: './output.jsonl',
+  replacer: (key, value) => key === 'secret' ? undefined : value
+}))
+```
+
+**Source options (`JsonlSourceOptions`):**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `path` | `string` | Required | File path to the JSONL file |
+| `encoding` | `BufferEncoding` | `'utf-8'` | Text encoding |
+| `chunked` | `boolean` | `false` | Emit one exchange per line instead of a single array |
+| `reviver` | `(key, value) => unknown` | - | Reviver function passed to `JSON.parse` |
+
+**Destination options (`JsonlDestinationOptions`):**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `path` | `string \| (exchange) => string` | Required | File path (static or dynamic) |
+| `encoding` | `BufferEncoding` | `'utf-8'` | Text encoding |
+| `mode` | `'write' \| 'append'` | `'append'` | File operation mode |
+| `createDirs` | `boolean` | `false` | Create parent directories |
+| `replacer` | `((key, value) => unknown) \| Array<string \| number> \| null` | - | Replacer passed to `JSON.stringify` |
+
+**Behavior:**
+- **Source** (default): Reads file, splits lines, parses each as JSON, emits `T[]` array. Empty lines are skipped.
+- **Source** (`chunked: true`): Emits one `T` exchange per line with `JSONL_LINE` (1-based) and `JSONL_PATH` headers. Returns `Source` only (no `Destination`). Parse errors throw and are handled by the route's error handler.
+- **Destination**: Stringifies body to `JSON.stringify(body) + '\n'`. Array bodies write one line per element. Default mode is append.
+
+**Chunked headers:**
+
+| Header | Type | Description |
+|--------|------|-------------|
+| `JSONL_LINE` | `number` | 1-based line number in the source file |
+| `JSONL_PATH` | `string` | Path of the source file |
+
+**Exported types:** `JsonlSourceOptions`, `JsonlDestinationOptions`, `JsonlCombinedOptions`, `JsonlOptions`
 
 ### html
 ```ts

@@ -9,6 +9,17 @@ export type FileAdapter = Source<string> &
   Destination<unknown, void> & { readonly adapterId: string };
 
 /**
+ * Creates a file adapter in chunked source mode.
+ * Emits one exchange per line with FILE_LINE and FILE_PATH headers.
+ *
+ * @beta
+ * @param options - File options with chunked: true
+ * @returns A Source-only adapter
+ */
+export function file(
+  options: FileOptions & { chunked: true },
+): Source<string> & { readonly adapterId: string };
+/**
  * Creates a file adapter for reading or writing plain text files.
  *
  * @beta
@@ -42,8 +53,15 @@ export type FileAdapter = Source<string> &
  * }))
  * ```
  */
-export function file(options: FileOptions): FileAdapter {
+export function file(options: FileOptions): FileAdapter;
+export function file(options: FileOptions): Source<string> | FileAdapter {
   const source = new FileSourceAdapter(options);
+  if (options.chunked) {
+    return {
+      adapterId: "routecraft.adapter.file",
+      subscribe: source.subscribe,
+    };
+  }
   const destination = new FileDestinationAdapter(options);
   return {
     adapterId: "routecraft.adapter.file",

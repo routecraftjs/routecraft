@@ -35,6 +35,7 @@ A destination receives the final exchange. It goes in `.to()`.
 .to(log())
 .to(http({ method: 'POST', url: 'https://api.example.com/events' }))
 .to(json({ path: './output.json' }))
+.to(jsonl({ path: './events.jsonl' }))
 .to(direct('next-stage'))
 ```
 
