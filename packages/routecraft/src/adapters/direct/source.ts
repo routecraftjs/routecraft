@@ -4,17 +4,11 @@ import {
   HeadersKeys,
 } from "../../exchange";
 import type { Source } from "../../operations/from";
-import type { CraftContext, MergedOptions } from "../../context";
+import type { CraftContext } from "../../context";
 import { rcError, formatSchemaIssues } from "../../error";
 import type { EventName } from "../../types";
 import type { DirectServerOptions } from "./types";
-import type { DirectOptionsMerged } from "./shared";
-import {
-  getDirectChannel,
-  getMergedOptions,
-  registerRoute,
-  sanitizeEndpoint,
-} from "./shared";
+import { getDirectChannel, registerRoute, sanitizeEndpoint } from "./shared";
 
 /**
  * DirectSourceAdapter implements the Source interface for the direct adapter.
@@ -25,13 +19,11 @@ import {
  * It subscribes to incoming messages on a specific endpoint and validates them
  * using the provided schema and headerSchema (if any).
  */
-export class DirectSourceAdapter<T = unknown>
-  implements Source<T>, MergedOptions<DirectOptionsMerged>
-{
+export class DirectSourceAdapter<T = unknown> implements Source<T> {
   readonly adapterId: string = "routecraft.adapter.direct";
 
   private endpoint: string;
-  public options: Partial<DirectOptionsMerged>;
+  public options: Partial<DirectServerOptions>;
 
   constructor(endpoint: string, options: Partial<DirectServerOptions> = {}) {
     if (typeof endpoint !== "string") {
@@ -42,7 +34,7 @@ export class DirectSourceAdapter<T = unknown>
       });
     }
     this.endpoint = endpoint;
-    this.options = options as Partial<DirectOptionsMerged>;
+    this.options = options;
   }
 
   async subscribe(
@@ -54,18 +46,15 @@ export class DirectSourceAdapter<T = unknown>
     // Sanitize the endpoint name
     const endpoint = sanitizeEndpoint(this.endpoint);
 
-    // Get merged options from context store
-    const merged = getMergedOptions(context, this.options);
-
     // Register route in the registry
-    registerRoute(context, endpoint, merged);
+    registerRoute(context, endpoint, this.options);
 
     context.logger.debug(
       { endpoint, adapter: "direct" },
       "Setting up subscription for direct endpoint",
     );
 
-    const channel = getDirectChannel<T>(context, endpoint, merged);
+    const channel = getDirectChannel<T>(context, endpoint, this.options);
 
     if (abortController.signal.aborted) {
       context.logger.debug(
@@ -76,8 +65,8 @@ export class DirectSourceAdapter<T = unknown>
     }
 
     // Wrap handler with validation if schema provided
-    const wrappedHandler = this.hasValidation(merged)
-      ? this.createValidatedHandler(handler, endpoint, merged, context)
+    const wrappedHandler = this.hasValidation()
+      ? this.createValidatedHandler(handler, endpoint, context)
       : async (exchange: Exchange<T>) => {
           const result = await handler(exchange.body as T, exchange.headers);
           return result as Exchange<T>;
@@ -115,15 +104,11 @@ export class DirectSourceAdapter<T = unknown>
     });
   }
 
-  mergedOptions(context: CraftContext): DirectOptionsMerged {
-    return getMergedOptions(context, this.options);
-  }
-
   /**
    * Check if this adapter has validation configured
    */
-  private hasValidation(options: DirectOptionsMerged): boolean {
-    return !!(options.schema || options.headerSchema);
+  private hasValidation(): boolean {
+    return !!(this.options.schema || this.options.headerSchema);
   }
 
   /**
@@ -133,7 +118,6 @@ export class DirectSourceAdapter<T = unknown>
   private createValidatedHandler(
     handler: (message: T, headers?: ExchangeHeaders) => Promise<Exchange>,
     endpoint: string,
-    options: DirectOptionsMerged,
     context: CraftContext,
   ): (exchange: Exchange<T>) => Promise<Exchange<T>> {
     return async (exchange: Exchange<T>) => {
@@ -141,8 +125,8 @@ export class DirectSourceAdapter<T = unknown>
       let validatedHeaders = exchange.headers;
 
       // Validate body if schema provided
-      if (options.schema) {
-        let result = options.schema["~standard"].validate(exchange.body);
+      if (this.options.schema) {
+        let result = this.options.schema["~standard"].validate(exchange.body);
         if (result instanceof Promise) result = await result;
 
         const bodyIssues = (result as { issues?: unknown }).issues;
@@ -166,8 +150,8 @@ export class DirectSourceAdapter<T = unknown>
       }
 
       // Validate headers if headerSchema provided
-      if (options.headerSchema) {
-        let result = options.headerSchema["~standard"].validate(
+      if (this.options.headerSchema) {
+        let result = this.options.headerSchema["~standard"].validate(
           exchange.headers,
         );
         if (result instanceof Promise) result = await result;

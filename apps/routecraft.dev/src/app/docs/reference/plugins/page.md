@@ -12,6 +12,10 @@ Full catalog of built-in plugins with options and behaviour. {% .lead %}
 | [`embeddingPlugin`](#embeddingplugin) | `@routecraft/ai` | Register embedding providers for use with `embedding()` |
 | [`mcpPlugin`](#mcpplugin) | `@routecraft/ai` | Start an MCP server and register remote MCP clients |
 
+{% callout %}
+Core adapter defaults (`cron`, `direct`) are set via dedicated fields on `CraftConfig`, not via plugins. See [Configuration](/docs/reference/configuration) and [Merged Options](/docs/advanced/merged-options).
+{% /callout %}
+
 ## llmPlugin
 
 ```ts

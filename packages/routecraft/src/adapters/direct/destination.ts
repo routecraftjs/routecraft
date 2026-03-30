@@ -1,9 +1,7 @@
 import type { Exchange } from "../../exchange";
 import type { Destination } from "../../operations/to";
-import type { CraftContext, MergedOptions } from "../../context";
 import type { DirectEndpoint, DirectClientOptions } from "./types";
-import type { DirectOptionsMerged } from "./shared";
-import { getDirectChannel, getMergedOptions, sanitizeEndpoint } from "./shared";
+import { getDirectChannel, sanitizeEndpoint } from "./shared";
 
 /**
  * DirectDestinationAdapter implements the Destination interface for the direct adapter.
@@ -14,13 +12,14 @@ import { getDirectChannel, getMergedOptions, sanitizeEndpoint } from "./shared";
  *
  * It sends messages to a specific endpoint (static or dynamic).
  */
-export class DirectDestinationAdapter<T = unknown>
-  implements Destination<T, T>, MergedOptions<DirectOptionsMerged>
-{
+export class DirectDestinationAdapter<T = unknown> implements Destination<
+  T,
+  T
+> {
   readonly adapterId: string = "routecraft.adapter.direct";
 
   private rawEndpoint: DirectEndpoint<T>;
-  public options: Partial<DirectOptionsMerged>;
+  public options: Partial<DirectClientOptions>;
   private lastResolvedEndpoint?: string;
 
   constructor(
@@ -28,7 +27,7 @@ export class DirectDestinationAdapter<T = unknown>
     options: Partial<DirectClientOptions> = {},
   ) {
     this.rawEndpoint = rawEndpoint;
-    this.options = options as Partial<DirectOptionsMerged>;
+    this.options = options;
   }
 
   async send(exchange: Exchange<T>): Promise<T> {
@@ -66,10 +65,6 @@ export class DirectDestinationAdapter<T = unknown>
     return {
       endpoint: this.lastResolvedEndpoint ?? "unknown",
     };
-  }
-
-  mergedOptions(context: CraftContext): DirectOptionsMerged {
-    return getMergedOptions(context, this.options);
   }
 
   private resolveEndpoint(exchange: Exchange<T>): string {
