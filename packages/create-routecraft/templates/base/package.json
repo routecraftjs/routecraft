@@ -5,7 +5,6 @@
   "type": "module",
   "packageManager": "PACKAGE_MANAGER",
   "scripts": {
-    "build": "tsc",
     "start": "craft run index.ts --log-level info",
     "lint": "eslint .",
     "format": "prettier . --check --ignore-unknown",

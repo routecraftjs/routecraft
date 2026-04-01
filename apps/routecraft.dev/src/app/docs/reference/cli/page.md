@@ -62,7 +62,6 @@ Options:
 | --skip-install | Skip installing dependencies |
 | -e, --example \<name or url\> | Example to use (none, hello-world) or GitHub URL |
 | --use-npm, --use-pnpm, --use-yarn, --use-bun | Choose package manager |
-| --no-src-dir | Place project files at root instead of src/ |
 | --no-git | Skip git initialization |
 
 ## Commands
