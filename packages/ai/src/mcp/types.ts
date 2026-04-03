@@ -175,17 +175,64 @@ export interface AuthPrincipal {
 }
 
 /**
- * Authentication options for the MCP HTTP server.
- * Only applies when `transport` is `"http"`. Ignored for stdio.
+ * Token info returned by the OAuth `verifyAccessToken` callback.
+ * Mirrors the MCP SDK's `AuthInfo` with only the fields routecraft needs.
  *
- * The validator receives the raw bearer token from the `Authorization` header
- * on every request and must return an {@link AuthPrincipal} on success or
- * `null` / `false` to reject with 401. Use the built-in `jwt()` helper for
- * HMAC-signed JWTs or supply a custom function for other schemes.
+ * @experimental
+ */
+export interface OAuthTokenInfo {
+  /** The raw access token string. */
+  token: string;
+  /** OAuth client ID that obtained this token. */
+  clientId: string;
+  /** Scopes granted to the token. */
+  scopes: string[];
+  /** Expiry as Unix epoch seconds. */
+  expiresAt?: number;
+}
+
+/**
+ * OAuth client info returned by the `getClient` callback.
+ * Mirrors the MCP SDK's `OAuthClientInformationFull` with only the fields routecraft needs.
+ *
+ * Field names use snake_case to match the OAuth 2.0 Dynamic Client Registration
+ * specification (RFC 7591) and the MCP SDK's `OAuthClientInformationFull`.
+ *
+ * @experimental
+ */
+export interface OAuthClientInfo {
+  /** The client identifier. */
+  client_id: string;
+  /** Allowed redirect URIs for authorization code flow. */
+  redirect_uris: string[];
+  /** Human-readable client name. */
+  client_name?: string;
+  /** Client secret (for confidential clients). */
+  client_secret?: string;
+}
+
+/**
+ * Endpoint URLs for the upstream OAuth provider (used by the proxy).
+ *
+ * @experimental
+ */
+export interface OAuthProxyEndpoints {
+  /** Authorization endpoint URL. */
+  authorizationUrl: string;
+  /** Token endpoint URL. */
+  tokenUrl: string;
+  /** Token revocation endpoint URL. */
+  revocationUrl?: string;
+  /** Dynamic client registration endpoint URL. */
+  registrationUrl?: string;
+}
+
+/**
+ * Validator-based auth: bearer token checked on every request.
+ * Used with `jwt()` helper or custom validator functions.
  *
  * @example
  * ```ts
- * // Built-in JWT helper (HMAC / HS256)
  * import { jwt } from "@routecraft/ai";
  * auth: jwt({ secret: process.env.JWT_SECRET! })
  *
@@ -201,7 +248,7 @@ export interface AuthPrincipal {
  *
  * @experimental
  */
-export interface McpHttpAuthOptions {
+export interface McpValidatorAuthOptions {
   /**
    * Validator function called with the raw bearer token on every request.
    *
@@ -212,6 +259,81 @@ export interface McpHttpAuthOptions {
    * Validators should catch expected failures (e.g. JWT expiry) and return `null`.
    */
   validator: McpAuthValidator;
+}
+
+/**
+ * OAuth provider auth: full OAuth 2.1 server flow with proxy to upstream IdP.
+ * Mounts discovery, authorization, token, and revocation endpoints alongside `/mcp`.
+ * Uses the MCP SDK's `ProxyOAuthServerProvider` and `mcpAuthRouter` internally.
+ *
+ * @example
+ * ```ts
+ * import { oauth } from "@routecraft/ai";
+ * auth: oauth({
+ *   issuerUrl: "https://mcp.example.com",
+ *   endpoints: {
+ *     authorizationUrl: "https://idp.example.com/authorize",
+ *     tokenUrl: "https://idp.example.com/token",
+ *   },
+ *   verifyAccessToken: async (token) => ({
+ *     token, clientId: "my-client", scopes: ["read"],
+ *   }),
+ *   getClient: async (clientId) => ({
+ *     client_id: clientId, redirect_uris: ["http://localhost:3000/callback"],
+ *   }),
+ * })
+ * ```
+ *
+ * @experimental
+ */
+export interface McpOAuthAuthOptions {
+  /** Discriminant for the union. Always `"oauth"`. */
+  provider: "oauth";
+  /** Issuer URL for OAuth metadata discovery. Must be HTTPS in production. */
+  issuerUrl: string | URL;
+  /** Base URL for OAuth endpoints (defaults to issuerUrl). */
+  baseUrl?: string | URL;
+  /** Upstream OAuth provider endpoints to proxy. */
+  endpoints: OAuthProxyEndpoints;
+  /**
+   * Verify an access token and return token info.
+   * Called on every authenticated request to `/mcp`.
+   */
+  verifyAccessToken: (token: string) => Promise<OAuthTokenInfo>;
+  /**
+   * Look up a registered OAuth client by ID.
+   * Return `undefined` to reject the client.
+   */
+  getClient: (clientId: string) => Promise<OAuthClientInfo | undefined>;
+  /** OAuth scopes the server advertises as supported. */
+  scopesSupported?: string[];
+  /** Scopes required on every request to `/mcp`. */
+  requiredScopes?: string[];
+  /** URL to service documentation (included in OAuth metadata). */
+  serviceDocumentationUrl?: string | URL;
+  /** Human-readable resource name (included in OAuth metadata). */
+  resourceName?: string;
+}
+
+/**
+ * Authentication options for the MCP HTTP server.
+ * Only applies when `transport` is `"http"`. Ignored for stdio.
+ *
+ * Two strategies are supported:
+ * - `Validator`: simple bearer token check via `jwt()` or custom function.
+ * - `OAuth`: full OAuth 2.1 server flow via `oauth()`, proxying to an upstream IdP.
+ *
+ * @experimental
+ */
+export type McpHttpAuthOptions = McpValidatorAuthOptions | McpOAuthAuthOptions;
+
+/**
+ * Type guard: returns `true` when auth is configured for OAuth provider mode.
+ */
+export function isOAuthAuth(
+  auth: McpHttpAuthOptions,
+): auth is McpOAuthAuthOptions {
+  return "provider" in auth && auth.provider === "oauth";
 }
 
 /**
