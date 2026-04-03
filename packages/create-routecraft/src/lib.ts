@@ -24,6 +24,7 @@ type ExampleType = string;
 
 /**
  * Project initialization options
+ * @experimental
  */
 export interface InitOptions {
   projectName?: string;
@@ -37,6 +38,7 @@ export interface InitOptions {
 
 /**
  * Get the current version of @routecraft/routecraft from package.json
+ * @experimental
  */
 export function getRoutecraftVersion(): string {
   try {
@@ -71,15 +73,8 @@ function getPackageManagerVersion(packageManager: PackageManager): string {
 }
 
 /**
- * Read and process a template file
- */
-async function readTemplateFile(filePath: string): Promise<string> {
-  const content = await readFile(filePath, "utf-8");
-  return content;
-}
-
-/**
  * Process template content with replacements
+ * @experimental
  */
 export function processTemplate(
   content: string,
@@ -94,6 +89,7 @@ export function processTemplate(
 
 /**
  * Check if an example string is a URL
+ * @experimental
  */
 export function isUrl(example: string): boolean {
   return example.startsWith("http://") || example.startsWith("https://");
@@ -205,6 +201,7 @@ async function downloadGitHubExample(url: string): Promise<string> {
 /**
  * Main entry point for create-routecraft
  * This is called by npm create routecraft <project-name>
+ * @experimental
  */
 export async function main() {
   const args = process.argv.slice(2);
@@ -306,6 +303,7 @@ For more information, visit: https://routecraft.dev
 
 /**
  * Get user input through prompts or use provided options
+ * @experimental
  */
 export async function getUserInput(
   projectName?: string,
@@ -414,6 +412,7 @@ async function createProjectDirectory(
 
 /**
  * Generate project structure from template
+ * @experimental
  */
 export async function generateProjectStructure(
   projectDir: string,
@@ -443,14 +442,14 @@ export async function generateProjectStructure(
     const sourcePath = join(TEMPLATES_DIR, "base", sourceFile);
     const destPath = join(projectDir, destFile);
 
-    const content = await readTemplateFile(sourcePath);
+    const content = await readFile(sourcePath, "utf-8");
     await writeFile(destPath, content);
     console.log(`Created file: ${destFile}`);
   }
 
   // Handle package.json with replacements
   const packageJsonSource = join(TEMPLATES_DIR, "base", "package.json");
-  let packageJsonContent = await readTemplateFile(packageJsonSource);
+  let packageJsonContent = await readFile(packageJsonSource, "utf-8");
   packageJsonContent = processTemplate(packageJsonContent, {
     PROJECT_NAME: options.projectName,
     ROUTECRAFT_VERSION: routecraftVersion,
@@ -462,7 +461,7 @@ export async function generateProjectStructure(
   // Handle index.ts based on whether example is included
   const indexTemplate = hasExample ? "index-with-example.ts" : "index-empty.ts";
   const indexSource = join(TEMPLATES_DIR, "base", indexTemplate);
-  const indexContent = await readTemplateFile(indexSource);
+  const indexContent = await readFile(indexSource, "utf-8");
 
   await writeFile(join(projectDir, "index.ts"), indexContent);
   console.log(`Created file: index.ts`);

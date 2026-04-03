@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach } from "vitest";
+import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdir, rm, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,17 +12,13 @@ import {
 } from "../src/lib.js";
 
 // Suppress console output during tests
-const noop = () => {};
-const originalConsole = { ...console };
 beforeEach(() => {
-  console.log = noop;
-  console.error = noop;
-  console.warn = noop;
+  vi.spyOn(console, "log").mockImplementation(() => {});
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 afterEach(() => {
-  console.log = originalConsole.log;
-  console.error = originalConsole.error;
-  console.warn = originalConsole.warn;
+  vi.restoreAllMocks();
 });
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
