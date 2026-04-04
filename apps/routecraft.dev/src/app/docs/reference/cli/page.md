@@ -23,18 +23,18 @@ Global options:
 
 ## Project scaffolding
 
-New projects are created via `npm create routecraft`, a separate scaffolding package -- not a `craft` subcommand:
+New projects are created via `bunx create-routecraft` (or the equivalent for your package manager), a separate scaffolding package -- not a `craft` subcommand:
 
 {% code-tabs %}
-{% code-tab label="npm" language="bash" %}
+{% code-tab label="bun" language="bash" %}
 ```bash
-npm create routecraft@latest [project-name]
+bunx create-routecraft [project-name]
 ```
 {% /code-tab %}
 
-{% code-tab label="yarn" language="bash" %}
+{% code-tab label="npm" language="bash" %}
 ```bash
-yarn create routecraft [project-name]
+npm create routecraft@latest [project-name]
 ```
 {% /code-tab %}
 
@@ -44,9 +44,9 @@ pnpm create routecraft@latest [project-name]
 ```
 {% /code-tab %}
 
-{% code-tab label="bun" language="bash" %}
+{% code-tab label="yarn" language="bash" %}
 ```bash
-bunx create-routecraft [project-name]
+yarn create routecraft [project-name]
 ```
 {% /code-tab %}
 
@@ -62,7 +62,6 @@ Options:
 | --skip-install | Skip installing dependencies |
 | -e, --example \<name or url\> | Example to use (none, hello-world) or GitHub URL |
 | --use-npm, --use-pnpm, --use-yarn, --use-bun | Choose package manager |
-| --no-src-dir | Place project files at root instead of src/ |
 | --no-git | Skip git initialization |
 
 ## Commands
