@@ -33,9 +33,23 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
 
   // Validate auth options
   if (options.auth !== undefined) {
-    if (typeof options.auth.validator !== "function") {
+    if ("provider" in options.auth) {
+      // OAuth provider auth -- validated by the oauth() factory.
+      if (options.auth.provider !== "oauth") {
+        throw new TypeError(
+          'mcpPlugin: auth.provider must be "oauth". Use the oauth() helper.',
+        );
+      }
+    } else if ("validator" in options.auth) {
+      if (typeof options.auth.validator !== "function") {
+        throw new TypeError(
+          "mcpPlugin: auth.validator must be a function that returns an AuthPrincipal or null",
+        );
+      }
+    } else {
       throw new TypeError(
-        "mcpPlugin: auth.validator must be a function that returns an AuthPrincipal or null",
+        "mcpPlugin: auth must have either a 'validator' function or 'provider' set to 'oauth'. " +
+          "Use jwt(), oauth(), or a custom { validator } object.",
       );
     }
   }

@@ -197,16 +197,20 @@ jobs:
 
       - name: Setup Pages
         id: configure-pages
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'release'
         uses: actions/configure-pages@v6
         with:
           static_site_generator: next
 
       - name: Export Pages base path env
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'release'
         run: |
           echo "NEXT_PUBLIC_BASE_PATH=${{ steps.configure-pages.outputs.base_path }}" >> $GITHUB_ENV
           echo "NEXT_PUBLIC_ASSET_PREFIX=${{ steps.configure-pages.outputs.asset_base_url }}" >> $GITHUB_ENV
+
+      - name: Set release version
+        if: github.event_name == 'release'
+        run: pnpm run version:set "${GITHUB_REF#refs/tags/v}"
 
       - name: Build packages
         run: pnpm run build
@@ -224,7 +228,7 @@ jobs:
           key: build-${{ github.sha }}
 
       - name: Upload docs export artifact
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'release'
         uses: actions/upload-artifact@v7
         with:
           name: docs-export
@@ -468,8 +472,8 @@ jobs:
           done
 
   deploy-pages:
-    needs: [changes, build]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.docs == 'true'
+    needs: [build]
+    if: github.event_name == 'release'
     runs-on: ubuntu-latest
     concurrency:
       group: pages
