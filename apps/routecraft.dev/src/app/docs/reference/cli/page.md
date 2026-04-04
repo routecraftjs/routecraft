@@ -23,18 +23,18 @@ Global options:
 
 ## Project scaffolding
 
-New projects are created via `npm create routecraft`, a separate scaffolding package -- not a `craft` subcommand:
+New projects are created via `bunx create-routecraft` (or the equivalent for your package manager), a separate scaffolding package -- not a `craft` subcommand:
 
 {% code-tabs %}
-{% code-tab label="npm" language="bash" %}
+{% code-tab label="bun" language="bash" %}
 ```bash
-npm create routecraft@latest [project-name]
+bunx create-routecraft [project-name]
 ```
 {% /code-tab %}
 
-{% code-tab label="yarn" language="bash" %}
+{% code-tab label="npm" language="bash" %}
 ```bash
-yarn create routecraft [project-name]
+npm create routecraft@latest [project-name]
 ```
 {% /code-tab %}
 
@@ -44,9 +44,9 @@ pnpm create routecraft@latest [project-name]
 ```
 {% /code-tab %}
 
-{% code-tab label="bun" language="bash" %}
+{% code-tab label="yarn" language="bash" %}
 ```bash
-bunx create-routecraft [project-name]
+yarn create routecraft [project-name]
 ```
 {% /code-tab %}
 

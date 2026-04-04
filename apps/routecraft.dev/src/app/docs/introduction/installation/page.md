@@ -15,15 +15,15 @@ System requirements, manual setup, and production builds. {% .lead %}
 Scaffold a complete Routecraft project with one command:
 
 {% code-tabs %}
-{% code-tab label="npm" language="bash" %}
+{% code-tab label="bun" language="bash" %}
 ```bash
-npm create routecraft@latest my-app
+bunx create-routecraft my-app
 ```
 {% /code-tab %}
 
-{% code-tab label="yarn" language="bash" %}
+{% code-tab label="npm" language="bash" %}
 ```bash
-yarn create routecraft my-app
+npm create routecraft@latest my-app
 ```
 {% /code-tab %}
 
@@ -33,9 +33,9 @@ pnpm create routecraft@latest my-app
 ```
 {% /code-tab %}
 
-{% code-tab label="bun" language="bash" %}
+{% code-tab label="yarn" language="bash" %}
 ```bash
-bunx create-routecraft my-app
+yarn create routecraft my-app
 ```
 {% /code-tab %}
 
@@ -45,7 +45,7 @@ Follow the prompts to configure your project name, package manager, and director
 
 ```bash
 cd my-app
-npm run start
+bun run start
 ```
 
 For all flags and options, see [CLI -- create](/docs/reference/cli#create).
@@ -55,15 +55,15 @@ For all flags and options, see [CLI -- create](/docs/reference/cli#create).
 Add Routecraft to an existing project:
 
 {% code-tabs %}
-{% code-tab label="npm" language="bash" %}
+{% code-tab label="bun" language="bash" %}
 ```bash
-npm install @routecraft/routecraft
+bun add @routecraft/routecraft
 ```
 {% /code-tab %}
 
-{% code-tab label="yarn" language="bash" %}
+{% code-tab label="npm" language="bash" %}
 ```bash
-yarn add @routecraft/routecraft
+npm install @routecraft/routecraft
 ```
 {% /code-tab %}
 
@@ -73,9 +73,9 @@ pnpm add @routecraft/routecraft
 ```
 {% /code-tab %}
 
-{% code-tab label="bun" language="bash" %}
+{% code-tab label="yarn" language="bash" %}
 ```bash
-bun add @routecraft/routecraft
+yarn add @routecraft/routecraft
 ```
 {% /code-tab %}
 
@@ -125,15 +125,15 @@ You only need to compile (`tsc`) when building for production. During developmen
 Build and start for production:
 
 {% code-tabs %}
-{% code-tab label="npm" language="bash" %}
+{% code-tab label="bun" language="bash" %}
 ```bash
-npm run build && npm run start
+bun run build && bun run start
 ```
 {% /code-tab %}
 
-{% code-tab label="yarn" language="bash" %}
+{% code-tab label="npm" language="bash" %}
 ```bash
-yarn build && yarn start
+npm run build && npm run start
 ```
 {% /code-tab %}
 
@@ -143,9 +143,9 @@ pnpm build && pnpm start
 ```
 {% /code-tab %}
 
-{% code-tab label="bun" language="bash" %}
+{% code-tab label="yarn" language="bash" %}
 ```bash
-bun run build && bun run start
+yarn build && yarn start
 ```
 {% /code-tab %}
 

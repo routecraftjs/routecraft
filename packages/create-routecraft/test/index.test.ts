@@ -29,7 +29,7 @@ function makeOptions(
   return {
     projectName: "test-app",
     example: "none",
-    packageManager: "npm",
+    packageManager: "bun",
     skipInstall: true,
     git: false,
     force: false,

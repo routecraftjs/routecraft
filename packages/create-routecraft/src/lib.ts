@@ -67,7 +67,7 @@ function getPackageManagerVersion(packageManager: PackageManager): string {
     pnpm: "pnpm@10.17.1",
     npm: "npm@10.0.0",
     yarn: "yarn@4.0.0",
-    bun: "bun@1.0.0",
+    bun: "bun@1.3.9",
   };
   return versions[packageManager];
 }
@@ -344,16 +344,16 @@ export async function getUserInput(
     packageManager:
       (options["packageManager"] as PackageManager) ||
       (skipPrompts
-        ? "npm"
+        ? "bun"
         : await select<PackageManager>({
             message: "Package manager:",
             choices: [
+              { name: "bun", value: "bun" },
               { name: "npm", value: "npm" },
               { name: "pnpm", value: "pnpm" },
               { name: "yarn", value: "yarn" },
-              { name: "bun", value: "bun" },
             ],
-            default: "npm",
+            default: "bun",
           })),
 
     git:
@@ -561,7 +561,7 @@ function getPackageManagerCommand(packageManager: PackageManager): string {
     case "bun":
       return "bun";
     default:
-      return "npm";
+      return "bun";
   }
 }
 
@@ -570,15 +570,16 @@ function showHelp() {
 Create a new Routecraft project
 
 Usage:
+  bunx create-routecraft <project-name> [options]
   npm create routecraft@latest <project-name> [options]
   npx create-routecraft <project-name> [options]
 
 Options:
   -e, --example <name|url>  Example to include (none, hello-world) or GitHub URL
+  --use-bun                 Use bun as package manager (default)
   --use-npm                 Use npm as package manager
   --use-pnpm                Use pnpm as package manager
   --use-yarn                Use yarn as package manager
-  --use-bun                 Use bun as package manager
   --skip-install            Skip installing dependencies
   --no-git                  Skip git initialization
   -y, --yes                 Skip interactive prompts and use defaults
@@ -586,11 +587,11 @@ Options:
   -h, --help                Show this help message
 
 Examples:
-  npm create routecraft@latest my-app
-  npm create routecraft@latest my-app --example hello-world --use-pnpm
-  npm create routecraft@latest my-app --yes --example hello-world
-  npx create-routecraft my-app --force
-  npm create routecraft@latest my-app --example https://github.com/user/repo
-  npm create routecraft@latest my-app --example https://github.com/user/repo/tree/main/examples/api
+  bunx create-routecraft my-app
+  bunx create-routecraft my-app --example hello-world
+  bunx create-routecraft my-app --yes --example hello-world
+  bunx create-routecraft my-app --force
+  bunx create-routecraft my-app --example https://github.com/user/repo
+  bunx create-routecraft my-app --example https://github.com/user/repo/tree/main/examples/api
 `);
 }
