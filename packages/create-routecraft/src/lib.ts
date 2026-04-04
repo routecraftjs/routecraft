@@ -4,7 +4,7 @@ import { mkdir, writeFile, readFile, readdir, stat } from "node:fs/promises";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync, readFileSync } from "node:fs";
-import { execSync } from "node:child_process";
+import { execSync, execFileSync } from "node:child_process";
 import { input, select, confirm } from "@inquirer/prompts";
 import { tmpdir } from "node:os";
 import { cp, rm } from "node:fs/promises";
@@ -155,8 +155,9 @@ async function downloadGitHubExample(url: string): Promise<string> {
   try {
     console.log(`📥 Downloading example from ${url}...`);
 
+    // Regex supports multi-segment branches (e.g. feature/my-branch)
     const urlPattern =
-      /^https?:\/\/github\.com\/([^/]+)\/([^/]+)(?:\/tree\/([^/]+)\/(.+))?$/;
+      /^https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?(?:\/tree\/([^/]+?)\/(.+))?$/;
     const match = url.match(urlPattern);
 
     if (!match) {
@@ -167,12 +168,12 @@ async function downloadGitHubExample(url: string): Promise<string> {
     const repoUrl = `https://github.com/${owner}/${repo}.git`;
 
     try {
-      execSync(
-        `git clone --depth 1 ${branch ? `--branch ${branch}` : ""} ${repoUrl} ${tempDir}`,
-        {
-          stdio: "inherit",
-        },
-      );
+      const args = ["clone", "--depth", "1"];
+      if (branch) {
+        args.push("--branch", branch);
+      }
+      args.push(repoUrl, tempDir);
+      execFileSync("git", args, { stdio: "inherit" });
     } catch {
       throw new Error(
         `Failed to clone repository. Make sure the repository is public and accessible: ${repoUrl}`,
@@ -215,16 +216,8 @@ export async function main() {
   // npm create passes the project name as the first argument
   const projectName = args[0];
 
-  if (!projectName) {
-    console.error("❌ Project name is required");
-    console.log("Usage: npm create routecraft@latest <project-name> [options]");
-    console.log("Or:    npx create-routecraft <project-name> [options]");
-    console.log("Run with --help for more information");
-    process.exit(1);
-  }
-
-  // Parse additional arguments
-  const remainingArgs = args.slice(1);
+  // Parse additional arguments (skip project name if present)
+  const remainingArgs = projectName ? args.slice(1) : args;
   const options: Record<string, unknown> = {};
 
   for (let i = 0; i < remainingArgs.length; i++) {
@@ -403,6 +396,7 @@ async function createProjectDirectory(
       );
     } else {
       console.log(`⚠️  Overwriting existing directory: ${projectDir}`);
+      await rm(projectDir, { recursive: true, force: true });
     }
   }
 
@@ -458,8 +452,12 @@ export async function generateProjectStructure(
   await writeFile(join(projectDir, "package.json"), packageJsonContent);
   console.log(`Created file: package.json`);
 
-  // Handle index.ts based on whether example is included
-  const indexTemplate = hasExample ? "index-with-example.ts" : "index-empty.ts";
+  // Handle index.ts based on whether a built-in example is included.
+  // URL examples supply their own index.ts via cp(), so use the empty template as a fallback.
+  const hasBuiltInExample = hasExample && !isUrl(options.example);
+  const indexTemplate = hasBuiltInExample
+    ? "index-with-example.ts"
+    : "index-empty.ts";
   const indexSource = join(TEMPLATES_DIR, "base", indexTemplate);
   const indexContent = await readFile(indexSource, "utf-8");
 

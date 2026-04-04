@@ -401,6 +401,14 @@ describe("generateProjectStructure", () => {
 
 const MONOREPO_ROOT = join(__dirname, "../../..");
 
+// Integration tests require monorepo packages to be built (dist/ must exist)
+// so that file: protocol references can resolve types. In CI the test job runs
+// before the build job, so these are skipped there.
+const packagesBuilt = existsSync(
+  join(MONOREPO_ROOT, "packages/routecraft/dist/index.d.ts"),
+);
+const integrationTest = packagesBuilt ? test : test.skip;
+
 /**
  * Patch the scaffolded package.json to use local file: references
  * so integration tests don't depend on published npm versions.
@@ -453,30 +461,34 @@ describe("integration: scaffolded project compiles", () => {
    * @preconditions Empty project scaffolded, dependencies installed
    * @expectedResult tsc --noEmit exits without errors
    */
-  test("empty project passes tsc --noEmit", { timeout: 120_000 }, async () => {
-    await generateProjectStructure(
-      projectDir,
-      makeOptions({ packageManager: "pnpm" }),
-    );
-    await patchDepsToLocal(projectDir);
+  integrationTest(
+    "empty project passes tsc --noEmit",
+    { timeout: 120_000 },
+    async () => {
+      await generateProjectStructure(
+        projectDir,
+        makeOptions({ packageManager: "pnpm" }),
+      );
+      await patchDepsToLocal(projectDir);
 
-    execSync("pnpm install --no-frozen-lockfile", {
-      cwd: projectDir,
-      stdio: "pipe",
-    });
+      execSync("pnpm install --no-frozen-lockfile", {
+        cwd: projectDir,
+        stdio: "pipe",
+      });
 
-    execSync("pnpm exec tsc --noEmit", {
-      cwd: projectDir,
-      stdio: "pipe",
-    });
-  });
+      execSync("pnpm exec tsc --noEmit", {
+        cwd: projectDir,
+        stdio: "pipe",
+      });
+    },
+  );
 
   /**
    * @case Scaffolded hello-world project passes TypeScript type checking
    * @preconditions Hello-world project scaffolded, dependencies installed
    * @expectedResult tsc --noEmit exits without errors
    */
-  test(
+  integrationTest(
     "hello-world project passes tsc --noEmit",
     { timeout: 120_000 },
     async () => {
@@ -503,7 +515,7 @@ describe("integration: scaffolded project compiles", () => {
    * @preconditions Hello-world project scaffolded, dependencies installed
    * @expectedResult craft run index.ts exits successfully (the hello-world route is finite)
    */
-  test(
+  integrationTest(
     "hello-world project runs successfully with craft run",
     { timeout: 120_000 },
     async () => {
