@@ -164,23 +164,12 @@ export class CronSourceAdapter
             ...(name ? { [HeadersKeys.CRON_NAME]: name } : {}),
           };
 
+          // Exchange errors are already logged by the route; catch and
+          // continue so the cron job keeps firing for subsequent exchanges.
           try {
             await handler(undefined, headers);
-          } catch (error) {
-            const msg =
-              error &&
-              typeof error === "object" &&
-              "meta" in error &&
-              typeof (error as { meta: { message?: string } }).meta?.message ===
-                "string"
-                ? (error as { meta: { message: string } }).meta.message
-                : error instanceof Error
-                  ? error.message
-                  : "Cron handler failed";
-            context.logger.error({ adapter: "cron", err: error }, msg);
-            abortController.abort();
-            settle();
-            return;
+          } catch {
+            // Error already logged and emitted by the route pipeline.
           }
 
           // Settle when croner has exhausted maxRuns

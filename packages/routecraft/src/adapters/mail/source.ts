@@ -158,7 +158,13 @@ export class MailSourceAdapter implements Source<MailMessage> {
         if (abortController.signal.aborted) break;
         if (processedUids.has(message.uid)) continue;
         processedUids.add(message.uid);
-        await handler(message);
+        // Exchange errors are already logged by the route; catch and
+        // continue so the mail source keeps processing subsequent messages.
+        try {
+          await handler(message);
+        } catch {
+          // Error already logged and emitted by the route pipeline.
+        }
       }
 
       if (abortController.signal.aborted) break;
@@ -195,7 +201,11 @@ export class MailSourceAdapter implements Source<MailMessage> {
       if (abortController.signal.aborted) return;
       if (processedUids.has(message.uid)) continue;
       processedUids.add(message.uid);
-      await handler(message);
+      try {
+        await handler(message);
+      } catch {
+        // Error already logged and emitted by the route pipeline.
+      }
     }
 
     // Listen for new messages via IDLE
@@ -214,7 +224,11 @@ export class MailSourceAdapter implements Source<MailMessage> {
         if (abortController.signal.aborted) return;
         if (processedUids.has(message.uid)) continue;
         processedUids.add(message.uid);
-        await handler(message);
+        try {
+          await handler(message);
+        } catch {
+          // Error already logged and emitted by the route pipeline.
+        }
       }
     }
   }

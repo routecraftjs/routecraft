@@ -66,6 +66,8 @@ export {
   type RouteOptions,
 } from "./builder.ts";
 
+export { CraftClient } from "./client.ts";
+
 export {
   registerDsl,
   type PrimitiveKind,

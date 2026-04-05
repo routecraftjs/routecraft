@@ -13,14 +13,14 @@ import type { CraftContext } from "./context.ts";
  *
  * @example
  * ```typescript
- * const context = await builder.build();
+ * const { context } = await builder.build();
  * registerShutdownHandlers(context);
  * await context.start();
  * ```
  *
  * @experimental
  */
-export function registerShutdownHandlers(context: CraftContext): void {
+export function registerShutdownHandlers(context: CraftContext): () => void {
   let shuttingDown = false;
 
   const onSignal = async (signal: string) => {
@@ -46,6 +46,13 @@ export function registerShutdownHandlers(context: CraftContext): void {
     }
   };
 
-  process.on("SIGINT", () => void onSignal("SIGINT"));
-  process.on("SIGTERM", () => void onSignal("SIGTERM"));
+  const sigintHandler = () => void onSignal("SIGINT");
+  const sigtermHandler = () => void onSignal("SIGTERM");
+  process.on("SIGINT", sigintHandler);
+  process.on("SIGTERM", sigtermHandler);
+
+  return () => {
+    process.off("SIGINT", sigintHandler);
+    process.off("SIGTERM", sigtermHandler);
+  };
 }

@@ -1,17 +1,3 @@
-// CLI adapter -- expose routes as typed CLI commands
-export { cli } from "./cli/index.ts";
-export {
-  type CliServerOptions,
-  type CliSchemaOptions,
-  type CliNativeOptions,
-  type CliClientOptions,
-  type CliRouteMetadata,
-  type CliNativeArg,
-  type CliNativeFlag,
-  ADAPTER_CLI_REGISTRY,
-  isCliSource,
-  getCliRegistry,
-  parseFlags,
-  extractJsonSchema,
-  cliRunner,
-} from "./cli/index.ts";
+// @routecraft/os -- system-native adapters (shell, browser, etc.)
+// Shell adapter will be added in a future PR.
+export {};

@@ -71,7 +71,7 @@ export async function runCommand(
     // Build and start the context. Adapters handle their own lifecycle.
     // RUNNER_ARGV lets adapters (e.g. CLI) read remaining args without
     // the runner needing to know which adapters are in use.
-    const context = await contextBuilder.build();
+    const { context } = await contextBuilder.build();
     context.setStore(RUNNER_ARGV, cliArgs);
     registerShutdownHandlers(context);
     await context.start();

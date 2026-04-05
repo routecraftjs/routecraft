@@ -14,7 +14,6 @@ Full catalog of adapters with signatures and options. {% .lead %}
 | [`cron`](#cron) | Core | Cron-scheduled execution with timezone support | `Source` |
 | [`direct`](#direct) | Core | Synchronous inter-route communication | `Source`, `Destination` |
 | [`http`](#http) | Core | Outbound HTTP client requests (inbound/server support planned) | `Destination` |
-| [`cli`](#cli) | Core | Expose routes as typed CLI commands with auto-generated help | `Source`, `Destination` |
 | [`noop`](#noop) | Test | No-operation placeholder | `Destination` |
 | [`pseudo`](#pseudo) | Test | Typed placeholder for docs/examples | `Source`, `Destination`, `Processor` |
 | [`spy`](#spy) | Test | Records exchanges for assertions | `Destination`, `Processor` |
@@ -584,70 +583,6 @@ Response behavior:
 - The final exchange is returned to the HTTP client. If the final body is an object with optional fields `{ status?: number, headers?: Record<string,string>, body?: unknown }`, those fields are used to build the response.
 - If `status` or `headers` are not provided, Routecraft returns the body with `200` status and no additional headers.
 - For serialization and setting `Content-Type`, use a formatting step in your capability (e.g., a `.transform(...)` that sets appropriate headers).
-
-### cli
-
-{% badge %}experimental{% /badge %}
-
-```ts
-cli(command: string, options?: CliServerOptions): Source<T>
-cli.stdout(): Destination<unknown, void>
-cli.stderr(): Destination<unknown, void>
-```
-
-Expose routecraft routes as typed CLI commands. When all routes in a file use `cli()` sources, `craft run` enters CLI mode: running without a command shows generated help; running with a command dispatches to the matching route.
-
-Schema properties automatically become named flags (`--flag-name <value>`). Help text is derived from property descriptions. Standard Schema validates all input before the route runs.
-
-```ts
-import { craft } from '@routecraft/routecraft';
-import { cli } from '@routecraft/os';
-import { z } from 'zod';
-
-export default [
-  craft().id('greet')
-    .from(cli('greet', {
-      schema: z.object({
-        name: z.string().describe('Name to greet'),
-        loud: z.boolean().optional().describe('Use uppercase'),
-      }),
-      description: 'Greet someone',
-    }))
-    .transform(({ name, loud }) =>
-      loud ? `HELLO ${name.toUpperCase()}!` : `Hello, ${name}!`
-    )
-    .to(cli.stdout()),
-];
-```
-
-```bash
-craft run mycli.ts                         # shows help
-craft run mycli.ts greet --name Alice      # Hello, Alice!
-craft run mycli.ts greet --name Alice --loud  # HELLO ALICE!
-craft run mycli.ts greet --help            # per-command help with flag list
-```
-
-**`CliServerOptions`** (for `.from()`):
-
-| Field | Type | Default | Required | Description |
-|-------|------|---------|----------|-------------|
-| `schema` | `StandardSchemaV1` | - | No | Object schema; properties become `--flag` arguments |
-| `description` | `string` | - | No | One-line description shown in help output |
-
-**`CliClientOptions`** (for `.to()`):
-
-`cli.stdout()` and `cli.stderr()` are pre-configured factories. No user-facing options are exposed; the `stream` field is set internally by each factory.
-
-| Field | Type | Default | Required | Description |
-|-------|------|---------|----------|-------------|
-| `stream` | `"stdout" \| "stderr"` | `"stdout"` | No | Output stream to write to (set by factory) |
-
-**Notes:**
-- All routes in a CLI-mode file must use `cli()` sources. Mixing CLI and non-CLI sources in the same file is an error.
-- Schemas must describe flat objects. Nested objects are not currently converted to flags.
-- Boolean flags use presence for `true` (`--verbose`) and `--no-flag` for `false`.
-- kebab-case flags (`--dry-run`) are mapped to camelCase keys (`dryRun`) before validation.
-- `cli.stdout()` writes strings as-is; objects/arrays are pretty-printed as JSON.
 
 ## Test adapters
 

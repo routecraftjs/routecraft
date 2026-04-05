@@ -33,7 +33,7 @@ export class SimpleSourceAdapter<T = unknown> implements Source<T> {
         "Processing array of messages",
       );
       try {
-        await Promise.all(result.map((item) => handler(item)));
+        await Promise.all(result.map((item) => handler(item).catch(() => {})));
       } finally {
         context.logger.debug(
           { adapter: "simple" },
@@ -45,6 +45,8 @@ export class SimpleSourceAdapter<T = unknown> implements Source<T> {
       context.logger.debug({ adapter: "simple" }, "Processing single message");
       try {
         await handler(result);
+      } catch {
+        // Exchange error already logged and emitted by the route pipeline.
       } finally {
         context.logger.debug(
           { adapter: "simple" },

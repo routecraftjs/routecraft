@@ -273,7 +273,11 @@ describe("Route Behavior", () => {
           .from({
             subscribe: async (_, handler) => {
               for (const msg of messages) {
-                await handler(msg);
+                try {
+                  await handler(msg);
+                } catch {
+                  // Exchange error handled by route pipeline; continue.
+                }
               }
             },
           })

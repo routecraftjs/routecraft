@@ -197,27 +197,30 @@ describe("CronSourceAdapter", () => {
   });
 
   /**
-   * @case Handler error stops the cron and aborts
-   * @preconditions CronSourceAdapter with per-second expression, handler throws on first call
-   * @expectedResult Error is logged, abort is called, cron stops
+   * @case Handler error does not stop the cron job
+   * @preconditions CronSourceAdapter with per-second expression, handler throws on first call then succeeds
+   * @expectedResult Cron continues firing after a handler error
    */
-  test("handler error stops the cron job and aborts", async () => {
+  test("handler error does not stop the cron job", async () => {
     const adapter = new CronSourceAdapter("* * * * * *");
     const context = mockContext();
     const abortController = new AbortController();
-    const handler = vi.fn().mockRejectedValue(new Error("test error"));
+    const handler = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("test error"))
+      .mockResolvedValue({} as Exchange);
 
     const promise = adapter.subscribe(context, handler, abortController);
 
-    await advanceTime(2000);
+    await advanceTime(3000);
+
+    abortController.abort();
     await promise;
 
-    expect(handler).toHaveBeenCalledTimes(1);
+    // Handler was called more than once: the error on the first call
+    // did not kill the cron job.
+    expect(handler.mock.calls.length).toBeGreaterThan(1);
     expect(abortController.signal.aborted).toBe(true);
-    expect(context.logger.error).toHaveBeenCalledWith(
-      expect.objectContaining({ adapter: "cron" }),
-      "test error",
-    );
   });
 
   /**

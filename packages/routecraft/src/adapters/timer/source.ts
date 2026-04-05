@@ -115,22 +115,12 @@ export class TimerSourceAdapter implements Source<undefined> {
           };
 
           // Trigger the handler for this timer tick.
+          // Exchange errors are already logged by the route; catch and
+          // continue so the timer keeps firing for subsequent exchanges.
           try {
             await handler(undefined, headers);
-          } catch (error) {
-            const msg =
-              error &&
-              typeof error === "object" &&
-              "meta" in error &&
-              typeof (error as { meta: { message?: string } }).meta?.message ===
-                "string"
-                ? (error as { meta: { message: string } }).meta.message
-                : error instanceof Error
-                  ? error.message
-                  : "Timer handler failed";
-            _context.logger.error({ adapter: "timer", err: error }, msg);
-            abortController.abort();
-            break;
+          } catch {
+            // Error already logged and emitted by the route pipeline.
           }
         }
         resolve();
