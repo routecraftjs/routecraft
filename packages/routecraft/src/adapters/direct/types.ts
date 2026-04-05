@@ -46,6 +46,8 @@ export interface DirectRouteMetadata {
   schema?: StandardSchemaV1;
   headerSchema?: StandardSchemaV1;
   keywords?: string[];
+  /** Adapter-specific annotations (e.g. MCP tool annotations). */
+  annotations?: Record<string, unknown>;
 }
 
 /** Base options shared between source and destination. */
@@ -91,6 +93,9 @@ export interface DirectServerOptions extends DirectBaseOptions {
 
   /** Keywords to help with route discovery and categorization */
   keywords?: string[];
+
+  /** Adapter-specific annotations (e.g. MCP tool annotations). Passed through to route metadata. */
+  annotations?: Record<string, unknown>;
 }
 
 /**

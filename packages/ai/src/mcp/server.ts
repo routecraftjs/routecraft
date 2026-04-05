@@ -824,11 +824,15 @@ export class McpServer {
   private metadataToMcpTool(
     metadata: DirectRouteMetadata,
   ): Record<string, unknown> {
-    return {
+    const tool: Record<string, unknown> = {
       name: metadata.endpoint,
       description: metadata.description || "",
       inputSchema: this.schemaToJsonSchema(metadata.schema),
     };
+    if (metadata.annotations !== undefined) {
+      tool["annotations"] = metadata.annotations;
+    }
+    return tool;
   }
 
   /**

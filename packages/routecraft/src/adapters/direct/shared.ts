@@ -133,6 +133,9 @@ export function registerRoute(
   if (options.keywords !== undefined) {
     metadata.keywords = options.keywords;
   }
+  if (options.annotations !== undefined) {
+    metadata.annotations = options.annotations;
+  }
   registry.set(endpoint, metadata);
 
   context.logger.debug(

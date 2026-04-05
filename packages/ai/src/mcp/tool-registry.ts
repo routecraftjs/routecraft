@@ -1,4 +1,4 @@
-import type { McpToolRegistryEntry } from "./types.ts";
+import type { McpToolAnnotations, McpToolRegistryEntry } from "./types.ts";
 
 /**
  * Central registry of all MCP tools from all sources.
@@ -30,6 +30,7 @@ export class McpToolRegistry {
       name: string;
       description?: string;
       inputSchema: Record<string, unknown>;
+      annotations?: McpToolAnnotations;
     }>,
   ): void {
     const sourceMap = new Map<string, McpToolRegistryEntry>();
@@ -43,6 +44,9 @@ export class McpToolRegistry {
       };
       if (tool.description !== undefined) {
         entry.description = tool.description;
+      }
+      if (tool.annotations !== undefined) {
+        entry.annotations = tool.annotations;
       }
       sourceMap.set(tool.name, entry);
     }

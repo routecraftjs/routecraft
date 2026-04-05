@@ -175,6 +175,61 @@ describe("McpServer", () => {
     expect(names).toEqual(["exposed-tool"]);
   });
 
+  /**
+   * @case Annotations from mcp() options are included in getAvailableTools() output
+   * @preconditions Route uses mcp() with annotations
+   * @expectedResult Tool listing includes the annotations object
+   */
+  test("includes annotations in tool listing", async () => {
+    t = await testContext()
+      .routes([
+        craft()
+          .id("annotated")
+          .from(
+            mcp("annotated-tool", {
+              description: "An annotated tool",
+              annotations: {
+                readOnlyHint: true,
+                destructiveHint: false,
+              },
+            }),
+          )
+          .to(noop()),
+      ])
+      .store(MCP_STORE_KEY, true)
+      .build();
+    server = new McpServer(t.ctx);
+    await t.test();
+    const tools = server.getAvailableTools();
+    expect(tools).toHaveLength(1);
+    expect(tools[0].annotations).toEqual({
+      readOnlyHint: true,
+      destructiveHint: false,
+    });
+  });
+
+  /**
+   * @case Tools without annotations omit the field from getAvailableTools()
+   * @preconditions Route uses mcp() without annotations
+   * @expectedResult Tool listing has no annotations key
+   */
+  test("omits annotations when not provided", async () => {
+    t = await testContext()
+      .routes([
+        craft()
+          .id("plain")
+          .from(mcp("plain-tool", { description: "No annotations" }))
+          .to(noop()),
+      ])
+      .store(MCP_STORE_KEY, true)
+      .build();
+    server = new McpServer(t.ctx);
+    await t.test();
+    const tools = server.getAvailableTools();
+    expect(tools).toHaveLength(1);
+    expect(tools[0]).not.toHaveProperty("annotations");
+  });
+
   describe("HTTP transport", () => {
     /** Start HTTP server with given route builders; returns post helper and port. Call initSession() to get session id. */
     async function startHttpServer(

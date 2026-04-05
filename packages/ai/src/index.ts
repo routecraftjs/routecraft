@@ -74,6 +74,7 @@ export {
   type McpPluginOptions,
   type McpServerOptions,
   type McpTool,
+  type McpToolAnnotations,
   type McpToolRegistryEntry,
   type McpToolResult,
 } from "./mcp/index.ts";

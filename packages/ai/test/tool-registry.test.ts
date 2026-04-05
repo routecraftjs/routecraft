@@ -203,4 +203,43 @@ describe("McpToolRegistry", () => {
     expect(tool?.transport).toBe("local");
     expect(tool?.source).toBe("local");
   });
+
+  /**
+   * @case Annotations are stored and retrievable from registry entries
+   * @preconditions Tool added with annotations
+   * @expectedResult Registry entry contains annotations
+   */
+  test("stores and returns annotations", () => {
+    registry.setToolsForSource("server-a", "stdio", [
+      {
+        name: "read-tool",
+        description: "Read-only tool",
+        inputSchema: { type: "object" },
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+        },
+      },
+    ]);
+
+    const tool = registry.getTool("read-tool");
+    expect(tool?.annotations).toEqual({
+      readOnlyHint: true,
+      destructiveHint: false,
+    });
+  });
+
+  /**
+   * @case Tools without annotations have no annotations property
+   * @preconditions Tool added without annotations
+   * @expectedResult Registry entry has no annotations
+   */
+  test("omits annotations when not provided", () => {
+    registry.setToolsForSource("server-a", "stdio", [
+      { name: "plain", inputSchema: { type: "object" } },
+    ]);
+
+    const tool = registry.getTool("plain");
+    expect(tool?.annotations).toBeUndefined();
+  });
 });
