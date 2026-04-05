@@ -45,15 +45,15 @@ program
   .command("fail")
   .description("A command that always fails")
   .action(async () => {
-    client
-      .send("fail", {})
+    try {
+      const result = await client.send("fail", {});
       // eslint-disable-next-line no-console
-      .then(console.log)
-      .catch((err) => {
-        // eslint-disable-next-line no-console
-        console.error(err instanceof Error ? err.message : err);
-        process.exitCode = 1;
-      });
+      console.log(result);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(err instanceof Error ? err.message : err);
+      process.exitCode = 1;
+    }
   });
 
 await program.parseAsync();

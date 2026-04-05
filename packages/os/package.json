@@ -1,5 +1,6 @@
 {
   "name": "@routecraft/os",
+  "private": true,
   "version": "0.5.0",
   "description": "System-native adapters for Routecraft: shell execution and browser automation",
   "type": "module",

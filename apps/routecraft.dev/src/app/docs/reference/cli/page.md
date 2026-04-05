@@ -82,3 +82,28 @@ Options:
 | --- | --- |
 | `<file>` | TypeScript or JavaScript file (.ts/.mjs/.js/.cjs) to execute |
 | `--env <path>` | Load environment variables from a .env file |
+
+## Shutdown helpers
+
+When building a custom runner (e.g. embedding Routecraft inside an Express server or CLI tool), use `registerShutdownHandlers` for graceful two-stage shutdown:
+
+```ts
+import { ContextBuilder, registerShutdownHandlers } from '@routecraft/routecraft';
+
+const { context, client } = await new ContextBuilder()
+  .routes(myRoutes)
+  .build();
+
+const cleanup = registerShutdownHandlers(context);
+await context.start();
+```
+
+**First signal** (Ctrl+C): stops accepting new requests, drains in-flight routes, runs plugin teardown, then exits cleanly.
+
+**Second signal** (Ctrl+C again): forces an immediate exit for when graceful shutdown is stuck or taking too long.
+
+The function returns a cleanup callback that removes the signal handlers, useful in tests or when you manage the lifecycle yourself.
+
+{% callout type="warning" title="Experimental" %}
+`registerShutdownHandlers` is marked `@experimental` and may change in future releases.
+{% /callout %}

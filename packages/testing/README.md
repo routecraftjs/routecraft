@@ -58,16 +58,16 @@ Wrapper around `CraftContext` with:
 - **`logger`** -- A spy logger (Vitest `vi.fn()` methods) for asserting on log calls.
 - **`errors`** -- Collected capability errors.
 - **`test(options?)`** -- Runs start, waits for capabilities to be ready, optionally delays, drains, then stops. Assert after `await t.test()`.
-- **`startAndWaitReady()`** -- Starts the context and waits for all capabilities to be ready without draining. Use with `t.send()` to send to a direct endpoint, then call `stop()` when done.
+- **`startAndWaitReady()`** -- Starts the context and waits for all capabilities to be ready without draining. Use with `t.client.send()` to send to a direct endpoint, then call `stop()` when done.
 - **`stop()`** / **`drain()`** -- Lifecycle helpers.
 
-### `t.send(endpoint, body, headers?)`
+### `t.client.send(endpoint, body, headers?)`
 
-Send a message to a direct endpoint and return the result. Use with `startAndWaitReady()`.
+Send a message to a direct endpoint and return the result via the `CraftClient`. Use with `startAndWaitReady()`.
 
 ```typescript
 await t.startAndWaitReady();
-const result = await t.send('send-email', { to: 'user@example.com' });
+const result = await t.client.send('send-email', { to: 'user@example.com' });
 await t.stop();
 ```
 

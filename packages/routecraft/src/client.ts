@@ -15,6 +15,8 @@ import {
  *
  * Returned alongside the context from `ContextBuilder.build()`.
  *
+ * @experimental
+ *
  * @example
  * ```typescript
  * const { context, client } = await new ContextBuilder()

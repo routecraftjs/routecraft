@@ -26,14 +26,16 @@ export function registerShutdownHandlers(context: CraftContext): () => void {
   const onSignal = async (signal: string) => {
     if (shuttingDown) {
       context.logger.warn(
-        `Received ${signal} during shutdown; forcing exit now`,
+        { signal },
+        "Received signal during shutdown; forcing exit now",
       );
       process.exit(1);
     }
 
     shuttingDown = true;
     context.logger.info(
-      `Received ${signal}; shutting down gracefully (press Ctrl+C again to force)...`,
+      { signal },
+      "Received signal; shutting down gracefully (press Ctrl+C again to force)",
     );
 
     try {
