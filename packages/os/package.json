@@ -1,6 +1,5 @@
 {
   "name": "@routecraft/os",
-  "private": true,
   "version": "0.5.0",
   "description": "System-native adapters for Routecraft: shell execution and browser automation",
   "type": "module",
@@ -31,7 +30,7 @@
     "zod": "^4.3.6"
   },
   "peerDependencies": {
-    "@routecraft/routecraft": "*"
+    "@routecraft/routecraft": ">=0.5.0"
   },
   "keywords": [
     "routecraft",

@@ -157,13 +157,12 @@ export class MailSourceAdapter implements Source<MailMessage> {
       for (const message of messages) {
         if (abortController.signal.aborted) break;
         if (processedUids.has(message.uid)) continue;
-        processedUids.add(message.uid);
-        // Exchange errors are already logged by the route; catch and
-        // continue so the mail source keeps processing subsequent messages.
         try {
           await handler(message);
+          processedUids.add(message.uid);
         } catch {
-          // Error already logged and emitted by the route pipeline.
+          // Exchange error already logged by the route pipeline.
+          // UID is NOT marked processed so it will be retried on the next poll.
         }
       }
 
@@ -200,11 +199,12 @@ export class MailSourceAdapter implements Source<MailMessage> {
     for (const message of existing) {
       if (abortController.signal.aborted) return;
       if (processedUids.has(message.uid)) continue;
-      processedUids.add(message.uid);
       try {
         await handler(message);
+        processedUids.add(message.uid);
       } catch {
-        // Error already logged and emitted by the route pipeline.
+        // Exchange error already logged by the route pipeline.
+        // UID is NOT marked processed so it will be retried on the next idle cycle.
       }
     }
 
@@ -223,11 +223,12 @@ export class MailSourceAdapter implements Source<MailMessage> {
       for (const message of newMessages) {
         if (abortController.signal.aborted) return;
         if (processedUids.has(message.uid)) continue;
-        processedUids.add(message.uid);
         try {
           await handler(message);
+          processedUids.add(message.uid);
         } catch {
-          // Error already logged and emitted by the route pipeline.
+          // Exchange error already logged by the route pipeline.
+          // UID is NOT marked processed so it will be retried on the next idle cycle.
         }
       }
     }

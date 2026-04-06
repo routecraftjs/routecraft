@@ -10,7 +10,11 @@ import {
 } from "@routecraft/routecraft";
 import type { EventName, EventHandler } from "@routecraft/routecraft";
 
-/** Start context and resolve once all routes have fired route:*:started. */
+/**
+ * Start context and resolve once all routes have fired route:*:started.
+ * Cannot use TestContext.startAndWaitReady() here because it also awaits
+ * ctx.start(), which never resolves for direct() sources (they block until abort).
+ */
 async function startAndAwaitReady(t: TestContext): Promise<void> {
   const ctx = t.ctx;
   const total = ctx.getRoutes().length;
@@ -34,7 +38,6 @@ async function startAndAwaitReady(t: TestContext): Promise<void> {
             }) as EventHandler<EventName>,
           );
         });
-  // Fire-and-forget: direct sources block until abort, so we cannot await start().
   ctx.start();
   await allReady;
 }

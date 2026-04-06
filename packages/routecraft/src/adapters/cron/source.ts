@@ -164,12 +164,11 @@ export class CronSourceAdapter
             ...(name ? { [HeadersKeys.CRON_NAME]: name } : {}),
           };
 
-          // Exchange errors are already logged by the route; catch and
-          // continue so the cron job keeps firing for subsequent exchanges.
           try {
             await handler(undefined, headers);
           } catch {
-            // Error already logged and emitted by the route pipeline.
+            // Exchange error already logged by the route pipeline.
+            // Cron jobs are long-running; continue to the next scheduled fire.
           }
 
           // Settle when croner has exhausted maxRuns

@@ -32,9 +32,23 @@ export class SimpleSourceAdapter<T = unknown> implements Source<T> {
         { adapter: "simple", messageCount: result.length },
         "Processing array of messages",
       );
+      let failCount = 0;
       try {
-        await Promise.all(result.map((item) => handler(item).catch(() => {})));
+        await Promise.all(
+          result.map((item) =>
+            handler(item).catch(() => {
+              // Exchange error already logged by the route pipeline.
+              failCount++;
+            }),
+          ),
+        );
       } finally {
+        if (failCount > 0) {
+          context.logger.warn(
+            { adapter: "simple", failCount, total: result.length },
+            "Some exchanges in batch failed",
+          );
+        }
         context.logger.debug(
           { adapter: "simple" },
           "Finished processing array of messages",
@@ -46,7 +60,9 @@ export class SimpleSourceAdapter<T = unknown> implements Source<T> {
       try {
         await handler(result);
       } catch {
-        // Exchange error already logged and emitted by the route pipeline.
+        // Exchange error already logged by the route pipeline.
+        // SimpleSource does not re-throw: the route already emitted
+        // context:error, and re-throwing would cause a duplicate emission.
       } finally {
         context.logger.debug(
           { adapter: "simple" },

@@ -5,7 +5,7 @@ import {
   isRouteBuilder,
   isRouteDefinition,
   logger,
-  registerShutdownHandlers,
+  shutdownHandler,
   RUNNER_ARGV,
   type RouteBuilder,
   type RouteDefinition,
@@ -73,7 +73,7 @@ export async function runCommand(
     // the runner needing to know which adapters are in use.
     const { context } = await contextBuilder.build();
     context.setStore(RUNNER_ARGV, cliArgs);
-    registerShutdownHandlers(context);
+    shutdownHandler(context);
     await context.start();
 
     return { success: true };

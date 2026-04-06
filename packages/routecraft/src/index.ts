@@ -103,7 +103,7 @@ export {
 
 export { logger } from "./logger.ts";
 
-export { registerShutdownHandlers } from "./shutdown.ts";
+export { shutdownHandler } from "./shutdown.ts";
 
 export {
   type Adapter,

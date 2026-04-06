@@ -114,13 +114,11 @@ export class TimerSourceAdapter implements Source<undefined> {
             ).toISOString(),
           };
 
-          // Trigger the handler for this timer tick.
-          // Exchange errors are already logged by the route; catch and
-          // continue so the timer keeps firing for subsequent exchanges.
           try {
             await handler(undefined, headers);
           } catch {
-            // Error already logged and emitted by the route pipeline.
+            // Exchange error already logged by the route pipeline.
+            // Timer continues to fire for remaining ticks.
           }
         }
         resolve();

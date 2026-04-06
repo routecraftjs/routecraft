@@ -14,13 +14,13 @@ import type { CraftContext } from "./context.ts";
  * @example
  * ```typescript
  * const { context } = await builder.build();
- * registerShutdownHandlers(context);
+ * shutdownHandler(context);
  * await context.start();
  * ```
  *
  * @experimental
  */
-export function registerShutdownHandlers(context: CraftContext): () => void {
+export function shutdownHandler(context: CraftContext): () => void {
   let shuttingDown = false;
 
   const onSignal = async (signal: string) => {
@@ -42,8 +42,8 @@ export function registerShutdownHandlers(context: CraftContext): () => void {
       await context.stop();
       context.logger.info("Cleanup complete");
       process.exit(0);
-    } catch {
-      context.logger.warn("Error during graceful shutdown; exiting");
+    } catch (err) {
+      context.logger.warn({ err }, "Error during graceful shutdown; exiting");
       process.exit(1);
     }
   };

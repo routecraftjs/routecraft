@@ -85,16 +85,16 @@ Options:
 
 ## Shutdown helpers
 
-When building a custom runner (e.g. embedding Routecraft inside an Express server or CLI tool), use `registerShutdownHandlers` for graceful two-stage shutdown:
+When building a custom runner (e.g. embedding Routecraft inside an Express server or CLI tool), use `shutdownHandler` for graceful two-stage shutdown:
 
 ```ts
-import { ContextBuilder, registerShutdownHandlers } from '@routecraft/routecraft';
+import { ContextBuilder, shutdownHandler } from '@routecraft/routecraft';
 
 const { context, client } = await new ContextBuilder()
   .routes(myRoutes)
   .build();
 
-const cleanup = registerShutdownHandlers(context);
+const cleanup = shutdownHandler(context);
 await context.start();
 ```
 
@@ -105,5 +105,5 @@ await context.start();
 The function returns a cleanup callback that removes the signal handlers, useful in tests or when you manage the lifecycle yourself.
 
 {% callout type="warning" title="Experimental" %}
-`registerShutdownHandlers` is marked `@experimental` and may change in future releases.
+`shutdownHandler` is marked `@experimental` and may change in future releases.
 {% /callout %}

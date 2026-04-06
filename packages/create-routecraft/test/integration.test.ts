@@ -3,8 +3,24 @@ import { mkdir, rm, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
-import { execSync } from "node:child_process";
+import { execSync, type ExecSyncOptions } from "node:child_process";
 import { generateProjectStructure, type InitOptions } from "../src/lib.js";
+
+/**
+ * Run a shell command, capturing stdout/stderr. On failure the output is
+ * included in the thrown error so CI logs show what went wrong.
+ */
+function run(cmd: string, opts: ExecSyncOptions): void {
+  try {
+    execSync(cmd, { ...opts, stdio: "pipe" });
+  } catch (error) {
+    const err = error as { stdout?: Buffer; stderr?: Buffer; message: string };
+    const stdout = err.stdout?.toString().trim();
+    const stderr = err.stderr?.toString().trim();
+    const details = [stdout, stderr].filter(Boolean).join("\n");
+    throw new Error(`Command failed: ${cmd}\n${details}`);
+  }
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -95,15 +111,9 @@ describe("integration: scaffolded project compiles", () => {
       );
       await patchDepsToLocal(projectDir);
 
-      execSync("pnpm install --no-frozen-lockfile", {
-        cwd: projectDir,
-        stdio: "pipe",
-      });
+      run("pnpm install --no-frozen-lockfile", { cwd: projectDir });
 
-      execSync("pnpm exec tsc --noEmit", {
-        cwd: projectDir,
-        stdio: "pipe",
-      });
+      run("pnpm exec tsc --noEmit", { cwd: projectDir });
     },
   );
 
@@ -122,15 +132,9 @@ describe("integration: scaffolded project compiles", () => {
       );
       await patchDepsToLocal(projectDir);
 
-      execSync("pnpm install --no-frozen-lockfile", {
-        cwd: projectDir,
-        stdio: "pipe",
-      });
+      run("pnpm install --no-frozen-lockfile", { cwd: projectDir });
 
-      execSync("pnpm exec tsc --noEmit", {
-        cwd: projectDir,
-        stdio: "pipe",
-      });
+      run("pnpm exec tsc --noEmit", { cwd: projectDir });
     },
   );
 
@@ -149,16 +153,12 @@ describe("integration: scaffolded project compiles", () => {
       );
       await patchDepsToLocal(projectDir);
 
-      execSync("pnpm install --no-frozen-lockfile", {
-        cwd: projectDir,
-        stdio: "pipe",
-      });
+      run("pnpm install --no-frozen-lockfile", { cwd: projectDir });
 
       // The hello-world route is finite (simple source produces one message then stops),
       // so craft run should exit on its own.
-      execSync("pnpm exec craft run index.ts", {
+      run("pnpm exec craft run index.ts", {
         cwd: projectDir,
-        stdio: "pipe",
         timeout: 30_000,
       });
     },
