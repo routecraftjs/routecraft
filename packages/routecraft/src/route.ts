@@ -351,8 +351,8 @@ export class DefaultRoute implements Route {
 
     // Run steps (tap adds tasks via route.trackTask)
     const handlerPromise = this.runSteps(exchange, startTime).then((result) => {
-      // runSteps swallows errors and emits exchange:failed internally,
-      // so only emit exchange:completed if the exchange was not failed.
+      // runSteps handles errors internally (logging, events).
+      // Emit exchange:completed only for successful, non-dropped exchanges.
       if (!result.failed && !result.dropped) {
         const duration = Date.now() - startTime;
         const correlationId = exchange.headers[
@@ -369,11 +369,22 @@ export class DefaultRoute implements Route {
           },
         );
       }
+
+      // Reject so callers (CraftClient, direct channel) can handle the error.
+      // Source adapters catch this rejection and continue processing.
+      if (result.failed && result.error) {
+        throw result.error;
+      }
+
       return result.exchange;
     });
 
-    this.inFlight.add(handlerPromise);
-    handlerPromise.finally(() => this.inFlight.delete(handlerPromise));
+    // Track in-flight work. Use a catch-suppressed wrapper so rejected
+    // handler promises don't trigger unhandled rejection warnings; the
+    // actual rejection is handled by the caller (source adapter / channel).
+    const tracked = handlerPromise.catch(() => {});
+    this.inFlight.add(tracked);
+    tracked.finally(() => this.inFlight.delete(tracked));
 
     return handlerPromise;
   }
@@ -389,7 +400,12 @@ export class DefaultRoute implements Route {
   private async runSteps(
     exchange: Exchange,
     startTime: number,
-  ): Promise<{ exchange: Exchange; failed: boolean; dropped: boolean }> {
+  ): Promise<{
+    exchange: Exchange;
+    failed: boolean;
+    dropped: boolean;
+    error?: unknown;
+  }> {
     const queue: { exchange: Exchange; steps: Step<Adapter>[] }[] = [
       { exchange: exchange, steps: [...this.definition.steps] },
     ];
@@ -397,6 +413,7 @@ export class DefaultRoute implements Route {
     let lastProcessedExchange: Exchange = exchange;
     let failed = false;
     let dropped = false;
+    let stepError: unknown;
     // Track child exchanges so we can emit exchange:started/completed for them.
     // The parent exchange (first one) is handled by handler().
     const parentExchangeId = exchange.id;
@@ -594,11 +611,17 @@ export class DefaultRoute implements Route {
               failedChildExchanges.add(exchange.id);
             } else {
               failed = true;
+              stepError = handlerErr;
             }
           }
 
           // Pipeline does not resume after error handler (success or failure)
-          return { exchange: lastProcessedExchange, failed, dropped };
+          return {
+            exchange: lastProcessedExchange,
+            failed,
+            dropped,
+            error: stepError,
+          };
         }
 
         // No error handler -- route-level error
@@ -636,10 +659,12 @@ export class DefaultRoute implements Route {
           failedChildExchanges.add(exchange.id);
         } else {
           failed = true;
+          stepError = err;
         }
 
-        // Don't re-throw - error is fully handled via events and logging
-        // Re-throwing would create unhandled rejections
+        // Don't re-throw - error is logged and emitted via events.
+        // The error is returned in the result so callers (e.g. CraftClient)
+        // can handle it. Source adapters catch and continue.
         // Do NOT return here: the while loop continues so other queue items (e.g. split children) are processed
       }
     }
@@ -668,7 +693,12 @@ export class DefaultRoute implements Route {
       dropped = true;
     }
 
-    return { exchange: lastProcessedExchange, failed, dropped };
+    return {
+      exchange: lastProcessedExchange,
+      failed,
+      dropped,
+      error: stepError,
+    };
   }
 
   /**

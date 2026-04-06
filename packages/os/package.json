@@ -1,0 +1,48 @@
+{
+  "name": "@routecraft/os",
+  "version": "0.5.0",
+  "description": "System-native adapters for Routecraft: shell execution and browser automation",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts",
+    "test": "vitest",
+    "test:coverage": "vitest --coverage",
+    "prepublishOnly": "pnpm run build"
+  },
+  "dependencies": {
+    "@routecraft/routecraft": "workspace:^0.5.0"
+  },
+  "devDependencies": {
+    "vitest": "^4.0.18",
+    "zod": "^4.3.6"
+  },
+  "peerDependencies": {
+    "@routecraft/routecraft": ">=0.5.0"
+  },
+  "keywords": [
+    "routecraft",
+    "os",
+    "shell"
+  ],
+  "author": "routecraftjs",
+  "license": "Apache-2.0",
+  "homepage": "https://routecraft.dev",
+  "bugs": "https://github.com/routecraftjs/routecraft/issues",
+  "repository": "https://github.com/routecraftjs/routecraft",
+  "publishConfig": {
+    "access": "public"
+  }
+}

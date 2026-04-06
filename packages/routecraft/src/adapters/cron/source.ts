@@ -166,21 +166,9 @@ export class CronSourceAdapter
 
           try {
             await handler(undefined, headers);
-          } catch (error) {
-            const msg =
-              error &&
-              typeof error === "object" &&
-              "meta" in error &&
-              typeof (error as { meta: { message?: string } }).meta?.message ===
-                "string"
-                ? (error as { meta: { message: string } }).meta.message
-                : error instanceof Error
-                  ? error.message
-                  : "Cron handler failed";
-            context.logger.error({ adapter: "cron", err: error }, msg);
-            abortController.abort();
-            settle();
-            return;
+          } catch {
+            // Exchange error already logged by the route pipeline.
+            // Cron jobs are long-running; continue to the next scheduled fire.
           }
 
           // Settle when croner has exhausted maxRuns

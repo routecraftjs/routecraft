@@ -7,14 +7,10 @@ import type {
   EventHandler,
   RouteDefinition,
   RouteBuilder,
-  Exchange,
-  ExchangeHeaders,
 } from "@routecraft/routecraft";
 import {
   ContextBuilder,
-  DefaultExchange,
-  ADAPTER_DIRECT_STORE,
-  sanitizeEndpoint,
+  CraftClient,
   isRoutecraftError,
   RoutecraftError,
   rcError,
@@ -49,6 +45,8 @@ export interface TestOptions {
  */
 export class TestContext {
   readonly ctx: CraftContext;
+  /** Client for dispatching messages to direct endpoints in tests. */
+  readonly client: CraftClient;
   /** Spy logger; e.g. expect(t.logger.info).toHaveBeenCalledWith(...) */
   readonly logger: SpyLogger;
   readonly errors: RoutecraftError[] = [];
@@ -60,12 +58,14 @@ export class TestContext {
 
   constructor(
     ctx: CraftContext,
+    client: CraftClient,
     options?: TestContextOptions & {
       spyLogger?: SpyLogger;
       restoreLoggerChild?: () => void;
     },
   ) {
     this.ctx = ctx;
+    this.client = client;
     this.logger = options?.spyLogger ?? createNoopSpyLogger();
     if (options?.restoreLoggerChild)
       this.restoreLoggerChild = options.restoreLoggerChild;
@@ -220,36 +220,6 @@ export class TestContext {
     this.restoreLoggerChild?.();
     this.loggerChildRestored = true;
   }
-
-  /**
-   * Send a message to a direct endpoint and return the result.
-   * Use after {@link startAndWaitReady} so the channel exists.
-   *
-   * @param endpoint Direct endpoint name (must match the endpoint string passed to `direct(endpoint, options)`)
-   * @param body Request body
-   * @param headers Optional exchange headers
-   * @returns The response body from the route
-   */
-  async send<T = unknown, R = T>(
-    endpoint: string,
-    body: T,
-    headers?: ExchangeHeaders,
-  ): Promise<R> {
-    const store = this.ctx.getStore(ADAPTER_DIRECT_STORE);
-    const sanitized = sanitizeEndpoint(endpoint);
-    const channel = store?.get(sanitized);
-    if (!channel) {
-      throw new Error(
-        `No direct channel for endpoint "${endpoint}". Did you call startAndWaitReady() first?`,
-      );
-    }
-    const exchange = new DefaultExchange(this.ctx, {
-      body,
-      ...(headers !== undefined && { headers }),
-    });
-    const result = await channel.send(sanitized, exchange);
-    return (result as Exchange).body as R;
-  }
 }
 
 /**
@@ -305,7 +275,7 @@ export class TestContextBuilder {
     logger.child = vi.fn(
       () => spyLogger as unknown as ReturnType<typeof logger.child>,
     ) as typeof logger.child;
-    const ctx = await this.builder.build();
+    const { context: ctx, client } = await this.builder.build();
     const options: TestContextOptions & {
       spyLogger: SpyLogger;
       restoreLoggerChild: () => void;
@@ -318,7 +288,7 @@ export class TestContextBuilder {
         logger.child = originalChild;
       },
     };
-    return new TestContext(ctx, options);
+    return new TestContext(ctx, client, options);
   }
 }
 

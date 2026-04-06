@@ -8,6 +8,7 @@ import {
 } from "./context.ts";
 import { rcError } from "./error.ts";
 import { logger } from "./logger.ts";
+import { CraftClient } from "./client.ts";
 import { type EventHandler, type EventName } from "./types.ts";
 import { SimpleConsumer } from "./consumers/simple.ts";
 import { BatchConsumer } from "./consumers/batch.ts";
@@ -82,7 +83,7 @@ import { PUSH_STEP } from "./dsl-symbol.ts";
  * @example
  * ```typescript
  * // Create a context with routes and handlers
- * const context = new ContextBuilder()
+ * const { context, client } = await new ContextBuilder()
  *   .with({ store: new Map() })
  *   .on('context:starting', ({ ts }) => console.log('Starting at', ts))
  *   .store('routecraft.adapter.channel.store', new Map())
@@ -92,6 +93,9 @@ import { PUSH_STEP } from "./dsl-symbol.ts";
  *
  * // Start the context to begin processing
  * await context.start();
+ *
+ * // Dispatch messages programmatically
+ * await client.send('my-endpoint', { data: 'hello' });
  * ```
  *
  * Plugins run before routes are registered, allowing them to:
@@ -267,14 +271,25 @@ export class ContextBuilder {
   }
 
   /**
-   * Build and return a configured CraftContext instance.
+   * Build and return a configured CraftContext and CraftClient.
    *
    * This finalizes the configuration, runs plugins, and creates a ready-to-use
    * context with all the configured routes, handlers, and store values.
+   * The client provides a programmatic API for dispatching messages into routes.
    *
-   * @returns A promise that resolves to a new CraftContext instance
+   * @returns A promise resolving to `{ context, client }`
+   *
+   * @example
+   * ```typescript
+   * const { context, client } = await new ContextBuilder()
+   *   .routes(capabilities)
+   *   .build();
+   *
+   * await context.start();
+   * await client.send('greet', { name: 'World' });
+   * ```
    */
-  async build(): Promise<CraftContext> {
+  async build(): Promise<{ context: CraftContext; client: CraftClient }> {
     const configWithPlugins = {
       ...this.config,
       plugins: this.plugins,
@@ -318,7 +333,7 @@ export class ContextBuilder {
     // Register all routes from builder
     ctx.registerRoutes(...this.definitions);
 
-    return ctx;
+    return { context: ctx, client: new CraftClient(ctx) };
   }
 }
 
@@ -901,8 +916,8 @@ export class RouteBuilder<Current = unknown> {
    *   .process((ex) => ({ ...ex, body: (ex.body as string).toUpperCase() }))
    *   .to(destination)
    *   .build();
-   * const ctx = await new ContextBuilder().routes(definitions).build();
-   * await ctx.start();
+   * const { context } = await new ContextBuilder().routes(definitions).build();
+   * await context.start();
    * ```
    */
   build(): RouteDefinition[] {

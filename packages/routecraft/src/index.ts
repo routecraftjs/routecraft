@@ -14,6 +14,7 @@ export {
   CraftContext,
   type MergedOptions,
   type StoreRegistry,
+  RUNNER_ARGV,
   type CraftConfig,
   type CraftPlugin,
 } from "./context.ts";
@@ -65,6 +66,8 @@ export {
   type RouteOptions,
 } from "./builder.ts";
 
+export { CraftClient } from "./client.ts";
+
 export {
   registerDsl,
   type PrimitiveKind,
@@ -99,6 +102,8 @@ export {
 } from "./registry.ts";
 
 export { logger } from "./logger.ts";
+
+export { shutdownHandler } from "./shutdown.ts";
 
 export {
   type Adapter,

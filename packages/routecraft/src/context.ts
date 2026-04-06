@@ -22,6 +22,17 @@ import {
 } from "./types.ts";
 
 /**
+ * Store key for runner-provided argv tokens.
+ *
+ * Set by `craft run` (or any runner) before `context.start()` so that
+ * adapters can read the remaining CLI arguments without coupling to a
+ * specific runner package.
+ *
+ * @experimental
+ */
+export const RUNNER_ARGV: unique symbol = Symbol.for("routecraft.runner.argv");
+
+/**
  * Base store registry that can be extended by adapters
  *
  * @example
@@ -37,6 +48,7 @@ import {
  */
 export interface StoreRegistry {
   [key: `${string}.${string}.${string}`]: unknown;
+  [RUNNER_ARGV]: string[];
 }
 
 /**

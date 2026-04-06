@@ -36,6 +36,10 @@ export const navigation = [
       { title: 'Error Handling', href: '/docs/advanced/error-handling' },
       { title: 'Merged Options', href: '/docs/advanced/merged-options' },
       { title: 'Creating adapters', href: '/docs/advanced/custom-adapters' },
+      {
+        title: 'Programmatic Invocation',
+        href: '/docs/advanced/programmatic-invocation',
+      },
       { title: 'Expose as MCP', href: '/docs/advanced/expose-as-mcp' },
       { title: 'Call an MCP', href: '/docs/advanced/call-an-mcp' },
       { title: 'Linting', href: '/docs/advanced/linting' },
