@@ -25,17 +25,17 @@
   "dependencies": {
     "@routecraft/routecraft": "^0.5.0",
     "@standard-schema/spec": "^1.1.0",
-    "ai": "^6.0.116"
+    "ai": "^6.0.146"
   },
   "devDependencies": {
-    "@ai-sdk/anthropic": "^3.0.58",
-    "@ai-sdk/google": "^3.0.43",
-    "@ai-sdk/openai": "^3.0.41",
+    "@ai-sdk/anthropic": "^3.0.66",
+    "@ai-sdk/google": "^3.0.58",
+    "@ai-sdk/openai": "^3.0.50",
     "@huggingface/transformers": "^3.8.1",
-    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@openrouter/ai-sdk-provider": "^2.3.3",
     "ollama-ai-provider-v2": "^3.5.0",
-    "vitest": "^4.1.0",
+    "vitest": "^4.1.2",
     "zod": "^4.3.6"
   },
   "peerDependencies": {
@@ -43,7 +43,7 @@
     "@ai-sdk/google": "^3.0.34",
     "@ai-sdk/openai": "^3.0.37",
     "@huggingface/transformers": "^3.8.1",
-    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@openrouter/ai-sdk-provider": "^2.2.3",
     "@routecraft/routecraft": "*",
     "ollama-ai-provider-v2": "^3.3.1"
