@@ -18,7 +18,7 @@
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
-    "@inquirer/prompts": "^8.3.2"
+    "@inquirer/prompts": "^8.4.1"
   },
   "devDependencies": {
     "@routecraft/testing": "^0.5.0"

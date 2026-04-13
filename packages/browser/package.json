@@ -26,11 +26,11 @@
   },
   "devDependencies": {
     "@routecraft/testing": "^0.5.0",
-    "agent-browser": "^0.17.1",
-    "vitest": "^4.1.0"
+    "agent-browser": "^0.25.4",
+    "vitest": "^4.1.4"
   },
   "peerDependencies": {
-    "agent-browser": "^0.17.1"
+    "agent-browser": "^0.25.4"
   },
   "peerDependenciesMeta": {
     "agent-browser": {
