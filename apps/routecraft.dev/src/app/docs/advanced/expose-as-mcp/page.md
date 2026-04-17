@@ -214,7 +214,13 @@ auth: {
 
 The validator receives the raw bearer token and returns an `AuthPrincipal` on success or `null` to reject with 401. `AuthPrincipal` is a discriminated union on `kind`: pick the subtype that fits the scheme you implement (`jwt`, `oauth`, `api-key`, `basic`, or `custom` for anything else). The principal's fields are set as exchange headers so your routes can read the caller's identity.
 
-For OAuth 2.1 with an upstream IdP, use `oauth()`:
+For OAuth 2.1 with an upstream IdP, use `oauth()`. The OAuth path relies on Express for the auth router and bearer middleware, so install it alongside `@routecraft/ai` (it is declared as an optional peer dependency, so plain validator setups do not need it):
+
+```sh
+pnpm add express
+```
+
+
 
 ```ts
 import { oauth } from '@routecraft/ai'

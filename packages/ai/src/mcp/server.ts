@@ -436,7 +436,7 @@ export class McpServer {
       expressFn = (expressMod["default"] ?? expressMod) as typeof expressFn;
     } catch {
       throw new Error(
-        'OAuth auth requires "express". It should be installed as a dependency of @modelcontextprotocol/sdk.',
+        'OAuth auth requires "express" (optional peer dependency of @routecraft/ai). Install it with: pnpm add express',
       );
     }
 
