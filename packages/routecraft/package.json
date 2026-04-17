@@ -65,6 +65,7 @@
   "bugs": "https://github.com/routecraftjs/routecraft/issues",
   "peerDependencies": {
     "@opentelemetry/sdk-trace-base": "^2.6.0",
+    "jose": "^5.0.0 || ^6.0.0",
     "better-sqlite3": "^11.0.0",
     "cheerio": "^1.2.0",
     "croner": "^10.0.1",
@@ -100,6 +101,9 @@
       "optional": true
     },
     "@opentelemetry/sdk-trace-base": {
+      "optional": true
+    },
+    "jose": {
       "optional": true
     }
   },

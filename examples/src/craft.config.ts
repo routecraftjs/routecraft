@@ -1,6 +1,6 @@
 import { mcpPlugin, jwt, llmPlugin } from "@routecraft/ai";
 import type { CraftConfig } from "@routecraft/routecraft";
-import { version } from "package.json";
+import { version } from "../package.json";
 
 export const craftConfig: CraftConfig = {
   telemetry: { sqlite: { captureSnapshots: true } },

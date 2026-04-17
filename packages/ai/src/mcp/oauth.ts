@@ -1,9 +1,11 @@
 import type {
-  McpOAuthAuthOptions,
+  Principal,
+  ValidatorAuthOptions,
+  TokenVerifier,
+} from "@routecraft/routecraft";
+import type {
+  OAuthAuthOptions,
   OAuthClientInfo,
-  OAuthJwtClaimMappers,
-  OAuthJwtConfig,
-  OAuthPrincipal,
   OAuthProxyEndpoints,
 } from "./types.ts";
 
@@ -25,15 +27,46 @@ export type OAuthClientSupplier = (
 ) => Promise<OAuthClientInfo | undefined> | OAuthClientInfo | undefined;
 
 /**
- * Base options shared by every shape of `oauth()` factory call.
+ * The `verify` option accepted by `oauth()`.
+ *
+ * Pass:
+ * - A `ValidatorAuthOptions` (output of `jwt()` or `jwks()`) to compose a
+ *   validator-based verifier, or
+ * - A raw `TokenVerifier` function as the escape hatch for custom logic.
+ *
+ * @experimental
  */
-interface OAuthFactoryBaseOptions {
-  /** Issuer URL for OAuth metadata discovery. Must be HTTPS in production. */
-  issuerUrl: string | URL;
-  /** Base URL for OAuth endpoints (defaults to issuerUrl). */
+export type OAuthVerifier = ValidatorAuthOptions | TokenVerifier;
+
+/**
+ * Options for the `oauth()` factory.
+ *
+ * @experimental
+ */
+export interface OAuthFactoryOptions {
+  /**
+   * Issuer URL for this MCP server's OAuth metadata discovery endpoint.
+   * Must be HTTPS in production.
+   *
+   * Renamed from `issuerUrl` to avoid confusion with the IdP issuer inside
+   * the `verify` config.
+   */
+  resourceIssuerUrl: string | URL;
+  /** Base URL for OAuth endpoints (defaults to resourceIssuerUrl). */
   baseUrl?: string | URL;
   /** Upstream OAuth provider endpoints to proxy. */
   endpoints: OAuthProxyEndpoints;
+  /**
+   * Token verifier for access tokens arriving at `/mcp`.
+   *
+   * Accept:
+   * - `jwks({ jwksUrl, issuer, audience })` -- JWKS-backed verification (the common case)
+   * - `jwt({ secret, issuer, audience })` -- static-key verification (rare)
+   * - A raw `(token) => Principal | Promise<Principal>` function -- custom logic
+   *
+   * The verifier is called on every authenticated request.
+   */
+  verify: OAuthVerifier;
   /**
    * Registered OAuth client(s). Accepts either:
    * - a static {@link OAuthClientInfo} for the single-client case (matched on
@@ -53,135 +86,6 @@ interface OAuthFactoryBaseOptions {
   serviceDocumentationUrl?: string | URL;
   /** Human-readable resource name (included in OAuth metadata). */
   resourceName?: string;
-}
-
-/**
- * Built-in JWT variant of the `oauth()` factory options.
- */
-interface OAuthFactoryJwtOptions extends OAuthFactoryBaseOptions {
-  /**
-   * Built-in JWT verification. Requires the optional peer dependency `jose`.
-   * `issuer` and `audience` are required and enforced.
-   */
-  jwt: OAuthJwtConfig;
-  verifyAccessToken?: never;
-}
-
-/**
- * Custom verifier variant of the `oauth()` factory options.
- */
-interface OAuthFactoryCustomOptions extends OAuthFactoryBaseOptions {
-  /**
-   * Verify an access token and return a populated {@link OAuthPrincipal}.
-   * Called on every authenticated request to `/mcp`.
-   *
-   * Populate `subject` from the end-user identity (e.g. JWT `sub`), not the
-   * OAuth `client_id`; `clientId` is a separate field on `OAuthPrincipal`.
-   * All identity fields (`email`, `name`, `issuer`, `audience`, `claims`, etc.)
-   * surface on the route exchange as `routecraft.auth.*` headers.
-   *
-   * The `expiresAt` field is required by the MCP SDK's bearer middleware;
-   * omitting it causes the request to be rejected with 401 regardless of
-   * other claim values.
-   */
-  verifyAccessToken: (token: string) => Promise<OAuthPrincipal>;
-  jwt?: never;
-}
-
-/**
- * Options for the `oauth()` factory.
- *
- * Pass **either** `jwt` (built-in JWT verification, handles JWKS and claim
- * mapping internally) **or** `verifyAccessToken` (custom validator for opaque
- * tokens, introspection, or non-standard flows). Never both.
- *
- * @experimental
- */
-export type OAuthFactoryOptions =
-  | OAuthFactoryJwtOptions
-  | OAuthFactoryCustomOptions;
-
-/** String coercion helper: returns `value` when it is a non-empty string. */
-function stringClaim(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
-/**
- * Internal helper: map a verified JWT payload to an {@link OAuthPrincipal}
- * using standard claim names plus optional per-claim overrides.
- *
- * Subject fallback order: `claims.subject(payload)` -> `sub` -> `client_id`
- * -> `azp`. Client-ID fallback order: `claims.clientId(payload)` -> `client_id`
- * -> `azp` -> `sub`. This matches RFC 9068, where `client_id` is OPTIONAL on
- * JWT access tokens, and accommodates client-credentials tokens (often no
- * `sub`) and IdPs that emit only `azp` (Google ID tokens, some Auth0 flows).
- *
- * Exported only so the test suite can exercise the mapping directly. Not
- * part of the package's public API; use the `jwt` factory option or write
- * a custom `verifyAccessToken` callback instead.
- *
- * @internal
- */
-export function oauthPrincipalFromJwtPayload(
-  payload: Record<string, unknown>,
-  claims?: OAuthJwtClaimMappers,
-): OAuthPrincipal {
-  const sub = stringClaim(payload["sub"]);
-  const payloadClientId = stringClaim(payload["client_id"]);
-  const azp = stringClaim(payload["azp"]);
-
-  const subject = claims?.subject?.(payload) ?? sub ?? payloadClientId ?? azp;
-  if (typeof subject !== "string" || subject.length === 0) {
-    throw new TypeError(
-      "oauth({ jwt }): verified token has no subject. Expected `sub`, `client_id`, or `azp`; provide claims.subject to map from a non-standard field.",
-    );
-  }
-
-  const clientId =
-    claims?.clientId?.(payload) ?? payloadClientId ?? azp ?? sub ?? subject;
-
-  const audienceRaw = payload["aud"];
-  const audience = Array.isArray(audienceRaw)
-    ? audienceRaw.filter((a): a is string => typeof a === "string")
-    : typeof audienceRaw === "string"
-      ? [audienceRaw]
-      : undefined;
-
-  const principal: OAuthPrincipal = {
-    kind: "oauth",
-    scheme: "bearer",
-    subject,
-    clientId,
-    claims: payload,
-  };
-
-  const email = claims?.email?.(payload) ?? payload["email"];
-  if (typeof email === "string") principal.email = email;
-
-  const name = claims?.name?.(payload) ?? payload["name"];
-  if (typeof name === "string") principal.name = name;
-
-  if (typeof payload["iss"] === "string") principal.issuer = payload["iss"];
-  if (audience !== undefined) principal.audience = audience;
-  if (typeof payload["exp"] === "number") principal.expiresAt = payload["exp"];
-
-  const scopes =
-    claims?.scopes?.(payload) ??
-    (typeof payload["scope"] === "string"
-      ? (payload["scope"] as string).split(" ").filter(Boolean)
-      : undefined);
-  if (scopes !== undefined) principal.scopes = scopes;
-
-  const roles =
-    claims?.roles?.(payload) ??
-    (Array.isArray(payload["roles"])
-      ? (payload["roles"] as unknown[]).filter(
-          (r): r is string => typeof r === "string",
-        )
-      : undefined);
-  if (roles !== undefined) principal.roles = roles;
-
-  return principal;
 }
 
 /**
@@ -206,63 +110,20 @@ function normaliseClientSupplier(
 }
 
 /**
- * Narrow subset of `jose` the built-in JWT verifier uses. Declared so the
- * verifier has real types even when the optional peer dependency is not
- * resolvable at compile time.
+ * Normalise the `verify` option into a `(token) => Promise<Principal>` callback.
  */
-interface JoseSubset {
-  createRemoteJWKSet: (
-    url: URL,
-  ) => (header: unknown, input: unknown) => Promise<unknown>;
-  jwtVerify: (
-    token: string,
-    key: unknown,
-    options: {
-      issuer: string;
-      audience: string | string[];
-      clockTolerance?: number | string;
-    },
-  ) => Promise<{ payload: Record<string, unknown> }>;
-}
-
-/**
- * Build a `verifyAccessToken` callback from a JWKS-backed JWT config.
- * Lazy-loads `jose` on first call so the factory itself stays synchronous
- * and `jose` remains an optional peer dependency.
- */
-function buildJwtVerifyAccessToken(
-  config: OAuthJwtConfig,
-): (token: string) => Promise<OAuthPrincipal> {
-  let joseMod: JoseSubset | null = null;
-  let jwks: ReturnType<JoseSubset["createRemoteJWKSet"]> | null = null;
-
-  return async (token: string): Promise<OAuthPrincipal> => {
-    if (joseMod === null) {
-      try {
-        joseMod = (await import("jose")) as unknown as JoseSubset;
-      } catch {
-        throw new Error(
-          'oauth({ jwt }) requires the optional peer dependency "jose". Install it with: pnpm add jose (or supply a custom verifyAccessToken callback).',
-        );
-      }
-    }
-    if (jwks === null) {
-      jwks = joseMod.createRemoteJWKSet(new URL(config.jwksUrl.toString()));
-    }
-
-    const { payload } = await joseMod.jwtVerify(token, jwks, {
-      issuer: config.issuer,
-      audience: config.audience,
-      ...(config.clockTolerance !== undefined && {
-        clockTolerance: config.clockTolerance,
-      }),
-    });
-
-    return oauthPrincipalFromJwtPayload(
-      payload as Record<string, unknown>,
-      config.claims,
+function buildVerifier(
+  verify: OAuthVerifier,
+): (token: string) => Promise<Principal> {
+  if (!verify) {
+    throw new TypeError(
+      "oauth: `verify` is required. Pass jwks(...), jwt(...), or a custom (token) => Principal function.",
     );
-  };
+  }
+  if (typeof verify === "function") {
+    return async (token) => verify(token);
+  }
+  return async (token) => verify.validator(token);
 }
 
 /**
@@ -270,34 +131,29 @@ function buildJwtVerifyAccessToken(
  * Configures a full OAuth 2.1 server flow that proxies to an upstream identity
  * provider using the MCP SDK's `ProxyOAuthServerProvider` and `mcpAuthRouter`.
  *
- * Returns an {@link McpOAuthAuthOptions} that can be passed directly to
+ * Returns an {@link OAuthAuthOptions} that can be passed directly to
  * `mcpPlugin({ auth: oauth({ ... }) })`.
  *
  * The server will mount OAuth endpoints (`/.well-known/oauth-authorization-server`,
  * `/authorize`, `/token`, `/revoke`) alongside the `/mcp` transport endpoint.
  *
- * For common JWT-based providers, pass a `jwt` config and let the factory
- * handle JWKS fetching, signature verification, issuer/audience checks, and
- * claim mapping. For opaque tokens or bespoke verification, pass your own
- * `verifyAccessToken` callback.
- *
- * @example Config-only (recommended for standard JWT IdPs)
+ * @example JWKS-backed OAuth (e.g. Clerk)
  * ```ts
- * import { mcpPlugin, oauth } from "@routecraft/ai";
+ * import { mcpPlugin, oauth, jwks } from "@routecraft/ai";
  *
  * mcpPlugin({
  *   transport: "http",
  *   auth: oauth({
- *     issuerUrl: "https://mcp.example.com",
+ *     resourceIssuerUrl: "https://mcp.example.com",
  *     endpoints: {
  *       authorizationUrl: "https://idp.example.com/authorize",
  *       tokenUrl: "https://idp.example.com/token",
  *     },
- *     jwt: {
+ *     verify: jwks({
  *       jwksUrl: "https://idp.example.com/.well-known/jwks.json",
  *       issuer: "https://idp.example.com",
  *       audience: "https://mcp.example.com",
- *     },
+ *     }),
  *     client: {
  *       client_id: "my-mcp-server",
  *       redirect_uris: ["http://localhost:3000/callback"],
@@ -314,66 +170,44 @@ function buildJwtVerifyAccessToken(
  * })
  * ```
  *
- * @example Claim overrides for a non-standard IdP (Azure AD)
- * ```ts
- * jwt: {
- *   jwksUrl: "https://login.microsoftonline.com/<tenant>/discovery/v2.0/keys",
- *   issuer: "https://login.microsoftonline.com/<tenant>/v2.0",
- *   audience: "<app-id>",
- *   claims: {
- *     subject: (p) => p.oid as string,
- *     roles: (p) => p["roles"] as string[] | undefined,
- *   },
- * }
- * ```
- *
  * @example Custom verification (opaque tokens, introspection, etc.)
  * ```ts
- * import { jwtVerify, createRemoteJWKSet } from "jose";
- *
- * const jwks = createRemoteJWKSet(new URL("https://idp.example.com/.well-known/jwks.json"));
- *
  * oauth({
- *   issuerUrl: "https://mcp.example.com",
+ *   resourceIssuerUrl: "https://mcp.example.com",
  *   endpoints: { authorizationUrl: "...", tokenUrl: "..." },
- *   verifyAccessToken: async (token) => {
- *     const { payload } = await jwtVerify(token, jwks, {
- *       issuer: "https://idp.example.com",
- *       audience: "https://mcp.example.com",
- *     });
+ *   verify: async (token) => {
+ *     const principal = await myIntrospectionCall(token);
  *     return {
- *       kind: "oauth",
+ *       kind: "custom",
  *       scheme: "bearer",
- *       subject: payload.sub as string,
- *       clientId: payload["client_id"] as string,
- *       expiresAt: payload.exp,
- *       claims: payload as Record<string, unknown>,
+ *       subject: principal.userId,
+ *       clientId: principal.clientId,
+ *       expiresAt: principal.exp,
  *     };
  *   },
- *   client: {
- *     client_id: "my-mcp-server",
- *     redirect_uris: ["http://localhost:3000/callback"],
- *   },
+ *   client: { ... },
  * });
  * ```
  *
  * @experimental
  */
-export function oauth(options: OAuthFactoryOptions): McpOAuthAuthOptions {
-  const issuer = new URL(options.issuerUrl.toString());
+export function oauth(options: OAuthFactoryOptions): OAuthAuthOptions {
+  const issuer = new URL(options.resourceIssuerUrl.toString());
   if (
     issuer.protocol !== "https:" &&
     process.env["NODE_ENV"] === "production"
   ) {
-    throw new TypeError("oauth: issuerUrl must use HTTPS in production");
+    throw new TypeError(
+      "oauth: resourceIssuerUrl must use HTTPS in production",
+    );
   }
 
-  const verifyAccessToken = buildVerifier(options);
+  const verifyAccessToken = buildVerifier(options.verify);
   const getClient = normaliseClientSupplier(options.client);
 
-  const result: McpOAuthAuthOptions = {
+  const result: OAuthAuthOptions = {
     provider: "oauth",
-    issuerUrl: options.issuerUrl,
+    resourceIssuerUrl: options.resourceIssuerUrl,
     endpoints: options.endpoints,
     verifyAccessToken,
     getClient,
@@ -393,27 +227,4 @@ export function oauth(options: OAuthFactoryOptions): McpOAuthAuthOptions {
   };
 
   return result;
-}
-
-/**
- * Narrow the discriminated factory options to their verifier implementation.
- * Throws when the caller passes both or neither discriminator.
- */
-function buildVerifier(
-  options: OAuthFactoryOptions,
-): (token: string) => Promise<OAuthPrincipal> {
-  if (options.jwt !== undefined) {
-    if (options.verifyAccessToken !== undefined) {
-      throw new TypeError(
-        "oauth: pass exactly one of `jwt` (built-in JWT verification) or `verifyAccessToken` (custom validator); both were supplied.",
-      );
-    }
-    return buildJwtVerifyAccessToken(options.jwt);
-  }
-  if (options.verifyAccessToken !== undefined) {
-    return options.verifyAccessToken;
-  }
-  throw new TypeError(
-    "oauth: pass exactly one of `jwt` (built-in JWT verification) or `verifyAccessToken` (custom validator).",
-  );
 }

@@ -41,12 +41,28 @@ export type {
   LlmUsage,
 } from "./llm/index.ts";
 
+// Auth primitives re-exported from core for convenience.
+// Canonical location: @routecraft/routecraft
+export {
+  jwt,
+  jwks,
+  type ClaimMappers,
+  type JwtAudience,
+  type JwtAuthOptions,
+  type JwtHmacOptions,
+  type JwtRsaOptions,
+  type JwksOptions,
+  type Principal,
+  type TokenVerifier,
+  type ValidatorAuthOptions,
+} from "@routecraft/routecraft";
+
 // MCP DSL, adapter, and types
 export {
   ADAPTER_MCP_CLIENT_SERVERS,
   BRAND_MCP_ADAPTER,
   defaultArgs,
-  jwt,
+  isOAuthAuth,
   mcp,
   oauth,
   McpHeadersKeys,
@@ -57,25 +73,6 @@ export {
   MCP_STDIO_MANAGERS,
   MCP_TOOL_REGISTRY,
   validateWithSchema,
-  type ApiKeyPrincipal,
-  type AuthPrincipal,
-  type BaseAuthPrincipal,
-  type BasicPrincipal,
-  type CustomPrincipal,
-  type JwtAuthOptions,
-  type JwtHmacOptions,
-  type JwtPrincipal,
-  type JwtRsaOptions,
-  type McpOAuthAuthOptions,
-  type McpValidatorAuthOptions,
-  type OAuthClientInfo,
-  type OAuthFactoryOptions,
-  type OAuthJwtConfig,
-  type OAuthPrincipal,
-  type OAuthProxyEndpoints,
-  type McpArgsExtractor,
-  type McpClientHttpConfig,
-  type McpMessage,
   type McpOptions,
   type McpPluginOptions,
   type McpServerOptions,
@@ -83,9 +80,14 @@ export {
   type McpToolAnnotations,
   type McpToolRegistryEntry,
   type McpToolResult,
+  type OAuthAuthOptions,
+  type OAuthClientInfo,
+  type OAuthClientSupplier,
+  type OAuthFactoryOptions,
+  type OAuthProxyEndpoints,
+  type OAuthVerifier,
 } from "./mcp/index.ts";
 export type {
-  McpAuthValidator,
   McpClientAuthOptions,
   McpClientOptions,
   McpClientServerConfig,
@@ -93,6 +95,11 @@ export type {
   McpClientTokenProvider,
   McpHttpAuthOptions,
 } from "./mcp/types.ts";
+export type {
+  McpArgsExtractor,
+  McpClientHttpConfig,
+  McpMessage,
+} from "./mcp/index.ts";
 
 // Agent adapter (Phase 1: pass-through)
 export { agent, AgentDestinationAdapter } from "./agent/index.ts";

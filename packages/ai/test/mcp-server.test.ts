@@ -556,12 +556,16 @@ describe("McpServer", () => {
 
       /**
        * @case Request with rejected token returns 401
-       * @preconditions McpServer with auth.validator that returns null; POST /mcp with token
+       * @preconditions McpServer with auth.validator that throws; POST /mcp with token
        * @expectedResult 401 status code
        */
-      test("returns 401 when validator returns null", async () => {
+      test("returns 401 when validator throws", async () => {
         const { post } = await startHttpServer([], {
-          auth: { validator: () => null },
+          auth: {
+            validator: () => {
+              throw new Error("invalid token");
+            },
+          },
         });
 
         const initBody = JSON.stringify({
@@ -584,8 +588,10 @@ describe("McpServer", () => {
       test("accepts request when validator returns principal", async () => {
         const { post } = await startHttpServer([], {
           auth: {
-            validator: (token) =>
-              token === "valid-token" ? validPrincipal : null,
+            validator: (token) => {
+              if (token !== "valid-token") throw new Error("invalid token");
+              return validPrincipal;
+            },
           },
         });
 
@@ -609,8 +615,10 @@ describe("McpServer", () => {
       test("accepts lowercase bearer scheme per RFC 9110", async () => {
         const { post } = await startHttpServer([], {
           auth: {
-            validator: (token) =>
-              token === "valid-token" ? validPrincipal : null,
+            validator: (token) => {
+              if (token !== "valid-token") throw new Error("invalid token");
+              return validPrincipal;
+            },
           },
         });
 
@@ -653,7 +661,8 @@ describe("McpServer", () => {
         const { post } = await startHttpServer([], {
           auth: {
             validator: async (token) => {
-              return token === "async-valid" ? validPrincipal : null;
+              if (token !== "async-valid") throw new Error("invalid token");
+              return validPrincipal;
             },
           },
         });
@@ -671,13 +680,17 @@ describe("McpServer", () => {
       });
 
       /**
-       * @case Async validator that resolves null rejects access
-       * @preconditions McpServer with async auth.validator resolving null
+       * @case Async validator that rejects access by throwing
+       * @preconditions McpServer with async auth.validator that always throws
        * @expectedResult 401 status code
        */
-      test("returns 401 when async validator resolves null", async () => {
+      test("returns 401 when async validator throws", async () => {
         const { post } = await startHttpServer([], {
-          auth: { validator: async () => null },
+          auth: {
+            validator: async () => {
+              throw new Error("invalid token");
+            },
+          },
         });
 
         const initBody = JSON.stringify({
@@ -695,8 +708,8 @@ describe("McpServer", () => {
 
     describe("oauth auth", () => {
       /**
-       * @case OAuth `verifyAccessToken` returning a fully populated OAuthPrincipal surfaces every identity field as a routecraft.auth.* header
-       * @preconditions McpServer with oauth() auth; verifyAccessToken returns subject, clientId, email, name, issuer, audience, roles, scopes, expiresAt, claims
+       * @case oauth() verify returning a fully populated Principal surfaces every identity field as a routecraft.auth.* header
+       * @preconditions McpServer with oauth() auth; verify returns subject, clientId, email, name, issuer, audience, roles, scopes, expiresAt, claims
        * @expectedResult Route's tap receives exchange headers with auth.subject = JWT sub (not clientId), auth.client_id, auth.email, auth.name, auth.issuer, auth.audience, auth.roles, auth.scopes, auth.scheme
        */
       test("surfaces full principal claims as exchange headers", async () => {
@@ -704,12 +717,12 @@ describe("McpServer", () => {
         let captured: Record<string, string | string[] | undefined> | undefined;
 
         const authConfig = oauth({
-          issuerUrl: "http://localhost:9999",
+          resourceIssuerUrl: "http://localhost:9999",
           endpoints: {
             authorizationUrl: "http://localhost:9999/authorize",
             tokenUrl: "http://localhost:9999/token",
           },
-          verifyAccessToken: async (token) => {
+          verify: async (token) => {
             expect(token).toBe("rich-token");
             return {
               kind: "oauth" as const,
@@ -782,8 +795,8 @@ describe("McpServer", () => {
       });
 
       /**
-       * @case Minimal OAuthPrincipal (no identity enrichment) populates only subject, client_id, scheme, scopes
-       * @preconditions McpServer with oauth(); verifyAccessToken returns only required fields (kind, scheme, subject, clientId, scopes)
+       * @case Minimal Principal (no identity enrichment) populates only subject, client_id, scheme, scopes
+       * @preconditions McpServer with oauth(); verify returns only required fields (kind, scheme, subject, clientId, scopes)
        * @expectedResult Exchange headers include subject, client_id, scheme, scopes; optional identity headers are absent
        */
       test("minimal principal omits optional identity headers", async () => {
@@ -791,12 +804,12 @@ describe("McpServer", () => {
         let captured: Record<string, string | string[] | undefined> | undefined;
 
         const authConfig = oauth({
-          issuerUrl: "http://localhost:9999",
+          resourceIssuerUrl: "http://localhost:9999",
           endpoints: {
             authorizationUrl: "http://localhost:9999/authorize",
             tokenUrl: "http://localhost:9999/token",
           },
-          verifyAccessToken: async () => ({
+          verify: async () => ({
             kind: "oauth" as const,
             scheme: "bearer" as const,
             subject: "client-only",
@@ -857,6 +870,93 @@ describe("McpServer", () => {
         expect(h["routecraft.auth.name"]).toBeUndefined();
         expect(h["routecraft.auth.issuer"]).toBeUndefined();
         expect(h["routecraft.auth.audience"]).toBeUndefined();
+      });
+
+      /**
+       * @case oauth() verify returning principal without expiresAt is rejected with auth:rejected event
+       * @preconditions McpServer with oauth() auth; verify returns a valid principal but omits expiresAt
+       * @expectedResult HTTP 401 response; auth:rejected event emitted with reason "missing_expires_at"
+       */
+      test("rejects principal without expiresAt and emits auth:rejected", async () => {
+        const { oauth } = await import("../src/mcp/oauth.ts");
+
+        const rejections: Array<Record<string, unknown>> = [];
+
+        const authConfig = oauth({
+          resourceIssuerUrl: "http://localhost:9999",
+          endpoints: {
+            authorizationUrl: "http://localhost:9999/authorize",
+            tokenUrl: "http://localhost:9999/token",
+          },
+          verify: async () => ({
+            kind: "oauth" as const,
+            scheme: "bearer" as const,
+            subject: "user-no-exp",
+            clientId: "client-abc",
+            // expiresAt intentionally omitted
+          }),
+          client: async (clientId) => ({
+            client_id: clientId,
+            redirect_uris: ["http://localhost:3000/callback"],
+          }),
+        });
+
+        t = await testContext().store(MCP_STORE_KEY, true).build();
+        server = new McpServer(t.ctx, {
+          transport: "http",
+          port: 0,
+          host: "127.0.0.1",
+          auth: authConfig,
+        });
+
+        t.ctx.on("auth:rejected", (payload) => {
+          rejections.push(payload.details as Record<string, unknown>);
+        });
+
+        void t.ctx.start();
+        await server.start();
+        const port = server.getHttpPort()!;
+
+        const res = await new Promise<{ statusCode: number }>(
+          (resolve, reject) => {
+            const req = http.request(
+              {
+                host: "127.0.0.1",
+                port,
+                path: "/mcp",
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Accept: "application/json, text/event-stream",
+                  Authorization: "Bearer some-token",
+                },
+              },
+              (r) => {
+                r.resume();
+                r.on("end", () => resolve({ statusCode: r.statusCode ?? 0 }));
+              },
+            );
+            req.on("error", reject);
+            req.write(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: 1,
+                method: "initialize",
+                params: INIT_PARAMS,
+              }),
+            );
+            req.end();
+          },
+        );
+
+        expect(res.statusCode).toBeGreaterThanOrEqual(400);
+        expect(rejections).toHaveLength(1);
+        expect(rejections[0]).toMatchObject({
+          reason: "missing_expires_at",
+          scheme: "bearer",
+          source: "mcp",
+          path: "oauth",
+        });
       });
     });
 
@@ -934,11 +1034,11 @@ describe("McpServer", () => {
       });
 
       /**
-       * @case Validator returning an ApiKeyPrincipal surfaces subject and name but no JWT-specific headers
-       * @preconditions McpServer with validator returning kind: "api-key" with a name
+       * @case Validator returning a custom Principal surfaces subject and name but no JWT-specific headers
+       * @preconditions McpServer with validator returning kind: "custom" with a name
        * @expectedResult Exchange headers include auth.subject, auth.scheme, auth.name; JWT-only headers are absent
        */
-      test("api-key principal omits jwt-only headers", async () => {
+      test("custom principal omits jwt-only headers", async () => {
         let captured: Record<string, string | string[] | undefined> | undefined;
 
         const { post, initSession } = await startHttpServer(
@@ -962,8 +1062,8 @@ describe("McpServer", () => {
           {
             auth: {
               validator: () => ({
-                kind: "api-key" as const,
-                scheme: "api-key" as const,
+                kind: "custom" as const,
+                scheme: "bearer" as const,
                 subject: "key-123",
                 name: "Deploy key",
               }),
@@ -988,7 +1088,7 @@ describe("McpServer", () => {
 
         const h = captured as Record<string, string | string[] | undefined>;
         expect(h["routecraft.auth.subject"]).toBe("key-123");
-        expect(h["routecraft.auth.scheme"]).toBe("api-key");
+        expect(h["routecraft.auth.scheme"]).toBe("bearer");
         expect(h["routecraft.auth.name"]).toBe("Deploy key");
         expect(h["routecraft.auth.email"]).toBeUndefined();
         expect(h["routecraft.auth.issuer"]).toBeUndefined();
@@ -1543,14 +1643,14 @@ describe("McpServer", () => {
         port: 0,
         host: "127.0.0.1",
         auth: {
-          validator: (token) =>
-            token === "good"
-              ? {
-                  kind: "custom" as const,
-                  subject: "user-1",
-                  scheme: "bearer" as const,
-                }
-              : null,
+          validator: (token) => {
+            if (token !== "good") throw new Error("invalid token");
+            return {
+              kind: "custom" as const,
+              subject: "user-1",
+              scheme: "bearer" as const,
+            };
+          },
         },
       });
 
@@ -1613,7 +1713,11 @@ describe("McpServer", () => {
         transport: "http",
         port: 0,
         host: "127.0.0.1",
-        auth: { validator: () => null },
+        auth: {
+          validator: () => {
+            throw new Error("invalid token");
+          },
+        },
       });
 
       const rejections: Array<Record<string, unknown>> = [];
@@ -1658,7 +1762,7 @@ describe("McpServer", () => {
 
       expect(rejections).toHaveLength(1);
       expect(rejections[0]).toMatchObject({
-        reason: "invalid_token",
+        reason: "invalid token",
         scheme: "bearer",
         source: "mcp",
       });

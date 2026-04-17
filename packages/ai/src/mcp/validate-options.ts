@@ -43,13 +43,13 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
     } else if ("validator" in options.auth) {
       if (typeof options.auth.validator !== "function") {
         throw new TypeError(
-          "mcpPlugin: auth.validator must be a function that returns an AuthPrincipal or null",
+          "mcpPlugin: auth.validator must be a function that returns a Principal (throw to reject)",
         );
       }
     } else {
       throw new TypeError(
         "mcpPlugin: auth must have either a 'validator' function or 'provider' set to 'oauth'. " +
-          "Use jwt(), oauth(), or a custom { validator } object.",
+          "Use jwt(), jwks(), oauth(), or a custom { validator } object.",
       );
     }
   }

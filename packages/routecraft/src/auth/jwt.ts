@@ -1,5 +1,11 @@
 import { createHmac, createVerify, timingSafeEqual } from "node:crypto";
-import type { JwtPrincipal, McpValidatorAuthOptions } from "./types.ts";
+import type {
+  ClaimMappers,
+  JwtAudience,
+  Principal,
+  ValidatorAuthOptions,
+} from "./types.ts";
+import { assertIssuerAudience, principalFromJwtPayload } from "./jwt-utils.ts";
 
 /**
  * Supported HMAC algorithms for JWT signature verification.
@@ -45,23 +51,28 @@ export interface JwtHmacOptions {
   clockToleranceSec?: number;
   /**
    * Expected `iss` claim. Tokens whose `iss` does not match are rejected.
-   * Required to prevent cross-issuer token replay: any trusted signing key
-   * that issues tokens for other services would otherwise be accepted.
+   * Required to prevent cross-issuer token replay.
    */
   issuer: string | string[];
   /**
-   * Expected `aud` claim. The token's `aud` (string or array) must contain
-   * at least one of these values. Required to prevent cross-audience token
-   * replay: a valid token minted for another resource would otherwise be
-   * accepted.
+   * Expected `aud` claim. Pass `"*"` to explicitly skip audience validation
+   * (cross-audience token replay becomes possible -- use only when the IdP
+   * does not emit `aud`, e.g. Clerk with no API audience configured).
+   * Required to prevent cross-audience token replay.
    */
-  audience: string | string[];
+  audience: JwtAudience;
+  /**
+   * Require the token to carry an `exp` claim. Default: `true`.
+   * Set to `false` only when the IdP intentionally emits non-expiring tokens.
+   */
+  requireExp?: boolean;
+  /** Optional per-claim overrides for non-standard IdPs. */
+  claims?: ClaimMappers;
 }
 
 /**
  * RSA (asymmetric) JWT options.
- * Uses a public key to verify signatures. Only the public key is needed
- * since the server only verifies, never signs.
+ * Uses a public key to verify signatures.
  *
  * @experimental
  */
@@ -80,21 +91,27 @@ export interface JwtRsaOptions {
   clockToleranceSec?: number;
   /**
    * Expected `iss` claim. Tokens whose `iss` does not match are rejected.
-   * Required to prevent cross-issuer token replay: any trusted signing key
-   * that issues tokens for other services would otherwise be accepted.
+   * Required to prevent cross-issuer token replay.
    */
   issuer: string | string[];
   /**
-   * Expected `aud` claim. The token's `aud` (string or array) must contain
-   * at least one of these values. Required to prevent cross-audience token
-   * replay: a valid token minted for another resource would otherwise be
-   * accepted.
+   * Expected `aud` claim. Pass `"*"` to explicitly skip audience validation
+   * (cross-audience token replay becomes possible -- use only when the IdP
+   * does not emit `aud`, e.g. Clerk with no API audience configured).
+   * Required to prevent cross-audience token replay.
    */
-  audience: string | string[];
+  audience: JwtAudience;
+  /**
+   * Require the token to carry an `exp` claim. Default: `true`.
+   * Set to `false` only when the IdP intentionally emits non-expiring tokens.
+   */
+  requireExp?: boolean;
+  /** Optional per-claim overrides for non-standard IdPs. */
+  claims?: ClaimMappers;
 }
 
 /**
- * Options for the built-in JWT auth helper.
+ * Options for the built-in static-key JWT auth helper.
  * Supports HMAC (symmetric) and RSA (asymmetric) signing.
  *
  * Discriminated by key: pass `secret` for HMAC, `publicKey` for RSA.
@@ -135,15 +152,19 @@ function decodeToken(token: string): {
 /**
  * Check `exp` and `nbf` temporal claims.
  * Returns `true` if the token is within valid time bounds.
+ * When `requireExp` is `true`, tokens without an `exp` claim are rejected.
  */
 function checkTemporalClaims(
   payload: Record<string, unknown>,
   clockToleranceSec: number,
+  requireExp: boolean,
 ): boolean {
   const now = Math.floor(Date.now() / 1000);
 
   if (typeof payload["exp"] === "number") {
     if (now > payload["exp"] + clockToleranceSec) return false;
+  } else if (requireExp) {
+    return false;
   }
   if (typeof payload["nbf"] === "number") {
     if (now < payload["nbf"] - clockToleranceSec) return false;
@@ -152,20 +173,21 @@ function checkTemporalClaims(
 }
 
 /**
- * Validate the `iss` and `aud` claims against the expected values configured
- * on the validator. The caller must always supply both, so a missing `iss`
- * or a missing `aud` is a hard rejection.
+ * Validate the `iss` and `aud` claims against expected values.
+ * When `expectedAudience` is `"*"` the audience check is skipped entirely.
  */
 function validateIssuerAudience(
   payload: Record<string, unknown>,
   expectedIssuer: string | string[],
-  expectedAudience: string | string[],
+  expectedAudience: JwtAudience,
 ): boolean {
   if (typeof payload["iss"] !== "string") return false;
   const allowedIssuers = Array.isArray(expectedIssuer)
     ? expectedIssuer
     : [expectedIssuer];
   if (!allowedIssuers.includes(payload["iss"])) return false;
+
+  if (expectedAudience === "*") return true;
 
   const allowedAudiences = Array.isArray(expectedAudience)
     ? expectedAudience
@@ -181,69 +203,9 @@ function validateIssuerAudience(
   return true;
 }
 
-/**
- * Build a {@link JwtPrincipal} from standard JWT claims.
- * Returns `null` if the `sub` claim is missing or empty.
- */
-function buildPrincipal(payload: Record<string, unknown>): JwtPrincipal | null {
-  const sub = payload["sub"];
-  if (typeof sub !== "string" || sub.length === 0) return null;
-
-  const principal: JwtPrincipal = {
-    kind: "jwt",
-    scheme: "bearer",
-    subject: sub,
-    claims: payload,
-  };
-
-  if (typeof payload["iss"] === "string") principal.issuer = payload["iss"];
-  if (typeof payload["exp"] === "number") principal.expiresAt = payload["exp"];
-  if (typeof payload["email"] === "string") principal.email = payload["email"];
-  if (typeof payload["name"] === "string") principal.name = payload["name"];
-
-  const aud = payload["aud"];
-  if (Array.isArray(aud))
-    principal.audience = aud.filter((a): a is string => typeof a === "string");
-  else if (typeof aud === "string") principal.audience = [aud];
-
-  const scope = payload["scope"];
-  if (typeof scope === "string")
-    principal.scopes = scope.split(" ").filter(Boolean);
-
-  if (Array.isArray(payload["roles"]))
-    principal.roles = (payload["roles"] as unknown[]).filter(
-      (r): r is string => typeof r === "string",
-    );
-
-  return principal;
-}
-
 /** Type guard: options contain `secret` (HMAC). */
 function isHmac(options: JwtAuthOptions): options is JwtHmacOptions {
   return "secret" in options;
-}
-
-/** Validate that issuer and audience are supplied and non-empty. */
-function assertIssuerAudience(options: JwtAuthOptions): void {
-  const isNonEmpty = (value: string | string[] | undefined): boolean => {
-    if (typeof value === "string") return value.length > 0;
-    if (Array.isArray(value))
-      return (
-        value.length > 0 &&
-        value.every((v) => typeof v === "string" && v.length > 0)
-      );
-    return false;
-  };
-  if (!isNonEmpty(options.issuer)) {
-    throw new TypeError(
-      "jwt: `issuer` is required. Set it to the expected `iss` claim value(s) to prevent cross-issuer token replay.",
-    );
-  }
-  if (!isNonEmpty(options.audience)) {
-    throw new TypeError(
-      "jwt: `audience` is required. Set it to the expected `aud` claim value(s) to prevent cross-audience token replay.",
-    );
-  }
 }
 
 /**
@@ -251,13 +213,15 @@ function assertIssuerAudience(options: JwtAuthOptions): void {
  */
 function createHmacValidator(
   options: JwtHmacOptions,
-): (token: string) => JwtPrincipal | null {
+): (token: string) => Promise<Principal> {
   const {
     secret,
     algorithm = "HS256",
     clockToleranceSec = 0,
     issuer,
     audience,
+    requireExp = true,
+    claims,
   } = options;
 
   if (!secret || typeof secret !== "string") {
@@ -271,13 +235,14 @@ function createHmacValidator(
 
   const digest = HMAC_ALGORITHMS[algorithm];
 
-  return (token: string): JwtPrincipal | null => {
+  return async (token: string): Promise<Principal> => {
     const decoded = decodeToken(token);
-    if (!decoded) return null;
+    if (!decoded) throw new Error("jwt: malformed token");
 
     const { headerB64, payloadB64, signatureB64, header, payload } = decoded;
 
-    if (header["alg"] !== algorithm) return null;
+    if (header["alg"] !== algorithm)
+      throw new Error(`jwt: unexpected algorithm "${String(header["alg"])}"`);
 
     const hmac = createHmac(digest, secret);
     hmac.update(`${headerB64}.${payloadB64}`);
@@ -289,12 +254,18 @@ function createHmacValidator(
       expectedBuf.length !== actualBuf.length ||
       !timingSafeEqual(expectedBuf, actualBuf)
     ) {
-      return null;
+      throw new Error("jwt: invalid signature");
     }
 
-    if (!checkTemporalClaims(payload, clockToleranceSec)) return null;
-    if (!validateIssuerAudience(payload, issuer, audience)) return null;
-    return buildPrincipal(payload);
+    if (!checkTemporalClaims(payload, clockToleranceSec, requireExp))
+      throw new Error("jwt: token expired or not yet valid");
+    if (!validateIssuerAudience(payload, issuer, audience))
+      throw new Error("jwt: invalid issuer or audience");
+
+    return principalFromJwtPayload(payload, {
+      kind: "jwt",
+      ...(claims !== undefined && { claims }),
+    });
   };
 }
 
@@ -303,13 +274,15 @@ function createHmacValidator(
  */
 function createRsaValidator(
   options: JwtRsaOptions,
-): (token: string) => JwtPrincipal | null {
+): (token: string) => Promise<Principal> {
   const {
     publicKey,
     algorithm = "RS256",
     clockToleranceSec = 0,
     issuer,
     audience,
+    requireExp = true,
+    claims,
   } = options;
 
   if (!publicKey || typeof publicKey !== "string") {
@@ -323,43 +296,49 @@ function createRsaValidator(
 
   const verifyAlgorithm = RSA_ALGORITHMS[algorithm];
 
-  return (token: string): JwtPrincipal | null => {
+  return async (token: string): Promise<Principal> => {
     const decoded = decodeToken(token);
-    if (!decoded) return null;
+    if (!decoded) throw new Error("jwt: malformed token");
 
     const { headerB64, payloadB64, signatureB64, header, payload } = decoded;
 
-    if (header["alg"] !== algorithm) return null;
+    if (header["alg"] !== algorithm)
+      throw new Error(`jwt: unexpected algorithm "${String(header["alg"])}"`);
 
     const verifier = createVerify(verifyAlgorithm);
     verifier.update(`${headerB64}.${payloadB64}`);
 
     if (!verifier.verify(publicKey, signatureB64, "base64url")) {
-      return null;
+      throw new Error("jwt: invalid signature");
     }
 
-    if (!checkTemporalClaims(payload, clockToleranceSec)) return null;
-    if (!validateIssuerAudience(payload, issuer, audience)) return null;
-    return buildPrincipal(payload);
+    if (!checkTemporalClaims(payload, clockToleranceSec, requireExp))
+      throw new Error("jwt: token expired or not yet valid");
+    if (!validateIssuerAudience(payload, issuer, audience))
+      throw new Error("jwt: invalid issuer or audience");
+
+    return principalFromJwtPayload(payload, {
+      kind: "jwt",
+      ...(claims !== undefined && { claims }),
+    });
   };
 }
 
 /**
- * Built-in JWT authentication helper for MCP HTTP servers.
+ * Built-in static-key JWT authentication helper.
  * Verifies HMAC or RSA signed JWTs using only `node:crypto` (no external
  * dependencies).
  *
- * Returns an {@link McpValidatorAuthOptions} that can be passed directly to
+ * Returns a {@link ValidatorAuthOptions} that can be passed directly to
  * `mcpPlugin({ auth: jwt({ ... }) })`.
  *
- * On success the validator returns a {@link JwtPrincipal} populated from
- * standard JWT claims (`sub`, `iss`, `aud`, `exp`, `scope`, etc.) with the
+ * On success the validator returns a {@link Principal} (`kind: "jwt"`) populated
+ * from standard JWT claims (`sub`, `iss`, `aud`, `exp`, `scope`, etc.) with the
  * full decoded payload available in `claims`.
  *
- * Security: `issuer` and `audience` are required to bind tokens to the
- * expected IdP and this resource. Without both checks any valid token from
- * a trusted signing key would be accepted regardless of who it was issued
- * for, which allows cross-audience replay.
+ * Security: `issuer` is required to bind tokens to the expected IdP and prevent
+ * cross-issuer replay. `audience` is required (or explicitly set to `"*"` to
+ * opt out) to bind tokens to this resource and prevent cross-audience replay.
  *
  * @example
  * ```ts
@@ -389,8 +368,8 @@ function createRsaValidator(
  *
  * @experimental
  */
-export function jwt(options: JwtAuthOptions): McpValidatorAuthOptions {
-  assertIssuerAudience(options);
+export function jwt(options: JwtAuthOptions): ValidatorAuthOptions {
+  assertIssuerAudience("jwt", options.issuer, options.audience);
   const validator = isHmac(options)
     ? createHmacValidator(options)
     : createRsaValidator(options);

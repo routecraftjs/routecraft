@@ -4,10 +4,12 @@ export type {
   McpArgsExtractor,
   McpClientHttpConfig,
 } from "./adapters/mcp/index.ts";
-export { jwt } from "./jwt.ts";
-export type { JwtAuthOptions, JwtHmacOptions, JwtRsaOptions } from "./jwt.ts";
 export { oauth } from "./oauth.ts";
-export type { OAuthFactoryOptions } from "./oauth.ts";
+export type {
+  OAuthFactoryOptions,
+  OAuthClientSupplier,
+  OAuthVerifier,
+} from "./oauth.ts";
 export { mcpPlugin } from "./plugin.ts";
 export { McpServer } from "./server.ts";
 export { McpToolRegistry } from "./tool-registry.ts";
@@ -17,13 +19,7 @@ export {
   MCP_PLUGIN_REGISTERED,
   MCP_STDIO_MANAGERS,
   MCP_TOOL_REGISTRY,
-  type ApiKeyPrincipal,
-  type AuthPrincipal,
-  type BaseAuthPrincipal,
-  type BasicPrincipal,
-  type CustomPrincipal,
-  type JwtPrincipal,
-  type McpOAuthAuthOptions,
+  isOAuthAuth,
   type McpOptions,
   type McpPluginOptions,
   type McpServerOptions,
@@ -31,10 +27,8 @@ export {
   type McpToolAnnotations,
   type McpToolRegistryEntry,
   type McpToolResult,
-  type McpValidatorAuthOptions,
+  type OAuthAuthOptions,
   type OAuthClientInfo,
-  type OAuthJwtConfig,
-  type OAuthPrincipal,
   type OAuthProxyEndpoints,
 } from "./types.ts";
 export { validateWithSchema } from "./validate-options.ts";

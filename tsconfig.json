@@ -33,7 +33,11 @@
       "@routecraft/testing": ["packages/testing/src/index.ts"],
       "@routecraft/*": ["packages/*/src/index.ts"]
     },
-    "baseUrl": "."
+    // baseUrl is load-bearing: its presence lets tsup emit correct .d.ts for
+    // packages that use self-referencing `declare module` augmentations.
+    // ignoreDeprecations silences the TS 5.x warning without removing baseUrl.
+    "baseUrl": ".",
+    "ignoreDeprecations": "5.0"
   },
   "include": [
     "packages/*/src/**/*",
