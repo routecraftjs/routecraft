@@ -8,6 +8,7 @@ import {
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createServer } from "node:http";
 import type { IncomingMessage } from "node:http";
+import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import { McpHeadersKeys, isOAuthAuth } from "./types.ts";
 import type {
   AuthPrincipal,
@@ -20,16 +21,11 @@ import type {
 } from "./types.ts";
 
 /**
- * Subset of the MCP SDK's `AuthInfo` that routecraft relies on.
- * Defined locally to avoid a runtime import path on the SDK just for types.
+ * MCP SDK `AuthInfo` shape. Imported as a type so nothing is required at
+ * runtime from the SDK just for this alias; `import type` is erased by the
+ * compiler.
  */
-interface SdkAuthInfo {
-  token: string;
-  clientId: string;
-  scopes: string[];
-  expiresAt?: number;
-  extra?: Record<string, unknown>;
-}
+type SdkAuthInfo = AuthInfo;
 
 /**
  * Request-scoped storage for the authenticated principal.
@@ -467,8 +463,27 @@ export class McpServer {
 
     // Wrap the user's verifier so the MCP SDK sees a clean AuthInfo while the
     // rich OAuthPrincipal rides through in `extra.principal` for this.authInfoToPrincipal.
+    // Token verification errors are logged and emitted as `auth:rejected` so
+    // operators can observe brute-force attempts, expired tokens, and
+    // mismatched audiences alongside the validator path's rejections.
     const wrappedVerifier = async (token: string): Promise<SdkAuthInfo> => {
-      const principal = await oauthOptions.verifyAccessToken(token);
+      let principal: OAuthPrincipal;
+      try {
+        principal = await oauthOptions.verifyAccessToken(token);
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : "invalid_token";
+        const detail = {
+          reason,
+          scheme: "bearer",
+          source: "mcp",
+        };
+        this.context.logger.warn(
+          { err, ...detail },
+          "Auth rejected: OAuth token validation failed",
+        );
+        this.context.emit("auth:rejected", detail);
+        throw err;
+      }
       const authInfo: SdkAuthInfo = {
         token,
         clientId: principal.clientId,

@@ -118,24 +118,49 @@ describe("oauthPrincipalFromJwtPayload()", () => {
   });
 
   /**
-   * @case Missing sub claim raises a helpful TypeError pointing at the claims.subject override
-   * @preconditions Payload has no sub and no subject override
-   * @expectedResult Throws TypeError mentioning claims.subject
+   * @case Client-credentials tokens (no sub) fall back to client_id for subject so machine-to-machine flows are not rejected by the built-in JWT path
+   * @preconditions Payload omits sub but carries client_id
+   * @expectedResult principal.subject falls back to client_id; principal.clientId also uses client_id
    */
-  test("throws when sub is missing", () => {
-    expect(() => oauthPrincipalFromJwtPayload({ client_id: "c" })).toThrow(
-      /sub/,
-    );
+  test("falls back to client_id when sub is absent", () => {
+    const principal = oauthPrincipalFromJwtPayload({ client_id: "svc" });
+    expect(principal.subject).toBe("svc");
+    expect(principal.clientId).toBe("svc");
   });
 
   /**
-   * @case Missing client_id claim raises a helpful TypeError pointing at claims.clientId (e.g. azp)
-   * @preconditions Payload has sub but no client_id and no clientId override
-   * @expectedResult Throws TypeError mentioning clientId
+   * @case Tokens that emit only azp (OIDC authorized party) are mapped without caller-provided overrides
+   * @preconditions Payload has sub but no client_id; azp carries the OAuth client identifier
+   * @expectedResult principal.clientId falls back to azp
    */
-  test("throws when client_id is missing", () => {
-    expect(() => oauthPrincipalFromJwtPayload({ sub: "u" })).toThrow(
-      /client_id/,
+  test("falls back to azp when client_id is absent", () => {
+    const principal = oauthPrincipalFromJwtPayload({
+      sub: "user-7",
+      azp: "azure-app",
+    });
+    expect(principal.subject).toBe("user-7");
+    expect(principal.clientId).toBe("azure-app");
+  });
+
+  /**
+   * @case Tokens that carry only azp and no sub still produce a valid principal instead of being rejected outright
+   * @preconditions Payload has only azp
+   * @expectedResult principal.subject and principal.clientId both resolve to azp
+   */
+  test("derives subject from azp when neither sub nor client_id is present", () => {
+    const principal = oauthPrincipalFromJwtPayload({ azp: "svc" });
+    expect(principal.subject).toBe("svc");
+    expect(principal.clientId).toBe("svc");
+  });
+
+  /**
+   * @case Tokens with no subject-shaped claim at all are rejected with a helpful message pointing at the override
+   * @preconditions Payload lacks sub, client_id, and azp
+   * @expectedResult Throws TypeError mentioning the supported claims
+   */
+  test("throws when no subject-shaped claim is present", () => {
+    expect(() => oauthPrincipalFromJwtPayload({})).toThrow(
+      /sub.+client_id.+azp/,
     );
   });
 });
@@ -190,6 +215,62 @@ describe("oauth() factory validation", () => {
 
     const result = oauth({ ...BASE_OPTIONS, verifyAccessToken: verify });
     expect(result.verifyAccessToken).toBe(verify);
+  });
+
+  /**
+   * @case A static `client` option rejects unknown client IDs so a single-client misconfiguration cannot silently authorize others
+   * @preconditions Options pass a static OAuthClientInfo with client_id "allowed"
+   * @expectedResult getClient("allowed") resolves to the static object; getClient("other") resolves to undefined
+   */
+  test("static client rejects unknown client IDs", async () => {
+    const verify = async (): Promise<OAuthPrincipal> => ({
+      kind: "oauth",
+      scheme: "bearer",
+      subject: "u",
+      clientId: "allowed",
+    });
+    const result = oauth({
+      ...BASE_OPTIONS,
+      client: {
+        client_id: "allowed",
+        redirect_uris: ["http://localhost:3000/callback"],
+      },
+      verifyAccessToken: verify,
+    });
+    await expect(result.getClient("allowed")).resolves.toMatchObject({
+      client_id: "allowed",
+    });
+    await expect(result.getClient("other")).resolves.toBeUndefined();
+  });
+
+  /**
+   * @case A supplier `client` option is invoked per request with the incoming client_id
+   * @preconditions Options pass an async supplier that returns a registration record only for a specific ID
+   * @expectedResult Supplier is called with the exact clientId; missing entries surface as undefined
+   */
+  test("supplier client is invoked per lookup", async () => {
+    const calls: string[] = [];
+    const verify = async (): Promise<OAuthPrincipal> => ({
+      kind: "oauth",
+      scheme: "bearer",
+      subject: "u",
+      clientId: "u",
+    });
+    const result = oauth({
+      ...BASE_OPTIONS,
+      client: async (id) => {
+        calls.push(id);
+        return id === "known"
+          ? { client_id: "known", redirect_uris: ["http://x"] }
+          : undefined;
+      },
+      verifyAccessToken: verify,
+    });
+    await expect(result.getClient("known")).resolves.toMatchObject({
+      client_id: "known",
+    });
+    await expect(result.getClient("missing")).resolves.toBeUndefined();
+    expect(calls).toEqual(["known", "missing"]);
   });
 });
 

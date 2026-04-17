@@ -281,7 +281,7 @@ auth: oauth({
 | `clockTolerance` | `number \| string` | No | Skew tolerance applied to `exp`/`nbf` validation (seconds as a number, or a string like `"5s"`); default: no tolerance |
 | `claims` | `OAuthJwtClaimMappers` | No | Per-claim overrides for non-standard IdPs (see below) |
 
-**`OAuthJwtClaimMappers` fields** -- each maps a verified payload to the corresponding `OAuthPrincipal` field when the IdP uses non-standard claim names:
+**`OAuthJwtClaimMappers` fields.** Each maps a verified payload to the corresponding `OAuthPrincipal` field when the IdP uses non-standard claim names:
 
 | Field | Default when omitted |
 |-------|----------------------|

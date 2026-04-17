@@ -146,17 +146,15 @@ export enum McpHeadersKeys {
 }
 
 /**
- * Fields shared by every {@link AuthPrincipal} subtype. Only `kind`, `scheme`,
- * and `subject` are universal; scheme-specific fields live on the subtypes
- * (narrow on `kind` to reach them).
+ * Fields shared by every {@link AuthPrincipal} subtype. Only `kind` and
+ * `subject` are universal; the HTTP `scheme` and every other scheme-specific
+ * field live on the subtypes (narrow on `kind` to reach them).
  *
  * @experimental
  */
 export interface BaseAuthPrincipal {
   /** Discriminator for the principal subtype. Narrow on this to reach scheme-specific fields. */
   kind: "jwt" | "oauth" | "api-key" | "basic" | "custom";
-  /** HTTP authentication scheme that produced this principal. */
-  scheme: "bearer" | "basic" | "api-key" | (string & {});
   /** Stable identity for the authenticated entity (JWT `sub`, user id, key id, etc.). */
   subject: string;
 }
@@ -168,6 +166,7 @@ export interface BaseAuthPrincipal {
  */
 export interface JwtPrincipal extends BaseAuthPrincipal {
   kind: "jwt";
+  /** HTTP authentication scheme that produced this principal. */
   scheme: "bearer";
   /** Display name from the `name` claim, if present. */
   name?: string;
@@ -195,6 +194,7 @@ export interface JwtPrincipal extends BaseAuthPrincipal {
  */
 export interface OAuthPrincipal extends BaseAuthPrincipal {
   kind: "oauth";
+  /** HTTP authentication scheme that produced this principal. */
   scheme: "bearer";
   /** OAuth client ID that obtained the access token (distinct from `subject`). */
   clientId: string;
@@ -223,6 +223,7 @@ export interface OAuthPrincipal extends BaseAuthPrincipal {
  */
 export interface ApiKeyPrincipal extends BaseAuthPrincipal {
   kind: "api-key";
+  /** HTTP authentication scheme that produced this principal. */
   scheme: "api-key";
   /** Human-readable key label, if configured. */
   name?: string;
@@ -237,6 +238,7 @@ export interface ApiKeyPrincipal extends BaseAuthPrincipal {
  */
 export interface BasicPrincipal extends BaseAuthPrincipal {
   kind: "basic";
+  /** HTTP authentication scheme that produced this principal. */
   scheme: "basic";
   /** Display name, if distinct from `subject`. */
   name?: string;
@@ -250,6 +252,12 @@ export interface BasicPrincipal extends BaseAuthPrincipal {
  */
 export interface CustomPrincipal extends BaseAuthPrincipal {
   kind: "custom";
+  /**
+   * HTTP authentication scheme that produced this principal. Any string is
+   * accepted so custom integrations can describe non-standard schemes, but
+   * prefer `"bearer"`, `"basic"`, or `"api-key"` when they apply.
+   */
+  scheme: string;
   name?: string;
   email?: string;
   roles?: string[];

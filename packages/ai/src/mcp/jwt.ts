@@ -44,18 +44,18 @@ export interface JwtHmacOptions {
    */
   clockToleranceSec?: number;
   /**
-   * Expected `iss` claim. If set, tokens whose `iss` does not match are
-   * rejected. Strongly recommended in multi-tenant or federated deployments
-   * to prevent cross-issuer token replay.
+   * Expected `iss` claim. Tokens whose `iss` does not match are rejected.
+   * Required to prevent cross-issuer token replay: any trusted signing key
+   * that issues tokens for other services would otherwise be accepted.
    */
-  issuer?: string | string[];
+  issuer: string | string[];
   /**
-   * Expected `aud` claim. If set, the token's `aud` (string or array) must
-   * contain at least one of these values. Strongly recommended in
-   * multi-tenant or federated deployments to prevent cross-audience token
-   * replay.
+   * Expected `aud` claim. The token's `aud` (string or array) must contain
+   * at least one of these values. Required to prevent cross-audience token
+   * replay: a valid token minted for another resource would otherwise be
+   * accepted.
    */
-  audience?: string | string[];
+  audience: string | string[];
 }
 
 /**
@@ -79,18 +79,18 @@ export interface JwtRsaOptions {
    */
   clockToleranceSec?: number;
   /**
-   * Expected `iss` claim. If set, tokens whose `iss` does not match are
-   * rejected. Strongly recommended in multi-tenant or federated deployments
-   * to prevent cross-issuer token replay.
+   * Expected `iss` claim. Tokens whose `iss` does not match are rejected.
+   * Required to prevent cross-issuer token replay: any trusted signing key
+   * that issues tokens for other services would otherwise be accepted.
    */
-  issuer?: string | string[];
+  issuer: string | string[];
   /**
-   * Expected `aud` claim. If set, the token's `aud` (string or array) must
-   * contain at least one of these values. Strongly recommended in
-   * multi-tenant or federated deployments to prevent cross-audience token
-   * replay.
+   * Expected `aud` claim. The token's `aud` (string or array) must contain
+   * at least one of these values. Required to prevent cross-audience token
+   * replay: a valid token minted for another resource would otherwise be
+   * accepted.
    */
-  audience?: string | string[];
+  audience: string | string[];
 }
 
 /**
@@ -152,36 +152,32 @@ function checkTemporalClaims(
 }
 
 /**
- * Check `iss` and `aud` claims against expected values.
- * Returns `true` when both match, or when the caller did not specify them.
- *
- * When `expectedAudience` is set, `aud` must be present and must contain
- * at least one of the expected values; a missing `aud` never matches.
+ * Validate the `iss` and `aud` claims against the expected values configured
+ * on the validator. The caller must always supply both, so a missing `iss`
+ * or a missing `aud` is a hard rejection.
  */
-function checkIdentityClaims(
+function validateIssuerAudience(
   payload: Record<string, unknown>,
-  expectedIssuer: string | string[] | undefined,
-  expectedAudience: string | string[] | undefined,
+  expectedIssuer: string | string[],
+  expectedAudience: string | string[],
 ): boolean {
-  if (expectedIssuer !== undefined) {
-    if (typeof payload["iss"] !== "string") return false;
-    const allowed = Array.isArray(expectedIssuer)
-      ? expectedIssuer
-      : [expectedIssuer];
-    if (!allowed.includes(payload["iss"])) return false;
-  }
-  if (expectedAudience !== undefined) {
-    const allowed = Array.isArray(expectedAudience)
-      ? expectedAudience
-      : [expectedAudience];
-    const aud = payload["aud"];
-    const tokenAud = Array.isArray(aud)
-      ? aud.filter((a): a is string => typeof a === "string")
-      : typeof aud === "string"
-        ? [aud]
-        : [];
-    if (!tokenAud.some((a) => allowed.includes(a))) return false;
-  }
+  if (typeof payload["iss"] !== "string") return false;
+  const allowedIssuers = Array.isArray(expectedIssuer)
+    ? expectedIssuer
+    : [expectedIssuer];
+  if (!allowedIssuers.includes(payload["iss"])) return false;
+
+  const allowedAudiences = Array.isArray(expectedAudience)
+    ? expectedAudience
+    : [expectedAudience];
+  const aud = payload["aud"];
+  const tokenAud = Array.isArray(aud)
+    ? aud.filter((a): a is string => typeof a === "string")
+    : typeof aud === "string"
+      ? [aud]
+      : [];
+  if (!tokenAud.some((a) => allowedAudiences.includes(a))) return false;
+
   return true;
 }
 
@@ -225,6 +221,29 @@ function buildPrincipal(payload: Record<string, unknown>): JwtPrincipal | null {
 /** Type guard: options contain `secret` (HMAC). */
 function isHmac(options: JwtAuthOptions): options is JwtHmacOptions {
   return "secret" in options;
+}
+
+/** Validate that issuer and audience are supplied and non-empty. */
+function assertIssuerAudience(options: JwtAuthOptions): void {
+  const isNonEmpty = (value: string | string[] | undefined): boolean => {
+    if (typeof value === "string") return value.length > 0;
+    if (Array.isArray(value))
+      return (
+        value.length > 0 &&
+        value.every((v) => typeof v === "string" && v.length > 0)
+      );
+    return false;
+  };
+  if (!isNonEmpty(options.issuer)) {
+    throw new TypeError(
+      "jwt: `issuer` is required. Set it to the expected `iss` claim value(s) to prevent cross-issuer token replay.",
+    );
+  }
+  if (!isNonEmpty(options.audience)) {
+    throw new TypeError(
+      "jwt: `audience` is required. Set it to the expected `aud` claim value(s) to prevent cross-audience token replay.",
+    );
+  }
 }
 
 /**
@@ -274,7 +293,7 @@ function createHmacValidator(
     }
 
     if (!checkTemporalClaims(payload, clockToleranceSec)) return null;
-    if (!checkIdentityClaims(payload, issuer, audience)) return null;
+    if (!validateIssuerAudience(payload, issuer, audience)) return null;
     return buildPrincipal(payload);
   };
 }
@@ -320,7 +339,7 @@ function createRsaValidator(
     }
 
     if (!checkTemporalClaims(payload, clockToleranceSec)) return null;
-    if (!checkIdentityClaims(payload, issuer, audience)) return null;
+    if (!validateIssuerAudience(payload, issuer, audience)) return null;
     return buildPrincipal(payload);
   };
 }
@@ -337,16 +356,16 @@ function createRsaValidator(
  * standard JWT claims (`sub`, `iss`, `aud`, `exp`, `scope`, etc.) with the
  * full decoded payload available in `claims`.
  *
- * Security: in multi-tenant or federated deployments, always set `issuer` and
- * `audience` to bind tokens to the expected IdP and this resource. Without
- * these checks, any valid token from a trusted signing key will be accepted
- * regardless of who it was issued for, which allows cross-audience replay.
+ * Security: `issuer` and `audience` are required to bind tokens to the
+ * expected IdP and this resource. Without both checks any valid token from
+ * a trusted signing key would be accepted regardless of who it was issued
+ * for, which allows cross-audience replay.
  *
  * @example
  * ```ts
  * import { mcpPlugin, jwt } from "@routecraft/ai";
  *
- * // HMAC (symmetric) - shared secret
+ * // HMAC (symmetric): shared secret
  * mcpPlugin({
  *   transport: "http",
  *   auth: jwt({
@@ -356,7 +375,7 @@ function createRsaValidator(
  *   }),
  * });
  *
- * // RSA (asymmetric) - public key only
+ * // RSA (asymmetric): public key only
  * mcpPlugin({
  *   transport: "http",
  *   auth: jwt({
@@ -371,6 +390,7 @@ function createRsaValidator(
  * @experimental
  */
 export function jwt(options: JwtAuthOptions): McpValidatorAuthOptions {
+  assertIssuerAudience(options);
   const validator = isHmac(options)
     ? createHmacValidator(options)
     : createRsaValidator(options);
