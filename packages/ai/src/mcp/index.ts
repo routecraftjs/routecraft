@@ -33,6 +33,7 @@ export {
   type McpToolResult,
   type McpValidatorAuthOptions,
   type OAuthClientInfo,
+  type OAuthJwtConfig,
   type OAuthPrincipal,
   type OAuthProxyEndpoints,
 } from "./types.ts";

@@ -214,19 +214,16 @@ auth: {
 
 The validator receives the raw bearer token and returns an `AuthPrincipal` on success or `null` to reject with 401. `AuthPrincipal` is a discriminated union on `kind`: pick the subtype that fits the scheme you implement (`jwt`, `oauth`, `api-key`, `basic`, or `custom` for anything else). The principal's fields are set as exchange headers so your routes can read the caller's identity.
 
-For OAuth 2.1 with an upstream IdP, use `oauth()`. The OAuth path relies on Express for the auth router and bearer middleware, so install it alongside `@routecraft/ai` (it is declared as an optional peer dependency, so plain validator setups do not need it):
+For OAuth 2.1 with an upstream IdP, use `oauth()`. The OAuth path relies on Express for the auth router and bearer middleware, and uses `jose` for the built-in JWT verification path; both are declared as optional peer dependencies, so plain validator setups do not pay for them:
 
 ```sh
-pnpm add express
+pnpm add express jose
 ```
 
-
+Pass a `jwt` config and the factory handles JWKS fetching, signature verification, `issuer` and `audience` validation, and standard claim mapping for you:
 
 ```ts
 import { oauth } from '@routecraft/ai'
-import { jwtVerify, createRemoteJWKSet } from 'jose'
-
-const jwks = createRemoteJWKSet(new URL('https://idp.example.com/.well-known/jwks.json'))
 
 auth: oauth({
   issuerUrl: 'https://mcp.example.com',
@@ -234,30 +231,60 @@ auth: oauth({
     authorizationUrl: 'https://idp.example.com/authorize',
     tokenUrl: 'https://idp.example.com/token',
   },
+  jwt: {
+    jwksUrl: 'https://idp.example.com/.well-known/jwks.json',
+    issuer: 'https://idp.example.com',
+    audience: 'https://mcp.example.com',
+  },
+  client: {
+    client_id: 'my-mcp-server',
+    redirect_uris: ['http://localhost:3000/callback'],
+  },
+})
+```
+
+`issuer` and `audience` are required, so the server cannot silently accept tokens from a different IdP or minted for a different resource. Standard claims (`sub`, `client_id`, `email`, `name`, `iss`, `aud`, `scope`, `roles`, `exp`) are mapped to `OAuthPrincipal` fields automatically.
+
+`client` accepts either a static `OAuthClientInfo` (matched on `client_id`; unknown IDs are rejected) or a supplier `(clientId) => Promise<OAuthClientInfo | undefined>` for dynamic lookup. The supplier is invoked **per request** by the OAuth proxy provider during every authorize/token/revoke call, so cache or preload registry reads to keep the hot path fast.
+
+For non-standard IdPs, pass `jwt.claims` to override individual mappings:
+
+```ts
+jwt: {
+  jwksUrl: 'https://login.microsoftonline.com/<tenant>/discovery/v2.0/keys',
+  issuer: 'https://login.microsoftonline.com/<tenant>/v2.0',
+  audience: '<app-id>',
+  claims: {
+    subject: (p) => p.oid as string,
+    roles: (p) => p['roles'] as string[] | undefined,
+  },
+}
+```
+
+For opaque tokens, custom introspection, or anything else that isn't a JWKS-signed JWT, pass a `verifyAccessToken` callback instead of `jwt`:
+
+```ts
+import { oauth } from '@routecraft/ai'
+
+auth: oauth({
+  issuerUrl: 'https://mcp.example.com',
+  endpoints: { authorizationUrl: '...', tokenUrl: '...' },
   verifyAccessToken: async (token) => {
-    const { payload } = await jwtVerify(token, jwks, {
-      issuer: 'https://idp.example.com',
-      audience: 'https://mcp.example.com',
-    })
+    const principal = await myIntrospectionCall(token)
     return {
       kind: 'oauth',
       scheme: 'bearer',
-      subject: payload.sub as string,
-      clientId: payload['client_id'] as string,
-      email: payload['email'] as string | undefined,
-      name: payload['name'] as string | undefined,
-      issuer: payload.iss,
-      scopes: (payload['scope'] as string | undefined)?.split(' '),
-      expiresAt: payload.exp,
-      claims: payload as Record<string, unknown>,
+      subject: principal.userId,
+      clientId: principal.clientId,
+      expiresAt: principal.exp,
+      claims: principal.raw,
     }
   },
-  getClient: async (clientId) => ({
-    client_id: clientId,
-    redirect_uris: ['http://localhost:3000/callback'],
-  }),
+  client: async (clientId) => await db.clients.findByClientId(clientId),
 })
 ```
+
+Pass **either** `jwt` **or** `verifyAccessToken`, never both.
 
 The populated `OAuthPrincipal` surfaces every identity field on the exchange: `routecraft.auth.subject` (= JWT `sub`, not the OAuth `client_id`), `routecraft.auth.client_id`, `routecraft.auth.email`, `routecraft.auth.name`, `routecraft.auth.issuer`, `routecraft.auth.audience`, `routecraft.auth.scopes`, and `routecraft.auth.roles`. `expiresAt` is required by the MCP SDK's bearer middleware; omit it and every request is rejected with 401.
 

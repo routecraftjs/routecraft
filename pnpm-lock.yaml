@@ -237,6 +237,9 @@ importers:
       express:
         specifier: ^5.2.1
         version: 5.2.1
+      jose:
+        specifier: ^6.2.2
+        version: 6.2.2
       ollama-ai-provider-v2:
         specifier: ^3.5.0
         version: 3.5.0(ai@6.0.168(zod@4.3.6))(zod@4.3.6)

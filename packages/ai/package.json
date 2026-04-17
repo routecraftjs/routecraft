@@ -35,6 +35,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@openrouter/ai-sdk-provider": "^2.8.0",
     "express": "^5.2.1",
+    "jose": "^6.2.2",
     "ollama-ai-provider-v2": "^3.5.0",
     "vitest": "^4.1.4",
     "zod": "^4.3.6"
@@ -48,6 +49,7 @@
     "@openrouter/ai-sdk-provider": "^2.2.3",
     "@routecraft/routecraft": "*",
     "express": "^5.0.0",
+    "jose": "^6.0.0",
     "ollama-ai-provider-v2": "^3.3.1"
   },
   "keywords": [
@@ -85,6 +87,9 @@
       "optional": true
     },
     "express": {
+      "optional": true
+    },
+    "jose": {
       "optional": true
     },
     "ollama-ai-provider-v2": {

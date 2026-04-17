@@ -70,6 +70,7 @@ export {
   type McpValidatorAuthOptions,
   type OAuthClientInfo,
   type OAuthFactoryOptions,
+  type OAuthJwtConfig,
   type OAuthPrincipal,
   type OAuthProxyEndpoints,
   type McpArgsExtractor,

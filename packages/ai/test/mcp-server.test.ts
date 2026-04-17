@@ -726,7 +726,7 @@ describe("McpServer", () => {
               claims: { sub: "user-42", custom: "value" },
             };
           },
-          getClient: async (clientId) => ({
+          client: async (clientId) => ({
             client_id: clientId,
             redirect_uris: ["http://localhost:3000/callback"],
           }),
@@ -805,7 +805,7 @@ describe("McpServer", () => {
             // expiresAt is required by the MCP SDK's requireBearerAuth middleware.
             expiresAt: Math.floor(Date.now() / 1000) + 600,
           }),
-          getClient: async (clientId) => ({
+          client: async (clientId) => ({
             client_id: clientId,
             redirect_uris: ["http://localhost:3000/callback"],
           }),

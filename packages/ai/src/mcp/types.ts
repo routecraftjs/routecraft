@@ -280,7 +280,7 @@ export type AuthPrincipal =
   | CustomPrincipal;
 
 /**
- * OAuth client info returned by the `getClient` callback.
+ * OAuth client info supplied to the `oauth()` factory via the `client` option.
  * Mirrors the MCP SDK's `OAuthClientInformationFull` with only the fields routecraft needs.
  *
  * Field names use snake_case to match the OAuth 2.0 Dynamic Client Registration
@@ -297,6 +297,72 @@ export interface OAuthClientInfo {
   client_name?: string;
   /** Client secret (for confidential clients). */
   client_secret?: string;
+}
+
+/**
+ * Per-claim overrides for mapping a verified JWT payload to an
+ * {@link OAuthPrincipal}. Each callback receives the decoded payload and
+ * returns the value to surface on the principal.
+ *
+ * Use this when the IdP places identity claims under non-standard names
+ * (e.g. Azure AD uses `oid` instead of `sub` for stable subject identity,
+ * Keycloak nests roles under `realm_access.roles`).
+ *
+ * @experimental
+ */
+export interface OAuthJwtClaimMappers {
+  /** Map to `OAuthPrincipal.subject`. Default: `payload.sub`. */
+  subject?: (payload: Record<string, unknown>) => string;
+  /** Map to `OAuthPrincipal.clientId`. Default: `payload.client_id`. */
+  clientId?: (payload: Record<string, unknown>) => string;
+  /** Map to `OAuthPrincipal.email`. Default: `payload.email`. */
+  email?: (payload: Record<string, unknown>) => string | undefined;
+  /** Map to `OAuthPrincipal.name`. Default: `payload.name`. */
+  name?: (payload: Record<string, unknown>) => string | undefined;
+  /** Map to `OAuthPrincipal.scopes`. Default: space-split `payload.scope`. */
+  scopes?: (payload: Record<string, unknown>) => string[] | undefined;
+  /** Map to `OAuthPrincipal.roles`. Default: `payload.roles` when it is `string[]`. */
+  roles?: (payload: Record<string, unknown>) => string[] | undefined;
+}
+
+/**
+ * Built-in JWT verification config for the `oauth()` factory. When provided,
+ * the factory handles JWKS fetching, signature verification, issuer/audience
+ * checks, and payload-to-principal mapping internally.
+ *
+ * Requires the optional peer dependency `jose`.
+ *
+ * `issuer` and `audience` are required so the server cannot silently accept
+ * tokens from a different IdP or minted for a different resource.
+ *
+ * For opaque tokens, introspection-based verification, or fully custom
+ * claim handling, use `verifyAccessToken` on the factory options instead.
+ *
+ * @experimental
+ */
+export interface OAuthJwtConfig {
+  /**
+   * JWKS endpoint URL used to fetch the IdP's signing keys.
+   * Keys are cached and rotated by `jose`'s `createRemoteJWKSet`.
+   */
+  jwksUrl: string | URL;
+  /**
+   * Expected `iss` claim. Required. Tokens whose issuer does not match are
+   * rejected, preventing cross-issuer replay.
+   */
+  issuer: string;
+  /**
+   * Expected `aud` claim. Required. Tokens whose audience does not include
+   * this value are rejected, preventing cross-audience replay.
+   */
+  audience: string | string[];
+  /**
+   * Clock skew tolerance (seconds) applied to `exp` and `nbf` validation.
+   * Passed through to `jose`'s `jwtVerify`. Default: no tolerance.
+   */
+  clockTolerance?: number | string;
+  /** Optional per-claim overrides for non-standard IdPs. */
+  claims?: OAuthJwtClaimMappers;
 }
 
 /**
@@ -363,21 +429,15 @@ export interface McpValidatorAuthOptions {
  *     authorizationUrl: "https://idp.example.com/authorize",
  *     tokenUrl: "https://idp.example.com/token",
  *   },
- *   verifyAccessToken: async (token) => {
- *     const { payload } = await jwtVerify(token, key);
- *     return {
- *       kind: "oauth",
- *       scheme: "bearer",
- *       subject: payload.sub as string,
- *       clientId: payload.client_id as string,
- *       email: payload.email as string | undefined,
- *       scopes: (payload.scope as string | undefined)?.split(" "),
- *       claims: payload,
- *     };
+ *   jwt: {
+ *     jwksUrl: "https://idp.example.com/.well-known/jwks.json",
+ *     issuer: "https://idp.example.com",
+ *     audience: "https://mcp.example.com",
  *   },
- *   getClient: async (clientId) => ({
- *     client_id: clientId, redirect_uris: ["http://localhost:3000/callback"],
- *   }),
+ *   client: {
+ *     client_id: "my-mcp-server",
+ *     redirect_uris: ["http://localhost:3000/callback"],
+ *   },
  * })
  * ```
  *
