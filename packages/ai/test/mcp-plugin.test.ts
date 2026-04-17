@@ -387,7 +387,13 @@ describe("MCP Plugin Integration", () => {
     test("accepts a validator function", () => {
       const p = mcpPlugin({
         transport: "http",
-        auth: { validator: () => ({ subject: "test", scheme: "bearer" }) },
+        auth: {
+          validator: () => ({
+            kind: "custom",
+            subject: "test",
+            scheme: "bearer",
+          }),
+        },
       });
       expect(typeof p.apply).toBe("function");
     });

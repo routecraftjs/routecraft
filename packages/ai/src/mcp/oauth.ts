@@ -1,8 +1,8 @@
 import type {
   McpOAuthAuthOptions,
   OAuthClientInfo,
+  OAuthPrincipal,
   OAuthProxyEndpoints,
-  OAuthTokenInfo,
 } from "./types.ts";
 
 /**
@@ -18,10 +18,19 @@ export interface OAuthFactoryOptions {
   /** Upstream OAuth provider endpoints to proxy. */
   endpoints: OAuthProxyEndpoints;
   /**
-   * Verify an access token and return token info.
+   * Verify an access token and return a populated {@link OAuthPrincipal}.
    * Called on every authenticated request to `/mcp`.
+   *
+   * Populate `subject` from the end-user identity (e.g. JWT `sub`), not the
+   * OAuth `client_id`; `clientId` is a separate field on `OAuthPrincipal`.
+   * All identity fields (`email`, `name`, `issuer`, `audience`, `claims`, etc.)
+   * surface on the route exchange as `routecraft.auth.*` headers.
+   *
+   * The `expiresAt` field is required by the MCP SDK's bearer middleware;
+   * omitting it causes the request to be rejected with 401 regardless of
+   * other claim values.
    */
-  verifyAccessToken: (token: string) => Promise<OAuthTokenInfo>;
+  verifyAccessToken: (token: string) => Promise<OAuthPrincipal>;
   /**
    * Look up a registered OAuth client by ID.
    * Return `undefined` to reject the client.
@@ -51,6 +60,9 @@ export interface OAuthFactoryOptions {
  * @example
  * ```ts
  * import { mcpPlugin, oauth } from "@routecraft/ai";
+ * import { jwtVerify, createRemoteJWKSet } from "jose";
+ *
+ * const jwks = createRemoteJWKSet(new URL("https://idp.example.com/.well-known/jwks.json"));
  *
  * mcpPlugin({
  *   transport: "http",
@@ -60,11 +72,26 @@ export interface OAuthFactoryOptions {
  *       authorizationUrl: "https://idp.example.com/authorize",
  *       tokenUrl: "https://idp.example.com/token",
  *     },
- *     verifyAccessToken: async (token) => ({
- *       token,
- *       clientId: "my-client",
- *       scopes: ["read"],
- *     }),
+ *     verifyAccessToken: async (token) => {
+ *       const { payload } = await jwtVerify(token, jwks);
+ *       return {
+ *         kind: "oauth",
+ *         scheme: "bearer",
+ *         subject: payload.sub as string,
+ *         clientId: payload["client_id"] as string,
+ *         email: payload["email"] as string | undefined,
+ *         name: payload["name"] as string | undefined,
+ *         issuer: payload.iss,
+ *         audience: Array.isArray(payload.aud)
+ *           ? payload.aud
+ *           : payload.aud
+ *             ? [payload.aud]
+ *             : undefined,
+ *         scopes: (payload["scope"] as string | undefined)?.split(" "),
+ *         expiresAt: payload.exp,
+ *         claims: payload as Record<string, unknown>,
+ *       };
+ *     },
  *     getClient: async (clientId) => ({
  *       client_id: clientId,
  *       redirect_uris: ["http://localhost:3000/callback"],

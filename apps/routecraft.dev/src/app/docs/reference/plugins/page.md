@@ -173,18 +173,27 @@ When `auth` is set and `transport` is `'http'`, every request to `/mcp` must inc
 
 **AuthPrincipal:**
 
+`AuthPrincipal` is a discriminated union on the `kind` field. Every subtype carries `kind`, `scheme`, and `subject`; other fields live on the subtype that gives them meaning. Narrow on `kind` to reach scheme-specific data.
+
+Shared fields on every subtype:
+
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `subject` | `string` | Yes | Unique identifier for the caller (user ID, service name, API key ID) |
-| `scheme` | `string` | Yes | Auth scheme used (`'bearer'`, `'basic'`, `'api-key'`) |
-| `roles` | `string[]` | No | Assigned roles |
-| `scopes` | `string[]` | No | Granted scopes / permissions |
-| `email` | `string` | No | Email address |
-| `name` | `string` | No | Display name |
-| `issuer` | `string` | No | Token issuer (JWT `iss`) |
-| `audience` | `string[]` | No | Intended audience (JWT `aud`) |
-| `expiresAt` | `number` | No | Expiry as epoch seconds (JWT `exp`) |
-| `claims` | `Record<string, unknown>` | No | Raw claims / custom attributes |
+| `kind` | `'jwt' \| 'oauth' \| 'api-key' \| 'basic' \| 'custom'` | Yes | Discriminator for the principal subtype |
+| `scheme` | `string` | Yes | HTTP authentication scheme (`'bearer'`, `'basic'`, `'api-key'`) |
+| `subject` | `string` | Yes | Stable identity for the caller (JWT `sub`, user ID, key ID) |
+
+Subtypes:
+
+| `kind` | Additional fields |
+|--------|-------------------|
+| `'jwt'` | `name?`, `email?`, `issuer?`, `audience?`, `scopes?`, `roles?`, `expiresAt?`, `claims` (required) |
+| `'oauth'` | `clientId` (required), `name?`, `email?`, `issuer?`, `audience?`, `scopes?`, `roles?`, `expiresAt?`, `claims?` |
+| `'api-key'` | `name?`, `expiresAt?` |
+| `'basic'` | `name?` |
+| `'custom'` | `name?`, `email?`, `roles?`, `scopes?`, `expiresAt?`, `claims?` |
+
+The populated principal surfaces on the exchange via `routecraft.auth.*` headers (see `McpHeadersKeys`): `auth.subject`, `auth.scheme`, `auth.name`, `auth.email`, `auth.roles`, `auth.scopes`, `auth.issuer`, `auth.audience`, and `auth.client_id` (OAuth only).
 
 ### Built-in `jwt()` helper
 
@@ -221,9 +230,51 @@ auth: {
   validator: async (token) => {
     const user = await db.verifyApiKey(token)
     if (!user) return null
-    return { subject: user.id, scheme: 'api-key', roles: user.roles }
+    return {
+      kind: 'api-key',
+      scheme: 'api-key',
+      subject: user.id,
+      name: user.label,
+    }
   },
 }
+```
+
+### OAuth 2.1 with `oauth()`
+
+`oauth()` mounts a full OAuth 2.1 server flow that proxies to an upstream IdP. The `verifyAccessToken` callback receives the raw bearer token and must return a populated `OAuthPrincipal`; all identity fields surface as exchange headers. `expiresAt` is required by the MCP SDK's bearer middleware.
+
+```ts
+import { mcpPlugin, oauth } from '@routecraft/ai'
+import { jwtVerify, createRemoteJWKSet } from 'jose'
+
+const jwks = createRemoteJWKSet(new URL('https://idp.example.com/.well-known/jwks.json'))
+
+auth: oauth({
+  issuerUrl: 'https://mcp.example.com',
+  endpoints: {
+    authorizationUrl: 'https://idp.example.com/authorize',
+    tokenUrl: 'https://idp.example.com/token',
+  },
+  verifyAccessToken: async (token) => {
+    const { payload } = await jwtVerify(token, jwks)
+    return {
+      kind: 'oauth',
+      scheme: 'bearer',
+      subject: payload.sub as string,
+      clientId: payload['client_id'] as string,
+      email: payload['email'] as string | undefined,
+      issuer: payload.iss,
+      scopes: (payload['scope'] as string | undefined)?.split(' '),
+      expiresAt: payload.exp,
+      claims: payload as Record<string, unknown>,
+    }
+  },
+  getClient: async (clientId) => ({
+    client_id: clientId,
+    redirect_uris: ['http://localhost:3000/callback'],
+  }),
+})
 ```
 
 **HTTP client config (`McpClientHttpConfig`):**

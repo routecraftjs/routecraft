@@ -1,5 +1,5 @@
 import { createHmac, createVerify, timingSafeEqual } from "node:crypto";
-import type { AuthPrincipal, McpHttpAuthOptions } from "./types.ts";
+import type { JwtPrincipal, McpHttpAuthOptions } from "./types.ts";
 
 /**
  * Supported HMAC algorithms for JWT signature verification.
@@ -126,18 +126,17 @@ function checkTemporalClaims(
 }
 
 /**
- * Build an {@link AuthPrincipal} from standard JWT claims.
+ * Build a {@link JwtPrincipal} from standard JWT claims.
  * Returns `null` if the `sub` claim is missing or empty.
  */
-function buildPrincipal(
-  payload: Record<string, unknown>,
-): AuthPrincipal | null {
+function buildPrincipal(payload: Record<string, unknown>): JwtPrincipal | null {
   const sub = payload["sub"];
   if (typeof sub !== "string" || sub.length === 0) return null;
 
-  const principal: AuthPrincipal = {
-    subject: sub,
+  const principal: JwtPrincipal = {
+    kind: "jwt",
     scheme: "bearer",
+    subject: sub,
     claims: payload,
   };
 
@@ -173,7 +172,7 @@ function isHmac(options: JwtAuthOptions): options is JwtHmacOptions {
  */
 function createHmacValidator(
   options: JwtHmacOptions,
-): (token: string) => AuthPrincipal | null {
+): (token: string) => JwtPrincipal | null {
   const { secret, algorithm = "HS256", clockToleranceSec = 0 } = options;
 
   if (!secret || typeof secret !== "string") {
@@ -187,7 +186,7 @@ function createHmacValidator(
 
   const digest = HMAC_ALGORITHMS[algorithm];
 
-  return (token: string): AuthPrincipal | null => {
+  return (token: string): JwtPrincipal | null => {
     const decoded = decodeToken(token);
     if (!decoded) return null;
 
@@ -218,7 +217,7 @@ function createHmacValidator(
  */
 function createRsaValidator(
   options: JwtRsaOptions,
-): (token: string) => AuthPrincipal | null {
+): (token: string) => JwtPrincipal | null {
   const { publicKey, algorithm = "RS256", clockToleranceSec = 0 } = options;
 
   if (!publicKey || typeof publicKey !== "string") {
@@ -232,7 +231,7 @@ function createRsaValidator(
 
   const verifyAlgorithm = RSA_ALGORITHMS[algorithm];
 
-  return (token: string): AuthPrincipal | null => {
+  return (token: string): JwtPrincipal | null => {
     const decoded = decodeToken(token);
     if (!decoded) return null;
 
@@ -260,7 +259,7 @@ function createRsaValidator(
  * Returns an {@link McpHttpAuthOptions} that can be passed directly to
  * `mcpPlugin({ auth: jwt({ ... }) })`.
  *
- * On success the validator returns an {@link AuthPrincipal} populated from
+ * On success the validator returns a {@link JwtPrincipal} populated from
  * standard JWT claims (`sub`, `iss`, `aud`, `exp`, `scope`, etc.) with the
  * full decoded payload available in `claims`.
  *

@@ -527,7 +527,11 @@ describe("McpServer", () => {
     });
 
     describe("auth", () => {
-      const validPrincipal = { subject: "user-1", scheme: "bearer" };
+      const validPrincipal = {
+        kind: "custom" as const,
+        subject: "user-1",
+        scheme: "bearer" as const,
+      };
 
       /**
        * @case Request without Authorization header returns 401 when auth is configured
@@ -686,6 +690,311 @@ describe("McpServer", () => {
           Authorization: "Bearer any-token",
         });
         expect(res.statusCode).toBe(401);
+      });
+    });
+
+    describe("oauth auth", () => {
+      /**
+       * @case OAuth `verifyAccessToken` returning a fully populated OAuthPrincipal surfaces every identity field as a routecraft.auth.* header
+       * @preconditions McpServer with oauth() auth; verifyAccessToken returns subject, clientId, email, name, issuer, audience, roles, scopes, expiresAt, claims
+       * @expectedResult Route's tap receives exchange headers with auth.subject = JWT sub (not clientId), auth.client_id, auth.email, auth.name, auth.issuer, auth.audience, auth.roles, auth.scopes, auth.scheme
+       */
+      test("surfaces full principal claims as exchange headers", async () => {
+        const { oauth } = await import("../src/mcp/oauth.ts");
+        let captured: Record<string, string | string[] | undefined> | undefined;
+
+        const authConfig = oauth({
+          issuerUrl: "http://localhost:9999",
+          endpoints: {
+            authorizationUrl: "http://localhost:9999/authorize",
+            tokenUrl: "http://localhost:9999/token",
+          },
+          verifyAccessToken: async (token) => {
+            expect(token).toBe("rich-token");
+            return {
+              kind: "oauth" as const,
+              scheme: "bearer" as const,
+              subject: "user-42",
+              clientId: "client-abc",
+              name: "Ada Lovelace",
+              email: "ada@example.com",
+              issuer: "https://idp.example.com",
+              audience: ["mcp.example.com"],
+              scopes: ["email", "profile"],
+              roles: ["admin"],
+              expiresAt: Math.floor(Date.now() / 1000) + 3600,
+              claims: { sub: "user-42", custom: "value" },
+            };
+          },
+          getClient: async (clientId) => ({
+            client_id: clientId,
+            redirect_uris: ["http://localhost:3000/callback"],
+          }),
+        });
+
+        const { post, initSession } = await startHttpServer(
+          [
+            craft()
+              .id("oauth-capture")
+              .from(
+                mcp("oauth-capture", {
+                  description: "Capture exchange headers for OAuth test",
+                  schema: z.object({}),
+                }),
+              )
+              .tap((ex) => {
+                captured = ex.headers as Record<
+                  string,
+                  string | string[] | undefined
+                >;
+              })
+              .to(noop()),
+          ],
+          { auth: authConfig },
+        );
+
+        const sessionId = await initSession({
+          Authorization: "Bearer rich-token",
+        });
+        const callRes = await post(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 2,
+            method: "tools/call",
+            params: { name: "oauth-capture", arguments: {} },
+          }),
+          sessionId,
+          { Authorization: "Bearer rich-token" },
+        );
+        expect(callRes.statusCode).toBe(200);
+
+        expect(captured).toBeDefined();
+        const h = captured as Record<string, string | string[] | undefined>;
+        expect(h["routecraft.auth.subject"]).toBe("user-42");
+        expect(h["routecraft.auth.client_id"]).toBe("client-abc");
+        expect(h["routecraft.auth.scheme"]).toBe("bearer");
+        expect(h["routecraft.auth.name"]).toBe("Ada Lovelace");
+        expect(h["routecraft.auth.email"]).toBe("ada@example.com");
+        expect(h["routecraft.auth.issuer"]).toBe("https://idp.example.com");
+        expect(h["routecraft.auth.audience"]).toEqual(["mcp.example.com"]);
+        expect(h["routecraft.auth.roles"]).toEqual(["admin"]);
+        expect(h["routecraft.auth.scopes"]).toEqual(["email", "profile"]);
+      });
+
+      /**
+       * @case Minimal OAuthPrincipal (no identity enrichment) populates only subject, client_id, scheme, scopes
+       * @preconditions McpServer with oauth(); verifyAccessToken returns only required fields (kind, scheme, subject, clientId, scopes)
+       * @expectedResult Exchange headers include subject, client_id, scheme, scopes; optional identity headers are absent
+       */
+      test("minimal principal omits optional identity headers", async () => {
+        const { oauth } = await import("../src/mcp/oauth.ts");
+        let captured: Record<string, string | string[] | undefined> | undefined;
+
+        const authConfig = oauth({
+          issuerUrl: "http://localhost:9999",
+          endpoints: {
+            authorizationUrl: "http://localhost:9999/authorize",
+            tokenUrl: "http://localhost:9999/token",
+          },
+          verifyAccessToken: async () => ({
+            kind: "oauth" as const,
+            scheme: "bearer" as const,
+            subject: "client-only",
+            clientId: "client-only",
+            scopes: ["read"],
+            // expiresAt is required by the MCP SDK's requireBearerAuth middleware.
+            expiresAt: Math.floor(Date.now() / 1000) + 600,
+          }),
+          getClient: async (clientId) => ({
+            client_id: clientId,
+            redirect_uris: ["http://localhost:3000/callback"],
+          }),
+        });
+
+        const { post, initSession } = await startHttpServer(
+          [
+            craft()
+              .id("oauth-minimal")
+              .from(
+                mcp("oauth-minimal", {
+                  description: "Minimal OAuth capture",
+                  schema: z.object({}),
+                }),
+              )
+              .tap((ex) => {
+                captured = ex.headers as Record<
+                  string,
+                  string | string[] | undefined
+                >;
+              })
+              .to(noop()),
+          ],
+          { auth: authConfig },
+        );
+
+        const sessionId = await initSession({
+          Authorization: "Bearer any",
+        });
+        const callRes = await post(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 2,
+            method: "tools/call",
+            params: { name: "oauth-minimal", arguments: {} },
+          }),
+          sessionId,
+          { Authorization: "Bearer any" },
+        );
+        expect(callRes.statusCode).toBe(200);
+
+        expect(captured).toBeDefined();
+        const h = captured as Record<string, string | string[] | undefined>;
+        expect(h["routecraft.auth.subject"]).toBe("client-only");
+        expect(h["routecraft.auth.client_id"]).toBe("client-only");
+        expect(h["routecraft.auth.scheme"]).toBe("bearer");
+        expect(h["routecraft.auth.scopes"]).toEqual(["read"]);
+        expect(h["routecraft.auth.email"]).toBeUndefined();
+        expect(h["routecraft.auth.name"]).toBeUndefined();
+        expect(h["routecraft.auth.issuer"]).toBeUndefined();
+        expect(h["routecraft.auth.audience"]).toBeUndefined();
+      });
+    });
+
+    describe("principal kinds via validator", () => {
+      /**
+       * @case Validator returning a JwtPrincipal surfaces JWT-specific claims as headers
+       * @preconditions McpServer with validator returning kind: "jwt" with claims, issuer, audience, roles
+       * @expectedResult Exchange headers include auth.issuer, auth.audience, auth.roles, auth.email, auth.name
+       */
+      test("jwt principal populates jwt-specific headers", async () => {
+        let captured: Record<string, string | string[] | undefined> | undefined;
+
+        const { post, initSession } = await startHttpServer(
+          [
+            craft()
+              .id("jwt-capture")
+              .from(
+                mcp("jwt-capture", {
+                  description: "Capture JWT principal headers",
+                  schema: z.object({}),
+                }),
+              )
+              .tap((ex) => {
+                captured = ex.headers as Record<
+                  string,
+                  string | string[] | undefined
+                >;
+              })
+              .to(noop()),
+          ],
+          {
+            auth: {
+              validator: () => ({
+                kind: "jwt" as const,
+                scheme: "bearer" as const,
+                subject: "jwt-user",
+                name: "JWT User",
+                email: "jwt@example.com",
+                issuer: "https://idp.example.com",
+                audience: ["aud-a", "aud-b"],
+                scopes: ["read", "write"],
+                roles: ["member"],
+                expiresAt: Math.floor(Date.now() / 1000) + 600,
+                claims: { sub: "jwt-user" },
+              }),
+            },
+          },
+        );
+
+        const sessionId = await initSession({
+          Authorization: "Bearer jwt",
+        });
+        const callRes = await post(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 2,
+            method: "tools/call",
+            params: { name: "jwt-capture", arguments: {} },
+          }),
+          sessionId,
+          { Authorization: "Bearer jwt" },
+        );
+        expect(callRes.statusCode).toBe(200);
+
+        const h = captured as Record<string, string | string[] | undefined>;
+        expect(h["routecraft.auth.subject"]).toBe("jwt-user");
+        expect(h["routecraft.auth.name"]).toBe("JWT User");
+        expect(h["routecraft.auth.email"]).toBe("jwt@example.com");
+        expect(h["routecraft.auth.issuer"]).toBe("https://idp.example.com");
+        expect(h["routecraft.auth.audience"]).toEqual(["aud-a", "aud-b"]);
+        expect(h["routecraft.auth.roles"]).toEqual(["member"]);
+        expect(h["routecraft.auth.scopes"]).toEqual(["read", "write"]);
+        // JWT principals have no clientId — header must be absent.
+        expect(h["routecraft.auth.client_id"]).toBeUndefined();
+      });
+
+      /**
+       * @case Validator returning an ApiKeyPrincipal surfaces subject and name but no JWT-specific headers
+       * @preconditions McpServer with validator returning kind: "api-key" with a name
+       * @expectedResult Exchange headers include auth.subject, auth.scheme, auth.name; JWT-only headers are absent
+       */
+      test("api-key principal omits jwt-only headers", async () => {
+        let captured: Record<string, string | string[] | undefined> | undefined;
+
+        const { post, initSession } = await startHttpServer(
+          [
+            craft()
+              .id("apikey-capture")
+              .from(
+                mcp("apikey-capture", {
+                  description: "Capture API key principal headers",
+                  schema: z.object({}),
+                }),
+              )
+              .tap((ex) => {
+                captured = ex.headers as Record<
+                  string,
+                  string | string[] | undefined
+                >;
+              })
+              .to(noop()),
+          ],
+          {
+            auth: {
+              validator: () => ({
+                kind: "api-key" as const,
+                scheme: "api-key" as const,
+                subject: "key-123",
+                name: "Deploy key",
+              }),
+            },
+          },
+        );
+
+        const sessionId = await initSession({
+          Authorization: "Bearer key",
+        });
+        const callRes = await post(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 2,
+            method: "tools/call",
+            params: { name: "apikey-capture", arguments: {} },
+          }),
+          sessionId,
+          { Authorization: "Bearer key" },
+        );
+        expect(callRes.statusCode).toBe(200);
+
+        const h = captured as Record<string, string | string[] | undefined>;
+        expect(h["routecraft.auth.subject"]).toBe("key-123");
+        expect(h["routecraft.auth.scheme"]).toBe("api-key");
+        expect(h["routecraft.auth.name"]).toBe("Deploy key");
+        expect(h["routecraft.auth.email"]).toBeUndefined();
+        expect(h["routecraft.auth.issuer"]).toBeUndefined();
+        expect(h["routecraft.auth.audience"]).toBeUndefined();
+        expect(h["routecraft.auth.scopes"]).toBeUndefined();
+        expect(h["routecraft.auth.client_id"]).toBeUndefined();
       });
     });
   });
@@ -1235,7 +1544,13 @@ describe("McpServer", () => {
         host: "127.0.0.1",
         auth: {
           validator: (token) =>
-            token === "good" ? { subject: "user-1", scheme: "bearer" } : null,
+            token === "good"
+              ? {
+                  kind: "custom" as const,
+                  subject: "user-1",
+                  scheme: "bearer" as const,
+                }
+              : null,
         },
       });
 
