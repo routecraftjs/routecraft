@@ -173,18 +173,27 @@ When `auth` is set and `transport` is `'http'`, every request to `/mcp` must inc
 
 **AuthPrincipal:**
 
+`AuthPrincipal` is a discriminated union on the `kind` field. Every subtype carries `kind`, `scheme`, and `subject`; other fields live on the subtype that gives them meaning. Narrow on `kind` to reach scheme-specific data.
+
+Shared fields on every subtype:
+
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `subject` | `string` | Yes | Unique identifier for the caller (user ID, service name, API key ID) |
-| `scheme` | `string` | Yes | Auth scheme used (`'bearer'`, `'basic'`, `'api-key'`) |
-| `roles` | `string[]` | No | Assigned roles |
-| `scopes` | `string[]` | No | Granted scopes / permissions |
-| `email` | `string` | No | Email address |
-| `name` | `string` | No | Display name |
-| `issuer` | `string` | No | Token issuer (JWT `iss`) |
-| `audience` | `string[]` | No | Intended audience (JWT `aud`) |
-| `expiresAt` | `number` | No | Expiry as epoch seconds (JWT `exp`) |
-| `claims` | `Record<string, unknown>` | No | Raw claims / custom attributes |
+| `kind` | `'jwt' \| 'oauth' \| 'api-key' \| 'basic' \| 'custom'` | Yes | Discriminator for the principal subtype |
+| `scheme` | `string` | Yes | HTTP authentication scheme (`'bearer'`, `'basic'`, `'api-key'`) |
+| `subject` | `string` | Yes | Stable identity for the caller (JWT `sub`, user ID, key ID) |
+
+Subtypes:
+
+| `kind` | Additional fields |
+|--------|-------------------|
+| `'jwt'` | `name?`, `email?`, `issuer?`, `audience?`, `scopes?`, `roles?`, `expiresAt?`, `claims` (required) |
+| `'oauth'` | `clientId` (required), `name?`, `email?`, `issuer?`, `audience?`, `scopes?`, `roles?`, `expiresAt?`, `claims?` |
+| `'api-key'` | `name?`, `expiresAt?` |
+| `'basic'` | `name?` |
+| `'custom'` | `name?`, `email?`, `roles?`, `scopes?`, `expiresAt?`, `claims?` |
+
+The populated principal surfaces on the exchange via `routecraft.auth.*` headers (see `McpHeadersKeys`): `auth.subject`, `auth.scheme`, `auth.name`, `auth.email`, `auth.roles`, `auth.scopes`, `auth.issuer`, `auth.audience`, and `auth.client_id` (OAuth only).
 
 ### Built-in `jwt()` helper
 
@@ -221,10 +230,117 @@ auth: {
   validator: async (token) => {
     const user = await db.verifyApiKey(token)
     if (!user) return null
-    return { subject: user.id, scheme: 'api-key', roles: user.roles }
+    return {
+      kind: 'api-key',
+      scheme: 'api-key',
+      subject: user.id,
+      name: user.label,
+    }
   },
 }
 ```
+
+### OAuth 2.1 with `oauth()`
+
+`oauth()` mounts a full OAuth 2.1 server flow that proxies to an upstream IdP. Pass a `jwt` config to let the factory handle JWKS fetching, signature verification, issuer and audience checks, and claim mapping (requires the optional peer dependency `jose`). For opaque tokens, introspection, or fully custom verification, pass your own `verifyAccessToken` callback instead.
+
+**Built-in JWT verification (recommended):**
+
+```ts
+import { mcpPlugin, oauth } from '@routecraft/ai'
+
+auth: oauth({
+  issuerUrl: 'https://mcp.example.com',
+  endpoints: {
+    authorizationUrl: 'https://idp.example.com/authorize',
+    tokenUrl: 'https://idp.example.com/token',
+  },
+  jwt: {
+    jwksUrl: 'https://idp.example.com/.well-known/jwks.json',
+    issuer: 'https://idp.example.com',
+    audience: 'https://mcp.example.com',
+  },
+  client: {
+    client_id: 'my-mcp-server',
+    redirect_uris: ['http://localhost:3000/callback'],
+  },
+})
+```
+
+`issuer` and `audience` are required, so the server cannot silently accept tokens from a different IdP or minted for a different resource. The factory maps standard JWT claims (`sub`, `client_id`, `email`, `name`, `iss`, `aud`, `scope`, `roles`, `exp`) to `OAuthPrincipal` fields automatically; all of them surface as `routecraft.auth.*` exchange headers.
+
+`client` accepts either a static `OAuthClientInfo` (matched on `client_id`; unknown IDs are rejected) or a supplier `(clientId) => Promise<OAuthClientInfo | undefined>` for dynamic lookup against a database or registry.
+
+**`OAuthJwtConfig` fields:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `jwksUrl` | `string \| URL` | Yes | JWKS endpoint the IdP publishes; keys are fetched and rotated by `jose`'s `createRemoteJWKSet` |
+| `issuer` | `string` | Yes | Expected `iss` claim; tokens from other issuers are rejected |
+| `audience` | `string \| string[]` | Yes | Expected `aud` claim; the token must include at least one of these values |
+| `clockTolerance` | `number \| string` | No | Skew tolerance applied to `exp`/`nbf` validation (seconds as a number, or a string like `"5s"`); default: no tolerance |
+| `claims` | `OAuthJwtClaimMappers` | No | Per-claim overrides for non-standard IdPs (see below) |
+
+**`OAuthJwtClaimMappers` fields.** Each maps a verified payload to the corresponding `OAuthPrincipal` field when the IdP uses non-standard claim names:
+
+| Field | Default when omitted |
+|-------|----------------------|
+| `subject` | `payload.sub` |
+| `clientId` | `payload.client_id` |
+| `email` | `payload.email` |
+| `name` | `payload.name` |
+| `scopes` | space-split `payload.scope` |
+| `roles` | `payload.roles` when it is `string[]` |
+
+**Claim overrides for non-standard IdPs:**
+
+```ts
+jwt: {
+  jwksUrl: 'https://login.microsoftonline.com/<tenant>/discovery/v2.0/keys',
+  issuer: 'https://login.microsoftonline.com/<tenant>/v2.0',
+  audience: '<app-id>',
+  claims: {
+    subject: (p) => p.oid as string,
+    roles: (p) => p['roles'] as string[] | undefined,
+  },
+}
+```
+
+**Custom verification (opaque tokens, introspection, etc.):**
+
+```ts
+import { mcpPlugin, oauth } from '@routecraft/ai'
+import { jwtVerify, createRemoteJWKSet } from 'jose'
+
+const jwks = createRemoteJWKSet(new URL('https://idp.example.com/.well-known/jwks.json'))
+
+auth: oauth({
+  issuerUrl: 'https://mcp.example.com',
+  endpoints: {
+    authorizationUrl: 'https://idp.example.com/authorize',
+    tokenUrl: 'https://idp.example.com/token',
+  },
+  verifyAccessToken: async (token) => {
+    const { payload } = await jwtVerify(token, jwks, {
+      issuer: 'https://idp.example.com',
+      audience: 'https://mcp.example.com',
+    })
+    return {
+      kind: 'oauth',
+      scheme: 'bearer',
+      subject: payload.sub as string,
+      clientId: payload['client_id'] as string,
+      expiresAt: payload.exp,
+      claims: payload as Record<string, unknown>,
+    }
+  },
+  client: async (clientId) => await db.clients.findByClientId(clientId),
+})
+```
+
+`expiresAt` is required by the MCP SDK's bearer middleware; omit it and every request is rejected with 401. Pass **either** `jwt` or `verifyAccessToken`, never both.
+
+The `client` supplier (when you pass a function rather than a static object) is invoked **per request** by the OAuth proxy provider during every authorize/token/revoke call. Cache or preload registry reads so the hot path stays fast.
 
 **HTTP client config (`McpClientHttpConfig`):**
 

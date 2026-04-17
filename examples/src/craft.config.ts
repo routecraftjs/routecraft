@@ -30,7 +30,11 @@ export const craftConfig: CraftConfig = {
       name: "routecraft",
       version: version,
       transport: "http",
-      auth: jwt({ secret: process.env["JWT_SECRET"] ?? "" }),
+      auth: jwt({
+        secret: process.env["JWT_SECRET"] ?? "",
+        issuer: process.env["JWT_ISSUER"] ?? "https://idp.example.com",
+        audience: process.env["JWT_AUDIENCE"] ?? "https://mcp.example.com",
+      }),
     }),
     llmPlugin({
       providers: {

@@ -70,6 +70,8 @@ declare module "@routecraft/routecraft" {
     "routecraft.auth.issuer"?: string;
     /** Intended audience (JWT `aud`). */
     "routecraft.auth.audience"?: string[];
+    /** OAuth client ID (distinct from subject). */
+    "routecraft.auth.client_id"?: string;
   }
 }
 
@@ -139,60 +141,154 @@ export enum McpHeadersKeys {
   AUTH_ISSUER = "routecraft.auth.issuer",
   /** Intended audience (JWT `aud`). */
   AUTH_AUDIENCE = "routecraft.auth.audience",
+  /** OAuth client ID (distinct from subject). */
+  AUTH_CLIENT_ID = "routecraft.auth.client_id",
 }
 
 /**
- * Authenticated user principal resolved from an incoming request.
- * Returned by the auth validator to populate exchange headers for logging,
- * filtering, and access control inside routes.
- *
- * `subject` and `scheme` are always required; everything else is
- * scheme-dependent and may be absent.
+ * Fields shared by every {@link AuthPrincipal} subtype. Only `kind` and
+ * `subject` are universal; the HTTP `scheme` and every other scheme-specific
+ * field live on the subtypes (narrow on `kind` to reach them).
  *
  * @experimental
  */
-export interface AuthPrincipal {
-  /** Unique user/client identifier (JWT `sub`, username, API key ID, etc.). */
+export interface BaseAuthPrincipal {
+  /** Discriminator for the principal subtype. Narrow on this to reach scheme-specific fields. */
+  kind: "jwt" | "oauth" | "api-key" | "basic" | "custom";
+  /** Stable identity for the authenticated entity (JWT `sub`, user id, key id, etc.). */
   subject: string;
-  /** Authentication scheme that produced this principal. */
-  scheme: "bearer" | "basic" | "api-key" | (string & {});
-  /** Role names granted to this principal. */
-  roles?: string[];
-  /** OAuth 2.0 / JWT scopes. */
-  scopes?: string[];
-  /** Email address, if known. */
-  email?: string;
-  /** Display name, if known. */
+}
+
+/**
+ * Principal produced by a verified JWT (validator path).
+ *
+ * @experimental
+ */
+export interface JwtPrincipal extends BaseAuthPrincipal {
+  kind: "jwt";
+  /** HTTP authentication scheme that produced this principal. */
+  scheme: "bearer";
+  /** Display name from the `name` claim, if present. */
   name?: string;
+  /** Email address from the `email` claim, if present. */
+  email?: string;
   /** Token issuer (JWT `iss`). */
   issuer?: string;
   /** Intended audiences (JWT `aud`). */
   audience?: string[];
-  /** Expiry as Unix epoch seconds (JWT `exp`, session expiry). */
+  /** OAuth 2.0 / JWT scopes. */
+  scopes?: string[];
+  /** Roles from the `roles` claim, if present. */
+  roles?: string[];
+  /** Expiry as Unix epoch seconds (JWT `exp`). */
   expiresAt?: number;
-  /** Arbitrary extra claims. For JWTs this holds the full decoded payload. */
+  /** Full decoded JWT payload. */
+  claims: Record<string, unknown>;
+}
+
+/**
+ * Principal produced by the OAuth 2.1 server path. Carries OAuth-specific data
+ * (`clientId`) alongside the verified-token identity fields.
+ *
+ * @experimental
+ */
+export interface OAuthPrincipal extends BaseAuthPrincipal {
+  kind: "oauth";
+  /** HTTP authentication scheme that produced this principal. */
+  scheme: "bearer";
+  /** OAuth client ID that obtained the access token (distinct from `subject`). */
+  clientId: string;
+  /** Display name, if extracted from the verified access token. */
+  name?: string;
+  /** Email address, if extracted from the verified access token. */
+  email?: string;
+  /** Token issuer, when the access token carries one. */
+  issuer?: string;
+  /** Intended audiences, when the access token carries them. */
+  audience?: string[];
+  /** Scopes granted on the access token. */
+  scopes?: string[];
+  /** Roles, if extracted from the verified access token. */
+  roles?: string[];
+  /** Token expiry as Unix epoch seconds. */
+  expiresAt?: number;
+  /** Full decoded JWT payload, when the access token was a verified JWT. */
   claims?: Record<string, unknown>;
 }
 
 /**
- * Token info returned by the OAuth `verifyAccessToken` callback.
- * Mirrors the MCP SDK's `AuthInfo` with only the fields routecraft needs.
+ * Principal produced by API-key authentication.
  *
  * @experimental
  */
-export interface OAuthTokenInfo {
-  /** The raw access token string. */
-  token: string;
-  /** OAuth client ID that obtained this token. */
-  clientId: string;
-  /** Scopes granted to the token. */
-  scopes: string[];
-  /** Expiry as Unix epoch seconds. */
+export interface ApiKeyPrincipal extends BaseAuthPrincipal {
+  kind: "api-key";
+  /** HTTP authentication scheme that produced this principal. */
+  scheme: "api-key";
+  /** Human-readable key label, if configured. */
+  name?: string;
+  /** Key expiry as Unix epoch seconds, if set. */
   expiresAt?: number;
 }
 
 /**
- * OAuth client info returned by the `getClient` callback.
+ * Principal produced by HTTP Basic authentication.
+ *
+ * @experimental
+ */
+export interface BasicPrincipal extends BaseAuthPrincipal {
+  kind: "basic";
+  /** HTTP authentication scheme that produced this principal. */
+  scheme: "basic";
+  /** Display name, if distinct from `subject`. */
+  name?: string;
+}
+
+/**
+ * Catch-all principal for custom validator returns that do not fit another subtype.
+ * Use this when writing a bespoke validator; richer subtypes are preferred when applicable.
+ *
+ * @experimental
+ */
+export interface CustomPrincipal extends BaseAuthPrincipal {
+  kind: "custom";
+  /**
+   * HTTP authentication scheme that produced this principal. Any string is
+   * accepted so custom integrations can describe non-standard schemes, but
+   * prefer `"bearer"`, `"basic"`, or `"api-key"` when they apply.
+   */
+  scheme: string;
+  name?: string;
+  email?: string;
+  roles?: string[];
+  scopes?: string[];
+  expiresAt?: number;
+  claims?: Record<string, unknown>;
+}
+
+/**
+ * Authenticated principal resolved from an incoming request. Discriminated on
+ * `kind`: narrow to reach scheme-specific fields.
+ *
+ * @example
+ * ```ts
+ * if (principal.kind === "jwt") {
+ *   // principal.claims is typed Record<string, unknown>
+ *   console.log(principal.claims["custom_claim"]);
+ * }
+ * ```
+ *
+ * @experimental
+ */
+export type AuthPrincipal =
+  | JwtPrincipal
+  | OAuthPrincipal
+  | ApiKeyPrincipal
+  | BasicPrincipal
+  | CustomPrincipal;
+
+/**
+ * OAuth client info supplied to the `oauth()` factory via the `client` option.
  * Mirrors the MCP SDK's `OAuthClientInformationFull` with only the fields routecraft needs.
  *
  * Field names use snake_case to match the OAuth 2.0 Dynamic Client Registration
@@ -209,6 +305,72 @@ export interface OAuthClientInfo {
   client_name?: string;
   /** Client secret (for confidential clients). */
   client_secret?: string;
+}
+
+/**
+ * Per-claim overrides for mapping a verified JWT payload to an
+ * {@link OAuthPrincipal}. Each callback receives the decoded payload and
+ * returns the value to surface on the principal.
+ *
+ * Use this when the IdP places identity claims under non-standard names
+ * (e.g. Azure AD uses `oid` instead of `sub` for stable subject identity,
+ * Keycloak nests roles under `realm_access.roles`).
+ *
+ * @experimental
+ */
+export interface OAuthJwtClaimMappers {
+  /** Map to `OAuthPrincipal.subject`. Default: `payload.sub`. */
+  subject?: (payload: Record<string, unknown>) => string;
+  /** Map to `OAuthPrincipal.clientId`. Default: `payload.client_id`. */
+  clientId?: (payload: Record<string, unknown>) => string;
+  /** Map to `OAuthPrincipal.email`. Default: `payload.email`. */
+  email?: (payload: Record<string, unknown>) => string | undefined;
+  /** Map to `OAuthPrincipal.name`. Default: `payload.name`. */
+  name?: (payload: Record<string, unknown>) => string | undefined;
+  /** Map to `OAuthPrincipal.scopes`. Default: space-split `payload.scope`. */
+  scopes?: (payload: Record<string, unknown>) => string[] | undefined;
+  /** Map to `OAuthPrincipal.roles`. Default: `payload.roles` when it is `string[]`. */
+  roles?: (payload: Record<string, unknown>) => string[] | undefined;
+}
+
+/**
+ * Built-in JWT verification config for the `oauth()` factory. When provided,
+ * the factory handles JWKS fetching, signature verification, issuer/audience
+ * checks, and payload-to-principal mapping internally.
+ *
+ * Requires the optional peer dependency `jose`.
+ *
+ * `issuer` and `audience` are required so the server cannot silently accept
+ * tokens from a different IdP or minted for a different resource.
+ *
+ * For opaque tokens, introspection-based verification, or fully custom
+ * claim handling, use `verifyAccessToken` on the factory options instead.
+ *
+ * @experimental
+ */
+export interface OAuthJwtConfig {
+  /**
+   * JWKS endpoint URL used to fetch the IdP's signing keys.
+   * Keys are cached and rotated by `jose`'s `createRemoteJWKSet`.
+   */
+  jwksUrl: string | URL;
+  /**
+   * Expected `iss` claim. Required. Tokens whose issuer does not match are
+   * rejected, preventing cross-issuer replay.
+   */
+  issuer: string;
+  /**
+   * Expected `aud` claim. Required. Tokens whose audience does not include
+   * this value are rejected, preventing cross-audience replay.
+   */
+  audience: string | string[];
+  /**
+   * Clock skew tolerance (seconds) applied to `exp` and `nbf` validation.
+   * Passed through to `jose`'s `jwtVerify`. Default: no tolerance.
+   */
+  clockTolerance?: number | string;
+  /** Optional per-claim overrides for non-standard IdPs. */
+  claims?: OAuthJwtClaimMappers;
 }
 
 /**
@@ -275,12 +437,15 @@ export interface McpValidatorAuthOptions {
  *     authorizationUrl: "https://idp.example.com/authorize",
  *     tokenUrl: "https://idp.example.com/token",
  *   },
- *   verifyAccessToken: async (token) => ({
- *     token, clientId: "my-client", scopes: ["read"],
- *   }),
- *   getClient: async (clientId) => ({
- *     client_id: clientId, redirect_uris: ["http://localhost:3000/callback"],
- *   }),
+ *   jwt: {
+ *     jwksUrl: "https://idp.example.com/.well-known/jwks.json",
+ *     issuer: "https://idp.example.com",
+ *     audience: "https://mcp.example.com",
+ *   },
+ *   client: {
+ *     client_id: "my-mcp-server",
+ *     redirect_uris: ["http://localhost:3000/callback"],
+ *   },
  * })
  * ```
  *
@@ -296,10 +461,14 @@ export interface McpOAuthAuthOptions {
   /** Upstream OAuth provider endpoints to proxy. */
   endpoints: OAuthProxyEndpoints;
   /**
-   * Verify an access token and return token info.
+   * Verify an access token and return a populated {@link OAuthPrincipal}.
    * Called on every authenticated request to `/mcp`.
+   *
+   * The returned principal flows through to route exchanges as
+   * `routecraft.auth.*` headers. `expiresAt` is required by the MCP SDK's
+   * bearer middleware; omitting it causes a 401 regardless of other claims.
    */
-  verifyAccessToken: (token: string) => Promise<OAuthTokenInfo>;
+  verifyAccessToken: (token: string) => Promise<OAuthPrincipal>;
   /**
    * Look up a registered OAuth client by ID.
    * Return `undefined` to reject the client.

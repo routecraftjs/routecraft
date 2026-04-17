@@ -8,6 +8,7 @@ import {
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createServer } from "node:http";
 import type { IncomingMessage } from "node:http";
+import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import { McpHeadersKeys, isOAuthAuth } from "./types.ts";
 import type {
   AuthPrincipal,
@@ -16,7 +17,15 @@ import type {
   McpTool,
   McpToolAnnotations,
   McpValidatorAuthOptions,
+  OAuthPrincipal,
 } from "./types.ts";
+
+/**
+ * MCP SDK `AuthInfo` shape. Imported as a type so nothing is required at
+ * runtime from the SDK just for this alias; `import type` is erased by the
+ * compiler.
+ */
+type SdkAuthInfo = AuthInfo;
 
 /**
  * Request-scoped storage for the authenticated principal.
@@ -423,7 +432,7 @@ export class McpServer {
       expressFn = (expressMod["default"] ?? expressMod) as typeof expressFn;
     } catch {
       throw new Error(
-        'OAuth auth requires "express". It should be installed as a dependency of @modelcontextprotocol/sdk.',
+        'OAuth auth requires "express" (optional peer dependency of @routecraft/ai). Install it with: pnpm add express',
       );
     }
 
@@ -452,6 +461,41 @@ export class McpServer {
       );
     }
 
+    // Wrap the user's verifier so the MCP SDK sees a clean AuthInfo while the
+    // rich OAuthPrincipal rides through in `extra.principal` for this.authInfoToPrincipal.
+    // Token verification errors are logged and emitted as `auth:rejected` so
+    // operators can observe brute-force attempts, expired tokens, and
+    // mismatched audiences alongside the validator path's rejections.
+    const wrappedVerifier = async (token: string): Promise<SdkAuthInfo> => {
+      let principal: OAuthPrincipal;
+      try {
+        principal = await oauthOptions.verifyAccessToken(token);
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : "invalid_token";
+        const detail = {
+          reason,
+          scheme: "bearer",
+          source: "mcp",
+        };
+        this.context.logger.warn(
+          { err, ...detail },
+          "Auth rejected: OAuth token validation failed",
+        );
+        this.context.emit("auth:rejected", detail);
+        throw err;
+      }
+      const authInfo: SdkAuthInfo = {
+        token,
+        clientId: principal.clientId,
+        scopes: principal.scopes ?? [],
+        extra: { principal },
+      };
+      if (principal.expiresAt !== undefined) {
+        authInfo.expiresAt = principal.expiresAt;
+      }
+      return authInfo;
+    };
+
     // Build the ProxyOAuthServerProvider from the user's config.
     const provider = new ProxyOAuthServerProvider({
       endpoints: {
@@ -460,7 +504,7 @@ export class McpServer {
         revocationUrl: oauthOptions.endpoints.revocationUrl,
         registrationUrl: oauthOptions.endpoints.registrationUrl,
       },
-      verifyAccessToken: oauthOptions.verifyAccessToken,
+      verifyAccessToken: wrappedVerifier,
       getClient: oauthOptions.getClient,
     });
 
@@ -507,12 +551,7 @@ export class McpServer {
 
       // The SDK's requireBearerAuth sets req.auth with the verified AuthInfo.
       const authInfo = (req as Record<string, unknown>)["auth"] as
-        | {
-            clientId: string;
-            scopes: string[];
-            token: string;
-            expiresAt?: number;
-          }
+        | SdkAuthInfo
         | undefined;
       const principal = this.authInfoToPrincipal(authInfo);
 
@@ -567,30 +606,33 @@ export class McpServer {
   /**
    * Convert the MCP SDK's AuthInfo (set by requireBearerAuth) to an AuthPrincipal
    * for routecraft's exchange headers.
+   *
+   * The OAuth path's wrapped `verifyAccessToken` stashes the fully-populated
+   * {@link OAuthPrincipal} in `authInfo.extra.principal`. If the stash is
+   * absent (e.g. a third party plugged a bare `ProxyOAuthServerProvider`
+   * in some custom setup), fall back to a minimal principal derived from
+   * the SDK-level `AuthInfo` fields.
    */
   private authInfoToPrincipal(
-    authInfo:
-      | {
-          clientId: string;
-          scopes: string[];
-          token: string;
-          expiresAt?: number;
-        }
-      | undefined,
+    authInfo: SdkAuthInfo | undefined,
   ): AuthPrincipal | undefined {
     if (!authInfo) return undefined;
-    const principal: AuthPrincipal = {
-      subject: authInfo.clientId,
+    const stashed = (
+      authInfo.extra as { principal?: OAuthPrincipal } | undefined
+    )?.principal;
+    if (stashed) return stashed;
+
+    const fallback: OAuthPrincipal = {
+      kind: "oauth",
       scheme: "bearer",
+      subject: authInfo.clientId,
+      clientId: authInfo.clientId,
       scopes: authInfo.scopes,
-      claims: {
-        clientId: authInfo.clientId,
-      },
     };
     if (authInfo.expiresAt !== undefined) {
-      principal.expiresAt = authInfo.expiresAt;
+      fallback.expiresAt = authInfo.expiresAt;
     }
-    return principal;
+    return fallback;
   }
 
   /**
@@ -954,17 +996,33 @@ export class McpServer {
       if (principal) {
         headers[McpHeadersKeys.AUTH_SUBJECT] = principal.subject;
         headers[McpHeadersKeys.AUTH_SCHEME] = principal.scheme;
-        if (principal.roles)
-          headers[McpHeadersKeys.AUTH_ROLES] = principal.roles;
-        if (principal.scopes)
-          headers[McpHeadersKeys.AUTH_SCOPES] = principal.scopes;
-        if (principal.email)
-          headers[McpHeadersKeys.AUTH_EMAIL] = principal.email;
-        if (principal.name) headers[McpHeadersKeys.AUTH_NAME] = principal.name;
-        if (principal.issuer)
-          headers[McpHeadersKeys.AUTH_ISSUER] = principal.issuer;
-        if (principal.audience)
-          headers[McpHeadersKeys.AUTH_AUDIENCE] = principal.audience;
+
+        if (
+          principal.kind === "jwt" ||
+          principal.kind === "oauth" ||
+          principal.kind === "custom"
+        ) {
+          if (principal.name)
+            headers[McpHeadersKeys.AUTH_NAME] = principal.name;
+          if (principal.email)
+            headers[McpHeadersKeys.AUTH_EMAIL] = principal.email;
+          if (principal.roles)
+            headers[McpHeadersKeys.AUTH_ROLES] = principal.roles;
+          if (principal.scopes)
+            headers[McpHeadersKeys.AUTH_SCOPES] = principal.scopes;
+        } else if (principal.kind === "basic" || principal.kind === "api-key") {
+          if (principal.name)
+            headers[McpHeadersKeys.AUTH_NAME] = principal.name;
+        }
+        if (principal.kind === "jwt" || principal.kind === "oauth") {
+          if (principal.issuer)
+            headers[McpHeadersKeys.AUTH_ISSUER] = principal.issuer;
+          if (principal.audience)
+            headers[McpHeadersKeys.AUTH_AUDIENCE] = principal.audience;
+        }
+        if (principal.kind === "oauth") {
+          headers[McpHeadersKeys.AUTH_CLIENT_ID] = principal.clientId;
+        }
       }
 
       const exchange = new DefaultExchange(this.context, {

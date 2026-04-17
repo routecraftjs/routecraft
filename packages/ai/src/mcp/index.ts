@@ -17,7 +17,12 @@ export {
   MCP_PLUGIN_REGISTERED,
   MCP_STDIO_MANAGERS,
   MCP_TOOL_REGISTRY,
+  type ApiKeyPrincipal,
   type AuthPrincipal,
+  type BaseAuthPrincipal,
+  type BasicPrincipal,
+  type CustomPrincipal,
+  type JwtPrincipal,
   type McpOAuthAuthOptions,
   type McpOptions,
   type McpPluginOptions,
@@ -28,7 +33,8 @@ export {
   type McpToolResult,
   type McpValidatorAuthOptions,
   type OAuthClientInfo,
+  type OAuthJwtConfig,
+  type OAuthPrincipal,
   type OAuthProxyEndpoints,
-  type OAuthTokenInfo,
 } from "./types.ts";
 export { validateWithSchema } from "./validate-options.ts";

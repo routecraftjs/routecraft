@@ -1,5 +1,5 @@
 import { createHmac, createVerify, timingSafeEqual } from "node:crypto";
-import type { AuthPrincipal, McpHttpAuthOptions } from "./types.ts";
+import type { JwtPrincipal, McpValidatorAuthOptions } from "./types.ts";
 
 /**
  * Supported HMAC algorithms for JWT signature verification.
@@ -43,6 +43,19 @@ export interface JwtHmacOptions {
    * Default: `0` (no tolerance).
    */
   clockToleranceSec?: number;
+  /**
+   * Expected `iss` claim. Tokens whose `iss` does not match are rejected.
+   * Required to prevent cross-issuer token replay: any trusted signing key
+   * that issues tokens for other services would otherwise be accepted.
+   */
+  issuer: string | string[];
+  /**
+   * Expected `aud` claim. The token's `aud` (string or array) must contain
+   * at least one of these values. Required to prevent cross-audience token
+   * replay: a valid token minted for another resource would otherwise be
+   * accepted.
+   */
+  audience: string | string[];
 }
 
 /**
@@ -65,6 +78,19 @@ export interface JwtRsaOptions {
    * Default: `0` (no tolerance).
    */
   clockToleranceSec?: number;
+  /**
+   * Expected `iss` claim. Tokens whose `iss` does not match are rejected.
+   * Required to prevent cross-issuer token replay: any trusted signing key
+   * that issues tokens for other services would otherwise be accepted.
+   */
+  issuer: string | string[];
+  /**
+   * Expected `aud` claim. The token's `aud` (string or array) must contain
+   * at least one of these values. Required to prevent cross-audience token
+   * replay: a valid token minted for another resource would otherwise be
+   * accepted.
+   */
+  audience: string | string[];
 }
 
 /**
@@ -126,18 +152,47 @@ function checkTemporalClaims(
 }
 
 /**
- * Build an {@link AuthPrincipal} from standard JWT claims.
+ * Validate the `iss` and `aud` claims against the expected values configured
+ * on the validator. The caller must always supply both, so a missing `iss`
+ * or a missing `aud` is a hard rejection.
+ */
+function validateIssuerAudience(
+  payload: Record<string, unknown>,
+  expectedIssuer: string | string[],
+  expectedAudience: string | string[],
+): boolean {
+  if (typeof payload["iss"] !== "string") return false;
+  const allowedIssuers = Array.isArray(expectedIssuer)
+    ? expectedIssuer
+    : [expectedIssuer];
+  if (!allowedIssuers.includes(payload["iss"])) return false;
+
+  const allowedAudiences = Array.isArray(expectedAudience)
+    ? expectedAudience
+    : [expectedAudience];
+  const aud = payload["aud"];
+  const tokenAud = Array.isArray(aud)
+    ? aud.filter((a): a is string => typeof a === "string")
+    : typeof aud === "string"
+      ? [aud]
+      : [];
+  if (!tokenAud.some((a) => allowedAudiences.includes(a))) return false;
+
+  return true;
+}
+
+/**
+ * Build a {@link JwtPrincipal} from standard JWT claims.
  * Returns `null` if the `sub` claim is missing or empty.
  */
-function buildPrincipal(
-  payload: Record<string, unknown>,
-): AuthPrincipal | null {
+function buildPrincipal(payload: Record<string, unknown>): JwtPrincipal | null {
   const sub = payload["sub"];
   if (typeof sub !== "string" || sub.length === 0) return null;
 
-  const principal: AuthPrincipal = {
-    subject: sub,
+  const principal: JwtPrincipal = {
+    kind: "jwt",
     scheme: "bearer",
+    subject: sub,
     claims: payload,
   };
 
@@ -168,13 +223,42 @@ function isHmac(options: JwtAuthOptions): options is JwtHmacOptions {
   return "secret" in options;
 }
 
+/** Validate that issuer and audience are supplied and non-empty. */
+function assertIssuerAudience(options: JwtAuthOptions): void {
+  const isNonEmpty = (value: string | string[] | undefined): boolean => {
+    if (typeof value === "string") return value.length > 0;
+    if (Array.isArray(value))
+      return (
+        value.length > 0 &&
+        value.every((v) => typeof v === "string" && v.length > 0)
+      );
+    return false;
+  };
+  if (!isNonEmpty(options.issuer)) {
+    throw new TypeError(
+      "jwt: `issuer` is required. Set it to the expected `iss` claim value(s) to prevent cross-issuer token replay.",
+    );
+  }
+  if (!isNonEmpty(options.audience)) {
+    throw new TypeError(
+      "jwt: `audience` is required. Set it to the expected `aud` claim value(s) to prevent cross-audience token replay.",
+    );
+  }
+}
+
 /**
  * Create an HMAC signature verifier.
  */
 function createHmacValidator(
   options: JwtHmacOptions,
-): (token: string) => AuthPrincipal | null {
-  const { secret, algorithm = "HS256", clockToleranceSec = 0 } = options;
+): (token: string) => JwtPrincipal | null {
+  const {
+    secret,
+    algorithm = "HS256",
+    clockToleranceSec = 0,
+    issuer,
+    audience,
+  } = options;
 
   if (!secret || typeof secret !== "string") {
     throw new TypeError("jwt: secret must be a non-empty string");
@@ -187,7 +271,7 @@ function createHmacValidator(
 
   const digest = HMAC_ALGORITHMS[algorithm];
 
-  return (token: string): AuthPrincipal | null => {
+  return (token: string): JwtPrincipal | null => {
     const decoded = decodeToken(token);
     if (!decoded) return null;
 
@@ -209,6 +293,7 @@ function createHmacValidator(
     }
 
     if (!checkTemporalClaims(payload, clockToleranceSec)) return null;
+    if (!validateIssuerAudience(payload, issuer, audience)) return null;
     return buildPrincipal(payload);
   };
 }
@@ -218,8 +303,14 @@ function createHmacValidator(
  */
 function createRsaValidator(
   options: JwtRsaOptions,
-): (token: string) => AuthPrincipal | null {
-  const { publicKey, algorithm = "RS256", clockToleranceSec = 0 } = options;
+): (token: string) => JwtPrincipal | null {
+  const {
+    publicKey,
+    algorithm = "RS256",
+    clockToleranceSec = 0,
+    issuer,
+    audience,
+  } = options;
 
   if (!publicKey || typeof publicKey !== "string") {
     throw new TypeError("jwt: publicKey must be a non-empty PEM string");
@@ -232,7 +323,7 @@ function createRsaValidator(
 
   const verifyAlgorithm = RSA_ALGORITHMS[algorithm];
 
-  return (token: string): AuthPrincipal | null => {
+  return (token: string): JwtPrincipal | null => {
     const decoded = decodeToken(token);
     if (!decoded) return null;
 
@@ -248,6 +339,7 @@ function createRsaValidator(
     }
 
     if (!checkTemporalClaims(payload, clockToleranceSec)) return null;
+    if (!validateIssuerAudience(payload, issuer, audience)) return null;
     return buildPrincipal(payload);
   };
 }
@@ -257,33 +349,48 @@ function createRsaValidator(
  * Verifies HMAC or RSA signed JWTs using only `node:crypto` (no external
  * dependencies).
  *
- * Returns an {@link McpHttpAuthOptions} that can be passed directly to
+ * Returns an {@link McpValidatorAuthOptions} that can be passed directly to
  * `mcpPlugin({ auth: jwt({ ... }) })`.
  *
- * On success the validator returns an {@link AuthPrincipal} populated from
+ * On success the validator returns a {@link JwtPrincipal} populated from
  * standard JWT claims (`sub`, `iss`, `aud`, `exp`, `scope`, etc.) with the
  * full decoded payload available in `claims`.
+ *
+ * Security: `issuer` and `audience` are required to bind tokens to the
+ * expected IdP and this resource. Without both checks any valid token from
+ * a trusted signing key would be accepted regardless of who it was issued
+ * for, which allows cross-audience replay.
  *
  * @example
  * ```ts
  * import { mcpPlugin, jwt } from "@routecraft/ai";
  *
- * // HMAC (symmetric) - shared secret
+ * // HMAC (symmetric): shared secret
  * mcpPlugin({
  *   transport: "http",
- *   auth: jwt({ secret: process.env.JWT_SECRET! }),
+ *   auth: jwt({
+ *     secret: process.env.JWT_SECRET!,
+ *     issuer: "https://idp.example.com",
+ *     audience: "https://mcp.example.com",
+ *   }),
  * });
  *
- * // RSA (asymmetric) - public key only
+ * // RSA (asymmetric): public key only
  * mcpPlugin({
  *   transport: "http",
- *   auth: jwt({ algorithm: "RS256", publicKey: process.env.JWT_PUBLIC_KEY! }),
+ *   auth: jwt({
+ *     algorithm: "RS256",
+ *     publicKey: process.env.JWT_PUBLIC_KEY!,
+ *     issuer: "https://idp.example.com",
+ *     audience: "https://mcp.example.com",
+ *   }),
  * });
  * ```
  *
  * @experimental
  */
-export function jwt(options: JwtAuthOptions): McpHttpAuthOptions {
+export function jwt(options: JwtAuthOptions): McpValidatorAuthOptions {
+  assertIssuerAudience(options);
   const validator = isHmac(options)
     ? createHmacValidator(options)
     : createRsaValidator(options);
