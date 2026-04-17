@@ -780,7 +780,7 @@ export class McpServer {
     if (this.toolsListLogged) return;
     const tools = this.getAvailableTools();
     if (tools.length === 0) return;
-    const names = tools.map((t) => t.name ?? "?");
+    const names = tools.map((t) => t.name);
     const exposedDetail = { tools: names, count: names.length };
     this.context.logger.info(exposedDetail, "Exposing MCP tools");
     this.context.emit("plugin:mcp:server:tools:exposed", exposedDetail);

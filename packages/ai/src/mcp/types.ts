@@ -468,9 +468,9 @@ export interface McpToolAnnotations {
   readOnlyHint?: boolean;
   /** If true, the tool may perform destructive operations (default assumed true by clients). */
   destructiveHint?: boolean;
-  /** If true, calling the tool repeatedly with the same args has no additional effect. */
+  /** If true, calling the tool repeatedly with the same args has no additional effect (default assumed false by clients). */
   idempotentHint?: boolean;
-  /** If true, the tool may interact with the "open world" (external systems, network, etc.). */
+  /** If true, the tool may interact with the "open world" (external systems, network, etc.) (default assumed true by clients). */
   openWorldHint?: boolean;
 }
 

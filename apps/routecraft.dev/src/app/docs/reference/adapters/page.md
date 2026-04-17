@@ -1501,8 +1501,8 @@ These mirror the [MCP specification (2025-03-26) `ToolAnnotations`](https://mode
 | `title` | `string` | Human-readable title for the tool (used for display in UIs). |
 | `readOnlyHint` | `boolean` | When `true`, the tool does not modify any state. Clients assume `false` when omitted. |
 | `destructiveHint` | `boolean` | When `true`, the tool may perform destructive operations. Clients assume `true` when omitted. |
-| `idempotentHint` | `boolean` | When `true`, calling the tool repeatedly with the same arguments has no additional effect. |
-| `openWorldHint` | `boolean` | When `true`, the tool may interact with external systems (network, filesystem, etc.). |
+| `idempotentHint` | `boolean` | When `true`, calling the tool repeatedly with the same arguments has no additional effect. Clients assume `false` when omitted. |
+| `openWorldHint` | `boolean` | When `true`, the tool may interact with external systems (network, filesystem, etc.). Clients assume `true` when omitted. |
 
 **Options (McpClientOptions -- destination):**
 

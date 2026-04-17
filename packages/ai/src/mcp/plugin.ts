@@ -15,7 +15,6 @@ import type {
   McpClientStdioConfig,
   McpPluginOptions,
   McpTool,
-  McpToolAnnotations,
 } from "./types.ts";
 import { validateMcpPluginOptions } from "./validate-options.ts";
 import { StdioClientManager } from "./stdio-client-manager.ts";
@@ -199,28 +198,7 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
         ctx.emit(event as EventName, details as Record<string, unknown>);
       },
       (_serverId, tools) => {
-        registry.setToolsForSource(
-          _serverId,
-          "stdio",
-          tools.map((t) => {
-            const entry: {
-              name: string;
-              description?: string;
-              inputSchema: Record<string, unknown>;
-              annotations?: McpToolAnnotations;
-            } = {
-              name: t.name,
-              inputSchema: t.inputSchema as Record<string, unknown>,
-            };
-            if (t.description !== undefined) {
-              entry.description = t.description;
-            }
-            if (t.annotations !== undefined) {
-              entry.annotations = t.annotations;
-            }
-            return entry;
-          }),
-        );
+        registry.setToolsForSource(_serverId, "stdio", tools);
       },
     );
 
@@ -293,28 +271,7 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
 
       const result = await client.listTools();
       const tools = result.tools ?? [];
-      registry.setToolsForSource(
-        serverId,
-        "http",
-        tools.map((t) => {
-          const entry: {
-            name: string;
-            description?: string;
-            inputSchema: Record<string, unknown>;
-            annotations?: McpToolAnnotations;
-          } = {
-            name: t.name,
-            inputSchema: t.inputSchema as Record<string, unknown>,
-          };
-          if (t.description !== undefined) {
-            entry.description = t.description;
-          }
-          if (t.annotations !== undefined) {
-            entry.annotations = t.annotations;
-          }
-          return entry;
-        }),
-      );
+      registry.setToolsForSource(serverId, "http", tools);
 
       ctx.emit(
         `plugin:mcp:client:${serverId}:tools:listed` as EventName,
