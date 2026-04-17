@@ -13,6 +13,8 @@ import type {
   AuthPrincipal,
   McpOAuthAuthOptions,
   McpPluginOptions,
+  McpTool,
+  McpToolAnnotations,
   McpValidatorAuthOptions,
 } from "./types.ts";
 
@@ -778,7 +780,7 @@ export class McpServer {
     if (this.toolsListLogged) return;
     const tools = this.getAvailableTools();
     if (tools.length === 0) return;
-    const names = tools.map((t) => (t["name"] as string) ?? "?");
+    const names = tools.map((t) => t.name);
     const exposedDetail = { tools: names, count: names.length };
     this.context.logger.info(exposedDetail, "Exposing MCP tools");
     this.context.emit("plugin:mcp:server:tools:exposed", exposedDetail);
@@ -789,7 +791,7 @@ export class McpServer {
    * Get list of tools that should be exposed via MCP.
    * Reads the registry lazily - called on every tools/list request and for tests.
    */
-  getAvailableTools(): Array<Record<string, unknown>> {
+  getAvailableTools(): McpTool[] {
     const registry = this.context.getStore(ADAPTER_DIRECT_REGISTRY) as
       | Map<string, DirectRouteMetadata>
       | undefined;
@@ -821,14 +823,21 @@ export class McpServer {
   /**
    * Convert Routecraft mcp() route metadata to MCP tool format
    */
-  private metadataToMcpTool(
-    metadata: DirectRouteMetadata,
-  ): Record<string, unknown> {
-    return {
+  private metadataToMcpTool(metadata: DirectRouteMetadata): McpTool {
+    const tool: McpTool = {
       name: metadata.endpoint,
       description: metadata.description || "",
-      inputSchema: this.schemaToJsonSchema(metadata.schema),
+      inputSchema: this.schemaToJsonSchema(
+        metadata.schema,
+      ) as McpTool["inputSchema"],
     };
+    // metadata.annotations is the core direct-adapter pass-through bag; the
+    // write site (McpServerOptions.annotations) constrains it to McpToolAnnotations,
+    // so this cast restores that type at the read boundary.
+    if (metadata.annotations !== undefined) {
+      tool.annotations = metadata.annotations as McpToolAnnotations;
+    }
+    return tool;
   }
 
   /**

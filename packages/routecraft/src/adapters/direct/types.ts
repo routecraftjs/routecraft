@@ -46,6 +46,13 @@ export interface DirectRouteMetadata {
   schema?: StandardSchemaV1;
   headerSchema?: StandardSchemaV1;
   keywords?: string[];
+  /**
+   * Opaque pass-through for adapter-specific annotations (e.g. MCP tool annotations).
+   * Core routecraft never reads the shape; adapters that wrap direct (such as
+   * `mcp()`) constrain the shape on their own public options type and cast back
+   * when reading from this registry.
+   */
+  annotations?: unknown;
 }
 
 /** Base options shared between source and destination. */
@@ -91,6 +98,13 @@ export interface DirectServerOptions extends DirectBaseOptions {
 
   /** Keywords to help with route discovery and categorization */
   keywords?: string[];
+
+  /**
+   * Opaque pass-through for adapter-specific annotations (e.g. MCP tool annotations).
+   * Core routecraft never reads the shape; adapter wrappers (such as `mcp()` in
+   * `@routecraft/ai`) narrow this to a typed shape on their public options.
+   */
+  annotations?: unknown;
 }
 
 /**

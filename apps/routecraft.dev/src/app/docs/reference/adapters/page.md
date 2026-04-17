@@ -1459,6 +1459,7 @@ craft()
     description: 'Fetch the content of a webpage',
     schema: z.object({ url: z.string().url() }),
     keywords: ['fetch', 'web'],
+    annotations: { readOnlyHint: true, openWorldHint: true },
   }))
   .transform(async ({ url }) => {
     const res = await fetch(url)
@@ -1466,7 +1467,7 @@ craft()
   })
 ```
 
-`description` is required whenever options are passed. Schema and keywords are optional.
+`description` is required whenever options are passed. Schema, keywords, and annotations are optional.
 
 **Destination mode -- call a remote MCP tool:**
 
@@ -1489,6 +1490,19 @@ When using the `serverId` path (recommended), auth configured on the client in `
 | `schema` | `StandardSchemaV1` | No | Body validation schema (Zod, Valibot, ArkType) |
 | `headerSchema` | `StandardSchemaV1` | No | Header validation schema |
 | `keywords` | `string[]` | No | Keywords for discovery and categorization |
+| `annotations` | `McpToolAnnotations` | No | Behavior hints forwarded to MCP clients in the `tools/list` response |
+
+**McpToolAnnotations (optional hint fields, all booleans unless noted):**
+
+These mirror the [MCP specification (2025-03-26) `ToolAnnotations`](https://modelcontextprotocol.io/specification/2025-03-26/server/tools#annotations) shape. They are hints only; clients must not rely on them for correctness or safety.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `title` | `string` | Human-readable title for the tool (used for display in UIs). |
+| `readOnlyHint` | `boolean` | When `true`, the tool does not modify any state. Clients assume `false` when omitted. |
+| `destructiveHint` | `boolean` | When `true`, the tool may perform destructive operations. Clients assume `true` when omitted. |
+| `idempotentHint` | `boolean` | When `true`, calling the tool repeatedly with the same arguments has no additional effect. Clients assume `false` when omitted. |
+| `openWorldHint` | `boolean` | When `true`, the tool may interact with external systems (network, filesystem, etc.). Clients assume `true` when omitted. |
 
 **Options (McpClientOptions -- destination):**
 

@@ -175,6 +175,61 @@ describe("McpServer", () => {
     expect(names).toEqual(["exposed-tool"]);
   });
 
+  /**
+   * @case Annotations from mcp() options are included in getAvailableTools() output
+   * @preconditions Route uses mcp() with annotations
+   * @expectedResult Tool listing includes the annotations object
+   */
+  test("includes annotations in tool listing", async () => {
+    t = await testContext()
+      .routes([
+        craft()
+          .id("annotated")
+          .from(
+            mcp("annotated-tool", {
+              description: "An annotated tool",
+              annotations: {
+                readOnlyHint: true,
+                destructiveHint: false,
+              },
+            }),
+          )
+          .to(noop()),
+      ])
+      .store(MCP_STORE_KEY, true)
+      .build();
+    server = new McpServer(t.ctx);
+    await t.test();
+    const tools = server.getAvailableTools();
+    expect(tools).toHaveLength(1);
+    expect(tools[0].annotations).toEqual({
+      readOnlyHint: true,
+      destructiveHint: false,
+    });
+  });
+
+  /**
+   * @case Tools without annotations omit the field from getAvailableTools()
+   * @preconditions Route uses mcp() without annotations
+   * @expectedResult Tool listing has no annotations key
+   */
+  test("omits annotations when not provided", async () => {
+    t = await testContext()
+      .routes([
+        craft()
+          .id("plain")
+          .from(mcp("plain-tool", { description: "No annotations" }))
+          .to(noop()),
+      ])
+      .store(MCP_STORE_KEY, true)
+      .build();
+    server = new McpServer(t.ctx);
+    await t.test();
+    const tools = server.getAvailableTools();
+    expect(tools).toHaveLength(1);
+    expect(tools[0]).not.toHaveProperty("annotations");
+  });
+
   describe("HTTP transport", () => {
     /** Start HTTP server with given route builders; returns post helper and port. Call initSession() to get session id. */
     async function startHttpServer(
@@ -314,6 +369,55 @@ describe("McpServer", () => {
         (t) => t.name,
       );
       expect(toolNames).toContain("http-tool");
+    });
+
+    /**
+     * @case tools/list JSON-RPC response includes annotations forwarded on the wire
+     * @preconditions HTTP server with a route declaring annotations; initialize then tools/list
+     * @expectedResult The parsed response body contains the annotations object on the matching tool
+     */
+    test("tools/list forwards annotations on the wire", async () => {
+      const { post, initSession } = await startHttpServer([
+        craft()
+          .id("annotated-http")
+          .from(
+            mcp("annotated-http-tool", {
+              description: "Tool with annotations over HTTP",
+              annotations: {
+                title: "Annotated Tool",
+                readOnlyHint: true,
+                destructiveHint: false,
+                idempotentHint: true,
+                openWorldHint: false,
+              },
+            }),
+          )
+          .to(noop()),
+      ]);
+
+      const sessionId = await initSession();
+      const listBody = JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/list",
+        params: {},
+      });
+      const response = await post(listBody, sessionId);
+      expect(response.statusCode).toBe(200);
+      const parsed = JSON.parse(response.body);
+      const tools = parsed.result.tools as Array<{
+        name: string;
+        annotations?: Record<string, unknown>;
+      }>;
+      const annotated = tools.find((t) => t.name === "annotated-http-tool");
+      expect(annotated).toBeDefined();
+      expect(annotated?.annotations).toEqual({
+        title: "Annotated Tool",
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      });
     });
 
     /**

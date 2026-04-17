@@ -454,12 +454,47 @@ export interface McpPluginOptions {
 }
 
 /**
+ * MCP tool annotations describing tool behavior to clients.
+ * All properties are hints; clients should not rely on them for correctness or safety.
+ *
+ * Mirrors the MCP specification (2025-03-26) `ToolAnnotations` shape.
+ *
+ * @see https://modelcontextprotocol.io/specification/2025-03-26/server/tools#annotations
+ */
+export interface McpToolAnnotations {
+  /** Human-readable title for the tool (used for display in UIs). */
+  title?: string;
+  /** If true, the tool does not modify any state (default assumed false by clients). */
+  readOnlyHint?: boolean;
+  /** If true, the tool may perform destructive operations (default assumed true by clients). */
+  destructiveHint?: boolean;
+  /** If true, calling the tool repeatedly with the same args has no additional effect (default assumed false by clients). */
+  idempotentHint?: boolean;
+  /** If true, the tool may interact with the "open world" (external systems, network, etc.) (default assumed true by clients). */
+  openWorldHint?: boolean;
+}
+
+/**
  * Options for mcp() when used as a server in .from().
  * Description is required for AI/MCP discoverability.
  */
 export interface McpServerOptions extends DirectServerOptions {
   /** Human-readable description (required for MCP tools). */
   description: string;
+
+  /**
+   * MCP tool annotations describing behavior hints (read-only, destructive, etc.).
+   * Passed to MCP clients in the tool listing response.
+   *
+   * @example
+   * ```ts
+   * .from(mcp("list-users", {
+   *   description: "List all users",
+   *   annotations: { readOnlyHint: true, destructiveHint: false },
+   * }))
+   * ```
+   */
+  annotations?: McpToolAnnotations;
 }
 
 export type McpOptions = McpServerOptions;
@@ -514,6 +549,8 @@ export interface McpTool {
     required?: string[];
     [key: string]: unknown;
   };
+  /** MCP tool annotations (behavior hints) reported by the server. */
+  annotations?: McpToolAnnotations;
 }
 
 /**
@@ -527,10 +564,15 @@ export interface McpToolRegistryEntry {
   description?: string;
   /** JSON Schema for tool input. */
   inputSchema: Record<string, unknown>;
-  /** Source server ID. Local mcp() routes use "local". */
+  /** Source server ID (e.g. a stdio/HTTP client name). */
   source: string;
-  /** Transport type of the source. */
+  /**
+   * Transport type of the source. stdio/http are populated automatically by mcpPlugin.
+   * "local" is reserved for callers who manually register tools with local provenance.
+   */
   transport: "stdio" | "http" | "local";
+  /** MCP tool annotations (behavior hints). */
+  annotations?: McpToolAnnotations;
 }
 
 /**

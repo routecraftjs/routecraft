@@ -23,19 +23,19 @@
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
-    "@routecraft/routecraft": "^0.5.0",
+    "@routecraft/routecraft": "workspace:^0.5.0",
     "@standard-schema/spec": "^1.1.0",
-    "ai": "^6.0.116"
+    "ai": "^6.0.168"
   },
   "devDependencies": {
-    "@ai-sdk/anthropic": "^3.0.58",
-    "@ai-sdk/google": "^3.0.43",
-    "@ai-sdk/openai": "^3.0.41",
+    "@ai-sdk/anthropic": "^3.0.71",
+    "@ai-sdk/google": "^3.0.64",
+    "@ai-sdk/openai": "^3.0.53",
     "@huggingface/transformers": "^3.8.1",
-    "@modelcontextprotocol/sdk": "^1.27.1",
-    "@openrouter/ai-sdk-provider": "^2.3.3",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@openrouter/ai-sdk-provider": "^2.8.0",
     "ollama-ai-provider-v2": "^3.5.0",
-    "vitest": "^4.1.0",
+    "vitest": "^4.1.4",
     "zod": "^4.3.6"
   },
   "peerDependencies": {

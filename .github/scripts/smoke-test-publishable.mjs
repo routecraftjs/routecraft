@@ -96,6 +96,6 @@ if (!existsSync(examplePath)) {
 const smokeSrc = join(smokeDir, "src");
 mkdirSync(smokeSrc, { recursive: true });
 cpSync(examplePath, join(smokeSrc, "hello-world.ts"));
-run("npx craft run --log-level debug src/hello-world.ts", { cwd: smokeDir });
+run("npx craft --log-level debug run src/hello-world.ts", { cwd: smokeDir });
 
 console.log("\nSmoke test passed.");

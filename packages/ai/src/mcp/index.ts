@@ -23,6 +23,7 @@ export {
   type McpPluginOptions,
   type McpServerOptions,
   type McpTool,
+  type McpToolAnnotations,
   type McpToolRegistryEntry,
   type McpToolResult,
   type McpValidatorAuthOptions,

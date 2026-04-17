@@ -171,6 +171,66 @@ describe("mcp() DSL function", () => {
   });
 
   /**
+   * @case mcp() with annotations registers them in route metadata
+   * @preconditions Route uses mcp() with description and annotations
+   * @expectedResult Registry contains endpoint with annotations
+   */
+  test("mcp() with annotations registers them in metadata", async () => {
+    t = await testContext()
+      .routes([
+        craft()
+          .id("read-only-tool")
+          .from(
+            mcp("list-items", {
+              description: "List items",
+              annotations: {
+                readOnlyHint: true,
+                destructiveHint: false,
+                idempotentHint: true,
+                openWorldHint: false,
+              },
+            }),
+          )
+          .to(vi.fn()),
+      ])
+      .with({ plugins: [mcpPlugin()] })
+      .build();
+
+    await t.test();
+    const registry = t.ctx.getStore(ADAPTER_DIRECT_REGISTRY);
+    expect(registry).toBeDefined();
+    const metadata = registry?.get("list-items");
+    expect(metadata?.annotations).toEqual({
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    });
+  });
+
+  /**
+   * @case mcp() without annotations omits the field from metadata
+   * @preconditions Route uses mcp() with description but no annotations
+   * @expectedResult Registry entry has no annotations property
+   */
+  test("mcp() without annotations omits field from metadata", async () => {
+    t = await testContext()
+      .routes([
+        craft()
+          .id("no-annot-tool")
+          .from(mcp("plain-tool", { description: "A plain tool" }))
+          .to(vi.fn()),
+      ])
+      .with({ plugins: [mcpPlugin()] })
+      .build();
+
+    await t.test();
+    const registry = t.ctx.getStore(ADAPTER_DIRECT_REGISTRY);
+    const metadata = registry?.get("plain-tool");
+    expect(metadata?.annotations).toBeUndefined();
+  });
+
+  /**
    * @case mcp() with McpClientOptions returns McpAdapter (facade) for remote server
    * @preconditions Call mcp({ url, tool })
    * @expectedResult Returns adapter with adapterId routecraft.adapter.mcp and send method

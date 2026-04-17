@@ -1,13 +1,17 @@
-import type { McpToolRegistryEntry } from "./types.ts";
+import type { McpTool, McpToolRegistryEntry } from "./types.ts";
 
 /**
- * Central registry of all MCP tools from all sources.
+ * Central registry of MCP tools discovered from remote MCP servers.
  * Stored in context store under MCP_TOOL_REGISTRY for agent adapter discovery.
  *
- * Sources:
- * - "local": mcp() routes from ADAPTER_DIRECT_REGISTRY (tools exposed by this context)
+ * Populated automatically by mcpPlugin for these sources:
  * - stdio clients: long-lived subprocess MCP servers
  * - HTTP clients: remote HTTP MCP servers (tools refreshed periodically)
+ *
+ * Local `mcp()` routes defined in the same context are NOT auto-populated here;
+ * they are read directly from ADAPTER_DIRECT_REGISTRY by the MCP server when
+ * responding to `tools/list`. The "local" transport label remains a valid value
+ * for callers that want to manually register tools with that provenance.
  *
  * @experimental
  */
@@ -26,23 +30,22 @@ export class McpToolRegistry {
   setToolsForSource(
     source: string,
     transport: "stdio" | "http" | "local",
-    tools: Array<{
-      name: string;
-      description?: string;
-      inputSchema: Record<string, unknown>;
-    }>,
+    tools: McpTool[],
   ): void {
     const sourceMap = new Map<string, McpToolRegistryEntry>();
 
     for (const tool of tools) {
       const entry: McpToolRegistryEntry = {
         name: tool.name,
-        inputSchema: tool.inputSchema,
+        inputSchema: tool.inputSchema as Record<string, unknown>,
         source,
         transport,
       };
       if (tool.description !== undefined) {
         entry.description = tool.description;
+      }
+      if (tool.annotations !== undefined) {
+        entry.annotations = tool.annotations;
       }
       sourceMap.set(tool.name, entry);
     }
