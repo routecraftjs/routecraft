@@ -73,7 +73,10 @@ export interface OAuthFactoryOptions {
  *       tokenUrl: "https://idp.example.com/token",
  *     },
  *     verifyAccessToken: async (token) => {
- *       const { payload } = await jwtVerify(token, jwks);
+ *       const { payload } = await jwtVerify(token, jwks, {
+ *         issuer: "https://idp.example.com",
+ *         audience: "https://mcp.example.com",
+ *       });
  *       return {
  *         kind: "oauth",
  *         scheme: "bearer",

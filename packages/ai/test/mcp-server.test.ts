@@ -1802,4 +1802,108 @@ describe("McpServer", () => {
       );
     });
   });
+
+  describe("authInfoToPrincipal fallback", () => {
+    /**
+     * @case Fallback derives a minimal OAuthPrincipal when extra.principal is absent
+     * @preconditions Caller passes a raw SdkAuthInfo without a stashed principal in extra
+     * @expectedResult Returns OAuthPrincipal with subject == clientId, scopes copied through, expiresAt preserved
+     */
+    test("fallback derives OAuthPrincipal from bare SdkAuthInfo", async () => {
+      t = await testContext().build();
+      server = new McpServer(t.ctx);
+      const anyServer = server as unknown as {
+        authInfoToPrincipal: (info: unknown) => unknown;
+      };
+
+      const principal = anyServer.authInfoToPrincipal({
+        token: "t",
+        clientId: "client-abc",
+        scopes: ["read"],
+        expiresAt: 1234,
+      });
+
+      expect(principal).toMatchObject({
+        kind: "oauth",
+        scheme: "bearer",
+        subject: "client-abc",
+        clientId: "client-abc",
+        scopes: ["read"],
+        expiresAt: 1234,
+      });
+    });
+
+    /**
+     * @case Fallback omits expiresAt when it is absent on the SdkAuthInfo
+     * @preconditions SdkAuthInfo without expiresAt and without extra.principal
+     * @expectedResult Returned principal has no expiresAt key
+     */
+    test("fallback omits expiresAt when absent", async () => {
+      t = await testContext().build();
+      server = new McpServer(t.ctx);
+      const anyServer = server as unknown as {
+        authInfoToPrincipal: (info: unknown) => Record<string, unknown>;
+      };
+
+      const principal = anyServer.authInfoToPrincipal({
+        token: "t",
+        clientId: "client-abc",
+        scopes: [],
+      });
+
+      expect(principal).toMatchObject({
+        kind: "oauth",
+        subject: "client-abc",
+        clientId: "client-abc",
+      });
+      expect(principal["expiresAt"]).toBeUndefined();
+    });
+
+    /**
+     * @case Stashed principal in extra.principal is preferred over fallback
+     * @preconditions SdkAuthInfo carries extra.principal with a full OAuthPrincipal whose subject differs from clientId
+     * @expectedResult Returns the stashed principal verbatim (subject is not overwritten with clientId)
+     */
+    test("uses stashed principal when present, preserving subject != clientId", async () => {
+      t = await testContext().build();
+      server = new McpServer(t.ctx);
+      const anyServer = server as unknown as {
+        authInfoToPrincipal: (info: unknown) => Record<string, unknown>;
+      };
+
+      const stashed = {
+        kind: "oauth" as const,
+        scheme: "bearer" as const,
+        subject: "real-user-42",
+        clientId: "client-abc",
+        scopes: ["read", "write"],
+        email: "user@example.com",
+      };
+
+      const principal = anyServer.authInfoToPrincipal({
+        token: "t",
+        clientId: "client-abc",
+        scopes: ["read", "write"],
+        extra: { principal: stashed },
+      });
+
+      expect(principal).toEqual(stashed);
+      expect(principal["subject"]).toBe("real-user-42");
+    });
+
+    /**
+     * @case Returns undefined for undefined input
+     * @preconditions Caller passes undefined (no auth on the request)
+     * @expectedResult undefined (no principal to surface)
+     */
+    test("returns undefined when authInfo is undefined", async () => {
+      t = await testContext().build();
+      server = new McpServer(t.ctx);
+      const anyServer = server as unknown as {
+        authInfoToPrincipal: (info: unknown) => unknown;
+      };
+
+      expect(anyServer.authInfoToPrincipal(undefined)).toBeUndefined();
+    });
+  });
 });

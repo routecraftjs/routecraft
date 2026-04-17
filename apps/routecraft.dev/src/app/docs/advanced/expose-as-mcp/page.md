@@ -115,7 +115,11 @@ export default {
     mcpPlugin({
       transport: 'http',
       port: 3001,
-      auth: jwt({ secret: process.env.JWT_SECRET! }),
+      auth: jwt({
+        secret: process.env.JWT_SECRET!,
+        issuer: 'https://idp.example.com',
+        audience: 'https://mcp.example.com',
+      }),
     }),
   ],
 }
@@ -174,14 +178,22 @@ When using HTTP transport, secure the endpoint with the `auth` option. Routecraf
 import { jwt } from '@routecraft/ai'
 
 // HMAC (HS256, default)
-auth: jwt({ secret: process.env.JWT_SECRET! })
+auth: jwt({
+  secret: process.env.JWT_SECRET!,
+  issuer: 'https://idp.example.com',
+  audience: 'https://mcp.example.com',
+})
 
 // RSA (RS256)
 auth: jwt({
   algorithm: 'RS256',
   publicKey: fs.readFileSync('./public.pem', 'utf-8'),
+  issuer: 'https://idp.example.com',
+  audience: 'https://mcp.example.com',
 })
 ```
+
+The `issuer` and `audience` options are optional but strongly recommended in multi-tenant or federated deployments. Without them, any valid token from a trusted signing key is accepted regardless of who it was issued for, which enables cross-audience replay. Both fields accept a single string or an array of accepted values.
 
 For other auth schemes, pass a custom `validator` function:
 
@@ -217,7 +229,10 @@ auth: oauth({
     tokenUrl: 'https://idp.example.com/token',
   },
   verifyAccessToken: async (token) => {
-    const { payload } = await jwtVerify(token, jwks)
+    const { payload } = await jwtVerify(token, jwks, {
+      issuer: 'https://idp.example.com',
+      audience: 'https://mcp.example.com',
+    })
     return {
       kind: 'oauth',
       scheme: 'bearer',
