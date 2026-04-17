@@ -461,7 +461,7 @@ export interface McpPluginOptions {
  *
  * @see https://modelcontextprotocol.io/specification/2025-03-26/server/tools#annotations
  */
-export interface McpToolAnnotations extends Record<string, unknown> {
+export interface McpToolAnnotations {
   /** Human-readable title for the tool (used for display in UIs). */
   title?: string;
   /** If true, the tool does not modify any state (default assumed false by clients). */
@@ -549,6 +549,8 @@ export interface McpTool {
     required?: string[];
     [key: string]: unknown;
   };
+  /** MCP tool annotations (behavior hints) reported by the server. */
+  annotations?: McpToolAnnotations;
 }
 
 /**
@@ -562,9 +564,12 @@ export interface McpToolRegistryEntry {
   description?: string;
   /** JSON Schema for tool input. */
   inputSchema: Record<string, unknown>;
-  /** Source server ID. Local mcp() routes use "local". */
+  /** Source server ID (e.g. a stdio/HTTP client name). */
   source: string;
-  /** Transport type of the source. */
+  /**
+   * Transport type of the source. stdio/http are populated automatically by mcpPlugin.
+   * "local" is reserved for callers who manually register tools with local provenance.
+   */
   transport: "stdio" | "http" | "local";
   /** MCP tool annotations (behavior hints). */
   annotations?: McpToolAnnotations;

@@ -372,6 +372,55 @@ describe("McpServer", () => {
     });
 
     /**
+     * @case tools/list JSON-RPC response includes annotations forwarded on the wire
+     * @preconditions HTTP server with a route declaring annotations; initialize then tools/list
+     * @expectedResult The parsed response body contains the annotations object on the matching tool
+     */
+    test("tools/list forwards annotations on the wire", async () => {
+      const { post, initSession } = await startHttpServer([
+        craft()
+          .id("annotated-http")
+          .from(
+            mcp("annotated-http-tool", {
+              description: "Tool with annotations over HTTP",
+              annotations: {
+                title: "Annotated Tool",
+                readOnlyHint: true,
+                destructiveHint: false,
+                idempotentHint: true,
+                openWorldHint: false,
+              },
+            }),
+          )
+          .to(noop()),
+      ]);
+
+      const sessionId = await initSession();
+      const listBody = JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/list",
+        params: {},
+      });
+      const response = await post(listBody, sessionId);
+      expect(response.statusCode).toBe(200);
+      const parsed = JSON.parse(response.body);
+      const tools = parsed.result.tools as Array<{
+        name: string;
+        annotations?: Record<string, unknown>;
+      }>;
+      const annotated = tools.find((t) => t.name === "annotated-http-tool");
+      expect(annotated).toBeDefined();
+      expect(annotated?.annotations).toEqual({
+        title: "Annotated Tool",
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      });
+    });
+
+    /**
      * @case tools/call request body is passed into the exchange as an object
      * @preconditions HTTP server with capture route; initialize then tools/call with JSON arguments
      * @expectedResult Exchange body is an object with the argument keys

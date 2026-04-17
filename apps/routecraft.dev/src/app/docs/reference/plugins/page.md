@@ -112,7 +112,7 @@ import { mcpPlugin } from '@routecraft/ai'
 
 Starts an MCP server so capabilities exposed with `.from(mcp(...))` are reachable by external MCP clients. Also registers named remote MCP clients (HTTP or stdio subprocess) so capabilities can call external MCP servers by a short server id. Required when any capability uses `mcp()` as a source.
 
-All tools from every source (local routes, stdio clients, HTTP clients) are collected into a unified `McpToolRegistry` stored in the context store under `MCP_TOOL_REGISTRY`.
+Tools discovered from remote MCP servers (stdio clients and HTTP clients) are collected into an `McpToolRegistry` stored in the context store under `MCP_TOOL_REGISTRY`. Local `mcp()` routes defined in the same context are not auto-populated into this registry; the MCP server reads them directly from the direct-adapter registry when responding to `tools/list`.
 
 ```ts
 import { mcpPlugin, jwt } from '@routecraft/ai'

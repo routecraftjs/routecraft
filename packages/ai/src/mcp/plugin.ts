@@ -15,6 +15,7 @@ import type {
   McpClientStdioConfig,
   McpPluginOptions,
   McpTool,
+  McpToolAnnotations,
 } from "./types.ts";
 import { validateMcpPluginOptions } from "./validate-options.ts";
 import { StdioClientManager } from "./stdio-client-manager.ts";
@@ -206,12 +207,16 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
               name: string;
               description?: string;
               inputSchema: Record<string, unknown>;
+              annotations?: McpToolAnnotations;
             } = {
               name: t.name,
               inputSchema: t.inputSchema as Record<string, unknown>,
             };
             if (t.description !== undefined) {
               entry.description = t.description;
+            }
+            if (t.annotations !== undefined) {
+              entry.annotations = t.annotations;
             }
             return entry;
           }),
@@ -296,12 +301,16 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
             name: string;
             description?: string;
             inputSchema: Record<string, unknown>;
+            annotations?: McpToolAnnotations;
           } = {
             name: t.name,
             inputSchema: t.inputSchema as Record<string, unknown>,
           };
           if (t.description !== undefined) {
             entry.description = t.description;
+          }
+          if (t.annotations !== undefined) {
+            entry.annotations = t.annotations;
           }
           return entry;
         }),
