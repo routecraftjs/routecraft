@@ -72,7 +72,6 @@ describe("Event Source Adapter", () => {
     t = await testContext().routes([eventRoute, triggerRoute]).build();
 
     const started = t.ctx.start();
-    await new Promise((r) => setTimeout(r, 100));
     await t.stop();
     await started;
 
@@ -104,7 +103,6 @@ describe("Event Source Adapter", () => {
     t = await testContext().routes([eventRoute, triggerRoute]).build();
 
     const started = t.ctx.start();
-    await new Promise((r) => setTimeout(r, 100));
     await t.stop();
     await started;
 
@@ -148,7 +146,6 @@ describe("Event Source Adapter", () => {
     t = await testContext().routes([eventRoute, triggerRoute]).build();
 
     const started = t.ctx.start();
-    await new Promise((r) => setTimeout(r, 100));
     await t.stop();
     await started;
 
@@ -174,7 +171,6 @@ describe("Event Source Adapter", () => {
     t = await testContext().routes(eventRoute).build();
 
     const started = t.ctx.start();
-    await new Promise((r) => setTimeout(r, 100));
     await t.stop();
     await started;
 
@@ -219,7 +215,6 @@ describe("Event Source Adapter", () => {
     t = await testContext().routes([eventRoute, triggerRoute]).build();
 
     const started = t.ctx.start();
-    await new Promise((r) => setTimeout(r, 100));
     await t.stop();
     await started;
 
@@ -264,7 +259,6 @@ describe("Event Source Adapter", () => {
     t = await testContext().routes([monitorRoute, workRoute]).build();
 
     const started = t.ctx.start();
-    await new Promise((r) => setTimeout(r, 100));
     await t.stop();
     await started;
 
@@ -381,7 +375,6 @@ describe("Event Source Adapter", () => {
     t = await testContext().routes([eventRoute, triggerRoute]).build();
 
     const started = t.ctx.start();
-    await new Promise((r) => setTimeout(r, 100));
     await t.stop();
     await started;
 

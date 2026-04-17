@@ -1,22 +1,28 @@
-import { describe, test, expect, beforeEach, afterEach } from "vitest";
+import { describe, test, expect } from "vitest";
 import { mkdir, rm, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
-import { execSync, type ExecSyncOptions } from "node:child_process";
+import { exec, type ExecOptions } from "node:child_process";
+import { promisify } from "node:util";
 import { generateProjectStructure, type InitOptions } from "../src/lib.js";
+
+const execAsync = promisify(exec);
 
 /**
  * Run a shell command, capturing stdout/stderr. On failure the output is
  * included in the thrown error so CI logs show what went wrong.
+ *
+ * Uses async exec (not execSync) so concurrent tests can actually overlap;
+ * execSync would block the event loop and serialise them.
  */
-function run(cmd: string, opts: ExecSyncOptions): void {
+async function run(cmd: string, opts: ExecOptions): Promise<void> {
   try {
-    execSync(cmd, { ...opts, stdio: "pipe" });
+    await execAsync(cmd, opts);
   } catch (error) {
-    const err = error as { stdout?: Buffer; stderr?: Buffer; message: string };
-    const stdout = err.stdout?.toString().trim();
-    const stderr = err.stderr?.toString().trim();
+    const err = error as { stdout?: string; stderr?: string; message: string };
+    const stdout = err.stdout?.trim();
+    const stderr = err.stderr?.trim();
     const details = [stdout, stderr].filter(Boolean).join("\n");
     throw new Error(`Command failed: ${cmd}\n${details}`);
   }
@@ -81,85 +87,76 @@ async function patchDepsToLocal(projectDir: string): Promise<void> {
   await writeFile(pkgPath, JSON.stringify(pkg, null, 2));
 }
 
+/**
+ * Allocate a fresh tmpdir for a single test and guarantee cleanup. Using a
+ * per-test helper (instead of shared describe-scoped state) lets the
+ * install-heavy tests run with test.concurrent without racing on the path.
+ */
+async function withProjectDir(
+  fn: (dir: string) => Promise<void>,
+): Promise<void> {
+  const dir = join(
+    tmpdir(),
+    `rc-integ-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
+  await mkdir(dir, { recursive: true });
+  try {
+    await fn(dir);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
 describe("integration: scaffolded project compiles", () => {
-  let projectDir: string;
-
-  beforeEach(async () => {
-    projectDir = join(
-      tmpdir(),
-      `rc-integ-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    );
-    await mkdir(projectDir, { recursive: true });
-  });
-
-  afterEach(async () => {
-    await rm(projectDir, { recursive: true, force: true });
-  });
-
   /**
    * @case Scaffolded empty project passes TypeScript type checking
    * @preconditions Empty project scaffolded, dependencies installed
    * @expectedResult tsc --noEmit exits without errors
    */
-  integrationTest(
+  integrationTest.concurrent(
     "empty project passes tsc --noEmit",
     { timeout: 120_000 },
     async () => {
-      await generateProjectStructure(
-        projectDir,
-        makeOptions({ packageManager: "pnpm" }),
-      );
-      await patchDepsToLocal(projectDir);
+      await withProjectDir(async (projectDir) => {
+        await generateProjectStructure(
+          projectDir,
+          makeOptions({ packageManager: "pnpm" }),
+        );
+        await patchDepsToLocal(projectDir);
 
-      run("pnpm install --no-frozen-lockfile", { cwd: projectDir });
+        await run("pnpm install --no-frozen-lockfile", { cwd: projectDir });
 
-      run("pnpm exec tsc --noEmit", { cwd: projectDir });
+        await run("pnpm exec tsc --noEmit", { cwd: projectDir });
+      });
     },
   );
 
   /**
-   * @case Scaffolded hello-world project passes TypeScript type checking
+   * @case Scaffolded hello-world project type-checks and runs successfully
    * @preconditions Hello-world project scaffolded, dependencies installed
-   * @expectedResult tsc --noEmit exits without errors
+   * @expectedResult tsc --noEmit passes and craft run exits successfully
    */
-  integrationTest(
-    "hello-world project passes tsc --noEmit",
+  integrationTest.concurrent(
+    "hello-world project type-checks and runs via craft",
     { timeout: 120_000 },
     async () => {
-      await generateProjectStructure(
-        projectDir,
-        makeOptions({ example: "hello-world", packageManager: "pnpm" }),
-      );
-      await patchDepsToLocal(projectDir);
+      await withProjectDir(async (projectDir) => {
+        await generateProjectStructure(
+          projectDir,
+          makeOptions({ example: "hello-world", packageManager: "pnpm" }),
+        );
+        await patchDepsToLocal(projectDir);
 
-      run("pnpm install --no-frozen-lockfile", { cwd: projectDir });
+        await run("pnpm install --no-frozen-lockfile", { cwd: projectDir });
 
-      run("pnpm exec tsc --noEmit", { cwd: projectDir });
-    },
-  );
+        await run("pnpm exec tsc --noEmit", { cwd: projectDir });
 
-  /**
-   * @case Scaffolded hello-world project can be executed with craft run
-   * @preconditions Hello-world project scaffolded, dependencies installed
-   * @expectedResult craft run index.ts exits successfully (the hello-world route is finite)
-   */
-  integrationTest(
-    "hello-world project runs successfully with craft run",
-    { timeout: 120_000 },
-    async () => {
-      await generateProjectStructure(
-        projectDir,
-        makeOptions({ example: "hello-world", packageManager: "pnpm" }),
-      );
-      await patchDepsToLocal(projectDir);
-
-      run("pnpm install --no-frozen-lockfile", { cwd: projectDir });
-
-      // The hello-world route is finite (simple source produces one message then stops),
-      // so craft run should exit on its own.
-      run("pnpm exec craft run index.ts", {
-        cwd: projectDir,
-        timeout: 30_000,
+        // The hello-world route is finite (simple source produces one message then stops),
+        // so craft run should exit on its own.
+        await run("pnpm exec craft run index.ts", {
+          cwd: projectDir,
+          timeout: 30_000,
+        });
       });
     },
   );
@@ -169,26 +166,31 @@ describe("integration: scaffolded project compiles", () => {
    * @preconditions Hello-world project scaffolded
    * @expectedResult All files at root level, no src/ directory
    */
-  test("hello-world project has correct flat file structure", async () => {
-    await generateProjectStructure(
-      projectDir,
-      makeOptions({ example: "hello-world" }),
-    );
+  test.concurrent(
+    "hello-world project has correct flat file structure",
+    async () => {
+      await withProjectDir(async (projectDir) => {
+        await generateProjectStructure(
+          projectDir,
+          makeOptions({ example: "hello-world" }),
+        );
 
-    const entries = await readdir(projectDir, { withFileTypes: true });
-    const dirs = entries.filter((e) => e.isDirectory()).map((e) => e.name);
-    const files = entries.filter((e) => e.isFile()).map((e) => e.name);
+        const entries = await readdir(projectDir, { withFileTypes: true });
+        const dirs = entries.filter((e) => e.isDirectory()).map((e) => e.name);
+        const files = entries.filter((e) => e.isFile()).map((e) => e.name);
 
-    // Expected directories
-    expect(dirs).toContain("capabilities");
-    expect(dirs).toContain("adapters");
-    expect(dirs).toContain("plugins");
-    expect(dirs).not.toContain("src");
+        // Expected directories
+        expect(dirs).toContain("capabilities");
+        expect(dirs).toContain("adapters");
+        expect(dirs).toContain("plugins");
+        expect(dirs).not.toContain("src");
 
-    // Expected files
-    expect(files).toContain("index.ts");
-    expect(files).toContain("package.json");
-    expect(files).toContain("craft.config.ts");
-    expect(files).toContain("tsconfig.json");
-  });
+        // Expected files
+        expect(files).toContain("index.ts");
+        expect(files).toContain("package.json");
+        expect(files).toContain("craft.config.ts");
+        expect(files).toContain("tsconfig.json");
+      });
+    },
+  );
 });
