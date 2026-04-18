@@ -2,8 +2,8 @@ import { createHmac, createVerify, timingSafeEqual } from "node:crypto";
 import type {
   ClaimMappers,
   JwtAudience,
-  Principal,
-  ValidatorAuthOptions,
+  OAuthPrincipal,
+  OAuthValidatorAuthOptions,
 } from "./types.ts";
 import { assertIssuerAudience, principalFromJwtPayload } from "./jwt-utils.ts";
 
@@ -61,11 +61,6 @@ export interface JwtHmacOptions {
    * Required to prevent cross-audience token replay.
    */
   audience: JwtAudience;
-  /**
-   * Require the token to carry an `exp` claim. Default: `true`.
-   * Set to `false` only when the IdP intentionally emits non-expiring tokens.
-   */
-  requireExp?: boolean;
   /** Optional per-claim overrides for non-standard IdPs. */
   claims?: ClaimMappers;
 }
@@ -101,11 +96,6 @@ export interface JwtRsaOptions {
    * Required to prevent cross-audience token replay.
    */
   audience: JwtAudience;
-  /**
-   * Require the token to carry an `exp` claim. Default: `true`.
-   * Set to `false` only when the IdP intentionally emits non-expiring tokens.
-   */
-  requireExp?: boolean;
   /** Optional per-claim overrides for non-standard IdPs. */
   claims?: ClaimMappers;
 }
@@ -150,22 +140,19 @@ function decodeToken(token: string): {
 }
 
 /**
- * Check `exp` and `nbf` temporal claims.
- * Returns `true` if the token is within valid time bounds.
- * When `requireExp` is `true`, tokens without an `exp` claim are rejected.
+ * Check `exp` and `nbf` temporal claims. Tokens without an `exp` claim are
+ * rejected unconditionally: every token verified by `jwt()` feeds into flows
+ * that require a bearer-token expiry (see {@link OAuthPrincipal}).
  */
 function checkTemporalClaims(
   payload: Record<string, unknown>,
   clockToleranceSec: number,
-  requireExp: boolean,
 ): boolean {
   const now = Math.floor(Date.now() / 1000);
 
-  if (typeof payload["exp"] === "number") {
-    if (now > payload["exp"] + clockToleranceSec) return false;
-  } else if (requireExp) {
-    return false;
-  }
+  if (typeof payload["exp"] !== "number") return false;
+  if (now > payload["exp"] + clockToleranceSec) return false;
+
   if (typeof payload["nbf"] === "number") {
     if (now < payload["nbf"] - clockToleranceSec) return false;
   }
@@ -213,14 +200,13 @@ function isHmac(options: JwtAuthOptions): options is JwtHmacOptions {
  */
 function createHmacValidator(
   options: JwtHmacOptions,
-): (token: string) => Promise<Principal> {
+): (token: string) => Promise<OAuthPrincipal> {
   const {
     secret,
     algorithm = "HS256",
     clockToleranceSec = 0,
     issuer,
     audience,
-    requireExp = true,
     claims,
   } = options;
 
@@ -235,7 +221,7 @@ function createHmacValidator(
 
   const digest = HMAC_ALGORITHMS[algorithm];
 
-  return async (token: string): Promise<Principal> => {
+  return async (token: string): Promise<OAuthPrincipal> => {
     const decoded = decodeToken(token);
     if (!decoded) throw new Error("jwt: malformed token");
 
@@ -257,7 +243,7 @@ function createHmacValidator(
       throw new Error("jwt: invalid signature");
     }
 
-    if (!checkTemporalClaims(payload, clockToleranceSec, requireExp))
+    if (!checkTemporalClaims(payload, clockToleranceSec))
       throw new Error("jwt: token expired or not yet valid");
     if (!validateIssuerAudience(payload, issuer, audience))
       throw new Error("jwt: invalid issuer or audience");
@@ -274,14 +260,13 @@ function createHmacValidator(
  */
 function createRsaValidator(
   options: JwtRsaOptions,
-): (token: string) => Promise<Principal> {
+): (token: string) => Promise<OAuthPrincipal> {
   const {
     publicKey,
     algorithm = "RS256",
     clockToleranceSec = 0,
     issuer,
     audience,
-    requireExp = true,
     claims,
   } = options;
 
@@ -296,7 +281,7 @@ function createRsaValidator(
 
   const verifyAlgorithm = RSA_ALGORITHMS[algorithm];
 
-  return async (token: string): Promise<Principal> => {
+  return async (token: string): Promise<OAuthPrincipal> => {
     const decoded = decodeToken(token);
     if (!decoded) throw new Error("jwt: malformed token");
 
@@ -312,7 +297,7 @@ function createRsaValidator(
       throw new Error("jwt: invalid signature");
     }
 
-    if (!checkTemporalClaims(payload, clockToleranceSec, requireExp))
+    if (!checkTemporalClaims(payload, clockToleranceSec))
       throw new Error("jwt: token expired or not yet valid");
     if (!validateIssuerAudience(payload, issuer, audience))
       throw new Error("jwt: invalid issuer or audience");
@@ -329,16 +314,19 @@ function createRsaValidator(
  * Verifies HMAC or RSA signed JWTs using only `node:crypto` (no external
  * dependencies).
  *
- * Returns a {@link ValidatorAuthOptions} that can be passed directly to
- * `mcpPlugin({ auth: jwt({ ... }) })`.
+ * Returns an {@link OAuthValidatorAuthOptions} that can be passed directly to
+ * `mcpPlugin({ auth: jwt({ ... }) })` or `oauth({ verify: jwt({ ... }) })`.
+ * Because the return type guarantees an {@link OAuthPrincipal}, it is also
+ * structurally assignable wherever a plain `ValidatorAuthOptions` is accepted.
  *
- * On success the validator returns a {@link Principal} (`kind: "jwt"`) populated
- * from standard JWT claims (`sub`, `iss`, `aud`, `exp`, `scope`, etc.) with the
- * full decoded payload available in `claims`.
+ * On success the validator returns an {@link OAuthPrincipal} (`kind: "jwt"`)
+ * populated from standard JWT claims (`sub`, `iss`, `aud`, `exp`, `scope`,
+ * etc.) with the full decoded payload available in `claims`.
  *
  * Security: `issuer` is required to bind tokens to the expected IdP and prevent
  * cross-issuer replay. `audience` is required (or explicitly set to `"*"` to
  * opt out) to bind tokens to this resource and prevent cross-audience replay.
+ * Tokens without an `exp` claim are always rejected.
  *
  * @example
  * ```ts
@@ -368,7 +356,7 @@ function createRsaValidator(
  *
  * @experimental
  */
-export function jwt(options: JwtAuthOptions): ValidatorAuthOptions {
+export function jwt(options: JwtAuthOptions): OAuthValidatorAuthOptions {
   assertIssuerAudience("jwt", options.issuer, options.audience);
   const validator = isHmac(options)
     ? createHmacValidator(options)

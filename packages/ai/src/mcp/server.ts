@@ -9,7 +9,11 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { createServer } from "node:http";
 import type { IncomingMessage } from "node:http";
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
-import type { Principal, ValidatorAuthOptions } from "@routecraft/routecraft";
+import type {
+  OAuthPrincipal,
+  Principal,
+  ValidatorAuthOptions,
+} from "@routecraft/routecraft";
 import { McpHeadersKeys, isOAuthAuth } from "./types.ts";
 import type {
   McpPluginOptions,
@@ -460,12 +464,13 @@ export class McpServer {
     }
 
     // Wrap the user's verifier so the MCP SDK sees a clean AuthInfo while the
-    // rich Principal rides through in `extra.principal` for this.authInfoToPrincipal.
-    // Token verification errors are logged and emitted as `auth:rejected` so
-    // operators can observe brute-force attempts, expired tokens, and
-    // mismatched audiences alongside the validator path's rejections.
+    // rich OAuthPrincipal rides through in `extra.principal` for
+    // this.authInfoToPrincipal. Token verification errors are logged and
+    // emitted as `auth:rejected` so operators can observe brute-force
+    // attempts, expired tokens, and mismatched audiences alongside the
+    // validator path's rejections.
     const wrappedVerifier = async (token: string): Promise<SdkAuthInfo> => {
-      let principal: Principal;
+      let principal: OAuthPrincipal;
       try {
         principal = await oauthOptions.verifyAccessToken(token);
       } catch (err) {
@@ -483,7 +488,12 @@ export class McpServer {
         this.context.emit("auth:rejected", detail);
         throw err;
       }
-      if (principal.expiresAt === undefined) {
+      // Belt-and-suspenders: the type system already guarantees `expiresAt`,
+      // but third-party code using `as any` or dynamic plugin wiring could
+      // still hand us an incomplete principal. Emit a structured rejection
+      // so an operator can trace the mis-wired verifier instead of debugging
+      // a silent 401 from the SDK bearer middleware.
+      if ((principal as { expiresAt?: number }).expiresAt === undefined) {
         const detail = {
           reason: "missing_expires_at",
           scheme: "bearer",

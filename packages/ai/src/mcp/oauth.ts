@@ -1,7 +1,7 @@
 import type {
-  Principal,
-  ValidatorAuthOptions,
-  TokenVerifier,
+  OAuthPrincipal,
+  OAuthTokenVerifier,
+  OAuthValidatorAuthOptions,
 } from "@routecraft/routecraft";
 import type {
   OAuthAuthOptions,
@@ -30,13 +30,18 @@ export type OAuthClientSupplier = (
  * The `verify` option accepted by `oauth()`.
  *
  * Pass:
- * - A `ValidatorAuthOptions` (output of `jwt()` or `jwks()`) to compose a
- *   validator-based verifier, or
- * - A raw `TokenVerifier` function as the escape hatch for custom logic.
+ * - An `OAuthValidatorAuthOptions` (output of `jwt()` or `jwks()`) to compose
+ *   a validator-based verifier, or
+ * - A raw `OAuthTokenVerifier` function for custom logic.
+ *
+ * Both shapes guarantee an {@link OAuthPrincipal} with `expiresAt`, which the
+ * MCP SDK's bearer middleware requires. The type system rejects verifiers
+ * that do not uphold that contract -- no more runtime surprises from a
+ * well-typed verifier that forgot to populate `expiresAt`.
  *
  * @experimental
  */
-export type OAuthVerifier = ValidatorAuthOptions | TokenVerifier;
+export type OAuthVerifier = OAuthValidatorAuthOptions | OAuthTokenVerifier;
 
 /**
  * Options for the `oauth()` factory.
@@ -110,14 +115,15 @@ function normaliseClientSupplier(
 }
 
 /**
- * Normalise the `verify` option into a `(token) => Promise<Principal>` callback.
+ * Normalise the `verify` option into a `(token) => Promise<OAuthPrincipal>`
+ * callback.
  */
 function buildVerifier(
   verify: OAuthVerifier,
-): (token: string) => Promise<Principal> {
+): (token: string) => Promise<OAuthPrincipal> {
   if (!verify) {
     throw new TypeError(
-      "oauth: `verify` is required. Pass jwks(...), jwt(...), or a custom (token) => Principal function.",
+      "oauth: `verify` is required. Pass jwks(...), jwt(...), or a custom (token) => OAuthPrincipal function.",
     );
   }
   if (typeof verify === "function") {

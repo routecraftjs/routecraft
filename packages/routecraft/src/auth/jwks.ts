@@ -1,7 +1,7 @@
 import type {
   ClaimMappers,
   JwtAudience,
-  ValidatorAuthOptions,
+  OAuthValidatorAuthOptions,
 } from "./types.ts";
 import { assertIssuerAudience, principalFromJwtPayload } from "./jwt-utils.ts";
 
@@ -22,6 +22,7 @@ interface JoseSubset {
       audience?: string | string[];
       algorithms?: string[];
       clockTolerance?: number;
+      requiredClaims?: string[];
     },
   ) => Promise<{ payload: Record<string, unknown> }>;
 }
@@ -86,14 +87,17 @@ export interface JwksOptions {
 /**
  * JWKS-backed JWT authentication helper.
  * Verifies bearer JWTs against a remote JWKS endpoint using `jose`.
- * Keys are cached and rotated automatically.
+ * Keys are cached and rotated automatically. Tokens without an `exp` claim
+ * are always rejected (enforced via `jose`'s `requiredClaims`).
  *
- * Returns a {@link ValidatorAuthOptions} that can be passed directly to
- * `mcpPlugin({ auth: jwks({ ... }) })`, or composed inside `oauth({ verify: jwks({...}) })`.
+ * Returns an {@link OAuthValidatorAuthOptions} that can be passed directly to
+ * `mcpPlugin({ auth: jwks({ ... }) })` or `oauth({ verify: jwks({ ... }) })`.
+ * Because the return type guarantees an {@link OAuthPrincipal}, it is also
+ * structurally assignable wherever a plain `ValidatorAuthOptions` is accepted.
  *
- * On success the validator returns a {@link Principal} (`kind: "jwks"`) populated
- * from standard JWT claims (`sub`, `iss`, `aud`, `exp`, `scope`, etc.) with the
- * full decoded payload available in `claims`.
+ * On success the validator returns an {@link OAuthPrincipal} (`kind: "jwks"`)
+ * populated from standard JWT claims (`sub`, `iss`, `aud`, `exp`, `scope`,
+ * etc.) with the full decoded payload available in `claims`.
  *
  * Requires the optional peer dependency `jose`:
  * ```sh
@@ -117,7 +121,7 @@ export interface JwksOptions {
  *
  * @experimental
  */
-export function jwks(options: JwksOptions): ValidatorAuthOptions {
+export function jwks(options: JwksOptions): OAuthValidatorAuthOptions {
   assertIssuerAudience("jwks", options.issuer, options.audience);
 
   let joseMod: JoseSubset | null = null;
@@ -147,7 +151,12 @@ export function jwks(options: JwksOptions): ValidatorAuthOptions {
         audience?: string | string[];
         algorithms?: string[];
         clockTolerance?: number;
-      } = { issuer: options.issuer, algorithms };
+        requiredClaims?: string[];
+      } = {
+        issuer: options.issuer,
+        algorithms,
+        requiredClaims: ["exp"],
+      };
 
       if (options.audience !== "*") {
         joseOptions.audience = options.audience as string | string[];

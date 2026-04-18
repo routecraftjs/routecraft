@@ -3,7 +3,11 @@ import type {
   DirectServerOptions,
   Exchange,
 } from "@routecraft/routecraft";
-import type { Principal, ValidatorAuthOptions } from "@routecraft/routecraft";
+import type {
+  OAuthPrincipal,
+  Principal,
+  ValidatorAuthOptions,
+} from "@routecraft/routecraft";
 import type { McpToolRegistry } from "./tool-registry.ts";
 
 /**
@@ -190,14 +194,14 @@ export interface OAuthAuthOptions {
   /** Upstream OAuth provider endpoints to proxy. */
   endpoints: OAuthProxyEndpoints;
   /**
-   * Verify an access token and return a populated {@link Principal}.
+   * Verify an access token and return a populated {@link OAuthPrincipal}.
    * Called on every authenticated request to `/mcp`.
    *
    * The returned principal flows through to route exchanges as
-   * `routecraft.auth.*` headers. `expiresAt` is required by the MCP SDK's
-   * bearer middleware; omitting it causes a 401 regardless of other claims.
+   * `routecraft.auth.*` headers. `expiresAt` is part of the type contract
+   * because the MCP SDK's bearer middleware requires it.
    */
-  verifyAccessToken: (token: string) => Promise<Principal>;
+  verifyAccessToken: (token: string) => Promise<OAuthPrincipal>;
   /**
    * Look up a registered OAuth client by ID.
    * Return `undefined` to reject the client.

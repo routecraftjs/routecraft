@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { jwks } from "@routecraft/routecraft";
 import { oauth } from "../src/mcp/oauth.ts";
-import type { Principal } from "@routecraft/routecraft";
+import type { OAuthPrincipal } from "@routecraft/routecraft";
 
 /** Serve a static JWK set at a local URL. Returns the URL and a close fn. */
 async function serveJwks(jwkSet: {
@@ -48,7 +48,7 @@ describe("oauth() factory", () => {
    * @expectedResult Returned config's verifyAccessToken invokes the function; returned principal matches
    */
   test("accepts a raw TokenVerifier function as verify", async () => {
-    const verify = async (): Promise<Principal> => ({
+    const verify = async (): Promise<OAuthPrincipal> => ({
       kind: "custom",
       scheme: "bearer",
       subject: "u",
@@ -106,7 +106,7 @@ describe("oauth() factory", () => {
    * @expectedResult getClient("allowed") resolves to the static object; getClient("other") resolves to undefined
    */
   test("static client rejects unknown client IDs", async () => {
-    const verify = async (): Promise<Principal> => ({
+    const verify = async (): Promise<OAuthPrincipal> => ({
       kind: "custom",
       scheme: "bearer",
       subject: "u",
@@ -134,7 +134,7 @@ describe("oauth() factory", () => {
    */
   test("supplier client is invoked per lookup", async () => {
     const calls: string[] = [];
-    const verify = async (): Promise<Principal> => ({
+    const verify = async (): Promise<OAuthPrincipal> => ({
       kind: "custom",
       scheme: "bearer",
       subject: "u",
@@ -164,7 +164,7 @@ describe("oauth() factory", () => {
    * @expectedResult Returned config.resourceIssuerUrl matches input
    */
   test("exposes resourceIssuerUrl on returned config", () => {
-    const verify = async (): Promise<Principal> => ({
+    const verify = async (): Promise<OAuthPrincipal> => ({
       kind: "custom",
       scheme: "bearer",
       subject: "u",

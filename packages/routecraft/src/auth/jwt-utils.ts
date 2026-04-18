@@ -1,4 +1,4 @@
-import type { ClaimMappers, JwtAudience, Principal } from "./types.ts";
+import type { ClaimMappers, JwtAudience, OAuthPrincipal } from "./types.ts";
 
 function stringClaim(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
@@ -45,11 +45,16 @@ export function assertIssuerAudience(
 }
 
 /**
- * Map a verified JWT payload to a {@link Principal}.
+ * Map a verified JWT payload to an {@link OAuthPrincipal}.
  *
  * Subject fallback order: `claims.subject(payload)` -> `sub` -> `client_id`
  * -> `azp`. This supports client-credentials tokens (often no `sub`) and IdPs
  * that emit only `azp`.
+ *
+ * Callers must ensure `exp` is already verified (jwt() enforces it before
+ * calling; jwks() passes `requiredClaims: ["exp"]` to `jose.jwtVerify`). This
+ * function throws if `exp` is missing, upholding the {@link OAuthPrincipal}
+ * contract at the boundary.
  *
  * Package-internal helper shared between `jwt.ts` and `jwks.ts`. Never
  * re-exported from `packages/routecraft/src/index.ts`; do not import from
@@ -60,7 +65,7 @@ export function assertIssuerAudience(
 export function principalFromJwtPayload(
   payload: Record<string, unknown>,
   options: { kind: "jwt" | "jwks"; claims?: ClaimMappers },
-): Principal {
+): OAuthPrincipal {
   const sub = stringClaim(payload["sub"]);
   const payloadClientId = stringClaim(payload["client_id"]);
   const azp = stringClaim(payload["azp"]);
@@ -84,10 +89,17 @@ export function principalFromJwtPayload(
       ? [audienceRaw]
       : undefined;
 
-  const principal: Principal = {
+  if (typeof payload["exp"] !== "number") {
+    throw new TypeError(
+      `${options.kind}: verified token has no \`exp\` claim. Tokens composed into OAuth / MCP bearer flows must carry an expiry.`,
+    );
+  }
+
+  const principal: OAuthPrincipal = {
     kind: options.kind,
     scheme: "bearer",
     subject,
+    expiresAt: payload["exp"],
     claims: payload,
   };
 
@@ -102,7 +114,6 @@ export function principalFromJwtPayload(
 
   if (typeof payload["iss"] === "string") principal.issuer = payload["iss"];
   if (audience !== undefined) principal.audience = audience;
-  if (typeof payload["exp"] === "number") principal.expiresAt = payload["exp"];
 
   const scopes =
     options.claims?.scopes?.(payload) ??

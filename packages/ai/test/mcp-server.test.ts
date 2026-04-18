@@ -873,8 +873,10 @@ describe("McpServer", () => {
       });
 
       /**
-       * @case oauth() verify returning principal without expiresAt is rejected with auth:rejected event
-       * @preconditions McpServer with oauth() auth; verify returns a valid principal but omits expiresAt
+       * @case Runtime guard rejects a principal without expiresAt smuggled past the type system
+       * @preconditions McpServer with oauth() auth; verify is cast to bypass the OAuthPrincipal
+       *                type contract and return a principal without expiresAt (simulating a
+       *                dynamically wired plugin or `as any` escape hatch in user code)
        * @expectedResult HTTP 401 response; auth:rejected event emitted with reason "missing_expires_at"
        */
       test("rejects principal without expiresAt and emits auth:rejected", async () => {
@@ -882,19 +884,25 @@ describe("McpServer", () => {
 
         const rejections: Array<Record<string, unknown>> = [];
 
+        // Deliberately bypass the OAuthPrincipal type constraint to exercise
+        // the runtime defense-in-depth guard.
+        const unsafeVerify = async () => ({
+          kind: "oauth" as const,
+          scheme: "bearer" as const,
+          subject: "user-no-exp",
+          clientId: "client-abc",
+          // expiresAt intentionally omitted
+        });
+
         const authConfig = oauth({
           resourceIssuerUrl: "http://localhost:9999",
           endpoints: {
             authorizationUrl: "http://localhost:9999/authorize",
             tokenUrl: "http://localhost:9999/token",
           },
-          verify: async () => ({
-            kind: "oauth" as const,
-            scheme: "bearer" as const,
-            subject: "user-no-exp",
-            clientId: "client-abc",
-            // expiresAt intentionally omitted
-          }),
+          verify: unsafeVerify as unknown as Parameters<
+            typeof oauth
+          >[0]["verify"],
           client: async (clientId) => ({
             client_id: clientId,
             redirect_uris: ["http://localhost:3000/callback"],

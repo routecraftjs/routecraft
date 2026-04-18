@@ -9,6 +9,9 @@ export type { JwksOptions } from "./auth/jwks.ts";
 export type {
   ClaimMappers,
   JwtAudience,
+  OAuthPrincipal,
+  OAuthTokenVerifier,
+  OAuthValidatorAuthOptions,
   Principal,
   TokenVerifier,
   ValidatorAuthOptions,

@@ -72,6 +72,16 @@ export interface Principal {
 }
 
 /**
+ * Principal variant that guarantees a known token expiry. Used anywhere a
+ * bearer-token lifecycle contract must be expressed at the type level
+ * (most notably the OAuth flow: the MCP SDK's bearer middleware requires
+ * `expiresAt`).
+ *
+ * @experimental
+ */
+export type OAuthPrincipal = Principal & { expiresAt: number };
+
+/**
  * Verifies a bearer token and resolves the authenticated principal.
  * Throw to reject access; return a {@link Principal} to allow it.
  * May be synchronous or asynchronous.
@@ -79,6 +89,18 @@ export interface Principal {
  * @experimental
  */
 export type TokenVerifier = (token: string) => Principal | Promise<Principal>;
+
+/**
+ * OAuth-flavoured {@link TokenVerifier}. Guarantees the returned principal
+ * carries a known `expiresAt`, which the MCP SDK's bearer middleware
+ * requires. Any verifier composed into `oauth({ verify })` must satisfy
+ * this shape.
+ *
+ * @experimental
+ */
+export type OAuthTokenVerifier = (
+  token: string,
+) => OAuthPrincipal | Promise<OAuthPrincipal>;
 
 /**
  * Validator-based auth: a bearer token verified on every request.
@@ -105,6 +127,21 @@ export type TokenVerifier = (token: string) => Principal | Promise<Principal>;
 export interface ValidatorAuthOptions {
   /** Verifier called with the raw bearer token on every request. Throw to reject. */
   validator: TokenVerifier;
+}
+
+/**
+ * OAuth-flavoured {@link ValidatorAuthOptions}. The `validator` is guaranteed
+ * to resolve an {@link OAuthPrincipal} (with `expiresAt`). Returned by
+ * `jwt()` and `jwks()` because both helpers require `exp` on verified tokens.
+ *
+ * Structurally a subtype of `ValidatorAuthOptions`, so the same value is
+ * also usable in non-OAuth contexts.
+ *
+ * @experimental
+ */
+export interface OAuthValidatorAuthOptions {
+  /** Verifier called with the raw bearer token on every request. Throw to reject. */
+  validator: OAuthTokenVerifier;
 }
 
 declare module "../exchange.ts" {
