@@ -55,11 +55,11 @@ const mcpConfigExample = `{
       "command": "npx",
       "args": [
         "@routecraft/cli",
-        "run",
         "--log-file",
         "/path/to/craft.log",
         "--log-level",
         "debug",
+        "run",
         "/path/to/routecraft/index.ts"
       ]
     }

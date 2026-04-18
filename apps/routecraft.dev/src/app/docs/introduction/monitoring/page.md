@@ -25,7 +25,7 @@ Each log entry includes `contextId`, `routeId`, `exchangeId`, and `correlationId
 To set the log level, pass `--log-level` to the CLI:
 
 ```bash
-craft run ./capabilities/orders.ts --log-level debug
+craft --log-level debug run ./capabilities/orders.ts
 ```
 
 ## Subscribing to events

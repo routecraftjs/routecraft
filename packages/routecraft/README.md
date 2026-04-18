@@ -184,7 +184,7 @@ Note: the event adapter filters out `:operation:` and `:exchange:` events intern
 Logs go to stdout at `warn` level by default.
 
 - **Env vars**: `LOG_LEVEL` / `CRAFT_LOG_LEVEL`, `LOG_FILE` / `CRAFT_LOG_FILE`
-- **CLI flags**: `craft run <file> --log-level info --log-file craft.log`
+- **CLI flags**: `craft --log-level info --log-file craft.log run <file>`
 - **Config**: `craftConfig.log` sets defaults; CLI flags override config for CLI runs
 
 ## Documentation

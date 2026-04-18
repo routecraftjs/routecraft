@@ -267,16 +267,16 @@ describe("generateProjectStructure", () => {
   });
 
   /**
-   * @case package.json start script points to index.ts at root
+   * @case package.json start script points to index.ts at root with log level applied globally
    * @preconditions Default options
-   * @expectedResult start script is "craft run index.ts --log-level info"
+   * @expectedResult start script is "craft --log-level info run index.ts"
    */
   test("package.json start script points to root index.ts", async () => {
     await generateProjectStructure(projectDir, makeOptions());
 
     const pkg = await readJson(join(projectDir, "package.json"));
     const scripts = pkg.scripts;
-    expect(scripts.start).toBe("craft run index.ts --log-level info");
+    expect(scripts.start).toBe("craft --log-level info run index.ts");
   });
 
   /**

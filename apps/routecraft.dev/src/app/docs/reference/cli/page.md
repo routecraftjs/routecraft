@@ -10,12 +10,20 @@ Run Routecraft capabilities from the command line. {% .lead %}
 craft <command> [options]
 ```
 
-Global options:
+Global options (must appear **before** the subcommand):
 
 | Option | Description |
 | --- | --- |
 | -h, --help | Show usage help |
 | -v, --version | Print version and exit |
+| --log-level \<level\> | Log level (info, warn, error, silent). Applied before the logger initializes. |
+| --log-file \<path\> | Write logs to a file instead of stdout |
+
+Because `run` uses pass-through options, anything after `run <file>` is forwarded to the route file's CLI adapter. Put `--log-level` and `--log-file` before `run`:
+
+```bash
+craft --log-level info --log-file craft.log run ./capabilities/orders.ts
+```
 
 {% callout type="note" title="More commands coming" %}
 `dev`, `build`, `start`, and `exec` are planned for future releases.

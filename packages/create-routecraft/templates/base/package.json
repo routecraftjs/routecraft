@@ -5,7 +5,7 @@
   "type": "module",
   "packageManager": "PACKAGE_MANAGER",
   "scripts": {
-    "start": "craft run index.ts --log-level info",
+    "start": "craft --log-level info run index.ts",
     "lint": "eslint .",
     "format": "prettier . --check --ignore-unknown",
     "format:write": "prettier . --write --ignore-unknown",
