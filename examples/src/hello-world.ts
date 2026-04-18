@@ -9,9 +9,7 @@ type GreetInput = z.infer<typeof GreetInput>;
 // Standard Schema passed to direct(), so no cast is required.
 const greetRoute = craft()
   .id("greet")
-  .from(
-    direct("greet", { description: "Greet a user by id", schema: GreetInput }),
-  )
+  .from(direct("greet", { schema: GreetInput }))
   .enrich(
     http<GreetInput, { name: string }>({
       method: "GET",

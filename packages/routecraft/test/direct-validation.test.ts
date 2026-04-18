@@ -1322,25 +1322,20 @@ describe("Direct adapter validation", () => {
   });
 
   // ============================================================
-  // Group 6: Registry & Discovery (6 tests)
+  // Group 6: Registry & Discovery (5 tests)
   // ============================================================
   describe("Registry and discovery", () => {
     /**
-     * @case Routes with description register in context store
-     * @preconditions Route has description option
-     * @expectedResult Route metadata in registry
+     * @case Routes are registered in the direct route registry
+     * @preconditions Route created via direct()
+     * @expectedResult Registry contains the endpoint entry
      */
-    test("routes with description register in store", async () => {
+    test("routes register in store", async () => {
       t = await testContext()
         .routes([
           craft()
             .id("discoverable")
-            .from(
-              direct("test-endpoint", {
-                description: "A test endpoint",
-                keywords: ["test"],
-              }),
-            )
+            .from(direct("test-endpoint", {}))
             .to(vi.fn()),
         ])
         .build();
@@ -1349,30 +1344,6 @@ describe("Direct adapter validation", () => {
       const registry = t.ctx.getStore(ADAPTER_DIRECT_REGISTRY);
       expect(registry).toBeDefined();
       expect(registry?.has("test-endpoint")).toBe(true);
-      const metadata = registry?.get("test-endpoint");
-      expect(metadata?.description).toBe("A test endpoint");
-      expect(metadata?.keywords).toEqual(["test"]);
-    });
-
-    /**
-     * @case Routes without description still registered
-     * @preconditions Route has no description
-     * @expectedResult Route in registry but without description
-     */
-    test("routes without description still registered", async () => {
-      t = await testContext()
-        .routes([
-          craft()
-            .id("no-description")
-            .from(direct("plain-endpoint", {}))
-            .to(vi.fn()),
-        ])
-        .build();
-
-      await t.test();
-      const registry = t.ctx.getStore(ADAPTER_DIRECT_REGISTRY);
-      expect(registry?.has("plain-endpoint")).toBe(true);
-      expect(registry?.get("plain-endpoint")?.description).toBeUndefined();
     });
 
     /**
@@ -1385,7 +1356,7 @@ describe("Direct adapter validation", () => {
         .routes([
           craft()
             .id("first-discoverable")
-            .from(direct("first-endpoint", { description: "First" }))
+            .from(direct("first-endpoint", {}))
             .to(vi.fn()),
         ])
         .build();
@@ -1398,29 +1369,15 @@ describe("Direct adapter validation", () => {
 
     /**
      * @case Multiple routes register correctly
-     * @preconditions Multiple routes with descriptions
-     * @expectedResult All registered in registry
+     * @preconditions Multiple direct() routes registered in a single context
+     * @expectedResult All endpoints present in the registry
      */
     test("multiple routes register correctly", async () => {
       t = await testContext()
         .routes([
-          craft()
-            .id("route-a")
-            .from(direct("endpoint-a", { description: "Route A" }))
-            .to(vi.fn()),
-          craft()
-            .id("route-b")
-            .from(direct("endpoint-b", { description: "Route B" }))
-            .to(vi.fn()),
-          craft()
-            .id("route-c")
-            .from(
-              direct("endpoint-c", {
-                description: "Route C",
-                keywords: ["c", "third"],
-              }),
-            )
-            .to(vi.fn()),
+          craft().id("route-a").from(direct("endpoint-a", {})).to(vi.fn()),
+          craft().id("route-b").from(direct("endpoint-b", {})).to(vi.fn()),
+          craft().id("route-c").from(direct("endpoint-c", {})).to(vi.fn()),
         ])
         .build();
 
@@ -1433,9 +1390,9 @@ describe("Direct adapter validation", () => {
     });
 
     /**
-     * @case Registry accessible via context.getStore()
-     * @preconditions Routes registered
-     * @expectedResult Can retrieve registry and iterate
+     * @case Registry metadata captures schema only
+     * @preconditions Route has a body schema
+     * @expectedResult Registry entry carries endpoint and schema
      */
     test("registry accessible via context getStore", async () => {
       t = await testContext()
@@ -1444,9 +1401,7 @@ describe("Direct adapter validation", () => {
             .id("route")
             .from(
               direct("my-endpoint", {
-                description: "My endpoint",
                 schema: z.object({ id: z.string() }),
-                keywords: ["my", "endpoint"],
               }),
             )
             .to(vi.fn()),
@@ -1459,9 +1414,7 @@ describe("Direct adapter validation", () => {
       expect(routes).toHaveLength(1);
       expect(routes[0]).toEqual({
         endpoint: "my-endpoint",
-        description: "My endpoint",
         schema: expect.any(Object),
-        keywords: ["my", "endpoint"],
       });
     });
 
@@ -1475,11 +1428,7 @@ describe("Direct adapter validation", () => {
         .routes([
           craft()
             .id("route")
-            .from(
-              direct("my.special:endpoint/name", {
-                description: "Special chars",
-              }),
-            )
+            .from(direct("my.special:endpoint/name", {}))
             .to(vi.fn()),
         ])
         .build();
@@ -1626,22 +1575,16 @@ describe("Direct adapter validation", () => {
     test("registry persists across route registrations", async () => {
       t = await testContext()
         .routes([
-          craft()
-            .id("route-1")
-            .from(direct("endpoint-1", { description: "First" }))
-            .to(vi.fn()),
-          craft()
-            .id("route-2")
-            .from(direct("endpoint-2", { description: "Second" }))
-            .to(vi.fn()),
+          craft().id("route-1").from(direct("endpoint-1", {})).to(vi.fn()),
+          craft().id("route-2").from(direct("endpoint-2", {})).to(vi.fn()),
         ])
         .build();
 
       await t.test();
       const registry = t.ctx.getStore(ADAPTER_DIRECT_REGISTRY);
       expect(registry?.size).toBe(2);
-      expect(registry?.get("endpoint-1")?.description).toBe("First");
-      expect(registry?.get("endpoint-2")?.description).toBe("Second");
+      expect(registry?.has("endpoint-1")).toBe(true);
+      expect(registry?.has("endpoint-2")).toBe(true);
     });
   });
 });

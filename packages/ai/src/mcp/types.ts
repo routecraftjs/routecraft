@@ -1,8 +1,5 @@
-import type {
-  DirectRouteMetadata,
-  DirectServerOptions,
-  Exchange,
-} from "@routecraft/routecraft";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type { DirectServerOptions, Exchange } from "@routecraft/routecraft";
 import type {
   OAuthPrincipal,
   Principal,
@@ -38,6 +35,45 @@ export const MCP_TOOL_REGISTRY = Symbol.for("routecraft.mcp.tool.registry");
  */
 export const MCP_STDIO_MANAGERS = Symbol.for("routecraft.mcp.stdio.managers");
 
+/**
+ * Store key for the MCP local tool registry. Populated at `mcp()` subscription time
+ * with one entry per `.from(mcp(endpoint, options))` route in this context.
+ *
+ * Kept separate from {@link MCP_TOOL_REGISTRY}, which holds tools discovered from
+ * external (stdio/HTTP) client servers and is consumed by the agent adapter.
+ *
+ * @experimental
+ */
+export const MCP_LOCAL_TOOL_REGISTRY = Symbol.for(
+  "routecraft.mcp.local-tool-registry",
+);
+
+/**
+ * Entry in the {@link MCP_LOCAL_TOOL_REGISTRY}. One per `.from(mcp(endpoint, options))`
+ * route. Holds the discovery metadata needed for `tools/list` and the invocation
+ * handler used by `tools/call`.
+ *
+ * @experimental
+ */
+export interface McpLocalToolEntry {
+  /** Sanitized endpoint name (URL-encoded). Used as the tool name in MCP `tools/list`. */
+  endpoint: string;
+  /** Human-readable description of the tool (required for MCP discoverability). */
+  description: string;
+  /** Optional Standard Schema for the tool input. */
+  schema?: StandardSchemaV1;
+  /** Optional MCP tool annotations (read-only hints, destructive hints, etc.). */
+  annotations?: McpToolAnnotations;
+  /** Optional keywords for filtering via {@link McpPluginOptions.tools}. */
+  keywords?: string[];
+  /**
+   * Invocation handler. Receives an exchange pre-built by the MCP server
+   * (with tool/session/auth headers and the request body) and returns the
+   * resulting exchange after the route has processed it.
+   */
+  handler: (exchange: Exchange) => Promise<Exchange>;
+}
+
 declare module "@routecraft/routecraft" {
   interface StoreRegistry {
     [MCP_PLUGIN_REGISTERED]: boolean;
@@ -46,6 +82,7 @@ declare module "@routecraft/routecraft" {
       McpClientHttpConfig | McpClientStdioConfig | string
     >;
     [MCP_TOOL_REGISTRY]: McpToolRegistry;
+    [MCP_LOCAL_TOOL_REGISTRY]: Map<string, McpLocalToolEntry>;
     [MCP_STDIO_MANAGERS]: Map<
       string,
       {
@@ -306,7 +343,7 @@ export interface McpPluginOptions {
    * Filter which tools to expose. Default: all mcp() routes.
    * Can be an array of endpoint names or a filter function.
    */
-  tools?: string[] | ((meta: DirectRouteMetadata) => boolean);
+  tools?: string[] | ((entry: McpLocalToolEntry) => boolean);
 
   /**
    * Named remote MCP servers for .to(mcp("name:tool")).
@@ -369,6 +406,9 @@ export interface McpToolAnnotations {
 export interface McpServerOptions extends DirectServerOptions {
   /** Human-readable description (required for MCP tools). */
   description: string;
+
+  /** Keywords forwarded to the MCP registry entry for filtering via {@link McpPluginOptions.tools}. */
+  keywords?: string[];
 
   /**
    * MCP tool annotations describing behavior hints (read-only, destructive, etc.).

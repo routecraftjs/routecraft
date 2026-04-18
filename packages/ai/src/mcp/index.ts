@@ -16,10 +16,12 @@ export { McpToolRegistry } from "./tool-registry.ts";
 export {
   ADAPTER_MCP_CLIENT_SERVERS,
   McpHeadersKeys,
+  MCP_LOCAL_TOOL_REGISTRY,
   MCP_PLUGIN_REGISTERED,
   MCP_STDIO_MANAGERS,
   MCP_TOOL_REGISTRY,
   isOAuthAuth,
+  type McpLocalToolEntry,
   type McpOptions,
   type McpPluginOptions,
   type McpServerOptions,

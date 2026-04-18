@@ -20,7 +20,6 @@ const priceCheck = craft()
   .from(
     direct("price-check", {
       schema: OrderItemSchema,
-      description: "Validate and price a single order item",
     }),
   )
   .filter((ex) => {

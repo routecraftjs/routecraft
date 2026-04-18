@@ -304,8 +304,8 @@ craft()
 - `channelType` - Custom direct channel implementation (default: in-memory)
 - `schema` - Body validation schema (StandardSchema compatible: Zod, Valibot, ArkType)
 - `headerSchema` - Header validation schemas (can be optional/required)
-- `description` - Human-readable description for route discovery
-- `keywords` - Keywords for route categorization
+
+> `direct()` is a pure delivery primitive: it has no knowledge of MCP. Discoverability metadata such as `description`, `keywords`, and `annotations` lives on [`mcp()`](#mcp) and its own registry (`MCP_LOCAL_TOOL_REGISTRY`). Passing those fields to `direct()` is no longer supported; attach them to `mcp()` instead.
 
 **Key characteristics:**
 - **Synchronous**: Calling route waits for response from consuming route
@@ -456,29 +456,27 @@ craft()
 
 #### Route Registry
 
-All direct routes are registered and can be queried. Routes with descriptions and keywords are more discoverable:
+All direct routes are registered under `ADAPTER_DIRECT_REGISTRY` with their endpoint and validation schemas:
 
 ```ts
-import { DirectAdapter } from '@routecraft/routecraft'
+import { ADAPTER_DIRECT_REGISTRY } from '@routecraft/routecraft'
 
 craft()
   .from(direct('fetch-content', {
-    description: 'Fetch and summarize web content from URL',
     schema: z.object({ url: z.string().url() }),
-    keywords: ['fetch', 'web', 'scrape']
   }))
   .process(fetchAndSummarize)
 
-// Later, query discoverable routes from context
+// Later, query registered routes from context
 const ctx = await new ContextBuilder().routes(...).build()
 await ctx.start()
 
-const registry = ctx.getStore(DirectAdapter.ADAPTER_DIRECT_REGISTRY)
+const registry = ctx.getStore(ADAPTER_DIRECT_REGISTRY)
 const routes = registry ? Array.from(registry.values()) : []
-// [{ endpoint: 'fetch-content', description: '...', schema, keywords }]
+// [{ endpoint: 'fetch-content', schema }]
 ```
 
-Useful for runtime introspection, documentation generation, and building dynamic routing systems.
+For MCP tool discoverability (names, descriptions, keywords, annotations exposed to AI clients), use [`mcp()`](#mcp) and read from `MCP_LOCAL_TOOL_REGISTRY`. Direct routes never appear in MCP `tools/list`.
 
 ### http
 ```ts
@@ -1521,7 +1519,7 @@ These mirror the [MCP specification (2025-03-26) `ToolAnnotations`](https://mode
 | `token` | `string \| string[] \| (() => string \| Promise<string>)` | Bearer token, array of tokens (round-robin), or provider function called per request |
 | `headers` | `Record<string, string>` | Additional request headers; overrides `token` if `Authorization` is set |
 
-**Relation to `direct()`:** `mcp()` is built on `direct()`. The key difference is that `description` is required when passing options, ensuring every exposed tool is discoverable by AI agents.
+**Relation to `direct()`:** `mcp()` owns its own registry (`MCP_LOCAL_TOOL_REGISTRY`) and delivery path; it does not share infrastructure with `direct()`. `.from(mcp('foo', ...))` and `.from(direct('foo'))` can coexist with identical endpoint strings because they live in different registries. Direct routes never appear in the MCP `tools/list` response, regardless of any fields attached to them.
 
 See [Expose as MCP](/docs/advanced/expose-as-mcp) and [Call an MCP](/docs/advanced/call-an-mcp).
 

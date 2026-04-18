@@ -1,13 +1,72 @@
 import { describe, test, expect, afterEach, vi } from "vitest";
 import { z } from "zod";
-import { mcp, mcpPlugin } from "../src/index.ts";
+import {
+  mcp,
+  mcpPlugin,
+  MCP_LOCAL_TOOL_REGISTRY,
+  type McpLocalToolEntry,
+} from "../src/index.ts";
 import { testContext, type TestContext } from "@routecraft/testing";
+import type { EventHandler, EventName } from "@routecraft/routecraft";
 import {
   craft,
   simple,
   direct,
+  DefaultExchange,
   ADAPTER_DIRECT_REGISTRY,
 } from "@routecraft/routecraft";
+
+const MCP_LOCAL_KEY =
+  MCP_LOCAL_TOOL_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry;
+
+/**
+ * Start the context and resolve when every route has emitted `route:*:started`,
+ * without awaiting `ctx.start()` itself. The MCP source subscribe() blocks on
+ * the abort signal by design so the route remains live for `tools/call`, so we
+ * cannot rely on the built-in `startAndWaitReady` which also awaits start().
+ */
+async function startAndAwaitReady(t: TestContext): Promise<void> {
+  const ctx = t.ctx;
+  const total = ctx.getRoutes().length;
+  const allReady =
+    total === 0
+      ? Promise.resolve()
+      : new Promise<void>((resolve, reject) => {
+          let ready = 0;
+          const timeoutId = setTimeout(
+            () => reject(new Error("Timeout waiting for routes to start")),
+            2000,
+          );
+          ctx.on(
+            "route:*:started" as EventName,
+            (() => {
+              ready++;
+              if (ready >= total) {
+                clearTimeout(timeoutId);
+                resolve();
+              }
+            }) as EventHandler<EventName>,
+          );
+        });
+  void ctx.start();
+  await allReady;
+}
+
+/** Helper: invoke an mcp() route by calling its registered handler directly. */
+async function invokeTool(
+  t: TestContext,
+  endpoint: string,
+  body: unknown,
+  headers: Record<string, string | string[] | undefined> = {},
+): Promise<void> {
+  const registry = t.ctx.getStore(MCP_LOCAL_KEY) as
+    | Map<string, McpLocalToolEntry>
+    | undefined;
+  const entry = registry?.get(endpoint);
+  if (!entry) throw new Error(`Tool not found: ${endpoint}`);
+  const exchange = new DefaultExchange(t.ctx, { body, headers });
+  await entry.handler(exchange);
+}
 
 describe("mcp() DSL function", () => {
   let t: TestContext;
@@ -17,19 +76,15 @@ describe("mcp() DSL function", () => {
   });
 
   /**
-   * @case In-process: producer uses direct(), consumer uses mcp() with description
-   * @preconditions Two routes: producer sends via direct, consumer from mcp with description
-   * @expectedResult Message delivered to consumer with same body
+   * @case mcp() consumer receives invocations through MCP_LOCAL_TOOL_REGISTRY
+   * @preconditions One route defines .from(mcp("my-tool", { description })); entry looked up in the local tool registry
+   * @expectedResult Handler forwards the body to the route consumer
    */
-  test("in-process producer uses direct(), consumer uses mcp() with description", async () => {
+  test("invoking mcp() entry delivers body to consumer", async () => {
     const consumer = vi.fn();
 
     t = await testContext()
       .routes([
-        craft()
-          .id("producer")
-          .from(simple({ message: "hello" }))
-          .to(direct("my-tool")),
         craft()
           .id("consumer")
           .from(mcp("my-tool", { description: "Receive messages" }))
@@ -38,41 +93,53 @@ describe("mcp() DSL function", () => {
       .with({ plugins: [mcpPlugin()] })
       .build();
 
-    await t.test();
+    await startAndAwaitReady(t);
+    await invokeTool(t, "my-tool", { message: "hello" });
+
     expect(consumer).toHaveBeenCalledTimes(1);
     expect(consumer.mock.calls[0][0].body).toEqual({ message: "hello" });
   });
 
   /**
-   * @case Defining route has description; producer sends via direct()
-   * @preconditions One route defines mcp with description, other sends via direct to same endpoint
-   * @expectedResult Message delivered to defining route
+   * @case .from(mcp("foo")) and .from(direct("foo")) coexist without collision
+   * @preconditions One mcp() and one direct() source share the same endpoint string
+   * @expectedResult Direct send reaches the direct consumer; invoking the mcp entry reaches the mcp consumer
    */
-  test("docs pattern: define mcp with description, producer sends via direct()", async () => {
-    const consumer = vi.fn();
+  test("mcp() and direct() coexist with identical endpoint", async () => {
+    const mcpConsumer = vi.fn();
+    const directConsumer = vi.fn();
 
     t = await testContext()
       .routes([
         craft()
-          .id("my-tool")
-          .from(mcp("my-tool", { description: "My tool" }))
-          .to(consumer),
+          .id("mcp-consumer")
+          .from(mcp("shared", { description: "Shared endpoint via MCP" }))
+          .to(mcpConsumer),
         craft()
-          .id("producer")
-          .from(simple({ query: "hello" }))
-          .to(direct("my-tool")),
+          .id("direct-consumer")
+          .from(direct("shared", {}))
+          .to(directConsumer),
+        craft()
+          .id("direct-producer")
+          .from(simple({ origin: "direct" }))
+          .to(direct("shared")),
       ])
       .with({ plugins: [mcpPlugin()] })
       .build();
 
-    await t.test();
-    expect(consumer).toHaveBeenCalledTimes(1);
-    expect(consumer.mock.calls[0][0].body).toEqual({ query: "hello" });
+    await startAndAwaitReady(t);
+    await t.ctx.drain();
+    await invokeTool(t, "shared", { origin: "mcp" });
+
+    expect(directConsumer).toHaveBeenCalledTimes(1);
+    expect(directConsumer.mock.calls[0][0].body).toEqual({ origin: "direct" });
+    expect(mcpConsumer).toHaveBeenCalledTimes(1);
+    expect(mcpConsumer.mock.calls[0][0].body).toEqual({ origin: "mcp" });
   });
 
   /**
-   * @case mcp() with schema option validates body at consumer
-   * @preconditions Consumer uses mcp() with schema; producer sends valid body
+   * @case mcp() with schema validates body at consumer
+   * @preconditions Consumer uses mcp() with schema; valid body invoked
    * @expectedResult Message processed without error
    */
   test("mcp() with schema validates input", async () => {
@@ -84,10 +151,6 @@ describe("mcp() DSL function", () => {
 
     t = await testContext()
       .routes([
-        craft()
-          .id("producer")
-          .from(simple({ url: "https://example.com" }))
-          .to(direct("fetch-tool")),
         craft()
           .id("consumer")
           .from(
@@ -101,14 +164,16 @@ describe("mcp() DSL function", () => {
       .with({ plugins: [mcpPlugin()] })
       .build();
 
-    await t.test();
+    await startAndAwaitReady(t);
+    await invokeTool(t, "fetch-tool", { url: "https://example.com" });
+
     expect(consumer).toHaveBeenCalledTimes(1);
   });
 
   /**
-   * @case mcp() with schema rejects invalid body
-   * @preconditions Consumer has schema; producer sends invalid body
-   * @expectedResult RC5002 error emitted and error handler called
+   * @case mcp() with schema rejects invalid body as RC5002
+   * @preconditions Consumer has schema; invoked with invalid body
+   * @expectedResult RC5002 error is thrown
    */
   test("mcp() with invalid input throws RC5002", async () => {
     const schema = z.object({
@@ -117,10 +182,6 @@ describe("mcp() DSL function", () => {
 
     t = await testContext()
       .routes([
-        craft()
-          .id("producer")
-          .from(simple({ url: "not-a-valid-url" }))
-          .to(direct("fetch-tool")),
         craft()
           .id("consumer")
           .from(
@@ -134,17 +195,19 @@ describe("mcp() DSL function", () => {
       .with({ plugins: [mcpPlugin()] })
       .build();
 
-    await t.test();
-    expect(t.errors).toHaveLength(1);
-    expect(t.errors[0].rc).toBe("RC5002");
+    await startAndAwaitReady(t);
+
+    await expect(
+      invokeTool(t, "fetch-tool", { url: "not-a-valid-url" }),
+    ).rejects.toMatchObject({ rc: "RC5002" });
   });
 
   /**
-   * @case mcp() with description/keywords registers metadata
+   * @case mcp() registers entry in MCP_LOCAL_TOOL_REGISTRY with description, schema, and keywords
    * @preconditions Route uses mcp() with description, schema, and keywords
-   * @expectedResult Registry contains endpoint with metadata
+   * @expectedResult Registry contains entry with matching metadata
    */
-  test("mcp() registers in discovery registry", async () => {
+  test("mcp() registers in local tool registry", async () => {
     t = await testContext()
       .routes([
         craft()
@@ -161,21 +224,24 @@ describe("mcp() DSL function", () => {
       .with({ plugins: [mcpPlugin()] })
       .build();
 
-    await t.test();
-    const registry = t.ctx.getStore(ADAPTER_DIRECT_REGISTRY);
+    await startAndAwaitReady(t);
+    const registry = t.ctx.getStore(MCP_LOCAL_KEY) as
+      | Map<string, McpLocalToolEntry>
+      | undefined;
     expect(registry).toBeDefined();
     expect(registry?.has("search-tool")).toBe(true);
-    const metadata = registry?.get("search-tool");
-    expect(metadata?.description).toBe("Search for documents");
-    expect(metadata?.keywords).toEqual(["search", "query", "find"]);
+    const entry = registry?.get("search-tool");
+    expect(entry?.description).toBe("Search for documents");
+    expect(entry?.keywords).toEqual(["search", "query", "find"]);
+    expect(typeof entry?.handler).toBe("function");
   });
 
   /**
-   * @case mcp() with annotations registers them in route metadata
+   * @case mcp() with annotations registers them in the registry entry
    * @preconditions Route uses mcp() with description and annotations
-   * @expectedResult Registry contains endpoint with annotations
+   * @expectedResult Registry entry carries the annotations object
    */
-  test("mcp() with annotations registers them in metadata", async () => {
+  test("mcp() with annotations registers them", async () => {
     t = await testContext()
       .routes([
         craft()
@@ -196,11 +262,12 @@ describe("mcp() DSL function", () => {
       .with({ plugins: [mcpPlugin()] })
       .build();
 
-    await t.test();
-    const registry = t.ctx.getStore(ADAPTER_DIRECT_REGISTRY);
-    expect(registry).toBeDefined();
-    const metadata = registry?.get("list-items");
-    expect(metadata?.annotations).toEqual({
+    await startAndAwaitReady(t);
+    const registry = t.ctx.getStore(MCP_LOCAL_KEY) as
+      | Map<string, McpLocalToolEntry>
+      | undefined;
+    const entry = registry?.get("list-items");
+    expect(entry?.annotations).toEqual({
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -209,11 +276,11 @@ describe("mcp() DSL function", () => {
   });
 
   /**
-   * @case mcp() without annotations omits the field from metadata
+   * @case mcp() without annotations omits the field from the registry entry
    * @preconditions Route uses mcp() with description but no annotations
    * @expectedResult Registry entry has no annotations property
    */
-  test("mcp() without annotations omits field from metadata", async () => {
+  test("mcp() without annotations omits field from entry", async () => {
     t = await testContext()
       .routes([
         craft()
@@ -224,10 +291,93 @@ describe("mcp() DSL function", () => {
       .with({ plugins: [mcpPlugin()] })
       .build();
 
-    await t.test();
-    const registry = t.ctx.getStore(ADAPTER_DIRECT_REGISTRY);
-    const metadata = registry?.get("plain-tool");
-    expect(metadata?.annotations).toBeUndefined();
+    await startAndAwaitReady(t);
+    const registry = t.ctx.getStore(MCP_LOCAL_KEY) as
+      | Map<string, McpLocalToolEntry>
+      | undefined;
+    const entry = registry?.get("plain-tool");
+    expect(entry?.annotations).toBeUndefined();
+  });
+
+  /**
+   * @case direct() routes never appear in the MCP local tool registry
+   * @preconditions One direct() route and one mcp() route coexist
+   * @expectedResult MCP_LOCAL_TOOL_REGISTRY contains only the mcp() entry; ADAPTER_DIRECT_REGISTRY holds the direct entry
+   */
+  test("direct() routes are absent from MCP_LOCAL_TOOL_REGISTRY", async () => {
+    t = await testContext()
+      .routes([
+        craft()
+          .id("mcp-tool")
+          .from(mcp("exposed", { description: "Exposed tool" }))
+          .to(vi.fn()),
+        craft().id("internal").from(direct("internal", {})).to(vi.fn()),
+      ])
+      .with({ plugins: [mcpPlugin()] })
+      .build();
+
+    await startAndAwaitReady(t);
+
+    const mcpRegistry = t.ctx.getStore(MCP_LOCAL_KEY) as
+      | Map<string, McpLocalToolEntry>
+      | undefined;
+    expect(Array.from(mcpRegistry?.keys() ?? [])).toEqual(["exposed"]);
+
+    const directRegistry = t.ctx.getStore(ADAPTER_DIRECT_REGISTRY);
+    expect(directRegistry?.has("internal")).toBe(true);
+    expect(directRegistry?.has("exposed")).toBe(false);
+  });
+
+  /**
+   * @case Two .from(mcp("foo")) routes in the same context fail at registration
+   * @preconditions Two routes register the same mcp() endpoint
+   * @expectedResult Second subscription raises RC5003 (duplicate endpoint) through the context error channel
+   */
+  test("duplicate mcp() endpoint throws RC5003", async () => {
+    t = await testContext()
+      .routes([
+        craft()
+          .id("tool-a")
+          .from(mcp("dup", { description: "First" }))
+          .to(vi.fn()),
+        craft()
+          .id("tool-b")
+          .from(mcp("dup", { description: "Second" }))
+          .to(vi.fn()),
+      ])
+      .with({ plugins: [mcpPlugin()] })
+      .build();
+
+    await expect(t.test()).rejects.toMatchObject({ rc: "RC5003" });
+  });
+
+  /**
+   * @case Aborting an mcp() subscription removes the entry from the registry
+   * @preconditions mcp() route is started, then context is stopped
+   * @expectedResult After stop, the entry is gone from MCP_LOCAL_TOOL_REGISTRY
+   */
+  test("aborting mcp() subscription clears the registry entry", async () => {
+    t = await testContext()
+      .routes([
+        craft()
+          .id("ephemeral")
+          .from(mcp("ephemeral", { description: "Short-lived" }))
+          .to(vi.fn()),
+      ])
+      .with({ plugins: [mcpPlugin()] })
+      .build();
+
+    await startAndAwaitReady(t);
+    const before = t.ctx.getStore(MCP_LOCAL_KEY) as
+      | Map<string, McpLocalToolEntry>
+      | undefined;
+    expect(before?.has("ephemeral")).toBe(true);
+
+    await t.stop();
+    const after = t.ctx.getStore(MCP_LOCAL_KEY) as
+      | Map<string, McpLocalToolEntry>
+      | undefined;
+    expect(after?.has("ephemeral")).toBe(false);
   });
 
   /**
@@ -243,38 +393,6 @@ describe("mcp() DSL function", () => {
     expect(adapter).toBeDefined();
     expect(adapter.adapterId).toBe("routecraft.adapter.mcp");
     expect(typeof adapter.send).toBe("function");
-  });
-
-  /**
-   * @case direct() with function endpoint resolves at send time
-   * @preconditions Producer uses direct((ex) => `handler-${ex.body.type}`); two handler routes with mcp()
-   * @expectedResult Message routed to correct handler by body.type
-   */
-  test("direct() works with dynamic endpoints (destination only)", async () => {
-    const consumerA = vi.fn();
-    const consumerB = vi.fn();
-
-    t = await testContext()
-      .routes([
-        craft()
-          .id("producer")
-          .from(simple({ type: "a", data: "test" }))
-          .to(direct((ex) => `handler-${ex.body.type}`)),
-        craft()
-          .id("handler-a")
-          .from(mcp("handler-a", { description: "Handler A" }))
-          .to(consumerA),
-        craft()
-          .id("handler-b")
-          .from(mcp("handler-b", { description: "Handler B" }))
-          .to(consumerB),
-      ])
-      .with({ plugins: [mcpPlugin()] })
-      .build();
-
-    await t.test();
-    expect(consumerA).toHaveBeenCalledTimes(1);
-    expect(consumerB).not.toHaveBeenCalled();
   });
 
   /**

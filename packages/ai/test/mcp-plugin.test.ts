@@ -128,12 +128,12 @@ describe("MCP Plugin Integration", () => {
 
   /**
    * @case Verifies that mcpPlugin can filter tools by function
-   * @preconditions Custom filter function is provided
+   * @preconditions Custom filter function is provided operating on McpLocalToolEntry
    * @expectedResult Plugin is an object with apply and optional teardown
    */
   test("mcpPlugin() can filter tools by function", () => {
     const p = mcpPlugin({
-      tools: (meta) => meta.keywords?.includes("public") ?? false,
+      tools: (entry) => entry.keywords?.includes("public") ?? false,
     });
     expect(typeof p.apply).toBe("function");
     expect(p).toHaveProperty("teardown");

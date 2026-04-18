@@ -37,22 +37,15 @@ export interface DirectChannel<T = unknown> {
 }
 
 /**
- * Metadata for a discoverable direct route.
- * Routes with descriptions are registered in the context store.
+ * Metadata for a direct route stored in the direct route registry.
+ * Captures the minimal validation surface; MCP-specific fields such as
+ * `description`, `keywords`, and `annotations` live on the MCP local tool
+ * registry maintained by `@routecraft/ai`, not here.
  */
 export interface DirectRouteMetadata {
   endpoint: string;
-  description?: string;
   schema?: StandardSchemaV1;
   headerSchema?: StandardSchemaV1;
-  keywords?: string[];
-  /**
-   * Opaque pass-through for adapter-specific annotations (e.g. MCP tool annotations).
-   * Core routecraft never reads the shape; adapters that wrap direct (such as
-   * `mcp()`) constrain the shape on their own public options type and cast back
-   * when reading from this registry.
-   */
-  annotations?: unknown;
 }
 
 /** Base options shared between source and destination. */
@@ -89,22 +82,6 @@ export interface DirectServerOptions extends DirectBaseOptions {
    * })  // Validates required headers, keeps all others
    */
   headerSchema?: StandardSchemaV1;
-
-  /**
-   * Human-readable description of what this route does.
-   * Makes route discoverable and queryable from context store.
-   */
-  description?: string;
-
-  /** Keywords to help with route discovery and categorization */
-  keywords?: string[];
-
-  /**
-   * Opaque pass-through for adapter-specific annotations (e.g. MCP tool annotations).
-   * Core routecraft never reads the shape; adapter wrappers (such as `mcp()` in
-   * `@routecraft/ai`) narrow this to a typed shape on their public options.
-   */
-  annotations?: unknown;
 }
 
 /**
