@@ -172,7 +172,11 @@ Start the server with `craft run`, then point your AI client at it.
 
 ## Authentication
 
-When using HTTP transport, secure the endpoint with the `auth` option. Routecraft ships with a built-in `jwt()` helper that verifies JWT signatures using `node:crypto` (zero dependencies).
+When using HTTP transport, secure the endpoint with the `auth` option.
+
+### Static-key JWT (`jwt()`)
+
+Routecraft ships with a built-in `jwt()` helper that verifies JWT signatures using `node:crypto` (zero dependencies). `issuer` and `audience` are required to prevent cross-issuer and cross-audience replay. Both accept a single string or an array of accepted values. Use `audience: "*"` only when you explicitly want to skip audience validation.
 
 ```ts
 import { jwt } from '@routecraft/ai'
@@ -193,64 +197,26 @@ auth: jwt({
 })
 ```
 
-The `issuer` and `audience` options are optional but strongly recommended in multi-tenant or federated deployments. Without them, any valid token from a trusted signing key is accepted regardless of who it was issued for, which enables cross-audience replay. Both fields accept a single string or an array of accepted values.
+`jwt` and `jwks` are also exported from `@routecraft/routecraft` -- the `@routecraft/ai` re-export is a convenience.
 
-For other auth schemes, pass a custom `validator` function:
+### JWKS-backed JWT (`jwks()`)
 
-```ts
-auth: {
-  validator: async (token) => {
-    const user = await db.verifyApiKey(token)
-    if (!user) return null
-    return {
-      kind: 'api-key',
-      scheme: 'api-key',
-      subject: user.id,
-      name: user.label,
-    }
-  },
-}
-```
-
-The validator receives the raw bearer token and returns an `AuthPrincipal` on success or `null` to reject with 401. `AuthPrincipal` is a discriminated union on `kind`: pick the subtype that fits the scheme you implement (`jwt`, `oauth`, `api-key`, `basic`, or `custom` for anything else). The principal's fields are set as exchange headers so your routes can read the caller's identity.
-
-For OAuth 2.1 with an upstream IdP, use `oauth()`. The OAuth path relies on Express for the auth router and bearer middleware, and uses `jose` for the built-in JWT verification path; both are declared as optional peer dependencies, so plain validator setups do not pay for them:
-
-```sh
-pnpm add express jose
-```
-
-Pass a `jwt` config and the factory handles JWKS fetching, signature verification, `issuer` and `audience` validation, and standard claim mapping for you:
+For JWTs signed by an external IdP, use `jwks()`. It lazy-loads `jose` and fetches the public key set from the IdP's JWKS endpoint:
 
 ```ts
-import { oauth } from '@routecraft/ai'
+import { jwks } from '@routecraft/ai'
 
-auth: oauth({
-  issuerUrl: 'https://mcp.example.com',
-  endpoints: {
-    authorizationUrl: 'https://idp.example.com/authorize',
-    tokenUrl: 'https://idp.example.com/token',
-  },
-  jwt: {
-    jwksUrl: 'https://idp.example.com/.well-known/jwks.json',
-    issuer: 'https://idp.example.com',
-    audience: 'https://mcp.example.com',
-  },
-  client: {
-    client_id: 'my-mcp-server',
-    redirect_uris: ['http://localhost:3000/callback'],
-  },
+auth: jwks({
+  jwksUrl: 'https://idp.example.com/.well-known/jwks.json',
+  issuer: 'https://idp.example.com',
+  audience: 'https://mcp.example.com',
 })
 ```
 
-`issuer` and `audience` are required, so the server cannot silently accept tokens from a different IdP or minted for a different resource. Standard claims (`sub`, `client_id`, `email`, `name`, `iss`, `aud`, `scope`, `roles`, `exp`) are mapped to `OAuthPrincipal` fields automatically.
-
-`client` accepts either a static `OAuthClientInfo` (matched on `client_id`; unknown IDs are rejected) or a supplier `(clientId) => Promise<OAuthClientInfo | undefined>` for dynamic lookup. The supplier is invoked **per request** by the OAuth proxy provider during every authorize/token/revoke call, so cache or preload registry reads to keep the hot path fast.
-
-For non-standard IdPs, pass `jwt.claims` to override individual mappings:
+For non-standard IdPs that use different claim names, override individual mappings with `claims`:
 
 ```ts
-jwt: {
+auth: jwks({
   jwksUrl: 'https://login.microsoftonline.com/<tenant>/discovery/v2.0/keys',
   issuer: 'https://login.microsoftonline.com/<tenant>/v2.0',
   audience: '<app-id>',
@@ -258,37 +224,90 @@ jwt: {
     subject: (p) => p.oid as string,
     roles: (p) => p['roles'] as string[] | undefined,
   },
+})
+```
+
+### Custom validator
+
+For API keys, opaque tokens, or any other scheme, pass a `validator` function. Throw to reject (any thrown error returns 401); return a `Principal` to accept:
+
+```ts
+auth: {
+  validator: async (token) => {
+    const user = await db.verifyApiKey(token)
+    if (!user) throw new Error('unknown key')
+    return {
+      kind: 'custom',
+      scheme: 'bearer',
+      subject: user.id,
+      name: user.label,
+    }
+  },
 }
 ```
 
-For opaque tokens, custom introspection, or anything else that isn't a JWKS-signed JWT, pass a `verifyAccessToken` callback instead of `jwt`:
+The returned `Principal` is a flat object tagged with `kind` (`"jwt"`, `"jwks"`, `"oauth"`, or `"custom"`). Its fields are forwarded to your routes as `routecraft.auth.*` exchange headers.
+
+### OAuth 2.1 proxy (`oauth()`)
+
+For the full OAuth 2.1 Authorization Code flow with an upstream IdP, use `oauth()`. It proxies the authorization and token endpoints and validates incoming bearer tokens. It requires `express` and (for JWKS verification) `jose` as optional peer dependencies:
+
+```sh
+pnpm add express jose
+```
+
+Compose `oauth()` with `jwks()` (or a raw verifier function) via the `verify` option:
 
 ```ts
-import { oauth } from '@routecraft/ai'
+import { oauth, jwks } from '@routecraft/ai'
 
+// Clerk example
 auth: oauth({
-  issuerUrl: 'https://mcp.example.com',
+  resourceIssuerUrl: 'https://mcp.example.com',
+  endpoints: {
+    authorizationUrl: 'https://clerk.example.com/oauth/authorize',
+    tokenUrl: 'https://clerk.example.com/oauth/token',
+  },
+  verify: jwks({
+    jwksUrl: 'https://clerk.example.com/.well-known/jwks.json',
+    issuer: 'https://clerk.example.com',
+    audience: 'https://mcp.example.com',
+  }),
+  client: {
+    client_id: 'my-mcp-server',
+    redirect_uris: ['http://localhost:3000/callback'],
+  },
+})
+```
+
+For opaque tokens or custom introspection, pass a raw `verify` function instead:
+
+```ts
+auth: oauth({
+  resourceIssuerUrl: 'https://mcp.example.com',
   endpoints: { authorizationUrl: '...', tokenUrl: '...' },
-  verifyAccessToken: async (token) => {
-    const principal = await myIntrospectionCall(token)
+  verify: async (token) => {
+    const info = await myIntrospectionCall(token)
+    if (!info.active) throw new Error('token inactive')
     return {
       kind: 'oauth',
       scheme: 'bearer',
-      subject: principal.userId,
-      clientId: principal.clientId,
-      expiresAt: principal.exp,
-      claims: principal.raw,
+      subject: info.sub,
+      clientId: info.client_id,
+      expiresAt: info.exp,
     }
   },
   client: async (clientId) => await db.clients.findByClientId(clientId),
 })
 ```
 
-Pass **either** `jwt` **or** `verifyAccessToken`, never both.
+`client` accepts either a static `OAuthClientInfo` (unknown IDs are rejected) or a `(clientId) => Promise<OAuthClientInfo | undefined>` supplier for dynamic lookup. The supplier is called per request during the OAuth flow, so cache or preload registry reads to keep the hot path fast.
 
-The populated `OAuthPrincipal` surfaces every identity field on the exchange: `routecraft.auth.subject` (= JWT `sub`, not the OAuth `client_id`), `routecraft.auth.client_id`, `routecraft.auth.email`, `routecraft.auth.name`, `routecraft.auth.issuer`, `routecraft.auth.audience`, `routecraft.auth.scopes`, and `routecraft.auth.roles`. `expiresAt` is required by the MCP SDK's bearer middleware; omit it and every request is rejected with 401.
+`expiresAt` is required by the MCP SDK's bearer middleware; the server will throw if the verifier returns a principal without it.
 
-See the [plugins reference](/docs/reference/plugins#mcpplugin) for the full `AuthPrincipal` field list.
+The populated `Principal` surfaces every identity field on the exchange: `routecraft.auth.subject`, `routecraft.auth.client_id`, `routecraft.auth.email`, `routecraft.auth.name`, `routecraft.auth.issuer`, `routecraft.auth.audience`, `routecraft.auth.scopes`, `routecraft.auth.roles`, and `routecraft.auth.kind`.
+
+See the [plugins reference](/docs/reference/plugins#mcpplugin) for the full `Principal` field list.
 
 ## Production
 

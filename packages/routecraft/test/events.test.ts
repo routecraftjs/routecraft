@@ -231,7 +231,7 @@ describe("Events API", () => {
       });
 
     t = await testContext()
-      .routesReadyTimeout(200)
+      .routesReadyTimeout(20)
       .routes(craft().id("never-ready").from(neverReady).to(log()))
       .build();
 

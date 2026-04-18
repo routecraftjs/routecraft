@@ -149,7 +149,8 @@ describe("TelemetryPlugin", () => {
       .build();
 
     await t.ctx.start();
-    await new Promise((r) => setTimeout(r, 200));
+    // Stop triggers teardown which flushes buffered telemetry, avoiding a fixed sleep.
+    await t.stop();
 
     const db = new Database(dbPath, { readonly: true });
     const routes = db
@@ -186,7 +187,7 @@ describe("TelemetryPlugin", () => {
       .build();
 
     await t.ctx.start();
-    await new Promise((r) => setTimeout(r, 300));
+    await t.stop();
 
     const db = new Database(dbPath, { readonly: true });
     const exchanges = db
@@ -227,7 +228,7 @@ describe("TelemetryPlugin", () => {
       .build();
 
     await t.ctx.start();
-    await new Promise((r) => setTimeout(r, 300));
+    await t.stop();
 
     const db = new Database(dbPath, { readonly: true });
     const eventCount = db

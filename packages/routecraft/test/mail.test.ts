@@ -960,7 +960,7 @@ describe("Mail Adapter", () => {
             .id("test-poll-source")
             .from(
               mail("INBOX", {
-                pollIntervalMs: 50,
+                pollIntervalMs: 5,
                 markSeen: false,
                 unseen: true,
               }),
@@ -971,7 +971,7 @@ describe("Mail Adapter", () => {
 
       // Start context, let it poll once, then stop
       const startPromise = t.ctx.start();
-      await new Promise((r) => setTimeout(r, 200));
+      await new Promise((r) => setTimeout(r, 20));
       await t.ctx.stop();
       await startPromise.catch(() => {});
 
@@ -1029,7 +1029,7 @@ describe("Mail Adapter", () => {
               mail("INBOX", {
                 markSeen: false,
                 unseen: true,
-                pollIntervalMs: 50,
+                pollIntervalMs: 5,
               }),
             )
             .to(s),
@@ -1037,7 +1037,7 @@ describe("Mail Adapter", () => {
         .build();
 
       const startPromise = t.ctx.start();
-      await new Promise((r) => setTimeout(r, 200));
+      await new Promise((r) => setTimeout(r, 20));
       await t.ctx.stop();
       await startPromise.catch(() => {});
 
@@ -1079,7 +1079,7 @@ describe("Mail Adapter", () => {
               mail("INBOX", {
                 markSeen: false,
                 unseen: true,
-                pollIntervalMs: 50,
+                pollIntervalMs: 5,
               }),
             )
             .to(s),
@@ -1087,7 +1087,7 @@ describe("Mail Adapter", () => {
         .build();
 
       const startPromise = t.ctx.start();
-      await new Promise((r) => setTimeout(r, 100));
+      await new Promise((r) => setTimeout(r, 20));
       await t.ctx.stop();
       await startPromise.catch(() => {});
 
