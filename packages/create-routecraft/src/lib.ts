@@ -501,7 +501,12 @@ export async function generateProjectStructure(
         await cp(exampleDir, projectDir, {
           recursive: true,
           force: false,
+          // deps.json is metadata for dependency injection, not project content.
+          filter: (src) => !src.endsWith(`${options.example}/deps.json`),
         });
+
+        await mergeExampleDeps(exampleDir, projectDir);
+
         console.log(`✅ Added ${options.example} example`);
       } else {
         throw new Error(`Unknown example: ${options.example}`);
@@ -510,6 +515,40 @@ export async function generateProjectStructure(
   }
 
   console.log("Generated project structure");
+}
+
+/**
+ * Merge an example's optional `deps.json` (dependencies / devDependencies)
+ * into the scaffolded `package.json`. Lets per-example deps (e.g. zod for the
+ * hello-world schema) be declared next to the example instead of bloating the
+ * base template for users who pick "none".
+ */
+async function mergeExampleDeps(
+  exampleDir: string,
+  projectDir: string,
+): Promise<void> {
+  const depsPath = join(exampleDir, "deps.json");
+  if (!existsSync(depsPath)) return;
+
+  const exampleDeps = JSON.parse(await readFile(depsPath, "utf-8")) as {
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+  };
+
+  const pkgPath = join(projectDir, "package.json");
+  const pkg = JSON.parse(await readFile(pkgPath, "utf-8"));
+
+  if (exampleDeps.dependencies) {
+    pkg.dependencies = { ...pkg.dependencies, ...exampleDeps.dependencies };
+  }
+  if (exampleDeps.devDependencies) {
+    pkg.devDependencies = {
+      ...pkg.devDependencies,
+      ...exampleDeps.devDependencies,
+    };
+  }
+
+  await writeFile(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
 }
 
 /**

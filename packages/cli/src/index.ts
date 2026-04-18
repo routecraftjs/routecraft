@@ -27,11 +27,13 @@ if (!(major > 18 || (major === 18 && minor >= 19))) {
 // Node's native --experimental-strip-types does not handle extensionless
 // imports or .js-to-.ts resolution. tsx (via --import tsx/esm) does.
 // We set CRAFT_TSX_LOADER=1 before re-execing to avoid an infinite loop.
+// Bun has native TypeScript support, so we skip the re-exec entirely there.
 const hasTSFile = process.argv
   .slice(2)
   .some((arg) => !arg.startsWith("-") && arg.endsWith(".ts"));
+const isBun = typeof process.versions["bun"] === "string";
 
-if (hasTSFile && !process.env["CRAFT_TSX_LOADER"]) {
+if (hasTSFile && !isBun && !process.env["CRAFT_TSX_LOADER"]) {
   const { execFileSync } = await import("node:child_process");
   const { createRequire } = await import("node:module");
   // Resolve tsx/esm relative to the CLI package so it works regardless of CWD

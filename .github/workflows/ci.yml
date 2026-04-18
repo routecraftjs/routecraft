@@ -239,6 +239,11 @@ jobs:
     needs: [changes, validate, test, build]
     if: needs.changes.outputs.packages == 'true' || github.event_name == 'release'
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pm: [npm, bun]
+    name: integration-test (${{ matrix.pm }})
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -254,11 +259,15 @@ jobs:
           node-version-file: ".nvmrc"
           cache: "pnpm"
 
+      - name: Install bun
+        if: matrix.pm == 'bun'
+        uses: oven-sh/setup-bun@v2
+
       - name: Restore node_modules
         uses: actions/cache@v5
         with:
           path: "**/node_modules"
-          key: ${{ runner.os }}-modules-${{ hashFiles('**/pnpm-lock.yaml') }}
+          key: ${{ runner.os }}-modules-${{ matrix.pm }}-${{ hashFiles('**/pnpm-lock.yaml') }}
 
       - name: Restore build artifacts
         uses: actions/cache@v5
@@ -275,22 +284,26 @@ jobs:
           pnpm run version:set "$VERSION"
 
       - name: Install CLI globally
+        if: matrix.pm == 'npm'
         working-directory: ./packages/cli
         run: |
           npm link
           craft --version
 
       - name: Smoke test publishable (pack + npm install + npx craft run)
+        if: matrix.pm == 'npm'
         run: node .github/scripts/smoke-test-publishable.mjs
 
       - name: Run integration tests
+        env:
+          TEST_PACKAGE_MANAGER: ${{ matrix.pm }}
         run: pnpm test:integration
 
       - name: Restore repo (only paths set-version touched)
         run: |
           git checkout -- package.json examples/package.json \
             packages/ai/package.json packages/browser/package.json packages/cli/package.json \
-            packages/create-routecraft/package.json packages/eslint-plugin-routecraft/package.json packages/routecraft/package.json packages/testing/package.json \
+            packages/create-routecraft/package.json packages/eslint-plugin-routecraft/package.json packages/os/package.json packages/routecraft/package.json packages/testing/package.json \
             packages/cli/src/index.ts \
             apps/routecraft.dev/package.json apps/routecraft.dev/src/components/VersionSelector.tsx
 

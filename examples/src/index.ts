@@ -4,4 +4,4 @@ import { default as mcpGreet } from "./mcp-greet";
 import { default as mailNoreplyNotify } from "./mail-noreply-notify";
 import { default as split } from "./split";
 
-export default [helloWorld, mcpGreet, mailNoreplyNotify, ...split];
+export default [...helloWorld, mcpGreet, mailNoreplyNotify, ...split];

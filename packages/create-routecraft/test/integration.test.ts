@@ -3,11 +3,59 @@ import { mkdir, rm, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
-import { exec, type ExecOptions } from "node:child_process";
+import { exec, spawn, type ExecOptions } from "node:child_process";
 import { promisify } from "node:util";
 import { generateProjectStructure, type InitOptions } from "../src/lib.js";
 
 const execAsync = promisify(exec);
+
+type PackageManagerId = "npm" | "bun";
+
+interface PackageManagerDef {
+  id: PackageManagerId;
+  pmOption: Required<InitOptions>["packageManager"];
+  install: string;
+  typecheck: string;
+  /**
+   * Runs the scaffolded project via `craft run index.ts`. For bun we force the
+   * bun runtime (via `--bun`) so the CLI executes on bun, not on node.
+   */
+  start: string;
+}
+
+const PACKAGE_MANAGER_DEFS: Record<PackageManagerId, PackageManagerDef> = {
+  npm: {
+    id: "npm",
+    pmOption: "npm",
+    install: "npm install --no-audit --no-fund",
+    typecheck: "npx tsc --noEmit",
+    start: "npx craft run index.ts",
+  },
+  bun: {
+    id: "bun",
+    pmOption: "bun",
+    install: "bun install",
+    typecheck: "bunx tsc --noEmit",
+    // `bun x --bun` forces bun runtime on the spawned binary (the craft bin
+    // has a `#!/usr/bin/env node` shebang which would otherwise invoke node).
+    start: "bun x --bun craft run index.ts",
+  },
+};
+
+function selectedPackageManager(): PackageManagerDef {
+  const id = (process.env["TEST_PACKAGE_MANAGER"] ?? "npm") as PackageManagerId;
+  const def = PACKAGE_MANAGER_DEFS[id];
+  if (!def) {
+    throw new Error(
+      `Unknown TEST_PACKAGE_MANAGER: ${id}. Must be one of: ${Object.keys(
+        PACKAGE_MANAGER_DEFS,
+      ).join(", ")}`,
+    );
+  }
+  return def;
+}
+
+const pm = selectedPackageManager();
 
 /**
  * Run a shell command, capturing stdout/stderr. On failure the output is
@@ -28,6 +76,117 @@ async function run(cmd: string, opts: ExecOptions): Promise<void> {
   }
 }
 
+/**
+ * Run a long-running command and resolve as soon as the expected substring
+ * appears on stdout or stderr. Kills the process once matched.
+ *
+ * Needed because the hello-world example includes a direct source that keeps
+ * the context alive after the caller route finishes; we assert success by
+ * observing output rather than waiting for natural exit.
+ */
+async function runUntilOutput(
+  cmd: string,
+  opts: {
+    cwd: string;
+    expectedOutput: string;
+    timeoutMs: number;
+    env?: NodeJS.ProcessEnv;
+  },
+): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn("/bin/sh", ["-c", cmd], {
+      cwd: opts.cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, ...opts.env },
+    });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+
+    // Kill the child with SIGTERM, wait up to 2s for exit, then SIGKILL. This
+    // avoids EPIPE noise from orphaned writes racing the next test.
+    const finish = async (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (child.exitCode === null && child.signalCode === null) {
+        try {
+          child.kill("SIGTERM");
+        } catch {
+          // already dead
+        }
+        await new Promise<void>((r) => {
+          if (child.exitCode !== null || child.signalCode !== null) {
+            r();
+            return;
+          }
+          const killTimer = setTimeout(() => {
+            try {
+              child.kill("SIGKILL");
+            } catch {
+              // already dead
+            }
+            r();
+          }, 2000);
+          child.once("exit", () => {
+            clearTimeout(killTimer);
+            r();
+          });
+        });
+      }
+      fn();
+    };
+
+    const timer = setTimeout(() => {
+      void finish(() =>
+        reject(
+          new Error(
+            `Timed out waiting for "${opts.expectedOutput}" after ${opts.timeoutMs}ms.\nstdout:\n${stdout}\nstderr:\n${stderr}`,
+          ),
+        ),
+      );
+    }, opts.timeoutMs);
+
+    const check = () => {
+      if (
+        stdout.includes(opts.expectedOutput) ||
+        stderr.includes(opts.expectedOutput)
+      ) {
+        void finish(() => resolve());
+      }
+    };
+
+    child.stdout?.on("data", (d) => {
+      stdout += d.toString();
+      check();
+    });
+    child.stderr?.on("data", (d) => {
+      stderr += d.toString();
+      check();
+    });
+    child.on("exit", (code) => {
+      if (settled) return;
+      if (
+        stdout.includes(opts.expectedOutput) ||
+        stderr.includes(opts.expectedOutput)
+      ) {
+        void finish(() => resolve());
+      } else {
+        void finish(() =>
+          reject(
+            new Error(
+              `Process exited with code ${code} before emitting "${opts.expectedOutput}".\nstdout:\n${stdout}\nstderr:\n${stderr}`,
+            ),
+          ),
+        );
+      }
+    });
+    child.on("error", (err) => {
+      void finish(() => reject(err));
+    });
+  });
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function makeOptions(
@@ -36,7 +195,7 @@ function makeOptions(
   return {
     projectName: "test-app",
     example: "none",
-    packageManager: "bun",
+    packageManager: pm.pmOption,
     skipInstall: true,
     git: false,
     force: false,
@@ -75,13 +234,11 @@ async function patchDepsToLocal(projectDir: string): Promise<void> {
     if (pkg.devDependencies?.[name]) pkg.devDependencies[name] = localPath;
   }
 
-  // Also set pnpm overrides so transitive deps resolve locally
+  // npm and bun honour top-level `overrides`; pnpm uses `pnpm.overrides`.
+  pkg.overrides = { ...(pkg.overrides ?? {}), ...localPackages };
   pkg.pnpm = {
     ...(pkg.pnpm ?? {}),
-    overrides: {
-      ...(pkg.pnpm?.overrides ?? {}),
-      ...localPackages,
-    },
+    overrides: { ...(pkg.pnpm?.overrides ?? {}), ...localPackages },
   };
 
   await writeFile(pkgPath, JSON.stringify(pkg, null, 2));
@@ -107,55 +264,57 @@ async function withProjectDir(
   }
 }
 
-describe("integration: scaffolded project compiles", () => {
+describe(`integration (${pm.id}): scaffolded project compiles`, () => {
   /**
    * @case Scaffolded empty project passes TypeScript type checking
-   * @preconditions Empty project scaffolded, dependencies installed
+   * @preconditions Empty project scaffolded, dependencies installed via the selected package manager
    * @expectedResult tsc --noEmit exits without errors
    */
   integrationTest.concurrent(
     "empty project passes tsc --noEmit",
-    { timeout: 120_000 },
+    { timeout: 180_000 },
     async () => {
       await withProjectDir(async (projectDir) => {
-        await generateProjectStructure(
-          projectDir,
-          makeOptions({ packageManager: "pnpm" }),
-        );
+        await generateProjectStructure(projectDir, makeOptions());
         await patchDepsToLocal(projectDir);
 
-        await run("pnpm install --no-frozen-lockfile", { cwd: projectDir });
+        await run(pm.install, { cwd: projectDir });
 
-        await run("pnpm exec tsc --noEmit", { cwd: projectDir });
+        await run(pm.typecheck, { cwd: projectDir });
       });
     },
   );
 
   /**
-   * @case Scaffolded hello-world project type-checks and runs successfully
-   * @preconditions Hello-world project scaffolded, dependencies installed
-   * @expectedResult tsc --noEmit passes and craft run exits successfully
+   * @case Scaffolded hello-world project type-checks and dispatches simple -> direct on the selected package manager
+   * @preconditions Hello-world project scaffolded, dependencies installed via the selected package manager
+   * @expectedResult tsc --noEmit passes and the greet route logs "Hello, Leanne Graham!" within the timeout
    */
   integrationTest.concurrent(
-    "hello-world project type-checks and runs via craft",
-    { timeout: 120_000 },
+    "hello-world project type-checks and dispatches simple -> direct via craft",
+    { timeout: 180_000 },
     async () => {
       await withProjectDir(async (projectDir) => {
         await generateProjectStructure(
           projectDir,
-          makeOptions({ example: "hello-world", packageManager: "pnpm" }),
+          makeOptions({ example: "hello-world" }),
         );
         await patchDepsToLocal(projectDir);
 
-        await run("pnpm install --no-frozen-lockfile", { cwd: projectDir });
+        await run(pm.install, { cwd: projectDir });
 
-        await run("pnpm exec tsc --noEmit", { cwd: projectDir });
+        await run(pm.typecheck, { cwd: projectDir });
 
-        // The hello-world route is finite (simple source produces one message then stops),
-        // so craft run should exit on its own.
-        await run("pnpm exec craft run index.ts", {
+        // The hello-world caller is finite, but the direct listener keeps the
+        // context alive, so we wait for the greeting in the logs and then
+        // terminate the process rather than wait for natural exit.
+        // CRAFT_LOG_LEVEL=info ensures the greeting reaches the log stream
+        // (default level is warn).
+        await runUntilOutput(pm.start, {
           cwd: projectDir,
-          timeout: 30_000,
+          expectedOutput: "Hello, Leanne Graham!",
+          timeoutMs: 60_000,
+          env: { CRAFT_LOG_LEVEL: "info" },
         });
       });
     },

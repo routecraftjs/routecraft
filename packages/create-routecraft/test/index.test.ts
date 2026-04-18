@@ -379,6 +379,49 @@ describe("generateProjectStructure", () => {
     expect(tsconfig.compilerOptions.outDir).toBeUndefined();
   });
 
+  // ── Per-example deps ─────────────────────────────────────────────────────
+
+  /**
+   * @case Hello-world example adds zod to package.json dependencies
+   * @preconditions example = "hello-world"
+   * @expectedResult package.json.dependencies contains zod
+   */
+  test("hello-world example merges its deps.json into package.json", async () => {
+    await generateProjectStructure(
+      projectDir,
+      makeOptions({ example: "hello-world" }),
+    );
+
+    const pkg = await readJson(join(projectDir, "package.json"));
+    expect(pkg.dependencies).toHaveProperty("zod");
+  });
+
+  /**
+   * @case Per-example deps.json is not copied into the scaffolded project
+   * @preconditions example = "hello-world"
+   * @expectedResult deps.json is absent from the project root
+   */
+  test("hello-world example does not copy deps.json into project", async () => {
+    await generateProjectStructure(
+      projectDir,
+      makeOptions({ example: "hello-world" }),
+    );
+
+    expect(existsSync(join(projectDir, "deps.json"))).toBe(false);
+  });
+
+  /**
+   * @case Empty project does not gain example-only deps
+   * @preconditions example = "none"
+   * @expectedResult package.json.dependencies does not contain zod
+   */
+  test("empty project does not include example-only deps", async () => {
+    await generateProjectStructure(projectDir, makeOptions());
+
+    const pkg = await readJson(join(projectDir, "package.json"));
+    expect(pkg.dependencies).not.toHaveProperty("zod");
+  });
+
   // ── Unknown example ──────────────────────────────────────────────────────
 
   /**

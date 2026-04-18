@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { testContext, type TestContext } from "@routecraft/testing";
 import routes from "../src/hello-world";
 
-describe("Hello World Route", () => {
+describe("Hello World Routes", () => {
   let t: TestContext;
   let fetchMock: ReturnType<typeof vi.fn>;
 
@@ -20,11 +20,11 @@ describe("Hello World Route", () => {
   });
 
   /**
-   * @case Verifies that the route fetches user data and greets the person by name
-   * @preconditions Route is imported and fetch is mocked
-   * @expectedResult Route should fetch user and output "Hello, [name]!"
+   * @case Verifies that the simple route dispatches to the direct "greet" route, which fetches and greets the user by name
+   * @preconditions Both routes are registered and fetch is mocked
+   * @expectedResult greet route fetches the user and logs "Hello, [name]!"
    */
-  it("should fetch user and greet by name", async () => {
+  it("dispatches from simple route into direct route and greets by name", async () => {
     // Mock user data from JSON Placeholder
     const mockUser = {
       id: 1,
@@ -42,7 +42,7 @@ describe("Hello World Route", () => {
       url: "https://jsonplaceholder.typicode.com/users/1",
     });
 
-    // Create context with imported route and run full lifecycle (t.logger is a spy)
+    // Create context with both routes and run full lifecycle (t.logger is a spy)
     t = await testContext().routes(routes).build();
     await t.test();
 
