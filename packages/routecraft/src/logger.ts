@@ -71,7 +71,10 @@ function getDestination(fileConfig?: string): NodeJS.WritableStream {
         const fd = openSync(pathToUse, "a");
         return pinoDest.destination(fd);
       } catch {
-        return pinoDest.destination(1);
+        // User asked for "not stdout" via --log-file; honour that even when
+        // both file paths fail. Fall back to stderr rather than violating the
+        // flag's contract (e.g. corrupting an MCP stdio protocol stream).
+        return pinoDest.destination(2);
       }
     }
   }
