@@ -2,8 +2,8 @@ import { describe, test, expect, afterEach, vi } from "vitest";
 import { z } from "zod";
 import {
   mcp,
-  mcpPlugin,
   MCP_LOCAL_TOOL_REGISTRY,
+  MCP_PLUGIN_REGISTERED,
   type McpLocalToolEntry,
 } from "../src/index.ts";
 import { testContext, type TestContext } from "@routecraft/testing";
@@ -18,6 +18,8 @@ import {
 
 const MCP_LOCAL_KEY =
   MCP_LOCAL_TOOL_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry;
+const MCP_PLUGIN_KEY =
+  MCP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry;
 
 /**
  * Start the context and resolve when every route has emitted `route:*:started`,
@@ -90,7 +92,7 @@ describe("mcp() DSL function", () => {
           .from(mcp("my-tool", { description: "Receive messages" }))
           .to(consumer),
       ])
-      .with({ plugins: [mcpPlugin()] })
+      .store(MCP_PLUGIN_KEY, true)
       .build();
 
     await startAndAwaitReady(t);
@@ -124,7 +126,7 @@ describe("mcp() DSL function", () => {
           .from(simple({ origin: "direct" }))
           .to(direct("shared")),
       ])
-      .with({ plugins: [mcpPlugin()] })
+      .store(MCP_PLUGIN_KEY, true)
       .build();
 
     await startAndAwaitReady(t);
@@ -161,7 +163,7 @@ describe("mcp() DSL function", () => {
           )
           .to(consumer),
       ])
-      .with({ plugins: [mcpPlugin()] })
+      .store(MCP_PLUGIN_KEY, true)
       .build();
 
     await startAndAwaitReady(t);
@@ -192,7 +194,7 @@ describe("mcp() DSL function", () => {
           )
           .to(vi.fn()),
       ])
-      .with({ plugins: [mcpPlugin()] })
+      .store(MCP_PLUGIN_KEY, true)
       .build();
 
     await startAndAwaitReady(t);
@@ -221,7 +223,7 @@ describe("mcp() DSL function", () => {
           )
           .to(vi.fn()),
       ])
-      .with({ plugins: [mcpPlugin()] })
+      .store(MCP_PLUGIN_KEY, true)
       .build();
 
     await startAndAwaitReady(t);
@@ -259,7 +261,7 @@ describe("mcp() DSL function", () => {
           )
           .to(vi.fn()),
       ])
-      .with({ plugins: [mcpPlugin()] })
+      .store(MCP_PLUGIN_KEY, true)
       .build();
 
     await startAndAwaitReady(t);
@@ -288,7 +290,7 @@ describe("mcp() DSL function", () => {
           .from(mcp("plain-tool", { description: "A plain tool" }))
           .to(vi.fn()),
       ])
-      .with({ plugins: [mcpPlugin()] })
+      .store(MCP_PLUGIN_KEY, true)
       .build();
 
     await startAndAwaitReady(t);
@@ -313,7 +315,7 @@ describe("mcp() DSL function", () => {
           .to(vi.fn()),
         craft().id("internal").from(direct("internal", {})).to(vi.fn()),
       ])
-      .with({ plugins: [mcpPlugin()] })
+      .store(MCP_PLUGIN_KEY, true)
       .build();
 
     await startAndAwaitReady(t);
@@ -345,7 +347,7 @@ describe("mcp() DSL function", () => {
           .from(mcp("dup", { description: "Second" }))
           .to(vi.fn()),
       ])
-      .with({ plugins: [mcpPlugin()] })
+      .store(MCP_PLUGIN_KEY, true)
       .build();
 
     await expect(t.test()).rejects.toMatchObject({ rc: "RC5003" });
@@ -364,7 +366,7 @@ describe("mcp() DSL function", () => {
           .from(mcp("ephemeral", { description: "Short-lived" }))
           .to(vi.fn()),
       ])
-      .with({ plugins: [mcpPlugin()] })
+      .store(MCP_PLUGIN_KEY, true)
       .build();
 
     await startAndAwaitReady(t);
