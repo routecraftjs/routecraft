@@ -76,10 +76,7 @@ program
     "--log-level <level>",
     "Log level (e.g. info, warn, error, silent to disable)",
   )
-  .option(
-    "--log-file <path>",
-    "Write logs to a file (keeps stdout clear for MCP stdio)",
-  )
+  .option("--log-file <path>", "Write logs to a file instead of stdout")
   .showSuggestionAfterError()
   .showHelpAfterError()
   .exitOverride((err) => {

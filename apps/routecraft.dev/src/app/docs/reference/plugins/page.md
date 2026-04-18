@@ -163,6 +163,13 @@ export default config
 | `restartBackoffMultiplier` | `number` | `2` | Multiplier applied to delay on each successive restart |
 | `toolRefreshIntervalMs` | `number` | `60000` | Polling interval for HTTP client tool lists (0 = no polling) |
 
+**Logging when `transport` is `'stdio'`:**
+
+The stdio transport uses stdout as the protocol channel. Routecraft's logger defaults to stdout, so logs will corrupt the protocol stream unless you redirect them. When running an MCP server over stdio, always pass one of:
+
+- `--log-file <path>` -- write logs to a file
+- `--log-level silent` -- disable logging entirely
+
 **HTTP server auth (`McpHttpAuthOptions`):**
 
 When `auth` is set and `transport` is `'http'`, every request to `/mcp` must include a valid `Authorization: Bearer <token>` header. The `auth` object requires a `validator` function that receives the raw bearer token and returns an `AuthPrincipal` on success or `null` to reject. The principal is made available on exchange headers so routes can read the caller's identity.
