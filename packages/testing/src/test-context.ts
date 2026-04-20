@@ -7,6 +7,7 @@ import type {
   EventHandler,
   RouteDefinition,
   RouteBuilder,
+  AdapterOverride,
 } from "@routecraft/routecraft";
 import {
   ContextBuilder,
@@ -15,9 +16,11 @@ import {
   RoutecraftError,
   rcError,
   logger,
+  RC_ADAPTER_OVERRIDES,
 } from "@routecraft/routecraft";
 import type { SpyLogger } from "./spy-logger";
 import { createSpyLogger, createNoopSpyLogger } from "./spy-logger";
+import type { AdapterMock } from "./mock-adapter";
 
 const DEFAULT_ROUTES_READY_TIMEOUT_MS = 200;
 
@@ -231,10 +234,25 @@ export class TestContext {
 export class TestContextBuilder {
   private builder = new ContextBuilder();
   private routesReadyTimeoutMs: number | undefined;
+  private adapterOverrides: AdapterOverride[] = [];
 
   /** Override timeout for waiting for routes to start (ms). Used by tests that assert timeout behavior. */
   routesReadyTimeout(ms: number): this {
     this.routesReadyTimeoutMs = ms;
+    return this;
+  }
+
+  /**
+   * Register an adapter mock. At route execution time, calls to adapters
+   * produced by the same factory are routed through the mock's handlers
+   * instead of invoking the real adapter. Accepts either the handle returned
+   * by `mockAdapter()` or a raw `AdapterOverride`.
+   *
+   * @beta
+   */
+  override(mock: AdapterMock | AdapterOverride): this {
+    const entry: AdapterOverride = "override" in mock ? mock.override : mock;
+    this.adapterOverrides.push(entry);
     return this;
   }
 
@@ -276,6 +294,17 @@ export class TestContextBuilder {
       () => spyLogger as unknown as ReturnType<typeof logger.child>,
     ) as typeof logger.child;
     const { context: ctx, client } = await this.builder.build();
+
+    // Install registered adapter overrides onto the context store so that
+    // ToStep / EnrichStep / Route source can resolve them at execution time.
+    if (this.adapterOverrides.length > 0) {
+      const existing = ctx.getStore(RC_ADAPTER_OVERRIDES) ?? [];
+      ctx.setStore(RC_ADAPTER_OVERRIDES, [
+        ...existing,
+        ...this.adapterOverrides,
+      ]);
+    }
+
     const options: TestContextOptions & {
       spyLogger: SpyLogger;
       restoreLoggerChild: () => void;

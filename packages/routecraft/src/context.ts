@@ -14,6 +14,7 @@ import { MailClientManager } from "./adapters/mail/client-manager.ts";
 import { MAIL_CLIENT_MANAGER } from "./adapters/mail/shared.ts";
 import { type TelemetryOptions } from "./telemetry/types.ts";
 import { telemetry } from "./telemetry/index.ts";
+import { type AdapterOverride, RC_ADAPTER_OVERRIDES } from "./testing-hooks.ts";
 
 import {
   type EventHandler,
@@ -49,6 +50,7 @@ export const RUNNER_ARGV: unique symbol = Symbol.for("routecraft.runner.argv");
 export interface StoreRegistry {
   [key: `${string}.${string}.${string}`]: unknown;
   [RUNNER_ARGV]: string[];
+  [RC_ADAPTER_OVERRIDES]: AdapterOverride[];
 }
 
 /**

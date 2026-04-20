@@ -125,6 +125,26 @@ export { logger } from "./logger.ts";
 export { shutdownHandler } from "./shutdown.ts";
 
 export {
+  RC_ADAPTER_OVERRIDES,
+  type AdapterOverride,
+  type AdapterSendCall,
+  type AdapterSourceCall,
+  type SendOverrideHandler,
+  type SourceOverrideBehavior,
+  resolveAdapterOverride,
+  invokeSendOverride,
+  wrapSourceWithOverride,
+} from "./testing-hooks.ts";
+
+export {
+  RC_ADAPTER_FACTORY,
+  RC_ADAPTER_ARGS,
+  tagAdapter,
+  getAdapterFactory,
+  getAdapterArgs,
+} from "./adapters/shared/factory-tag.ts";
+
+export {
   type Adapter,
   type Consumer,
   type EventName,
