@@ -359,6 +359,71 @@ describe("mockAdapter", () => {
     });
   });
 
+  describe("recorded snapshot isolation", () => {
+    /**
+     * @case A send handler mutating exchange.body does not corrupt the recorded snapshot
+     * @preconditions Route forwards an object body; the send handler mutates `exchange.body` after the call is recorded
+     * @expectedResult calls.send[0].exchange.body still reflects the pre-mutation state
+     */
+    test("recorded exchange.body is isolated from later mutations", async () => {
+      const mock = mockAdapter(PlainDestination, {
+        send: async (exchange) => {
+          // Mutate after the call has been recorded; the snapshot must not
+          // reflect this change.
+          (exchange.body as { mutated: boolean }).mutated = true;
+          return { ok: true };
+        },
+      });
+
+      const route = craft()
+        .from(simple({ mutated: false, original: "kept" }))
+        .to(plainDestination("primary"));
+
+      t = await testContext().override(mock).routes(route).build();
+      await t.test();
+
+      expect(mock.calls.send).toHaveLength(1);
+      const recorded = mock.calls.send[0].exchange.body as {
+        mutated: boolean;
+        original: string;
+      };
+      expect(recorded.mutated).toBe(false);
+      expect(recorded.original).toBe("kept");
+    });
+  });
+
+  describe("duplicate override detection", () => {
+    /**
+     * @case Registering two overrides for the same target throws at build-time
+     * @preconditions Two mockAdapter handles share a target factory
+     * @expectedResult The second `.override()` call throws with an actionable message
+     */
+    test("registering two mocks for the same factory throws", () => {
+      const first = mockAdapter(http, { send: async () => ({}) });
+      const second = mockAdapter(http, { send: async () => ({}) });
+
+      const builder = testContext().override(first);
+      expect(() => builder.override(second)).toThrow(/duplicate override/i);
+    });
+
+    /**
+     * @case Duplicate detection also fires for class-form targets
+     * @preconditions Two mockAdapter handles share an adapter class
+     * @expectedResult The second `.override()` call throws
+     */
+    test("registering two mocks for the same class throws", () => {
+      const first = mockAdapter(PlainDestination, {
+        send: async () => ({ ok: true }),
+      });
+      const second = mockAdapter(PlainDestination, {
+        send: async () => ({ ok: true }),
+      });
+
+      const builder = testContext().override(first);
+      expect(() => builder.override(second)).toThrow(/duplicate override/i);
+    });
+  });
+
   describe("multi-role factory", () => {
     /**
      * @case one mockAdapter on a factory covers both source and destination call sites

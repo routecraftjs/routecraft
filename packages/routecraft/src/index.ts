@@ -133,7 +133,7 @@ export {
   type SourceOverrideBehavior,
 } from "./testing-hooks.ts";
 
-export { tagAdapter } from "./adapters/shared/factory-tag.ts";
+export { tagAdapter, factoryArgs } from "./adapters/shared/factory-tag.ts";
 
 export {
   type Adapter,

@@ -6,7 +6,7 @@ import tsconfigPaths from "vite-tsconfig-paths";
 // `.env` to run the examples, so reusing the same fakes keeps one source
 // of truth. The plugin init in craft.config.ts validates some of these at
 // module-import time (e.g. JWT_SECRET via mcpPlugin -> jwt), which is why
-// the tests need any value at all — the mocked adapters bypass the real
+// the tests need any value at all; the mocked adapters bypass the real
 // clients at runtime.
 const { parsed: envExample = {} } = dotenv.config({
   path: new URL("./.env.example", import.meta.url),
@@ -32,8 +32,10 @@ export default defineConfig({
   test: {
     environment: "node",
     env: {
-      LOG_LEVEL: "silent",
+      // `.env.example` first so explicit overrides below win if the example
+      // file ever gains keys like `LOG_LEVEL`.
       ...envExample,
+      LOG_LEVEL: "silent",
     },
     coverage: {
       provider: "v8",

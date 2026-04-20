@@ -5,6 +5,7 @@ import type { Destination } from "./operations/to.ts";
 import {
   getAdapterFactory,
   getAdapterArgs,
+  tagAdapter,
 } from "./adapters/shared/factory-tag.ts";
 
 /**
@@ -98,6 +99,23 @@ export interface AdapterOverride {
 }
 
 /**
+ * Take a defensive copy of an exchange body at call-recording time, so that
+ * handlers mutating the body afterwards cannot corrupt the recorded snapshot.
+ *
+ * Uses `structuredClone` for plain values; falls back to the original
+ * reference for values that cannot be cloned (functions, class instances
+ * with unclonable internals, etc.) so recording never throws.
+ */
+function snapshotBody(body: unknown): unknown {
+  if (body === null || typeof body !== "object") return body;
+  try {
+    return structuredClone(body);
+  } catch {
+    return body;
+  }
+}
+
+/**
  * Look up an override registered on the given context for the adapter.
  * Matches by tagged factory first (if the adapter was stamped via
  * `tagAdapter`); falls back to matching by adapter constructor class so
@@ -141,48 +159,58 @@ export function wrapSourceWithOverride<M = unknown>(
   const args = getAdapterArgs(adapter) ?? [];
   const behavior = override.source;
 
-  const wrapped: Source<M> = {
-    ...(adapter as object),
-    async subscribe(
-      _context,
-      handler,
-      abortController,
-      onReady,
-    ): Promise<void> {
-      onReady?.();
-      const record: AdapterSourceCall = { args, yielded: 0 };
-      override.calls.source.push(record);
+  // Preserve the prototype chain so `instanceof` and inherited methods keep
+  // working on the wrapped source. Object.assign then copies the own
+  // enumerable properties; the non-enumerable factory tags are re-applied
+  // below so downstream tag lookups still resolve on the wrapper.
+  const wrapped = Object.assign(
+    Object.create(Object.getPrototypeOf(adapter) as object) as Source<M>,
+    adapter as object,
+  );
+  const factory = getAdapterFactory(adapter);
+  if (factory !== undefined) {
+    tagAdapter(wrapped as object, factory, args);
+  }
 
-      const values = typeof behavior === "function" ? behavior(args) : behavior;
+  wrapped.subscribe = async function subscribe(
+    _context,
+    handler,
+    abortController,
+    onReady,
+  ): Promise<void> {
+    onReady?.();
+    const record: AdapterSourceCall = { args, yielded: 0 };
+    override.calls.source.push(record);
 
-      // Dispatch all messages concurrently so `drain()` sees every handler
-      // in-flight before the subscribe resolves. A sequential emit would
-      // race against the drain/stop sequence and silently drop tail messages.
-      const pending: Promise<void>[] = [];
-      const dispatch = (message: unknown): void => {
-        if (abortController.signal.aborted) return;
-        pending.push(
-          handler(message as M).then(() => {
-            record.yielded++;
-          }),
-        );
-      };
+    const values = typeof behavior === "function" ? behavior(args) : behavior;
 
-      if (Array.isArray(values)) {
-        for (const message of values) dispatch(message);
-        await Promise.all(pending);
-        return;
-      }
+    // Dispatch all messages concurrently so `drain()` sees every handler
+    // in-flight before the subscribe resolves. A sequential emit would
+    // race against the drain/stop sequence and silently drop tail messages.
+    const pending: Promise<void>[] = [];
+    const dispatch = (message: unknown): void => {
+      if (abortController.signal.aborted) return;
+      pending.push(
+        handler(message as M).then(() => {
+          record.yielded++;
+        }),
+      );
+    };
 
-      for await (const message of values as
-        | Iterable<unknown>
-        | AsyncIterable<unknown>) {
-        if (abortController.signal.aborted) break;
-        dispatch(message);
-      }
+    if (Array.isArray(values)) {
+      for (const message of values) dispatch(message);
       await Promise.all(pending);
-    },
-  } as Source<M>;
+      return;
+    }
+
+    for await (const message of values as
+      | Iterable<unknown>
+      | AsyncIterable<unknown>) {
+      if (abortController.signal.aborted) break;
+      dispatch(message);
+    }
+    await Promise.all(pending);
+  };
 
   return wrapped;
 }
@@ -203,7 +231,7 @@ export async function invokeSendOverride(
 
   const snapshot: AdapterSendCall["exchange"] = {
     id: exchange.id,
-    body: exchange.body,
+    body: snapshotBody(exchange.body),
     headers: { ...exchange.headers },
   };
 

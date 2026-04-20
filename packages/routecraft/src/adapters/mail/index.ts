@@ -1,6 +1,6 @@
 import type { Source } from "../../operations/from.ts";
 import type { Destination } from "../../operations/to.ts";
-import { tagAdapter } from "../shared/factory-tag.ts";
+import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
 import { MailSourceAdapter } from "./source.ts";
 import { MailFetchDestinationAdapter } from "./fetch-destination.ts";
 import { MailSendDestinationAdapter } from "./send-destination.ts";
@@ -90,13 +90,12 @@ export function mail(
   | Destination<unknown, MailFetchResult>
   | Destination<MailSendPayload, MailSendResult>
   | Destination<unknown, void> {
-  const factoryArgs: unknown[] =
-    options !== undefined ? [folderOrOptions, options] : [folderOrOptions];
+  const args = factoryArgs(folderOrOptions, options);
 
   // 2 args: string + object -> Source (matches direct(endpoint, options) pattern)
   if (typeof folderOrOptions === "string" && options !== undefined) {
     const adapter = new MailSourceAdapter(folderOrOptions, options);
-    return tagAdapter(adapter, mail, factoryArgs) as Source<MailMessage>;
+    return tagAdapter(adapter, mail, args) as Source<MailMessage>;
   }
 
   // 1 arg string -> Fetch Destination (folder shorthand for .enrich())
@@ -104,7 +103,7 @@ export function mail(
     const adapter = new MailFetchDestinationAdapter({
       folder: folderOrOptions,
     });
-    return tagAdapter(adapter, mail, factoryArgs) as Destination<
+    return tagAdapter(adapter, mail, args) as Destination<
       unknown,
       MailFetchResult
     >;
@@ -115,7 +114,7 @@ export function mail(
     const adapter = new MailOperationDestinationAdapter(
       folderOrOptions as MailAction,
     );
-    return tagAdapter(adapter, mail, factoryArgs) as Destination<unknown, void>;
+    return tagAdapter(adapter, mail, args) as Destination<unknown, void>;
   }
 
   // Object with server-specific keys -> Fetch Destination
@@ -123,7 +122,7 @@ export function mail(
     const adapter = new MailFetchDestinationAdapter(
       folderOrOptions as Partial<MailServerOptions>,
     );
-    return tagAdapter(adapter, mail, factoryArgs) as Destination<
+    return tagAdapter(adapter, mail, args) as Destination<
       unknown,
       MailFetchResult
     >;
@@ -133,7 +132,7 @@ export function mail(
   const adapter = new MailSendDestinationAdapter(
     folderOrOptions as Partial<MailClientOptions> | undefined,
   );
-  return tagAdapter(adapter, mail, factoryArgs) as Destination<
+  return tagAdapter(adapter, mail, args) as Destination<
     MailSendPayload,
     MailSendResult
   >;

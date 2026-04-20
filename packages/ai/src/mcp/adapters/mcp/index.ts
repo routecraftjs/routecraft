@@ -2,6 +2,7 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   rcError,
   tagAdapter,
+  factoryArgs,
   type Exchange,
   type Source,
   type Destination,
@@ -95,10 +96,11 @@ export function mcp<S extends StandardSchemaV1 | undefined = undefined>(
         }
       }
     }
-    return tagAdapter(new McpDestinationAdapter(clientOpts), mcp, [
-      endpointOrOptions,
-      options,
-    ]);
+    return tagAdapter(
+      new McpDestinationAdapter(clientOpts),
+      mcp,
+      factoryArgs(endpointOrOptions, options),
+    );
   }
 
   // Client: "server:tool" string with optional args
@@ -124,10 +126,11 @@ export function mcp<S extends StandardSchemaV1 | undefined = undefined>(
     ) {
       clientOptions.args = options.args as McpArgsExtractor;
     }
-    return tagAdapter(new McpDestinationAdapter(clientOptions), mcp, [
-      endpointOrOptions,
-      options,
-    ]);
+    return tagAdapter(
+      new McpDestinationAdapter(clientOptions),
+      mcp,
+      factoryArgs(endpointOrOptions, options),
+    );
   }
 
   // Server: endpoint + options with description
@@ -141,7 +144,7 @@ export function mcp<S extends StandardSchemaV1 | undefined = undefined>(
         options as McpServerOptions & { schema?: S },
       ),
       mcp,
-      [endpointOrOptions, options],
+      factoryArgs(endpointOrOptions, options),
     );
   }
 

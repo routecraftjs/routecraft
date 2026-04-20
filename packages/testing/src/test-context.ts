@@ -20,9 +20,20 @@ import {
 } from "@routecraft/routecraft";
 import type { SpyLogger } from "./spy-logger";
 import { createSpyLogger, createNoopSpyLogger } from "./spy-logger";
-import type { AdapterMock } from "./mock-adapter";
+import { isAdapterMock, type AdapterMock } from "./mock-adapter";
 
 const DEFAULT_ROUTES_READY_TIMEOUT_MS = 200;
+
+function describeOverrideTarget(target: unknown): string {
+  if (typeof target === "function" && typeof target.name === "string") {
+    const kind =
+      /^[A-Z]/.test(target.name) && target.prototype !== undefined
+        ? "class"
+        : "factory";
+    return `${kind} ${target.name || "<anonymous>"}`;
+  }
+  return "target";
+}
 
 export interface TestContextOptions {
   /** Timeout in ms for waiting for all routes to emit routeStarted. Default 200. */
@@ -248,10 +259,23 @@ export class TestContextBuilder {
    * instead of invoking the real adapter. Accepts either the handle returned
    * by `mockAdapter()` or a raw `AdapterOverride`.
    *
-   * @beta
+   * @experimental
    */
   override(mock: AdapterMock | AdapterOverride): this {
-    const entry: AdapterOverride = "override" in mock ? mock.override : mock;
+    const entry: AdapterOverride = isAdapterMock(mock) ? mock.override : mock;
+    // Fail fast if two overrides target the same factory/class. The framework
+    // uses first-match semantics at execution time, so silently accepting a
+    // duplicate would mean the second mock's assertions always see zero calls
+    // and the user has no signal that their new override is being shadowed.
+    const duplicate = this.adapterOverrides.find(
+      (o) => o.target === entry.target,
+    );
+    if (duplicate !== undefined) {
+      const name = describeOverrideTarget(entry.target);
+      throw new Error(
+        `testContext().override(): duplicate override for ${name}. Each target may only be registered once; remove the redundant override() call.`,
+      );
+    }
     this.adapterOverrides.push(entry);
     return this;
   }

@@ -8,6 +8,21 @@ import type {
 } from "@routecraft/routecraft";
 
 /**
+ * Brand symbol stamped on the handles returned by `mockAdapter()`.
+ *
+ * `testContext().override()` uses this symbol to distinguish a mock handle
+ * from a raw `AdapterOverride` (both objects carry a `calls` field, so a
+ * structural check on a non-branded key would be fragile).
+ *
+ * Use `Symbol.for` so cross-realm / multi-package-load equality holds.
+ *
+ * @internal
+ */
+export const ADAPTER_MOCK_BRAND: unique symbol = Symbol.for(
+  "routecraft.testing.adapter-mock",
+);
+
+/**
  * Extract the message type `M` from an adapter factory or adapter class,
  * so `mockAdapter(target, { source: [...] })` can check fixtures against
  * the real adapter shape. Falls back to `unknown` when `target` has no
@@ -29,7 +44,7 @@ type InferAdapterMessage<T> = T extends new (...args: never[]) => infer I
  * the destination side, or both. The framework picks the matching behaviour
  * based on the call site's role in the route.
  *
- * @beta
+ * @experimental
  */
 export interface MockAdapterBehavior<M = unknown> {
   /**
@@ -51,9 +66,11 @@ export interface MockAdapterBehavior<M = unknown> {
  * override the framework should install on the context, plus `calls` for
  * assertions.
  *
- * @beta
+ * @experimental
  */
 export interface AdapterMock {
+  /** Brand used by `testContext().override()` to discriminate handles from raw overrides. */
+  readonly [ADAPTER_MOCK_BRAND]: true;
   readonly override: AdapterOverride;
   /**
    * Recorded calls, populated as the route runs. Assert on these after
@@ -63,6 +80,22 @@ export interface AdapterMock {
     source: readonly AdapterSourceCall[];
     send: readonly AdapterSendCall[];
   };
+}
+
+/**
+ * Type guard that distinguishes an `AdapterMock` (handle returned by
+ * `mockAdapter()`) from a raw `AdapterOverride` value.
+ *
+ * @internal
+ */
+export function isAdapterMock(
+  value: AdapterMock | AdapterOverride,
+): value is AdapterMock {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as { [ADAPTER_MOCK_BRAND]?: unknown })[ADAPTER_MOCK_BRAND] === true
+  );
 }
 
 /**
@@ -132,6 +165,7 @@ export function mockAdapter<
     override.send = behavior.send;
   }
   return {
+    [ADAPTER_MOCK_BRAND]: true,
     override,
     get calls() {
       // Snapshot the live arrays so the `readonly` contract on AdapterMock.calls

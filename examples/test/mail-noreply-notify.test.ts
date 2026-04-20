@@ -9,7 +9,6 @@ import route from "../src/mail-noreply-notify";
 
 describe("mail-noreply-notify", () => {
   let t: TestContext;
-  const originalEnv = { ...process.env };
 
   beforeEach(() => {
     process.env["NOTIFY_TO"] = "me@personal.test";
@@ -17,7 +16,7 @@ describe("mail-noreply-notify", () => {
 
   afterEach(async () => {
     if (t) await t.stop();
-    process.env = { ...originalEnv };
+    delete process.env["NOTIFY_TO"];
   });
 
   /**

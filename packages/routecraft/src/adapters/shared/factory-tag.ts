@@ -59,6 +59,31 @@ export function tagAdapter<A extends object>(
 }
 
 /**
+ * Build the `args` tuple passed to {@link tagAdapter} from a variadic
+ * factory's parameter list, trimming trailing `undefined` entries so the
+ * recorded length matches what the user actually typed at the call site.
+ *
+ * Use this helper from every adapter factory that forwards user args to
+ * `tagAdapter`, so mock authors see a consistent `args.length` across
+ * adapters (for example, `mail()`, `mcp(endpoint)` and `http({})` all
+ * record a single-element tuple when only one argument was passed).
+ *
+ * @example
+ * ```ts
+ * function mcp(endpoint, options?) {
+ *   return tagAdapter(new McpAdapter(...), mcp, factoryArgs(endpoint, options));
+ * }
+ * ```
+ *
+ * @internal
+ */
+export function factoryArgs(...args: unknown[]): unknown[] {
+  let end = args.length;
+  while (end > 0 && args[end - 1] === undefined) end--;
+  return args.slice(0, end);
+}
+
+/**
  * Read the factory reference from a tagged adapter instance.
  *
  * @param adapter - Candidate adapter instance
