@@ -16,6 +16,10 @@
   "files": [
     "dist"
   ],
+  "sideEffects": [
+    "./dist/index.js",
+    "./dist/index.cjs"
+  ],
   "scripts": {
     "build": "tsup",
     "test": "vitest",

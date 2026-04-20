@@ -67,6 +67,117 @@ Checklist:
 - For custom timing (e.g. timer routes), use `t.ctx.start()` and `t.ctx.stop()` manually.
 - Restore mocks in `beforeEach/afterEach`.
 
+## Mocking external adapters
+
+When your route uses an adapter that talks to an external system -- `mail()`, `http()`, `mcp()`, etc. -- you want to test your logic, not re-test the adapter. Two things you should **not** do:
+
+- Mock the adapter's underlying library (`imapflow`, `nodemailer`, `globalThis.fetch`). This couples your tests to our implementation choices; the day we swap a library, your tests break even though nothing in the public contract changed.
+- Restructure the route to inject test adapters. The route you run in production should be the route you test.
+
+Use `mockAdapter()` and `testContext().override()` instead. You import the factory (`mail`, `http`, ...), describe how it should behave in the test, and register the mock on the test context. The route stays unchanged.
+
+```ts
+import { mail } from "@routecraft/routecraft";
+import { mockAdapter, testContext, type TestContext } from "@routecraft/testing";
+import route from "../capabilities/mail-triage";
+
+const mailMock = mockAdapter(mail, {
+  // Source role: feeds the .from(mail(...)) call site
+  source: [
+    { uid: 1, from: "friend@co.com", subject: "lunch?", ... },
+    { uid: 2, from: "spam@x.com",    subject: "URGENT BUY NOW", ... },
+  ],
+  // Destination role: stands in for every .to(mail(...)) and .enrich(mail(...))
+  // call in the route. Use `args` (what was passed to mail()) to discriminate.
+  send: async (exchange, { args }) => {
+    if (args[0]?.action === "move") return { moved: true };
+    return { messageId: "<fake>" };
+  },
+});
+
+let t: TestContext;
+afterEach(async () => { if (t) await t.stop(); });
+
+it("moves spam and replies to friends", async () => {
+  t = await testContext().override(mailMock).routes(route).build();
+  await t.test();
+
+  expect(mailMock.calls.source).toHaveLength(1);
+  expect(mailMock.calls.send).toHaveLength(2);
+  expect(mailMock.calls.send[0].args[0]).toMatchObject({ action: "move" });
+  expect(mailMock.calls.send[1].exchange.body.to).toBe("friend@co.com");
+});
+```
+
+### When to use what
+
+| You want to... | Use |
+|---|---|
+| Test a route that calls an external system (IMAP/SMTP, HTTP, MCP) | `mockAdapter(factory, { source, send })` + `.override()` |
+| Test that an in-process destination was invoked | `spy()` (see below) |
+| Drive a route's input manually from the test | `simple(value)` or a `callableSource` |
+| Assert on logger calls | `t.logger.info` / `t.logger.warn` (vi spies) |
+
+### Anatomy of a mock
+
+- **`source`** -- an array of fixtures, a (sync or async) iterable, or `(args) => iterable`. Each item is delivered to `.from(factory(...))` as one exchange. For polling sources this models one poll cycle.
+- **`send`** -- `(exchange, { args }) => result`. Called for every `.to(factory(...))`, `.enrich(factory(...))`, and `.tap(factory(...))` in the route. Accepts a `vi.fn()` too, so `mockResolvedValueOnce` / `mockRejectedValueOnce` chains work as expected.
+- **`args`** -- whatever the route passed to the factory at that call site. Use it to discriminate when the same factory is used in multiple positions (e.g. `mail("INBOX")` as source vs `mail({ action: "move" })` as destination).
+
+### Inspecting recorded calls
+
+```ts
+mailMock.calls.source   // [{ args, yielded }]   -- per subscribe call
+mailMock.calls.send     // [{ args, exchange, result }]
+                         //   exchange = { id, body, headers } snapshot
+                         //   result   = whatever the send handler returned
+```
+
+Failed sends (where the handler throws) are still recorded; `result` stays `undefined` and the error surfaces through the route the same way a real adapter failure would. Check `t.errors` afterwards.
+
+### What mocks do not preserve
+
+A mock stands in for the adapter's `send` / `subscribe`, nothing more. These side effects of the real adapter are **not** reproduced:
+
+- **Metadata headers from `getMetadata`.** Real adapters like `http()` stamp headers on the exchange (status, response headers, etc.) via their `getMetadata` method. The override path skips this, since mock results are typically primitives with no adapter-specific shape.
+- **Tracking ids and correlation data** that specific adapters attach to exchanges.
+- **Timing and I/O side effects** (connection pooling, retries, backoff) that the real adapter performs around the call.
+
+If your route asserts on something the real adapter would have added, set it yourself from the `send` handler before returning:
+
+```ts
+const httpMock = mockAdapter(http, {
+  send: async (exchange) => {
+    exchange.headers["http.status"] = 200;
+    return { status: 200, headers: {}, body: { ok: true }, url: "x" };
+  },
+});
+```
+
+### Same factory used multiple times
+
+One mock covers every call site of the factory. Discriminate inside `send` using `args`, or chain `vi.fn()` implementations for ordered responses:
+
+```ts
+const httpMock = mockAdapter(http, {
+  send: vi.fn()
+    .mockResolvedValueOnce({ status: 200, body: { ok: true } })
+    .mockRejectedValueOnce(new Error("429 Too Many Requests"))
+    .mockResolvedValue({ status: 200, body: { ok: true } }),
+});
+```
+
+### What you can pass as the target
+
+`mockAdapter(target, behavior)` accepts two kinds of target:
+
+- **A factory function** -- e.g. `mockAdapter(mail, ...)`, `mockAdapter(http, ...)`. Matches every adapter instance that factory produced. Requires the factory to stamp its adapters via `tagAdapter()` internally. The first-party factories `mail()`, `http()`, and `mcp()` do this today.
+- **An adapter class** -- e.g. `mockAdapter(SomeAdapterClass, ...)`. Matches any adapter whose `constructor === target`. Works for every adapter, first-party or third-party, without opt-in tagging. Useful when a third-party adapter exports its class but not a tagged factory, or when you want to mock a specific role of a multi-role factory.
+
+The factory form is nicer when the factory covers a single role. The class form is required when the factory has no tag or when you want to target one specific role of a multi-role factory. Both forms can be mixed on the same `testContext()`.
+
+In-process adapters like `direct()`, `simple()`, `log()`, and `noop()` do not talk to an external system. Use `spy()` or drive inputs directly for those.
+
 ## Common testing patterns
 
 ### Using the spy adapter
