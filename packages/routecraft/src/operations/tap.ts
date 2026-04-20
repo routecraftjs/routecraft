@@ -10,6 +10,10 @@ import {
 import { rcError } from "../error.ts";
 import { type Destination, type CallableDestination } from "./to.ts";
 import type { CraftContext } from "../context.ts";
+import {
+  resolveAdapterOverride,
+  invokeSendOverride,
+} from "../testing-hooks.ts";
 
 /**
  * Creates a snapshot of an exchange for async tap execution.
@@ -59,17 +63,28 @@ export class TapStep<T = unknown> implements Step<Destination<T, unknown>> {
 
     const snapshot = snapshotExchange(exchange, context);
 
+    // Resolve a test-time override (if any) so `.tap(adapter)` is intercepted
+    // the same way `.to()` and `.enrich()` are.
+    const override = resolveAdapterOverride(this.adapter, context);
+
     const promise = (async () => {
       try {
-        const result = await this.adapter.send(snapshot);
+        const result = override
+          ? await invokeSendOverride(
+              snapshot,
+              this.adapter as unknown as Destination<unknown, unknown>,
+              override,
+            )
+          : await this.adapter.send(snapshot);
 
-        // Extract metadata if the adapter provides it (for observability)
+        // Extract metadata if the adapter provides it (skip when overridden;
+        // mock results are typically primitives and have no adapter metadata).
         const getMetadata = (
           this.adapter as {
             getMetadata?: (result: unknown) => Record<string, unknown>;
           }
         ).getMetadata;
-        if (getMetadata) {
+        if (!override && getMetadata) {
           this.metadata = getMetadata.call(this.adapter, result);
         }
       } catch (error: unknown) {

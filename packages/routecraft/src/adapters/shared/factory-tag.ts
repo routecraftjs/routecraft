@@ -22,15 +22,21 @@ export const RC_ADAPTER_ARGS: unique symbol = Symbol.for(
 );
 
 /**
- * Stamp an adapter instance with its factory and construction args.
- * Properties are non-enumerable so they do not appear in logs, JSON, or spread.
+ * Stamp an adapter instance with its factory and construction args so that
+ * `testContext().override(mockAdapter(factory, ...))` can match the instance
+ * back to its factory at route execution time.
+ *
+ * Tagging is optional: adapters that skip it can still be mocked by passing
+ * the adapter class to `mockAdapter(Class, ...)` (class-based resolution).
+ * Tagging is preferred for single-role factories where the factory reference
+ * is what users import and think in terms of.
  *
  * @param adapter - Adapter instance returned by a factory
  * @param factory - Factory function that produced the instance (self-reference)
  * @param args - Args that were passed to the factory
  * @returns The same adapter instance (for chaining)
  *
- * @internal
+ * @experimental
  */
 export function tagAdapter<A extends object>(
   adapter: A,

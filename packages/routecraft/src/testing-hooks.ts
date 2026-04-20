@@ -13,7 +13,7 @@ import {
  * Intended for use by `@routecraft/testing`'s `testContext().override(...)`
  * API. Production code should not write to this key.
  *
- * @internal
+ * @experimental
  */
 export const RC_ADAPTER_OVERRIDES: unique symbol = Symbol.for(
   "routecraft.testing.adapter-overrides",
@@ -21,6 +21,8 @@ export const RC_ADAPTER_OVERRIDES: unique symbol = Symbol.for(
 
 /**
  * Recorded call to an overridden destination adapter (send / enrich).
+ *
+ * @experimental
  */
 export interface AdapterSendCall {
   /** Args that were passed to the adapter's factory at route definition time. */
@@ -37,6 +39,8 @@ export interface AdapterSendCall {
 
 /**
  * Recorded call to an overridden source adapter (subscribe).
+ *
+ * @experimental
  */
 export interface AdapterSourceCall {
   /** Args that were passed to the factory at route definition time. */
@@ -49,6 +53,8 @@ export interface AdapterSourceCall {
  * Handler shape for a source-role mock. May be a plain array of fixtures,
  * an async iterable, or a callable that returns either (receiving the
  * construction args so it can vary by call site).
+ *
+ * @experimental
  */
 export type SourceOverrideBehavior<M = unknown> =
   | readonly M[]
@@ -60,6 +66,8 @@ export type SourceOverrideBehavior<M = unknown> =
  * Handler shape for a destination-role mock. Receives the exchange (as
  * seen by the adapter) and a meta object containing the factory args used
  * at the call site. Returning a value replaces `exchange.body` upstream.
+ *
+ * @experimental
  */
 export type SendOverrideHandler = (
   exchange: Exchange,
@@ -67,14 +75,17 @@ export type SendOverrideHandler = (
 ) => unknown | Promise<unknown>;
 
 /**
- * An override registered on a test context. Matches adapter instances that
- * share `factory`; provides source/send behaviour and records calls.
+ * An override registered on a test context. `target` may be either the
+ * factory function that produced the adapter (matched via the factory-tag
+ * set by `tagAdapter`) or the adapter's constructor class (matched by
+ * `adapter.constructor === target`). Both routes coexist so any adapter
+ * can be mocked without opt-in, while tagged factories keep nicer DX.
  *
- * @internal
+ * @experimental
  */
 export interface AdapterOverride {
-  /** Factory reference that tagged adapters are matched against. */
-  factory: unknown;
+  /** Factory function or adapter class to match against the adapter instance. */
+  target: unknown;
   /** Optional source-role behaviour (used when adapter has `subscribe`). */
   source?: SourceOverrideBehavior;
   /** Optional destination-role behaviour (used when adapter has `send`). */
@@ -88,6 +99,9 @@ export interface AdapterOverride {
 
 /**
  * Look up an override registered on the given context for the adapter.
+ * Matches by tagged factory first (if the adapter was stamped via
+ * `tagAdapter`); falls back to matching by adapter constructor class so
+ * any adapter can be mocked without opt-in tagging.
  *
  * @internal
  */
@@ -96,11 +110,18 @@ export function resolveAdapterOverride(
   context: CraftContext | undefined,
 ): AdapterOverride | undefined {
   if (!context) return undefined;
-  const factory = getAdapterFactory(adapter);
-  if (!factory) return undefined;
   const overrides = context.getStore(RC_ADAPTER_OVERRIDES);
-  if (!overrides) return undefined;
-  return overrides.find((o) => o.factory === factory);
+  if (!overrides || overrides.length === 0) return undefined;
+  const factory = getAdapterFactory(adapter);
+  const ctor =
+    adapter !== null && typeof adapter === "object"
+      ? (adapter as { constructor?: unknown }).constructor
+      : undefined;
+  return overrides.find(
+    (o) =>
+      (factory !== undefined && o.target === factory) ||
+      (ctor !== undefined && o.target === ctor),
+  );
 }
 
 /**
@@ -134,26 +155,32 @@ export function wrapSourceWithOverride<M = unknown>(
 
       const values = typeof behavior === "function" ? behavior(args) : behavior;
 
-      const iterate = async (
-        iterable: Iterable<unknown> | AsyncIterable<unknown>,
-      ): Promise<void> => {
-        for await (const message of iterable as AsyncIterable<unknown>) {
-          if (abortController.signal.aborted) return;
-          await handler(message as M);
-          record.yielded++;
-        }
+      // Dispatch all messages concurrently so `drain()` sees every handler
+      // in-flight before the subscribe resolves. A sequential emit would
+      // race against the drain/stop sequence and silently drop tail messages.
+      const pending: Promise<void>[] = [];
+      const dispatch = (message: unknown): void => {
+        if (abortController.signal.aborted) return;
+        pending.push(
+          handler(message as M).then(() => {
+            record.yielded++;
+          }),
+        );
       };
 
       if (Array.isArray(values)) {
-        for (const message of values) {
-          if (abortController.signal.aborted) return;
-          await handler(message as M);
-          record.yielded++;
-        }
+        for (const message of values) dispatch(message);
+        await Promise.all(pending);
         return;
       }
 
-      await iterate(values as Iterable<unknown> | AsyncIterable<unknown>);
+      for await (const message of values as
+        | Iterable<unknown>
+        | AsyncIterable<unknown>) {
+        if (abortController.signal.aborted) break;
+        dispatch(message);
+      }
+      await Promise.all(pending);
     },
   } as Source<M>;
 
@@ -189,9 +216,9 @@ export async function invokeSendOverride(
 
   if (!handler) return undefined;
 
-  // Record the call first so failed invocations are still observable; then
-  // rethrow so the route pipeline surfaces the error the same way it would
-  // if the real adapter had thrown.
+  // The call is already recorded above, so a rejection from `handler` still
+  // shows up in `calls.send` (with `result` undefined) and then propagates
+  // up the route pipeline the same way a real adapter failure would.
   const result = await Promise.resolve(handler(exchange, { args }));
   record.result = result;
   return result;

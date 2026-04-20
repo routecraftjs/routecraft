@@ -1,5 +1,17 @@
+import dotenv from "dotenv";
 import { defineConfig } from "vitest/config";
 import tsconfigPaths from "vite-tsconfig-paths";
+
+// Test env comes from `.env.example`: contributors already copy it to
+// `.env` to run the examples, so reusing the same fakes keeps one source
+// of truth. The plugin init in craft.config.ts validates some of these at
+// module-import time (e.g. JWT_SECRET via mcpPlugin -> jwt), which is why
+// the tests need any value at all — the mocked adapters bypass the real
+// clients at runtime.
+const { parsed: envExample = {} } = dotenv.config({
+  path: new URL("./.env.example", import.meta.url),
+  processEnv: {},
+});
 
 export default defineConfig({
   plugins: [tsconfigPaths()],
@@ -21,10 +33,7 @@ export default defineConfig({
     environment: "node",
     env: {
       LOG_LEVEL: "silent",
-      JWT_SECRET:
-        "test-jwt-secret-for-example-tests-only-never-used-in-production",
-      GEMINI_API_KEY: "test-gemini-key",
-      OPENROUTER_API_KEY: "test-openrouter-key",
+      ...envExample,
     },
     coverage: {
       provider: "v8",
