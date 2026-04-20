@@ -75,7 +75,7 @@ export function tagAdapter<A extends object>(
  * }
  * ```
  *
- * @internal
+ * @experimental
  */
 export function factoryArgs(...args: unknown[]): unknown[] {
   let end = args.length;
