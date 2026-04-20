@@ -91,9 +91,13 @@ export function factoryArgs(...args: unknown[]): unknown[] {
  *
  * @internal
  */
-export function getAdapterFactory(adapter: unknown): unknown | undefined {
+export function getAdapterFactory(
+  adapter: unknown,
+): ((...args: unknown[]) => unknown) | undefined {
   if (adapter === null || typeof adapter !== "object") return undefined;
-  return (adapter as Record<symbol, unknown>)[RC_ADAPTER_FACTORY];
+  return (adapter as Record<symbol, unknown>)[RC_ADAPTER_FACTORY] as
+    | ((...args: unknown[]) => unknown)
+    | undefined;
 }
 
 /**
