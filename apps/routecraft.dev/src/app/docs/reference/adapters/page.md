@@ -302,10 +302,15 @@ craft()
 
 **Options:**
 - `channelType` - Custom direct channel implementation (default: in-memory)
-- `schema` - Body validation schema (StandardSchema compatible: Zod, Valibot, ArkType)
-- `headerSchema` - Header validation schemas (can be optional/required)
+- `schema` - Body validation schema, Standard Schema compatible (Zod, Valibot, ArkType). Equivalent to the MCP `Tool.inputSchema` when exposed as a tool
+- `headerSchema` - Header validation schema; when provided, validated values are merged on top of the request headers so adapter-injected metadata is preserved
+- `title` - Human-readable display title for discovery consumers (agents, MCP clients)
+- `description` - Human-readable description surfaced to agents and (when exposed via `mcp()`) MCP clients
+- `outputSchema` - Standard Schema describing the output body; forwarded to discovery consumers
+- `annotations` - Opaque annotations pass-through; `mcp()` narrows this to `McpToolAnnotations`
+- `icons` - Opaque icons list forwarded to discovery consumers (typed per the MCP spec by `mcp()`)
 
-> `direct()` is a pure delivery primitive: it has no knowledge of MCP. Discoverability metadata such as `description`, `keywords`, and `annotations` lives on [`mcp()`](#mcp) and its own registry (`MCP_LOCAL_TOOL_REGISTRY`). Passing those fields to `direct()` is no longer supported; attach them to `mcp()` instead.
+> `direct()` mirrors the MCP `Tool` shape so in-process agents can discover direct routes directly. `mcp()` maintains a separate registry (`MCP_LOCAL_TOOL_REGISTRY`) for externally exposed tools; direct and mcp routes can coexist on identical endpoint strings because they live in different registries.
 
 **Key characteristics:**
 - **Synchronous**: Calling route waits for response from consuming route
@@ -456,14 +461,18 @@ craft()
 
 #### Route Registry
 
-All direct routes are registered under `ADAPTER_DIRECT_REGISTRY` with their endpoint and validation schemas:
+Each direct route registers in `ADAPTER_DIRECT_REGISTRY` with the full tool-shape metadata, so in-process agents can discover and document them the same way they would MCP tools:
 
 ```ts
 import { ADAPTER_DIRECT_REGISTRY } from '@routecraft/routecraft'
 
 craft()
   .from(direct('fetch-content', {
+    title: 'Fetch content',
+    description: 'Fetch and summarize web content from URL',
     schema: z.object({ url: z.string().url() }),
+    outputSchema: z.object({ summary: z.string() }),
+    annotations: { readOnlyHint: true, openWorldHint: true },
   }))
   .process(fetchAndSummarize)
 
@@ -473,10 +482,10 @@ await ctx.start()
 
 const registry = ctx.getStore(ADAPTER_DIRECT_REGISTRY)
 const routes = registry ? Array.from(registry.values()) : []
-// [{ endpoint: 'fetch-content', schema }]
+// [{ endpoint, title, description, schema, outputSchema, annotations, ... }]
 ```
 
-For MCP tool discoverability (names, descriptions, keywords, annotations exposed to AI clients), use [`mcp()`](#mcp) and read from `MCP_LOCAL_TOOL_REGISTRY`. Direct routes never appear in MCP `tools/list`.
+For external MCP exposure, use [`mcp()`](#mcp); it maintains a separate `MCP_LOCAL_TOOL_REGISTRY`. Direct routes never appear in MCP `tools/list`, and agents that want to discover both must read both registries.
 
 ### http
 ```ts

@@ -84,51 +84,59 @@ export class TestContext {
   }
 
   /**
-   * Start context and wait for all routes to be ready. Does not drain or stop.
-   * Use with invoke() to send to a route by id, then call drain()/stop() when done.
+   * Start context and resolve once every route has emitted `route:*:started`.
+   * Does not drain or stop. Does not await `ctx.start()` completion, which
+   * lets this method work with long-running sources (direct, mcp, HTTP, etc.)
+   * whose subscribe blocks until the route is aborted. The start promise is
+   * stored internally and awaited by {@link stop} for clean shutdown.
+   *
+   * Use with {@link CraftClient.send} (via `t.client`) for direct endpoints,
+   * or drive sources directly via the context store, then call `drain()` /
+   * `stop()` when done.
    */
   async startAndWaitReady(): Promise<void> {
     const ctx = this.ctx;
     const total = ctx.getRoutes().length;
-    const allReady =
-      total === 0
-        ? Promise.resolve()
-        : new Promise<void>((resolve, reject) => {
-            let ready = 0;
-            let settled = false;
-            const timeoutId = setTimeout(() => {
-              if (settled) return;
-              settled = true;
-              offRouteStarted();
-              offError();
-              reject(new Error("Timeout waiting for routes to start"));
-            }, this.routesReadyTimeoutMs);
+    if (total === 0) {
+      this.startedPromise = ctx.start();
+      return;
+    }
+    const allReady = new Promise<void>((resolve, reject) => {
+      let ready = 0;
+      let settled = false;
+      const timeoutId = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        offRouteStarted();
+        offError();
+        reject(new Error("Timeout waiting for routes to start"));
+      }, this.routesReadyTimeoutMs);
 
-            const offRouteStarted = ctx.on(
-              "route:*:started" as EventName,
-              (() => {
-                if (settled) return;
-                ready++;
-                if (ready >= total) {
-                  settled = true;
-                  clearTimeout(timeoutId);
-                  offRouteStarted();
-                  offError();
-                  resolve();
-                }
-              }) as EventHandler<EventName>,
-            );
-            const offError = ctx.on("context:error", (payload) => {
-              if (settled) return;
-              settled = true;
-              clearTimeout(timeoutId);
-              offRouteStarted();
-              offError();
-              reject(payload.details.error);
-            });
-          });
+      const offRouteStarted = ctx.on(
+        "route:*:started" as EventName,
+        (() => {
+          if (settled) return;
+          ready++;
+          if (ready >= total) {
+            settled = true;
+            clearTimeout(timeoutId);
+            offRouteStarted();
+            offError();
+            resolve();
+          }
+        }) as EventHandler<EventName>,
+      );
+      const offError = ctx.on("context:error", (payload) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutId);
+        offRouteStarted();
+        offError();
+        reject(payload.details.error);
+      });
+    });
     this.startedPromise = ctx.start();
-    await Promise.all([this.startedPromise, allReady]);
+    await allReady;
   }
 
   /**

@@ -8,39 +8,6 @@ import {
   DefaultExchange,
   type Exchange,
 } from "@routecraft/routecraft";
-import type { EventName, EventHandler } from "@routecraft/routecraft";
-
-/**
- * Start context and resolve once all routes have fired route:*:started.
- * Cannot use TestContext.startAndWaitReady() here because it also awaits
- * ctx.start(), which never resolves for direct() sources (they block until abort).
- */
-async function startAndAwaitReady(t: TestContext): Promise<void> {
-  const ctx = t.ctx;
-  const total = ctx.getRoutes().length;
-  const allReady =
-    total === 0
-      ? Promise.resolve()
-      : new Promise<void>((resolve, reject) => {
-          let ready = 0;
-          const timeoutId = setTimeout(
-            () => reject(new Error("Timeout waiting for routes to start")),
-            2000,
-          );
-          ctx.on(
-            "route:*:started" as EventName,
-            (() => {
-              ready++;
-              if (ready >= total) {
-                clearTimeout(timeoutId);
-                resolve();
-              }
-            }) as EventHandler<EventName>,
-          );
-        });
-  ctx.start();
-  await allReady;
-}
 
 describe("CraftClient", () => {
   let t: TestContext;
@@ -65,7 +32,7 @@ describe("CraftClient", () => {
       )
       .build();
 
-    await startAndAwaitReady(t);
+    await t.startAndWaitReady();
     const result = await t.client.send("greet", { name: "World" });
     expect(result).toBe("Hello, World!");
   });
@@ -80,7 +47,7 @@ describe("CraftClient", () => {
       .routes(craft().id("dummy").from(direct("exists", {})).to(noop()))
       .build();
 
-    await startAndAwaitReady(t);
+    await t.startAndWaitReady();
     await expect(t.client.send("does-not-exist", {})).rejects.toThrow(
       "No direct channel",
     );
@@ -107,7 +74,7 @@ describe("CraftClient", () => {
       )
       .build();
 
-    await startAndAwaitReady(t);
+    await t.startAndWaitReady();
     const result = await t.client.send(
       "echo-header",
       {},

@@ -1390,18 +1390,25 @@ describe("Direct adapter validation", () => {
     });
 
     /**
-     * @case Registry metadata captures schema only
-     * @preconditions Route has a body schema
-     * @expectedResult Registry entry carries endpoint and schema
+     * @case Registry metadata captures the full tool shape (name/title/description/schemas/annotations/icons)
+     * @preconditions Route declares every tool-shape field
+     * @expectedResult Registry entry mirrors the declared options
      */
-    test("registry accessible via context getStore", async () => {
+    test("registry captures full tool-shape metadata", async () => {
+      const icons = [{ src: "https://example.com/icon.svg", sizes: "48x48" }];
+
       t = await testContext()
         .routes([
           craft()
             .id("route")
             .from(
               direct("my-endpoint", {
+                title: "My Endpoint",
+                description: "Ingest test data",
                 schema: z.object({ id: z.string() }),
+                outputSchema: z.object({ ok: z.boolean() }),
+                annotations: { note: "internal" },
+                icons,
               }),
             )
             .to(vi.fn()),
@@ -1414,7 +1421,12 @@ describe("Direct adapter validation", () => {
       expect(routes).toHaveLength(1);
       expect(routes[0]).toEqual({
         endpoint: "my-endpoint",
+        title: "My Endpoint",
+        description: "Ingest test data",
         schema: expect.any(Object),
+        outputSchema: expect.any(Object),
+        annotations: { note: "internal" },
+        icons,
       });
     });
 

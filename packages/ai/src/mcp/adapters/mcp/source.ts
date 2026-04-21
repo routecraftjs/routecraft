@@ -135,22 +135,25 @@ export class McpSourceAdapter<
       description: this.options.description,
       handler: entryHandler,
     };
+    if (this.options.title !== undefined) {
+      entry.title = this.options.title;
+    }
     if (this.options.schema !== undefined) {
       entry.schema = this.options.schema;
     }
-    if (this.options.keywords !== undefined) {
-      entry.keywords = this.options.keywords;
+    if (this.options.outputSchema !== undefined) {
+      entry.outputSchema = this.options.outputSchema;
     }
     if (this.options.annotations !== undefined) {
       entry.annotations = this.options.annotations;
     }
-
-    if (abortController.signal.aborted) {
-      return;
+    if (this.options.icons !== undefined) {
+      entry.icons = this.options.icons;
     }
 
-    registry.set(endpoint, entry);
-
+    // Register the cleanup listener before inserting so an abort racing with
+    // the insert cannot leave a dangling entry without its teardown handler.
+    // Cleanup is idempotent: Map.delete on a missing key is a no-op.
     abortController.signal.addEventListener(
       "abort",
       () => {
@@ -161,6 +164,15 @@ export class McpSourceAdapter<
       },
       { once: true },
     );
+
+    registry.set(endpoint, entry);
+
+    // Belt-and-suspenders: if abort fired between the listener registration
+    // and now (before or after the insert), reconcile by deleting again.
+    if (abortController.signal.aborted) {
+      registry.delete(endpoint);
+      return;
+    }
 
     onReady?.();
 
@@ -231,7 +243,12 @@ export class McpSourceAdapter<
 
         const headerValue = (result as { value?: ExchangeHeaders }).value;
         if (headerValue !== undefined) {
-          validatedHeaders = headerValue;
+          // Merge over the original headers so that MCP-injected keys
+          // (tool name, session, auth principal) survive schemas that strip
+          // unknowns (e.g. z.object()). The user's schema only reshapes
+          // declared keys; it must not silently drop the adapter's own
+          // metadata that the route pipeline relies on.
+          validatedHeaders = { ...exchange.headers, ...headerValue };
         }
       }
 

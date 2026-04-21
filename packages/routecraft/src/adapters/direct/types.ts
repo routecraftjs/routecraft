@@ -38,14 +38,37 @@ export interface DirectChannel<T = unknown> {
 
 /**
  * Metadata for a direct route stored in the direct route registry.
- * Captures the minimal validation surface; MCP-specific fields such as
- * `description`, `keywords`, and `annotations` live on the MCP local tool
- * registry maintained by `@routecraft/ai`, not here.
+ *
+ * Mirrors the MCP specification's `Tool` shape (name/title/description/input/
+ * outputSchema/annotations/icons). Core routecraft stays neutral about what
+ * consumes this metadata; agents running in-process read it to discover and
+ * call direct routes. Adapter layers that wrap `direct` (such as `mcp()`) may
+ * maintain their own parallel registries with narrower types.
  */
 export interface DirectRouteMetadata {
+  /** Route name (matches the sanitized endpoint). */
   endpoint: string;
+  /** Human-readable display title. */
+  title?: string;
+  /** Human-readable description of what this route does. */
+  description?: string;
+  /** Standard Schema describing the input body. Converts to JSON Schema for discovery. */
   schema?: StandardSchemaV1;
+  /** Standard Schema describing the output body (if the route produces a structured response). */
+  outputSchema?: StandardSchemaV1;
+  /** Standard Schema describing the expected request headers. */
   headerSchema?: StandardSchemaV1;
+  /**
+   * Opaque pass-through for adapter-specific annotations (e.g. MCP tool annotations).
+   * Core routecraft never reads the shape; adapter wrappers narrow this to a typed
+   * shape on their public options.
+   */
+  annotations?: unknown;
+  /**
+   * Opaque icons list forwarded to discovery consumers.
+   * Core routecraft never reads the shape; the MCP adapter types it per the MCP spec.
+   */
+  icons?: unknown[];
 }
 
 /** Base options shared between source and destination. */
@@ -82,6 +105,38 @@ export interface DirectServerOptions extends DirectBaseOptions {
    * })  // Validates required headers, keeps all others
    */
   headerSchema?: StandardSchemaV1;
+
+  /**
+   * Human-readable display title for discovery consumers (agents, MCP clients).
+   * Not used by the delivery pipeline.
+   */
+  title?: string;
+
+  /**
+   * Human-readable description of what this route does. Surfaced to agents
+   * and (when exposed via `mcp()`) to MCP clients in `tools/list`.
+   */
+  description?: string;
+
+  /**
+   * Standard Schema for the output body, when the route produces a structured
+   * response. Not enforced at runtime by direct; discovery consumers may use it
+   * to document the response shape.
+   */
+  outputSchema?: StandardSchemaV1;
+
+  /**
+   * Opaque pass-through for adapter-specific annotations (e.g. MCP tool annotations).
+   * Core routecraft never reads the shape; adapter wrappers (such as `mcp()` in
+   * `@routecraft/ai`) narrow this to a typed shape on their public options.
+   */
+  annotations?: unknown;
+
+  /**
+   * Opaque icons list forwarded to discovery consumers.
+   * Core routecraft never reads the shape; the MCP adapter types it per the MCP spec.
+   */
+  icons?: unknown[];
 }
 
 /**

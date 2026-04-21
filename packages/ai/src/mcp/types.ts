@@ -58,14 +58,18 @@ export const MCP_LOCAL_TOOL_REGISTRY = Symbol.for(
 export interface McpLocalToolEntry {
   /** Sanitized endpoint name (URL-encoded). Used as the tool name in MCP `tools/list`. */
   endpoint: string;
+  /** Human-readable display title forwarded to `tools/list` when provided. */
+  title?: string;
   /** Human-readable description of the tool (required for MCP discoverability). */
   description: string;
-  /** Optional Standard Schema for the tool input. */
+  /** Standard Schema for the tool input. Converts to JSON Schema for `tools/list`. */
   schema?: StandardSchemaV1;
-  /** Optional MCP tool annotations (read-only hints, destructive hints, etc.). */
+  /** Standard Schema for the tool output. Forwarded to `tools/list` when provided. */
+  outputSchema?: StandardSchemaV1;
+  /** MCP tool annotations (read-only hints, destructive hints, etc.). */
   annotations?: McpToolAnnotations;
-  /** Optional keywords for filtering via {@link McpPluginOptions.tools}. */
-  keywords?: string[];
+  /** Icons forwarded to `tools/list` per the MCP spec. */
+  icons?: unknown[];
   /**
    * Invocation handler. Receives an exchange pre-built by the MCP server
    * (with tool/session/auth headers and the request body) and returns the
@@ -401,18 +405,17 @@ export interface McpToolAnnotations {
 
 /**
  * Options for mcp() when used as a server in .from().
- * Description is required for AI/MCP discoverability.
+ * Description is required for AI/MCP discoverability; other tool-shape fields
+ * (title, outputSchema, icons) are inherited from {@link DirectServerOptions}.
  */
 export interface McpServerOptions extends DirectServerOptions {
   /** Human-readable description (required for MCP tools). */
   description: string;
 
-  /** Keywords forwarded to the MCP registry entry for filtering via {@link McpPluginOptions.tools}. */
-  keywords?: string[];
-
   /**
    * MCP tool annotations describing behavior hints (read-only, destructive, etc.).
-   * Passed to MCP clients in the tool listing response.
+   * Narrows the opaque `annotations` field on {@link DirectServerOptions} to the
+   * typed MCP shape.
    *
    * @example
    * ```ts
@@ -470,6 +473,8 @@ export interface McpClientOptions {
  */
 export interface McpTool {
   name: string;
+  /** Human-readable display title. */
+  title?: string;
   description?: string;
   inputSchema: {
     type: "object";
@@ -477,8 +482,17 @@ export interface McpTool {
     required?: string[];
     [key: string]: unknown;
   };
+  /** JSON Schema for the tool output when the route declares one. */
+  outputSchema?: {
+    type: "object";
+    properties?: Record<string, unknown>;
+    required?: string[];
+    [key: string]: unknown;
+  };
   /** MCP tool annotations (behavior hints) reported by the server. */
   annotations?: McpToolAnnotations;
+  /** Icons forwarded to clients per the MCP spec. */
+  icons?: unknown[];
 }
 
 /**

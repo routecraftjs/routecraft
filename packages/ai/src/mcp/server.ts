@@ -891,8 +891,19 @@ export class McpServer {
         entry.schema,
       ) as McpTool["inputSchema"],
     };
+    if (entry.title !== undefined) {
+      tool.title = entry.title;
+    }
+    if (entry.outputSchema !== undefined) {
+      tool.outputSchema = this.schemaToJsonSchema(
+        entry.outputSchema,
+      ) as NonNullable<McpTool["outputSchema"]>;
+    }
     if (entry.annotations !== undefined) {
       tool.annotations = entry.annotations;
+    }
+    if (entry.icons !== undefined) {
+      tool.icons = entry.icons;
     }
     return tool;
   }

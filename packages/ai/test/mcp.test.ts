@@ -2,12 +2,12 @@ import { describe, test, expect, afterEach, vi } from "vitest";
 import { z } from "zod";
 import {
   mcp,
+  McpHeadersKeys,
   MCP_LOCAL_TOOL_REGISTRY,
   MCP_PLUGIN_REGISTERED,
   type McpLocalToolEntry,
 } from "../src/index.ts";
 import { testContext, type TestContext } from "@routecraft/testing";
-import type { EventHandler, EventName } from "@routecraft/routecraft";
 import {
   craft,
   simple,
@@ -20,39 +20,6 @@ const MCP_LOCAL_KEY =
   MCP_LOCAL_TOOL_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry;
 const MCP_PLUGIN_KEY =
   MCP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry;
-
-/**
- * Start the context and resolve when every route has emitted `route:*:started`,
- * without awaiting `ctx.start()` itself. The MCP source subscribe() blocks on
- * the abort signal by design so the route remains live for `tools/call`, so we
- * cannot rely on the built-in `startAndWaitReady` which also awaits start().
- */
-async function startAndAwaitReady(t: TestContext): Promise<void> {
-  const ctx = t.ctx;
-  const total = ctx.getRoutes().length;
-  const allReady =
-    total === 0
-      ? Promise.resolve()
-      : new Promise<void>((resolve, reject) => {
-          let ready = 0;
-          const timeoutId = setTimeout(
-            () => reject(new Error("Timeout waiting for routes to start")),
-            2000,
-          );
-          ctx.on(
-            "route:*:started" as EventName,
-            (() => {
-              ready++;
-              if (ready >= total) {
-                clearTimeout(timeoutId);
-                resolve();
-              }
-            }) as EventHandler<EventName>,
-          );
-        });
-  void ctx.start();
-  await allReady;
-}
 
 /** Helper: invoke an mcp() route by calling its registered handler directly. */
 async function invokeTool(
@@ -95,7 +62,7 @@ describe("mcp() DSL function", () => {
       .store(MCP_PLUGIN_KEY, true)
       .build();
 
-    await startAndAwaitReady(t);
+    await t.startAndWaitReady();
     await invokeTool(t, "my-tool", { message: "hello" });
 
     expect(consumer).toHaveBeenCalledTimes(1);
@@ -129,7 +96,7 @@ describe("mcp() DSL function", () => {
       .store(MCP_PLUGIN_KEY, true)
       .build();
 
-    await startAndAwaitReady(t);
+    await t.startAndWaitReady();
     await t.ctx.drain();
     await invokeTool(t, "shared", { origin: "mcp" });
 
@@ -166,7 +133,7 @@ describe("mcp() DSL function", () => {
       .store(MCP_PLUGIN_KEY, true)
       .build();
 
-    await startAndAwaitReady(t);
+    await t.startAndWaitReady();
     await invokeTool(t, "fetch-tool", { url: "https://example.com" });
 
     expect(consumer).toHaveBeenCalledTimes(1);
@@ -197,7 +164,7 @@ describe("mcp() DSL function", () => {
       .store(MCP_PLUGIN_KEY, true)
       .build();
 
-    await startAndAwaitReady(t);
+    await t.startAndWaitReady();
 
     await expect(
       invokeTool(t, "fetch-tool", { url: "not-a-valid-url" }),
@@ -205,20 +172,25 @@ describe("mcp() DSL function", () => {
   });
 
   /**
-   * @case mcp() registers entry in MCP_LOCAL_TOOL_REGISTRY with description, schema, and keywords
-   * @preconditions Route uses mcp() with description, schema, and keywords
-   * @expectedResult Registry contains entry with matching metadata
+   * @case mcp() registers entry in MCP_LOCAL_TOOL_REGISTRY with the full tool shape
+   * @preconditions Route uses mcp() with title, description, schema, outputSchema, annotations, and icons
+   * @expectedResult Registry contains entry with every tool-shape field
    */
   test("mcp() registers in local tool registry", async () => {
+    const icons = [{ src: "https://example.com/icon.svg", sizes: "48x48" }];
+
     t = await testContext()
       .routes([
         craft()
           .id("my-tool-route")
           .from(
             mcp("search-tool", {
+              title: "Document search",
               description: "Search for documents",
               schema: z.object({ query: z.string() }),
-              keywords: ["search", "query", "find"],
+              outputSchema: z.object({ hits: z.number() }),
+              annotations: { readOnlyHint: true },
+              icons,
             }),
           )
           .to(vi.fn()),
@@ -226,16 +198,64 @@ describe("mcp() DSL function", () => {
       .store(MCP_PLUGIN_KEY, true)
       .build();
 
-    await startAndAwaitReady(t);
+    await t.startAndWaitReady();
     const registry = t.ctx.getStore(MCP_LOCAL_KEY) as
       | Map<string, McpLocalToolEntry>
       | undefined;
     expect(registry).toBeDefined();
     expect(registry?.has("search-tool")).toBe(true);
     const entry = registry?.get("search-tool");
+    expect(entry?.title).toBe("Document search");
     expect(entry?.description).toBe("Search for documents");
-    expect(entry?.keywords).toEqual(["search", "query", "find"]);
+    expect(entry?.schema).toBeDefined();
+    expect(entry?.outputSchema).toBeDefined();
+    expect(entry?.annotations).toEqual({ readOnlyHint: true });
+    expect(entry?.icons).toEqual(icons);
     expect(typeof entry?.handler).toBe("function");
+  });
+
+  /**
+   * @case headerSchema must not strip MCP-injected headers (tool, session, auth principal)
+   * @preconditions mcp() route declares headerSchema that only validates `x-tenant`; invoke with tool + auth headers present
+   * @expectedResult Route consumer still sees `routecraft.mcp.tool` and any MCP-set headers alongside the validated user header
+   */
+  test("headerSchema preserves MCP-injected headers", async () => {
+    const consumer = vi.fn();
+
+    t = await testContext()
+      .routes([
+        craft()
+          .id("merge-consumer")
+          .from(
+            mcp("merge-tool", {
+              description: "Header merge test",
+              headerSchema: z.looseObject({ "x-tenant": z.string() }),
+            }),
+          )
+          .to(consumer),
+      ])
+      .store(MCP_PLUGIN_KEY, true)
+      .build();
+
+    await t.startAndWaitReady();
+    await invokeTool(
+      t,
+      "merge-tool",
+      { op: "ping" },
+      {
+        [McpHeadersKeys.TOOL]: "merge-tool",
+        [McpHeadersKeys.SESSION]: "sess-1",
+        [McpHeadersKeys.AUTH_SUBJECT]: "user-42",
+        "x-tenant": "acme",
+      },
+    );
+
+    expect(consumer).toHaveBeenCalledTimes(1);
+    const headers = consumer.mock.calls[0][0].headers as Record<string, string>;
+    expect(headers[McpHeadersKeys.TOOL]).toBe("merge-tool");
+    expect(headers[McpHeadersKeys.SESSION]).toBe("sess-1");
+    expect(headers[McpHeadersKeys.AUTH_SUBJECT]).toBe("user-42");
+    expect(headers["x-tenant"]).toBe("acme");
   });
 
   /**
@@ -264,7 +284,7 @@ describe("mcp() DSL function", () => {
       .store(MCP_PLUGIN_KEY, true)
       .build();
 
-    await startAndAwaitReady(t);
+    await t.startAndWaitReady();
     const registry = t.ctx.getStore(MCP_LOCAL_KEY) as
       | Map<string, McpLocalToolEntry>
       | undefined;
@@ -293,7 +313,7 @@ describe("mcp() DSL function", () => {
       .store(MCP_PLUGIN_KEY, true)
       .build();
 
-    await startAndAwaitReady(t);
+    await t.startAndWaitReady();
     const registry = t.ctx.getStore(MCP_LOCAL_KEY) as
       | Map<string, McpLocalToolEntry>
       | undefined;
@@ -318,7 +338,7 @@ describe("mcp() DSL function", () => {
       .store(MCP_PLUGIN_KEY, true)
       .build();
 
-    await startAndAwaitReady(t);
+    await t.startAndWaitReady();
 
     const mcpRegistry = t.ctx.getStore(MCP_LOCAL_KEY) as
       | Map<string, McpLocalToolEntry>
@@ -369,7 +389,7 @@ describe("mcp() DSL function", () => {
       .store(MCP_PLUGIN_KEY, true)
       .build();
 
-    await startAndAwaitReady(t);
+    await t.startAndWaitReady();
     const before = t.ctx.getStore(MCP_LOCAL_KEY) as
       | Map<string, McpLocalToolEntry>
       | undefined;

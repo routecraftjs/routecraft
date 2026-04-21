@@ -133,7 +133,7 @@ describe("MCP Plugin Integration", () => {
    */
   test("mcpPlugin() can filter tools by function", () => {
     const p = mcpPlugin({
-      tools: (entry) => entry.keywords?.includes("public") ?? false,
+      tools: (entry) => entry.annotations?.readOnlyHint === true,
     });
     expect(typeof p.apply).toBe("function");
     expect(p).toHaveProperty("teardown");

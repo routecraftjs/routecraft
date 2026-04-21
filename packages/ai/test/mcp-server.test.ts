@@ -1,7 +1,6 @@
 import { describe, test, expect, afterEach } from "vitest";
 import { McpServer } from "../src/mcp/server.ts";
 import { testContext, type TestContext } from "@routecraft/testing";
-import type { EventHandler, EventName } from "@routecraft/routecraft";
 import { craft, direct, noop } from "@routecraft/routecraft";
 import { mcp, MCP_PLUGIN_REGISTERED } from "../src/index.ts";
 import { buildAuthHeaders } from "../src/mcp/build-auth-headers.ts";
@@ -10,40 +9,6 @@ import http from "node:http";
 
 const MCP_STORE_KEY =
   MCP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry;
-
-/**
- * Start the context and resolve when every route has emitted `route:*:started`,
- * without awaiting `ctx.start()` itself. The MCP source subscribe() keeps the
- * route live until abort so we cannot use the built-in `startAndWaitReady`,
- * which also awaits `ctx.start()` completion.
- */
-async function startAndAwaitReady(t: TestContext): Promise<void> {
-  const ctx = t.ctx;
-  const total = ctx.getRoutes().length;
-  if (total === 0) {
-    void ctx.start();
-    return;
-  }
-  const allReady = new Promise<void>((resolve, reject) => {
-    let ready = 0;
-    const timeoutId = setTimeout(
-      () => reject(new Error("Timeout waiting for routes to start")),
-      2000,
-    );
-    ctx.on(
-      "route:*:started" as EventName,
-      (() => {
-        ready++;
-        if (ready >= total) {
-          clearTimeout(timeoutId);
-          resolve();
-        }
-      }) as EventHandler<EventName>,
-    );
-  });
-  void ctx.start();
-  await allReady;
-}
 
 /** Shared JSON-RPC params for MCP tests. */
 const INIT_PARAMS = {
@@ -88,7 +53,7 @@ describe("McpServer", () => {
 
   /**
    * @case Tool filtering by name array and by predicate
-   * @preconditions Routes for tool1, tool2, public-tool, private-tool; filter by name then by keywords
+   * @preconditions Routes for tool1, tool2, public-tool (readOnly), private-tool; filter by name then by annotation
    * @expectedResult Only allowed tools appear in getAvailableTools()
    */
   test("respects tool filtering by name and by function", async () => {
@@ -107,7 +72,7 @@ describe("McpServer", () => {
           .from(
             mcp("public-tool", {
               description: "Public",
-              keywords: ["public"],
+              annotations: { readOnlyHint: true },
             }),
           )
           .to(noop()),
@@ -116,7 +81,7 @@ describe("McpServer", () => {
           .from(
             mcp("private-tool", {
               description: "Private",
-              keywords: ["private"],
+              annotations: { destructiveHint: true },
             }),
           )
           .to(noop()),
@@ -126,13 +91,13 @@ describe("McpServer", () => {
 
     server = new McpServer(t.ctx, { tools: ["tool1"] });
     expect(server).toBeDefined();
-    await startAndAwaitReady(t);
+    await t.startAndWaitReady();
     let names = server.getAvailableTools().map((tool) => tool.name);
     expect(names).toEqual(["tool1"]);
     await server.stop();
 
     server = new McpServer(t.ctx, {
-      tools: (entry) => entry.keywords?.includes("public") ?? false,
+      tools: (entry) => entry.annotations?.readOnlyHint === true,
     });
     await server.start();
     names = server.getAvailableTools().map((tool) => tool.name);
@@ -174,7 +139,7 @@ describe("McpServer", () => {
 
     server = new McpServer(t.ctx);
     expect(server).toBeDefined();
-    await startAndAwaitReady(t);
+    await t.startAndWaitReady();
     const names = server.getAvailableTools().map((tool) => tool.name);
     expect(names).toContain("schema-tool");
     expect(names).toContain("no-schema-tool");
@@ -205,7 +170,7 @@ describe("McpServer", () => {
       .build();
     server = new McpServer(t.ctx);
     expect(server).toBeDefined();
-    await startAndAwaitReady(t);
+    await t.startAndWaitReady();
     const names = server.getAvailableTools().map((tool) => tool.name);
     expect(names).toEqual(["exposed-tool"]);
   });
@@ -234,7 +199,7 @@ describe("McpServer", () => {
       .store(MCP_STORE_KEY, true)
       .build();
     server = new McpServer(t.ctx);
-    await startAndAwaitReady(t);
+    await t.startAndWaitReady();
     const tools = server.getAvailableTools();
     expect(tools).toHaveLength(1);
     expect(tools[0].annotations).toEqual({
@@ -259,7 +224,7 @@ describe("McpServer", () => {
       .store(MCP_STORE_KEY, true)
       .build();
     server = new McpServer(t.ctx);
-    await startAndAwaitReady(t);
+    await t.startAndWaitReady();
     const tools = server.getAvailableTools();
     expect(tools).toHaveLength(1);
     expect(tools[0]).not.toHaveProperty("annotations");
