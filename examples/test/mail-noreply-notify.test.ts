@@ -34,7 +34,7 @@ describe("mail-noreply-notify", () => {
       date: new Date("2026-04-15T10:00:00Z"),
       flags: new Set(),
       folder: "INBOX",
-      text: "Tracking: ABC123",
+      body: { text: "Tracking: ABC123" },
     };
 
     const mailMock = mockAdapter(mail, {
@@ -97,6 +97,7 @@ describe("mail-noreply-notify", () => {
       date: new Date(),
       flags: new Set(),
       folder: "INBOX",
+      body: {},
     };
 
     const mailMock = mockAdapter(mail, {
