@@ -311,6 +311,7 @@ export class MailClientManager {
       result.pollIntervalMs = overrides.pollIntervalMs;
     if (overrides.includeHeaders !== undefined)
       result.includeHeaders = overrides.includeHeaders;
+    if (overrides.verify !== undefined) result.verify = overrides.verify;
 
     // Pass through search filters
     if (overrides.from !== undefined) result.from = overrides.from;
