@@ -3,6 +3,11 @@ import { testContext, spy, type TestContext } from "@routecraft/testing";
 import { craft, simple, mail, replace } from "@routecraft/routecraft";
 import { EXCHANGE_INTERNALS } from "../src/exchange.ts";
 import { buildSearchCriteriaSets } from "../src/adapters/mail/shared.ts";
+import {
+  analyzeHeaders,
+  extractAnalysisHeaders,
+  parseAuthResults,
+} from "../src/adapters/mail/analysis.ts";
 import type { MailServerOptions } from "../src/adapters/mail/types.ts";
 
 // Mock functions declared at module scope for vi.mock hoisting
@@ -261,7 +266,8 @@ describe("Mail Adapter", () => {
       expect(body["0"].uid).toBe(1);
       expect(body["0"].from).toBe("sender@example.com");
       expect(body["0"].subject).toBe("Test Email");
-      expect(body["0"].text).toBe("Hello world");
+      expect(body["0"].body.text).toBe("Hello world");
+      expect(body["0"].body.html).toBe("<p>Hello world</p>");
     });
 
     /**
@@ -310,6 +316,66 @@ describe("Mail Adapter", () => {
       expect(mockMessageFlagsAdd).toHaveBeenCalledWith("42", ["\\Seen"], {
         uid: true,
       });
+    });
+
+    /**
+     * @case verify: "off" omits the sender field entirely
+     * @preconditions Fetch with verify: "off"; analysis headers would otherwise resolve to a valid sender
+     * @expectedResult Returned MailMessage has no `sender` property
+     */
+    test("verify: 'off' omits sender", async () => {
+      const { simpleParser } = await import("mailparser");
+      (simpleParser as any).mockResolvedValueOnce({
+        text: "hi",
+        attachments: [],
+        headerLines: [
+          { key: "from", line: "From: a@b.com" },
+          {
+            key: "authentication-results",
+            line: "Authentication-Results: mx.test; dmarc=pass header.from=b.com",
+          },
+        ],
+      });
+      mockFetch.mockReturnValue({
+        async *[Symbol.asyncIterator]() {
+          yield {
+            uid: 7,
+            flags: new Set([]),
+            envelope: {
+              messageId: "<7@test>",
+              from: [{ address: "a@b.com" }],
+              to: [{ address: "me@test.com" }],
+              subject: "hi",
+              date: new Date(),
+            },
+            source: Buffer.from("raw"),
+          };
+        },
+      });
+
+      const s = spy();
+      t = await testContext()
+        .routes(
+          craft()
+            .id("test-verify-off")
+            .from(simple("trigger"))
+            .enrich(
+              mail({
+                folder: "INBOX",
+                host: "imap.test.com",
+                auth: { user: "u", pass: "p" },
+                verify: "off",
+              }),
+              replace(),
+            )
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      const body = s.received[0].body as any;
+      expect(body[0].sender).toBeUndefined();
     });
 
     /**
@@ -1395,7 +1461,213 @@ describe("Mail Adapter", () => {
       expect(body[0].rawHeaders["x-custom"]).toBeUndefined();
     });
   });
+
+  describe("sender analysis", () => {
+    /**
+     * @case Direct DMARC-aligned mail resolves to the From: header sender
+     * @preconditions Headers include From: and Authentication-Results: dmarc=pass
+     * @expectedResult forwardType "direct", trust "verified", effective sender matches From
+     */
+    test("direct mail with dmarc=pass is verified", () => {
+      const headers = extractAnalysisHeaders(
+        headerLines([
+          "From: Stripe Billing <billing@stripe.com>",
+          "Authentication-Results: mx.example.com; dkim=pass header.i=@stripe.com; spf=pass; dmarc=pass header.from=stripe.com",
+        ]),
+      );
+      const sender = analyzeHeaders(headers);
+      expect(sender.forwardType).toBe("direct");
+      expect(sender.trust).toBe("verified");
+      expect(sender.address).toBe("billing@stripe.com");
+      expect(sender.domain).toBe("stripe.com");
+      expect(sender.forwardChain).toEqual([]);
+      expect(sender.authentication.dmarc).toBe("pass");
+      expect(sender.reason).toBe("direct-dmarc-aligned");
+      expect(sender.headerFrom).toBeUndefined();
+    });
+
+    /**
+     * @case Google Groups forward exposes the original sender via X-Original-From
+     * @preconditions List-Id present, X-Original-From points to the real sender, ARC cv=pass
+     * @expectedResult forwardType "mailing-list", effective sender is the X-Original-From address,
+     *                 headerFrom captures the group address, forwardChain records one hop
+     */
+    test("Google Groups forward resolves to X-Original-From", () => {
+      const headers = extractAnalysisHeaders(
+        headerLines([
+          "From: Detachering via DevOptix <detachering@devoptix.nl>",
+          "Sender: detachering+bncBDG@devoptix.nl",
+          "List-Id: <detachering.devoptix.nl>",
+          "Precedence: list",
+          "X-Original-From: Team Flextender <no-reply@flextender.nl>",
+          "ARC-Seal: i=1; cv=none; d=google.com",
+          "ARC-Authentication-Results: i=1; mx.google.com; dkim=pass header.i=@flextender.nl; spf=pass; dmarc=pass header.from=flextender.nl",
+          "Authentication-Results: mx.example.com; dkim=pass header.i=@devoptix.nl; spf=pass; dmarc=pass header.from=devoptix.nl",
+        ]),
+      );
+      const sender = analyzeHeaders(headers);
+      expect(sender.forwardType).toBe("mailing-list");
+      expect(sender.address).toBe("no-reply@flextender.nl");
+      expect(sender.domain).toBe("flextender.nl");
+      expect(sender.headerFrom?.address).toBe("detachering@devoptix.nl");
+      expect(sender.forwardChain).toHaveLength(1);
+      expect(sender.forwardChain[0].type).toBe("mailing-list");
+      expect(sender.forwardChain[0].via.address).toBe(
+        "detachering@devoptix.nl",
+      );
+      // cv=none on the only ARC-Seal means arc-unverified trust, not verified.
+      expect(sender.authentication.arc).toBe("none");
+      expect(sender.trust).toBe("unverified");
+    });
+
+    /**
+     * @case Google Groups forward with a verified ARC chain is trusted
+     * @preconditions ARC-Seal with cv=pass, List-Id present, X-Original-From set
+     * @expectedResult trust "verified", reason "list-forward-arc-verified"
+     */
+    test("mailing-list forward with ARC cv=pass is verified", () => {
+      const headers = extractAnalysisHeaders(
+        headerLines([
+          "From: Detachering via DevOptix <detachering@devoptix.nl>",
+          "List-Id: <detachering.devoptix.nl>",
+          "X-Original-From: Team Flextender <no-reply@flextender.nl>",
+          "ARC-Seal: i=1; cv=pass; d=google.com",
+          "ARC-Authentication-Results: i=1; mx.google.com; dkim=pass; spf=pass; dmarc=pass header.from=flextender.nl",
+        ]),
+      );
+      const sender = analyzeHeaders(headers);
+      expect(sender.trust).toBe("verified");
+      expect(sender.reason).toBe("list-forward-arc-verified");
+      expect(sender.authentication.arc).toBe("pass");
+    });
+
+    /**
+     * @case Gmail auto-forward preserves From: and adds ARC
+     * @preconditions ARC-Seal present with cv=pass, no List-Id
+     * @expectedResult forwardType "auto-forward", effective sender = From, trust "verified"
+     */
+    test("auto-forward with ARC cv=pass is verified", () => {
+      const headers = extractAnalysisHeaders(
+        headerLines([
+          "From: Stripe Billing <billing@stripe.com>",
+          "ARC-Seal: i=1; cv=pass; d=google.com",
+          "ARC-Authentication-Results: i=1; mx.google.com; dkim=pass; spf=pass; dmarc=pass header.from=stripe.com",
+          "Authentication-Results: mx.personal.com; arc=pass; dkim=pass; dmarc=pass",
+        ]),
+      );
+      const sender = analyzeHeaders(headers);
+      expect(sender.forwardType).toBe("auto-forward");
+      expect(sender.address).toBe("billing@stripe.com");
+      expect(sender.trust).toBe("verified");
+      expect(sender.forwardChain).toHaveLength(1);
+      expect(sender.forwardChain[0].type).toBe("auto-forward");
+    });
+
+    /**
+     * @case DMARC fail on direct mail flags trust as failed
+     * @preconditions Authentication-Results shows dmarc=fail
+     * @expectedResult trust "failed", reason "direct-dmarc-fail"
+     */
+    test("direct mail with dmarc=fail is failed", () => {
+      const headers = extractAnalysisHeaders(
+        headerLines([
+          "From: fake <ceo@devoptix.nl>",
+          "Authentication-Results: mx.example.com; dkim=fail; spf=fail; dmarc=fail header.from=devoptix.nl",
+        ]),
+      );
+      const sender = analyzeHeaders(headers);
+      expect(sender.forwardType).toBe("direct");
+      expect(sender.trust).toBe("failed");
+      expect(sender.reason).toBe("direct-dmarc-fail");
+      expect(sender.authentication.dmarc).toBe("fail");
+    });
+
+    /**
+     * @case No auth headers present yields unverified trust
+     * @preconditions Only From: header, no Authentication-Results
+     * @expectedResult forwardType "direct", trust "unverified"
+     */
+    test("missing auth headers yields unverified", () => {
+      const headers = extractAnalysisHeaders(
+        headerLines(["From: someone@example.com"]),
+      );
+      const sender = analyzeHeaders(headers);
+      expect(sender.forwardType).toBe("direct");
+      expect(sender.trust).toBe("unverified");
+      expect(sender.address).toBe("someone@example.com");
+    });
+
+    /**
+     * @case Mailing-list forward without X-Original-From falls back to a synthesised address from ARC header.from domain
+     * @preconditions List-Id present, no X-Original-From / X-Original-Sender, ARC-Authentication-Results has header.from=<domain>
+     * @expectedResult effective sender domain matches the ARC domain; address is "unknown@<domain>" to avoid colliding with real addresses
+     */
+    test("mailing-list forward without X-Original-From falls back to ARC domain", () => {
+      const headers = extractAnalysisHeaders(
+        headerLines([
+          "From: detachering via DevOptix <detachering@devoptix.nl>",
+          "List-Id: <detachering.devoptix.nl>",
+          "ARC-Seal: i=1; cv=pass; d=google.com",
+          "ARC-Authentication-Results: i=1; mx.google.com; dkim=pass; spf=pass; dmarc=pass header.from=flextender.nl",
+        ]),
+      );
+      const sender = analyzeHeaders(headers);
+      expect(sender.forwardType).toBe("mailing-list");
+      expect(sender.domain).toBe("flextender.nl");
+      expect(sender.address).toBe("unknown@flextender.nl");
+      expect(sender.trust).toBe("verified");
+    });
+
+    /**
+     * @case Auto-forward populates ForwardHop.via from ARC-Seal d= tag
+     * @preconditions ARC-Seal with d=google.com, cv=pass, no List-Id
+     * @expectedResult forwardChain[0].via.domain = "google.com"; via.address = "arc@google.com"
+     */
+    test("auto-forward via is populated from ARC-Seal d=", () => {
+      const headers = extractAnalysisHeaders(
+        headerLines([
+          "From: Stripe Billing <billing@stripe.com>",
+          "ARC-Seal: i=1; cv=pass; d=google.com",
+          "ARC-Authentication-Results: i=1; mx.google.com; dkim=pass; dmarc=pass header.from=stripe.com",
+        ]),
+      );
+      const sender = analyzeHeaders(headers);
+      expect(sender.forwardType).toBe("auto-forward");
+      expect(sender.forwardChain).toHaveLength(1);
+      expect(sender.forwardChain[0].via.domain).toBe("google.com");
+      expect(sender.forwardChain[0].via.address).toBe("arc@google.com");
+    });
+
+    /**
+     * @case parseAuthResults extracts verdicts and header.from
+     * @preconditions Value with dkim, spf, dmarc results and header.from
+     * @expectedResult Each verdict normalized, dmarcHeaderFrom captured
+     */
+    test("parseAuthResults extracts verdicts", () => {
+      const r = parseAuthResults(
+        "mx.example.com; dkim=pass header.i=@foo.com; spf=neutral; dmarc=pass header.from=foo.com",
+      );
+      expect(r.dkim).toBe("pass");
+      expect(r.spf).toBe("neutral");
+      expect(r.dmarc).toBe("pass");
+      expect(r.dmarcHeaderFrom).toBe("foo.com");
+    });
+  });
 });
+
+// ---------------------------------------------------------------------------
+// Analysis test helpers
+// ---------------------------------------------------------------------------
+
+function headerLines(
+  lines: string[],
+): ReadonlyArray<{ key: string; line: string }> {
+  return lines.map((line) => {
+    const colon = line.indexOf(":");
+    const key = (colon >= 0 ? line.slice(0, colon) : line).trim().toLowerCase();
+    return { key, line };
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -1409,6 +1681,7 @@ function createMailMessage(uid: number, folder: string) {
     to: "me@test.com",
     subject: `Message ${uid}`,
     date: new Date(),
+    body: {},
     flags: new Set<string>(),
     folder,
   };

@@ -9,6 +9,11 @@ import type {
   MailTargetExtractor,
 } from "./types.ts";
 import type { MailClientManager } from "./client-manager.ts";
+import {
+  analyzeHeaders,
+  extractAnalysisHeaders,
+  type MailSender,
+} from "./analysis.ts";
 
 // ---------------------------------------------------------------------------
 // Store keys
@@ -412,6 +417,10 @@ export function toMailMessage(
     .map((a) => a.address)
     .filter((a): a is string => a !== undefined);
 
+  const body: { text?: string; html?: string } = {};
+  if (content?.text !== undefined) body.text = content.text;
+  if (content?.html !== undefined) body.html = content.html;
+
   const result: MailMessage = {
     uid: msg.uid,
     messageId: envelope.messageId ?? "",
@@ -419,6 +428,7 @@ export function toMailMessage(
     to: toList.length === 1 ? toList[0] : toList,
     subject: envelope.subject ?? "",
     date: envelope.date ?? new Date(),
+    body,
     cc: ccAddrs
       .map((a) => a.address)
       .filter((a): a is string => a !== undefined),
@@ -429,8 +439,6 @@ export function toMailMessage(
     folder,
   };
 
-  if (content?.text !== undefined) result.text = content.text;
-  if (content?.html !== undefined) result.html = content.html;
   if (replyToAddrs[0]?.address !== undefined)
     result.replyTo = replyToAddrs[0].address;
   if (content?.attachments !== undefined)
@@ -442,11 +450,18 @@ export function toMailMessage(
 
 /**
  * Parse a single IMAP message into content fields using mailparser.
+ *
+ * When `includeAnalysisHeaders` is true, auth-relevant headers are also
+ * extracted (independently of `requestedHeaders`) and returned via
+ * `analysisHeaders` for sender analysis.
  */
 async function parseMessageContent(
   source: Buffer | undefined,
   simpleParser: typeof import("mailparser").simpleParser,
   requestedHeaders?: true | string[],
+  includeAnalysisHeaders?: boolean,
+  logger?: { debug: (obj: Record<string, unknown>, msg: string) => void },
+  uid?: number,
 ): Promise<{
   text?: string;
   html?: string;
@@ -457,6 +472,7 @@ async function parseMessageContent(
     content: Buffer;
   }>;
   rawHeaders?: Record<string, string | string[]>;
+  analysisHeaders?: Record<string, string | string[]>;
 }> {
   if (!source) return {};
   try {
@@ -471,6 +487,7 @@ async function parseMessageContent(
         content: Buffer;
       }>;
       rawHeaders?: Record<string, string | string[]>;
+      analysisHeaders?: Record<string, string | string[]>;
     } = {};
     if (parsed.text) content.text = parsed.text;
     if (typeof parsed.html === "string") content.html = parsed.html;
@@ -517,10 +534,32 @@ async function parseMessageContent(
       }
       if (Object.keys(hdrs).length > 0) content.rawHeaders = hdrs;
     }
+    if (includeAnalysisHeaders && parsed.headerLines) {
+      const analysis = extractAnalysisHeaders(
+        parsed.headerLines as ReadonlyArray<{ key: string; line: string }>,
+      );
+      if (Object.keys(analysis).length > 0) content.analysisHeaders = analysis;
+    }
     return content;
-  } catch {
+  } catch (err) {
+    // Swallow per-message parse failures so one malformed MIME does not abort
+    // the whole fetch. Log at debug so operators can correlate an empty body /
+    // missing sender back to a parse error.
+    logger?.debug(
+      { err: err instanceof Error ? err : new Error(String(err)), uid },
+      "mail adapter failed to parse message source",
+    );
     return {};
   }
+}
+
+/**
+ * Minimal logger shape accepted by `fetchMessages`. Matches the methods used
+ * on a pino child logger without pinning to pino's types.
+ */
+export interface MailFetchLogger {
+  debug: (obj: Record<string, unknown>, msg: string) => void;
+  warn: (obj: Record<string, unknown>, msg: string) => void;
 }
 
 /**
@@ -533,11 +572,13 @@ async function parseMessageContent(
  * @param client - Connected ImapFlow client with open mailbox
  * @param options - Resolved IMAP options (for search criteria, limit, markSeen)
  * @param folder - The folder name (for setting on MailMessage)
+ * @param logger - Optional logger for parse/verify diagnostics
  */
 export async function fetchMessages(
   client: InstanceType<typeof import("imapflow").ImapFlow>,
   options: MailServerOptions,
   folder: string,
+  logger?: MailFetchLogger,
 ): Promise<MailMessage[]> {
   const criteriaSets = buildSearchCriteriaSets(options);
   const messages: MailMessage[] = [];
@@ -552,6 +593,7 @@ export async function fetchMessages(
     };
 
     const { simpleParser } = await import("mailparser");
+    const verify = options.verify ?? "headers";
 
     for (const criteria of criteriaSets) {
       let searchQuery: Record<string, unknown> | string = criteria;
@@ -568,6 +610,9 @@ export async function fetchMessages(
           msg.source,
           simpleParser,
           options.includeHeaders,
+          verify !== "off",
+          logger,
+          msg.uid,
         );
 
         const mailMessage = toMailMessage(
@@ -579,6 +624,63 @@ export async function fetchMessages(
           folder,
           content,
         );
+
+        if (verify !== "off") {
+          const analysisHeaders = content.analysisHeaders;
+          // Only populate `sender` when we have headers to analyse. An empty
+          // map means the source buffer was missing or unparseable; stamping
+          // a degenerate `sender` with empty address would be worse than
+          // omitting it, since consumers cannot distinguish "analysis ran"
+          // from "analysis found nothing".
+          if (analysisHeaders && Object.keys(analysisHeaders).length > 0) {
+            let sender: MailSender = analyzeHeaders(analysisHeaders);
+            if (verify === "strict") {
+              try {
+                const { verifyStrict } = await import("./strict-verify.ts");
+                sender = await verifyStrict(msg.source, sender);
+              } catch (error) {
+                // Do not let a single verification failure (transient DNS,
+                // malformed signature, missing mailauth install surfacing
+                // mid-fetch) tear down the whole poll cycle. Degrade trust
+                // and continue.
+                sender = {
+                  ...sender,
+                  trust: "failed",
+                  reason: "strict-verify-error",
+                };
+                logger?.warn(
+                  {
+                    err:
+                      error instanceof Error ? error : new Error(String(error)),
+                    uid: msg.uid,
+                    folder,
+                  },
+                  "mail adapter strict verify failed; continuing with header-only verdict",
+                );
+              }
+            }
+            mailMessage.sender = sender;
+            // Observability: one structured log line per message describing the
+            // verdict. Debug for verified/unverified (can be noisy), warn for
+            // failed so security graphs can scrape "DMARC failures per hour"
+            // without needing a bespoke event type.
+            const verdictLog = {
+              uid: msg.uid,
+              folder,
+              mode: verify,
+              forwardType: sender.forwardType,
+              trust: sender.trust,
+              reason: sender.reason,
+              authentication: sender.authentication,
+            };
+            if (sender.trust === "failed") {
+              logger?.warn(verdictLog, "mail adapter verify: trust failed");
+            } else {
+              logger?.debug(verdictLog, "mail adapter verify: completed");
+            }
+          }
+        }
+
         messages.push(mailMessage);
 
         if (options.limit && messages.length >= options.limit) {

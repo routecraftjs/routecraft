@@ -8,6 +8,7 @@
  */
 
 import type { Exchange } from "../../exchange.ts";
+import type { MailSender } from "./analysis.ts";
 
 /**
  * Authentication credentials for mail servers.
@@ -184,6 +185,19 @@ export interface MailServerOptions {
    * ```
    */
   includeHeaders?: true | string[];
+  /**
+   * How hard to verify the sender. Populates `MailMessage.sender` so apps can
+   * gate on the real origin of mailing-list and auto-forwarded mail without
+   * re-parsing headers themselves.
+   *
+   * - `"off"`: skip analysis, `sender` is omitted.
+   * - `"headers"` (default): parse `Authentication-Results`, `ARC-*`, `List-Id`,
+   *   `X-Original-From` that the receiving server already wrote. No network.
+   * - `"strict"`: additionally run cryptographic verification via `mailauth`.
+   *   Does DNS lookups and is slower; only use when the receiving server is
+   *   not trusted to have verified the chain for you.
+   */
+  verify?: "off" | "headers" | "strict";
 }
 
 /**
@@ -302,7 +316,13 @@ export interface MailMessage {
   uid: number;
   /** Message-ID header */
   messageId: string;
-  /** Sender address */
+  /**
+   * Literal `From:` header.
+   *
+   * For mailing-list forwards (e.g. Google Groups) this is the rewritten list
+   * address. Use {@link MailSender.address} on {@link MailMessage.sender} for
+   * the real sender when `verify !== "off"`.
+   */
   from: string;
   /** Recipient address(es) */
   to: string | string[];
@@ -310,10 +330,17 @@ export interface MailMessage {
   subject: string;
   /** Date the message was sent */
   date: Date;
-  /** Plain text body */
-  text?: string;
-  /** HTML body */
-  html?: string;
+  /**
+   * Message body. `text` and `html` are two representations of the same
+   * content and either, both, or neither may be populated depending on what
+   * the sender composed (`multipart/alternative` vs a single-part message).
+   */
+  body: {
+    /** Plain text body, when the message included a `text/plain` part. */
+    text?: string;
+    /** HTML body, when the message included a `text/html` part. */
+    html?: string;
+  };
   /** CC recipients */
   cc?: string[];
   /** BCC recipients */
@@ -332,6 +359,15 @@ export interface MailMessage {
   flags: Set<string>;
   /** The IMAP folder this message was fetched from */
   folder: string;
+  /**
+   * Computed effective sender with forward-chain and authentication evidence.
+   * Omitted when the adapter is configured with `verify: "off"`.
+   *
+   * For mailing-list forwards (e.g. Google Groups) this resolves to the
+   * original sender, not the rewritten `From:` header. For auto-forwards it
+   * mirrors `from`. See {@link MailSender} for the full shape.
+   */
+  sender?: MailSender;
 }
 
 /**

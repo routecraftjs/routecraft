@@ -186,3 +186,17 @@ export type {
 // Re-export store key and client manager
 export { MAIL_CLIENT_MANAGER } from "./shared.ts";
 export { MailClientManager } from "./client-manager.ts";
+
+// Sender analysis
+export type {
+  MailSender,
+  EmailAddress,
+  ForwardHop,
+  ForwardType,
+  TrustLevel,
+} from "./analysis.ts";
+export {
+  analyzeHeaders,
+  parseAuthResults,
+  ANALYSIS_HEADER_NAMES,
+} from "./analysis.ts";

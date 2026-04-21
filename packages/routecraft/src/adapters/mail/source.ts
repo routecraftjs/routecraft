@@ -9,6 +9,7 @@ import {
   throwMailConnectionError,
   HEADER_MAIL_UID,
   HEADER_MAIL_FOLDER,
+  type MailFetchLogger,
 } from "./shared.ts";
 
 /**
@@ -119,6 +120,13 @@ export class MailSourceAdapter implements Source<MailMessage> {
         return handler(message, headers);
       };
 
+      const logger: MailFetchLogger | undefined = context.logger
+        ? {
+            debug: (obj, msg) => context.logger.debug(obj, msg),
+            warn: (obj, msg) => context.logger.warn(obj, msg),
+          }
+        : undefined;
+
       if (resolved.pollIntervalMs) {
         await this.pollLoop(
           client,
@@ -126,6 +134,7 @@ export class MailSourceAdapter implements Source<MailMessage> {
           folder,
           handlerWithHeaders,
           abortController,
+          logger,
         );
       } else {
         await this.idleLoop(
@@ -134,6 +143,7 @@ export class MailSourceAdapter implements Source<MailMessage> {
           folder,
           handlerWithHeaders,
           abortController,
+          logger,
         );
       }
     } finally {
@@ -148,11 +158,12 @@ export class MailSourceAdapter implements Source<MailMessage> {
     folder: string,
     handler: (message: MailMessage) => Promise<Exchange>,
     abortController: AbortController,
+    logger?: MailFetchLogger,
   ): Promise<void> {
     const processedUids = new Set<number>();
 
     while (!abortController.signal.aborted) {
-      const messages = await fetchMessages(client, options, folder);
+      const messages = await fetchMessages(client, options, folder, logger);
 
       for (const message of messages) {
         if (abortController.signal.aborted) break;
@@ -191,11 +202,12 @@ export class MailSourceAdapter implements Source<MailMessage> {
     folder: string,
     handler: (message: MailMessage) => Promise<Exchange>,
     abortController: AbortController,
+    logger?: MailFetchLogger,
   ): Promise<void> {
     const processedUids = new Set<number>();
 
     // Fetch existing messages first
-    const existing = await fetchMessages(client, options, folder);
+    const existing = await fetchMessages(client, options, folder, logger);
     for (const message of existing) {
       if (abortController.signal.aborted) return;
       if (processedUids.has(message.uid)) continue;
@@ -219,7 +231,7 @@ export class MailSourceAdapter implements Source<MailMessage> {
 
       if (abortController.signal.aborted) return;
 
-      const newMessages = await fetchMessages(client, options, folder);
+      const newMessages = await fetchMessages(client, options, folder, logger);
       for (const message of newMessages) {
         if (abortController.signal.aborted) return;
         if (processedUids.has(message.uid)) continue;
