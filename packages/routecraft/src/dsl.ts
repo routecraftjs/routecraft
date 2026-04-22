@@ -139,7 +139,9 @@ registerDsl("schema", {
 // Module augmentation: TypeScript types for built-in sugar
 // ---------------------------------------------------------------------------
 
-declare module "./builder.ts" {
+// See .standards/type-safety-and-schemas.md#module-augmentation for why this
+// targets the package specifier and not a relative path.
+declare module "@routecraft/routecraft" {
   interface RouteBuilder<Current> {
     /**
      * Log the current exchange at info level. Type-preserving tap.
