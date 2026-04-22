@@ -1160,6 +1160,29 @@ craft()
   .to(log())
 ```
 
+**Source delivery modes:** the source runs in one of two modes.
+
+- **IDLE (default):** the server pushes notifications when new mail arrives. The `\Seen` flag is the cross-cycle dedupe state, so each message is delivered exactly once per subscription. IDLE is the right default for "process each new email once" workloads. If the IMAP connection drops mid-subscription the source reconnects automatically with exponential backoff; auth failures stop the subscription immediately.
+- **Poll (opt-in):** set `pollIntervalMs` to fetch on a cadence instead of IDLE. Required whenever you opt out of the `\Seen` dedupe model (`markSeen: false` or `unseen: false`), for example to re-evaluate the inbox on every cycle and rely on a folder move as the done-signal. IDLE has no cycle boundary, so combining it with those overrides would refetch the entire folder on every inbound message; the source throws `RC5003` at startup to prevent this footgun.
+
+```ts
+// Re-evaluate the inbox every minute; archive a message to mark it done.
+// If you later extend `matchesCriteria`, previously-unmatched mail that is
+// still in INBOX is picked up on the next cycle.
+craft()
+  .id('inbox-processor')
+  .from(mail('INBOX', {
+    pollIntervalMs: 60_000,
+    markSeen: false,
+    unseen: false,
+  }))
+  .filter(matchesCriteria)
+  .process(processMessage)
+  .to(mail({ action: 'move', folder: 'Archive' }))
+```
+
+The `\Seen` flag is written per-message **after** the handler resolves successfully, so a downstream failure leaves the message un-Seen and it is retried on the next cycle. `limit` combined with IDLE is a latency trap (backlog beyond the limit only drains when new mail arrives) and emits a warning at subscribe time.
+
 **Fetch destination (IMAP pull):** Pass a folder string or server options to fetch messages. Use with `.enrich()` to pull mail on demand.
 
 ```ts
