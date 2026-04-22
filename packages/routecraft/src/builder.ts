@@ -929,6 +929,7 @@ export class RouteBuilder<Current = unknown> {
    *   and `otherwise` branches
    * @returns A RouteBuilder typed at `Out`
    *
+   * @experimental
    * @example
    * ```ts
    * .choice(c => c

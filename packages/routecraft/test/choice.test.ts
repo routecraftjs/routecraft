@@ -181,6 +181,7 @@ describe("choice operation", () => {
       )
       .on(
         "route:choice-events-match:operation:choice:matched" as EventName,
+        // EventName union does not narrow handler type for dynamic route IDs
         ((payload: { details: unknown }) => {
           const d = payload.details as {
             branchIndex: number;
@@ -223,6 +224,7 @@ describe("choice operation", () => {
       )
       .on(
         "route:choice-events-unmatch:operation:choice:unmatched" as EventName,
+        // EventName union does not narrow handler type for dynamic route IDs
         (() => {
           unmatchedCount += 1;
         }) as never,

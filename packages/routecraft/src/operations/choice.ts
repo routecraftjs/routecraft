@@ -18,6 +18,7 @@ import { type Destination, type CallableDestination, ToStep } from "./to.ts";
  * API would add an `asyncWhen` or widen `predicate` to return a Promise.
  *
  * @template T - Body type of the exchange at the point of the choice
+ * @experimental
  */
 export type ChoicePredicate<T = unknown> = (exchange: Exchange<T>) => boolean;
 
@@ -54,7 +55,6 @@ export interface HaltAdapter extends Adapter {
 export class HaltStep implements Step<HaltAdapter> {
   operation: OperationType = OperationType.HALT;
   adapter: HaltAdapter = { adapterId: "routecraft.operation.halt" };
-  skipStepEvents = true;
 
   async execute(exchange: Exchange): Promise<void> {
     const context = getExchangeContext(exchange);
@@ -67,19 +67,6 @@ export class HaltStep implements Step<HaltAdapter> {
     ] as string;
 
     if (context) {
-      context.emit(`route:${routeId}:step:started` as EventName, {
-        routeId,
-        exchangeId: exchange.id,
-        correlationId,
-        operation: this.operation,
-      });
-      context.emit(`route:${routeId}:step:completed` as EventName, {
-        routeId,
-        exchangeId: exchange.id,
-        correlationId,
-        operation: this.operation,
-        duration: 0,
-      });
       context.emit(`route:${routeId}:exchange:dropped` as EventName, {
         routeId,
         exchangeId: exchange.id,
@@ -103,6 +90,7 @@ export class HaltStep implements Step<HaltAdapter> {
  * shared step-adding logic.
  *
  * @template Current - Body type entering this branch
+ * @experimental
  */
 export class BranchBuilder<Current = unknown> {
   private readonly steps: Step<Adapter>[] = [];
@@ -112,6 +100,8 @@ export class BranchBuilder<Current = unknown> {
    * semantics of `RouteBuilder.to`: a destination that returns `undefined`
    * leaves the body unchanged; a returned value replaces the body.
    *
+   * @param destination - Adapter or callable that processes the exchange
+   * @returns This builder, re-typed to the destination's output
    * @template R - Result body type; defaults to `void` (body unchanged)
    */
   to<R = void>(
@@ -130,6 +120,8 @@ export class BranchBuilder<Current = unknown> {
    * Useful for branches that handle error cases and do not want the rest of
    * the main pipeline to run, e.g.
    * `.otherwise(b => b.to(errorSink).halt())`.
+   *
+   * @returns This builder (for chaining, though no further steps will execute)
    */
   halt(): BranchBuilder<Current> {
     this.steps.push(new HaltStep());
@@ -158,6 +150,7 @@ export class BranchBuilder<Current = unknown> {
  *
  * @template In  - Body type entering the choice (from the main pipeline)
  * @template Out - Body type leaving the choice (all branches must converge)
+ * @experimental
  */
 export class ChoiceSubBuilder<In = unknown, Out = In> {
   private readonly whenBranches: ChoiceBranch[] = [];
@@ -168,6 +161,10 @@ export class ChoiceSubBuilder<In = unknown, Out = In> {
    * point of the choice; the branch callback defines the sub-pipeline that
    * runs when the predicate returns true. Branches are evaluated in the
    * order they are registered and the first match wins.
+   *
+   * @param predicate - Receives the exchange; returns true if this branch should handle it
+   * @param branchFn - Callback that defines the sub-pipeline for the branch
+   * @returns This builder (for chaining)
    */
   when(
     predicate: ChoicePredicate<In>,
@@ -187,6 +184,9 @@ export class ChoiceSubBuilder<In = unknown, Out = In> {
    * Register the default branch that runs when no `when` predicate matches.
    * Equivalent to Camel's `.otherwise()`. If omitted and no branch matches,
    * the exchange is dropped with `reason: "unmatched"`.
+   *
+   * @param branchFn - Callback that defines the sub-pipeline for the default branch
+   * @returns This builder (for chaining)
    */
   otherwise(branchFn: (b: BranchBuilder<In>) => BranchBuilder<Out>): this {
     if (this.otherwiseBranch) {

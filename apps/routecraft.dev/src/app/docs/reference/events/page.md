@@ -95,6 +95,15 @@ After a split, each child exchange emits its own `exchange:started`. When aggreg
 | `route:{routeId}:operation:retry:attempt` | One retry attempt made | `{ routeId, exchangeId, correlationId, attemptNumber, maxAttempts, backoffMs, lastError? }` |
 | `route:{routeId}:operation:retry:stopped` | Retry sequence ended | `{ routeId, exchangeId, correlationId, attemptNumber, success }` |
 
+### Choice operations
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `route:{routeId}:operation:choice:matched` | A `when` or `otherwise` branch matched | `{ routeId, exchangeId, correlationId, branchIndex, branchLabel }` |
+| `route:{routeId}:operation:choice:unmatched` | No branch matched and the exchange is dropped | `{ routeId, exchangeId, correlationId }` |
+
+`branchLabel` is `"when"` or `"otherwise"`. `branchIndex` is the zero-based index of the matched branch.
+
 ### Error handler operations
 
 | Event | When it fires | Details |
