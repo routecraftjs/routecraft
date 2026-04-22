@@ -7,14 +7,17 @@ export default craft()
   .id("greet-user")
   .from(
     mcp("greet-user", {
+      title: "Greet user",
       description: "Greet a user by name",
-      schema: z.object({
-        user: z
-          .string()
-          .trim()
-          .min(1, { message: "User is required." })
-          .describe("The user to greet."),
-      }),
+      input: {
+        body: z.object({
+          user: z
+            .string()
+            .trim()
+            .min(1, { message: "User is required." })
+            .describe("The user to greet."),
+        }),
+      },
     }),
   )
   .filter(() => {

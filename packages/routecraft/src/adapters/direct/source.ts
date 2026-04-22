@@ -108,7 +108,7 @@ export class DirectSourceAdapter<T = unknown> implements Source<T> {
    * Check if this adapter has validation configured
    */
   private hasValidation(): boolean {
-    return !!(this.options.schema || this.options.headerSchema);
+    return !!(this.options.input?.body || this.options.input?.headers);
   }
 
   /**
@@ -124,9 +124,9 @@ export class DirectSourceAdapter<T = unknown> implements Source<T> {
       let validatedBody = exchange.body;
       let validatedHeaders = exchange.headers;
 
-      // Validate body if schema provided
-      if (this.options.schema) {
-        let result = this.options.schema["~standard"].validate(exchange.body);
+      const bodySchema = this.options.input?.body;
+      if (bodySchema) {
+        let result = bodySchema["~standard"].validate(exchange.body);
         if (result instanceof Promise) result = await result;
 
         const bodyIssues = (result as { issues?: unknown }).issues;
@@ -149,11 +149,9 @@ export class DirectSourceAdapter<T = unknown> implements Source<T> {
         }
       }
 
-      // Validate headers if headerSchema provided
-      if (this.options.headerSchema) {
-        let result = this.options.headerSchema["~standard"].validate(
-          exchange.headers,
-        );
+      const headerSchema = this.options.input?.headers;
+      if (headerSchema) {
+        let result = headerSchema["~standard"].validate(exchange.headers);
         if (result instanceof Promise) result = await result;
 
         const headerIssues = (result as { issues?: unknown }).issues;

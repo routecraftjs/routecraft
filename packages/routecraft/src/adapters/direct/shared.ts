@@ -127,14 +127,11 @@ export function registerRoute(
   if (options.description !== undefined) {
     metadata.description = options.description;
   }
-  if (options.schema !== undefined) {
-    metadata.schema = options.schema;
+  if (options.input !== undefined) {
+    metadata.input = options.input;
   }
-  if (options.outputSchema !== undefined) {
-    metadata.outputSchema = options.outputSchema;
-  }
-  if (options.headerSchema !== undefined) {
-    metadata.headerSchema = options.headerSchema;
+  if (options.output !== undefined) {
+    metadata.output = options.output;
   }
   registry.set(endpoint, metadata);
 

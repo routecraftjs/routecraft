@@ -125,7 +125,7 @@ describe("mcp() DSL function", () => {
           .from(
             mcp("fetch-tool", {
               description: "Fetch a URL",
-              schema,
+              input: { body: schema },
             }),
           )
           .to(consumer),
@@ -156,7 +156,7 @@ describe("mcp() DSL function", () => {
           .from(
             mcp("fetch-tool", {
               description: "Fetch a URL",
-              schema,
+              input: { body: schema },
             }),
           )
           .to(vi.fn()),
@@ -187,8 +187,8 @@ describe("mcp() DSL function", () => {
             mcp("search-tool", {
               title: "Document search",
               description: "Search for documents",
-              schema: z.object({ query: z.string() }),
-              outputSchema: z.object({ hits: z.number() }),
+              input: { body: z.object({ query: z.string() }) },
+              output: { body: z.object({ hits: z.number() }) },
               annotations: { readOnlyHint: true },
               icons,
             }),
@@ -207,19 +207,19 @@ describe("mcp() DSL function", () => {
     const entry = registry?.get("search-tool");
     expect(entry?.title).toBe("Document search");
     expect(entry?.description).toBe("Search for documents");
-    expect(entry?.schema).toBeDefined();
-    expect(entry?.outputSchema).toBeDefined();
+    expect(entry?.input?.body).toBeDefined();
+    expect(entry?.output?.body).toBeDefined();
     expect(entry?.annotations).toEqual({ readOnlyHint: true });
     expect(entry?.icons).toEqual(icons);
     expect(typeof entry?.handler).toBe("function");
   });
 
   /**
-   * @case headerSchema must not strip MCP-injected headers (tool, session, auth principal)
-   * @preconditions mcp() route declares headerSchema that only validates `x-tenant`; invoke with tool + auth headers present
+   * @case input.headers schema must not strip MCP-injected headers (tool, session, auth principal)
+   * @preconditions mcp() route declares input.headers that only validates `x-tenant`; invoke with tool + auth headers present
    * @expectedResult Route consumer still sees `routecraft.mcp.tool` and any MCP-set headers alongside the validated user header
    */
-  test("headerSchema preserves MCP-injected headers", async () => {
+  test("input.headers schema preserves MCP-injected headers", async () => {
     const consumer = vi.fn();
 
     t = await testContext()
@@ -229,7 +229,9 @@ describe("mcp() DSL function", () => {
           .from(
             mcp("merge-tool", {
               description: "Header merge test",
-              headerSchema: z.looseObject({ "x-tenant": z.string() }),
+              input: {
+                headers: z.looseObject({ "x-tenant": z.string() }),
+              },
             }),
           )
           .to(consumer),

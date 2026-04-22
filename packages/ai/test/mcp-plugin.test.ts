@@ -69,7 +69,7 @@ describe("MCP Plugin Integration", () => {
       .from(
         mcp("my-tool", {
           description: "A test tool",
-          schema: z.object({ input: z.string() }),
+          input: { body: z.object({ input: z.string() }) },
         }),
       )
       .to(noop());
@@ -155,7 +155,7 @@ describe("MCP Plugin Integration", () => {
       .from(
         mcp("schema-tool", {
           description: "A tool with schema",
-          schema: mySchema,
+          input: { body: mySchema },
         }),
       )
       .to(noop());

@@ -121,7 +121,7 @@ describe("McpServer", () => {
           .from(
             mcp("schema-tool", {
               description: "Tool with schema",
-              schema,
+              input: { body: schema },
             }),
           )
           .to(noop()),
@@ -433,7 +433,7 @@ describe("McpServer", () => {
           .from(
             mcp("capture-tool", {
               description: "Capture body for test",
-              schema: z.object({ user: z.string() }),
+              input: { body: z.object({ user: z.string() }) },
             }),
           )
           .tap((ex) => {
@@ -474,10 +474,12 @@ describe("McpServer", () => {
           .from(
             mcp("echo-args", {
               description: "Echo argument types and values for test",
-              schema: z.object({
-                str: z.string(),
-                obj: z.record(z.string(), z.any()),
-              }),
+              input: {
+                body: z.object({
+                  str: z.string(),
+                  obj: z.record(z.string(), z.any()),
+                }),
+              },
             }),
           )
           .transform((body) => ({
@@ -752,7 +754,7 @@ describe("McpServer", () => {
               .from(
                 mcp("oauth-capture", {
                   description: "Capture exchange headers for OAuth test",
-                  schema: z.object({}),
+                  input: { body: z.object({}) },
                 }),
               )
               .tap((ex) => {
@@ -831,7 +833,7 @@ describe("McpServer", () => {
               .from(
                 mcp("oauth-minimal", {
                   description: "Minimal OAuth capture",
-                  schema: z.object({}),
+                  input: { body: z.object({}) },
                 }),
               )
               .tap((ex) => {
@@ -984,7 +986,7 @@ describe("McpServer", () => {
               .from(
                 mcp("jwt-capture", {
                   description: "Capture JWT principal headers",
-                  schema: z.object({}),
+                  input: { body: z.object({}) },
                 }),
               )
               .tap((ex) => {
@@ -1056,7 +1058,7 @@ describe("McpServer", () => {
               .from(
                 mcp("apikey-capture", {
                   description: "Capture API key principal headers",
-                  schema: z.object({}),
+                  input: { body: z.object({}) },
                 }),
               )
               .tap((ex) => {

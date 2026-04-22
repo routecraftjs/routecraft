@@ -46,7 +46,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(consumer),
         ])
         .build();
@@ -80,7 +84,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(consumer),
         ])
         .build();
@@ -110,7 +118,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(vi.fn()),
         ])
         .build();
@@ -138,7 +150,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(vi.fn()),
         ])
         .build();
@@ -175,7 +191,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(consumer),
         ])
         .build();
@@ -217,7 +237,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(consumer),
         ])
         .build();
@@ -247,7 +271,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(consumer),
         ])
         .build();
@@ -288,7 +316,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(consumer),
         ])
         .build();
@@ -317,7 +349,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(vi.fn()),
         ])
         .build();
@@ -348,7 +384,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(consumer),
         ])
         .build();
@@ -374,7 +414,11 @@ describe("Direct adapter validation", () => {
             .to(direct("my-special-endpoint")),
           craft()
             .id("consumer")
-            .from(direct("my-special-endpoint", { schema }))
+            .from(
+              direct("my-special-endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(vi.fn()),
         ])
         .build();
@@ -404,7 +448,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(consumer),
         ])
         .build();
@@ -439,7 +487,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(vi.fn()),
         ])
         .build();
@@ -469,7 +521,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(consumer),
         ])
         .build();
@@ -502,7 +558,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(consumer),
         ])
         .build();
@@ -535,7 +595,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(consumer),
         ])
         .build();
@@ -589,7 +653,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(consumer),
         ])
         .build();
@@ -619,7 +687,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(consumer),
         ])
         .build();
@@ -652,9 +724,11 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                headerSchema: z.looseObject({
-                  "x-tenant-id": z.string().startsWith("tenant-"),
-                }),
+                input: {
+                  headers: z.looseObject({
+                    "x-tenant-id": z.string().startsWith("tenant-"),
+                  }),
+                },
               }),
             )
             .to(consumer),
@@ -685,9 +759,11 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                headerSchema: z.object({
-                  "x-tenant-id": z.string(),
-                }),
+                input: {
+                  headers: z.object({
+                    "x-tenant-id": z.string(),
+                  }),
+                },
               }),
             )
             .to(consumer),
@@ -722,9 +798,11 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                headerSchema: z.looseObject({
-                  "x-tenant-id": z.string(),
-                }),
+                input: {
+                  headers: z.looseObject({
+                    "x-tenant-id": z.string(),
+                  }),
+                },
               }),
             )
             .to(consumer),
@@ -757,9 +835,11 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                headerSchema: z.strictObject({
-                  "x-tenant-id": z.string(),
-                }),
+                input: {
+                  headers: z.strictObject({
+                    "x-tenant-id": z.string(),
+                  }),
+                },
               }),
             )
             .to(vi.fn()),
@@ -788,9 +868,11 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                headerSchema: z.looseObject({
-                  "x-count": z.coerce.number(),
-                }),
+                input: {
+                  headers: z.looseObject({
+                    "x-count": z.coerce.number(),
+                  }),
+                },
               }),
             )
             .to(vi.fn()),
@@ -815,9 +897,11 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                headerSchema: z.looseObject({
-                  "x-required-header": z.string(),
-                }),
+                input: {
+                  headers: z.looseObject({
+                    "x-required-header": z.string(),
+                  }),
+                },
               }),
             )
             .to(vi.fn()),
@@ -844,9 +928,11 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                headerSchema: z.looseObject({
-                  "x-optional": z.string().optional(),
-                }),
+                input: {
+                  headers: z.looseObject({
+                    "x-optional": z.string().optional(),
+                  }),
+                },
               }),
             )
             .to(consumer),
@@ -874,9 +960,11 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                headerSchema: z.looseObject({
-                  "x-optional": z.coerce.number().optional(),
-                }),
+                input: {
+                  headers: z.looseObject({
+                    "x-optional": z.coerce.number().optional(),
+                  }),
+                },
               }),
             )
             .to(vi.fn()),
@@ -909,11 +997,13 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                headerSchema: z.looseObject({
-                  "x-tenant": z.string(),
-                  "x-version": z.coerce.number(),
-                  "x-region": z.enum(["us-east", "us-west", "eu-west"]),
-                }),
+                input: {
+                  headers: z.looseObject({
+                    "x-tenant": z.string(),
+                    "x-version": z.coerce.number(),
+                    "x-region": z.enum(["us-east", "us-west", "eu-west"]),
+                  }),
+                },
               }),
             )
             .to(consumer),
@@ -943,9 +1033,11 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                headerSchema: z.looseObject({
-                  "x-count": z.coerce.number(),
-                }),
+                input: {
+                  headers: z.looseObject({
+                    "x-count": z.coerce.number(),
+                  }),
+                },
               }),
             )
             .to(consumer),
@@ -987,9 +1079,11 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                headerSchema: z.looseObject({
-                  "x-token": asyncTokenSchema,
-                }),
+                input: {
+                  headers: z.looseObject({
+                    "x-token": asyncTokenSchema,
+                  }),
+                },
               }),
             )
             .to(consumer),
@@ -1024,8 +1118,10 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                schema: z.object({ id: z.string() }),
-                headerSchema: z.looseObject({ "x-tenant": z.string() }),
+                input: {
+                  body: z.object({ id: z.string() }),
+                  headers: z.looseObject({ "x-tenant": z.string() }),
+                },
               }),
             )
             .to(consumer),
@@ -1053,8 +1149,10 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                schema: z.object({ id: z.string() }),
-                headerSchema: z.looseObject({ "x-count": z.coerce.number() }),
+                input: {
+                  body: z.object({ id: z.string() }),
+                  headers: z.looseObject({ "x-count": z.coerce.number() }),
+                },
               }),
             )
             .to(vi.fn()),
@@ -1083,8 +1181,10 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                schema: z.object({ id: z.string() }),
-                headerSchema: z.looseObject({ "x-tenant": z.string() }),
+                input: {
+                  body: z.object({ id: z.string() }),
+                  headers: z.looseObject({ "x-tenant": z.string() }),
+                },
               }),
             )
             .to(vi.fn()),
@@ -1116,8 +1216,10 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                schema: z.object({ count: z.coerce.number() }),
-                headerSchema: z.looseObject({ "x-limit": z.coerce.number() }),
+                input: {
+                  body: z.object({ count: z.coerce.number() }),
+                  headers: z.looseObject({ "x-limit": z.coerce.number() }),
+                },
               }),
             )
             .to(consumer),
@@ -1151,7 +1253,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema: z.object({ id: z.string() }) }))
+            .from(
+              direct("endpoint", {
+                input: { body: z.object({ id: z.string() }) },
+              }),
+            )
             .to(vi.fn()),
         ])
         .build();
@@ -1183,13 +1289,17 @@ describe("Direct adapter validation", () => {
           craft()
             .id("consumerA")
             .from(
-              direct("endpointA", { schema: z.object({ name: z.string() }) }),
+              direct("endpointA", {
+                input: { body: z.object({ name: z.string() }) },
+              }),
             )
             .to(consumerA),
           craft()
             .id("consumerB")
             .from(
-              direct("endpointB", { schema: z.object({ count: z.number() }) }),
+              direct("endpointB", {
+                input: { body: z.object({ count: z.number() }) },
+              }),
             )
             .to(consumerB),
         ])
@@ -1247,7 +1357,9 @@ describe("Direct adapter validation", () => {
           craft()
             .id("consumer")
             .from(
-              direct("endpoint", { schema: z.object({ valid: z.string() }) }),
+              direct("endpoint", {
+                input: { body: z.object({ valid: z.string() }) },
+              }),
             )
             .to(vi.fn()),
         ])
@@ -1271,7 +1383,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema: z.object({ id: z.string() }) }))
+            .from(
+              direct("endpoint", {
+                input: { body: z.object({ id: z.string() }) },
+              }),
+            )
             .to(vi.fn()),
         ])
         .build();
@@ -1299,7 +1415,7 @@ describe("Direct adapter validation", () => {
             .id("failing-consumer")
             .from(
               direct("failing-endpoint", {
-                schema: z.object({ valid: z.boolean() }),
+                input: { body: z.object({ valid: z.boolean() }) },
               }),
             )
             .to(vi.fn()),
@@ -1402,8 +1518,8 @@ describe("Direct adapter validation", () => {
               direct("my-endpoint", {
                 title: "My Endpoint",
                 description: "Ingest test data",
-                schema: z.object({ id: z.string() }),
-                outputSchema: z.object({ ok: z.boolean() }),
+                input: { body: z.object({ id: z.string() }) },
+                output: { body: z.object({ ok: z.boolean() }) },
               }),
             )
             .to(vi.fn()),
@@ -1418,8 +1534,8 @@ describe("Direct adapter validation", () => {
         endpoint: "my-endpoint",
         title: "My Endpoint",
         description: "Ingest test data",
-        schema: expect.any(Object),
-        outputSchema: expect.any(Object),
+        input: { body: expect.any(Object) },
+        output: { body: expect.any(Object) },
       });
     });
 
@@ -1469,7 +1585,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(consumer),
         ])
         .build();
@@ -1497,9 +1617,11 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                headerSchema: z.looseObject({
-                  "x-nullable": z.null(),
-                }),
+                input: {
+                  headers: z.looseObject({
+                    "x-nullable": z.null(),
+                  }),
+                },
               }),
             )
             .to(consumer),
@@ -1524,7 +1646,11 @@ describe("Direct adapter validation", () => {
           craft().id("producer").from(simple({})).to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(consumer),
         ])
         .build();
@@ -1560,7 +1686,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(consumer),
         ])
         .build();

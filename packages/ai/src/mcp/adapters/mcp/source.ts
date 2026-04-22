@@ -41,14 +41,21 @@ function sanitizeMcpEndpoint(endpoint: string): string {
  * @experimental
  */
 export class McpSourceAdapter<
-  S extends StandardSchemaV1 | undefined = undefined,
-> implements Source<McpMessage<S>> {
+  B extends StandardSchemaV1 | undefined = undefined,
+> implements Source<McpMessage<B>> {
   readonly adapterId: string = "routecraft.adapter.mcp";
 
   private endpoint: string;
-  private options: McpServerOptions & { schema?: S };
+  private options: McpServerOptions & {
+    input?: { body?: B; headers?: StandardSchemaV1 };
+  };
 
-  constructor(endpoint: string, options: McpServerOptions & { schema?: S }) {
+  constructor(
+    endpoint: string,
+    options: McpServerOptions & {
+      input?: { body?: B; headers?: StandardSchemaV1 };
+    },
+  ) {
     (this as unknown as Record<symbol, boolean>)[BRAND_MCP_ADAPTER] = true;
 
     if (typeof endpoint !== "string") {
@@ -100,7 +107,7 @@ export class McpSourceAdapter<
   async subscribe(
     context: CraftContext,
     handler: (
-      message: McpMessage<S>,
+      message: McpMessage<B>,
       headers?: ExchangeHeaders,
     ) => Promise<Exchange>,
     abortController: AbortController,
@@ -146,11 +153,11 @@ export class McpSourceAdapter<
     if (this.options.title !== undefined) {
       entry.title = this.options.title;
     }
-    if (this.options.schema !== undefined) {
-      entry.schema = this.options.schema;
+    if (this.options.input !== undefined) {
+      entry.input = this.options.input;
     }
-    if (this.options.outputSchema !== undefined) {
-      entry.outputSchema = this.options.outputSchema;
+    if (this.options.output !== undefined) {
+      entry.output = this.options.output;
     }
     if (this.options.annotations !== undefined) {
       entry.annotations = this.options.annotations;
@@ -195,7 +202,7 @@ export class McpSourceAdapter<
 
   private createEntryHandler(
     handler: (
-      message: McpMessage<S>,
+      message: McpMessage<B>,
       headers?: ExchangeHeaders,
     ) => Promise<Exchange>,
     endpoint: string,
@@ -205,8 +212,9 @@ export class McpSourceAdapter<
       let validatedBody: unknown = exchange.body;
       let validatedHeaders: ExchangeHeaders = exchange.headers;
 
-      if (this.options.schema) {
-        let result = this.options.schema["~standard"].validate(exchange.body);
+      const bodySchema = this.options.input?.body;
+      if (bodySchema) {
+        let result = bodySchema["~standard"].validate(exchange.body);
         if (result instanceof Promise) result = await result;
 
         const bodyIssues = (result as { issues?: unknown }).issues;
@@ -228,10 +236,9 @@ export class McpSourceAdapter<
         }
       }
 
-      if (this.options.headerSchema) {
-        let result = this.options.headerSchema["~standard"].validate(
-          exchange.headers,
-        );
+      const headerSchema = this.options.input?.headers;
+      if (headerSchema) {
+        let result = headerSchema["~standard"].validate(exchange.headers);
         if (result instanceof Promise) result = await result;
 
         const headerIssues = (result as { issues?: unknown }).issues;
@@ -259,7 +266,7 @@ export class McpSourceAdapter<
       }
 
       return handler(
-        validatedBody as McpMessage<S>,
+        validatedBody as McpMessage<B>,
         validatedHeaders,
       ) as Promise<Exchange>;
     };

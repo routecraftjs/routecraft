@@ -881,22 +881,25 @@ export class McpServer {
   }
 
   /**
-   * Convert an MCP local tool registry entry to the MCP `tools/list` wire format.
+   * Convert an MCP local tool registry entry to the MCP `tools/list` wire
+   * format. `entry.input.body` flattens to `tool.inputSchema`; `entry.output.body`
+   * flattens to `tool.outputSchema`. Header schemas are not part of the MCP
+   * spec wire and are not forwarded.
    */
   private entryToMcpTool(entry: McpLocalToolEntry): McpTool {
     const tool: McpTool = {
       name: entry.endpoint,
       description: entry.description,
       inputSchema: this.schemaToJsonSchema(
-        entry.schema,
+        entry.input?.body,
       ) as McpTool["inputSchema"],
     };
     if (entry.title !== undefined) {
       tool.title = entry.title;
     }
-    if (entry.outputSchema !== undefined) {
+    if (entry.output?.body !== undefined) {
       tool.outputSchema = this.schemaToJsonSchema(
-        entry.outputSchema,
+        entry.output.body,
       ) as NonNullable<McpTool["outputSchema"]>;
     }
     if (entry.annotations !== undefined) {

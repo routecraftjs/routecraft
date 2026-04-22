@@ -49,6 +49,33 @@ export const MCP_LOCAL_TOOL_REGISTRY = Symbol.for(
 );
 
 /**
+ * Per-direction schema bundle for an MCP tool's request side.
+ * Both `body` (MCP `Tool.inputSchema`) and `headers` are validated at runtime
+ * before the route handler runs.
+ *
+ * @experimental
+ */
+export interface McpInput {
+  /** Standard Schema for the tool input body (MCP `Tool.inputSchema`). */
+  body?: StandardSchemaV1;
+  /** Standard Schema for the request headers. Validated values merge over the originals. */
+  headers?: StandardSchemaV1;
+}
+
+/**
+ * Per-direction schema bundle for an MCP tool's response side.
+ * Forwarded on `tools/list`; not runtime-enforced by the MCP source.
+ *
+ * @experimental
+ */
+export interface McpOutput {
+  /** Standard Schema for the tool output body (MCP `Tool.outputSchema`). */
+  body?: StandardSchemaV1;
+  /** Standard Schema for the response headers. Documentation-only. */
+  headers?: StandardSchemaV1;
+}
+
+/**
  * Entry in the {@link MCP_LOCAL_TOOL_REGISTRY}. One per `.from(mcp(endpoint, options))`
  * route. Holds the discovery metadata needed for `tools/list` and the invocation
  * handler used by `tools/call`.
@@ -62,10 +89,10 @@ export interface McpLocalToolEntry {
   title?: string;
   /** Human-readable description of the tool (required for MCP discoverability). */
   description: string;
-  /** Standard Schema for the tool input. Converts to JSON Schema for `tools/list`. */
-  schema?: StandardSchemaV1;
-  /** Standard Schema for the tool output. Forwarded to `tools/list` when provided. */
-  outputSchema?: StandardSchemaV1;
+  /** Input schemas (request body, request headers). */
+  input?: McpInput;
+  /** Output schemas (response body, response headers); forwarded to `tools/list`. */
+  output?: McpOutput;
   /** MCP tool annotations (read-only hints, destructive hints, etc.). */
   annotations?: McpToolAnnotations;
   /** Icons forwarded to `tools/list` per the MCP spec. */
@@ -420,35 +447,39 @@ export interface McpToolIcon {
  * Options for mcp() when used as a server in .from().
  *
  * Standalone interface: mcp does not share code or registry with direct. Fields
- * whose names overlap with direct (`title`, `description`, `schema`,
- * `outputSchema`) are structurally compatible by convention so the same literal
- * can be used with either adapter, but there is no type-level inheritance.
+ * whose names overlap with direct (`title`, `description`, `input`, `output`)
+ * are structurally compatible by convention so the same literal can be used
+ * with either adapter, but there is no type-level inheritance.
  *
  * @experimental
  */
 export interface McpServerOptions {
   /**
-   * Body validation schema (MCP `Tool.inputSchema`). Standard Schema compatible:
-   * Zod, Valibot, ArkType. Zod 4 object constructors (`z.object`, `z.looseObject`,
-   * `z.strictObject`) control extra-property handling.
+   * Input schemas. `input.body` validates and is converted to JSON Schema for
+   * `tools/list` (the MCP `Tool.inputSchema`). `input.headers` validates the
+   * request headers; validated values merge over the originals so MCP-injected
+   * metadata (tool name, session, auth principal) survives schemas that strip
+   * unknowns.
+   *
+   * @example
+   * input: {
+   *   body: z.object({ user: z.string() }),
+   *   headers: z.looseObject({ 'x-tenant': z.string() }),
+   * }
    */
-  schema?: StandardSchemaV1;
+  input?: McpInput;
 
   /**
-   * Header validation schema. Validates the exchange headers; validated keys
-   * are merged on top of the incoming headers so that MCP-injected metadata
-   * (tool name, session, auth principal) survives schemas that strip unknowns.
+   * Output schemas. `output.body` is forwarded as MCP `Tool.outputSchema`
+   * on `tools/list`; `output.headers` is documentation-only.
    */
-  headerSchema?: StandardSchemaV1;
+  output?: McpOutput;
 
   /** Human-readable display title for the tool (MCP `Tool.title`). */
   title?: string;
 
   /** Human-readable description (required for MCP discoverability). */
   description: string;
-
-  /** Standard Schema for the tool output (MCP `Tool.outputSchema`). */
-  outputSchema?: StandardSchemaV1;
 
   /**
    * MCP tool annotations describing behavior hints (read-only, destructive, etc.).

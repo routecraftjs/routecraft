@@ -23,15 +23,12 @@ import type { McpMessage } from "./types.ts";
  * - **Source (for `.from()`):** Call with two arguments: `mcp(endpoint, options)`.
  *   Options must include a `description` field (required for MCP tool exposure).
  *   Requires the MCP plugin: `plugins: [mcpPlugin()]`.
- *   Body type is inferred from `options.schema` when provided.
+ *   Body type is inferred from `options.input.body` when provided.
  *
  * - **Destination (for `.to()` / `.tap()`):** Call with one argument containing client options:
  *   - `mcp({ url, tool })` - Direct HTTP URL to remote MCP server
  *   - `mcp({ serverId, tool })` - Server ID registered via mcpPlugin({ clients })
  *   - `mcp('server:tool', { args? })` - Shorthand for serverId:tool with optional args extractor
- *
- * The MCP adapter delegates to the direct() adapter for source routes and makes HTTP calls
- * to remote MCP servers for destination routes.
  *
  * @param endpointOrOptions - Endpoint string (source) or client options object (destination) or 'server:tool' string (destination)
  * @param options - Server options (source) or args extractor (destination)
@@ -42,7 +39,10 @@ import type { McpMessage } from "./types.ts";
  * @example
  * ```typescript
  * // Source route (MCP tool)
- * .from(mcp('/search', { description: 'Search documents', schema: mySchema }))
+ * .from(mcp('/search', {
+ *   description: 'Search documents',
+ *   input: { body: mySchema },
+ * }))
  *
  * // Destination (call remote MCP server)
  * .to(mcp({ url: 'http://localhost:3001/mcp', tool: 'search' }))
@@ -51,10 +51,12 @@ import type { McpMessage } from "./types.ts";
  * .to(mcp('my-server:search', { args: (ex) => ex.body.params }))
  * ```
  */
-export function mcp<S extends StandardSchemaV1 | undefined = undefined>(
+export function mcp<B extends StandardSchemaV1 | undefined = undefined>(
   endpoint: string,
-  options: McpServerOptions & { schema?: S },
-): Source<McpMessage<S>>;
+  options: Omit<McpServerOptions, "input"> & {
+    input?: { body?: B; headers?: StandardSchemaV1 };
+  },
+): Source<McpMessage<B>>;
 export function mcp(
   clientOptions: McpClientOptions,
 ): Destination<unknown, unknown>;
@@ -62,13 +64,17 @@ export function mcp(
   shorthand: RegisteredMcpShorthand,
   options?: { args?: McpArgsExtractor },
 ): Destination<unknown, unknown>;
-export function mcp<S extends StandardSchemaV1 | undefined = undefined>(
+export function mcp<B extends StandardSchemaV1 | undefined = undefined>(
   endpointOrOptions:
     | string
-    | ((exchange: Exchange<McpMessage<S>>) => string)
+    | ((exchange: Exchange<McpMessage<B>>) => string)
     | McpClientOptions,
-  options?: (McpServerOptions & { schema?: S }) | { args?: McpArgsExtractor },
-): Source<McpMessage<S>> | Destination<unknown, unknown> {
+  options?:
+    | (Omit<McpServerOptions, "input"> & {
+        input?: { body?: B; headers?: StandardSchemaV1 };
+      })
+    | { args?: McpArgsExtractor },
+): Source<McpMessage<B>> | Destination<unknown, unknown> {
   // Client: object with url or serverId
   if (
     typeof endpointOrOptions === "object" &&
@@ -136,12 +142,14 @@ export function mcp<S extends StandardSchemaV1 | undefined = undefined>(
   // Server: endpoint + options with description
   const endpoint = endpointOrOptions as
     | string
-    | ((exchange: Exchange<McpMessage<S>>) => string);
+    | ((exchange: Exchange<McpMessage<B>>) => string);
   if (options !== undefined) {
     return tagAdapter(
-      new McpSourceAdapter<S>(
+      new McpSourceAdapter<B>(
         endpoint as string,
-        options as McpServerOptions & { schema?: S },
+        options as McpServerOptions & {
+          input?: { body?: B; headers?: StandardSchemaV1 };
+        },
       ),
       mcp,
       factoryArgs(endpointOrOptions, options),

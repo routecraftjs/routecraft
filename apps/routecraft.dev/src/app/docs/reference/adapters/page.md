@@ -302,15 +302,14 @@ craft()
 
 **Options:**
 - `channelType` - Custom direct channel implementation (default: in-memory)
-- `schema` - Body validation schema, Standard Schema compatible (Zod, Valibot, ArkType). Equivalent to the MCP `Tool.inputSchema` when exposed as a tool
-- `headerSchema` - Header validation schema; when provided, validated values are merged on top of the request headers so adapter-injected metadata is preserved
-- `title` - Human-readable display title for discovery consumers (agents, MCP clients)
-- `description` - Human-readable description surfaced to agents and (when exposed via `mcp()`) MCP clients
-- `outputSchema` - Standard Schema describing the output body; forwarded to discovery consumers
-- `annotations` - Opaque annotations pass-through; `mcp()` narrows this to `McpToolAnnotations`
-- `icons` - Opaque icons list forwarded to discovery consumers (typed per the MCP spec by `mcp()`)
-
-> `direct()` mirrors the MCP `Tool` shape so in-process agents can discover direct routes directly. `mcp()` maintains a separate registry (`MCP_LOCAL_TOOL_REGISTRY`) for externally exposed tools; direct and mcp routes can coexist on identical endpoint strings because they live in different registries.
+- `title` - Human-readable display title for in-process discovery consumers (agents). Not used by the delivery pipeline.
+- `description` - Human-readable description surfaced to agents that inspect the direct registry.
+- `input` - Per-direction schema bundle for the request side:
+  - `input.body` - Body validation schema, Standard Schema compatible (Zod, Valibot, ArkType). Runtime-enforced.
+  - `input.headers` - Header validation schema; validated values are merged on top of the request headers so caller-supplied pass-through keys (correlation IDs, adapter-injected metadata) survive schemas that strip unknowns.
+- `output` - Per-direction schema bundle for the response side; documentation-only, not runtime-enforced:
+  - `output.body` - Standard Schema for the response body.
+  - `output.headers` - Standard Schema for the response headers.
 
 **Key characteristics:**
 - **Synchronous**: Calling route waits for response from consuming route
@@ -461,7 +460,7 @@ craft()
 
 #### Route Registry
 
-Each direct route registers in `ADAPTER_DIRECT_REGISTRY` with the full tool-shape metadata, so in-process agents can discover and document them the same way they would MCP tools:
+Each direct route registers in `ADAPTER_DIRECT_REGISTRY` so in-process agents can discover and document the routes available in the current context:
 
 ```ts
 import { ADAPTER_DIRECT_REGISTRY } from '@routecraft/routecraft'
@@ -470,9 +469,8 @@ craft()
   .from(direct('fetch-content', {
     title: 'Fetch content',
     description: 'Fetch and summarize web content from URL',
-    schema: z.object({ url: z.string().url() }),
-    outputSchema: z.object({ summary: z.string() }),
-    annotations: { readOnlyHint: true, openWorldHint: true },
+    input: { body: z.object({ url: z.string().url() }) },
+    output: { body: z.object({ summary: z.string() }) },
   }))
   .process(fetchAndSummarize)
 
@@ -482,10 +480,10 @@ await ctx.start()
 
 const registry = ctx.getStore(ADAPTER_DIRECT_REGISTRY)
 const routes = registry ? Array.from(registry.values()) : []
-// [{ endpoint, title, description, schema, outputSchema, annotations, ... }]
+// [{ endpoint, title?, description?, input?, output?, headerSchema? }]
 ```
 
-For external MCP exposure, use [`mcp()`](#mcp); it maintains a separate `MCP_LOCAL_TOOL_REGISTRY`. Direct routes never appear in MCP `tools/list`, and agents that want to discover both must read both registries.
+The direct registry stores only the direct adapter's own metadata. Other adapters that expose routes externally (such as [`mcp()`](#mcp) or a future inbound `http()`) maintain their own parallel registries; they are never written to or read from the direct registry.
 
 ### http
 ```ts
@@ -1518,9 +1516,10 @@ import { z } from 'zod'
 craft()
   .id('fetch-webpage')
   .from(mcp('fetch-webpage', {
+    title: 'Fetch webpage',
     description: 'Fetch the content of a webpage',
-    schema: z.object({ url: z.string().url() }),
-    keywords: ['fetch', 'web'],
+    input: { body: z.object({ url: z.string().url() }) },
+    output: { body: z.object({ content: z.string() }) },
     annotations: { readOnlyHint: true, openWorldHint: true },
   }))
   .transform(async ({ url }) => {
@@ -1529,7 +1528,7 @@ craft()
   })
 ```
 
-`description` is required whenever options are passed. Schema, keywords, and annotations are optional.
+`description` is required whenever options are passed. Everything else is optional.
 
 **Destination mode -- call a remote MCP tool:**
 
@@ -1549,10 +1548,13 @@ When using the `serverId` path (recommended), auth configured on the client in `
 | Option | Type | Required | Description |
 |--------|------|----------|-------------|
 | `description` | `string` | Yes | Human-readable description for AI discovery |
-| `schema` | `StandardSchemaV1` | No | Body validation schema (Zod, Valibot, ArkType) |
-| `headerSchema` | `StandardSchemaV1` | No | Header validation schema |
-| `keywords` | `string[]` | No | Keywords for discovery and categorization |
+| `title` | `string` | No | Human-readable display title (MCP `Tool.title`) |
+| `input.body` | `StandardSchemaV1` | No | Body validation schema (MCP `Tool.inputSchema`). Runtime-enforced. |
+| `input.headers` | `StandardSchemaV1` | No | Header validation schema; validated values merge over the originals |
+| `output.body` | `StandardSchemaV1` | No | Output body schema (MCP `Tool.outputSchema`); forwarded on `tools/list` |
+| `output.headers` | `StandardSchemaV1` | No | Output header schema; documentation-only |
 | `annotations` | `McpToolAnnotations` | No | Behavior hints forwarded to MCP clients in the `tools/list` response |
+| `icons` | `McpToolIcon[]` | No | Icons forwarded on `tools/list` per the MCP spec |
 
 **McpToolAnnotations (optional hint fields, all booleans unless noted):**
 
@@ -1583,7 +1585,22 @@ These mirror the [MCP specification (2025-03-26) `ToolAnnotations`](https://mode
 | `token` | `string \| string[] \| (() => string \| Promise<string>)` | Bearer token, array of tokens (round-robin), or provider function called per request |
 | `headers` | `Record<string, string>` | Additional request headers; overrides `token` if `Authorization` is set |
 
-**Relation to `direct()`:** `mcp()` owns its own registry (`MCP_LOCAL_TOOL_REGISTRY`) and delivery path; it does not share infrastructure with `direct()`. `.from(mcp('foo', ...))` and `.from(direct('foo'))` can coexist with identical endpoint strings because they live in different registries. Direct routes never appear in the MCP `tools/list` response, regardless of any fields attached to them.
+#### Tool Registry
+
+Each `.from(mcp(...))` route registers in `MCP_LOCAL_TOOL_REGISTRY` so the MCP server can list and invoke it via the MCP protocol:
+
+```ts
+import { MCP_LOCAL_TOOL_REGISTRY } from '@routecraft/ai'
+
+const ctx = await new ContextBuilder().routes(...).build()
+await ctx.start()
+
+const registry = ctx.getStore(MCP_LOCAL_TOOL_REGISTRY)
+const tools = registry ? Array.from(registry.values()) : []
+// [{ endpoint, title?, description, input?, output?, annotations?, icons?, handler }]
+```
+
+`mcp()` and `direct()` maintain separate, fully isolated registries. `.from(mcp('foo', ...))` and `.from(direct('foo'))` can coexist on the same endpoint string because they live in different stores. Direct routes never appear in the MCP `tools/list` response.
 
 See [Expose as MCP](/docs/advanced/expose-as-mcp) and [Call an MCP](/docs/advanced/call-an-mcp).
 

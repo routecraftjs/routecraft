@@ -37,14 +37,39 @@ export interface DirectChannel<T = unknown> {
 }
 
 /**
+ * Per-direction schema bundle for a direct route. Groups the body and header
+ * schemas so configuration is organised by direction (input vs output) rather
+ * than by a flat list of `*Schema` keys. Future per-direction concerns (query,
+ * params, attachments) can slot in without bloating the top-level options.
+ */
+export interface DirectInput {
+  /** Standard Schema for the request body. */
+  body?: StandardSchemaV1;
+  /** Standard Schema for the request headers. Validated values merge over the originals. */
+  headers?: StandardSchemaV1;
+}
+
+/**
+ * Per-direction schema bundle for a direct route's output. Mirrors
+ * {@link DirectInput}; both `body` and `headers` are documentation-only on the
+ * output side (not runtime-enforced by direct itself).
+ */
+export interface DirectOutput {
+  /** Standard Schema for the response body. */
+  body?: StandardSchemaV1;
+  /** Standard Schema for the response headers. */
+  headers?: StandardSchemaV1;
+}
+
+/**
  * Metadata for a direct route stored in the direct route registry.
  *
  * Carries the canonical internal tool fields for in-process agent discovery.
  * Overlaps structurally with other adapters (mcp, http server) on a small set
- * of tool-shape props (`endpoint` aka name, `title`, `description`, `schema`
- * aka inputSchema, `outputSchema`); adapter-specific metadata (MCP
- * annotations, MCP icons, HTTP route metadata, etc.) lives on each wrapper
- * adapter's own types and registries, not here.
+ * of tool-shape props (`endpoint` aka name, `title`, `description`, `input`,
+ * `output`); adapter-specific metadata (MCP annotations, MCP icons, HTTP route
+ * metadata, etc.) lives on each wrapper adapter's own types and registries,
+ * not here.
  */
 export interface DirectRouteMetadata {
   /** Route name (matches the sanitized endpoint). */
@@ -53,12 +78,10 @@ export interface DirectRouteMetadata {
   title?: string;
   /** Human-readable description of what this route does. */
   description?: string;
-  /** Standard Schema describing the input body. Converts to JSON Schema for discovery. */
-  schema?: StandardSchemaV1;
-  /** Standard Schema describing the output body (if the route produces a structured response). */
-  outputSchema?: StandardSchemaV1;
-  /** Standard Schema describing the expected request headers. */
-  headerSchema?: StandardSchemaV1;
+  /** Input schemas (request body, request headers). */
+  input?: DirectInput;
+  /** Output schemas (response body, response headers); documentation-only. */
+  output?: DirectOutput;
 }
 
 /** Base options shared between source and destination. */
@@ -73,31 +96,25 @@ export interface DirectBaseOptions {
  */
 export interface DirectServerOptions extends DirectBaseOptions {
   /**
-   * Body validation schema. Behavior depends on schema library:
-   * - Zod 4: z.object() strips extras (default), z.looseObject() keeps them, z.strictObject() rejects them
-   * - Valibot: check library docs for handling extra properties
-   * - ArkType: check library docs for handling extra properties
-   */
-  schema?: StandardSchemaV1;
-
-  /**
-   * Header validation schema. Validates the headers object.
-   * Behavior depends on schema library:
-   * - Zod 4: z.object() strips extras (default), z.looseObject() keeps them, z.strictObject() rejects them
-   * - Valibot: check library docs for handling extra properties
-   * - ArkType: check library docs for handling extra properties
-   *
-   * Validated values are merged on top of the original request headers so that
-   * callers' pass-through metadata (correlation IDs, user-supplied extras)
-   * survive schemas that strip unknown keys.
+   * Input schemas for the request side. `input.body` and `input.headers` are
+   * runtime-enforced before the route handler runs. Header validation merges
+   * validated values over the originals so caller-supplied pass-through keys
+   * survive schemas that strip unknowns.
    *
    * @example
-   * z.looseObject({
-   *   'x-tenant-id': z.string().uuid(),
-   *   'x-trace-id': z.string().optional(),
-   * })  // Validates required headers, keeps all others
+   * input: {
+   *   body: z.object({ url: z.string().url() }),
+   *   headers: z.looseObject({ 'x-tenant-id': z.string().uuid() }),
+   * }
    */
-  headerSchema?: StandardSchemaV1;
+  input?: DirectInput;
+
+  /**
+   * Output schemas for the response side. Documentation-only: not enforced at
+   * runtime by direct. Discovery consumers (agents inspecting the registry)
+   * may use them to document or generate clients for the response shape.
+   */
+  output?: DirectOutput;
 
   /**
    * Human-readable display title for in-process discovery consumers (agents).
@@ -110,13 +127,6 @@ export interface DirectServerOptions extends DirectBaseOptions {
    * that inspect the direct registry.
    */
   description?: string;
-
-  /**
-   * Standard Schema for the output body, when the route produces a structured
-   * response. Not enforced at runtime by direct; discovery consumers may use
-   * it to document the response shape.
-   */
-  outputSchema?: StandardSchemaV1;
 }
 
 /**

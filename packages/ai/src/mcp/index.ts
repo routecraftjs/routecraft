@@ -27,6 +27,8 @@ export {
   type McpServerOptions,
   type McpTool,
   type McpToolAnnotations,
+  type McpInput,
+  type McpOutput,
   type McpToolIcon,
   type McpToolRegistryEntry,
   type McpToolResult,

@@ -17,7 +17,7 @@ import type {
 /**
  * Creates a direct adapter for synchronous, in-process inter-route messaging.
  *
- * - **Source (for `.from()`):** Call with two arguments: `direct(endpoint, options)`. Pass `{}` for options if you need no schema/description. Body type is inferred from `options.schema` when provided.
+ * - **Source (for `.from()`):** Call with two arguments: `direct(endpoint, options)`. Pass `{}` for options if you need no schemas. Body type is inferred from `options.input.body` when provided.
  * - **Destination (for `.to()` / `.tap()`):** Call with one argument: `direct(endpoint)` or `direct((exchange) => endpointString)`.
  *
  * Semantics: single consumer per endpoint (last subscriber wins), blocking send (sender waits for response).
@@ -29,18 +29,24 @@ import type {
  * @example
  * ```typescript
  * // Source route (server)
- * .from(direct('ingest', { schema: mySchema, description: 'Ingest API' }))
+ * .from(direct('ingest', {
+ *   title: 'Ingest API',
+ *   description: 'Accept ingest payloads',
+ *   input: { body: mySchema },
+ * }))
  *
  * // Destination (client)
  * .to(direct('ingest'))
  * .to(direct((ex) => ex.headers['x-endpoint'] as string))
  * ```
  */
-export function direct<S extends StandardSchemaV1 | undefined = undefined>(
+export function direct<B extends StandardSchemaV1 | undefined = undefined>(
   endpoint: RegisteredDirectEndpoint,
-  options: Partial<DirectServerOptions> & { schema?: S },
+  options: Omit<Partial<DirectServerOptions>, "input"> & {
+    input?: { body?: B; headers?: StandardSchemaV1 };
+  },
 ): Source<
-  S extends StandardSchemaV1 ? StandardSchemaV1.InferOutput<S> : unknown
+  B extends StandardSchemaV1 ? StandardSchemaV1.InferOutput<B> : unknown
 >;
 export function direct<K extends RegisteredDirectEndpoint>(
   endpoint: K,
@@ -49,16 +55,18 @@ export function direct<T = unknown>(
   endpoint: DirectEndpoint<T>,
 ): Destination<T, T>;
 export function direct<
-  S extends StandardSchemaV1 | undefined = undefined,
+  B extends StandardSchemaV1 | undefined = undefined,
   T = unknown,
 >(
   endpoint: DirectEndpoint<T>,
-  options?: (Partial<DirectServerOptions> | Partial<DirectClientOptions>) & {
-    schema?: S;
-  },
+  options?:
+    | (Omit<Partial<DirectServerOptions>, "input"> & {
+        input?: { body?: B; headers?: StandardSchemaV1 };
+      })
+    | Partial<DirectClientOptions>,
 ):
   | Source<
-      S extends StandardSchemaV1 ? StandardSchemaV1.InferOutput<S> : unknown
+      B extends StandardSchemaV1 ? StandardSchemaV1.InferOutput<B> : unknown
     >
   | Destination<T, T> {
   if (options !== undefined) {
@@ -66,7 +74,7 @@ export function direct<
       endpoint as string,
       options as Partial<DirectServerOptions>,
     ) as Source<
-      S extends StandardSchemaV1 ? StandardSchemaV1.InferOutput<S> : unknown
+      B extends StandardSchemaV1 ? StandardSchemaV1.InferOutput<B> : unknown
     >;
   }
   return new DirectDestinationAdapter<T>(endpoint) as Destination<T, T>;
@@ -77,6 +85,8 @@ export type {
   DirectChannel,
   DirectChannelType,
   DirectEndpoint,
+  DirectInput,
+  DirectOutput,
   DirectRouteMetadata,
   DirectBaseOptions,
   DirectServerOptions,
