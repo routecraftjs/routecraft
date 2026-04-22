@@ -69,7 +69,7 @@ describe("MCP Plugin Integration", () => {
       .from(
         mcp("my-tool", {
           description: "A test tool",
-          schema: z.object({ input: z.string() }),
+          input: { body: z.object({ input: z.string() }) },
         }),
       )
       .to(noop());
@@ -128,12 +128,12 @@ describe("MCP Plugin Integration", () => {
 
   /**
    * @case Verifies that mcpPlugin can filter tools by function
-   * @preconditions Custom filter function is provided
+   * @preconditions Custom filter function is provided operating on McpLocalToolEntry
    * @expectedResult Plugin is an object with apply and optional teardown
    */
   test("mcpPlugin() can filter tools by function", () => {
     const p = mcpPlugin({
-      tools: (meta) => meta.keywords?.includes("public") ?? false,
+      tools: (entry) => entry.annotations?.readOnlyHint === true,
     });
     expect(typeof p.apply).toBe("function");
     expect(p).toHaveProperty("teardown");
@@ -155,7 +155,7 @@ describe("MCP Plugin Integration", () => {
       .from(
         mcp("schema-tool", {
           description: "A tool with schema",
-          schema: mySchema,
+          input: { body: mySchema },
         }),
       )
       .to(noop());

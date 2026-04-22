@@ -14,6 +14,10 @@ vi.mock("@routecraft/routecraft", async () => {
   };
 });
 
+// Hoist the dynamic import to module level so individual tests do not pay
+// the transform cost inside their 5s default timeout under parallel load.
+const runModule = await import("../src/run");
+
 describe("CLI run command", () => {
   let cwd: string;
   let dir: string;
@@ -37,7 +41,7 @@ describe("CLI run command", () => {
    * @expectedResult runCommand should return failure with appropriate message
    */
   test("rejects unsupported extension", async () => {
-    const { runCommand } = await import("../src/run");
+    const { runCommand } = runModule;
     const res = await runCommand("file.py");
     expect(res.success).toBe(false);
     if (res.success === false) {
@@ -60,7 +64,7 @@ describe("CLI run command", () => {
         export default craft().id("x").from(simple("y")).to(log());
       `,
       );
-      const { runCommand } = await import("../src/run");
+      const { runCommand } = runModule;
       const res = await runCommand(f);
       // May fail later at start, but should pass validation+loading
       expect(res.success === true || res.success === false).toBe(true);
@@ -74,7 +78,7 @@ describe("CLI run command", () => {
    */
   test("missing default export fails", async () => {
     await writeFile("no-default.js", "export const x = 1;");
-    const { runCommand } = await import("../src/run");
+    const { runCommand } = runModule;
     const res = await runCommand("no-default.js");
     expect(res.success).toBe(false);
     if (res.success === false) {
@@ -89,7 +93,7 @@ describe("CLI run command", () => {
    */
   test("invalid default export fails", async () => {
     await writeFile("invalid.js", 'export default "nope";');
-    const { runCommand } = await import("../src/run");
+    const { runCommand } = runModule;
     const res = await runCommand("invalid.js");
     expect(res.success).toBe(false);
     if (res.success === false) {
@@ -111,7 +115,7 @@ describe("CLI run command", () => {
       export default craft().id("x").from(simple("y")).to(log());
     `,
     );
-    const { runCommand } = await import("../src/run");
+    const { runCommand } = runModule;
     const res = await runCommand("with-config.js");
     expect(res.success === true || res.success === false).toBe(true);
   });
@@ -131,7 +135,7 @@ describe("CLI run command", () => {
       export default craft().id("test-route").from(simple("test")).to(log());
     `,
     );
-    const { runCommand } = await import("../src/run");
+    const { runCommand } = runModule;
     const res = await runCommand("route-builder.js");
     // Should not get "Route definition failed validation" error
     // May fail at start due to test environment, but validation should pass
@@ -156,7 +160,7 @@ describe("CLI run command", () => {
       export default [route1, route2];
     `,
     );
-    const { runCommand } = await import("../src/run");
+    const { runCommand } = runModule;
     const res = await runCommand("route-builder-array.js");
     // Should not get "Route definition failed validation" error
     if (!res.success) {

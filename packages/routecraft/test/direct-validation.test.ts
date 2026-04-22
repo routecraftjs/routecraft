@@ -46,7 +46,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(consumer),
         ])
         .build();
@@ -80,7 +84,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(consumer),
         ])
         .build();
@@ -110,7 +118,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(vi.fn()),
         ])
         .build();
@@ -138,7 +150,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(vi.fn()),
         ])
         .build();
@@ -175,7 +191,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(consumer),
         ])
         .build();
@@ -217,7 +237,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(consumer),
         ])
         .build();
@@ -247,7 +271,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(consumer),
         ])
         .build();
@@ -288,7 +316,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(consumer),
         ])
         .build();
@@ -317,7 +349,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(vi.fn()),
         ])
         .build();
@@ -348,7 +384,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(consumer),
         ])
         .build();
@@ -374,7 +414,11 @@ describe("Direct adapter validation", () => {
             .to(direct("my-special-endpoint")),
           craft()
             .id("consumer")
-            .from(direct("my-special-endpoint", { schema }))
+            .from(
+              direct("my-special-endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(vi.fn()),
         ])
         .build();
@@ -404,7 +448,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(consumer),
         ])
         .build();
@@ -439,7 +487,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(vi.fn()),
         ])
         .build();
@@ -469,7 +521,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(consumer),
         ])
         .build();
@@ -502,7 +558,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(consumer),
         ])
         .build();
@@ -535,7 +595,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(consumer),
         ])
         .build();
@@ -589,7 +653,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(consumer),
         ])
         .build();
@@ -619,7 +687,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(consumer),
         ])
         .build();
@@ -652,9 +724,11 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                headerSchema: z.looseObject({
-                  "x-tenant-id": z.string().startsWith("tenant-"),
-                }),
+                input: {
+                  headers: z.looseObject({
+                    "x-tenant-id": z.string().startsWith("tenant-"),
+                  }),
+                },
               }),
             )
             .to(consumer),
@@ -666,11 +740,11 @@ describe("Direct adapter validation", () => {
     });
 
     /**
-     * @case Extra headers are stripped by default (like body validation)
-     * @preconditions Headers contain extra fields not in schema
-     * @expectedResult Extra headers removed from validated exchange
+     * @case Validated header values are merged over the originals; schemas that strip unknowns do not delete pass-through keys
+     * @preconditions Headers contain `x-tenant-id` (declared) and `x-extra-header` (not declared); consumer uses `z.object()` which strips unknowns during validation
+     * @expectedResult The consumer receives both headers: `x-tenant-id` (validated) and `x-extra-header` (preserved via merge)
      */
-    test("extra headers stripped by default", async () => {
+    test("validated headers are merged over originals", async () => {
       const consumer = vi.fn();
 
       t = await testContext()
@@ -679,16 +753,17 @@ describe("Direct adapter validation", () => {
             .id("producer")
             .from(simple("test"))
             .header("x-tenant-id", "tenant-123")
-            .header("x-extra-header", "should-be-stripped")
+            .header("x-extra-header", "pass-through")
             .to(direct("endpoint")),
           craft()
             .id("consumer")
             .from(
               direct("endpoint", {
-                headerSchema: z.object({
-                  "x-tenant-id": z.string(),
-                }),
-                // z.object() strips extras by default in Zod 4
+                input: {
+                  headers: z.object({
+                    "x-tenant-id": z.string(),
+                  }),
+                },
               }),
             )
             .to(consumer),
@@ -700,7 +775,7 @@ describe("Direct adapter validation", () => {
       expect(consumer).toHaveBeenCalledTimes(1);
       const headers = consumer.mock.calls[0][0].headers;
       expect(headers["x-tenant-id"]).toBe("tenant-123");
-      expect(headers["x-extra-header"]).toBeUndefined();
+      expect(headers["x-extra-header"]).toBe("pass-through");
     });
 
     /**
@@ -723,9 +798,11 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                headerSchema: z.looseObject({
-                  "x-tenant-id": z.string(),
-                }),
+                input: {
+                  headers: z.looseObject({
+                    "x-tenant-id": z.string(),
+                  }),
+                },
               }),
             )
             .to(consumer),
@@ -758,9 +835,11 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                headerSchema: z.strictObject({
-                  "x-tenant-id": z.string(),
-                }),
+                input: {
+                  headers: z.strictObject({
+                    "x-tenant-id": z.string(),
+                  }),
+                },
               }),
             )
             .to(vi.fn()),
@@ -789,9 +868,11 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                headerSchema: z.looseObject({
-                  "x-count": z.coerce.number(),
-                }),
+                input: {
+                  headers: z.looseObject({
+                    "x-count": z.coerce.number(),
+                  }),
+                },
               }),
             )
             .to(vi.fn()),
@@ -816,9 +897,11 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                headerSchema: z.looseObject({
-                  "x-required-header": z.string(),
-                }),
+                input: {
+                  headers: z.looseObject({
+                    "x-required-header": z.string(),
+                  }),
+                },
               }),
             )
             .to(vi.fn()),
@@ -845,9 +928,11 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                headerSchema: z.looseObject({
-                  "x-optional": z.string().optional(),
-                }),
+                input: {
+                  headers: z.looseObject({
+                    "x-optional": z.string().optional(),
+                  }),
+                },
               }),
             )
             .to(consumer),
@@ -875,9 +960,11 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                headerSchema: z.looseObject({
-                  "x-optional": z.coerce.number().optional(),
-                }),
+                input: {
+                  headers: z.looseObject({
+                    "x-optional": z.coerce.number().optional(),
+                  }),
+                },
               }),
             )
             .to(vi.fn()),
@@ -910,11 +997,13 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                headerSchema: z.looseObject({
-                  "x-tenant": z.string(),
-                  "x-version": z.coerce.number(),
-                  "x-region": z.enum(["us-east", "us-west", "eu-west"]),
-                }),
+                input: {
+                  headers: z.looseObject({
+                    "x-tenant": z.string(),
+                    "x-version": z.coerce.number(),
+                    "x-region": z.enum(["us-east", "us-west", "eu-west"]),
+                  }),
+                },
               }),
             )
             .to(consumer),
@@ -944,9 +1033,11 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                headerSchema: z.looseObject({
-                  "x-count": z.coerce.number(),
-                }),
+                input: {
+                  headers: z.looseObject({
+                    "x-count": z.coerce.number(),
+                  }),
+                },
               }),
             )
             .to(consumer),
@@ -988,9 +1079,11 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                headerSchema: z.looseObject({
-                  "x-token": asyncTokenSchema,
-                }),
+                input: {
+                  headers: z.looseObject({
+                    "x-token": asyncTokenSchema,
+                  }),
+                },
               }),
             )
             .to(consumer),
@@ -1025,8 +1118,10 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                schema: z.object({ id: z.string() }),
-                headerSchema: z.looseObject({ "x-tenant": z.string() }),
+                input: {
+                  body: z.object({ id: z.string() }),
+                  headers: z.looseObject({ "x-tenant": z.string() }),
+                },
               }),
             )
             .to(consumer),
@@ -1054,8 +1149,10 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                schema: z.object({ id: z.string() }),
-                headerSchema: z.looseObject({ "x-count": z.coerce.number() }),
+                input: {
+                  body: z.object({ id: z.string() }),
+                  headers: z.looseObject({ "x-count": z.coerce.number() }),
+                },
               }),
             )
             .to(vi.fn()),
@@ -1084,8 +1181,10 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                schema: z.object({ id: z.string() }),
-                headerSchema: z.looseObject({ "x-tenant": z.string() }),
+                input: {
+                  body: z.object({ id: z.string() }),
+                  headers: z.looseObject({ "x-tenant": z.string() }),
+                },
               }),
             )
             .to(vi.fn()),
@@ -1117,8 +1216,10 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                schema: z.object({ count: z.coerce.number() }),
-                headerSchema: z.looseObject({ "x-limit": z.coerce.number() }),
+                input: {
+                  body: z.object({ count: z.coerce.number() }),
+                  headers: z.looseObject({ "x-limit": z.coerce.number() }),
+                },
               }),
             )
             .to(consumer),
@@ -1152,7 +1253,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema: z.object({ id: z.string() }) }))
+            .from(
+              direct("endpoint", {
+                input: { body: z.object({ id: z.string() }) },
+              }),
+            )
             .to(vi.fn()),
         ])
         .build();
@@ -1184,13 +1289,17 @@ describe("Direct adapter validation", () => {
           craft()
             .id("consumerA")
             .from(
-              direct("endpointA", { schema: z.object({ name: z.string() }) }),
+              direct("endpointA", {
+                input: { body: z.object({ name: z.string() }) },
+              }),
             )
             .to(consumerA),
           craft()
             .id("consumerB")
             .from(
-              direct("endpointB", { schema: z.object({ count: z.number() }) }),
+              direct("endpointB", {
+                input: { body: z.object({ count: z.number() }) },
+              }),
             )
             .to(consumerB),
         ])
@@ -1248,7 +1357,9 @@ describe("Direct adapter validation", () => {
           craft()
             .id("consumer")
             .from(
-              direct("endpoint", { schema: z.object({ valid: z.string() }) }),
+              direct("endpoint", {
+                input: { body: z.object({ valid: z.string() }) },
+              }),
             )
             .to(vi.fn()),
         ])
@@ -1272,7 +1383,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema: z.object({ id: z.string() }) }))
+            .from(
+              direct("endpoint", {
+                input: { body: z.object({ id: z.string() }) },
+              }),
+            )
             .to(vi.fn()),
         ])
         .build();
@@ -1300,7 +1415,7 @@ describe("Direct adapter validation", () => {
             .id("failing-consumer")
             .from(
               direct("failing-endpoint", {
-                schema: z.object({ valid: z.boolean() }),
+                input: { body: z.object({ valid: z.boolean() }) },
               }),
             )
             .to(vi.fn()),
@@ -1322,25 +1437,20 @@ describe("Direct adapter validation", () => {
   });
 
   // ============================================================
-  // Group 6: Registry & Discovery (6 tests)
+  // Group 6: Registry & Discovery (5 tests)
   // ============================================================
   describe("Registry and discovery", () => {
     /**
-     * @case Routes with description register in context store
-     * @preconditions Route has description option
-     * @expectedResult Route metadata in registry
+     * @case Routes are registered in the direct route registry
+     * @preconditions Route created via direct()
+     * @expectedResult Registry contains the endpoint entry
      */
-    test("routes with description register in store", async () => {
+    test("routes register in store", async () => {
       t = await testContext()
         .routes([
           craft()
             .id("discoverable")
-            .from(
-              direct("test-endpoint", {
-                description: "A test endpoint",
-                keywords: ["test"],
-              }),
-            )
+            .from(direct("test-endpoint", {}))
             .to(vi.fn()),
         ])
         .build();
@@ -1349,30 +1459,6 @@ describe("Direct adapter validation", () => {
       const registry = t.ctx.getStore(ADAPTER_DIRECT_REGISTRY);
       expect(registry).toBeDefined();
       expect(registry?.has("test-endpoint")).toBe(true);
-      const metadata = registry?.get("test-endpoint");
-      expect(metadata?.description).toBe("A test endpoint");
-      expect(metadata?.keywords).toEqual(["test"]);
-    });
-
-    /**
-     * @case Routes without description still registered
-     * @preconditions Route has no description
-     * @expectedResult Route in registry but without description
-     */
-    test("routes without description still registered", async () => {
-      t = await testContext()
-        .routes([
-          craft()
-            .id("no-description")
-            .from(direct("plain-endpoint", {}))
-            .to(vi.fn()),
-        ])
-        .build();
-
-      await t.test();
-      const registry = t.ctx.getStore(ADAPTER_DIRECT_REGISTRY);
-      expect(registry?.has("plain-endpoint")).toBe(true);
-      expect(registry?.get("plain-endpoint")?.description).toBeUndefined();
     });
 
     /**
@@ -1385,7 +1471,7 @@ describe("Direct adapter validation", () => {
         .routes([
           craft()
             .id("first-discoverable")
-            .from(direct("first-endpoint", { description: "First" }))
+            .from(direct("first-endpoint", {}))
             .to(vi.fn()),
         ])
         .build();
@@ -1398,29 +1484,15 @@ describe("Direct adapter validation", () => {
 
     /**
      * @case Multiple routes register correctly
-     * @preconditions Multiple routes with descriptions
-     * @expectedResult All registered in registry
+     * @preconditions Multiple direct() routes registered in a single context
+     * @expectedResult All endpoints present in the registry
      */
     test("multiple routes register correctly", async () => {
       t = await testContext()
         .routes([
-          craft()
-            .id("route-a")
-            .from(direct("endpoint-a", { description: "Route A" }))
-            .to(vi.fn()),
-          craft()
-            .id("route-b")
-            .from(direct("endpoint-b", { description: "Route B" }))
-            .to(vi.fn()),
-          craft()
-            .id("route-c")
-            .from(
-              direct("endpoint-c", {
-                description: "Route C",
-                keywords: ["c", "third"],
-              }),
-            )
-            .to(vi.fn()),
+          craft().id("route-a").from(direct("endpoint-a", {})).to(vi.fn()),
+          craft().id("route-b").from(direct("endpoint-b", {})).to(vi.fn()),
+          craft().id("route-c").from(direct("endpoint-c", {})).to(vi.fn()),
         ])
         .build();
 
@@ -1433,20 +1505,21 @@ describe("Direct adapter validation", () => {
     });
 
     /**
-     * @case Registry accessible via context.getStore()
-     * @preconditions Routes registered
-     * @expectedResult Can retrieve registry and iterate
+     * @case Registry metadata captures the full tool shape (name/title/description/schemas/annotations/icons)
+     * @preconditions Route declares every tool-shape field
+     * @expectedResult Registry entry mirrors the declared options
      */
-    test("registry accessible via context getStore", async () => {
+    test("registry captures full tool-shape metadata", async () => {
       t = await testContext()
         .routes([
           craft()
             .id("route")
             .from(
               direct("my-endpoint", {
-                description: "My endpoint",
-                schema: z.object({ id: z.string() }),
-                keywords: ["my", "endpoint"],
+                title: "My Endpoint",
+                description: "Ingest test data",
+                input: { body: z.object({ id: z.string() }) },
+                output: { body: z.object({ ok: z.boolean() }) },
               }),
             )
             .to(vi.fn()),
@@ -1459,9 +1532,10 @@ describe("Direct adapter validation", () => {
       expect(routes).toHaveLength(1);
       expect(routes[0]).toEqual({
         endpoint: "my-endpoint",
-        description: "My endpoint",
-        schema: expect.any(Object),
-        keywords: ["my", "endpoint"],
+        title: "My Endpoint",
+        description: "Ingest test data",
+        input: { body: expect.any(Object) },
+        output: { body: expect.any(Object) },
       });
     });
 
@@ -1475,11 +1549,7 @@ describe("Direct adapter validation", () => {
         .routes([
           craft()
             .id("route")
-            .from(
-              direct("my.special:endpoint/name", {
-                description: "Special chars",
-              }),
-            )
+            .from(direct("my.special:endpoint/name", {}))
             .to(vi.fn()),
         ])
         .build();
@@ -1515,7 +1585,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(consumer),
         ])
         .build();
@@ -1543,9 +1617,11 @@ describe("Direct adapter validation", () => {
             .id("consumer")
             .from(
               direct("endpoint", {
-                headerSchema: z.looseObject({
-                  "x-nullable": z.null(),
-                }),
+                input: {
+                  headers: z.looseObject({
+                    "x-nullable": z.null(),
+                  }),
+                },
               }),
             )
             .to(consumer),
@@ -1570,7 +1646,11 @@ describe("Direct adapter validation", () => {
           craft().id("producer").from(simple({})).to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(consumer),
         ])
         .build();
@@ -1606,7 +1686,11 @@ describe("Direct adapter validation", () => {
             .to(direct("endpoint")),
           craft()
             .id("consumer")
-            .from(direct("endpoint", { schema }))
+            .from(
+              direct("endpoint", {
+                input: { body: schema },
+              }),
+            )
             .to(consumer),
         ])
         .build();
@@ -1626,22 +1710,16 @@ describe("Direct adapter validation", () => {
     test("registry persists across route registrations", async () => {
       t = await testContext()
         .routes([
-          craft()
-            .id("route-1")
-            .from(direct("endpoint-1", { description: "First" }))
-            .to(vi.fn()),
-          craft()
-            .id("route-2")
-            .from(direct("endpoint-2", { description: "Second" }))
-            .to(vi.fn()),
+          craft().id("route-1").from(direct("endpoint-1", {})).to(vi.fn()),
+          craft().id("route-2").from(direct("endpoint-2", {})).to(vi.fn()),
         ])
         .build();
 
       await t.test();
       const registry = t.ctx.getStore(ADAPTER_DIRECT_REGISTRY);
       expect(registry?.size).toBe(2);
-      expect(registry?.get("endpoint-1")?.description).toBe("First");
-      expect(registry?.get("endpoint-2")?.description).toBe("Second");
+      expect(registry?.has("endpoint-1")).toBe(true);
+      expect(registry?.has("endpoint-2")).toBe(true);
     });
   });
 });

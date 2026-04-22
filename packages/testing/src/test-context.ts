@@ -98,51 +98,81 @@ export class TestContext {
   }
 
   /**
-   * Start context and wait for all routes to be ready. Does not drain or stop.
-   * Use with invoke() to send to a route by id, then call drain()/stop() when done.
+   * Build a promise that resolves once every route has emitted
+   * `route:*:started`, or rejects on `context:error` or the configured
+   * routes-ready timeout. Shared by {@link startAndWaitReady} and {@link test}.
    */
-  async startAndWaitReady(): Promise<void> {
+  private awaitRoutesReady(): Promise<void> {
     const ctx = this.ctx;
     const total = ctx.getRoutes().length;
-    const allReady =
-      total === 0
-        ? Promise.resolve()
-        : new Promise<void>((resolve, reject) => {
-            let ready = 0;
-            let settled = false;
-            const timeoutId = setTimeout(() => {
-              if (settled) return;
-              settled = true;
-              offRouteStarted();
-              offError();
-              reject(new Error("Timeout waiting for routes to start"));
-            }, this.routesReadyTimeoutMs);
+    if (total === 0) return Promise.resolve();
+    return new Promise<void>((resolve, reject) => {
+      let ready = 0;
+      let settled = false;
+      let timeoutId: ReturnType<typeof setTimeout> | undefined = setTimeout(
+        () => {
+          if (settled) return;
+          cleanup();
+          reject(new Error("Timeout waiting for routes to start"));
+        },
+        this.routesReadyTimeoutMs,
+      );
 
-            const offRouteStarted = ctx.on(
-              "route:*:started" as EventName,
-              (() => {
-                if (settled) return;
-                ready++;
-                if (ready >= total) {
-                  settled = true;
-                  clearTimeout(timeoutId);
-                  offRouteStarted();
-                  offError();
-                  resolve();
-                }
-              }) as EventHandler<EventName>,
-            );
-            const offError = ctx.on("context:error", (payload) => {
-              if (settled) return;
-              settled = true;
-              clearTimeout(timeoutId);
-              offRouteStarted();
-              offError();
-              reject(payload.details.error);
-            });
-          });
-    this.startedPromise = ctx.start();
-    await Promise.all([this.startedPromise, allReady]);
+      const offRouteStarted = ctx.on(
+        "route:*:started" as EventName,
+        (() => {
+          if (settled) return;
+          ready++;
+          if (ready >= total) {
+            cleanup();
+            resolve();
+          }
+        }) as EventHandler<EventName>,
+      );
+      const offError = ctx.on("context:error", (payload) => {
+        if (settled) return;
+        cleanup();
+        reject(payload.details.error);
+      });
+
+      function cleanup(): void {
+        if (settled) return;
+        settled = true;
+        offRouteStarted();
+        offError();
+        if (timeoutId !== undefined) {
+          clearTimeout(timeoutId);
+          timeoutId = undefined;
+        }
+      }
+    });
+  }
+
+  /**
+   * Start context and resolve once every route has emitted `route:*:started`.
+   * Does not drain or stop. Does not await `ctx.start()` completion, which
+   * lets this method work with long-running sources (direct, mcp, HTTP, etc.)
+   * whose subscribe blocks until the route is aborted. The start promise is
+   * stored internally and awaited by {@link stop} for clean shutdown.
+   *
+   * Use with {@link CraftClient.send} (via `t.client`) for direct endpoints,
+   * or drive sources directly via the context store, then call `drain()` /
+   * `stop()` when done.
+   *
+   * If `ctx.start()` rejects (synchronously or before any route emits
+   * `route:*:started`), the rejection surfaces here via the
+   * `context:error` listener installed by `awaitRoutesReady`. A no-op
+   * catch is attached to `startedPromise` as a safety net so that a
+   * slow rejection does not trigger an `unhandledRejection` before
+   * `stop()` awaits the promise for teardown.
+   */
+  async startAndWaitReady(): Promise<void> {
+    const allReady = this.awaitRoutesReady();
+    this.startedPromise = this.ctx.start();
+    // Attach a no-op handler so Node does not report the rejection as
+    // unhandled before `stop()` re-awaits the promise.
+    this.startedPromise.catch(() => {});
+    await allReady;
   }
 
   /**
@@ -154,49 +184,11 @@ export class TestContext {
    */
   async test(options?: TestOptions): Promise<void> {
     const ctx = this.ctx;
-    const total = ctx.getRoutes().length;
-    const allReady =
-      total === 0
-        ? Promise.resolve()
-        : new Promise<void>((resolve, reject) => {
-            let ready = 0;
-            let settled = false;
-            let timeoutId: ReturnType<typeof setTimeout> | undefined =
-              setTimeout(() => {
-                if (settled) return;
-                cleanup();
-                reject(new Error("Timeout waiting for routes to start"));
-              }, this.routesReadyTimeoutMs);
-
-            const offRouteStarted = ctx.on(
-              "route:*:started" as EventName,
-              (() => {
-                if (settled) return;
-                ready++;
-                if (ready >= total) {
-                  cleanup();
-                  resolve();
-                }
-              }) as EventHandler<EventName>,
-            );
-            const offError = ctx.on("context:error", (payload) => {
-              if (settled) return;
-              cleanup();
-              reject(payload.details.error);
-            });
-
-            function cleanup(): void {
-              if (settled) return;
-              settled = true;
-              offRouteStarted();
-              offError();
-              if (timeoutId !== undefined) {
-                clearTimeout(timeoutId);
-                timeoutId = undefined;
-              }
-            }
-          });
+    const allReady = this.awaitRoutesReady();
     const started = ctx.start();
+    // Shield a synchronous rejection of `started` from becoming an
+    // unhandled rejection before the `finally` block re-awaits it.
+    started.catch(() => {});
     try {
       await allReady;
       const delayMs = options?.delayBeforeDrainMs ?? 0;

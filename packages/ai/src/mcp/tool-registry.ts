@@ -9,9 +9,10 @@ import type { McpTool, McpToolRegistryEntry } from "./types.ts";
  * - HTTP clients: remote HTTP MCP servers (tools refreshed periodically)
  *
  * Local `mcp()` routes defined in the same context are NOT auto-populated here;
- * they are read directly from ADAPTER_DIRECT_REGISTRY by the MCP server when
- * responding to `tools/list`. The "local" transport label remains a valid value
- * for callers that want to manually register tools with that provenance.
+ * they live in the parallel `MCP_LOCAL_TOOL_REGISTRY` store and are read from
+ * there by the MCP server when responding to `tools/list`. The "local" transport
+ * label remains a valid value for callers that want to manually register tools
+ * with that provenance.
  *
  * @experimental
  */

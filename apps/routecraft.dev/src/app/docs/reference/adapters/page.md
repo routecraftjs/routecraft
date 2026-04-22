@@ -302,10 +302,14 @@ craft()
 
 **Options:**
 - `channelType` - Custom direct channel implementation (default: in-memory)
-- `schema` - Body validation schema (StandardSchema compatible: Zod, Valibot, ArkType)
-- `headerSchema` - Header validation schemas (can be optional/required)
-- `description` - Human-readable description for route discovery
-- `keywords` - Keywords for route categorization
+- `title` - Human-readable display title for in-process discovery consumers (agents). Not used by the delivery pipeline.
+- `description` - Human-readable description surfaced to agents that inspect the direct registry.
+- `input` - Per-direction schema bundle for the request side:
+  - `input.body` - Body validation schema, Standard Schema compatible (Zod, Valibot, ArkType). Runtime-enforced.
+  - `input.headers` - Header validation schema; validated values are merged on top of the request headers so caller-supplied pass-through keys (correlation IDs, adapter-injected metadata) survive schemas that strip unknowns.
+- `output` - Per-direction schema bundle for the response side; documentation-only, not runtime-enforced:
+  - `output.body` - Standard Schema for the response body.
+  - `output.headers` - Standard Schema for the response headers.
 
 **Key characteristics:**
 - **Synchronous**: Calling route waits for response from consuming route
@@ -358,7 +362,7 @@ const strictSchema = z.object({
 })
 
 craft()
-  .from(direct('user-processor', { schema: strictSchema }))
+  .from(direct('user-processor', { input: { body: strictSchema } }))
   .process(processUser)
 
 // Passes: { userId: '...', action: 'create' }
@@ -375,7 +379,7 @@ const looseSchema = z.looseObject({
 })
 
 craft()
-  .from(direct('user-processor', { schema: looseSchema }))
+  .from(direct('user-processor', { input: { body: looseSchema } }))
   .process(processUser)
 
 // Passes: { userId: '...', action: 'create', extra: 'field' }
@@ -390,7 +394,7 @@ const veryStrictSchema = z.strictObject({
 })
 
 craft()
-  .from(direct('user-processor', { schema: veryStrictSchema }))
+  .from(direct('user-processor', { input: { body: veryStrictSchema } }))
   .process(processUser)
 
 // Passes: { userId: '...', action: 'create' }
@@ -399,39 +403,43 @@ craft()
 
 **Header Validation**
 
-Without `headerSchema`, all headers pass through unchanged. When specified, the same Zod 4 rules apply:
+Without `input.headers`, all headers pass through unchanged. When specified, the same Zod 4 rules apply — with one twist: validated header values are always merged over the original request headers, so caller-supplied pass-through keys survive schemas that would normally strip them.
 
 ```ts
-// No headerSchema - all headers pass through unchanged
+// No header schema - all headers pass through unchanged
 craft()
   .from(direct('api-handler', {
-    schema: z.object({ id: z.string() })
-    // headerSchema not specified - all headers preserved
+    input: { body: z.object({ id: z.string() }) },
+    // input.headers not specified - all headers preserved
   }))
   .process(handleRequest)
 
 // z.looseObject() - validate required headers, keep extras
 craft()
   .from(direct('api-handler', {
-    headerSchema: z.looseObject({
-      'x-tenant-id': z.string().uuid(),
-      'x-trace-id': z.string().optional(),
-    })
+    input: {
+      headers: z.looseObject({
+        'x-tenant-id': z.string().uuid(),
+        'x-trace-id': z.string().optional(),
+      }),
+    },
   }))
   .process(handleRequest)
 
 // Passes: { 'x-tenant-id': '...', 'x-other': '...' } (validates x-tenant-id, keeps x-other)
 
-// z.object() - validate and strip extra headers
+// z.object() - validate declared headers; merge preserves pass-through keys
 craft()
   .from(direct('api-handler', {
-    headerSchema: z.object({
-      'x-tenant-id': z.string().uuid(),
-    })
+    input: {
+      headers: z.object({
+        'x-tenant-id': z.string().uuid(),
+      }),
+    },
   }))
   .process(handleRequest)
 
-// Passes: { 'x-tenant-id': '...', 'x-other': '...' } (x-other stripped from result)
+// Passes: { 'x-tenant-id': '...', 'x-other': '...' } (x-other preserved via merge)
 ```
 
 **Schema Coercion**
@@ -456,29 +464,30 @@ craft()
 
 #### Route Registry
 
-All direct routes are registered and can be queried. Routes with descriptions and keywords are more discoverable:
+Each direct route registers in `ADAPTER_DIRECT_REGISTRY` so in-process agents can discover and document the routes available in the current context:
 
 ```ts
-import { DirectAdapter } from '@routecraft/routecraft'
+import { ADAPTER_DIRECT_REGISTRY } from '@routecraft/routecraft'
 
 craft()
   .from(direct('fetch-content', {
+    title: 'Fetch content',
     description: 'Fetch and summarize web content from URL',
-    schema: z.object({ url: z.string().url() }),
-    keywords: ['fetch', 'web', 'scrape']
+    input: { body: z.object({ url: z.string().url() }) },
+    output: { body: z.object({ summary: z.string() }) },
   }))
   .process(fetchAndSummarize)
 
-// Later, query discoverable routes from context
+// Later, query registered routes from context
 const ctx = await new ContextBuilder().routes(...).build()
 await ctx.start()
 
-const registry = ctx.getStore(DirectAdapter.ADAPTER_DIRECT_REGISTRY)
+const registry = ctx.getStore(ADAPTER_DIRECT_REGISTRY)
 const routes = registry ? Array.from(registry.values()) : []
-// [{ endpoint: 'fetch-content', description: '...', schema, keywords }]
+// [{ endpoint, title?, description?, input?, output? }]
 ```
 
-Useful for runtime introspection, documentation generation, and building dynamic routing systems.
+The direct registry stores only the direct adapter's own metadata. Other adapters that expose routes externally (such as [`mcp()`](#mcp) or a future inbound `http()`) maintain their own parallel registries; they are never written to or read from the direct registry.
 
 ### http
 ```ts
@@ -1511,9 +1520,10 @@ import { z } from 'zod'
 craft()
   .id('fetch-webpage')
   .from(mcp('fetch-webpage', {
+    title: 'Fetch webpage',
     description: 'Fetch the content of a webpage',
-    schema: z.object({ url: z.string().url() }),
-    keywords: ['fetch', 'web'],
+    input: { body: z.object({ url: z.string().url() }) },
+    output: { body: z.object({ content: z.string() }) },
     annotations: { readOnlyHint: true, openWorldHint: true },
   }))
   .transform(async ({ url }) => {
@@ -1522,7 +1532,7 @@ craft()
   })
 ```
 
-`description` is required whenever options are passed. Schema, keywords, and annotations are optional.
+`description` is required whenever options are passed. Everything else is optional.
 
 **Destination mode -- call a remote MCP tool:**
 
@@ -1542,10 +1552,13 @@ When using the `serverId` path (recommended), auth configured on the client in `
 | Option | Type | Required | Description |
 |--------|------|----------|-------------|
 | `description` | `string` | Yes | Human-readable description for AI discovery |
-| `schema` | `StandardSchemaV1` | No | Body validation schema (Zod, Valibot, ArkType) |
-| `headerSchema` | `StandardSchemaV1` | No | Header validation schema |
-| `keywords` | `string[]` | No | Keywords for discovery and categorization |
+| `title` | `string` | No | Human-readable display title (MCP `Tool.title`) |
+| `input.body` | `StandardSchemaV1` | No | Body validation schema (MCP `Tool.inputSchema`). Runtime-enforced. |
+| `input.headers` | `StandardSchemaV1` | No | Header validation schema; validated values merge over the originals |
+| `output.body` | `StandardSchemaV1` | No | Output body schema (MCP `Tool.outputSchema`); forwarded on `tools/list` |
+| `output.headers` | `StandardSchemaV1` | No | Output header schema; documentation-only |
 | `annotations` | `McpToolAnnotations` | No | Behavior hints forwarded to MCP clients in the `tools/list` response |
+| `icons` | `McpToolIcon[]` | No | Icons forwarded on `tools/list` per the MCP spec |
 
 **McpToolAnnotations (optional hint fields, all booleans unless noted):**
 
@@ -1576,7 +1589,22 @@ These mirror the [MCP specification (2025-03-26) `ToolAnnotations`](https://mode
 | `token` | `string \| string[] \| (() => string \| Promise<string>)` | Bearer token, array of tokens (round-robin), or provider function called per request |
 | `headers` | `Record<string, string>` | Additional request headers; overrides `token` if `Authorization` is set |
 
-**Relation to `direct()`:** `mcp()` is built on `direct()`. The key difference is that `description` is required when passing options, ensuring every exposed tool is discoverable by AI agents.
+#### Tool Registry
+
+Each `.from(mcp(...))` route registers in `MCP_LOCAL_TOOL_REGISTRY` so the MCP server can list and invoke it via the MCP protocol:
+
+```ts
+import { MCP_LOCAL_TOOL_REGISTRY } from '@routecraft/ai'
+
+const ctx = await new ContextBuilder().routes(...).build()
+await ctx.start()
+
+const registry = ctx.getStore(MCP_LOCAL_TOOL_REGISTRY)
+const tools = registry ? Array.from(registry.values()) : []
+// [{ endpoint, title?, description, input?, output?, annotations?, icons?, handler }]
+```
+
+`mcp()` and `direct()` maintain separate, fully isolated registries. `.from(mcp('foo', ...))` and `.from(direct('foo'))` can coexist on the same endpoint string because they live in different stores. Direct routes never appear in the MCP `tools/list` response.
 
 See [Expose as MCP](/docs/advanced/expose-as-mcp) and [Call an MCP](/docs/advanced/call-an-mcp).
 
