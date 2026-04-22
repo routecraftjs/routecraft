@@ -693,18 +693,6 @@ export async function fetchMessages(
         break;
       }
     }
-
-    // Mark messages as seen after successful fetch
-    if (options.markSeen !== false && messages.length > 0) {
-      const uids = messages.map((m) => m.uid);
-      try {
-        await client.messageFlagsAdd(uids.join(","), ["\\Seen"], {
-          uid: true,
-        });
-      } catch {
-        // Non-fatal: log but do not throw if flagging fails
-      }
-    }
   } catch (error) {
     throw rcError("RC5001", error instanceof Error ? error : undefined, {
       message: `Failed to fetch messages from IMAP: ${error instanceof Error ? error.message : String(error)}`,
@@ -712,4 +700,37 @@ export async function fetchMessages(
   }
 
   return messages;
+}
+
+/**
+ * Mark one or more messages as \Seen on an open IMAP mailbox.
+ *
+ * Never throws: flagging failure degrades correctness (a message may be
+ * redelivered) but must not tear down the fetch cycle or source subscription.
+ * Callers that care about the failure should pass a logger.
+ *
+ * @param client - Connected ImapFlow client with the target mailbox open
+ * @param uids - UIDs to flag. May be a single uid or an array. Empty arrays are a no-op.
+ * @param logger - Optional logger for flagging diagnostics
+ */
+export async function markMessagesSeen(
+  client: InstanceType<typeof import("imapflow").ImapFlow>,
+  uids: number | number[],
+  logger?: MailFetchLogger,
+): Promise<void> {
+  const list = Array.isArray(uids) ? uids : [uids];
+  if (list.length === 0) return;
+  try {
+    await client.messageFlagsAdd(list.join(","), ["\\Seen"], {
+      uid: true,
+    });
+  } catch (error) {
+    logger?.warn(
+      {
+        err: error instanceof Error ? error : new Error(String(error)),
+        uids: list,
+      },
+      "mail adapter failed to mark messages as seen",
+    );
+  }
 }
