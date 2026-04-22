@@ -6,6 +6,7 @@ import {
   getClientManager,
   createImapClient,
   fetchMessages,
+  markMessagesSeen,
   throwMailConnectionError,
   type MailFetchLogger,
 } from "./shared.ts";
@@ -84,6 +85,18 @@ export class MailFetchDestinationAdapter implements Destination<
           }
         : undefined;
       const messages = await fetchMessages(client, resolved, folder, logger);
+
+      // Destination has no post-commit hook, so mark Seen here. Best-effort:
+      // a flag failure must not fail the enrichment since messages have
+      // already been fetched.
+      if (resolved.markSeen !== false && messages.length > 0) {
+        await markMessagesSeen(
+          client,
+          messages.map((m) => m.uid),
+          logger,
+        );
+      }
+
       return messages;
     } finally {
       if (usePool) {

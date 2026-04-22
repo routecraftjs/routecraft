@@ -1160,6 +1160,352 @@ describe("Mail Adapter", () => {
       // Verify the pool connection was released (logout is called on drain)
       expect(mockLogout).toHaveBeenCalled();
     });
+
+    /**
+     * @case markSeen happens per-message AFTER the handler resolves successfully
+     * @preconditions Poll source with default markSeen, one message fetched, downstream step throws
+     * @expectedResult messageFlagsAdd is NOT called for the failed UID; no silent message loss
+     */
+    test("does not mark Seen when handler fails", async () => {
+      let pollCount = 0;
+      mockFetch.mockImplementation(() => ({
+        async *[Symbol.asyncIterator]() {
+          if (pollCount === 0) {
+            pollCount++;
+            yield {
+              uid: 77,
+              flags: new Set([]),
+              envelope: {
+                messageId: "<fail@test.com>",
+                from: [{ address: "a@b.com" }],
+                to: [{ address: "c@d.com" }],
+                subject: "Handler will throw",
+                date: new Date("2026-04-22"),
+              },
+              source: Buffer.from("content"),
+            };
+          }
+        },
+      }));
+
+      t = await testContext()
+        .with({
+          mail: {
+            accounts: {
+              default: {
+                imap: {
+                  host: "imap.test.com",
+                  auth: { user: "u", pass: "p" },
+                },
+              },
+            },
+          },
+        })
+        .routes(
+          craft()
+            .id("test-handler-fail")
+            .from(
+              mail("INBOX", {
+                pollIntervalMs: 5,
+                // markSeen left at default (true) to exercise the post-handler path
+              }),
+            )
+            .process(() => {
+              throw new Error("downstream boom");
+            }),
+        )
+        .build();
+
+      const startPromise = t.ctx.start();
+      await new Promise((r) => setTimeout(r, 20));
+      await t.ctx.stop();
+      await startPromise.catch(() => {});
+
+      expect(mockMessageFlagsAdd).not.toHaveBeenCalled();
+    });
+
+    /**
+     * @case markSeen is called per-message AFTER the handler resolves
+     * @preconditions Poll source with default markSeen, one message fetched, route has no throwing steps
+     * @expectedResult messageFlagsAdd called with the single uid (not a batched string)
+     */
+    test("marks Seen per-message after handler success", async () => {
+      let pollCount = 0;
+      mockFetch.mockImplementation(() => ({
+        async *[Symbol.asyncIterator]() {
+          if (pollCount === 0) {
+            pollCount++;
+            yield {
+              uid: 11,
+              flags: new Set([]),
+              envelope: {
+                messageId: "<ok@test.com>",
+                from: [{ address: "a@b.com" }],
+                to: [{ address: "c@d.com" }],
+                subject: "Handler succeeds",
+                date: new Date("2026-04-22"),
+              },
+              source: Buffer.from("content"),
+            };
+          }
+        },
+      }));
+
+      const s = spy();
+
+      t = await testContext()
+        .with({
+          mail: {
+            accounts: {
+              default: {
+                imap: {
+                  host: "imap.test.com",
+                  auth: { user: "u", pass: "p" },
+                },
+              },
+            },
+          },
+        })
+        .routes(
+          craft()
+            .id("test-handler-ok")
+            .from(
+              mail("INBOX", {
+                pollIntervalMs: 5,
+              }),
+            )
+            .to(s),
+        )
+        .build();
+
+      const startPromise = t.ctx.start();
+      await new Promise((r) => setTimeout(r, 20));
+      await t.ctx.stop();
+      await startPromise.catch(() => {});
+
+      expect(s.received.length).toBeGreaterThanOrEqual(1);
+      expect(mockMessageFlagsAdd).toHaveBeenCalledWith("11", ["\\Seen"], {
+        uid: true,
+      });
+    });
+
+    /**
+     * @case Re-delivery across poll cycles when opting out of \Seen dedupe
+     * @preconditions unseen: false, markSeen: false, same UID returned on multiple polls
+     * @expectedResult Handler is invoked more than once for the same UID across cycles
+     */
+    test("redelivers the same UID across polls when Seen dedupe is disabled", async () => {
+      mockFetch.mockImplementation(() => ({
+        async *[Symbol.asyncIterator]() {
+          yield {
+            uid: 5,
+            flags: new Set([]),
+            envelope: {
+              messageId: "<rebill@test.com>",
+              from: [{ address: "a@b.com" }],
+              to: [{ address: "c@d.com" }],
+              subject: "Redelivered",
+              date: new Date("2026-04-22"),
+            },
+            source: Buffer.from("content"),
+          };
+        },
+      }));
+
+      const s = spy();
+
+      t = await testContext()
+        .with({
+          mail: {
+            accounts: {
+              default: {
+                imap: {
+                  host: "imap.test.com",
+                  auth: { user: "u", pass: "p" },
+                },
+              },
+            },
+          },
+        })
+        .routes(
+          craft()
+            .id("test-redelivery")
+            .from(
+              mail("INBOX", {
+                pollIntervalMs: 1,
+                markSeen: false,
+                unseen: false,
+              }),
+            )
+            .to(s),
+        )
+        .build();
+
+      const startPromise = t.ctx.start();
+      // Give the poll loop enough time to complete at least two cycles.
+      await new Promise((r) => setTimeout(r, 40));
+      await t.ctx.stop();
+      await startPromise.catch(() => {});
+
+      expect(s.received.length).toBeGreaterThanOrEqual(2);
+      expect(mockMessageFlagsAdd).not.toHaveBeenCalled();
+    });
+
+    /**
+     * @case IDLE reconnects after a non-auth error
+     * @preconditions First idle() rejects with a transient error, second hangs until abort
+     * @expectedResult mailboxOpen is called more than once (initial + reconnect)
+     */
+    test("IDLE reconnects after a transient connection drop", async () => {
+      // Zero jitter so the reconnect backoff collapses to 0ms in the test.
+      vi.spyOn(Math, "random").mockReturnValue(0);
+
+      mockFetch.mockImplementation(() => ({
+        async *[Symbol.asyncIterator]() {},
+      }));
+
+      let idleCalls = 0;
+      mockIdle.mockImplementation(async () => {
+        idleCalls++;
+        if (idleCalls === 1) {
+          throw new Error("ECONNRESET");
+        }
+        // Resolve promptly on subsequent calls so the abort check between
+        // idle() and drainOnce can exit the loop cleanly.
+        await new Promise((r) => setTimeout(r, 2));
+      });
+
+      t = await testContext()
+        .with({
+          mail: {
+            accounts: {
+              default: {
+                imap: {
+                  host: "imap.test.com",
+                  auth: { user: "u", pass: "p" },
+                },
+              },
+            },
+          },
+        })
+        .routes(
+          craft().id("test-idle-reconnect").from(mail("INBOX", {})).to(spy()),
+        )
+        .build();
+
+      const startPromise = t.ctx.start();
+      await new Promise((r) => setTimeout(r, 50));
+      await t.ctx.stop();
+      await startPromise.catch(() => {});
+
+      expect(idleCalls).toBeGreaterThanOrEqual(2);
+      // Initial open + reconnect open
+      expect(mockMailboxOpen.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+
+    /**
+     * @case Auth errors during IDLE do not trigger reconnect
+     * @preconditions idle() rejects with an auth error on the first call
+     * @expectedResult Subscription fails with RC5012 (no reconnect attempts)
+     */
+    test("IDLE auth failure stops the subscription without reconnect", async () => {
+      mockFetch.mockImplementation(() => ({
+        async *[Symbol.asyncIterator]() {},
+      }));
+
+      let idleCalls = 0;
+      mockIdle.mockImplementation(async () => {
+        idleCalls++;
+        throw new Error("AUTHENTICATIONFAILED");
+      });
+
+      t = await testContext()
+        .with({
+          mail: {
+            accounts: {
+              default: {
+                imap: {
+                  host: "imap.test.com",
+                  auth: { user: "u", pass: "wrong" },
+                },
+              },
+            },
+          },
+        })
+        .routes(
+          craft().id("test-idle-auth-fail").from(mail("INBOX", {})).to(spy()),
+        )
+        .build();
+
+      const startPromise = t.ctx.start();
+      await new Promise((r) => setTimeout(r, 30));
+      await t.ctx.stop();
+      await startPromise.catch(() => {});
+
+      expect(idleCalls).toBe(1);
+      // No reconnect: mailboxOpen called once at initial subscribe
+      expect(mockMailboxOpen.mock.calls.length).toBe(1);
+    });
+
+    /**
+     * @case Throws RC5003 at subscribe when markSeen is false without pollIntervalMs
+     * @preconditions markSeen: false with no pollIntervalMs (IDLE flood footgun)
+     * @expectedResult t.test() rejects with RC5003
+     */
+    test("throws when markSeen: false without pollIntervalMs", async () => {
+      t = await testContext()
+        .with({
+          mail: {
+            accounts: {
+              default: {
+                imap: {
+                  host: "imap.test.com",
+                  auth: { user: "u", pass: "p" },
+                },
+              },
+            },
+          },
+        })
+        .routes(
+          craft()
+            .id("test-guard-markseen")
+            .from(mail("INBOX", { markSeen: false }))
+            .to(spy()),
+        )
+        .build();
+
+      await expect(t.test()).rejects.toMatchObject({ rc: "RC5003" });
+    });
+
+    /**
+     * @case Throws RC5003 at subscribe when unseen is false without pollIntervalMs
+     * @preconditions unseen: false with no pollIntervalMs
+     * @expectedResult t.test() rejects with RC5003
+     */
+    test("throws when unseen: false without pollIntervalMs", async () => {
+      t = await testContext()
+        .with({
+          mail: {
+            accounts: {
+              default: {
+                imap: {
+                  host: "imap.test.com",
+                  auth: { user: "u", pass: "p" },
+                },
+              },
+            },
+          },
+        })
+        .routes(
+          craft()
+            .id("test-guard-unseen")
+            .from(mail("INBOX", { unseen: false }))
+            .to(spy()),
+        )
+        .build();
+
+      await expect(t.test()).rejects.toMatchObject({ rc: "RC5003" });
+    });
   });
 
   describe("buildSearchCriteriaSets", () => {
