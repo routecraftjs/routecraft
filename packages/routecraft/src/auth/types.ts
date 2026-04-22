@@ -144,9 +144,8 @@ export interface OAuthValidatorAuthOptions {
   validator: OAuthTokenVerifier;
 }
 
-// Must target the published package specifier; a relative path would survive
-// into the bundled `dist/index.d.ts` where it no longer resolves, and the
-// augmentation would be silently dropped by the consumer's TypeScript.
+// See .standards/type-safety-and-schemas.md#module-augmentation for why this
+// targets the package specifier and not a relative path.
 declare module "@routecraft/routecraft" {
   interface RoutecraftHeaders {
     /** Authenticated subject (from Principal). */

@@ -139,13 +139,8 @@ registerDsl("schema", {
 // Module augmentation: TypeScript types for built-in sugar
 // ---------------------------------------------------------------------------
 
-// Must target the published package specifier, not `"./builder.ts"`. After
-// tsup bundles the declarations into a single `dist/index.d.ts`, a relative
-// path no longer resolves in the consumer's module graph and TypeScript
-// silently drops the augmentation, causing `.log` / `.debug` / `.map` /
-// `.schema` to disappear from the public `RouteBuilder`. Using the package
-// name keeps the augmentation attached to the same `RouteBuilder` that is
-// re-exported from the entry point.
+// See .standards/type-safety-and-schemas.md#module-augmentation for why this
+// targets the package specifier and not a relative path.
 declare module "@routecraft/routecraft" {
   interface RouteBuilder<Current> {
     /**

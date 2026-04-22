@@ -20,7 +20,6 @@ const greetRoute = craft()
     }),
   )
   .transform((result) => `Hello, ${result.body.name}!`)
-  // `.log()` is sugar for `.tap(log())`: a type-preserving log tap.
   .log()
   .to(log());
 
