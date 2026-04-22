@@ -27,6 +27,7 @@ export {
   type McpServerOptions,
   type McpTool,
   type McpToolAnnotations,
+  type McpToolIcon,
   type McpToolRegistryEntry,
   type McpToolResult,
   type OAuthAuthOptions,

@@ -666,11 +666,11 @@ describe("Direct adapter validation", () => {
     });
 
     /**
-     * @case Extra headers are stripped by default (like body validation)
-     * @preconditions Headers contain extra fields not in schema
-     * @expectedResult Extra headers removed from validated exchange
+     * @case Validated header values are merged over the originals; schemas that strip unknowns do not delete pass-through keys
+     * @preconditions Headers contain `x-tenant-id` (declared) and `x-extra-header` (not declared); consumer uses `z.object()` which strips unknowns during validation
+     * @expectedResult The consumer receives both headers: `x-tenant-id` (validated) and `x-extra-header` (preserved via merge)
      */
-    test("extra headers stripped by default", async () => {
+    test("validated headers are merged over originals", async () => {
       const consumer = vi.fn();
 
       t = await testContext()
@@ -679,7 +679,7 @@ describe("Direct adapter validation", () => {
             .id("producer")
             .from(simple("test"))
             .header("x-tenant-id", "tenant-123")
-            .header("x-extra-header", "should-be-stripped")
+            .header("x-extra-header", "pass-through")
             .to(direct("endpoint")),
           craft()
             .id("consumer")
@@ -688,7 +688,6 @@ describe("Direct adapter validation", () => {
                 headerSchema: z.object({
                   "x-tenant-id": z.string(),
                 }),
-                // z.object() strips extras by default in Zod 4
               }),
             )
             .to(consumer),
@@ -700,7 +699,7 @@ describe("Direct adapter validation", () => {
       expect(consumer).toHaveBeenCalledTimes(1);
       const headers = consumer.mock.calls[0][0].headers;
       expect(headers["x-tenant-id"]).toBe("tenant-123");
-      expect(headers["x-extra-header"]).toBeUndefined();
+      expect(headers["x-extra-header"]).toBe("pass-through");
     });
 
     /**
@@ -1395,8 +1394,6 @@ describe("Direct adapter validation", () => {
      * @expectedResult Registry entry mirrors the declared options
      */
     test("registry captures full tool-shape metadata", async () => {
-      const icons = [{ src: "https://example.com/icon.svg", sizes: "48x48" }];
-
       t = await testContext()
         .routes([
           craft()
@@ -1407,8 +1404,6 @@ describe("Direct adapter validation", () => {
                 description: "Ingest test data",
                 schema: z.object({ id: z.string() }),
                 outputSchema: z.object({ ok: z.boolean() }),
-                annotations: { note: "internal" },
-                icons,
               }),
             )
             .to(vi.fn()),
@@ -1425,8 +1420,6 @@ describe("Direct adapter validation", () => {
         description: "Ingest test data",
         schema: expect.any(Object),
         outputSchema: expect.any(Object),
-        annotations: { note: "internal" },
-        icons,
       });
     });
 

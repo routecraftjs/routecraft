@@ -169,10 +169,12 @@ export class DirectSourceAdapter<T = unknown> implements Source<T> {
           throw err;
         }
 
-        // Use validated/coerced headers if schema transformed them
+        // Merge validated/coerced headers over the original headers so that
+        // user-supplied pass-through keys (correlation IDs, adapter-injected
+        // metadata) survive schemas like `z.object()` that strip unknowns.
         const headerValue = (result as { value?: ExchangeHeaders }).value;
         if (headerValue !== undefined) {
-          validatedHeaders = headerValue;
+          validatedHeaders = { ...exchange.headers, ...headerValue };
         }
       }
 

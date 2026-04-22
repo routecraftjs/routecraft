@@ -1,5 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import type { DirectServerOptions, Exchange } from "@routecraft/routecraft";
+import type { Exchange } from "@routecraft/routecraft";
 import type {
   OAuthPrincipal,
   Principal,
@@ -69,7 +69,7 @@ export interface McpLocalToolEntry {
   /** MCP tool annotations (read-only hints, destructive hints, etc.). */
   annotations?: McpToolAnnotations;
   /** Icons forwarded to `tools/list` per the MCP spec. */
-  icons?: unknown[];
+  icons?: McpToolIcon[];
   /**
    * Invocation handler. Receives an exchange pre-built by the MCP server
    * (with tool/session/auth headers and the request body) and returns the
@@ -404,18 +404,55 @@ export interface McpToolAnnotations {
 }
 
 /**
- * Options for mcp() when used as a server in .from().
- * Description is required for AI/MCP discoverability; other tool-shape fields
- * (title, outputSchema, icons) are inherited from {@link DirectServerOptions}.
+ * Icon reference for an MCP tool.
+ * Mirrors the MCP specification's `Tool.icons[]` entry (web app manifest shape).
  */
-export interface McpServerOptions extends DirectServerOptions {
-  /** Human-readable description (required for MCP tools). */
+export interface McpToolIcon {
+  /** URL or data URI of the icon. */
+  src: string;
+  /** One or more icon sizes, e.g. `"48x48"` or `"48x48 96x96"`. */
+  sizes?: string;
+  /** MIME type of the icon. */
+  type?: string;
+}
+
+/**
+ * Options for mcp() when used as a server in .from().
+ *
+ * Standalone interface: mcp does not share code or registry with direct. Fields
+ * whose names overlap with direct (`title`, `description`, `schema`,
+ * `outputSchema`) are structurally compatible by convention so the same literal
+ * can be used with either adapter, but there is no type-level inheritance.
+ *
+ * @experimental
+ */
+export interface McpServerOptions {
+  /**
+   * Body validation schema (MCP `Tool.inputSchema`). Standard Schema compatible:
+   * Zod, Valibot, ArkType. Zod 4 object constructors (`z.object`, `z.looseObject`,
+   * `z.strictObject`) control extra-property handling.
+   */
+  schema?: StandardSchemaV1;
+
+  /**
+   * Header validation schema. Validates the exchange headers; validated keys
+   * are merged on top of the incoming headers so that MCP-injected metadata
+   * (tool name, session, auth principal) survives schemas that strip unknowns.
+   */
+  headerSchema?: StandardSchemaV1;
+
+  /** Human-readable display title for the tool (MCP `Tool.title`). */
+  title?: string;
+
+  /** Human-readable description (required for MCP discoverability). */
   description: string;
+
+  /** Standard Schema for the tool output (MCP `Tool.outputSchema`). */
+  outputSchema?: StandardSchemaV1;
 
   /**
    * MCP tool annotations describing behavior hints (read-only, destructive, etc.).
-   * Narrows the opaque `annotations` field on {@link DirectServerOptions} to the
-   * typed MCP shape.
+   * Forwarded on `tools/list`.
    *
    * @example
    * ```ts
@@ -426,6 +463,9 @@ export interface McpServerOptions extends DirectServerOptions {
    * ```
    */
   annotations?: McpToolAnnotations;
+
+  /** Icons forwarded on `tools/list` per the MCP spec. */
+  icons?: McpToolIcon[];
 }
 
 export type McpOptions = McpServerOptions;
@@ -492,7 +532,7 @@ export interface McpTool {
   /** MCP tool annotations (behavior hints) reported by the server. */
   annotations?: McpToolAnnotations;
   /** Icons forwarded to clients per the MCP spec. */
-  icons?: unknown[];
+  icons?: McpToolIcon[];
 }
 
 /**

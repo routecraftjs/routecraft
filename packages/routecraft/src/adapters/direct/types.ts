@@ -39,11 +39,12 @@ export interface DirectChannel<T = unknown> {
 /**
  * Metadata for a direct route stored in the direct route registry.
  *
- * Mirrors the MCP specification's `Tool` shape (name/title/description/input/
- * outputSchema/annotations/icons). Core routecraft stays neutral about what
- * consumes this metadata; agents running in-process read it to discover and
- * call direct routes. Adapter layers that wrap `direct` (such as `mcp()`) may
- * maintain their own parallel registries with narrower types.
+ * Carries the canonical internal tool fields for in-process agent discovery.
+ * Overlaps structurally with other adapters (mcp, http server) on a small set
+ * of tool-shape props (`endpoint` aka name, `title`, `description`, `schema`
+ * aka inputSchema, `outputSchema`); adapter-specific metadata (MCP
+ * annotations, MCP icons, HTTP route metadata, etc.) lives on each wrapper
+ * adapter's own types and registries, not here.
  */
 export interface DirectRouteMetadata {
   /** Route name (matches the sanitized endpoint). */
@@ -58,17 +59,6 @@ export interface DirectRouteMetadata {
   outputSchema?: StandardSchemaV1;
   /** Standard Schema describing the expected request headers. */
   headerSchema?: StandardSchemaV1;
-  /**
-   * Opaque pass-through for adapter-specific annotations (e.g. MCP tool annotations).
-   * Core routecraft never reads the shape; adapter wrappers narrow this to a typed
-   * shape on their public options.
-   */
-  annotations?: unknown;
-  /**
-   * Opaque icons list forwarded to discovery consumers.
-   * Core routecraft never reads the shape; the MCP adapter types it per the MCP spec.
-   */
-  icons?: unknown[];
 }
 
 /** Base options shared between source and destination. */
@@ -97,7 +87,10 @@ export interface DirectServerOptions extends DirectBaseOptions {
    * - Valibot: check library docs for handling extra properties
    * - ArkType: check library docs for handling extra properties
    *
-   * If no headerSchema is provided, all headers pass through unchanged.
+   * Validated values are merged on top of the original request headers so that
+   * callers' pass-through metadata (correlation IDs, user-supplied extras)
+   * survive schemas that strip unknown keys.
+   *
    * @example
    * z.looseObject({
    *   'x-tenant-id': z.string().uuid(),
@@ -107,36 +100,23 @@ export interface DirectServerOptions extends DirectBaseOptions {
   headerSchema?: StandardSchemaV1;
 
   /**
-   * Human-readable display title for discovery consumers (agents, MCP clients).
+   * Human-readable display title for in-process discovery consumers (agents).
    * Not used by the delivery pipeline.
    */
   title?: string;
 
   /**
    * Human-readable description of what this route does. Surfaced to agents
-   * and (when exposed via `mcp()`) to MCP clients in `tools/list`.
+   * that inspect the direct registry.
    */
   description?: string;
 
   /**
    * Standard Schema for the output body, when the route produces a structured
-   * response. Not enforced at runtime by direct; discovery consumers may use it
-   * to document the response shape.
+   * response. Not enforced at runtime by direct; discovery consumers may use
+   * it to document the response shape.
    */
   outputSchema?: StandardSchemaV1;
-
-  /**
-   * Opaque pass-through for adapter-specific annotations (e.g. MCP tool annotations).
-   * Core routecraft never reads the shape; adapter wrappers (such as `mcp()` in
-   * `@routecraft/ai`) narrow this to a typed shape on their public options.
-   */
-  annotations?: unknown;
-
-  /**
-   * Opaque icons list forwarded to discovery consumers.
-   * Core routecraft never reads the shape; the MCP adapter types it per the MCP spec.
-   */
-  icons?: unknown[];
 }
 
 /**

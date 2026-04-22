@@ -136,12 +136,6 @@ export function registerRoute(
   if (options.headerSchema !== undefined) {
     metadata.headerSchema = options.headerSchema;
   }
-  if (options.annotations !== undefined) {
-    metadata.annotations = options.annotations;
-  }
-  if (options.icons !== undefined) {
-    metadata.icons = options.icons;
-  }
   registry.set(endpoint, metadata);
 
   context.logger.debug(

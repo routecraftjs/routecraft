@@ -3,7 +3,6 @@ import {
   formatSchemaIssues,
   HeadersKeys,
   rcError,
-  sanitizeEndpoint,
   type CraftContext,
   type EventName,
   type Exchange,
@@ -18,6 +17,15 @@ import {
 } from "../../types.ts";
 import type { McpMessage } from "./types.ts";
 import { BRAND_MCP_ADAPTER } from "./shared.ts";
+
+/**
+ * URL-encode the endpoint string so that keys like `"a/b"` and `"a-b"` stay
+ * distinct in the MCP local tool registry. Kept local to the MCP adapter so
+ * that mcp has no code dependency on the direct adapter module.
+ */
+function sanitizeMcpEndpoint(endpoint: string): string {
+  return encodeURIComponent(endpoint);
+}
 
 /**
  * McpSourceAdapter implements the Source interface for the MCP adapter.
@@ -107,7 +115,7 @@ export class McpSourceAdapter<
       );
     }
 
-    const endpoint = sanitizeEndpoint(this.endpoint);
+    const endpoint = sanitizeMcpEndpoint(this.endpoint);
 
     let registry = context.getStore(
       MCP_LOCAL_TOOL_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry,
@@ -151,9 +159,10 @@ export class McpSourceAdapter<
       entry.icons = this.options.icons;
     }
 
-    // Register the cleanup listener before inserting so an abort racing with
-    // the insert cannot leave a dangling entry without its teardown handler.
-    // Cleanup is idempotent: Map.delete on a missing key is a no-op.
+    // Register the cleanup listener before the insert. Any abort from now on
+    // (including one dispatched synchronously from inside addEventListener if
+    // the signal is already aborted) will run the cleanup, so the entry never
+    // outlives its teardown handler.
     abortController.signal.addEventListener(
       "abort",
       () => {
@@ -165,14 +174,11 @@ export class McpSourceAdapter<
       { once: true },
     );
 
-    registry.set(endpoint, entry);
-
-    // Belt-and-suspenders: if abort fired between the listener registration
-    // and now (before or after the insert), reconcile by deleting again.
     if (abortController.signal.aborted) {
-      registry.delete(endpoint);
       return;
     }
+
+    registry.set(endpoint, entry);
 
     onReady?.();
 
