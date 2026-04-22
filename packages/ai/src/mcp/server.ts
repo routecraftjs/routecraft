@@ -1,10 +1,5 @@
-import type { CraftContext, DirectRouteMetadata } from "@routecraft/routecraft";
-import {
-  ADAPTER_DIRECT_REGISTRY,
-  ADAPTER_DIRECT_STORE,
-  DefaultExchange,
-  isRoutecraftError,
-} from "@routecraft/routecraft";
+import type { CraftContext } from "@routecraft/routecraft";
+import { DefaultExchange, isRoutecraftError } from "@routecraft/routecraft";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createServer } from "node:http";
 import type { IncomingMessage } from "node:http";
@@ -14,11 +9,15 @@ import type {
   Principal,
   ValidatorAuthOptions,
 } from "@routecraft/routecraft";
-import { McpHeadersKeys, isOAuthAuth } from "./types.ts";
+import {
+  MCP_LOCAL_TOOL_REGISTRY,
+  McpHeadersKeys,
+  isOAuthAuth,
+} from "./types.ts";
 import type {
+  McpLocalToolEntry,
   McpPluginOptions,
   McpTool,
-  McpToolAnnotations,
   OAuthAuthOptions,
 } from "./types.ts";
 
@@ -854,53 +853,60 @@ export class McpServer {
 
   /**
    * Get list of tools that should be exposed via MCP.
-   * Reads the registry lazily - called on every tools/list request and for tests.
+   * Reads the MCP local tool registry lazily so routes have time to subscribe
+   * before the first `tools/list` request.
    */
   getAvailableTools(): McpTool[] {
-    const registry = this.context.getStore(ADAPTER_DIRECT_REGISTRY) as
-      | Map<string, DirectRouteMetadata>
+    const registry = this.context.getStore(MCP_LOCAL_TOOL_REGISTRY) as
+      | Map<string, McpLocalToolEntry>
       | undefined;
 
     if (!registry) {
       return [];
     }
 
-    // Get all mcp() routes (those with description)
-    let tools = Array.from(registry.values()).filter(
-      (t) => t.description !== undefined,
-    );
+    let entries = Array.from(registry.values());
 
-    // Apply user filter if provided
     const toolsFilter = this.options.tools;
     if (toolsFilter) {
       if (Array.isArray(toolsFilter)) {
         const allowed = new Set(toolsFilter);
-        tools = tools.filter((t) => allowed.has(t.endpoint));
+        entries = entries.filter((e) => allowed.has(e.endpoint));
       } else if (typeof toolsFilter === "function") {
-        tools = tools.filter(toolsFilter);
+        entries = entries.filter(toolsFilter);
       }
     }
 
-    // Convert to MCP tool format
-    return tools.map((meta) => this.metadataToMcpTool(meta));
+    return entries.map((entry) => this.entryToMcpTool(entry));
   }
 
   /**
-   * Convert Routecraft mcp() route metadata to MCP tool format
+   * Convert an MCP local tool registry entry to the MCP `tools/list` wire
+   * format. `entry.input.body` flattens to `tool.inputSchema`; `entry.output.body`
+   * flattens to `tool.outputSchema`. Header schemas are not part of the MCP
+   * spec wire and are not forwarded.
    */
-  private metadataToMcpTool(metadata: DirectRouteMetadata): McpTool {
+  private entryToMcpTool(entry: McpLocalToolEntry): McpTool {
     const tool: McpTool = {
-      name: metadata.endpoint,
-      description: metadata.description || "",
+      name: entry.endpoint,
+      description: entry.description,
       inputSchema: this.schemaToJsonSchema(
-        metadata.schema,
+        entry.input?.body,
       ) as McpTool["inputSchema"],
     };
-    // metadata.annotations is the core direct-adapter pass-through bag; the
-    // write site (McpServerOptions.annotations) constrains it to McpToolAnnotations,
-    // so this cast restores that type at the read boundary.
-    if (metadata.annotations !== undefined) {
-      tool.annotations = metadata.annotations as McpToolAnnotations;
+    if (entry.title !== undefined) {
+      tool.title = entry.title;
+    }
+    if (entry.output?.body !== undefined) {
+      tool.outputSchema = this.schemaToJsonSchema(
+        entry.output.body,
+      ) as NonNullable<McpTool["outputSchema"]>;
+    }
+    if (entry.annotations !== undefined) {
+      tool.annotations = entry.annotations;
+    }
+    if (entry.icons !== undefined) {
+      tool.icons = entry.icons;
     }
     return tool;
   }
@@ -956,28 +962,12 @@ export class McpServer {
     isError?: boolean;
   }> {
     try {
-      // Get the direct channel store
-      const channelStore = this.context.getStore(ADAPTER_DIRECT_STORE) as
-        | Map<string, Record<string, unknown>>
+      const registry = this.context.getStore(MCP_LOCAL_TOOL_REGISTRY) as
+        | Map<string, McpLocalToolEntry>
         | undefined;
 
-      if (!channelStore) {
-        const err = new Error("No direct channels available");
-        this.context.emit(`plugin:mcp:tool:failed`, {
-          tool: toolName,
-          error: err.message,
-        });
-        return {
-          isError: true,
-          content: [
-            { type: "text", text: `Error: No direct channels available` },
-          ],
-        };
-      }
-
-      // Get the channel for this tool endpoint
-      const channel = channelStore.get(toolName);
-      if (!channel) {
+      const entry = registry?.get(toolName);
+      if (!entry) {
         const err = new Error(`Tool not found: ${toolName}`);
         this.context.emit(`plugin:mcp:tool:failed`, {
           tool: toolName,
@@ -1045,21 +1035,12 @@ export class McpServer {
         args,
       });
 
-      // Send the exchange through the direct channel
-      const channelTyped = channel as Record<
-        string,
-        (name: string, ex: unknown) => Promise<unknown>
-      >;
-      const resultExchange = (await channelTyped["send"](
-        toolName,
-        exchange,
-      )) as Record<string, unknown>;
+      const resultExchange = await entry.handler(exchange);
 
-      // Convert result to MCP format
       const resultText =
-        typeof resultExchange["body"] === "string"
-          ? (resultExchange["body"] as string)
-          : JSON.stringify(resultExchange["body"]);
+        typeof resultExchange.body === "string"
+          ? resultExchange.body
+          : JSON.stringify(resultExchange.body);
 
       this.context.emit(`plugin:mcp:tool:completed`, {
         tool: toolName,

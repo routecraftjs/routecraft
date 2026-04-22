@@ -5,12 +5,18 @@ const GreetInput = z.object({ userId: z.number() });
 type GreetInput = z.infer<typeof GreetInput>;
 
 // "greet" service: receives a user id via the direct endpoint,
-// fetches the user, and logs a greeting. Body type is inferred from the
-// Standard Schema passed to direct(), so no cast is required.
+// fetches the user, and logs a greeting. Body type is inferred from
+// `input.body`, so no cast is required. `title` and `description` are
+// optional but recommended: in-process agents reading
+// `ADAPTER_DIRECT_REGISTRY` use them for discovery.
 const greetRoute = craft()
   .id("greet")
   .from(
-    direct("greet", { description: "Greet a user by id", schema: GreetInput }),
+    direct("greet", {
+      title: "Greet user",
+      description: "Look up a user by id and return a greeting message",
+      input: { body: GreetInput },
+    }),
   )
   .enrich(
     http<GreetInput, { name: string }>({

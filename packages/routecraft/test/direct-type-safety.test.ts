@@ -18,12 +18,12 @@ describe("Direct adapter type safety", () => {
   });
 
   /**
-   * @case direct() with schema in options is typed as Source
-   * @preconditions direct("ep", { schema })
+   * @case direct() with input.body in options is typed as Source
+   * @preconditions direct("ep", { input: { body } })
    * @expectedResult Type matches Source<unknown>
    */
-  test("direct(endpoint, { schema }) returns Source", () => {
-    expectTypeOf(direct("ep", { schema: z.object({}) })).toMatchTypeOf<
+  test("direct(endpoint, { input: { body } }) returns Source", () => {
+    expectTypeOf(direct("ep", { input: { body: z.object({}) } })).toMatchTypeOf<
       Source<unknown>
     >();
   });

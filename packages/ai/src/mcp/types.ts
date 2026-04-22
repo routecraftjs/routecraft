@@ -1,8 +1,5 @@
-import type {
-  DirectRouteMetadata,
-  DirectServerOptions,
-  Exchange,
-} from "@routecraft/routecraft";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type { Exchange } from "@routecraft/routecraft";
 import type {
   OAuthPrincipal,
   Principal,
@@ -38,6 +35,76 @@ export const MCP_TOOL_REGISTRY = Symbol.for("routecraft.mcp.tool.registry");
  */
 export const MCP_STDIO_MANAGERS = Symbol.for("routecraft.mcp.stdio.managers");
 
+/**
+ * Store key for the MCP local tool registry. Populated at `mcp()` subscription time
+ * with one entry per `.from(mcp(endpoint, options))` route in this context.
+ *
+ * Kept separate from {@link MCP_TOOL_REGISTRY}, which holds tools discovered from
+ * external (stdio/HTTP) client servers and is consumed by the agent adapter.
+ *
+ * @experimental
+ */
+export const MCP_LOCAL_TOOL_REGISTRY = Symbol.for(
+  "routecraft.mcp.local-tool-registry",
+);
+
+/**
+ * Per-direction schema bundle for an MCP tool's request side.
+ * Both `body` (MCP `Tool.inputSchema`) and `headers` are validated at runtime
+ * before the route handler runs.
+ *
+ * @experimental
+ */
+export interface McpInput {
+  /** Standard Schema for the tool input body (MCP `Tool.inputSchema`). */
+  body?: StandardSchemaV1;
+  /** Standard Schema for the request headers. Validated values merge over the originals. */
+  headers?: StandardSchemaV1;
+}
+
+/**
+ * Per-direction schema bundle for an MCP tool's response side.
+ * Forwarded on `tools/list`; not runtime-enforced by the MCP source.
+ *
+ * @experimental
+ */
+export interface McpOutput {
+  /** Standard Schema for the tool output body (MCP `Tool.outputSchema`). */
+  body?: StandardSchemaV1;
+  /** Standard Schema for the response headers. Documentation-only. */
+  headers?: StandardSchemaV1;
+}
+
+/**
+ * Entry in the {@link MCP_LOCAL_TOOL_REGISTRY}. One per `.from(mcp(endpoint, options))`
+ * route. Holds the discovery metadata needed for `tools/list` and the invocation
+ * handler used by `tools/call`.
+ *
+ * @experimental
+ */
+export interface McpLocalToolEntry {
+  /** Sanitized endpoint name (URL-encoded). Used as the tool name in MCP `tools/list`. */
+  endpoint: string;
+  /** Human-readable display title forwarded to `tools/list` when provided. */
+  title?: string;
+  /** Human-readable description of the tool (required for MCP discoverability). */
+  description: string;
+  /** Input schemas (request body, request headers). */
+  input?: McpInput;
+  /** Output schemas (response body, response headers); forwarded to `tools/list`. */
+  output?: McpOutput;
+  /** MCP tool annotations (read-only hints, destructive hints, etc.). */
+  annotations?: McpToolAnnotations;
+  /** Icons forwarded to `tools/list` per the MCP spec. */
+  icons?: McpToolIcon[];
+  /**
+   * Invocation handler. Receives an exchange pre-built by the MCP server
+   * (with tool/session/auth headers and the request body) and returns the
+   * resulting exchange after the route has processed it.
+   */
+  handler: (exchange: Exchange) => Promise<Exchange>;
+}
+
 declare module "@routecraft/routecraft" {
   interface StoreRegistry {
     [MCP_PLUGIN_REGISTERED]: boolean;
@@ -46,6 +113,7 @@ declare module "@routecraft/routecraft" {
       McpClientHttpConfig | McpClientStdioConfig | string
     >;
     [MCP_TOOL_REGISTRY]: McpToolRegistry;
+    [MCP_LOCAL_TOOL_REGISTRY]: Map<string, McpLocalToolEntry>;
     [MCP_STDIO_MANAGERS]: Map<
       string,
       {
@@ -306,7 +374,7 @@ export interface McpPluginOptions {
    * Filter which tools to expose. Default: all mcp() routes.
    * Can be an array of endpoint names or a filter function.
    */
-  tools?: string[] | ((meta: DirectRouteMetadata) => boolean);
+  tools?: string[] | ((entry: McpLocalToolEntry) => boolean);
 
   /**
    * Named remote MCP servers for .to(mcp("name:tool")).
@@ -363,16 +431,59 @@ export interface McpToolAnnotations {
 }
 
 /**
- * Options for mcp() when used as a server in .from().
- * Description is required for AI/MCP discoverability.
+ * Icon reference for an MCP tool.
+ * Mirrors the MCP specification's `Tool.icons[]` entry (web app manifest shape).
  */
-export interface McpServerOptions extends DirectServerOptions {
-  /** Human-readable description (required for MCP tools). */
+export interface McpToolIcon {
+  /** URL or data URI of the icon. */
+  src: string;
+  /** One or more icon sizes, e.g. `"48x48"` or `"48x48 96x96"`. */
+  sizes?: string;
+  /** MIME type of the icon. */
+  type?: string;
+}
+
+/**
+ * Options for mcp() when used as a server in .from().
+ *
+ * Standalone interface: mcp does not share code or registry with direct. Fields
+ * whose names overlap with direct (`title`, `description`, `input`, `output`)
+ * are structurally compatible by convention so the same literal can be used
+ * with either adapter, but there is no type-level inheritance.
+ *
+ * @experimental
+ */
+export interface McpServerOptions {
+  /**
+   * Input schemas. `input.body` validates and is converted to JSON Schema for
+   * `tools/list` (the MCP `Tool.inputSchema`). `input.headers` validates the
+   * request headers; validated values merge over the originals so MCP-injected
+   * metadata (tool name, session, auth principal) survives schemas that strip
+   * unknowns.
+   *
+   * @example
+   * input: {
+   *   body: z.object({ user: z.string() }),
+   *   headers: z.looseObject({ 'x-tenant': z.string() }),
+   * }
+   */
+  input?: McpInput;
+
+  /**
+   * Output schemas. `output.body` is forwarded as MCP `Tool.outputSchema`
+   * on `tools/list`; `output.headers` is documentation-only.
+   */
+  output?: McpOutput;
+
+  /** Human-readable display title for the tool (MCP `Tool.title`). */
+  title?: string;
+
+  /** Human-readable description (required for MCP discoverability). */
   description: string;
 
   /**
    * MCP tool annotations describing behavior hints (read-only, destructive, etc.).
-   * Passed to MCP clients in the tool listing response.
+   * Forwarded on `tools/list`.
    *
    * @example
    * ```ts
@@ -383,6 +494,9 @@ export interface McpServerOptions extends DirectServerOptions {
    * ```
    */
   annotations?: McpToolAnnotations;
+
+  /** Icons forwarded on `tools/list` per the MCP spec. */
+  icons?: McpToolIcon[];
 }
 
 export type McpOptions = McpServerOptions;
@@ -430,6 +544,8 @@ export interface McpClientOptions {
  */
 export interface McpTool {
   name: string;
+  /** Human-readable display title. */
+  title?: string;
   description?: string;
   inputSchema: {
     type: "object";
@@ -437,8 +553,17 @@ export interface McpTool {
     required?: string[];
     [key: string]: unknown;
   };
+  /** JSON Schema for the tool output when the route declares one. */
+  outputSchema?: {
+    type: "object";
+    properties?: Record<string, unknown>;
+    required?: string[];
+    [key: string]: unknown;
+  };
   /** MCP tool annotations (behavior hints) reported by the server. */
   annotations?: McpToolAnnotations;
+  /** Icons forwarded to clients per the MCP spec. */
+  icons?: McpToolIcon[];
 }
 
 /**

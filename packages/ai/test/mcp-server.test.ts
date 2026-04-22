@@ -53,7 +53,7 @@ describe("McpServer", () => {
 
   /**
    * @case Tool filtering by name array and by predicate
-   * @preconditions Routes for tool1, tool2, public-tool, private-tool; filter by name then by keywords
+   * @preconditions Routes for tool1, tool2, public-tool (readOnly), private-tool; filter by name then by annotation
    * @expectedResult Only allowed tools appear in getAvailableTools()
    */
   test("respects tool filtering by name and by function", async () => {
@@ -72,7 +72,7 @@ describe("McpServer", () => {
           .from(
             mcp("public-tool", {
               description: "Public",
-              keywords: ["public"],
+              annotations: { readOnlyHint: true },
             }),
           )
           .to(noop()),
@@ -81,7 +81,7 @@ describe("McpServer", () => {
           .from(
             mcp("private-tool", {
               description: "Private",
-              keywords: ["private"],
+              annotations: { destructiveHint: true },
             }),
           )
           .to(noop()),
@@ -91,13 +91,13 @@ describe("McpServer", () => {
 
     server = new McpServer(t.ctx, { tools: ["tool1"] });
     expect(server).toBeDefined();
-    await t.test();
+    await t.startAndWaitReady();
     let names = server.getAvailableTools().map((tool) => tool.name);
     expect(names).toEqual(["tool1"]);
     await server.stop();
 
     server = new McpServer(t.ctx, {
-      tools: (meta) => meta.keywords?.includes("public") ?? false,
+      tools: (entry) => entry.annotations?.readOnlyHint === true,
     });
     await server.start();
     names = server.getAvailableTools().map((tool) => tool.name);
@@ -121,7 +121,7 @@ describe("McpServer", () => {
           .from(
             mcp("schema-tool", {
               description: "Tool with schema",
-              schema,
+              input: { body: schema },
             }),
           )
           .to(noop()),
@@ -139,7 +139,7 @@ describe("McpServer", () => {
 
     server = new McpServer(t.ctx);
     expect(server).toBeDefined();
-    await t.test();
+    await t.startAndWaitReady();
     const names = server.getAvailableTools().map((tool) => tool.name);
     expect(names).toContain("schema-tool");
     expect(names).toContain("no-schema-tool");
@@ -170,7 +170,7 @@ describe("McpServer", () => {
       .build();
     server = new McpServer(t.ctx);
     expect(server).toBeDefined();
-    await t.test();
+    await t.startAndWaitReady();
     const names = server.getAvailableTools().map((tool) => tool.name);
     expect(names).toEqual(["exposed-tool"]);
   });
@@ -199,7 +199,7 @@ describe("McpServer", () => {
       .store(MCP_STORE_KEY, true)
       .build();
     server = new McpServer(t.ctx);
-    await t.test();
+    await t.startAndWaitReady();
     const tools = server.getAvailableTools();
     expect(tools).toHaveLength(1);
     expect(tools[0].annotations).toEqual({
@@ -224,7 +224,7 @@ describe("McpServer", () => {
       .store(MCP_STORE_KEY, true)
       .build();
     server = new McpServer(t.ctx);
-    await t.test();
+    await t.startAndWaitReady();
     const tools = server.getAvailableTools();
     expect(tools).toHaveLength(1);
     expect(tools[0]).not.toHaveProperty("annotations");
@@ -433,7 +433,7 @@ describe("McpServer", () => {
           .from(
             mcp("capture-tool", {
               description: "Capture body for test",
-              schema: z.object({ user: z.string() }),
+              input: { body: z.object({ user: z.string() }) },
             }),
           )
           .tap((ex) => {
@@ -474,10 +474,12 @@ describe("McpServer", () => {
           .from(
             mcp("echo-args", {
               description: "Echo argument types and values for test",
-              schema: z.object({
-                str: z.string(),
-                obj: z.record(z.string(), z.any()),
-              }),
+              input: {
+                body: z.object({
+                  str: z.string(),
+                  obj: z.record(z.string(), z.any()),
+                }),
+              },
             }),
           )
           .transform((body) => ({
@@ -752,7 +754,7 @@ describe("McpServer", () => {
               .from(
                 mcp("oauth-capture", {
                   description: "Capture exchange headers for OAuth test",
-                  schema: z.object({}),
+                  input: { body: z.object({}) },
                 }),
               )
               .tap((ex) => {
@@ -831,7 +833,7 @@ describe("McpServer", () => {
               .from(
                 mcp("oauth-minimal", {
                   description: "Minimal OAuth capture",
-                  schema: z.object({}),
+                  input: { body: z.object({}) },
                 }),
               )
               .tap((ex) => {
@@ -984,7 +986,7 @@ describe("McpServer", () => {
               .from(
                 mcp("jwt-capture", {
                   description: "Capture JWT principal headers",
-                  schema: z.object({}),
+                  input: { body: z.object({}) },
                 }),
               )
               .tap((ex) => {
@@ -1056,7 +1058,7 @@ describe("McpServer", () => {
               .from(
                 mcp("apikey-capture", {
                   description: "Capture API key principal headers",
-                  schema: z.object({}),
+                  input: { body: z.object({}) },
                 }),
               )
               .tap((ex) => {

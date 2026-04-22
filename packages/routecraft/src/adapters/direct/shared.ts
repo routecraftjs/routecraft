@@ -121,20 +121,17 @@ export function registerRoute(
   }
 
   const metadata: DirectRouteMetadata = { endpoint };
+  if (options.title !== undefined) {
+    metadata.title = options.title;
+  }
   if (options.description !== undefined) {
     metadata.description = options.description;
   }
-  if (options.schema !== undefined) {
-    metadata.schema = options.schema;
+  if (options.input !== undefined) {
+    metadata.input = options.input;
   }
-  if (options.headerSchema !== undefined) {
-    metadata.headerSchema = options.headerSchema;
-  }
-  if (options.keywords !== undefined) {
-    metadata.keywords = options.keywords;
-  }
-  if (options.annotations !== undefined) {
-    metadata.annotations = options.annotations;
+  if (options.output !== undefined) {
+    metadata.output = options.output;
   }
   registry.set(endpoint, metadata);
 
