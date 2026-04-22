@@ -230,7 +230,11 @@ describe("mcp() DSL function", () => {
             mcp("merge-tool", {
               description: "Header merge test",
               input: {
-                headers: z.looseObject({ "x-tenant": z.string() }),
+                // z.object() strips unknown keys during validation. The merge
+                // behaviour must re-insert the MCP-injected headers on top of
+                // the validated values; a looseObject would keep them
+                // unconditionally and the test would pass trivially.
+                headers: z.object({ "x-tenant": z.string() }),
               },
             }),
           )
@@ -428,5 +432,29 @@ describe("mcp() DSL function", () => {
     expect(() => mcp("my-tool")).toThrow(
       /direct\(.*endpoint.*\) for in-process|mcp\(\) with only an endpoint is not supported/,
     );
+  });
+
+  /**
+   * @case Tool names outside the MCP interop character set are rejected at construction
+   * @preconditions Call .from(mcp("bad/name", { description })) with a slash in the endpoint
+   * @expectedResult Throws RC5003 referencing the MCP tool name rule; no URL-encoding leaks into tool.name
+   */
+  test("mcp() rejects tool names with invalid characters", () => {
+    expect(() => mcp("bad/name", { description: "invalid" })).toThrowError(
+      expect.objectContaining({ rc: "RC5003" }),
+    );
+    expect(() => mcp("has space", { description: "invalid" })).toThrowError(
+      expect.objectContaining({ rc: "RC5003" }),
+    );
+    expect(() => mcp("", { description: "invalid" })).toThrowError(
+      expect.objectContaining({ rc: "RC5003" }),
+    );
+    // A 65-char name exceeds the 64-char bound.
+    expect(() => mcp("a".repeat(65), { description: "invalid" })).toThrowError(
+      expect.objectContaining({ rc: "RC5003" }),
+    );
+
+    // Valid names pass construction.
+    expect(() => mcp("good_name-1", { description: "ok" })).not.toThrow();
   });
 });

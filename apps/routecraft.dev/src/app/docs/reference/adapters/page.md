@@ -362,7 +362,7 @@ const strictSchema = z.object({
 })
 
 craft()
-  .from(direct('user-processor', { schema: strictSchema }))
+  .from(direct('user-processor', { input: { body: strictSchema } }))
   .process(processUser)
 
 // Passes: { userId: '...', action: 'create' }
@@ -379,7 +379,7 @@ const looseSchema = z.looseObject({
 })
 
 craft()
-  .from(direct('user-processor', { schema: looseSchema }))
+  .from(direct('user-processor', { input: { body: looseSchema } }))
   .process(processUser)
 
 // Passes: { userId: '...', action: 'create', extra: 'field' }
@@ -394,7 +394,7 @@ const veryStrictSchema = z.strictObject({
 })
 
 craft()
-  .from(direct('user-processor', { schema: veryStrictSchema }))
+  .from(direct('user-processor', { input: { body: veryStrictSchema } }))
   .process(processUser)
 
 // Passes: { userId: '...', action: 'create' }
@@ -403,39 +403,43 @@ craft()
 
 **Header Validation**
 
-Without `headerSchema`, all headers pass through unchanged. When specified, the same Zod 4 rules apply:
+Without `input.headers`, all headers pass through unchanged. When specified, the same Zod 4 rules apply — with one twist: validated header values are always merged over the original request headers, so caller-supplied pass-through keys survive schemas that would normally strip them.
 
 ```ts
-// No headerSchema - all headers pass through unchanged
+// No header schema - all headers pass through unchanged
 craft()
   .from(direct('api-handler', {
-    schema: z.object({ id: z.string() })
-    // headerSchema not specified - all headers preserved
+    input: { body: z.object({ id: z.string() }) },
+    // input.headers not specified - all headers preserved
   }))
   .process(handleRequest)
 
 // z.looseObject() - validate required headers, keep extras
 craft()
   .from(direct('api-handler', {
-    headerSchema: z.looseObject({
-      'x-tenant-id': z.string().uuid(),
-      'x-trace-id': z.string().optional(),
-    })
+    input: {
+      headers: z.looseObject({
+        'x-tenant-id': z.string().uuid(),
+        'x-trace-id': z.string().optional(),
+      }),
+    },
   }))
   .process(handleRequest)
 
 // Passes: { 'x-tenant-id': '...', 'x-other': '...' } (validates x-tenant-id, keeps x-other)
 
-// z.object() - validate and strip extra headers
+// z.object() - validate declared headers; merge preserves pass-through keys
 craft()
   .from(direct('api-handler', {
-    headerSchema: z.object({
-      'x-tenant-id': z.string().uuid(),
-    })
+    input: {
+      headers: z.object({
+        'x-tenant-id': z.string().uuid(),
+      }),
+    },
   }))
   .process(handleRequest)
 
-// Passes: { 'x-tenant-id': '...', 'x-other': '...' } (x-other stripped from result)
+// Passes: { 'x-tenant-id': '...', 'x-other': '...' } (x-other preserved via merge)
 ```
 
 **Schema Coercion**
@@ -480,7 +484,7 @@ await ctx.start()
 
 const registry = ctx.getStore(ADAPTER_DIRECT_REGISTRY)
 const routes = registry ? Array.from(registry.values()) : []
-// [{ endpoint, title?, description?, input?, output?, headerSchema? }]
+// [{ endpoint, title?, description?, input?, output? }]
 ```
 
 The direct registry stores only the direct adapter's own metadata. Other adapters that expose routes externally (such as [`mcp()`](#mcp) or a future inbound `http()`) maintain their own parallel registries; they are never written to or read from the direct registry.

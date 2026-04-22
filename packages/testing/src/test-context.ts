@@ -158,10 +158,20 @@ export class TestContext {
    * Use with {@link CraftClient.send} (via `t.client`) for direct endpoints,
    * or drive sources directly via the context store, then call `drain()` /
    * `stop()` when done.
+   *
+   * If `ctx.start()` rejects (synchronously or before any route emits
+   * `route:*:started`), the rejection surfaces here via the
+   * `context:error` listener installed by `awaitRoutesReady`. A no-op
+   * catch is attached to `startedPromise` as a safety net so that a
+   * slow rejection does not trigger an `unhandledRejection` before
+   * `stop()` awaits the promise for teardown.
    */
   async startAndWaitReady(): Promise<void> {
     const allReady = this.awaitRoutesReady();
     this.startedPromise = this.ctx.start();
+    // Attach a no-op handler so Node does not report the rejection as
+    // unhandled before `stop()` re-awaits the promise.
+    this.startedPromise.catch(() => {});
     await allReady;
   }
 
@@ -176,6 +186,9 @@ export class TestContext {
     const ctx = this.ctx;
     const allReady = this.awaitRoutesReady();
     const started = ctx.start();
+    // Shield a synchronous rejection of `started` from becoming an
+    // unhandled rejection before the `finally` block re-awaits it.
+    started.catch(() => {});
     try {
       await allReady;
       const delayMs = options?.delayBeforeDrainMs ?? 0;

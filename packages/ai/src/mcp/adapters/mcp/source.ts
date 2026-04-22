@@ -19,12 +19,23 @@ import type { McpMessage } from "./types.ts";
 import { BRAND_MCP_ADAPTER } from "./shared.ts";
 
 /**
- * URL-encode the endpoint string so that keys like `"a/b"` and `"a-b"` stay
- * distinct in the MCP local tool registry. Kept local to the MCP adapter so
- * that mcp has no code dependency on the direct adapter module.
+ * Characters allowed in an MCP tool name. Matches OpenAI's function-calling
+ * constraint (the strictest mainstream LLM client), which all major MCP
+ * client implementations respect: ASCII letters, digits, underscore, and
+ * hyphen, with a 1-64 length bound. Keeping tool names in this set ensures
+ * the `tool.name` field survives `tools/list` → LLM function-calling
+ * without further mangling.
  */
-function sanitizeMcpEndpoint(endpoint: string): string {
-  return encodeURIComponent(endpoint);
+const MCP_TOOL_NAME_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
+function assertValidMcpToolName(endpoint: string): void {
+  if (!MCP_TOOL_NAME_RE.test(endpoint)) {
+    throw rcError("RC5003", undefined, {
+      message: `Invalid MCP tool name "${endpoint}"`,
+      suggestion:
+        "MCP tool names must match /^[A-Za-z0-9_-]{1,64}$/ for client interoperability (OpenAI, Anthropic, etc.). Use alphanumerics, underscore, or hyphen.",
+    });
+  }
 }
 
 /**
@@ -100,6 +111,8 @@ export class McpSourceAdapter<
       });
     }
 
+    assertValidMcpToolName(endpoint);
+
     this.endpoint = endpoint;
     this.options = options;
   }
@@ -122,7 +135,9 @@ export class McpSourceAdapter<
       );
     }
 
-    const endpoint = sanitizeMcpEndpoint(this.endpoint);
+    // Endpoint is validated at construction time (MCP_TOOL_NAME_RE) so it
+    // is already a safe Map key and wire-format `tool.name`; no encoding.
+    const endpoint = this.endpoint;
 
     let registry = context.getStore(
       MCP_LOCAL_TOOL_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry,
