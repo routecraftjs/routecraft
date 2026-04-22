@@ -3,7 +3,7 @@ import { mkdir, rm, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
-import { exec, spawn, type ExecOptions } from "node:child_process";
+import { exec, execSync, spawn, type ExecOptions } from "node:child_process";
 import { promisify } from "node:util";
 import { generateProjectStructure, type InitOptions } from "../src/lib.js";
 
@@ -213,6 +213,18 @@ const packagesBuilt = existsSync(
   join(MONOREPO_ROOT, "packages/routecraft/dist/index.d.ts"),
 );
 const integrationTest = packagesBuilt ? test : test.skip;
+
+// Rebuild the routecraft package so its dist/ matches the checked-out
+// source. On local runs this catches stale dist after editing source without
+// running `pnpm build`. On CI it is a belt-and-suspenders against cache
+// issues on the `pull_request_target` workflow (see cache key scoping in
+// ci.yml). Cheap — one tsup run on a single package.
+if (packagesBuilt) {
+  execSync("pnpm --filter @routecraft/routecraft build", {
+    cwd: MONOREPO_ROOT,
+    stdio: "inherit",
+  });
+}
 
 /**
  * Patch the scaffolded package.json to use local file: references
