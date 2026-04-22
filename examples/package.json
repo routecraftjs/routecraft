@@ -17,6 +17,7 @@
   "devDependencies": {
     "@routecraft/cli": "workspace:^0.5.0",
     "@routecraft/testing": "workspace:^0.5.0",
+    "dotenv": "^17.4.2",
     "tsup": "^8.5.1",
     "tsx": "^4.21.0",
     "vitest": "^4.1.4"

@@ -30,6 +30,13 @@ export {
 // Re-export spy adapter
 export { spy, type SpyAdapter } from "./adapters/spy";
 
+// Adapter mocking API
+export {
+  mockAdapter,
+  type AdapterMock,
+  type MockAdapterBehavior,
+} from "./mock-adapter";
+
 /**
  * Load a JSON fixture file and return the parsed value.
  *

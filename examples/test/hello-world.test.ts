@@ -1,16 +1,14 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { testContext, type TestContext } from "@routecraft/testing";
+import { describe, it, expect, afterEach, vi } from "vitest";
+import { http } from "@routecraft/routecraft";
+import {
+  mockAdapter,
+  testContext,
+  type TestContext,
+} from "@routecraft/testing";
 import routes from "../src/hello-world";
 
 describe("Hello World Routes", () => {
   let t: TestContext;
-  let fetchMock: ReturnType<typeof vi.fn>;
-
-  beforeEach(() => {
-    // Mock globalThis.fetch to prevent real API calls
-    fetchMock = vi.fn();
-    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
-  });
 
   afterEach(async () => {
     if (t) {
@@ -20,54 +18,45 @@ describe("Hello World Routes", () => {
   });
 
   /**
-   * @case Verifies that the simple route dispatches to the direct "greet" route, which fetches and greets the user by name
-   * @preconditions Both routes are registered and fetch is mocked
-   * @expectedResult greet route fetches the user and logs "Hello, [name]!"
+   * @case simple route dispatches into the direct("greet") route, whose http enrich lookup is mocked at the adapter boundary
+   * @preconditions Both routes registered; mockAdapter(http, ...) stands in for the real fetch
+   * @expectedResult Greet route logs "Hello, [name]!" and the http mock received the expected URL
    */
   it("dispatches from simple route into direct route and greets by name", async () => {
-    // Mock user data from JSON Placeholder
-    const mockUser = {
-      id: 1,
-      name: "Leanne Graham",
-      username: "Bret",
-      email: "Sincere@april.biz",
-    };
-
-    // Mock the fetch response
-    fetchMock.mockResolvedValue({
-      ok: true,
-      status: 200,
-      headers: new Map([["content-type", "application/json"]]),
-      text: async () => JSON.stringify(mockUser),
-      url: "https://jsonplaceholder.typicode.com/users/1",
+    const httpMock = mockAdapter(http, {
+      send: async () => ({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: { id: 1, name: "Leanne Graham", username: "Bret" },
+        url: "https://jsonplaceholder.typicode.com/users/1",
+      }),
     });
 
-    // Create context with both routes and run full lifecycle (t.logger is a spy)
-    t = await testContext().routes(routes).build();
+    t = await testContext().override(httpMock).routes(routes).build();
     await t.test();
 
-    // Verify fetch was called with the correct URL
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock).toHaveBeenCalledWith(
+    // The http adapter was invoked exactly once, at the .enrich() call site in
+    // the greet route. The recorded args are whatever was passed to http(...)
+    // in hello-world.ts; we use them to assert the url the real adapter would
+    // have fetched.
+    expect(httpMock.calls.send).toHaveLength(1);
+
+    const [call] = httpMock.calls.send;
+    const options = call.args[0] as {
+      method: string;
+      url: (ex: { body: { userId: number } }) => string;
+    };
+    expect(options.method).toBe("GET");
+    expect(options.url({ body: { userId: 1 } })).toBe(
       "https://jsonplaceholder.typicode.com/users/1",
-      expect.objectContaining({
-        method: "GET",
-      }),
     );
 
-    // Verify the log was called (route completed)
-    expect(t.logger.info).toHaveBeenCalled();
-
-    // Find the LogAdapter output call (pino.info(object, message)); lifecycle also logs at info
+    // The route's LogAdapter logs the greeting as the final step.
     const infoSpy = t.logger.info as ReturnType<typeof vi.fn>;
     const logAdapterCall = infoSpy.mock.calls.find(
-      (call: unknown[]) => call[1] === "LogAdapter output",
+      (c: unknown[]) => c[1] === "LogAdapter output",
     );
     expect(logAdapterCall).toBeDefined();
-    const result = logAdapterCall![0];
-
-    // Assert the greeting message
-    expect(result).toBeDefined();
-    expect(result.body).toBe("Hello, Leanne Graham!");
+    expect(logAdapterCall![0].body).toBe("Hello, Leanne Graham!");
   });
 });

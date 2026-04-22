@@ -3,6 +3,11 @@ import { testContext, spy, type TestContext } from "@routecraft/testing";
 import { craft, simple, mail, replace } from "@routecraft/routecraft";
 import { EXCHANGE_INTERNALS } from "../src/exchange.ts";
 import { buildSearchCriteriaSets } from "../src/adapters/mail/shared.ts";
+import {
+  analyzeHeaders,
+  extractAnalysisHeaders,
+  parseAuthResults,
+} from "../src/adapters/mail/analysis.ts";
 import type { MailServerOptions } from "../src/adapters/mail/types.ts";
 
 // Mock functions declared at module scope for vi.mock hoisting
@@ -261,7 +266,8 @@ describe("Mail Adapter", () => {
       expect(body["0"].uid).toBe(1);
       expect(body["0"].from).toBe("sender@example.com");
       expect(body["0"].subject).toBe("Test Email");
-      expect(body["0"].text).toBe("Hello world");
+      expect(body["0"].body.text).toBe("Hello world");
+      expect(body["0"].body.html).toBe("<p>Hello world</p>");
     });
 
     /**
@@ -310,6 +316,66 @@ describe("Mail Adapter", () => {
       expect(mockMessageFlagsAdd).toHaveBeenCalledWith("42", ["\\Seen"], {
         uid: true,
       });
+    });
+
+    /**
+     * @case verify: "off" omits the sender field entirely
+     * @preconditions Fetch with verify: "off"; analysis headers would otherwise resolve to a valid sender
+     * @expectedResult Returned MailMessage has no `sender` property
+     */
+    test("verify: 'off' omits sender", async () => {
+      const { simpleParser } = await import("mailparser");
+      (simpleParser as any).mockResolvedValueOnce({
+        text: "hi",
+        attachments: [],
+        headerLines: [
+          { key: "from", line: "From: a@b.com" },
+          {
+            key: "authentication-results",
+            line: "Authentication-Results: mx.test; dmarc=pass header.from=b.com",
+          },
+        ],
+      });
+      mockFetch.mockReturnValue({
+        async *[Symbol.asyncIterator]() {
+          yield {
+            uid: 7,
+            flags: new Set([]),
+            envelope: {
+              messageId: "<7@test>",
+              from: [{ address: "a@b.com" }],
+              to: [{ address: "me@test.com" }],
+              subject: "hi",
+              date: new Date(),
+            },
+            source: Buffer.from("raw"),
+          };
+        },
+      });
+
+      const s = spy();
+      t = await testContext()
+        .routes(
+          craft()
+            .id("test-verify-off")
+            .from(simple("trigger"))
+            .enrich(
+              mail({
+                folder: "INBOX",
+                host: "imap.test.com",
+                auth: { user: "u", pass: "p" },
+                verify: "off",
+              }),
+              replace(),
+            )
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      const body = s.received[0].body as any;
+      expect(body[0].sender).toBeUndefined();
     });
 
     /**
@@ -1094,6 +1160,352 @@ describe("Mail Adapter", () => {
       // Verify the pool connection was released (logout is called on drain)
       expect(mockLogout).toHaveBeenCalled();
     });
+
+    /**
+     * @case markSeen happens per-message AFTER the handler resolves successfully
+     * @preconditions Poll source with default markSeen, one message fetched, downstream step throws
+     * @expectedResult messageFlagsAdd is NOT called for the failed UID; no silent message loss
+     */
+    test("does not mark Seen when handler fails", async () => {
+      let pollCount = 0;
+      mockFetch.mockImplementation(() => ({
+        async *[Symbol.asyncIterator]() {
+          if (pollCount === 0) {
+            pollCount++;
+            yield {
+              uid: 77,
+              flags: new Set([]),
+              envelope: {
+                messageId: "<fail@test.com>",
+                from: [{ address: "a@b.com" }],
+                to: [{ address: "c@d.com" }],
+                subject: "Handler will throw",
+                date: new Date("2026-04-22"),
+              },
+              source: Buffer.from("content"),
+            };
+          }
+        },
+      }));
+
+      t = await testContext()
+        .with({
+          mail: {
+            accounts: {
+              default: {
+                imap: {
+                  host: "imap.test.com",
+                  auth: { user: "u", pass: "p" },
+                },
+              },
+            },
+          },
+        })
+        .routes(
+          craft()
+            .id("test-handler-fail")
+            .from(
+              mail("INBOX", {
+                pollIntervalMs: 5,
+                // markSeen left at default (true) to exercise the post-handler path
+              }),
+            )
+            .process(() => {
+              throw new Error("downstream boom");
+            }),
+        )
+        .build();
+
+      const startPromise = t.ctx.start();
+      await new Promise((r) => setTimeout(r, 20));
+      await t.ctx.stop();
+      await startPromise.catch(() => {});
+
+      expect(mockMessageFlagsAdd).not.toHaveBeenCalled();
+    });
+
+    /**
+     * @case markSeen is called per-message AFTER the handler resolves
+     * @preconditions Poll source with default markSeen, one message fetched, route has no throwing steps
+     * @expectedResult messageFlagsAdd called with the single uid (not a batched string)
+     */
+    test("marks Seen per-message after handler success", async () => {
+      let pollCount = 0;
+      mockFetch.mockImplementation(() => ({
+        async *[Symbol.asyncIterator]() {
+          if (pollCount === 0) {
+            pollCount++;
+            yield {
+              uid: 11,
+              flags: new Set([]),
+              envelope: {
+                messageId: "<ok@test.com>",
+                from: [{ address: "a@b.com" }],
+                to: [{ address: "c@d.com" }],
+                subject: "Handler succeeds",
+                date: new Date("2026-04-22"),
+              },
+              source: Buffer.from("content"),
+            };
+          }
+        },
+      }));
+
+      const s = spy();
+
+      t = await testContext()
+        .with({
+          mail: {
+            accounts: {
+              default: {
+                imap: {
+                  host: "imap.test.com",
+                  auth: { user: "u", pass: "p" },
+                },
+              },
+            },
+          },
+        })
+        .routes(
+          craft()
+            .id("test-handler-ok")
+            .from(
+              mail("INBOX", {
+                pollIntervalMs: 5,
+              }),
+            )
+            .to(s),
+        )
+        .build();
+
+      const startPromise = t.ctx.start();
+      await new Promise((r) => setTimeout(r, 20));
+      await t.ctx.stop();
+      await startPromise.catch(() => {});
+
+      expect(s.received.length).toBeGreaterThanOrEqual(1);
+      expect(mockMessageFlagsAdd).toHaveBeenCalledWith("11", ["\\Seen"], {
+        uid: true,
+      });
+    });
+
+    /**
+     * @case Re-delivery across poll cycles when opting out of \Seen dedupe
+     * @preconditions unseen: false, markSeen: false, same UID returned on multiple polls
+     * @expectedResult Handler is invoked more than once for the same UID across cycles
+     */
+    test("redelivers the same UID across polls when Seen dedupe is disabled", async () => {
+      mockFetch.mockImplementation(() => ({
+        async *[Symbol.asyncIterator]() {
+          yield {
+            uid: 5,
+            flags: new Set([]),
+            envelope: {
+              messageId: "<rebill@test.com>",
+              from: [{ address: "a@b.com" }],
+              to: [{ address: "c@d.com" }],
+              subject: "Redelivered",
+              date: new Date("2026-04-22"),
+            },
+            source: Buffer.from("content"),
+          };
+        },
+      }));
+
+      const s = spy();
+
+      t = await testContext()
+        .with({
+          mail: {
+            accounts: {
+              default: {
+                imap: {
+                  host: "imap.test.com",
+                  auth: { user: "u", pass: "p" },
+                },
+              },
+            },
+          },
+        })
+        .routes(
+          craft()
+            .id("test-redelivery")
+            .from(
+              mail("INBOX", {
+                pollIntervalMs: 1,
+                markSeen: false,
+                unseen: false,
+              }),
+            )
+            .to(s),
+        )
+        .build();
+
+      const startPromise = t.ctx.start();
+      // Give the poll loop enough time to complete at least two cycles.
+      await new Promise((r) => setTimeout(r, 40));
+      await t.ctx.stop();
+      await startPromise.catch(() => {});
+
+      expect(s.received.length).toBeGreaterThanOrEqual(2);
+      expect(mockMessageFlagsAdd).not.toHaveBeenCalled();
+    });
+
+    /**
+     * @case IDLE reconnects after a non-auth error
+     * @preconditions First idle() rejects with a transient error, second hangs until abort
+     * @expectedResult mailboxOpen is called more than once (initial + reconnect)
+     */
+    test("IDLE reconnects after a transient connection drop", async () => {
+      // Zero jitter so the reconnect backoff collapses to 0ms in the test.
+      vi.spyOn(Math, "random").mockReturnValue(0);
+
+      mockFetch.mockImplementation(() => ({
+        async *[Symbol.asyncIterator]() {},
+      }));
+
+      let idleCalls = 0;
+      mockIdle.mockImplementation(async () => {
+        idleCalls++;
+        if (idleCalls === 1) {
+          throw new Error("ECONNRESET");
+        }
+        // Resolve promptly on subsequent calls so the abort check between
+        // idle() and drainOnce can exit the loop cleanly.
+        await new Promise((r) => setTimeout(r, 2));
+      });
+
+      t = await testContext()
+        .with({
+          mail: {
+            accounts: {
+              default: {
+                imap: {
+                  host: "imap.test.com",
+                  auth: { user: "u", pass: "p" },
+                },
+              },
+            },
+          },
+        })
+        .routes(
+          craft().id("test-idle-reconnect").from(mail("INBOX", {})).to(spy()),
+        )
+        .build();
+
+      const startPromise = t.ctx.start();
+      await new Promise((r) => setTimeout(r, 50));
+      await t.ctx.stop();
+      await startPromise.catch(() => {});
+
+      expect(idleCalls).toBeGreaterThanOrEqual(2);
+      // Initial open + reconnect open
+      expect(mockMailboxOpen.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+
+    /**
+     * @case Auth errors during IDLE do not trigger reconnect
+     * @preconditions idle() rejects with an auth error on the first call
+     * @expectedResult Subscription fails with RC5012 (no reconnect attempts)
+     */
+    test("IDLE auth failure stops the subscription without reconnect", async () => {
+      mockFetch.mockImplementation(() => ({
+        async *[Symbol.asyncIterator]() {},
+      }));
+
+      let idleCalls = 0;
+      mockIdle.mockImplementation(async () => {
+        idleCalls++;
+        throw new Error("AUTHENTICATIONFAILED");
+      });
+
+      t = await testContext()
+        .with({
+          mail: {
+            accounts: {
+              default: {
+                imap: {
+                  host: "imap.test.com",
+                  auth: { user: "u", pass: "wrong" },
+                },
+              },
+            },
+          },
+        })
+        .routes(
+          craft().id("test-idle-auth-fail").from(mail("INBOX", {})).to(spy()),
+        )
+        .build();
+
+      const startPromise = t.ctx.start();
+      await new Promise((r) => setTimeout(r, 30));
+      await t.ctx.stop();
+      await startPromise.catch(() => {});
+
+      expect(idleCalls).toBe(1);
+      // No reconnect: mailboxOpen called once at initial subscribe
+      expect(mockMailboxOpen.mock.calls.length).toBe(1);
+    });
+
+    /**
+     * @case Throws RC5003 at subscribe when markSeen is false without pollIntervalMs
+     * @preconditions markSeen: false with no pollIntervalMs (IDLE flood footgun)
+     * @expectedResult t.test() rejects with RC5003
+     */
+    test("throws when markSeen: false without pollIntervalMs", async () => {
+      t = await testContext()
+        .with({
+          mail: {
+            accounts: {
+              default: {
+                imap: {
+                  host: "imap.test.com",
+                  auth: { user: "u", pass: "p" },
+                },
+              },
+            },
+          },
+        })
+        .routes(
+          craft()
+            .id("test-guard-markseen")
+            .from(mail("INBOX", { markSeen: false }))
+            .to(spy()),
+        )
+        .build();
+
+      await expect(t.test()).rejects.toMatchObject({ rc: "RC5003" });
+    });
+
+    /**
+     * @case Throws RC5003 at subscribe when unseen is false without pollIntervalMs
+     * @preconditions unseen: false with no pollIntervalMs
+     * @expectedResult t.test() rejects with RC5003
+     */
+    test("throws when unseen: false without pollIntervalMs", async () => {
+      t = await testContext()
+        .with({
+          mail: {
+            accounts: {
+              default: {
+                imap: {
+                  host: "imap.test.com",
+                  auth: { user: "u", pass: "p" },
+                },
+              },
+            },
+          },
+        })
+        .routes(
+          craft()
+            .id("test-guard-unseen")
+            .from(mail("INBOX", { unseen: false }))
+            .to(spy()),
+        )
+        .build();
+
+      await expect(t.test()).rejects.toMatchObject({ rc: "RC5003" });
+    });
   });
 
   describe("buildSearchCriteriaSets", () => {
@@ -1395,7 +1807,213 @@ describe("Mail Adapter", () => {
       expect(body[0].rawHeaders["x-custom"]).toBeUndefined();
     });
   });
+
+  describe("sender analysis", () => {
+    /**
+     * @case Direct DMARC-aligned mail resolves to the From: header sender
+     * @preconditions Headers include From: and Authentication-Results: dmarc=pass
+     * @expectedResult forwardType "direct", trust "verified", effective sender matches From
+     */
+    test("direct mail with dmarc=pass is verified", () => {
+      const headers = extractAnalysisHeaders(
+        headerLines([
+          "From: Stripe Billing <billing@stripe.com>",
+          "Authentication-Results: mx.example.com; dkim=pass header.i=@stripe.com; spf=pass; dmarc=pass header.from=stripe.com",
+        ]),
+      );
+      const sender = analyzeHeaders(headers);
+      expect(sender.forwardType).toBe("direct");
+      expect(sender.trust).toBe("verified");
+      expect(sender.address).toBe("billing@stripe.com");
+      expect(sender.domain).toBe("stripe.com");
+      expect(sender.forwardChain).toEqual([]);
+      expect(sender.authentication.dmarc).toBe("pass");
+      expect(sender.reason).toBe("direct-dmarc-aligned");
+      expect(sender.headerFrom).toBeUndefined();
+    });
+
+    /**
+     * @case Google Groups forward exposes the original sender via X-Original-From
+     * @preconditions List-Id present, X-Original-From points to the real sender, ARC cv=pass
+     * @expectedResult forwardType "mailing-list", effective sender is the X-Original-From address,
+     *                 headerFrom captures the group address, forwardChain records one hop
+     */
+    test("Google Groups forward resolves to X-Original-From", () => {
+      const headers = extractAnalysisHeaders(
+        headerLines([
+          "From: Detachering via DevOptix <detachering@devoptix.nl>",
+          "Sender: detachering+bncBDG@devoptix.nl",
+          "List-Id: <detachering.devoptix.nl>",
+          "Precedence: list",
+          "X-Original-From: Team Flextender <no-reply@flextender.nl>",
+          "ARC-Seal: i=1; cv=none; d=google.com",
+          "ARC-Authentication-Results: i=1; mx.google.com; dkim=pass header.i=@flextender.nl; spf=pass; dmarc=pass header.from=flextender.nl",
+          "Authentication-Results: mx.example.com; dkim=pass header.i=@devoptix.nl; spf=pass; dmarc=pass header.from=devoptix.nl",
+        ]),
+      );
+      const sender = analyzeHeaders(headers);
+      expect(sender.forwardType).toBe("mailing-list");
+      expect(sender.address).toBe("no-reply@flextender.nl");
+      expect(sender.domain).toBe("flextender.nl");
+      expect(sender.headerFrom?.address).toBe("detachering@devoptix.nl");
+      expect(sender.forwardChain).toHaveLength(1);
+      expect(sender.forwardChain[0].type).toBe("mailing-list");
+      expect(sender.forwardChain[0].via.address).toBe(
+        "detachering@devoptix.nl",
+      );
+      // cv=none on the only ARC-Seal means arc-unverified trust, not verified.
+      expect(sender.authentication.arc).toBe("none");
+      expect(sender.trust).toBe("unverified");
+    });
+
+    /**
+     * @case Google Groups forward with a verified ARC chain is trusted
+     * @preconditions ARC-Seal with cv=pass, List-Id present, X-Original-From set
+     * @expectedResult trust "verified", reason "list-forward-arc-verified"
+     */
+    test("mailing-list forward with ARC cv=pass is verified", () => {
+      const headers = extractAnalysisHeaders(
+        headerLines([
+          "From: Detachering via DevOptix <detachering@devoptix.nl>",
+          "List-Id: <detachering.devoptix.nl>",
+          "X-Original-From: Team Flextender <no-reply@flextender.nl>",
+          "ARC-Seal: i=1; cv=pass; d=google.com",
+          "ARC-Authentication-Results: i=1; mx.google.com; dkim=pass; spf=pass; dmarc=pass header.from=flextender.nl",
+        ]),
+      );
+      const sender = analyzeHeaders(headers);
+      expect(sender.trust).toBe("verified");
+      expect(sender.reason).toBe("list-forward-arc-verified");
+      expect(sender.authentication.arc).toBe("pass");
+    });
+
+    /**
+     * @case Gmail auto-forward preserves From: and adds ARC
+     * @preconditions ARC-Seal present with cv=pass, no List-Id
+     * @expectedResult forwardType "auto-forward", effective sender = From, trust "verified"
+     */
+    test("auto-forward with ARC cv=pass is verified", () => {
+      const headers = extractAnalysisHeaders(
+        headerLines([
+          "From: Stripe Billing <billing@stripe.com>",
+          "ARC-Seal: i=1; cv=pass; d=google.com",
+          "ARC-Authentication-Results: i=1; mx.google.com; dkim=pass; spf=pass; dmarc=pass header.from=stripe.com",
+          "Authentication-Results: mx.personal.com; arc=pass; dkim=pass; dmarc=pass",
+        ]),
+      );
+      const sender = analyzeHeaders(headers);
+      expect(sender.forwardType).toBe("auto-forward");
+      expect(sender.address).toBe("billing@stripe.com");
+      expect(sender.trust).toBe("verified");
+      expect(sender.forwardChain).toHaveLength(1);
+      expect(sender.forwardChain[0].type).toBe("auto-forward");
+    });
+
+    /**
+     * @case DMARC fail on direct mail flags trust as failed
+     * @preconditions Authentication-Results shows dmarc=fail
+     * @expectedResult trust "failed", reason "direct-dmarc-fail"
+     */
+    test("direct mail with dmarc=fail is failed", () => {
+      const headers = extractAnalysisHeaders(
+        headerLines([
+          "From: fake <ceo@devoptix.nl>",
+          "Authentication-Results: mx.example.com; dkim=fail; spf=fail; dmarc=fail header.from=devoptix.nl",
+        ]),
+      );
+      const sender = analyzeHeaders(headers);
+      expect(sender.forwardType).toBe("direct");
+      expect(sender.trust).toBe("failed");
+      expect(sender.reason).toBe("direct-dmarc-fail");
+      expect(sender.authentication.dmarc).toBe("fail");
+    });
+
+    /**
+     * @case No auth headers present yields unverified trust
+     * @preconditions Only From: header, no Authentication-Results
+     * @expectedResult forwardType "direct", trust "unverified"
+     */
+    test("missing auth headers yields unverified", () => {
+      const headers = extractAnalysisHeaders(
+        headerLines(["From: someone@example.com"]),
+      );
+      const sender = analyzeHeaders(headers);
+      expect(sender.forwardType).toBe("direct");
+      expect(sender.trust).toBe("unverified");
+      expect(sender.address).toBe("someone@example.com");
+    });
+
+    /**
+     * @case Mailing-list forward without X-Original-From falls back to a synthesised address from ARC header.from domain
+     * @preconditions List-Id present, no X-Original-From / X-Original-Sender, ARC-Authentication-Results has header.from=<domain>
+     * @expectedResult effective sender domain matches the ARC domain; address is "unknown@<domain>" to avoid colliding with real addresses
+     */
+    test("mailing-list forward without X-Original-From falls back to ARC domain", () => {
+      const headers = extractAnalysisHeaders(
+        headerLines([
+          "From: detachering via DevOptix <detachering@devoptix.nl>",
+          "List-Id: <detachering.devoptix.nl>",
+          "ARC-Seal: i=1; cv=pass; d=google.com",
+          "ARC-Authentication-Results: i=1; mx.google.com; dkim=pass; spf=pass; dmarc=pass header.from=flextender.nl",
+        ]),
+      );
+      const sender = analyzeHeaders(headers);
+      expect(sender.forwardType).toBe("mailing-list");
+      expect(sender.domain).toBe("flextender.nl");
+      expect(sender.address).toBe("unknown@flextender.nl");
+      expect(sender.trust).toBe("verified");
+    });
+
+    /**
+     * @case Auto-forward populates ForwardHop.via from ARC-Seal d= tag
+     * @preconditions ARC-Seal with d=google.com, cv=pass, no List-Id
+     * @expectedResult forwardChain[0].via.domain = "google.com"; via.address = "arc@google.com"
+     */
+    test("auto-forward via is populated from ARC-Seal d=", () => {
+      const headers = extractAnalysisHeaders(
+        headerLines([
+          "From: Stripe Billing <billing@stripe.com>",
+          "ARC-Seal: i=1; cv=pass; d=google.com",
+          "ARC-Authentication-Results: i=1; mx.google.com; dkim=pass; dmarc=pass header.from=stripe.com",
+        ]),
+      );
+      const sender = analyzeHeaders(headers);
+      expect(sender.forwardType).toBe("auto-forward");
+      expect(sender.forwardChain).toHaveLength(1);
+      expect(sender.forwardChain[0].via.domain).toBe("google.com");
+      expect(sender.forwardChain[0].via.address).toBe("arc@google.com");
+    });
+
+    /**
+     * @case parseAuthResults extracts verdicts and header.from
+     * @preconditions Value with dkim, spf, dmarc results and header.from
+     * @expectedResult Each verdict normalized, dmarcHeaderFrom captured
+     */
+    test("parseAuthResults extracts verdicts", () => {
+      const r = parseAuthResults(
+        "mx.example.com; dkim=pass header.i=@foo.com; spf=neutral; dmarc=pass header.from=foo.com",
+      );
+      expect(r.dkim).toBe("pass");
+      expect(r.spf).toBe("neutral");
+      expect(r.dmarc).toBe("pass");
+      expect(r.dmarcHeaderFrom).toBe("foo.com");
+    });
+  });
 });
+
+// ---------------------------------------------------------------------------
+// Analysis test helpers
+// ---------------------------------------------------------------------------
+
+function headerLines(
+  lines: string[],
+): ReadonlyArray<{ key: string; line: string }> {
+  return lines.map((line) => {
+    const colon = line.indexOf(":");
+    const key = (colon >= 0 ? line.slice(0, colon) : line).trim().toLowerCase();
+    return { key, line };
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -1409,6 +2027,7 @@ function createMailMessage(uid: number, folder: string) {
     to: "me@test.com",
     subject: `Message ${uid}`,
     date: new Date(),
+    body: {},
     flags: new Set<string>(),
     folder,
   };

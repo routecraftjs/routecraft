@@ -1,4 +1,5 @@
 import type { Destination } from "../../operations/to";
+import { tagAdapter, factoryArgs } from "../shared/factory-tag";
 import { HttpDestinationAdapter } from "./destination";
 import type { HttpOptions, HttpResult } from "./types";
 
@@ -19,7 +20,8 @@ import type { HttpOptions, HttpResult } from "./types";
 export function http<T = unknown, R = unknown>(
   options: HttpOptions<T>,
 ): Destination<T, HttpResult<R>> {
-  return new HttpDestinationAdapter<T, R>(options);
+  const adapter = new HttpDestinationAdapter<T, R>(options);
+  return tagAdapter(adapter, http, factoryArgs(options));
 }
 
 // Re-export adapter class and types for public API

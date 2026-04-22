@@ -11,6 +11,10 @@ import {
 } from "./exchange.ts";
 import { type RegisteredDirectEndpoint } from "./registry.ts";
 import { SPLIT_PARENT_STORE } from "./operations/split.ts";
+import {
+  resolveAdapterOverride,
+  wrapSourceWithOverride,
+} from "./testing-hooks.ts";
 
 /**
  * Function that forwards a payload to another route via the direct adapter and returns its result.
@@ -298,8 +302,20 @@ export class DefaultRoute implements Route {
       }
     };
 
+    // If a test-time override is registered for this source adapter, route the
+    // subscribe call through the mock's source behaviour instead of invoking
+    // the real adapter. Falls through unchanged when no override matches.
+    const sourceOverride = resolveAdapterOverride(
+      this.definition.source,
+      this.context,
+    );
+    const activeSource =
+      sourceOverride && sourceOverride.source
+        ? wrapSourceWithOverride(this.definition.source, sourceOverride)
+        : this.definition.source;
+
     // Subscribe to the source and enqueue messages to the internal processing queue
-    return this.definition.source.subscribe(
+    return activeSource.subscribe(
       this.context,
       (message, headers) => {
         onReady(); // fallback: fire before first message if adapter never called it

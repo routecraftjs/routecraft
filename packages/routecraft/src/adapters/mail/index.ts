@@ -1,5 +1,6 @@
 import type { Source } from "../../operations/from.ts";
 import type { Destination } from "../../operations/to.ts";
+import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
 import { MailSourceAdapter } from "./source.ts";
 import { MailFetchDestinationAdapter } from "./fetch-destination.ts";
 import { MailSendDestinationAdapter } from "./send-destination.ts";
@@ -89,39 +90,52 @@ export function mail(
   | Destination<unknown, MailFetchResult>
   | Destination<MailSendPayload, MailSendResult>
   | Destination<unknown, void> {
+  const args = factoryArgs(folderOrOptions, options);
+
   // 2 args: string + object -> Source (matches direct(endpoint, options) pattern)
   if (typeof folderOrOptions === "string" && options !== undefined) {
-    return new MailSourceAdapter(
-      folderOrOptions,
-      options,
-    ) as Source<MailMessage>;
+    const adapter = new MailSourceAdapter(folderOrOptions, options);
+    return tagAdapter(adapter, mail, args) as Source<MailMessage>;
   }
 
   // 1 arg string -> Fetch Destination (folder shorthand for .enrich())
   if (typeof folderOrOptions === "string") {
-    return new MailFetchDestinationAdapter({
+    const adapter = new MailFetchDestinationAdapter({
       folder: folderOrOptions,
-    }) as Destination<unknown, MailFetchResult>;
+    });
+    return tagAdapter(adapter, mail, args) as Destination<
+      unknown,
+      MailFetchResult
+    >;
   }
 
   // Action discriminator -> Operation Destination (checked before hasServerKeys)
   if (folderOrOptions && "action" in folderOrOptions) {
-    return new MailOperationDestinationAdapter(
+    const adapter = new MailOperationDestinationAdapter(
       folderOrOptions as MailAction,
-    ) as Destination<unknown, void>;
+    );
+    return tagAdapter(adapter, mail, args) as Destination<unknown, void>;
   }
 
   // Object with server-specific keys -> Fetch Destination
   if (folderOrOptions && hasServerKeys(folderOrOptions)) {
-    return new MailFetchDestinationAdapter(
+    const adapter = new MailFetchDestinationAdapter(
       folderOrOptions as Partial<MailServerOptions>,
-    ) as Destination<unknown, MailFetchResult>;
+    );
+    return tagAdapter(adapter, mail, args) as Destination<
+      unknown,
+      MailFetchResult
+    >;
   }
 
   // No args or client-only keys -> Send Destination
-  return new MailSendDestinationAdapter(
+  const adapter = new MailSendDestinationAdapter(
     folderOrOptions as Partial<MailClientOptions> | undefined,
-  ) as Destination<MailSendPayload, MailSendResult>;
+  );
+  return tagAdapter(adapter, mail, args) as Destination<
+    MailSendPayload,
+    MailSendResult
+  >;
 }
 
 /**
@@ -172,3 +186,17 @@ export type {
 // Re-export store key and client manager
 export { MAIL_CLIENT_MANAGER } from "./shared.ts";
 export { MailClientManager } from "./client-manager.ts";
+
+// Sender analysis
+export type {
+  MailSender,
+  EmailAddress,
+  ForwardHop,
+  ForwardType,
+  TrustLevel,
+} from "./analysis.ts";
+export {
+  analyzeHeaders,
+  parseAuthResults,
+  ANALYSIS_HEADER_NAMES,
+} from "./analysis.ts";

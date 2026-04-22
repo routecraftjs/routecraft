@@ -4,8 +4,13 @@ import {
   type Exchange,
   type ExchangeHeaders,
   OperationType,
+  getExchangeContext,
 } from "../exchange.ts";
 import { type Destination, type CallableDestination } from "./to.ts";
+import {
+  resolveAdapterOverride,
+  invokeSendOverride,
+} from "../testing-hooks.ts";
 
 /**
  * Aggregator used by `.enrich()` to merge the destination result with the current exchange.
@@ -205,16 +210,32 @@ export class EnrichStep<T = unknown, R = unknown> implements Step<
     remainingSteps: Step<Adapter>[],
     queue: { exchange: Exchange; steps: Step<Adapter>[] }[],
   ): Promise<void> {
-    // Get the enrichment data by calling the destination's send method
-    const enrichmentData = await Promise.resolve(this.adapter.send(exchange));
+    // Resolve a test-time override (if any) registered on the context.
+    const override = resolveAdapterOverride(
+      this.adapter,
+      getExchangeContext(exchange),
+    );
 
-    // Extract metadata if the adapter provides it
+    // Get the enrichment data by calling the destination's send method
+    // (or the mock handler when an override is registered).
+    let enrichmentData: R;
+    if (override) {
+      enrichmentData = (await invokeSendOverride(
+        exchange,
+        this.adapter as unknown as Destination<unknown, unknown>,
+        override,
+      )) as R;
+    } else {
+      enrichmentData = await Promise.resolve(this.adapter.send(exchange));
+    }
+
+    // Extract metadata if the adapter provides it (skip when overridden).
     const getMetadata = (
       this.adapter as {
         getMetadata?: (result: unknown) => Record<string, unknown>;
       }
     ).getMetadata;
-    if (getMetadata) {
+    if (!override && getMetadata) {
       this.metadata = getMetadata.call(this.adapter, enrichmentData);
     }
 

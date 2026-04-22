@@ -1167,6 +1167,29 @@ craft()
   .to(log())
 ```
 
+**Source delivery modes:** the source runs in one of two modes.
+
+- **IDLE (default):** the server pushes notifications when new mail arrives. The `\Seen` flag is the cross-cycle dedupe state, so each message is delivered exactly once per subscription. IDLE is the right default for "process each new email once" workloads. If the IMAP connection drops mid-subscription the source reconnects automatically with exponential backoff; auth failures stop the subscription immediately.
+- **Poll (opt-in):** set `pollIntervalMs` to fetch on a cadence instead of IDLE. Required whenever you opt out of the `\Seen` dedupe model (`markSeen: false` or `unseen: false`), for example to re-evaluate the inbox on every cycle and rely on a folder move as the done-signal. IDLE has no cycle boundary, so combining it with those overrides would refetch the entire folder on every inbound message; the source throws `RC5003` at startup to prevent this footgun.
+
+```ts
+// Re-evaluate the inbox every minute; archive a message to mark it done.
+// If you later extend `matchesCriteria`, previously-unmatched mail that is
+// still in INBOX is picked up on the next cycle.
+craft()
+  .id('inbox-processor')
+  .from(mail('INBOX', {
+    pollIntervalMs: 60_000,
+    markSeen: false,
+    unseen: false,
+  }))
+  .filter(matchesCriteria)
+  .process(processMessage)
+  .to(mail({ action: 'move', folder: 'Archive' }))
+```
+
+The `\Seen` flag is written per-message **after** the handler resolves successfully, so a downstream failure leaves the message un-Seen and it is retried on the next cycle. `limit` combined with IDLE is a latency trap (backlog beyond the limit only drains when new mail arrives) and emits a warning at subscribe time.
+
 **Fetch destination (IMAP pull):** Pass a folder string or server options to fetch messages. Use with `.enrich()` to pull mail on demand.
 
 ```ts
@@ -1196,7 +1219,7 @@ craft()
   .transform((msg) => ({
     to: 'team@example.com',
     subject: `Fwd: ${msg.subject}`,
-    text: msg.text ?? '',
+    text: msg.body.text ?? '',
   }))
   .to(mail())
 ```
@@ -1281,6 +1304,7 @@ When multiple accounts are configured, select one per adapter call with the `acc
 | `body` | `string \| string[]` | | Filter by body text (IMAP TEXT search). Array = OR |
 | `header` | `Record<string, string \| string[]>` | | Filter by arbitrary IMAP headers. Array values = OR |
 | `includeHeaders` | `true \| string[]` | | Raw headers to include on fetched messages. `true` = all |
+| `verify` | `'off' \| 'headers' \| 'strict'` | `'headers'` | Sender analysis. `'headers'` reads `Authentication-Results`/`ARC`/`List-Id` the receiving server wrote (no network). `'strict'` additionally runs cryptographic verification via optional `mailauth` (DNS lookups). `'off'` skips analysis. |
 | `limit` | `number` | | Maximum messages per fetch |
 | `pollIntervalMs` | `number` | | Poll interval in ms (default: IMAP IDLE) |
 | `account` | `string` | | Named account from context config (uses default if omitted) |
@@ -1305,12 +1329,11 @@ When multiple accounts are configured, select one per adapter call with the `acc
 |-------|------|-------------|
 | `uid` | `number` | IMAP UID |
 | `messageId` | `string` | Message-ID header |
-| `from` | `string` | Sender address |
+| `from` | `string` | Literal `From:` header. For mailing-list forwards this is the rewritten list address; use `sender.address` for the real sender. |
 | `to` | `string \| string[]` | Recipient address(es) |
 | `subject` | `string` | Subject line |
 | `date` | `Date` | Date sent |
-| `text` | `string?` | Plain text body |
-| `html` | `string?` | HTML body |
+| `body` | `{ text?: string; html?: string }` | Message body. Both, either, or neither may be populated depending on what the sender composed (`multipart/alternative` vs single-part). |
 | `cc` | `string[]?` | CC recipients |
 | `bcc` | `string[]?` | BCC recipients |
 | `replyTo` | `string?` | Reply-to address |
@@ -1318,6 +1341,38 @@ When multiple accounts are configured, select one per adapter call with the `acc
 | `rawHeaders` | `Record<string, string \| string[]>?` | Raw email headers (when `includeHeaders` is set) |
 | `flags` | `Set<string>` | IMAP flags (e.g. `\Seen`, `\Flagged`) |
 | `folder` | `string` | The IMAP folder this message was fetched from |
+| `sender` | `MailSender?` | Computed effective sender and forward chain (see below). Omitted when `verify: 'off'`. |
+
+**`MailSender` (on `MailMessage.sender`):**
+
+Resolves the *real* sender of mailing-list and auto-forwarded messages, so apps can gate on origin without re-parsing headers. For a Google Groups forward, `sender.address` is the original sender and `from` is the rewritten list address.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `address` | `string` | Effective sender address, after unwinding list / auto-forward rewrites. |
+| `name` | `string?` | Display name, when present. |
+| `domain` | `string` | Domain portion of `address`. |
+| `forwardType` | `'direct' \| 'auto-forward' \| 'mailing-list'` | How the message reached the recipient. |
+| `forwardChain` | `ForwardHop[]` | Hops between original sender and final recipient, nearest hop first. Empty for direct mail. |
+| `trust` | `'verified' \| 'unverified' \| 'failed'` | Trust state. Direct mail is `verified` when `dmarc=pass`; forwarded mail is `verified` when `ARC cv=pass`. |
+| `reason` | `string` | Machine-readable slug (e.g. `'list-forward-arc-verified'`, `'direct-dmarc-aligned'`). |
+| `authentication` | `{ dkim, spf, dmarc, arc }` | Per-method verdicts (`pass` / `fail` / `neutral` / `none`; ARC is `pass` / `fail` / `none`). |
+| `headerFrom` | `EmailAddress?` | Literal `From:` header, only set when it differs from the effective sender. |
+
+**Filter on the effective sender:**
+
+```ts
+craft()
+  .from(mail('INBOX'))
+  .filter((ex) => {
+    const s = ex.body.sender;
+    if (s?.address === 'alice@allowed.com' && s.trust === 'verified') {
+      return true;
+    }
+    return { reason: s?.reason ?? 'no sender info' };
+  })
+  .to(log())
+```
 
 **`MailSendPayload` (exchange body for `.to(mail())`):**
 
@@ -1342,7 +1397,7 @@ When multiple accounts are configured, select one per adapter call with the `acc
 | `rejected` | `string[]` | Rejected recipient addresses |
 | `response` | `string` | SMTP server response string |
 
-**Exported types:** `MailAuth`, `MailServerOptions`, `MailClientOptions`, `MailOptions`, `MailMessage`, `MailAttachment`, `MailSendPayload`, `MailSendResult`, `MailFetchResult`, `MailContextConfig`, `MailAccountConfig`, `MailAction`, `MailClientManager`, `MAIL_CLIENT_MANAGER`
+**Exported types:** `MailAuth`, `MailServerOptions`, `MailClientOptions`, `MailOptions`, `MailMessage`, `MailAttachment`, `MailSendPayload`, `MailSendResult`, `MailFetchResult`, `MailContextConfig`, `MailAccountConfig`, `MailAction`, `MailSender`, `EmailAddress`, `ForwardHop`, `ForwardType`, `TrustLevel`, `MailClientManager`, `MAIL_CLIENT_MANAGER`. Helpers: `analyzeHeaders`, `parseAuthResults`.
 
 ---
 

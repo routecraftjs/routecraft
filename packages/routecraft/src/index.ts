@@ -125,6 +125,17 @@ export { logger } from "./logger.ts";
 export { shutdownHandler } from "./shutdown.ts";
 
 export {
+  RC_ADAPTER_OVERRIDES,
+  type AdapterOverride,
+  type AdapterSendCall,
+  type AdapterSourceCall,
+  type SendOverrideHandler,
+  type SourceOverrideBehavior,
+} from "./testing-hooks.ts";
+
+export { tagAdapter, factoryArgs } from "./adapters/shared/factory-tag.ts";
+
+export {
   type Adapter,
   type Consumer,
   type EventName,
@@ -237,6 +248,14 @@ export {
   type MailUnflagAction,
   type MailAppendAction,
   type MailTargetExtractor,
+  type MailSender,
+  type EmailAddress,
+  type ForwardHop,
+  type ForwardType,
+  type TrustLevel,
+  analyzeHeaders,
+  parseAuthResults,
+  ANALYSIS_HEADER_NAMES,
   MAIL_CLIENT_MANAGER,
   MailClientManager,
 } from "./adapters/mail/index.ts";

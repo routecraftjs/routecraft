@@ -412,6 +412,48 @@ export class MyTransformerAdapter<T = unknown, R = T>
 
 ---
 
+## Factory Tagging for Testability
+
+Every adapter factory should stamp its return value with `tagAdapter(instance, factory, factoryArgs(...))` so the testing package's `mockAdapter(factory, ...)` can match instances back to their factory at route execution time. Tagging is optional for tests (class-based matching still works without it), but tagged factories give mock authors a direct identity to assert on.
+
+### Rules
+
+1. **Use `factoryArgs(...)` to build the args tuple.** The helper trims trailing `undefined` so `args.length` matches what the user actually typed at the call site. A uniform convention across adapters means mock authors do not have to learn per-adapter shapes.
+
+   ```typescript
+   import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
+
+   // Do:
+   return tagAdapter(new MyAdapter(opts), myFactory, factoryArgs(endpoint, opts));
+
+   // Don't: hand-build the args tuple, since it drifts across adapters.
+   return tagAdapter(new MyAdapter(opts), myFactory, [endpoint, opts]);
+   ```
+
+2. **Pass the factory function as the second argument**, not a literal or a derived value. Identity is what `mockAdapter(factory, ...)` matches on.
+
+3. **Apply tagging at every return path of a multi-interface factory.** A factory that returns both a `Source` and a `Destination` must tag both; otherwise the overlooked path falls back to class-based matching and loses the nicer factory-form DX.
+
+4. **Do not rely on enumerable properties in tags.** `tagAdapter` stamps non-enumerable symbol properties. Wrappers created via object spread lose them; use `Object.create(Object.getPrototypeOf(adapter))` plus `Object.assign` plus re-`tagAdapter` when an adapter instance must be cloned.
+
+### Example
+
+```typescript
+export function http<T, R>(options: HttpOptions<T>): Destination<T, HttpResult<R>> {
+  const adapter = new HttpDestinationAdapter<T, R>(options);
+  return tagAdapter(adapter, http, factoryArgs(options));
+}
+```
+
+Users can then write:
+
+```typescript
+const mock = mockAdapter(http, { send: async () => ({ status: 200, ... }) });
+expect(mock.calls.send[0].args).toEqual([options]);
+```
+
+---
+
 ## Anti-Patterns
 
 - **Service-specific verbs in the public DSL.** Bad: `api.get("/users").map(...)`. Better: `http({ method: "GET", path: "/users" })`.
@@ -443,6 +485,7 @@ Before submitting a new or modified adapter:
 - [ ] Tests written and passing
 - [ ] Exported from package index
 - [ ] Callable variant supported (functions accepted as adapters)
+- [ ] Factory tagged via `tagAdapter(instance, factory, factoryArgs(...))` at every return path (see "Factory Tagging for Testability")
 
 ---
 

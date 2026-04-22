@@ -7,6 +7,7 @@ import type {
   EventHandler,
   RouteDefinition,
   RouteBuilder,
+  AdapterOverride,
 } from "@routecraft/routecraft";
 import {
   ContextBuilder,
@@ -15,11 +16,24 @@ import {
   RoutecraftError,
   rcError,
   logger,
+  RC_ADAPTER_OVERRIDES,
 } from "@routecraft/routecraft";
 import type { SpyLogger } from "./spy-logger";
 import { createSpyLogger, createNoopSpyLogger } from "./spy-logger";
+import { isAdapterMock, type AdapterMock } from "./mock-adapter";
 
 const DEFAULT_ROUTES_READY_TIMEOUT_MS = 200;
+
+function describeOverrideTarget(target: unknown): string {
+  if (typeof target === "function" && typeof target.name === "string") {
+    const kind =
+      /^[A-Z]/.test(target.name) && target.prototype !== undefined
+        ? "class"
+        : "factory";
+    return `${kind} ${target.name || "<anonymous>"}`;
+  }
+  return "target";
+}
 
 export interface TestContextOptions {
   /** Timeout in ms for waiting for all routes to emit routeStarted. Default 200. */
@@ -210,10 +224,38 @@ export class TestContext {
 export class TestContextBuilder {
   private builder = new ContextBuilder();
   private routesReadyTimeoutMs: number | undefined;
+  private adapterOverrides: AdapterOverride[] = [];
 
   /** Override timeout for waiting for routes to start (ms). Used by tests that assert timeout behavior. */
   routesReadyTimeout(ms: number): this {
     this.routesReadyTimeoutMs = ms;
+    return this;
+  }
+
+  /**
+   * Register an adapter mock. At route execution time, calls to adapters
+   * produced by the same factory are routed through the mock's handlers
+   * instead of invoking the real adapter. Accepts either the handle returned
+   * by `mockAdapter()` or a raw `AdapterOverride`.
+   *
+   * @experimental
+   */
+  override(mock: AdapterMock | AdapterOverride): this {
+    const entry: AdapterOverride = isAdapterMock(mock) ? mock.override : mock;
+    // Fail fast if two overrides target the same factory/class. The framework
+    // uses first-match semantics at execution time, so silently accepting a
+    // duplicate would mean the second mock's assertions always see zero calls
+    // and the user has no signal that their new override is being shadowed.
+    const duplicate = this.adapterOverrides.find(
+      (o) => o.target === entry.target,
+    );
+    if (duplicate !== undefined) {
+      const name = describeOverrideTarget(entry.target);
+      throw new Error(
+        `testContext().override(): duplicate override for ${name}. Each target may only be registered once; remove the redundant override() call.`,
+      );
+    }
+    this.adapterOverrides.push(entry);
     return this;
   }
 
@@ -255,6 +297,17 @@ export class TestContextBuilder {
       () => spyLogger as unknown as ReturnType<typeof logger.child>,
     ) as typeof logger.child;
     const { context: ctx, client } = await this.builder.build();
+
+    // Install registered adapter overrides onto the context store so that
+    // ToStep / EnrichStep / Route source can resolve them at execution time.
+    if (this.adapterOverrides.length > 0) {
+      const existing = ctx.getStore(RC_ADAPTER_OVERRIDES) ?? [];
+      ctx.setStore(RC_ADAPTER_OVERRIDES, [
+        ...existing,
+        ...this.adapterOverrides,
+      ]);
+    }
+
     const options: TestContextOptions & {
       spyLogger: SpyLogger;
       restoreLoggerChild: () => void;

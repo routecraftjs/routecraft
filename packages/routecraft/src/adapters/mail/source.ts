@@ -1,15 +1,29 @@
 import type { CraftContext } from "../../context.ts";
 import type { Source } from "../../operations/from.ts";
 import type { Exchange, ExchangeHeaders } from "../../exchange.ts";
+import { rcError } from "../../error.ts";
 import type { MailMessage, MailServerOptions } from "./types.ts";
+import type { MailClientManager } from "./client-manager.ts";
 import {
   getClientManager,
   createImapClient,
   fetchMessages,
+  markMessagesSeen,
+  isMailAuthError,
   throwMailConnectionError,
   HEADER_MAIL_UID,
   HEADER_MAIL_FOLDER,
+  type MailFetchLogger,
 } from "./shared.ts";
+
+type ImapClient = InstanceType<typeof import("imapflow").ImapFlow>;
+
+/** Cap reconnect attempts so an unrecoverable server fault does not loop forever. */
+const IDLE_RECONNECT_MAX_ATTEMPTS = 30;
+/** Initial backoff between IDLE reconnect attempts. */
+const IDLE_RECONNECT_BASE_MS = 1_000;
+/** Cap for exponential backoff. */
+const IDLE_RECONNECT_MAX_MS = 60_000;
 
 /**
  * Source adapter that receives email messages from IMAP using IDLE or polling.
@@ -22,11 +36,36 @@ import {
  * exchange so downstream operations can resolve the target message even after
  * body transforms.
  *
+ * ## IDLE vs poll
+ *
+ * - Default mode is IDLE: the server pushes new-arrival notifications and the
+ *   \Seen flag is the cross-cycle dedupe state. This is the right model when
+ *   each message should be delivered to the handler exactly once.
+ * - Set `pollIntervalMs` to run in poll mode. Poll mode is required whenever
+ *   you opt out of the \Seen-flag model by setting `markSeen: false` or
+ *   `unseen: false` (for example, to re-evaluate the inbox on every cycle and
+ *   rely on a folder move as the done-signal). IDLE cannot bound re-delivery
+ *   cycles, so combining it with those overrides would flood the handler on
+ *   every inbound message.
+ * - `limit` combined with IDLE is a latency trap: backlog beyond `limit` only
+ *   drains when new mail arrives. A warning is logged at subscribe time.
+ *
  * @example
  * ```typescript
+ * // Default: IDLE, \Seen-based dedupe, exactly-once-ish delivery.
  * craft()
- *   .from(mail('INBOX', { markSeen: true }))
+ *   .from(mail('INBOX', {}))
  *   .to(processMessage())
+ *
+ * // Re-evaluate the inbox on a cadence, move-to-archive as the done signal.
+ * craft()
+ *   .from(mail('INBOX', {
+ *     markSeen: false,
+ *     unseen: false,
+ *     pollIntervalMs: 60_000,
+ *   }))
+ *   .filter(matchesCriteria)
+ *   .to(mail({ action: 'move', folder: 'Archive' }))
  * ```
  *
  * @experimental
@@ -53,7 +92,6 @@ export class MailSourceAdapter implements Source<MailMessage> {
     const manager = getClientManager(context);
     const account = this.adapterOptions.account;
 
-    // Resolve options
     const resolved: MailServerOptions = manager
       ? manager.resolveImapOptions(account, {
           ...this.adapterOptions,
@@ -62,9 +100,6 @@ export class MailSourceAdapter implements Source<MailMessage> {
       : ({ ...this.adapterOptions, folder: this.folder } as MailServerOptions);
 
     const folder = resolved.folder ?? this.folder;
-
-    // Acquire client: pooled or standalone
-    let client: InstanceType<typeof import("imapflow").ImapFlow>;
     const hasConnectionOverride =
       this.adapterOptions.host !== undefined ||
       this.adapterOptions.port !== undefined ||
@@ -72,6 +107,95 @@ export class MailSourceAdapter implements Source<MailMessage> {
       this.adapterOptions.auth !== undefined;
     const usePool = !!manager && !hasConnectionOverride;
 
+    const logger: MailFetchLogger | undefined = context.logger
+      ? {
+          debug: (obj, msg) => context.logger.debug(obj, msg),
+          warn: (obj, msg) => context.logger.warn(obj, msg),
+        }
+      : undefined;
+
+    validateSourceOptions(resolved, logger);
+
+    const markSeenEnabled = resolved.markSeen !== false;
+
+    // Mutable ref so the idle loop can swap the client on reconnect while
+    // the abort handler still releases whatever connection is current.
+    const clientRef: { current: ImapClient | null } = { current: null };
+    clientRef.current = await this.acquireAndOpen(
+      manager,
+      account,
+      resolved,
+      folder,
+      usePool,
+    );
+
+    let released = false;
+    const releaseClient = () => {
+      if (released) return;
+      released = true;
+      const c = clientRef.current;
+      if (!c) return;
+      clientRef.current = null;
+      if (usePool) {
+        manager!.releaseImap(account, c);
+      } else {
+        c.logout().catch(() => {});
+      }
+    };
+
+    const onAbort = () => releaseClient();
+    abortController.signal.addEventListener("abort", onAbort, { once: true });
+
+    const handlerWithHeaders = (message: MailMessage) => {
+      const headers: ExchangeHeaders = {
+        [HEADER_MAIL_UID]: message.uid,
+        [HEADER_MAIL_FOLDER]: message.folder,
+      };
+      return handler(message, headers);
+    };
+
+    try {
+      if (onReady) onReady();
+
+      if (resolved.pollIntervalMs) {
+        await this.pollLoop(
+          clientRef,
+          resolved,
+          folder,
+          markSeenEnabled,
+          handlerWithHeaders,
+          abortController,
+          logger,
+        );
+      } else {
+        await this.idleLoop(
+          clientRef,
+          manager,
+          account,
+          resolved,
+          folder,
+          usePool,
+          markSeenEnabled,
+          handlerWithHeaders,
+          abortController,
+          logger,
+        );
+      }
+    } finally {
+      abortController.signal.removeEventListener("abort", onAbort);
+      releaseClient();
+    }
+  }
+
+  /** Acquire an IMAP client (pool or standalone) and open the mailbox. */
+  private async acquireAndOpen(
+    manager: MailClientManager | null,
+    account: string | undefined,
+    resolved: MailServerOptions,
+    folder: string,
+    usePool: boolean,
+  ): Promise<ImapClient> {
+    let client: ImapClient;
     if (usePool) {
       client = await manager!.acquireImap(account, folder);
     } else {
@@ -87,150 +211,288 @@ export class MailSourceAdapter implements Source<MailMessage> {
         throwMailConnectionError(error, "IMAP");
       }
     }
-
-    // Guard against double-release of the IMAP client
-    let released = false;
-    const releaseClient = () => {
-      if (released) return;
-      released = true;
-      if (usePool) {
-        manager!.releaseImap(account, client);
-      } else {
-        client.logout().catch(() => {});
-      }
-    };
-
-    const onAbort = () => releaseClient();
-    abortController.signal.addEventListener("abort", onAbort, { once: true });
-
     try {
       await client.mailboxOpen(folder);
       if (usePool) manager!.trackMailbox(account, client, folder);
-
-      if (onReady) {
-        onReady();
-      }
-
-      const handlerWithHeaders = (message: MailMessage) => {
-        const headers: ExchangeHeaders = {
-          [HEADER_MAIL_UID]: message.uid,
-          [HEADER_MAIL_FOLDER]: message.folder,
-        };
-        return handler(message, headers);
-      };
-
-      if (resolved.pollIntervalMs) {
-        await this.pollLoop(
-          client,
-          resolved,
-          folder,
-          handlerWithHeaders,
-          abortController,
-        );
+      return client;
+    } catch (error) {
+      if (usePool) {
+        manager!.releaseImap(account, client);
       } else {
-        await this.idleLoop(
-          client,
-          resolved,
-          folder,
-          handlerWithHeaders,
-          abortController,
-        );
+        await client.logout().catch(() => {});
       }
-    } finally {
-      abortController.signal.removeEventListener("abort", onAbort);
-      releaseClient();
+      throw error;
     }
   }
 
   private async pollLoop(
-    client: Awaited<ReturnType<typeof createImapClient>>,
+    clientRef: { current: ImapClient | null },
     options: MailServerOptions,
     folder: string,
+    markSeenEnabled: boolean,
     handler: (message: MailMessage) => Promise<Exchange>,
     abortController: AbortController,
+    logger?: MailFetchLogger,
   ): Promise<void> {
-    const processedUids = new Set<number>();
-
     while (!abortController.signal.aborted) {
-      const messages = await fetchMessages(client, options, folder);
+      const client = clientRef.current;
+      if (!client) return;
+
+      const messages = await fetchMessages(client, options, folder, logger);
 
       for (const message of messages) {
         if (abortController.signal.aborted) break;
-        if (processedUids.has(message.uid)) continue;
         try {
           await handler(message);
-          processedUids.add(message.uid);
+          if (markSeenEnabled) {
+            await markMessagesSeen(client, message.uid, logger);
+          }
         } catch {
-          // Exchange error already logged by the route pipeline.
-          // UID is NOT marked processed so it will be retried on the next poll.
+          // Handler error already logged by the route pipeline. Leave the
+          // message un-Seen so the next poll cycle retries it.
         }
       }
 
       if (abortController.signal.aborted) break;
 
-      // Wait for the poll interval, cleaning up the abort listener on timeout
-      await new Promise<void>((resolve) => {
-        const timeout = setTimeout(() => {
-          abortController.signal.removeEventListener("abort", onAbort);
-          resolve();
-        }, options.pollIntervalMs);
-        const onAbort = () => {
-          clearTimeout(timeout);
-          resolve();
-        };
-        abortController.signal.addEventListener("abort", onAbort, {
-          once: true,
-        });
-      });
+      await waitWithAbort(options.pollIntervalMs ?? 0, abortController);
     }
   }
 
   private async idleLoop(
-    client: Awaited<ReturnType<typeof createImapClient>>,
+    clientRef: { current: ImapClient | null },
+    manager: MailClientManager | null,
+    account: string | undefined,
     options: MailServerOptions,
     folder: string,
+    usePool: boolean,
+    markSeenEnabled: boolean,
     handler: (message: MailMessage) => Promise<Exchange>,
     abortController: AbortController,
+    logger?: MailFetchLogger,
   ): Promise<void> {
-    const processedUids = new Set<number>();
+    // Drain whatever matches on startup, then transition into IDLE.
+    await this.drainOnce(
+      clientRef,
+      options,
+      folder,
+      markSeenEnabled,
+      handler,
+      abortController,
+      logger,
+    );
 
-    // Fetch existing messages first
-    const existing = await fetchMessages(client, options, folder);
-    for (const message of existing) {
-      if (abortController.signal.aborted) return;
-      if (processedUids.has(message.uid)) continue;
-      try {
-        await handler(message);
-        processedUids.add(message.uid);
-      } catch {
-        // Exchange error already logged by the route pipeline.
-        // UID is NOT marked processed so it will be retried on the next idle cycle.
-      }
-    }
-
-    // Listen for new messages via IDLE
     while (!abortController.signal.aborted) {
+      const client = clientRef.current;
+      if (!client) return;
+
       try {
         await client.idle();
       } catch (error) {
         if (abortController.signal.aborted) return;
-        throwMailConnectionError(error, "IMAP");
+        if (isMailAuthError(error)) {
+          // Auth failures will not recover on reconnect; surface clearly and stop.
+          throwMailConnectionError(error, "IMAP");
+        }
+        logger?.warn(
+          {
+            err: error instanceof Error ? error : new Error(String(error)),
+            folder,
+          },
+          "mail adapter IDLE connection dropped; attempting reconnect",
+        );
+        await this.reconnectWithBackoff(
+          clientRef,
+          manager,
+          account,
+          options,
+          folder,
+          usePool,
+          abortController,
+          logger,
+        );
+        if (abortController.signal.aborted) return;
+        continue;
       }
 
       if (abortController.signal.aborted) return;
 
-      const newMessages = await fetchMessages(client, options, folder);
-      for (const message of newMessages) {
-        if (abortController.signal.aborted) return;
-        if (processedUids.has(message.uid)) continue;
-        try {
-          await handler(message);
-          processedUids.add(message.uid);
-        } catch {
-          // Exchange error already logged by the route pipeline.
-          // UID is NOT marked processed so it will be retried on the next idle cycle.
+      await this.drainOnce(
+        clientRef,
+        options,
+        folder,
+        markSeenEnabled,
+        handler,
+        abortController,
+        logger,
+      );
+    }
+  }
+
+  /**
+   * Fetch matching messages once and deliver each to the handler.
+   * Marks each message Seen only after the handler resolves successfully,
+   * so a handler failure leaves the message in the pool for retry.
+   */
+  private async drainOnce(
+    clientRef: { current: ImapClient | null },
+    options: MailServerOptions,
+    folder: string,
+    markSeenEnabled: boolean,
+    handler: (message: MailMessage) => Promise<Exchange>,
+    abortController: AbortController,
+    logger?: MailFetchLogger,
+  ): Promise<void> {
+    const client = clientRef.current;
+    if (!client) return;
+
+    const messages = await fetchMessages(client, options, folder, logger);
+    for (const message of messages) {
+      if (abortController.signal.aborted) return;
+      try {
+        await handler(message);
+        if (markSeenEnabled) {
+          await markMessagesSeen(client, message.uid, logger);
         }
+      } catch {
+        // Handler error already logged by the route pipeline. Leave un-Seen
+        // so the next drain cycle (next IDLE wake or next poll tick) retries.
       }
     }
   }
+
+  /**
+   * Replace a dead IMAP client after an IDLE failure. Exponential backoff
+   * with jitter, capped total attempts. Releases the current client on the
+   * first attempt so the pool slot is freed for the new connection.
+   */
+  private async reconnectWithBackoff(
+    clientRef: { current: ImapClient | null },
+    manager: MailClientManager | null,
+    account: string | undefined,
+    options: MailServerOptions,
+    folder: string,
+    usePool: boolean,
+    abortController: AbortController,
+    logger?: MailFetchLogger,
+  ): Promise<void> {
+    const dead = clientRef.current;
+    clientRef.current = null;
+    if (dead) {
+      if (usePool) {
+        try {
+          manager!.releaseImap(account, dead);
+        } catch {
+          // Ignore release errors on a client we know is broken
+        }
+      } else {
+        await dead.logout().catch(() => {});
+      }
+    }
+
+    for (let attempt = 1; attempt <= IDLE_RECONNECT_MAX_ATTEMPTS; attempt++) {
+      if (abortController.signal.aborted) return;
+
+      const base = Math.min(
+        IDLE_RECONNECT_BASE_MS * 2 ** (attempt - 1),
+        IDLE_RECONNECT_MAX_MS,
+      );
+      // Full jitter: pick uniformly in [0, base] so retries don't thunder.
+      const delay = Math.floor(Math.random() * base);
+      await waitWithAbort(delay, abortController);
+      if (abortController.signal.aborted) return;
+
+      try {
+        const fresh = await this.acquireAndOpen(
+          manager,
+          account,
+          options,
+          folder,
+          usePool,
+        );
+        clientRef.current = fresh;
+        logger?.debug(
+          { folder, attempt },
+          "mail adapter IDLE reconnect succeeded",
+        );
+        return;
+      } catch (error) {
+        if (isMailAuthError(error)) {
+          throwMailConnectionError(error, "IMAP");
+        }
+        logger?.warn(
+          {
+            err: error instanceof Error ? error : new Error(String(error)),
+            folder,
+            attempt,
+          },
+          "mail adapter IDLE reconnect attempt failed",
+        );
+      }
+    }
+
+    throw rcError("RC5010", undefined, {
+      message: `Mail adapter IDLE reconnect gave up after ${IDLE_RECONNECT_MAX_ATTEMPTS} attempts on folder "${folder}".`,
+    });
+  }
+}
+
+/**
+ * Subscribe-time validation.
+ *
+ * Re-evaluation mode (`markSeen: false` or `unseen: false`) requires an
+ * explicit poll cadence: IDLE has no cycle boundary so it would re-fetch the
+ * entire folder on every inbound message, flooding the handler.
+ * `limit` without a poll interval is a latency trap but not dangerous, so it
+ * only warns.
+ */
+function validateSourceOptions(
+  options: MailServerOptions,
+  logger?: MailFetchLogger,
+): void {
+  const disabledSeen = options.markSeen === false;
+  const disabledUnseen = options.unseen === false;
+  const hasPoll =
+    typeof options.pollIntervalMs === "number" && options.pollIntervalMs > 0;
+
+  if ((disabledSeen || disabledUnseen) && !hasPoll) {
+    const which = disabledSeen ? "markSeen: false" : "unseen: false";
+    throw rcError("RC5003", undefined, {
+      message:
+        `Mail source configured with ${which} requires pollIntervalMs. ` +
+        "IDLE mode cannot bound re-delivery cycles and would refetch the " +
+        "entire folder on every incoming message. Set pollIntervalMs to " +
+        "poll on a cadence, or remove the markSeen/unseen override.",
+    });
+  }
+
+  if (typeof options.limit === "number" && !hasPoll) {
+    logger?.warn(
+      { limit: options.limit, folder: options.folder },
+      "mail source `limit` with IDLE: backlog beyond the limit will only " +
+        "drain when new mail arrives. Use pollIntervalMs for predictable drain.",
+    );
+  }
+}
+
+/**
+ * Sleep for `ms` milliseconds, resolving early if the abort signal fires.
+ * `ms <= 0` resolves immediately (still observing abort synchronously).
+ */
+function waitWithAbort(
+  ms: number,
+  abortController: AbortController,
+): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    const timeout = setTimeout(() => {
+      abortController.signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timeout);
+      resolve();
+    };
+    abortController.signal.addEventListener("abort", onAbort, { once: true });
+  });
 }

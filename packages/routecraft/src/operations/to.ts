@@ -1,5 +1,13 @@
 import { type Adapter, type Step } from "../types.ts";
-import { type Exchange, OperationType } from "../exchange.ts";
+import {
+  type Exchange,
+  OperationType,
+  getExchangeContext,
+} from "../exchange.ts";
+import {
+  resolveAdapterOverride,
+  invokeSendOverride,
+} from "../testing-hooks.ts";
 
 /**
  * Function form of a destination: receives the exchange and optionally returns a new body.
@@ -43,16 +51,33 @@ export class ToStep<T = unknown, R = void> implements Step<Destination<T, R>> {
     remainingSteps: Step<Adapter>[],
     queue: { exchange: Exchange<T>; steps: Step<Adapter>[] }[],
   ): Promise<void> {
-    // Call the destination and capture the result
-    const result = await Promise.resolve(this.adapter.send(exchange));
+    // Resolve a test-time override (if any) registered on the context.
+    // When present, the mock handler stands in for adapter.send; if the mock
+    // has no handler, the call is silently swallowed (a noop destination).
+    const override = resolveAdapterOverride(
+      this.adapter,
+      getExchangeContext(exchange),
+    );
 
-    // Extract metadata if the adapter provides it
+    let result: unknown;
+    if (override) {
+      result = await invokeSendOverride(
+        exchange,
+        this.adapter as unknown as Destination<unknown, unknown>,
+        override,
+      );
+    } else {
+      result = await Promise.resolve(this.adapter.send(exchange));
+    }
+
+    // Extract metadata if the adapter provides it (skip when overridden; mock
+    // results are typically primitives and have no adapter metadata).
     const getMetadata = (
       this.adapter as {
         getMetadata?: (result: unknown) => Record<string, unknown>;
       }
     ).getMetadata;
-    if (getMetadata) {
+    if (!override && getMetadata) {
       this.metadata = getMetadata.call(this.adapter, result);
     }
 

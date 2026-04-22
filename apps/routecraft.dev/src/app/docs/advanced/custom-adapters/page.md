@@ -138,6 +138,52 @@ export function myQueue(options: MyQueueOptions) {
 .to(myQueue({ queue: 'results' }))
 ```
 
+## Making your adapter mockable
+
+Tag every adapter instance your factory returns so consumers can mock it with `mockAdapter(yourFactory, ...)` instead of having to import the internal adapter class. Tagging is a one-line addition per return path:
+
+```ts
+import { tagAdapter, factoryArgs } from '@routecraft/routecraft'
+
+export function myQueue(options: MyQueueOptions) {
+  return tagAdapter(new MyQueueAdapter(options), myQueue, factoryArgs(options))
+}
+```
+
+`tagAdapter` stamps the instance with two non-enumerable symbol properties: a reference to the factory function (so `mockAdapter(myQueue, ...)` can match instances back to their factory) and the args the user passed at the call site (so mock handlers can receive them via `meta.args` and discriminate same-factory call sites).
+
+`factoryArgs(...)` builds the args tuple and trims trailing `undefined` so `call.args.length` reflects what the user actually typed. Use it rather than hand-building an array so your adapter behaves consistently with the framework's built-in adapters.
+
+For a multi-interface factory, tag at every return path:
+
+```ts
+export function myQueue(
+  options: MyQueueSourceOptions | MyQueueDestinationOptions,
+) {
+  if ('consumerGroup' in options) {
+    return tagAdapter(new MyQueueSourceAdapter(options), myQueue, factoryArgs(options))
+  }
+  return tagAdapter(new MyQueueDestinationAdapter(options), myQueue, factoryArgs(options))
+}
+```
+
+Consumers can then write a single mock that covers both roles:
+
+```ts
+const queueMock = mockAdapter(myQueue, {
+  source: [{ id: 1 }, { id: 2 }],
+  send: async (exchange, { args }) => {
+    // args[0] is whatever the user passed to myQueue() at this call site,
+    // so you can assert on it or branch behaviour per call site.
+    return { ok: true }
+  },
+})
+```
+
+Tagging is optional. Consumers of an untagged adapter can still mock it by class: `mockAdapter(MyQueueAdapter, ...)`. But tagging is the better DX, especially for factories that fan out into multiple concrete classes based on their arguments, so it's the recommended default for every published adapter.
+
+See the [testing guide](/docs/introduction/testing#mocking-external-adapters) for the consumer-side API.
+
 ## Supporting merged options
 
 If your adapter has options that users might want to set once for the entire context (connection strings, timeouts, credentials), implement `MergedOptions<T>`. This lets users register defaults via a plugin while still allowing per-adapter overrides.
