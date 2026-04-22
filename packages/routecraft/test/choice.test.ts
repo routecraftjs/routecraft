@@ -1,0 +1,287 @@
+import { describe, test, expect, afterEach } from "vitest";
+import { testContext, spy, type TestContext } from "@routecraft/testing";
+import { craft, type Source, type EventName } from "@routecraft/routecraft";
+
+type Order = { priority: "urgent" | "normal"; amount: number };
+
+/**
+ * Emits each item in `items` as its own exchange, strictly typed. Simpler
+ * than `simple([...])` which splits arrays at runtime but types the source
+ * as Source<T[]>.
+ */
+function items<T>(list: T[]): Source<T> {
+  return {
+    subscribe: async (_ctx, handler) => {
+      for (const item of list) {
+        await handler(item);
+      }
+    },
+  };
+}
+
+describe("choice operation", () => {
+  let t: TestContext;
+
+  afterEach(async () => {
+    if (t) {
+      await t.stop();
+    }
+  });
+
+  /**
+   * @case First matching `when` branch inlines its steps before the rest of the pipeline
+   * @preconditions Route with .choice() containing two when branches and a shared downstream .to()
+   * @expectedResult Each input reaches the matching branch destination and then the shared destination
+   */
+  test("routes to the first matching when branch and converges back", async () => {
+    const urgent = spy();
+    const big = spy();
+    const fallback = spy();
+    const shared = spy();
+
+    const inputs: Order[] = [
+      { priority: "urgent", amount: 10 },
+      { priority: "normal", amount: 5000 },
+    ];
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("choice-basic")
+          .from(items(inputs))
+          .choice((c) =>
+            c
+              .when(
+                (ex) => ex.body.priority === "urgent",
+                (b) => b.to(urgent),
+              )
+              .when(
+                (ex) => ex.body.amount > 1000,
+                (b) => b.to(big),
+              )
+              .otherwise((b) => b.to(fallback)),
+          )
+          .to(shared),
+      )
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    expect(urgent.received).toHaveLength(1);
+    expect(urgent.received[0].body).toEqual({ priority: "urgent", amount: 10 });
+    expect(big.received).toHaveLength(1);
+    expect(big.received[0].body).toEqual({
+      priority: "normal",
+      amount: 5000,
+    });
+    expect(fallback.received).toHaveLength(0);
+    expect(shared.received).toHaveLength(2);
+  });
+
+  /**
+   * @case Unmatched exchanges are dropped when no otherwise branch exists
+   * @preconditions Route with .choice() that has only `when` branches and no `.otherwise()`
+   * @expectedResult Non-matching exchange does not reach the downstream destination
+   */
+  test("drops exchanges when no branch matches and no otherwise is defined", async () => {
+    const matched = spy();
+    const shared = spy();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("choice-unmatched")
+          .from(items<Order>([{ priority: "normal", amount: 10 }]))
+          .choice((c) =>
+            c.when(
+              (ex) => ex.body.priority === "urgent",
+              (b) => b.to(matched),
+            ),
+          )
+          .to(shared),
+      )
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    expect(matched.received).toHaveLength(0);
+    expect(shared.received).toHaveLength(0);
+  });
+
+  /**
+   * @case `halt()` short-circuits the pipeline for the branch's exchange
+   * @preconditions Route with .choice() whose otherwise branch calls b.to(errorSink).halt()
+   * @expectedResult errorSink receives the exchange, downstream .to() does NOT run for it
+   */
+  test("halt() inside a branch short-circuits further processing", async () => {
+    const urgent = spy();
+    const errorSink = spy();
+    const shared = spy();
+
+    const inputs: Order[] = [
+      { priority: "urgent", amount: 10 },
+      { priority: "normal", amount: 5 },
+    ];
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("choice-halt")
+          .from(items(inputs))
+          .choice((c) =>
+            c
+              .when(
+                (ex) => ex.body.priority === "urgent",
+                (b) => b.to(urgent),
+              )
+              .otherwise((b) => b.to(errorSink).halt()),
+          )
+          .to(shared),
+      )
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    expect(urgent.received).toHaveLength(1);
+    expect(errorSink.received).toHaveLength(1);
+    // Only the urgent exchange reaches the shared .to(); the halted one does not.
+    expect(shared.received).toHaveLength(1);
+    expect(shared.received[0].body).toEqual({
+      priority: "urgent",
+      amount: 10,
+    });
+  });
+
+  /**
+   * @case Choice emits `operation:choice:matched` with branchIndex and branchLabel
+   * @preconditions Route with a matching when branch
+   * @expectedResult matched event fires once with the expected payload
+   */
+  test("emits operation:choice:matched when a when branch matches", async () => {
+    const sink = spy();
+    const matchedEvents: Array<{
+      branchIndex: number;
+      branchLabel: string;
+    }> = [];
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("choice-events-match")
+          .from(items<Order>([{ priority: "urgent", amount: 10 }]))
+          .choice((c) =>
+            c.when(
+              (ex) => ex.body.priority === "urgent",
+              (b) => b.to(sink),
+            ),
+          ),
+      )
+      .on(
+        "route:choice-events-match:operation:choice:matched" as EventName,
+        ((payload: { details: unknown }) => {
+          const d = payload.details as {
+            branchIndex: number;
+            branchLabel: string;
+          };
+          matchedEvents.push({
+            branchIndex: d.branchIndex,
+            branchLabel: d.branchLabel,
+          });
+        }) as never,
+      )
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    expect(matchedEvents).toEqual([{ branchIndex: 0, branchLabel: "when" }]);
+  });
+
+  /**
+   * @case Choice emits `operation:choice:unmatched` when no branch matches
+   * @preconditions Route with a when branch whose predicate never matches and no otherwise
+   * @expectedResult unmatched event fires once
+   */
+  test("emits operation:choice:unmatched when no branch matches", async () => {
+    const sink = spy();
+    let unmatchedCount = 0;
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("choice-events-unmatch")
+          .from(items<Order>([{ priority: "normal", amount: 10 }]))
+          .choice((c) =>
+            c.when(
+              (ex) => ex.body.priority === "urgent",
+              (b) => b.to(sink),
+            ),
+          ),
+      )
+      .on(
+        "route:choice-events-unmatch:operation:choice:unmatched" as EventName,
+        (() => {
+          unmatchedCount += 1;
+        }) as never,
+      )
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    expect(unmatchedCount).toBe(1);
+    expect(sink.received).toHaveLength(0);
+  });
+
+  /**
+   * @case Calling otherwise() twice on the same choice throws an authoring error
+   * @preconditions Builder chain that registers two otherwise branches
+   * @expectedResult The second otherwise() call throws a RoutecraftError
+   */
+  test("otherwise() called twice throws at build time", () => {
+    expect(() =>
+      craft()
+        .id("choice-dup-otherwise")
+        .from(items<Order>([]))
+        .choice((c) =>
+          c.otherwise((b) => b.to(spy())).otherwise((b) => b.to(spy())),
+        )
+        .build(),
+    ).toThrow(/otherwise/);
+  });
+
+  /**
+   * @case otherwise branch is always evaluated last regardless of registration order
+   * @preconditions otherwise() called before when() in the same choice
+   * @expectedResult A matching when branch wins over otherwise even when otherwise was registered first
+   */
+  test("otherwise always evaluates last regardless of registration order", async () => {
+    const whenSink = spy();
+    const otherwiseSink = spy();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("choice-otherwise-order")
+          .from(items<Order>([{ priority: "urgent", amount: 1 }]))
+          .choice((c) =>
+            c
+              .otherwise((b) => b.to(otherwiseSink))
+              .when(
+                (ex) => ex.body.priority === "urgent",
+                (b) => b.to(whenSink),
+              ),
+          ),
+      )
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    expect(whenSink.received).toHaveLength(1);
+    expect(otherwiseSink.received).toHaveLength(0);
+  });
+});
