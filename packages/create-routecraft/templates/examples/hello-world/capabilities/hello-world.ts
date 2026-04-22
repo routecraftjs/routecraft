@@ -20,6 +20,7 @@ const greetRoute = craft()
     }),
   )
   .transform((result) => `Hello, ${result.body.name}!`)
+  .log()
   .to(log());
 
 // "hello-world" caller: dispatches a user id to the greet service.

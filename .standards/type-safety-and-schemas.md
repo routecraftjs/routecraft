@@ -84,6 +84,46 @@ Routes **never** spawn processes. Stdio MCP clients are registered in `mcpPlugin
 
 ---
 
+## Module Augmentation
+
+Every `declare module` block inside `packages/*/src/**` must target the published package specifier, never a relative path.
+
+```ts
+// Good
+declare module "@routecraft/routecraft" {
+  interface RouteBuilder<Current> {
+    myMethod(...): RouteBuilder<Current>;
+  }
+}
+
+// Bad -- relative specifier
+declare module "./builder.ts" { ... }
+declare module "../exchange.ts" { ... }
+```
+
+### Why
+
+`tsup` bundles per-package declarations into a single `dist/index.d.ts`. Relative specifiers survive verbatim into that bundle and no longer resolve in a consumer's module graph. TypeScript then silently drops the augmentation, so the added methods and header keys vanish from the public types. Our own unit tests still compile (they import from `../src/`, where relative specifiers resolve at source-compile time), so the regression is invisible until a real consumer hits it.
+
+Using the package specifier attaches the augmentation to the same `RouteBuilder` / `RoutecraftHeaders` / `StoreRegistry` that is re-exported from the entry point, so it merges correctly in both source compilation and the bundled `.d.ts`.
+
+### Guard
+
+`packages/create-routecraft/test/integration.test.ts` scaffolds a real project, installs `@routecraft/routecraft` via `file:` protocol, and runs `tsc --noEmit`. That typecheck resolves types through `dist/index.d.ts`, so any `declare module` with a relative specifier in the published bundle fails the test at a consumer boundary.
+
+### Scope
+
+This rule applies to every augmentation block, including:
+
+- `RouteBuilder` sugar (`.log`, `.debug`, `.map`, `.schema`) in `packages/routecraft/src/dsl.ts`
+- `RoutecraftHeaders` entries in `packages/routecraft/src/auth/types.ts` and per-adapter shared files
+- `StoreRegistry` entries in per-adapter shared files (cron, direct, mail, split, etc.)
+- Any future augmentation of a type exported from `@routecraft/routecraft`
+
+A lint rule covering this in `@routecraft/eslint-plugin-routecraft` would be the right final state; until that lands, the integration test is the guard.
+
+---
+
 ## References
 
 - Standard Schema: [standardschema.dev](https://standardschema.dev)
