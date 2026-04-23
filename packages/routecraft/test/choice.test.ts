@@ -493,4 +493,134 @@ describe("choice operation", () => {
     const b2 = b.transform((n) => n.toString());
     expectTypeOf(b2).toEqualTypeOf<BranchBuilder<string>>();
   });
+
+  /**
+   * @case enrich() inside a branch merges destination result into the body before convergence
+   * @preconditions Branch uses enrich() with a destination that returns an object; default aggregator spreads result onto body
+   * @expectedResult Downstream sink sees the body with the enrichment merged in
+   */
+  test("enrich() inside a branch merges result into the body", async () => {
+    const shared = spy<Order & { reviewReason: string }>();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("choice-enrich-merge")
+          .from(items<Order>([{ priority: "normal", amount: 5000 }]))
+          .choice((c) =>
+            c.otherwise((b) =>
+              b.enrich(() => ({ reviewReason: "high-value" })),
+            ),
+          )
+          .to(shared),
+      )
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    expect(shared.received).toHaveLength(1);
+    expect(shared.received[0].body).toEqual({
+      priority: "normal",
+      amount: 5000,
+      reviewReason: "high-value",
+    });
+  });
+
+  /**
+   * @case enrich() inside a branch awaits async destinations
+   * @preconditions Branch uses enrich() with an async destination that resolves after a tick
+   * @expectedResult Downstream sink sees the merged body, proving the await is honoured inside inlined branch steps
+   */
+  test("enrich() inside a branch awaits async destinations", async () => {
+    const sink = spy<Order & { fetched: number }>();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("choice-enrich-async")
+          .from(items<Order>([{ priority: "urgent", amount: 1 }]))
+          .choice((c) =>
+            c.otherwise((b) =>
+              b
+                .enrich(async () => {
+                  await new Promise((r) => setTimeout(r, 1));
+                  return { fetched: 42 };
+                })
+                .to(sink),
+            ),
+          ),
+      )
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    expect(sink.received).toHaveLength(1);
+    expect(sink.received[0].body).toEqual({
+      priority: "urgent",
+      amount: 1,
+      fetched: 42,
+    });
+  });
+
+  /**
+   * @case enrich() destination throwing inside a branch propagates as a step failure
+   * @preconditions Branch enrich destination throws; no route-level error handler
+   * @expectedResult step:error, route:error, context:error, and exchange:failed all fire; downstream .to() does not receive the exchange
+   */
+  test("enrich() destination throwing inside a branch propagates as a step failure", async () => {
+    const downstream = spy<Order>();
+    const events: string[] = [];
+
+    t = await testContext()
+      .on("route:*:step:*:error" as const, () => {
+        events.push("step:error");
+      })
+      .on("route:*:error" as const, () => {
+        events.push("route:error");
+      })
+      .on("context:error", () => {
+        events.push("context:error");
+      })
+      .on("route:*:exchange:failed" as const, () => {
+        events.push("exchange:failed");
+      })
+      .routes(
+        craft()
+          .id("choice-enrich-throws")
+          .from(items<Order>([{ priority: "normal", amount: 1 }]))
+          .choice((c) =>
+            c.otherwise((b) =>
+              b.enrich(() => {
+                throw new Error("enrich fetch blew up");
+              }),
+            ),
+          )
+          .to(downstream),
+      )
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    expect(events).toContain("step:error");
+    expect(events).toContain("route:error");
+    expect(events).toContain("context:error");
+    expect(events).toContain("exchange:failed");
+    expect(downstream.received).toHaveLength(0);
+  });
+
+  /**
+   * @case Type-level: BranchBuilder.enrich propagates merged body type (Current & R) to the next builder stage
+   * @preconditions A BranchBuilder<{ a: number }> enriches with a destination returning { b: string }
+   * @expectedResult The resulting builder is BranchBuilder<{ a: number } & { b: string }>
+   */
+  test("type-level: BranchBuilder.enrich propagates merged body type", () => {
+    const b = new BranchBuilder<{ a: number }>();
+    const b2 = b.enrich(() => ({ b: "x" }));
+    expectTypeOf(b2).toEqualTypeOf<
+      BranchBuilder<{ a: number } & { b: string }>
+    >();
+  });
 });

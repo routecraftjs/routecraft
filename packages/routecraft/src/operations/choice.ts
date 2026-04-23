@@ -7,6 +7,7 @@ import {
   getExchangeRoute,
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
+import { ENRICH_MERGE_TYPE } from "../brand.ts";
 import { COLLECT_STEPS } from "../dsl-symbol.ts";
 import { type Destination, type CallableDestination, ToStep } from "./to.ts";
 import {
@@ -14,6 +15,12 @@ import {
   type CallableTransformer,
   TransformStep,
 } from "./transform.ts";
+import {
+  EnrichStep,
+  type DestinationAggregator,
+  type EnrichMergeShape,
+  type EnrichAggregatorOption,
+} from "./enrich.ts";
 
 /**
  * Predicate that decides whether a choice branch matches an exchange.
@@ -90,9 +97,9 @@ export class HaltStep implements Step<HaltAdapter> {
  *
  * Exposed to the user as the `b` parameter inside `when(pred, b => ...)` and
  * `otherwise(b => ...)` callbacks. Grown additively: phase 1 shipped `.to()`
- * and `.halt()`; phase 2 adds `.transform()`. Remaining pipeline operations
- * (`enrich`, `filter`, `header`, `validate`, ...) will follow the same
- * pattern in subsequent phases.
+ * and `.halt()`; phase 2 added `.transform()`; phase 3 adds `.enrich()`.
+ * Remaining pipeline operations (`filter`, `header`, `validate`, ...) will
+ * follow the same pattern in subsequent phases.
  *
  * @template Current - Body type entering this branch
  * @experimental
@@ -139,6 +146,47 @@ export class BranchBuilder<Current = unknown> {
   ): BranchBuilder<Return> {
     this.steps.push(new TransformStep<Current, Return>(transformer));
     return this as unknown as BranchBuilder<Return>;
+  }
+
+  /**
+   * Enrich the exchange body with data from a destination inside this branch.
+   * Mirrors the semantics of `RouteBuilder.enrich`: the destination fetches
+   * data, which the optional aggregator merges into the body (default
+   * aggregator spreads the result onto the body object).
+   *
+   * Useful when a branch needs to fetch per-case enrichment data, e.g.
+   * `.when(isReview, b => b.enrich(http({ url: reviewApi })).to(reviewQueue))`.
+   *
+   * @param destination - Adapter or callable that returns enrichment data
+   * @param aggregator - Optional merge strategy; defaults to spreading result onto body
+   * @returns This builder, re-typed with the merged body shape
+   * @template R - Body type returned by the destination
+   * @template A - Aggregator type (drives body shape inference)
+   * @see RouteBuilder.enrich
+   */
+  enrich<
+    R,
+    A extends
+      | DestinationAggregator<Current, R>
+      | (DestinationAggregator<unknown, unknown> & {
+          [ENRICH_MERGE_TYPE]?: EnrichMergeShape;
+        })
+      | undefined = undefined,
+  >(
+    destination: Destination<Current, R> | CallableDestination<Current, R>,
+    aggregator?: A,
+  ): BranchBuilder<
+    A extends { [ENRICH_MERGE_TYPE]: infer M } ? Current & M : Current & R
+  > {
+    this.steps.push(
+      new EnrichStep<Current, R>(
+        destination,
+        aggregator as EnrichAggregatorOption<Current, R> | undefined,
+      ),
+    );
+    return this as unknown as BranchBuilder<
+      A extends { [ENRICH_MERGE_TYPE]: infer M } ? Current & M : Current & R
+    >;
   }
 
   /**
