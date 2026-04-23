@@ -72,7 +72,8 @@ import {
 } from "./operations/enrich.ts";
 import { HeaderStep } from "./operations/header.ts";
 import { type HeaderValue } from "./exchange.ts";
-import { PUSH_STEP } from "./dsl-symbol.ts";
+import { PUSH_STEP, COLLECT_STEPS } from "./dsl-symbol.ts";
+import { ChoiceStep, ChoiceSubBuilder } from "./operations/choice.ts";
 
 /**
  * Builder for creating a Routecraft context with routes and configuration.
@@ -901,6 +902,50 @@ export class RouteBuilder<Current = unknown> {
     return this.withType<
       A extends { [ENRICH_MERGE_TYPE]: infer M } ? Current & M : Current & R
     >();
+  }
+
+  /**
+   * Conditionally route the exchange through one of several branches.
+   *
+   * Branches are defined in a callback sub-builder, so the `when` / `otherwise`
+   * surface is only reachable inside a choice block. Predicates are evaluated
+   * in registration order; the first match wins. An optional `otherwise`
+   * branch catches exchanges that no `when` matched. If no branch matches and
+   * no `otherwise` is registered, the exchange is dropped with
+   * `reason: "unmatched"`.
+   *
+   * By default, a matched branch's steps are inlined before the remaining
+   * main-pipeline steps, so the exchange converges back into the main flow
+   * after the choice. A branch that ends in `b.halt()` short-circuits: the
+   * exchange is dropped with `reason: "halted"` and the main pipeline does
+   * not resume for it.
+   *
+   * All branches must produce exchanges of the same type `Out` (defaults to
+   * `Current`), which becomes the body type of the builder after the choice.
+   *
+   * @template Out - Body type produced by every branch (enforced by the
+   *   branch callback return types)
+   * @param fn - Callback that populates the choice sub-builder with `when`
+   *   and `otherwise` branches
+   * @returns A RouteBuilder typed at `Out`
+   *
+   * @experimental
+   * @example
+   * ```ts
+   * .choice(c => c
+   *   .when(ex => ex.body.priority === 'urgent', b => b.to(urgentQueue))
+   *   .when(ex => ex.body.amount > 1000,         b => b.to(reviewQueue))
+   *   .otherwise(                                b => b.to(errorSink).halt()))
+   * .to(finalDest)
+   * ```
+   */
+  choice<Out = Current>(
+    fn: (c: ChoiceSubBuilder<Current, Out>) => ChoiceSubBuilder<Current, Out>,
+  ): RouteBuilder<Out> {
+    const sub = new ChoiceSubBuilder<Current, Out>();
+    fn(sub);
+    this.addStep(new ChoiceStep<Current>(sub[COLLECT_STEPS]()));
+    return this.withType<Out>();
   }
 
   /**

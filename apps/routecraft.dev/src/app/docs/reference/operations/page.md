@@ -38,7 +38,7 @@ DSL operators with signatures and examples. {% .lead %}
 | [`filter`](#filter) | Flow Control | Filter data based on predicate |
 | [`validate`](#validate) | Flow Control | Validate data against schema |
 | [`dedupe`](#dedupe) | Flow Control | Suppress duplicate exchanges based on a key {% badge color="purple" %}planned{% /badge %} |
-| [`choice`](#choice) | Flow Control | Route to different paths based on conditions {% badge color="purple" %}planned{% /badge %} |
+| [`choice`](#choice) | Flow Control | Route to different paths based on conditions |
 | [`split`](#split) | Flow Control | Split arrays into individual items |
 | [`aggregate`](#aggregate) | Flow Control | Combine multiple items into single result |
 | [`multicast`](#multicast) | Flow Control | Send exchange to multiple destinations {% badge color="purple" %}planned{% /badge %} |
@@ -696,30 +696,47 @@ When the body contains an unsupported type, a `RoutecraftError` is thrown indica
 Use an explicit `keyFn` when you need stable identity across body changes. For example, if the body is enriched or transformed before `dedupe`/`cache`, but identity should be based on a header set earlier by an adapter.
 {% /callout %}
 
-### choice {% badge color="purple" %}planned{% /badge %}
+### choice
 
 ```ts
-choice<T = Current>(routes: Array<{ when: (body: Current) => boolean; then: RouteBuilder<T> }>): RouteBuilder<T>
+choice<Out = Current>(
+  fn: (c: ChoiceSubBuilder<Current, Out>) => ChoiceSubBuilder<Current, Out>,
+): RouteBuilder<Out>
 ```
 
-Route exchanges to different processing paths based on conditions. Like a switch statement for data flows.
+Conditionally route exchanges through one of several branches. Branches are defined via a callback sub-builder, so `when` and `otherwise` are only reachable inside a `choice` block. Predicates are evaluated in registration order; the first match wins. The optional `otherwise` branch catches exchanges that no `when` matched; if omitted and no branch matches, the exchange is dropped with `reason: "unmatched"`.
+
+Matched branches inline their steps before the remaining main-pipeline steps, so the exchange converges back into the main flow after the choice. A branch that ends in `b.halt()` short-circuits: the exchange is dropped with `reason: "halted"` and the main pipeline does not resume for it.
 
 ```ts
-.choice([
-  {
-    when: (order) => order.priority === 'urgent',
-    then: craft().transform(priorityProcessing).to(urgentQueue)
-  },
-  {
-    when: (order) => order.amount > 1000,
-    then: craft().transform(highValueProcessing).to(reviewQueue)
-  },
-  {
-    when: () => true, // default case
-    then: craft().to(standardQueue)
-  }
-])
+.from(incomingOrders)
+.choice((c) =>
+  c
+    .when(
+      (ex) => ex.body.priority === "urgent",
+      (b) => b.to(urgentQueue),
+    )
+    .when(
+      (ex) => ex.body.amount > 1000,
+      (b) => b.to(reviewQueue),
+    )
+    .otherwise((b) => b.to(errorSink).halt()),
+)
+.to(audit); // runs for urgent and review; skipped for otherwise (halted)
 ```
+
+Phase 1 branches support `to()` and `halt()`. Pipeline operations like `transform`, `enrich`, and `filter` will be added to branches in later phases.
+
+**Events:**
+
+- `route:<id>:operation:choice:matched` -- `{ branchIndex, branchLabel: "when" | "otherwise" }`
+- `route:<id>:operation:choice:unmatched` -- fires when no branch matched and the exchange is dropped.
+
+**Known limitations (phase 1):**
+
+- Nested `.choice()` inside a branch is not supported.
+- Predicates must be synchronous.
+- `otherwise()` may only be registered once per choice (throws otherwise).
 
 ### split
 

@@ -31,6 +31,10 @@ export enum OperationType {
   ENRICH = "enrich",
   /** Set or override a header on the exchange */
   HEADER = "header",
+  /** Conditionally route the exchange through one of several branches */
+  CHOICE = "choice",
+  /** Short-circuit the pipeline: drop the exchange without further steps */
+  HALT = "halt",
 }
 
 /**

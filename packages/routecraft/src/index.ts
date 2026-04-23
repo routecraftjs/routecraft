@@ -69,6 +69,12 @@ export {
 
 export { type Filter, type FilterDropResult } from "./operations/filter.ts";
 
+export {
+  BranchBuilder,
+  ChoiceSubBuilder,
+  type ChoicePredicate,
+} from "./operations/choice.ts";
+
 export { type HeaderSetter } from "./operations/header.ts";
 
 export {
