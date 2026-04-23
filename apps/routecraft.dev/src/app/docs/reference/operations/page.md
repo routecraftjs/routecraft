@@ -714,7 +714,7 @@ Matched branches inline their steps before the remaining main-pipeline steps, so
   c
     .when(
       (ex) => ex.body.priority === "urgent",
-      (b) => b.to(urgentQueue),
+      (b) => b.transform(prioritize).to(urgentQueue),
     )
     .when(
       (ex) => ex.body.amount > 1000,
@@ -725,14 +725,14 @@ Matched branches inline their steps before the remaining main-pipeline steps, so
 .to(audit); // runs for urgent and review; skipped for otherwise (halted)
 ```
 
-Phase 1 branches support `to()` and `halt()`. Pipeline operations like `transform`, `enrich`, and `filter` will be added to branches in later phases.
+Branches currently support `to()`, `transform()`, and `halt()`. Additional pipeline operations (`enrich`, `filter`, `header`, `validate`) will be added in subsequent phases. Branches that change body type via `transform()` must converge on the same `Out` type; the callback return type enforces this at compile time.
 
 **Events:**
 
 - `route:<id>:operation:choice:matched` -- `{ branchIndex, branchLabel: "when" | "otherwise" }`
 - `route:<id>:operation:choice:unmatched` -- fires when no branch matched and the exchange is dropped.
 
-**Known limitations (phase 1):**
+**Known limitations:**
 
 - Nested `.choice()` inside a branch is not supported.
 - Predicates must be synchronous.

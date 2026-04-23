@@ -286,4 +286,115 @@ describe("choice operation", () => {
     expect(whenSink.received).toHaveLength(1);
     expect(otherwiseSink.received).toHaveLength(0);
   });
+
+  /**
+   * @case transform() inside a branch rewrites the body before the choice converges
+   * @preconditions Two branches each transforming the body differently; shared downstream .to()
+   * @expectedResult Downstream destination sees the per-branch transformed body for each exchange
+   */
+  test("transform() inside a branch rewrites the body before convergence", async () => {
+    const shared = spy<Order>();
+
+    const inputs: Order[] = [
+      { priority: "urgent", amount: 10 },
+      { priority: "normal", amount: 50 },
+    ];
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("choice-transform-converge")
+          .from(items(inputs))
+          .choice((c) =>
+            c
+              .when(
+                (ex) => ex.body.priority === "urgent",
+                (b) => b.transform((body) => ({ ...body, amount: 999 })),
+              )
+              .otherwise((b) =>
+                b.transform((body) => ({ ...body, amount: 0 })),
+              ),
+          )
+          .to(shared),
+      )
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    expect(shared.receivedBodies()).toEqual([
+      { priority: "urgent", amount: 999 },
+      { priority: "normal", amount: 0 },
+    ]);
+  });
+
+  /**
+   * @case transform() can chain with .to() and .halt() inside the same branch
+   * @preconditions Branch transforms body, sends to a sink, then halts
+   * @expectedResult Sink sees the transformed body; downstream .to() is skipped due to halt
+   */
+  test("transform() chains with to() and halt() inside a branch", async () => {
+    const sink = spy<Order>();
+    const downstream = spy<Order>();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("choice-transform-chain")
+          .from(items<Order>([{ priority: "normal", amount: 1 }]))
+          .choice((c) =>
+            c.otherwise((b) =>
+              b
+                .transform((body) => ({ ...body, amount: body.amount + 100 }))
+                .to(sink)
+                .halt(),
+            ),
+          )
+          .to(downstream),
+      )
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    expect(sink.received).toHaveLength(1);
+    expect(sink.received[0].body).toEqual({ priority: "normal", amount: 101 });
+    expect(downstream.received).toHaveLength(0);
+  });
+
+  /**
+   * @case transform() changes the body type inside a branch; both branches must converge to the same Out
+   * @preconditions Both branches call .transform to a string; downstream .to() receives strings
+   * @expectedResult Downstream receives the per-branch string value; type flows through
+   */
+  test("transform() can change body type; branches must converge", async () => {
+    const downstream = spy<string>();
+
+    const inputs: Order[] = [
+      { priority: "urgent", amount: 3 },
+      { priority: "normal", amount: 4 },
+    ];
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("choice-transform-type-change")
+          .from(items(inputs))
+          .choice<string>((c) =>
+            c
+              .when(
+                (ex) => ex.body.priority === "urgent",
+                (b) => b.transform((body) => `URGENT:${body.amount}`),
+              )
+              .otherwise((b) => b.transform((body) => `normal:${body.amount}`)),
+          )
+          .to(downstream),
+      )
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    expect(downstream.receivedBodies()).toEqual(["URGENT:3", "normal:4"]);
+  });
 });
