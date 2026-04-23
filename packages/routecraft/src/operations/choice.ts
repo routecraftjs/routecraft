@@ -9,6 +9,11 @@ import {
 import { rcError } from "../error.ts";
 import { COLLECT_STEPS } from "../dsl-symbol.ts";
 import { type Destination, type CallableDestination, ToStep } from "./to.ts";
+import {
+  type Transformer,
+  type CallableTransformer,
+  TransformStep,
+} from "./transform.ts";
 
 /**
  * Predicate that decides whether a choice branch matches an exchange.
@@ -84,10 +89,10 @@ export class HaltStep implements Step<HaltAdapter> {
  * Sub-builder that defines the step pipeline for a single choice branch.
  *
  * Exposed to the user as the `b` parameter inside `when(pred, b => ...)` and
- * `otherwise(b => ...)` callbacks. Intentionally narrow: phase 1 only exposes
- * `.to()` and `.halt()`. Other pipeline operations (`transform`, `enrich`,
- * `filter`, ...) will be added in subsequent phases by delegating to the
- * shared step-adding logic.
+ * `otherwise(b => ...)` callbacks. Grown additively: phase 1 shipped `.to()`
+ * and `.halt()`; phase 2 adds `.transform()`. Remaining pipeline operations
+ * (`enrich`, `filter`, `header`, `validate`, ...) will follow the same
+ * pattern in subsequent phases.
  *
  * @template Current - Body type entering this branch
  * @experimental
@@ -103,12 +108,37 @@ export class BranchBuilder<Current = unknown> {
    * @param destination - Adapter or callable that processes the exchange
    * @returns This builder, re-typed to the destination's output
    * @template R - Result body type; defaults to `void` (body unchanged)
+   * @see RouteBuilder.to
    */
   to<R = void>(
     destination: Destination<Current, R> | CallableDestination<Current, R>,
   ): BranchBuilder<R extends void ? Current : R> {
     this.steps.push(new ToStep<Current, R>(destination));
     return this as unknown as BranchBuilder<R extends void ? Current : R>;
+  }
+
+  /**
+   * Transform the exchange body inside this branch. Mirrors the semantics of
+   * `RouteBuilder.transform`: the transformer receives the current body and
+   * returns the replacement body. Headers and exchange identity are
+   * preserved.
+   *
+   * Useful for branches that shape the body before the choice converges back
+   * into the main pipeline, e.g.
+   * `.when(isUrgent, b => b.transform(prioritize))`.
+   *
+   * @param transformer - Adapter or callable that maps the body to a new value
+   * @returns This builder, re-typed to the transformer's output
+   * @template Return - Result body type
+   * @see RouteBuilder.transform
+   */
+  transform<Return>(
+    transformer:
+      | Transformer<Current, Return>
+      | CallableTransformer<Current, Return>,
+  ): BranchBuilder<Return> {
+    this.steps.push(new TransformStep<Current, Return>(transformer));
+    return this as unknown as BranchBuilder<Return>;
   }
 
   /**
