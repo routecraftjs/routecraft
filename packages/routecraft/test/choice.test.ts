@@ -1,6 +1,11 @@
-import { describe, test, expect, afterEach } from "vitest";
+import { describe, test, expect, expectTypeOf, afterEach } from "vitest";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
-import { craft, type Source, type EventName } from "@routecraft/routecraft";
+import {
+  craft,
+  BranchBuilder,
+  type Source,
+  type EventName,
+} from "@routecraft/routecraft";
 
 type Order = { priority: "urgent" | "normal"; amount: number };
 
@@ -396,5 +401,96 @@ describe("choice operation", () => {
     await t.drain();
 
     expect(downstream.receivedBodies()).toEqual(["URGENT:3", "normal:4"]);
+  });
+
+  /**
+   * @case transform() inside a branch awaits async (Promise-returning) transformers
+   * @preconditions Branch uses an async transformer that resolves after a tick
+   * @expectedResult Downstream sink sees the resolved body, proving the await is honoured inside inlined branch steps
+   */
+  test("transform() inside a branch awaits async transformers", async () => {
+    const sink = spy<Order>();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("choice-transform-async")
+          .from(items<Order>([{ priority: "normal", amount: 1 }]))
+          .choice((c) =>
+            c.otherwise((b) =>
+              b
+                .transform(async (body) => {
+                  await new Promise((r) => setTimeout(r, 1));
+                  return { ...body, amount: body.amount + 1 };
+                })
+                .to(sink),
+            ),
+          ),
+      )
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    expect(sink.received).toHaveLength(1);
+    expect(sink.received[0].body).toEqual({ priority: "normal", amount: 2 });
+  });
+
+  /**
+   * @case A transformer throwing inside a branch propagates as a step failure
+   * @preconditions Branch transformer throws; no route-level error handler
+   * @expectedResult step:error, route:error, context:error, and exchange:failed all fire; downstream .to() does not receive the exchange
+   */
+  test("transform() throwing inside a branch propagates as a step failure", async () => {
+    const downstream = spy<Order>();
+    const events: string[] = [];
+
+    t = await testContext()
+      .on("route:*:step:*:error" as const, () => {
+        events.push("step:error");
+      })
+      .on("route:*:error" as const, () => {
+        events.push("route:error");
+      })
+      .on("context:error", () => {
+        events.push("context:error");
+      })
+      .on("route:*:exchange:failed" as const, () => {
+        events.push("exchange:failed");
+      })
+      .routes(
+        craft()
+          .id("choice-transform-throws")
+          .from(items<Order>([{ priority: "normal", amount: 1 }]))
+          .choice((c) =>
+            c.otherwise((b) =>
+              b.transform(() => {
+                throw new Error("branch transform blew up");
+              }),
+            ),
+          )
+          .to(downstream),
+      )
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    expect(events).toContain("step:error");
+    expect(events).toContain("route:error");
+    expect(events).toContain("context:error");
+    expect(events).toContain("exchange:failed");
+    expect(downstream.received).toHaveLength(0);
+  });
+
+  /**
+   * @case Type-level: BranchBuilder.transform propagates the Return generic to the next builder stage
+   * @preconditions A BranchBuilder<number> transforms numbers into strings
+   * @expectedResult The resulting builder is exactly BranchBuilder<string>; subsequent .to() narrows the exchange body
+   */
+  test("type-level: BranchBuilder.transform propagates body type", () => {
+    const b = new BranchBuilder<number>();
+    const b2 = b.transform((n) => n.toString());
+    expectTypeOf(b2).toEqualTypeOf<BranchBuilder<string>>();
   });
 });

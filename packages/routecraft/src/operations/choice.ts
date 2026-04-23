@@ -108,6 +108,7 @@ export class BranchBuilder<Current = unknown> {
    * @param destination - Adapter or callable that processes the exchange
    * @returns This builder, re-typed to the destination's output
    * @template R - Result body type; defaults to `void` (body unchanged)
+   * @see RouteBuilder.to
    */
   to<R = void>(
     destination: Destination<Current, R> | CallableDestination<Current, R>,
@@ -129,6 +130,7 @@ export class BranchBuilder<Current = unknown> {
    * @param transformer - Adapter or callable that maps the body to a new value
    * @returns This builder, re-typed to the transformer's output
    * @template Return - Result body type
+   * @see RouteBuilder.transform
    */
   transform<Return>(
     transformer:
