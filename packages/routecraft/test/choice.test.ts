@@ -623,4 +623,207 @@ describe("choice operation", () => {
       BranchBuilder<{ a: number } & { b: string }>
     >();
   });
+
+  /**
+   * @case filter() inside a branch drops non-matching exchanges
+   * @preconditions Branch filters amount < 100; two inputs above and below threshold
+   * @expectedResult Only matching exchange reaches downstream destination
+   */
+  test("filter() inside a branch drops non-matching exchanges", async () => {
+    const downstream = spy<Order>();
+    const inputs: Order[] = [
+      { priority: "normal", amount: 200 },
+      { priority: "normal", amount: 5 },
+    ];
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("choice-filter-branch")
+          .from(items(inputs))
+          .choice((c) =>
+            c.otherwise((b) => b.filter((ex) => ex.body.amount >= 100)),
+          )
+          .to(downstream),
+      )
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    expect(downstream.received).toHaveLength(1);
+    expect(downstream.received[0].body.amount).toBe(200);
+  });
+
+  /**
+   * @case header() inside a branch sets an exchange header that survives convergence
+   * @preconditions Branch sets x-branch header; downstream .to() sees the header
+   * @expectedResult Downstream exchange has the header set by the branch
+   */
+  test("header() inside a branch sets a header that survives convergence", async () => {
+    const downstream = spy<Order>();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("choice-header-branch")
+          .from(items<Order>([{ priority: "urgent", amount: 1 }]))
+          .choice((c) => c.otherwise((b) => b.header("x-branch", "otherwise")))
+          .to(downstream),
+      )
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    expect(downstream.received).toHaveLength(1);
+    expect(downstream.received[0].headers["x-branch"]).toBe("otherwise");
+  });
+
+  /**
+   * @case tap() inside a branch runs a side effect without changing the body
+   * @preconditions Branch taps a spy; downstream destination receives the unchanged exchange
+   * @expectedResult Spy is invoked once; downstream body is unchanged
+   */
+  test("tap() inside a branch runs a side effect", async () => {
+    const tapped = spy<Order>();
+    const downstream = spy<Order>();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("choice-tap-branch")
+          .from(items<Order>([{ priority: "normal", amount: 42 }]))
+          .choice((c) => c.otherwise((b) => b.tap(tapped)))
+          .to(downstream),
+      )
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    expect(tapped.received).toHaveLength(1);
+    expect(downstream.received).toHaveLength(1);
+    expect(downstream.received[0].body).toEqual({
+      priority: "normal",
+      amount: 42,
+    });
+  });
+
+  /**
+   * @case process() inside a branch replaces the body via full-exchange access
+   * @preconditions Branch processes exchange, replacing body based on a header-derived value
+   * @expectedResult Downstream sees the processed body
+   */
+  test("process() inside a branch replaces the body", async () => {
+    const downstream = spy<{ tag: string }>();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("choice-process-branch")
+          .from(items<Order>([{ priority: "urgent", amount: 1 }]))
+          .choice<{ tag: string }>((c) =>
+            c.otherwise((b) =>
+              b.process<{ tag: string }>((ex) => ({
+                ...ex,
+                body: { tag: `${ex.body.priority}:${ex.body.amount}` },
+              })),
+            ),
+          )
+          .to(downstream),
+      )
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    expect(downstream.received).toHaveLength(1);
+    expect(downstream.received[0].body).toEqual({ tag: "urgent:1" });
+  });
+
+  /**
+   * @case validate() inside a branch throws on invalid input (routes to error handler)
+   * @preconditions Branch validates with a predicate that always throws
+   * @expectedResult step:error and exchange:failed fire; downstream does not receive the exchange
+   */
+  test("validate() inside a branch surfaces failures", async () => {
+    const downstream = spy<Order>();
+    const events: string[] = [];
+
+    t = await testContext()
+      .on("route:*:step:*:error" as const, () => {
+        events.push("step:error");
+      })
+      .on("route:*:exchange:failed" as const, () => {
+        events.push("exchange:failed");
+      })
+      .routes(
+        craft()
+          .id("choice-validate-branch")
+          .from(items<Order>([{ priority: "urgent", amount: 1 }]))
+          .choice((c) =>
+            c.otherwise((b) =>
+              b.validate(() => {
+                throw new Error("validation failed");
+              }),
+            ),
+          )
+          .to(downstream),
+      )
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    expect(events).toContain("step:error");
+    expect(events).toContain("exchange:failed");
+    expect(downstream.received).toHaveLength(0);
+  });
+
+  /**
+   * @case Sugar methods (log / map) are callable inside a branch at both runtime and type level
+   * @preconditions Branch uses .map() to reshape body, then downstream sink receives mapped shape
+   * @expectedResult Sugar methods registered via registerDsl on the shared base work inside branches
+   */
+  test("sugar methods (.map, .log) work inside a branch", async () => {
+    const downstream = spy<{ label: string }>();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("choice-sugar-branch")
+          .from(items<Order>([{ priority: "normal", amount: 99 }]))
+          .choice<{ label: string }>((c) =>
+            c.otherwise((b) =>
+              b.log().map<{ label: string }>({
+                label: (src) => `${src.priority}-${src.amount}`,
+              }),
+            ),
+          )
+          .to(downstream),
+      )
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    expect(downstream.received).toHaveLength(1);
+    expect(downstream.received[0].body).toEqual({ label: "normal-99" });
+  });
+
+  /**
+   * @case Type-level: BranchBuilder inherits the type-preserving ops correctly
+   * @preconditions A BranchBuilder<T> calls filter / header / tap
+   * @expectedResult Each returns BranchBuilder<T> (same subclass, same body type)
+   */
+  test("type-level: type-preserving ops on BranchBuilder return BranchBuilder<T>", () => {
+    const b = new BranchBuilder<Order>();
+    const afterFilter = b.filter(() => true);
+    const afterHeader = b.header("k", "v");
+    const afterTap = b.tap(() => undefined);
+    expectTypeOf(afterFilter).toEqualTypeOf<BranchBuilder<Order>>();
+    expectTypeOf(afterHeader).toEqualTypeOf<BranchBuilder<Order>>();
+    expectTypeOf(afterTap).toEqualTypeOf<BranchBuilder<Order>>();
+  });
 });

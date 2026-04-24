@@ -725,9 +725,9 @@ Matched branches inline their steps before the remaining main-pipeline steps, so
 .to(audit); // runs for urgent and review; skipped for otherwise (halted)
 ```
 
-Branches currently support `to()`, `transform()`, `enrich()`, and `halt()`. Additional pipeline operations (`filter`, `header`, `validate`) will be added in subsequent phases.
+Branches support the full set of pipeline operations available on the main route: `to()`, `transform()`, `enrich()`, `filter()`, `header()`, `tap()`, `process()`, `validate()`, plus the sugar methods `log()`, `debug()`, `map()`, and `schema()`. The only branch-specific op is `halt()`, which short-circuits convergence. Route-level operations (`id`, `batch`, `error`, `from`, `split`, `aggregate`, `choice`, `build`) are deliberately not exposed inside branches because they either configure the route itself or fan out in ways that break the "branch converges" model.
 
-Branches that change body type via `transform()` must converge on the same `Out` type; the callback return type enforces this at compile time.
+Branches that change body type via `transform()` / `process()` / `validate()` / `map()` / `schema()` / `enrich()` must converge on the same `Out` type; the callback return type enforces this at compile time.
 
 **Events:**
 

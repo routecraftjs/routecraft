@@ -9,7 +9,7 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Adapter, Step } from "./types.ts";
 import type { Exchange } from "./exchange.ts";
-import { RouteBuilder } from "./builder.ts";
+import { StepBuilderBase } from "./step-builder-base.ts";
 import { PUSH_STEP } from "./dsl-symbol.ts";
 import { TapStep } from "./operations/tap.ts";
 import { TransformStep, mapper } from "./operations/transform.ts";
@@ -50,17 +50,20 @@ export interface DslRegistration {
 }
 
 /**
- * Register a sugar method on RouteBuilder that delegates to a core
- * primitive step type. The method is added to the prototype and is
- * available on all RouteBuilder instances.
+ * Register a sugar method on StepBuilderBase that delegates to a core
+ * primitive step type. The method is added to the shared base prototype
+ * so it is available on both `RouteBuilder` and `BranchBuilder` (and any
+ * other framework-owned subclass).
  *
  * TypeScript types for the new method must be provided separately via
- * module augmentation (see below for built-in examples).
+ * module augmentation. Because the shared base is `@internal`, augment
+ * `RouteBuilder` and `BranchBuilder` directly (see below for built-in
+ * examples).
  *
  * @experimental
- * @param name - Method name to add to RouteBuilder
+ * @param name - Method name to add to the shared base prototype
  * @param registration - Kind, label, and factory for the sugar method
- * @throws If a method with the given name already exists on RouteBuilder
+ * @throws If a method with the given name already exists on the base
  *
  * @example
  * ```ts
@@ -74,27 +77,29 @@ export interface DslRegistration {
  *   interface RouteBuilder<Current> {
  *     myStep(opts: MyOpts): RouteBuilder<Current>;
  *   }
+ *   interface BranchBuilder<Current> {
+ *     myStep(opts: MyOpts): BranchBuilder<Current>;
+ *   }
  * }
  * ```
  */
 export function registerDsl(name: string, registration: DslRegistration): void {
-  if (name in RouteBuilder.prototype) {
+  if (name in StepBuilderBase.prototype) {
     throw new Error(
-      `Cannot register DSL method "${name}": already exists on RouteBuilder`,
+      `Cannot register DSL method "${name}": already exists on StepBuilderBase`,
     );
   }
 
   const { label, factory } = registration;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic prototype patching requires indexing with a string key
-  (RouteBuilder.prototype as Record<string, any>)[name] = function (
-    this: RouteBuilder<unknown>,
+  (StepBuilderBase.prototype as Record<string, any>)[name] = function (
+    this: StepBuilderBase<unknown>,
     ...args: unknown[]
   ) {
     const step = factory(...args);
     step.label = label;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Symbol-keyed method not visible on the public type
-    (this as any)[PUSH_STEP](step);
+    this[PUSH_STEP](step);
     return this;
   };
 }
@@ -141,6 +146,12 @@ registerDsl("schema", {
 
 // See .standards/type-safety-and-schemas.md#module-augmentation for why this
 // targets the package specifier and not a relative path.
+//
+// Sugar methods live on the shared `StepBuilderBase.prototype` at runtime, so
+// `RouteBuilder` and `BranchBuilder` both inherit the implementation. For
+// types, each subclass's interface is augmented independently because
+// `StepBuilderBase` is `@internal` and cannot itself be augmented through the
+// public package specifier.
 declare module "@routecraft/routecraft" {
   interface RouteBuilder<Current> {
     /**
@@ -200,5 +211,39 @@ declare module "@routecraft/routecraft" {
     schema<S extends StandardSchemaV1>(
       standardSchema: S,
     ): RouteBuilder<StandardSchemaV1.InferOutput<S>>;
+  }
+
+  interface BranchBuilder<Current> {
+    /**
+     * Log the current exchange at info level. Type-preserving tap.
+     */
+    log(
+      formatter?: (exchange: Exchange<Current>) => unknown,
+      options?: LogOptions,
+    ): BranchBuilder<Current>;
+
+    /**
+     * Log the current exchange at debug level. Type-preserving tap.
+     */
+    debug(
+      formatter?: (exchange: Exchange<Current>) => unknown,
+      options?: Omit<LogOptions, "level">,
+    ): BranchBuilder<Current>;
+
+    /**
+     * Map fields from the current data to create a new object. Sugar
+     * for `.transform(mapper({...}))`.
+     */
+    map<Return>(fieldMappings: {
+      [K in keyof Return]: (src: Current) => Return[K];
+    }): BranchBuilder<Return>;
+
+    /**
+     * Validate the exchange body against a Standard Schema. Sugar for
+     * `.validate(schema(standardSchema))`. On failure throws RC5002.
+     */
+    schema<S extends StandardSchemaV1>(
+      standardSchema: S,
+    ): BranchBuilder<StandardSchemaV1.InferOutput<S>>;
   }
 }

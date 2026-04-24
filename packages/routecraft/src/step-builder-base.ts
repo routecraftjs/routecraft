@@ -1,5 +1,6 @@
 import { ENRICH_MERGE_TYPE } from "./brand.ts";
 import { type Adapter, type Step } from "./types.ts";
+import { type Exchange, type HeaderValue } from "./exchange.ts";
 import {
   type Destination,
   type CallableDestination,
@@ -16,6 +17,24 @@ import {
   type EnrichMergeShape,
   type EnrichAggregatorOption,
 } from "./operations/enrich.ts";
+import {
+  type Processor,
+  type CallableProcessor,
+  ProcessStep,
+} from "./operations/process.ts";
+import { TapStep } from "./operations/tap.ts";
+import {
+  type CallableFilter,
+  type Filter,
+  FilterStep,
+} from "./operations/filter.ts";
+import {
+  type Validator,
+  type CallableValidator,
+  ValidateStep,
+} from "./operations/validate.ts";
+import { HeaderStep } from "./operations/header.ts";
+import { PUSH_STEP } from "./dsl-symbol.ts";
 
 // Type-only imports to avoid a runtime cycle. The `Retyped` conditional below
 // resolves `this` into the concrete subclass typed at `NewT`; the value side
@@ -169,5 +188,102 @@ export abstract class StepBuilderBase<Current = unknown> {
     return this.retype<
       A extends { [ENRICH_MERGE_TYPE]: infer M } ? Current & M : Current & R
     >();
+  }
+
+  /**
+   * Process the exchange with a custom function with full access to
+   * headers, body, and context. Use when you need more control than
+   * `.transform()` (which only operates on the body).
+   *
+   * @param processor - Function that receives and returns the exchange
+   * @returns The subclass builder re-typed to the processor's output body
+   * @template Return - Result body type (defaults to `Current`)
+   */
+  process<Return = Current>(
+    processor: Processor<Current, Return> | CallableProcessor<Current, Return>,
+  ): Retyped<this, Return> {
+    this.pushStep(new ProcessStep<Current, Return>(processor));
+    return this.retype<Return>();
+  }
+
+  /**
+   * Set or override a single header on the current exchange. Body type is
+   * unchanged.
+   *
+   * @param key - Header key to set (e.g. `x-request-id`, `routecraft.custom`)
+   * @param valueOrFn - Static value or a function returning the value from the exchange
+   * @returns This builder (same subclass, same body type)
+   */
+  header(
+    key: string,
+    valueOrFn:
+      | HeaderValue
+      | ((exchange: Exchange<Current>) => HeaderValue | Promise<HeaderValue>),
+  ): this {
+    this.pushStep(new HeaderStep<Current>(key, valueOrFn));
+    return this;
+  }
+
+  /**
+   * Execute a side effect without changing the data. Fire-and-forget --
+   * the tap runs asynchronously (tracked for drain) while the main flow
+   * continues. Tap receives a snapshot of the exchange (body/headers
+   * cloned). Errors are emitted as events and rethrown for observability,
+   * but do not stop the pipeline.
+   *
+   * @param destination - Destination adapter or callable for the side effect
+   * @returns This builder (same subclass, same body type)
+   */
+  tap(
+    destination:
+      | Destination<Current, unknown>
+      | CallableDestination<Current, unknown>,
+  ): this {
+    this.pushStep(new TapStep<Current>(destination));
+    return this;
+  }
+
+  /**
+   * Filter the exchange based on a predicate. Return `true` to keep the
+   * exchange, `false` to drop it, or `{ reason: string }` to drop with
+   * an explanation recorded in telemetry.
+   *
+   * @param filter - Filter adapter or callable predicate
+   * @returns This builder (same subclass, same body type)
+   */
+  filter(filter: Filter<Current> | CallableFilter<Current>): this {
+    this.pushStep(new FilterStep<Current>(filter));
+    return this;
+  }
+
+  /**
+   * Validate the exchange body using a Validator adapter or callable. On
+   * success the (possibly coerced) return value replaces the body. On
+   * failure the adapter throws and the route error handler (if configured)
+   * or the default error path handles it. For Standard Schema, prefer the
+   * `.schema()` sugar or pass the `schema()` factory.
+   *
+   * @param validator - Validator adapter or callable
+   * @returns The subclass builder re-typed to the validator's output body
+   * @template R - Output body type after validation (defaults to `Current`)
+   */
+  validate<R = Current>(
+    validator: Validator<Current, R> | CallableValidator<Current, R>,
+  ): Retyped<this, R> {
+    this.pushStep(new ValidateStep<Current, R>(validator));
+    return this.retype<R>();
+  }
+
+  /**
+   * Symbol-keyed append used by `registerDsl` to add sugar methods
+   * without exposing `pushStep` as public API. Lives on the base so
+   * both `RouteBuilder` and `BranchBuilder` inherit it and registered
+   * sugar works on both.
+   *
+   * @internal
+   */
+  [PUSH_STEP]<T extends Adapter>(step: Step<T>): this {
+    this.pushStep(step);
+    return this;
   }
 }
