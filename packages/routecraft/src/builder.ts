@@ -376,18 +376,6 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
   }
 
   /**
-   * Safe identity cast: same instance, type parameter updated for the next step.
-   * Used to propagate body/result type through the method chain.
-   *
-   * @template T - The body type for the next step
-   * @returns This builder typed as RouteBuilder<T>
-   * @private
-   */
-  private withType<T>(): RouteBuilder<T> {
-    return this as unknown as RouteBuilder<T>;
-  }
-
-  /**
    * Set the route id for the next route to be created.
    * Stages the id; does not affect the current route if one already exists.
    *
@@ -507,7 +495,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
     this.pendingOptions = undefined;
 
     this.routes.push(this.currentRoute);
-    return this.withType<T>();
+    return this.retype<T>();
   }
 
   /**
@@ -569,7 +557,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
     processor: Processor<Current, Return> | CallableProcessor<Current, Return>,
   ): RouteBuilder<Return> {
     this.pushStep(new ProcessStep<Current, Return>(processor));
-    return this.withType<Return>();
+    return this.retype<Return>();
   }
 
   /**
@@ -633,7 +621,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
       this.pushStep(new SplitStep<Current, ItemType>(splitter));
     }
 
-    return this.withType<ItemType>();
+    return this.retype<ItemType>();
   }
 
   /**
@@ -671,7 +659,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
     } else {
       this.pushStep(new AggregateStep<Current, ResultType>(aggregator));
     }
-    return this.withType<ResultType>();
+    return this.retype<ResultType>();
   }
 
   /**
@@ -698,7 +686,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
       | ((exchange: Exchange<Current>) => HeaderValue | Promise<HeaderValue>),
   ): RouteBuilder<Current> {
     this.pushStep(new HeaderStep<Current>(key, valueOrFn));
-    return this.withType<Current>();
+    return this.retype<Current>();
   }
 
   /**
@@ -725,7 +713,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
       | CallableDestination<Current, unknown>,
   ): RouteBuilder<Current> {
     this.pushStep(new TapStep<Current>(destination));
-    return this.withType<Current>();
+    return this.retype<Current>();
   }
 
   /**
@@ -758,7 +746,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
     filter: Filter<Current> | CallableFilter<Current>,
   ): RouteBuilder<Current> {
     this.pushStep(new FilterStep<Current>(filter));
-    return this.withType<Current>();
+    return this.retype<Current>();
   }
 
   /**
@@ -789,7 +777,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
     validator: Validator<Current, R> | CallableValidator<Current, R>,
   ): RouteBuilder<R> {
     this.pushStep(new ValidateStep<Current, R>(validator));
-    return this.withType<R>();
+    return this.retype<R>();
   }
 
   /**
@@ -833,7 +821,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
     const sub = new ChoiceSubBuilder<Current, Out>();
     fn(sub);
     this.pushStep(new ChoiceStep<Current>(sub[COLLECT_STEPS]()));
-    return this.withType<Out>();
+    return this.retype<Out>();
   }
 
   /**

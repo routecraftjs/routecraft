@@ -33,8 +33,11 @@ import type { BranchBuilder } from "./operations/choice.ts";
  *
  * Closed-world on purpose: only the framework-owned subclasses participate.
  * External subclasses fall through to `never`, which is intentional -- the
- * shared base class is not a public extension point today.
+ * shared base class is not a public extension point today. Any future
+ * framework-owned subclass (for example, a `PathBuilder` for multicast) must
+ * be added to the union below.
  *
+ * @internal
  * @template This - The polymorphic `this` type inside a method on StepBuilderBase
  * @template NewT - The new body type to re-type the subclass at
  */
@@ -55,10 +58,17 @@ export type Retyped<This, NewT> =
  * that `.from()` has been called via `requireSource`), while
  * `BranchBuilder` pushes into its internal step array.
  *
- * Return types thread through the polymorphic `this` via {@link Retyped},
- * so a `.transform()` call on a `RouteBuilder<A>` returns `RouteBuilder<B>`
- * and the same call on `BranchBuilder<A>` returns `BranchBuilder<B>`.
+ * Return types are threaded through the polymorphic `this` via
+ * {@link Retyped}, so a `.transform()` call on a `RouteBuilder<A>` returns
+ * `RouteBuilder<B>` and the same call on `BranchBuilder<A>` returns
+ * `BranchBuilder<B>`.
  *
+ * This class is framework-internal. It is not exported from the package
+ * entry point and should not be subclassed outside the framework; the
+ * {@link Retyped} conditional is closed-world and external subclasses
+ * would silently resolve to `never`.
+ *
+ * @internal
  * @template Current - Body type entering the next step
  */
 export abstract class StepBuilderBase<Current = unknown> {
@@ -73,6 +83,22 @@ export abstract class StepBuilderBase<Current = unknown> {
   protected abstract pushStep<T extends Adapter>(step: Step<T>): void;
 
   /**
+   * Return `this` re-typed to the concrete subclass at a new body type.
+   *
+   * The single cast point used by every pipeline method that changes
+   * `Current`. Centralising it means `RouteBuilder` and `BranchBuilder`
+   * do not each need their own `withType<T>()` helper, and the closed-world
+   * {@link Retyped} conditional resolves the return type to the caller's
+   * concrete subclass.
+   *
+   * @template T - New body type
+   * @returns This instance, re-typed
+   */
+  protected retype<T>(): Retyped<this, T> {
+    return this as unknown as Retyped<this, T>;
+  }
+
+  /**
    * Send the exchange to a destination. A destination that returns
    * `undefined` leaves the body unchanged; a returned value replaces
    * the body.
@@ -85,7 +111,7 @@ export abstract class StepBuilderBase<Current = unknown> {
     destination: Destination<Current, R> | CallableDestination<Current, R>,
   ): Retyped<this, R extends void ? Current : R> {
     this.pushStep(new ToStep<Current, R>(destination));
-    return this as unknown as Retyped<this, R extends void ? Current : R>;
+    return this.retype<R extends void ? Current : R>();
   }
 
   /**
@@ -103,7 +129,7 @@ export abstract class StepBuilderBase<Current = unknown> {
       | CallableTransformer<Current, Return>,
   ): Retyped<this, Return> {
     this.pushStep(new TransformStep<Current, Return>(transformer));
-    return this as unknown as Retyped<this, Return>;
+    return this.retype<Return>();
   }
 
   /**
@@ -140,9 +166,8 @@ export abstract class StepBuilderBase<Current = unknown> {
         aggregator as EnrichAggregatorOption<Current, R> | undefined,
       ),
     );
-    return this as unknown as Retyped<
-      this,
+    return this.retype<
       A extends { [ENRICH_MERGE_TYPE]: infer M } ? Current & M : Current & R
-    >;
+    >();
   }
 }
