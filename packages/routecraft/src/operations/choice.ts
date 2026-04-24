@@ -117,7 +117,7 @@ export class BranchBuilder<Current = unknown> extends StepBuilderBase<Current> {
    * @returns This builder (for chaining, though no further steps will execute)
    */
   halt(): BranchBuilder<Current> {
-    this.steps.push(new HaltStep());
+    this.pushStep(new HaltStep());
     return this;
   }
 

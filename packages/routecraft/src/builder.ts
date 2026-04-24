@@ -599,9 +599,6 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
       | Splitter<Current, ItemType>
       | CallableSplitter<Current, ItemType>,
   ): RouteBuilder<ItemType> {
-    const route = this.requireSource();
-    logger.trace({ route: route.id }, "Adding split step to route");
-
     // If no splitter is provided, use default splitter: arrays are split, non-arrays as single item
     if (!splitter) {
       const defaultSplitter: CallableSplitter<Current, ItemType> = (
@@ -631,9 +628,9 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
         ];
       };
 
-      route.steps.push(new SplitStep<Current, ItemType>(defaultSplitter));
+      this.pushStep(new SplitStep<Current, ItemType>(defaultSplitter));
     } else {
-      route.steps.push(new SplitStep<Current, ItemType>(splitter));
+      this.pushStep(new SplitStep<Current, ItemType>(splitter));
     }
 
     return this.withType<ItemType>();
