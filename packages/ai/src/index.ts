@@ -111,11 +111,9 @@ export type {
 
 // Agent destination, plugin, and types. For inline use, identity and
 // description come from the enclosing route (`.id()`, `.description()`).
-// For by-name use, register agents via `agentPlugin({ agents: [...] })`
-// with `defineAgent({ id, description, ... })`.
+// For by-name use, register agents via `agentPlugin({ agents: { name: {...} } })`.
 export {
   agent,
-  defineAgent,
   AgentDestinationAdapter,
   agentPlugin,
   ADAPTER_AGENT_REGISTRY,
@@ -125,7 +123,6 @@ export type {
   AgentOptions,
   AgentPluginOptions,
   AgentRegisteredOptions,
-  AgentRegistration,
   AgentResult,
   AgentUserPromptSource,
 } from "./agent/index.ts";

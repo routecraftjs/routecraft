@@ -381,33 +381,31 @@ See [Expose as MCP](/docs/advanced/expose-as-mcp) and [Call an MCP](/docs/advanc
 ## agentPlugin
 
 ```ts
-import { agentPlugin, defineAgent } from '@routecraft/ai'
+import { agentPlugin } from '@routecraft/ai'
 ```
 
-Register named agents in the context store so routes can reference them by name via `agent("id")`. Registered agents are distinct from route-backed agents: a registration carries its own id and description because it is not backed by a route. Duplicate ids throw at context init.
+Register named agents in the context store so routes can reference them by name via `agent("id")`. Registered agents are distinct from route-backed agents: a registration carries its own description because it is not backed by a route; the id is the record key. Duplicate ids across multiple `agentPlugin` installs throw at context init.
 
 ```ts
-import { agentPlugin, defineAgent, llmPlugin } from '@routecraft/ai'
+import { agentPlugin, llmPlugin } from '@routecraft/ai'
 import type { CraftConfig } from '@routecraft/routecraft'
 
 export const craftConfig: CraftConfig = {
   plugins: [
     llmPlugin({ providers: { anthropic: { apiKey: process.env.ANTHROPIC_API_KEY! } } }),
     agentPlugin({
-      agents: [
-        defineAgent({
-          id: 'summariser',
+      agents: {
+        summariser: {
           description: 'Summarises documents into bullet points',
           model: 'anthropic:claude-opus-4-7',
           system: 'You are a summariser. Be concise.',
-        }),
-        defineAgent({
-          id: 'translator-en-fr',
+        },
+        'translator-en-fr': {
           description: 'Translates English text to French',
           model: 'anthropic:claude-opus-4-7',
           system: 'Translate the input from English to French.',
-        }),
-      ],
+        },
+      },
     }),
   ],
 }
@@ -429,13 +427,12 @@ craft()
 
 | Option | Type | Required | Description |
 |--------|------|----------|-------------|
-| `agents` | `AgentRegistration[]` | No | Agents produced by `defineAgent()`. Duplicate ids throw at context init. Defaults to `[]`. |
+| `agents` | `Record<string, AgentRegisteredOptions>` | No | Agents keyed by id. Duplicate ids across installs throw at context init. Defaults to `{}`. |
 
-**`defineAgent({ ... })` options:**
+**Entry shape (`AgentRegisteredOptions`):**
 
 | Option | Type | Required | Description |
 |--------|------|----------|-------------|
-| `id` | `string` | Yes | Unique identifier used to reference this agent via `agent("id")` |
 | `description` | `string` | Yes | Human-readable description. Surfaces in observability and is used as the tool description when the agent is exposed to other agents |
 | `model` | `LlmModelId \| LlmModelConfig` | Yes | `"provider:model"` string (resolved via `llmPlugin`) or an inline `LlmModelConfig` |
 | `system` | `string` | Yes | System prompt |
@@ -444,7 +441,7 @@ craft()
 **Resolution semantics:**
 
 - `agent("name")` resolves only registered agents. Route-backed agents are called via `.to(direct("route-id"))` and run the full pipeline of the target route; `agent("name")` runs the registered agent's LLM call inline.
-- The plugin throws at context init (`RC5003`) on: duplicate ids, raw config objects that bypass `defineAgent()`, missing id, missing description, invalid model string, or empty system.
+- The plugin throws at context init (`RC5003`) on: duplicate ids across installs, empty id key, missing description, invalid model string, or empty system.
 - `agent("unknown")` fails at dispatch (`RC5004`) with the list of registered agent ids.
 
 See the [`agent`](/docs/reference/adapters#agent) adapter for usage patterns.

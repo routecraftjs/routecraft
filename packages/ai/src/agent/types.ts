@@ -2,18 +2,6 @@ import type { Exchange } from "@routecraft/routecraft";
 import type { LlmModelConfig, LlmModelId, LlmUsage } from "../llm/types.ts";
 
 /**
- * Brand symbol used to distinguish agent registrations from inline option
- * objects. `defineAgent()` stamps this on its return value so `agentPlugin`
- * can tell at runtime whether it was given a registration or a plain
- * config.
- *
- * @internal
- */
-export const AGENT_REGISTRATION_BRAND: unique symbol = Symbol.for(
-  "routecraft.agent.registration",
-);
-
-/**
  * Resolves a user prompt from an exchange. When omitted, the agent derives
  * the user prompt from `exchange.body` (string body as-is, JSON-stringified
  * for objects, `String()` otherwise).
@@ -29,12 +17,6 @@ export type AgentUserPromptSource = (exchange: Exchange<unknown>) => string;
  * `.id()` is the agent's callable identity and `.description()` is its
  * human-readable description. `AgentOptions` only carries LLM-specific
  * config.
- *
- * For registered agents that are not backed by a route, use
- * `defineAgent({ id, description, ...AgentOptions })` together with
- * `agentPlugin({ agents: [...] })`. The `id` and `description` fields
- * only apply to the registered form and are not accepted on inline
- * `agent({...})` calls.
  *
  * @experimental
  */
@@ -60,31 +42,18 @@ export interface AgentOptions {
 }
 
 /**
- * Options for an agent registered via `agentPlugin({ agents: [...] })` for
- * by-name reuse. Registered agents carry their own id and description
- * because there is no enclosing route to draw them from.
+ * Options for an agent registered via `agentPlugin({ agents: { ... } })` for
+ * by-name reuse. Registered agents carry their own description because they
+ * are not backed by a route. The id is the record key in the plugin config.
  *
  * @experimental
  */
 export interface AgentRegisteredOptions extends AgentOptions {
-  /** Unique identifier used to reference this agent via `agent("id")`. */
-  id: string;
   /**
    * Human-readable description. Surfaces in observability and is used as the
    * tool description when the agent is exposed to other agents.
    */
   description: string;
-}
-
-/**
- * Agent registration produced by `defineAgent()`. Pass to
- * `agentPlugin({ agents: [...] })`.
- *
- * @experimental
- */
-export interface AgentRegistration {
-  readonly [AGENT_REGISTRATION_BRAND]: true;
-  readonly options: AgentRegisteredOptions;
 }
 
 /**

@@ -1706,10 +1706,10 @@ import { agent } from '@routecraft/ai'
 Run an LLM with a fixed system prompt on each incoming exchange. Replaces the body with `AgentResult { text, usage? }`. Two forms:
 
 - **Inline** (`agent({ model, system, user? })`) -- identity and description come from the enclosing route (`.id()`, `.description()`). Suitable when the route _is_ the agent.
-- **By name** (`agent("summariser")`) -- resolves a registered agent from the context. Register agents via `agentPlugin({ agents: [defineAgent(...)] })` ([Plugins reference](/docs/reference/plugins)).
+- **By name** (`agent("summariser")`) -- resolves a registered agent from the context. Register agents via `agentPlugin({ agents: { name: {...} } })` ([Plugins reference](/docs/reference/plugins)).
 
 ```ts
-import { agent, defineAgent, agentPlugin } from '@routecraft/ai'
+import { agent, agentPlugin } from '@routecraft/ai'
 import { readFileSync } from 'node:fs'
 
 // Inline: the route IS the agent. Other routes call it via direct("zoe").
@@ -1725,14 +1725,13 @@ craft()
 
 // By name: register once, use from any route in the context.
 agentPlugin({
-  agents: [
-    defineAgent({
-      id: 'summariser',
+  agents: {
+    summariser: {
       description: 'Summarises documents into bullet points',
       model: 'anthropic:claude-opus-4-7',
       system: 'Be concise.',
-    }),
-  ],
+    },
+  },
 })
 
 craft()
@@ -1754,12 +1753,13 @@ Model ID format: `"provider:model-name"` (same as `llm()`). You can also pass an
 | `system` | `string` | -- | Yes | System prompt. Load from disk yourself when sourcing from a file |
 | `user` | `(exchange) => string` | body as-is / JSON | No | Override for deriving the user prompt. Defaults to body (string as-is, JSON for objects) |
 
-**`AgentRegisteredOptions` (via `defineAgent`, for by-name reuse):** same as `AgentOptions` plus:
+**`AgentRegisteredOptions` (entries in `agentPlugin({ agents: {...} })`, for by-name reuse):** same as `AgentOptions` plus:
 
 | Option | Type | Default | Required | Description |
 |--------|------|---------|----------|-------------|
-| `id` | `string` | -- | Yes | Identifier used to reference this agent via `agent("id")` |
 | `description` | `string` | -- | Yes | Human-readable description. Surfaces in observability and is used as the tool description when the agent is exposed to other agents |
+
+The id is the record key in `agentPlugin({ agents: { [id]: {...} } })`.
 
 **Result shape (body is replaced by `.to()`):**
 
