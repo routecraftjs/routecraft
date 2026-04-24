@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { BRAND, ENRICH_MERGE_TYPE, isRouteBuilder, setBrand } from "./brand.ts";
+import { BRAND, isRouteBuilder, setBrand } from "./brand.ts";
+import { StepBuilderBase } from "./step-builder-base.ts";
 import { type RouteDefinition, type ErrorHandler } from "./route.ts";
 import {
   CraftContext,
@@ -32,11 +33,7 @@ import {
   type CallableProcessor,
   ProcessStep,
 } from "./operations/process.ts";
-import {
-  type Destination,
-  type CallableDestination,
-  ToStep,
-} from "./operations/to.ts";
+import { type Destination, type CallableDestination } from "./operations/to.ts";
 import {
   type Splitter,
   type CallableSplitter,
@@ -48,11 +45,6 @@ import {
   AggregateStep,
   defaultAggregate,
 } from "./operations/aggregate.ts";
-import {
-  type Transformer,
-  type CallableTransformer,
-  TransformStep,
-} from "./operations/transform.ts";
 import { TapStep } from "./operations/tap.ts";
 import {
   type CallableFilter,
@@ -64,12 +56,6 @@ import {
   type CallableValidator,
   ValidateStep,
 } from "./operations/validate.ts";
-import {
-  EnrichStep,
-  type DestinationAggregator,
-  type EnrichMergeShape,
-  type EnrichAggregatorOption,
-} from "./operations/enrich.ts";
 import { HeaderStep } from "./operations/header.ts";
 import { type HeaderValue } from "./exchange.ts";
 import { PUSH_STEP, COLLECT_STEPS } from "./dsl-symbol.ts";
@@ -368,7 +354,7 @@ export type RouteOptions = Partial<Pick<RouteDefinition, "consumer">> & {
  *   .to(log())
  * ```
  */
-export class RouteBuilder<Current = unknown> {
+export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
   protected currentRoute?: RouteDefinition;
   protected routes: RouteDefinition[] = [];
 
@@ -385,19 +371,8 @@ export class RouteBuilder<Current = unknown> {
     | undefined;
 
   constructor() {
+    super();
     setBrand(this, BRAND.RouteBuilder);
-  }
-
-  /**
-   * Safe identity cast: same instance, type parameter updated for the next step.
-   * Used to propagate body/result type through the method chain.
-   *
-   * @template T - The body type for the next step
-   * @returns This builder typed as RouteBuilder<T>
-   * @private
-   */
-  private withType<T>(): RouteBuilder<T> {
-    return this as unknown as RouteBuilder<T>;
   }
 
   /**
@@ -520,7 +495,7 @@ export class RouteBuilder<Current = unknown> {
     this.pendingOptions = undefined;
 
     this.routes.push(this.currentRoute);
-    return this.withType<T>();
+    return this.retype<T>();
   }
 
   /**
@@ -539,30 +514,30 @@ export class RouteBuilder<Current = unknown> {
   }
 
   /**
-   * Internal method to add a step to the current route.
-   * This is used by the public methods to build up the route definition.
+   * Append a step to the current route. Implements the abstract hook from
+   * {@link StepBuilderBase} for inherited pipeline operations (`to`,
+   * `transform`, `enrich`), and is also called by the route-specific
+   * operations below (`process`, `split`, `aggregate`, `tap`, `filter`,
+   * `validate`, `header`, `choice`).
    *
-   * @template T The type of adapter used by the step
-   * @param step The step definition to add
-   * @returns The current RouteBuilder instance
-   * @private
+   * @param step - The step to append
+   * @throws {RoutecraftError} RC2002 if `.from()` has not been called yet
    */
-  private addStep<T extends Adapter>(step: Step<T>): RouteBuilder<Current> {
+  protected override pushStep<T extends Adapter>(step: Step<T>): void {
     const route = this.requireSource();
     logger.trace(
       { operation: step.operation, route: route.id },
       "Adding step to route",
     );
     route.steps.push(step);
-    return this.withType<Current>();
   }
 
   /**
    * Symbol-keyed method for registerDsl to add steps without exposing
-   * addStep as public API. Not visible in autocomplete.
+   * pushStep as public API. Not visible in autocomplete.
    */
   [PUSH_STEP]<T extends Adapter>(step: Step<T>): this {
-    this.addStep(step);
+    this.pushStep(step);
     return this;
   }
 
@@ -581,35 +556,8 @@ export class RouteBuilder<Current = unknown> {
   process<Return = Current>(
     processor: Processor<Current, Return> | CallableProcessor<Current, Return>,
   ): RouteBuilder<Return> {
-    this.addStep(new ProcessStep<Current, Return>(processor));
-    return this.withType<Return>();
-  }
-
-  /**
-   * Send the processed data to a destination.
-   * If the destination returns undefined, the exchange continues unchanged.
-   * If the destination returns a value, the exchange body is replaced with that value.
-   *
-   * @template R The result type returned by the destination
-   * @param destination A function or adapter that sends the data
-   * @returns A RouteBuilder with the result type
-   * @example
-   * // Send to a destination that returns void (no body change)
-   * .to(async ({ body }) => {
-   *   await db.users.insert(body);
-   * })
-   *
-   * // Send and replace body with result
-   * .to(http({ url: 'https://api.example.com/transform' }))
-   * // Body becomes HttpResult
-   */
-  to<R = void>(
-    destination: Destination<Current, R> | CallableDestination<Current, R>,
-  ): RouteBuilder<R extends void ? Current : R> {
-    const route = this.requireSource();
-    logger.trace({ route: route.id }, "Adding destination step to route");
-    route.steps.push(new ToStep<Current, R>(destination));
-    return this.withType<R extends void ? Current : R>();
+    this.pushStep(new ProcessStep<Current, Return>(processor));
+    return this.retype<Return>();
   }
 
   /**
@@ -639,9 +587,6 @@ export class RouteBuilder<Current = unknown> {
       | Splitter<Current, ItemType>
       | CallableSplitter<Current, ItemType>,
   ): RouteBuilder<ItemType> {
-    const route = this.requireSource();
-    logger.trace({ route: route.id }, "Adding split step to route");
-
     // If no splitter is provided, use default splitter: arrays are split, non-arrays as single item
     if (!splitter) {
       const defaultSplitter: CallableSplitter<Current, ItemType> = (
@@ -671,12 +616,12 @@ export class RouteBuilder<Current = unknown> {
         ];
       };
 
-      route.steps.push(new SplitStep<Current, ItemType>(defaultSplitter));
+      this.pushStep(new SplitStep<Current, ItemType>(defaultSplitter));
     } else {
-      route.steps.push(new SplitStep<Current, ItemType>(splitter));
+      this.pushStep(new SplitStep<Current, ItemType>(splitter));
     }
 
-    return this.withType<ItemType>();
+    return this.retype<ItemType>();
   }
 
   /**
@@ -706,35 +651,15 @@ export class RouteBuilder<Current = unknown> {
   ): RouteBuilder<ResultType> {
     if (!aggregator) {
       // Use default aggregator which collects bodies into an array
-      this.addStep(
+      this.pushStep(
         new AggregateStep<Current, ResultType>(
           defaultAggregate as CallableAggregator<Current, ResultType>,
         ),
       );
     } else {
-      this.addStep(new AggregateStep<Current, ResultType>(aggregator));
+      this.pushStep(new AggregateStep<Current, ResultType>(aggregator));
     }
-    return this.withType<ResultType>();
-  }
-
-  /**
-   * Transform the current data to a new type using a transformer function.
-   * Unlike process, this operates only on the body of the exchange, not the entire exchange.
-   *
-   * @template Return The resulting type after transformation
-   * @param transformer A function that transforms the current body to a new body of type Return
-   * @returns A RouteBuilder with the new type Return
-   * @example
-   * // Transform a string to an object
-   * .transform<{ value: string }>((str) => ({ value: str }))
-   */
-  transform<Return>(
-    transformer:
-      | Transformer<Current, Return>
-      | CallableTransformer<Current, Return>,
-  ): RouteBuilder<Return> {
-    this.addStep(new TransformStep<Current, Return>(transformer));
-    return this.withType<Return>();
+    return this.retype<ResultType>();
   }
 
   /**
@@ -760,8 +685,8 @@ export class RouteBuilder<Current = unknown> {
       | HeaderValue
       | ((exchange: Exchange<Current>) => HeaderValue | Promise<HeaderValue>),
   ): RouteBuilder<Current> {
-    this.addStep(new HeaderStep<Current>(key, valueOrFn));
-    return this.withType<Current>();
+    this.pushStep(new HeaderStep<Current>(key, valueOrFn));
+    return this.retype<Current>();
   }
 
   /**
@@ -787,8 +712,8 @@ export class RouteBuilder<Current = unknown> {
       | Destination<Current, unknown>
       | CallableDestination<Current, unknown>,
   ): RouteBuilder<Current> {
-    this.addStep(new TapStep<Current>(destination));
-    return this.withType<Current>();
+    this.pushStep(new TapStep<Current>(destination));
+    return this.retype<Current>();
   }
 
   /**
@@ -820,8 +745,8 @@ export class RouteBuilder<Current = unknown> {
   filter(
     filter: Filter<Current> | CallableFilter<Current>,
   ): RouteBuilder<Current> {
-    this.addStep(new FilterStep<Current>(filter));
-    return this.withType<Current>();
+    this.pushStep(new FilterStep<Current>(filter));
+    return this.retype<Current>();
   }
 
   /**
@@ -851,57 +776,8 @@ export class RouteBuilder<Current = unknown> {
   validate<R = Current>(
     validator: Validator<Current, R> | CallableValidator<Current, R>,
   ): RouteBuilder<R> {
-    this.addStep(new ValidateStep<Current, R>(validator));
-    return this.withType<R>();
-  }
-
-  /**
-   * Enrich the current data with additional information from a destination.
-   * By default, the result is merged into the exchange body.
-   * Uses the same Destination adapters as .to() but with a merge-by-default aggregator.
-   *
-   * @template R The resulting type after enrichment (defaults to Current if not specified)
-   * @param destination A destination adapter or function that returns enrichment data
-   * @param aggregator Optional function to control how data is combined
-   * @returns A RouteBuilder with the combined type
-   * @example
-   * // Add user details from an API (default merge behavior)
-   * .enrich(http({
-   *   url: (ex) => `https://api.example.com/users/${ex.body.userId}`
-   * }))
-   *
-   * // Custom aggregation strategy
-   * .enrich(
-   *   http({ url: 'https://api.example.com/data' }),
-   *   (original, result) => ({
-   *     ...original,
-   *     body: { ...original.body, fetchedData: result.body }
-   *   })
-   * )
-   */
-  enrich<
-    R,
-    A extends
-      | DestinationAggregator<Current, R>
-      | (DestinationAggregator<unknown, unknown> & {
-          [ENRICH_MERGE_TYPE]?: EnrichMergeShape;
-        })
-      | undefined = undefined,
-  >(
-    destination: Destination<Current, R> | CallableDestination<Current, R>,
-    aggregator?: A,
-  ): RouteBuilder<
-    A extends { [ENRICH_MERGE_TYPE]: infer M } ? Current & M : Current & R
-  > {
-    this.addStep(
-      new EnrichStep<Current, R>(
-        destination,
-        aggregator as EnrichAggregatorOption<Current, R> | undefined,
-      ),
-    );
-    return this.withType<
-      A extends { [ENRICH_MERGE_TYPE]: infer M } ? Current & M : Current & R
-    >();
+    this.pushStep(new ValidateStep<Current, R>(validator));
+    return this.retype<R>();
   }
 
   /**
@@ -944,8 +820,8 @@ export class RouteBuilder<Current = unknown> {
   ): RouteBuilder<Out> {
     const sub = new ChoiceSubBuilder<Current, Out>();
     fn(sub);
-    this.addStep(new ChoiceStep<Current>(sub[COLLECT_STEPS]()));
-    return this.withType<Out>();
+    this.pushStep(new ChoiceStep<Current>(sub[COLLECT_STEPS]()));
+    return this.retype<Out>();
   }
 
   /**
