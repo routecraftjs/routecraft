@@ -34,12 +34,12 @@ import { direct, craft, noop, ContextBuilder } from '@routecraft/routecraft';
 // 1. Define routes using direct() sources
 const routes = craft()
   .id('greet')
-  .from(direct('greet', {}))
+  .from(direct())
   .transform((body) => `Hello, ${(body as { name: string }).name}!`)
   .to(noop())
 
   .id('deploy')
-  .from(direct('deploy', {}))
+  .from(direct())
   .transform((body) => {
     const { env, dryRun } = body as { env: string; dryRun?: boolean };
     if (dryRun) return `Would deploy to ${env}`;
@@ -106,7 +106,7 @@ import { ContextBuilder, direct, craft, noop } from '@routecraft/routecraft';
 
 const routes = craft()
   .id('greet')
-  .from(direct('greet', {}))
+  .from(direct())
   .transform((body) => `Hello, ${(body as { name: string }).name}!`)
   .to(noop());
 
@@ -137,7 +137,7 @@ import { ContextBuilder, direct, craft, noop } from '@routecraft/routecraft';
 
 const routes = craft()
   .id('greet')
-  .from(direct('greet', {}))
+  .from(direct())
   .transform((body) => `Hello, ${(body as { name: string }).name}!`)
   .to(noop());
 

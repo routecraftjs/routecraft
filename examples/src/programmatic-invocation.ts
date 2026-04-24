@@ -7,12 +7,12 @@ import { direct, craft, noop, ContextBuilder } from "@routecraft/routecraft";
 // 1. Define your routes using direct() sources
 const capabilities = craft()
   .id("greet")
-  .from(direct("greet", {}))
+  .from(direct())
   .transform((body) => `Hello, ${(body as { name: string }).name}!`)
   .to(noop())
 
   .id("fail")
-  .from(direct("fail", {}))
+  .from(direct())
   .transform(() => {
     throw new Error("Something went wrong");
   })

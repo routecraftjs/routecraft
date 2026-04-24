@@ -61,10 +61,12 @@ The `.from()` adapter determines how a capability is triggered:
 .from(simple({ report: "daily-summary" }))
 ```
 
-**Channel-driven** -- receives messages from another capability:
+**Channel-driven** -- receives messages from another capability. The route's `.id()` is the direct endpoint name:
 
 ```ts
-.from(direct("incoming-jobs", {}))
+craft()
+  .id("incoming-jobs")
+  .from(direct())
 ```
 
 ## Operations
@@ -129,7 +131,7 @@ export default craft()
 // capabilities/process-orders.ts
 export default craft()
   .id("process-orders")
-  .from(direct("process-orders", {}))
+  .from(direct())
   .transform(fulfillOrder)
   .to(log());
 ```

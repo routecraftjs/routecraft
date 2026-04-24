@@ -59,31 +59,17 @@ describe("McpServer", () => {
   test("respects tool filtering by name and by function", async () => {
     t = await testContext()
       .routes([
-        craft()
-          .id("tool1")
-          .from(mcp("tool1", { description: "First tool" }))
-          .to(noop()),
-        craft()
-          .id("tool2")
-          .from(mcp("tool2", { description: "Second tool" }))
-          .to(noop()),
+        craft().id("tool1").description("First tool").from(mcp()).to(noop()),
+        craft().id("tool2").description("Second tool").from(mcp()).to(noop()),
         craft()
           .id("public-tool")
-          .from(
-            mcp("public-tool", {
-              description: "Public",
-              annotations: { readOnlyHint: true },
-            }),
-          )
+          .description("Public")
+          .from(mcp({ annotations: { readOnlyHint: true } }))
           .to(noop()),
         craft()
           .id("private-tool")
-          .from(
-            mcp("private-tool", {
-              description: "Private",
-              annotations: { destructiveHint: true },
-            }),
-          )
+          .description("Private")
+          .from(mcp({ annotations: { destructiveHint: true } }))
           .to(noop()),
       ])
       .store(MCP_STORE_KEY, true)
@@ -118,20 +104,14 @@ describe("McpServer", () => {
       .routes([
         craft()
           .id("schema-tool")
-          .from(
-            mcp("schema-tool", {
-              description: "Tool with schema",
-              input: { body: schema },
-            }),
-          )
+          .description("Tool with schema")
+          .input({ body: schema })
+          .from(mcp())
           .to(noop()),
         craft()
           .id("no-schema-tool")
-          .from(
-            mcp("no-schema-tool", {
-              description: "Tool without schema",
-            }),
-          )
+          .description("Tool without schema")
+          .from(mcp())
           .to(noop()),
       ])
       .store(MCP_STORE_KEY, true)
@@ -155,16 +135,10 @@ describe("McpServer", () => {
       .routes([
         craft()
           .id("exposed-tool")
-          .from(
-            mcp("exposed-tool", {
-              description: "Exposed",
-            }),
-          )
+          .description("Exposed")
+          .from(mcp())
           .to(noop()),
-        craft()
-          .id("internal-direct")
-          .from(direct("internal-direct", {}))
-          .to(noop()),
+        craft().id("internal-direct").from(direct()).to(noop()),
       ])
       .store(MCP_STORE_KEY, true)
       .build();
@@ -185,9 +159,9 @@ describe("McpServer", () => {
       .routes([
         craft()
           .id("annotated")
+          .description("An annotated tool")
           .from(
-            mcp("annotated-tool", {
-              description: "An annotated tool",
+            mcp({
               annotations: {
                 readOnlyHint: true,
                 destructiveHint: false,
@@ -218,7 +192,8 @@ describe("McpServer", () => {
       .routes([
         craft()
           .id("plain")
-          .from(mcp("plain-tool", { description: "No annotations" }))
+          .description("No annotations")
+          .from(mcp())
           .to(noop()),
       ])
       .store(MCP_STORE_KEY, true)
@@ -345,11 +320,8 @@ describe("McpServer", () => {
       const { post, initSession } = await startHttpServer([
         craft()
           .id("http-tool")
-          .from(
-            mcp("http-tool", {
-              description: "Tool exposed over HTTP",
-            }),
-          )
+          .description("Tool exposed over HTTP")
+          .from(mcp())
           .to(noop()),
       ]);
 
@@ -379,10 +351,10 @@ describe("McpServer", () => {
     test("tools/list forwards annotations on the wire", async () => {
       const { post, initSession } = await startHttpServer([
         craft()
-          .id("annotated-http")
+          .id("annotated-http-tool")
+          .description("Tool with annotations over HTTP")
           .from(
-            mcp("annotated-http-tool", {
-              description: "Tool with annotations over HTTP",
+            mcp({
               annotations: {
                 title: "Annotated Tool",
                 readOnlyHint: true,
@@ -430,12 +402,9 @@ describe("McpServer", () => {
       const { post, initSession } = await startHttpServer([
         craft()
           .id("capture-tool")
-          .from(
-            mcp("capture-tool", {
-              description: "Capture body for test",
-              input: { body: z.object({ user: z.string() }) },
-            }),
-          )
+          .description("Capture body for test")
+          .input({ body: z.object({ user: z.string() }) })
+          .from(mcp())
           .tap((ex) => {
             receivedBody = ex.body;
           })
@@ -471,17 +440,14 @@ describe("McpServer", () => {
       const { post, initSession } = await startHttpServer([
         craft()
           .id("echo-args")
-          .from(
-            mcp("echo-args", {
-              description: "Echo argument types and values for test",
-              input: {
-                body: z.object({
-                  str: z.string(),
-                  obj: z.record(z.string(), z.any()),
-                }),
-              },
+          .description("Echo argument types and values for test")
+          .input({
+            body: z.object({
+              str: z.string(),
+              obj: z.record(z.string(), z.any()),
             }),
-          )
+          })
+          .from(mcp())
           .transform((body) => ({
             strType: typeof body.str,
             objType: typeof body.obj,
@@ -751,12 +717,9 @@ describe("McpServer", () => {
           [
             craft()
               .id("oauth-capture")
-              .from(
-                mcp("oauth-capture", {
-                  description: "Capture exchange headers for OAuth test",
-                  input: { body: z.object({}) },
-                }),
-              )
+              .description("Capture exchange headers for OAuth test")
+              .input({ body: z.object({}) })
+              .from(mcp())
               .tap((ex) => {
                 captured = ex.headers as Record<
                   string,
@@ -830,12 +793,9 @@ describe("McpServer", () => {
           [
             craft()
               .id("oauth-minimal")
-              .from(
-                mcp("oauth-minimal", {
-                  description: "Minimal OAuth capture",
-                  input: { body: z.object({}) },
-                }),
-              )
+              .description("Minimal OAuth capture")
+              .input({ body: z.object({}) })
+              .from(mcp())
               .tap((ex) => {
                 captured = ex.headers as Record<
                   string,
@@ -983,12 +943,9 @@ describe("McpServer", () => {
           [
             craft()
               .id("jwt-capture")
-              .from(
-                mcp("jwt-capture", {
-                  description: "Capture JWT principal headers",
-                  input: { body: z.object({}) },
-                }),
-              )
+              .description("Capture JWT principal headers")
+              .input({ body: z.object({}) })
+              .from(mcp())
               .tap((ex) => {
                 captured = ex.headers as Record<
                   string,
@@ -1055,12 +1012,9 @@ describe("McpServer", () => {
           [
             craft()
               .id("apikey-capture")
-              .from(
-                mcp("apikey-capture", {
-                  description: "Capture API key principal headers",
-                  input: { body: z.object({}) },
-                }),
-              )
+              .description("Capture API key principal headers")
+              .input({ body: z.object({}) })
+              .from(mcp())
               .tap((ex) => {
                 captured = ex.headers as Record<
                   string,
@@ -1148,10 +1102,7 @@ describe("McpServer", () => {
     test("emits plugin:mcp:session:created on initialize", async () => {
       t = await testContext()
         .routes([
-          craft()
-            .id("evt-tool")
-            .from(mcp("evt-tool", { description: "test" }))
-            .to(noop()),
+          craft().id("evt-tool").description("test").from(mcp()).to(noop()),
         ])
         .store(MCP_STORE_KEY, true)
         .build();
@@ -1228,10 +1179,7 @@ describe("McpServer", () => {
     test("emits plugin:mcp:server:tools:exposed on first tools list", async () => {
       t = await testContext()
         .routes([
-          craft()
-            .id("exposed-evt")
-            .from(mcp("exposed-evt", { description: "test" }))
-            .to(noop()),
+          craft().id("exposed-evt").description("test").from(mcp()).to(noop()),
         ])
         .store(MCP_STORE_KEY, true)
         .build();
@@ -1280,9 +1228,9 @@ describe("McpServer", () => {
         .routes([
           craft()
             .id("call-evt")
+            .description("test")
             .from(
-              mcp("call-evt", {
-                description: "test",
+              mcp({
                 inputSchema: {
                   type: "object",
                   properties: { x: { type: "number" } },
@@ -1413,10 +1361,7 @@ describe("McpServer", () => {
     test("emits tool:failed when tool not found", async () => {
       t = await testContext()
         .routes([
-          craft()
-            .id("exists-evt")
-            .from(mcp("exists-evt", { description: "test" }))
-            .to(noop()),
+          craft().id("exists-evt").description("test").from(mcp()).to(noop()),
         ])
         .store(MCP_STORE_KEY, true)
         .build();
@@ -1530,12 +1475,8 @@ describe("McpServer", () => {
         .routes([
           craft()
             .id("wc-tool")
-            .from(
-              mcp("wc-tool", {
-                description: "test",
-                inputSchema: { type: "object", properties: {} },
-              }),
-            )
+            .description("test")
+            .from(mcp({ inputSchema: { type: "object", properties: {} } }))
             .to(noop()),
         ])
         .store(MCP_STORE_KEY, true)

@@ -17,13 +17,10 @@ export interface PricedItem extends OrderItem {
 
 const priceCheck = craft()
   .id("price-check")
-  .from(
-    direct("price-check", {
-      title: "Price check",
-      description: "Validate one order item and apply pricing rules",
-      input: { body: OrderItemSchema },
-    }),
-  )
+  .title("Price check")
+  .description("Validate one order item and apply pricing rules")
+  .input({ body: OrderItemSchema })
+  .from<OrderItem>(direct())
   .filter((ex) => {
     if (ex.body.quantity > 100) return { reason: "quantity exceeds limit" };
     return true;

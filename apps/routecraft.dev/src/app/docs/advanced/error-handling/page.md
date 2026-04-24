@@ -41,7 +41,7 @@ forward(routeId: string, payload: unknown): Promise<unknown>
 
 | Argument | Description |
 |----------|-------------|
-| `routeId` | The target capability's direct endpoint id (must match the string passed to `direct()` in the target's `.from()`) |
+| `routeId` | The target capability's direct endpoint id (must match the target route's `.id()`) |
 | `payload` | Any value -- becomes the target capability's exchange body |
 | **returns** | The final exchange body produced by the target capability's pipeline |
 
@@ -73,9 +73,8 @@ craft()
 // capabilities/error-orders.ts
 craft()
   .id('errors.orders')
-  .from(direct('errors.orders', {
-    description: 'Receives failed order payloads for alerting',
-  }))
+  .description('Receives failed order payloads for alerting')
+  .from(direct())
   .transform((body) => {
     // Log, enrich, or reshape the failure payload
     return { alerted: true, reason: body.reason }

@@ -46,7 +46,8 @@ import type {
  *
  * // Send mail via .to()
  * craft()
- *   .from(direct('outbound', {}))
+ *   .id('outbound')
+ *   .from(direct())
  *   .to(mail())
  *
  * // IMAP operations

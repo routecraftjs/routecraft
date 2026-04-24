@@ -20,6 +20,7 @@ export class CsvSourceAdapter implements Source<CsvData | CsvRow> {
     handler,
     abortController,
     onReady,
+    meta,
   ) => {
     const Papa = ensurePapaparse();
     const {
@@ -73,6 +74,7 @@ export class CsvSourceAdapter implements Source<CsvData | CsvRow> {
         },
         abortController,
         onReady,
+        meta,
       );
     }
   };

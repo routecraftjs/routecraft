@@ -1,11 +1,11 @@
 import type { CraftContext } from "../../context";
 import { rcError } from "../../error";
+import type { RouteDiscovery } from "../../route";
 import type {
   DirectChannel,
   DirectChannelType,
   DirectRouteMetadata,
   DirectBaseOptions,
-  DirectServerOptions,
 } from "./types";
 import type { Exchange } from "../../exchange";
 
@@ -100,16 +100,15 @@ export function getDirectChannel<T>(
 }
 
 /**
- * Register route metadata in context store for discovery.
- *
- * @param context - The CraftContext
- * @param endpoint - The sanitized endpoint name
- * @param options - Per-route options containing discovery metadata
+ * Register route metadata in context store for discovery. The metadata
+ * comes from the route's discovery bundle (set via `.title()` /
+ * `.description()` / `.input()` / `.output()` on the builder); direct
+ * itself carries no discovery fields on its own options.
  */
 export function registerRoute(
   context: CraftContext,
   endpoint: string,
-  options: Partial<DirectServerOptions>,
+  discovery?: RouteDiscovery,
 ): void {
   let registry = context.getStore(ADAPTER_DIRECT_REGISTRY) as
     | Map<string, DirectRouteMetadata>
@@ -121,18 +120,12 @@ export function registerRoute(
   }
 
   const metadata: DirectRouteMetadata = { endpoint };
-  if (options.title !== undefined) {
-    metadata.title = options.title;
+  if (discovery?.title !== undefined) metadata.title = discovery.title;
+  if (discovery?.description !== undefined) {
+    metadata.description = discovery.description;
   }
-  if (options.description !== undefined) {
-    metadata.description = options.description;
-  }
-  if (options.input !== undefined) {
-    metadata.input = options.input;
-  }
-  if (options.output !== undefined) {
-    metadata.output = options.output;
-  }
+  if (discovery?.input !== undefined) metadata.input = discovery.input;
+  if (discovery?.output !== undefined) metadata.output = discovery.output;
   registry.set(endpoint, metadata);
 
   context.logger.debug(

@@ -30,6 +30,7 @@ export class JsonSourceAdapter implements Source<unknown> {
     handler,
     abortController,
     onReady,
+    meta,
   ) => {
     return this.fileAdapter.subscribe(
       context,
@@ -45,6 +46,7 @@ export class JsonSourceAdapter implements Source<unknown> {
       },
       abortController,
       onReady,
+      meta,
     );
   };
 }

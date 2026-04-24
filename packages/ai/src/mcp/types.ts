@@ -1,4 +1,3 @@
-import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Exchange } from "@routecraft/routecraft";
 import type {
   OAuthPrincipal,
@@ -55,25 +54,17 @@ export const MCP_LOCAL_TOOL_REGISTRY = Symbol.for(
  *
  * @experimental
  */
-export interface McpInput {
-  /** Standard Schema for the tool input body (MCP `Tool.inputSchema`). */
-  body?: StandardSchemaV1;
-  /** Standard Schema for the request headers. Validated values merge over the originals. */
-  headers?: StandardSchemaV1;
-}
+/**
+ * @deprecated Use `RouteSchemas` from `@routecraft/routecraft`. Kept as an
+ * alias so existing imports do not break during migration.
+ */
+export type McpInput = import("@routecraft/routecraft").RouteSchemas;
 
 /**
- * Per-direction schema bundle for an MCP tool's response side.
- * Forwarded on `tools/list`; not runtime-enforced by the MCP source.
- *
- * @experimental
+ * @deprecated Use `RouteSchemas` from `@routecraft/routecraft`. Kept as an
+ * alias so existing imports do not break during migration.
  */
-export interface McpOutput {
-  /** Standard Schema for the tool output body (MCP `Tool.outputSchema`). */
-  body?: StandardSchemaV1;
-  /** Standard Schema for the response headers. Documentation-only. */
-  headers?: StandardSchemaV1;
-}
+export type McpOutput = import("@routecraft/routecraft").RouteSchemas;
 
 /**
  * Entry in the {@link MCP_LOCAL_TOOL_REGISTRY}. One per `.from(mcp(endpoint, options))`
@@ -83,16 +74,16 @@ export interface McpOutput {
  * @experimental
  */
 export interface McpLocalToolEntry {
-  /** Sanitized endpoint name (URL-encoded). Used as the tool name in MCP `tools/list`. */
+  /** Tool name (matches the route id). Used as `tool.name` in MCP `tools/list`. */
   endpoint: string;
   /** Human-readable display title forwarded to `tools/list` when provided. */
   title?: string;
   /** Human-readable description of the tool (required for MCP discoverability). */
   description: string;
   /** Input schemas (request body, request headers). */
-  input?: McpInput;
+  input?: import("@routecraft/routecraft").RouteSchemas;
   /** Output schemas (response body, response headers); forwarded to `tools/list`. */
-  output?: McpOutput;
+  output?: import("@routecraft/routecraft").RouteSchemas;
   /** MCP tool annotations (read-only hints, destructive hints, etc.). */
   annotations?: McpToolAnnotations;
   /** Icons forwarded to `tools/list` per the MCP spec. */
@@ -444,53 +435,26 @@ export interface McpToolIcon {
 }
 
 /**
- * Options for mcp() when used as a server in .from().
+ * Options for `mcp()` when used as a server in `.from()`.
  *
- * Standalone interface: mcp does not share code or registry with direct. Fields
- * whose names overlap with direct (`title`, `description`, `input`, `output`)
- * are structurally compatible by convention so the same literal can be used
- * with either adapter, but there is no type-level inheritance.
+ * MCP-protocol-specific extras only. Shared discovery fields (title,
+ * description, input, output schemas) live on the route via `.title()` /
+ * `.description()` / `.input()` / `.output()` and are enforced by the
+ * framework; `description` is required for MCP tools and the source will
+ * reject a subscribe call whose route has no description set.
  *
  * @experimental
  */
 export interface McpServerOptions {
-  /**
-   * Input schemas. `input.body` validates and is converted to JSON Schema for
-   * `tools/list` (the MCP `Tool.inputSchema`). `input.headers` validates the
-   * request headers; validated values merge over the originals so MCP-injected
-   * metadata (tool name, session, auth principal) survives schemas that strip
-   * unknowns.
-   *
-   * @example
-   * input: {
-   *   body: z.object({ user: z.string() }),
-   *   headers: z.looseObject({ 'x-tenant': z.string() }),
-   * }
-   */
-  input?: McpInput;
-
-  /**
-   * Output schemas. `output.body` is forwarded as MCP `Tool.outputSchema`
-   * on `tools/list`; `output.headers` is documentation-only.
-   */
-  output?: McpOutput;
-
-  /** Human-readable display title for the tool (MCP `Tool.title`). */
-  title?: string;
-
-  /** Human-readable description (required for MCP discoverability). */
-  description: string;
-
   /**
    * MCP tool annotations describing behavior hints (read-only, destructive, etc.).
    * Forwarded on `tools/list`.
    *
    * @example
    * ```ts
-   * .from(mcp("list-users", {
-   *   description: "List all users",
-   *   annotations: { readOnlyHint: true, destructiveHint: false },
-   * }))
+   * .id("list-users")
+   * .description("List all users")
+   * .from(mcp({ annotations: { readOnlyHint: true, destructiveHint: false } }))
    * ```
    */
   annotations?: McpToolAnnotations;

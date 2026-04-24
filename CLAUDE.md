@@ -30,6 +30,7 @@ Detailed coding standards for contributors live in `.standards/`:
 - [Naming Policy](.standards/naming-policy.md) -- Source/Destination vs Server/Client conventions
 - [Error and Logging Policy](.standards/error-and-logging-policy.md) -- throw/boundary rules, log levels, error codes
 - [Type Safety and Schemas](.standards/type-safety-and-schemas.md) -- type flow, Standard Schema, plugin vs config
+- [Type Safety Registries](.standards/type-safety-registries.md) -- declaration-merging registries for typed adapters and endpoints
 
 ## Merge Checklist
 

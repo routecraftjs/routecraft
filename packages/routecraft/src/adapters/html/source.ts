@@ -39,6 +39,7 @@ export class HtmlSourceAdapter<
     handler,
     abortController,
     onReady,
+    meta,
   ) => {
     return this.fileAdapter.subscribe(
       context,
@@ -51,6 +52,7 @@ export class HtmlSourceAdapter<
       },
       abortController,
       onReady,
+      meta,
     );
   };
 }

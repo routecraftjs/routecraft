@@ -47,9 +47,11 @@ export {
   type RouteDefinition,
   type ErrorHandler,
   type ForwardFn,
+  type RouteDiscovery,
+  type RouteSchemas,
 } from "./route.ts";
 
-export { type Source } from "./operations/from.ts";
+export { type Source, type SourceMeta } from "./operations/from.ts";
 
 export { type Processor } from "./operations/process.ts";
 

@@ -1,9 +1,7 @@
-import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   rcError,
   tagAdapter,
   factoryArgs,
-  type Exchange,
   type Source,
   type Destination,
 } from "@routecraft/routecraft";
@@ -18,31 +16,29 @@ import { McpDestinationAdapter } from "./destination.ts";
 import type { McpMessage } from "./types.ts";
 
 /**
- * Creates an MCP adapter for communicating with MCP servers.
+ * Creates an MCP adapter.
  *
- * - **Source (for `.from()`):** Call with two arguments: `mcp(endpoint, options)`.
- *   Options must include a `description` field (required for MCP tool exposure).
- *   Requires the MCP plugin: `plugins: [mcpPlugin()]`.
- *   Body type is inferred from `options.input.body` when provided.
+ * - **Source (for `.from()`):** Call with no arguments or with MCP-protocol
+ *   options (`annotations`, `icons`). The tool name is the route id; the
+ *   description, title, and input / output schemas come from the route
+ *   builder (`.description()`, `.title()`, `.input()`, `.output()`) and a
+ *   non-empty `.description()` is required. Requires `mcpPlugin()`.
  *
- * - **Destination (for `.to()` / `.tap()`):** Call with one argument containing client options:
+ * - **Destination (for `.to()` / `.tap()`):** Call with client options:
  *   - `mcp({ url, tool })` - Direct HTTP URL to remote MCP server
  *   - `mcp({ serverId, tool })` - Server ID registered via mcpPlugin({ clients })
  *   - `mcp('server:tool', { args? })` - Shorthand for serverId:tool with optional args extractor
  *
- * @param endpointOrOptions - Endpoint string (source) or client options object (destination) or 'server:tool' string (destination)
- * @param options - Server options (source) or args extractor (destination)
- * @returns Source when called with two arguments; Destination when called with one argument
- *
  * @experimental
  *
  * @example
- * ```typescript
- * // Source route (MCP tool)
- * .from(mcp('/search', {
- *   description: 'Search documents',
- *   input: { body: mySchema },
- * }))
+ * ```ts
+ * // Source route (tool name = route id)
+ * craft()
+ *   .id("search")
+ *   .description("Search documents")
+ *   .input({ body: mySchema })
+ *   .from(mcp({ annotations: { readOnlyHint: true } }))
  *
  * // Destination (call remote MCP server)
  * .to(mcp({ url: 'http://localhost:3001/mcp', tool: 'search' }))
@@ -51,12 +47,7 @@ import type { McpMessage } from "./types.ts";
  * .to(mcp('my-server:search', { args: (ex) => ex.body.params }))
  * ```
  */
-export function mcp<B extends StandardSchemaV1 | undefined = undefined>(
-  endpoint: string,
-  options: Omit<McpServerOptions, "input"> & {
-    input?: { body?: B; headers?: StandardSchemaV1 };
-  },
-): Source<McpMessage<B>>;
+export function mcp(options?: McpServerOptions): Source<McpMessage<undefined>>;
 export function mcp(
   clientOptions: McpClientOptions,
 ): Destination<unknown, unknown>;
@@ -64,24 +55,17 @@ export function mcp(
   shorthand: RegisteredMcpShorthand,
   options?: { args?: McpArgsExtractor },
 ): Destination<unknown, unknown>;
-export function mcp<B extends StandardSchemaV1 | undefined = undefined>(
-  endpointOrOptions:
-    | string
-    | ((exchange: Exchange<McpMessage<B>>) => string)
-    | McpClientOptions,
-  options?:
-    | (Omit<McpServerOptions, "input"> & {
-        input?: { body?: B; headers?: StandardSchemaV1 };
-      })
-    | { args?: McpArgsExtractor },
-): Source<McpMessage<B>> | Destination<unknown, unknown> {
-  // Client: object with url or serverId
+export function mcp(
+  arg?: McpServerOptions | McpClientOptions | RegisteredMcpShorthand,
+  options?: { args?: McpArgsExtractor },
+): Source<McpMessage<undefined>> | Destination<unknown, unknown> {
+  // Client (object): url or serverId present
   if (
-    typeof endpointOrOptions === "object" &&
-    endpointOrOptions !== null &&
-    ("url" in endpointOrOptions || "serverId" in endpointOrOptions)
+    typeof arg === "object" &&
+    arg !== null &&
+    ("url" in arg || "serverId" in arg)
   ) {
-    const clientOpts = endpointOrOptions as McpClientOptions;
+    const clientOpts = arg as McpClientOptions;
     if (typeof clientOpts.auth?.token === "string") {
       if (clientOpts.auth.token.trim().length === 0) {
         throw new TypeError(
@@ -105,24 +89,15 @@ export function mcp<B extends StandardSchemaV1 | undefined = undefined>(
     return tagAdapter(
       new McpDestinationAdapter(clientOpts),
       mcp,
-      factoryArgs(endpointOrOptions, options),
+      factoryArgs(arg, options),
     );
   }
 
-  // Client: "server:tool" string with optional args
-  const isClientColonOptions =
-    options === undefined ||
-    (typeof options === "object" &&
-      options !== null &&
-      !("description" in options));
-  if (
-    typeof endpointOrOptions === "string" &&
-    endpointOrOptions.includes(":") &&
-    isClientColonOptions
-  ) {
-    const colonIndex = endpointOrOptions.indexOf(":");
-    const serverId = endpointOrOptions.slice(0, colonIndex);
-    const tool = endpointOrOptions.slice(colonIndex + 1);
+  // Client: "server:tool" shorthand string
+  if (typeof arg === "string" && arg.includes(":")) {
+    const colonIndex = arg.indexOf(":");
+    const serverId = arg.slice(0, colonIndex);
+    const tool = arg.slice(colonIndex + 1);
     const clientOptions: McpClientOptions = { serverId, tool };
     if (
       options !== undefined &&
@@ -135,34 +110,27 @@ export function mcp<B extends StandardSchemaV1 | undefined = undefined>(
     return tagAdapter(
       new McpDestinationAdapter(clientOptions),
       mcp,
-      factoryArgs(endpointOrOptions, options),
+      factoryArgs(arg, options),
     );
   }
 
-  // Server: endpoint + options with description
-  const endpoint = endpointOrOptions as
-    | string
-    | ((exchange: Exchange<McpMessage<B>>) => string);
-  if (options !== undefined) {
-    return tagAdapter(
-      new McpSourceAdapter<B>(
-        endpoint as string,
-        options as McpServerOptions & {
-          input?: { body?: B; headers?: StandardSchemaV1 };
-        },
-      ),
-      mcp,
-      factoryArgs(endpointOrOptions, options),
-    );
+  // A bare string without a colon is not a valid call: it is neither
+  // a client shorthand (requires "server:tool") nor a source options
+  // object. Point users at the right overload.
+  if (typeof arg === "string") {
+    throw rcError("RC5003", undefined, {
+      message: `mcp(${JSON.stringify(arg)}) is not a valid call: a bare string without ":" is neither a client shorthand nor source options`,
+      suggestion:
+        "Use .from(mcp()) for a source (tool name comes from .id()), .to(mcp({ url, tool })) for a remote server, .to(mcp('server:tool')) for a registered shorthand, or direct('name') for in-process dispatch.",
+    });
   }
 
-  // Invalid: endpoint only (no options) — direct not supported
-  throw rcError("RC5003", undefined, {
-    message:
-      "mcp() with only an endpoint is not supported. Use direct('endpoint') for in-process. For MCP server use .from(mcp('endpoint', { description: '...' })); for client use .to(mcp({ url, tool })) or .to(mcp('server:tool', { args })).",
-    suggestion:
-      "Use .from(mcp('endpoint', { description: '...' })) or .to(mcp({ url, tool })) or direct('endpoint').",
-  });
+  // Source: undefined or server options (annotations / icons)
+  return tagAdapter(
+    new McpSourceAdapter((arg as McpServerOptions) ?? {}),
+    mcp,
+    factoryArgs(arg, options),
+  );
 }
 
 // Re-export types for public API

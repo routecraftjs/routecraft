@@ -239,41 +239,45 @@ Options:
 ### direct
 
 ```ts
-direct<T>(endpoint: string | ((exchange: Exchange<T>) => string), options?: Partial<DirectOptions>): DirectAdapter<T>
+// Source (endpoint = route id). Body types are unknown at the adapter
+// layer; schemas live on the route builder via `.input()` / `.output()`.
+direct(options?: Partial<DirectServerOptions>): Source<unknown>
+
+// Destination (names a target route)
+direct<T>(endpoint: string | ((exchange: Exchange<T>) => string)): Destination<T, T>
 ```
 
-Enable synchronous inter-route communication with single consumer semantics. Perfect for composable route architectures where you need request-response patterns. Supports dynamic endpoint names based on exchange data for destinations.
+Enable synchronous inter-route communication. Perfect for composable route architectures where you need request-response patterns. The source form uses the route's `.id()` as the endpoint name; destinations address the target by id.
+
+Discovery metadata (`.title()`, `.description()`) and schemas (`.input()`, `.output()`) live on the route builder, not the adapter. The framework validates `.input()` before the pipeline runs and `.output()` before the primary destination fires -- any source adapter (direct, mcp, future ones) inherits this validation automatically.
 
 ```ts
-// Producer route that sends to direct endpoint
+// Producer route that sends to a direct endpoint
 craft()
   .id('data-producer')
   .from(source)
   .transform(processData)
   .to(direct('processed-data'))
 
-// Consumer route that receives from direct endpoint
+// Consumer route that receives from the endpoint (route id = endpoint)
 craft()
-  .id('data-consumer')
-  .from(direct('processed-data', {}))
+  .id('processed-data')
+  .from(direct())
   .process(businessLogic)
   .to(destination)
 
-// Planned: inbound HTTP API with direct routing
+// Consumer with framework-enforced validation
 craft()
-  .id('api-endpoint')
-  .from(http({ path: '/api/orders', method: 'POST' })) // Planned HTTP source API
-  .to(direct('order-processing')) // Synchronous call
-
-craft()
-  .id('order-processor')
-  .from(direct('order-processing', {}))
+  .id('order-processing')
+  .description('Validate and persist an incoming order')
+  .input({ body: z.object({ orderId: z.string() }) })
+  .output({ body: z.object({ status: z.literal('created'), orderId: z.string() }) })
+  .from(direct())
   .process(validateOrder)
   .process(saveOrder)
   .transform(() => ({ status: 'created', orderId: '12345' }))
-  // Planned response flow goes back to the HTTP client automatically
 
-// Dynamic endpoint based on message content
+// Dynamic endpoint based on message content (destination side)
 craft()
   .id('dynamic-router')
   .from(source)
@@ -288,36 +292,38 @@ craft()
     return `processing-${priority}`;
   }))
 
-// Consumer routes (static endpoints required)
+// Consumer routes -- their ids match the dynamic target names
 craft()
-  .id('high-priority-handler')
-  .from(direct('processing-high', {}))
+  .id('processing-high')
+  .from(direct())
   .to(urgentProcessor)
 
 craft()
-  .id('normal-priority-handler')
-  .from(direct('processing-normal', {}))
+  .id('processing-normal')
+  .from(direct())
   .to(standardProcessor)
+
+// Agent-only capability -- no .id() means a UUID endpoint,
+// discoverable by agents but not callable from code
+craft()
+  .description('Internal knowledge base lookup')
+  .input({ body: z.object({ query: z.string() }) })
+  .from(direct())
+  .process(fetchSnippets)
 ```
 
-**Options:**
-- `channelType` - Custom direct channel implementation (default: in-memory)
-- `title` - Human-readable display title for in-process discovery consumers (agents). Not used by the delivery pipeline.
-- `description` - Human-readable description surfaced to agents that inspect the direct registry.
-- `input` - Per-direction schema bundle for the request side:
-  - `input.body` - Body validation schema, Standard Schema compatible (Zod, Valibot, ArkType). Runtime-enforced.
-  - `input.headers` - Header validation schema; validated values are merged on top of the request headers so caller-supplied pass-through keys (correlation IDs, adapter-injected metadata) survive schemas that strip unknowns.
-- `output` - Per-direction schema bundle for the response side; documentation-only, not runtime-enforced:
-  - `output.body` - Standard Schema for the response body.
-  - `output.headers` - Standard Schema for the response headers.
+**Source options (adapter-specific only):**
+- `channelType` - Custom direct channel implementation (default: in-memory). Per-route override of the context-level default.
+
+Route-level metadata lives on the builder: `.title('...')`, `.description('...')`, `.input({ body, headers })`, `.output({ body, headers })`. `.input()` and `.output()` also accept a bare Standard Schema as a body-only shorthand.
 
 **Key characteristics:**
-- **Synchronous**: Calling route waits for response from consuming route
-- **Single consumer**: Only one route can consume from each endpoint (last one wins)
-- **Request-response**: Perfect for HTTP APIs and composable route architectures
-- **Automatic endpoint name sanitization**: Special chars become dashes
-- **Dynamic routing**: Endpoint names can be determined at runtime using exchange data (destination only)
-- **Static sources**: Source endpoints (`.from()`) must use static strings; dynamic functions only work with `.to()` and `.tap()`
+- **Synchronous**: Calling route waits for response from the consuming route
+- **Endpoint = route id**: The direct source uses the route's `.id()` as its endpoint name. Destinations reference the consumer by that id.
+- **Agent-only capabilities**: Omit `.id()` to register under a UUID the builder generates; agents can still discover the route via the registry, but it cannot be addressed as a string from code.
+- **Framework-enforced validation**: `.input()` and `.output()` schemas are validated by the engine, not the adapter. Validation failure emits `exchange:dropped` (input) or routes to the error handler (output) with `RC5002`.
+- **Automatic endpoint name sanitization**: URL-unsafe characters in the route id are URL-encoded for collision-free registry keys.
+- **Dynamic destinations**: Destination endpoints can be computed from the exchange; sources always use the route id.
 
 **Perfect for:**
 - Breaking large routes into smaller, composable pieces
@@ -338,7 +344,8 @@ Without a schema, all data passes through unchanged:
 
 ```ts
 craft()
-  .from(direct('user-processor', {}))  // No schema - all data passes through
+  .id('user-processor')
+  .from(direct())  // No schema -- all data passes through
   .process(processUser)
 ```
 
@@ -362,7 +369,9 @@ const strictSchema = z.object({
 })
 
 craft()
-  .from(direct('user-processor', { input: { body: strictSchema } }))
+  .id('user-processor')
+  .input({ body: strictSchema })
+  .from(direct())
   .process(processUser)
 
 // Passes: { userId: '...', action: 'create' }
@@ -379,7 +388,9 @@ const looseSchema = z.looseObject({
 })
 
 craft()
-  .from(direct('user-processor', { input: { body: looseSchema } }))
+  .id('user-processor')
+  .input({ body: looseSchema })
+  .from(direct())
   .process(processUser)
 
 // Passes: { userId: '...', action: 'create', extra: 'field' }
@@ -394,7 +405,9 @@ const veryStrictSchema = z.strictObject({
 })
 
 craft()
-  .from(direct('user-processor', { input: { body: veryStrictSchema } }))
+  .id('user-processor')
+  .input({ body: veryStrictSchema })
+  .from(direct())
   .process(processUser)
 
 // Passes: { userId: '...', action: 'create' }
@@ -408,35 +421,35 @@ Without `input.headers`, all headers pass through unchanged. When specified, the
 ```ts
 // No header schema - all headers pass through unchanged
 craft()
-  .from(direct('api-handler', {
-    input: { body: z.object({ id: z.string() }) },
-    // input.headers not specified - all headers preserved
-  }))
+  .id('api-handler')
+  .input({ body: z.object({ id: z.string() }) })
+  // input.headers not specified - all headers preserved
+  .from(direct())
   .process(handleRequest)
 
 // z.looseObject() - validate required headers, keep extras
 craft()
-  .from(direct('api-handler', {
-    input: {
-      headers: z.looseObject({
-        'x-tenant-id': z.string().uuid(),
-        'x-trace-id': z.string().optional(),
-      }),
-    },
-  }))
+  .id('api-handler')
+  .input({
+    headers: z.looseObject({
+      'x-tenant-id': z.string().uuid(),
+      'x-trace-id': z.string().optional(),
+    }),
+  })
+  .from(direct())
   .process(handleRequest)
 
 // Passes: { 'x-tenant-id': '...', 'x-other': '...' } (validates x-tenant-id, keeps x-other)
 
 // z.object() - validate declared headers; merge preserves pass-through keys
 craft()
-  .from(direct('api-handler', {
-    input: {
-      headers: z.object({
-        'x-tenant-id': z.string().uuid(),
-      }),
-    },
-  }))
+  .id('api-handler')
+  .input({
+    headers: z.object({
+      'x-tenant-id': z.string().uuid(),
+    }),
+  })
+  .from(direct())
   .process(handleRequest)
 
 // Passes: { 'x-tenant-id': '...', 'x-other': '...' } (x-other preserved via merge)
@@ -453,7 +466,9 @@ const schema = z.object({
 })
 
 craft()
-  .from(direct('processor', { schema }))
+  .id('processor')
+  .input({ body: schema })
+  .from(direct())
   .process((data) => {
     // data.createdAt is Date, not string
     console.log(data.createdAt.getFullYear())
@@ -470,12 +485,12 @@ Each direct route registers in `ADAPTER_DIRECT_REGISTRY` so in-process agents ca
 import { ADAPTER_DIRECT_REGISTRY } from '@routecraft/routecraft'
 
 craft()
-  .from(direct('fetch-content', {
-    title: 'Fetch content',
-    description: 'Fetch and summarize web content from URL',
-    input: { body: z.object({ url: z.string().url() }) },
-    output: { body: z.object({ summary: z.string() }) },
-  }))
+  .id('fetch-content')
+  .title('Fetch content')
+  .description('Fetch and summarize web content from URL')
+  .input({ body: z.object({ url: z.string().url() }) })
+  .output({ body: z.object({ summary: z.string() }) })
+  .from(direct())
   .process(fetchAndSummarize)
 
 // Later, query registered routes from context
@@ -1206,8 +1221,8 @@ craft()
 
 ```ts
 craft()
-  .id('send-welcome')
-  .from(direct('outbound', {}))
+  .id('outbound')
+  .from(direct())
   .to(mail())
 ```
 
@@ -1513,26 +1528,26 @@ Expose capabilities as MCP tools or call remote MCP servers. Requires `mcpPlugin
 
 **Source mode -- define a discoverable MCP tool:**
 
+The tool name is the route id; the tool's title, description, and schemas live on the route builder (enforced framework-wide). Only MCP-protocol extras (`annotations`, `icons`) remain on `mcp()` itself.
+
 ```ts
 import { mcp } from '@routecraft/ai'
 import { z } from 'zod'
 
 craft()
   .id('fetch-webpage')
-  .from(mcp('fetch-webpage', {
-    title: 'Fetch webpage',
-    description: 'Fetch the content of a webpage',
-    input: { body: z.object({ url: z.string().url() }) },
-    output: { body: z.object({ content: z.string() }) },
-    annotations: { readOnlyHint: true, openWorldHint: true },
-  }))
+  .title('Fetch webpage')
+  .description('Fetch the content of a webpage')
+  .input({ body: z.object({ url: z.string().url() }) })
+  .output({ body: z.object({ content: z.string() }) })
+  .from(mcp({ annotations: { readOnlyHint: true, openWorldHint: true } }))
   .transform(async ({ url }) => {
     const res = await fetch(url)
     return { content: await res.text() }
   })
 ```
 
-`description` is required whenever options are passed. Everything else is optional.
+A non-empty `.description()` is required for every MCP source route (surfaced as the tool description in `tools/list`); the route fails to subscribe otherwise. The tool name (route id) is validated against the MCP interop regex `^[A-Za-z0-9_-]{1,64}$`.
 
 **Destination mode -- call a remote MCP tool:**
 
@@ -1547,18 +1562,22 @@ craft()
 
 When using the `serverId` path (recommended), auth configured on the client in `mcpPlugin({ clients })` flows to the destination automatically. Inline `auth` on `McpClientOptions` is available as an escape hatch for the raw `url` path or to override registered config, but prefer centralizing credentials in the plugin config.
 
-**Options (McpServerOptions -- source):**
+**Options (McpServerOptions -- source, protocol extras only):**
 
 | Option | Type | Required | Description |
 |--------|------|----------|-------------|
-| `description` | `string` | Yes | Human-readable description for AI discovery |
-| `title` | `string` | No | Human-readable display title (MCP `Tool.title`) |
-| `input.body` | `StandardSchemaV1` | No | Body validation schema (MCP `Tool.inputSchema`). Runtime-enforced. |
-| `input.headers` | `StandardSchemaV1` | No | Header validation schema; validated values merge over the originals |
-| `output.body` | `StandardSchemaV1` | No | Output body schema (MCP `Tool.outputSchema`); forwarded on `tools/list` |
-| `output.headers` | `StandardSchemaV1` | No | Output header schema; documentation-only |
 | `annotations` | `McpToolAnnotations` | No | Behavior hints forwarded to MCP clients in the `tools/list` response |
 | `icons` | `McpToolIcon[]` | No | Icons forwarded on `tools/list` per the MCP spec |
+
+All other tool metadata (title, description, input / output schemas) comes from the route builder and is enforced framework-wide:
+
+| Builder method | Maps to | Notes |
+|----------------|---------|-------|
+| `.id('tool-name')` | `tool.name` | Validated against `^[A-Za-z0-9_-]{1,64}$` at subscribe |
+| `.title('...')` | `tool.title` | Optional display title |
+| `.description('...')` | `tool.description` | **Required** for MCP source routes |
+| `.input({ body, headers })` | `tool.inputSchema` + runtime check | `body` validation is framework-enforced; `headers` validated values merge over the originals |
+| `.output({ body, headers })` | `tool.outputSchema` + runtime check | Framework-enforced before the primary destination fires |
 
 **McpToolAnnotations (optional hint fields, all booleans unless noted):**
 
@@ -1604,7 +1623,7 @@ const tools = registry ? Array.from(registry.values()) : []
 // [{ endpoint, title?, description, input?, output?, annotations?, icons?, handler }]
 ```
 
-`mcp()` and `direct()` maintain separate, fully isolated registries. `.from(mcp('foo', ...))` and `.from(direct('foo'))` can coexist on the same endpoint string because they live in different stores. Direct routes never appear in the MCP `tools/list` response.
+`mcp()` and `direct()` maintain separate, fully isolated registries. An MCP route with `.id('foo').from(mcp())` and a direct route with `.id('bar').from(direct())` both register by their own ids in their own stores; direct routes never appear in the MCP `tools/list` response.
 
 See [Expose as MCP](/docs/advanced/expose-as-mcp) and [Call an MCP](/docs/advanced/call-an-mcp).
 

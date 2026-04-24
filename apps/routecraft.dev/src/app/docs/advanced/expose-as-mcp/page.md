@@ -16,7 +16,7 @@ npm install @routecraft/ai zod
 
 ## Define a capability
 
-A capability becomes an MCP tool when you use `mcp()` as its source. Give it a `description` the AI uses to decide when to call it, and a Zod `schema` for the input.
+A capability becomes an MCP tool when you use `mcp()` as its source. The tool name is the route's `.id()`. The `.description()` that the AI uses to decide when to call it, and the `.input()` schema for the payload, both live on the route builder. Routecraft validates input against the schema before the capability runs, so invalid calls are rejected before any business logic executes.
 
 ```ts
 // capabilities/search-orders.ts
@@ -26,20 +26,18 @@ import { z } from 'zod'
 
 export default craft()
   .id('orders.search')
-  .from(mcp('orders.search', {
-    description: 'Search orders by customer ID or date range',
-    schema: z.object({
+  .description('Search orders by customer ID or date range')
+  .input({
+    body: z.object({
       customerId: z.string().optional(),
       from: z.string().date().optional(),
       to: z.string().date().optional(),
     }),
-    keywords: ['orders', 'search'],
-  }))
+  })
+  .from(mcp())
   .transform(({ customerId, from, to }) => buildQuery(customerId, from, to))
   .to(http({ method: 'GET', path: '/orders' }))
 ```
-
-The `schema` is validated before the capability runs. Invalid inputs are rejected with a structured error before any business logic executes.
 
 ## Stdio transport (default)
 

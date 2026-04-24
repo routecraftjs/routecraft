@@ -24,12 +24,7 @@ describe("MCP Plugin Integration", () => {
    */
   test(".from(mcp(...)) without mcpPlugin fails when route starts", async () => {
     t = await testContext()
-      .routes(
-        craft()
-          .id("test")
-          .from(mcp("test", { description: "test" }))
-          .to(noop()),
-      )
+      .routes(craft().id("test").description("test").from(mcp()).to(noop()))
       .build();
 
     await expect(t.test()).rejects.toThrow(/MCP plugin required/);
@@ -44,12 +39,7 @@ describe("MCP Plugin Integration", () => {
     expect(typeof mcpPlugin).toBe("function");
 
     t = await testContext()
-      .routes(
-        craft()
-          .id("test")
-          .from(mcp("test", { description: "test" }))
-          .to(noop()),
-      )
+      .routes(craft().id("test").description("test").from(mcp()).to(noop()))
       .with({
         plugins: [mcpPlugin()],
       })
@@ -66,18 +56,12 @@ describe("MCP Plugin Integration", () => {
   test("Only mcp() routes with description are exposed", async () => {
     const toolRoute = craft()
       .id("my-tool")
-      .from(
-        mcp("my-tool", {
-          description: "A test tool",
-          input: { body: z.object({ input: z.string() }) },
-        }),
-      )
+      .description("A test tool")
+      .input({ body: z.object({ input: z.string() }) })
+      .from(mcp())
       .to(noop());
 
-    const directRoute = craft()
-      .id("internal-bus")
-      .from(direct("internal-bus", {}))
-      .to(noop());
+    const directRoute = craft().id("internal-bus").from(direct()).to(noop());
 
     t = await testContext()
       .routes([toolRoute, directRoute])
@@ -96,12 +80,7 @@ describe("MCP Plugin Integration", () => {
    */
   test("mcpPlugin() accepts configuration options", async () => {
     t = await testContext()
-      .routes(
-        craft()
-          .id("test")
-          .from(mcp("test", { description: "test" }))
-          .to(noop()),
-      )
+      .routes(craft().id("test").description("test").from(mcp()).to(noop()))
       .with({
         plugins: [
           mcpPlugin({
@@ -152,12 +131,9 @@ describe("MCP Plugin Integration", () => {
 
     const toolRoute = craft()
       .id("schema-tool")
-      .from(
-        mcp("schema-tool", {
-          description: "A tool with schema",
-          input: { body: mySchema },
-        }),
-      )
+      .description("A tool with schema")
+      .input({ body: mySchema })
+      .from(mcp())
       .to(noop());
 
     t = await testContext()
@@ -171,15 +147,12 @@ describe("MCP Plugin Integration", () => {
   });
 
   /**
-   * @case Verifies that mcp() routes without description are not treated as tools
+   * @case Verifies that direct() routes without description are not treated as tools
    * @preconditions A direct() adapter is used without description
    * @expectedResult Route is registered but not in tool registry
    */
   test("Routes without description are not exposed as tools", async () => {
-    const route = craft()
-      .id("plain-direct")
-      .from(direct("plain-direct", {}))
-      .to(noop());
+    const route = craft().id("plain-direct").from(direct()).to(noop());
 
     t = await testContext()
       .routes([route])
@@ -198,12 +171,7 @@ describe("MCP Plugin Integration", () => {
    */
   test("mcpPlugin stores MCP_TOOL_REGISTRY in context store", async () => {
     t = await testContext()
-      .routes(
-        craft()
-          .id("test")
-          .from(mcp("test", { description: "test" }))
-          .to(noop()),
-      )
+      .routes(craft().id("test").description("test").from(mcp()).to(noop()))
       .with({
         plugins: [mcpPlugin()],
       })
@@ -225,15 +193,9 @@ describe("MCP Plugin Integration", () => {
   test("tool registry does not include local mcp() routes", async () => {
     t = await testContext()
       .routes([
-        craft()
-          .id("tool-a")
-          .from(mcp("tool-a", { description: "Tool A" }))
-          .to(noop()),
-        craft()
-          .id("tool-b")
-          .from(mcp("tool-b", { description: "Tool B" }))
-          .to(noop()),
-        craft().id("internal").from(direct("internal", {})).to(noop()),
+        craft().id("tool-a").description("Tool A").from(mcp()).to(noop()),
+        craft().id("tool-b").description("Tool B").from(mcp()).to(noop()),
+        craft().id("internal").from(direct()).to(noop()),
       ])
       .with({
         plugins: [mcpPlugin()],

@@ -86,7 +86,7 @@ export default [
       // Elevate to an error
       '@routecraft/routecraft/batch-before-from': 'error',
       // Turn off entirely
-      '@routecraft/routecraft/mcp-server-options': 'off',
+      '@routecraft/routecraft/single-to-per-route': 'off',
     },
   },
 ]

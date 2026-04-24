@@ -23,7 +23,7 @@ export default craft()
 // capabilities/process-orders.ts
 export default craft()
   .id('orders.process')
-  .from(direct('orders.process', {}))
+  .from(direct())
   .transform(fulfillOrder)
   .to(direct('orders.notify'))
 ```
@@ -32,11 +32,11 @@ export default craft()
 // capabilities/notify-orders.ts
 export default craft()
   .id('orders.notify')
-  .from(direct('orders.notify', {}))
+  .from(direct())
   .to(http({ method: 'POST', path: '/notifications' }))
 ```
 
-The channel name is just a string -- use a namespaced convention (e.g. `domain.stage`) to keep them readable as the project grows.
+The route's `.id()` is the direct endpoint name. Destinations reference the consumer by that id. Use a namespaced convention (e.g. `domain.stage`) to keep them readable as the project grows.
 
 ## Fan-out
 
@@ -56,7 +56,7 @@ export default craft()
 // capabilities/audit-event.ts
 export default craft()
   .id('events.audit')
-  .from(direct('events.audit', {}))
+  .from(direct())
   .to(json({ path: './logs/audit.jsonl' }))
 ```
 
@@ -64,7 +64,7 @@ export default craft()
 // capabilities/metrics-event.ts
 export default craft()
   .id('events.metrics')
-  .from(direct('events.metrics', {}))
+  .from(direct())
   .transform(({ type }) => ({ counter: type }))
   .to(http({ method: 'POST', path: '/metrics' }))
 ```
@@ -85,7 +85,7 @@ export default craft()
 // capabilities/high-priority.ts
 export default craft()
   .id('jobs.high')
-  .from(direct('jobs.high', {}))
+  .from(direct())
   .transform(processUrgent)
   .to(log())
 ```
@@ -94,38 +94,57 @@ export default craft()
 // capabilities/normal-priority.ts
 export default craft()
   .id('jobs.normal')
-  .from(direct('jobs.normal', {}))
+  .from(direct())
   .transform(processNormal)
   .to(log())
 ```
 
-## Schema validation on receive
+## Discovery metadata and framework validation
 
-The source side of `direct()` accepts a `schema` option. Routecraft validates the incoming body before the capability runs and throws `RC5002` if validation fails.
+Title, description, and request / response schemas are route-level concerns declared on the builder. The framework validates `.input()` against every incoming message before the pipeline runs, and `.output()` against the final exchange before the primary destination fires. Any source adapter inherits this validation, and any discovery-aware adapter (`direct`, `mcp`) mirrors the same metadata into its registry so agents, docs, and observability see one consistent view.
 
 ```ts
 import { z } from 'zod'
 
 export default craft()
   .id('orders.process')
-  .from(direct('orders.process', {
-    schema: z.object({
+  .title('Process orders')
+  .description('Validate an order payload and trigger fulfilment')
+  .input({
+    body: z.object({
       orderId: z.string(),
       items: z.array(z.string()),
     }),
-  }))
+  })
+  .output({ body: z.object({ ok: z.literal(true) }) })
+  .from(direct())
   .transform(fulfillOrder)
   .to(log())
 ```
 
+Swap `direct()` for `mcp()` (or, in the future, `agent()`) without moving any metadata; the shared fields stay on the route.
+
+## Agent-only capabilities
+
+Omit `.id()` to make a capability discoverable by agents but unreferenceable from code. The route still registers in the direct registry (agents can find it by description and schemas), but its endpoint is a random UUID that cannot be typed into `direct('...')` on the destination side.
+
+```ts
+export default craft()
+  .title('Knowledge base lookup')
+  .description('Retrieve internal documentation snippets by query')
+  .input({ body: z.object({ query: z.string() }) })
+  .from(direct())
+  .transform(fetchSnippets)
+```
+
 ## How direct() knows its role
 
-`direct()` is overloaded -- the number of arguments determines whether it acts as a source or destination:
+`direct()` is overloaded -- the type of the first argument determines whether it acts as a source or destination:
 
-- **`direct('channel', options)`** -- two arguments, acts as a **source** (`.from()`)
-- **`direct('channel')`** -- one argument, acts as a **destination** (`.to()`, `.tap()`)
+- **`direct()` or `direct(options)`** -- no endpoint string (or options object), acts as a **source** (`.from()`); the route's `.id()` is the endpoint name
+- **`direct('channel')` or `direct((ex) => channel)`** -- a string or function naming a target route, acts as a **destination** (`.to()`, `.tap()`)
 
-One channel name, one import, two roles.
+One import, two roles, one source of truth for the endpoint name (the route id).
 
 ---
 

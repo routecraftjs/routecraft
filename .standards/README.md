@@ -12,6 +12,7 @@ Internal development standards for Routecraft contributors (human and AI). These
 | [Naming Policy](./naming-policy.md) | Source/Destination vs Server/Client naming conventions for interfaces and option types |
 | [Error and Logging Policy](./error-and-logging-policy.md) | Throw/boundary rules, structured logging, level semantics, error code philosophy |
 | [Type Safety and Schemas](./type-safety-and-schemas.md) | Type flow policy, Standard Schema usage, plugin vs config vs store guidance |
+| [Type Safety Registries](./type-safety-registries.md) | Declaration-merging registries for typed adapters and endpoints; codegen direction |
 
 ## Related
 

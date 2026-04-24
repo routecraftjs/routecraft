@@ -4,20 +4,16 @@ import { z } from "zod";
 const GreetInput = z.object({ userId: z.number() });
 type GreetInput = z.infer<typeof GreetInput>;
 
-// "greet" service: receives a user id via the direct endpoint,
-// fetches the user, and logs a greeting. Body type is inferred from
-// `input.body`, so no cast is required. `title` and `description` are
-// optional but recommended: in-process agents reading
-// `ADAPTER_DIRECT_REGISTRY` use them for discovery.
+// "greet" service: receives a user id via the direct endpoint, fetches the
+// user, and logs a greeting. Discovery metadata (title, description) and the
+// input schema live on the route builder; the framework validates `.input()`
+// against every incoming message before the pipeline runs.
 const greetRoute = craft()
   .id("greet")
-  .from(
-    direct("greet", {
-      title: "Greet user",
-      description: "Look up a user by id and return a greeting message",
-      input: { body: GreetInput },
-    }),
-  )
+  .title("Greet user")
+  .description("Look up a user by id and return a greeting message")
+  .input({ body: GreetInput })
+  .from<GreetInput>(direct())
   .enrich(
     http<GreetInput, { name: string }>({
       method: "GET",
@@ -26,7 +22,6 @@ const greetRoute = craft()
     }),
   )
   .transform((result) => `Hello, ${result.body.name}!`)
-  .log()
   .to(log());
 
 // "hello-world" caller: dispatches a user id to the greet service.
