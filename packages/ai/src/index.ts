@@ -109,13 +109,25 @@ export type {
   McpMessage,
 } from "./mcp/index.ts";
 
-// Agent adapter (Phase 1: pass-through)
-export { agent, AgentDestinationAdapter } from "./agent/index.ts";
+// Agent destination, plugin, and types. For inline use, identity and
+// description come from the enclosing route (`.id()`, `.description()`).
+// For by-name use, register agents via `agentPlugin({ agents: [...] })`
+// with `defineAgent({ id, description, ... })`.
+export {
+  agent,
+  defineAgent,
+  AgentDestinationAdapter,
+  agentPlugin,
+  ADAPTER_AGENT_REGISTRY,
+} from "./agent/index.ts";
 export type {
-  AgentModelId,
+  AgentBinding,
   AgentOptions,
-  AgentPromptSource,
+  AgentPluginOptions,
+  AgentRegisteredOptions,
+  AgentRegistration,
   AgentResult,
+  AgentUserPromptSource,
 } from "./agent/index.ts";
 
 // Embedding adapter and plugin

@@ -1,75 +1,101 @@
 import type { Exchange } from "@routecraft/routecraft";
-
-/** Resolve prompt from exchange (string or function). */
-export type AgentPromptSource =
-  | string
-  | ((exchange: Exchange<unknown>) => string);
+import type { LlmModelConfig, LlmModelId, LlmUsage } from "../llm/types.ts";
 
 /**
- * Recommended agent model ids for autocomplete (reasoning, tool use, multi-step).
- * Format: "providerId:modelName". Custom models are allowed via string.
- * Updated for 2026.
+ * Brand symbol used to distinguish agent registrations from inline option
+ * objects. `defineAgent()` stamps this on its return value so `agentPlugin`
+ * can tell at runtime whether it was given a registration or a plain
+ * config.
+ *
+ * @internal
  */
-export type AgentModelId =
-  // OpenAI (2026: GPT-5.2, Codex, o1 for reasoning/tools)
-  | "openai:gpt-5.2"
-  | "openai:gpt-5.2-codex"
-  | "openai:gpt-5"
-  | "openai:gpt-5.1-chat-latest"
-  | "openai:gpt-4o"
-  | "openai:o1"
-  | "openai:o1-mini"
-  // Anthropic (2026: Claude 4.6 / 4.5 agentic)
-  | "anthropic:claude-opus-4-6"
-  | "anthropic:claude-sonnet-4-6"
-  | "anthropic:claude-haiku-4-5-20251001"
-  // Ollama (local agent / reasoning)
-  | "ollama:qwen3"
-  | "ollama:llama3.2"
-  | "ollama:llama3.3"
-  | "ollama:deepseek-r1"
-  | "ollama:lfm2.5-thinking"
-  | "ollama:mistral"
-  | "ollama:gemma2"
-  // OpenRouter (open-weight / frontier: GLM, Kimi, Qwen, DeepSeek)
-  | "openrouter:z-ai/glm-5"
-  | "openrouter:z-ai/glm-4.7"
-  | "openrouter:moonshotai/kimi-k2-thinking"
-  | "openrouter:qwen/qwen3.5-plus-02-15"
-  | "openrouter:deepseek/deepseek-v3.2"
-  | "openrouter:deepseek/deepseek-r1"
-  | "openrouter:google/gemini-2.5-pro"
-  // Gemini (2026: 2.5 + 3.x reasoning)
-  | "gemini:gemini-2.5-pro"
-  | "gemini:gemini-3.1-pro-preview"
-  | "gemini:gemini-3-pro-preview"
-  | "gemini:gemini-2.5-flash"
-  // Other (custom models)
-  | string;
+export const AGENT_REGISTRATION_BRAND: unique symbol = Symbol.for(
+  "routecraft.agent.registration",
+);
 
 /**
- * Options for the agent adapter (anonymous inline only in Phase 1).
- * modelId format: "providerId:modelName" (e.g. ollama:llama3).
+ * Resolves a user prompt from an exchange. When omitted, the agent derives
+ * the user prompt from `exchange.body` (string body as-is, JSON-stringified
+ * for objects, `String()` otherwise).
+ *
+ * @experimental
+ */
+export type AgentUserPromptSource = (exchange: Exchange<unknown>) => string;
+
+/**
+ * Options for the agent destination when defined inline in a route.
+ *
+ * Identity and description for inline agents live on the enclosing route:
+ * `.id()` is the agent's callable identity and `.description()` is its
+ * human-readable description. `AgentOptions` only carries LLM-specific
+ * config.
+ *
+ * For registered agents that are not backed by a route, use
+ * `defineAgent({ id, description, ...AgentOptions })` together with
+ * `agentPlugin({ agents: [...] })`. The `id` and `description` fields
+ * only apply to the registered form and are not accepted on inline
+ * `agent({...})` calls.
+ *
+ * @experimental
  */
 export interface AgentOptions {
-  /** Model id in "providerId:modelName" format; provider resolved from llmPlugin/store. */
-  modelId: AgentModelId;
-  /** System prompt (optional). Defaults to exchange.body for user prompt when not set. */
-  systemPrompt?: AgentPromptSource;
-  /** User prompt (optional). Default: exchange.body. */
-  userPrompt?: AgentPromptSource;
-  /** Route IDs the agent may call; default: all. Empty array = all. */
-  allowedRoutes?: string[];
-  /** MCP serverIds the agent may call; default: none. */
-  allowedMcpServers?: string[];
-  /** Max agent loop steps (safety cap). Default: 10. */
-  maxSteps?: number;
+  /**
+   * Model reference. Either a "providerId:modelName" string resolved against
+   * the providers registered via `llmPlugin`, or an inline `LlmModelConfig`
+   * for ad-hoc credentials without registration.
+   */
+  model: LlmModelId | LlmModelConfig;
+
+  /**
+   * System prompt as a plain string. Load from disk yourself when you want
+   * to source it from a file (e.g. `readFileSync("./prompt.md", "utf-8")`).
+   */
+  system: string;
+
+  /**
+   * Optional override for deriving the user prompt from the incoming
+   * exchange. Defaults to the body (string as-is, JSON for objects).
+   */
+  user?: AgentUserPromptSource;
 }
 
-/** Result from agent adapter. Phase 1: pass-through returns output = exchange.body, steps = 0. */
+/**
+ * Options for an agent registered via `agentPlugin({ agents: [...] })` for
+ * by-name reuse. Registered agents carry their own id and description
+ * because there is no enclosing route to draw them from.
+ *
+ * @experimental
+ */
+export interface AgentRegisteredOptions extends AgentOptions {
+  /** Unique identifier used to reference this agent via `agent("id")`. */
+  id: string;
+  /**
+   * Human-readable description. Surfaces in observability and is used as the
+   * tool description when the agent is exposed to other agents.
+   */
+  description: string;
+}
+
+/**
+ * Agent registration produced by `defineAgent()`. Pass to
+ * `agentPlugin({ agents: [...] })`.
+ *
+ * @experimental
+ */
+export interface AgentRegistration {
+  readonly [AGENT_REGISTRATION_BRAND]: true;
+  readonly options: AgentRegisteredOptions;
+}
+
+/**
+ * Result produced by an agent destination. Body of the exchange is replaced
+ * with this shape after the agent runs.
+ *
+ * @experimental
+ */
 export interface AgentResult {
-  /** Final agent output (pass-through in Phase 1). */
-  output: unknown;
-  /** Number of loop iterations (0 in Phase 1). */
-  steps?: number;
+  /** Generated text from the model. */
+  text: string;
+  /** Token usage when reported by the provider. */
+  usage?: LlmUsage;
 }
