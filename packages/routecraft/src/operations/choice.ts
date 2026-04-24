@@ -21,6 +21,7 @@ import {
   type EnrichMergeShape,
   type EnrichAggregatorOption,
 } from "./enrich.ts";
+import { type CallableFilter, type Filter, FilterStep } from "./filter.ts";
 
 /**
  * Predicate that decides whether a choice branch matches an exchange.
@@ -97,9 +98,9 @@ export class HaltStep implements Step<HaltAdapter> {
  *
  * Exposed to the user as the `b` parameter inside `when(pred, b => ...)` and
  * `otherwise(b => ...)` callbacks. Grown additively: phase 1 shipped `.to()`
- * and `.halt()`; phase 2 added `.transform()`; phase 3 adds `.enrich()`.
- * Remaining pipeline operations (`filter`, `header`, `validate`, ...) will
- * follow the same pattern in subsequent phases.
+ * and `.halt()`; phase 2 added `.transform()`; phase 3 added `.enrich()`;
+ * phase 4 adds `.filter()`. Remaining pipeline operations (`header`,
+ * `validate`, ...) will follow the same pattern in subsequent phases.
  *
  * @template Current - Body type entering this branch
  * @experimental
@@ -187,6 +188,29 @@ export class BranchBuilder<Current = unknown> {
     return this as unknown as BranchBuilder<
       A extends { [ENRICH_MERGE_TYPE]: infer M } ? Current & M : Current & R
     >;
+  }
+
+  /**
+   * Filter the exchange inside this branch. Mirrors the semantics of
+   * `RouteBuilder.filter`: the predicate receives the full exchange and may
+   * return `true` to keep it, `false` to drop it, or `{ reason: string }` to
+   * drop with an explanation recorded in telemetry.
+   *
+   * A dropped exchange does not continue past the filter, so downstream
+   * branch steps AND the remaining main-pipeline steps are skipped for that
+   * exchange. This is different from `halt()` in two ways: the drop carries
+   * a `reason` (filter semantics), and the filter condition is evaluated at
+   * runtime against the exchange rather than as a branch selector.
+   *
+   * @param filter - Adapter or callable that decides whether to keep the exchange
+   * @returns This builder, body type unchanged
+   * @see RouteBuilder.filter
+   */
+  filter(
+    filter: Filter<Current> | CallableFilter<Current>,
+  ): BranchBuilder<Current> {
+    this.steps.push(new FilterStep<Current>(filter));
+    return this;
   }
 
   /**

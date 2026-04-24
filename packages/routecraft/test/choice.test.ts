@@ -623,4 +623,126 @@ describe("choice operation", () => {
       BranchBuilder<{ a: number } & { b: string }>
     >();
   });
+
+  /**
+   * @case filter() inside a branch keeps exchanges matching the predicate
+   * @preconditions Branch filters amount >= 100; two inputs, one above and one below
+   * @expectedResult Only the matching exchange reaches the downstream destination
+   */
+  test("filter() inside a branch keeps matching exchanges", async () => {
+    const downstream = spy<Order>();
+
+    const inputs: Order[] = [
+      { priority: "normal", amount: 200 },
+      { priority: "normal", amount: 5 },
+    ];
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("choice-filter-keep")
+          .from(items(inputs))
+          .choice((c) =>
+            c.otherwise((b) => b.filter((ex) => ex.body.amount >= 100)),
+          )
+          .to(downstream),
+      )
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    expect(downstream.received).toHaveLength(1);
+    expect(downstream.received[0].body).toEqual({
+      priority: "normal",
+      amount: 200,
+    });
+  });
+
+  /**
+   * @case filter() inside a branch drops with a reason surfaced on exchange:dropped
+   * @preconditions Branch filter returns { reason } for a non-matching exchange
+   * @expectedResult exchange:dropped event fires with the supplied reason; downstream .to() does not run
+   */
+  test("filter() inside a branch drops with a recorded reason", async () => {
+    const downstream = spy<Order>();
+    const dropReasons: string[] = [];
+
+    t = await testContext()
+      .on(
+        "route:choice-filter-drop-reason:exchange:dropped" as EventName,
+        ((payload: { details: unknown }) => {
+          const d = payload.details as { reason: string };
+          dropReasons.push(d.reason);
+        }) as never,
+      )
+      .routes(
+        craft()
+          .id("choice-filter-drop-reason")
+          .from(items<Order>([{ priority: "normal", amount: 5 }]))
+          .choice((c) =>
+            c.otherwise((b) =>
+              b.filter((ex) =>
+                ex.body.amount >= 100 ? true : { reason: "below threshold" },
+              ),
+            ),
+          )
+          .to(downstream),
+      )
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    expect(dropReasons).toContain("below threshold");
+    expect(downstream.received).toHaveLength(0);
+  });
+
+  /**
+   * @case filter() inside a branch awaits async predicates
+   * @preconditions Branch filter predicate is async and resolves after a tick
+   * @expectedResult Downstream sink only receives exchanges the async predicate kept
+   */
+  test("filter() inside a branch awaits async predicates", async () => {
+    const downstream = spy<Order>();
+
+    const inputs: Order[] = [
+      { priority: "urgent", amount: 1 },
+      { priority: "normal", amount: 1 },
+    ];
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("choice-filter-async")
+          .from(items(inputs))
+          .choice((c) =>
+            c.otherwise((b) =>
+              b.filter(async (ex) => {
+                await new Promise((r) => setTimeout(r, 1));
+                return ex.body.priority === "urgent";
+              }),
+            ),
+          )
+          .to(downstream),
+      )
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    expect(downstream.received).toHaveLength(1);
+    expect(downstream.received[0].body.priority).toBe("urgent");
+  });
+
+  /**
+   * @case Type-level: BranchBuilder.filter preserves the body type
+   * @preconditions A BranchBuilder<number> is filtered
+   * @expectedResult The resulting builder is exactly BranchBuilder<number>
+   */
+  test("type-level: BranchBuilder.filter preserves body type", () => {
+    const b = new BranchBuilder<number>();
+    const b2 = b.filter(() => true);
+    expectTypeOf(b2).toEqualTypeOf<BranchBuilder<number>>();
+  });
 });
