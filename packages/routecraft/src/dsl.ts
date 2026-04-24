@@ -50,15 +50,18 @@ export interface DslRegistration {
 }
 
 /**
- * Register a sugar method on StepBuilderBase that delegates to a core
+ * Register a sugar method on `StepBuilderBase` that delegates to a core
  * primitive step type. The method is added to the shared base prototype
  * so it is available on both `RouteBuilder` and `BranchBuilder` (and any
- * other framework-owned subclass).
+ * future framework-owned subclass).
  *
  * TypeScript types for the new method must be provided separately via
- * module augmentation. Because the shared base is `@internal`, augment
- * `RouteBuilder` and `BranchBuilder` directly (see below for built-in
- * examples).
+ * module augmentation. Augment `StepBuilderBase<Current>` once and both
+ * subclasses inherit the method via class-interface inheritance. Type-
+ * preserving sugar should return `this`; type-changing sugar should use
+ * `Retyped<this, NewT>` so the concrete subclass is preserved across the
+ * chain. `StepBuilderBase` and `Retyped` are exposed as type-only
+ * re-exports from the package entry for exactly this purpose.
  *
  * @experimental
  * @param name - Method name to add to the shared base prototype
@@ -74,11 +77,12 @@ export interface DslRegistration {
  * });
  *
  * declare module "@routecraft/routecraft" {
- *   interface RouteBuilder<Current> {
- *     myStep(opts: MyOpts): RouteBuilder<Current>;
- *   }
- *   interface BranchBuilder<Current> {
- *     myStep(opts: MyOpts): BranchBuilder<Current>;
+ *   interface StepBuilderBase<Current> {
+ *     // Type-preserving: returns `this` (resolves to the concrete subclass)
+ *     myStep(opts: MyOpts): this;
+ *
+ *     // Type-changing variant would look like:
+ *     // myMap<Return>(fn: (src: Current) => Return): Retyped<this, Return>;
  *   }
  * }
  * ```

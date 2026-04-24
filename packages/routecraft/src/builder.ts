@@ -496,10 +496,10 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
 
   /**
    * Append a step to the current route. Implements the abstract hook from
-   * {@link StepBuilderBase} for inherited pipeline operations (`to`,
-   * `transform`, `enrich`), and is also called by the route-specific
-   * operations below (`process`, `split`, `aggregate`, `tap`, `filter`,
-   * `validate`, `header`, `choice`).
+   * {@link StepBuilderBase}, so every inherited pipeline operation (and
+   * every registered DSL sugar) flows through this method. The route-only
+   * operations that stay on `RouteBuilder` (`split`, `aggregate`, `choice`)
+   * call it too.
    *
    * @param step - The step to append
    * @throws {RoutecraftError} RC2002 if `.from()` has not been called yet
