@@ -127,6 +127,19 @@ export type {
   AgentUserPromptSource,
 } from "./agent/index.ts";
 
+// Fn primitive: ad-hoc in-process functions registered via
+// `agentPlugin({ functions: { id: {...} } })`, invocable via
+// `invokeFn(context, id, input)` and (in follow-up stories) from
+// tool-using agents.
+export { invokeFn, ADAPTER_FN_REGISTRY } from "./fn/index.ts";
+export type {
+  FnHandlerContext,
+  FnOptions,
+  FnRegistry,
+  InvokeFnOptions,
+  RegisteredFnId,
+} from "./fn/index.ts";
+
 // Embedding adapter and plugin
 export {
   embedding,
