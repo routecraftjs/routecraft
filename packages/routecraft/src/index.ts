@@ -91,6 +91,19 @@ export {
   type RouteOptions,
 } from "./builder.ts";
 
+/**
+ * Type-only re-exports of the shared builder base. Exposed so that
+ * `registerDsl` can augment a single interface and have both `RouteBuilder`
+ * and `BranchBuilder` inherit the augmentation via class-interface
+ * inheritance. The class value is deliberately not re-exported -- the base
+ * is not a public extension point and the closed-world `Retyped` helper
+ * falls through to `never` for any subclass outside the framework-owned
+ * set.
+ *
+ * @internal
+ */
+export type { StepBuilderBase, Retyped } from "./step-builder-base.ts";
+
 export { CraftClient } from "./client.ts";
 
 export {

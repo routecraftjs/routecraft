@@ -9,7 +9,7 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Adapter, Step } from "./types.ts";
 import type { Exchange } from "./exchange.ts";
-import { StepBuilderBase } from "./step-builder-base.ts";
+import { StepBuilderBase, type Retyped } from "./step-builder-base.ts";
 import { PUSH_STEP } from "./dsl-symbol.ts";
 import { TapStep } from "./operations/tap.ts";
 import { TransformStep, mapper } from "./operations/transform.ts";
@@ -147,13 +147,15 @@ registerDsl("schema", {
 // See .standards/type-safety-and-schemas.md#module-augmentation for why this
 // targets the package specifier and not a relative path.
 //
-// Sugar methods live on the shared `StepBuilderBase.prototype` at runtime, so
-// `RouteBuilder` and `BranchBuilder` both inherit the implementation. For
-// types, each subclass's interface is augmented independently because
-// `StepBuilderBase` is `@internal` and cannot itself be augmented through the
-// public package specifier.
+// Sugar methods are declared on the shared `StepBuilderBase` interface so
+// both `RouteBuilder` and `BranchBuilder` inherit them via class-interface
+// inheritance. Type-preserving sugars return `this` (polymorphic -- resolves
+// to the concrete subclass at the call site); type-changing sugars use
+// `Retyped<this, NewT>` (same closed-world conditional the base already uses
+// for `.to` / `.transform` / `.enrich`). One declaration, both subclasses
+// pick it up.
 declare module "@routecraft/routecraft" {
-  interface RouteBuilder<Current> {
+  interface StepBuilderBase<Current> {
     /**
      * Log the current exchange at info level. Type-preserving tap.
      *
@@ -163,7 +165,7 @@ declare module "@routecraft/routecraft" {
     log(
       formatter?: (exchange: Exchange<Current>) => unknown,
       options?: LogOptions,
-    ): RouteBuilder<Current>;
+    ): this;
 
     /**
      * Log the current exchange at debug level. Type-preserving tap.
@@ -174,7 +176,7 @@ declare module "@routecraft/routecraft" {
     debug(
       formatter?: (exchange: Exchange<Current>) => unknown,
       options?: Omit<LogOptions, "level">,
-    ): RouteBuilder<Current>;
+    ): this;
 
     /**
      * Map fields from the current data to create a new object. Sugar
@@ -192,7 +194,7 @@ declare module "@routecraft/routecraft" {
      */
     map<Return>(fieldMappings: {
       [K in keyof Return]: (src: Current) => Return[K];
-    }): RouteBuilder<Return>;
+    }): Retyped<this, Return>;
 
     /**
      * Validate the exchange body against a Standard Schema. Sugar for
@@ -210,40 +212,6 @@ declare module "@routecraft/routecraft" {
      */
     schema<S extends StandardSchemaV1>(
       standardSchema: S,
-    ): RouteBuilder<StandardSchemaV1.InferOutput<S>>;
-  }
-
-  interface BranchBuilder<Current> {
-    /**
-     * Log the current exchange at info level. Type-preserving tap.
-     */
-    log(
-      formatter?: (exchange: Exchange<Current>) => unknown,
-      options?: LogOptions,
-    ): BranchBuilder<Current>;
-
-    /**
-     * Log the current exchange at debug level. Type-preserving tap.
-     */
-    debug(
-      formatter?: (exchange: Exchange<Current>) => unknown,
-      options?: Omit<LogOptions, "level">,
-    ): BranchBuilder<Current>;
-
-    /**
-     * Map fields from the current data to create a new object. Sugar
-     * for `.transform(mapper({...}))`.
-     */
-    map<Return>(fieldMappings: {
-      [K in keyof Return]: (src: Current) => Return[K];
-    }): BranchBuilder<Return>;
-
-    /**
-     * Validate the exchange body against a Standard Schema. Sugar for
-     * `.validate(schema(standardSchema))`. On failure throws RC5002.
-     */
-    schema<S extends StandardSchemaV1>(
-      standardSchema: S,
-    ): BranchBuilder<StandardSchemaV1.InferOutput<S>>;
+    ): Retyped<this, StandardSchemaV1.InferOutput<S>>;
   }
 }

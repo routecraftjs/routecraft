@@ -1,3 +1,4 @@
+import { type } from "arktype";
 import { describe, test, expect, expectTypeOf, afterEach } from "vitest";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
 import {
@@ -825,5 +826,63 @@ describe("choice operation", () => {
     expectTypeOf(afterFilter).toEqualTypeOf<BranchBuilder<Order>>();
     expectTypeOf(afterHeader).toEqualTypeOf<BranchBuilder<Order>>();
     expectTypeOf(afterTap).toEqualTypeOf<BranchBuilder<Order>>();
+  });
+
+  /**
+   * @case debug() sugar is callable inside a branch (runtime + inheritance)
+   * @preconditions Branch chains .debug() followed by .to() to a sink
+   * @expectedResult Debug tap runs as a fire-and-forget side effect; sink receives the unchanged exchange
+   */
+  test(".debug() sugar works inside a branch", async () => {
+    const downstream = spy<Order>();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("choice-sugar-debug-branch")
+          .from(items<Order>([{ priority: "urgent", amount: 7 }]))
+          .choice((c) => c.otherwise((b) => b.debug().to(downstream))),
+      )
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    expect(downstream.received).toHaveLength(1);
+    expect(downstream.received[0].body).toEqual({
+      priority: "urgent",
+      amount: 7,
+    });
+  });
+
+  /**
+   * @case schema() sugar validates inside a branch and narrows the body type
+   * @preconditions Branch uses .schema() with an arktype schema; input satisfies the schema
+   * @expectedResult Downstream receives the validated exchange; body type is the schema's inferred output
+   */
+  test(".schema() sugar works inside a branch", async () => {
+    const downstream = spy<{ priority: string; amount: number }>();
+    const orderSchema = type({ priority: "string", amount: "number" });
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("choice-sugar-schema-branch")
+          .from(items<Order>([{ priority: "normal", amount: 5 }]))
+          .choice<{ priority: string; amount: number }>((c) =>
+            c.otherwise((b) => b.schema(orderSchema)),
+          )
+          .to(downstream),
+      )
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    expect(downstream.received).toHaveLength(1);
+    expect(downstream.received[0].body).toEqual({
+      priority: "normal",
+      amount: 5,
+    });
   });
 });
