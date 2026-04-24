@@ -7,20 +7,8 @@ import {
   getExchangeRoute,
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
-import { ENRICH_MERGE_TYPE } from "../brand.ts";
 import { COLLECT_STEPS } from "../dsl-symbol.ts";
-import { type Destination, type CallableDestination, ToStep } from "./to.ts";
-import {
-  type Transformer,
-  type CallableTransformer,
-  TransformStep,
-} from "./transform.ts";
-import {
-  EnrichStep,
-  type DestinationAggregator,
-  type EnrichMergeShape,
-  type EnrichAggregatorOption,
-} from "./enrich.ts";
+import { StepBuilderBase } from "../step-builder-base.ts";
 
 /**
  * Predicate that decides whether a choice branch matches an exchange.
@@ -96,97 +84,24 @@ export class HaltStep implements Step<HaltAdapter> {
  * Sub-builder that defines the step pipeline for a single choice branch.
  *
  * Exposed to the user as the `b` parameter inside `when(pred, b => ...)` and
- * `otherwise(b => ...)` callbacks. Grown additively: phase 1 shipped `.to()`
- * and `.halt()`; phase 2 added `.transform()`; phase 3 adds `.enrich()`.
- * Remaining pipeline operations (`filter`, `header`, `validate`, ...) will
- * follow the same pattern in subsequent phases.
+ * `otherwise(b => ...)` callbacks. Pipeline operations (`to`, `transform`,
+ * `enrich`) are inherited from {@link StepBuilderBase} and behave identically
+ * to their counterparts on `RouteBuilder`; the polymorphic return types
+ * ensure a chained call re-types this builder as `BranchBuilder<NewT>`.
+ *
+ * BranchBuilder adds `.halt()` for explicit short-circuit of the enclosing
+ * choice. Branch-unsafe ops like `.split()` / `.aggregate()` / `.from()` are
+ * deliberately absent because they have no coherent meaning inside a
+ * converging branch.
  *
  * @template Current - Body type entering this branch
  * @experimental
  */
-export class BranchBuilder<Current = unknown> {
+export class BranchBuilder<Current = unknown> extends StepBuilderBase<Current> {
   private readonly steps: Step<Adapter>[] = [];
 
-  /**
-   * Send the exchange to a destination inside this branch. Mirrors the
-   * semantics of `RouteBuilder.to`: a destination that returns `undefined`
-   * leaves the body unchanged; a returned value replaces the body.
-   *
-   * @param destination - Adapter or callable that processes the exchange
-   * @returns This builder, re-typed to the destination's output
-   * @template R - Result body type; defaults to `void` (body unchanged)
-   * @see RouteBuilder.to
-   */
-  to<R = void>(
-    destination: Destination<Current, R> | CallableDestination<Current, R>,
-  ): BranchBuilder<R extends void ? Current : R> {
-    this.steps.push(new ToStep<Current, R>(destination));
-    return this as unknown as BranchBuilder<R extends void ? Current : R>;
-  }
-
-  /**
-   * Transform the exchange body inside this branch. Mirrors the semantics of
-   * `RouteBuilder.transform`: the transformer receives the current body and
-   * returns the replacement body. Headers and exchange identity are
-   * preserved.
-   *
-   * Useful for branches that shape the body before the choice converges back
-   * into the main pipeline, e.g.
-   * `.when(isUrgent, b => b.transform(prioritize))`.
-   *
-   * @param transformer - Adapter or callable that maps the body to a new value
-   * @returns This builder, re-typed to the transformer's output
-   * @template Return - Result body type
-   * @see RouteBuilder.transform
-   */
-  transform<Return>(
-    transformer:
-      | Transformer<Current, Return>
-      | CallableTransformer<Current, Return>,
-  ): BranchBuilder<Return> {
-    this.steps.push(new TransformStep<Current, Return>(transformer));
-    return this as unknown as BranchBuilder<Return>;
-  }
-
-  /**
-   * Enrich the exchange body with data from a destination inside this branch.
-   * Mirrors the semantics of `RouteBuilder.enrich`: the destination fetches
-   * data, which the optional aggregator merges into the body (default
-   * aggregator spreads the result onto the body object).
-   *
-   * Useful when a branch needs to fetch per-case enrichment data, e.g.
-   * `.when(isReview, b => b.enrich(http({ url: reviewApi })).to(reviewQueue))`.
-   *
-   * @param destination - Adapter or callable that returns enrichment data
-   * @param aggregator - Optional merge strategy; defaults to spreading result onto body
-   * @returns This builder, re-typed with the merged body shape
-   * @template R - Body type returned by the destination
-   * @template A - Aggregator type (drives body shape inference)
-   * @see RouteBuilder.enrich
-   */
-  enrich<
-    R,
-    A extends
-      | DestinationAggregator<Current, R>
-      | (DestinationAggregator<unknown, unknown> & {
-          [ENRICH_MERGE_TYPE]?: EnrichMergeShape;
-        })
-      | undefined = undefined,
-  >(
-    destination: Destination<Current, R> | CallableDestination<Current, R>,
-    aggregator?: A,
-  ): BranchBuilder<
-    A extends { [ENRICH_MERGE_TYPE]: infer M } ? Current & M : Current & R
-  > {
-    this.steps.push(
-      new EnrichStep<Current, R>(
-        destination,
-        aggregator as EnrichAggregatorOption<Current, R> | undefined,
-      ),
-    );
-    return this as unknown as BranchBuilder<
-      A extends { [ENRICH_MERGE_TYPE]: infer M } ? Current & M : Current & R
-    >;
+  protected override pushStep<T extends Adapter>(step: Step<T>): void {
+    this.steps.push(step);
   }
 
   /**
