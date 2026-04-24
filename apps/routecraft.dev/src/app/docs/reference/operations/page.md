@@ -725,7 +725,7 @@ Matched branches inline their steps before the remaining main-pipeline steps, so
 .to(audit); // runs for urgent and review; skipped for otherwise (halted)
 ```
 
-Branches currently support `to()`, `transform()`, and `halt()`. Additional pipeline operations (`enrich`, `filter`, `header`, `validate`) will be added in subsequent phases.
+Branches currently support `to()`, `transform()`, `enrich()`, and `halt()`. Additional pipeline operations (`filter`, `header`, `validate`) will be added in subsequent phases.
 
 Branches that change body type via `transform()` must converge on the same `Out` type; the callback return type enforces this at compile time.
 
