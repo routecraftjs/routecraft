@@ -131,7 +131,7 @@ describe("Error handler (.error())", () => {
           }),
         craft()
           .id("error-sink")
-          .from(direct("error-sink", {}))
+          .from(direct())
           .transform((body: unknown) => {
             const data = body as { originalBody: string; reason: string };
             return { recovered: true, from: data.originalBody };

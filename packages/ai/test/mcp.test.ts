@@ -55,8 +55,9 @@ describe("mcp() DSL function", () => {
     t = await testContext()
       .routes([
         craft()
-          .id("consumer")
-          .from(mcp("my-tool", { description: "Receive messages" }))
+          .id("my-tool")
+          .description("Receive messages")
+          .from(mcp())
           .to(consumer),
       ])
       .store(MCP_PLUGIN_KEY, true)
@@ -70,24 +71,22 @@ describe("mcp() DSL function", () => {
   });
 
   /**
-   * @case .from(mcp("foo")) and .from(direct("foo")) coexist without collision
-   * @preconditions One mcp() and one direct() source share the same endpoint string
+   * @case An mcp() route and a direct route can coexist under different ids
+   * @preconditions Two routes, one mcp() and one direct, each with its own id
    * @expectedResult Direct send reaches the direct consumer; invoking the mcp entry reaches the mcp consumer
    */
-  test("mcp() and direct() coexist with identical endpoint", async () => {
+  test("mcp() and direct() coexist via distinct registries", async () => {
     const mcpConsumer = vi.fn();
     const directConsumer = vi.fn();
 
     t = await testContext()
       .routes([
         craft()
-          .id("mcp-consumer")
-          .from(mcp("shared", { description: "Shared endpoint via MCP" }))
+          .id("mcp-tool")
+          .description("Shared endpoint via MCP")
+          .from(mcp())
           .to(mcpConsumer),
-        craft()
-          .id("direct-consumer")
-          .from(direct("shared", {}))
-          .to(directConsumer),
+        craft().id("shared").from(direct()).to(directConsumer),
         craft()
           .id("direct-producer")
           .from(simple({ origin: "direct" }))
@@ -98,7 +97,7 @@ describe("mcp() DSL function", () => {
 
     await t.startAndWaitReady();
     await t.ctx.drain();
-    await invokeTool(t, "shared", { origin: "mcp" });
+    await invokeTool(t, "mcp-tool", { origin: "mcp" });
 
     expect(directConsumer).toHaveBeenCalledTimes(1);
     expect(directConsumer.mock.calls[0][0].body).toEqual({ origin: "direct" });
@@ -121,13 +120,10 @@ describe("mcp() DSL function", () => {
     t = await testContext()
       .routes([
         craft()
-          .id("consumer")
-          .from(
-            mcp("fetch-tool", {
-              description: "Fetch a URL",
-              input: { body: schema },
-            }),
-          )
+          .id("fetch-tool")
+          .description("Fetch a URL")
+          .input({ body: schema })
+          .from(mcp())
           .to(consumer),
       ])
       .store(MCP_PLUGIN_KEY, true)
@@ -152,13 +148,10 @@ describe("mcp() DSL function", () => {
     t = await testContext()
       .routes([
         craft()
-          .id("consumer")
-          .from(
-            mcp("fetch-tool", {
-              description: "Fetch a URL",
-              input: { body: schema },
-            }),
-          )
+          .id("fetch-tool")
+          .description("Fetch a URL")
+          .input({ body: schema })
+          .from(mcp())
           .to(vi.fn()),
       ])
       .store(MCP_PLUGIN_KEY, true)
@@ -182,17 +175,12 @@ describe("mcp() DSL function", () => {
     t = await testContext()
       .routes([
         craft()
-          .id("my-tool-route")
-          .from(
-            mcp("search-tool", {
-              title: "Document search",
-              description: "Search for documents",
-              input: { body: z.object({ query: z.string() }) },
-              output: { body: z.object({ hits: z.number() }) },
-              annotations: { readOnlyHint: true },
-              icons,
-            }),
-          )
+          .id("search-tool")
+          .title("Document search")
+          .description("Search for documents")
+          .input({ body: z.object({ query: z.string() }) })
+          .output({ body: z.object({ hits: z.number() }) })
+          .from(mcp({ annotations: { readOnlyHint: true }, icons }))
           .to(vi.fn()),
       ])
       .store(MCP_PLUGIN_KEY, true)
@@ -225,19 +213,16 @@ describe("mcp() DSL function", () => {
     t = await testContext()
       .routes([
         craft()
-          .id("merge-consumer")
-          .from(
-            mcp("merge-tool", {
-              description: "Header merge test",
-              input: {
-                // z.object() strips unknown keys during validation. The merge
-                // behaviour must re-insert the MCP-injected headers on top of
-                // the validated values; a looseObject would keep them
-                // unconditionally and the test would pass trivially.
-                headers: z.object({ "x-tenant": z.string() }),
-              },
-            }),
-          )
+          .id("merge-tool")
+          .description("Header merge test")
+          .input({
+            // z.object() strips unknown keys during validation. The merge
+            // behaviour must re-insert the MCP-injected headers on top of
+            // the validated values; a looseObject would keep them
+            // unconditionally and the test would pass trivially.
+            headers: z.object({ "x-tenant": z.string() }),
+          })
+          .from(mcp())
           .to(consumer),
       ])
       .store(MCP_PLUGIN_KEY, true)
@@ -273,10 +258,10 @@ describe("mcp() DSL function", () => {
     t = await testContext()
       .routes([
         craft()
-          .id("read-only-tool")
+          .id("list-items")
+          .description("List items")
           .from(
-            mcp("list-items", {
-              description: "List items",
+            mcp({
               annotations: {
                 readOnlyHint: true,
                 destructiveHint: false,
@@ -312,8 +297,9 @@ describe("mcp() DSL function", () => {
     t = await testContext()
       .routes([
         craft()
-          .id("no-annot-tool")
-          .from(mcp("plain-tool", { description: "A plain tool" }))
+          .id("plain-tool")
+          .description("A plain tool")
+          .from(mcp())
           .to(vi.fn()),
       ])
       .store(MCP_PLUGIN_KEY, true)
@@ -336,10 +322,11 @@ describe("mcp() DSL function", () => {
     t = await testContext()
       .routes([
         craft()
-          .id("mcp-tool")
-          .from(mcp("exposed", { description: "Exposed tool" }))
+          .id("exposed")
+          .description("Exposed tool")
+          .from(mcp())
           .to(vi.fn()),
-        craft().id("internal").from(direct("internal", {})).to(vi.fn()),
+        craft().id("internal").from(direct()).to(vi.fn()),
       ])
       .store(MCP_PLUGIN_KEY, true)
       .build();
@@ -357,26 +344,20 @@ describe("mcp() DSL function", () => {
   });
 
   /**
-   * @case Two .from(mcp("foo")) routes in the same context fail at registration
-   * @preconditions Two routes register the same mcp() endpoint
-   * @expectedResult Second subscription raises RC5003 (duplicate endpoint) through the context error channel
+   * @case Duplicate MCP tool ids surface as route-id duplicates at build time
+   * @preconditions Two routes declare the same `.id()` before `.from(mcp())`
+   * @expectedResult Build raises RC1002 (duplicate route id)
    */
-  test("duplicate mcp() endpoint throws RC5003", async () => {
-    t = await testContext()
-      .routes([
-        craft()
-          .id("tool-a")
-          .from(mcp("dup", { description: "First" }))
-          .to(vi.fn()),
-        craft()
-          .id("tool-b")
-          .from(mcp("dup", { description: "Second" }))
-          .to(vi.fn()),
-      ])
-      .store(MCP_PLUGIN_KEY, true)
-      .build();
-
-    await expect(t.test()).rejects.toMatchObject({ rc: "RC5003" });
+  test("duplicate mcp() endpoint surfaces as duplicate route id", async () => {
+    await expect(async () => {
+      await testContext()
+        .routes([
+          craft().id("dup-tool").description("First").from(mcp()).to(vi.fn()),
+          craft().id("dup-tool").description("Second").from(mcp()).to(vi.fn()),
+        ])
+        .store(MCP_PLUGIN_KEY, true)
+        .build();
+    }).rejects.toMatchObject({ rc: "RC1002" });
   });
 
   /**
@@ -389,7 +370,8 @@ describe("mcp() DSL function", () => {
       .routes([
         craft()
           .id("ephemeral")
-          .from(mcp("ephemeral", { description: "Short-lived" }))
+          .description("Short-lived")
+          .from(mcp())
           .to(vi.fn()),
       ])
       .store(MCP_PLUGIN_KEY, true)
@@ -430,31 +412,52 @@ describe("mcp() DSL function", () => {
    */
   test("mcp(endpoint) with no options throws", () => {
     expect(() => mcp("my-tool")).toThrow(
-      /direct\(.*endpoint.*\) for in-process|mcp\(\) with only an endpoint is not supported/,
+      /is not a valid call|direct\(.*endpoint.*\) for in-process/,
     );
   });
 
   /**
-   * @case Tool names outside the MCP interop character set are rejected at construction
-   * @preconditions Call .from(mcp("bad/name", { description })) with a slash in the endpoint
-   * @expectedResult Throws RC5003 referencing the MCP tool name rule; no URL-encoding leaks into tool.name
+   * @case Tool names outside the MCP interop character set are rejected at subscribe
+   * @preconditions Route id with a slash, space, empty string, or > 64 chars
+   * @expectedResult RC5003 surfaced when the route starts; no URL-encoding leaks into tool.name
    */
-  test("mcp() rejects tool names with invalid characters", () => {
-    expect(() => mcp("bad/name", { description: "invalid" })).toThrowError(
-      expect.objectContaining({ rc: "RC5003" }),
-    );
-    expect(() => mcp("has space", { description: "invalid" })).toThrowError(
-      expect.objectContaining({ rc: "RC5003" }),
-    );
-    expect(() => mcp("", { description: "invalid" })).toThrowError(
-      expect.objectContaining({ rc: "RC5003" }),
-    );
-    // A 65-char name exceeds the 64-char bound.
-    expect(() => mcp("a".repeat(65), { description: "invalid" })).toThrowError(
-      expect.objectContaining({ rc: "RC5003" }),
-    );
+  test("mcp() rejects tool names with invalid characters", async () => {
+    const invalid = ["bad/name", "has space", "", "a".repeat(65)];
+    for (const id of invalid) {
+      const ctx = await testContext()
+        .routes([craft().id(id).description("invalid").from(mcp()).to(vi.fn())])
+        .store(MCP_PLUGIN_KEY, true)
+        .build();
+      await expect(ctx.startAndWaitReady()).rejects.toMatchObject({
+        rc: "RC5003",
+      });
+      await ctx.stop();
+    }
 
-    // Valid names pass construction.
-    expect(() => mcp("good_name-1", { description: "ok" })).not.toThrow();
+    // Valid names subscribe without error.
+    const okCtx = await testContext()
+      .routes([
+        craft().id("good_name-1").description("ok").from(mcp()).to(vi.fn()),
+      ])
+      .store(MCP_PLUGIN_KEY, true)
+      .build();
+    await okCtx.startAndWaitReady();
+    await okCtx.stop();
+  });
+
+  /**
+   * @case A route with `.from(mcp())` but no `.description()` is rejected
+   * @preconditions Route uses mcp() as source without calling .description() on the builder
+   * @expectedResult RC5003 surfaced when the route starts
+   */
+  test("mcp() source requires a route-level description", async () => {
+    const ctx = await testContext()
+      .routes([craft().id("missing-desc").from(mcp()).to(vi.fn())])
+      .store(MCP_PLUGIN_KEY, true)
+      .build();
+    await expect(ctx.startAndWaitReady()).rejects.toMatchObject({
+      rc: "RC5003",
+    });
+    await ctx.stop();
   });
 });

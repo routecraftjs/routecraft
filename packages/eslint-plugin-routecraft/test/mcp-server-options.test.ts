@@ -50,7 +50,7 @@ describe("mcp-server-options", () => {
           code: `
             craft()
               .id("my-route")
-              .from(direct("endpoint", {}))
+              .from(direct())
               .to(log());
           `,
         },

@@ -26,7 +26,8 @@ import {
  * @example
  * ```typescript
  * craft()
- *   .from(direct('outbound-email', {}))
+ *   .id('outbound-email')
+ *   .from(direct())
  *   .to(mail())
  * ```
  *

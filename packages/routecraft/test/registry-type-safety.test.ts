@@ -51,7 +51,7 @@ describe("Type registries: empty registry fallback", () => {
    * @expectedResult direct("anything", {}) compiles
    */
   test("direct() accepts any string when registry is empty", () => {
-    expectTypeOf(direct("anything", {})).toMatchTypeOf<unknown>();
+    expectTypeOf(direct({})).toMatchTypeOf<unknown>();
     expectTypeOf(direct("literally-anything")).toMatchTypeOf<unknown>();
   });
 

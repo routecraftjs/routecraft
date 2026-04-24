@@ -26,7 +26,7 @@ describe("CraftClient", () => {
       .routes(
         craft()
           .id("greet")
-          .from(direct("greet", {}))
+          .from(direct())
           .transform((body) => `Hello, ${(body as { name: string }).name}!`)
           .to(noop()),
       )
@@ -44,7 +44,7 @@ describe("CraftClient", () => {
    */
   test("send throws RC5004 for unknown endpoint", async () => {
     t = await testContext()
-      .routes(craft().id("dummy").from(direct("exists", {})).to(noop()))
+      .routes(craft().id("exists").from(direct()).to(noop()))
       .build();
 
     await t.startAndWaitReady();
@@ -63,7 +63,7 @@ describe("CraftClient", () => {
       .routes(
         craft()
           .id("echo-header")
-          .from(direct("echo-header", {}))
+          .from(direct())
           .process((ex: Exchange) => {
             const reqId = ex.headers["x-request-id"] ?? "missing";
             return new DefaultExchange(getExchangeContext(ex)!, {

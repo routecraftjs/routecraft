@@ -24,7 +24,8 @@ import {
  *   .to(mail({ action: 'move', folder: 'Archive' }))
  *
  * craft()
- *   .from(direct('compose', {}))
+ *   .id('compose')
+ *   .from(direct())
  *   .to(mail({ action: 'append', folder: 'Drafts', flags: ['\\Draft'] }))
  * ```
  *

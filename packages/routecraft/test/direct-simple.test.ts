@@ -24,7 +24,7 @@ describe("Direct adapter", () => {
           .id("producer")
           .from(simple("test-message"))
           .to(direct("endpoint")),
-        craft().id("consumer").from(direct("endpoint", {})).to(consumer),
+        craft().id("endpoint").from(direct()).to(consumer),
       ])
       .build();
 
@@ -52,8 +52,8 @@ describe("Direct adapter", () => {
           .id("producerB")
           .from(simple("messageB"))
           .to(direct("endpointB")),
-        craft().id("consumerA").from(direct("endpointA", {})).to(consumerA),
-        craft().id("consumerB").from(direct("endpointB", {})).to(consumerB),
+        craft().id("endpointA").from(direct()).to(consumerA),
+        craft().id("endpointB").from(direct()).to(consumerB),
       ])
       .build();
 
@@ -65,26 +65,26 @@ describe("Direct adapter", () => {
   });
 
   /**
-   * @case Verifies single consumer semantics (last one wins)
-   * @preconditions Multiple consumers registered for same endpoint
-   * @expectedResult Only the last registered consumer should receive messages
+   * @case Two routes cannot subscribe to the same direct endpoint
+   * @preconditions Two routes declare the same id (endpoint)
+   * @expectedResult Build throws the duplicate-route-id error (RC1002)
    */
-  test("single consumer semantics", async () => {
-    const consumer1 = vi.fn();
-    const consumer2 = vi.fn();
-
-    t = await testContext()
-      .routes([
-        craft().id("producer").from(simple("message")).to(direct("shared")),
-        craft().id("consumer1").from(direct("shared", {})).to(consumer1),
-        craft().id("consumer2").from(direct("shared", {})).to(consumer2), // This should win
-      ])
-      .build();
-
-    await t.test();
-    expect(consumer1).toHaveBeenCalledTimes(0);
-    expect(consumer2).toHaveBeenCalledTimes(1);
-    expect(consumer2.mock.calls[0][0].body).toBe("message");
+  test("duplicate direct subscribers rejected via route id uniqueness", async () => {
+    await expect(async () => {
+      await testContext()
+        .routes([
+          craft().id("producer").from(simple("message")).to(direct("shared")),
+          craft()
+            .id("shared")
+            .from(direct())
+            .to(vi.fn() as never),
+          craft()
+            .id("shared")
+            .from(direct())
+            .to(vi.fn() as never),
+        ])
+        .build();
+    }).rejects.toThrow(/route/i);
   });
 
   /**
@@ -108,8 +108,8 @@ describe("Direct adapter", () => {
           )
           .split()
           .to(direct((ex) => `handler-${ex.body.type}`)),
-        craft().id("handler-a").from(direct("handler-a", {})).to(handlerA),
-        craft().id("handler-b").from(direct("handler-b", {})).to(handlerB),
+        craft().id("handler-a").from(direct()).to(handlerA),
+        craft().id("handler-b").from(direct()).to(handlerB),
       ])
       .build();
 
@@ -157,13 +157,10 @@ describe("Direct adapter", () => {
               return `processing-${priority}`;
             }),
           ),
+        craft().id("processing-high").from(direct()).to(highPriorityHandler),
         craft()
-          .id("high-priority")
-          .from(direct("processing-high", {}))
-          .to(highPriorityHandler),
-        craft()
-          .id("normal-priority")
-          .from(direct("processing-normal", {}))
+          .id("processing-normal")
+          .from(direct())
           .to(normalPriorityHandler),
       ])
       .build();
@@ -183,16 +180,16 @@ describe("Direct adapter", () => {
   test("dynamic endpoint sanitization", async () => {
     const consumer = vi.fn();
 
+    // The route id itself must avoid `:` because event names are
+    // colon-delimited; the endpoint registry still URL-encodes other special
+    // characters (here `/`) as the contract guarantees.
     t = await testContext()
       .routes([
         craft()
           .id("producer")
           .from(simple({ namespace: "com.example", action: "process" }))
-          .to(direct((ex) => `${ex.body.namespace}:${ex.body.action}`)),
-        craft()
-          .id("consumer")
-          .from(direct("com.example:process", {}))
-          .to(consumer),
+          .to(direct((ex) => `${ex.body.namespace}/${ex.body.action}`)),
+        craft().id("com.example/process").from(direct()).to(consumer),
       ])
       .build();
 
@@ -251,18 +248,9 @@ describe("Direct adapter", () => {
           )
           .split()
           .to(direct((ex) => `${ex.body.type}-handler`)),
-        craft()
-          .id("order-consumer")
-          .from(direct("order-handler", {}))
-          .to(orderHandler),
-        craft()
-          .id("user-consumer")
-          .from(direct("user-handler", {}))
-          .to(userHandler),
-        craft()
-          .id("product-consumer")
-          .from(direct("product-handler", {}))
-          .to(productHandler),
+        craft().id("order-handler").from(direct()).to(orderHandler),
+        craft().id("user-handler").from(direct()).to(userHandler),
+        craft().id("product-handler").from(direct()).to(productHandler),
       ])
       .build();
 

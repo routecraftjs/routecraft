@@ -23,10 +23,10 @@ craft()
   .from(source)
   .to(direct('my-channel'))
 
-// Consumer
+// Consumer (route id is the endpoint)
 craft()
-  .id('consumer')
-  .from(direct('my-channel', {}))
+  .id('my-channel')
+  .from(direct())
   .to(destination)
 ```
 

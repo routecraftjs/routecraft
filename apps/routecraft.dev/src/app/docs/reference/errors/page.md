@@ -145,7 +145,7 @@ Adapter misconfigured
 Adapter was used in the wrong role (e.g. dynamic endpoint as source), required options are missing, or the adapter does not support this usage.
 
 **Suggestion**  
-Check required options and correct role usage (`.from()` vs `.to()`). Example: use a static string endpoint for source: `.from(direct('endpoint', {}))`; dynamic endpoints only work with `.to()` and `.tap()`.
+Check required options and correct role usage (`.from()` vs `.to()`). Example: direct sources take no endpoint string (`.from(direct())` or `.from(direct(options))`); dynamic endpoints are only valid on destinations (`.to()`, `.tap()`).
 
 ## RC5004
 No handler available
@@ -158,7 +158,7 @@ Ensure the consumer route is running before sending. Check route startup order a
 
 **Example**
 ```ts
-craft().id('consumer').from(direct('my-endpoint', {})).to(log());
+craft().id('my-endpoint').from(direct()).to(log());
 craft().id('producer').from(simple('message')).to(direct('my-endpoint'));
 ```
 

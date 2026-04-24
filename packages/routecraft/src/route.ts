@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { type CraftContext } from "./context.ts";
 import type { EventName } from "./types.ts";
 import {
@@ -44,8 +45,39 @@ export type ErrorHandler = (
   exchange: Exchange,
   forward: ForwardFn,
 ) => unknown | Promise<unknown>;
+
+/**
+ * Per-direction schema bundle for discoverable-capability routes. Mirrors the
+ * Standard Schema shape used by adapters; the engine enforces `input` before
+ * pipeline steps run and `output` before the primary destination fires.
+ */
+export interface RouteSchemas {
+  /** Standard Schema for the body. */
+  body?: StandardSchemaV1;
+  /** Standard Schema for the headers. */
+  headers?: StandardSchemaV1;
+}
+
+/**
+ * Route-level discovery bundle. Adapters that maintain registries (direct,
+ * mcp) mirror these fields into their registry entries; the engine uses
+ * `input` / `output` for framework-enforced validation regardless of adapter.
+ *
+ * Set via the `.title()`, `.description()`, `.input()`, and `.output()`
+ * builder methods. All fields are optional.
+ */
+export interface RouteDiscovery {
+  /** Human-readable display title for discovery consumers (agents, docs). */
+  title?: string;
+  /** Human-readable description of what this route does. */
+  description?: string;
+  /** Input schemas runtime-enforced before pipeline steps run. */
+  input?: RouteSchemas;
+  /** Output schemas runtime-enforced before the primary destination. */
+  output?: RouteSchemas;
+}
 import { BRAND, INTERNALS_KEY, setBrand } from "./brand.ts";
-import { rcError, RoutecraftError, RC } from "./error.ts";
+import { rcError, RoutecraftError, RC, formatSchemaIssues } from "./error.ts";
 import { isRoutecraftError } from "./brand.ts";
 import { logger, childBindings } from "./logger.ts";
 import { type Source } from "./operations/from.ts";
@@ -104,6 +136,15 @@ export type RouteDefinition<T = unknown> = {
    * If not defined, the error is logged and emitted via the error event (current behavior).
    */
   readonly errorHandler?: ErrorHandler;
+
+  /**
+   * Optional route-level discovery bundle: title, description, and input /
+   * output schemas. Populated via `.title()`, `.description()`, `.input()`,
+   * and `.output()` on the route builder. The engine enforces `input` and
+   * `output` schemas; discovery-aware adapters (direct, mcp) mirror the
+   * metadata into their registries.
+   */
+  readonly discovery?: RouteDiscovery;
 };
 
 /**
@@ -257,6 +298,203 @@ export class DefaultRoute implements Route {
   }
 
   /**
+   * Run Standard Schema validation against a value. Returns the validated
+   * value on success (schemas can transform), or a human-readable message
+   * on failure.
+   */
+  private async validateAgainst(
+    schema: StandardSchemaV1,
+    value: unknown,
+  ): Promise<{ ok: true; value: unknown } | { ok: false; message: string }> {
+    let result = schema["~standard"].validate(value);
+    if (result instanceof Promise) result = await result;
+    const issues = (result as { issues?: unknown }).issues;
+    if (issues !== undefined && issues !== null) {
+      return { ok: false, message: formatSchemaIssues(issues) };
+    }
+    return {
+      ok: true,
+      value: (result as { value?: unknown }).value ?? value,
+    };
+  }
+
+  /**
+   * Validate an incoming exchange against the route's `input` schemas.
+   *
+   * On success, the exchange body and headers are mutated in place with any
+   * validated / coerced values (headers are merged over the originals so
+   * pass-through keys like correlation IDs survive schemas that strip
+   * unknowns). On failure, emits `exchange:started` followed by
+   * `exchange:dropped` so telemetry sees the rejected message and returns
+   * false to tell the caller to skip the pipeline.
+   */
+  private async applyInputValidation(
+    exchange: Exchange,
+    schemas: { body?: StandardSchemaV1; headers?: StandardSchemaV1 },
+  ): Promise<void> {
+    if (schemas.body) {
+      const res = await this.validateAgainst(schemas.body, exchange.body);
+      if (!res.ok) {
+        throw this.emitInputValidationFailure(exchange, "body", res.message);
+      }
+      exchange.body = res.value;
+    }
+    if (schemas.headers) {
+      const res = await this.validateAgainst(schemas.headers, exchange.headers);
+      if (!res.ok) {
+        throw this.emitInputValidationFailure(exchange, "headers", res.message);
+      }
+      const headerValue = res.value as ExchangeHeaders | undefined;
+      if (headerValue !== undefined) {
+        // Merge validated values over the originals in place so caller
+        // pass-through keys (correlation IDs, adapter-injected metadata)
+        // survive schemas that strip unknowns.
+        Object.assign(exchange.headers, headerValue);
+      }
+    }
+  }
+
+  /**
+   * Emit exchange:started followed by exchange:dropped for a message that
+   * failed framework-level input validation and return the RC5002 error so
+   * the caller can throw it. The source's own sender (e.g. a direct
+   * channel's `send`) needs the rejection to propagate; pipeline telemetry
+   * still sees the drop via the events.
+   */
+  private emitInputValidationFailure(
+    exchange: Exchange,
+    direction: "body" | "headers",
+    message: string,
+  ): RoutecraftError {
+    const routeId = this.definition.id;
+    const correlationId = (exchange.headers[HeadersKeys.CORRELATION_ID] ??
+      exchange.id) as string;
+
+    const err = rcError("RC5002", new Error(message), {
+      message: `${direction === "body" ? "Body" : "Header"} validation failed for route "${routeId}"`,
+    });
+
+    this.context.emit(`route:${routeId}:exchange:started` as EventName, {
+      routeId,
+      exchangeId: exchange.id,
+      correlationId,
+    });
+    this.context.emit(`route:${routeId}:exchange:dropped` as EventName, {
+      routeId,
+      exchangeId: exchange.id,
+      correlationId,
+      reason: `input validation failed: ${message}`,
+      exchange,
+    });
+
+    this.logger.warn(
+      { err, routeId, direction, operation: "from" },
+      `Input ${direction} validation failed; exchange dropped`,
+    );
+
+    return err;
+  }
+
+  /**
+   * Handle an output-validation failure. Delegates to the route's error
+   * handler when one is configured (mirroring how step errors recover);
+   * otherwise emits `exchange:failed` and returns a failed result so the
+   * caller can surface the error.
+   */
+  private async handleOutputValidationFailure(
+    exchange: Exchange,
+    error: unknown,
+    startTime: number,
+  ): Promise<{
+    exchange: Exchange;
+    failed: boolean;
+    dropped: boolean;
+    error?: unknown;
+  }> {
+    const routeId = this.definition.id;
+    const correlationId = exchange.headers[
+      HeadersKeys.CORRELATION_ID
+    ] as string;
+
+    this.context.emit(`route:${routeId}:step:output:error` as EventName, {
+      error,
+      route: this,
+      exchange,
+      operation: "output",
+    });
+
+    if (this.definition.errorHandler) {
+      try {
+        const forward = this.buildForward();
+        const recovered = await this.definition.errorHandler(
+          error,
+          exchange,
+          forward,
+        );
+        exchange.body = recovered;
+        this.context.emit(`route:${routeId}:error:caught` as EventName, {
+          error,
+          route: this,
+          exchange,
+        });
+        return { exchange, failed: false, dropped: false };
+      } catch (handlerErr) {
+        this.context.emit(`route:${routeId}:exchange:failed` as const, {
+          routeId,
+          exchangeId: exchange.id,
+          correlationId,
+          duration: Date.now() - startTime,
+          error: handlerErr,
+          exchange,
+        });
+        return { exchange, failed: true, dropped: false, error: handlerErr };
+      }
+    }
+
+    this.context.emit(`route:${routeId}:exchange:failed` as const, {
+      routeId,
+      exchangeId: exchange.id,
+      correlationId,
+      duration: Date.now() - startTime,
+      error,
+      exchange,
+    });
+    return { exchange, failed: true, dropped: false, error };
+  }
+
+  /**
+   * Validate the final exchange against the route's `output` schemas.
+   * On failure, throws an RC5002 error so the normal error / error-handler
+   * flow takes over.
+   */
+  private async applyOutputValidation(
+    exchange: Exchange,
+    schemas: { body?: StandardSchemaV1; headers?: StandardSchemaV1 },
+  ): Promise<void> {
+    if (schemas.body) {
+      const res = await this.validateAgainst(schemas.body, exchange.body);
+      if (!res.ok) {
+        throw rcError("RC5002", new Error(res.message), {
+          message: `Output body validation failed for route "${this.definition.id}"`,
+        });
+      }
+      exchange.body = res.value;
+    }
+    if (schemas.headers) {
+      const res = await this.validateAgainst(schemas.headers, exchange.headers);
+      if (!res.ok) {
+        throw rcError("RC5002", new Error(res.message), {
+          message: `Output header validation failed for route "${this.definition.id}"`,
+        });
+      }
+      const headerValue = res.value as ExchangeHeaders | undefined;
+      if (headerValue !== undefined) {
+        Object.assign(exchange.headers, headerValue);
+      }
+    }
+  }
+
+  /**
    * Track a background task (e.g. tap) for this route.
    * @internal
    */
@@ -287,9 +525,19 @@ export class DefaultRoute implements Route {
     this.assertNotAborted();
     // Lifecycle log is emitted only by context (one log per event).
 
-    // Start consuming messages from the internal processing queue
-    this.consumer.register((message, headers) => {
-      return this.handler(this.buildExchange(message, headers));
+    // Start consuming messages from the internal processing queue.
+    // Framework-level input validation runs here, before the step pipeline,
+    // so any source adapter with an `.input()` schema on the route inherits
+    // validation without per-adapter wiring. On failure the engine emits
+    // `exchange:dropped` for telemetry and re-throws so the source's own
+    // caller (e.g. a direct channel's `send`) sees the validation error.
+    this.consumer.register(async (message, headers) => {
+      const exchange = this.buildExchange(message, headers);
+      const inputSchemas = this.definition.discovery?.input;
+      if (inputSchemas?.body || inputSchemas?.headers) {
+        await this.applyInputValidation(exchange, inputSchemas);
+      }
+      return this.handler(exchange);
     });
 
     let emitted = false;
@@ -315,6 +563,12 @@ export class DefaultRoute implements Route {
         : this.definition.source;
 
     // Subscribe to the source and enqueue messages to the internal processing queue
+    const meta = {
+      routeId: this.definition.id,
+      ...(this.definition.discovery
+        ? { discovery: this.definition.discovery }
+        : {}),
+    };
     return activeSource.subscribe(
       this.context,
       (message, headers) => {
@@ -326,6 +580,7 @@ export class DefaultRoute implements Route {
       },
       this.abortController,
       onReady,
+      meta,
     );
   }
 
@@ -366,34 +621,53 @@ export class DefaultRoute implements Route {
     });
 
     // Run steps (tap adds tasks via route.trackTask)
-    const handlerPromise = this.runSteps(exchange, startTime).then((result) => {
-      // runSteps handles errors internally (logging, events).
-      // Emit exchange:completed only for successful, non-dropped exchanges.
-      if (!result.failed && !result.dropped) {
-        const duration = Date.now() - startTime;
-        const correlationId = exchange.headers[
-          HeadersKeys.CORRELATION_ID
-        ] as string;
-        this.context.emit(
-          `route:${this.definition.id}:exchange:completed` as const,
-          {
-            routeId: this.definition.id,
-            exchangeId: exchange.id,
-            correlationId,
-            duration,
-            exchange: result.exchange,
-          },
-        );
-      }
+    const handlerPromise = this.runSteps(exchange, startTime).then(
+      async (result) => {
+        // Framework-level output validation runs on successful, non-dropped
+        // exchanges before we declare completion. A failure falls through the
+        // same path as a thrown step: errorHandler if set, else a failed result.
+        let finalResult = result;
+        if (!result.failed && !result.dropped) {
+          const outputSchemas = this.definition.discovery?.output;
+          if (outputSchemas?.body || outputSchemas?.headers) {
+            try {
+              await this.applyOutputValidation(result.exchange, outputSchemas);
+            } catch (err) {
+              finalResult = await this.handleOutputValidationFailure(
+                result.exchange,
+                err,
+                startTime,
+              );
+            }
+          }
+        }
 
-      // Reject so callers (CraftClient, direct channel) can handle the error.
-      // Source adapters catch this rejection and continue processing.
-      if (result.failed && result.error) {
-        throw result.error;
-      }
+        if (!finalResult.failed && !finalResult.dropped) {
+          const duration = Date.now() - startTime;
+          const correlationId = exchange.headers[
+            HeadersKeys.CORRELATION_ID
+          ] as string;
+          this.context.emit(
+            `route:${this.definition.id}:exchange:completed` as const,
+            {
+              routeId: this.definition.id,
+              exchangeId: exchange.id,
+              correlationId,
+              duration,
+              exchange: finalResult.exchange,
+            },
+          );
+        }
 
-      return result.exchange;
-    });
+        // Reject so callers (CraftClient, direct channel) can handle the error.
+        // Source adapters catch this rejection and continue processing.
+        if (finalResult.failed && finalResult.error) {
+          throw finalResult.error;
+        }
+
+        return finalResult.exchange;
+      },
+    );
 
     // Track in-flight work. Use a catch-suppressed wrapper so rejected
     // handler promises don't trigger unhandled rejection warnings; the

@@ -1,7 +1,13 @@
 import { randomUUID } from "node:crypto";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { BRAND, isRouteBuilder, setBrand } from "./brand.ts";
 import { StepBuilderBase } from "./step-builder-base.ts";
-import { type RouteDefinition, type ErrorHandler } from "./route.ts";
+import {
+  type RouteDefinition,
+  type ErrorHandler,
+  type RouteDiscovery,
+  type RouteSchemas,
+} from "./route.ts";
 import {
   CraftContext,
   type StoreRegistry,
@@ -339,7 +345,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
   protected currentRoute?: RouteDefinition;
   protected routes: RouteDefinition[] = [];
 
-  // Pending options set via .id() / .batch() / .error() before .from()
+  // Pending options set via .id() / .batch() / .error() / .description() / ... before .from()
   protected pendingOptions?:
     | {
         id?: string;
@@ -348,6 +354,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
           options?: unknown;
         };
         errorHandler?: ErrorHandler;
+        discovery?: RouteDiscovery;
       }
     | undefined;
 
@@ -372,6 +379,65 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
     this.pendingOptions = { ...(this.pendingOptions ?? {}), id };
     logger.trace({ route: id }, "Staging route id for next route");
     return this;
+  }
+
+  /**
+   * Set a human-readable title for the next route. Mirrored into the
+   * direct / mcp registries so discovery consumers (agents, docs) can
+   * display it alongside the id.
+   */
+  title(value: string): this {
+    this.mergeDiscovery({ title: value });
+    return this;
+  }
+
+  /**
+   * Set a human-readable description for the next route. Used by
+   * discovery-aware adapters when exposing the route to external consumers
+   * (agents, MCP clients).
+   */
+  description(value: string): this {
+    this.mergeDiscovery({ description: value });
+    return this;
+  }
+
+  /**
+   * Declare input schemas for the next route. The engine validates incoming
+   * message bodies and headers against these schemas before any pipeline
+   * step runs; a validation failure emits `exchange:dropped` and the
+   * pipeline never sees the message. Accepts either a bundle
+   * (`{ body, headers }`) or a bare Standard Schema as a body-only shorthand.
+   * To flow the body type through the chain, pass it as a generic on
+   * `.from<T>(source)` after the `.input()` call.
+   */
+  input(schemas: RouteSchemas | StandardSchemaV1): this {
+    this.mergeDiscovery({ input: this.normalizeSchemas(schemas) });
+    return this;
+  }
+
+  /**
+   * Declare output schemas for the next route. The engine validates the
+   * final exchange against these schemas before the primary destination
+   * fires; a validation failure is routed to the error handler. Accepts
+   * either a bundle (`{ body, headers }`) or a bare Standard Schema as a
+   * body-only shorthand.
+   */
+  output(schemas: RouteSchemas | StandardSchemaV1): this {
+    this.mergeDiscovery({ output: this.normalizeSchemas(schemas) });
+    return this;
+  }
+
+  private mergeDiscovery(partial: Partial<RouteDiscovery>): void {
+    this.pendingOptions = {
+      ...(this.pendingOptions ?? {}),
+      discovery: { ...(this.pendingOptions?.discovery ?? {}), ...partial },
+    };
+  }
+
+  private normalizeSchemas(
+    value: RouteSchemas | StandardSchemaV1,
+  ): RouteSchemas {
+    return "~standard" in value ? { body: value as StandardSchemaV1 } : value;
   }
 
   /**
@@ -449,7 +515,13 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    *   const response = await fetch('https://api.example.com/users');
    *   return response.json();
    * })
+   *
+   * // After `.input({ body: schema })`, pass the inferred body type to
+   * // flow it through the chain:
+   * // .input({ body: MySchema }).from<z.infer<typeof MySchema>>(direct())
    */
+  from<T>(source: Source<T> | CallableSource<T>): RouteBuilder<T>;
+  from<T>(source: Source<unknown> | CallableSource<unknown>): RouteBuilder<T>;
   from<T>(source: Source<T> | CallableSource<T>): RouteBuilder<T> {
     const id = this.pendingOptions?.id ?? randomUUID();
     const consumer = this.pendingOptions?.consumer ?? {
@@ -457,6 +529,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
       options: undefined,
     };
     const errorHandler = this.pendingOptions?.errorHandler;
+    const discovery = this.pendingOptions?.discovery;
 
     logger.trace({ route: id }, "Creating route definition");
 
@@ -469,6 +542,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
         options: consumer.options ?? undefined,
       },
       ...(errorHandler ? { errorHandler } : {}),
+      ...(discovery ? { discovery } : {}),
     };
     setBrand(this.currentRoute, BRAND.RouteDefinition);
 

@@ -23,8 +23,8 @@ A source produces data and starts the flow. It goes in `.from()`.
 // One-shot with a fixed payload
 .from(simple({ report: 'daily-summary' }))
 
-// Receives messages from another capability
-.from(direct('incoming-jobs', {}))
+// Receives messages from another capability (endpoint = route id)
+.from(direct())
 ```
 
 ### Destination
