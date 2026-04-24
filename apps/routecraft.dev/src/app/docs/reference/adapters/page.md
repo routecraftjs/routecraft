@@ -239,8 +239,9 @@ Options:
 ### direct
 
 ```ts
-// Source (endpoint = route id)
-direct(options?: Partial<DirectServerOptions>): Source<T>
+// Source (endpoint = route id). Body types are unknown at the adapter
+// layer; schemas live on the route builder via `.input()` / `.output()`.
+direct(options?: Partial<DirectServerOptions>): Source<unknown>
 
 // Destination (names a target route)
 direct<T>(endpoint: string | ((exchange: Exchange<T>) => string)): Destination<T, T>

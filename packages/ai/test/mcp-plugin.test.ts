@@ -147,7 +147,7 @@ describe("MCP Plugin Integration", () => {
   });
 
   /**
-   * @case Verifies that mcp() routes without description are not treated as tools
+   * @case Verifies that direct() routes without description are not treated as tools
    * @preconditions A direct() adapter is used without description
    * @expectedResult Route is registered but not in tool registry
    */

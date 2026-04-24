@@ -84,7 +84,7 @@ describe("Direct adapter", () => {
             .to(vi.fn() as never),
         ])
         .build();
-    }).rejects.toThrow(/route/i);
+    }).rejects.toMatchObject({ rc: "RC1002" });
   });
 
   /**

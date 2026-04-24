@@ -1,5 +1,4 @@
 import { describe, test, expectTypeOf } from "vitest";
-import { z } from "zod";
 import { direct } from "../src/adapters/direct/index.ts";
 import type { Source } from "../src/operations/from.ts";
 import type { Destination } from "../src/operations/to.ts";
@@ -85,8 +84,5 @@ describe("Direct adapter type safety", () => {
     expectTypeOf(direct({ channelType: NoopChannel })).toMatchTypeOf<
       Source<unknown>
     >();
-    // Ensure z import stays referenced so the file compiles cleanly under
-    // noUnusedLocals even when the schema-based cases are dropped.
-    expectTypeOf(z.object({})).not.toBeAny();
   });
 });

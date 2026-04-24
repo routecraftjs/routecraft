@@ -73,9 +73,8 @@ craft()
 // capabilities/error-orders.ts
 craft()
   .id('errors.orders')
-  .from(direct({
-    description: 'Receives failed order payloads for alerting',
-  }))
+  .description('Receives failed order payloads for alerting')
+  .from(direct())
   .transform((body) => {
     // Log, enrich, or reshape the failure payload
     return { alerted: true, reason: body.reason }

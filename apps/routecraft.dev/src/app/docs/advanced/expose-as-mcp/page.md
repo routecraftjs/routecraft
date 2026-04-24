@@ -16,7 +16,7 @@ npm install @routecraft/ai zod
 
 ## Define a capability
 
-A capability becomes an MCP tool when you use `mcp()` as its source. The tool name is the route's `.id()`; the `.description()` the AI uses to decide when to call it and the `.input()` schema for the payload both live on the route builder. Routecraft validates input against the schema before the capability runs, so invalid calls are rejected before any business logic executes.
+A capability becomes an MCP tool when you use `mcp()` as its source. The tool name is the route's `.id()`. The `.description()` that the AI uses to decide when to call it, and the `.input()` schema for the payload, both live on the route builder. Routecraft validates input against the schema before the capability runs, so invalid calls are rejected before any business logic executes.
 
 ```ts
 // capabilities/search-orders.ts

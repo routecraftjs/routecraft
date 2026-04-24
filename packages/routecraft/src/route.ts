@@ -16,6 +16,21 @@ import {
   resolveAdapterOverride,
   wrapSourceWithOverride,
 } from "./testing-hooks.ts";
+import { BRAND, INTERNALS_KEY, setBrand } from "./brand.ts";
+import { rcError, RoutecraftError, RC, formatSchemaIssues } from "./error.ts";
+import { isRoutecraftError } from "./brand.ts";
+import { logger, childBindings } from "./logger.ts";
+import { type Source } from "./operations/from.ts";
+import {
+  type Adapter,
+  type Step,
+  getAdapterLabel,
+  type Consumer,
+  type ConsumerType,
+  type Message,
+  type ProcessingQueue,
+} from "./types.ts";
+import { InMemoryProcessingQueue } from "./queue.ts";
 
 /**
  * Function that forwards a payload to another route via the direct adapter and returns its result.
@@ -76,21 +91,6 @@ export interface RouteDiscovery {
   /** Output schemas runtime-enforced before the primary destination. */
   output?: RouteSchemas;
 }
-import { BRAND, INTERNALS_KEY, setBrand } from "./brand.ts";
-import { rcError, RoutecraftError, RC, formatSchemaIssues } from "./error.ts";
-import { isRoutecraftError } from "./brand.ts";
-import { logger, childBindings } from "./logger.ts";
-import { type Source } from "./operations/from.ts";
-import {
-  type Adapter,
-  type Step,
-  getAdapterLabel,
-  type Consumer,
-  type ConsumerType,
-  type Message,
-  type ProcessingQueue,
-} from "./types.ts";
-import { InMemoryProcessingQueue } from "./queue.ts";
 
 /**
  * Configuration for a route: source, steps, and consumer.
@@ -299,8 +299,9 @@ export class DefaultRoute implements Route {
 
   /**
    * Run Standard Schema validation against a value. Returns the validated
-   * value on success (schemas can transform), or a human-readable message
-   * on failure.
+   * value on success (schemas can legitimately transform to `undefined`,
+   * so presence of the `value` key is what decides success, not truthiness)
+   * or a human-readable message on failure.
    */
   private async validateAgainst(
     schema: StandardSchemaV1,
@@ -312,9 +313,10 @@ export class DefaultRoute implements Route {
     if (issues !== undefined && issues !== null) {
       return { ok: false, message: formatSchemaIssues(issues) };
     }
+    const successResult = result as { value?: unknown };
     return {
       ok: true,
-      value: (result as { value?: unknown }).value ?? value,
+      value: "value" in successResult ? successResult.value : value,
     };
   }
 
@@ -325,8 +327,8 @@ export class DefaultRoute implements Route {
    * validated / coerced values (headers are merged over the originals so
    * pass-through keys like correlation IDs survive schemas that strip
    * unknowns). On failure, emits `exchange:started` followed by
-   * `exchange:dropped` so telemetry sees the rejected message and returns
-   * false to tell the caller to skip the pipeline.
+   * `exchange:dropped` for telemetry and throws an RC5002 error so the
+   * source's caller (e.g. a direct channel's `send`) sees the rejection.
    */
   private async applyInputValidation(
     exchange: Exchange,

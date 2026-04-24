@@ -434,7 +434,7 @@ describe("mcp() DSL function", () => {
       await ctx.stop();
     }
 
-    // Valid names subscribe without error.
+    // Valid names subscribe without error and register in the local tool registry.
     const okCtx = await testContext()
       .routes([
         craft().id("good_name-1").description("ok").from(mcp()).to(vi.fn()),
@@ -442,6 +442,10 @@ describe("mcp() DSL function", () => {
       .store(MCP_PLUGIN_KEY, true)
       .build();
     await okCtx.startAndWaitReady();
+    const registry = okCtx.ctx.getStore(MCP_LOCAL_KEY) as
+      | Map<string, McpLocalToolEntry>
+      | undefined;
+    expect(registry?.has("good_name-1")).toBe(true);
     await okCtx.stop();
   });
 
