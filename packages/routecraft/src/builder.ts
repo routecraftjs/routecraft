@@ -29,12 +29,6 @@ import { MailClientManager } from "./adapters/mail/client-manager.ts";
 import { MAIL_CLIENT_MANAGER } from "./adapters/mail/shared.ts";
 import { telemetry } from "./telemetry/index.ts";
 import {
-  type Processor,
-  type CallableProcessor,
-  ProcessStep,
-} from "./operations/process.ts";
-import { type Destination, type CallableDestination } from "./operations/to.ts";
-import {
   type Splitter,
   type CallableSplitter,
   SplitStep,
@@ -45,20 +39,7 @@ import {
   AggregateStep,
   defaultAggregate,
 } from "./operations/aggregate.ts";
-import { TapStep } from "./operations/tap.ts";
-import {
-  type CallableFilter,
-  type Filter,
-  FilterStep,
-} from "./operations/filter.ts";
-import {
-  type Validator,
-  type CallableValidator,
-  ValidateStep,
-} from "./operations/validate.ts";
-import { HeaderStep } from "./operations/header.ts";
-import { type HeaderValue } from "./exchange.ts";
-import { PUSH_STEP, COLLECT_STEPS } from "./dsl-symbol.ts";
+import { COLLECT_STEPS } from "./dsl-symbol.ts";
 import { ChoiceStep, ChoiceSubBuilder } from "./operations/choice.ts";
 
 /**
@@ -515,10 +496,10 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
 
   /**
    * Append a step to the current route. Implements the abstract hook from
-   * {@link StepBuilderBase} for inherited pipeline operations (`to`,
-   * `transform`, `enrich`), and is also called by the route-specific
-   * operations below (`process`, `split`, `aggregate`, `tap`, `filter`,
-   * `validate`, `header`, `choice`).
+   * {@link StepBuilderBase}, so every inherited pipeline operation (and
+   * every registered DSL sugar) flows through this method. The route-only
+   * operations that stay on `RouteBuilder` (`split`, `aggregate`, `choice`)
+   * call it too.
    *
    * @param step - The step to append
    * @throws {RoutecraftError} RC2002 if `.from()` has not been called yet
@@ -530,34 +511,6 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
       "Adding step to route",
     );
     route.steps.push(step);
-  }
-
-  /**
-   * Symbol-keyed method for registerDsl to add steps without exposing
-   * pushStep as public API. Not visible in autocomplete.
-   */
-  [PUSH_STEP]<T extends Adapter>(step: Step<T>): this {
-    this.pushStep(step);
-    return this;
-  }
-
-  /**
-   * Process the data with a custom function.
-   *
-   * @template Return The resulting type after processing (defaults to Current if not specified)
-   * @param processor A function that transforms the current exchange to a new exchange with the Return
-   * @returns A RouteBuilder with the new type Return
-   * @example
-   * // Transform string data to number
-   * .process<number>((exchange) => {
-   *   return { ...exchange, body: parseInt(exchange.body) };
-   * })
-   */
-  process<Return = Current>(
-    processor: Processor<Current, Return> | CallableProcessor<Current, Return>,
-  ): RouteBuilder<Return> {
-    this.pushStep(new ProcessStep<Current, Return>(processor));
-    return this.retype<Return>();
   }
 
   /**
@@ -660,124 +613,6 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
       this.pushStep(new AggregateStep<Current, ResultType>(aggregator));
     }
     return this.retype<ResultType>();
-  }
-
-  /**
-   * Set or override a header on the current exchange.
-   * The body type remains unchanged.
-   *
-   * @param key Header key to set
-   * @param valueOrFn A static value or a function returning the value from exchange data
-   * @returns A RouteBuilder with the same type
-   * @example
-   * // Static value
-   * .header('x-env', 'prod')
-   *
-   * // Derived from body
-   * .header('user.id', (exchange) => exchange.body.id)
-   *
-   * // Derived from headers
-   * .header('correlation', (exchange) => exchange.headers['x-request-id'])
-   */
-  header(
-    key: string,
-    valueOrFn:
-      | HeaderValue
-      | ((exchange: Exchange<Current>) => HeaderValue | Promise<HeaderValue>),
-  ): RouteBuilder<Current> {
-    this.pushStep(new HeaderStep<Current>(key, valueOrFn));
-    return this.retype<Current>();
-  }
-
-  /**
-   * Execute a side effect without changing the data.
-   * This is useful for logging, metrics, or other operations that don't modify the data.
-   * The type remains the same after tapping.
-   * Return values are ignored.
-   *
-   * @param destination A destination adapter or function for side effects
-   * @returns A RouteBuilder with the same type
-   * @example
-   * // Log the current data
-   * .tap((exchange) => console.log('Processing:', exchange.body))
-   *
-   * // Send metrics
-   * .tap((exchange) => {
-   *   metrics.increment('items_processed');
-   *   metrics.gauge('item_size', JSON.stringify(exchange.body).length);
-   * })
-   */
-  tap(
-    destination:
-      | Destination<Current, unknown>
-      | CallableDestination<Current, unknown>,
-  ): RouteBuilder<Current> {
-    this.pushStep(new TapStep<Current>(destination));
-    return this.retype<Current>();
-  }
-
-  /**
-   * Filter data based on a predicate function.
-   * Exchanges that don't match the predicate will be dropped.
-   * The predicate receives the full Exchange object, allowing filtering based on
-   * headers, body, or other exchange properties.
-   *
-   * Return `true` to keep the exchange, `false` to drop it, or
-   * `{ reason: "..." }` to drop with an explanation that is recorded
-   * in telemetry and shown in the TUI.
-   *
-   * @param filter A function that returns true to keep, false to drop, or \{ reason \} to drop with detail
-   * @returns A RouteBuilder with the same type
-   * @example
-   * // Simple boolean filter
-   * .filter((exchange) => exchange.body.age >= 18)
-   *
-   * // Drop with a reason
-   * .filter((exchange) => {
-   *   if (!exchange.body.name) return { reason: "name is required" };
-   *   if (exchange.body.age < 18) return { reason: "age must be 18 or older" };
-   *   return true;
-   * })
-   *
-   * // Filter based on headers
-   * .filter((exchange) => exchange.headers['x-priority'] === 'high')
-   */
-  filter(
-    filter: Filter<Current> | CallableFilter<Current>,
-  ): RouteBuilder<Current> {
-    this.pushStep(new FilterStep<Current>(filter));
-    return this.retype<Current>();
-  }
-
-  /**
-   * Validate the exchange body using a Validator adapter or callable
-   * function. On success the (possibly coerced) return value replaces
-   * the body. On failure the adapter throws and the route error handler
-   * (if configured) or the default error path handles it.
-   *
-   * For Standard Schema validation, use the `.schema()` sugar or pass
-   * the `schema()` factory: `.validate(schema(z.object({...})))`.
-   *
-   * @template R - Output body type after validation (defaults to Current)
-   * @param validator - A Validator adapter or callable function
-   * @returns A RouteBuilder with the validated type R
-   * @example
-   * ```ts
-   * // Custom validator
-   * .validate((exchange) => {
-   *   if (!exchange.body.email) throw new Error("email required");
-   *   return exchange.body;
-   * })
-   *
-   * // Standard Schema via factory
-   * .validate(schema(z.object({ name: z.string() })))
-   * ```
-   */
-  validate<R = Current>(
-    validator: Validator<Current, R> | CallableValidator<Current, R>,
-  ): RouteBuilder<R> {
-    this.pushStep(new ValidateStep<Current, R>(validator));
-    return this.retype<R>();
   }
 
   /**
