@@ -11,6 +11,7 @@ Full catalog of built-in plugins with options and behaviour. {% .lead %}
 | [`llmPlugin`](#llmplugin) | `@routecraft/ai` | Register LLM providers for use with `llm()` |
 | [`embeddingPlugin`](#embeddingplugin) | `@routecraft/ai` | Register embedding providers for use with `embedding()` |
 | [`mcpPlugin`](#mcpplugin) | `@routecraft/ai` | Start an MCP server and register remote MCP clients |
+| [`agentPlugin`](#agentplugin) | `@routecraft/ai` | Register named agents for use with `agent("id")` |
 
 {% callout %}
 Core adapter defaults (`cron`, `direct`) are set via dedicated fields on `CraftConfig`, not via plugins. See [Configuration](/docs/reference/configuration) and [Merged Options](/docs/advanced/merged-options).
@@ -376,6 +377,77 @@ The `client` supplier (when you pass a function rather than a static object) is 
 Stdio clients are spawned when the context starts and stopped on teardown. If the subprocess exits unexpectedly, the plugin automatically restarts it with exponential backoff (`restartDelayMs * restartBackoffMultiplier ^ attempt`). The restart counter resets after a successful reconnection.
 
 See [Expose as MCP](/docs/advanced/expose-as-mcp) and [Call an MCP](/docs/advanced/call-an-mcp) for usage guides.
+
+## agentPlugin
+
+```ts
+import { agentPlugin, defineAgent } from '@routecraft/ai'
+```
+
+Register named agents in the context store so routes can reference them by name via `agent("id")`. Registered agents are distinct from route-backed agents: a registration carries its own id and description because it is not backed by a route. Duplicate ids throw at context init.
+
+```ts
+import { agentPlugin, defineAgent, llmPlugin } from '@routecraft/ai'
+import type { CraftConfig } from '@routecraft/routecraft'
+
+export const craftConfig: CraftConfig = {
+  plugins: [
+    llmPlugin({ providers: { anthropic: { apiKey: process.env.ANTHROPIC_API_KEY! } } }),
+    agentPlugin({
+      agents: [
+        defineAgent({
+          id: 'summariser',
+          description: 'Summarises documents into bullet points',
+          model: 'anthropic:claude-opus-4-7',
+          system: 'You are a summariser. Be concise.',
+        }),
+        defineAgent({
+          id: 'translator-en-fr',
+          description: 'Translates English text to French',
+          model: 'anthropic:claude-opus-4-7',
+          system: 'Translate the input from English to French.',
+        }),
+      ],
+    }),
+  ],
+}
+```
+
+Then in any route:
+
+```ts
+import { agent } from '@routecraft/ai'
+
+craft()
+  .id('daily-digest')
+  .from(timer({ intervalMs: 24 * 60 * 60 * 1000 }))
+  .to(agent('summariser'))
+  .to(direct('reply'))
+```
+
+**Options:**
+
+| Option | Type | Required | Description |
+|--------|------|----------|-------------|
+| `agents` | `AgentRegistration[]` | No | Agents produced by `defineAgent()`. Duplicate ids throw at context init. Defaults to `[]`. |
+
+**`defineAgent({ ... })` options:**
+
+| Option | Type | Required | Description |
+|--------|------|----------|-------------|
+| `id` | `string` | Yes | Unique identifier used to reference this agent via `agent("id")` |
+| `description` | `string` | Yes | Human-readable description. Surfaces in observability and is used as the tool description when the agent is exposed to other agents |
+| `model` | `LlmModelId \| LlmModelConfig` | Yes | `"provider:model"` string (resolved via `llmPlugin`) or an inline `LlmModelConfig` |
+| `system` | `string` | Yes | System prompt |
+| `user` | `(exchange) => string` | No | Override for deriving the user prompt from the incoming exchange |
+
+**Resolution semantics:**
+
+- `agent("name")` resolves only registered agents. Route-backed agents are called via `.to(direct("route-id"))` and run the full pipeline of the target route; `agent("name")` runs the registered agent's LLM call inline.
+- The plugin throws at context init (`RC5003`) on: duplicate ids, raw config objects that bypass `defineAgent()`, missing id, missing description, invalid model string, or empty system.
+- `agent("unknown")` fails at dispatch (`RC5004`) with the list of registered agent ids.
+
+See the [`agent`](/docs/reference/adapters#agent) adapter for usage patterns.
 
 ---
 

@@ -26,6 +26,7 @@ Full catalog of adapters with signatures and options. {% .lead %}
 | [`agentBrowser`](#agentbrowser) | Browser | Automate a browser session (navigate, click, snapshot, etc.) | `Destination` |
 | [`mcp`](#mcp) | AI | Expose capabilities as MCP tools or call remote MCP servers | `Source`, `Destination` |
 | [`llm`](#llm) | AI | Call a language model and get text or structured output | `Destination` |
+| [`agent`](#agent) | AI | Run an LLM with a fixed system prompt (inline or registered) | `Destination` |
 | [`embedding`](#embedding) | AI | Generate vector embeddings from text | `Destination` |
 
 ## Core adapters
@@ -1696,6 +1697,86 @@ Model ID format: `"provider:model-name"` (e.g., `"ollama:llama3.2"`, `"anthropic
 | `usage.totalTokens` | `number` | Total token count |
 
 Provider credentials are configured once in `llmPlugin()` and shared across all `llm()` calls. See [Plugins reference](/docs/reference/plugins).
+
+### agent
+```ts
+import { agent } from '@routecraft/ai'
+```
+
+Run an LLM with a fixed system prompt on each incoming exchange. Replaces the body with `AgentResult { text, usage? }`. Two forms:
+
+- **Inline** (`agent({ model, system, user? })`) -- identity and description come from the enclosing route (`.id()`, `.description()`). Suitable when the route _is_ the agent.
+- **By name** (`agent("summariser")`) -- resolves a registered agent from the context. Register agents via `agentPlugin({ agents: [defineAgent(...)] })` ([Plugins reference](/docs/reference/plugins)).
+
+```ts
+import { agent, defineAgent, agentPlugin } from '@routecraft/ai'
+import { readFileSync } from 'node:fs'
+
+// Inline: the route IS the agent. Other routes call it via direct("zoe").
+craft()
+  .id('zoe')
+  .description('Internal ops assistant')
+  .from(direct())
+  .to(agent({
+    model: 'anthropic:claude-opus-4-7',
+    system: readFileSync('./prompts/zoe.md', 'utf-8'),
+  }))
+  .to(direct('reply'))
+
+// By name: register once, use from any route in the context.
+agentPlugin({
+  agents: [
+    defineAgent({
+      id: 'summariser',
+      description: 'Summarises documents into bullet points',
+      model: 'anthropic:claude-opus-4-7',
+      system: 'Be concise.',
+    }),
+  ],
+})
+
+craft()
+  .id('periodic-summary')
+  .from(timer({ intervalMs: 60_000 }))
+  .to(agent('summariser'))
+  .to(log())
+```
+
+Model ID format: `"provider:model-name"` (same as `llm()`). You can also pass an inline `LlmModelConfig` object to skip `llmPlugin()` registration when you have ad-hoc credentials.
+
+**Supported providers:** `openai`, `anthropic`, `ollama`, `openrouter`, `gemini`
+
+**`AgentOptions` (inline form):**
+
+| Option | Type | Default | Required | Description |
+|--------|------|---------|----------|-------------|
+| `model` | `LlmModelId \| LlmModelConfig` | -- | Yes | `"provider:model"` string (resolved via `llmPlugin`) or an inline `LlmModelConfig` object |
+| `system` | `string` | -- | Yes | System prompt. Load from disk yourself when sourcing from a file |
+| `user` | `(exchange) => string` | body as-is / JSON | No | Override for deriving the user prompt. Defaults to body (string as-is, JSON for objects) |
+
+**`AgentRegisteredOptions` (via `defineAgent`, for by-name reuse):** same as `AgentOptions` plus:
+
+| Option | Type | Default | Required | Description |
+|--------|------|---------|----------|-------------|
+| `id` | `string` | -- | Yes | Identifier used to reference this agent via `agent("id")` |
+| `description` | `string` | -- | Yes | Human-readable description. Surfaces in observability and is used as the tool description when the agent is exposed to other agents |
+
+**Result shape (body is replaced by `.to()`):**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `text` | `string` | Generated text from the model |
+| `usage.inputTokens` | `number` | Input token count (when reported) |
+| `usage.outputTokens` | `number` | Output token count (when reported) |
+| `usage.totalTokens` | `number` | Total token count (when reported) |
+
+**Resolution semantics:**
+
+- `agent("name")` only resolves registered agents. To call a route-backed agent from another route, use `.to(direct("route-id"))` -- `direct` runs the full pipeline of the target route, `agent("name")` runs the registered agent's LLM call inline.
+- Duplicate registered agent ids, missing description, or a malformed model string fail at context init with `RC5003` (Adapter misconfigured).
+- Referencing an unknown registered agent name fails at dispatch with `RC5004` (No handler available).
+
+Provider credentials are configured once in `llmPlugin()` and shared across all `agent()` calls. See [Plugins reference](/docs/reference/plugins).
 
 ### embedding
 ```ts
