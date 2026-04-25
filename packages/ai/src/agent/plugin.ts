@@ -7,8 +7,8 @@ import { validateAgentOptions } from "./agent.ts";
 import { ADAPTER_AGENT_REGISTRY } from "./store.ts";
 import { validateFnOptions } from "../fn/fn.ts";
 import { ADAPTER_FN_REGISTRY } from "../fn/store.ts";
-import type { FnOptions } from "../fn/types.ts";
 import type { AgentRegisteredOptions } from "./types.ts";
+import { isDeferredFn, type FnEntry } from "./tools/types.ts";
 
 export interface AgentPluginOptions {
   /**
@@ -21,14 +21,20 @@ export interface AgentPluginOptions {
 
   /**
    * Ad-hoc in-process functions available to agents (via `tools: [...]`
-   * in follow-up stories). Keyed by the fn id; each entry provides
-   * description, Standard Schema, and handler. Duplicate ids across
-   * multiple `agentPlugin` installs throw at context init.
+   * in follow-up stories). Keyed by the fn id; each entry is either an
+   * eagerly-authored `FnOptions` (description, schema, handler) or a
+   * deferred descriptor emitted by a builder helper such as
+   * `directTool(routeId)` / `agentTool(agentId)` / `mcpTool(server, tool)`.
+   * Deferred descriptors resolve at agent dispatch time when all
+   * registries are populated.
+   *
+   * Duplicate ids across multiple `agentPlugin` installs throw at
+   * context init.
    *
    * For tests, exercise registered fn handlers via `testFn` from
    * `@routecraft/testing` rather than dispatching through the plugin.
    */
-  functions?: Record<string, FnOptions>;
+  functions?: Record<string, FnEntry>;
 }
 
 function validateRegisteredAgent(
@@ -122,8 +128,8 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
 
       const existingFns = ctx.getStore(
         ADAPTER_FN_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry,
-      ) as Map<string, FnOptions> | undefined;
-      const fnMap = existingFns ?? new Map<string, FnOptions>();
+      ) as Map<string, FnEntry> | undefined;
+      const fnMap = existingFns ?? new Map<string, FnEntry>();
       for (const [id, entry] of Object.entries(functions)) {
         if (id.trim() === "") {
           throw rcError("RC5003", undefined, {
@@ -135,7 +141,9 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
             message: `agentPlugin: fn "${id}" entry must be an object with description, schema, and handler.`,
           });
         }
-        validateFnOptions(id, entry);
+        if (!isDeferredFn(entry)) {
+          validateFnOptions(id, entry);
+        }
         if (fnMap.has(id)) {
           throw rcError("RC5003", undefined, {
             message: `agentPlugin: duplicate fn id "${id}". Each fn id must be unique within a context.`,

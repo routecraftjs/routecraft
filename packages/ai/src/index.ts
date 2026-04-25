@@ -139,6 +139,21 @@ export type {
   RegisteredFnId,
 } from "./fn/index.ts";
 
+// Tool builders: wrap registered routes / agents / MCP tools as
+// fn-shaped entries usable from `agentPlugin({ functions: { ... } })`
+// and selectable via `tools([...])` (follow-up commit).
+export {
+  agentTool,
+  defaultFns,
+  directTool,
+  mcpTool,
+  isDeferredFn,
+  type DeferredFn,
+  type DeferredFnKind,
+  type FnEntry,
+  type ToolBuilderOverrides,
+} from "./agent/tools/index.ts";
+
 // Embedding adapter and plugin
 export {
   embedding,

@@ -41,7 +41,7 @@ describe("fn registration via agentPlugin", () => {
     const registry = t.ctx.getStore(ADAPTER_FN_REGISTRY);
     expect(registry).toBeInstanceOf(Map);
     expect(registry?.has("currentTime")).toBe(true);
-    expect(registry?.get("currentTime")?.description).toBe(
+    expect((registry?.get("currentTime") as FnOptions).description).toBe(
       "Current UTC timestamp in ISO 8601",
     );
   });
@@ -179,7 +179,9 @@ describe("fn registration via agentPlugin", () => {
       })
       .build();
 
-    const entry = t.ctx.getStore(ADAPTER_FN_REGISTRY)?.get("currentTime");
+    const entry = t.ctx.getStore(ADAPTER_FN_REGISTRY)?.get("currentTime") as
+      | FnOptions
+      | undefined;
     expect(entry?.tags).toEqual(["read-only", "idempotent"]);
   });
 
