@@ -44,6 +44,31 @@ describe("tool builders - directTool", () => {
   });
 
   /**
+   * @case directTool override tags are trimmed at builder time
+   * @preconditions directTool("x", { tags: ["  read-only  "] })
+   * @expectedResult overrideTags on the descriptor is ["read-only"]
+   */
+  test("directTool trims override tags at builder time", () => {
+    const desc = directTool("x", { tags: ["  read-only  ", "data"] });
+    expect(desc.overrideTags).toEqual(["read-only", "data"]);
+  });
+
+  /**
+   * @case directTool override tags reject non-array and empty/blank entries
+   * @preconditions directTool with malformed tags overrides
+   * @expectedResult RC5003 thrown synchronously at builder call
+   */
+  test("directTool rejects malformed override tags", () => {
+    expect(() =>
+      directTool("x", { tags: "read-only" as unknown as string[] }),
+    ).toThrow(/tags/i);
+    expect(() => directTool("x", { tags: ["read-only", ""] })).toThrow(
+      /non-empty/i,
+    );
+    expect(() => directTool("x", { tags: ["   "] })).toThrow(/non-empty/i);
+  });
+
+  /**
    * @case directTool resolves at dispatch time using the direct registry
    * @preconditions Route registered with .description() and .input(); directTool referenced from agentPlugin functions
    * @expectedResult Resolution returns FnOptions with description, schema, and tags pulled from the route

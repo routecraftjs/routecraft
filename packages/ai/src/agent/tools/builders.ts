@@ -106,11 +106,12 @@ export function directTool<TIn = unknown>(
       message: `directTool: routeId must be a non-empty string.`,
     });
   }
+  const overrideTags = normalizeOverrideTags(overrides?.tags, routeId);
   return {
     [DEFERRED_FN_BRAND]: true,
     kind: "direct",
     targetId: routeId,
-    ...(overrides?.tags !== undefined ? { overrideTags: overrides.tags } : {}),
+    ...(overrideTags !== undefined ? { overrideTags } : {}),
     resolve(ctx, fnId): FnOptions {
       const route = readDirectRoute(ctx, routeId, fnId);
       const description = overrides?.description ?? route.description;
@@ -127,17 +128,46 @@ export function directTool<TIn = unknown>(
           message: `directTool: route "${routeId}" has no .input(...) schema and no override was provided (referenced as fn "${fnId}").`,
         });
       }
-      const tags = overrides?.tags ?? route.tags;
+      const tags = overrideTags ?? route.tags;
       const handler = ((input, hctx) =>
         dispatchDirect(hctx, routeId, input)) as FnOptions["handler"];
       return {
         description,
         schema,
-        ...(tags && tags.length > 0 ? { tags } : {}),
+        ...(tags && tags.length > 0 ? { tags: [...tags] } : {}),
         handler,
       } as FnOptions;
     },
   };
+}
+
+/**
+ * Trim and validate user-supplied builder override tags so they match
+ * exact tag selectors and surface clear errors on misuse. Returns
+ * `undefined` when no override was supplied (so the caller can omit
+ * the field entirely on the descriptor).
+ */
+function normalizeOverrideTags(
+  value: Tag[] | undefined,
+  routeId: string,
+): readonly Tag[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    throw rcError("RC5003", undefined, {
+      message: `directTool("${routeId}"): override "tags" must be an array of non-empty strings.`,
+    });
+  }
+  const out: Tag[] = [];
+  for (const t of value) {
+    if (typeof t !== "string" || t.trim() === "") {
+      throw rcError("RC5003", undefined, {
+        message: `directTool("${routeId}"): override "tags" must contain only non-empty strings.`,
+      });
+    }
+    const trimmed = t.trim();
+    if (!out.includes(trimmed)) out.push(trimmed);
+  }
+  return out;
 }
 
 function readDirectRoute(
