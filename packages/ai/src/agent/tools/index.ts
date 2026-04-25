@@ -12,3 +12,12 @@ export {
   type DeferredFnKind,
   type FnEntry,
 } from "./types.ts";
+export {
+  isToolSelection,
+  TOOL_SELECTION_BRAND,
+  tools,
+  type ResolvedTool,
+  type ToolGuard,
+  type ToolSelection,
+  type ToolsItem,
+} from "./selection.ts";

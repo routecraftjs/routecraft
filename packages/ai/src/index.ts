@@ -140,18 +140,24 @@ export type {
 } from "./fn/index.ts";
 
 // Tool builders: wrap registered routes / agents / MCP tools as
-// fn-shaped entries usable from `agentPlugin({ functions: { ... } })`
-// and selectable via `tools([...])` (follow-up commit).
+// fn-shaped entries usable from `agentPlugin({ functions: { ... } })`,
+// plus the `tools([...])` selector consumed by the agent runtime.
 export {
   agentTool,
   defaultFns,
   directTool,
   mcpTool,
   isDeferredFn,
+  isToolSelection,
+  tools,
   type DeferredFn,
   type DeferredFnKind,
   type FnEntry,
+  type ResolvedTool,
   type ToolBuilderOverrides,
+  type ToolGuard,
+  type ToolSelection,
+  type ToolsItem,
 } from "./agent/tools/index.ts";
 
 // Embedding adapter and plugin

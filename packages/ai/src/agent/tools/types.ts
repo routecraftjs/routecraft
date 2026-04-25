@@ -37,6 +37,14 @@ export interface DeferredFn {
   /** Underlying source kind. Surfaces in error messages. */
   readonly kind: DeferredFnKind;
   /**
+   * The underlying registered id this wrapper targets (route id for
+   * `direct`, agent id for `agent`, `<server>:<tool>` for `mcp`). Used
+   * by the `tools()` resolver for tag-selector dedup so a fn-registry
+   * wrapper supersedes the same route surfaced via the prefix
+   * convention.
+   */
+  readonly targetId: string;
+  /**
    * Resolve to a concrete `FnOptions`. Throws `RC5003` with a clear
    * message if the underlying registry entry is missing or incomplete.
    *

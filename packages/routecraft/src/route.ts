@@ -94,7 +94,7 @@ export type Tag = KnownTag | (string & {});
  * `input` / `output` for framework-enforced validation regardless of adapter.
  *
  * Set via the `.title()`, `.description()`, `.input()`, `.output()`,
- * `.tag()` and `.tags()` builder methods. All fields are optional.
+ * and `.tag()` builder methods. All fields are optional.
  */
 export interface RouteDiscovery {
   /** Human-readable display title for discovery consumers (agents, docs). */

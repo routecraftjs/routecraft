@@ -429,9 +429,9 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
   }
 
   /**
-   * Tag the next route. Accepts a single tag or an array. Subsequent
-   * `.tag()` / `.tags()` calls before `.from()` accumulate (deduplicated,
-   * insertion order preserved). Empty strings are rejected.
+   * Tag the next route. Accepts a single tag or an array; multiple
+   * `.tag()` calls before `.from()` accumulate (deduplicated, insertion
+   * order preserved). Empty strings are rejected.
    *
    * Tags drive selectors like `tools({ tagged: "read-only" })` in
    * `@routecraft/ai`; use the `KnownTag` literals (`"read-only"`,
@@ -442,7 +442,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
     const incoming = (Array.isArray(value) ? value : [value]).map((t) => {
       if (typeof t !== "string" || t.trim() === "") {
         throw rcError("RC2001", undefined, {
-          message: `Route .tag()/.tags() value must be a non-empty string.`,
+          message: `Route .tag() value must be a non-empty string.`,
         });
       }
       return t;
@@ -452,14 +452,6 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
     for (const t of incoming) if (!merged.includes(t)) merged.push(t);
     this.mergeDiscovery({ tags: merged });
     return this;
-  }
-
-  /**
-   * Alias for `.tag([...])`. Reads more naturally when assigning multiple
-   * tags at once.
-   */
-  tags(values: Tag[]): this {
-    return this.tag(values);
   }
 
   private mergeDiscovery(partial: Partial<RouteDiscovery>): void {

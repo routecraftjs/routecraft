@@ -84,6 +84,7 @@ export function directTool<TIn = unknown, TOut = unknown>(
   return {
     [DEFERRED_FN_BRAND]: true,
     kind: "direct",
+    targetId: routeId,
     resolve(ctx, fnId): FnOptions {
       const route = readDirectRoute(ctx, routeId, fnId);
       const description = overrides?.description ?? route.description;
@@ -180,6 +181,7 @@ export function agentTool(
   return {
     [DEFERRED_FN_BRAND]: true,
     kind: "agent",
+    targetId: agentId,
     resolve(_ctx, fnId): FnOptions {
       throw rcError("RC5003", undefined, {
         message: `agentTool("${agentId}") (referenced as fn "${fnId}") is not yet supported. Sub-agent tools land in a follow-up story.`,
@@ -215,6 +217,7 @@ export function mcpTool(
   return {
     [DEFERRED_FN_BRAND]: true,
     kind: "mcp",
+    targetId: `${serverId}:${toolName}`,
     resolve(_ctx, fnId): FnOptions {
       throw rcError("RC5003", undefined, {
         message: `mcpTool("${serverId}", "${toolName}") (referenced as fn "${fnId}") is not yet supported. MCP tools land in a follow-up story.`,
