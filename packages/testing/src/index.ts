@@ -37,6 +37,16 @@ export {
   type MockAdapterBehavior,
 } from "./mock-adapter";
 
+// Test helper for fn-like specs (schema + handler). Used to exercise
+// fns registered in `@routecraft/ai`'s agentPlugin without depending on
+// any non-public dispatcher.
+export {
+  testFn,
+  type TestFnHandlerContext,
+  type TestFnOptions,
+  type TestFnSpec,
+} from "./test-fn";
+
 /**
  * Load a JSON fixture file and return the parsed value.
  *
