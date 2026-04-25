@@ -381,33 +381,31 @@ See [Expose as MCP](/docs/advanced/expose-as-mcp) and [Call an MCP](/docs/advanc
 ## agentPlugin
 
 ```ts
-import { agentPlugin, defineAgent } from '@routecraft/ai'
+import { agentPlugin } from '@routecraft/ai'
 ```
 
-Register named agents in the context store so routes can reference them by name via `agent("id")`. Registered agents are distinct from route-backed agents: a registration carries its own id and description because it is not backed by a route. Duplicate ids throw at context init.
+Register named agents in the context store so routes can reference them by name via `agent("id")`. Registered agents are distinct from route-backed agents: a registration carries its own description because it is not backed by a route; the id is the record key. Duplicate ids across multiple `agentPlugin` installs throw at context init.
 
 ```ts
-import { agentPlugin, defineAgent, llmPlugin } from '@routecraft/ai'
+import { agentPlugin, llmPlugin } from '@routecraft/ai'
 import type { CraftConfig } from '@routecraft/routecraft'
 
 export const craftConfig: CraftConfig = {
   plugins: [
     llmPlugin({ providers: { anthropic: { apiKey: process.env.ANTHROPIC_API_KEY! } } }),
     agentPlugin({
-      agents: [
-        defineAgent({
-          id: 'summariser',
+      agents: {
+        summariser: {
           description: 'Summarises documents into bullet points',
           model: 'anthropic:claude-opus-4-7',
           system: 'You are a summariser. Be concise.',
-        }),
-        defineAgent({
-          id: 'translator-en-fr',
+        },
+        'translator-en-fr': {
           description: 'Translates English text to French',
           model: 'anthropic:claude-opus-4-7',
           system: 'Translate the input from English to French.',
-        }),
-      ],
+        },
+      },
     }),
   ],
 }
@@ -429,13 +427,12 @@ craft()
 
 | Option | Type | Required | Description |
 |--------|------|----------|-------------|
-| `agents` | `AgentRegistration[]` | No | Agents produced by `defineAgent()`. Duplicate ids throw at context init. Defaults to `[]`. |
+| `agents` | `Record<string, AgentRegisteredOptions>` | No | Agents keyed by id. Duplicate ids across installs throw at context init. Defaults to `{}`. |
 
-**`defineAgent({ ... })` options:**
+**Entry shape (`AgentRegisteredOptions`):**
 
 | Option | Type | Required | Description |
 |--------|------|----------|-------------|
-| `id` | `string` | Yes | Unique identifier used to reference this agent via `agent("id")` |
 | `description` | `string` | Yes | Human-readable description. Surfaces in observability and is used as the tool description when the agent is exposed to other agents |
 | `model` | `LlmModelId \| LlmModelConfig` | Yes | `"provider:model"` string (resolved via `llmPlugin`) or an inline `LlmModelConfig` |
 | `system` | `string` | Yes | System prompt |
@@ -444,10 +441,91 @@ craft()
 **Resolution semantics:**
 
 - `agent("name")` resolves only registered agents. Route-backed agents are called via `.to(direct("route-id"))` and run the full pipeline of the target route; `agent("name")` runs the registered agent's LLM call inline.
-- The plugin throws at context init (`RC5003`) on: duplicate ids, raw config objects that bypass `defineAgent()`, missing id, missing description, invalid model string, or empty system.
+- The plugin throws at context init (`RC5003`) on: duplicate ids across installs, empty id key, missing description, invalid model string, or empty system.
 - `agent("unknown")` fails at dispatch (`RC5004`) with the list of registered agent ids.
 
 See the [`agent`](/docs/reference/adapters#agent) adapter for usage patterns.
+
+### Functions (`functions`)
+
+`agentPlugin` also registers ad-hoc in-process **functions** that agents whitelist as tools (follow-up story). Functions are keyed by id in the same plugin config and share the same duplicate-id-throws-at-init semantics as agents.
+
+Functions are an agent-only concept: there is no public dispatch API for fns outside the agent tool loop. If you want to call a "named processor" from a route, write `.process(...)` inline.
+
+```ts
+import { agentPlugin } from '@routecraft/ai'
+import { z } from 'zod'
+
+agentPlugin({
+  functions: {
+    currentTime: {
+      description: 'Current UTC timestamp in ISO 8601',
+      schema: z.object({}),
+      handler: async () => new Date().toISOString(),
+    },
+    sendSlackMessage: {
+      description: 'Post a message to a Slack channel',
+      schema: z.object({ channel: z.string(), text: z.string() }),
+      handler: async (input, ctx) => {
+        ctx.logger.info({ channel: input.channel }, 'Posting to Slack')
+        return { ok: true }
+      },
+    },
+  },
+})
+```
+
+**Options:**
+
+| Option | Type | Required | Description |
+|--------|------|----------|-------------|
+| `functions` | `Record<string, FnOptions>` | No | Functions keyed by id. Duplicate ids across installs throw at context init. Defaults to `{}`. |
+
+**Entry shape (`FnOptions`):**
+
+| Option | Type | Required | Description |
+|--------|------|----------|-------------|
+| `description` | `string` | Yes | Human-readable description. Used in observability and as the tool description when exposed to an agent |
+| `schema` | `StandardSchemaV1` | Yes | Standard Schema for the input (Zod, Valibot, ArkType, etc.). Validated at invocation time |
+| `handler` | `(input, ctx) => Promise<TOut> \| TOut` | Yes | Called with validated input and a `FnHandlerContext` (`{ logger, abortSignal, context }`) |
+
+**Errors at context init (`RC5003`):** missing description, schema is not a Standard Schema, schema's `validate` is not a function, missing handler, empty id key, duplicate id across installs.
+
+### Testing fns
+
+There is no public `invokeFn` helper -- agents are the only legitimate dispatcher for registered fns. To exercise a fn's schema and handler in isolation in tests, use `testFn` from `@routecraft/testing`:
+
+```ts
+import { testFn } from '@routecraft/testing'
+import { z } from 'zod'
+
+const greet = {
+  description: 'Greets someone',
+  schema: z.object({ name: z.string() }),
+  handler: async (input, ctx) => `hello ${input.name}`,
+}
+
+const out = await testFn(greet, { name: 'alice' })
+// out === 'hello alice'
+```
+
+`testFn` validates the input against the schema, calls the handler with a synthetic `{ logger, abortSignal }` context, and returns the handler's output. Validation failures throw `RC5002`. It works structurally on any `{ schema, handler }` shape, so real `FnOptions` values pass without modification.
+
+### Typed fn ids (`FnRegistry`)
+
+For compile-time autocomplete of fn ids in the agent `tools: [...]` field (follow-up story), populate the `FnRegistry` marker interface via declaration merging in your project:
+
+```ts
+// src/types/routecraft.d.ts
+declare module '@routecraft/ai' {
+  interface FnRegistry {
+    currentTime: true
+    sendSlackMessage: true
+  }
+}
+```
+
+When `FnRegistry` is empty, the id type falls back to `string` (no breaking change).
 
 ---
 

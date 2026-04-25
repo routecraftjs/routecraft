@@ -428,9 +428,20 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
   }
 
   private mergeDiscovery(partial: Partial<RouteDiscovery>): void {
+    const existing = this.pendingOptions?.discovery;
+    if (partial.input !== undefined && existing?.input !== undefined) {
+      throw rcError("RC2001", undefined, {
+        message: `Route metadata already declared: .input() can only be called once per route.`,
+      });
+    }
+    if (partial.output !== undefined && existing?.output !== undefined) {
+      throw rcError("RC2001", undefined, {
+        message: `Route metadata already declared: .output() can only be called once per route.`,
+      });
+    }
     this.pendingOptions = {
       ...(this.pendingOptions ?? {}),
-      discovery: { ...(this.pendingOptions?.discovery ?? {}), ...partial },
+      discovery: { ...(existing ?? {}), ...partial },
     };
   }
 
@@ -564,6 +575,14 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
   private requireSource(): RouteDefinition {
     if (!this.currentRoute) {
       throw rcError("RC2002");
+    }
+    if (this.pendingOptions !== undefined) {
+      throw rcError("RC2001", undefined, {
+        message:
+          `Route metadata staged but no .from() called: route-level configuration ` +
+          `(.id / .title / .description / .input / .output / .batch / .error) must be ` +
+          `followed by .from() before pipeline operations on the next route.`,
+      });
     }
     return this.currentRoute;
   }
@@ -751,6 +770,11 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    * ```
    */
   build(): RouteDefinition[] {
+    if (this.pendingOptions !== undefined) {
+      throw rcError("RC2001", undefined, {
+        message: `Route metadata staged but never consumed by .from().`,
+      });
+    }
     logger.trace({ routeCount: this.routes.length }, "Building routes");
     return this.routes;
   }

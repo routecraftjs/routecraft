@@ -111,11 +111,9 @@ export type {
 
 // Agent destination, plugin, and types. For inline use, identity and
 // description come from the enclosing route (`.id()`, `.description()`).
-// For by-name use, register agents via `agentPlugin({ agents: [...] })`
-// with `defineAgent({ id, description, ... })`.
+// For by-name use, register agents via `agentPlugin({ agents: { name: {...} } })`.
 export {
   agent,
-  defineAgent,
   AgentDestinationAdapter,
   agentPlugin,
   ADAPTER_AGENT_REGISTRY,
@@ -125,10 +123,21 @@ export type {
   AgentOptions,
   AgentPluginOptions,
   AgentRegisteredOptions,
-  AgentRegistration,
   AgentResult,
   AgentUserPromptSource,
 } from "./agent/index.ts";
+
+// Fn primitive: ad-hoc in-process functions registered via
+// `agentPlugin({ functions: { id: {...} } })`. Consumed exclusively by
+// the agent tool loop (follow-up story); not directly invocable from
+// user code. For tests, use `testFn` from `@routecraft/testing`.
+export { ADAPTER_FN_REGISTRY } from "./fn/index.ts";
+export type {
+  FnHandlerContext,
+  FnOptions,
+  FnRegistry,
+  RegisteredFnId,
+} from "./fn/index.ts";
 
 // Embedding adapter and plugin
 export {

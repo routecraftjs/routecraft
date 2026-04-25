@@ -5,8 +5,8 @@ import {
   agent,
   AgentDestinationAdapter,
   agentPlugin,
-  defineAgent,
   llmPlugin,
+  type AgentRegisteredOptions,
   type AgentResult,
 } from "../src/index.ts";
 import type { LlmResult } from "../src/llm/types.ts";
@@ -211,7 +211,7 @@ describe("agent() destination", () => {
   });
 });
 
-describe("agent(name) by-name destination + agentPlugin / defineAgent", () => {
+describe("agent(name) by-name destination + agentPlugin", () => {
   let t: TestContext | undefined;
 
   beforeEach(() => {
@@ -224,103 +224,90 @@ describe("agent(name) by-name destination + agentPlugin / defineAgent", () => {
   });
 
   /**
-   * @case defineAgent throws when id is missing or blank
-   * @preconditions Registration options with no id
-   * @expectedResult defineAgent throws with a message mentioning "id"
+   * @case agentPlugin rejects an entry missing a description
+   * @preconditions Registered agent with no description
+   * @expectedResult build() rejects with a message mentioning "description"
    */
-  test("defineAgent throws when id is missing or blank", () => {
-    expect(() =>
-      defineAgent({
-        description: "x",
-        model: "anthropic:claude-opus-4-7",
-        system: "y",
-      } as unknown as Parameters<typeof defineAgent>[0]),
-    ).toThrow(/id/i);
-    expect(() =>
-      defineAgent({
-        id: "  ",
-        description: "x",
-        model: "anthropic:claude-opus-4-7",
-        system: "y",
-      }),
-    ).toThrow(/id/i);
-  });
-
-  /**
-   * @case defineAgent throws when description is missing or blank
-   * @preconditions Registration options with no description
-   * @expectedResult defineAgent throws with a message mentioning "description"
-   */
-  test("defineAgent throws when description is missing or blank", () => {
-    expect(() =>
-      defineAgent({
-        id: "x",
-        model: "anthropic:claude-opus-4-7",
-        system: "y",
-      } as unknown as Parameters<typeof defineAgent>[0]),
-    ).toThrow(/description/i);
-    expect(() =>
-      defineAgent({
-        id: "x",
-        description: "   ",
-        model: "anthropic:claude-opus-4-7",
-        system: "y",
-      }),
-    ).toThrow(/description/i);
-  });
-
-  /**
-   * @case agentPlugin throws on duplicate agent ids at context init
-   * @preconditions Two registrations sharing the same id
-   * @expectedResult build() rejects with a message identifying the duplicate id
-   */
-  test("agentPlugin throws on duplicate id at context init", async () => {
-    const a = defineAgent({
-      id: "dup",
-      description: "first",
-      model: "anthropic:claude-opus-4-7",
-      system: "s",
-    });
-    const b = defineAgent({
-      id: "dup",
-      description: "second",
-      model: "anthropic:claude-opus-4-7",
-      system: "s",
-    });
-    await expect(
-      testContext()
-        .with({ plugins: [agentPlugin({ agents: [a, b] })] })
-        .routes(craft().id("noop").from(simple("x")))
-        .build(),
-    ).rejects.toThrow(/dup/);
-  });
-
-  /**
-   * @case agentPlugin rejects entries not produced by defineAgent
-   * @preconditions Plain object passed where AgentRegistration is expected
-   * @expectedResult build() rejects with a message pointing to defineAgent
-   */
-  test("agentPlugin rejects raw config objects", async () => {
-    const raw = {
-      id: "summariser",
-      description: "x",
-      model: "anthropic:claude-opus-4-7",
-      system: "s",
-    } as unknown as Parameters<typeof agentPlugin>[0];
+  test("agentPlugin throws when a registered agent has no description", async () => {
     await expect(
       testContext()
         .with({
           plugins: [
             agentPlugin({
-              agents: [raw] as unknown as Parameters<
-                typeof agentPlugin
-              >[0]["agents"],
+              agents: {
+                // description intentionally omitted to exercise validation
+                summariser: {
+                  model: "anthropic:claude-opus-4-7",
+                  system: "y",
+                } as unknown as AgentRegisteredOptions,
+              },
             }),
           ],
         })
         .routes(craft().id("noop").from(simple("x")))
         .build(),
-    ).rejects.toThrow(/defineAgent/);
+    ).rejects.toThrow(/description/i);
+  });
+
+  /**
+   * @case agentPlugin throws on an empty agent id key
+   * @preconditions An agents record with a blank-string key
+   * @expectedResult build() rejects with a message about the agent id
+   */
+  test("agentPlugin throws on empty id key", async () => {
+    await expect(
+      testContext()
+        .with({
+          plugins: [
+            agentPlugin({
+              agents: {
+                "  ": {
+                  description: "x",
+                  model: "anthropic:claude-opus-4-7",
+                  system: "y",
+                },
+              },
+            }),
+          ],
+        })
+        .routes(craft().id("noop").from(simple("x")))
+        .build(),
+    ).rejects.toThrow(/id/i);
+  });
+
+  /**
+   * @case agentPlugin merges across installs and throws on cross-install duplicate ids
+   * @preconditions Two agentPlugin instances register the same id
+   * @expectedResult build() rejects naming the duplicate
+   */
+  test("agentPlugin throws on duplicate id across installs", async () => {
+    await expect(
+      testContext()
+        .with({
+          plugins: [
+            agentPlugin({
+              agents: {
+                dup: {
+                  description: "first",
+                  model: "anthropic:claude-opus-4-7",
+                  system: "s",
+                },
+              },
+            }),
+            agentPlugin({
+              agents: {
+                dup: {
+                  description: "second",
+                  model: "anthropic:claude-opus-4-7",
+                  system: "s",
+                },
+              },
+            }),
+          ],
+        })
+        .routes(craft().id("noop").from(simple("x")))
+        .build(),
+    ).rejects.toThrow(/dup/);
   });
 
   /**
@@ -369,14 +356,13 @@ describe("agent(name) by-name destination + agentPlugin / defineAgent", () => {
         plugins: [
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
           agentPlugin({
-            agents: [
-              defineAgent({
-                id: "summariser",
+            agents: {
+              summariser: {
                 description: "Summarises text",
                 model: "anthropic:claude-opus-4-7",
                 system: "Summarise the input.",
-              }),
-            ],
+              },
+            },
           }),
         ],
       })
