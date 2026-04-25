@@ -1,27 +1,63 @@
 import {
   ADAPTER_DIRECT_REGISTRY,
   DefaultExchange,
+  HeadersKeys,
   getDirectChannel,
   rcError,
+  sanitizeEndpoint,
   type CraftContext,
   type DirectRouteMetadata,
   type Exchange,
+  type KnownTag,
   type Tag,
 } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import type { FnHandlerContext, FnOptions } from "../../fn/types.ts";
 import { DEFERRED_FN_BRAND, type DeferredFn } from "./types.ts";
+
+/**
+ * Standard Schema implementation of an empty input object. Used by the
+ * `defaultFns` so this module stays free of a Zod runtime dependency
+ * (per CLAUDE.md "Use Standard Schema, not Zod/Valibot directly in
+ * shared code").
+ */
+const emptyObjectSchema: StandardSchemaV1<unknown, Record<string, never>> = {
+  "~standard": {
+    version: 1,
+    vendor: "routecraft",
+    validate(value) {
+      if (
+        value === null ||
+        typeof value !== "object" ||
+        Array.isArray(value) ||
+        Object.keys(value as object).length > 0
+      ) {
+        return {
+          issues: [
+            {
+              message: "Expected an empty object {}.",
+            },
+          ],
+        };
+      }
+      return { value: {} as Record<string, never> };
+    },
+  },
+};
 
 /**
  * Per-call overrides accepted by the builder helpers. Lets the caller
  * narrow the underlying tool's surface to a specific agent without
  * touching the underlying registration.
  *
+ * Only the LLM-facing contract (description, schema, tags) can be
+ * overridden here. Guards are policy and live at the consumer:
+ * attach them in `tools([{ name, guard }])` at the agent's call site.
+ *
  * @experimental
  */
-export interface ToolBuilderOverrides<TIn = unknown, TOut = unknown> {
+export interface ToolBuilderOverrides<TIn = unknown> {
   /** Replace the underlying description shown to the LLM. */
   description?: string;
   /**
@@ -34,17 +70,6 @@ export interface ToolBuilderOverrides<TIn = unknown, TOut = unknown> {
    * underlying tags.
    */
   tags?: Tag[];
-  /**
-   * Optional guard that runs after schema validation but before the
-   * underlying handler. Throwing inside the guard surfaces back to the
-   * LLM as a tool error so the model can self-correct.
-   */
-  guard?: (input: TIn, ctx: FnHandlerContext) => void | Promise<void>;
-  /**
-   * Override the handler return type at the type level. Rarely needed;
-   * provided so callers can narrow `unknown`.
-   */
-  handler?: (input: TIn, ctx: FnHandlerContext) => Promise<TOut> | TOut;
 }
 
 /**
@@ -72,9 +97,9 @@ export interface ToolBuilderOverrides<TIn = unknown, TOut = unknown> {
  * });
  * ```
  */
-export function directTool<TIn = unknown, TOut = unknown>(
+export function directTool<TIn = unknown>(
   routeId: string,
-  overrides?: ToolBuilderOverrides<TIn, TOut>,
+  overrides?: ToolBuilderOverrides<TIn>,
 ): DeferredFn {
   if (typeof routeId !== "string" || routeId.trim() === "") {
     throw rcError("RC5003", undefined, {
@@ -102,13 +127,8 @@ export function directTool<TIn = unknown, TOut = unknown>(
         });
       }
       const tags = overrides?.tags ?? route.tags;
-      const handler =
-        overrides?.handler ??
-        (((input, hctx) =>
-          dispatchDirect<TIn, TOut>(hctx, routeId, input)) as FnOptions<
-          TIn,
-          TOut
-        >["handler"]);
+      const handler = ((input, hctx) =>
+        dispatchDirect(hctx, routeId, input)) as FnOptions["handler"];
       return {
         description,
         schema,
@@ -127,7 +147,11 @@ function readDirectRoute(
   const registry = ctx.getStore(ADAPTER_DIRECT_REGISTRY) as
     | Map<string, DirectRouteMetadata>
     | undefined;
-  const route = registry?.get(routeId);
+  // Direct sources register under the sanitised endpoint, so look up
+  // by sanitised key. Reject the raw id in the error message so the
+  // user can see which one they wrote.
+  const endpoint = sanitizeEndpoint(routeId);
+  const route = registry?.get(endpoint);
   if (!route) {
     const known = registry ? [...registry.keys()].sort() : [];
     throw rcError("RC5003", undefined, {
@@ -141,22 +165,26 @@ function readDirectRoute(
   return route;
 }
 
-async function dispatchDirect<TIn, TOut>(
+async function dispatchDirect<TIn>(
   hctx: FnHandlerContext,
   routeId: string,
   input: TIn,
-): Promise<TOut> {
+): Promise<unknown> {
   if (!hctx.context) {
     throw rcError("RC5003", undefined, {
       message: `directTool: no CraftContext available on the handler context (cannot dispatch to direct route "${routeId}").`,
     });
   }
-  const exchange = new DefaultExchange<TIn>(hctx.context, { body: input });
-  const channel = getDirectChannel<TIn>(hctx.context, routeId, {});
-  const result = (await channel.send(
-    routeId,
-    exchange,
-  )) as unknown as Exchange<TOut>;
+  const endpoint = sanitizeEndpoint(routeId);
+  const headers = hctx.correlationId
+    ? { [HeadersKeys.CORRELATION_ID]: hctx.correlationId }
+    : undefined;
+  const exchange = new DefaultExchange<TIn>(hctx.context, {
+    body: input,
+    ...(headers ? { headers } : {}),
+  });
+  const channel = getDirectChannel<TIn>(hctx.context, endpoint, {});
+  const result = (await channel.send(endpoint, exchange)) as Exchange<unknown>;
   return result.body;
 }
 
@@ -246,14 +274,14 @@ export function mcpTool(
 export const defaultFns = {
   currentTime: {
     description: "Returns the current UTC timestamp in ISO 8601 format.",
-    schema: z.object({}),
+    schema: emptyObjectSchema,
     handler: () => new Date().toISOString(),
-    tags: ["read-only", "idempotent"],
+    tags: ["read-only", "idempotent"] satisfies KnownTag[],
   } satisfies FnOptions<Record<string, never>, string>,
   randomUuid: {
     description: "Generates a fresh random UUID v4.",
-    schema: z.object({}),
+    schema: emptyObjectSchema,
     handler: () => randomUUID(),
-    tags: ["read-only"],
+    tags: ["read-only"] satisfies KnownTag[],
   } satisfies FnOptions<Record<string, never>, string>,
-} as const;
+};

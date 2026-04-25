@@ -1,6 +1,7 @@
 import {
   ADAPTER_DIRECT_REGISTRY,
   rcError,
+  sanitizeEndpoint,
   type CraftContext,
   type DirectRouteMetadata,
   type Tag,
@@ -167,6 +168,10 @@ export function tools(items: ToolsItem[]): ToolSelection {
           }
           const tool = resolveByName(ctx, item.name, item.guard);
           explicit.set(tool.name, tool);
+        } else if (!("tagged" in item)) {
+          throw rcError("RC5003", undefined, {
+            message: `tools(): each object item must include "name" or "tagged".`,
+          });
         }
       }
 
@@ -273,22 +278,41 @@ function resolveByTags(
   const wantedSet = new Set(wanted);
   const out: ResolvedTool[] = [];
   const seenNames = new Set<string>();
+  // Track route ids already surfaced via a fn-registry directTool wrapper
+  // **that actually contributed** so the direct-registry walk doesn't
+  // double-include them. Wrappers that didn't match the wanted tag set
+  // are NOT added here -- the underlying route may still match by its
+  // own tags and is allowed to surface under the prefix convention.
   const coveredRouteIds = new Set<string>();
 
   // Walk the fn registry first so explicit fn-side tags (incl. directTool
   // wrappers) take precedence over a parallel direct-registry walk.
+  // Skip non-direct deferred entries entirely: agentTool/mcpTool always
+  // throw on .resolve() by design, and a misconfigured directTool would
+  // throw too -- swallowing failures here would mask real config bugs,
+  // so we don't resolve such entries unless an explicit by-name ref
+  // forces it.
   const fnRegistry = ctx.getStore(ADAPTER_FN_REGISTRY) as
     | Map<string, FnEntry>
     | undefined;
   if (fnRegistry) {
     for (const [name, entry] of fnRegistry) {
-      if (isDeferredFn(entry) && entry.kind === "direct") {
-        coveredRouteIds.add(entry.targetId);
-      }
-      const fn = isDeferredFn(entry) ? entry.resolve(ctx, name) : entry;
-      const tags = fn.tags ?? [];
-      if (tags.some((t) => wantedSet.has(t))) {
+      if (isDeferredFn(entry)) {
+        if (entry.kind !== "direct") continue;
+        // Peek at the underlying route's tags via the direct registry
+        // first so we don't trigger the wrapper's full resolve unless
+        // it actually matches.
+        const peekedTags = peekDirectTags(ctx, entry.targetId);
+        if (!peekedTags.some((t) => wantedSet.has(t))) continue;
+        const fn = entry.resolve(ctx, name);
         out.push(toResolvedTool(name, fn, guard));
+        seenNames.add(name);
+        coveredRouteIds.add(entry.targetId);
+        continue;
+      }
+      const tags = entry.tags ?? [];
+      if (tags.some((t) => wantedSet.has(t))) {
+        out.push(toResolvedTool(name, entry, guard));
         seenNames.add(name);
       }
     }
@@ -324,6 +348,14 @@ function resolveByTags(
   }
 
   return out;
+}
+
+function peekDirectTags(ctx: CraftContext, routeId: string): Tag[] {
+  const directRegistry = ctx.getStore(ADAPTER_DIRECT_REGISTRY) as
+    | Map<string, DirectRouteMetadata>
+    | undefined;
+  // Routes register under the sanitised endpoint; look up the same way.
+  return directRegistry?.get(sanitizeEndpoint(routeId))?.tags ?? [];
 }
 
 function normalizeTags(value: Tag | Tag[]): Tag[] {

@@ -28,6 +28,14 @@ export interface FnHandlerContext {
    * (e.g. via `testFn` in unit tests).
    */
   readonly context?: CraftContext;
+  /**
+   * Correlation id of the calling exchange, when the fn was invoked
+   * from inside a running route or agent dispatch. Propagated to any
+   * child exchanges (e.g. direct route calls) so traces stay linked.
+   * The agent runtime populates this in a follow-up commit; today only
+   * `directTool`-built handlers consume it.
+   */
+  readonly correlationId?: string;
 }
 
 /**
@@ -71,8 +79,10 @@ export interface FnOptions<TIn = unknown, TOut = unknown> {
    * fit ("read-only", "destructive", "idempotent") and any string
    * otherwise.
    *
-   * Empty/missing means no tags. Empty-string entries throw RC5003 at
-   * context init.
+   * Must be an array (or omitted). Non-array values, non-string
+   * entries, and empty-string entries all throw RC5003 at context
+   * init. Surrounding whitespace is trimmed at storage so selectors
+   * match by exact value.
    */
   tags?: Tag[];
 }

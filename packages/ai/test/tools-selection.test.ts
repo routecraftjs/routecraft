@@ -315,6 +315,108 @@ describe("tools() resolver - tag selectors", () => {
   });
 });
 
+describe("tools() resolver - regression", () => {
+  let t: TestContext | undefined;
+  afterEach(async () => {
+    if (t) await t.stop();
+    t = undefined;
+  });
+
+  /**
+   * @case Tag selectors must NOT resolve agentTool/mcpTool stubs even when those stubs are present in the registry
+   * @preconditions agentPlugin functions has both an `agentTool("x")` and an `mcpTool("a","b")` deferred entry, plus eager fns; query unrelated tag
+   * @expectedResult Resolution returns matching eager fns; the stubs are silently skipped (not thrown)
+   */
+  test("tag walk silently skips non-direct deferred stubs", async () => {
+    const { agentTool, mcpTool } = await import("../src/index.ts");
+    t = await testContext()
+      .with({
+        plugins: [
+          agentPlugin({
+            functions: {
+              ...defaultFns,
+              futureAgent: agentTool("researcher"),
+              futureMcp: mcpTool("brave", "search"),
+            },
+          }),
+        ],
+      })
+      .build();
+
+    const resolved = tools([{ tagged: "read-only" }]).resolve(t.ctx);
+    const names = resolved.map((r) => r.name).sort();
+    expect(names).toEqual(["currentTime", "randomUuid"]);
+  });
+
+  /**
+   * @case Tag selectors must NOT throw when a misconfigured directTool wrapper is in the registry; only explicit refs throw
+   * @preconditions functions: { broken: directTool("does-not-exist") }; tag selector that matches eager fns
+   * @expectedResult Selector returns the eager match; broken wrapper is silently skipped because its underlying route has no matching tag
+   */
+  test("tag walk silently skips a directTool wrapper when its target route is missing", async () => {
+    t = await testContext()
+      .with({
+        plugins: [
+          agentPlugin({
+            functions: {
+              ...defaultFns,
+              broken: directTool("does-not-exist"),
+            },
+          }),
+        ],
+      })
+      .build();
+
+    const resolved = tools([{ tagged: "read-only" }]).resolve(t.ctx);
+    const names = resolved.map((r) => r.name).sort();
+    expect(names).toEqual(["currentTime", "randomUuid"]);
+  });
+
+  /**
+   * @case Tools item that is an object lacking both name and tagged is rejected
+   * @preconditions tools([{ guard: () => {} } as never])
+   * @expectedResult RC5003 thrown when resolve() runs
+   */
+  test("tools() throws on object items lacking both name and tagged", async () => {
+    t = await testContext()
+      .with({
+        plugins: [agentPlugin({ functions: { ...defaultFns } })],
+      })
+      .build();
+
+    expect(() =>
+      tools([{ guard: () => undefined } as never]).resolve(t!.ctx),
+    ).toThrow(/name.*tagged|tagged.*name/i);
+  });
+
+  /**
+   * @case Whitespace-surrounded fn tag is trimmed at storage so exact selectors match
+   * @preconditions Fn registered with tags: [" read-only "]
+   * @expectedResult { tagged: "read-only" } matches the fn
+   */
+  test("fn tags are trimmed at storage", async () => {
+    t = await testContext()
+      .with({
+        plugins: [
+          agentPlugin({
+            functions: {
+              padded: {
+                description: "x",
+                schema: defaultFns.currentTime.schema,
+                handler: () => "ok",
+                tags: ["  read-only  "],
+              },
+            },
+          }),
+        ],
+      })
+      .build();
+
+    const resolved = tools([{ tagged: "read-only" }]).resolve(t.ctx);
+    expect(resolved.map((r) => r.name)).toContain("padded");
+  });
+});
+
 describe("tools() resolver - dedup and prefix-convention coverage", () => {
   let t: TestContext | undefined;
   afterEach(async () => {

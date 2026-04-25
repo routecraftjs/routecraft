@@ -219,6 +219,56 @@ describe("tool builders - directTool", () => {
   });
 });
 
+describe("tool builders - directTool dispatch", () => {
+  let t: TestContext | undefined;
+
+  afterEach(async () => {
+    if (t) await t.stop();
+    t = undefined;
+  });
+
+  /**
+   * @case directTool dispatch sanitizes the endpoint when sending into a direct route
+   * @preconditions Direct route id contains characters that `encodeURIComponent` rewrites (e.g. "/")
+   * @expectedResult Handler dispatches into the route via the sanitised endpoint and returns the route body
+   */
+  test("dispatchDirect sanitizes the endpoint before send", async () => {
+    const inputSchema = z.object({ orderId: z.string() });
+    t = await testContext()
+      .routes([
+        craft()
+          .id("orders/fetch")
+          .description("Fetch an order from the orders subsystem.")
+          .input(inputSchema)
+          .from(direct())
+          .process((ex) => ({
+            ...ex,
+            body: {
+              orderId: (ex.body as { orderId: string }).orderId,
+              ok: true,
+            },
+          }))
+          .to(log()),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const desc = directTool("orders/fetch");
+    const fn = desc.resolve(t.ctx, "ordersFetch");
+    const result = await fn.handler(
+      { orderId: "abc" },
+      {
+        logger: undefined as unknown as Parameters<
+          typeof fn.handler
+        >[1]["logger"],
+        abortSignal: new AbortController().signal,
+        context: t.ctx,
+      },
+    );
+    expect(result).toMatchObject({ orderId: "abc", ok: true });
+  });
+});
+
 describe("tool builders - agentTool stub", () => {
   /**
    * @case agentTool returns a deferred descriptor whose resolve throws

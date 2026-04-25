@@ -445,7 +445,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
           message: `Route .tag() value must be a non-empty string.`,
         });
       }
-      return t;
+      return t.trim();
     });
     const existing = this.pendingOptions?.discovery?.tags ?? [];
     const merged = [...existing];

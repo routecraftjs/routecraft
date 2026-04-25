@@ -51,12 +51,15 @@ export function validateFnOptions(id: string, options: FnOptions): void {
         message: `agentPlugin: fn "${id}" "tags" must be an array of non-empty strings.`,
       });
     }
-    for (const t of options.tags) {
+    for (let i = 0; i < options.tags.length; i++) {
+      const t = options.tags[i];
       if (typeof t !== "string" || t.trim() === "") {
         throw rcError("RC5003", undefined, {
           message: `agentPlugin: fn "${id}" "tags" must contain only non-empty strings.`,
         });
       }
+      // Normalise: trim surrounding whitespace so exact selectors match.
+      options.tags[i] = t.trim();
     }
   }
 }
