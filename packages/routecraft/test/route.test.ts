@@ -270,6 +270,7 @@ describe("Route Behavior", () => {
     t = await testContext()
       .routes(
         craft()
+          .id("fail-continue-route")
           .from({
             subscribe: async (_, handler) => {
               for (const msg of messages) {
@@ -281,7 +282,6 @@ describe("Route Behavior", () => {
               }
             },
           })
-          .id("fail-continue-route")
           .process((exchange) => {
             if (exchange.body === "fail") {
               throw new Error("Simulated failure");
@@ -317,12 +317,12 @@ describe("Route Behavior", () => {
     t = await testContext()
       .routes(
         craft()
+          .id("headers-test")
           .from({
             subscribe: async (_, handler) => {
               await handler("test", { "custom.header": "test-value" });
             },
           })
-          .id("headers-test")
           .process((exchange) => {
             capturedHeaders.push({ ...exchange.headers });
             exchange.headers["processor.header"] = "added-value";
