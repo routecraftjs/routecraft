@@ -155,6 +155,85 @@ describe("fn registration via agentPlugin", () => {
         .build(),
     ).rejects.toThrow(/id/i);
   });
+
+  /**
+   * @case Fn with tags is registered with tags preserved on the registry entry
+   * @preconditions agentPlugin functions entry with tags: ["read-only", "data"]
+   * @expectedResult Registry entry exposes the same tags array
+   */
+  test("agentPlugin preserves fn tags on the registry entry", async () => {
+    t = await testContext()
+      .with({
+        plugins: [
+          agentPlugin({
+            functions: {
+              currentTime: {
+                description: "Current UTC ISO 8601 timestamp.",
+                schema: z.object({}),
+                handler: async () => new Date().toISOString(),
+                tags: ["read-only", "idempotent"],
+              },
+            },
+          }),
+        ],
+      })
+      .build();
+
+    const entry = t.ctx.getStore(ADAPTER_FN_REGISTRY)?.get("currentTime");
+    expect(entry?.tags).toEqual(["read-only", "idempotent"]);
+  });
+
+  /**
+   * @case Fn tags must be a non-empty-string array
+   * @preconditions agentPlugin functions entry with tags: ["read-only", ""]
+   * @expectedResult build() rejects with RC5003 mentioning tags
+   */
+  test("agentPlugin throws when a fn tag is empty", async () => {
+    await expect(
+      new ContextBuilder()
+        .with({
+          plugins: [
+            agentPlugin({
+              functions: {
+                bad: {
+                  description: "x",
+                  schema: z.object({}),
+                  handler: async () => 1,
+                  tags: ["read-only", ""],
+                },
+              },
+            }),
+          ],
+        })
+        .build(),
+    ).rejects.toThrow(/tags/i);
+  });
+
+  /**
+   * @case Fn tags must be an array (not a string)
+   * @preconditions agentPlugin functions entry with tags: "read-only" cast to any
+   * @expectedResult build() rejects with RC5003 mentioning tags
+   */
+  test("agentPlugin throws when fn tags is not an array", async () => {
+    await expect(
+      new ContextBuilder()
+        .with({
+          plugins: [
+            agentPlugin({
+              functions: {
+                bad: {
+                  description: "x",
+                  schema: z.object({}),
+                  handler: async () => 1,
+                  tags: "read-only" as unknown as string[],
+                },
+              },
+            }),
+          ],
+        })
+        .build(),
+    ).rejects.toThrow(/tags/i);
+  });
 });
 
 describe("testFn - exercise fn handlers in isolation", () => {

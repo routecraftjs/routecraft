@@ -1,6 +1,7 @@
 import type {
   CraftContext,
   ResolveKey,
+  Tag,
   logger as frameworkLogger,
 } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
@@ -63,6 +64,17 @@ export interface FnOptions<TIn = unknown, TOut = unknown> {
    * input and a minimal handler context.
    */
   handler: (input: TIn, ctx: FnHandlerContext) => Promise<TOut> | TOut;
+
+  /**
+   * Tags used by selectors (e.g. agents whitelisting
+   * `{ tagged: "read-only" }`). Use the `KnownTag` literals where they
+   * fit ("read-only", "destructive", "idempotent") and any string
+   * otherwise.
+   *
+   * Empty/missing means no tags. Empty-string entries throw RC5003 at
+   * context init.
+   */
+  tags?: Tag[];
 }
 
 /**
