@@ -4,11 +4,12 @@ import {
   type CraftPlugin,
 } from "@routecraft/routecraft";
 import { validateAgentOptions } from "./agent.ts";
-import { ADAPTER_AGENT_REGISTRY } from "./store.ts";
+import { ADAPTER_AGENT_REGISTRY, ADAPTER_TOOLS_DEFAULT } from "./store.ts";
 import { validateFnOptions } from "../fn/fn.ts";
 import { ADAPTER_FN_REGISTRY } from "../fn/store.ts";
 import type { AgentRegisteredOptions } from "./types.ts";
 import { isDeferredFn, type FnEntry } from "./tools/types.ts";
+import { isToolSelection, type ToolSelection } from "./tools/selection.ts";
 
 export interface AgentPluginOptions {
   /**
@@ -35,6 +36,16 @@ export interface AgentPluginOptions {
    * `@routecraft/testing` rather than dispatching through the plugin.
    */
   functions?: Record<string, FnEntry>;
+
+  /**
+   * Context-default tool list for agents that don't specify their own
+   * `tools:` field. Build via `tools([...])`. An agent that does set
+   * `tools:` replaces this default entirely (override, not extend).
+   *
+   * Multiple `agentPlugin` installs that each provide a default throw
+   * at context init: a context can only have one default tool list.
+   */
+  tools?: ToolSelection;
 }
 
 function validateRegisteredAgent(
@@ -91,6 +102,12 @@ function validateRegisteredAgent(
 export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
   const agents = options.agents ?? {};
   const functions = options.functions ?? {};
+  const defaultTools = options.tools;
+  if (defaultTools !== undefined && !isToolSelection(defaultTools)) {
+    throw rcError("RC5003", undefined, {
+      message: `agentPlugin: "tools" must be the result of tools([...]).`,
+    });
+  }
   return {
     apply(ctx: CraftContext) {
       // Merge into an existing registry when present so multiple
@@ -109,6 +126,11 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
         if (entry === null || typeof entry !== "object") {
           throw rcError("RC5003", undefined, {
             message: `agentPlugin: agent "${id}" entry must be an object with description, model, and system.`,
+          });
+        }
+        if (entry.tools !== undefined && !isToolSelection(entry.tools)) {
+          throw rcError("RC5003", undefined, {
+            message: `agentPlugin: agent "${id}" "tools" must be the result of tools([...]).`,
           });
         }
         validateRegisteredAgent(id, entry);
@@ -155,6 +177,21 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
         ctx.setStore(
           ADAPTER_FN_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry,
           fnMap,
+        );
+      }
+
+      if (defaultTools !== undefined) {
+        const existingDefault = ctx.getStore(
+          ADAPTER_TOOLS_DEFAULT as keyof import("@routecraft/routecraft").StoreRegistry,
+        );
+        if (existingDefault !== undefined) {
+          throw rcError("RC5003", undefined, {
+            message: `agentPlugin: a default tool list is already set on this context. Combine selectors into a single tools([...]) call.`,
+          });
+        }
+        ctx.setStore(
+          ADAPTER_TOOLS_DEFAULT as keyof import("@routecraft/routecraft").StoreRegistry,
+          defaultTools,
         );
       }
     },

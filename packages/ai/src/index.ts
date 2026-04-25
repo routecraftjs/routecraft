@@ -117,6 +117,7 @@ export {
   AgentDestinationAdapter,
   agentPlugin,
   ADAPTER_AGENT_REGISTRY,
+  ADAPTER_TOOLS_DEFAULT,
 } from "./agent/index.ts";
 export type {
   AgentBinding,

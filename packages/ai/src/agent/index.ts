@@ -1,7 +1,7 @@
 export { agent } from "./agent.ts";
 export { AgentDestinationAdapter, type AgentBinding } from "./destination.ts";
 export { agentPlugin, type AgentPluginOptions } from "./plugin.ts";
-export { ADAPTER_AGENT_REGISTRY } from "./store.ts";
+export { ADAPTER_AGENT_REGISTRY, ADAPTER_TOOLS_DEFAULT } from "./store.ts";
 export type {
   AgentOptions,
   AgentRegisteredOptions,

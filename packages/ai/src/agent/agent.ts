@@ -6,6 +6,7 @@ import {
 } from "@routecraft/routecraft";
 import { parseProviderModel } from "../llm/shared.ts";
 import { AgentDestinationAdapter } from "./destination.ts";
+import { isToolSelection } from "./tools/selection.ts";
 import type { AgentOptions, AgentResult } from "./types.ts";
 
 /**
@@ -35,6 +36,11 @@ export function validateAgentOptions(options: AgentOptions): void {
   ) {
     throw rcError("RC5003", undefined, {
       message: `Agent: "model" must be either a "providerId:modelName" string or an LlmModelConfig object with a "provider" field.`,
+    });
+  }
+  if (options.tools !== undefined && !isToolSelection(options.tools)) {
+    throw rcError("RC5003", undefined, {
+      message: `Agent: "tools" must be the result of tools([...]).`,
     });
   }
 }
