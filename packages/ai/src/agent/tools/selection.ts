@@ -299,11 +299,13 @@ function resolveByTags(
     for (const [name, entry] of fnRegistry) {
       if (isDeferredFn(entry)) {
         if (entry.kind !== "direct") continue;
-        // Peek at the underlying route's tags via the direct registry
-        // first so we don't trigger the wrapper's full resolve unless
-        // it actually matches.
-        const peekedTags = peekDirectTags(ctx, entry.targetId);
-        if (!peekedTags.some((t) => wantedSet.has(t))) continue;
+        // Use the wrapper's explicit `overrides.tags` when present so a
+        // `directTool(routeId, { tags: [...] })` wrapper actually drives
+        // selection. Fall back to peeking the underlying route's tags
+        // when no override was supplied.
+        const candidateTags =
+          entry.overrideTags ?? peekDirectTags(ctx, entry.targetId);
+        if (!candidateTags.some((t) => wantedSet.has(t))) continue;
         const fn = entry.resolve(ctx, name);
         out.push(toResolvedTool(name, fn, guard));
         seenNames.add(name);

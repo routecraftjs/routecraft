@@ -1,4 +1,4 @@
-import type { CraftContext } from "@routecraft/routecraft";
+import type { CraftContext, Tag } from "@routecraft/routecraft";
 import type { FnOptions } from "../../fn/types.ts";
 
 /**
@@ -44,6 +44,15 @@ export interface DeferredFn {
    * convention.
    */
   readonly targetId: string;
+  /**
+   * Tags supplied as an explicit override at builder time (e.g.
+   * `directTool(routeId, { tags: [...] })`). When present these take
+   * precedence over the underlying registry's tags for tag-selector
+   * matching, so the user's override actually drives selection.
+   * Undefined when no override was supplied — the resolver then peeks
+   * the underlying registry's tags for the match decision.
+   */
+  readonly overrideTags?: readonly Tag[];
   /**
    * Resolve to a concrete `FnOptions`. Throws `RC5003` with a clear
    * message if the underlying registry entry is missing or incomplete.

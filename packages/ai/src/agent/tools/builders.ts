@@ -110,6 +110,7 @@ export function directTool<TIn = unknown>(
     [DEFERRED_FN_BRAND]: true,
     kind: "direct",
     targetId: routeId,
+    ...(overrides?.tags !== undefined ? { overrideTags: overrides.tags } : {}),
     resolve(ctx, fnId): FnOptions {
       const route = readDirectRoute(ctx, routeId, fnId);
       const description = overrides?.description ?? route.description;

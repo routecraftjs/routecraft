@@ -390,6 +390,72 @@ describe("tools() resolver - regression", () => {
   });
 
   /**
+   * @case directTool override tags drive tag selection
+   * @preconditions Route tagged "read-only"; functions: { safeFetch: directTool("fetch-source", { tags: ["safe"] }) }; selector { tagged: "safe" }
+   * @expectedResult Wrapper "safeFetch" is included via the override tag, even though the underlying route doesn't carry "safe"
+   */
+  test("tag walk respects directTool override tags", async () => {
+    t = await testContext()
+      .with({
+        plugins: [
+          agentPlugin({
+            functions: {
+              safeFetch: directTool("fetch-source", { tags: ["safe"] }),
+            },
+          }),
+        ],
+      })
+      .routes([
+        craft()
+          .id("fetch-source")
+          .description("Fetch a source.")
+          .input(z.object({}))
+          .tag("read-only")
+          .from(direct())
+          .to(log()),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const resolved = tools([{ tagged: "safe" }]).resolve(t.ctx);
+    expect(resolved.map((r) => r.name)).toContain("safeFetch");
+  });
+
+  /**
+   * @case directTool with override tags hides itself from selectors that match the underlying route's tags
+   * @preconditions Route tagged "read-only"; wrapper directTool with tags: ["safe"] (read-only NOT included); selector { tagged: "read-only" }
+   * @expectedResult Wrapper not included (its overrides don't carry read-only); underlying route surfaces under direct_<id>
+   */
+  test("directTool override tags replace the route's tags for matching", async () => {
+    t = await testContext()
+      .with({
+        plugins: [
+          agentPlugin({
+            functions: {
+              safeFetch: directTool("fetch-source", { tags: ["safe"] }),
+            },
+          }),
+        ],
+      })
+      .routes([
+        craft()
+          .id("fetch-source")
+          .description("Fetch a source.")
+          .input(z.object({}))
+          .tag("read-only")
+          .from(direct())
+          .to(log()),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const resolved = tools([{ tagged: "read-only" }]).resolve(t.ctx);
+    const names = resolved.map((r) => r.name);
+    expect(names).not.toContain("safeFetch");
+    expect(names).toContain("direct_fetch-source");
+  });
+
+  /**
    * @case Whitespace-surrounded fn tag is trimmed at storage so exact selectors match
    * @preconditions Fn registered with tags: [" read-only "]
    * @expectedResult { tagged: "read-only" } matches the fn
