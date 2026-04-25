@@ -49,6 +49,8 @@ export {
   type ForwardFn,
   type RouteDiscovery,
   type RouteSchemas,
+  type KnownTag,
+  type Tag,
 } from "./route.ts";
 
 export { type Source, type SourceMeta } from "./operations/from.ts";

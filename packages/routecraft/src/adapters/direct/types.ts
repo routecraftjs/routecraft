@@ -1,7 +1,7 @@
 import type { CraftContext } from "../../context";
 import type { Exchange } from "../../exchange";
 import type { RegisteredDirectEndpoint } from "../../registry";
-import type { RouteSchemas } from "../../route";
+import type { RouteSchemas, Tag } from "../../route";
 
 /**
  * @deprecated Use `CraftConfig.direct` (a `Pick<DirectBaseOptions, "channelType">`) instead.
@@ -55,6 +55,8 @@ export interface DirectRouteMetadata {
   input?: RouteSchemas;
   /** Output schemas (response body, response headers). */
   output?: RouteSchemas;
+  /** Tags used by selectors (e.g. `tools({ tagged: "read-only" })`). */
+  tags?: Tag[];
 }
 
 /** Base options shared between source and destination. */

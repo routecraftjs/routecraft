@@ -126,6 +126,9 @@ export function registerRoute(
   }
   if (discovery?.input !== undefined) metadata.input = discovery.input;
   if (discovery?.output !== undefined) metadata.output = discovery.output;
+  if (discovery?.tags !== undefined && discovery.tags.length > 0) {
+    metadata.tags = [...discovery.tags];
+  }
   registry.set(endpoint, metadata);
 
   context.logger.debug(
