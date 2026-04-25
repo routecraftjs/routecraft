@@ -27,6 +27,14 @@ export function validateFnOptions(id: string, options: FnOptions): void {
       message: `fn "${id}": "schema" is required and must be a Standard Schema value (Zod/Valibot/ArkType/etc.).`,
     });
   }
+  const standard = (
+    options.schema as { ["~standard"]?: { validate?: unknown } }
+  )["~standard"];
+  if (typeof standard?.validate !== "function") {
+    throw rcError("RC5003", undefined, {
+      message: `fn "${id}": "schema" must be a Standard Schema with a callable validate.`,
+    });
+  }
   if (typeof options.handler !== "function") {
     throw rcError("RC5003", undefined, {
       message: `fn "${id}": "handler" is required and must be a function.`,

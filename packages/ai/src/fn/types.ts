@@ -6,6 +6,11 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
  * Minimal context handed to a fn handler. Additional fields may land in
  * follow-up stories without breaking this signature.
  *
+ * `context` is optional because tests may exercise a fn handler in
+ * isolation via `testFn` from `@routecraft/testing`, which does not
+ * construct a CraftContext. Production dispatch through the agent tool
+ * loop always provides one; handlers that need it should null-check.
+ *
  * @experimental
  */
 export interface FnHandlerContext {
@@ -13,8 +18,12 @@ export interface FnHandlerContext {
   readonly logger: ReturnType<typeof frameworkLogger.child>;
   /** Context-level abort signal. Honour in long-running work. */
   readonly abortSignal: AbortSignal;
-  /** CraftContext reference for nested work (direct route calls, events, etc.). */
-  readonly context: CraftContext;
+  /**
+   * CraftContext reference for nested work (direct route calls, events,
+   * etc.). Undefined when the fn is invoked outside a running context
+   * (e.g. via `testFn` in unit tests).
+   */
+  readonly context?: CraftContext;
 }
 
 /**

@@ -1,15 +1,14 @@
 import { describe, test, expect, afterEach, vi } from "vitest";
 import { z } from "zod";
-import { ContextBuilder, rcError } from "@routecraft/routecraft";
-import { testContext, type TestContext } from "@routecraft/testing";
+import { ContextBuilder, isRoutecraftError } from "@routecraft/routecraft";
+import { testContext, testFn, type TestContext } from "@routecraft/testing";
 import {
   ADAPTER_FN_REGISTRY,
   agentPlugin,
-  invokeFn,
   type FnOptions,
 } from "../src/index.ts";
 
-describe("fn registration + invokeFn", () => {
+describe("fn registration via agentPlugin", () => {
   let t: TestContext | undefined;
 
   afterEach(async () => {
@@ -18,9 +17,9 @@ describe("fn registration + invokeFn", () => {
   });
 
   /**
-   * @case agentPlugin registers a function in the context store keyed by id
+   * @case agentPlugin populates ADAPTER_FN_REGISTRY from the functions record
    * @preconditions agentPlugin({ functions: { currentTime: {...} } })
-   * @expectedResult ADAPTER_FN_REGISTRY store contains the registered entry
+   * @expectedResult ADAPTER_FN_REGISTRY store contains the registered entry keyed by id
    */
   test("agentPlugin populates ADAPTER_FN_REGISTRY from the functions record", async () => {
     t = await testContext()
@@ -50,7 +49,7 @@ describe("fn registration + invokeFn", () => {
   /**
    * @case agentPlugin throws at init when a fn entry is missing its description
    * @preconditions functions entry without description
-   * @expectedResult build() rejects with a message mentioning description
+   * @expectedResult build() rejects with RC5003 mentioning description
    */
   test("agentPlugin throws when a fn entry has no description", async () => {
     await expect(
@@ -69,6 +68,33 @@ describe("fn registration + invokeFn", () => {
         })
         .build(),
     ).rejects.toThrow(/description/i);
+  });
+
+  /**
+   * @case agentPlugin throws at init when a fn entry has a non-Standard-Schema schema
+   * @preconditions functions entry with schema lacking ~standard.validate
+   * @expectedResult build() rejects with RC5003 about callable validate
+   */
+  test("agentPlugin throws when a fn schema is not a Standard Schema", async () => {
+    await expect(
+      new ContextBuilder()
+        .with({
+          plugins: [
+            agentPlugin({
+              functions: {
+                bad: {
+                  description: "x",
+                  schema: {
+                    "~standard": { validate: "not-a-function" },
+                  } as unknown as FnOptions["schema"],
+                  handler: async () => 1,
+                } satisfies FnOptions,
+              },
+            }),
+          ],
+        })
+        .build(),
+    ).rejects.toThrow(/validate/i);
   });
 
   /**
@@ -106,182 +132,177 @@ describe("fn registration + invokeFn", () => {
   });
 
   /**
-   * @case invokeFn validates input against the fn's schema before the handler runs
-   * @preconditions fn with schema z.object({ channel: z.string() }); invoked with { channel: 123 }
-   * @expectedResult RC5002 thrown; handler is not called
+   * @case Empty fn id key throws at init
+   * @preconditions agentPlugin with a blank-string id key
+   * @expectedResult build() rejects with a message about the fn id
    */
-  test("invokeFn rejects input that fails schema validation with RC5002", async () => {
-    const handler = vi.fn(async () => "ok");
-    t = await testContext()
-      .with({
-        plugins: [
-          agentPlugin({
-            functions: {
-              sendSlackMessage: {
-                description: "Post a message to Slack",
-                schema: z.object({ channel: z.string(), text: z.string() }),
-                handler,
-              },
-            },
-          }),
-        ],
-      })
-      .build();
-
+  test("agentPlugin throws on empty fn id key", async () => {
     await expect(
-      invokeFn(t.ctx, "sendSlackMessage", {
-        channel: 123 as unknown as string,
-        text: "x",
-      }),
+      new ContextBuilder()
+        .with({
+          plugins: [
+            agentPlugin({
+              functions: {
+                "  ": {
+                  description: "x",
+                  schema: z.object({}),
+                  handler: async () => 1,
+                },
+              },
+            }),
+          ],
+        })
+        .build(),
+    ).rejects.toThrow(/id/i);
+  });
+});
+
+describe("testFn — exercise fn handlers in isolation", () => {
+  /**
+   * @case testFn validates input against the spec's schema before the handler runs
+   * @preconditions Spec with z.object({ channel, text }); invoked with { channel: 123 }
+   * @expectedResult RC5002 thrown; handler is never called
+   */
+  test("testFn rejects input that fails schema validation with RC5002", async () => {
+    const handler = vi.fn(async () => "ok");
+    await expect(
+      testFn(
+        {
+          schema: z.object({ channel: z.string(), text: z.string() }),
+          handler,
+        },
+        { channel: 123, text: "x" },
+      ),
     ).rejects.toMatchObject({ rc: "RC5002" });
     expect(handler).not.toHaveBeenCalled();
   });
 
   /**
-   * @case invokeFn throws RC5004 when the fn id is not registered
-   * @preconditions agentPlugin installed but "unknown" is not registered
-   * @expectedResult invokeFn rejects with RC5004 and lists known ids in the message
+   * @case testFn calls the handler with validated input and a synthetic context
+   * @preconditions Spec with z.object({ name: z.string() }); valid input
+   * @expectedResult Handler receives validated input and a ctx with logger + abortSignal; return value flows out
    */
-  test("invokeFn throws RC5004 for an unknown id", async () => {
-    t = await testContext()
-      .with({
-        plugins: [
-          agentPlugin({
-            functions: {
-              known: {
-                description: "Known fn",
-                schema: z.object({}),
-                handler: async () => "ok",
-              },
-            },
-          }),
-        ],
-      })
-      .build();
-
-    await expect(invokeFn(t.ctx, "unknown", {})).rejects.toMatchObject({
-      rc: "RC5004",
-    });
-  });
-
-  /**
-   * @case invokeFn throws RC5004 when no fn registry is present in the context
-   * @preconditions No agentPlugin installed
-   * @expectedResult invokeFn rejects with RC5004 and points the user to agentPlugin
-   */
-  test("invokeFn throws RC5004 when the fn registry is missing from the context", async () => {
-    t = await testContext().build();
-    await expect(invokeFn(t.ctx, "anything", {})).rejects.toMatchObject({
-      rc: "RC5004",
-    });
-  });
-
-  /**
-   * @case invokeFn passes validated input and a handler context to the handler and returns its output
-   * @preconditions Registered fn with schema, z-coerced input, async handler returning a value
-   * @expectedResult Handler called with validated input and a ctx containing logger + abortSignal + context; return value flows out of invokeFn
-   */
-  test("invokeFn calls the handler with validated input and handler context", async () => {
-    const handler = vi.fn();
-    handler.mockImplementation(async (input: unknown, ctx) => {
+  test("testFn calls the handler with validated input and synthetic context", async () => {
+    const handler = vi.fn(async (input: unknown, ctx) => {
       const typed = input as { name: string };
       expect(typed.name).toBe("alice");
       expect(ctx.logger).toBeDefined();
       expect(ctx.abortSignal).toBeInstanceOf(AbortSignal);
-      expect(ctx.context).toBeDefined();
       return `hello ${typed.name}`;
     });
-
-    t = await testContext()
-      .with({
-        plugins: [
-          agentPlugin({
-            functions: {
-              greet: {
-                description: "Greets someone",
-                schema: z.object({ name: z.string() }),
-                handler,
-              },
-            },
-          }),
-        ],
-      })
-      .build();
-
-    const result = await invokeFn<{ name: string }, string>(t.ctx, "greet", {
-      name: "alice",
-    });
+    const result = await testFn(
+      { schema: z.object({ name: z.string() }), handler },
+      { name: "alice" },
+    );
     expect(result).toBe("hello alice");
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
   /**
-   * @case invokeFn forwards the caller-supplied AbortSignal into FnHandlerContext.abortSignal
-   * @preconditions invokeFn called with { signal: myController.signal }
-   * @expectedResult Handler sees the exact signal instance; aborting it is observable inside the handler
+   * @case testFn forwards a caller-supplied AbortSignal into the handler context
+   * @preconditions testFn called with { signal: controller.signal }
+   * @expectedResult Handler sees the exact signal instance
    */
-  test("invokeFn forwards a caller-supplied abort signal", async () => {
+  test("testFn forwards a caller-supplied abort signal", async () => {
     const controller = new AbortController();
-    const handler = vi.fn(async (_input, ctx) => {
+    const handler = vi.fn(async (_input: unknown, ctx) => {
       expect(ctx.abortSignal).toBe(controller.signal);
       return "ok";
     });
-
-    t = await testContext()
-      .with({
-        plugins: [
-          agentPlugin({
-            functions: {
-              probe: {
-                description: "Probes the signal",
-                schema: z.object({}),
-                handler,
-              },
-            },
-          }),
-        ],
-      })
-      .build();
-
-    const result = await invokeFn(
-      t.ctx,
-      "probe",
+    const result = await testFn(
+      { schema: z.object({}), handler },
       {},
-      {
-        signal: controller.signal,
-      },
+      { signal: controller.signal },
     );
     expect(result).toBe("ok");
   });
 
   /**
-   * @case rcError is exported from @routecraft/routecraft and invokeFn errors carry the rc field
-   * @preconditions invokeFn with an unregistered id
-   * @expectedResult The thrown RoutecraftError has .rc === "RC5004"
+   * @case testFn defaults to a never-firing AbortSignal when no signal is supplied
+   * @preconditions testFn called without options
+   * @expectedResult Handler sees a non-aborted AbortSignal
    */
-  test("invokeFn errors are RoutecraftError instances with rc set", async () => {
-    t = await testContext()
-      .with({
-        plugins: [
-          agentPlugin({
-            functions: {
-              known: {
-                description: "Known fn",
-                schema: z.object({}),
-                handler: async () => 1,
-              },
-            },
-          }),
-        ],
-      })
-      .build();
+  test("testFn provides a non-aborted default AbortSignal", async () => {
+    const handler = vi.fn(async (_input: unknown, ctx) => {
+      expect(ctx.abortSignal.aborted).toBe(false);
+      return "ok";
+    });
+    await testFn({ schema: z.object({}), handler }, {});
+    expect(handler).toHaveBeenCalled();
+  });
 
+  /**
+   * @case testFn passes a real FnOptions value structurally without complaint
+   * @preconditions FnOptions value (extra `description` field present)
+   * @expectedResult testFn ignores `description`, runs schema + handler, returns output
+   */
+  test("testFn accepts a real FnOptions value structurally", async () => {
+    const fnSpec: FnOptions<{ q: string }, string> = {
+      description: "Echoes",
+      schema: z.object({ q: z.string() }),
+      handler: async (input) => input.q,
+    };
+    const result = await testFn(fnSpec, { q: "hi" });
+    expect(result).toBe("hi");
+  });
+
+  /**
+   * @case Schema coercion via .transform() is applied before the handler sees input
+   * @preconditions Schema z.object({ n: z.string().transform(Number) })
+   * @expectedResult Handler receives input.n as number; transform was applied
+   */
+  test("testFn applies Standard Schema coercion before the handler", async () => {
+    const handler = vi.fn(async (input: unknown) => {
+      const typed = input as { n: number };
+      expect(typeof typed.n).toBe("number");
+      expect(typed.n).toBe(42);
+      return typed.n;
+    });
+    const result = await testFn(
+      {
+        schema: z.object({ n: z.string().transform(Number) }),
+        handler,
+      },
+      { n: "42" },
+    );
+    expect(result).toBe(42);
+  });
+
+  /**
+   * @case Errors thrown by the handler propagate as-is
+   * @preconditions Handler throws a plain Error
+   * @expectedResult Original error bubbles out of testFn (no wrapping into RC code)
+   */
+  test("testFn lets handler errors propagate unchanged", async () => {
+    const boom = new Error("boom");
+    await expect(
+      testFn(
+        {
+          schema: z.object({}),
+          handler: async () => {
+            throw boom;
+          },
+        },
+        {},
+      ),
+    ).rejects.toBe(boom);
+  });
+
+  /**
+   * @case testFn errors carry the rc field for RC5002 (validation failures)
+   * @preconditions Schema validation fails
+   * @expectedResult Thrown error is a RoutecraftError with rc === "RC5002"
+   */
+  test("testFn validation errors are RoutecraftError instances", async () => {
     try {
-      await invokeFn(t.ctx, "unknown", {});
-      throw new Error("invokeFn did not throw");
+      await testFn(
+        { schema: z.object({ n: z.number() }), handler: async () => 1 },
+        { n: "not-a-number" },
+      );
+      throw new Error("testFn did not throw");
     } catch (err) {
-      const expected = rcError("RC5004", undefined, { message: "x" });
-      expect((err as { rc?: string }).rc).toBe(expected.rc);
+      expect(isRoutecraftError(err)).toBe(true);
+      expect((err as { rc?: string }).rc).toBe("RC5002");
     }
   });
 });

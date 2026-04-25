@@ -448,10 +448,12 @@ See the [`agent`](/docs/reference/adapters#agent) adapter for usage patterns.
 
 ### Functions (`functions`)
 
-`agentPlugin` also registers ad-hoc in-process **functions** that agents can whitelist as tools (follow-up story) and that your code can call directly via [`invokeFn`](#invokefn). Functions are keyed by id in the same plugin config and share the same duplicate-id-throws-at-init semantics as agents.
+`agentPlugin` also registers ad-hoc in-process **functions** that agents whitelist as tools (follow-up story). Functions are keyed by id in the same plugin config and share the same duplicate-id-throws-at-init semantics as agents.
+
+Functions are an agent-only concept: there is no public dispatch API for fns outside the agent tool loop. If you want to call a "named processor" from a route, write `.process(...)` inline.
 
 ```ts
-import { agentPlugin, invokeFn } from '@routecraft/ai'
+import { agentPlugin } from '@routecraft/ai'
 import { z } from 'zod'
 
 agentPlugin({
@@ -487,47 +489,31 @@ agentPlugin({
 | `schema` | `StandardSchemaV1` | Yes | Standard Schema for the input (Zod, Valibot, ArkType, etc.). Validated at invocation time |
 | `handler` | `(input, ctx) => Promise<TOut> \| TOut` | Yes | Called with validated input and a `FnHandlerContext` (`{ logger, abortSignal, context }`) |
 
-### `invokeFn`
+**Errors at context init (`RC5003`):** missing description, schema is not a Standard Schema, schema's `validate` is not a function, missing handler, empty id key, duplicate id across installs.
 
-Standalone invocation of a registered function. Intended for scripts, tests, and ad-hoc callers; the agent tool loop (follow-up story) uses the same registry.
+### Testing fns
+
+There is no public `invokeFn` helper -- agents are the only legitimate dispatcher for registered fns. To exercise a fn's schema and handler in isolation in tests, use `testFn` from `@routecraft/testing`:
 
 ```ts
-import { invokeFn } from '@routecraft/ai'
+import { testFn } from '@routecraft/testing'
+import { z } from 'zod'
 
-const iso = await invokeFn(context, 'currentTime', {})
-// iso === '2026-04-24T21:05:42.000Z'
+const greet = {
+  description: 'Greets someone',
+  schema: z.object({ name: z.string() }),
+  handler: async (input, ctx) => `hello ${input.name}`,
+}
 
-const result = await invokeFn<{ channel: string; text: string }, { ok: boolean }>(
-  context,
-  'sendSlackMessage',
-  { channel: '#alerts', text: 'Deploy complete' },
-)
-// result.ok === true
-
-// With caller-supplied abort signal
-const controller = new AbortController()
-await invokeFn(context, 'longRunningFn', input, { signal: controller.signal })
+const out = await testFn(greet, { name: 'alice' })
+// out === 'hello alice'
 ```
 
-**Errors:**
-
-- **`RC5004`** -- no fn registry in the context (agentPlugin not installed), or the id is not registered. Message lists all known ids.
-- **`RC5002`** -- input fails the fn's schema. Message includes the formatted schema issues.
-- **`RC5003`** -- the registered schema is not a valid Standard Schema value.
-
-Errors thrown by the handler itself propagate as-is.
-
-**`FnHandlerContext`:**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `logger` | pino child logger | Bound to the fn id; use for structured logs from the handler |
-| `abortSignal` | `AbortSignal` | Signal forwarded from `invokeFn(..., { signal })`. Defaults to a never-firing signal |
-| `context` | `CraftContext` | Context reference for nested work (e.g. calling direct routes, emitting events) |
+`testFn` validates the input against the schema, calls the handler with a synthetic `{ logger, abortSignal }` context, and returns the handler's output. Validation failures throw `RC5002`. It works structurally on any `{ schema, handler }` shape, so real `FnOptions` values pass without modification.
 
 ### Typed fn ids (`FnRegistry`)
 
-For compile-time autocomplete of fn ids in `invokeFn` and, in follow-up stories, the agent `tools: [...]` field, populate the `FnRegistry` marker interface via declaration merging in your project:
+For compile-time autocomplete of fn ids in the agent `tools: [...]` field (follow-up story), populate the `FnRegistry` marker interface via declaration merging in your project:
 
 ```ts
 // src/types/routecraft.d.ts
@@ -537,8 +523,6 @@ declare module '@routecraft/ai' {
     sendSlackMessage: true
   }
 }
-
-// Now invokeFn(context, 'unknown', {}) errors at compile time.
 ```
 
 When `FnRegistry` is empty, the id type falls back to `string` (no breaking change).

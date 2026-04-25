@@ -20,11 +20,13 @@ export interface AgentPluginOptions {
   agents?: Record<string, AgentRegisteredOptions>;
 
   /**
-   * Ad-hoc in-process functions available for agents (via `tools: [...]`
-   * in follow-up stories) and for standalone invocation via
-   * `invokeFn(context, id, input)`. Keyed by the fn id; each entry
-   * provides description, Standard Schema, and handler. Duplicate ids
-   * across multiple `agentPlugin` installs throw at context init.
+   * Ad-hoc in-process functions available to agents (via `tools: [...]`
+   * in follow-up stories). Keyed by the fn id; each entry provides
+   * description, Standard Schema, and handler. Duplicate ids across
+   * multiple `agentPlugin` installs throw at context init.
+   *
+   * For tests, exercise registered fn handlers via `testFn` from
+   * `@routecraft/testing` rather than dispatching through the plugin.
    */
   functions?: Record<string, FnOptions>;
 }
@@ -49,10 +51,11 @@ function validateRegisteredAgent(
 
 /**
  * Agent plugin: registers agents and functions in the context store so
- * routes can reference them by name via `agent("id")` and fns are
- * available to tool-using agents (and to `invokeFn(context, id, input)`
- * for standalone calls). Throws on duplicate id (within agents, within
- * fns, or across multiple plugin installs) at context init.
+ * routes can reference agents by name via `agent("id")` and so fns are
+ * available to tool-using agents (the agent tool loop dispatches them
+ * directly; there is no public dispatch API). Throws on duplicate id
+ * (within agents, within fns, or across multiple plugin installs) at
+ * context init.
  *
  * @experimental
  *
@@ -119,13 +122,13 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
       for (const [id, entry] of Object.entries(functions)) {
         if (id.trim() === "") {
           throw rcError("RC5003", undefined, {
-            message: `agentPlugin: fn id must be a non-empty string.`,
+            message: `fn: id must be a non-empty string.`,
           });
         }
         validateFnOptions(id, entry);
         if (fnMap.has(id)) {
           throw rcError("RC5003", undefined, {
-            message: `agentPlugin: duplicate fn id "${id}". Each fn id must be unique within a context.`,
+            message: `fn "${id}": duplicate id; each fn id must be unique within a context.`,
           });
         }
         fnMap.set(id, entry);

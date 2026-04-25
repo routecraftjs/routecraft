@@ -1,9 +1,8 @@
 import type { FnOptions } from "./types.ts";
 
 /**
- * Store key for the registry of fns installed by `agentPlugin`. Resolved
- * at dispatch time by `invokeFn(...)` (and by the agent tool loop in
- * follow-up stories).
+ * Store key for the registry of fns installed by `agentPlugin`. Read by
+ * the agent tool loop at dispatch time (follow-up story).
  *
  * @experimental
  */
