@@ -6,6 +6,7 @@ import {
   AgentDestinationAdapter,
   agentPlugin,
   llmPlugin,
+  type AgentRegisteredOptions,
   type AgentResult,
 } from "../src/index.ts";
 import type { LlmResult } from "../src/llm/types.ts";
@@ -234,11 +235,12 @@ describe("agent(name) by-name destination + agentPlugin", () => {
           plugins: [
             agentPlugin({
               agents: {
+                // description intentionally omitted to exercise validation
                 summariser: {
                   model: "anthropic:claude-opus-4-7",
                   system: "y",
-                } as unknown as AgentResult,
-              } as unknown as Parameters<typeof agentPlugin>[0]["agents"],
+                } as unknown as AgentRegisteredOptions,
+              },
             }),
           ],
         })

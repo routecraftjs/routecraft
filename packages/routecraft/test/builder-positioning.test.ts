@@ -1,6 +1,18 @@
 import { describe, test, expect } from "vitest";
 import { z } from "zod";
-import { craft, simple, noop } from "@routecraft/routecraft";
+import { craft, isRoutecraftError, noop, simple } from "@routecraft/routecraft";
+
+function expectRC2001(thunk: () => unknown): void {
+  let caught: unknown;
+  try {
+    thunk();
+  } catch (err) {
+    caught = err;
+  }
+  expect(caught).toBeDefined();
+  expect(isRoutecraftError(caught)).toBe(true);
+  expect((caught as { rc?: string }).rc).toBe("RC2001");
+}
 
 describe("RouteBuilder strict metadata positioning", () => {
   /**
@@ -11,7 +23,7 @@ describe("RouteBuilder strict metadata positioning", () => {
   test(".input() throws on duplicate call before .from()", () => {
     const s1 = z.object({ a: z.string() });
     const s2 = z.object({ b: z.string() });
-    expect(() =>
+    expectRC2001(() =>
       craft()
         .id("dup-input")
         .input(s1)
@@ -19,7 +31,7 @@ describe("RouteBuilder strict metadata positioning", () => {
         .from(simple("x"))
         .to(noop())
         .build(),
-    ).toThrow(/input/i);
+    );
   });
 
   /**
@@ -30,7 +42,7 @@ describe("RouteBuilder strict metadata positioning", () => {
   test(".output() throws on duplicate call before .from()", () => {
     const s1 = z.object({ a: z.string() });
     const s2 = z.object({ b: z.string() });
-    expect(() =>
+    expectRC2001(() =>
       craft()
         .id("dup-output")
         .output(s1)
@@ -38,16 +50,16 @@ describe("RouteBuilder strict metadata positioning", () => {
         .from(simple("x"))
         .to(noop())
         .build(),
-    ).toThrow(/output/i);
+    );
   });
 
   /**
    * @case Pipeline operation on the orphaned-staged path throws
-   * @preconditions craft().id("a").from(x).to(y).id("b").to(z) — second .to() runs while id "b" is staged but no second .from() has consumed it
+   * @preconditions craft().id("a").from(x).to(y).id("b").to(z) - second .to() runs while id "b" is staged but no second .from() has consumed it
    * @expectedResult Second .to(z) throws RC2001 with a message about staged metadata
    */
   test("pipeline op throws when metadata is staged after a previous .from() with no consuming .from()", () => {
-    expect(() =>
+    expectRC2001(() =>
       craft()
         .id("first")
         .from(simple("a"))
@@ -55,7 +67,7 @@ describe("RouteBuilder strict metadata positioning", () => {
         .id("second")
         .to(noop())
         .build(),
-    ).toThrow(/staged|metadata/i);
+    );
   });
 
   /**
@@ -64,13 +76,11 @@ describe("RouteBuilder strict metadata positioning", () => {
    * @expectedResult RC2001 thrown describing the orphan
    */
   test(".build() throws when metadata is staged with no .from()", () => {
-    expect(() =>
-      craft().id("orphan").description("never built").build(),
-    ).toThrow(/staged|never consumed/i);
+    expectRC2001(() => craft().id("orphan").description("never built").build());
   });
 
   /**
-   * @case Chained-routes pattern still works — .id("a").from().to().id("b").from().to()
+   * @case Chained-routes pattern still works - .id("a").from().to().id("b").from().to()
    * @preconditions Two routes defined sequentially, each with metadata above its own .from()
    * @expectedResult Both routes built without error; descriptions and ids preserved
    */

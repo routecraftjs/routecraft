@@ -157,7 +157,7 @@ describe("fn registration via agentPlugin", () => {
   });
 });
 
-describe("testFn — exercise fn handlers in isolation", () => {
+describe("testFn - exercise fn handlers in isolation", () => {
   /**
    * @case testFn validates input against the spec's schema before the handler runs
    * @preconditions Spec with z.object({ channel, text }); invoked with { channel: 123 }

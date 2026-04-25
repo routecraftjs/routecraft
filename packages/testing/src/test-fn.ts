@@ -14,7 +14,8 @@ import {
  * @beta
  */
 export interface TestFnSpec<TIn, TOut> {
-  schema: StandardSchemaV1<TIn>;
+  /** Schema whose validated/coerced output is passed to `handler`. */
+  schema: StandardSchemaV1<unknown, TIn>;
   handler: (input: TIn, ctx: TestFnHandlerContext) => Promise<TOut> | TOut;
 }
 

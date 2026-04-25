@@ -100,6 +100,11 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
             message: `agentPlugin: agent id must be a non-empty string.`,
           });
         }
+        if (entry === null || typeof entry !== "object") {
+          throw rcError("RC5003", undefined, {
+            message: `agentPlugin: agent "${id}" entry must be an object with description, model, and system.`,
+          });
+        }
         validateRegisteredAgent(id, entry);
         if (agentMap.has(id)) {
           throw rcError("RC5003", undefined, {
@@ -122,13 +127,18 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
       for (const [id, entry] of Object.entries(functions)) {
         if (id.trim() === "") {
           throw rcError("RC5003", undefined, {
-            message: `fn: id must be a non-empty string.`,
+            message: `agentPlugin: fn id must be a non-empty string.`,
+          });
+        }
+        if (entry === null || typeof entry !== "object") {
+          throw rcError("RC5003", undefined, {
+            message: `agentPlugin: fn "${id}" entry must be an object with description, schema, and handler.`,
           });
         }
         validateFnOptions(id, entry);
         if (fnMap.has(id)) {
           throw rcError("RC5003", undefined, {
-            message: `fn "${id}": duplicate id; each fn id must be unique within a context.`,
+            message: `agentPlugin: duplicate fn id "${id}". Each fn id must be unique within a context.`,
           });
         }
         fnMap.set(id, entry);

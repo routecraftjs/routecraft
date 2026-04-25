@@ -1,5 +1,8 @@
-import type { CraftContext, ResolveKey } from "@routecraft/routecraft";
-import { logger as frameworkLogger } from "@routecraft/routecraft";
+import type {
+  CraftContext,
+  ResolveKey,
+  logger as frameworkLogger,
+} from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
 /**
@@ -33,9 +36,13 @@ export interface FnHandlerContext {
  * carries the per-fn configuration: description, input schema, and
  * handler.
  *
+ * `TIn` is the schema's validated/coerced output type, which is what
+ * the handler receives. For schemas with `.transform()`, this differs
+ * from the raw input type the schema accepts.
+ *
  * @experimental
- * @template TIn - Input type, typically inferred from the Standard Schema
- * @template TOut - Output type returned by the handler
+ * @template TIn - Schema's validated output type (handler input type)
+ * @template TOut - Handler return type
  */
 export interface FnOptions<TIn = unknown, TOut = unknown> {
   /**
@@ -46,9 +53,10 @@ export interface FnOptions<TIn = unknown, TOut = unknown> {
 
   /**
    * Standard Schema for the fn's input. Input is validated at invocation
-   * time; validation failures throw RC5002.
+   * time; validation failures throw RC5002. The schema's output type
+   * (after any `.transform()`) is what the handler sees.
    */
-  schema: StandardSchemaV1<TIn>;
+  schema: StandardSchemaV1<unknown, TIn>;
 
   /**
    * Handler called after schema validation with the (possibly coerced)
