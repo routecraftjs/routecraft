@@ -19,9 +19,9 @@ describe("buildVercelTools — execute path", () => {
   });
 
   /**
-   * @case Single resolved tool produces one Vercel tool keyed by name
-   * @preconditions Resolved tool with name "echo", description, input schema, handler
-   * @expectedResult Returned map has key "echo"; calling its execute invokes handler with the input
+   * @case Single resolved tool produces one Vercel tool keyed by name; per-call options merge into the handler context
+   * @preconditions Resolved tool; execute called with the SDK's `(input, options)` signature carrying a per-call abortSignal
+   * @expectedResult Returned map has key "echo"; handler receives the input as the first arg and a context whose abortSignal is the per-call one (not the construction-time signal)
    */
   test("single resolved tool builds a Vercel tool that runs the handler", async () => {
     const handler = vi.fn(
@@ -34,20 +34,37 @@ describe("buildVercelTools — execute path", () => {
       handler: handler as ResolvedTool["handler"],
     };
 
-    const map = await buildVercelTools(
-      [resolved],
-      undefined,
-      new AbortController().signal,
-    );
+    const sessionSignal = new AbortController().signal;
+    const map = await buildVercelTools([resolved], undefined, sessionSignal);
     expect(Object.keys(map)).toEqual(["echo"]);
 
+    // Exercise the SDK's (input, options) contract — the second arg
+    // carries a per-call abortSignal which must override the
+    // session-wide one captured at buildVercelTools time.
+    const perCallSignal = new AbortController().signal;
     const tool = map["echo"] as {
-      execute: (input: unknown) => Promise<unknown>;
+      execute: (
+        input: unknown,
+        opts?: {
+          abortSignal?: AbortSignal;
+          toolCallId?: string;
+          messages?: unknown[];
+        },
+      ) => Promise<unknown>;
     };
-    const result = await tool.execute({ msg: "hi" });
+    const result = await tool.execute(
+      { msg: "hi" },
+      { toolCallId: "call-1", messages: [], abortSignal: perCallSignal },
+    );
     expect(result).toBe("echoed hi");
     expect(handler).toHaveBeenCalledTimes(1);
-    expect(handler.mock.calls[0][0]).toEqual({ msg: "hi" });
+    const callArgs = handler.mock.calls[0] as unknown as [
+      input: unknown,
+      ctx: { abortSignal: AbortSignal },
+    ];
+    expect(callArgs[0]).toEqual({ msg: "hi" });
+    expect(callArgs[1].abortSignal).toBe(perCallSignal);
+    expect(callArgs[1].abortSignal).not.toBe(sessionSignal);
   });
 
   /**

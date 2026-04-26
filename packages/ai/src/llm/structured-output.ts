@@ -121,93 +121,23 @@ export function toAiInputSchema(schema: StandardSchemaV1): unknown {
 
 /**
  * Build an AI SDK output spec from a Standard Schema for provider-level
- * structured output (OpenAI response_format, Ollama format, etc.) and validation.
+ * structured output (OpenAI response_format, Ollama format, etc.) and
+ * validation. Delegates to {@link toAiSchema} so the JSON-schema
+ * extraction, validation wrapper, and error messages stay aligned with
+ * the input-schema path used by tool definitions (no risk of drift
+ * between the two paths).
  *
  * The AI SDK accepts Zod directly in Output.object({ schema: z.object(...) }).
- * This package uses Standard Schema (per .standards/type-safety-and-schemas.md), so
- * it cannot depend on Zod. This helper bridges any Standard Schema (Zod, Valibot,
- * ArkType, etc.) by using the SDK’s lower-level jsonSchema(jsonSchemaObj, {
- * validate }): we get the JSON schema from ~standard.jsonSchema.output/.input
- * and use ~standard.validate as the validate callback. Callers can pass a Zod
- * schema (as Standard Schema), Valibot, or ArkType and get the same behavior.
+ * This package uses Standard Schema (per .standards/type-safety-and-schemas.md),
+ * so it cannot depend on Zod. The `toAiSchema` helper bridges any
+ * Standard Schema (Zod, Valibot, ArkType, etc.) by using the SDK's
+ * lower-level `jsonSchema(jsonSchemaObj, { validate })`.
  */
 export function toAiOutputSpec(schema: StandardSchemaV1): unknown {
-  const standard = (schema as unknown as Record<string, unknown>)[
-    "~standard"
-  ] as
-    | {
-        validate: (
-          value: unknown,
-        ) =>
-          | { value?: unknown; issues?: unknown }
-          | Promise<{ value?: unknown; issues?: unknown }>;
-        jsonSchema?: {
-          output?: (opts: { target: string }) => Record<string, unknown>;
-          input?: (opts: { target: string }) => Record<string, unknown>;
-        };
-      }
-    | undefined;
-
-  if (!standard?.validate) {
-    throw new Error(
-      "LLM output schema must be a StandardSchemaV1 with ~standard.validate",
-    );
-  }
-
-  const jsonSchemaObj =
-    standard.jsonSchema?.output?.({ target: "draft-2020-12" }) ??
-    standard.jsonSchema?.input?.({ target: "draft-2020-12" });
-
-  if (!jsonSchemaObj || typeof jsonSchemaObj !== "object") {
-    throw new Error(
-      "LLM output schema must expose ~standard.jsonSchema.output or .input for provider structured output",
-    );
-  }
-
-  function validate(
-    value: unknown,
-  ): { success: true; value: unknown } | { success: false; error: Error } {
-    let result:
-      | { value?: unknown; issues?: unknown }
-      | Promise<{
-          value?: unknown;
-          issues?: unknown;
-        }>;
-    try {
-      result = standard!.validate(value);
-    } catch (err) {
-      return {
-        success: false,
-        error: err instanceof Error ? err : new Error(String(err)),
-      };
-    }
-    if (result instanceof Promise) {
-      return {
-        success: false,
-        error: new Error(
-          "Async output schema is not supported for LLM structured output",
-        ),
-      };
-    }
-    const hasIssues =
-      result.issues != null &&
-      (Array.isArray(result.issues)
-        ? result.issues.length > 0
-        : typeof result.issues === "object" && result.issues !== null
-          ? Object.keys(result.issues).length > 0
-          : Boolean(result.issues));
-    if (hasIssues) {
-      return {
-        success: false,
-        error: new Error(formatSchemaIssues(result.issues)),
-      };
-    }
-    return { success: true, value: result.value };
-  }
-
-  const aiSchema = jsonSchema(
-    jsonSchemaObj as Parameters<typeof jsonSchema>[0],
-    { validate },
-  );
+  const aiSchema = toAiSchema(
+    schema,
+    "output",
+    "LLM output schema",
+  ) as Parameters<typeof Output.object>[0]["schema"];
   return Output.object({ schema: aiSchema });
 }

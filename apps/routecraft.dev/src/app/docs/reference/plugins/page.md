@@ -634,7 +634,7 @@ The current loop is synchronous and in-memory. A tool handler that `await`s for 
 | Under a minute | Fine. HTTP timeouts and restart risk are low. |
 | 1–10 minutes | Works on most platforms. Acceptable for "ask user, get reply during a meeting" flows. |
 | 10 min – 1 hour | Marginal. Platform request timeouts (Vercel, CloudRun, etc.) cap how long an HTTP request can hang. Use queue / cron entry points if the tool may take this long. |
-| Hours – days | Not viable in the synchronous loop. Wait for the [durable agents epic](https://github.com/routecraftjs/routecraft/issues/258) — `SuspendError` is exported today as a forward-compat stub so handler code can be written against the eventual surface. |
+| Hours – days | Not viable in the synchronous loop. Wait for the [durable agents epic](https://github.com/routecraftjs/routecraft/issues/258). `SuspendError` is exported today as a forward-compat stub so handler code can be written against the eventual surface. |
 
 A blocking tool handler today looks like:
 

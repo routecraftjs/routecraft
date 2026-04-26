@@ -1,10 +1,6 @@
 import type { CraftContext, Exchange } from "@routecraft/routecraft";
 import { callLlm } from "../llm/providers/index.ts";
-import {
-  resolveModel,
-  resolvePrompt,
-  resolveUserPromptDefault,
-} from "../llm/shared.ts";
+import { resolvePrompt, resolveUserPromptDefault } from "../llm/shared.ts";
 import type { LlmModelConfig, LlmResult } from "../llm/types.ts";
 import { toAiOutputSpec } from "../llm/structured-output.ts";
 import { buildVercelTools } from "./tool-bridge.ts";
@@ -50,8 +46,8 @@ export interface AgentSessionInput {
  * resolved tools + initial messages + provider config so the dispatch
  * path is structured around discrete units of work.
  *
- * Today only the synchronous path (`runUntilDone()`) is implemented —
- * it calls `generateText` once with the full tool list and lets the
+ * Today only the synchronous path (`runUntilDone()`) is implemented.
+ * It calls `generateText` once with the full tool list and lets the
  * Vercel AI SDK handle the multi-step tool-calling loop internally.
  *
  * The session boundary exists so two follow-ups layer on without
@@ -78,9 +74,21 @@ export class AgentSession {
       this.input;
 
     const vercelTools = await buildVercelTools(tools, context, abortSignal);
-    const stopWhen = await buildStopWhen(options.maxSteps ?? DEFAULT_MAX_STEPS);
     const output =
       options.output !== undefined ? toAiOutputSpec(options.output) : undefined;
+
+    // Build stopWhen only when tools are present. Without tools the
+    // SDK returns after a single step, so the stop predicate (and its
+    // dynamic `import("ai")`) is unnecessary.
+    const toolExtras =
+      Object.keys(vercelTools).length > 0
+        ? {
+            tools: vercelTools,
+            stopWhen: await buildStopWhen(
+              options.maxSteps ?? DEFAULT_MAX_STEPS,
+            ),
+          }
+        : {};
 
     const result = await callLlm({
       config: modelConfig,
@@ -91,10 +99,9 @@ export class AgentSession {
       },
       system,
       user,
+      abortSignal,
       ...(output !== undefined ? { output } : {}),
-      ...(Object.keys(vercelTools).length > 0
-        ? { tools: vercelTools, stopWhen }
-        : {}),
+      ...toolExtras,
     });
 
     return toAgentResult(result);
@@ -129,25 +136,4 @@ export function buildUserPrompt(
   return options.user !== undefined
     ? resolvePrompt(options.user, exchange)
     : resolveUserPromptDefault(exchange);
-}
-
-/**
- * Resolve the model id and provider config from the merged options
- * and current context. Throws RC5003 with a clear message if no model
- * is available (neither agent option nor `defaultOptions.model`).
- *
- * @internal
- */
-export function buildModel(
-  options: AgentOptions | AgentRegisteredOptions,
-  context: CraftContext | undefined,
-): { config: LlmModelConfig; modelName: string } {
-  if (options.model === undefined) {
-    // Caller (destination) is expected to throw before this. Defensive
-    // path; re-raise here to avoid producing a malformed session.
-    throw new Error(
-      `AgentSession: no "model" supplied. Set "model" on the agent or via agentPlugin({ defaultOptions: { model } }).`,
-    );
-  }
-  return resolveModel(options.model, context);
 }

@@ -116,6 +116,17 @@ export interface CallLlmParams {
    * any other Vercel AI SDK stop predicate).
    */
   stopWhen?: unknown;
+  /**
+   * Optional abort signal forwarded into `generateText`. When the
+   * signal aborts mid-call, the SDK throws an AbortError and any
+   * in-flight tool handlers receive the same signal via their
+   * `FnHandlerContext.abortSignal`.
+   *
+   * Thread the route's signal here (`getExchangeRoute(exchange)?.signal`)
+   * so an in-flight agent dispatch is cancelled when the route or
+   * context shuts down.
+   */
+  abortSignal?: AbortSignal;
 }
 
 /**
@@ -129,6 +140,7 @@ interface ProviderExtras {
   output?: unknown;
   tools?: Record<string, unknown>;
   stopWhen?: unknown;
+  abortSignal?: AbortSignal;
 }
 
 function buildExtras(params: CallLlmParams): ProviderExtras {
@@ -138,6 +150,7 @@ function buildExtras(params: CallLlmParams): ProviderExtras {
     out.tools = params.tools;
     if (params.stopWhen !== undefined) out.stopWhen = params.stopWhen;
   }
+  if (params.abortSignal !== undefined) out.abortSignal = params.abortSignal;
   return out;
 }
 

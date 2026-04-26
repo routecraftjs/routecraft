@@ -29,14 +29,19 @@ export async function buildVercelTools(
   ctx: CraftContext | undefined,
   abortSignal: AbortSignal,
 ): Promise<Record<string, unknown>> {
-  if (resolved.length === 0) return {};
+  if (resolved.length === 0)
+    return Object.create(null) as Record<string, unknown>;
   const { tool } = await import("ai");
 
-  const out: Record<string, unknown> = {};
+  // Use a null-prototype object so dynamic tool names supplied at
+  // resolution time can never mutate Object.prototype (e.g. a tool
+  // accidentally named "__proto__" would otherwise be a vector for
+  // prototype pollution).
+  const out: Record<string, unknown> = Object.create(null);
   for (const r of resolved) {
     const guard = r.guard;
     const handler = r.handler;
-    const handlerCtx: FnHandlerContext = makeFnHandlerContext(
+    const baseCtx: FnHandlerContext = makeFnHandlerContext(
       r.name,
       ctx,
       abortSignal,
@@ -46,9 +51,24 @@ export async function buildVercelTools(
       inputSchema: toAiInputSchema(r.input) as Parameters<
         typeof tool
       >[0]["inputSchema"],
-      execute: async (input: unknown) => {
-        if (guard) await guard(input, handlerCtx);
-        return await handler(input, handlerCtx);
+      execute: async (
+        input: unknown,
+        callOpts?: {
+          abortSignal?: AbortSignal;
+          toolCallId?: string;
+          messages?: unknown[];
+        },
+      ) => {
+        // Merge per-call options (the SDK passes its own abortSignal
+        // and toolCallId per invocation) into the handler context so
+        // a tool can react to per-step cancellation, not just the
+        // session-wide signal captured at buildVercelTools time.
+        const callCtx: FnHandlerContext = {
+          ...baseCtx,
+          abortSignal: callOpts?.abortSignal ?? baseCtx.abortSignal,
+        };
+        if (guard) await guard(input, callCtx);
+        return await handler(input, callCtx);
       },
     });
   }

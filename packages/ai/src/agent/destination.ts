@@ -1,5 +1,6 @@
 import {
   getExchangeContext,
+  getExchangeRoute,
   rcError,
   type CraftContext,
   type Destination,
@@ -76,7 +77,14 @@ export class AgentDestinationAdapter implements Destination<
       context,
     });
 
-    return await session.runUntilDone(new AbortController().signal);
+    // Thread the route's abort signal through so the agent dispatch
+    // (LLM call + in-flight tool handlers) is cancelled when the
+    // route or context shuts down. Falls back to a never-firing
+    // signal when the exchange has no route binding (rare; mostly
+    // synthetic exchanges in tests).
+    const abortSignal =
+      getExchangeRoute(exchange)?.signal ?? new AbortController().signal;
+    return await session.runUntilDone(abortSignal);
   }
 
   /** Pull the agent options for this dispatch, either inline or from the registry. */
