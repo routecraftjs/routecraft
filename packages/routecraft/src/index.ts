@@ -22,6 +22,7 @@ export {
   type Exchange,
   type ExchangeHeaders,
   getExchangeContext,
+  getExchangeRoute,
   type HeaderKeysRegistry,
   HeadersKeys,
   type HeaderValue,

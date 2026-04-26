@@ -1,30 +1,24 @@
 import {
   getExchangeContext,
+  getExchangeRoute,
   rcError,
   type CraftContext,
   type Destination,
   type Exchange,
 } from "@routecraft/routecraft";
-import { callLlm } from "../llm/providers/index.ts";
-import {
-  resolveModel,
-  resolvePrompt,
-  resolveUserPromptDefault,
-} from "../llm/shared.ts";
+import { resolveModel } from "../llm/shared.ts";
+import { AgentSession, buildUserPrompt } from "./session.ts";
 import {
   ADAPTER_AGENT_DEFAULT_OPTIONS,
   ADAPTER_AGENT_REGISTRY,
 } from "./store.ts";
+import type { ResolvedTool } from "./tools/selection.ts";
 import type {
   AgentDefaultOptions,
   AgentOptions,
   AgentRegisteredOptions,
   AgentResult,
 } from "./types.ts";
-
-/** Default sampling settings; aligned with the LLM destination defaults. */
-const DEFAULT_TEMPERATURE = 0;
-const DEFAULT_MAX_TOKENS = 1024;
 
 const AGENT_REGISTRY_STORE_DESCRIPTION =
   ADAPTER_AGENT_REGISTRY.description ?? "routecraft.adapter.agent.registry";
@@ -35,14 +29,16 @@ export type AgentBinding =
   | { kind: "by-name"; name: string };
 
 /**
- * Agent destination adapter. Calls the configured LLM provider once with the
- * agent's system prompt and a user prompt derived from the exchange body.
- * Replaces the body with `AgentResult { text, usage? }`.
+ * Agent destination adapter. Resolves agent options (inline or
+ * registered), merges them with `agentPlugin({ defaultOptions })`,
+ * resolves the agent's tool selection against the live context, and
+ * dispatches the tool-calling loop via {@link AgentSession}. Replaces
+ * the exchange body with `AgentResult { text, output?, reasoning?, usage? }`.
  *
  * Resolution: when constructed inline, uses options directly. When
- * constructed by name, resolves the registered agent from the context store
- * (`ADAPTER_AGENT_REGISTRY`) at dispatch time, throwing a clear error if
- * the name is unknown.
+ * constructed by name, resolves the registered agent from the context
+ * store (`ADAPTER_AGENT_REGISTRY`) at dispatch time, throwing a clear
+ * error if the name is unknown.
  *
  * @experimental
  */
@@ -68,27 +64,27 @@ export class AgentDestinationAdapter implements Destination<
     }
 
     const { config, modelName } = resolveModel(merged.model, context);
+    const tools = resolveAgentTools(merged, context);
+    const user = buildUserPrompt(merged, exchange);
 
-    const system = merged.system;
-    const user =
-      merged.user !== undefined
-        ? resolvePrompt(merged.user, exchange)
-        : resolveUserPromptDefault(exchange);
-
-    const result = await callLlm({
-      config,
-      modelId: modelName,
-      options: {
-        temperature: DEFAULT_TEMPERATURE,
-        maxTokens: DEFAULT_MAX_TOKENS,
-      },
-      system,
+    const session = new AgentSession({
+      options: merged,
+      modelConfig: config,
+      modelName,
+      tools,
       user,
+      system: merged.system,
+      context,
     });
 
-    const out: AgentResult = { text: result.text };
-    if (result.usage) out.usage = result.usage;
-    return out;
+    // Thread the route's abort signal through so the agent dispatch
+    // (LLM call + in-flight tool handlers) is cancelled when the
+    // route or context shuts down. Falls back to a never-firing
+    // signal when the exchange has no route binding (rare; mostly
+    // synthetic exchanges in tests).
+    const abortSignal =
+      getExchangeRoute(exchange)?.signal ?? new AbortController().signal;
+    return await session.runUntilDone(abortSignal);
   }
 
   /** Pull the agent options for this dispatch, either inline or from the registry. */
@@ -112,7 +108,7 @@ export class AgentDestinationAdapter implements Destination<
       throw rcError("RC5004", undefined, {
         message:
           `Agent "${this.binding.name}" not found: no agents registered. ` +
-          `Add agentPlugin({ agents: [defineAgent({ id: "${this.binding.name}", ... })] }) to your config.`,
+          `Add agentPlugin({ agents: { "${this.binding.name}": {...} } }) to your config.`,
       });
     }
     const found = registry.get(this.binding.name);
@@ -170,5 +166,32 @@ function mergeWithDefaults(
   if (out.tools === undefined && defaults.tools !== undefined) {
     out.tools = defaults.tools;
   }
+  if (out.maxSteps === undefined && defaults.maxSteps !== undefined) {
+    out.maxSteps = defaults.maxSteps;
+  }
   return out;
+}
+
+/**
+ * Resolve the agent's `tools` selection against the live context. The
+ * selection is the `ToolSelection` object built via `tools([...])`;
+ * resolution walks the fn registry and direct registry to produce the
+ * final `ResolvedTool[]` the runtime hands to the LLM.
+ *
+ * Returns an empty array when the agent has no tools field set
+ * (and no context-default tools were inherited).
+ *
+ * @internal
+ */
+function resolveAgentTools(
+  options: AgentOptions | AgentRegisteredOptions,
+  context: CraftContext | undefined,
+): ResolvedTool[] {
+  if (options.tools === undefined) return [];
+  if (!context) {
+    throw rcError("RC5003", undefined, {
+      message: `Agent: cannot resolve tools without a CraftContext.`,
+    });
+  }
+  return options.tools.resolve(context);
 }

@@ -118,6 +118,8 @@ export {
   agentPlugin,
   ADAPTER_AGENT_DEFAULT_OPTIONS,
   ADAPTER_AGENT_REGISTRY,
+  SuspendError,
+  isSuspendError,
 } from "./agent/index.ts";
 export type {
   AgentBinding,

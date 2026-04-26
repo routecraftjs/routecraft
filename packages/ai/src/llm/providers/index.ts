@@ -103,24 +103,74 @@ export interface CallLlmParams {
   user: string;
   /** Optional structured output spec (from toAiOutputSpec). Enables provider-level JSON schema. */
   output?: unknown;
+  /**
+   * Optional Vercel AI SDK tool map. When supplied the SDK runs the
+   * tool-calling loop: presents tools to the model, dispatches calls,
+   * feeds results (and validation/guard errors) back, until the loop
+   * terminates (a final text response or `stopWhen` fires).
+   */
+  tools?: Record<string, unknown>;
+  /**
+   * Optional stop condition for the tool-calling loop. Required when
+   * `tools` is set; ignored otherwise. Built via `stepCountIs(n)` (or
+   * any other Vercel AI SDK stop predicate).
+   */
+  stopWhen?: unknown;
+  /**
+   * Optional abort signal forwarded into `generateText`. When the
+   * signal aborts mid-call, the SDK throws an AbortError and any
+   * in-flight tool handlers receive the same signal via their
+   * `FnHandlerContext.abortSignal`.
+   *
+   * Thread the route's signal here (`getExchangeRoute(exchange)?.signal`)
+   * so an in-flight agent dispatch is cancelled when the route or
+   * context shuts down.
+   */
+  abortSignal?: AbortSignal;
+}
+
+/**
+ * Per-provider extras forwarded into `generateText`. Centralised so
+ * each provider builds the same shape and the typecast at the call
+ * site stays narrow.
+ *
+ * @internal
+ */
+interface ProviderExtras {
+  output?: unknown;
+  tools?: Record<string, unknown>;
+  stopWhen?: unknown;
+  abortSignal?: AbortSignal;
+}
+
+function buildExtras(params: CallLlmParams): ProviderExtras {
+  const out: ProviderExtras = {};
+  if (params.output !== undefined) out.output = params.output;
+  if (params.tools !== undefined && Object.keys(params.tools).length > 0) {
+    out.tools = params.tools;
+    if (params.stopWhen !== undefined) out.stopWhen = params.stopWhen;
+  }
+  if (params.abortSignal !== undefined) out.abortSignal = params.abortSignal;
+  return out;
 }
 
 /**
  * Dispatches to the appropriate provider and returns a normalized LlmResult.
  */
 export async function callLlm(params: CallLlmParams): Promise<LlmResult> {
-  const { config, modelId, options, system, user, output } = params;
+  const { config, modelId, options, system, user } = params;
+  const extras = buildExtras(params);
   switch (config.provider) {
     case "openai":
-      return callOpenAI(config, modelId, options, system, user, output);
+      return callOpenAI(config, modelId, options, system, user, extras);
     case "anthropic":
-      return callAnthropic(config, modelId, options, system, user, output);
+      return callAnthropic(config, modelId, options, system, user, extras);
     case "gemini":
-      return callGemini(config, modelId, options, system, user, output);
+      return callGemini(config, modelId, options, system, user, extras);
     case "openrouter":
-      return callOpenRouter(config, modelId, options, system, user, output);
+      return callOpenRouter(config, modelId, options, system, user, extras);
     case "ollama":
-      return callOllama(config, modelId, options, system, user, output);
+      return callOllama(config, modelId, options, system, user, extras);
     default: {
       const _: never = config;
       throw new Error(
@@ -136,7 +186,7 @@ async function callOpenAI(
   options: CallLlmParams["options"],
   system: string,
   user: string,
-  output: CallLlmParams["output"],
+  extras: ProviderExtras,
 ): Promise<LlmResult> {
   let createOpenAI: (s: {
     apiKey: string;
@@ -151,36 +201,19 @@ async function callOpenAI(
     }
     throw error;
   }
-  const { generateText } = await import("ai");
   const openaiSettings: { apiKey: string; baseURL?: string } = {
     apiKey: config.apiKey,
   };
   if (config.baseURL !== undefined) openaiSettings.baseURL = config.baseURL;
   const openai = createOpenAI(openaiSettings);
   const model = openai(modelId);
-  const genParams: Parameters<typeof generateText>[0] = {
-    model: model as Parameters<typeof generateText>[0]["model"],
-    prompt: user,
-    ...(options.maxTokens !== undefined && {
-      maxOutputTokens: options.maxTokens,
-    }),
-    temperature: options.temperature,
-  };
-  if (system) genParams.system = system;
-  if (options.topP !== undefined) genParams.topP = options.topP;
-  if (options.frequencyPenalty !== undefined)
-    genParams.frequencyPenalty = options.frequencyPenalty;
-  if (options.presencePenalty !== undefined)
-    genParams.presencePenalty = options.presencePenalty;
-  const params = output !== undefined ? { ...genParams, output } : genParams;
-  const result = await generateText(
-    params as Parameters<typeof generateText>[0],
+  return runGenerate(
+    model as Parameters<typeof runGenerate>[0],
+    options,
+    system,
+    user,
+    extras,
   );
-  const out: LlmResult = { text: result.text ?? "", raw: result };
-  if (result.usage) out.usage = toLlmUsage(result.usage);
-  const parsed = getStructuredOutput(result as { output?: unknown });
-  if (parsed !== undefined) out.output = parsed;
-  return out;
 }
 
 async function callAnthropic(
@@ -189,7 +222,7 @@ async function callAnthropic(
   options: CallLlmParams["options"],
   system: string,
   user: string,
-  output: CallLlmParams["output"],
+  extras: ProviderExtras,
 ): Promise<LlmResult> {
   let createAnthropic: (s: { apiKey: string }) => (m: string) => unknown;
   try {
@@ -201,34 +234,15 @@ async function callAnthropic(
     }
     throw error;
   }
-  const { generateText } = await import("ai");
   const anthropic = createAnthropic({ apiKey: config.apiKey });
   const model = anthropic(modelId);
-  const genParams: Parameters<typeof generateText>[0] = {
-    model: model as Parameters<typeof generateText>[0]["model"],
-    prompt: user,
-    ...(options.maxTokens !== undefined && {
-      maxOutputTokens: options.maxTokens,
-    }),
-    temperature: options.temperature,
-  };
-  if (system) genParams.system = system;
-  // Same option keys as callOpenAI; SDK passes through. Anthropic supports topP;
-  // frequencyPenalty/presencePenalty may be unsupported (SDK may warn).
-  if (options.topP !== undefined) genParams.topP = options.topP;
-  if (options.frequencyPenalty !== undefined)
-    genParams.frequencyPenalty = options.frequencyPenalty;
-  if (options.presencePenalty !== undefined)
-    genParams.presencePenalty = options.presencePenalty;
-  const params = output !== undefined ? { ...genParams, output } : genParams;
-  const result = await generateText(
-    params as Parameters<typeof generateText>[0],
+  return runGenerate(
+    model as Parameters<typeof runGenerate>[0],
+    options,
+    system,
+    user,
+    extras,
   );
-  const out: LlmResult = { text: result.text ?? "", raw: result };
-  if (result.usage) out.usage = toLlmUsage(result.usage);
-  const parsed = getStructuredOutput(result as { output?: unknown });
-  if (parsed !== undefined) out.output = parsed;
-  return out;
 }
 
 async function callGemini(
@@ -237,7 +251,7 @@ async function callGemini(
   options: CallLlmParams["options"],
   system: string,
   user: string,
-  output: CallLlmParams["output"],
+  extras: ProviderExtras,
 ): Promise<LlmResult> {
   let createGoogleGenerativeAI: (s: {
     apiKey: string;
@@ -252,34 +266,15 @@ async function callGemini(
     }
     throw error;
   }
-  const { generateText } = await import("ai");
   const google = createGoogleGenerativeAI({ apiKey: config.apiKey });
   const model = google(modelId);
-  const genParams: Parameters<typeof generateText>[0] = {
-    model: model as Parameters<typeof generateText>[0]["model"],
-    prompt: user,
-    ...(options.maxTokens !== undefined && {
-      maxOutputTokens: options.maxTokens,
-    }),
-    temperature: options.temperature,
-  };
-  if (system) genParams.system = system;
-  // Same option keys as callOpenAI; SDK passes through. Gemini may not support
-  // all (e.g. frequencyPenalty/presencePenalty); check result.warnings if needed.
-  if (options.topP !== undefined) genParams.topP = options.topP;
-  if (options.frequencyPenalty !== undefined)
-    genParams.frequencyPenalty = options.frequencyPenalty;
-  if (options.presencePenalty !== undefined)
-    genParams.presencePenalty = options.presencePenalty;
-  const params = output !== undefined ? { ...genParams, output } : genParams;
-  const result = await generateText(
-    params as Parameters<typeof generateText>[0],
+  return runGenerate(
+    model as Parameters<typeof runGenerate>[0],
+    options,
+    system,
+    user,
+    extras,
   );
-  const out: LlmResult = { text: result.text ?? "", raw: result };
-  if (result.usage) out.usage = toLlmUsage(result.usage);
-  const parsed = getStructuredOutput(result as { output?: unknown });
-  if (parsed !== undefined) out.output = parsed;
-  return out;
 }
 
 async function callOpenRouter(
@@ -288,7 +283,7 @@ async function callOpenRouter(
   options: CallLlmParams["options"],
   system: string,
   user: string,
-  output: CallLlmParams["output"],
+  extras: ProviderExtras,
 ): Promise<LlmResult> {
   let createOpenRouter: (s: { apiKey: string }) => {
     chat: (id: string) => unknown;
@@ -302,36 +297,17 @@ async function callOpenRouter(
     }
     throw error;
   }
-  const { generateText } = await import("ai");
   const openrouter = createOpenRouter({ apiKey: config.apiKey });
   const resolvedId = config.modelId ?? modelId;
   const rawModel = openrouter.chat(resolvedId);
   assertLanguageModelShape(rawModel, "OpenRouter", resolvedId);
-  const model = rawModel as Parameters<typeof generateText>[0]["model"];
-  const genParams: Parameters<typeof generateText>[0] = {
-    model,
-    prompt: user,
-    ...(options.maxTokens !== undefined && {
-      maxOutputTokens: options.maxTokens,
-    }),
-    temperature: options.temperature,
-  };
-  if (system) genParams.system = system;
-  // Same option keys as callOpenAI. OpenRouter is OpenAI-compatible; typically supports all.
-  if (options.topP !== undefined) genParams.topP = options.topP;
-  if (options.frequencyPenalty !== undefined)
-    genParams.frequencyPenalty = options.frequencyPenalty;
-  if (options.presencePenalty !== undefined)
-    genParams.presencePenalty = options.presencePenalty;
-  const params = output !== undefined ? { ...genParams, output } : genParams;
-  const result = await generateText(
-    params as Parameters<typeof generateText>[0],
+  return runGenerate(
+    rawModel as Parameters<typeof runGenerate>[0],
+    options,
+    system,
+    user,
+    extras,
   );
-  const out: LlmResult = { text: result.text ?? "", raw: result };
-  if (result.usage) out.usage = toLlmUsage(result.usage);
-  const parsed = getStructuredOutput(result as { output?: unknown });
-  if (parsed !== undefined) out.output = parsed;
-  return out;
 }
 
 async function callOllama(
@@ -340,7 +316,7 @@ async function callOllama(
   options: CallLlmParams["options"],
   system: string,
   user: string,
-  output: CallLlmParams["output"],
+  extras: ProviderExtras,
 ): Promise<LlmResult> {
   let createOllama: (s: { baseURL?: string }) => (name: string) => unknown;
   try {
@@ -352,16 +328,39 @@ async function callOllama(
     }
     throw error;
   }
-  const { generateText } = await import("ai");
   const ollama = createOllama({
     baseURL: config.baseURL ?? PROVIDER_DEFAULTS.ollama.baseURL,
   });
   const name = config.modelId ?? modelId;
   const rawModel = ollama(name);
   assertLanguageModelShape(rawModel, "Ollama", name);
-  const model = rawModel as Parameters<typeof generateText>[0]["model"];
+  return runGenerate(
+    rawModel as Parameters<typeof runGenerate>[0],
+    options,
+    system,
+    user,
+    extras,
+  );
+}
+
+/**
+ * Shared `generateText` invocation. Each provider helper builds the
+ * model and delegates here so the genParams shape, extras handling
+ * (output / tools / stopWhen), and result normalisation (text /
+ * output / reasoning / usage) live in one place.
+ *
+ * @internal
+ */
+async function runGenerate(
+  model: unknown,
+  options: CallLlmParams["options"],
+  system: string,
+  user: string,
+  extras: ProviderExtras,
+): Promise<LlmResult> {
+  const { generateText } = await import("ai");
   const genParams: Parameters<typeof generateText>[0] = {
-    model,
+    model: model as Parameters<typeof generateText>[0]["model"],
     prompt: user,
     ...(options.maxTokens !== undefined && {
       maxOutputTokens: options.maxTokens,
@@ -369,14 +368,12 @@ async function callOllama(
     temperature: options.temperature,
   };
   if (system) genParams.system = system;
-  // Same option keys as callOpenAI. Ollama supports top_p; frequencyPenalty/presencePenalty
-  // may be unsupported (SDK may warn).
   if (options.topP !== undefined) genParams.topP = options.topP;
   if (options.frequencyPenalty !== undefined)
     genParams.frequencyPenalty = options.frequencyPenalty;
   if (options.presencePenalty !== undefined)
     genParams.presencePenalty = options.presencePenalty;
-  const params = output !== undefined ? { ...genParams, output } : genParams;
+  const params = { ...genParams, ...extras };
   const result = await generateText(
     params as Parameters<typeof generateText>[0],
   );
@@ -384,5 +381,22 @@ async function callOllama(
   if (result.usage) out.usage = toLlmUsage(result.usage);
   const parsed = getStructuredOutput(result as { output?: unknown });
   if (parsed !== undefined) out.output = parsed;
+  const reasoning = readReasoning(result);
+  if (reasoning) out.reasoning = reasoning;
   return out;
+}
+
+/**
+ * Defensive accessor for reasoning text. Vercel AI SDK exposes
+ * `reasoningText` (concatenated string) when the provider returned
+ * reasoning blocks (Anthropic extended thinking, OpenAI o1, etc.).
+ * Some SDK versions or providers may omit it; treat absence as
+ * "no reasoning available."
+ */
+function readReasoning(result: unknown): string | undefined {
+  const r = result as { reasoningText?: unknown };
+  if (typeof r.reasoningText === "string" && r.reasoningText.length > 0) {
+    return r.reasoningText;
+  }
+  return undefined;
 }

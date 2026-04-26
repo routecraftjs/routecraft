@@ -3,18 +3,24 @@ import { formatSchemaIssues } from "@routecraft/routecraft";
 import { Output, jsonSchema } from "ai";
 
 /**
- * Build an AI SDK output spec from a Standard Schema for provider-level
- * structured output (OpenAI response_format, Ollama format, etc.) and validation.
+ * Build an AI SDK schema (`jsonSchema(...)`) from a Standard Schema. The
+ * `direction` argument selects which JSON-schema variant the underlying
+ * Standard Schema exposes:
  *
- * The AI SDK accepts Zod directly in Output.object({ schema: z.object(...) }).
- * This package uses Standard Schema (per .standards/type-safety-and-schemas.md), so
- * it cannot depend on Zod. This helper bridges any Standard Schema (Zod, Valibot,
- * ArkType, etc.) by using the SDK’s lower-level jsonSchema(jsonSchemaObj, {
- * validate }): we get the JSON schema from ~standard.jsonSchema.output/.input
- * and use ~standard.validate as the validate callback. Callers can pass a Zod
- * schema (as Standard Schema), Valibot, or ArkType and get the same behavior.
+ * - `"output"` (provider structured output): prefer `~standard.jsonSchema.output`,
+ *   fall back to `.input`. The SDK validates the model's structured response
+ *   and we return the parsed value on `LlmResult.output` / `AgentResult.output`.
+ * - `"input"` (tool input schema): prefer `~standard.jsonSchema.input`, fall
+ *   back to `.output`. The SDK shows the JSON schema to the model in the tool
+ *   list and validates the model's tool-call args before calling `execute`.
+ *
+ * @internal
  */
-export function toAiOutputSpec(schema: StandardSchemaV1): unknown {
+function toAiSchema(
+  schema: StandardSchemaV1,
+  direction: "input" | "output",
+  errorContext: string,
+): unknown {
   const standard = (schema as unknown as Record<string, unknown>)[
     "~standard"
   ] as
@@ -33,17 +39,25 @@ export function toAiOutputSpec(schema: StandardSchemaV1): unknown {
 
   if (!standard?.validate) {
     throw new Error(
-      "LLM output schema must be a StandardSchemaV1 with ~standard.validate",
+      `${errorContext} must be a StandardSchemaV1 with ~standard.validate`,
     );
   }
 
+  const primary =
+    direction === "input"
+      ? standard.jsonSchema?.input
+      : standard.jsonSchema?.output;
+  const fallback =
+    direction === "input"
+      ? standard.jsonSchema?.output
+      : standard.jsonSchema?.input;
   const jsonSchemaObj =
-    standard.jsonSchema?.output?.({ target: "draft-2020-12" }) ??
-    standard.jsonSchema?.input?.({ target: "draft-2020-12" });
+    primary?.({ target: "draft-2020-12" }) ??
+    fallback?.({ target: "draft-2020-12" });
 
   if (!jsonSchemaObj || typeof jsonSchemaObj !== "object") {
     throw new Error(
-      "LLM output schema must expose ~standard.jsonSchema.output or .input for provider structured output",
+      `${errorContext} must expose ~standard.jsonSchema.input or .output for AI SDK use`,
     );
   }
 
@@ -68,7 +82,7 @@ export function toAiOutputSpec(schema: StandardSchemaV1): unknown {
       return {
         success: false,
         error: new Error(
-          "Async output schema is not supported for LLM structured output",
+          `${errorContext}: async schema validation is not supported`,
         ),
       };
     }
@@ -88,9 +102,42 @@ export function toAiOutputSpec(schema: StandardSchemaV1): unknown {
     return { success: true, value: result.value };
   }
 
-  const aiSchema = jsonSchema(
-    jsonSchemaObj as Parameters<typeof jsonSchema>[0],
-    { validate },
-  );
+  return jsonSchema(jsonSchemaObj as Parameters<typeof jsonSchema>[0], {
+    validate,
+  });
+}
+
+/**
+ * Build an AI SDK input schema for tool definitions
+ * (`tool({ inputSchema, execute })`). The SDK presents this schema to
+ * the model in the tool list and validates the model's tool-call
+ * arguments before invoking `execute`.
+ *
+ * @internal
+ */
+export function toAiInputSchema(schema: StandardSchemaV1): unknown {
+  return toAiSchema(schema, "input", "Tool input schema");
+}
+
+/**
+ * Build an AI SDK output spec from a Standard Schema for provider-level
+ * structured output (OpenAI response_format, Ollama format, etc.) and
+ * validation. Delegates to {@link toAiSchema} so the JSON-schema
+ * extraction, validation wrapper, and error messages stay aligned with
+ * the input-schema path used by tool definitions (no risk of drift
+ * between the two paths).
+ *
+ * The AI SDK accepts Zod directly in Output.object({ schema: z.object(...) }).
+ * This package uses Standard Schema (per .standards/type-safety-and-schemas.md),
+ * so it cannot depend on Zod. The `toAiSchema` helper bridges any
+ * Standard Schema (Zod, Valibot, ArkType, etc.) by using the SDK's
+ * lower-level `jsonSchema(jsonSchemaObj, { validate })`.
+ */
+export function toAiOutputSpec(schema: StandardSchemaV1): unknown {
+  const aiSchema = toAiSchema(
+    schema,
+    "output",
+    "LLM output schema",
+  ) as Parameters<typeof Output.object>[0]["schema"];
   return Output.object({ schema: aiSchema });
 }
