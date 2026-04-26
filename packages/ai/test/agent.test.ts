@@ -120,6 +120,23 @@ describe("agent() destination", () => {
         output: { not: "a schema" } as never,
       }),
     ).toThrow(/Standard Schema/);
+
+    // Null and non-object values must surface RC5003, not a raw TypeError
+    // from `(null)["~standard"]`.
+    expect(() =>
+      agent({
+        model: "anthropic:claude-opus-4-7",
+        system: "Be helpful.",
+        output: null as never,
+      }),
+    ).toThrow(/Standard Schema/);
+    expect(() =>
+      agent({
+        model: "anthropic:claude-opus-4-7",
+        system: "Be helpful.",
+        output: "not-an-object" as never,
+      }),
+    ).toThrow(/Standard Schema/);
   });
 
   /**

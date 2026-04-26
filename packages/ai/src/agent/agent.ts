@@ -43,6 +43,11 @@ export function validateAgentOptions(options: AgentOptions): void {
     });
   }
   if (options.output !== undefined) {
+    if (options.output === null || typeof options.output !== "object") {
+      throw rcError("RC5003", undefined, {
+        message: `Agent: "output" must be a Standard Schema (Zod/Valibot/ArkType/etc.).`,
+      });
+    }
     const standard = (
       options.output as { ["~standard"]?: { validate?: unknown } }
     )["~standard"];

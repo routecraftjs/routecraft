@@ -434,14 +434,17 @@ craft()
 | Option | Type | Required | Description |
 |--------|------|----------|-------------|
 | `description` | `string` | Yes | Human-readable description. Surfaces in observability and is used as the tool description when the agent is exposed to other agents |
-| `model` | `LlmModelId \| LlmModelConfig` | Yes | `"provider:model"` string (resolved via `llmPlugin`) or an inline `LlmModelConfig` |
+| `model` | `LlmModelId` | No\* | `"provider:model"` string resolved via `llmPlugin`. Required unless `defaultOptions.model` supplies a fallback; otherwise dispatch throws `RC5003` |
 | `system` | `string` | Yes | System prompt |
 | `user` | `(exchange) => string` | No | Override for deriving the user prompt from the incoming exchange |
+| `tools` | `ToolSelection` | No | Tool whitelist built via `tools([...])`. Inherits `defaultOptions.tools` when omitted; an explicit value replaces the default entirely |
+| `output` | `StandardSchemaV1` | No | Schema for structured output. Validated and parsed onto `AgentResult.output` after dispatch (runtime ships in a follow-up release) |
 
 **Resolution semantics:**
 
 - `agent("name")` resolves only registered agents. Route-backed agents are called via `.to(direct("route-id"))` and run the full pipeline of the target route; `agent("name")` runs the registered agent's LLM call inline.
-- The plugin throws at context init (`RC5003`) on: duplicate ids across installs, empty id key, missing description, invalid model string, or empty system.
+- The plugin throws at context init (`RC5003`) on: duplicate ids across installs, empty id key, missing description, malformed model string when present, empty system, or a non-`ToolSelection` `tools` value.
+- The agent throws at dispatch (`RC5003`) when neither the agent nor `defaultOptions.model` supplies a model.
 - `agent("unknown")` fails at dispatch (`RC5004`) with the list of registered agent ids.
 
 See the [`agent`](/docs/reference/adapters#agent) adapter for usage patterns.
@@ -493,7 +496,7 @@ agentPlugin({
 
 ### Testing fns
 
-There is no public `invokeFn` helper -- agents are the only legitimate dispatcher for registered fns. To exercise a fn's input schema and handler in isolation in tests, use `testFn` from `@routecraft/testing`:
+There is no public `invokeFn` helper. Agents are the only legitimate dispatcher for registered fns. To exercise a fn's input schema and handler in isolation in tests, use `testFn` from `@routecraft/testing`:
 
 ```ts
 import { testFn } from '@routecraft/testing'
@@ -616,7 +619,7 @@ agentPlugin({
 
 #### Soft dependency on `llmPlugin`
 
-Agent model references use the `"providerId:modelName"` format and resolve against the LLM provider registry populated by `llmPlugin`. **You must install `llmPlugin` with the relevant providers.** This is intentional: provider credentials live in one place, agents reference them by id. There is no inline-credentials escape hatch on `agent({...})` -- if you want centralised wiring, use `llmPlugin`.
+Agent model references use the `"providerId:modelName"` format and resolve against the LLM provider registry populated by `llmPlugin`. **You must install `llmPlugin` with the relevant providers.** This is intentional: provider credentials live in one place, and agents reference them by id. There is no inline-credentials escape hatch on `agent({...})`; centralised wiring via `llmPlugin` is the only path.
 
 ### Typed fn ids (`FnRegistry`)
 

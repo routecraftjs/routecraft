@@ -45,10 +45,10 @@ export interface AgentPluginOptions {
    * Context-level defaults applied to any agent that doesn't override
    * them. Mirrors the `llmPlugin({ defaultOptions })` pattern:
    *
-   * - `model` (`LlmModelId` string) — used by agents that omit `model`.
+   * - `model` (`LlmModelId` string) is used by agents that omit `model`.
    *   Requires `llmPlugin` to be installed with the relevant provider.
-   * - `tools` (`ToolSelection` from `tools([...])`) — used by agents
-   *   that omit `tools`. Override-not-extend; an explicit `tools:` on
+   * - `tools` (`ToolSelection` from `tools([...])`) is used by agents
+   *   that omit `tools`. Override-not-extend: an explicit `tools:` on
    *   an agent replaces this default entirely.
    *
    * Multiple `agentPlugin` installs that each set the same default
@@ -164,7 +164,7 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
         }
         if (entry === null || typeof entry !== "object") {
           throw rcError("RC5003", undefined, {
-            message: `agentPlugin: fn "${id}" entry must be an object with description, schema, and handler.`,
+            message: `agentPlugin: fn "${id}" entry must be an object with description, input, and handler.`,
           });
         }
         if (!isDeferredFn(entry)) {

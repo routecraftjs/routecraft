@@ -29,7 +29,7 @@ export interface AgentDefaultOptions {
    *
    * Agents that omit `model` inherit this default at dispatch time.
    * Both this default and the per-agent `model` are `LlmModelId`
-   * strings; agents do not author provider credentials inline -- that
+   * strings. Agents do not author provider credentials inline; that
    * responsibility lives with `llmPlugin`.
    */
   model?: LlmModelId;
@@ -94,7 +94,7 @@ export interface AgentOptions {
    * Mirrors the `llm({ output })` option and the route-level
    * `.output(schema)` builder method, so the same word is used for
    * "declared output shape" everywhere in the framework. Per-agent
-   * only -- not part of `defaultOptions`, since output shape is
+   * only (not part of `defaultOptions`), since output shape is
    * intrinsic to a specific agent's job.
    *
    * The runtime that wires this through `generateText({ output })`
