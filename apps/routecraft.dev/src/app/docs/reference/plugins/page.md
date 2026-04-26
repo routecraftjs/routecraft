@@ -463,8 +463,8 @@ craft()
 |--------|------|----------|-------------|
 | `description` | `string` | Yes | Human-readable description. Surfaces in observability and is used as the tool description when the agent is exposed to other agents |
 | `model` | `LlmModelId` | No\* | `"provider:model"` string resolved via `llmPlugin`. Required unless `defaultOptions.model` supplies a fallback; otherwise dispatch throws `RC5003` |
-| `system` | `string` | Yes | System prompt |
-| `user` | `(exchange) => string` | No | Override for deriving the user prompt from the incoming exchange |
+| `system` | `string \| (exchange) => string` | Yes | System prompt. Static string or a function that derives it from the exchange (mirrors `llm({ system })`) |
+| `user` | `string \| (exchange) => string` | No | User prompt override. Static string or a function that derives it from the exchange. Defaults to `exchange.body` (string as-is, JSON for objects) when omitted |
 | `tools` | `ToolSelection` | No | Tool whitelist built via `tools([...])`. Inherits `defaultOptions.tools` when omitted; an explicit value replaces the default entirely |
 | `output` | `StandardSchemaV1` | No | Schema for structured output. Validated and parsed onto `AgentResult.output` after dispatch (runtime ships in a follow-up release) |
 

@@ -1,6 +1,5 @@
-import type { Exchange } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import type { LlmModelId, LlmUsage } from "../llm/types.ts";
+import type { LlmModelId, LlmPromptSource, LlmUsage } from "../llm/types.ts";
 import type { AgentEventListener } from "./events.ts";
 import type { ToolSelection } from "./tools/selection.ts";
 
@@ -9,9 +8,14 @@ import type { ToolSelection } from "./tools/selection.ts";
  * the user prompt from `exchange.body` (string body as-is, JSON-stringified
  * for objects, `String()` otherwise).
  *
+ * Alias of {@link LlmPromptSource} so the same prompt-source contract
+ * applies to both the `agent` and `llm` destinations: pass a static
+ * string for fixed prompts, or a function that derives the prompt from
+ * the incoming exchange.
+ *
  * @experimental
  */
-export type AgentUserPromptSource = (exchange: Exchange<unknown>) => string;
+export type AgentUserPromptSource = LlmPromptSource;
 
 /**
  * Context-level defaults applied to any agent that doesn't override them.
@@ -73,16 +77,20 @@ export interface AgentOptions {
   model?: LlmModelId;
 
   /**
-   * System prompt as a plain string. Load from disk yourself when you want
-   * to source it from a file (e.g. `readFileSync("./prompt.md", "utf-8")`).
+   * System prompt. Either a static string or a function that derives
+   * the prompt from the incoming exchange (mirrors `llm({ system })`).
+   * Load from disk yourself when you want to source the static form
+   * from a file (e.g. `readFileSync("./prompt.md", "utf-8")`).
    */
-  system: string;
+  system: LlmPromptSource;
 
   /**
-   * Optional override for deriving the user prompt from the incoming
-   * exchange. Defaults to the body (string as-is, JSON for objects).
+   * Optional override for the user prompt. Either a static string or
+   * a function that derives the prompt from the incoming exchange
+   * (mirrors `llm({ user })`). Defaults to the exchange body (string
+   * as-is, JSON for objects, `String()` otherwise) when omitted.
    */
-  user?: AgentUserPromptSource;
+  user?: LlmPromptSource;
 
   /**
    * Tools the agent is allowed to call. Build via

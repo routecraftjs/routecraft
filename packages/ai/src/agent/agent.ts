@@ -16,9 +16,28 @@ import type { AgentOptions, AgentResult } from "./types.ts";
  * @internal
  */
 export function validateAgentOptions(options: AgentOptions): void {
-  if (typeof options.system !== "string" || options.system.trim() === "") {
+  // `system` accepts the same string-or-function shape as `llm({ system })`.
+  // For the static form, require non-empty so misconfiguration ("" or
+  // missing) surfaces at construction. The function form is validated at
+  // dispatch (its return value flows through `resolvePrompt`).
+  if (typeof options.system === "string") {
+    if (options.system.trim() === "") {
+      throw rcError("RC5003", undefined, {
+        message: `Agent: "system" is required and must be a non-empty string (or a function that returns one).`,
+      });
+    }
+  } else if (typeof options.system !== "function") {
     throw rcError("RC5003", undefined, {
-      message: `Agent: "system" is required and must be a non-empty string.`,
+      message: `Agent: "system" must be a string or a function (exchange) => string.`,
+    });
+  }
+  if (
+    options.user !== undefined &&
+    typeof options.user !== "string" &&
+    typeof options.user !== "function"
+  ) {
+    throw rcError("RC5003", undefined, {
+      message: `Agent: "user" must be a string or a function (exchange) => string when present.`,
     });
   }
   // `model` is optional: inheritable from agentPlugin({ defaultOptions:
