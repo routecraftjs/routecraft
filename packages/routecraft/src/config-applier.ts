@@ -13,6 +13,8 @@ import type { CraftConfig } from "@routecraft/routecraft";
  * standard plugin lifecycle.
  *
  * @template K - Key on `CraftConfig` this applier handles
+ *
+ * @experimental
  */
 export type ConfigApplier<K extends keyof CraftConfig> = (
   options: NonNullable<CraftConfig[K]>,
@@ -57,10 +59,14 @@ function getRegistry(): Map<string, AnyConfigApplier> {
  * participate in the standard lifecycle: `apply()` runs during
  * `initPlugins()`, `teardown()` runs during `context.stop()`.
  *
- * Re-registering the same key with the same applier is a silent no-op
- * (multiple package copies in a workspace are tolerated). Re-registering
- * with a different applier replaces the previous registration; the last
- * registration wins.
+ * Re-registering a key replaces the previous registration: last writer wins.
+ * The registry is shared across copies of the package via `Symbol.for`, but
+ * an applier registered by one copy of an ecosystem package is a different
+ * function reference from the same applier registered by another copy. If
+ * two copies of `@routecraft/ai` end up in the same workspace, the last one
+ * to load is the one whose applier (and therefore whose `llmPlugin`
+ * instance) runs. Structure your workspace to avoid duplicate copies of the
+ * same ecosystem package; this registry does not transparently de-duplicate.
  *
  * @template K - Key on `CraftConfig` this applier handles
  * @param key - The `CraftConfig` key

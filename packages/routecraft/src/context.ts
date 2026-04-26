@@ -258,14 +258,23 @@ export class CraftContext {
 
       // Walk registered config appliers (e.g. @routecraft/ai promotes `llm`,
       // `mcp`, `embedding`, `agent` to first-class keys via this registry).
-      // Order is significant: ecosystem appliers go after core inline
-      // conversions and before user `config.plugins`, so reverse-iteration
-      // teardown gives the correct order (user plugins first, then
-      // ecosystem, then core).
+      //
+      // The push order into `this.plugins` drives both apply() order
+      // (forward) and teardown() order (reverse) for entries that go
+      // through the plugin lifecycle:
+      //   1. telemetry plugin (if config.telemetry)
+      //   2. ecosystem appliers, in registration order
+      //   3. user config.plugins
+      //
+      // Reverse-iteration in performShutdown() therefore tears down user
+      // plugins first, then ecosystem appliers, then telemetry. Mail is
+      // not a plugin -- it registers a callback in this.teardownCallbacks,
+      // which runs after all plugin teardowns regardless of where the
+      // mail block sits in this constructor.
       const configRecord = config as unknown as Record<string, unknown>;
       for (const [key, factory] of getConfigAppliers()) {
         const value = configRecord[key];
-        if (value !== undefined) {
+        if (value) {
           this.plugins.push(factory(value));
         }
       }

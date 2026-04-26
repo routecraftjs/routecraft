@@ -62,6 +62,10 @@ export const craftConfig = defineConfig({
 
 The legacy `plugins: [llmPlugin(...)]` form continues to work and is the right escape hatch for shared plugin instances or programmatic composition.
 
+{% callout type="note" %}
+**Troubleshooting:** if TypeScript reports `Object literal may only specify known properties, and 'llm' does not exist in type 'CraftConfig'` (or the same for `mcp`, `embedding`, `agent`), the augmentation has not been loaded. Add `import '@routecraft/ai'` to a file that's part of your project's compilation -- usually next to `defineConfig` in `craft.config.ts`. The side-effect import is what merges the AI keys into `CraftConfig`.
+{% /callout %}
+
 ## Core adapter defaults
 
 Core adapters have dedicated config fields so you can set context-wide defaults without importing a plugin. See [Merged Options](/docs/advanced/merged-options) for how the merge hierarchy works.

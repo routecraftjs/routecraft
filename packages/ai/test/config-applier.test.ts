@@ -1,7 +1,11 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, expectTypeOf, test } from "vitest";
 import { CraftContext, defineConfig } from "@routecraft/routecraft";
 import { ADAPTER_LLM_PROVIDERS } from "../src/llm/types.ts";
 import { ADAPTER_AGENT_REGISTRY } from "../src/agent/index.ts";
+import type { LlmPluginOptions } from "../src/llm/types.ts";
+import type { McpPluginOptions } from "../src/mcp/types.ts";
+import type { EmbeddingPluginOptions } from "../src/embedding/types.ts";
+import type { AgentPluginOptions } from "../src/agent/plugin.ts";
 // Side-effect import: registers config appliers for llm/mcp/embedding/agent.
 import "../src/index.ts";
 
@@ -90,5 +94,29 @@ describe("@routecraft/ai config appliers", () => {
     expect((providers as Map<string, unknown>).has("openai")).toBe(true);
 
     await ctx.stop();
+  });
+
+  /**
+   * @case @routecraft/ai augments CraftConfig with llm/mcp/embedding/agent
+   *   keys typed as their respective plugin options
+   * @preconditions @routecraft/ai is imported (side-effect registers
+   *   appliers and merges the augmentation into CraftConfig)
+   * @expectedResult defineConfig accepts each AI key with the matching
+   *   options type. A regression that broke the augmentation, the
+   *   self-reference in define-config.ts, or the import path used by
+   *   registerConfigApplier would fail these assertions.
+   */
+  test("augments CraftConfig with AI keys typed as plugin options", () => {
+    const cfg = defineConfig({
+      llm: { providers: { openai: { apiKey: "sk" } } },
+      mcp: {},
+      embedding: { providers: {} },
+      agent: { agents: {} },
+    });
+
+    expectTypeOf(cfg.llm).toMatchTypeOf<LlmPluginOptions>();
+    expectTypeOf(cfg.mcp).toMatchTypeOf<McpPluginOptions>();
+    expectTypeOf(cfg.embedding).toMatchTypeOf<EmbeddingPluginOptions>();
+    expectTypeOf(cfg.agent).toMatchTypeOf<AgentPluginOptions>();
   });
 });
