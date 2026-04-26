@@ -1,6 +1,7 @@
 import type { Source } from "../../operations/from.ts";
 import type { Destination } from "../../operations/to.ts";
 import type { Transformer } from "../../operations/transform.ts";
+import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
 import type {
   JsonTransformerOptions,
   JsonFileOptions,
@@ -85,7 +86,8 @@ export function json<T = unknown, R = unknown, V = unknown>(
   options: JsonOptions<T, R, V> = {},
 ): Transformer<T, R> | Transformer<T, V> | JsonFileAdapterType {
   if (isFileMode(options)) {
-    return new JsonFileAdapter(options as JsonFileOptions);
+    const adapter = new JsonFileAdapter(options as JsonFileOptions);
+    return tagAdapter(adapter, json, factoryArgs(options));
   }
   return new JsonTransformerAdapter<T, R, V>(
     options as JsonTransformerOptions<T, R, V>,

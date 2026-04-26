@@ -1,5 +1,6 @@
 import type { Source } from "../../operations/from.ts";
 import type { Destination } from "../../operations/to.ts";
+import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
 import type { FileOptions } from "./types.ts";
 import { FileSourceAdapter } from "./source.ts";
 import { FileDestinationAdapter } from "./destination.ts";
@@ -55,19 +56,28 @@ export function file(
  */
 export function file(options: FileOptions): FileAdapter;
 export function file(options: FileOptions): Source<string> | FileAdapter {
+  const args = factoryArgs(options);
   const source = new FileSourceAdapter(options);
   if (options.chunked) {
-    return {
-      adapterId: "routecraft.adapter.file",
-      subscribe: source.subscribe,
-    };
+    return tagAdapter(
+      {
+        adapterId: "routecraft.adapter.file",
+        subscribe: source.subscribe,
+      },
+      file,
+      args,
+    );
   }
   const destination = new FileDestinationAdapter(options);
-  return {
-    adapterId: "routecraft.adapter.file",
-    subscribe: source.subscribe,
-    send: destination.send,
-  };
+  return tagAdapter(
+    {
+      adapterId: "routecraft.adapter.file",
+      subscribe: source.subscribe,
+      send: destination.send,
+    },
+    file,
+    args,
+  );
 }
 
 // Re-export types for public API

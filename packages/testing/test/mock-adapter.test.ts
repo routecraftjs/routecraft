@@ -4,6 +4,11 @@ import {
   simple,
   http,
   mail,
+  file,
+  csv,
+  json,
+  jsonl,
+  html,
   type Destination,
   type Source,
   type Exchange,
@@ -14,10 +19,17 @@ import {
 import {
   mockAdapter,
   testContext,
+  spy,
   type AdapterMock,
   type MockAdapterBehavior,
   type TestContext,
 } from "@routecraft/testing";
+
+const RC_ADAPTER_FACTORY = Symbol.for("routecraft.adapter.factory");
+
+function readFactoryTag(adapter: unknown): unknown {
+  return (adapter as Record<symbol, unknown>)[RC_ADAPTER_FACTORY];
+}
 
 /**
  * A handwritten destination class with a stable constructor. Used to
@@ -463,6 +475,111 @@ describe("mockAdapter", () => {
       expect(mailMock.calls.source).toHaveLength(1);
       expect(mailMock.calls.source[0].yielded).toBe(1);
       expect(mailMock.calls.send).toHaveLength(1);
+    });
+  });
+
+  describe("first-party adapter factory tagging", () => {
+    /**
+     * @case file() instances carry the factory tag so mockAdapter(file, ...) can resolve them
+     * @preconditions file({ path }) constructs a Source+Destination adapter
+     * @expectedResult The instance carries RC_ADAPTER_FACTORY === file and mockAdapter(file, ...).override.target === file
+     */
+    test("file() is tagged with its factory", () => {
+      const adapter = file({ path: "/tmp/__never__.txt" });
+      expect(readFactoryTag(adapter)).toBe(file);
+      const mock = mockAdapter(file, { send: async () => undefined });
+      expect(mock.override.target).toBe(file);
+    });
+
+    /**
+     * @case csv() instances carry the factory tag so mockAdapter(csv, ...) can resolve them
+     * @preconditions csv({ path }) constructs a Source+Destination adapter; peer is loaded lazily on subscribe/send so construction is safe
+     * @expectedResult The instance carries RC_ADAPTER_FACTORY === csv and mockAdapter(csv, ...).override.target === csv
+     */
+    test("csv() is tagged with its factory", () => {
+      const adapter = csv({ path: "/tmp/__never__.csv" });
+      expect(readFactoryTag(adapter)).toBe(csv);
+      const mock = mockAdapter(csv, { send: async () => undefined });
+      expect(mock.override.target).toBe(csv);
+    });
+
+    /**
+     * @case json() file-mode instances carry the factory tag; transformer-mode instances do not (resolver does not fire on transform)
+     * @preconditions json({ path }) returns the file adapter; json({}) returns the transformer
+     * @expectedResult File-mode instance is tagged with json; transformer-mode instance has no factory tag
+     */
+    test("json() is tagged in file mode only", () => {
+      const fileAdapter = json({ path: "/tmp/__never__.json" });
+      expect(readFactoryTag(fileAdapter)).toBe(json);
+
+      const transformer = json({});
+      expect(readFactoryTag(transformer)).toBeUndefined();
+
+      const mock = mockAdapter(json, { send: async () => undefined });
+      expect(mock.override.target).toBe(json);
+    });
+
+    /**
+     * @case jsonl() instances carry the factory tag across all return paths
+     * @preconditions jsonl({ path: string }) returns Source+Destination; jsonl({ path: fn }) returns Destination-only; jsonl({ path, chunked: true }) returns Source-only
+     * @expectedResult Each return shape carries RC_ADAPTER_FACTORY === jsonl
+     */
+    test("jsonl() is tagged across return paths", () => {
+      const combined = jsonl({ path: "/tmp/__never__.jsonl" });
+      const destOnly = jsonl({ path: () => "/tmp/__never__.jsonl" });
+      const sourceOnly = jsonl({ path: "/tmp/__never__.jsonl", chunked: true });
+
+      expect(readFactoryTag(combined)).toBe(jsonl);
+      expect(readFactoryTag(destOnly)).toBe(jsonl);
+      expect(readFactoryTag(sourceOnly)).toBe(jsonl);
+
+      const mock = mockAdapter(jsonl, { send: async () => undefined });
+      expect(mock.override.target).toBe(jsonl);
+    });
+
+    /**
+     * @case html() file-mode instances carry the factory tag; transformer-only instances do not
+     * @preconditions html({ path, selector }) returns Transformer+Source+Destination; html({ selector }) returns transformer only
+     * @expectedResult File-mode instance is tagged with html; transformer-only instance has no factory tag
+     */
+    test("html() is tagged in file mode only", () => {
+      const fileAdapter = html({
+        path: "/tmp/__never__.html",
+        selector: "title",
+        extract: "text",
+      });
+      expect(readFactoryTag(fileAdapter)).toBe(html);
+
+      const transformer = html({ selector: "title", extract: "text" });
+      expect(readFactoryTag(transformer)).toBeUndefined();
+
+      const mock = mockAdapter(html, { send: async () => undefined });
+      expect(mock.override.target).toBe(html);
+    });
+
+    /**
+     * @case mockAdapter(file, { source }) actually intercepts a real .from(file(...)) at route execution time
+     * @preconditions Route subscribes to file() pointed at a non-existent path; mock is registered with a fixture
+     * @expectedResult Real filesystem read is bypassed; the spy destination receives the mock fixture
+     */
+    test("mockAdapter(file, { source }) intercepts a route built with the factory", async () => {
+      const fileMock = mockAdapter<typeof file, string>(file, {
+        source: ["mocked file body"],
+      });
+      const captured = spy<string>();
+
+      const route = craft()
+        .id("file-mock-smoke")
+        .from(file({ path: "/tmp/__never_exists__/x.txt" }))
+        .to(captured);
+
+      t = await testContext().override(fileMock).routes(route).build();
+      await t.test();
+
+      expect(fileMock.calls.source).toHaveLength(1);
+      expect(captured.received).toHaveLength(1);
+      expect(captured.received[0].body).toBe("mocked file body");
+      expect(t.errors).toHaveLength(0);
     });
   });
 });
