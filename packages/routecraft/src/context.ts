@@ -271,10 +271,17 @@ export class CraftContext {
       // not a plugin -- it registers a callback in this.teardownCallbacks,
       // which runs after all plugin teardowns regardless of where the
       // mail block sits in this constructor.
+      //
+      // The applier guard is strictly `value !== undefined`, not a truthy
+      // check. The applier registry is an open extension point: ecosystem
+      // packages can register appliers for any value shape, including
+      // primitives where `false`, `0`, or `""` are valid. "Not set" must
+      // mean only `undefined` so applier authors can rely on a stable
+      // contract regardless of value type.
       const configRecord = config as unknown as Record<string, unknown>;
       for (const [key, factory] of getConfigAppliers()) {
         const value = configRecord[key];
-        if (value) {
+        if (value !== undefined) {
           this.plugins.push(factory(value));
         }
       }

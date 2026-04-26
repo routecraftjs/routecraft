@@ -59,6 +59,11 @@ function getRegistry(): Map<string, AnyConfigApplier> {
  * participate in the standard lifecycle: `apply()` runs during
  * `initPlugins()`, `teardown()` runs during `context.stop()`.
  *
+ * The framework invokes the applier whenever `config[key] !== undefined`.
+ * Falsy values (`false`, `0`, `""`, `null`) are still passed through; only
+ * `undefined` means "not set". This lets primitive-valued keys behave
+ * sensibly without needing a wrapper object.
+ *
  * Re-registering a key replaces the previous registration: last writer wins.
  * The registry is shared across copies of the package via `Symbol.for`, but
  * an applier registered by one copy of an ecosystem package is a different
