@@ -99,6 +99,30 @@ describe("agent() destination", () => {
   });
 
   /**
+   * @case agent({ output }) accepts a Standard Schema and validates its shape at construction
+   * @preconditions agent with a Zod object output and a non-Standard-Schema output
+   * @expectedResult Valid schema constructs; non-Standard value throws synchronously
+   */
+  test("agent({ output }) validates the schema shape at construction", async () => {
+    const { z } = await import("zod");
+    const schema = z.object({ ok: z.boolean() });
+    const dest = agent({
+      model: "anthropic:claude-opus-4-7",
+      system: "Be helpful.",
+      output: schema,
+    });
+    expect(dest).toBeInstanceOf(AgentDestinationAdapter);
+
+    expect(() =>
+      agent({
+        model: "anthropic:claude-opus-4-7",
+        system: "Be helpful.",
+        output: { not: "a schema" } as never,
+      }),
+    ).toThrow(/Standard Schema/);
+  });
+
+  /**
    * @case end-to-end: route with agent calls callLlm with system + body-derived user prompt
    * @preconditions Route from simple body, .to(agent({...})), .to(spy)
    * @expectedResult callLlm is called once with the configured system and the body as user prompt; downstream body is AgentResult
@@ -130,8 +154,8 @@ describe("agent() destination", () => {
 
     expect(callLlmMock).toHaveBeenCalledTimes(1);
     const args = callLlmMock.mock.calls[0][0];
-    expect(args.systemPrompt).toBe("Be helpful.");
-    expect(args.userPrompt).toBe("hello world");
+    expect(args.system).toBe("Be helpful.");
+    expect(args.user).toBe("hello world");
     expect(args.modelId).toBe("claude-opus-4-7");
 
     expect(sink.received).toHaveLength(1);
@@ -260,7 +284,7 @@ describe("agent() destination", () => {
     await t.test();
 
     expect(callLlmMock).toHaveBeenCalledTimes(1);
-    expect(callLlmMock.mock.calls[0][0].userPrompt).toBe('{"q":"what?"}');
+    expect(callLlmMock.mock.calls[0][0].user).toBe('{"q":"what?"}');
   });
 
   /**
@@ -292,7 +316,7 @@ describe("agent() destination", () => {
 
     await t.test();
 
-    expect(callLlmMock.mock.calls[0][0].userPrompt).toBe("Greet alice");
+    expect(callLlmMock.mock.calls[0][0].user).toBe("Greet alice");
   });
 });
 
@@ -463,10 +487,8 @@ describe("agent(name) by-name destination + agentPlugin", () => {
     await t.test();
 
     expect(callLlmMock).toHaveBeenCalledTimes(1);
-    expect(callLlmMock.mock.calls[0][0].systemPrompt).toBe(
-      "Summarise the input.",
-    );
-    expect(callLlmMock.mock.calls[0][0].userPrompt).toBe("a long document");
+    expect(callLlmMock.mock.calls[0][0].system).toBe("Summarise the input.");
+    expect(callLlmMock.mock.calls[0][0].user).toBe("a long document");
     expect(sink.received).toHaveLength(1);
     expect((sink.received[0].body as AgentResult).text).toBe(
       "stubbed-response",

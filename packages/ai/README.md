@@ -75,8 +75,8 @@ const ctx = new ContextBuilder()
       )
       .enrich(http({ url: (ex) => ex.body.url }))
       .to(llm('anthropic:claude-sonnet-4-6', {
-        systemPrompt: 'Summarize the following webpage content concisely.',
-        userPrompt: (ex) => String(ex.body),
+        system: 'Summarize the following webpage content concisely.',
+        user: (ex) => String(ex.body),
       })),
   ])
   .build();

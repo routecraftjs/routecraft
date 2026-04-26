@@ -1,4 +1,5 @@
 import type { Exchange } from "@routecraft/routecraft";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { LlmModelId, LlmUsage } from "../llm/types.ts";
 import type { ToolSelection } from "./tools/selection.ts";
 
@@ -84,6 +85,23 @@ export interface AgentOptions {
    * here replaces the default entirely (no extension).
    */
   tools?: ToolSelection;
+
+  /**
+   * Optional output schema (Standard Schema). When set, the agent
+   * requests provider-level structured output and validates the
+   * result; the parsed value lands on `AgentResult.output`.
+   *
+   * Mirrors the `llm({ output })` option and the route-level
+   * `.output(schema)` builder method, so the same word is used for
+   * "declared output shape" everywhere in the framework. Per-agent
+   * only -- not part of `defaultOptions`, since output shape is
+   * intrinsic to a specific agent's job.
+   *
+   * The runtime that wires this through `generateText({ output })`
+   * lands in the next PR; defining this field today is accepted by
+   * validation but does not yet shape the dispatch.
+   */
+  output?: StandardSchemaV1;
 }
 
 /**

@@ -69,8 +69,8 @@ export class AgentDestinationAdapter implements Destination<
 
     const { config, modelName } = resolveModel(merged.model, context);
 
-    const systemPrompt = merged.system;
-    const userPrompt =
+    const system = merged.system;
+    const user =
       merged.user !== undefined
         ? resolvePrompt(merged.user, exchange)
         : resolveUserPromptDefault(exchange);
@@ -82,8 +82,8 @@ export class AgentDestinationAdapter implements Destination<
         temperature: DEFAULT_TEMPERATURE,
         maxTokens: DEFAULT_MAX_TOKENS,
       },
-      systemPrompt,
-      userPrompt,
+      system,
+      user,
     });
 
     const out: AgentResult = { text: result.text };

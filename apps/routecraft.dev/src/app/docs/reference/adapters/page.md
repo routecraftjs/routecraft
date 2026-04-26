@@ -1643,8 +1643,8 @@ craft()
   .id('summarise')
   .from(source)
   .enrich(llm('anthropic:claude-haiku-4-5-20251001', {
-    systemPrompt: 'Summarise the following in one sentence.',
-    userPrompt: (ex) => ex.body.content,
+    system: 'Summarise the following in one sentence.',
+    user: (ex) => ex.body.content,
   }))
   .to(log())
 // Result merged into body: { ..., text: '...', usage: { inputTokens, outputTokens } }
@@ -1661,9 +1661,9 @@ craft()
   .id('classify')
   .from(source)
   .enrich(llm('openai:gpt-4o', {
-    systemPrompt: 'Classify the sentiment of the text.',
-    userPrompt: (ex) => ex.body.text,
-    outputSchema: sentimentSchema,
+    system: 'Classify the sentiment of the text.',
+    user: (ex) => ex.body.text,
+    output: sentimentSchema,
   }))
   .to(log())
 // result.output is typed as { sentiment: string, confidence: number }
@@ -1677,9 +1677,9 @@ Model ID format: `"provider:model-name"` (e.g., `"ollama:llama3.2"`, `"anthropic
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `systemPrompt` | `string \| (exchange) => string` | — | System prompt (static or derived from exchange) |
-| `userPrompt` | `string \| (exchange) => string` | — | User prompt (static or derived from exchange) |
-| `outputSchema` | `StandardSchemaV1` | — | Zod/Valibot/ArkType schema for structured output |
+| `system` | `string \| (exchange) => string` | — | System prompt (static or derived from exchange) |
+| `user` | `string \| (exchange) => string` | — | User prompt (static or derived from exchange) |
+| `output` | `StandardSchemaV1` | — | Zod/Valibot/ArkType schema for structured output |
 | `temperature` | `number` | — | Sampling temperature |
 | `maxTokens` | `number` | — | Maximum tokens to generate |
 | `topP` | `number` | — | Top-p sampling |
@@ -1691,7 +1691,7 @@ Model ID format: `"provider:model-name"` (e.g., `"ollama:llama3.2"`, `"anthropic
 | Field | Type | Description |
 |-------|------|-------------|
 | `text` | `string` | Raw model output |
-| `output` | `T` | Parsed structured output (only when `outputSchema` provided) |
+| `output` | `T` | Parsed structured output (only when an `output` schema was supplied) |
 | `usage.inputTokens` | `number` | Input token count |
 | `usage.outputTokens` | `number` | Output token count |
 | `usage.totalTokens` | `number` | Total token count |

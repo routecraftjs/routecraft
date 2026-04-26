@@ -99,8 +99,8 @@ export interface CallLlmParams {
     | "frequencyPenalty"
     | "presencePenalty"
   >;
-  systemPrompt: string;
-  userPrompt: string;
+  system: string;
+  user: string;
   /** Optional structured output spec (from toAiOutputSpec). Enables provider-level JSON schema. */
   output?: unknown;
 }
@@ -109,53 +109,18 @@ export interface CallLlmParams {
  * Dispatches to the appropriate provider and returns a normalized LlmResult.
  */
 export async function callLlm(params: CallLlmParams): Promise<LlmResult> {
-  const { config, modelId, options, systemPrompt, userPrompt, output } = params;
+  const { config, modelId, options, system, user, output } = params;
   switch (config.provider) {
     case "openai":
-      return callOpenAI(
-        config,
-        modelId,
-        options,
-        systemPrompt,
-        userPrompt,
-        output,
-      );
+      return callOpenAI(config, modelId, options, system, user, output);
     case "anthropic":
-      return callAnthropic(
-        config,
-        modelId,
-        options,
-        systemPrompt,
-        userPrompt,
-        output,
-      );
+      return callAnthropic(config, modelId, options, system, user, output);
     case "gemini":
-      return callGemini(
-        config,
-        modelId,
-        options,
-        systemPrompt,
-        userPrompt,
-        output,
-      );
+      return callGemini(config, modelId, options, system, user, output);
     case "openrouter":
-      return callOpenRouter(
-        config,
-        modelId,
-        options,
-        systemPrompt,
-        userPrompt,
-        output,
-      );
+      return callOpenRouter(config, modelId, options, system, user, output);
     case "ollama":
-      return callOllama(
-        config,
-        modelId,
-        options,
-        systemPrompt,
-        userPrompt,
-        output,
-      );
+      return callOllama(config, modelId, options, system, user, output);
     default: {
       const _: never = config;
       throw new Error(
@@ -169,8 +134,8 @@ async function callOpenAI(
   config: import("../types.ts").LlmModelConfigOpenAI,
   modelId: string,
   options: CallLlmParams["options"],
-  systemPrompt: string,
-  userPrompt: string,
+  system: string,
+  user: string,
   output: CallLlmParams["output"],
 ): Promise<LlmResult> {
   let createOpenAI: (s: {
@@ -195,13 +160,13 @@ async function callOpenAI(
   const model = openai(modelId);
   const genParams: Parameters<typeof generateText>[0] = {
     model: model as Parameters<typeof generateText>[0]["model"],
-    prompt: userPrompt,
+    prompt: user,
     ...(options.maxTokens !== undefined && {
       maxOutputTokens: options.maxTokens,
     }),
     temperature: options.temperature,
   };
-  if (systemPrompt) genParams.system = systemPrompt;
+  if (system) genParams.system = system;
   if (options.topP !== undefined) genParams.topP = options.topP;
   if (options.frequencyPenalty !== undefined)
     genParams.frequencyPenalty = options.frequencyPenalty;
@@ -222,8 +187,8 @@ async function callAnthropic(
   config: import("../types.ts").LlmModelConfigAnthropic,
   modelId: string,
   options: CallLlmParams["options"],
-  systemPrompt: string,
-  userPrompt: string,
+  system: string,
+  user: string,
   output: CallLlmParams["output"],
 ): Promise<LlmResult> {
   let createAnthropic: (s: { apiKey: string }) => (m: string) => unknown;
@@ -241,13 +206,13 @@ async function callAnthropic(
   const model = anthropic(modelId);
   const genParams: Parameters<typeof generateText>[0] = {
     model: model as Parameters<typeof generateText>[0]["model"],
-    prompt: userPrompt,
+    prompt: user,
     ...(options.maxTokens !== undefined && {
       maxOutputTokens: options.maxTokens,
     }),
     temperature: options.temperature,
   };
-  if (systemPrompt) genParams.system = systemPrompt;
+  if (system) genParams.system = system;
   // Same option keys as callOpenAI; SDK passes through. Anthropic supports topP;
   // frequencyPenalty/presencePenalty may be unsupported (SDK may warn).
   if (options.topP !== undefined) genParams.topP = options.topP;
@@ -270,8 +235,8 @@ async function callGemini(
   config: import("../types.ts").LlmModelConfigGemini,
   modelId: string,
   options: CallLlmParams["options"],
-  systemPrompt: string,
-  userPrompt: string,
+  system: string,
+  user: string,
   output: CallLlmParams["output"],
 ): Promise<LlmResult> {
   let createGoogleGenerativeAI: (s: {
@@ -292,13 +257,13 @@ async function callGemini(
   const model = google(modelId);
   const genParams: Parameters<typeof generateText>[0] = {
     model: model as Parameters<typeof generateText>[0]["model"],
-    prompt: userPrompt,
+    prompt: user,
     ...(options.maxTokens !== undefined && {
       maxOutputTokens: options.maxTokens,
     }),
     temperature: options.temperature,
   };
-  if (systemPrompt) genParams.system = systemPrompt;
+  if (system) genParams.system = system;
   // Same option keys as callOpenAI; SDK passes through. Gemini may not support
   // all (e.g. frequencyPenalty/presencePenalty); check result.warnings if needed.
   if (options.topP !== undefined) genParams.topP = options.topP;
@@ -321,8 +286,8 @@ async function callOpenRouter(
   config: import("../types.ts").LlmModelConfigOpenRouter,
   modelId: string,
   options: CallLlmParams["options"],
-  systemPrompt: string,
-  userPrompt: string,
+  system: string,
+  user: string,
   output: CallLlmParams["output"],
 ): Promise<LlmResult> {
   let createOpenRouter: (s: { apiKey: string }) => {
@@ -345,13 +310,13 @@ async function callOpenRouter(
   const model = rawModel as Parameters<typeof generateText>[0]["model"];
   const genParams: Parameters<typeof generateText>[0] = {
     model,
-    prompt: userPrompt,
+    prompt: user,
     ...(options.maxTokens !== undefined && {
       maxOutputTokens: options.maxTokens,
     }),
     temperature: options.temperature,
   };
-  if (systemPrompt) genParams.system = systemPrompt;
+  if (system) genParams.system = system;
   // Same option keys as callOpenAI. OpenRouter is OpenAI-compatible; typically supports all.
   if (options.topP !== undefined) genParams.topP = options.topP;
   if (options.frequencyPenalty !== undefined)
@@ -373,8 +338,8 @@ async function callOllama(
   config: import("../types.ts").LlmModelConfigOllama,
   modelId: string,
   options: CallLlmParams["options"],
-  systemPrompt: string,
-  userPrompt: string,
+  system: string,
+  user: string,
   output: CallLlmParams["output"],
 ): Promise<LlmResult> {
   let createOllama: (s: { baseURL?: string }) => (name: string) => unknown;
@@ -397,13 +362,13 @@ async function callOllama(
   const model = rawModel as Parameters<typeof generateText>[0]["model"];
   const genParams: Parameters<typeof generateText>[0] = {
     model,
-    prompt: userPrompt,
+    prompt: user,
     ...(options.maxTokens !== undefined && {
       maxOutputTokens: options.maxTokens,
     }),
     temperature: options.temperature,
   };
-  if (systemPrompt) genParams.system = systemPrompt;
+  if (system) genParams.system = system;
   // Same option keys as callOpenAI. Ollama supports top_p; frequencyPenalty/presencePenalty
   // may be unsupported (SDK may warn).
   if (options.topP !== undefined) genParams.topP = options.topP;

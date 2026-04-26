@@ -22,17 +22,17 @@ describe("llm() DSL and adapter", () => {
   });
 
   /**
-   * @case llm(modelId, options) accepts optional systemPrompt and temperature
+   * @case llm(modelId, options) accepts optional system and temperature
    * @preconditions None
-   * @expectedResult Adapter options contain passed systemPrompt and temperature
+   * @expectedResult Adapter options contain passed system and temperature
    */
   test("llm(modelId, options) accepts optional options", () => {
     const dest = llm("ollama:my-model", {
-      systemPrompt: "You are helpful.",
+      system: "You are helpful.",
       temperature: 0.5,
     });
     expect(dest).toBeInstanceOf(LlmDestinationAdapter);
-    expect(dest.options.systemPrompt).toBe("You are helpful.");
+    expect(dest.options.system).toBe("You are helpful.");
     expect(dest.options.temperature).toBe(0.5);
   });
 
