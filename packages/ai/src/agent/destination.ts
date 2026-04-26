@@ -11,8 +11,12 @@ import {
   resolvePrompt,
   resolveUserPromptDefault,
 } from "../llm/shared.ts";
-import { ADAPTER_AGENT_REGISTRY } from "./store.ts";
+import {
+  ADAPTER_AGENT_DEFAULT_OPTIONS,
+  ADAPTER_AGENT_REGISTRY,
+} from "./store.ts";
 import type {
+  AgentDefaultOptions,
   AgentOptions,
   AgentRegisteredOptions,
   AgentResult,
@@ -52,14 +56,23 @@ export class AgentDestinationAdapter implements Destination<
 
   async send(exchange: Exchange<unknown>): Promise<AgentResult> {
     const context = getExchangeContext(exchange);
-    const options = this.resolveOptions(context);
+    const baseOptions = this.resolveOptions(context);
+    const merged = mergeWithDefaults(baseOptions, context);
 
-    const { config, modelName } = resolveModel(options.model, context);
+    if (merged.model === undefined) {
+      throw rcError("RC5003", undefined, {
+        message:
+          `Agent: no "model" supplied and no agentPlugin({ defaultOptions: { model } }) is set on this context. ` +
+          `Specify "model" on the agent or set a context-level default.`,
+      });
+    }
 
-    const systemPrompt = options.system;
+    const { config, modelName } = resolveModel(merged.model, context);
+
+    const systemPrompt = merged.system;
     const userPrompt =
-      options.user !== undefined
-        ? resolvePrompt(options.user, exchange)
+      merged.user !== undefined
+        ? resolvePrompt(merged.user, exchange)
         : resolveUserPromptDefault(exchange);
 
     const result = await callLlm({
@@ -122,14 +135,7 @@ export class AgentDestinationAdapter implements Destination<
     if (this.binding.kind === "by-name") metadata["agent"] = this.binding.name;
     if (this.binding.kind === "inline") {
       const model = this.binding.options.model;
-      if (typeof model === "string") {
-        metadata["model"] = model;
-      } else {
-        const modelId = (model as { modelId?: string }).modelId;
-        metadata["model"] = modelId
-          ? `${model.provider}:${modelId}`
-          : model.provider;
-      }
+      if (typeof model === "string") metadata["model"] = model;
     }
     if (r.usage?.inputTokens !== undefined) {
       metadata["inputTokens"] = r.usage.inputTokens;
@@ -139,4 +145,30 @@ export class AgentDestinationAdapter implements Destination<
     }
     return metadata;
   }
+}
+
+/**
+ * Merge per-agent options with the context-level defaults registered
+ * via `agentPlugin({ defaultOptions: {...} })`. Per-agent values win
+ * per key; missing fields fall back to defaults (mirrors the LLM
+ * destination's `mergedOptions` pattern).
+ *
+ * @internal
+ */
+function mergeWithDefaults(
+  base: AgentOptions | AgentRegisteredOptions,
+  context: CraftContext | undefined,
+): AgentOptions | AgentRegisteredOptions {
+  const defaults = context?.getStore(
+    ADAPTER_AGENT_DEFAULT_OPTIONS as keyof import("@routecraft/routecraft").StoreRegistry,
+  ) as AgentDefaultOptions | undefined;
+  if (!defaults) return base;
+  const out = { ...base } as AgentOptions | AgentRegisteredOptions;
+  if (out.model === undefined && defaults.model !== undefined) {
+    out.model = defaults.model;
+  }
+  if (out.tools === undefined && defaults.tools !== undefined) {
+    out.tools = defaults.tools;
+  }
+  return out;
 }

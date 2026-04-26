@@ -116,11 +116,12 @@ export {
   agent,
   AgentDestinationAdapter,
   agentPlugin,
+  ADAPTER_AGENT_DEFAULT_OPTIONS,
   ADAPTER_AGENT_REGISTRY,
-  ADAPTER_TOOLS_DEFAULT,
 } from "./agent/index.ts";
 export type {
   AgentBinding,
+  AgentDefaultOptions,
   AgentOptions,
   AgentPluginOptions,
   AgentRegisteredOptions,

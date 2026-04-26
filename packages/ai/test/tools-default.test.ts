@@ -2,8 +2,8 @@ import { describe, test, expect, afterEach } from "vitest";
 import { ContextBuilder } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
+  ADAPTER_AGENT_DEFAULT_OPTIONS,
   ADAPTER_AGENT_REGISTRY,
-  ADAPTER_TOOLS_DEFAULT,
   agent,
   agentPlugin,
   defaultFns,
@@ -12,7 +12,7 @@ import {
   type AgentRegisteredOptions,
 } from "../src/index.ts";
 
-describe("agentPlugin context-default tools", () => {
+describe("agentPlugin defaultOptions storage", () => {
   let t: TestContext | undefined;
   afterEach(async () => {
     if (t) await t.stop();
@@ -20,74 +20,167 @@ describe("agentPlugin context-default tools", () => {
   });
 
   /**
-   * @case Context-default tools are stored under ADAPTER_TOOLS_DEFAULT
-   * @preconditions agentPlugin({ tools: tools(["currentTime"]) })
-   * @expectedResult Store contains a ToolSelection at the new symbol
+   * @case defaultOptions.tools is stored under ADAPTER_AGENT_DEFAULT_OPTIONS
+   * @preconditions agentPlugin({ defaultOptions: { tools: tools(["currentTime"]) } })
+   * @expectedResult Store entry has a `tools` ToolSelection
    */
-  test("agentPlugin stores its tools default in the context store", async () => {
+  test("agentPlugin stores defaultOptions.tools under the new symbol", async () => {
     t = await testContext()
       .with({
         plugins: [
           agentPlugin({
             functions: { ...defaultFns },
-            tools: tools(["currentTime"]),
+            defaultOptions: { tools: tools(["currentTime"]) },
           }),
         ],
       })
       .build();
 
-    const stored = t.ctx.getStore(ADAPTER_TOOLS_DEFAULT);
+    const stored = t.ctx.getStore(ADAPTER_AGENT_DEFAULT_OPTIONS);
     expect(stored).toBeDefined();
-    expect(isToolSelection(stored!)).toBe(true);
+    expect(isToolSelection(stored!.tools!)).toBe(true);
   });
 
   /**
-   * @case Without a context default, ADAPTER_TOOLS_DEFAULT is unset
-   * @preconditions agentPlugin without tools field
+   * @case defaultOptions.model is stored under ADAPTER_AGENT_DEFAULT_OPTIONS
+   * @preconditions agentPlugin({ defaultOptions: { model: "anthropic:claude-opus-4-7" } })
+   * @expectedResult Store entry has a `model` string
+   */
+  test("agentPlugin stores defaultOptions.model under the new symbol", async () => {
+    t = await testContext()
+      .with({
+        plugins: [
+          agentPlugin({
+            defaultOptions: { model: "anthropic:claude-opus-4-7" },
+          }),
+        ],
+      })
+      .build();
+
+    const stored = t.ctx.getStore(ADAPTER_AGENT_DEFAULT_OPTIONS);
+    expect(stored?.model).toBe("anthropic:claude-opus-4-7");
+  });
+
+  /**
+   * @case Without defaultOptions, ADAPTER_AGENT_DEFAULT_OPTIONS is unset
+   * @preconditions agentPlugin without defaultOptions field
    * @expectedResult Store entry is undefined
    */
-  test("agentPlugin without tools field does not set the default", async () => {
+  test("agentPlugin without defaultOptions does not set the store", async () => {
     t = await testContext()
       .with({ plugins: [agentPlugin({ functions: { ...defaultFns } })] })
       .build();
 
-    expect(t.ctx.getStore(ADAPTER_TOOLS_DEFAULT)).toBeUndefined();
+    expect(t.ctx.getStore(ADAPTER_AGENT_DEFAULT_OPTIONS)).toBeUndefined();
   });
 
   /**
-   * @case Two installs both supplying a default throw at context init
-   * @preconditions Two agentPlugin entries each with a tools: tools([...])
+   * @case Two installs both supplying the same default field throw at context init
+   * @preconditions Two agentPlugin entries each set defaultOptions.tools
    * @expectedResult build() rejects with RC5003 mentioning the conflict
    */
-  test("two installs each supplying a tools default throws", async () => {
+  test("two installs each setting defaultOptions.tools throws", async () => {
     await expect(
       new ContextBuilder()
         .with({
           plugins: [
             agentPlugin({
               functions: { ...defaultFns },
-              tools: tools(["currentTime"]),
+              defaultOptions: { tools: tools(["currentTime"]) },
             }),
             agentPlugin({
-              tools: tools(["randomUuid"]),
+              defaultOptions: { tools: tools(["randomUuid"]) },
             }),
           ],
         })
         .build(),
-    ).rejects.toThrow(/default tool list is already set/i);
+    ).rejects.toThrow(/defaultOptions\.tools.*already set/i);
   });
 
   /**
-   * @case agentPlugin rejects a non-ToolSelection passed as tools
-   * @preconditions agentPlugin({ tools: ["currentTime"] as never })
+   * @case Two installs each setting defaultOptions.model throw at context init
+   * @preconditions Two agentPlugin entries each set a different default model
+   * @expectedResult build() rejects with RC5003 mentioning the conflict
+   */
+  test("two installs each setting defaultOptions.model throws", async () => {
+    await expect(
+      new ContextBuilder()
+        .with({
+          plugins: [
+            agentPlugin({
+              defaultOptions: { model: "anthropic:claude-opus-4-7" },
+            }),
+            agentPlugin({
+              defaultOptions: { model: "openai:gpt-4o" },
+            }),
+          ],
+        })
+        .build(),
+    ).rejects.toThrow(/defaultOptions\.model.*already set/i);
+  });
+
+  /**
+   * @case Two installs each setting a DIFFERENT default field merge cleanly
+   * @preconditions install A sets defaultOptions.model, install B sets defaultOptions.tools
+   * @expectedResult Both fields end up on the stored value
+   */
+  test("two installs setting different default fields merge", async () => {
+    t = await testContext()
+      .with({
+        plugins: [
+          agentPlugin({
+            defaultOptions: { model: "anthropic:claude-opus-4-7" },
+          }),
+          agentPlugin({
+            functions: { ...defaultFns },
+            defaultOptions: { tools: tools(["currentTime"]) },
+          }),
+        ],
+      })
+      .build();
+
+    const stored = t.ctx.getStore(ADAPTER_AGENT_DEFAULT_OPTIONS);
+    expect(stored?.model).toBe("anthropic:claude-opus-4-7");
+    expect(isToolSelection(stored!.tools!)).toBe(true);
+  });
+
+  /**
+   * @case agentPlugin rejects defaultOptions that is not an object
+   * @preconditions agentPlugin({ defaultOptions: ["x"] as never })
    * @expectedResult Synchronous RC5003 thrown at plugin construction
    */
-  test("agentPlugin rejects a non-ToolSelection tools value", () => {
+  test("agentPlugin rejects a non-object defaultOptions", () => {
     expect(() =>
       agentPlugin({
-        tools: ["currentTime"] as never,
+        defaultOptions: ["x"] as never,
       }),
-    ).toThrow(/tools\(/);
+    ).toThrow(/defaultOptions/i);
+  });
+
+  /**
+   * @case agentPlugin rejects defaultOptions.tools that is not a ToolSelection
+   * @preconditions agentPlugin({ defaultOptions: { tools: ["x"] as never } })
+   * @expectedResult Synchronous RC5003 thrown
+   */
+  test("agentPlugin rejects a non-ToolSelection defaultOptions.tools", () => {
+    expect(() =>
+      agentPlugin({
+        defaultOptions: { tools: ["x"] as never },
+      }),
+    ).toThrow(/defaultOptions\.tools/i);
+  });
+
+  /**
+   * @case agentPlugin rejects defaultOptions.model that is not "providerId:modelName"
+   * @preconditions agentPlugin({ defaultOptions: { model: "anthropic-only" } })
+   * @expectedResult Synchronous RC5003 thrown
+   */
+  test("agentPlugin rejects a malformed defaultOptions.model", () => {
+    expect(() =>
+      agentPlugin({
+        defaultOptions: { model: "anthropic-only" },
+      }),
+    ).toThrow(/defaultOptions\.model/i);
   });
 });
 
@@ -127,6 +220,34 @@ describe("agentPlugin per-agent tools field", () => {
       | AgentRegisteredOptions
       | undefined;
     expect(entry?.tools).toBe(sel);
+  });
+
+  /**
+   * @case Registered agent without model is accepted at init when defaultOptions.model is set
+   * @preconditions defaultOptions.model set; agent omits model
+   * @expectedResult build() succeeds and the registered agent's model is undefined (resolved at dispatch)
+   */
+  test("registered agent without model is accepted when a default exists", async () => {
+    t = await testContext()
+      .with({
+        plugins: [
+          agentPlugin({
+            defaultOptions: { model: "anthropic:claude-opus-4-7" },
+            agents: {
+              inheritor: {
+                description: "Inherits the default model.",
+                system: "Be precise.",
+              },
+            },
+          }),
+        ],
+      })
+      .build();
+
+    const entry = t.ctx.getStore(ADAPTER_AGENT_REGISTRY)?.get("inheritor") as
+      | AgentRegisteredOptions
+      | undefined;
+    expect(entry?.model).toBeUndefined();
   });
 
   /**
@@ -184,5 +305,29 @@ describe("agent() inline tools validation", () => {
       tools: tools(["currentTime"]),
     });
     expect(dest).toBeDefined();
+  });
+
+  /**
+   * @case Inline agent({}) without model is accepted at construction (resolution deferred to dispatch)
+   * @preconditions agent({ system: "..." }) -- no model, no defaults at construction
+   * @expectedResult agent() returns a destination without throwing
+   */
+  test("inline agent without model is accepted at construction", () => {
+    const dest = agent({ system: "Be helpful." });
+    expect(dest).toBeDefined();
+  });
+
+  /**
+   * @case Inline agent({ model: "..." }) with malformed model throws
+   * @preconditions agent with model: "anthropic-only" (no colon)
+   * @expectedResult Synchronous RC5003 thrown
+   */
+  test("inline agent rejects malformed model string", () => {
+    expect(() =>
+      agent({
+        model: "anthropic-only",
+        system: "Be helpful.",
+      }),
+    ).toThrow(/model/i);
   });
 });

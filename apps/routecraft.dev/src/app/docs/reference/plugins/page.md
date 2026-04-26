@@ -515,7 +515,7 @@ const out = await testFn(greet, { name: 'alice' })
 
 > **Status: DSL-only.** The configuration surface below is fully implemented and validated; the agent runtime that actually presents these tools to the LLM and dispatches them lands in a follow-up release. Setting `tools:` on an agent today is a no-op at dispatch time.
 
-Tags, the `tools([...])` selector, the builder helpers, and the context-default tool list register and validate cleanly so user code can be written against the final shape now.
+Tags, the `tools([...])` selector, the builder helpers, and the context-level `defaultOptions` bag register and validate cleanly so user code can be written against the final shape now.
 
 ```ts
 import {
@@ -534,7 +534,7 @@ agentPlugin({
   },
   agents: {
     researcher: {
-      description, model, system,
+      description, system,                          // model + tools inherit from defaultOptions
       tools: tools([
         'currentTime',                              // bare ref
         'fetchOrder',
@@ -545,7 +545,10 @@ agentPlugin({
       ]),
     },
   },
-  tools: tools(['currentTime', { tagged: 'read-only' }]),  // context default
+  defaultOptions: {
+    model: 'anthropic:claude-opus-4-7',             // applies to agents that omit `model`
+    tools: tools(['currentTime', { tagged: 'read-only' }]),
+  },
 })
 ```
 
@@ -585,9 +588,35 @@ type KnownTag = 'read-only' | 'destructive' | 'idempotent';
 
 Any user string is also accepted; the `KnownTag` literals just power autocomplete.
 
-#### Context-default tool list
+#### Context-level `defaultOptions`
 
-`agentPlugin({ tools: tools([...]) })` registers a default tool list for the context. Agents that omit their own `tools:` field inherit it. An agent that sets `tools:` replaces the default entirely (override, not extend). Two installs each supplying a default throw at context init -- combine selectors into a single `tools([...])` call.
+Mirrors the `llmPlugin({ defaultOptions })` pattern: a single bag of values applied to any agent that omits the corresponding field. Two fields today, easy to extend.
+
+| Field | Type | Inherited by |
+|---|---|---|
+| `defaultOptions.model` | `LlmModelId` (string) | Agents that omit `model` |
+| `defaultOptions.tools` | `ToolSelection` (from `tools([...])`) | Agents that omit `tools` |
+
+Resolution at dispatch is per-key: instance value > plugin default > (for `model`) throw, (for `tools`) `undefined`. Agents that set the field replace the default entirely (override, not extend).
+
+Two `agentPlugin` installs that each set the same field throw at context init. Two installs that set DIFFERENT fields merge cleanly.
+
+```ts
+agentPlugin({
+  defaultOptions: {
+    model: 'anthropic:claude-opus-4-7',
+    tools: tools(['currentTime', { tagged: 'read-only' }]),
+  },
+  agents: {
+    researcher: { description, system },                            // inherits both
+    fast:       { description, model: 'anthropic:claude-haiku-4-5', system },
+  },
+})
+```
+
+#### Soft dependency on `llmPlugin`
+
+Agent model references use the `"providerId:modelName"` format and resolve against the LLM provider registry populated by `llmPlugin`. **You must install `llmPlugin` with the relevant providers.** This is intentional: provider credentials live in one place, agents reference them by id. There is no inline-credentials escape hatch on `agent({...})` -- if you want centralised wiring, use `llmPlugin`.
 
 ### Typed fn ids (`FnRegistry`)
 
