@@ -1,18 +1,8 @@
 import { defineConfig } from "@routecraft/routecraft";
 import { jwt } from "@routecraft/ai";
 import { version } from "../package.json";
-
-// Fail fast on a missing JWT secret. An empty HMAC key is a footgun: the
-// validator would silently accept any token signed with the empty string.
-// Other env vars in this file fall back to placeholders or empty strings
-// because their failure modes (mail auth rejection, mismatched issuer/
-// audience) are non-silent.
-const JWT_SECRET = process.env["JWT_SECRET"];
-if (!JWT_SECRET) {
-  throw new Error(
-    "JWT_SECRET is required to run this example. Set it in your .env or shell.",
-  );
-}
+import { env } from "./env";
+import { z } from "zod";
 
 export const craftConfig = defineConfig({
   telemetry: { sqlite: { captureSnapshots: true } },
@@ -22,17 +12,17 @@ export const craftConfig = defineConfig({
         imap: {
           host: "imap.gmail.com",
           auth: {
-            user: process.env["MAIL_USER"] ?? "",
-            pass: process.env["MAIL_APP_PASSWORD"] ?? "",
+            user: env.MAIL_USER,
+            pass: env.MAIL_APP_PASSWORD,
           },
         },
         smtp: {
           host: "smtp.gmail.com",
           auth: {
-            user: process.env["MAIL_USER"] ?? "",
-            pass: process.env["MAIL_APP_PASSWORD"] ?? "",
+            user: env.MAIL_USER,
+            pass: env.MAIL_APP_PASSWORD,
           },
-          from: process.env["MAIL_USER"] ?? "",
+          from: env.MAIL_USER,
         },
       },
     },
@@ -42,9 +32,25 @@ export const craftConfig = defineConfig({
     version,
     transport: "http",
     auth: jwt({
-      secret: JWT_SECRET,
-      issuer: process.env["JWT_ISSUER"] ?? "https://idp.example.com",
-      audience: process.env["JWT_AUDIENCE"] ?? "https://mcp.example.com",
+      secret: env.JWT_SECRET,
+      issuer: env.JWT_ISSUER,
+      audience: env.JWT_AUDIENCE,
     }),
+  },
+  llm: {
+    providers: {
+      gemini: {
+        apiKey: env.GEMINI_API_KEY,
+      },
+    },
+  },
+  agent: {
+    functions: {
+      currentTime: {
+        description: "Current UTC timestamp in ISO 8601",
+        input: z.object({}),
+        handler: async () => new Date().toISOString(),
+      },
+    },
   },
 });
