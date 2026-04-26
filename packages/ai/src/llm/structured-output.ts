@@ -33,7 +33,7 @@ export function toAiOutputSpec(schema: StandardSchemaV1): unknown {
 
   if (!standard?.validate) {
     throw new Error(
-      "LLM outputSchema must be a StandardSchemaV1 with ~standard.validate",
+      "LLM output schema must be a StandardSchemaV1 with ~standard.validate",
     );
   }
 
@@ -43,7 +43,7 @@ export function toAiOutputSpec(schema: StandardSchemaV1): unknown {
 
   if (!jsonSchemaObj || typeof jsonSchemaObj !== "object") {
     throw new Error(
-      "LLM outputSchema must expose ~standard.jsonSchema.output or .input for provider structured output",
+      "LLM output schema must expose ~standard.jsonSchema.output or .input for provider structured output",
     );
   }
 

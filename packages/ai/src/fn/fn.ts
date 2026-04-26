@@ -11,7 +11,7 @@ import type { FnOptions } from "./types.ts";
 export function validateFnOptions(id: string, options: FnOptions): void {
   if (options === null || typeof options !== "object") {
     throw rcError("RC5003", undefined, {
-      message: `agentPlugin: fn "${id}" entry must be an object with description, schema, and handler.`,
+      message: `agentPlugin: fn "${id}" entry must be an object with description, input, and handler.`,
     });
   }
   if (
@@ -23,21 +23,21 @@ export function validateFnOptions(id: string, options: FnOptions): void {
     });
   }
   if (
-    options.schema === null ||
-    typeof options.schema !== "object" ||
-    typeof (options.schema as { ["~standard"]?: unknown })["~standard"] !==
+    options.input === null ||
+    typeof options.input !== "object" ||
+    typeof (options.input as { ["~standard"]?: unknown })["~standard"] !==
       "object"
   ) {
     throw rcError("RC5003", undefined, {
-      message: `agentPlugin: fn "${id}" "schema" is required and must be a Standard Schema value (Zod/Valibot/ArkType/etc.).`,
+      message: `agentPlugin: fn "${id}" "input" is required and must be a Standard Schema value (Zod/Valibot/ArkType/etc.).`,
     });
   }
   const standard = (
-    options.schema as { ["~standard"]?: { validate?: unknown } }
+    options.input as { ["~standard"]?: { validate?: unknown } }
   )["~standard"];
   if (typeof standard?.validate !== "function") {
     throw rcError("RC5003", undefined, {
-      message: `agentPlugin: fn "${id}" "schema" must be a Standard Schema with a callable validate.`,
+      message: `agentPlugin: fn "${id}" "input" must be a Standard Schema with a callable validate.`,
     });
   }
   if (typeof options.handler !== "function") {

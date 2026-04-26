@@ -1643,8 +1643,8 @@ craft()
   .id('summarise')
   .from(source)
   .enrich(llm('anthropic:claude-haiku-4-5-20251001', {
-    systemPrompt: 'Summarise the following in one sentence.',
-    userPrompt: (ex) => ex.body.content,
+    system: 'Summarise the following in one sentence.',
+    user: (ex) => ex.body.content,
   }))
   .to(log())
 // Result merged into body: { ..., text: '...', usage: { inputTokens, outputTokens } }
@@ -1661,9 +1661,9 @@ craft()
   .id('classify')
   .from(source)
   .enrich(llm('openai:gpt-4o', {
-    systemPrompt: 'Classify the sentiment of the text.',
-    userPrompt: (ex) => ex.body.text,
-    outputSchema: sentimentSchema,
+    system: 'Classify the sentiment of the text.',
+    user: (ex) => ex.body.text,
+    output: sentimentSchema,
   }))
   .to(log())
 // result.output is typed as { sentiment: string, confidence: number }
@@ -1677,9 +1677,9 @@ Model ID format: `"provider:model-name"` (e.g., `"ollama:llama3.2"`, `"anthropic
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `systemPrompt` | `string \| (exchange) => string` | — | System prompt (static or derived from exchange) |
-| `userPrompt` | `string \| (exchange) => string` | — | User prompt (static or derived from exchange) |
-| `outputSchema` | `StandardSchemaV1` | — | Zod/Valibot/ArkType schema for structured output |
+| `system` | `string \| (exchange) => string` | — | System prompt (static or derived from exchange) |
+| `user` | `string \| (exchange) => string` | — | User prompt (static or derived from exchange) |
+| `output` | `StandardSchemaV1` | — | Zod/Valibot/ArkType schema for structured output |
 | `temperature` | `number` | — | Sampling temperature |
 | `maxTokens` | `number` | — | Maximum tokens to generate |
 | `topP` | `number` | — | Top-p sampling |
@@ -1691,7 +1691,7 @@ Model ID format: `"provider:model-name"` (e.g., `"ollama:llama3.2"`, `"anthropic
 | Field | Type | Description |
 |-------|------|-------------|
 | `text` | `string` | Raw model output |
-| `output` | `T` | Parsed structured output (only when `outputSchema` provided) |
+| `output` | `T` | Parsed structured output (only when an `output` schema was supplied) |
 | `usage.inputTokens` | `number` | Input token count |
 | `usage.outputTokens` | `number` | Output token count |
 | `usage.totalTokens` | `number` | Total token count |
@@ -1723,13 +1723,17 @@ craft()
   }))
   .to(direct('reply'))
 
-// By name: register once, use from any route in the context.
+// By name: register once, use from any route in the context. Per-agent
+// fields can be omitted when defaultOptions supplies them.
 agentPlugin({
+  defaultOptions: {
+    model: 'anthropic:claude-opus-4-7',
+  },
   agents: {
     summariser: {
       description: 'Summarises documents into bullet points',
-      model: 'anthropic:claude-opus-4-7',
       system: 'Be concise.',
+      // model inherited from defaultOptions
     },
   },
 })
@@ -1741,7 +1745,7 @@ craft()
   .to(log())
 ```
 
-Model ID format: `"provider:model-name"` (same as `llm()`). You can also pass an inline `LlmModelConfig` object to skip `llmPlugin()` registration when you have ad-hoc credentials.
+Model ID format: `"provider:model-name"` (same as `llm()`). The provider must be registered via `llmPlugin({ providers: {...} })`. There is no inline-credentials escape hatch on `agent({...})`; centralised wiring via `llmPlugin` is the only path.
 
 **Supported providers:** `openai`, `anthropic`, `ollama`, `openrouter`, `gemini`
 
@@ -1749,9 +1753,11 @@ Model ID format: `"provider:model-name"` (same as `llm()`). You can also pass an
 
 | Option | Type | Default | Required | Description |
 |--------|------|---------|----------|-------------|
-| `model` | `LlmModelId \| LlmModelConfig` | -- | Yes | `"provider:model"` string (resolved via `llmPlugin`) or an inline `LlmModelConfig` object |
+| `model` | `LlmModelId` | -- | No\* | `"provider:model"` string resolved via `llmPlugin`. Required unless `defaultOptions.model` supplies a fallback; otherwise dispatch throws `RC5003` |
 | `system` | `string` | -- | Yes | System prompt. Load from disk yourself when sourcing from a file |
 | `user` | `(exchange) => string` | body as-is / JSON | No | Override for deriving the user prompt. Defaults to body (string as-is, JSON for objects) |
+| `tools` | `ToolSelection` | -- | No | Tool whitelist built via `tools([...])`. Inherits `defaultOptions.tools` when omitted; an explicit value replaces the default entirely |
+| `output` | `StandardSchemaV1` | -- | No | Schema for structured output. Validated and parsed onto `AgentResult.output` after dispatch (runtime ships in a follow-up release) |
 
 **`AgentRegisteredOptions` (entries in `agentPlugin({ agents: {...} })`, for by-name reuse):** same as `AgentOptions` plus:
 
@@ -1766,14 +1772,16 @@ The id is the record key in `agentPlugin({ agents: { [id]: {...} } })`.
 | Field | Type | Description |
 |-------|------|-------------|
 | `text` | `string` | Generated text from the model |
+| `output` | `T` | Parsed structured output (only when an `output` schema was supplied; runtime ships in a follow-up) |
 | `usage.inputTokens` | `number` | Input token count (when reported) |
 | `usage.outputTokens` | `number` | Output token count (when reported) |
 | `usage.totalTokens` | `number` | Total token count (when reported) |
 
 **Resolution semantics:**
 
-- `agent("name")` only resolves registered agents. To call a route-backed agent from another route, use `.to(direct("route-id"))` -- `direct` runs the full pipeline of the target route, `agent("name")` runs the registered agent's LLM call inline.
-- Duplicate registered agent ids, missing description, or a malformed model string fail at context init with `RC5003` (Adapter misconfigured).
+- `agent("name")` only resolves registered agents. To call a route-backed agent from another route, use `.to(direct("route-id"))`. `direct` runs the full pipeline of the target route; `agent("name")` runs the registered agent's LLM call inline.
+- Model resolution at dispatch is `instance value > defaultOptions.model > throw RC5003`.
+- Duplicate registered agent ids, missing description, malformed model string when present, or a non-`ToolSelection` `tools` value fail at context init with `RC5003` (Adapter misconfigured).
 - Referencing an unknown registered agent name fails at dispatch with `RC5004` (No handler available).
 
 Provider credentials are configured once in `llmPlugin()` and shared across all `agent()` calls. See [Plugins reference](/docs/reference/plugins).

@@ -33,9 +33,9 @@ export class MailFetchDestinationAdapter implements Destination<
   MailFetchResult
 > {
   readonly adapterId = "routecraft.adapter.mail";
-  private readonly adapterOptions: Partial<MailServerOptions>;
+  private readonly adapterOptions: MailServerOptions;
 
-  constructor(options: Partial<MailServerOptions>) {
+  constructor(options: MailServerOptions) {
     this.adapterOptions = options;
   }
 

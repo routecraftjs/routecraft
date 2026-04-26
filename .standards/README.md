@@ -9,9 +9,9 @@ Internal development standards for Routecraft contributors (human and AI). These
 | Document | Scope |
 |----------|-------|
 | [Adapter Architecture](./adapter-architecture.md) | Patterns, file structure, facade, authoring guide, skeletons, and anti-patterns for adapters |
-| [Naming Policy](./naming-policy.md) | Source/Destination vs Server/Client naming conventions for interfaces and option types |
+| [Naming Policy](./naming-policy.md) | Source/Destination vs Server/Client naming, schema field names (`input`/`output`), prompt-source field names |
 | [Error and Logging Policy](./error-and-logging-policy.md) | Throw/boundary rules, structured logging, level semantics, error code philosophy |
-| [Type Safety and Schemas](./type-safety-and-schemas.md) | Type flow policy, Standard Schema usage, plugin vs config vs store guidance |
+| [Type Safety and Schemas](./type-safety-and-schemas.md) | Type flow policy, factory option types (no `Partial<>` on factory args), Standard Schema usage, plugin vs config vs store guidance |
 | [Type Safety Registries](./type-safety-registries.md) | Declaration-merging registries for typed adapters and endpoints; codegen direction |
 
 ## Related

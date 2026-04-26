@@ -51,7 +51,7 @@ const emptyObjectSchema: StandardSchemaV1<unknown, Record<string, never>> = {
  * narrow the underlying tool's surface to a specific agent without
  * touching the underlying registration.
  *
- * Only the LLM-facing contract (description, schema, tags) can be
+ * Only the LLM-facing contract (description, input, tags) can be
  * overridden here. Guards are policy and live at the consumer:
  * attach them in `tools([{ name, guard }])` at the agent's call site.
  *
@@ -64,7 +64,7 @@ export interface ToolBuilderOverrides<TIn = unknown> {
    * Replace the underlying input schema. Replaces, does not merge with,
    * the underlying schema.
    */
-  schema?: StandardSchemaV1<unknown, TIn>;
+  input?: StandardSchemaV1<unknown, TIn>;
   /**
    * Replace the underlying tags. Replaces, does not merge with, the
    * underlying tags.
@@ -75,7 +75,7 @@ export interface ToolBuilderOverrides<TIn = unknown> {
 /**
  * Wrap a registered direct route as a fn-shaped tool. The route's
  * `.description()`, `.input()` schema, and tags become the fn's
- * description, schema, and tags by default; pass `overrides` to narrow
+ * description, input, and tags by default; pass `overrides` to narrow
  * any of them for the calling agent.
  *
  * Resolution is deferred to agent dispatch time, when the direct
@@ -120,10 +120,10 @@ export function directTool<TIn = unknown>(
           message: `directTool: route "${routeId}" has no .description() and no override was provided (referenced as fn "${fnId}").`,
         });
       }
-      const schema =
-        overrides?.schema ??
+      const input =
+        overrides?.input ??
         (route.input?.body as StandardSchemaV1<unknown, TIn> | undefined);
-      if (!schema) {
+      if (!input) {
         throw rcError("RC5003", undefined, {
           message: `directTool: route "${routeId}" has no .input(...) schema and no override was provided (referenced as fn "${fnId}").`,
         });
@@ -133,7 +133,7 @@ export function directTool<TIn = unknown>(
         dispatchDirect(hctx, routeId, input)) as FnOptions["handler"];
       return {
         description,
-        schema,
+        input,
         ...(tags && tags.length > 0 ? { tags: [...tags] } : {}),
         handler,
       } as FnOptions;
@@ -305,13 +305,13 @@ export function mcpTool(
 export const defaultFns = {
   currentTime: {
     description: "Returns the current UTC timestamp in ISO 8601 format.",
-    schema: emptyObjectSchema,
+    input: emptyObjectSchema,
     handler: () => new Date().toISOString(),
     tags: ["read-only", "idempotent"] satisfies KnownTag[],
   } satisfies FnOptions<Record<string, never>, string>,
   randomUuid: {
     description: "Generates a fresh random UUID v4.",
-    schema: emptyObjectSchema,
+    input: emptyObjectSchema,
     handler: () => randomUUID(),
     tags: ["read-only"] satisfies KnownTag[],
   } satisfies FnOptions<Record<string, never>, string>,

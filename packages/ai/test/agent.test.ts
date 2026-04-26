@@ -89,16 +89,54 @@ describe("agent() destination", () => {
   });
 
   /**
-   * @case agent() accepts an inline LlmModelConfig object as model
-   * @preconditions model passed as { provider, apiKey } object
-   * @expectedResult Construction succeeds without llmPlugin in the context
+   * @case agent() accepts model as an optional field at construction
+   * @preconditions agent({ system }) -- no model, no defaults known yet
+   * @expectedResult Construction succeeds; resolution deferred to dispatch
    */
-  test("accepts an inline LlmModelConfig", () => {
+  test("accepts agent without model at construction", () => {
+    const dest = agent({ system: "ok" });
+    expect(dest).toBeInstanceOf(AgentDestinationAdapter);
+  });
+
+  /**
+   * @case agent({ output }) accepts a Standard Schema and validates its shape at construction
+   * @preconditions agent with a Zod object output and a non-Standard-Schema output
+   * @expectedResult Valid schema constructs; non-Standard value throws synchronously
+   */
+  test("agent({ output }) validates the schema shape at construction", async () => {
+    const { z } = await import("zod");
+    const schema = z.object({ ok: z.boolean() });
     const dest = agent({
-      model: { provider: "anthropic", apiKey: "sk-test" },
-      system: "ok",
+      model: "anthropic:claude-opus-4-7",
+      system: "Be helpful.",
+      output: schema,
     });
     expect(dest).toBeInstanceOf(AgentDestinationAdapter);
+
+    expect(() =>
+      agent({
+        model: "anthropic:claude-opus-4-7",
+        system: "Be helpful.",
+        output: { not: "a schema" } as never,
+      }),
+    ).toThrow(/Standard Schema/);
+
+    // Null and non-object values must surface RC5003, not a raw TypeError
+    // from `(null)["~standard"]`.
+    expect(() =>
+      agent({
+        model: "anthropic:claude-opus-4-7",
+        system: "Be helpful.",
+        output: null as never,
+      }),
+    ).toThrow(/Standard Schema/);
+    expect(() =>
+      agent({
+        model: "anthropic:claude-opus-4-7",
+        system: "Be helpful.",
+        output: "not-an-object" as never,
+      }),
+    ).toThrow(/Standard Schema/);
   });
 
   /**
@@ -133,8 +171,8 @@ describe("agent() destination", () => {
 
     expect(callLlmMock).toHaveBeenCalledTimes(1);
     const args = callLlmMock.mock.calls[0][0];
-    expect(args.systemPrompt).toBe("Be helpful.");
-    expect(args.userPrompt).toBe("hello world");
+    expect(args.system).toBe("Be helpful.");
+    expect(args.user).toBe("hello world");
     expect(args.modelId).toBe("claude-opus-4-7");
 
     expect(sink.received).toHaveLength(1);
@@ -145,6 +183,94 @@ describe("agent() destination", () => {
       outputTokens: 5,
       totalTokens: 15,
     });
+  });
+
+  /**
+   * @case Agent inherits defaultOptions.model when its own model is omitted
+   * @preconditions agentPlugin({ defaultOptions: { model: "..." } }) and inline agent({ system }) without model
+   * @expectedResult callLlm is invoked with the default model
+   */
+  test("agent inherits defaultOptions.model when omitted", async () => {
+    const sink = spy();
+    t = await testContext()
+      .with({
+        plugins: [
+          llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
+          agentPlugin({
+            defaultOptions: { model: "anthropic:claude-opus-4-7" },
+          }),
+        ],
+      })
+      .routes(
+        craft()
+          .id("default-model")
+          .from(simple("hello"))
+          .to(agent({ system: "Be helpful." }))
+          .to(sink),
+      )
+      .build();
+
+    await t.test();
+    expect(callLlmMock).toHaveBeenCalledTimes(1);
+    expect(callLlmMock.mock.calls[0][0].modelId).toBe("claude-opus-4-7");
+  });
+
+  /**
+   * @case Agent dispatch throws when no model is available at all
+   * @preconditions Inline agent without model; no defaultOptions.model on the plugin
+   * @expectedResult Dispatch throws RC5003 with a clear actionable message
+   */
+  test("agent dispatch throws when neither instance nor default supplies a model", async () => {
+    t = await testContext()
+      .with({
+        plugins: [
+          llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
+        ],
+      })
+      .routes(
+        craft()
+          .id("no-model")
+          .from(simple("hello"))
+          .to(agent({ system: "Be helpful." })),
+      )
+      .build();
+
+    await t.test();
+    expect(t.errors[0]?.message).toMatch(/no "model"/i);
+  });
+
+  /**
+   * @case Per-agent model wins over defaultOptions.model
+   * @preconditions defaultOptions.model = anthropic; agent.model = openai
+   * @expectedResult callLlm is invoked with the agent's openai model id
+   */
+  test("per-agent model overrides defaultOptions.model", async () => {
+    const sink = spy();
+    t = await testContext()
+      .with({
+        plugins: [
+          llmPlugin({
+            providers: {
+              anthropic: { apiKey: "sk-test" },
+              openai: { apiKey: "sk-openai" },
+            },
+          }),
+          agentPlugin({
+            defaultOptions: { model: "anthropic:claude-opus-4-7" },
+          }),
+        ],
+      })
+      .routes(
+        craft()
+          .id("override-model")
+          .from(simple("hi"))
+          .to(agent({ model: "openai:gpt-4o", system: "Be helpful." }))
+          .to(sink),
+      )
+      .build();
+
+    await t.test();
+    expect(callLlmMock.mock.calls[0][0].modelId).toBe("gpt-4o");
   });
 
   /**
@@ -175,7 +301,7 @@ describe("agent() destination", () => {
     await t.test();
 
     expect(callLlmMock).toHaveBeenCalledTimes(1);
-    expect(callLlmMock.mock.calls[0][0].userPrompt).toBe('{"q":"what?"}');
+    expect(callLlmMock.mock.calls[0][0].user).toBe('{"q":"what?"}');
   });
 
   /**
@@ -207,7 +333,7 @@ describe("agent() destination", () => {
 
     await t.test();
 
-    expect(callLlmMock.mock.calls[0][0].userPrompt).toBe("Greet alice");
+    expect(callLlmMock.mock.calls[0][0].user).toBe("Greet alice");
   });
 });
 
@@ -378,10 +504,8 @@ describe("agent(name) by-name destination + agentPlugin", () => {
     await t.test();
 
     expect(callLlmMock).toHaveBeenCalledTimes(1);
-    expect(callLlmMock.mock.calls[0][0].systemPrompt).toBe(
-      "Summarise the input.",
-    );
-    expect(callLlmMock.mock.calls[0][0].userPrompt).toBe("a long document");
+    expect(callLlmMock.mock.calls[0][0].system).toBe("Summarise the input.");
+    expect(callLlmMock.mock.calls[0][0].user).toBe("a long document");
     expect(sink.received).toHaveLength(1);
     expect((sink.received[0].body as AgentResult).text).toBe(
       "stubbed-response",

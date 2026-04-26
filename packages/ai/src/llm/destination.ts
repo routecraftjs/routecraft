@@ -71,7 +71,7 @@ const DEFAULT_MAX_TOKENS = 1024;
  * Use with .enrich(llm("providerId:modelName", options)) or .to(llm(...)).
  *
  * @experimental
- * @template S - Output schema type when outputSchema is provided; narrows result.output for downstream typing.
+ * @template S - Output schema type when an `output` schema is provided; narrows result.output for downstream typing.
  */
 export class LlmDestinationAdapter<
   S extends StandardSchemaV1 | undefined = undefined,
@@ -84,7 +84,7 @@ export class LlmDestinationAdapter<
 
   constructor(
     private readonly modelId: string,
-    options: Partial<LlmOptions> = {},
+    options: LlmOptions = {},
   ) {
     this.options = options as Partial<LlmOptionsMerged>;
   }
@@ -108,9 +108,9 @@ export class LlmDestinationAdapter<
     const { config, modelName } = resolveModel(this.modelId, context);
     const merged = this.mergedOptions(context!);
 
-    const systemPrompt = resolvePrompt(merged.systemPrompt, exchange);
-    const userPrompt =
-      resolvePrompt(merged.userPrompt, exchange) ||
+    const system = resolvePrompt(merged.system, exchange);
+    const user =
+      resolvePrompt(merged.user, exchange) ||
       resolveUserPromptDefault(exchange);
 
     const opts: Parameters<typeof callLlm>[0]["options"] = {
@@ -124,27 +124,25 @@ export class LlmDestinationAdapter<
       opts.presencePenalty = merged.presencePenalty;
 
     const output =
-      merged.outputSchema !== undefined
-        ? toAiOutputSpec(merged.outputSchema)
-        : undefined;
+      merged.output !== undefined ? toAiOutputSpec(merged.output) : undefined;
 
     const result = await callLlm({
       config,
       modelId: modelName,
       options: opts,
-      systemPrompt,
-      userPrompt,
+      system,
+      user,
       output,
     });
 
     if (
       result.output === undefined &&
       result.text &&
-      merged.outputSchema !== undefined
+      merged.output !== undefined
     ) {
       const fallback = await parseStructuredTextFallback(
         result.text,
-        merged.outputSchema,
+        merged.output,
       );
       if (fallback !== undefined) result.output = fallback;
     }

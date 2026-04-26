@@ -110,8 +110,8 @@ export type LlmPromptSource =
   | ((exchange: Exchange<unknown>) => string);
 
 export interface LlmOptions {
-  systemPrompt?: LlmPromptSource;
-  userPrompt?: LlmPromptSource;
+  system?: LlmPromptSource;
+  user?: LlmPromptSource;
   temperature?: number;
   maxTokens?: number;
   topP?: number;
@@ -122,8 +122,11 @@ export interface LlmOptions {
    * provider-level structured output and validates the result. Supported by
    * OpenAI (gpt-4o/mini) and Ollama; others may return JSON that is validated
    * after the call. On success, the parsed value is set on LlmResult.output.
+   *
+   * Mirrors the route-level `.output(schema)` naming so the same word is
+   * used for "declared output shape" everywhere in the framework.
    */
-  outputSchema?: StandardSchemaV1;
+  output?: StandardSchemaV1;
 }
 
 /** Internal merged type for adapter and store. */
@@ -149,7 +152,7 @@ export interface LlmUsage {
 export interface LlmResult {
   /** Generated text (raw string from the model). */
   text: string;
-  /** Parsed structured output when outputSchema was set and validation succeeded. */
+  /** Parsed structured output when `output` schema was set and validation succeeded. */
   output?: unknown;
   /** Token usage for the last step. Same shape as AI SDK usage. */
   usage?: LlmUsage;
@@ -158,8 +161,9 @@ export interface LlmResult {
 }
 
 /**
- * When outputSchema S is provided to llm(), the result type narrows output to InferOutput<S>.
- * Used for type inference from llm(modelId, { outputSchema }) so body.output is typed downstream.
+ * When an `output` schema S is provided to llm(), the result type narrows
+ * `output` to `InferOutput<S>`. Used for type inference from
+ * `llm(modelId, { output })` so body.output is typed downstream.
  */
 export type LlmResultWithOutput<S extends StandardSchemaV1 | undefined> =
   S extends StandardSchemaV1
@@ -222,6 +226,6 @@ export interface LlmPluginOptions {
    * Routes use llm("providerId:modelName"), e.g. llm("ollama:lfm2.5-thinking").
    */
   providers: LlmPluginProviders;
-  /** Optional context-level default options (systemPrompt, temperature, etc.). */
+  /** Optional context-level default options (system, temperature, etc.). */
   defaultOptions?: Partial<LlmOptionsMerged>;
 }

@@ -44,7 +44,7 @@ import type { DirectEndpoint, DirectServerOptions } from "./types";
  * .to(direct((ex) => ex.headers["x-endpoint"] as string))
  * ```
  */
-export function direct(options: Partial<DirectServerOptions>): Source<unknown>;
+export function direct(options: DirectServerOptions): Source<unknown>;
 export function direct(): Source<unknown>;
 export function direct<K extends RegisteredDirectEndpoint>(
   endpoint: K,
@@ -53,16 +53,14 @@ export function direct<T = unknown>(
   endpoint: DirectEndpoint<T>,
 ): Destination<T, T>;
 export function direct<T = unknown>(
-  arg?: DirectEndpoint<T> | Partial<DirectServerOptions>,
+  arg?: DirectEndpoint<T> | DirectServerOptions,
 ): Source<unknown> | Destination<T, T> {
   // String or function first-arg -> Destination (names a target route).
   if (typeof arg === "string" || typeof arg === "function") {
     return new DirectDestinationAdapter<T>(arg) as Destination<T, T>;
   }
   // Undefined or options object -> Source (endpoint resolved from route id).
-  return new DirectSourceAdapter(
-    (arg ?? {}) as Partial<DirectServerOptions>,
-  ) as Source<unknown>;
+  return new DirectSourceAdapter(arg ?? {}) as Source<unknown>;
 }
 
 // Re-export types for public API

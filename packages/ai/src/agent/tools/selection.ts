@@ -78,7 +78,7 @@ export interface ResolvedTool {
   /** Description shown to the LLM. */
   description: string;
   /** Standard Schema validating the LLM-supplied input. */
-  schema: StandardSchemaV1<unknown, unknown>;
+  input: StandardSchemaV1<unknown, unknown>;
   /** Optional tags inherited from the underlying registration. */
   tags?: Tag[];
   /** Optional guard run after validation, before the handler. */
@@ -263,7 +263,7 @@ function toResolvedTool(
   return {
     name,
     description: fn.description,
-    schema: fn.schema as StandardSchemaV1<unknown, unknown>,
+    input: fn.input as StandardSchemaV1<unknown, unknown>,
     ...(fn.tags && fn.tags.length > 0 ? { tags: fn.tags } : {}),
     ...(guard ? { guard } : {}),
     handler: fn.handler as FnOptions["handler"],

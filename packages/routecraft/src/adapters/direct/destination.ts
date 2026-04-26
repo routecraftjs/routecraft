@@ -19,12 +19,12 @@ export class DirectDestinationAdapter<T = unknown> implements Destination<
   readonly adapterId: string = "routecraft.adapter.direct";
 
   private rawEndpoint: DirectEndpoint<T>;
-  public options: Partial<DirectClientOptions>;
+  public options: DirectClientOptions;
   private lastResolvedEndpoint?: string;
 
   constructor(
     rawEndpoint: DirectEndpoint<T>,
-    options: Partial<DirectClientOptions> = {},
+    options: DirectClientOptions = {},
   ) {
     this.rawEndpoint = rawEndpoint;
     this.options = options;

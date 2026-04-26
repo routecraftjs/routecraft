@@ -434,14 +434,17 @@ craft()
 | Option | Type | Required | Description |
 |--------|------|----------|-------------|
 | `description` | `string` | Yes | Human-readable description. Surfaces in observability and is used as the tool description when the agent is exposed to other agents |
-| `model` | `LlmModelId \| LlmModelConfig` | Yes | `"provider:model"` string (resolved via `llmPlugin`) or an inline `LlmModelConfig` |
+| `model` | `LlmModelId` | No\* | `"provider:model"` string resolved via `llmPlugin`. Required unless `defaultOptions.model` supplies a fallback; otherwise dispatch throws `RC5003` |
 | `system` | `string` | Yes | System prompt |
 | `user` | `(exchange) => string` | No | Override for deriving the user prompt from the incoming exchange |
+| `tools` | `ToolSelection` | No | Tool whitelist built via `tools([...])`. Inherits `defaultOptions.tools` when omitted; an explicit value replaces the default entirely |
+| `output` | `StandardSchemaV1` | No | Schema for structured output. Validated and parsed onto `AgentResult.output` after dispatch (runtime ships in a follow-up release) |
 
 **Resolution semantics:**
 
 - `agent("name")` resolves only registered agents. Route-backed agents are called via `.to(direct("route-id"))` and run the full pipeline of the target route; `agent("name")` runs the registered agent's LLM call inline.
-- The plugin throws at context init (`RC5003`) on: duplicate ids across installs, empty id key, missing description, invalid model string, or empty system.
+- The plugin throws at context init (`RC5003`) on: duplicate ids across installs, empty id key, missing description, malformed model string when present, empty system, or a non-`ToolSelection` `tools` value.
+- The agent throws at dispatch (`RC5003`) when neither the agent nor `defaultOptions.model` supplies a model.
 - `agent("unknown")` fails at dispatch (`RC5004`) with the list of registered agent ids.
 
 See the [`agent`](/docs/reference/adapters#agent) adapter for usage patterns.
@@ -460,12 +463,12 @@ agentPlugin({
   functions: {
     currentTime: {
       description: 'Current UTC timestamp in ISO 8601',
-      schema: z.object({}),
+      input: z.object({}),
       handler: async () => new Date().toISOString(),
     },
     sendSlackMessage: {
       description: 'Post a message to a Slack channel',
-      schema: z.object({ channel: z.string(), text: z.string() }),
+      input: z.object({ channel: z.string(), text: z.string() }),
       handler: async (input, ctx) => {
         ctx.logger.info({ channel: input.channel }, 'Posting to Slack')
         return { ok: true }
@@ -486,14 +489,14 @@ agentPlugin({
 | Option | Type | Required | Description |
 |--------|------|----------|-------------|
 | `description` | `string` | Yes | Human-readable description. Used in observability and as the tool description when exposed to an agent |
-| `schema` | `StandardSchemaV1` | Yes | Standard Schema for the input (Zod, Valibot, ArkType, etc.). Validated at invocation time |
+| `input` | `StandardSchemaV1` | Yes | Standard Schema for the input (Zod, Valibot, ArkType, etc.). Validated at invocation time |
 | `handler` | `(input, ctx) => Promise<TOut> \| TOut` | Yes | Called with validated input and a `FnHandlerContext` (`{ logger, abortSignal, context }`) |
 
-**Errors at context init (`RC5003`):** missing description, schema is not a Standard Schema, schema's `validate` is not a function, missing handler, empty id key, duplicate id across installs.
+**Errors at context init (`RC5003`):** missing description, `input` is not a Standard Schema, `input`'s `validate` is not a function, missing handler, empty id key, duplicate id across installs.
 
 ### Testing fns
 
-There is no public `invokeFn` helper -- agents are the only legitimate dispatcher for registered fns. To exercise a fn's schema and handler in isolation in tests, use `testFn` from `@routecraft/testing`:
+There is no public `invokeFn` helper. Agents are the only legitimate dispatcher for registered fns. To exercise a fn's input schema and handler in isolation in tests, use `testFn` from `@routecraft/testing`:
 
 ```ts
 import { testFn } from '@routecraft/testing'
@@ -501,7 +504,7 @@ import { z } from 'zod'
 
 const greet = {
   description: 'Greets someone',
-  schema: z.object({ name: z.string() }),
+  input: z.object({ name: z.string() }),
   handler: async (input, ctx) => `hello ${input.name}`,
 }
 
@@ -509,13 +512,13 @@ const out = await testFn(greet, { name: 'alice' })
 // out === 'hello alice'
 ```
 
-`testFn` validates the input against the schema, calls the handler with a synthetic `{ logger, abortSignal }` context, and returns the handler's output. Validation failures throw `RC5002`. It works structurally on any `{ schema, handler }` shape, so real `FnOptions` values pass without modification.
+`testFn` validates the input against the `input` schema, calls the handler with a synthetic `{ logger, abortSignal }` context, and returns the handler's output. Validation failures throw `RC5002`. It works structurally on any `{ input, handler }` shape, so real `FnOptions` values pass without modification.
 
 ### Agent tools (experimental DSL)
 
 > **Status: DSL-only.** The configuration surface below is fully implemented and validated; the agent runtime that actually presents these tools to the LLM and dispatches them lands in a follow-up release. Setting `tools:` on an agent today is a no-op at dispatch time.
 
-Tags, the `tools([...])` selector, the builder helpers, and the context-default tool list register and validate cleanly so user code can be written against the final shape now.
+Tags, the `tools([...])` selector, the builder helpers, and the context-level `defaultOptions` bag register and validate cleanly so user code can be written against the final shape now.
 
 ```ts
 import {
@@ -529,12 +532,12 @@ import {
 agentPlugin({
   functions: {
     ...defaultFns,                                  // currentTime, randomUuid (read-only, idempotent)
-    sendSlack: { description, schema, handler, tags: ['destructive', 'messaging'] },
+    sendSlack: { description, input, handler, tags: ['destructive', 'messaging'] },
     fetchOrder: directTool('fetch-order'),          // wraps a direct route as a fn
   },
   agents: {
     researcher: {
-      description, model, system,
+      description, system,                          // model + tools inherit from defaultOptions
       tools: tools([
         'currentTime',                              // bare ref
         'fetchOrder',
@@ -545,7 +548,10 @@ agentPlugin({
       ]),
     },
   },
-  tools: tools(['currentTime', { tagged: 'read-only' }]),  // context default
+  defaultOptions: {
+    model: 'anthropic:claude-opus-4-7',             // applies to agents that omit `model`
+    tools: tools(['currentTime', { tagged: 'read-only' }]),
+  },
 })
 ```
 
@@ -562,7 +568,7 @@ Resolution rules:
 - Final list deduplicated by tool name.
 - Explicit refs always win over tag-selector matches, regardless of position in the list.
 - A `directTool(routeId)` fn-registry wrapper supersedes the same direct route surfaced via the prefix convention.
-- Schema, description, and tag overrides at the use site are intentionally not supported. Definition is a registration concern: register a separate fn with `directTool(routeId, { description, schema, tags })` if you need a custom view.
+- Input, description, and tag overrides at the use site are intentionally not supported. Definition is a registration concern: register a separate fn with `directTool(routeId, { description, input, tags })` if you need a custom view.
 
 #### Builders
 
@@ -585,9 +591,35 @@ type KnownTag = 'read-only' | 'destructive' | 'idempotent';
 
 Any user string is also accepted; the `KnownTag` literals just power autocomplete.
 
-#### Context-default tool list
+#### Context-level `defaultOptions`
 
-`agentPlugin({ tools: tools([...]) })` registers a default tool list for the context. Agents that omit their own `tools:` field inherit it. An agent that sets `tools:` replaces the default entirely (override, not extend). Two installs each supplying a default throw at context init -- combine selectors into a single `tools([...])` call.
+Mirrors the `llmPlugin({ defaultOptions })` pattern: a single bag of values applied to any agent that omits the corresponding field. Two fields today, easy to extend.
+
+| Field | Type | Inherited by |
+|---|---|---|
+| `defaultOptions.model` | `LlmModelId` (string) | Agents that omit `model` |
+| `defaultOptions.tools` | `ToolSelection` (from `tools([...])`) | Agents that omit `tools` |
+
+Resolution at dispatch is per-key: instance value > plugin default > (for `model`) throw, (for `tools`) `undefined`. Agents that set the field replace the default entirely (override, not extend).
+
+Two `agentPlugin` installs that each set the same field throw at context init. Two installs that set DIFFERENT fields merge cleanly.
+
+```ts
+agentPlugin({
+  defaultOptions: {
+    model: 'anthropic:claude-opus-4-7',
+    tools: tools(['currentTime', { tagged: 'read-only' }]),
+  },
+  agents: {
+    researcher: { description, system },                            // inherits both
+    fast:       { description, model: 'anthropic:claude-haiku-4-5', system },
+  },
+})
+```
+
+#### Soft dependency on `llmPlugin`
+
+Agent model references use the `"providerId:modelName"` format and resolve against the LLM provider registry populated by `llmPlugin`. **You must install `llmPlugin` with the relevant providers.** This is intentional: provider credentials live in one place, and agents reference them by id. There is no inline-credentials escape hatch on `agent({...})`; centralised wiring via `llmPlugin` is the only path.
 
 ### Typed fn ids (`FnRegistry`)
 

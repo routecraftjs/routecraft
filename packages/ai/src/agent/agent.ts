@@ -21,7 +21,14 @@ export function validateAgentOptions(options: AgentOptions): void {
       message: `Agent: "system" is required and must be a non-empty string.`,
     });
   }
-  if (typeof options.model === "string") {
+  // `model` is optional: inheritable from agentPlugin({ defaultOptions:
+  // { model } }) at dispatch time. Validate the shape only when present.
+  if (options.model !== undefined) {
+    if (typeof options.model !== "string" || options.model.trim() === "") {
+      throw rcError("RC5003", undefined, {
+        message: `Agent: "model" must be a non-empty "providerId:modelName" string when present.`,
+      });
+    }
     try {
       parseProviderModel(options.model);
     } catch {
@@ -29,19 +36,26 @@ export function validateAgentOptions(options: AgentOptions): void {
         message: `Agent: "model" string must be in "providerId:modelName" form (e.g. ollama:llama3). Got: "${options.model}"`,
       });
     }
-  } else if (
-    options.model === null ||
-    typeof options.model !== "object" ||
-    typeof (options.model as { provider?: unknown }).provider !== "string"
-  ) {
-    throw rcError("RC5003", undefined, {
-      message: `Agent: "model" must be either a "providerId:modelName" string or an LlmModelConfig object with a "provider" field.`,
-    });
   }
   if (options.tools !== undefined && !isToolSelection(options.tools)) {
     throw rcError("RC5003", undefined, {
       message: `Agent: "tools" must be the result of tools([...]).`,
     });
+  }
+  if (options.output !== undefined) {
+    if (options.output === null || typeof options.output !== "object") {
+      throw rcError("RC5003", undefined, {
+        message: `Agent: "output" must be a Standard Schema (Zod/Valibot/ArkType/etc.).`,
+      });
+    }
+    const standard = (
+      options.output as { ["~standard"]?: { validate?: unknown } }
+    )["~standard"];
+    if (typeof standard?.validate !== "function") {
+      throw rcError("RC5003", undefined, {
+        message: `Agent: "output" must be a Standard Schema (Zod/Valibot/ArkType/etc.).`,
+      });
+    }
   }
 }
 
