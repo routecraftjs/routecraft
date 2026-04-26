@@ -6,7 +6,7 @@ import {
   type Destination,
   type Exchange,
 } from "@routecraft/routecraft";
-import { resolveModel } from "../llm/shared.ts";
+import { resolveModel, resolvePrompt } from "../llm/shared.ts";
 import { AgentSession, buildUserPrompt } from "./session.ts";
 import {
   ADAPTER_AGENT_DEFAULT_OPTIONS,
@@ -66,6 +66,10 @@ export class AgentDestinationAdapter implements Destination<
     const { config, modelName } = resolveModel(merged.model, context);
     const tools = resolveAgentTools(merged, context);
     const user = buildUserPrompt(merged, exchange);
+    // System accepts the same string-or-function shape as `llm({ system })`,
+    // so resolve it against the exchange here. The session then receives a
+    // plain string, matching what the provider layer expects.
+    const system = resolvePrompt(merged.system, exchange);
 
     const session = new AgentSession({
       options: merged,
@@ -73,7 +77,7 @@ export class AgentDestinationAdapter implements Destination<
       modelName,
       tools,
       user,
-      system: merged.system,
+      system,
       context,
     });
 
