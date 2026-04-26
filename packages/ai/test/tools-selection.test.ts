@@ -87,7 +87,7 @@ describe("tools() resolver - bare references", () => {
     expect(resolved).toHaveLength(1);
     expect(resolved[0].name).toBe("direct_fetch-order");
     expect(resolved[0].description).toBe("Fetch an order by id.");
-    expect(resolved[0].schema).toBe(inputSchema);
+    expect(resolved[0].input).toBe(inputSchema);
   });
 
   /**
@@ -103,7 +103,7 @@ describe("tools() resolver - bare references", () => {
             functions: {
               direct_x: {
                 description: "Explicit fn registry entry.",
-                schema: z.object({}),
+                input: z.object({}),
                 handler: () => "explicit",
                 tags: ["read-only"],
               },
@@ -260,7 +260,7 @@ describe("tools() resolver - tag selectors", () => {
         ...defaultFns,
         wipe: {
           description: "Wipe data.",
-          schema: z.object({}),
+          input: z.object({}),
           handler: () => "ok",
           tags: ["destructive"],
         },
@@ -468,7 +468,7 @@ describe("tools() resolver - regression", () => {
             functions: {
               padded: {
                 description: "x",
-                schema: defaultFns.currentTime.schema,
+                input: defaultFns.currentTime.input,
                 handler: () => "ok",
                 tags: ["  read-only  "],
               },

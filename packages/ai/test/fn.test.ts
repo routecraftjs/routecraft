@@ -29,7 +29,7 @@ describe("fn registration via agentPlugin", () => {
             functions: {
               currentTime: {
                 description: "Current UTC timestamp in ISO 8601",
-                schema: z.object({}),
+                input: z.object({}),
                 handler: async () => new Date().toISOString(),
               },
             },
@@ -59,7 +59,7 @@ describe("fn registration via agentPlugin", () => {
             agentPlugin({
               functions: {
                 broken: {
-                  schema: z.object({}),
+                  input: z.object({}),
                   handler: async () => 1,
                 } as unknown as FnOptions,
               },
@@ -84,9 +84,9 @@ describe("fn registration via agentPlugin", () => {
               functions: {
                 bad: {
                   description: "x",
-                  schema: {
+                  input: {
                     "~standard": { validate: "not-a-function" },
-                  } as unknown as FnOptions["schema"],
+                  } as unknown as FnOptions["input"],
                   handler: async () => 1,
                 } satisfies FnOptions,
               },
@@ -111,7 +111,7 @@ describe("fn registration via agentPlugin", () => {
               functions: {
                 dup: {
                   description: "first",
-                  schema: z.object({}),
+                  input: z.object({}),
                   handler: async () => 1,
                 },
               },
@@ -120,7 +120,7 @@ describe("fn registration via agentPlugin", () => {
               functions: {
                 dup: {
                   description: "second",
-                  schema: z.object({}),
+                  input: z.object({}),
                   handler: async () => 2,
                 },
               },
@@ -145,7 +145,7 @@ describe("fn registration via agentPlugin", () => {
               functions: {
                 "  ": {
                   description: "x",
-                  schema: z.object({}),
+                  input: z.object({}),
                   handler: async () => 1,
                 },
               },
@@ -169,7 +169,7 @@ describe("fn registration via agentPlugin", () => {
             functions: {
               currentTime: {
                 description: "Current UTC ISO 8601 timestamp.",
-                schema: z.object({}),
+                input: z.object({}),
                 handler: async () => new Date().toISOString(),
                 tags: ["read-only", "idempotent"],
               },
@@ -199,7 +199,7 @@ describe("fn registration via agentPlugin", () => {
               functions: {
                 bad: {
                   description: "x",
-                  schema: z.object({}),
+                  input: z.object({}),
                   handler: async () => 1,
                   tags: ["read-only", ""],
                 },
@@ -225,7 +225,7 @@ describe("fn registration via agentPlugin", () => {
               functions: {
                 bad: {
                   description: "x",
-                  schema: z.object({}),
+                  input: z.object({}),
                   handler: async () => 1,
                   tags: "read-only" as unknown as string[],
                 },
@@ -249,7 +249,7 @@ describe("testFn - exercise fn handlers in isolation", () => {
     await expect(
       testFn(
         {
-          schema: z.object({ channel: z.string(), text: z.string() }),
+          input: z.object({ channel: z.string(), text: z.string() }),
           handler,
         },
         { channel: 123, text: "x" },
@@ -272,7 +272,7 @@ describe("testFn - exercise fn handlers in isolation", () => {
       return `hello ${typed.name}`;
     });
     const result = await testFn(
-      { schema: z.object({ name: z.string() }), handler },
+      { input: z.object({ name: z.string() }), handler },
       { name: "alice" },
     );
     expect(result).toBe("hello alice");
@@ -291,7 +291,7 @@ describe("testFn - exercise fn handlers in isolation", () => {
       return "ok";
     });
     const result = await testFn(
-      { schema: z.object({}), handler },
+      { input: z.object({}), handler },
       {},
       { signal: controller.signal },
     );
@@ -308,7 +308,7 @@ describe("testFn - exercise fn handlers in isolation", () => {
       expect(ctx.abortSignal.aborted).toBe(false);
       return "ok";
     });
-    await testFn({ schema: z.object({}), handler }, {});
+    await testFn({ input: z.object({}), handler }, {});
     expect(handler).toHaveBeenCalled();
   });
 
@@ -320,7 +320,7 @@ describe("testFn - exercise fn handlers in isolation", () => {
   test("testFn accepts a real FnOptions value structurally", async () => {
     const fnSpec: FnOptions<{ q: string }, string> = {
       description: "Echoes",
-      schema: z.object({ q: z.string() }),
+      input: z.object({ q: z.string() }),
       handler: async (input) => input.q,
     };
     const result = await testFn(fnSpec, { q: "hi" });
@@ -341,7 +341,7 @@ describe("testFn - exercise fn handlers in isolation", () => {
     });
     const result = await testFn(
       {
-        schema: z.object({ n: z.string().transform(Number) }),
+        input: z.object({ n: z.string().transform(Number) }),
         handler,
       },
       { n: "42" },
@@ -359,7 +359,7 @@ describe("testFn - exercise fn handlers in isolation", () => {
     await expect(
       testFn(
         {
-          schema: z.object({}),
+          input: z.object({}),
           handler: async () => {
             throw boom;
           },
@@ -377,7 +377,7 @@ describe("testFn - exercise fn handlers in isolation", () => {
   test("testFn validation errors are RoutecraftError instances", async () => {
     try {
       await testFn(
-        { schema: z.object({ n: z.number() }), handler: async () => 1 },
+        { input: z.object({ n: z.number() }), handler: async () => 1 },
         { n: "not-a-number" },
       );
       throw new Error("testFn did not throw");

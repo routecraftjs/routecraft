@@ -84,7 +84,7 @@ export class LlmDestinationAdapter<
 
   constructor(
     private readonly modelId: string,
-    options: Partial<LlmOptions> = {},
+    options: LlmOptions = {},
   ) {
     this.options = options as Partial<LlmOptionsMerged>;
   }

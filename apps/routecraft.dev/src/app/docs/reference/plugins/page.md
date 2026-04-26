@@ -460,12 +460,12 @@ agentPlugin({
   functions: {
     currentTime: {
       description: 'Current UTC timestamp in ISO 8601',
-      schema: z.object({}),
+      input: z.object({}),
       handler: async () => new Date().toISOString(),
     },
     sendSlackMessage: {
       description: 'Post a message to a Slack channel',
-      schema: z.object({ channel: z.string(), text: z.string() }),
+      input: z.object({ channel: z.string(), text: z.string() }),
       handler: async (input, ctx) => {
         ctx.logger.info({ channel: input.channel }, 'Posting to Slack')
         return { ok: true }
@@ -486,14 +486,14 @@ agentPlugin({
 | Option | Type | Required | Description |
 |--------|------|----------|-------------|
 | `description` | `string` | Yes | Human-readable description. Used in observability and as the tool description when exposed to an agent |
-| `schema` | `StandardSchemaV1` | Yes | Standard Schema for the input (Zod, Valibot, ArkType, etc.). Validated at invocation time |
+| `input` | `StandardSchemaV1` | Yes | Standard Schema for the input (Zod, Valibot, ArkType, etc.). Validated at invocation time |
 | `handler` | `(input, ctx) => Promise<TOut> \| TOut` | Yes | Called with validated input and a `FnHandlerContext` (`{ logger, abortSignal, context }`) |
 
-**Errors at context init (`RC5003`):** missing description, schema is not a Standard Schema, schema's `validate` is not a function, missing handler, empty id key, duplicate id across installs.
+**Errors at context init (`RC5003`):** missing description, `input` is not a Standard Schema, `input`'s `validate` is not a function, missing handler, empty id key, duplicate id across installs.
 
 ### Testing fns
 
-There is no public `invokeFn` helper -- agents are the only legitimate dispatcher for registered fns. To exercise a fn's schema and handler in isolation in tests, use `testFn` from `@routecraft/testing`:
+There is no public `invokeFn` helper -- agents are the only legitimate dispatcher for registered fns. To exercise a fn's input schema and handler in isolation in tests, use `testFn` from `@routecraft/testing`:
 
 ```ts
 import { testFn } from '@routecraft/testing'
@@ -501,7 +501,7 @@ import { z } from 'zod'
 
 const greet = {
   description: 'Greets someone',
-  schema: z.object({ name: z.string() }),
+  input: z.object({ name: z.string() }),
   handler: async (input, ctx) => `hello ${input.name}`,
 }
 
@@ -509,7 +509,7 @@ const out = await testFn(greet, { name: 'alice' })
 // out === 'hello alice'
 ```
 
-`testFn` validates the input against the schema, calls the handler with a synthetic `{ logger, abortSignal }` context, and returns the handler's output. Validation failures throw `RC5002`. It works structurally on any `{ schema, handler }` shape, so real `FnOptions` values pass without modification.
+`testFn` validates the input against the `input` schema, calls the handler with a synthetic `{ logger, abortSignal }` context, and returns the handler's output. Validation failures throw `RC5002`. It works structurally on any `{ input, handler }` shape, so real `FnOptions` values pass without modification.
 
 ### Agent tools (experimental DSL)
 
@@ -529,7 +529,7 @@ import {
 agentPlugin({
   functions: {
     ...defaultFns,                                  // currentTime, randomUuid (read-only, idempotent)
-    sendSlack: { description, schema, handler, tags: ['destructive', 'messaging'] },
+    sendSlack: { description, input, handler, tags: ['destructive', 'messaging'] },
     fetchOrder: directTool('fetch-order'),          // wraps a direct route as a fn
   },
   agents: {
@@ -565,7 +565,7 @@ Resolution rules:
 - Final list deduplicated by tool name.
 - Explicit refs always win over tag-selector matches, regardless of position in the list.
 - A `directTool(routeId)` fn-registry wrapper supersedes the same direct route surfaced via the prefix convention.
-- Schema, description, and tag overrides at the use site are intentionally not supported. Definition is a registration concern: register a separate fn with `directTool(routeId, { description, schema, tags })` if you need a custom view.
+- Input, description, and tag overrides at the use site are intentionally not supported. Definition is a registration concern: register a separate fn with `directTool(routeId, { description, input, tags })` if you need a custom view.
 
 #### Builders
 

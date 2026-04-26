@@ -15,7 +15,7 @@ import {
  */
 export interface TestFnSpec<TIn, TOut> {
   /** Schema whose validated/coerced output is passed to `handler`. */
-  schema: StandardSchemaV1<unknown, TIn>;
+  input: StandardSchemaV1<unknown, TIn>;
   handler: (input: TIn, ctx: TestFnHandlerContext) => Promise<TOut> | TOut;
 }
 
@@ -64,7 +64,7 @@ export interface TestFnOptions {
  *
  * const greet = {
  *   description: "...",
- *   schema: z.object({ name: z.string() }),
+ *   input: z.object({ name: z.string() }),
  *   handler: async (input, ctx) => `hello ${input.name}`,
  * };
  *
@@ -77,12 +77,12 @@ export async function testFn<TIn, TOut>(
   input: unknown,
   options: TestFnOptions = {},
 ): Promise<TOut> {
-  const standard = (spec.schema as { ["~standard"]?: { validate?: unknown } })[
+  const standard = (spec.input as { ["~standard"]?: { validate?: unknown } })[
     "~standard"
   ];
   if (typeof standard?.validate !== "function") {
     throw rcError("RC5003", undefined, {
-      message: `testFn: spec.schema must be a Standard Schema with a callable validate.`,
+      message: `testFn: spec.input must be a Standard Schema with a callable validate.`,
     });
   }
 

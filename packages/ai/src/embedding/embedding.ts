@@ -17,7 +17,7 @@ import type {
  */
 export function embedding<T = unknown>(
   modelId: EmbeddingModelId,
-  options?: Partial<EmbeddingOptions<T>>,
+  options: EmbeddingOptions<T>,
 ): Destination<T, EmbeddingResult> {
   return new EmbeddingDestinationAdapter<T>(modelId, options);
 }

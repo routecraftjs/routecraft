@@ -109,7 +109,7 @@ describe("tool builders - directTool", () => {
     expect(resolved.description).toBe(
       "Fetch an order by id from the orders DB.",
     );
-    expect(resolved.schema).toBe(inputSchema);
+    expect(resolved.input).toBe(inputSchema);
     expect(resolved.tags).toEqual(["read-only"]);
     expect(typeof resolved.handler).toBe("function");
   });
@@ -129,7 +129,7 @@ describe("tool builders - directTool", () => {
               custom: directTool("fetch-order", {
                 description: "OVERRIDE description.",
                 tags: ["destructive"],
-                schema: overrideSchema,
+                input: overrideSchema,
               }),
             },
           }),
@@ -151,7 +151,7 @@ describe("tool builders - directTool", () => {
     if (!entry || !isDeferredFn(entry)) throw new Error("expected deferred");
     const resolved = entry.resolve(t.ctx, "custom");
     expect(resolved.description).toBe("OVERRIDE description.");
-    expect(resolved.schema).toBe(overrideSchema);
+    expect(resolved.input).toBe(overrideSchema);
     expect(resolved.tags).toEqual(["destructive"]);
   });
 

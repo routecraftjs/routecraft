@@ -72,10 +72,10 @@ const IDLE_RECONNECT_MAX_MS = 60_000;
  */
 export class MailSourceAdapter implements Source<MailMessage> {
   readonly adapterId = "routecraft.adapter.mail";
-  private readonly adapterOptions: Partial<MailServerOptions>;
+  private readonly adapterOptions: MailServerOptions;
   private readonly folder: string;
 
-  constructor(folder: string, options: Partial<MailServerOptions>) {
+  constructor(folder: string, options: MailServerOptions) {
     this.folder = folder;
     this.adapterOptions = options;
   }

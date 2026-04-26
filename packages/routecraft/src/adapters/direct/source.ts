@@ -20,9 +20,9 @@ import { getDirectChannel, registerRoute, sanitizeEndpoint } from "./shared";
 export class DirectSourceAdapter<T = unknown> implements Source<T> {
   readonly adapterId: string = "routecraft.adapter.direct";
 
-  public options: Partial<DirectServerOptions>;
+  public options: DirectServerOptions;
 
-  constructor(options: Partial<DirectServerOptions> = {}) {
+  constructor(options: DirectServerOptions = {}) {
     this.options = options;
   }
 

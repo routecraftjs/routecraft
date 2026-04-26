@@ -65,7 +65,7 @@ export interface FnOptions<TIn = unknown, TOut = unknown> {
    * time; validation failures throw RC5002. The schema's output type
    * (after any `.transform()`) is what the handler sees.
    */
-  schema: StandardSchemaV1<unknown, TIn>;
+  input: StandardSchemaV1<unknown, TIn>;
 
   /**
    * Handler called after schema validation with the (possibly coerced)

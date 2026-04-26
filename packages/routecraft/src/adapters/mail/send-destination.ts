@@ -38,11 +38,11 @@ export class MailSendDestinationAdapter implements Destination<
   MailSendResult
 > {
   readonly adapterId = "routecraft.adapter.mail";
-  private readonly adapterOptions: Partial<MailClientOptions>;
+  private readonly adapterOptions: MailClientOptions;
   private cachedTransporter?: Awaited<ReturnType<typeof createSmtpTransport>>;
   private cachedTransporterKey?: string;
 
-  constructor(options?: Partial<MailClientOptions>) {
+  constructor(options?: MailClientOptions) {
     this.adapterOptions = options ?? {};
   }
 

@@ -27,7 +27,7 @@ export interface AgentPluginOptions {
   /**
    * Ad-hoc in-process functions available to agents (via `tools: [...]`
    * in follow-up stories). Keyed by the fn id; each entry is either an
-   * eagerly-authored `FnOptions` (description, schema, handler) or a
+   * eagerly-authored `FnOptions` (description, input, handler) or a
    * deferred descriptor emitted by a builder helper such as
    * `directTool(routeId)` / `agentTool(agentId)` / `mcpTool(server, tool)`.
    * Deferred descriptors resolve at agent dispatch time when all
@@ -101,7 +101,7 @@ function validateRegisteredAgent(
  *   functions: {
  *     currentTime: {
  *       description: "Current UTC timestamp in ISO 8601",
- *       schema: z.object({}),
+ *       input: z.object({}),
  *       handler: async () => new Date().toISOString(),
  *     },
  *   },

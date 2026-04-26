@@ -69,23 +69,19 @@ import type {
  */
 export function mail(
   folder: string,
-  options: Partial<MailServerOptions>,
+  options: MailServerOptions,
 ): Source<MailMessage>;
 export function mail(folder: string): Destination<unknown, MailFetchResult>;
 export function mail(
-  options: Partial<MailServerOptions>,
+  options: MailServerOptions,
 ): Destination<unknown, MailFetchResult>;
 export function mail(action: MailAction): Destination<unknown, void>;
 export function mail(
-  options?: Partial<MailClientOptions>,
+  options?: MailClientOptions,
 ): Destination<MailSendPayload, MailSendResult>;
 export function mail(
-  folderOrOptions?:
-    | string
-    | Partial<MailServerOptions>
-    | Partial<MailClientOptions>
-    | MailAction,
-  options?: Partial<MailServerOptions>,
+  folderOrOptions?: string | MailServerOptions | MailClientOptions | MailAction,
+  options?: MailServerOptions,
 ):
   | Source<MailMessage>
   | Destination<unknown, MailFetchResult>
@@ -121,7 +117,7 @@ export function mail(
   // Object with server-specific keys -> Fetch Destination
   if (folderOrOptions && hasServerKeys(folderOrOptions)) {
     const adapter = new MailFetchDestinationAdapter(
-      folderOrOptions as Partial<MailServerOptions>,
+      folderOrOptions as MailServerOptions,
     );
     return tagAdapter(adapter, mail, args) as Destination<
       unknown,
@@ -131,7 +127,7 @@ export function mail(
 
   // No args or client-only keys -> Send Destination
   const adapter = new MailSendDestinationAdapter(
-    folderOrOptions as Partial<MailClientOptions> | undefined,
+    folderOrOptions as MailClientOptions | undefined,
   );
   return tagAdapter(adapter, mail, args) as Destination<
     MailSendPayload,

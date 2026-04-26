@@ -16,7 +16,7 @@ import type { RegisteredLlmModelId } from "../registry.ts";
  */
 export function llm<S extends StandardSchemaV1 | undefined = undefined>(
   modelId: RegisteredLlmModelId,
-  options?: Partial<LlmOptions> & { output?: S },
+  options?: LlmOptions & { output?: S },
 ): Destination<unknown, LlmResultWithOutput<S>> {
   return new LlmDestinationAdapter<S>(modelId, options);
 }

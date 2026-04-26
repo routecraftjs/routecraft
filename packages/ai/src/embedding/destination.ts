@@ -82,7 +82,7 @@ export class EmbeddingDestinationAdapter<T = unknown>
 
   constructor(
     private readonly modelId: string,
-    options: Partial<EmbeddingOptions<T>> = {},
+    options: EmbeddingOptions<T>,
   ) {
     this.options = options as Partial<EmbeddingOptions>;
   }
@@ -103,12 +103,6 @@ export class EmbeddingDestinationAdapter<T = unknown>
       context,
     );
     const merged = this.mergedOptions(context!);
-
-    if (!merged.using) {
-      throw new Error(
-        "Embedding adapter: options.using(exchange) is required to build the string to embed.",
-      );
-    }
 
     const getText = buildText(
       merged.using as (e: Exchange<unknown>) => string | string[],
