@@ -468,6 +468,10 @@ async function runStreamGenerate(
  * rejections, returning `undefined` instead. Used to read optional
  * accessors (usage, reasoning, structured output) where absence is
  * not an error.
+ *
+ * Rejections are logged at debug level so a real provider regression
+ * (SDK shape change, transport error on the optional accessor itself)
+ * leaves a breadcrumb without surfacing as a user-visible warning.
  */
 async function safeAwait<T>(
   value: T | PromiseLike<T> | undefined,
@@ -475,7 +479,11 @@ async function safeAwait<T>(
   if (value === undefined) return undefined;
   try {
     return await value;
-  } catch {
+  } catch (err) {
+    frameworkLogger.debug(
+      { err },
+      "llm.streamLlm: optional accessor rejected; treating as absent",
+    );
     return undefined;
   }
 }
