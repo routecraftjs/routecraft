@@ -74,12 +74,27 @@ export interface RouteSchemas {
 }
 
 /**
+ * Well-known tag values surfaced as autocomplete suggestions while still
+ * accepting any user-defined string. Use these consistently to enable
+ * downstream filtering (e.g. an agent that only whitelists `"read-only"`
+ * tools).
+ */
+export type KnownTag = "read-only" | "destructive" | "idempotent";
+
+/**
+ * Tag value: one of the framework's well-known tags or any user string.
+ * The `& {}` keeps autocomplete on `KnownTag` while accepting arbitrary
+ * strings.
+ */
+export type Tag = KnownTag | (string & {});
+
+/**
  * Route-level discovery bundle. Adapters that maintain registries (direct,
  * mcp) mirror these fields into their registry entries; the engine uses
  * `input` / `output` for framework-enforced validation regardless of adapter.
  *
- * Set via the `.title()`, `.description()`, `.input()`, and `.output()`
- * builder methods. All fields are optional.
+ * Set via the `.title()`, `.description()`, `.input()`, `.output()`,
+ * and `.tag()` builder methods. All fields are optional.
  */
 export interface RouteDiscovery {
   /** Human-readable display title for discovery consumers (agents, docs). */
@@ -90,6 +105,11 @@ export interface RouteDiscovery {
   input?: RouteSchemas;
   /** Output schemas runtime-enforced before the primary destination. */
   output?: RouteSchemas;
+  /**
+   * Tags used by tag-based selectors (e.g. agents whitelisting
+   * `{ tagged: "read-only" }`). Empty/missing means no tags.
+   */
+  tags?: Tag[];
 }
 
 /**

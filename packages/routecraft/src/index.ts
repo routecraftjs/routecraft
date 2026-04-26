@@ -49,6 +49,8 @@ export {
   type ForwardFn,
   type RouteDiscovery,
   type RouteSchemas,
+  type KnownTag,
+  type Tag,
 } from "./route.ts";
 
 export { type Source, type SourceMeta } from "./operations/from.ts";
@@ -201,6 +203,7 @@ export {
   ADAPTER_DIRECT_STORE,
   ADAPTER_DIRECT_OPTIONS,
   ADAPTER_DIRECT_REGISTRY,
+  getDirectChannel,
   sanitizeEndpoint,
 } from "./adapters/direct/index.ts";
 export { type TimerOptions } from "./adapters/timer/index.ts";

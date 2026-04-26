@@ -1,5 +1,6 @@
 import type { Exchange } from "@routecraft/routecraft";
 import type { LlmModelConfig, LlmModelId, LlmUsage } from "../llm/types.ts";
+import type { ToolSelection } from "./tools/selection.ts";
 
 /**
  * Resolves a user prompt from an exchange. When omitted, the agent derives
@@ -39,6 +40,17 @@ export interface AgentOptions {
    * exchange. Defaults to the body (string as-is, JSON for objects).
    */
   user?: AgentUserPromptSource;
+
+  /**
+   * Tools the agent is allowed to call. Build via
+   * `tools([...])` from `@routecraft/ai`. Resolved against the live
+   * fn / direct registries at agent dispatch time.
+   *
+   * When omitted, the agent inherits the context-default tool list set
+   * via `agentPlugin({ tools })`. An explicit value here replaces the
+   * default entirely (no extension).
+   */
+  tools?: ToolSelection;
 }
 
 /**

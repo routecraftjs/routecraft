@@ -82,5 +82,6 @@ export {
   ADAPTER_DIRECT_STORE,
   ADAPTER_DIRECT_OPTIONS,
   ADAPTER_DIRECT_REGISTRY,
+  getDirectChannel,
   sanitizeEndpoint,
 } from "./shared";

@@ -4,11 +4,12 @@ import {
   type CraftPlugin,
 } from "@routecraft/routecraft";
 import { validateAgentOptions } from "./agent.ts";
-import { ADAPTER_AGENT_REGISTRY } from "./store.ts";
+import { ADAPTER_AGENT_REGISTRY, ADAPTER_TOOLS_DEFAULT } from "./store.ts";
 import { validateFnOptions } from "../fn/fn.ts";
 import { ADAPTER_FN_REGISTRY } from "../fn/store.ts";
-import type { FnOptions } from "../fn/types.ts";
 import type { AgentRegisteredOptions } from "./types.ts";
+import { isDeferredFn, type FnEntry } from "./tools/types.ts";
+import { isToolSelection, type ToolSelection } from "./tools/selection.ts";
 
 export interface AgentPluginOptions {
   /**
@@ -21,14 +22,30 @@ export interface AgentPluginOptions {
 
   /**
    * Ad-hoc in-process functions available to agents (via `tools: [...]`
-   * in follow-up stories). Keyed by the fn id; each entry provides
-   * description, Standard Schema, and handler. Duplicate ids across
-   * multiple `agentPlugin` installs throw at context init.
+   * in follow-up stories). Keyed by the fn id; each entry is either an
+   * eagerly-authored `FnOptions` (description, schema, handler) or a
+   * deferred descriptor emitted by a builder helper such as
+   * `directTool(routeId)` / `agentTool(agentId)` / `mcpTool(server, tool)`.
+   * Deferred descriptors resolve at agent dispatch time when all
+   * registries are populated.
+   *
+   * Duplicate ids across multiple `agentPlugin` installs throw at
+   * context init.
    *
    * For tests, exercise registered fn handlers via `testFn` from
    * `@routecraft/testing` rather than dispatching through the plugin.
    */
-  functions?: Record<string, FnOptions>;
+  functions?: Record<string, FnEntry>;
+
+  /**
+   * Context-default tool list for agents that don't specify their own
+   * `tools:` field. Build via `tools([...])`. An agent that does set
+   * `tools:` replaces this default entirely (override, not extend).
+   *
+   * Multiple `agentPlugin` installs that each provide a default throw
+   * at context init: a context can only have one default tool list.
+   */
+  tools?: ToolSelection;
 }
 
 function validateRegisteredAgent(
@@ -85,6 +102,12 @@ function validateRegisteredAgent(
 export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
   const agents = options.agents ?? {};
   const functions = options.functions ?? {};
+  const defaultTools = options.tools;
+  if (defaultTools !== undefined && !isToolSelection(defaultTools)) {
+    throw rcError("RC5003", undefined, {
+      message: `agentPlugin: "tools" must be the result of tools([...]).`,
+    });
+  }
   return {
     apply(ctx: CraftContext) {
       // Merge into an existing registry when present so multiple
@@ -105,6 +128,11 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
             message: `agentPlugin: agent "${id}" entry must be an object with description, model, and system.`,
           });
         }
+        if (entry.tools !== undefined && !isToolSelection(entry.tools)) {
+          throw rcError("RC5003", undefined, {
+            message: `agentPlugin: agent "${id}" "tools" must be the result of tools([...]).`,
+          });
+        }
         validateRegisteredAgent(id, entry);
         if (agentMap.has(id)) {
           throw rcError("RC5003", undefined, {
@@ -122,8 +150,8 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
 
       const existingFns = ctx.getStore(
         ADAPTER_FN_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry,
-      ) as Map<string, FnOptions> | undefined;
-      const fnMap = existingFns ?? new Map<string, FnOptions>();
+      ) as Map<string, FnEntry> | undefined;
+      const fnMap = existingFns ?? new Map<string, FnEntry>();
       for (const [id, entry] of Object.entries(functions)) {
         if (id.trim() === "") {
           throw rcError("RC5003", undefined, {
@@ -135,7 +163,9 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
             message: `agentPlugin: fn "${id}" entry must be an object with description, schema, and handler.`,
           });
         }
-        validateFnOptions(id, entry);
+        if (!isDeferredFn(entry)) {
+          validateFnOptions(id, entry);
+        }
         if (fnMap.has(id)) {
           throw rcError("RC5003", undefined, {
             message: `agentPlugin: duplicate fn id "${id}". Each fn id must be unique within a context.`,
@@ -147,6 +177,21 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
         ctx.setStore(
           ADAPTER_FN_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry,
           fnMap,
+        );
+      }
+
+      if (defaultTools !== undefined) {
+        const existingDefault = ctx.getStore(
+          ADAPTER_TOOLS_DEFAULT as keyof import("@routecraft/routecraft").StoreRegistry,
+        );
+        if (existingDefault !== undefined) {
+          throw rcError("RC5003", undefined, {
+            message: `agentPlugin: a default tool list is already set on this context. Combine selectors into a single tools([...]) call.`,
+          });
+        }
+        ctx.setStore(
+          ADAPTER_TOOLS_DEFAULT as keyof import("@routecraft/routecraft").StoreRegistry,
+          defaultTools,
         );
       }
     },

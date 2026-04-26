@@ -511,6 +511,84 @@ const out = await testFn(greet, { name: 'alice' })
 
 `testFn` validates the input against the schema, calls the handler with a synthetic `{ logger, abortSignal }` context, and returns the handler's output. Validation failures throw `RC5002`. It works structurally on any `{ schema, handler }` shape, so real `FnOptions` values pass without modification.
 
+### Agent tools (experimental DSL)
+
+> **Status: DSL-only.** The configuration surface below is fully implemented and validated; the agent runtime that actually presents these tools to the LLM and dispatches them lands in a follow-up release. Setting `tools:` on an agent today is a no-op at dispatch time.
+
+Tags, the `tools([...])` selector, the builder helpers, and the context-default tool list register and validate cleanly so user code can be written against the final shape now.
+
+```ts
+import {
+  agentPlugin,
+  agent,
+  defaultFns,
+  directTool,
+  tools,
+} from '@routecraft/ai'
+
+agentPlugin({
+  functions: {
+    ...defaultFns,                                  // currentTime, randomUuid (read-only, idempotent)
+    sendSlack: { description, schema, handler, tags: ['destructive', 'messaging'] },
+    fetchOrder: directTool('fetch-order'),          // wraps a direct route as a fn
+  },
+  agents: {
+    researcher: {
+      description, model, system,
+      tools: tools([
+        'currentTime',                              // bare ref
+        'fetchOrder',
+        'direct_cancel-order',                      // prefix convention
+        { name: 'sendSlack', guard: requireApproval },
+        { tagged: 'read-only' },                    // single tag
+        { tagged: ['read-only', 'idempotent'] },    // OR-of-tags
+      ]),
+    },
+  },
+  tools: tools(['currentTime', { tagged: 'read-only' }]),  // context default
+})
+```
+
+#### `tools(items)`
+
+Flat array of items. Each item is one of:
+
+- **Bare string** — name lookup. Plain ids resolve against the fn registry; `direct_*` falls back to the direct registry via `directTool`. `agent_*` and `mcp_*` are reserved for future stories and currently throw a clear "not yet supported" error.
+- **`{ name, guard? }`** — same name lookup, with an optional guard attached. The guard runs after schema validation and before the handler; throwing surfaces back to the LLM as a tool error so the model can self-correct.
+- **`{ tagged, guard? }`** — selects every fn / route whose tags overlap the requested set (single tag or array). Optional guard applies to every match. Tag-zero-match contributes nothing without throwing.
+
+Resolution rules:
+
+- Final list deduplicated by tool name.
+- Explicit refs always win over tag-selector matches, regardless of position in the list.
+- A `directTool(routeId)` fn-registry wrapper supersedes the same direct route surfaced via the prefix convention.
+- Schema, description, and tag overrides at the use site are intentionally not supported. Definition is a registration concern: register a separate fn with `directTool(routeId, { description, schema, tags })` if you need a custom view.
+
+#### Builders
+
+| Builder | Use |
+|---|---|
+| `directTool(routeId, overrides?)` | Adapt a registered direct route as a fn. Pulls description, input schema, and tags from the route's discovery bundle by default; `overrides` can replace any of those. |
+| `agentTool(agentId)` | Reserved for sub-agent tools (follow-up story). Currently a stub that throws a clear "not yet supported" error. |
+| `mcpTool(server, tool)` | Reserved for MCP tools (follow-up story). Currently a stub. |
+| `defaultFns` | A small starter set (`currentTime`, `randomUuid`) tagged `read-only`/`idempotent`. Spread into your `functions:` config. |
+
+#### Tags
+
+Apply with `.tag(value | values[])` on routes and `tags?: Tag[]` on `FnOptions`. Empty strings are rejected; surrounding whitespace is trimmed at storage so exact selectors match.
+
+`KnownTag` (a literal-suggested type) covers the framework's well-known tags:
+
+```ts
+type KnownTag = 'read-only' | 'destructive' | 'idempotent';
+```
+
+Any user string is also accepted; the `KnownTag` literals just power autocomplete.
+
+#### Context-default tool list
+
+`agentPlugin({ tools: tools([...]) })` registers a default tool list for the context. Agents that omit their own `tools:` field inherit it. An agent that sets `tools:` replaces the default entirely (override, not extend). Two installs each supplying a default throw at context init -- combine selectors into a single `tools([...])` call.
+
 ### Typed fn ids (`FnRegistry`)
 
 For compile-time autocomplete of fn ids in the agent `tools: [...]` field (follow-up story), populate the `FnRegistry` marker interface via declaration merging in your project:

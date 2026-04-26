@@ -45,4 +45,21 @@ export function validateFnOptions(id: string, options: FnOptions): void {
       message: `agentPlugin: fn "${id}" "handler" is required and must be a function.`,
     });
   }
+  if (options.tags !== undefined) {
+    if (!Array.isArray(options.tags)) {
+      throw rcError("RC5003", undefined, {
+        message: `agentPlugin: fn "${id}" "tags" must be an array of non-empty strings.`,
+      });
+    }
+    for (let i = 0; i < options.tags.length; i++) {
+      const t = options.tags[i];
+      if (typeof t !== "string" || t.trim() === "") {
+        throw rcError("RC5003", undefined, {
+          message: `agentPlugin: fn "${id}" "tags" must contain only non-empty strings.`,
+        });
+      }
+      // Normalise: trim surrounding whitespace so exact selectors match.
+      options.tags[i] = t.trim();
+    }
+  }
 }
