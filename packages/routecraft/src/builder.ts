@@ -32,9 +32,6 @@ import {
   DefaultExchange,
   getExchangeContext,
 } from "./exchange.ts";
-import { MailClientManager } from "./adapters/mail/client-manager.ts";
-import { MAIL_CLIENT_MANAGER } from "./adapters/mail/shared.ts";
-import { telemetry } from "./telemetry/index.ts";
 import {
   type Splitter,
   type CallableSplitter,
@@ -89,7 +86,6 @@ export class ContextBuilder {
   protected eventHandlers = new Map<EventName, Set<EventHandler<EventName>>>();
   protected onceHandlers = new Map<EventName, Set<EventHandler<EventName>>>();
   protected plugins: Array<import("./context.ts").CraftPlugin> = [];
-  protected mailConfig?: import("./adapters/mail/types.ts").MailContextConfig;
 
   constructor() {}
 
@@ -127,23 +123,11 @@ export class ContextBuilder {
       }
     }
 
-    // Note: config.once handlers are registered by the CraftContext constructor directly,
-    // so we do not copy them into onceHandlers here to avoid double-registration.
-
-    // Note: config.cron and config.direct are handled by the CraftContext
-    // constructor directly -- no extraction needed here.
-
-    // Extract mail config if provided
-    if (config.mail) {
-      this.mailConfig = config.mail;
-    }
-
-    // Convert telemetry config into a plugin
-    if (config.telemetry) {
-      this.plugins.push(telemetry(config.telemetry));
-    }
-
-    // Extract plugins if provided
+    // Accumulate plugins across multiple with() calls. The CraftContext
+    // constructor handles config.cron, config.direct, config.http,
+    // config.mail, and config.telemetry from `this.config`; we don't
+    // duplicate those conversions here. Only `plugins` needs to be
+    // accumulated because successive with() calls overwrite this.config.
     if (config.plugins) {
       this.plugins.push(...config.plugins);
     }
@@ -265,11 +249,17 @@ export class ContextBuilder {
    * ```
    */
   async build(): Promise<{ context: CraftContext; client: CraftClient }> {
-    const configWithPlugins = {
+    // The builder accumulates plugins across multiple with() calls into
+    // `this.plugins`; replace `config.plugins` with the accumulated list so
+    // the constructor sees the union, not just the last with()'s plugins.
+    // Config keys like `telemetry`, `mail`, and registered config appliers
+    // (e.g. `llm`, `mcp`) are converted into plugins inside the constructor
+    // and run before user `plugins[]`; see CraftContext.constructor.
+    const mergedConfig: CraftConfig = {
       ...this.config,
       plugins: this.plugins,
     };
-    const ctx = new CraftContext(configWithPlugins);
+    const ctx = new CraftContext(mergedConfig);
 
     // Add stores from builder (config stores already added in constructor)
     for (const [key, value] of this.initialStores) {
@@ -278,7 +268,10 @@ export class ContextBuilder {
       }
     }
 
-    // Attach event handlers from builder (config handlers already added in constructor)
+    // Attach event handlers from builder. `config.on` handlers are already
+    // registered by the constructor, but the builder's `eventHandlers` map
+    // also contains them (with the same handler references), so the
+    // CraftContext's Set-based registry deduplicates.
     for (const [event, handlers] of this.eventHandlers.entries()) {
       for (const handler of handlers) {
         ctx.on(event as EventName, handler as EventHandler<EventName>);
@@ -290,16 +283,6 @@ export class ContextBuilder {
       for (const handler of handlers) {
         ctx.once(event as EventName, handler as EventHandler<EventName>);
       }
-    }
-
-    // Note: cron and direct defaults are set by the CraftContext constructor
-    // via config.cron / config.direct -- no need to set them again here.
-
-    // Set up mail client manager if mail config is present
-    if (this.mailConfig) {
-      const manager = new MailClientManager(this.mailConfig);
-      ctx.setStore(MAIL_CLIENT_MANAGER as keyof StoreRegistry, manager);
-      ctx.registerTeardown(() => manager.drain());
     }
 
     // Run plugins before routes are registered (context runs config.plugins)

@@ -15,6 +15,7 @@ import { MAIL_CLIENT_MANAGER } from "./adapters/mail/shared.ts";
 import { type TelemetryOptions } from "./telemetry/types.ts";
 import { telemetry } from "./telemetry/index.ts";
 import { type AdapterOverride, RC_ADAPTER_OVERRIDES } from "./testing-hooks.ts";
+import { getConfigAppliers } from "./config-applier.ts";
 
 import {
   type EventHandler,
@@ -85,8 +86,21 @@ export interface CraftPlugin {
 
 /**
  * Configuration options for creating a CraftContext.
+ *
+ * Declared as an `interface` so ecosystem packages can extend it via
+ * declaration merging. Pair an augmentation with `registerConfigApplier`
+ * to promote an ecosystem capability to a first-class config key.
+ *
+ * @example
+ * ```typescript
+ * declare module "@routecraft/routecraft" {
+ *   interface CraftConfig {
+ *     myCapability?: MyCapabilityOptions;
+ *   }
+ * }
+ * ```
  */
-export type CraftConfig = {
+export interface CraftConfig {
   /** Initial values for the context store */
   store?: Map<keyof StoreRegistry, StoreRegistry[keyof StoreRegistry]>;
   /** Event handlers to register on context creation */
@@ -109,7 +123,7 @@ export type CraftConfig = {
   mail?: MailContextConfig;
   /** Telemetry plugin configuration (SQLite, OpenTelemetry) */
   telemetry?: TelemetryOptions;
-};
+}
 
 /**
  * The main context for running and managing routes.
@@ -240,6 +254,20 @@ export class CraftContext {
       // Convert telemetry config into a plugin
       if (config.telemetry) {
         this.plugins.push(telemetry(config.telemetry));
+      }
+
+      // Walk registered config appliers (e.g. @routecraft/ai promotes `llm`,
+      // `mcp`, `embedding`, `agent` to first-class keys via this registry).
+      // Order is significant: ecosystem appliers go after core inline
+      // conversions and before user `config.plugins`, so reverse-iteration
+      // teardown gives the correct order (user plugins first, then
+      // ecosystem, then core).
+      const configRecord = config as unknown as Record<string, unknown>;
+      for (const [key, factory] of getConfigAppliers()) {
+        const value = configRecord[key];
+        if (value !== undefined) {
+          this.plugins.push(factory(value));
+        }
       }
 
       if (config.plugins?.length) {

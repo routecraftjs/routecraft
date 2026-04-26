@@ -6,20 +6,22 @@ Full reference for `CraftConfig` fields and logging options. {% .lead %}
 
 ## CraftConfig
 
-The main configuration object for context settings. Export it as `craftConfig` (named export) alongside your capabilities when using `craft run`:
+The main configuration object for context settings. Export it as `craftConfig` (named export) alongside your capabilities when using `craft run`. The recommended pattern is `defineConfig`, an identity helper that preserves literal-type inference (so autocomplete works for first-class keys):
 
 ```ts
-import type { CraftConfig } from '@routecraft/routecraft'
+import { defineConfig } from '@routecraft/routecraft'
 
-export const craftConfig = {
+export const craftConfig = defineConfig({
   store: new Map([
     ['my.adapter.config', { apiKey: 'xyz' }]
   ]),
   on: {
     'context:starting': ({ ts }) => console.log('Starting at', ts)
-  }
-} satisfies CraftConfig
+  },
+})
 ```
+
+`defineConfig` is a no-op at runtime; it returns the input unchanged. The legacy `satisfies CraftConfig` pattern continues to work.
 
 ## Configuration fields
 
@@ -30,7 +32,35 @@ export const craftConfig = {
 | `once` | `Partial<Record<EventName, EventHandler \| EventHandler[]>>` | No | — | One-time event handlers that fire once then auto-unsubscribe |
 | `cron` | `Partial<CronOptions>` | No | -- | Default options for all `cron()` sources ([details](#cron)) |
 | `direct` | `{ channelType?: DirectChannelType }` | No | -- | Custom channel implementation for all `direct()` endpoints ([details](#direct)) |
-| `plugins` | `CraftPlugin[]` | No | — | Plugins to initialize before routes are registered |
+| `mail` | `MailContextConfig` | No | — | Mail adapter accounts (IMAP/SMTP) keyed by name |
+| `telemetry` | `TelemetryOptions` | No | — | Telemetry plugin configuration (SQLite, OpenTelemetry) |
+| `plugins` | `CraftPlugin[]` | No | — | Custom plugins to initialize before routes are registered |
+
+### Ecosystem keys (added by `@routecraft/ai`)
+
+When `@routecraft/ai` is imported (anywhere in the project), `CraftConfig` is augmented with first-class keys for the AI plugins. Each key carries the same options as the corresponding factory and participates in the standard plugin lifecycle.
+
+| Field | Type | Equivalent factory |
+|-------|------|--------------------|
+| `llm` | `LlmPluginOptions` | `llmPlugin(options)` |
+| `mcp` | `McpPluginOptions` | `mcpPlugin(options)` |
+| `embedding` | `EmbeddingPluginOptions` | `embeddingPlugin(options)` |
+| `agent` | `AgentPluginOptions` | `agentPlugin(options)` |
+
+```ts
+import { defineConfig } from '@routecraft/routecraft'
+import '@routecraft/ai' // augments CraftConfig with llm/mcp/embedding/agent
+
+export const craftConfig = defineConfig({
+  llm: {
+    providers: { openai: { apiKey: process.env.OPENAI_API_KEY! } },
+    defaultProvider: 'openai',
+  },
+  mcp: { clients: { /* ... */ } },
+})
+```
+
+The legacy `plugins: [llmPlugin(...)]` form continues to work and is the right escape hatch for shared plugin instances or programmatic composition.
 
 ## Core adapter defaults
 
