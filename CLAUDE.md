@@ -31,6 +31,8 @@ Detailed coding standards for contributors live in `.standards/`:
 - [Error and Logging Policy](.standards/error-and-logging-policy.md) -- throw/boundary rules, log levels, error codes
 - [Type Safety and Schemas](.standards/type-safety-and-schemas.md) -- type flow, Standard Schema, plugin vs config
 - [Type Safety Registries](.standards/type-safety-registries.md) -- declaration-merging registries for typed adapters and endpoints
+- [Testing](.standards/testing.md) -- runner conventions, JSDoc-on-every-test, helpers, lifecycle, assertion patterns
+- [CI/CD](.standards/ci-cd.md) -- PR gates, hook policy, peer-dependency rules, release flow
 
 ## Merge Checklist
 
