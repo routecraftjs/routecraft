@@ -57,6 +57,7 @@ export function html<T = unknown, R = HtmlResult>(
 export function html<T = unknown, R = HtmlResult>(
   options: HtmlOptions<T, R>,
 ): (Transformer<T, R> & { readonly adapterId: string }) | HtmlAdapter<T, R> {
+  const args = factoryArgs(options);
   const transformer = new HtmlTransformerAdapter<T, R>(options);
   if (options.path) {
     const source = new HtmlSourceAdapter<T, R>(options);
@@ -75,7 +76,7 @@ export function html<T = unknown, R = HtmlResult>(
         send: destination.send,
       },
       html,
-      factoryArgs(options),
+      args,
     );
   }
   return {

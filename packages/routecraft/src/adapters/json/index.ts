@@ -85,9 +85,10 @@ export function json(options: JsonFileOptions): JsonFileAdapterType;
 export function json<T = unknown, R = unknown, V = unknown>(
   options: JsonOptions<T, R, V> = {},
 ): Transformer<T, R> | Transformer<T, V> | JsonFileAdapterType {
+  const args = factoryArgs(options);
   if (isFileMode(options)) {
     const adapter = new JsonFileAdapter(options as JsonFileOptions);
-    return tagAdapter(adapter, json, factoryArgs(options));
+    return tagAdapter(adapter, json, args);
   }
   return new JsonTransformerAdapter<T, R, V>(
     options as JsonTransformerOptions<T, R, V>,
