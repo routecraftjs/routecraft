@@ -32,9 +32,9 @@ export const craftConfig = defineConfig({
 | `once` | `Partial<Record<EventName, EventHandler \| EventHandler[]>>` | No | — | One-time event handlers that fire once then auto-unsubscribe |
 | `cron` | `Partial<CronOptions>` | No | -- | Default options for all `cron()` sources ([details](#cron)) |
 | `direct` | `{ channelType?: DirectChannelType }` | No | -- | Custom channel implementation for all `direct()` endpoints ([details](#direct)) |
-| `mail` | `MailContextConfig` | No | — | Mail adapter accounts (IMAP/SMTP) keyed by name |
-| `telemetry` | `TelemetryOptions` | No | — | Telemetry plugin configuration (SQLite, OpenTelemetry) |
-| `plugins` | `CraftPlugin[]` | No | — | Custom plugins to initialize before routes are registered |
+| `mail` | `MailContextConfig` | No | -- | Mail adapter accounts (IMAP/SMTP) keyed by name |
+| `telemetry` | `TelemetryOptions` | No | -- | Telemetry plugin configuration (SQLite, OpenTelemetry) |
+| `plugins` | `CraftPlugin[]` | No | -- | Custom plugins to initialize before routes are registered |
 
 ### Ecosystem keys (added by `@routecraft/ai`)
 

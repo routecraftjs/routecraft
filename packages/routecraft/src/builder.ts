@@ -92,6 +92,20 @@ export class ContextBuilder {
   /**
    * Configure the context with the provided config object.
    *
+   * Merge semantics across multiple `with()` calls are not symmetric:
+   *
+   * - `plugins` accumulates: every `with()` call appends its `plugins[]`
+   *   to a builder-side list. Builder stores and event handlers also
+   *   accumulate.
+   * - Every other key (`store`'s value map aside, plus `cron`, `direct`,
+   *   `http`, `mail`, `telemetry`, and any ecosystem-augmented keys such
+   *   as `llm`, `mcp`) is last-writer-wins: a second `with()` replaces
+   *   the previously stored config object, and only the most recent
+   *   non-`plugins` keys reach the constructor.
+   *
+   * If you need to combine non-`plugins` keys across sources, merge them
+   * into a single object before calling `with()` (or call `with()` once).
+   *
    * @param config The configuration object for the context
    * @returns This builder instance for method chaining
    */

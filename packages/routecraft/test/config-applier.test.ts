@@ -1,4 +1,11 @@
-import { afterEach, describe, expect, expectTypeOf, test } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  expectTypeOf,
+  test,
+} from "vitest";
 import {
   type CraftConfig,
   CraftContext,
@@ -44,10 +51,17 @@ declare module "@routecraft/routecraft" {
 }
 
 describe("registerConfigApplier", () => {
-  let snapshot: Map<string, (opts: unknown) => CraftPlugin>;
+  // Capture in beforeEach (not in each test body) so a future setup change
+  // that throws before the test body runs still restores the registry.
+  let snapshot: Map<string, (opts: unknown) => CraftPlugin> | undefined;
+
+  beforeEach(() => {
+    snapshot = snapshotRegistry();
+  });
 
   afterEach(() => {
     if (snapshot) restoreRegistry(snapshot);
+    snapshot = undefined;
   });
 
   /**
@@ -57,8 +71,6 @@ describe("registerConfigApplier", () => {
    * @expectedResult Plugin's apply() runs during initPlugins() with the config value
    */
   test("applier produces a plugin when key is present", async () => {
-    snapshot = snapshotRegistry();
-
     const applied: Array<{ value: string }> = [];
     registerConfigApplier("__testApplier", (options) => ({
       apply() {
@@ -79,8 +91,6 @@ describe("registerConfigApplier", () => {
    * @expectedResult The applier is never invoked
    */
   test("applier is not invoked when key is absent", async () => {
-    snapshot = snapshotRegistry();
-
     let called = false;
     registerConfigApplier("__testApplier", () => ({
       apply() {
@@ -100,8 +110,6 @@ describe("registerConfigApplier", () => {
    * @expectedResult initPlugins runs the applier-produced plugin first, then user plugins
    */
   test("applier-produced plugin runs before user plugins[]", async () => {
-    snapshot = snapshotRegistry();
-
     const order: string[] = [];
     registerConfigApplier("__testApplier", () => ({
       apply() {
@@ -130,8 +138,6 @@ describe("registerConfigApplier", () => {
    * @expectedResult Apply order matches registration order; user plugins run last
    */
   test("multiple appliers run in registration order", async () => {
-    snapshot = snapshotRegistry();
-
     const order: string[] = [];
     registerConfigApplier("__testApplier", () => ({
       apply() {
@@ -167,8 +173,6 @@ describe("registerConfigApplier", () => {
    * @expectedResult Stop calls user teardown first, then applier teardown
    */
   test("teardown runs in reverse order on stop", async () => {
-    snapshot = snapshotRegistry();
-
     const order: string[] = [];
     registerConfigApplier("__testApplier", () => ({
       apply() {},
@@ -201,8 +205,6 @@ describe("registerConfigApplier", () => {
    * @expectedResult Only the latest applier runs when the context is built
    */
   test("re-registration replaces the previous applier", async () => {
-    snapshot = snapshotRegistry();
-
     const calls: string[] = [];
     registerConfigApplier("__testApplier", () => ({
       apply() {
