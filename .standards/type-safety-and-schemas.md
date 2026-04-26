@@ -11,7 +11,7 @@ Routecraft must be **100% type safe**. The exchange body (or destination result)
 ### What this means
 
 - **Sources** (e.g., `direct`, `mcp`, `simple`): Declare the body type `T` they produce. When a schema is provided, infer `T` from the schema (e.g., `StandardSchemaV1.InferOutput<S>`) so the route is typed from the start.
-- **Destinations** (e.g., `to`, `tap`, `enrich`): Declare the result type `R` they return. When a schema or typed option is provided (e.g., `llm(..., { outputSchema })`), the result type must reflect it.
+- **Destinations** (e.g., `to`, `tap`, `enrich`): Declare the result type `R` they return. When a schema or typed option is provided (e.g., `llm(..., { output })`), the result type must reflect it.
 - **Steps** (transform, process, filter, validate, header, split, aggregate, enrich): Input is `Current`; output type must be explicit. After a step, the route's `Current` type must be updated so the next step receives the correct type.
 - **Helpers** (e.g., `only`, `json`): Preserve or infer types. `only(getValue, into)` should type `getValue` as `(r: R) => V` and, when `into` is a string literal, allow the builder to infer the enriched body type.
 - **Runtime:** The builder chain is fully typed. The runnable `Route` and event/consumer handlers receive `Exchange` (body: `unknown`) at runtime; use `Route<T>` when you know the body type, or narrow/assert in handlers.
@@ -22,6 +22,53 @@ Routecraft must be **100% type safe**. The exchange body (or destination result)
 2. **Generics must flow.** Every public API that accepts or produces a body/result type must use generics (`Source<T>`, `Destination<T, R>`, `Transformer<T, R>`, `DestinationAggregator<T, R>`) and the builder must propagate `Current` through the chain.
 3. **New operations and adapters:** Declare input and output types; ensure the route builder's `Current` is updated after the step so downstream steps stay typed.
 4. **Tests:** Add type-level tests (e.g., `expectTypeOf`) where new type inference or propagation is added, so regressions are caught.
+
+---
+
+## Factory option types
+
+Adapter factories must use the option interface directly. Do not wrap factory args in `Partial<>`.
+
+### Rule
+
+```ts
+// Good: required fields are required, optional fields are marked ? on the interface.
+export interface EmbeddingOptions<T = unknown> {
+  using: (exchange: Exchange<T>) => string | string[];
+}
+
+export function embedding<T>(
+  modelId: EmbeddingModelId,
+  options: EmbeddingOptions<T>, // not Partial<EmbeddingOptions<T>>
+): Destination<T, EmbeddingResult> { ... }
+```
+
+```ts
+// Bad: Partial<> hides the requirement, so embedding(modelId, {}) typechecks
+// but throws at runtime.
+export function embedding<T>(
+  modelId: EmbeddingModelId,
+  options?: Partial<EmbeddingOptions<T>>,
+): Destination<T, EmbeddingResult> { ... }
+```
+
+If every field on the option interface is optional, the factory parameter itself can be optional (`options?: HttpOptions`). The interface stays the source of truth for what is required.
+
+### Where `Partial<>` is allowed
+
+`Partial<>` is a legitimate type for **partial overrides**, not for factory args:
+
+| Site | Why `Partial<>` is correct |
+|------|---------------------------|
+| Plugin `defaultOptions?: Partial<T>` | Defaults can supply any subset of fields. |
+| `MergedOptions<T>.options: Partial<T>` | Adapter instance options merge with context defaults. |
+| Internal merge helpers (e.g., `MailClientManager.resolveImapOptions(account, overrides: Partial<MailServerOptions>)`) | Per-call overrides are partial by definition. |
+
+### Why
+
+The factory is the user-facing system boundary, so it carries the strongest contract. Wrapping its args in `Partial<>` defeats the type system: the interface declares `using` as required, but `Partial<>` quietly makes it optional, so the failure surfaces at runtime instead of at the call site. The embedding adapter shipped with this exact bug for the duration the wrapper was in place.
+
+The framework boundary (plugin defaults, `MergedOptions<T>`) is a different surface where partial values are the actual contract. Keep `Partial<>` there; remove it from factories.
 
 ---
 
