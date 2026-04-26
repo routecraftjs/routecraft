@@ -124,6 +124,8 @@ export {
 export type {
   AgentBinding,
   AgentDefaultOptions,
+  AgentEvent,
+  AgentEventListener,
   AgentOptions,
   AgentPluginOptions,
   AgentRegisteredOptions,

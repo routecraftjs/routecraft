@@ -1,8 +1,9 @@
 import type { CraftContext, Exchange } from "@routecraft/routecraft";
-import { callLlm } from "../llm/providers/index.ts";
+import { callLlm, streamLlm } from "../llm/providers/index.ts";
 import { resolvePrompt, resolveUserPromptDefault } from "../llm/shared.ts";
 import type { LlmModelConfig, LlmResult } from "../llm/types.ts";
 import { toAiOutputSpec } from "../llm/structured-output.ts";
+import type { AgentEventListener } from "./events.ts";
 import { buildVercelTools } from "./tool-bridge.ts";
 import type { ResolvedTool } from "./tools/selection.ts";
 import type {
@@ -46,18 +47,20 @@ export interface AgentSessionInput {
  * resolved tools + initial messages + provider config so the dispatch
  * path is structured around discrete units of work.
  *
- * Today only the synchronous path (`runUntilDone()`) is implemented.
- * It calls `generateText` once with the full tool list and lets the
- * Vercel AI SDK handle the multi-step tool-calling loop internally.
+ * Two execution paths are exposed:
  *
- * The session boundary exists so two follow-ups layer on without
- * rearchitecting:
+ * - {@link AgentSession.runUntilDone} calls `generateText` once with
+ *   the full tool list and lets the Vercel AI SDK handle the
+ *   multi-step tool-calling loop internally. Returns the consolidated
+ *   {@link AgentResult} when the loop terminates.
+ * - {@link AgentSession.runStream} calls `streamText` with the same
+ *   setup, forwards every normalised event through the user-supplied
+ *   listener, and returns the same consolidated {@link AgentResult}
+ *   once the stream drains.
  *
- * - **Streaming** (#257) adds `runStream()` which calls `streamText`
- *   with the same setup and returns an `AsyncIterable<AgentEvent>`.
- * - **Durable agents** (#258) checkpoints the running messages array
- *   between tool-call steps and lets a tool handler throw
- *   `SuspendError` to pause the loop.
+ * Future hook (durable agents, #258): checkpoints the running messages
+ * array between tool-call steps and lets a tool handler throw
+ * `SuspendError` to pause the loop.
  *
  * @internal
  */
@@ -70,26 +73,8 @@ export class AgentSession {
    * consolidated `AgentResult`.
    */
   async runUntilDone(abortSignal: AbortSignal): Promise<AgentResult> {
-    const { options, modelConfig, modelName, tools, user, system, context } =
-      this.input;
-
-    const vercelTools = await buildVercelTools(tools, context, abortSignal);
-    const output =
-      options.output !== undefined ? toAiOutputSpec(options.output) : undefined;
-
-    // Build stopWhen only when tools are present. Without tools the
-    // SDK returns after a single step, so the stop predicate (and its
-    // dynamic `import("ai")`) is unnecessary.
-    const toolExtras =
-      Object.keys(vercelTools).length > 0
-        ? {
-            tools: vercelTools,
-            stopWhen: await buildStopWhen(
-              options.maxSteps ?? DEFAULT_MAX_STEPS,
-            ),
-          }
-        : {};
-
+    const { modelConfig, modelName, system, user, output, toolExtras } =
+      await this.prepare(abortSignal);
     const result = await callLlm({
       config: modelConfig,
       modelId: modelName,
@@ -103,8 +88,78 @@ export class AgentSession {
       ...(output !== undefined ? { output } : {}),
       ...toolExtras,
     });
-
     return toAgentResult(result);
+  }
+
+  /**
+   * Run the streaming tool-calling loop. Same setup as
+   * {@link AgentSession.runUntilDone}, but the dispatch goes through
+   * `streamText`: each normalised event is forwarded to `onEvent`
+   * while the loop runs, and the consolidated {@link AgentResult} is
+   * returned once the stream drains.
+   *
+   * Listener errors are caught and logged inside the LLM-provider
+   * layer; they never abort the dispatch. Stream-level errors
+   * (provider failure, network error) are surfaced as an "error"
+   * event AND propagate by rejecting this promise, so callers handle
+   * failure exactly like the sync path.
+   */
+  async runStream(
+    abortSignal: AbortSignal,
+    onEvent: AgentEventListener,
+  ): Promise<AgentResult> {
+    const { modelConfig, modelName, system, user, output, toolExtras } =
+      await this.prepare(abortSignal);
+    const result = await streamLlm({
+      config: modelConfig,
+      modelId: modelName,
+      options: {
+        temperature: DEFAULT_TEMPERATURE,
+        maxTokens: DEFAULT_MAX_TOKENS,
+      },
+      system,
+      user,
+      abortSignal,
+      onEvent,
+      ...(output !== undefined ? { output } : {}),
+      ...toolExtras,
+    });
+    return toAgentResult(result);
+  }
+
+  /**
+   * Shared setup for both dispatch paths: build the Vercel tool map,
+   * resolve the structured-output spec, and compute the
+   * tools/stopWhen extras. Pulled out so `runUntilDone` and
+   * `runStream` differ only in which underlying SDK call they make.
+   *
+   * @internal
+   */
+  private async prepare(abortSignal: AbortSignal): Promise<{
+    modelConfig: LlmModelConfig;
+    modelName: string;
+    system: string;
+    user: string;
+    output: unknown;
+    toolExtras:
+      | { tools: Record<string, unknown>; stopWhen: unknown }
+      | Record<string, never>;
+  }> {
+    const { options, modelConfig, modelName, tools, user, system, context } =
+      this.input;
+    const vercelTools = await buildVercelTools(tools, context, abortSignal);
+    const output =
+      options.output !== undefined ? toAiOutputSpec(options.output) : undefined;
+    const toolExtras =
+      Object.keys(vercelTools).length > 0
+        ? {
+            tools: vercelTools,
+            stopWhen: await buildStopWhen(
+              options.maxSteps ?? DEFAULT_MAX_STEPS,
+            ),
+          }
+        : {};
+    return { modelConfig, modelName, system, user, output, toolExtras };
   }
 }
 

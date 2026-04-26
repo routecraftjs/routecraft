@@ -1,5 +1,6 @@
 export { agent } from "./agent.ts";
 export { AgentDestinationAdapter, type AgentBinding } from "./destination.ts";
+export type { AgentEvent, AgentEventListener } from "./events.ts";
 export { agentPlugin, type AgentPluginOptions } from "./plugin.ts";
 export {
   ADAPTER_AGENT_DEFAULT_OPTIONS,

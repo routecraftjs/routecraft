@@ -1,3 +1,6 @@
+import { logger as frameworkLogger } from "@routecraft/routecraft";
+import type { AgentEventListener } from "../../agent/events.ts";
+import { normalizeStreamPart } from "../../agent/events.ts";
 import type {
   LlmModelConfig,
   LlmOptionsMerged,
@@ -130,9 +133,9 @@ export interface CallLlmParams {
 }
 
 /**
- * Per-provider extras forwarded into `generateText`. Centralised so
- * each provider builds the same shape and the typecast at the call
- * site stays narrow.
+ * Per-provider extras forwarded into `generateText` / `streamText`.
+ * Centralised so each path builds the same shape and the typecast at
+ * the call site stays narrow.
  *
  * @internal
  */
@@ -155,22 +158,65 @@ function buildExtras(params: CallLlmParams): ProviderExtras {
 }
 
 /**
- * Dispatches to the appropriate provider and returns a normalized LlmResult.
+ * Dispatch via Vercel AI SDK `generateText` and return a normalised
+ * {@link LlmResult}. Resolves the language model for the configured
+ * provider, then delegates to the shared {@link runGenerate} helper.
  */
 export async function callLlm(params: CallLlmParams): Promise<LlmResult> {
   const { config, modelId, options, system, user } = params;
-  const extras = buildExtras(params);
+  const model = await resolveLanguageModel(config, modelId);
+  return runGenerate(model, options, system, user, buildExtras(params));
+}
+
+/**
+ * Streaming counterpart to {@link callLlm}. Resolves the language model
+ * for the configured provider, calls Vercel's `streamText`, forwards
+ * each normalised stream event to `onEvent`, and finally returns the
+ * consolidated {@link LlmResult} once the stream drains.
+ *
+ * Used by the agent destination when the user supplies
+ * `AgentOptions.onEvent`. Exposed at the LLM-provider layer so the
+ * provider plumbing (model resolution, option mapping, reasoning
+ * extraction) stays in one place.
+ */
+export async function streamLlm(
+  params: CallLlmParams & { onEvent: AgentEventListener },
+): Promise<LlmResult> {
+  const { config, modelId, options, system, user, onEvent } = params;
+  const model = await resolveLanguageModel(config, modelId);
+  return runStreamGenerate(
+    model,
+    options,
+    system,
+    user,
+    buildExtras(params),
+    onEvent,
+  );
+}
+
+/**
+ * Resolve the AI SDK `LanguageModel` for a given provider config.
+ * Single source of truth used by both the synchronous (`callLlm` →
+ * `runGenerate`) and streaming (`streamLlm` → `runStreamGenerate`)
+ * paths so provider setup is not duplicated per dispatch mode.
+ *
+ * @internal
+ */
+async function resolveLanguageModel(
+  config: LlmModelConfig,
+  modelId: string,
+): Promise<unknown> {
   switch (config.provider) {
     case "openai":
-      return callOpenAI(config, modelId, options, system, user, extras);
+      return resolveOpenAI(config, modelId);
     case "anthropic":
-      return callAnthropic(config, modelId, options, system, user, extras);
+      return resolveAnthropic(config, modelId);
     case "gemini":
-      return callGemini(config, modelId, options, system, user, extras);
+      return resolveGemini(config, modelId);
     case "openrouter":
-      return callOpenRouter(config, modelId, options, system, user, extras);
+      return resolveOpenRouter(config, modelId);
     case "ollama":
-      return callOllama(config, modelId, options, system, user, extras);
+      return resolveOllama(config, modelId);
     default: {
       const _: never = config;
       throw new Error(
@@ -180,14 +226,10 @@ export async function callLlm(params: CallLlmParams): Promise<LlmResult> {
   }
 }
 
-async function callOpenAI(
+async function resolveOpenAI(
   config: import("../types.ts").LlmModelConfigOpenAI,
   modelId: string,
-  options: CallLlmParams["options"],
-  system: string,
-  user: string,
-  extras: ProviderExtras,
-): Promise<LlmResult> {
+): Promise<unknown> {
   let createOpenAI: (s: {
     apiKey: string;
     baseURL?: string;
@@ -201,29 +243,18 @@ async function callOpenAI(
     }
     throw error;
   }
-  const openaiSettings: { apiKey: string; baseURL?: string } = {
+  const settings: { apiKey: string; baseURL?: string } = {
     apiKey: config.apiKey,
   };
-  if (config.baseURL !== undefined) openaiSettings.baseURL = config.baseURL;
-  const openai = createOpenAI(openaiSettings);
-  const model = openai(modelId);
-  return runGenerate(
-    model as Parameters<typeof runGenerate>[0],
-    options,
-    system,
-    user,
-    extras,
-  );
+  if (config.baseURL !== undefined) settings.baseURL = config.baseURL;
+  const openai = createOpenAI(settings);
+  return openai(modelId);
 }
 
-async function callAnthropic(
+async function resolveAnthropic(
   config: import("../types.ts").LlmModelConfigAnthropic,
   modelId: string,
-  options: CallLlmParams["options"],
-  system: string,
-  user: string,
-  extras: ProviderExtras,
-): Promise<LlmResult> {
+): Promise<unknown> {
   let createAnthropic: (s: { apiKey: string }) => (m: string) => unknown;
   try {
     const mod = await import("@ai-sdk/anthropic");
@@ -235,24 +266,13 @@ async function callAnthropic(
     throw error;
   }
   const anthropic = createAnthropic({ apiKey: config.apiKey });
-  const model = anthropic(modelId);
-  return runGenerate(
-    model as Parameters<typeof runGenerate>[0],
-    options,
-    system,
-    user,
-    extras,
-  );
+  return anthropic(modelId);
 }
 
-async function callGemini(
+async function resolveGemini(
   config: import("../types.ts").LlmModelConfigGemini,
   modelId: string,
-  options: CallLlmParams["options"],
-  system: string,
-  user: string,
-  extras: ProviderExtras,
-): Promise<LlmResult> {
+): Promise<unknown> {
   let createGoogleGenerativeAI: (s: {
     apiKey: string;
   }) => (m: string) => unknown;
@@ -267,24 +287,13 @@ async function callGemini(
     throw error;
   }
   const google = createGoogleGenerativeAI({ apiKey: config.apiKey });
-  const model = google(modelId);
-  return runGenerate(
-    model as Parameters<typeof runGenerate>[0],
-    options,
-    system,
-    user,
-    extras,
-  );
+  return google(modelId);
 }
 
-async function callOpenRouter(
+async function resolveOpenRouter(
   config: import("../types.ts").LlmModelConfigOpenRouter,
   modelId: string,
-  options: CallLlmParams["options"],
-  system: string,
-  user: string,
-  extras: ProviderExtras,
-): Promise<LlmResult> {
+): Promise<unknown> {
   let createOpenRouter: (s: { apiKey: string }) => {
     chat: (id: string) => unknown;
   };
@@ -301,23 +310,13 @@ async function callOpenRouter(
   const resolvedId = config.modelId ?? modelId;
   const rawModel = openrouter.chat(resolvedId);
   assertLanguageModelShape(rawModel, "OpenRouter", resolvedId);
-  return runGenerate(
-    rawModel as Parameters<typeof runGenerate>[0],
-    options,
-    system,
-    user,
-    extras,
-  );
+  return rawModel;
 }
 
-async function callOllama(
+async function resolveOllama(
   config: import("../types.ts").LlmModelConfigOllama,
   modelId: string,
-  options: CallLlmParams["options"],
-  system: string,
-  user: string,
-  extras: ProviderExtras,
-): Promise<LlmResult> {
+): Promise<unknown> {
   let createOllama: (s: { baseURL?: string }) => (name: string) => unknown;
   try {
     const mod = await import("ollama-ai-provider-v2");
@@ -334,13 +333,41 @@ async function callOllama(
   const name = config.modelId ?? modelId;
   const rawModel = ollama(name);
   assertLanguageModelShape(rawModel, "Ollama", name);
-  return runGenerate(
-    rawModel as Parameters<typeof runGenerate>[0],
-    options,
-    system,
-    user,
-    extras,
-  );
+  return rawModel;
+}
+
+/**
+ * Build the common `generateText` / `streamText` argument shape from
+ * the merged options + system/user prompts + extras. Both the
+ * synchronous and streaming paths feed this into their respective SDK
+ * call so option mapping (temperature, max tokens, etc.) lives in one
+ * place.
+ *
+ * @internal
+ */
+function buildSdkParams(
+  model: unknown,
+  options: CallLlmParams["options"],
+  system: string,
+  user: string,
+  extras: ProviderExtras,
+): Record<string, unknown> {
+  const params: Record<string, unknown> = {
+    model,
+    prompt: user,
+    temperature: options.temperature,
+  };
+  if (options.maxTokens !== undefined)
+    params["maxOutputTokens"] = options.maxTokens;
+  if (system) params["system"] = system;
+  if (options.topP !== undefined) params["topP"] = options.topP;
+  if (options.frequencyPenalty !== undefined) {
+    params["frequencyPenalty"] = options.frequencyPenalty;
+  }
+  if (options.presencePenalty !== undefined) {
+    params["presencePenalty"] = options.presencePenalty;
+  }
+  return { ...params, ...extras };
 }
 
 /**
@@ -359,21 +386,7 @@ async function runGenerate(
   extras: ProviderExtras,
 ): Promise<LlmResult> {
   const { generateText } = await import("ai");
-  const genParams: Parameters<typeof generateText>[0] = {
-    model: model as Parameters<typeof generateText>[0]["model"],
-    prompt: user,
-    ...(options.maxTokens !== undefined && {
-      maxOutputTokens: options.maxTokens,
-    }),
-    temperature: options.temperature,
-  };
-  if (system) genParams.system = system;
-  if (options.topP !== undefined) genParams.topP = options.topP;
-  if (options.frequencyPenalty !== undefined)
-    genParams.frequencyPenalty = options.frequencyPenalty;
-  if (options.presencePenalty !== undefined)
-    genParams.presencePenalty = options.presencePenalty;
-  const params = { ...genParams, ...extras };
+  const params = buildSdkParams(model, options, system, user, extras);
   const result = await generateText(
     params as Parameters<typeof generateText>[0],
   );
@@ -384,6 +397,88 @@ async function runGenerate(
   const reasoning = readReasoning(result);
   if (reasoning) out.reasoning = reasoning;
   return out;
+}
+
+/**
+ * Shared `streamText` invocation. Iterates the SDK's `fullStream`,
+ * forwards each normalised event to `onEvent`, then awaits the
+ * consolidated values (text, usage, reasoning, optional structured
+ * output) once the stream drains.
+ *
+ * Listener errors are caught and logged; they do not abort the
+ * dispatch. Stream errors surface via an "error" event AND propagate
+ * out of `await result.text`, so the dispatch fails normally after
+ * the listener has been informed.
+ *
+ * @internal
+ */
+async function runStreamGenerate(
+  model: unknown,
+  options: CallLlmParams["options"],
+  system: string,
+  user: string,
+  extras: ProviderExtras,
+  onEvent: AgentEventListener,
+): Promise<LlmResult> {
+  const { streamText } = await import("ai");
+  const params = buildSdkParams(model, options, system, user, extras);
+  const result = streamText(params as Parameters<typeof streamText>[0]);
+
+  for await (const part of result.fullStream) {
+    const event = normalizeStreamPart(part);
+    if (event === null) continue;
+    try {
+      await onEvent(event);
+    } catch (err) {
+      frameworkLogger.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        "agent.onEvent listener threw; ignoring and continuing stream",
+      );
+    }
+  }
+
+  // Drain consolidated values. `result.text` rejects with the same
+  // error that surfaced through fullStream, so failures propagate
+  // through this await.
+  const text = await result.text;
+  const out: LlmResult = { text: text ?? "", raw: result };
+  const usage = await safeAwait<{
+    inputTokens?: number | undefined;
+    outputTokens?: number | undefined;
+    totalTokens?: number | undefined;
+  }>(result.usage);
+  if (usage) out.usage = toLlmUsage(usage);
+  const reasoning = await safeAwait<string | undefined>(
+    (result as { reasoningText?: PromiseLike<string | undefined> })
+      .reasoningText,
+  );
+  if (typeof reasoning === "string" && reasoning.length > 0) {
+    out.reasoning = reasoning;
+  }
+  const structured = await safeAwait<unknown>(
+    (result as { experimental_output?: PromiseLike<unknown> })
+      .experimental_output,
+  );
+  if (structured !== undefined) out.output = structured;
+  return out;
+}
+
+/**
+ * Await a value that may be a `PromiseLike<T>` (the AI SDK uses
+ * `PromiseLike` for stream consolidation accessors) and swallow
+ * rejections, returning `undefined` instead. Used to read optional
+ * accessors (usage, reasoning, structured output) where absence is
+ * not an error.
+ */
+async function safeAwait<T>(
+  value: T | PromiseLike<T> | undefined,
+): Promise<T | undefined> {
+  if (value === undefined) return undefined;
+  try {
+    return await value;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
