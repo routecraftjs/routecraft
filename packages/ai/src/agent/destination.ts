@@ -6,7 +6,7 @@ import {
   type Destination,
   type Exchange,
 } from "@routecraft/routecraft";
-import { resolveModel } from "../llm/shared.ts";
+import { resolveModel, resolvePrompt } from "../llm/shared.ts";
 import { AgentSession, buildUserPrompt } from "./session.ts";
 import {
   ADAPTER_AGENT_DEFAULT_OPTIONS,
@@ -66,6 +66,20 @@ export class AgentDestinationAdapter implements Destination<
     const { config, modelName } = resolveModel(merged.model, context);
     const tools = resolveAgentTools(merged, context);
     const user = buildUserPrompt(merged, exchange);
+    // System accepts the same string-or-function shape as `llm({ system })`,
+    // so resolve it against the exchange here. The session then receives a
+    // plain string, matching what the provider layer expects.
+    const system = resolvePrompt(merged.system, exchange);
+    // Mirror the construction-time check (validateAgentOptions) so a
+    // function-form `system` resolver can't silently drop the prompt at
+    // dispatch by returning an empty string.
+    if (system.trim() === "") {
+      throw rcError("RC5003", undefined, {
+        message:
+          `Agent: "system" resolved to an empty string. ` +
+          `When "system" is a function, it must return a non-empty string for the incoming exchange.`,
+      });
+    }
 
     const session = new AgentSession({
       options: merged,
@@ -73,7 +87,7 @@ export class AgentDestinationAdapter implements Destination<
       modelName,
       tools,
       user,
-      system: merged.system,
+      system,
       context,
     });
 
