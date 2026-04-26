@@ -38,6 +38,8 @@ export {
   type CraftConfig,
   type CraftPlugin,
 } from "./context.ts";
+export { defineConfig } from "./define-config.ts";
+export { registerConfigApplier, type ConfigApplier } from "./config-applier.ts";
 export { type HttpConfig } from "./adapters/http/types.ts";
 /** @deprecated Use `CraftConfig.direct` instead. Will be removed in next major version. */
 export { type DirectConfig } from "./adapters/direct/types.ts";

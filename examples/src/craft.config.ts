@@ -1,8 +1,20 @@
-import { mcpPlugin, jwt } from "@routecraft/ai";
-import type { CraftConfig } from "@routecraft/routecraft";
+import { defineConfig } from "@routecraft/routecraft";
+import { jwt } from "@routecraft/ai";
 import { version } from "../package.json";
 
-export const craftConfig: CraftConfig = {
+// Fail fast on a missing JWT secret. An empty HMAC key is a footgun: the
+// validator would silently accept any token signed with the empty string.
+// Other env vars in this file fall back to placeholders or empty strings
+// because their failure modes (mail auth rejection, mismatched issuer/
+// audience) are non-silent.
+const JWT_SECRET = process.env["JWT_SECRET"];
+if (!JWT_SECRET) {
+  throw new Error(
+    "JWT_SECRET is required to run this example. Set it in your .env or shell.",
+  );
+}
+
+export const craftConfig = defineConfig({
   telemetry: { sqlite: { captureSnapshots: true } },
   mail: {
     accounts: {
@@ -25,16 +37,14 @@ export const craftConfig: CraftConfig = {
       },
     },
   },
-  plugins: [
-    mcpPlugin({
-      name: "routecraft",
-      version: version,
-      transport: "http",
-      auth: jwt({
-        secret: process.env["JWT_SECRET"] ?? "",
-        issuer: process.env["JWT_ISSUER"] ?? "https://idp.example.com",
-        audience: process.env["JWT_AUDIENCE"] ?? "https://mcp.example.com",
-      }),
+  mcp: {
+    name: "routecraft",
+    version,
+    transport: "http",
+    auth: jwt({
+      secret: JWT_SECRET,
+      issuer: process.env["JWT_ISSUER"] ?? "https://idp.example.com",
+      audience: process.env["JWT_AUDIENCE"] ?? "https://mcp.example.com",
     }),
-  ],
-};
+  },
+});
