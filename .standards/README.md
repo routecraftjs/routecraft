@@ -13,6 +13,8 @@ Internal development standards for Routecraft contributors (human and AI). These
 | [Error and Logging Policy](./error-and-logging-policy.md) | Throw/boundary rules, structured logging, level semantics, error code philosophy |
 | [Type Safety and Schemas](./type-safety-and-schemas.md) | Type flow policy, factory option types (no `Partial<>` on factory args), Standard Schema usage, plugin vs config vs store guidance |
 | [Type Safety Registries](./type-safety-registries.md) | Declaration-merging registries for typed adapters and endpoints; codegen direction |
+| [Testing](./testing.md) | Runner conventions, JSDoc-on-every-test, helpers from `@routecraft/testing`, lifecycle pattern, assertion patterns |
+| [CI/CD](./ci-cd.md) | PR gates, hook policy, peer-dependency rules, optional peer dependencies, release flow |
 
 ## Related
 
