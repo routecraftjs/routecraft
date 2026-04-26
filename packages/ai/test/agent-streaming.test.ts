@@ -243,7 +243,7 @@ describe("agent streaming: onEvent → streamLlm wiring", () => {
     // The mocked streamLlm awaits onEvent in a try/catch (mirrors the
     // real implementation), so all 3 events are still attempted and
     // the consolidated AgentResult still flows downstream.
-    expect(received).toBeGreaterThan(0);
+    expect(received).toBe(3);
     const body = sink.received[0].body as AgentResult;
     expect(body.text).toBe("Hello");
   });
@@ -280,5 +280,10 @@ describe("agent streaming: onEvent → streamLlm wiring", () => {
 
     await t.test();
     expect(events).toHaveLength(3);
+    // Awaiting an async listener must preserve dispatch order; without
+    // back-pressure the events would interleave.
+    expect(events[0]).toEqual({ type: "text-delta", text: "Hel" });
+    expect(events[1]).toEqual({ type: "text-delta", text: "lo" });
+    expect(events[2]).toMatchObject({ type: "finish", finishReason: "stop" });
   });
 });

@@ -431,7 +431,7 @@ async function runStreamGenerate(
       await onEvent(event);
     } catch (err) {
       frameworkLogger.warn(
-        { err: err instanceof Error ? err.message : String(err) },
+        { err },
         "agent.onEvent listener threw; ignoring and continuing stream",
       );
     }
@@ -456,8 +456,7 @@ async function runStreamGenerate(
     out.reasoning = reasoning;
   }
   const structured = await safeAwait<unknown>(
-    (result as { experimental_output?: PromiseLike<unknown> })
-      .experimental_output,
+    (result as { output?: PromiseLike<unknown> }).output,
   );
   if (structured !== undefined) out.output = structured;
   return out;

@@ -140,7 +140,7 @@ export class AgentSession {
     modelName: string;
     system: string;
     user: string;
-    output: unknown;
+    output?: unknown;
     toolExtras:
       | { tools: Record<string, unknown>; stopWhen: unknown }
       | Record<string, never>;
@@ -148,8 +148,6 @@ export class AgentSession {
     const { options, modelConfig, modelName, tools, user, system, context } =
       this.input;
     const vercelTools = await buildVercelTools(tools, context, abortSignal);
-    const output =
-      options.output !== undefined ? toAiOutputSpec(options.output) : undefined;
     const toolExtras =
       Object.keys(vercelTools).length > 0
         ? {
@@ -159,7 +157,10 @@ export class AgentSession {
             ),
           }
         : {};
-    return { modelConfig, modelName, system, user, output, toolExtras };
+    const base = { modelConfig, modelName, system, user, toolExtras };
+    return options.output !== undefined
+      ? { ...base, output: toAiOutputSpec(options.output) }
+      : base;
   }
 }
 

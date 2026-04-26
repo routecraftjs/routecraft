@@ -1,7 +1,7 @@
 import { describe, test, expect } from "vitest";
 import { normalizeStreamPart } from "../src/agent/events.ts";
 
-describe("normalizeStreamPart — Vercel SDK part → AgentEvent", () => {
+describe("normalizeStreamPart: Vercel SDK part to AgentEvent", () => {
   /**
    * @case Plain text deltas map 1:1 onto text-delta events
    * @preconditions Part of shape { type: "text-delta", text }
@@ -24,6 +24,17 @@ describe("normalizeStreamPart — Vercel SDK part → AgentEvent", () => {
   });
 
   /**
+   * @case Legacy SDK field name `textDelta` is honoured for cross-version safety
+   * @preconditions Part with `textDelta` instead of `text`
+   * @expectedResult Returns text-delta with the legacy field's value
+   */
+  test("text-delta accepts legacy `textDelta` field", () => {
+    expect(
+      normalizeStreamPart({ type: "text-delta", textDelta: "legacy" }),
+    ).toEqual({ type: "text-delta", text: "legacy" });
+  });
+
+  /**
    * @case Reasoning deltas surface for "thinking..." UI
    * @preconditions Part of shape { type: "reasoning-delta", text }
    * @expectedResult Returns { type: "reasoning-delta", text }
@@ -32,6 +43,17 @@ describe("normalizeStreamPart — Vercel SDK part → AgentEvent", () => {
     expect(
       normalizeStreamPart({ type: "reasoning-delta", text: "musing" }),
     ).toEqual({ type: "reasoning-delta", text: "musing" });
+  });
+
+  /**
+   * @case Legacy SDK field name `delta` is honoured for cross-version safety
+   * @preconditions Part with `delta` instead of `text`
+   * @expectedResult Returns reasoning-delta with the legacy field's value
+   */
+  test("reasoning-delta accepts legacy `delta` field", () => {
+    expect(
+      normalizeStreamPart({ type: "reasoning-delta", delta: "musing-legacy" }),
+    ).toEqual({ type: "reasoning-delta", text: "musing-legacy" });
   });
 
   /**
