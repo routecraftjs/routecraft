@@ -650,6 +650,44 @@ A blocking tool handler today looks like:
 
 When the durable epic lands, the same handler migrates by replacing the blocking await with `throw new SuspendError({ reason: "awaiting-human-approval" })` and consuming the resume callback in a separate route. The runtime contract (return value, schema, `FnHandlerContext`) stays identical.
 
+#### Streaming (`onEvent`)
+
+Set `onEvent` on an agent to stream tokens, tool calls, and finish reasons live as the model generates them. Internally the dispatch switches from `generateText` to `streamText`; externally the destination still returns a consolidated `AgentResult` once the stream drains, so downstream pipeline ops are unaffected.
+
+```ts
+agent({
+  model: "openai:gpt-4o",
+  system: "Be helpful.",
+  tools: tools(["search"]),
+  onEvent: (event) => {
+    if (event.type === "text-delta") sse.send({ data: event.text });
+    if (event.type === "tool-call") sse.send({ data: `calling ${event.toolName}` });
+  },
+})
+```
+
+Event shapes (discriminated union, exported as `AgentEvent`):
+
+| Type | Fields | When |
+|---|---|---|
+| `text-delta` | `text` | Each token (or token chunk) emitted by the model. |
+| `reasoning-delta` | `text` | Provider reasoning text (Anthropic extended thinking, OpenAI o1). Useful for "thinking..." UI. |
+| `tool-call` | `toolCallId`, `toolName`, `input` | Model decided to call a tool. `input` is the validated args. |
+| `tool-result` | `toolCallId`, `toolName`, `output` | Tool handler returned a value. |
+| `tool-error` | `toolCallId`, `toolName`, `error` | Handler, guard, or input validation threw. |
+| `step-finish` | `finishReason`, `usage?` | One step (model call + tools) ended. |
+| `finish` | `finishReason`, `usage?` | The whole dispatch ended. |
+| `error` | `error` | Provider or transport error surfaced through the stream. |
+
+Behaviour notes:
+
+- **Listener errors are contained.** A throw inside `onEvent` is caught and logged; the dispatch keeps running and the consolidated `AgentResult` still reaches downstream ops.
+- **Async listeners are awaited.** Returning a `Promise` from `onEvent` applies back-pressure to the stream, which is what you want when forwarding to a slow consumer (database, remote SSE channel).
+- **Stream errors still throw.** Provider errors surface as an `error` event AND propagate out of the dispatch promise, so failure handling matches the non-streaming path.
+- **Per-agent only.** `onEvent` is not part of `defaultOptions` because event sinks are typically request-scoped (a per-connection SSE channel). For observability across all agents, use a telemetry plugin.
+
+The 90% use case is forwarding tokens into an HTTP SSE response so a UI updates as the model writes.
+
 ### Typed fn ids (`FnRegistry`)
 
 For compile-time autocomplete of fn ids in the agent `tools: [...]` field (follow-up story), populate the `FnRegistry` marker interface via declaration merging in your project:

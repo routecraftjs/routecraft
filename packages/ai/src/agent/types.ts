@@ -1,6 +1,7 @@
 import type { Exchange } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { LlmModelId, LlmUsage } from "../llm/types.ts";
+import type { AgentEventListener } from "./events.ts";
 import type { ToolSelection } from "./tools/selection.ts";
 
 /**
@@ -115,6 +116,26 @@ export interface AgentOptions {
    * `defaultOptions.maxSteps` supplies a value.
    */
   maxSteps?: number;
+
+  /**
+   * Listener invoked for each event emitted while the model + tool
+   * loop runs. Setting this switches the dispatch from `generateText`
+   * to `streamText` under the hood; the destination still returns a
+   * consolidated {@link AgentResult} once the stream drains, so
+   * downstream pipeline ops are unaffected.
+   *
+   * Use for live UI updates (SSE, WebSocket, console). For server-side
+   * persistence or telemetry without a streamed UI, use the regular
+   * (non-streaming) dispatch and read `AgentResult` directly.
+   *
+   * Listener errors are caught and logged, never propagate into the
+   * dispatch. Async listeners are awaited so back-pressure on a slow
+   * consumer flows back into the stream.
+   *
+   * Per-agent only; not part of `defaultOptions` because event sinks
+   * are typically request-scoped (e.g. a per-connection SSE channel).
+   */
+  onEvent?: AgentEventListener;
 }
 
 /**

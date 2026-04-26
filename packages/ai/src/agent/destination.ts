@@ -84,6 +84,13 @@ export class AgentDestinationAdapter implements Destination<
     // synthetic exchanges in tests).
     const abortSignal =
       getExchangeRoute(exchange)?.signal ?? new AbortController().signal;
+
+    // Streaming is selected by the presence of `onEvent`. The
+    // consolidated AgentResult is returned in both paths, so
+    // downstream pipeline ops are unaffected by the choice.
+    if (merged.onEvent !== undefined) {
+      return await session.runStream(abortSignal, merged.onEvent);
+    }
     return await session.runUntilDone(abortSignal);
   }
 
