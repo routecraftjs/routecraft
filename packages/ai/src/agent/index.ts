@@ -5,6 +5,7 @@ export {
   ADAPTER_AGENT_DEFAULT_OPTIONS,
   ADAPTER_AGENT_REGISTRY,
 } from "./store.ts";
+export { SuspendError, isSuspendError } from "./suspend.ts";
 export type {
   AgentDefaultOptions,
   AgentOptions,

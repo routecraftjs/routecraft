@@ -17,10 +17,26 @@ import type { FnHandlerContext, FnOptions } from "../../fn/types.ts";
 import { DEFERRED_FN_BRAND, type DeferredFn } from "./types.ts";
 
 /**
+ * JSON Schema describing an empty object. Closed for additional
+ * properties so the LLM can't confuse models that have more fields.
+ */
+const EMPTY_OBJECT_JSON_SCHEMA = {
+  type: "object" as const,
+  properties: {},
+  additionalProperties: false,
+};
+
+/**
  * Standard Schema implementation of an empty input object. Used by the
  * `defaultFns` so this module stays free of a Zod runtime dependency
  * (per CLAUDE.md "Use Standard Schema, not Zod/Valibot directly in
  * shared code").
+ *
+ * Exposes both `~standard.validate` (mandatory per the spec) and the
+ * non-standard `~standard.jsonSchema.{input,output}` extension that
+ * the Vercel AI SDK bridge consumes — so this hand-rolled schema can
+ * back tools and structured-output specs alongside Zod / Valibot
+ * schemas without special-casing.
  */
 const emptyObjectSchema: StandardSchemaV1<unknown, Record<string, never>> = {
   "~standard": {
@@ -43,7 +59,15 @@ const emptyObjectSchema: StandardSchemaV1<unknown, Record<string, never>> = {
       }
       return { value: {} as Record<string, never> };
     },
-  },
+    // Non-standard `jsonSchema` extension consumed by the AI SDK bridge.
+    // Cast away from the strict StandardSchemaV1 shape since the spec
+    // doesn't include this field; library schemas (Zod, Valibot) ship it
+    // as an extension and the bridge looks it up defensively.
+    jsonSchema: {
+      input: () => EMPTY_OBJECT_JSON_SCHEMA,
+      output: () => EMPTY_OBJECT_JSON_SCHEMA,
+    },
+  } as StandardSchemaV1<unknown, Record<string, never>>["~standard"],
 };
 
 /**

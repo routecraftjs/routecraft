@@ -41,6 +41,14 @@ export interface AgentDefaultOptions {
    * (override, not extend).
    */
   tools?: ToolSelection;
+
+  /**
+   * Default cap on tool-call steps for the Vercel AI SDK loop, applied
+   * to agents that omit `maxSteps`. Each step is one model call (which
+   * may emit any number of tool calls) plus the resulting tool results.
+   * Resolves to `stopWhen: stepCountIs(maxSteps)` at dispatch.
+   */
+  maxSteps?: number;
 }
 
 /**
@@ -96,12 +104,17 @@ export interface AgentOptions {
    * "declared output shape" everywhere in the framework. Per-agent
    * only (not part of `defaultOptions`), since output shape is
    * intrinsic to a specific agent's job.
-   *
-   * The runtime that wires this through `generateText({ output })`
-   * lands in the next PR; defining this field today is accepted by
-   * validation but does not yet shape the dispatch.
    */
   output?: StandardSchemaV1;
+
+  /**
+   * Cap on tool-call steps for the Vercel AI SDK loop. Each step is
+   * one model call (which may emit any number of tool calls) plus the
+   * resulting tool results. Resolves to `stopWhen: stepCountIs(n)` at
+   * dispatch. Defaults to 8 when neither the agent nor
+   * `defaultOptions.maxSteps` supplies a value.
+   */
+  maxSteps?: number;
 }
 
 /**
@@ -128,6 +141,18 @@ export interface AgentRegisteredOptions extends AgentOptions {
 export interface AgentResult {
   /** Generated text from the model. */
   text: string;
+  /**
+   * Parsed structured output when an `output` schema was supplied on
+   * `AgentOptions` and the model produced a value matching the schema.
+   * Undefined otherwise.
+   */
+  output?: unknown;
+  /**
+   * Raw reasoning text from the provider when supplied (Anthropic
+   * extended thinking, OpenAI o1, etc.). Useful for debugging and
+   * audit; most consumers ignore it.
+   */
+  reasoning?: string;
   /** Token usage when reported by the provider. */
   usage?: LlmUsage;
 }

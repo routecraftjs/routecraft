@@ -514,11 +514,11 @@ const out = await testFn(greet, { name: 'alice' })
 
 `testFn` validates the input against the `input` schema, calls the handler with a synthetic `{ logger, abortSignal }` context, and returns the handler's output. Validation failures throw `RC5002`. It works structurally on any `{ input, handler }` shape, so real `FnOptions` values pass without modification.
 
-### Agent tools (experimental DSL)
+### Agent tools
 
-> **Status: DSL-only.** The configuration surface below is fully implemented and validated; the agent runtime that actually presents these tools to the LLM and dispatches them lands in a follow-up release. Setting `tools:` on an agent today is a no-op at dispatch time.
+> **Status: live.** Tools an agent declares via `tools([...])` are bridged into the Vercel AI SDK's tool-calling loop at dispatch time. The model sees each tool's name, description, and JSON schema; the SDK validates tool-call arguments against the schema, reports validation errors back to the model for self-correction, and otherwise invokes the agent's handler. Synchronous in-memory loop today; streaming and durable suspend/resume are tracked separately ([streaming agents](https://github.com/routecraftjs/routecraft/issues/257), [durable agents epic](https://github.com/routecraftjs/routecraft/issues/258)).
 
-Tags, the `tools([...])` selector, the builder helpers, and the context-level `defaultOptions` bag register and validate cleanly so user code can be written against the final shape now.
+Tags, the `tools([...])` selector, the builder helpers, and the context-level `defaultOptions` bag compose to give an agent a typed, whitelisted set of capabilities.
 
 ```ts
 import {
@@ -620,6 +620,35 @@ agentPlugin({
 #### Soft dependency on `llmPlugin`
 
 Agent model references use the `"providerId:modelName"` format and resolve against the LLM provider registry populated by `llmPlugin`. **You must install `llmPlugin` with the relevant providers.** This is intentional: provider credentials live in one place, and agents reference them by id. There is no inline-credentials escape hatch on `agent({...})`; centralised wiring via `llmPlugin` is the only path.
+
+#### Step cap (`maxSteps`)
+
+The Vercel AI SDK's tool-calling loop runs until the model returns a final text response or a stop condition fires. Each iteration is one step (one model call plus the resulting tool calls / results). The agent caps step count to **8 by default**; override per agent via `maxSteps:` or context-wide via `defaultOptions.maxSteps`. When the cap fires the SDK returns whatever text the model produced last; downstream logic should treat truncated output as a possible outcome.
+
+#### Human-in-the-loop (today: blocking; tomorrow: durable)
+
+The current loop is synchronous and in-memory. A tool handler that `await`s for a while pins the agent's await chain until it resolves. Practical sweet spot:
+
+| Tool wait time | Viability today |
+|---|---|
+| Under a minute | Fine. HTTP timeouts and restart risk are low. |
+| 1–10 minutes | Works on most platforms. Acceptable for "ask user, get reply during a meeting" flows. |
+| 10 min – 1 hour | Marginal. Platform request timeouts (Vercel, CloudRun, etc.) cap how long an HTTP request can hang. Use queue / cron entry points if the tool may take this long. |
+| Hours – days | Not viable in the synchronous loop. Wait for the [durable agents epic](https://github.com/routecraftjs/routecraft/issues/258) — `SuspendError` is exported today as a forward-compat stub so handler code can be written against the eventual surface. |
+
+A blocking tool handler today looks like:
+
+```ts
+{
+  description: "Ask a human for approval via email; wait up to 15 min.",
+  input: z.object({ question: z.string() }),
+  handler: async (input) => {
+    return await pollUntilReply(input.question, { timeoutMs: 15 * 60 * 1000 })
+  },
+}
+```
+
+When the durable epic lands, the same handler migrates by replacing the blocking await with `throw new SuspendError({ reason: "awaiting-human-approval" })` and consuming the resume callback in a separate route. The runtime contract (return value, schema, `FnHandlerContext`) stays identical.
 
 ### Typed fn ids (`FnRegistry`)
 

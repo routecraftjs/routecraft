@@ -154,6 +154,12 @@ export interface LlmResult {
   text: string;
   /** Parsed structured output when `output` schema was set and validation succeeded. */
   output?: unknown;
+  /**
+   * Raw reasoning text from the provider (Anthropic extended thinking,
+   * OpenAI o1, etc.) when supplied. Most callers can ignore this; it is
+   * useful for debugging, audit trails, and chain-of-thought displays.
+   */
+  reasoning?: string;
   /** Token usage for the last step. Same shape as AI SDK usage. */
   usage?: LlmUsage;
   /** Full generateText() result for advanced use (debugging, response metadata). */

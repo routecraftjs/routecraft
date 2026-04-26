@@ -32,10 +32,22 @@ export interface FnHandlerContext {
    * Correlation id of the calling exchange, when the fn was invoked
    * from inside a running route or agent dispatch. Propagated to any
    * child exchanges (e.g. direct route calls) so traces stay linked.
-   * The agent runtime populates this in a follow-up commit; today only
-   * `directTool`-built handlers consume it.
    */
   readonly correlationId?: string;
+
+  /**
+   * Identifier for the durable-agents checkpoint when the fn is
+   * running inside a checkpointed agent session. Undefined today (no
+   * runtime populates it); the durable-agents epic supplies a real
+   * value so a tool handler that suspends can hand it to the
+   * resumption channel (e.g. embed it in a callback URL).
+   *
+   * Exposed now so handlers written today can be forward-compat with
+   * the durable epic without changing signature.
+   *
+   * @experimental
+   */
+  readonly checkpointId?: string;
 }
 
 /**
