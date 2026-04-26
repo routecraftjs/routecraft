@@ -176,4 +176,34 @@ describe("agent prompt source: string and function forms (llm parity)", () => {
     await t.test();
     expect(callLlmMock.mock.calls[0][0].user).toBe("body-as-prompt");
   });
+
+  /**
+   * @case Function-form `system` that returns "" throws at dispatch
+   * @preconditions system: () => "" — empty resolved value
+   * @expectedResult Dispatch rejects with RC5003 and never calls the provider
+   */
+  test("function-form system returning empty string throws at dispatch", async () => {
+    t = await testContext()
+      .with({
+        plugins: [
+          llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
+        ],
+      })
+      .routes(
+        craft()
+          .id("system-empty-fn")
+          .from(simple("hi"))
+          .to(
+            agent({
+              system: () => "",
+              model: "anthropic:claude-opus-4-7",
+            }),
+          ),
+      )
+      .build();
+
+    await t.test();
+    expect(t.errors[0]?.message).toMatch(/system.*resolved to an empty string/);
+    expect(callLlmMock).not.toHaveBeenCalled();
+  });
 });

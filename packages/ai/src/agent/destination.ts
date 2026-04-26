@@ -70,6 +70,16 @@ export class AgentDestinationAdapter implements Destination<
     // so resolve it against the exchange here. The session then receives a
     // plain string, matching what the provider layer expects.
     const system = resolvePrompt(merged.system, exchange);
+    // Mirror the construction-time check (validateAgentOptions) so a
+    // function-form `system` resolver can't silently drop the prompt at
+    // dispatch by returning an empty string.
+    if (system.trim() === "") {
+      throw rcError("RC5003", undefined, {
+        message:
+          `Agent: "system" resolved to an empty string. ` +
+          `When "system" is a function, it must return a non-empty string for the incoming exchange.`,
+      });
+    }
 
     const session = new AgentSession({
       options: merged,
