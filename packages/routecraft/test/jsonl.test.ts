@@ -91,11 +91,11 @@ describe("JSONL Adapter", () => {
     });
 
     /**
-     * @case Throws on parse error
-     * @preconditions JSONL file with invalid JSON on line 2
-     * @expectedResult Error with line number in message
+     * @case Aborts source on parse error when onParseError is 'abort'
+     * @preconditions JSONL file with invalid JSON on line 2 and onParseError: 'abort'
+     * @expectedResult subscribe promise rejects with the parse error
      */
-    test("throws on parse error", async () => {
+    test("aborts source on parse error with onParseError: 'abort'", async () => {
       const filePath = path.join(tmpDir, "bad.jsonl");
       await fsp.writeFile(
         filePath,
@@ -103,7 +103,7 @@ describe("JSONL Adapter", () => {
         "utf-8",
       );
 
-      const adapter = jsonl({ path: filePath });
+      const adapter = jsonl({ path: filePath, onParseError: "abort" });
 
       await expect(
         adapter.subscribe(
@@ -270,15 +270,19 @@ describe("JSONL Adapter", () => {
     });
 
     /**
-     * @case Chunked mode throws on parse error
-     * @preconditions JSONL file with invalid JSON, chunked mode
-     * @expectedResult Error is thrown
+     * @case Chunked mode aborts source on parse error with onParseError: 'abort'
+     * @preconditions JSONL file with invalid JSON, chunked mode, onParseError: 'abort'
+     * @expectedResult subscribe promise rejects with the parse error
      */
-    test("throws on parse error in chunked mode", async () => {
+    test("aborts chunked source on parse error with onParseError: 'abort'", async () => {
       const filePath = path.join(tmpDir, "bad-chunked.jsonl");
       await fsp.writeFile(filePath, '{"ok":1}\nnot-json', "utf-8");
 
-      const adapter = jsonl({ path: filePath, chunked: true });
+      const adapter = jsonl({
+        path: filePath,
+        chunked: true,
+        onParseError: "abort",
+      });
 
       await expect(
         adapter.subscribe(
@@ -287,6 +291,76 @@ describe("JSONL Adapter", () => {
           new AbortController(),
         ),
       ).rejects.toThrow(/not-json/);
+    });
+
+    /**
+     * @case Chunked mode default 'fail' routes parse error to .error() and continues
+     * @preconditions JSONL file with one bad line between two good lines, route has .error() handler
+     * @expectedResult error handler invoked once with RC5016, both good lines reach the spy
+     */
+    test("default 'fail' routes per-line parse errors through .error() and continues", async () => {
+      const filePath = path.join(tmpDir, "mixed-chunked.jsonl");
+      await fsp.writeFile(filePath, '{"id":1}\nnot-json\n{"id":2}', "utf-8");
+
+      const s = spy();
+      const errors: unknown[] = [];
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("jsonl-chunked-fail-routes")
+            .error((err) => {
+              errors.push(err);
+              return undefined;
+            })
+            .from(jsonl({ path: filePath, chunked: true }))
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(errors).toHaveLength(1);
+      expect((errors[0] as { rc?: string }).rc).toBe("RC5016");
+      // Two valid lines reach the destination; the bad line stopped at the
+      // synthetic parse step inside the pipeline.
+      expect(s.received).toHaveLength(2);
+      expect(s.received[0].body).toEqual({ id: 1 });
+      expect(s.received[1].body).toEqual({ id: 2 });
+    });
+
+    /**
+     * @case Chunked mode 'skip' silently drops malformed lines and continues
+     * @preconditions JSONL file with bad lines and onParseError: 'skip'
+     * @expectedResult Only valid lines reach the spy; no error events fire
+     */
+    test("onParseError: 'skip' drops malformed lines silently", async () => {
+      const filePath = path.join(tmpDir, "skip-chunked.jsonl");
+      await fsp.writeFile(
+        filePath,
+        '{"id":1}\nnot-json\n{"id":2}\nbroken{\n{"id":3}',
+        "utf-8",
+      );
+
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("jsonl-chunked-skip")
+            .from(
+              jsonl({ path: filePath, chunked: true, onParseError: "skip" }),
+            )
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(s.received).toHaveLength(3);
+      expect(s.received[0].body).toEqual({ id: 1 });
+      expect(s.received[1].body).toEqual({ id: 2 });
+      expect(s.received[2].body).toEqual({ id: 3 });
     });
   });
 

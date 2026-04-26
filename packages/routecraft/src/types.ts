@@ -76,9 +76,31 @@ export type ConsumerType<T extends Consumer, O = unknown> = new (
   options: O,
 ) => T;
 
+/**
+ * Internal envelope flowing from a source adapter to its consumer through the
+ * route's processing queue.
+ *
+ * @property message - Raw payload as the adapter handed it to `handler(...)`.
+ *   When `parse` is set this is typically the unparsed bytes/string; when
+ *   `parse` is unset this is the already-parsed value used directly as the
+ *   exchange body.
+ * @property headers - Optional exchange headers attached by the adapter.
+ * @property parse - Optional parser the runtime invokes as a synthetic first
+ *   step before any user-defined steps run. When provided, the runtime sets
+ *   `exchange.body = await parse(exchange.body)` inside the same try/catch
+ *   that handles step errors, so a parse failure flows through the route's
+ *   `errorHandler` and `exchange:failed` event path. See
+ *   `adapters/shared/parse.ts` for the `OnParseError` semantics that adapters
+ *   use to decide whether to set `parse` (= `'fail'`) or handle the error
+ *   inline (`'abort'` / `'skip'`).
+ *
+ * @experimental The `parse` field is part of the parse-error-handling work
+ * in #187. Its shape may evolve as more parsing adapters adopt the contract.
+ */
 export type Message = {
   message: unknown;
   headers?: ExchangeHeaders;
+  parse?: (raw: unknown) => unknown | Promise<unknown>;
 };
 
 export interface Consumer<O = unknown> {
@@ -90,9 +112,20 @@ export interface Consumer<O = unknown> {
    * Register the route handler. At runtime, message and the returned exchange's body
    * are untyped (unknown). The builder chain is typed; narrow or assert in the handler
    * if you need to access body fields.
+   *
+   * The optional `parse` argument is forwarded by the consumer when the
+   * source adapter attached one to the queued `Message`. The route
+   * captures it on the exchange internals so `runSteps` can apply it as a
+   * synthetic first pipeline step. Consumers that merge multiple messages
+   * (e.g. batch) parse items eagerly during enqueue and pass a `parse`-less
+   * call here.
    */
   register(
-    handler: (message: unknown, headers?: ExchangeHeaders) => Promise<Exchange>,
+    handler: (
+      message: unknown,
+      headers?: ExchangeHeaders,
+      parse?: (raw: unknown) => unknown | Promise<unknown>,
+    ) => Promise<Exchange>,
   ): void;
 }
 

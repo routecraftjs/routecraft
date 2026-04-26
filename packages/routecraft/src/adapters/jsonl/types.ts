@@ -1,4 +1,5 @@
 import type { Exchange } from "../../exchange.ts";
+import type { OnParseError } from "../shared/parse.ts";
 
 export interface JsonlSourceOptions {
   /**
@@ -22,6 +23,19 @@ export interface JsonlSourceOptions {
    * Optional reviver function passed to JSON.parse.
    */
   reviver?: (key: string, value: unknown) => unknown;
+
+  /**
+   * How to handle a `JSON.parse` failure on a line (chunked mode) or any
+   * line of the file (non-chunked mode). Default `'fail'`: the exchange
+   * fails so the route's `.error()` handler can catch it (or
+   * `exchange:failed` fires); chunked mode continues to the next line.
+   * `'abort'` rethrows out of the source on the first bad line. `'skip'`
+   * silently logs at warn and skips the bad line. See `OnParseError`.
+   *
+   * @default "fail"
+   * @experimental
+   */
+  onParseError?: OnParseError;
 }
 
 export interface JsonlDestinationOptions {

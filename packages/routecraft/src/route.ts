@@ -113,6 +113,49 @@ export interface RouteDiscovery {
 }
 
 /**
+ * Synthetic adapter used as the carrier for the parse step. Has no behaviour;
+ * the step's `execute` does the work.
+ */
+const PARSE_STEP_ADAPTER: Adapter = {
+  adapterId: "routecraft.parse",
+} as Adapter & {
+  adapterId: string;
+};
+
+/**
+ * Build a synthetic pipeline step that runs a source-supplied parse function
+ * against the exchange body. Inserted by `runSteps` as the first step when a
+ * source attaches `parse` to its message; ensures parse failures flow through
+ * the route's normal error-handling machinery (`.error()` handler,
+ * `exchange:failed`) instead of aborting the source. See #187.
+ *
+ * Errors are wrapped as `RC5016` so consumers can distinguish parse failures
+ * from generic step failures (`RC5001`).
+ */
+function buildParseStep(
+  parse: (raw: unknown) => unknown | Promise<unknown>,
+): Step<Adapter> {
+  return {
+    operation: OperationType.PARSE,
+    label: "parse",
+    adapter: PARSE_STEP_ADAPTER,
+    async execute(exchange, remainingSteps, queue) {
+      try {
+        exchange.body = await parse(exchange.body);
+      } catch (cause) {
+        const causeMessage =
+          cause instanceof Error ? cause.message : String(cause);
+        throw rcError("RC5016", cause, {
+          message: `Source payload parse failed: ${causeMessage}`,
+        });
+      }
+      // Hand control back to the step loop with the user's pipeline.
+      queue.push({ exchange, steps: remainingSteps });
+    },
+  };
+}
+
+/**
  * Configuration for a route: source, steps, and consumer.
  *
  * Describes how data flows from a source through processing steps to destinations.
@@ -553,8 +596,21 @@ export class DefaultRoute implements Route {
     // validation without per-adapter wiring. On failure the engine emits
     // `exchange:dropped` for telemetry and re-throws so the source's own
     // caller (e.g. a direct channel's `send`) sees the validation error.
-    this.consumer.register(async (message, headers) => {
+    this.consumer.register(async (message, headers, parse) => {
       const exchange = this.buildExchange(message, headers);
+
+      // Stash the source-supplied parser on exchange internals so `runSteps`
+      // can apply it as a synthetic first pipeline step. This is what makes
+      // parse errors (e.g. malformed JSONL line, bad CSV row) surface as
+      // normal pipeline errors that the route's `.error()` handler can
+      // catch, rather than aborting the source. See #187.
+      if (parse) {
+        const internals = EXCHANGE_INTERNALS.get(exchange);
+        if (internals) {
+          internals.parse = parse;
+        }
+      }
+
       const inputSchemas = this.definition.discovery?.input;
       if (inputSchemas?.body || inputSchemas?.headers) {
         await this.applyInputValidation(exchange, inputSchemas);
@@ -593,11 +649,16 @@ export class DefaultRoute implements Route {
     };
     return activeSource.subscribe(
       this.context,
-      (message, headers) => {
+      (message, headers, parse) => {
         onReady(); // fallback: fire before first message if adapter never called it
         return this.messageChannel.enqueue({
           message,
           headers: headers ?? {},
+          ...(parse
+            ? {
+                parse: parse as (raw: unknown) => unknown | Promise<unknown>,
+              }
+            : {}),
         });
       },
       this.abortController,
@@ -718,8 +779,26 @@ export class DefaultRoute implements Route {
     dropped: boolean;
     error?: unknown;
   }> {
+    // If the source adapter attached a `parse` function (see #187), prepend
+    // a synthetic step that runs it before any user-defined steps. The step
+    // throws an `RC5016` error on parse failure, which then flows through
+    // the same error-handler path as any other step error: the route's
+    // `.error()` handler is invoked, or `exchange:failed` fires.
+    const internals = EXCHANGE_INTERNALS.get(exchange);
+    const sourceParse = internals?.parse;
+    if (internals && sourceParse) {
+      // Clear so parse never runs twice on the same exchange (e.g. if the
+      // exchange is forwarded back through the queue).
+      delete internals.parse;
+    }
+
+    const userSteps = [...this.definition.steps];
+    const initialSteps: Step<Adapter>[] = sourceParse
+      ? [buildParseStep(sourceParse), ...userSteps]
+      : userSteps;
+
     const queue: { exchange: Exchange; steps: Step<Adapter>[] }[] = [
-      { exchange: exchange, steps: [...this.definition.steps] },
+      { exchange: exchange, steps: initialSteps },
     ];
 
     let lastProcessedExchange: Exchange = exchange;

@@ -9,6 +9,7 @@
 
 import type { Exchange } from "../../exchange.ts";
 import type { MailSender } from "./analysis.ts";
+import type { OnParseError } from "../shared/parse.ts";
 
 /**
  * Authentication credentials for mail servers.
@@ -198,6 +199,24 @@ export interface MailServerOptions {
    *   not trusted to have verified the chain for you.
    */
   verify?: "off" | "headers" | "strict";
+
+  /**
+   * How to handle a per-message MIME parse failure (`mailparser`'s
+   * `simpleParser` throwing on malformed input). Default `'fail'`: the
+   * exchange fails so the route's `.error()` handler can catch it (or
+   * `exchange:failed` fires); the poll loop continues to the next message
+   * and leaves the malformed one un-Seen for retry. `'abort'` rethrows out
+   * of the source on the first malformed message. `'skip'` silently logs
+   * at warn and skips the message. See `OnParseError` for full semantics.
+   *
+   * Pre-#187 behaviour was equivalent to `'skip'` but logged at debug; that
+   * silent-degrade pattern is no longer the default. Set
+   * `onParseError: 'skip'` and bump your log level to keep the old shape.
+   *
+   * @default "fail"
+   * @experimental
+   */
+  onParseError?: OnParseError;
 }
 
 /**

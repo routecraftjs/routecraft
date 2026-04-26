@@ -11,6 +11,13 @@ import type { Route } from "./route.ts";
 export enum OperationType {
   /** The exchange was created from a source */
   FROM = "from",
+  /**
+   * Synthetic step inserted by the runtime when a source adapter attaches a
+   * `parse` function to the queued message. Runs `exchange.body = parse(body)`
+   * before any user steps so parse failures flow through the route's normal
+   * error handling instead of aborting the source. See #187.
+   */
+  PARSE = "parse",
   /** The exchange was processed by a processor */
   PROCESS = "process",
   /** The exchange was sent to a destination */
@@ -220,6 +227,16 @@ export type Exchange<T = unknown> = {
 type ExchangeInternals = {
   context: CraftContext;
   route?: Route;
+  /**
+   * Optional parser the runtime applies as a synthetic first pipeline step.
+   * Set by `DefaultRoute` from the queue `Message.parse` when a source
+   * adapter attaches one (see `CallableSource.handler` parse argument and
+   * #187). The runtime clears this after running it so it does not run
+   * twice.
+   *
+   * @internal
+   */
+  parse?: (raw: unknown) => unknown | Promise<unknown>;
 };
 
 /**

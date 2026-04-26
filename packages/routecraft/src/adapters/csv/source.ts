@@ -5,10 +5,22 @@ import { HeadersKeys, type ExchangeHeaders } from "../../exchange.ts";
 import { file } from "../file/index.ts";
 import { ensurePapaparse } from "./shared.ts";
 import { throwFileError } from "../shared/line-reader.ts";
+import { DEFAULT_ON_PARSE_ERROR, type OnParseError } from "../shared/parse.ts";
+import { logger } from "../../logger.ts";
 
 /**
- * CsvSourceAdapter reads CSV files and parses them to arrays of objects.
- * When chunked is true, emits one exchange per row.
+ * CsvSourceAdapter reads CSV files and parses them via PapaParse.
+ *
+ * Non-chunked: emits a single exchange whose body is the full parsed array.
+ * Chunked: streams rows from disk and emits one exchange per row with
+ * `CSV_ROW` and `CSV_PATH` headers; uses `parser.pause()` /
+ * `parser.resume()` around each handler call for backpressure.
+ *
+ * Per-row parse failures are routed by the `onParseError` option (default
+ * `'fail'`). With `'fail'` in chunked mode the parse runs as a synthetic
+ * first pipeline step so the route's `.error()` handler can catch it (or
+ * `exchange:failed` fires) and the source continues to the next row. See
+ * #187.
  */
 export class CsvSourceAdapter implements Source<CsvData | CsvRow> {
   readonly adapterId = "routecraft.adapter.csv";
@@ -29,6 +41,7 @@ export class CsvSourceAdapter implements Source<CsvData | CsvRow> {
       quoteChar = '"',
       skipEmptyLines = true,
       chunked = false,
+      onParseError = DEFAULT_ON_PARSE_ERROR,
     } = this.options;
 
     if (chunked) {
@@ -38,45 +51,81 @@ export class CsvSourceAdapter implements Source<CsvData | CsvRow> {
         handler as (
           message: CsvRow,
           headers?: ExchangeHeaders,
+          parse?: (raw: unknown) => unknown | Promise<unknown>,
         ) => Promise<import("../../exchange.ts").Exchange>,
         abortController,
         { header, delimiter, quoteChar, skipEmptyLines },
+        onParseError,
       );
-    } else {
-      const fileAdapter = file({
-        path: this.options.path,
-        encoding: this.options.encoding || "utf-8",
-      });
+      return;
+    }
 
-      await fileAdapter.subscribe(
-        context,
-        async (csvContent: string) => {
-          const parseResult = Papa.parse(csvContent, {
+    const filePath = this.options.path;
+    if (typeof filePath !== "string") {
+      throw new Error(
+        "csv adapter: path must be a string for source mode (dynamic paths are only supported for destinations)",
+      );
+    }
+
+    const fileAdapter = file({
+      path: filePath,
+      encoding: this.options.encoding || "utf-8",
+    });
+
+    await fileAdapter.subscribe(
+      context,
+      async (csvContent: string) => {
+        const rowHandler = handler as (
+          message: CsvData,
+          headers?: ExchangeHeaders,
+          parse?: (raw: unknown) => unknown | Promise<unknown>,
+        ) => Promise<import("../../exchange.ts").Exchange>;
+
+        const parseFn = (raw: unknown): CsvData => {
+          const result = Papa.parse(raw as string, {
             header,
             delimiter,
             quoteChar,
             skipEmptyLines,
           });
-
-          if (parseResult.errors.length > 0) {
-            const firstError = parseResult.errors[0];
+          if (result.errors.length > 0) {
+            const firstError = result.errors[0];
             throw new Error(
               `csv adapter: parse error at row ${firstError.row}: ${firstError.message}`,
             );
           }
+          return result.data as CsvData;
+        };
 
-          return await (
-            handler as (
-              message: CsvData,
-              headers?: ExchangeHeaders,
-            ) => Promise<import("../../exchange.ts").Exchange>
-          )(parseResult.data as CsvData);
-        },
-        abortController,
-        onReady,
-        meta,
-      );
-    }
+        if (onParseError === "fail") {
+          // Defer parse to the pipeline; route.error() catches failures.
+          return await rowHandler(
+            csvContent as unknown as CsvData,
+            undefined,
+            (raw) => parseFn(raw),
+          );
+        }
+
+        // 'abort' or 'skip': parse inline.
+        let data: CsvData;
+        try {
+          data = parseFn(csvContent);
+        } catch (err) {
+          if (onParseError === "skip") {
+            logger.warn(
+              { err, path: filePath, adapter: "csv" },
+              "csv adapter: skipped malformed CSV file (onParseError: 'skip')",
+            );
+            return undefined as never;
+          }
+          throw err;
+        }
+        return await rowHandler(data);
+      },
+      abortController,
+      onReady,
+      meta,
+    );
   };
 
   private async subscribeChunked(
@@ -84,6 +133,7 @@ export class CsvSourceAdapter implements Source<CsvData | CsvRow> {
     handler: (
       message: CsvRow,
       headers?: ExchangeHeaders,
+      parse?: (raw: unknown) => unknown | Promise<unknown>,
     ) => Promise<import("../../exchange.ts").Exchange>,
     abortController: AbortController,
     parseOptions: {
@@ -92,6 +142,7 @@ export class CsvSourceAdapter implements Source<CsvData | CsvRow> {
       quoteChar: string;
       skipEmptyLines: boolean;
     },
+    onParseError: OnParseError,
   ): Promise<void> {
     if (abortController.signal.aborted) return;
 
@@ -145,33 +196,81 @@ export class CsvSourceAdapter implements Source<CsvData | CsvRow> {
           }
 
           rowNumber++;
+          const currentRow = rowNumber;
+          const rowErrors = results.errors;
+          const headers: ExchangeHeaders = {
+            [HeadersKeys.CSV_ROW]: currentRow,
+            [HeadersKeys.CSV_PATH]: filePath,
+          } as ExchangeHeaders;
 
-          if (results.errors.length > 0) {
-            const firstError = results.errors[0];
+          // Inline 'abort' handling: row errors abort the source on the
+          // first bad row, matching pre-#187 behaviour.
+          if (rowErrors.length > 0 && onParseError === "abort") {
+            const firstError = rowErrors[0];
             parser.abort();
             settle(() =>
               reject(
                 new Error(
-                  `csv adapter: parse error at row ${rowNumber}: ${firstError.message}`,
+                  `csv adapter: parse error at row ${currentRow}: ${firstError.message}`,
                 ),
               ),
             );
             return;
           }
 
-          parser.pause();
-          const headers: ExchangeHeaders = {
-            [HeadersKeys.CSV_ROW]: rowNumber,
-            [HeadersKeys.CSV_PATH]: filePath,
-          } as ExchangeHeaders;
+          // Inline 'skip' handling: drop the row, continue to the next.
+          if (rowErrors.length > 0 && onParseError === "skip") {
+            logger.warn(
+              {
+                err: rowErrors[0],
+                path: filePath,
+                row: currentRow,
+                adapter: "csv",
+              },
+              "csv adapter: skipped malformed row (onParseError: 'skip')",
+            );
+            return;
+          }
 
-          handler(results.data as CsvRow, headers)
+          parser.pause();
+
+          // For 'fail' (default) and the no-row-error case, defer the
+          // row-error check to the pipeline so route.error() can catch it.
+          // The parse callback receives the row data (or already has it)
+          // and just re-validates the row errors so a malformed row throws
+          // inside the synthetic parse step.
+          const callPromise =
+            onParseError === "fail"
+              ? handler(results.data as CsvRow, headers, (raw) => {
+                  if (rowErrors.length > 0) {
+                    const firstError = rowErrors[0];
+                    throw new Error(
+                      `csv adapter: parse error at row ${currentRow}: ${firstError.message}`,
+                    );
+                  }
+                  return raw as CsvRow;
+                })
+              : handler(results.data as CsvRow, headers);
+
+          callPromise
             .then(() => {
               if (!aborted) {
                 parser.resume();
               }
             })
             .catch((err) => {
+              if (onParseError === "fail") {
+                // Per-row pipeline failure: log and continue. The route's
+                // `.error()` handler (or `exchange:failed` event) has
+                // already fired for this row; we just keep the stream
+                // flowing.
+                logger.debug(
+                  { err, path: filePath, row: currentRow, adapter: "csv" },
+                  "csv adapter: pipeline failed for row; continuing",
+                );
+                if (!aborted) parser.resume();
+                return;
+              }
               parser.abort();
               settle(() => reject(err));
             });

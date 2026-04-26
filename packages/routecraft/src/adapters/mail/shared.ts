@@ -460,8 +460,6 @@ async function parseMessageContent(
   simpleParser: typeof import("mailparser").simpleParser,
   requestedHeaders?: true | string[],
   includeAnalysisHeaders?: boolean,
-  logger?: { debug: (obj: Record<string, unknown>, msg: string) => void },
-  uid?: number,
 ): Promise<{
   text?: string;
   html?: string;
@@ -475,8 +473,10 @@ async function parseMessageContent(
   analysisHeaders?: Record<string, string | string[]>;
 }> {
   if (!source) return {};
-  try {
-    const parsed = await simpleParser(source);
+  // Throws on malformed MIME. Callers decide whether to swallow, route the
+  // error through the route pipeline, or abort (see `onParseError` and #187).
+  const parsed = await simpleParser(source);
+  {
     const content: {
       text?: string;
       html?: string;
@@ -541,17 +541,17 @@ async function parseMessageContent(
       if (Object.keys(analysis).length > 0) content.analysisHeaders = analysis;
     }
     return content;
-  } catch (err) {
-    // Swallow per-message parse failures so one malformed MIME does not abort
-    // the whole fetch. Log at debug so operators can correlate an empty body /
-    // missing sender back to a parse error.
-    logger?.debug(
-      { err: err instanceof Error ? err : new Error(String(err)), uid },
-      "mail adapter failed to parse message source",
-    );
-    return {};
   }
 }
+
+/**
+ * Per-message parse error attached to a `MailMessage` when the source's
+ * `onParseError` is `'fail'`. The mail source loop reads this and routes the
+ * error through the route's `.error()` handler via the `parse` argument so
+ * malformed MIME becomes a normal pipeline error instead of a silent
+ * degraded delivery. See #187.
+ */
+export const MAIL_PARSE_ERRORS = new WeakMap<MailMessage, Error>();
 
 /**
  * Minimal logger shape accepted by `fetchMessages`. Matches the methods used
@@ -594,6 +594,7 @@ export async function fetchMessages(
 
     const { simpleParser } = await import("mailparser");
     const verify = options.verify ?? "headers";
+    const onParseError = options.onParseError ?? "fail";
 
     for (const criteria of criteriaSets) {
       let searchQuery: Record<string, unknown> | string = criteria;
@@ -606,14 +607,34 @@ export async function fetchMessages(
         if (seenUids.has(msg.uid)) continue;
         seenUids.add(msg.uid);
 
-        const content = await parseMessageContent(
-          msg.source,
-          simpleParser,
-          options.includeHeaders,
-          verify !== "off",
-          logger,
-          msg.uid,
-        );
+        let content:
+          | Awaited<ReturnType<typeof parseMessageContent>>
+          | undefined;
+        let parseError: Error | undefined;
+        try {
+          content = await parseMessageContent(
+            msg.source,
+            simpleParser,
+            options.includeHeaders,
+            verify !== "off",
+          );
+        } catch (err) {
+          const wrapped = err instanceof Error ? err : new Error(String(err));
+          if (onParseError === "abort") {
+            throw wrapped;
+          }
+          if (onParseError === "skip") {
+            logger?.warn(
+              { err: wrapped, uid: msg.uid, folder },
+              "mail adapter: skipped malformed message (onParseError: 'skip')",
+            );
+            continue;
+          }
+          // 'fail': capture the error and let the source loop route it
+          // through the route's `.error()` handler via the `parse` arg.
+          parseError = wrapped;
+          content = {};
+        }
 
         const mailMessage = toMailMessage(
           {
@@ -624,6 +645,10 @@ export async function fetchMessages(
           folder,
           content,
         );
+
+        if (parseError) {
+          MAIL_PARSE_ERRORS.set(mailMessage, parseError);
+        }
 
         if (verify !== "off") {
           const analysisHeaders = content.analysisHeaders;

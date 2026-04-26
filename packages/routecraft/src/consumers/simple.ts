@@ -12,10 +12,14 @@ export class SimpleConsumer implements Consumer<never> {
   ) {}
 
   async register(
-    handler: (message: unknown, headers?: ExchangeHeaders) => Promise<Exchange>,
+    handler: (
+      message: unknown,
+      headers?: ExchangeHeaders,
+      parse?: (raw: unknown) => unknown | Promise<unknown>,
+    ) => Promise<Exchange>,
   ): Promise<void> {
     this.channel.setHandler(async (message) => {
-      return await handler(message.message, message.headers);
+      return await handler(message.message, message.headers, message.parse);
     });
   }
 }

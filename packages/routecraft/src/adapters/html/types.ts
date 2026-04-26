@@ -1,4 +1,5 @@
 import type { Exchange } from "../../exchange.ts";
+import type { OnParseError } from "../shared/parse.ts";
 
 export type HtmlResult = string | string[];
 
@@ -57,4 +58,16 @@ export interface HtmlOptions<T = unknown, R = unknown> {
    * Default: false
    */
   createDirs?: boolean;
+
+  /**
+   * How to handle a `extractHtml` failure on the file content (source mode
+   * only). Default `'fail'`: the exchange fails so the route's `.error()`
+   * handler can catch it (or `exchange:failed` fires). `'abort'` rethrows
+   * out of the source. `'skip'` silently logs at warn and emits no
+   * exchange. See `OnParseError` for full semantics.
+   *
+   * @default "fail"
+   * @experimental
+   */
+  onParseError?: OnParseError;
 }

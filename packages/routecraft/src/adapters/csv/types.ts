@@ -1,4 +1,5 @@
 import type { Exchange } from "../../exchange.ts";
+import type { OnParseError } from "../shared/parse.ts";
 
 export interface CsvOptions {
   /**
@@ -53,6 +54,19 @@ export interface CsvOptions {
    * Default: false
    */
   chunked?: boolean;
+
+  /**
+   * How to handle a Papa Parse row error (chunked mode) or parse error
+   * (non-chunked mode). Default `'fail'`: the exchange fails so the route's
+   * `.error()` handler can catch it (or `exchange:failed` fires); chunked
+   * mode continues to the next row. `'abort'` rethrows out of the source on
+   * the first bad row. `'skip'` silently logs at warn and skips the bad
+   * row. See `OnParseError` for full semantics.
+   *
+   * @default "fail"
+   * @experimental
+   */
+  onParseError?: OnParseError;
 }
 
 export type CsvRow = Record<string, unknown> | string[];

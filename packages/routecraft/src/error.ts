@@ -17,6 +17,7 @@ export type RCCode =
   | "RC5013"
   | "RC5014"
   | "RC5015"
+  | "RC5016"
   | "RC9901";
 
 export type RCMeta = {
@@ -150,6 +151,14 @@ export const RC: Record<RCCode, RCMeta> = {
     message: "Permission denied",
     suggestion: "Check access control, IAM, and scopes",
     docs: `${DOCS_BASE}#rc-5015`,
+    retryable: false,
+  },
+  RC5016: {
+    category: "Adapter",
+    message: "Source payload parse failed",
+    suggestion:
+      "Check the input data matches the adapter's expected format (JSON, CSV, JSONL, HTML, MIME). Wire .error() on the route to recover, or set onParseError to 'abort' or 'skip' on the adapter.",
+    docs: `${DOCS_BASE}#rc-5016`,
     retryable: false,
   },
   RC9901: {

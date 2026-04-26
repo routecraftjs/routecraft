@@ -299,11 +299,11 @@ describe("JSON Adapter", () => {
     });
 
     /**
-     * @case Invalid JSON in file throws error
-     * @preconditions File contains invalid JSON
-     * @expectedResult Error thrown with "failed to parse" message
+     * @case Invalid JSON file routes parse error through pipeline (default 'fail')
+     * @preconditions File contains invalid JSON; route has no .error() handler
+     * @expectedResult exchange:failed event fires with RC5016, no exchange reaches the spy
      */
-    test("invalid JSON file throws error", async () => {
+    test("invalid JSON file routes parse error through pipeline", async () => {
       await fs.writeFile(testFilePath, "{ invalid json }");
 
       const s = spy();
@@ -313,6 +313,45 @@ describe("JSON Adapter", () => {
           craft()
             .id("json-source-invalid")
             .from(json({ path: testFilePath }) as unknown as Source<unknown>)
+            .to(s),
+        )
+        .build();
+
+      const errSpy = vi.fn();
+      t.ctx.on("context:error", errSpy);
+      await t.ctx.start();
+      await new Promise((r) => setTimeout(r, 0));
+      // Default 'fail' routes the parse error through the pipeline; with no
+      // .error() handler the failure surfaces via context:error.
+      expect(errSpy).toHaveBeenCalled();
+      const errorPayload = errSpy.mock.calls[0][0];
+      const error = errorPayload.details.error;
+      expect(error.rc).toBe("RC5016");
+      // The parse failure happened inside the pipeline, so the spy never
+      // received an exchange.
+      expect(s.received).toHaveLength(0);
+    });
+
+    /**
+     * @case Invalid JSON file aborts source with onParseError: 'abort'
+     * @preconditions File contains invalid JSON; onParseError: 'abort'
+     * @expectedResult Error thrown with "failed to parse" message via context:error
+     */
+    test("invalid JSON file aborts source with onParseError: 'abort'", async () => {
+      await fs.writeFile(testFilePath, "{ invalid json }");
+
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("json-source-invalid-abort")
+            .from(
+              json({
+                path: testFilePath,
+                onParseError: "abort",
+              }) as unknown as Source<unknown>,
+            )
             .to(s),
         )
         .build();

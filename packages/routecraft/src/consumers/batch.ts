@@ -62,7 +62,11 @@ export class BatchConsumer implements Consumer<BatchOptions> {
   }
 
   async register(
-    handler: (message: unknown, headers?: ExchangeHeaders) => Promise<Exchange>,
+    handler: (
+      message: unknown,
+      headers?: ExchangeHeaders,
+      parse?: (raw: unknown) => unknown | Promise<unknown>,
+    ) => Promise<Exchange>,
   ): Promise<void> {
     let batch: Message[] = [];
     let resolvers: {
@@ -118,6 +122,21 @@ export class BatchConsumer implements Consumer<BatchOptions> {
     };
 
     this.channel.setHandler(async (message) => {
+      // When a source adapter attaches a `parse` function (see #187), the
+      // batch consumer cannot defer it to the synthetic pipeline step that
+      // the simple consumer relies on, because the merged exchange has no
+      // per-item parse function. We pre-parse here and reject this item's
+      // promise on failure. The chunked source's `.catch()` (when
+      // `onParseError: 'fail'`) will continue to the next item.
+      if (message.parse) {
+        try {
+          message.message = await message.parse(message.message);
+        } catch (err) {
+          return Promise.reject(err);
+        }
+        delete message.parse;
+      }
+
       const promise = new Promise<Exchange>((resolve, reject) => {
         batch.push(message);
         resolvers.push({ resolve, reject });
