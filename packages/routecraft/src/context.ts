@@ -15,6 +15,7 @@ import { MAIL_CLIENT_MANAGER } from "./adapters/mail/shared.ts";
 import { type TelemetryOptions } from "./telemetry/types.ts";
 import { telemetry } from "./telemetry/index.ts";
 import { type AdapterOverride, RC_ADAPTER_OVERRIDES } from "./testing-hooks.ts";
+import { getConfigAppliers } from "./config-applier.ts";
 
 import {
   type EventHandler,
@@ -85,8 +86,21 @@ export interface CraftPlugin {
 
 /**
  * Configuration options for creating a CraftContext.
+ *
+ * Declared as an `interface` so ecosystem packages can extend it via
+ * declaration merging. Pair an augmentation with `registerConfigApplier`
+ * to promote an ecosystem capability to a first-class config key.
+ *
+ * @example
+ * ```typescript
+ * declare module "@routecraft/routecraft" {
+ *   interface CraftConfig {
+ *     myCapability?: MyCapabilityOptions;
+ *   }
+ * }
+ * ```
  */
-export type CraftConfig = {
+export interface CraftConfig {
   /** Initial values for the context store */
   store?: Map<keyof StoreRegistry, StoreRegistry[keyof StoreRegistry]>;
   /** Event handlers to register on context creation */
@@ -109,7 +123,7 @@ export type CraftConfig = {
   mail?: MailContextConfig;
   /** Telemetry plugin configuration (SQLite, OpenTelemetry) */
   telemetry?: TelemetryOptions;
-};
+}
 
 /**
  * The main context for running and managing routes.
@@ -240,6 +254,36 @@ export class CraftContext {
       // Convert telemetry config into a plugin
       if (config.telemetry) {
         this.plugins.push(telemetry(config.telemetry));
+      }
+
+      // Walk registered config appliers (e.g. @routecraft/ai promotes `llm`,
+      // `mcp`, `embedding`, `agent` to first-class keys via this registry).
+      //
+      // The push order into `this.plugins` drives both apply() order
+      // (forward) and teardown() order (reverse) for entries that go
+      // through the plugin lifecycle:
+      //   1. telemetry plugin (if config.telemetry)
+      //   2. ecosystem appliers, in registration order
+      //   3. user config.plugins
+      //
+      // Reverse-iteration in performShutdown() therefore tears down user
+      // plugins first, then ecosystem appliers, then telemetry. Mail is
+      // not a plugin -- it registers a callback in this.teardownCallbacks,
+      // which runs after all plugin teardowns regardless of where the
+      // mail block sits in this constructor.
+      //
+      // The applier guard is strictly `value !== undefined`, not a truthy
+      // check. The applier registry is an open extension point: ecosystem
+      // packages can register appliers for any value shape, including
+      // primitives where `false`, `0`, or `""` are valid. "Not set" must
+      // mean only `undefined` so applier authors can rely on a stable
+      // contract regardless of value type.
+      const configRecord = config as unknown as Record<string, unknown>;
+      for (const [key, factory] of getConfigAppliers()) {
+        const value = configRecord[key];
+        if (value !== undefined) {
+          this.plugins.push(factory(value));
+        }
       }
 
       if (config.plugins?.length) {

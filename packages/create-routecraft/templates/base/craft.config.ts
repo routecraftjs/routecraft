@@ -1,3 +1,3 @@
-import type { CraftConfig } from "@routecraft/routecraft";
+import { defineConfig } from "@routecraft/routecraft";
 
-export const craftConfig: CraftConfig = {};
+export const craftConfig = defineConfig({});

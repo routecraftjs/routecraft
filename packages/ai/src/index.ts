@@ -1,3 +1,8 @@
+// Side-effect import: augments `CraftConfig` with first-class `llm`, `mcp`,
+// `embedding`, and `agent` keys, and registers the corresponding config
+// appliers so those keys produce plugins on context startup.
+import "./config.ts";
+
 // Cross-instance identity (Symbol.for) for MCP adapters
 export { BRAND, isMcpAdapter } from "./brand.ts";
 
