@@ -1,6 +1,6 @@
 export { craftConfig } from "./craft.config.ts";
 import { craft, direct, simple } from "@routecraft/routecraft";
-import { agent, tools } from "@routecraft/ai";
+import { agent } from "@routecraft/ai";
 import { z } from "zod";
 
 const GreetInput = z.object({
@@ -26,9 +26,9 @@ export default craft()
   .to(
     agent({
       model: "gemini:gemini-3.1-pro-preview",
-      system: "Format time and date at 5 June 2026 08:30",
-      user: () => "What is the current time?",
-      tools: tools(["currentTime"]),
+      system:
+        "You are a friendly greeter. Greet the user warmly in one sentence.",
+      user: (exchange) => `Greet ${(exchange.body as GreetInput).user}.`,
     }),
   )
   .log();
