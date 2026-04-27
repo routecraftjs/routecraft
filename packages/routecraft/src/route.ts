@@ -438,10 +438,15 @@ export class DefaultRoute implements Route {
    *
    * @param message The message data
    * @param headers Optional headers to include
+   * @param principal Optional authenticated principal forwarded by the source
    * @returns A new Exchange object
    * @private
    */
-  private buildExchange(message: unknown, headers?: ExchangeHeaders): Exchange {
+  private buildExchange(
+    message: unknown,
+    headers?: ExchangeHeaders,
+    principal?: import("./auth/types.ts").Principal | undefined,
+  ): Exchange {
     const exchange = new DefaultExchange(this.context, {
       body: message,
       headers: {
@@ -450,6 +455,7 @@ export class DefaultRoute implements Route {
         [HeadersKeys.ROUTE_ID]: this.definition.id,
         [HeadersKeys.OPERATION]: OperationType.FROM,
       },
+      ...(principal !== undefined && { principal }),
     });
 
     // Add route to internals so steps like tap can access it (symbol-key for cross-instance)
@@ -745,8 +751,8 @@ export class DefaultRoute implements Route {
     // `exchange:dropped` for telemetry and re-throws so the source's own
     // caller (e.g. a direct channel's `send`) sees the validation error.
     this.consumer.register(
-      async (message, headers, parse, parseFailureMode) => {
-        const exchange = this.buildExchange(message, headers);
+      async (message, headers, parse, parseFailureMode, principal) => {
+        const exchange = this.buildExchange(message, headers, principal);
         const inputSchemas = this.definition.discovery?.input;
         const hasInputSchema = !!inputSchemas?.body || !!inputSchemas?.headers;
 
@@ -813,7 +819,7 @@ export class DefaultRoute implements Route {
     };
     return activeSource.subscribe(
       this.context,
-      (message, headers, parse, parseFailureMode) => {
+      (message, headers, parse, parseFailureMode, principal) => {
         onReady(); // fallback: fire before first message if adapter never called it
         return this.messageChannel.enqueue({
           message,
@@ -824,6 +830,7 @@ export class DefaultRoute implements Route {
                 parseFailureMode: parseFailureMode ?? "fail",
               }
             : {}),
+          ...(principal !== undefined && { principal }),
         });
       },
       this.abortController,

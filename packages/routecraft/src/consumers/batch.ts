@@ -68,6 +68,7 @@ export class BatchConsumer implements Consumer<BatchOptions> {
       headers?: ExchangeHeaders,
       parse?: (raw: unknown) => unknown | Promise<unknown>,
       parseFailureMode?: OnParseError,
+      principal?: import("../auth/types.ts").Principal | undefined,
     ) => Promise<Exchange>,
   ): Promise<void> {
     let batch: Message[] = [];

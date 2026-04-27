@@ -4,6 +4,7 @@ import { type CraftContext } from "./context.ts";
 import { logger, childBindings } from "./logger.ts";
 import type { Route } from "./route.ts";
 import type { OnParseError } from "./adapters/shared/parse.ts";
+import type { Principal } from "./auth/types.ts";
 
 /**
  * Types of operations that can be performed on an exchange.
@@ -204,6 +205,9 @@ export type ExchangeHeaders = Partial<RoutecraftHeaders> &
  * - Metadata about the processing (headers)
  * - A unique identifier
  * - Logging capabilities
+ * - The authenticated principal, if any (set at the source boundary by
+ *   adapters that perform authentication, or in a route step via
+ *   `.process()` when callers want to attach a custom identity)
  *
  * @template T The type of data in the body
  */
@@ -216,6 +220,23 @@ export type Exchange<T = unknown> = {
 
   /** The data being processed */
   body: T;
+
+  /**
+   * Authenticated principal for this exchange, when one has been resolved.
+   *
+   * Set automatically by source adapters that perform authentication (e.g.
+   * the MCP server when `auth:` is configured). Routes may also assign a
+   * custom principal in `.process()` to attribute downstream actions to a
+   * specific identity (for example, mapping the sender of an inbound email
+   * onto a `kind: "custom"` principal).
+   *
+   * The `| undefined` is intentional under `exactOptionalPropertyTypes`,
+   * so callers can explicitly clear the principal by assigning `undefined`
+   * (e.g. on a step that "demotes" an exchange to anonymous).
+   *
+   * @experimental
+   */
+  principal?: Principal | undefined;
 
   /** Logger for this exchange (pino child logger) */
   logger: ReturnType<typeof logger.child>;
@@ -335,6 +356,9 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
   /** The data being processed */
   body: T;
 
+  /** Authenticated principal, when one has been resolved. */
+  principal?: Principal | undefined;
+
   /** Logger for this exchange (pino child logger) */
   public readonly logger: ReturnType<typeof logger.child>;
 
@@ -353,6 +377,9 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
       ...(options?.headers || {}),
     };
     this.body = options?.body || ({} as T);
+    if (options?.principal) {
+      this.principal = options.principal;
+    }
 
     // Store internals: symbol key (cross-instance) and WeakMap (same-instance compat)
     const internals: ExchangeInternals = { context };

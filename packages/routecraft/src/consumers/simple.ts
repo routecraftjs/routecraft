@@ -18,6 +18,7 @@ export class SimpleConsumer implements Consumer<never> {
       headers?: ExchangeHeaders,
       parse?: (raw: unknown) => unknown | Promise<unknown>,
       parseFailureMode?: OnParseError,
+      principal?: import("../auth/types.ts").Principal | undefined,
     ) => Promise<Exchange>,
   ): Promise<void> {
     this.channel.setHandler(async (message) => {
@@ -26,6 +27,7 @@ export class SimpleConsumer implements Consumer<never> {
         message.headers,
         message.parse,
         message.parseFailureMode,
+        message.principal,
       );
     });
   }

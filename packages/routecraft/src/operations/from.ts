@@ -77,6 +77,17 @@ export type CallableSource<T = unknown> = (
      * @experimental
      */
     parseFailureMode?: OnParseError,
+    /**
+     * Authenticated principal resolved by the source, when applicable.
+     * Sources that perform authentication at their boundary (e.g. the MCP
+     * server when `auth:` is configured) pass it here so it lands on
+     * `exchange.principal` of the route's first exchange. Most adapters
+     * leave this undefined and rely on a downstream `.process()` to attach
+     * a custom principal.
+     *
+     * @experimental
+     */
+    principal?: import("../auth/types.ts").Principal | undefined,
   ) => Promise<Exchange>,
   abortController: AbortController,
   onReady?: () => void,

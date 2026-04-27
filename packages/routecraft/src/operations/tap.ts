@@ -29,6 +29,7 @@ function snapshotExchange<T>(
     id: randomUUID(),
     body: structuredClone(exchange.body),
     headers: { ...exchange.headers },
+    principal: exchange.principal,
   });
 }
 

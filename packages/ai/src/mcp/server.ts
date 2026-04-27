@@ -1028,6 +1028,7 @@ export class McpServer {
       const exchange = new DefaultExchange(this.context, {
         body,
         headers,
+        principal,
       });
 
       this.context.emit(`plugin:mcp:tool:called`, {
