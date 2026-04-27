@@ -352,6 +352,56 @@ Importing `@routecraft/ai` now augments `CraftConfig` with first-class `llm`, `m
 
 For context only. None of these require any migration.
 
+### Dual-mode wrapper operations (`.error()` first)
+
+`.error()` becomes the first **dual-mode wrapper**. The same method name now applies at two distinct scopes depending on where you call it on the route builder:
+
+- **Route scope** — call it _before_ `.from()`. Catches any unhandled error from the pipeline and halts the route. This is the existing 0.4.0 behaviour, unchanged.
+- **Step scope** — call it _after_ `.from()`. Wraps **only the immediately next step**. On success the pipeline continues untouched; on failure the handler runs, its return value replaces the body, and the pipeline continues with the next step. The builder's body type is preserved across the wrapper, so step-level `.error()` is fully type-safe.
+
+This pattern is the foundation for future resilience operations (retry, cache, timeout, circuit breaker, throttle, delay) — each will adopt the same dual-mode shape so users learn it once. See [issue #140](https://github.com/routecraftjs/routecraft/issues/140) for the full design.
+
+#### Step-scope example: recover from one flaky call
+
+```ts
+craft()
+  .id("resilient-pipeline")
+  .from(timer({ intervalMs: 60_000 }))
+  .transform(prepareRequest)
+  .error((err, ex) => ({ fallback: true, reason: String(err) }))
+  .to(http({ url: "https://flaky.api/endpoint" }))
+  .to(database())
+```
+
+If the `http()` call fails, the step-level handler returns the fallback object as the new body and the pipeline continues to `database()`.
+
+#### Combined route + step scope
+
+```ts
+craft()
+  .id("with-safety-net")
+  .error((err, ex, forward) => forward("errors.catchall", ex.body)) // route-level
+  .from(timer({ intervalMs: 60_000 }))
+  .transform(prepareRequest)
+  .error((err) => ({ fallback: true })) // step-level
+  .to(http({ url: "https://flaky.api/endpoint" }))
+  .to(database())
+```
+
+The step-level handler recovers `http()` failures silently. If the step-level handler itself throws, the route-level handler takes over and forwards to `errors.catchall`. The route is not stopped; the next exchange processes normally.
+
+#### Operation categories
+
+For reference, route-builder operations now fall into three groups:
+
+| Category            | Position relative to `.from()` | Examples                                                |
+| ------------------- | ------------------------------ | ------------------------------------------------------- |
+| Route-only          | Before                         | `.id()`, `.batch()`                                     |
+| Dual-mode wrapper   | Before _or_ after              | `.error()` (more to follow in 0.6.0)                    |
+| Pipeline            | After                          | `.transform()`, `.filter()`, `.to()`, `.process()`, ... |
+
+ESLint rules continue to enforce route-only positioning. Wrapper positioning is enforced by the builder type system.
+
 ### Agent runtime
 
 - Tool-calling loop on `agent()` with whitelisted access to fn handlers, direct routes, and remote MCP tools.
