@@ -4,7 +4,29 @@ import {
   getExchangeContext,
   getExchangeRoute,
   HeadersKeys,
+  OperationType,
 } from "../exchange.ts";
+import { rcError } from "../error.ts";
+
+/**
+ * Operation kinds that resilience wrappers cannot safely wrap. Validated
+ * at construction time by {@link WrapperStep} so misuse fails when the
+ * route is built, not at first dispatch.
+ *
+ * - `aggregate`: reads sibling exchanges from the shared route queue
+ *   via `queue.splice(...)`. The wrapper hands inner an isolated
+ *   per-execution buffer, so an aggregator inside a wrapper would only
+ *   ever see the current exchange.
+ * - `split`: emits children synchronously then may throw mid-stream;
+ *   recovery would silently truncate already-emitted children. Wrap
+ *   the steps DOWNSTREAM of `.split()` instead.
+ *
+ * @internal
+ */
+const NON_WRAPPABLE_OPERATIONS: ReadonlySet<OperationType> = new Set([
+  OperationType.AGGREGATE,
+  OperationType.SPLIT,
+]);
 
 /**
  * Outcome of {@link WrapperStep.runInner}. Subclasses use it to tell the
@@ -66,6 +88,14 @@ export abstract class WrapperStep<
   readonly skipStepEvents = true;
 
   constructor(protected readonly inner: Step<T>) {
+    if (NON_WRAPPABLE_OPERATIONS.has(inner.operation)) {
+      throw rcError("RC5003", undefined, {
+        message:
+          `Wrapper operations (e.g. .error(), future .retry() / .timeout() / .cache()) cannot wrap "${inner.operation}" steps. ` +
+          `Aggregate reads siblings from the shared route queue and split emits children synchronously; both have semantics ` +
+          `that conflict with per-execution wrapper isolation. Wrap the steps downstream of split / before aggregate instead.`,
+      });
+    }
     this.operation = inner.operation;
     this.adapter = inner.adapter;
     if (inner.label !== undefined) this.label = inner.label;
@@ -124,9 +154,16 @@ export abstract class WrapperStep<
     const correlationId = exchange.headers[
       HeadersKeys.CORRELATION_ID
     ] as string;
+    const routeId = route?.definition.id;
+    // The wrapper only emits step lifecycle events when the inner
+    // step does NOT manage its own. Steps with `skipStepEvents = true`
+    // (filter, choice, split, aggregate, choice's halt, child
+    // wrappers in a stack) emit their own pair, so the wrapper must
+    // stay silent to avoid duplicates.
+    const innerOwnsEvents = this.inner.skipStepEvents === true;
+    const shouldEmitEvents = !innerOwnsEvents && route && context && routeId;
 
-    if (route && context) {
-      const routeId = route.definition.id;
+    if (shouldEmitEvents) {
       context.emit(`route:${routeId}:step:started` as EventName, {
         routeId,
         exchangeId: exchange.id,
@@ -140,10 +177,28 @@ export abstract class WrapperStep<
     // exchanges flowing through the same step instance don't share
     // state.
     const innerQueue: { exchange: Exchange; steps: Step<Adapter>[] }[] = [];
-    await this.runInner(exchange, innerQueue);
+    try {
+      await this.runInner(exchange, innerQueue);
+    } catch (err) {
+      // Emit step:failed before propagating so observers see a
+      // balanced started → failed pair. This matters for stacked
+      // wrappers where an inner wrapper threw and an outer wrapper
+      // recovers; without this, the inner wrapper's started event
+      // would never have a closing event.
+      if (shouldEmitEvents) {
+        context.emit(`route:${routeId}:step:failed` as EventName, {
+          routeId,
+          exchangeId: exchange.id,
+          correlationId,
+          operation: stepLabel,
+          duration: Date.now() - stepStart,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+      throw err;
+    }
 
-    if (route && context) {
-      const routeId = route.definition.id;
+    if (shouldEmitEvents) {
       context.emit(`route:${routeId}:step:completed` as EventName, {
         routeId,
         exchangeId: exchange.id,
@@ -153,11 +208,18 @@ export abstract class WrapperStep<
       });
     }
 
-    // Relay any children the inner step pushed (e.g. `split` children)
-    // with `remainingSteps` reattached. When the inner step did not
-    // push (the common case for transform / to / process / header /
-    // tap / filter / validate), push the mutated exchange directly.
+    // Relay any children the inner step pushed (e.g. `split` children
+    // when the wrapper is downstream of one) with `remainingSteps`
+    // reattached. When the inner step did not push:
+    // - If the inner intentionally dropped the exchange (filter
+    //   reject, choice unmatched, halt all set `routecraft.dropped`),
+    //   leave it dropped. Re-pushing would resurrect the drop and run
+    //   subsequent steps on a logically-removed exchange.
+    // - Otherwise push the mutated exchange so the rest of the
+    //   pipeline runs (the common case for transform / to / process /
+    //   header / tap / validate).
     if (innerQueue.length === 0) {
+      if (exchange.headers["routecraft.dropped"] === true) return;
       queue.push({ exchange, steps: remainingSteps });
       return;
     }

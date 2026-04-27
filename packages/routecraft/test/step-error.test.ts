@@ -357,6 +357,183 @@ describe(".error() step scope: dual-mode wrapper", () => {
   });
 
   /**
+   * @case Wrapping `aggregate` is rejected at builder time
+   * @preconditions craft().error(h).aggregate(...) - aggregator can't observe siblings inside a wrapper
+   * @expectedResult RC5003 thrown synchronously at construction; no route runs
+   */
+  test("wrapping aggregate throws at builder time", async () => {
+    expect(() => {
+      // Build the chain as `unknown` so we don't fight the
+      // aggregator's generic inference for code that never runs;
+      // we only want to assert the construction-time throw.
+      const builder = craft()
+        .id("wrap-agg")
+        .from(simple([1, 2]))
+        .split()
+        .error(() => 0) as unknown as { aggregate: (fn: unknown) => unknown };
+      (
+        builder.aggregate(() => undefined) as unknown as {
+          build: () => unknown;
+        }
+      ).build();
+    }).toThrow(/cannot wrap.*aggregate|wrap.*split/i);
+  });
+
+  /**
+   * @case Wrapping `split` is rejected at builder time
+   * @preconditions craft().error(h).split(...) - split's children are emitted synchronously and recovery would truncate
+   * @expectedResult RC5003 thrown synchronously at construction
+   */
+  test("wrapping split throws at builder time", async () => {
+    expect(() => {
+      craft()
+        .id("wrap-split")
+        .from(simple([1, 2, 3]))
+        .error(() => 0)
+        .split()
+        .to(spy())
+        .build();
+    }).toThrow(/cannot wrap.*split/i);
+  });
+
+  /**
+   * @case Wrapping a step that drops the exchange preserves the drop
+   * @preconditions Wrapper around a filter that rejects every input; sink after the wrapper
+   * @expectedResult Sink never receives the dropped exchange; routecraft.dropped flows through
+   */
+  test("wrapped filter that rejects keeps the drop (no resurrection)", async () => {
+    const sink = spy();
+    t = await testContext()
+      .routes(
+        craft()
+          .id("wrap-filter-drop")
+          .from(simple("input"))
+          .error(() => "should-not-recover")
+          .filter(() => false)
+          .to(sink),
+      )
+      .build();
+
+    await t.test();
+    // Filter rejected the exchange. The wrapper must not re-inject it.
+    expect(sink.received).toHaveLength(0);
+  });
+
+  /**
+   * @case Wrapping a `skipStepEvents = true` step does not duplicate step events
+   * @preconditions Wrapper around `tap()` (which has skipStepEvents = true) with a subscriber
+   * @expectedResult Exactly one step:started for the tap operation, not two
+   */
+  test("wrapping a skipStepEvents step does not double-emit lifecycle events", async () => {
+    const tapSink = spy();
+    const sink = spy();
+    const startedEvents: unknown[] = [];
+    t = await testContext()
+      .routes(
+        craft()
+          .id("no-double-events")
+          .from(simple("input"))
+          .error(() => "fallback")
+          .tap(tapSink)
+          .to(sink),
+      )
+      .build();
+
+    t.ctx.on(
+      "route:no-double-events:step:started" as never,
+      ({ details }: { details: unknown }) => {
+        const d = details as { operation?: string };
+        if (d.operation === "tap") startedEvents.push(details);
+      },
+    );
+
+    await t.test();
+    expect(startedEvents).toHaveLength(1);
+  });
+
+  /**
+   * @case Stacked wrapper emits step:failed when its inner runInner throws
+   * @preconditions Outer wrapper recovers; inner wrapper's runInner throws
+   * @expectedResult Inner wrapper emits step:started + step:failed; no orphan started without a closing event
+   */
+  test("stacked wrapper emits step:failed on cascade for balanced events", async () => {
+    const events: string[] = [];
+    // Custom outer wrapper that recovers the inner failure.
+    class RecoveringOuter extends WrapperStep {
+      protected override async runInner(
+        exchange: Exchange,
+        innerQueue: { exchange: Exchange; steps: Step<Adapter>[] }[],
+      ): Promise<"ok" | "recovered"> {
+        try {
+          await this.inner.execute(exchange, [], innerQueue);
+          return "ok";
+        } catch {
+          // Swallow inner's throw so the test asserts the inner's step events.
+          (exchange as { body?: unknown }).body = "outer-recovered";
+          innerQueue.length = 0;
+          return "recovered";
+        }
+      }
+    }
+    // Inner wrapper that always throws (forces the cascade).
+    class ThrowingInner extends WrapperStep {
+      protected override async runInner(): Promise<"ok"> {
+        throw new Error("inner-failed");
+      }
+    }
+
+    const sink = spy();
+    type WrapBuilder = {
+      pendingStepWrappers: Array<(s: Step<Adapter>) => Step<Adapter>>;
+    };
+    const builder = craft().id("balanced-events").from(simple("hi"));
+    // Stage wrappers so the NEXT step gets wrapped. We then add a
+    // transform (which becomes the wrapped inner) and an unwrapped
+    // `to(sink)` after, so the recovered exchange flows past the
+    // wrapper and reaches the sink.
+    (builder as unknown as WrapBuilder).pendingStepWrappers.push(
+      (inner) => new RecoveringOuter(inner),
+    );
+    (builder as unknown as WrapBuilder).pendingStepWrappers.push(
+      (inner) => new ThrowingInner(inner),
+    );
+
+    t = await testContext()
+      .routes(builder.transform((b) => `pre-${b as string}`).to(sink))
+      .build();
+    t.ctx.on(
+      "route:balanced-events:step:started" as never,
+      ({ details }: { details: { operation: string } }) => {
+        events.push(`started:${details.operation}`);
+      },
+    );
+    t.ctx.on(
+      "route:balanced-events:step:failed" as never,
+      ({ details }: { details: { operation: string } }) => {
+        events.push(`failed:${details.operation}`);
+      },
+    );
+    t.ctx.on(
+      "route:balanced-events:step:completed" as never,
+      ({ details }: { details: { operation: string } }) => {
+        events.push(`completed:${details.operation}`);
+      },
+    );
+
+    await t.test();
+
+    // The inner wrapper (whose inner is the transform step) emits
+    // started and then failed when its runInner throws. The outer
+    // wrapper does NOT emit started/completed because its inner is a
+    // wrapper (skipStepEvents = true), so events are balanced and not
+    // duplicated. The unwrapped to(sink) runs after recovery.
+    expect(events).toContain("started:transform");
+    expect(events).toContain("failed:transform");
+    expect(sink.received).toHaveLength(1);
+    expect(sink.received[0].body).toBe("outer-recovered");
+  });
+
+  /**
    * @case Wrapper exposes the inner step's identity
    * @preconditions Construct an ErrorWrapperStep around a known inner step
    * @expectedResult operation/adapter/label fields delegate to the inner step
