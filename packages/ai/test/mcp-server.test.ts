@@ -683,6 +683,7 @@ describe("McpServer", () => {
       test("surfaces full principal claims as exchange headers", async () => {
         const { oauth } = await import("../src/mcp/oauth.ts");
         let captured: Record<string, string | string[] | undefined> | undefined;
+        let capturedPrincipal: unknown | undefined;
 
         const authConfig = oauth({
           resourceIssuerUrl: "http://localhost:9999",
@@ -725,6 +726,7 @@ describe("McpServer", () => {
                   string,
                   string | string[] | undefined
                 >;
+                capturedPrincipal = ex.principal;
               })
               .to(noop()),
           ],
@@ -757,6 +759,16 @@ describe("McpServer", () => {
         expect(h["routecraft.auth.audience"]).toEqual(["mcp.example.com"]);
         expect(h["routecraft.auth.roles"]).toEqual(["admin"]);
         expect(h["routecraft.auth.scopes"]).toEqual(["email", "profile"]);
+
+        // Full structured principal also rides on the exchange so route
+        // handlers can read claims, expiresAt, etc. (fields that don't
+        // flatten cleanly into the per-key auth headers).
+        expect(capturedPrincipal).toMatchObject({
+          kind: "oauth",
+          subject: "user-42",
+          clientId: "client-abc",
+          claims: { sub: "user-42", custom: "value" },
+        });
       });
 
       /**

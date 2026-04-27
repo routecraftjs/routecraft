@@ -48,6 +48,7 @@ export class ProcessStep<T = unknown, R = T> implements Step<Processor<T, R>> {
     // Process adapter may return a modified exchange; copy properties to original
     exchange.body = newExchange.body as unknown as T;
     (exchange as { headers: ExchangeHeaders }).headers = newExchange.headers;
+    exchange.principal = newExchange.principal;
     queue.push({
       exchange: exchange as unknown as Exchange<R>,
       steps: remainingSteps,

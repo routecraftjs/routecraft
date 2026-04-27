@@ -132,6 +132,7 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
           ...resultExchange.headers,
           [HeadersKeys.SPLIT_HIERARCHY]: splitHierarchy,
         },
+        principal: resultExchange.principal ?? exchange.principal,
       });
 
       // Set route in internals if it exists (symbol-key for cross-instance)
