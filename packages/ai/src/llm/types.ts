@@ -162,6 +162,14 @@ export interface LlmResult {
   reasoning?: string;
   /** Token usage for the last step. Same shape as AI SDK usage. */
   usage?: LlmUsage;
+  /**
+   * Reason the model loop terminated (`"stop"`, `"length"`, `"tool-calls"`,
+   * etc.). Populated by both the sync (`generateText`) and streaming
+   * (`streamText`) paths. The streaming path awaits the SDK's
+   * `result.finishReason` Promise before resolving so callers always
+   * see a normalised string value.
+   */
+  finishReason?: string;
   /** Full generateText() result for advanced use (debugging, response metadata). */
   raw?: unknown;
 }

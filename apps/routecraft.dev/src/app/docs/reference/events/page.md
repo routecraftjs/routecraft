@@ -122,7 +122,7 @@ After a split, each child exchange emits its own `exchange:started`. When aggreg
 
 ### Agent operations
 
-Emitted by `agent()` destinations. These are the **coarse decision events** — broadcast to every subscriber, no opt-in needed. For token-level streaming use `AgentOptions.onDelta` instead (a separate per-call channel).
+Emitted by `agent()` destinations. These are the **coarse decision events**: broadcast to every subscriber, no opt-in needed. For token-level streaming use `AgentOptions.onDelta` instead (a separate per-call channel).
 
 | Event | When it fires | Details |
 | --- | --- | --- |

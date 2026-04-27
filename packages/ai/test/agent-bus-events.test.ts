@@ -40,7 +40,7 @@ vi.mock("../src/llm/providers/index.ts", () => ({
       return {
         text: "stubbed-response",
         usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
-        raw: { finishReason: "stop" },
+        finishReason: "stop",
       };
     },
   ),
@@ -67,7 +67,7 @@ vi.mock("../src/llm/providers/index.ts", () => ({
       return {
         text: "ok",
         usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
-        raw: { finishReason: "stop" },
+        finishReason: "stop",
       };
     },
   ),

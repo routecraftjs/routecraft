@@ -41,9 +41,14 @@ export function dispatchIdentityFrom(
   routeId: string | undefined,
 ): AgentDispatchIdentity | undefined {
   if (routeId === undefined) return undefined;
+  // The framework runtime sets `routecraft.correlation_id` on every
+  // exchange that flows through a real route. Synthetic exchanges
+  // (mostly tests) may lack it; fall back to the exchange id so the
+  // emitted events still carry a stable, non-empty `correlationId`.
+  const corr = exchange.headers[HeadersKeys.CORRELATION_ID];
   return {
     exchangeId: exchange.id,
-    correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
+    correlationId: typeof corr === "string" ? corr : exchange.id,
     routeId,
   };
 }
@@ -145,7 +150,7 @@ export class AgentSession {
    * `streamText`: each normalised token-level delta is forwarded to
    * `onDelta` while the loop runs, and the consolidated
    * {@link AgentResult} is returned once the stream drains. Coarse
-   * decision events (tool-call, tool-result, turn-finished, finished,
+   * decision events (tool-call, tool-result, finished,
    * error) flow on the context bus regardless of whether `onDelta`
    * is set; see `route:<id>:agent:*` events.
    *
@@ -197,11 +202,11 @@ export class AgentSession {
     const id = this.input.dispatchIdentity;
     const ctx = this.input.context;
     if (!id || !ctx) return;
-    const finishReason =
-      readString(
-        (result.raw as Record<string, unknown> | undefined) ?? {},
-        "finishReason",
-      ) ?? "unknown";
+    // Both runGenerate (sync) and runStreamGenerate (after awaiting
+    // the SDK Promise) populate `result.finishReason` as a normalised
+    // string. Falls back to "unknown" only when the provider didn't
+    // report one.
+    const finishReason = result.finishReason ?? "unknown";
     ctx.emit(`route:${id.routeId}:agent:finished` as EventName, {
       routeId: id.routeId,
       exchangeId: id.exchangeId,
@@ -294,14 +299,6 @@ export class AgentSession {
 async function buildStopWhen(maxTurns: number): Promise<unknown> {
   const { stepCountIs } = await import("ai");
   return stepCountIs(maxTurns);
-}
-
-function readString(
-  obj: Record<string, unknown>,
-  key: string,
-): string | undefined {
-  const v = obj[key];
-  return typeof v === "string" ? v : undefined;
 }
 
 function toAgentResult(result: LlmResult): AgentResult {

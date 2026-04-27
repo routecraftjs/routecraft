@@ -150,7 +150,10 @@ export function agent(
         ...(perCall ? { perCall } : {}),
       }),
       agent,
-      factoryArgs(arg),
+      // Preserve both args so `mockAdapter()` and other testing-hook
+      // introspection see the per-call overrides supplied at the
+      // call site (e.g. a per-request `onDelta`).
+      perCall ? factoryArgs(arg, perCall) : factoryArgs(arg),
     );
   }
   validateAgentOptions(arg);

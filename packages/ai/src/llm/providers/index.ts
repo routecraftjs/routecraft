@@ -396,6 +396,9 @@ async function runGenerate(
   if (parsed !== undefined) out.output = parsed;
   const reasoning = readReasoning(result);
   if (reasoning) out.reasoning = reasoning;
+  // generateText resolves finishReason synchronously on the result.
+  const finishReason = (result as { finishReason?: unknown }).finishReason;
+  if (typeof finishReason === "string") out.finishReason = finishReason;
   return out;
 }
 
@@ -460,6 +463,14 @@ async function runStreamGenerate(
     (result as { output?: PromiseLike<unknown> }).output,
   );
   if (structured !== undefined) out.output = structured;
+  // streamText exposes finishReason as a Promise that resolves once
+  // the loop terminates; await it so callers (e.g. the agent
+  // session emitting `agent:finished`) see a normalised string
+  // instead of a Promise.
+  const finishReason = await safeAwait<string | undefined>(
+    (result as { finishReason?: PromiseLike<string | undefined> }).finishReason,
+  );
+  if (typeof finishReason === "string") out.finishReason = finishReason;
   return out;
 }
 

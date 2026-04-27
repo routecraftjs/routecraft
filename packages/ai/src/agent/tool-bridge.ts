@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   logger as frameworkLogger,
   type CraftContext,
@@ -76,7 +77,10 @@ export async function buildVercelTools(
           ...baseCtx,
           abortSignal: callOpts?.abortSignal ?? baseCtx.abortSignal,
         };
-        const toolCallId = callOpts?.toolCallId ?? "";
+        // The Vercel SDK passes a unique toolCallId per invocation;
+        // synthesise one when absent so invoked → result events still
+        // correlate (a shared empty-string id would alias every call).
+        const toolCallId = callOpts?.toolCallId ?? randomUUID();
         const start = Date.now();
 
         if (ctx && dispatchIdentity) {
