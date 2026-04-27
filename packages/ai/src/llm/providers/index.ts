@@ -5,6 +5,7 @@ import type {
   LlmModelConfig,
   LlmOptionsMerged,
   LlmResult,
+  LlmToolCallSummary,
   LlmUsage,
 } from "../types.ts";
 
@@ -399,6 +400,8 @@ async function runGenerate(
   // generateText resolves finishReason synchronously on the result.
   const finishReason = (result as { finishReason?: unknown }).finishReason;
   if (typeof finishReason === "string") out.finishReason = finishReason;
+  const toolCalls = collectToolCalls(result);
+  if (toolCalls.length > 0) out.toolCalls = toolCalls;
   return out;
 }
 
@@ -471,6 +474,66 @@ async function runStreamGenerate(
     (result as { finishReason?: PromiseLike<string | undefined> }).finishReason,
   );
   if (typeof finishReason === "string") out.finishReason = finishReason;
+  // streamText exposes `steps` as a Promise that resolves with the
+  // full step history once the loop terminates. Await + flatten into
+  // the same `LlmToolCallSummary[]` shape `runGenerate` produces, so
+  // callers see one normalised tool-call list across both paths.
+  const steps = await safeAwait<unknown>(
+    (result as { steps?: PromiseLike<unknown> }).steps,
+  );
+  const toolCalls = collectToolCalls({ steps });
+  if (toolCalls.length > 0) out.toolCalls = toolCalls;
+  return out;
+}
+
+/**
+ * Walk an SDK result's `steps` array (sync or post-await) and
+ * produce a flat list of `LlmToolCallSummary` entries pairing each
+ * tool call with its result or error. Tolerates missing fields and
+ * legacy SDK shapes.
+ *
+ * @internal
+ */
+function collectToolCalls(result: unknown): LlmToolCallSummary[] {
+  if (result === null || typeof result !== "object") return [];
+  const steps = (result as { steps?: unknown }).steps;
+  if (!Array.isArray(steps)) return [];
+  const out: LlmToolCallSummary[] = [];
+  for (const step of steps) {
+    if (step === null || typeof step !== "object") continue;
+    const calls = (step as { toolCalls?: unknown }).toolCalls;
+    const results = (step as { toolResults?: unknown }).toolResults;
+    if (!Array.isArray(calls)) continue;
+    for (const call of calls) {
+      if (call === null || typeof call !== "object") continue;
+      const c = call as Record<string, unknown>;
+      const toolCallId =
+        typeof c["toolCallId"] === "string" ? c["toolCallId"] : "";
+      const toolName = typeof c["toolName"] === "string" ? c["toolName"] : "";
+      const input = c["input"] ?? c["args"];
+      const summary: LlmToolCallSummary = {
+        toolCallId,
+        toolName,
+        input,
+      };
+      // Pair the matching result by toolCallId (preferred) or by
+      // identical position in the same step (legacy fallback).
+      if (Array.isArray(results)) {
+        const match = (results as Record<string, unknown>[]).find(
+          (r) => r["toolCallId"] === toolCallId,
+        );
+        if (match) {
+          if ("output" in match || "result" in match) {
+            summary.output = match["output"] ?? match["result"];
+          }
+          if ("error" in match && match["error"] !== undefined) {
+            summary.error = match["error"];
+          }
+        }
+      }
+      out.push(summary);
+    }
+  }
   return out;
 }
 

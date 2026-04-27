@@ -166,26 +166,92 @@ export interface AgentRegisteredOptions extends AgentOptions {
 }
 
 /**
+ * Summary of one tool invocation made during an agent dispatch.
+ * Captured for post-dispatch programmatic assertions: a downstream
+ * `.process()` step can inspect `AgentResult.toolCalls` to verify
+ * the agent called what it was supposed to (e.g. "must have called
+ * `replyEmail` before finishing"), and fail or escalate when it
+ * didn't.
+ *
+ * For real-time observability use the context-bus events
+ * (`route:<id>:agent:tool:invoked` / `result` / `error`) instead;
+ * this summary is for synchronous post-hoc checks.
+ *
+ * @experimental
+ */
+export interface AgentToolCallSummary {
+  /** Stable id assigned by the SDK to correlate invoked → result. */
+  toolCallId: string;
+  /** Name of the tool the model called. */
+  toolName: string;
+  /** Validated input passed to the handler. */
+  input: unknown;
+  /** Handler return value. Undefined when the call errored. */
+  output?: unknown;
+  /** Thrown value (or `RoutecraftError`). Undefined when the call succeeded. */
+  error?: unknown;
+}
+
+/**
  * Result produced by an agent destination. Body of the exchange is replaced
  * with this shape after the agent runs.
  *
  * @experimental
  */
 export interface AgentResult {
-  /** Generated text from the model. */
+  /**
+   * Raw text the model emitted as its final response. Always
+   * populated. When an `output` schema is set, this is the JSON
+   * string the model produced (which `output` exposes as the parsed,
+   * typed value); without an output schema, this is the conversational
+   * answer.
+   */
   text: string;
   /**
-   * Parsed structured output when an `output` schema was supplied on
-   * `AgentOptions` and the model produced a value matching the schema.
-   * Undefined otherwise.
+   * Parsed structured output. Populated **only** when an `output`
+   * schema was supplied on `AgentOptions` and the model produced a
+   * value matching that schema. With an output schema set, this is
+   * the canonical typed result; `text` carries the same data as a
+   * raw JSON string. Without an output schema, this field is
+   * undefined.
    */
   output?: unknown;
   /**
-   * Raw reasoning text from the provider when supplied (Anthropic
-   * extended thinking, OpenAI o1, etc.). Useful for debugging and
-   * audit; most consumers ignore it.
+   * Concatenated reasoning text from the provider (Anthropic extended
+   * thinking, OpenAI o1, etc.) when one was emitted. Useful for
+   * debugging and audit; most consumers ignore it.
    */
   reasoning?: string;
-  /** Token usage when reported by the provider. */
+  /**
+   * Token usage when reported by the provider. Most providers fill
+   * `inputTokens` + `outputTokens`; some also fill `totalTokens`.
+   */
   usage?: LlmUsage;
+  /**
+   * Flat summary of every tool the agent called during the dispatch,
+   * in invocation order. Empty (or absent) when the agent ran without
+   * invoking any tools.
+   *
+   * Consume in a post-dispatch `.process()` step to assert on agent
+   * behaviour and fail / escalate the route when the agent didn't do
+   * what was expected:
+   *
+   * ```ts
+   * .to(agent({ tools: tools(["replyEmail"]) }))
+   * .error((err, ex, forward) => forward("escalate", ex.body))
+   * .process((ex) => {
+   *   const r = ex.body as AgentResult;
+   *   const replied = r.toolCalls?.some(
+   *     c => c.toolName === "replyEmail" && !c.error,
+   *   );
+   *   if (!replied) throw new Error("Agent did not reply via tool");
+   *   return r;
+   * })
+   * ```
+   *
+   * For real-time observability subscribe to the context-bus events
+   * `route:<id>:agent:tool:invoked` / `:result` / `:error`. This
+   * summary is the synchronous post-hoc view of the same calls.
+   */
+  toolCalls?: AgentToolCallSummary[];
 }

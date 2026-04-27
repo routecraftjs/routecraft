@@ -16,5 +16,6 @@ export type {
   AgentOptions,
   AgentRegisteredOptions,
   AgentResult,
+  AgentToolCallSummary,
   AgentUserPromptSource,
 } from "./types.ts";

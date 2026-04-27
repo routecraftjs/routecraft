@@ -43,6 +43,7 @@ export type {
   LlmPromptSource,
   LlmProviderType,
   LlmResult,
+  LlmToolCallSummary,
   LlmUsage,
 } from "./llm/index.ts";
 
@@ -136,6 +137,7 @@ export type {
   AgentPluginOptions,
   AgentRegisteredOptions,
   AgentResult,
+  AgentToolCallSummary,
   AgentUserPromptSource,
 } from "./agent/index.ts";
 
