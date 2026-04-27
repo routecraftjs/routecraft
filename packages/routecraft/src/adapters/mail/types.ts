@@ -9,6 +9,7 @@
 
 import type { Exchange } from "../../exchange.ts";
 import type { MailSender } from "./analysis.ts";
+import type { OnParseError } from "../shared/parse.ts";
 
 /**
  * Authentication credentials for mail servers.
@@ -198,6 +199,30 @@ export interface MailServerOptions {
    *   not trusted to have verified the chain for you.
    */
   verify?: "off" | "headers" | "strict";
+
+  /**
+   * How to handle a per-message MIME parse failure (`mailparser`'s
+   * `simpleParser` throwing on malformed input). All modes mark the
+   * malformed message as Seen so it does not refetch indefinitely.
+   *
+   * - `'fail'` (default): `exchange:failed` fires for the bad message; the
+   *   route's `.error()` handler can catch it; the poll loop continues.
+   * - `'abort'`: `exchange:failed` fires for the bad message, then the
+   *   source rejects and `context:error` fires.
+   * - `'drop'`: `exchange:dropped` fires with `reason: "parse-failed"` and
+   *   the poll loop continues. Use this when malformed mail is expected
+   *   and you want it counted in `exchange:dropped` metrics rather than
+   *   surfaced as route errors.
+   *
+   * Pre-#187 behaviour was equivalent to `'drop'` but logged at debug
+   * with no event; the new `'fail'` default routes the failure through
+   * `.error()` and is observable. Set `onParseError: 'drop'` to keep the
+   * lossy-ingest semantics with proper observability.
+   *
+   * @default "fail"
+   * @experimental
+   */
+  onParseError?: OnParseError;
 }
 
 /**

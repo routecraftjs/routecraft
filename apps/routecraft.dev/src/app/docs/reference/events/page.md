@@ -112,6 +112,36 @@ After a split, each child exchange emits its own `exchange:started`. When aggreg
 | `route:{routeId}:operation:error:recovered` | Handler succeeded | `{ routeId, exchangeId, correlationId }` |
 | `route:{routeId}:operation:error:failed` | Handler also failed | `{ routeId, exchangeId, correlationId, error }` |
 
+### Source-parse operations
+
+Parsing source adapters (`json`, `html`, `csv`, `jsonl`, `mail`) defer parsing
+to a synthetic first pipeline step so parse failures become normal pipeline
+events. The synthetic step appears in the standard `step:*` events with
+`operation: "parse"`.
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `route:{routeId}:step:started` (`operation: "parse"`) | Synthetic parse step begins, before any user step | `{ routeId, exchangeId, correlationId, operation: "parse", adapter: "parse" }` |
+| `route:{routeId}:step:completed` (`operation: "parse"`) | Parse succeeded; user steps run next | `{ ..., duration }` |
+| `route:{routeId}:step:failed` (`operation: "parse"`) | Parse threw `RC5016` | `{ ..., error }` |
+
+What follows depends on the adapter's `onParseError` mode:
+
+- `'fail'` (default) → `exchange:failed` (or `error:caught` if a route `.error()` handler recovers).
+- `'abort'` → `exchange:failed` for the bad item, then the source aborts and `context:error` fires.
+- `'drop'` → `exchange:dropped` with `reason: "parse-failed"` (no `step:failed` fires; the parse step catches and drops cleanly).
+
+Subscribe with a glob to count source parse failures across all routes:
+
+```ts
+ctx.on('route:*:step:failed', ({ details }) => {
+  if (details.operation === 'parse') metrics.increment('source.parse.failed');
+});
+ctx.on('route:*:exchange:dropped', ({ details }) => {
+  if (details.reason === 'parse-failed') metrics.increment('source.parse.dropped');
+});
+```
+
 ## Plugin events
 
 Plugin events are scoped to a plugin ID.

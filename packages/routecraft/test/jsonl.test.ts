@@ -1,4 +1,5 @@
 import { describe, test, expect, afterEach, beforeEach } from "vitest";
+import { z } from "zod";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
 import { craft, simple, jsonl, HeadersKeys } from "@routecraft/routecraft";
 import * as fsp from "node:fs/promises";
@@ -91,11 +92,11 @@ describe("JSONL Adapter", () => {
     });
 
     /**
-     * @case Throws on parse error
-     * @preconditions JSONL file with invalid JSON on line 2
-     * @expectedResult Error with line number in message
+     * @case Aborts source on parse error when onParseError is 'abort'
+     * @preconditions JSONL file with invalid JSON on line 2 and onParseError: 'abort'
+     * @expectedResult Per-item exchange:failed fires, then context:error with RC5016
      */
-    test("throws on parse error", async () => {
+    test("aborts source on parse error with onParseError: 'abort'", async () => {
       const filePath = path.join(tmpDir, "bad.jsonl");
       await fsp.writeFile(
         filePath,
@@ -103,15 +104,37 @@ describe("JSONL Adapter", () => {
         "utf-8",
       );
 
-      const adapter = jsonl({ path: filePath });
+      const s = spy();
+      const failed: { error: unknown }[] = [];
 
-      await expect(
-        adapter.subscribe(
-          {} as any,
-          async () => ({}) as any,
-          new AbortController(),
-        ),
-      ).rejects.toThrow(/not-json/);
+      t = await testContext()
+        .routes(
+          craft()
+            .id("jsonl-non-chunked-abort")
+            .from(jsonl({ path: filePath, onParseError: "abort" }))
+            .to(s),
+        )
+        .build();
+
+      t.ctx.on(
+        "route:jsonl-non-chunked-abort:exchange:failed" as never,
+        ((payload: { details: { error: unknown } }) => {
+          failed.push({ error: payload.details.error });
+        }) as never,
+      );
+
+      const ctxErrSpy: { error: unknown }[] = [];
+      t.ctx.on("context:error", (payload) => {
+        ctxErrSpy.push({ error: payload.details.error });
+      });
+
+      await t.ctx.start();
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(failed.length).toBe(1);
+      expect((failed[0].error as { rc?: string }).rc).toBe("RC5016");
+      expect(ctxErrSpy.length).toBeGreaterThanOrEqual(1);
+      expect((ctxErrSpy[0].error as { rc?: string }).rc).toBe("RC5016");
     });
 
     /**
@@ -270,23 +293,234 @@ describe("JSONL Adapter", () => {
     });
 
     /**
-     * @case Chunked mode throws on parse error
-     * @preconditions JSONL file with invalid JSON, chunked mode
-     * @expectedResult Error is thrown
+     * @case Chunked mode aborts source on parse error with onParseError: 'abort'
+     * @preconditions JSONL file with invalid JSON, chunked mode, onParseError: 'abort'
+     * @expectedResult Per-line exchange:failed fires, then context:error with RC5016
      */
-    test("throws on parse error in chunked mode", async () => {
+    test("aborts chunked source on parse error with onParseError: 'abort'", async () => {
       const filePath = path.join(tmpDir, "bad-chunked.jsonl");
-      await fsp.writeFile(filePath, '{"ok":1}\nnot-json', "utf-8");
+      await fsp.writeFile(filePath, '{"ok":1}\nnot-json\n{"ok":2}', "utf-8");
 
-      const adapter = jsonl({ path: filePath, chunked: true });
+      const s = spy();
+      const failed: { error: unknown }[] = [];
 
-      await expect(
-        adapter.subscribe(
-          {} as any,
-          async () => ({}) as any,
-          new AbortController(),
-        ),
-      ).rejects.toThrow(/not-json/);
+      t = await testContext()
+        .routes(
+          craft()
+            .id("jsonl-chunked-abort")
+            .from(
+              jsonl({ path: filePath, chunked: true, onParseError: "abort" }),
+            )
+            .to(s),
+        )
+        .build();
+
+      t.ctx.on(
+        "route:jsonl-chunked-abort:exchange:failed" as never,
+        ((payload: { details: { error: unknown } }) => {
+          failed.push({ error: payload.details.error });
+        }) as never,
+      );
+
+      const ctxErrSpy: { error: unknown }[] = [];
+      t.ctx.on("context:error", (payload) => {
+        ctxErrSpy.push({ error: payload.details.error });
+      });
+
+      await t.ctx.start();
+      await new Promise((r) => setTimeout(r, 0));
+
+      // Per-item exchange:failed fired for the bad line BEFORE the source died.
+      expect(failed.length).toBe(1);
+      expect((failed[0].error as { rc?: string }).rc).toBe("RC5016");
+      expect(ctxErrSpy.length).toBeGreaterThanOrEqual(1);
+      expect((ctxErrSpy[0].error as { rc?: string }).rc).toBe("RC5016");
+    });
+
+    /**
+     * @case Chunked mode default 'fail' routes parse error to .error() and continues
+     * @preconditions JSONL file with one bad line between two good lines, route has .error() handler
+     * @expectedResult error handler invoked once with RC5016, both good lines reach the spy
+     */
+    test("default 'fail' routes per-line parse errors through .error() and continues", async () => {
+      const filePath = path.join(tmpDir, "mixed-chunked.jsonl");
+      await fsp.writeFile(filePath, '{"id":1}\nnot-json\n{"id":2}', "utf-8");
+
+      const s = spy();
+      const errors: unknown[] = [];
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("jsonl-chunked-fail-routes")
+            .error((err) => {
+              errors.push(err);
+              return undefined;
+            })
+            .from(jsonl({ path: filePath, chunked: true }))
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(errors).toHaveLength(1);
+      expect((errors[0] as { rc?: string }).rc).toBe("RC5016");
+      // Two valid lines reach the destination; the bad line stopped at the
+      // synthetic parse step inside the pipeline.
+      expect(s.received).toHaveLength(2);
+      expect(s.received[0].body).toEqual({ id: 1 });
+      expect(s.received[1].body).toEqual({ id: 2 });
+    });
+
+    /**
+     * @case Chunked mode 'drop' emits exchange:dropped for malformed lines and continues
+     * @preconditions JSONL file with bad lines and onParseError: 'drop'
+     * @expectedResult Valid lines reach the spy; exchange:dropped fires with reason "parse-failed"
+     */
+    test("onParseError: 'drop' emits exchange:dropped for malformed lines", async () => {
+      const filePath = path.join(tmpDir, "drop-chunked.jsonl");
+      await fsp.writeFile(
+        filePath,
+        '{"id":1}\nnot-json\n{"id":2}\nbroken{\n{"id":3}',
+        "utf-8",
+      );
+
+      const s = spy();
+      const dropped: { reason: string }[] = [];
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("jsonl-chunked-drop")
+            .from(
+              jsonl({ path: filePath, chunked: true, onParseError: "drop" }),
+            )
+            .to(s),
+        )
+        .build();
+
+      t.ctx.on(
+        "route:jsonl-chunked-drop:exchange:dropped" as never,
+        ((payload: { details: { reason: string } }) => {
+          dropped.push({ reason: payload.details.reason });
+        }) as never,
+      );
+
+      await t.ctx.start();
+
+      expect(s.received).toHaveLength(3);
+      expect(s.received[0].body).toEqual({ id: 1 });
+      expect(s.received[1].body).toEqual({ id: 2 });
+      expect(s.received[2].body).toEqual({ id: 3 });
+      // Two malformed lines, two structured drop events, both with the
+      // stable parse-failed reason.
+      expect(dropped).toHaveLength(2);
+      expect(dropped[0].reason).toBe("parse-failed");
+      expect(dropped[1].reason).toBe("parse-failed");
+    });
+  });
+
+  describe("source mode - parse + .input() schema", () => {
+    /**
+     * @case Valid JSONL line passes input validation against the parsed body
+     * @preconditions Chunked JSONL with valid lines, route has .input(zodSchema)
+     * @expectedResult The schema sees the parsed object (not the raw line); spy receives the validated body
+     */
+    test(".input() schema validates the parsed body, not the raw line", async () => {
+      const filePath = path.join(tmpDir, "valid-input.jsonl");
+      await fsp.writeFile(
+        filePath,
+        '{"id":1,"name":"Alice"}\n{"id":2,"name":"Bob"}',
+        "utf-8",
+      );
+
+      const schema = z.object({
+        id: z.number(),
+        name: z.string(),
+      });
+
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("jsonl-input-valid")
+            .input({ body: schema })
+            .from(jsonl({ path: filePath, chunked: true }))
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(s.received).toHaveLength(2);
+      expect(s.received[0].body).toEqual({ id: 1, name: "Alice" });
+      expect(s.received[1].body).toEqual({ id: 2, name: "Bob" });
+    });
+
+    /**
+     * @case Input validation failure on a parsed body emits exchange:failed once (no duplicate started/dropped)
+     * @preconditions Chunked JSONL with parsed body that violates schema
+     * @expectedResult Exactly one exchange:started, one exchange:failed (RC5002), zero exchange:dropped per bad item
+     */
+    test("input validation failure inside parse step emits clean lifecycle (no duplicate started/dropped)", async () => {
+      const filePath = path.join(tmpDir, "schema-fail.jsonl");
+      await fsp.writeFile(
+        filePath,
+        '{"id":"not-a-number"}\n{"id":42}',
+        "utf-8",
+      );
+
+      const schema = z.object({ id: z.number() });
+
+      const s = spy();
+      const started: string[] = [];
+      const failed: { error: { rc?: string } }[] = [];
+      const dropped: { reason: string }[] = [];
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("jsonl-input-bad")
+            .input({ body: schema })
+            .from(jsonl({ path: filePath, chunked: true }))
+            .to(s),
+        )
+        .build();
+
+      t.ctx.on(
+        "route:jsonl-input-bad:exchange:started" as never,
+        ((payload: { details: { exchangeId: string } }) => {
+          started.push(payload.details.exchangeId);
+        }) as never,
+      );
+      t.ctx.on(
+        "route:jsonl-input-bad:exchange:failed" as never,
+        ((payload: { details: { error: { rc?: string } } }) => {
+          failed.push({ error: payload.details.error });
+        }) as never,
+      );
+      t.ctx.on(
+        "route:jsonl-input-bad:exchange:dropped" as never,
+        ((payload: { details: { reason: string } }) => {
+          dropped.push({ reason: payload.details.reason });
+        }) as never,
+      );
+
+      await t.ctx.start();
+      await new Promise((r) => setTimeout(r, 0));
+
+      // Two lines processed: one bad (validation fails), one good.
+      // Each line gets exactly one exchange:started.
+      expect(started).toHaveLength(2);
+      // The bad line fails with RC5002; no spurious exchange:dropped fired.
+      expect(failed).toHaveLength(1);
+      expect(failed[0].error.rc).toBe("RC5002");
+      expect(dropped).toHaveLength(0);
+      // The good line still reaches the destination.
+      expect(s.received).toHaveLength(1);
+      expect(s.received[0].body).toEqual({ id: 42 });
     });
   });
 

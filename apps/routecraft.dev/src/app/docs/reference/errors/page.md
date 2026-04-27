@@ -28,6 +28,7 @@ The `retryable` property indicates whether the [`retry`](/docs/reference/operati
 | [RC5013](#rc5013) | Adapter | Rate limited | Yes |
 | [RC5014](#rc5014) | Adapter | Resource not found | No |
 | [RC5015](#rc5015) | Adapter | Permission denied | No |
+| [RC5016](#rc5016) | Adapter | Source payload parse failed | No |
 | [RC9901](#rc9901) | Runtime | Unknown error | Yes |
 
 ---
@@ -215,6 +216,20 @@ Access control or IAM denied the operation (e.g. 403).
 
 **Suggestion**  
 Check access control, IAM, and scopes.
+
+## RC5016
+Source payload parse failed
+
+**Why it happens**  
+A source adapter that converts raw bytes into a structured body (json, html, csv, jsonl, mail) could not parse the input. With the default `onParseError: 'fail'`, the adapter defers parsing to the route's pipeline so the failure is observable per exchange and the route's `.error()` handler can recover. Causes include malformed JSON, structurally-invalid CSV rows (mismatched columns), broken HTML matching, or malformed MIME.
+
+**Suggestion**  
+- Wire `.error()` on the route to log, repair, or quarantine the bad payload, then return a fallback value to keep the pipeline alive.
+- Switch `onParseError` per adapter to control behaviour:
+  - `'fail'` (default): the exchange fails; the route handles it. Streaming sources continue to the next item.
+  - `'abort'`: the source aborts on the first parse failure (atomic-load semantics).
+  - `'drop'`: the bad item fires `exchange:dropped` with `reason: 'parse-failed'` (lossy ingest with structured observability).
+- For CSV chunked, inspect the row number on the captured error to identify the malformed row.
 
 ## RC9901
 Unknown error

@@ -1,4 +1,5 @@
 import type { Exchange } from "../../exchange.ts";
+import type { OnParseError } from "../shared/parse.ts";
 
 // Transformer-mode options (current behavior)
 export interface JsonTransformerOptions<T = unknown, R = unknown, V = unknown> {
@@ -68,6 +69,23 @@ export interface JsonFileOptions {
    * JSON.stringify replacer function (destination mode only).
    */
   replacer?: (key: string, value: unknown) => unknown;
+
+  /**
+   * How to handle a `JSON.parse` failure on the file content (source mode
+   * only).
+   *
+   * - `'fail'` (default): `exchange:failed` fires; the route's `.error()`
+   *   handler can recover.
+   * - `'abort'`: `exchange:failed` fires, then the source dies
+   *   (`context:error`).
+   * - `'drop'`: `exchange:dropped` fires with `reason: "parse-failed"`.
+   *
+   * See `OnParseError` for full semantics.
+   *
+   * @default "fail"
+   * @experimental
+   */
+  onParseError?: OnParseError;
 }
 
 export type JsonOptions<T = unknown, R = unknown, V = unknown> =
