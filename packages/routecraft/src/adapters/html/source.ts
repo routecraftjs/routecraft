@@ -4,7 +4,7 @@ import type { FileOptions } from "../file/types.ts";
 import { file } from "../file/index.ts";
 import { extractHtml } from "./shared.ts";
 import { DEFAULT_ON_PARSE_ERROR } from "../shared/parse.ts";
-import { logger } from "../../logger.ts";
+import { rcError } from "../../error.ts";
 
 /**
  * HtmlSourceAdapter reads HTML from a file and extracts data using CSS selectors.
@@ -71,14 +71,20 @@ export class HtmlSourceAdapter<
           result = extractHtml(htmlContent as T, opts) as HtmlResult;
         } catch (err) {
           if (onParseError === "skip") {
-            logger.warn(
+            context.logger.warn(
               { err, path: filePath, adapter: "html" },
               "html adapter: skipped malformed HTML file (onParseError: 'skip')",
             );
+            // FileSourceAdapter ignores the resolved value of this callback,
+            // so a no-exchange short-circuit is safe to fudge as `never`.
             return undefined as never;
           }
-          // 'abort'
-          throw err;
+          // 'abort': wrap as RC5016 so the failure pattern is one error
+          // code regardless of `onParseError` mode.
+          const message = err instanceof Error ? err.message : String(err);
+          throw rcError("RC5016", err, {
+            message: `html adapter: failed to extract HTML: ${message}`,
+          });
         }
         return handler(result);
       },

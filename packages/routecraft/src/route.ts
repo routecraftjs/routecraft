@@ -116,11 +116,7 @@ export interface RouteDiscovery {
  * Synthetic adapter used as the carrier for the parse step. Has no behaviour;
  * the step's `execute` does the work.
  */
-const PARSE_STEP_ADAPTER: Adapter = {
-  adapterId: "routecraft.parse",
-} as Adapter & {
-  adapterId: string;
-};
+const PARSE_STEP_ADAPTER: Adapter = { adapterId: "routecraft.parse" };
 
 /**
  * Build a synthetic pipeline step that runs a source-supplied parse function
@@ -131,9 +127,15 @@ const PARSE_STEP_ADAPTER: Adapter = {
  *
  * Errors are wrapped as `RC5016` so consumers can distinguish parse failures
  * from generic step failures (`RC5001`).
+ *
+ * When `applyValidation` is supplied, it runs immediately after the parse so
+ * route-level `.input()` schemas validate the parsed body, not the raw bytes.
+ * A validation failure throws out of `applyValidation` and is handled by the
+ * step loop's catch path the same way any step error is.
  */
 function buildParseStep(
   parse: (raw: unknown) => unknown | Promise<unknown>,
+  applyValidation?: (exchange: Exchange) => Promise<void>,
 ): Step<Adapter> {
   return {
     operation: OperationType.PARSE,
@@ -148,6 +150,9 @@ function buildParseStep(
         throw rcError("RC5016", cause, {
           message: `Source payload parse failed: ${causeMessage}`,
         });
+      }
+      if (applyValidation) {
+        await applyValidation(exchange);
       }
       // Hand control back to the step loop with the user's pipeline.
       queue.push({ exchange, steps: remainingSteps });
@@ -598,23 +603,32 @@ export class DefaultRoute implements Route {
     // caller (e.g. a direct channel's `send`) sees the validation error.
     this.consumer.register(async (message, headers, parse) => {
       const exchange = this.buildExchange(message, headers);
+      const inputSchemas = this.definition.discovery?.input;
+      const hasInputSchema = !!inputSchemas?.body || !!inputSchemas?.headers;
 
-      // Stash the source-supplied parser on exchange internals so `runSteps`
-      // can apply it as a synthetic first pipeline step. This is what makes
-      // parse errors (e.g. malformed JSONL line, bad CSV row) surface as
-      // normal pipeline errors that the route's `.error()` handler can
-      // catch, rather than aborting the source. See #187.
       if (parse) {
+        // Stash the source-supplied parser on exchange internals so
+        // `runSteps` can apply it as a synthetic first pipeline step. This
+        // is what makes parse errors (e.g. malformed JSONL line, bad CSV
+        // row) surface as normal pipeline errors that the route's
+        // `.error()` handler can catch, rather than aborting the source.
+        // See #187.
         const internals = EXCHANGE_INTERNALS.get(exchange);
         if (internals) {
           internals.parse = parse;
+          // Validation must run AFTER parse so `.input()` schemas validate
+          // the parsed body, not the raw bytes. The synthetic parse step
+          // calls this hook once parse succeeds.
+          if (hasInputSchema) {
+            internals.applyValidation = (ex: Exchange) =>
+              this.applyInputValidation(ex, inputSchemas);
+          }
         }
-      }
-
-      const inputSchemas = this.definition.discovery?.input;
-      if (inputSchemas?.body || inputSchemas?.headers) {
+      } else if (hasInputSchema) {
+        // No parse: run validation eagerly (preserves existing behaviour).
         await this.applyInputValidation(exchange, inputSchemas);
       }
+
       return this.handler(exchange);
     });
 
@@ -786,15 +800,17 @@ export class DefaultRoute implements Route {
     // `.error()` handler is invoked, or `exchange:failed` fires.
     const internals = EXCHANGE_INTERNALS.get(exchange);
     const sourceParse = internals?.parse;
+    const sourceValidate = internals?.applyValidation;
     if (internals && sourceParse) {
       // Clear so parse never runs twice on the same exchange (e.g. if the
       // exchange is forwarded back through the queue).
       delete internals.parse;
+      delete internals.applyValidation;
     }
 
     const userSteps = [...this.definition.steps];
     const initialSteps: Step<Adapter>[] = sourceParse
-      ? [buildParseStep(sourceParse), ...userSteps]
+      ? [buildParseStep(sourceParse, sourceValidate), ...userSteps]
       : userSteps;
 
     const queue: { exchange: Exchange; steps: Step<Adapter>[] }[] = [

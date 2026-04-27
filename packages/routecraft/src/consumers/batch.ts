@@ -124,15 +124,24 @@ export class BatchConsumer implements Consumer<BatchOptions> {
     this.channel.setHandler(async (message) => {
       // When a source adapter attaches a `parse` function (see #187), the
       // batch consumer cannot defer it to the synthetic pipeline step that
-      // the simple consumer relies on, because the merged exchange has no
-      // per-item parse function. We pre-parse here and reject this item's
-      // promise on failure. The chunked source's `.catch()` (when
-      // `onParseError: 'fail'`) will continue to the next item.
+      // the simple consumer relies on: the merged batch exchange has no
+      // per-item parse function, so the runtime cannot apply parsing after
+      // batching. We pre-parse here so the batch contains parsed values.
+      //
+      // On parse failure we route the bad item through the pipeline as its
+      // own per-item exchange (handler invoked with the raw message and the
+      // captured parse function so the synthetic parse step throws RC5016).
+      // This preserves `onParseError: 'fail'` semantics: the route's
+      // `.error()` handler fires, `exchange:failed` fires when no handler
+      // is set, and the source's per-item `.catch()` continues. The bad
+      // item is NOT added to the in-progress batch.
       if (message.parse) {
+        const itemParse = message.parse;
+        const rawMessage = message.message;
         try {
-          message.message = await message.parse(message.message);
-        } catch (err) {
-          return Promise.reject(err);
+          message.message = await itemParse(rawMessage);
+        } catch {
+          return handler(rawMessage, message.headers, itemParse);
         }
         delete message.parse;
       }

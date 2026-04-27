@@ -237,6 +237,15 @@ type ExchangeInternals = {
    * @internal
    */
   parse?: (raw: unknown) => unknown | Promise<unknown>;
+  /**
+   * Optional input-schema validation deferred to run inside the synthetic
+   * parse step. Used when a route has both `.input()` schemas and a
+   * parsing source: validation must see the parsed body, not the raw
+   * bytes. `DefaultRoute` populates this alongside `parse`. See #187.
+   *
+   * @internal
+   */
+  applyValidation?: (exchange: Exchange) => Promise<void>;
 };
 
 /**

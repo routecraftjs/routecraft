@@ -6,7 +6,8 @@ import { file } from "../file/index.ts";
 import { ensurePapaparse } from "./shared.ts";
 import { throwFileError } from "../shared/line-reader.ts";
 import { DEFAULT_ON_PARSE_ERROR, type OnParseError } from "../shared/parse.ts";
-import { logger } from "../../logger.ts";
+import { rcError } from "../../error.ts";
+import type { CraftContext } from "../../context.ts";
 
 /**
  * CsvSourceAdapter reads CSV files and parses them via PapaParse.
@@ -47,6 +48,7 @@ export class CsvSourceAdapter implements Source<CsvData | CsvRow> {
     if (chunked) {
       if (onReady) onReady();
       await this.subscribeChunked(
+        context,
         Papa,
         handler as (
           message: CsvRow,
@@ -90,9 +92,9 @@ export class CsvSourceAdapter implements Source<CsvData | CsvRow> {
           });
           if (result.errors.length > 0) {
             const firstError = result.errors[0];
-            throw new Error(
-              `csv adapter: parse error at row ${firstError.row}: ${firstError.message}`,
-            );
+            throw rcError("RC5016", undefined, {
+              message: `csv adapter: parse error at row ${firstError.row}: ${firstError.message}`,
+            });
           }
           return result.data as CsvData;
         };
@@ -112,12 +114,15 @@ export class CsvSourceAdapter implements Source<CsvData | CsvRow> {
           data = parseFn(csvContent);
         } catch (err) {
           if (onParseError === "skip") {
-            logger.warn(
+            context.logger.warn(
               { err, path: filePath, adapter: "csv" },
               "csv adapter: skipped malformed CSV file (onParseError: 'skip')",
             );
+            // FileSourceAdapter ignores the resolved value of this callback,
+            // so a no-exchange short-circuit is safe to fudge as `never`.
             return undefined as never;
           }
+          // 'abort': parseFn already wrapped as RC5016.
           throw err;
         }
         return await rowHandler(data);
@@ -129,6 +134,7 @@ export class CsvSourceAdapter implements Source<CsvData | CsvRow> {
   };
 
   private async subscribeChunked(
+    context: CraftContext,
     Papa: ReturnType<typeof ensurePapaparse>,
     handler: (
       message: CsvRow,
@@ -210,9 +216,9 @@ export class CsvSourceAdapter implements Source<CsvData | CsvRow> {
             parser.abort();
             settle(() =>
               reject(
-                new Error(
-                  `csv adapter: parse error at row ${currentRow}: ${firstError.message}`,
-                ),
+                rcError("RC5016", undefined, {
+                  message: `csv adapter: parse error at row ${currentRow}: ${firstError.message}`,
+                }),
               ),
             );
             return;
@@ -220,7 +226,7 @@ export class CsvSourceAdapter implements Source<CsvData | CsvRow> {
 
           // Inline 'skip' handling: drop the row, continue to the next.
           if (rowErrors.length > 0 && onParseError === "skip") {
-            logger.warn(
+            context.logger.warn(
               {
                 err: rowErrors[0],
                 path: filePath,
@@ -234,21 +240,18 @@ export class CsvSourceAdapter implements Source<CsvData | CsvRow> {
 
           parser.pause();
 
-          // For 'fail' (default) and the no-row-error case, defer the
-          // row-error check to the pipeline so route.error() can catch it.
-          // The parse callback receives the row data (or already has it)
-          // and just re-validates the row errors so a malformed row throws
-          // inside the synthetic parse step.
+          // For 'fail' mode, only attach a parse callback when the row has
+          // errors. Clean rows take the normal handler path with no
+          // synthetic parse step, avoiding `step:started`/`step:completed`
+          // event noise on every valid row.
+          const hasRowErrors = rowErrors.length > 0;
           const callPromise =
-            onParseError === "fail"
-              ? handler(results.data as CsvRow, headers, (raw) => {
-                  if (rowErrors.length > 0) {
-                    const firstError = rowErrors[0];
-                    throw new Error(
-                      `csv adapter: parse error at row ${currentRow}: ${firstError.message}`,
-                    );
-                  }
-                  return raw as CsvRow;
+            onParseError === "fail" && hasRowErrors
+              ? handler(results.data as CsvRow, headers, () => {
+                  const firstError = rowErrors[0];
+                  throw rcError("RC5016", undefined, {
+                    message: `csv adapter: parse error at row ${currentRow}: ${firstError.message}`,
+                  });
                 })
               : handler(results.data as CsvRow, headers);
 
@@ -263,8 +266,9 @@ export class CsvSourceAdapter implements Source<CsvData | CsvRow> {
                 // Per-row pipeline failure: log and continue. The route's
                 // `.error()` handler (or `exchange:failed` event) has
                 // already fired for this row; we just keep the stream
-                // flowing.
-                logger.debug(
+                // flowing. Debug-level avoids double-logging what the
+                // route boundary already logged.
+                context.logger.debug(
                   { err, path: filePath, row: currentRow, adapter: "csv" },
                   "csv adapter: pipeline failed for row; continuing",
                 );

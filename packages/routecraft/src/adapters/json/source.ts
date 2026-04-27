@@ -3,7 +3,7 @@ import type { JsonFileOptions } from "./types.ts";
 import type { FileOptions } from "../file/types.ts";
 import { file } from "../file/index.ts";
 import { DEFAULT_ON_PARSE_ERROR } from "../shared/parse.ts";
-import { logger } from "../../logger.ts";
+import { rcError } from "../../error.ts";
 
 /**
  * JsonSourceAdapter reads and parses JSON files.
@@ -60,15 +60,20 @@ export class JsonSourceAdapter implements Source<unknown> {
           parsed = JSON.parse(content, reviver as never);
         } catch (err) {
           if (onParseError === "skip") {
-            logger.warn(
+            context.logger.warn(
               { err, path: filePath, adapter: "json" },
               "json adapter: skipped malformed JSON file (onParseError: 'skip')",
             );
+            // FileSourceAdapter ignores the resolved value of this callback,
+            // so a no-exchange short-circuit is safe to fudge as `never`.
             return undefined as never;
           }
-          // 'abort'
+          // 'abort': wrap as RC5016 so the failure pattern is one error
+          // code regardless of `onParseError` mode.
           const message = err instanceof Error ? err.message : String(err);
-          throw new Error(`json adapter: failed to parse JSON: ${message}`);
+          throw rcError("RC5016", err, {
+            message: `json adapter: failed to parse JSON: ${message}`,
+          });
         }
         return await handler(parsed);
       },

@@ -4,12 +4,16 @@ import type { JsonlSourceOptions } from "./types.ts";
 import { HeadersKeys, type ExchangeHeaders } from "../../exchange.ts";
 import { forEachLine, throwFileError } from "../shared/line-reader.ts";
 import { DEFAULT_ON_PARSE_ERROR } from "../shared/parse.ts";
-import { logger } from "../../logger.ts";
+import { rcError } from "../../error.ts";
 
 /**
  * JsonlSourceAdapter reads JSON Lines files.
  *
- * Non-chunked: emits a single array of all parsed objects.
+ * Non-chunked: emits a single array of all parsed objects. With
+ * `onParseError: 'fail'` a malformed line fails the entire array (one
+ * `RC5016` covering the file) since non-chunked emits one exchange. Use
+ * chunked mode for per-line `.error()` granularity.
+ *
  * Chunked: emits one exchange per line with `JSONL_LINE` and `JSONL_PATH`
  * headers.
  *
@@ -27,7 +31,7 @@ export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
   constructor(private readonly options: JsonlSourceOptions) {}
 
   subscribe: CallableSource<T | T[]> = async (
-    _context,
+    context,
     handler,
     abortController,
     onReady,
@@ -67,12 +71,16 @@ export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
             if (onParseError === "fail") {
               // Defer parse to the pipeline; per-line errors flow through
               // route.error() and the source continues to the next line.
+              // The .catch() here only fires AFTER `runSteps` has already
+              // emitted `exchange:failed` (or the route's `.error()` has
+              // run); debug-level is intentional to avoid double-logging
+              // what the route boundary already logged.
               await lineHandler(
                 trimmed as unknown as T,
                 headers,
                 (raw) => JSON.parse(raw as string, reviver) as T,
               ).catch((err) => {
-                logger.debug(
+                context.logger.debug(
                   { err, path: filePath, line: lineNumber, adapter: "jsonl" },
                   "jsonl adapter: pipeline failed for line; continuing",
                 );
@@ -86,14 +94,18 @@ export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
               parsed = JSON.parse(trimmed, reviver) as T;
             } catch (err) {
               if (onParseError === "skip") {
-                logger.warn(
+                context.logger.warn(
                   { err, path: filePath, line: lineNumber, adapter: "jsonl" },
                   "jsonl adapter: skipped malformed line (onParseError: 'skip')",
                 );
                 return;
               }
-              // 'abort': rethrow so forEachLine's caller aborts the source.
-              throw err;
+              // 'abort': wrap as RC5016 so the failure pattern is one error
+              // code regardless of `onParseError` mode.
+              const message = err instanceof Error ? err.message : String(err);
+              throw rcError("RC5016", err, {
+                message: `jsonl adapter: failed to parse line ${lineNumber}: ${message}`,
+              });
             }
             await lineHandler(parsed, headers);
           },
@@ -142,14 +154,18 @@ export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
         results.push(JSON.parse(trimmed, reviver) as T);
       } catch (err) {
         if (onParseError === "skip") {
-          logger.warn(
+          context.logger.warn(
             { err, path: filePath, line: i + 1, adapter: "jsonl" },
             "jsonl adapter: skipped malformed line (onParseError: 'skip')",
           );
           continue;
         }
-        // 'abort'
-        throw err;
+        // 'abort': wrap as RC5016 so the failure pattern is one error code
+        // regardless of `onParseError` mode.
+        const message = err instanceof Error ? err.message : String(err);
+        throw rcError("RC5016", err, {
+          message: `jsonl adapter: failed to parse line ${i + 1}: ${message}`,
+        });
       }
     }
 
