@@ -22,5 +22,6 @@ export type {
   LlmPromptSource,
   LlmProviderType,
   LlmResult,
+  LlmToolCallSummary,
   LlmUsage,
 } from "./types.ts";

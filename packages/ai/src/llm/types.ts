@@ -170,8 +170,32 @@ export interface LlmResult {
    * see a normalised string value.
    */
   finishReason?: string;
+  /**
+   * Flat list of tool calls made during the loop, in invocation
+   * order. Each entry pairs the model's call args with the handler's
+   * return (or thrown error). Populated by both sync and streaming
+   * paths; the agent layer surfaces these on `AgentResult.toolCalls`
+   * for post-dispatch assertions.
+   */
+  toolCalls?: LlmToolCallSummary[];
   /** Full generateText() result for advanced use (debugging, response metadata). */
   raw?: unknown;
+}
+
+/**
+ * One tool invocation captured during an LLM dispatch. Mirrors the
+ * shape of `AgentToolCallSummary` so the agent layer can re-export
+ * it without re-mapping. Keep `unknown` types loose here; the agent
+ * layer is the place to re-narrow if needed.
+ *
+ * @experimental
+ */
+export interface LlmToolCallSummary {
+  toolCallId: string;
+  toolName: string;
+  input: unknown;
+  output?: unknown;
+  error?: unknown;
 }
 
 /**
