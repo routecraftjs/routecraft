@@ -587,9 +587,9 @@ agentPlugin({
 
 Flat array of items. Each item is one of:
 
-- **Bare string** — name lookup. Plain ids resolve against the fn registry; `direct_*` falls back to the direct registry via `directTool`. `agent_*` and `mcp_*` are reserved for future stories and currently throw a clear "not yet supported" error.
-- **`{ name, guard?, description? }`** — same name lookup, with optional per-binding overrides. The guard runs after schema validation and before the handler; throwing surfaces back to the LLM as a tool error so the model can self-correct. The `description` override applies only to this binding (the registry entry stays the source of truth, so other agents binding the same fn still see the canonical description). Use it when an agent's calling context calls for a different framing of the tool than the registered description provides — descriptions affect LLM tool-selection accuracy noticeably.
-- **`{ tagged, guard? }`** — selects every fn / route whose tags overlap the requested set (single tag or array). Optional guard applies to every match. Tag-zero-match contributes nothing without throwing. No description override on the tagged form: applying a single description to N matched tools is almost always wrong.
+- **Bare string**: name lookup. Plain ids resolve against the fn registry; `direct_*` falls back to the direct registry via `directTool`. `agent_*` and `mcp_*` are reserved for future stories and currently throw a clear "not yet supported" error.
+- **`{ name, guard?, description? }`**: same name lookup, with optional per-binding overrides. The guard runs after schema validation and before the handler; throwing surfaces back to the LLM as a tool error so the model can self-correct. The `description` override applies only to this binding (the registry entry stays the source of truth, so other agents binding the same fn still see the canonical description). Use it when an agent's calling context calls for a different framing of the tool than the registered description provides; descriptions affect LLM tool-selection accuracy noticeably.
+- **`{ tagged, guard? }`**: selects every fn / route whose tags overlap the requested set (single tag or array). Optional guard applies to every match. Tag-zero-match contributes nothing without throwing. No description override on the tagged form: applying a single description to N matched tools is almost always wrong.
 
 Resolution rules:
 

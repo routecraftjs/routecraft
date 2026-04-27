@@ -49,7 +49,7 @@ export interface DeferredFn {
    * `directTool(routeId, { tags: [...] })`). When present these take
    * precedence over the underlying registry's tags for tag-selector
    * matching, so the user's override actually drives selection.
-   * Undefined when no override was supplied — the resolver then peeks
+   * Undefined when no override was supplied; the resolver then peeks
    * the underlying registry's tags for the match decision.
    */
   readonly overrideTags?: readonly Tag[];
