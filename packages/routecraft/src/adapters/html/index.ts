@@ -2,6 +2,7 @@ import type { Source } from "../../operations/from.ts";
 import type { Destination } from "../../operations/to.ts";
 import type { Transformer } from "../../operations/transform.ts";
 import type { Exchange } from "../../exchange.ts";
+import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
 import type { HtmlOptions, HtmlResult } from "./types.ts";
 import { HtmlTransformerAdapter } from "./transformer.ts";
 import { HtmlSourceAdapter } from "./source.ts";
@@ -56,6 +57,7 @@ export function html<T = unknown, R = HtmlResult>(
 export function html<T = unknown, R = HtmlResult>(
   options: HtmlOptions<T, R>,
 ): (Transformer<T, R> & { readonly adapterId: string }) | HtmlAdapter<T, R> {
+  const args = factoryArgs(options);
   const transformer = new HtmlTransformerAdapter<T, R>(options);
   if (options.path) {
     const source = new HtmlSourceAdapter<T, R>(options);
@@ -66,12 +68,16 @@ export function html<T = unknown, R = HtmlResult>(
       encoding: options.encoding,
       createDirs: options.createDirs,
     });
-    return {
-      adapterId: "routecraft.adapter.html",
-      transform: transformer.transform.bind(transformer),
-      subscribe: source.subscribe,
-      send: destination.send,
-    };
+    return tagAdapter(
+      {
+        adapterId: "routecraft.adapter.html",
+        transform: transformer.transform.bind(transformer),
+        subscribe: source.subscribe,
+        send: destination.send,
+      },
+      html,
+      args,
+    );
   }
   return {
     adapterId: "routecraft.adapter.html",

@@ -1,5 +1,6 @@
 import type { Source } from "../../operations/from.ts";
 import type { Destination } from "../../operations/to.ts";
+import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
 import type {
   JsonlSourceOptions,
   JsonlDestinationOptions,
@@ -67,25 +68,35 @@ export function jsonl<T = unknown>(
   | Source<T[]>
   | Destination<unknown, void>
   | (Source<T[]> & Destination<unknown, void>) {
+  const args = factoryArgs(options);
+
   // Destination-only: path is a function (not valid for source)
   if (typeof (options as JsonlDestinationOptions).path === "function") {
     const destination = new JsonlDestinationAdapter(
       options as JsonlDestinationOptions,
     );
-    return {
-      adapterId: "routecraft.adapter.jsonl",
-      send: destination.send,
-    } as Destination<unknown, void>;
+    return tagAdapter(
+      {
+        adapterId: "routecraft.adapter.jsonl",
+        send: destination.send,
+      },
+      jsonl,
+      args,
+    ) as Destination<unknown, void>;
   }
 
   const sourceOptions = options as JsonlSourceOptions;
   const source = new JsonlSourceAdapter<T>(sourceOptions);
 
   if (sourceOptions.chunked) {
-    return {
-      adapterId: "routecraft.adapter.jsonl",
-      subscribe: source.subscribe,
-    } as Source<T>;
+    return tagAdapter(
+      {
+        adapterId: "routecraft.adapter.jsonl",
+        subscribe: source.subscribe,
+      },
+      jsonl,
+      args,
+    ) as Source<T>;
   }
 
   const combined = options as JsonlCombinedOptions;
@@ -106,11 +117,15 @@ export function jsonl<T = unknown>(
   }
   const destination = new JsonlDestinationAdapter(destOptions);
 
-  return {
-    adapterId: "routecraft.adapter.jsonl",
-    subscribe: source.subscribe,
-    send: destination.send,
-  } as Source<T[]> & Destination<unknown, void>;
+  return tagAdapter(
+    {
+      adapterId: "routecraft.adapter.jsonl",
+      subscribe: source.subscribe,
+      send: destination.send,
+    },
+    jsonl,
+    args,
+  ) as Source<T[]> & Destination<unknown, void>;
 }
 
 // Re-export types

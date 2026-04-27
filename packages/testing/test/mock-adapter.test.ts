@@ -4,6 +4,11 @@ import {
   simple,
   http,
   mail,
+  file,
+  csv,
+  json,
+  jsonl,
+  html,
   type Destination,
   type Source,
   type Exchange,
@@ -14,6 +19,7 @@ import {
 import {
   mockAdapter,
   testContext,
+  spy,
   type AdapterMock,
   type MockAdapterBehavior,
   type TestContext,
@@ -463,6 +469,220 @@ describe("mockAdapter", () => {
       expect(mailMock.calls.source).toHaveLength(1);
       expect(mailMock.calls.source[0].yielded).toBe(1);
       expect(mailMock.calls.send).toHaveLength(1);
+    });
+  });
+
+  describe("first-party adapter factory tagging", () => {
+    type TaggedDestinationCase = readonly [
+      label: string,
+      // `unknown[]` would be stricter, but TypeScript rejects assigning a
+      // factory with specific options types into a parameter typed as
+      // `unknown[]` (function parameter contravariance). `any[]` is the
+      // only annotation that accepts the heterogenous factories below.
+      factory: (...args: any[]) => unknown,
+      build: () => Destination<unknown, unknown>,
+    ];
+
+    const taggedDestinationCases: readonly TaggedDestinationCase[] = [
+      [
+        "file",
+        file,
+        () =>
+          file({ path: "/tmp/__never__.txt" }) as unknown as Destination<
+            unknown,
+            unknown
+          >,
+      ],
+      [
+        "csv",
+        csv,
+        () =>
+          csv({ path: "/tmp/__never__.csv" }) as unknown as Destination<
+            unknown,
+            unknown
+          >,
+      ],
+      [
+        "json (file mode)",
+        json,
+        () =>
+          json({ path: "/tmp/__never__.json" }) as unknown as Destination<
+            unknown,
+            unknown
+          >,
+      ],
+      [
+        "jsonl (combined)",
+        jsonl,
+        () =>
+          jsonl({ path: "/tmp/__never__.jsonl" }) as unknown as Destination<
+            unknown,
+            unknown
+          >,
+      ],
+      [
+        "jsonl (destination-only)",
+        jsonl,
+        () =>
+          jsonl({
+            path: () => "/tmp/__never__.jsonl",
+          }) as unknown as Destination<unknown, unknown>,
+      ],
+      [
+        "html (file mode)",
+        html,
+        () =>
+          html({
+            path: "/tmp/__never__.html",
+            selector: "title",
+            extract: "text",
+          }) as unknown as Destination<unknown, unknown>,
+      ],
+    ];
+
+    /**
+     * @case mockAdapter(factory, { send }) intercepts .to(factory(...)) for every newly tagged first-party factory
+     * @preconditions Each row builds a destination-capable instance via the factory and registers a send-only mock
+     * @expectedResult The mock records exactly one send call and no errors surface (real adapter I/O is bypassed)
+     */
+    test.each(taggedDestinationCases)(
+      "%s: factory tag enables .to() interception via mockAdapter",
+      async (_label, factory, build) => {
+        const mock = mockAdapter(factory, { send: async () => undefined });
+        const route = craft()
+          .id("tag-smoke")
+          .from(simple({ payload: 1 }))
+          .to(build());
+
+        t = await testContext().override(mock).routes(route).build();
+        await t.test();
+
+        expect(mock.calls.send).toHaveLength(1);
+        expect(t.errors).toHaveLength(0);
+      },
+    );
+
+    /**
+     * @case jsonl() chunked source-only return path is tagged so mockAdapter(jsonl, { source }) intercepts .from(jsonl(...))
+     * @preconditions Route subscribes to jsonl({ path, chunked: true }) pointed at a non-existent path
+     * @expectedResult Mock source fixture is delivered; no real filesystem read is attempted
+     */
+    test("jsonl (source-only): factory tag enables .from() interception", async () => {
+      const jsonlMock = mockAdapter<typeof jsonl, { line: number }>(jsonl, {
+        source: [{ line: 1 }],
+      });
+      const captured = spy<{ line: number }>();
+
+      const route = craft()
+        .id("jsonl-source-smoke")
+        .from(
+          jsonl<{ line: number }>({
+            path: "/tmp/__never_exists__/x.jsonl",
+            chunked: true,
+          }),
+        )
+        .to(captured);
+
+      t = await testContext().override(jsonlMock).routes(route).build();
+      await t.test();
+
+      expect(jsonlMock.calls.source).toHaveLength(1);
+      expect(captured.received[0].body).toEqual({ line: 1 });
+      expect(t.errors).toHaveLength(0);
+    });
+
+    /**
+     * @case Transformer-only return paths of json() and html() are intentionally not tagged
+     * @preconditions json({}) and html({ selector, extract }) return transformer-only adapters
+     * @expectedResult Returned adapters expose `transform` but not `subscribe` or `send`, matching the design that the override resolver only fires on subscribe/send
+     */
+    test("json() and html() transformer-only returns expose transform but not subscribe/send", () => {
+      const jsonTransformer = json({});
+      expect(jsonTransformer).toHaveProperty("transform");
+      expect(jsonTransformer).not.toHaveProperty("subscribe");
+      expect(jsonTransformer).not.toHaveProperty("send");
+
+      const htmlTransformer = html({ selector: "title", extract: "text" });
+      expect(htmlTransformer).toHaveProperty("transform");
+      expect(htmlTransformer).not.toHaveProperty("subscribe");
+      expect(htmlTransformer).not.toHaveProperty("send");
+    });
+
+    /**
+     * @case mockAdapter(json, { send }) does not intercept .transform(json()) call sites
+     * @preconditions Route uses simple(jsonString).transform(json()).to(spy); a send-only mock is registered for json
+     * @expectedResult The transformer parses the body normally; the send override is never invoked, confirming the resolver only fires on subscribe/send
+     */
+    test("send overrides do not intercept json() transformer-mode call sites", async () => {
+      const jsonMock = mockAdapter(json, {
+        send: async () => "should-never-fire",
+      });
+      const captured = spy<unknown>();
+
+      const route = craft()
+        .id("json-transformer-bypass")
+        .from(simple('{"x":1}'))
+        .transform(json())
+        .to(captured);
+
+      t = await testContext().override(jsonMock).routes(route).build();
+      await t.test();
+
+      expect(jsonMock.calls.send).toHaveLength(0);
+      expect(captured.received).toHaveLength(1);
+      expect(captured.received[0].body).toEqual({ x: 1 });
+      expect(t.errors).toHaveLength(0);
+    });
+
+    /**
+     * @case mockAdapter(html, { send }) does not intercept .transform(html({ selector })) call sites
+     * @preconditions Route uses simple(htmlString).transform(html({ selector, extract })).to(spy); a send-only mock is registered for html
+     * @expectedResult The transformer extracts the selector text normally; the send override is never invoked
+     */
+    test("send overrides do not intercept html() transformer-mode call sites", async () => {
+      const htmlMock = mockAdapter(html, {
+        send: async () => "should-never-fire",
+      });
+      const captured = spy<unknown>();
+
+      const route = craft()
+        .id("html-transformer-bypass")
+        .from(simple("<html><title>Hello</title></html>"))
+        .transform(html({ selector: "title", extract: "text" }))
+        .to(captured);
+
+      t = await testContext().override(htmlMock).routes(route).build();
+      await t.test();
+
+      expect(htmlMock.calls.send).toHaveLength(0);
+      expect(captured.received).toHaveLength(1);
+      expect(captured.received[0].body).toBe("Hello");
+      expect(t.errors).toHaveLength(0);
+    });
+
+    /**
+     * @case mockAdapter(file, { source }) intercepts a real .from(file(...)) at route execution time
+     * @preconditions Route subscribes to file() pointed at a non-existent path; mock is registered with a fixture
+     * @expectedResult Real filesystem read is bypassed; the spy destination receives the mock fixture
+     */
+    test("file: mockAdapter(file, { source }) intercepts a route built with the factory", async () => {
+      const fileMock = mockAdapter<typeof file, string>(file, {
+        source: ["mocked file body"],
+      });
+      const captured = spy<string>();
+
+      const route = craft()
+        .id("file-mock-smoke")
+        .from(file({ path: "/tmp/__never_exists__/x.txt" }))
+        .to(captured);
+
+      t = await testContext().override(fileMock).routes(route).build();
+      await t.test();
+
+      expect(fileMock.calls.source).toHaveLength(1);
+      expect(captured.received).toHaveLength(1);
+      expect(captured.received[0].body).toBe("mocked file body");
+      expect(t.errors).toHaveLength(0);
     });
   });
 });

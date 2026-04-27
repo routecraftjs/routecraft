@@ -171,7 +171,7 @@ const httpMock = mockAdapter(http, {
 
 `mockAdapter(target, behavior)` accepts two kinds of target:
 
-- **A factory function** -- e.g. `mockAdapter(mail, ...)`, `mockAdapter(http, ...)`. Matches every adapter instance that factory produced. Requires the factory to stamp its adapters via `tagAdapter()` internally. The first-party factories `mail()`, `http()`, and `mcp()` do this today.
+- **A factory function** -- e.g. `mockAdapter(mail, ...)`, `mockAdapter(http, ...)`. Matches every adapter instance that factory produced. Requires the factory to stamp its adapters via `tagAdapter()` internally. The first-party factories that do this today are `mail()`, `http()`, `mcp()`, `file()`, `csv()`, `json()` (file mode), `jsonl()` (every return path), and `html()` (file mode). The transformer-only return paths of `json()` and `html()` are intentionally not tagged because the override resolver only fires on `subscribe`/`send`.
 - **An adapter class** -- e.g. `mockAdapter(SomeAdapterClass, ...)`. Matches any adapter whose `constructor === target`. Works for every adapter, first-party or third-party, without opt-in tagging. Useful when a third-party adapter exports its class but not a tagged factory, or when you want to mock a specific role of a multi-role factory.
 
 The factory form is nicer when the factory covers a single role. The class form is required when the factory has no tag or when you want to target one specific role of a multi-role factory. Both forms can be mixed on the same `testContext()`.

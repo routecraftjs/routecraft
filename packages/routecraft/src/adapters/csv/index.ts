@@ -1,5 +1,6 @@
 import type { Source } from "../../operations/from.ts";
 import type { Destination } from "../../operations/to.ts";
+import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
 import type { CsvOptions, CsvData, CsvRow } from "./types.ts";
 import { CsvSourceAdapter } from "./source.ts";
 import { CsvDestinationAdapter } from "./destination.ts";
@@ -58,19 +59,28 @@ export function csv(
  */
 export function csv(options: CsvOptions): CsvAdapter;
 export function csv(options: CsvOptions): Source<CsvRow> | CsvAdapter {
+  const args = factoryArgs(options);
   const source = new CsvSourceAdapter(options);
   if (options.chunked) {
-    return {
-      adapterId: "routecraft.adapter.csv",
-      subscribe: source.subscribe,
-    } as Source<CsvRow>;
+    return tagAdapter(
+      {
+        adapterId: "routecraft.adapter.csv",
+        subscribe: source.subscribe,
+      },
+      csv,
+      args,
+    ) as Source<CsvRow>;
   }
   const destination = new CsvDestinationAdapter(options);
-  return {
-    adapterId: "routecraft.adapter.csv",
-    subscribe: source.subscribe,
-    send: destination.send,
-  } as CsvAdapter;
+  return tagAdapter(
+    {
+      adapterId: "routecraft.adapter.csv",
+      subscribe: source.subscribe,
+      send: destination.send,
+    },
+    csv,
+    args,
+  ) as CsvAdapter;
 }
 
 // Re-export types
