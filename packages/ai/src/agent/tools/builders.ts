@@ -154,7 +154,7 @@ export function directTool<TIn = unknown>(
       }
       const tags = overrideTags ?? route.tags;
       const handler = ((input, hctx) =>
-        dispatchDirect(hctx, routeId, input)) as FnOptions["handler"];
+        dispatchDirect(ctx, hctx, routeId, input)) as FnOptions["handler"];
       return {
         description,
         input,
@@ -221,24 +221,20 @@ function readDirectRoute(
 }
 
 async function dispatchDirect<TIn>(
+  ctx: CraftContext,
   hctx: FnHandlerContext,
   routeId: string,
   input: TIn,
 ): Promise<unknown> {
-  if (!hctx.context) {
-    throw rcError("RC5003", undefined, {
-      message: `directTool: no CraftContext available on the handler context (cannot dispatch to direct route "${routeId}").`,
-    });
-  }
   const endpoint = sanitizeEndpoint(routeId);
   const headers = hctx.correlationId
     ? { [HeadersKeys.CORRELATION_ID]: hctx.correlationId }
     : undefined;
-  const exchange = new DefaultExchange<TIn>(hctx.context, {
+  const exchange = new DefaultExchange<TIn>(ctx, {
     body: input,
     ...(headers ? { headers } : {}),
   });
-  const channel = getDirectChannel<TIn>(hctx.context, endpoint, {});
+  const channel = getDirectChannel<TIn>(ctx, endpoint, {});
   const result = (await channel.send(endpoint, exchange)) as Exchange<unknown>;
   return result.body;
 }

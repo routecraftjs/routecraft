@@ -51,11 +51,7 @@ export async function buildVercelTools(
   for (const r of resolved) {
     const guard = r.guard;
     const handler = r.handler;
-    const baseCtx: FnHandlerContext = makeFnHandlerContext(
-      r.name,
-      ctx,
-      abortSignal,
-    );
+    const baseCtx: FnHandlerContext = makeFnHandlerContext(r.name, abortSignal);
     out[r.name] = tool({
       description: r.description,
       inputSchema: toAiInputSchema(r.input) as Parameters<
@@ -141,18 +137,21 @@ export async function buildVercelTools(
 /**
  * Construct the synthetic `FnHandlerContext` handed to a tool's guard
  * and handler during agent dispatch. Mirrors the shape `testFn`
- * provides: `logger`, `abortSignal`, optional `context`,
- * optional `correlationId` (not yet populated by the runtime), and
- * optional `checkpointId` (durable-agents epic).
+ * provides: `logger`, `abortSignal`, optional `correlationId` (not yet
+ * populated by the runtime), and optional `checkpointId` (durable-agents
+ * epic).
+ *
+ * Intentionally does not expose the framework `CraftContext` to tool
+ * handlers; built-in tool builders that need to forward to a route
+ * (e.g. `directTool`) capture the context at resolve time and thread
+ * it through their own closure.
  */
 function makeFnHandlerContext(
   toolName: string,
-  ctx: CraftContext | undefined,
   abortSignal: AbortSignal,
 ): FnHandlerContext {
   return {
     logger: frameworkLogger.child({ tool: toolName }),
     abortSignal,
-    ...(ctx ? { context: ctx } : {}),
   };
 }
