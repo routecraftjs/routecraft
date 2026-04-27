@@ -306,6 +306,12 @@ function toAgentResult(result: LlmResult): AgentResult {
   if (result.output !== undefined) out.output = result.output;
   if (result.reasoning !== undefined) out.reasoning = result.reasoning;
   if (result.usage) out.usage = result.usage;
+  // Pass through the per-call summary unchanged. Shapes are
+  // structurally identical between LlmToolCallSummary and
+  // AgentToolCallSummary so no remapping is needed.
+  if (result.toolCalls && result.toolCalls.length > 0) {
+    out.toolCalls = result.toolCalls;
+  }
   return out;
 }
 
