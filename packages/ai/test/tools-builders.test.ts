@@ -287,7 +287,6 @@ describe("tool builders - directTool dispatch", () => {
           typeof fn.handler
         >[1]["logger"],
         abortSignal: new AbortController().signal,
-        context: t.ctx,
       },
     );
     expect(result).toMatchObject({ orderId: "abc", ok: true });

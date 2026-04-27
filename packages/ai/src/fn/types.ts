@@ -1,5 +1,4 @@
 import type {
-  CraftContext,
   ResolveKey,
   Tag,
   logger as frameworkLogger,
@@ -10,10 +9,12 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
  * Minimal context handed to a fn handler. Additional fields may land in
  * follow-up stories without breaking this signature.
  *
- * `context` is optional because tests may exercise a fn handler in
- * isolation via `testFn` from `@routecraft/testing`, which does not
- * construct a CraftContext. Production dispatch through the agent tool
- * loop always provides one; handlers that need it should null-check.
+ * Intentionally does not expose the framework `CraftContext`. Tool
+ * handlers must not be able to read context stores (they can hold
+ * provider credentials such as LLM API keys), nor reach the dispatch
+ * channel directly. Built-in tool builders that need to forward to a
+ * route (e.g. `directTool`) capture the context at resolve time and
+ * thread it through their own closure rather than via this interface.
  *
  * @experimental
  */
@@ -22,12 +23,6 @@ export interface FnHandlerContext {
   readonly logger: ReturnType<typeof frameworkLogger.child>;
   /** Context-level abort signal. Honour in long-running work. */
   readonly abortSignal: AbortSignal;
-  /**
-   * CraftContext reference for nested work (direct route calls, events,
-   * etc.). Undefined when the fn is invoked outside a running context
-   * (e.g. via `testFn` in unit tests).
-   */
-  readonly context?: CraftContext;
   /**
    * Correlation id of the calling exchange, when the fn was invoked
    * from inside a running route or agent dispatch. Propagated to any
