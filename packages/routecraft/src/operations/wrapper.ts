@@ -1,4 +1,5 @@
 import type { Adapter, EventName, Step } from "../types.ts";
+import { getAdapterLabel } from "../types.ts";
 import {
   type Exchange,
   getExchangeContext,
@@ -151,6 +152,7 @@ export abstract class WrapperStep<
     const route = getExchangeRoute(exchange);
     const context = getExchangeContext(exchange);
     const stepLabel = this.label ?? String(this.operation);
+    const adapterLabel = getAdapterLabel(this.adapter);
     const correlationId = exchange.headers[
       HeadersKeys.CORRELATION_ID
     ] as string;
@@ -169,6 +171,7 @@ export abstract class WrapperStep<
         exchangeId: exchange.id,
         correlationId,
         operation: stepLabel,
+        ...(adapterLabel ? { adapter: adapterLabel } : {}),
       });
     }
 
@@ -191,6 +194,7 @@ export abstract class WrapperStep<
           exchangeId: exchange.id,
           correlationId,
           operation: stepLabel,
+          ...(adapterLabel ? { adapter: adapterLabel } : {}),
           duration: Date.now() - stepStart,
           error: err instanceof Error ? err.message : String(err),
         });
@@ -204,6 +208,7 @@ export abstract class WrapperStep<
         exchangeId: exchange.id,
         correlationId,
         operation: stepLabel,
+        ...(adapterLabel ? { adapter: adapterLabel } : {}),
         duration: Date.now() - stepStart,
       });
     }

@@ -5,6 +5,7 @@ import {
   HeadersKeys,
 } from "../exchange.ts";
 import { rcError, RoutecraftError } from "../error.ts";
+import { isRoutecraftError } from "../brand.ts";
 import type { ErrorHandler } from "../route.ts";
 import type { Adapter, EventName, Step } from "../types.ts";
 import { WrapperStep, type WrapperOutcome } from "./wrapper.ts";
@@ -67,7 +68,20 @@ export class ErrorWrapperStep<
     try {
       await this.inner.execute(exchange, [], innerQueue);
       return "ok";
-    } catch (innerError) {
+    } catch (rawInnerError) {
+      // Normalise the thrown value to `RoutecraftError` so the
+      // step-scope handler receives the same shape the route-scope
+      // handler does (route.ts's `processError` does the same).
+      // Handlers that branch on `error.rc` / `error.meta.message`
+      // work in both positions without special-casing.
+      const innerError: RoutecraftError = isRoutecraftError(rawInnerError)
+        ? (rawInnerError as RoutecraftError)
+        : rcError("RC5001", rawInnerError, {
+            message:
+              rawInnerError instanceof Error
+                ? rawInnerError.message
+                : String(rawInnerError),
+          });
       const routeId = route?.definition.id;
       if (route && context && routeId) {
         context.emit(`route:${routeId}:error-handler:invoked` as EventName, {

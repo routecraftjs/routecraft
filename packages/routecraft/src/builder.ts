@@ -374,6 +374,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    * ```
    */
   id(id: string): this {
+    this.assertNoPendingWrappers("id");
     this.pendingOptions = { ...(this.pendingOptions ?? {}), id };
     logger.trace({ route: id }, "Staging route id for next route");
     return this;
@@ -596,6 +597,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
   from<T>(source: Source<T> | CallableSource<T>): RouteBuilder<T>;
   from<T>(source: Source<unknown> | CallableSource<unknown>): RouteBuilder<T>;
   from<T>(source: Source<T> | CallableSource<T>): RouteBuilder<T> {
+    this.assertNoPendingWrappers("from");
     const id = this.pendingOptions?.id ?? randomUUID();
     const consumer = this.pendingOptions?.consumer ?? {
       type: SimpleConsumer as unknown as ConsumerType<Consumer>,
@@ -838,8 +840,30 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
         message: `Route metadata staged but never consumed by .from().`,
       });
     }
+    this.assertNoPendingWrappers("build");
     logger.trace({ routeCount: this.routes.length }, "Building routes");
     return this.routes;
+  }
+
+  /**
+   * Throw when a step-scope wrapper (`.error()`, future `.retry()` /
+   * `.timeout()` / `.cache()`) was staged but the user is starting a
+   * new route or finalising the build without consuming it. A wrapper
+   * attaches to the immediately next pipeline step; if no step
+   * follows on the current route, the wrapper would silently leak
+   * into the next route's first step. Symmetric with the existing
+   * "metadata staged but never consumed" rule.
+   *
+   * @internal
+   */
+  private assertNoPendingWrappers(method: string): void {
+    if (this.pendingStepWrappers.length > 0) {
+      throw rcError("RC2001", undefined, {
+        message:
+          `Wrapper(s) staged via .error() (or future .retry() / .timeout() / .cache()) but no step followed before .${method}(). ` +
+          `A wrapper attaches to the immediately next pipeline step; orphaning one (or letting it leak into the next route) is almost always a mistake.`,
+      });
+    }
   }
 }
 

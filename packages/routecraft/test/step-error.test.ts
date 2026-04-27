@@ -296,33 +296,61 @@ describe(".error() step scope: dual-mode wrapper", () => {
   });
 
   /**
-   * @case Concurrent exchanges through the same step instance do not share state
-   * @preconditions Single .error() wrapper around a slow transform; fire many exchanges in parallel
-   * @expectedResult Every recovered body equals the handler's return; no cross-talk between exchanges
+   * @case Concurrent execute() calls on one wrapper instance do not share inner-queue state
+   * @preconditions Single ErrorWrapperStep instance; fire 10 concurrent execute() calls with overlapping inner work
+   * @expectedResult Each call's inner-pushed children land in the right per-call queue; no cross-talk
    */
-  test("concurrent exchanges through one wrapper instance do not alias state", async () => {
-    const sink = spy();
-    const handler = vi.fn((err) => `recovered-from-${(err as Error).message}`);
-    t = await testContext()
-      .routes(
-        craft()
-          .id("concurrent-wrapper")
-          .from(simple("payload"))
-          .error(handler)
-          .transform(async (body) => {
-            // Stagger the failure so multiple exchanges interleave inside the wrapper.
-            await new Promise((r) => setTimeout(r, 1));
-            throw new Error(`boom-${body as string}`);
-          })
-          .to(sink),
-      )
-      .build();
+  test("concurrent execute() calls share no per-execution buffer state", async () => {
+    // Hand-build a wrapper unit test (no testContext) to avoid the
+    // start/stop race that would come from calling `t.test()` in
+    // parallel on a single TestContext. The bug we want to detect is
+    // wrapper-internal: per-execution buffers must not leak across
+    // concurrent calls into the same instance.
 
-    // Fire several exchanges through the single wrapper instance.
-    await Promise.all(Array.from({ length: 10 }, () => t!.test()));
-    expect(sink.received.length).toBeGreaterThanOrEqual(10);
-    for (const ex of sink.received) {
-      expect(ex.body).toBe("recovered-from-boom-payload");
+    // Fake inner step that yields the event loop then pushes ONE
+    // child whose body identifies the originating exchange. If the
+    // wrapper aliases per-instance state, a child will end up in the
+    // wrong outer queue.
+    const innerStep: Step<Adapter> = {
+      operation: "transform" as Step<Adapter>["operation"],
+      adapter: { adapterId: "fake.inner" } as unknown as Adapter,
+      async execute(
+        exchange: Exchange,
+        _remainingSteps: Step<Adapter>[],
+        queue: { exchange: Exchange; steps: Step<Adapter>[] }[],
+      ): Promise<void> {
+        // Yield so multiple execute() invocations interleave.
+        await new Promise((r) => setTimeout(r, 1));
+        queue.push({ exchange, steps: [] });
+      },
+    };
+    const wrapper = new ErrorWrapperStep(innerStep, () => "unused");
+
+    const N = 10;
+    const outerQueues: {
+      exchange: Exchange;
+      steps: Step<Adapter>[];
+    }[][] = Array.from({ length: N }, () => []);
+
+    // Build N synthetic exchanges, identifiable by body.
+    const exchanges: Exchange[] = Array.from({ length: N }, (_, i) => ({
+      id: `ex-${i}`,
+      body: `payload-${i}`,
+      headers: {} as Record<string, unknown>,
+      logger: { warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as never,
+    })) as unknown as Exchange[];
+
+    await Promise.all(
+      exchanges.map((ex, i) => wrapper.execute(ex, [], outerQueues[i]!)),
+    );
+
+    // Every outer queue should contain exactly the originating
+    // exchange's child. If the per-execution buffer leaked, one of
+    // these would be wrong or zero / two.
+    for (let i = 0; i < N; i++) {
+      const queue = outerQueues[i]!;
+      expect(queue).toHaveLength(1);
+      expect(queue[0]!.exchange.body).toBe(`payload-${i}`);
     }
   });
 
@@ -531,6 +559,116 @@ describe(".error() step scope: dual-mode wrapper", () => {
     expect(events).toContain("failed:transform");
     expect(sink.received).toHaveLength(1);
     expect(sink.received[0].body).toBe("outer-recovered");
+  });
+
+  /**
+   * @case Staged wrapper that's never consumed before .id() throws
+   * @preconditions craft().id(a).from(x).to(y).error(h).id(b)... - wrapper staged but no step follows
+   * @expectedResult RC2001 thrown at .id() so the leak surfaces at build time
+   */
+  test("wrapper staged but never consumed throws at next .id()", () => {
+    expect(() => {
+      craft()
+        .id("a")
+        .from(simple("x"))
+        .to(spy())
+        .error(() => "leaked")
+        .id("b");
+    }).toThrow(/wrapper.*staged|never consumed|orphan/i);
+  });
+
+  /**
+   * @case Staged wrapper that's never consumed before .from() throws
+   * @preconditions Chained route shortcut (no .id() between routes); wrapper leaked from first route
+   * @expectedResult RC2001 thrown at .from()
+   */
+  test("wrapper staged but never consumed throws at next .from()", () => {
+    expect(() => {
+      craft()
+        .id("a")
+        .from(simple("x"))
+        .to(spy())
+        .error(() => "leaked")
+        .from(simple("y"));
+    }).toThrow(/wrapper.*staged|never consumed|orphan/i);
+  });
+
+  /**
+   * @case Staged wrapper that's never consumed before .build() throws
+   * @preconditions craft().id(a).from(x).to(y).error(h) - last call is the wrapper, no step after
+   * @expectedResult RC2001 thrown at .build()
+   */
+  test("wrapper staged but never consumed throws at .build()", () => {
+    expect(() => {
+      craft()
+        .id("a")
+        .from(simple("x"))
+        .to(spy())
+        .error(() => "leaked")
+        .build();
+    }).toThrow(/wrapper.*staged|never consumed|orphan/i);
+  });
+
+  /**
+   * @case Step-scope handler receives a normalised RoutecraftError
+   * @preconditions Inner throws a plain Error; handler captures the error it receives
+   * @expectedResult Handler receives a RoutecraftError (rc/meta), not the raw Error
+   */
+  test("step-scope handler receives a normalised RoutecraftError", async () => {
+    let captured: unknown;
+    const sink = spy();
+    t = await testContext()
+      .routes(
+        craft()
+          .id("normalised-error")
+          .from(simple("input"))
+          .error((err) => {
+            captured = err;
+            return "ok";
+          })
+          .transform(() => {
+            throw new Error("raw-throw");
+          })
+          .to(sink),
+      )
+      .build();
+
+    await t.test();
+    expect(captured).toBeDefined();
+    const c = captured as { rc?: string; meta?: { message?: string } };
+    expect(c.rc).toBe("RC5001");
+    expect(c.meta?.message).toMatch(/raw-throw/);
+  });
+
+  /**
+   * @case Wrapper-emitted step events carry the adapter label
+   * @preconditions Subscriber on step:started for a wrapped to() step
+   * @expectedResult The emitted detail object includes an `adapter` field
+   */
+  test("wrapper events carry adapter metadata", async () => {
+    const adapters: unknown[] = [];
+    const sink = spy();
+    t = await testContext()
+      .routes(
+        craft()
+          .id("adapter-meta")
+          .from(simple("input"))
+          .error(() => "fallback")
+          .transform((b) => `t-${b as string}`)
+          .to(sink),
+      )
+      .build();
+
+    t.ctx.on(
+      "route:adapter-meta:step:started" as never,
+      ({ details }: { details: { operation: string; adapter?: string } }) => {
+        if (details.operation === "transform") adapters.push(details.adapter);
+      },
+    );
+
+    await t.test();
+    expect(adapters).toHaveLength(1);
+    expect(adapters[0]).toBeDefined();
   });
 
   /**
