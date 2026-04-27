@@ -1,9 +1,12 @@
+import { randomUUID } from "node:crypto";
 import {
   logger as frameworkLogger,
   type CraftContext,
+  type EventName,
 } from "@routecraft/routecraft";
 import { toAiInputSchema } from "../llm/structured-output.ts";
 import type { FnHandlerContext } from "../fn/types.ts";
+import type { AgentDispatchIdentity } from "./session.ts";
 import type { ResolvedTool } from "./tools/selection.ts";
 
 /**
@@ -12,10 +15,16 @@ import type { ResolvedTool } from "./tools/selection.ts";
  * for `generateText({ tools })`.
  *
  * Each resulting tool runs:
- * 1. The optional guard (registered via `tools([{ name, guard }])` or
+ * 1. Emit `route:<routeId>:agent:tool:invoked` on the context bus so
+ *    cross-cutting observability (telemetry, dashboards, audit) sees
+ *    the call before the handler runs.
+ * 2. The optional guard (registered via `tools([{ name, guard }])` or
  *    `tools([{ tagged, guard }])`). Throwing inside the guard surfaces
- *    back to the model as a tool error so the model can self-correct.
- * 2. The underlying handler with `(input, fnHandlerContext)`.
+ *    back to the model as a tool error so the model can self-correct;
+ *    the wrapper emits `agent:tool:error` before rethrowing.
+ * 3. The underlying handler with `(input, fnHandlerContext)`. On
+ *    success the wrapper emits `agent:tool:result`; on throw it
+ *    emits `agent:tool:error` and rethrows.
  *
  * Schema validation is delegated to the SDK: when the model's tool-call
  * args fail to match `inputSchema`, the SDK reports a tool error to
@@ -28,6 +37,7 @@ export async function buildVercelTools(
   resolved: ResolvedTool[],
   ctx: CraftContext | undefined,
   abortSignal: AbortSignal,
+  dispatchIdentity?: AgentDispatchIdentity,
 ): Promise<Record<string, unknown>> {
   if (resolved.length === 0)
     return Object.create(null) as Record<string, unknown>;
@@ -67,8 +77,61 @@ export async function buildVercelTools(
           ...baseCtx,
           abortSignal: callOpts?.abortSignal ?? baseCtx.abortSignal,
         };
-        if (guard) await guard(input, callCtx);
-        return await handler(input, callCtx);
+        // The Vercel SDK passes a unique toolCallId per invocation;
+        // synthesise one when absent so invoked → result events still
+        // correlate (a shared empty-string id would alias every call).
+        const toolCallId = callOpts?.toolCallId ?? randomUUID();
+        const start = Date.now();
+
+        if (ctx && dispatchIdentity) {
+          ctx.emit(
+            `route:${dispatchIdentity.routeId}:agent:tool:invoked` as EventName,
+            {
+              routeId: dispatchIdentity.routeId,
+              exchangeId: dispatchIdentity.exchangeId,
+              correlationId: dispatchIdentity.correlationId,
+              toolCallId,
+              toolName: r.name,
+              input,
+            },
+          );
+        }
+
+        try {
+          if (guard) await guard(input, callCtx);
+          const output = await handler(input, callCtx);
+          if (ctx && dispatchIdentity) {
+            ctx.emit(
+              `route:${dispatchIdentity.routeId}:agent:tool:result` as EventName,
+              {
+                routeId: dispatchIdentity.routeId,
+                exchangeId: dispatchIdentity.exchangeId,
+                correlationId: dispatchIdentity.correlationId,
+                toolCallId,
+                toolName: r.name,
+                output,
+                duration: Date.now() - start,
+              },
+            );
+          }
+          return output;
+        } catch (err) {
+          if (ctx && dispatchIdentity) {
+            ctx.emit(
+              `route:${dispatchIdentity.routeId}:agent:tool:error` as EventName,
+              {
+                routeId: dispatchIdentity.routeId,
+                exchangeId: dispatchIdentity.exchangeId,
+                correlationId: dispatchIdentity.correlationId,
+                toolCallId,
+                toolName: r.name,
+                error: err,
+                duration: Date.now() - start,
+              },
+            );
+          }
+          throw err;
+        }
       },
     });
   }

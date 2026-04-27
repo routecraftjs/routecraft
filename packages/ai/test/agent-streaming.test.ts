@@ -4,17 +4,17 @@ import { spy, testContext, type TestContext } from "@routecraft/testing";
 import {
   agent,
   llmPlugin,
-  type AgentEvent,
+  type AgentDelta,
   type AgentResult,
 } from "../src/index.ts";
 import type { LlmResult } from "../src/llm/types.ts";
 
 // Mock both LLM dispatch paths so the streaming tests stay hermetic.
-// `streamLlm` synthesises a small event stream (text-delta x2 +
-// finish), forwards it to `onEvent`, and returns a consolidated
-// LlmResult mirroring what the real provider would build after the
-// stream drains. `callLlm` stays available for the non-streaming
-// regression check.
+// `streamLlm` synthesises a small token stream (text-delta x2),
+// forwards it to `onDelta`, and returns a consolidated LlmResult
+// mirroring what the real provider would build after the stream
+// drains. Coarse decision events (tool-call, tool-result, finished,
+// error) flow on the context bus and are tested separately.
 vi.mock("../src/llm/providers/index.ts", () => ({
   callLlm: vi.fn(
     async (): Promise<LlmResult> => ({
@@ -24,26 +24,21 @@ vi.mock("../src/llm/providers/index.ts", () => ({
   ),
   streamLlm: vi.fn(
     async ({
-      onEvent,
+      onDelta,
     }: {
-      onEvent: (e: AgentEvent) => void | Promise<void>;
+      onDelta: (d: AgentDelta) => void | Promise<void>;
     }): Promise<LlmResult> => {
       // Mirror the real runStreamGenerate: listener throws are caught
       // and logged so a noisy consumer doesn't break the dispatch.
-      const safe = async (e: AgentEvent) => {
+      const safe = async (d: AgentDelta) => {
         try {
-          await onEvent(e);
+          await onDelta(d);
         } catch {
           // swallow, mirrors frameworkLogger.warn in the real path
         }
       };
       await safe({ type: "text-delta", text: "Hel" });
       await safe({ type: "text-delta", text: "lo" });
-      await safe({
-        type: "finish",
-        finishReason: "stop",
-        usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 },
-      });
       return {
         text: "Hello",
         usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 },
@@ -56,7 +51,7 @@ import { callLlm, streamLlm } from "../src/llm/providers/index.ts";
 const callLlmMock = callLlm as unknown as ReturnType<typeof vi.fn>;
 const streamLlmMock = streamLlm as unknown as ReturnType<typeof vi.fn>;
 
-describe("agent streaming: onEvent → streamLlm wiring", () => {
+describe("agent streaming: onDelta -> streamLlm wiring", () => {
   let t: TestContext | undefined;
 
   beforeEach(() => {
@@ -70,11 +65,11 @@ describe("agent streaming: onEvent → streamLlm wiring", () => {
   });
 
   /**
-   * @case Agent without onEvent uses the synchronous path
-   * @preconditions Inline agent with no `onEvent`
+   * @case Agent without onDelta uses the synchronous path
+   * @preconditions Inline agent with no `onDelta`
    * @expectedResult callLlm called once; streamLlm not called
    */
-  test("no onEvent → callLlm, not streamLlm", async () => {
+  test("no onDelta -> callLlm, not streamLlm", async () => {
     t = await testContext()
       .with({
         plugins: [
@@ -100,12 +95,12 @@ describe("agent streaming: onEvent → streamLlm wiring", () => {
   });
 
   /**
-   * @case Agent with onEvent triggers the streaming path
-   * @preconditions Inline agent with `onEvent` callback
+   * @case Agent with onDelta triggers the streaming path
+   * @preconditions Inline agent with `onDelta` callback
    * @expectedResult streamLlm called once; callLlm not called
    */
-  test("onEvent present → streamLlm, not callLlm", async () => {
-    const events: AgentEvent[] = [];
+  test("onDelta present -> streamLlm, not callLlm", async () => {
+    const deltas: AgentDelta[] = [];
     t = await testContext()
       .with({
         plugins: [
@@ -120,8 +115,8 @@ describe("agent streaming: onEvent → streamLlm wiring", () => {
             agent({
               system: "Be helpful.",
               model: "anthropic:claude-opus-4-7",
-              onEvent: (e) => {
-                events.push(e);
+              onDelta: (d) => {
+                deltas.push(d);
               },
             }),
           ),
@@ -134,12 +129,12 @@ describe("agent streaming: onEvent → streamLlm wiring", () => {
   });
 
   /**
-   * @case Listener receives every emitted event in order
-   * @preconditions onEvent collects all events into an array
-   * @expectedResult Events seen are [text-delta "Hel", text-delta "lo", finish]
+   * @case Listener receives every emitted delta in order
+   * @preconditions onDelta collects all deltas into an array
+   * @expectedResult Deltas seen are [text-delta "Hel", text-delta "lo"]
    */
-  test("listener receives events in dispatch order", async () => {
-    const events: AgentEvent[] = [];
+  test("listener receives deltas in dispatch order", async () => {
+    const deltas: AgentDelta[] = [];
     t = await testContext()
       .with({
         plugins: [
@@ -148,14 +143,14 @@ describe("agent streaming: onEvent → streamLlm wiring", () => {
       })
       .routes(
         craft()
-          .id("event-order")
+          .id("delta-order")
           .from(simple("hi"))
           .to(
             agent({
               system: "x",
               model: "anthropic:claude-opus-4-7",
-              onEvent: (e) => {
-                events.push(e);
+              onDelta: (d) => {
+                deltas.push(d);
               },
             }),
           ),
@@ -163,10 +158,9 @@ describe("agent streaming: onEvent → streamLlm wiring", () => {
       .build();
 
     await t.test();
-    expect(events).toHaveLength(3);
-    expect(events[0]).toEqual({ type: "text-delta", text: "Hel" });
-    expect(events[1]).toEqual({ type: "text-delta", text: "lo" });
-    expect(events[2]).toMatchObject({ type: "finish", finishReason: "stop" });
+    expect(deltas).toHaveLength(2);
+    expect(deltas[0]).toEqual({ type: "text-delta", text: "Hel" });
+    expect(deltas[1]).toEqual({ type: "text-delta", text: "lo" });
   });
 
   /**
@@ -190,7 +184,7 @@ describe("agent streaming: onEvent → streamLlm wiring", () => {
             agent({
               system: "x",
               model: "anthropic:claude-opus-4-7",
-              onEvent: () => {},
+              onDelta: () => {},
             }),
           )
           .to(sink),
@@ -209,8 +203,8 @@ describe("agent streaming: onEvent → streamLlm wiring", () => {
 
   /**
    * @case Throwing listener does not abort the dispatch
-   * @preconditions onEvent throws on the first text-delta
-   * @expectedResult Dispatch completes, AgentResult body still consolidated, subsequent events still attempted
+   * @preconditions onDelta throws on every call
+   * @expectedResult Dispatch completes, AgentResult body still consolidated
    */
   test("listener throw is contained; dispatch completes", async () => {
     let received = 0;
@@ -229,7 +223,7 @@ describe("agent streaming: onEvent → streamLlm wiring", () => {
             agent({
               system: "x",
               model: "anthropic:claude-opus-4-7",
-              onEvent: () => {
+              onDelta: () => {
                 received++;
                 throw new Error("listener boom");
               },
@@ -240,21 +234,18 @@ describe("agent streaming: onEvent → streamLlm wiring", () => {
       .build();
 
     await t.test();
-    // The mocked streamLlm awaits onEvent in a try/catch (mirrors the
-    // real implementation), so all 3 events are still attempted and
-    // the consolidated AgentResult still flows downstream.
-    expect(received).toBe(3);
+    expect(received).toBe(2);
     const body = sink.received[0].body as AgentResult;
     expect(body.text).toBe("Hello");
   });
 
   /**
    * @case Async listener is awaited so back-pressure flows back into the stream
-   * @preconditions onEvent returns a Promise that resolves after a tick
-   * @expectedResult All events delivered before the dispatch resolves
+   * @preconditions onDelta returns a Promise that resolves after a tick
+   * @expectedResult All deltas delivered before the dispatch resolves; ordering preserved
    */
   test("async listener is awaited", async () => {
-    const events: AgentEvent[] = [];
+    const deltas: AgentDelta[] = [];
     t = await testContext()
       .with({
         plugins: [
@@ -269,9 +260,9 @@ describe("agent streaming: onEvent → streamLlm wiring", () => {
             agent({
               system: "x",
               model: "anthropic:claude-opus-4-7",
-              onEvent: async (e) => {
+              onDelta: async (d) => {
                 await new Promise((r) => setTimeout(r, 1));
-                events.push(e);
+                deltas.push(d);
               },
             }),
           ),
@@ -279,11 +270,8 @@ describe("agent streaming: onEvent → streamLlm wiring", () => {
       .build();
 
     await t.test();
-    expect(events).toHaveLength(3);
-    // Awaiting an async listener must preserve dispatch order; without
-    // back-pressure the events would interleave.
-    expect(events[0]).toEqual({ type: "text-delta", text: "Hel" });
-    expect(events[1]).toEqual({ type: "text-delta", text: "lo" });
-    expect(events[2]).toMatchObject({ type: "finish", finishReason: "stop" });
+    expect(deltas).toHaveLength(2);
+    expect(deltas[0]).toEqual({ type: "text-delta", text: "Hel" });
+    expect(deltas[1]).toEqual({ type: "text-delta", text: "lo" });
   });
 });

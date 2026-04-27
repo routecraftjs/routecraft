@@ -7,11 +7,16 @@ import {
   type Exchange,
 } from "@routecraft/routecraft";
 import { resolveModel, resolvePrompt } from "../llm/shared.ts";
-import { AgentSession, buildUserPrompt } from "./session.ts";
+import {
+  AgentSession,
+  buildUserPrompt,
+  dispatchIdentityFrom,
+} from "./session.ts";
 import {
   ADAPTER_AGENT_DEFAULT_OPTIONS,
   ADAPTER_AGENT_REGISTRY,
 } from "./store.ts";
+import type { AgentDeltaListener } from "./events.ts";
 import type { ResolvedTool } from "./tools/selection.ts";
 import type {
   AgentDefaultOptions,
@@ -23,10 +28,32 @@ import type {
 const AGENT_REGISTRY_STORE_DESCRIPTION =
   ADAPTER_AGENT_REGISTRY.description ?? "routecraft.adapter.agent.registry";
 
+/**
+ * Per-call overrides accepted by the by-name `agent("name", { ... })`
+ * factory. Constrained to fields that are inherently request-scoped
+ * (the SSE / WebSocket / TUI consumer for `onDelta` is not known at
+ * registration time). Anything else (model, system, tools, output)
+ * stays authoritative on the registered options.
+ *
+ * @experimental
+ */
+export interface AgentByNameOverrides {
+  /**
+   * Per-request token-delta listener. Mirrors `AgentOptions.onDelta`
+   * but lives at the call site so each dispatch can stream into its
+   * own consumer without cross-talk.
+   */
+  onDelta?: AgentDeltaListener;
+}
+
 /** Discriminated state: inline options or a registry name. */
 export type AgentBinding =
   | { kind: "inline"; options: AgentOptions }
-  | { kind: "by-name"; name: string };
+  | {
+      kind: "by-name";
+      name: string;
+      perCall?: AgentByNameOverrides;
+    };
 
 /**
  * Agent destination adapter. Resolves agent options (inline or
@@ -81,6 +108,12 @@ export class AgentDestinationAdapter implements Destination<
       });
     }
 
+    const route = getExchangeRoute(exchange);
+    const dispatchIdentity = dispatchIdentityFrom(
+      exchange,
+      route?.definition.id,
+    );
+
     const session = new AgentSession({
       options: merged,
       modelConfig: config,
@@ -89,6 +122,7 @@ export class AgentDestinationAdapter implements Destination<
       user,
       system,
       context,
+      dispatchIdentity,
     });
 
     // Thread the route's abort signal through so the agent dispatch
@@ -96,14 +130,20 @@ export class AgentDestinationAdapter implements Destination<
     // route or context shuts down. Falls back to a never-firing
     // signal when the exchange has no route binding (rare; mostly
     // synthetic exchanges in tests).
-    const abortSignal =
-      getExchangeRoute(exchange)?.signal ?? new AbortController().signal;
+    const abortSignal = route?.signal ?? new AbortController().signal;
 
-    // Streaming is selected by the presence of `onEvent`. The
-    // consolidated AgentResult is returned in both paths, so
+    // Streaming is selected by the presence of `onDelta` on the
+    // merged options or as a per-call override at the by-name call
+    // site. Per-call wins because it's request-scoped (e.g. a
+    // specific SSE channel for THIS dispatch).
+    const onDelta =
+      this.binding.kind === "by-name"
+        ? (this.binding.perCall?.onDelta ?? merged.onDelta)
+        : merged.onDelta;
+    // The consolidated AgentResult is returned in both paths, so
     // downstream pipeline ops are unaffected by the choice.
-    if (merged.onEvent !== undefined) {
-      return await session.runStream(abortSignal, merged.onEvent);
+    if (onDelta !== undefined) {
+      return await session.runStream(abortSignal, onDelta);
     }
     return await session.runUntilDone(abortSignal);
   }
@@ -187,8 +227,8 @@ function mergeWithDefaults(
   if (out.tools === undefined && defaults.tools !== undefined) {
     out.tools = defaults.tools;
   }
-  if (out.maxSteps === undefined && defaults.maxSteps !== undefined) {
-    out.maxSteps = defaults.maxSteps;
+  if (out.maxTurns === undefined && defaults.maxTurns !== undefined) {
+    out.maxTurns = defaults.maxTurns;
   }
   return out;
 }

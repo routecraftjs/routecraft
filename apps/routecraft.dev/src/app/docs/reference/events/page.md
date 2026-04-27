@@ -120,6 +120,30 @@ After a split, each child exchange emits its own `exchange:started`. When aggreg
 | `route:{routeId}:operation:error:recovered` | Reserved for the planned `.onError()` operation | `{ routeId, exchangeId, correlationId }` |
 | `route:{routeId}:operation:error:failed` | Reserved for the planned `.onError()` operation | `{ routeId, exchangeId, correlationId, error }` |
 
+### Agent operations
+
+Emitted by `agent()` destinations. These are the **coarse decision events**: broadcast to every subscriber, no opt-in needed. For token-level streaming use `AgentOptions.onDelta` instead (a separate per-call channel).
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `route:{routeId}:agent:tool:invoked` | Agent decided to call a tool (input validated, before guard) | `{ routeId, exchangeId, correlationId, toolCallId, toolName, input }` |
+| `route:{routeId}:agent:tool:result` | Tool handler returned a value | `{ routeId, exchangeId, correlationId, toolCallId, toolName, output, duration }` |
+| `route:{routeId}:agent:tool:error` | Tool handler / guard / input validation threw | `{ routeId, exchangeId, correlationId, toolCallId, toolName, error, duration }` |
+| `route:{routeId}:agent:finished` | Agent dispatch returned a consolidated result | `{ routeId, exchangeId, correlationId, finishReason, inputTokens?, outputTokens?, totalTokens? }` |
+| `route:{routeId}:agent:error` | Provider / transport error during dispatch | `{ routeId, exchangeId, correlationId, error }` |
+
+Wildcard subscriptions (`route:*:agent:tool:*`, `route:*:agent:finished`) work for cross-cutting telemetry, dashboards, and TUIs.
+
+```ts
+ctx.on('route:*:agent:tool:invoked', ({ details }) => {
+  log.info({ tool: details.toolName, input: details.input }, 'Agent called tool');
+});
+
+ctx.on('route:*:agent:finished', ({ details }) => {
+  metrics.histogram('agent.tokens.total', details.totalTokens ?? 0);
+});
+```
+
 ### Source-parse operations
 
 Parsing source adapters (`json`, `html`, `csv`, `jsonl`, `mail`) defer parsing

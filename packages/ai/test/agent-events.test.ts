@@ -1,26 +1,26 @@
 import { describe, test, expect } from "vitest";
-import { normalizeStreamPart } from "../src/agent/events.ts";
+import { normalizeStreamDelta } from "../src/agent/events.ts";
 
-describe("normalizeStreamPart: Vercel SDK part to AgentEvent", () => {
+describe("normalizeStreamDelta: Vercel SDK part to AgentDelta", () => {
   /**
-   * @case Plain text deltas map 1:1 onto text-delta events
+   * @case Plain text deltas map 1:1 onto text-delta deltas
    * @preconditions Part of shape { type: "text-delta", text }
    * @expectedResult Returns { type: "text-delta", text }
    */
   test("text-delta passes through", () => {
-    expect(normalizeStreamPart({ type: "text-delta", text: "hi" })).toEqual({
+    expect(normalizeStreamDelta({ type: "text-delta", text: "hi" })).toEqual({
       type: "text-delta",
       text: "hi",
     });
   });
 
   /**
-   * @case Empty text deltas are dropped (would emit a no-op event)
+   * @case Empty text deltas are dropped (would emit a no-op delta)
    * @preconditions Part with empty text
    * @expectedResult null (filtered)
    */
   test("empty text-delta is filtered", () => {
-    expect(normalizeStreamPart({ type: "text-delta", text: "" })).toBeNull();
+    expect(normalizeStreamDelta({ type: "text-delta", text: "" })).toBeNull();
   });
 
   /**
@@ -30,7 +30,7 @@ describe("normalizeStreamPart: Vercel SDK part to AgentEvent", () => {
    */
   test("text-delta accepts legacy `textDelta` field", () => {
     expect(
-      normalizeStreamPart({ type: "text-delta", textDelta: "legacy" }),
+      normalizeStreamDelta({ type: "text-delta", textDelta: "legacy" }),
     ).toEqual({ type: "text-delta", text: "legacy" });
   });
 
@@ -41,7 +41,7 @@ describe("normalizeStreamPart: Vercel SDK part to AgentEvent", () => {
    */
   test("reasoning-delta passes through", () => {
     expect(
-      normalizeStreamPart({ type: "reasoning-delta", text: "musing" }),
+      normalizeStreamDelta({ type: "reasoning-delta", text: "musing" }),
     ).toEqual({ type: "reasoning-delta", text: "musing" });
   });
 
@@ -52,123 +52,53 @@ describe("normalizeStreamPart: Vercel SDK part to AgentEvent", () => {
    */
   test("reasoning-delta accepts legacy `delta` field", () => {
     expect(
-      normalizeStreamPart({ type: "reasoning-delta", delta: "musing-legacy" }),
+      normalizeStreamDelta({ type: "reasoning-delta", delta: "musing-legacy" }),
     ).toEqual({ type: "reasoning-delta", text: "musing-legacy" });
   });
 
   /**
-   * @case Tool calls carry id, name, and validated input
-   * @preconditions Part of shape { type: "tool-call", toolCallId, toolName, input }
-   * @expectedResult Returns the same shape with `input` (not `args`)
+   * @case Coarse decision parts (tool-call, tool-result, tool-error) are filtered out
+   * @preconditions Parts that previously routed through the delta channel
+   * @expectedResult null - those parts now flow on the context bus instead
    */
-  test("tool-call maps cleanly", () => {
+  test("coarse decision parts are filtered (now on context bus)", () => {
     expect(
-      normalizeStreamPart({
+      normalizeStreamDelta({
         type: "tool-call",
         toolCallId: "c1",
         toolName: "echo",
         input: { msg: "hi" },
       }),
-    ).toEqual({
-      type: "tool-call",
-      toolCallId: "c1",
-      toolName: "echo",
-      input: { msg: "hi" },
-    });
-  });
-
-  /**
-   * @case Tool result carries handler return value
-   * @preconditions Part of shape { type: "tool-result", toolCallId, toolName, output }
-   * @expectedResult Returns the same shape with `output` (not `result`)
-   */
-  test("tool-result maps cleanly", () => {
+    ).toBeNull();
     expect(
-      normalizeStreamPart({
+      normalizeStreamDelta({
         type: "tool-result",
         toolCallId: "c1",
         toolName: "echo",
-        output: "echoed hi",
+        output: "ok",
       }),
-    ).toEqual({
-      type: "tool-result",
-      toolCallId: "c1",
-      toolName: "echo",
-      output: "echoed hi",
-    });
-  });
-
-  /**
-   * @case Tool error carries the thrown value
-   * @preconditions Part of shape { type: "tool-error", toolCallId, toolName, error }
-   * @expectedResult Returns the same shape
-   */
-  test("tool-error maps cleanly", () => {
-    const err = new Error("boom");
+    ).toBeNull();
     expect(
-      normalizeStreamPart({
+      normalizeStreamDelta({
         type: "tool-error",
         toolCallId: "c1",
         toolName: "echo",
-        error: err,
+        error: new Error("boom"),
       }),
-    ).toEqual({
-      type: "tool-error",
-      toolCallId: "c1",
-      toolName: "echo",
-      error: err,
-    });
-  });
-
-  /**
-   * @case Step finish carries reason and optional usage
-   * @preconditions Part with finishReason and usage
-   * @expectedResult Returns step-finish with same fields
-   */
-  test("finish-step maps to step-finish with usage", () => {
+    ).toBeNull();
     expect(
-      normalizeStreamPart({
+      normalizeStreamDelta({
         type: "finish-step",
         finishReason: "tool-calls",
-        usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
       }),
-    ).toEqual({
-      type: "step-finish",
-      finishReason: "tool-calls",
-      usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
-    });
-  });
-
-  /**
-   * @case Final finish prefers totalUsage when present
-   * @preconditions Part with totalUsage
-   * @expectedResult Returns finish with usage from totalUsage
-   */
-  test("finish prefers totalUsage over usage", () => {
+    ).toBeNull();
     expect(
-      normalizeStreamPart({
+      normalizeStreamDelta({
         type: "finish",
         finishReason: "stop",
-        totalUsage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
       }),
-    ).toEqual({
-      type: "finish",
-      finishReason: "stop",
-      usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
-    });
-  });
-
-  /**
-   * @case Error events surface to the listener
-   * @preconditions Part of shape { type: "error", error }
-   * @expectedResult Returns { type: "error", error }
-   */
-  test("error passes through", () => {
-    const err = { code: "ECONNRESET" };
-    expect(normalizeStreamPart({ type: "error", error: err })).toEqual({
-      type: "error",
-      error: err,
-    });
+    ).toBeNull();
+    expect(normalizeStreamDelta({ type: "error", error: {} })).toBeNull();
   });
 
   /**
@@ -177,16 +107,16 @@ describe("normalizeStreamPart: Vercel SDK part to AgentEvent", () => {
    * @expectedResult null
    */
   test("low-level SDK parts are filtered out", () => {
-    expect(normalizeStreamPart({ type: "text-start", id: "0" })).toBeNull();
-    expect(normalizeStreamPart({ type: "text-end", id: "0" })).toBeNull();
+    expect(normalizeStreamDelta({ type: "text-start", id: "0" })).toBeNull();
+    expect(normalizeStreamDelta({ type: "text-end", id: "0" })).toBeNull();
     expect(
-      normalizeStreamPart({ type: "tool-input-start", id: "x" }),
+      normalizeStreamDelta({ type: "tool-input-start", id: "x" }),
     ).toBeNull();
     expect(
-      normalizeStreamPart({ type: "tool-input-delta", id: "x", delta: "{" }),
+      normalizeStreamDelta({ type: "tool-input-delta", id: "x", delta: "{" }),
     ).toBeNull();
-    expect(normalizeStreamPart({ type: "abort" })).toBeNull();
-    expect(normalizeStreamPart({ type: "raw", payload: {} })).toBeNull();
+    expect(normalizeStreamDelta({ type: "abort" })).toBeNull();
+    expect(normalizeStreamDelta({ type: "raw", payload: {} })).toBeNull();
   });
 
   /**
@@ -195,9 +125,9 @@ describe("normalizeStreamPart: Vercel SDK part to AgentEvent", () => {
    * @expectedResult null for each
    */
   test("non-object input returns null", () => {
-    expect(normalizeStreamPart(null)).toBeNull();
-    expect(normalizeStreamPart(undefined)).toBeNull();
-    expect(normalizeStreamPart("text")).toBeNull();
-    expect(normalizeStreamPart(42)).toBeNull();
+    expect(normalizeStreamDelta(null)).toBeNull();
+    expect(normalizeStreamDelta(undefined)).toBeNull();
+    expect(normalizeStreamDelta("text")).toBeNull();
+    expect(normalizeStreamDelta(42)).toBeNull();
   });
 });
