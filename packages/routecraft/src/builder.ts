@@ -553,9 +553,12 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    * wrapper pattern. See `.standards/resilience-wrappers.md`.
    */
   override error(handler: ErrorHandler): this {
-    if (this.currentRoute === undefined) {
-      // Pre-`.from()`: stage as the route-level catch-all (existing
-      // behaviour). The base-class wrapper stack stays empty.
+    if (this.currentRoute === undefined || this.pendingOptions !== undefined) {
+      // Pre-`.from()` for the FIRST route, OR staging for the NEXT
+      // route in a chained `craft().id(a).from(...).to(...).id(b)
+      // .error(h)...` pattern. In both cases `.error()` configures
+      // route-scope behaviour for the route currently being staged
+      // by `pendingOptions`. The base-class wrapper stack stays empty.
       this.pendingOptions = {
         ...(this.pendingOptions ?? {}),
         errorHandler: handler,
@@ -563,8 +566,9 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
       logger.trace("Staging route-scope error handler for next route");
       return this;
     }
-    // Post-`.from()`: delegate to the base-class step-scope path so
-    // the next pushed step is wrapped in `ErrorWrapperStep`.
+    // Post-`.from()` on the current route: delegate to the base-class
+    // step-scope path so the next pushed step is wrapped in
+    // `ErrorWrapperStep`.
     return super.error(handler);
   }
 

@@ -83,17 +83,23 @@ describe(".error() step scope: dual-mode wrapper", () => {
     // Two minimal trace wrappers that just record their own position in the stack.
     const calls: string[] = [];
     class TraceWrapperOuter extends WrapperStep {
-      protected override async runInner(exchange: Exchange): Promise<"ok"> {
+      protected override async runInner(
+        exchange: Exchange,
+        innerQueue: { exchange: Exchange; steps: Step<Adapter>[] }[],
+      ): Promise<"ok"> {
         calls.push("outer-before");
-        await this.inner.execute(exchange, [], []);
+        await this.inner.execute(exchange, [], innerQueue);
         calls.push("outer-after");
         return "ok";
       }
     }
     class TraceWrapperInner extends WrapperStep {
-      protected override async runInner(exchange: Exchange): Promise<"ok"> {
+      protected override async runInner(
+        exchange: Exchange,
+        innerQueue: { exchange: Exchange; steps: Step<Adapter>[] }[],
+      ): Promise<"ok"> {
         calls.push("inner-before");
-        await this.inner.execute(exchange, [], []);
+        await this.inner.execute(exchange, [], innerQueue);
         calls.push("inner-after");
         return "ok";
       }
@@ -287,6 +293,67 @@ describe(".error() step scope: dual-mode wrapper", () => {
       expect(d.scope).toBe("step");
       expect(d.stepLabel).toBeDefined();
     }
+  });
+
+  /**
+   * @case Concurrent exchanges through the same step instance do not share state
+   * @preconditions Single .error() wrapper around a slow transform; fire many exchanges in parallel
+   * @expectedResult Every recovered body equals the handler's return; no cross-talk between exchanges
+   */
+  test("concurrent exchanges through one wrapper instance do not alias state", async () => {
+    const sink = spy();
+    const handler = vi.fn((err) => `recovered-from-${(err as Error).message}`);
+    t = await testContext()
+      .routes(
+        craft()
+          .id("concurrent-wrapper")
+          .from(simple("payload"))
+          .error(handler)
+          .transform(async (body) => {
+            // Stagger the failure so multiple exchanges interleave inside the wrapper.
+            await new Promise((r) => setTimeout(r, 1));
+            throw new Error(`boom-${body as string}`);
+          })
+          .to(sink),
+      )
+      .build();
+
+    // Fire several exchanges through the single wrapper instance.
+    await Promise.all(Array.from({ length: 10 }, () => t!.test()));
+    expect(sink.received.length).toBeGreaterThanOrEqual(10);
+    for (const ex of sink.received) {
+      expect(ex.body).toBe("recovered-from-boom-payload");
+    }
+  });
+
+  /**
+   * @case Chained-routes: `.error()` between routes stages route-scope for the next route
+   * @preconditions craft().id(a).from(...).to(...).id(b).error(h).from(...) - error follows id but precedes from
+   * @expectedResult When route b throws, h runs (route-scope catch-all), not a step-scope wrapper
+   */
+  test("chained-route .error() after .id() stages route-scope for the next route", async () => {
+    const sink = spy();
+    const handlerB = vi.fn(() => ({ caughtAtRouteB: true }));
+    t = await testContext()
+      .routes(
+        craft()
+          .id("a")
+          .from(simple("ok-a"))
+          .to(spy())
+          .id("b")
+          .error(handlerB)
+          .from(simple("ok-b"))
+          .transform(() => {
+            throw new Error("b-failure");
+          })
+          .to(sink),
+      )
+      .build();
+
+    await t.test();
+    expect(handlerB).toHaveBeenCalledTimes(1);
+    // Route-scope: pipeline halts after handler. Sink not reached.
+    expect(sink.received).toHaveLength(0);
   });
 
   /**

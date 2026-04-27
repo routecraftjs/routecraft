@@ -114,6 +114,8 @@ After a split, each child exchange emits its own `exchange:started`. When aggreg
 
 `scope` is `"route"` for the catch-all set via `.error()` BEFORE `.from()`, and `"step"` for a wrapper attached AFTER `.from()`. `stepLabel` is the label of the wrapped step when `scope === "step"`. Wildcard subscribers (`route:*:error-handler:*`) keep matching.
 
+| Event | When it fires | Details |
+| --- | --- | --- |
 | `route:{routeId}:operation:error:invoked` | Reserved for the planned `.onError()` operation | `{ routeId, exchangeId, correlationId }` |
 | `route:{routeId}:operation:error:recovered` | Reserved for the planned `.onError()` operation | `{ routeId, exchangeId, correlationId }` |
 | `route:{routeId}:operation:error:failed` | Reserved for the planned `.onError()` operation | `{ routeId, exchangeId, correlationId, error }` |

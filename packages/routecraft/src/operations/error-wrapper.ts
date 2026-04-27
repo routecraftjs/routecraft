@@ -41,11 +41,6 @@ import { WrapperStep, type WrapperOutcome } from "./wrapper.ts";
 export class ErrorWrapperStep<
   T extends Adapter = Adapter,
 > extends WrapperStep<T> {
-  private innerPushed: {
-    exchange: Exchange;
-    steps: Step<Adapter>[];
-  }[] = [];
-
   constructor(
     inner: Step<T>,
     private readonly handler: ErrorHandler,
@@ -55,6 +50,7 @@ export class ErrorWrapperStep<
 
   protected override async runInner(
     exchange: Exchange,
+    innerQueue: { exchange: Exchange; steps: Step<Adapter>[] }[],
   ): Promise<WrapperOutcome> {
     const route = getExchangeRoute(exchange);
     const context = getExchangeContext(exchange);
@@ -63,12 +59,13 @@ export class ErrorWrapperStep<
       HeadersKeys.CORRELATION_ID
     ] as string;
 
-    // Run the inner step against a private queue so we can capture
-    // pushes (for split / choice / etc.) and re-relay them with
-    // remainingSteps in the template method on success or recovery.
-    this.innerPushed = [];
+    // Run the inner step against the per-execution `innerQueue` so we
+    // can capture pushes (for split / choice / etc.) and let the
+    // template method re-relay them with `remainingSteps`. The buffer
+    // is owned by a single `execute()` invocation, so concurrent
+    // exchanges through the same step instance never alias state.
     try {
-      await this.inner.execute(exchange, [], this.innerPushed);
+      await this.inner.execute(exchange, [], innerQueue);
       return "ok";
     } catch (innerError) {
       const routeId = route?.definition.id;
@@ -97,10 +94,11 @@ export class ErrorWrapperStep<
         const recovered = await this.handler(innerError, exchange, forward);
         exchange.body = recovered;
         // The recovery replaced the body; subsequent pipeline steps
-        // see the new value. No inner-pushed children survive a
-        // failure, so clear the buffer to let the template method
-        // route the (single) recovered exchange forward.
-        this.innerPushed = [];
+        // see the new value. Drop any partial pushes the failed inner
+        // step made before throwing so the template method routes the
+        // single recovered exchange forward, not the half-finished
+        // children.
+        innerQueue.length = 0;
 
         if (route && context && routeId) {
           context.emit(
@@ -142,12 +140,5 @@ export class ErrorWrapperStep<
             });
       }
     }
-  }
-
-  protected override drainInnerQueue(): {
-    exchange: Exchange;
-    steps: Step<Adapter>[];
-  }[] {
-    return this.innerPushed;
   }
 }

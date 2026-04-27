@@ -80,10 +80,24 @@ export abstract class WrapperStep<
    * fall through to the route-level error handler (or fail the
    * exchange when none is set).
    *
+   * `innerQueue` is a per-execution buffer the subclass passes to
+   * `inner.execute(exchange, [], innerQueue)`. Any items the inner
+   * step pushes (e.g. `split` children) are captured here; the
+   * template method then re-relays them to the real queue with
+   * `remainingSteps` reattached. The buffer is local to a single
+   * `execute()` call, so the same step instance can serve concurrent
+   * exchanges without state leakage. Subclasses must clear the buffer
+   * on a recovered failure to avoid leaking the failed inner's
+   * partial pushes into the recovered path.
+   *
    * @param exchange Live exchange to feed to the inner step.
+   * @param innerQueue Per-execution buffer for inner-pushed children.
    * @returns Outcome that determines whether the pipeline continues.
    */
-  protected abstract runInner(exchange: Exchange): Promise<WrapperOutcome>;
+  protected abstract runInner(
+    exchange: Exchange,
+    innerQueue: { exchange: Exchange; steps: Step<Adapter>[] }[],
+  ): Promise<WrapperOutcome>;
 
   /**
    * Template method called by `runSteps`. Emits the inner step's
@@ -122,7 +136,11 @@ export abstract class WrapperStep<
     }
 
     const stepStart = Date.now();
-    await this.runInner(exchange);
+    // Per-execution buffer; passed to runInner so concurrent
+    // exchanges flowing through the same step instance don't share
+    // state.
+    const innerQueue: { exchange: Exchange; steps: Step<Adapter>[] }[] = [];
+    await this.runInner(exchange, innerQueue);
 
     if (route && context) {
       const routeId = route.definition.id;
@@ -135,37 +153,19 @@ export abstract class WrapperStep<
       });
     }
 
-    // The subclass calls `inner.execute(exchange, [], innerQueue)` so
-    // it can capture per-call outcome; relay any pushed children here
+    // Relay any children the inner step pushed (e.g. `split` children)
     // with `remainingSteps` reattached. When the inner step did not
     // push (the common case for transform / to / process / header /
     // tap / filter / validate), push the mutated exchange directly.
-    const inner = this.drainInnerQueue();
-    if (inner.length === 0) {
+    if (innerQueue.length === 0) {
       queue.push({ exchange, steps: remainingSteps });
       return;
     }
-    for (const item of inner) {
+    for (const item of innerQueue) {
       queue.push({
         exchange: item.exchange,
         steps: [...item.steps, ...remainingSteps],
       });
     }
-  }
-
-  /**
-   * Hand the inner queue captured by {@link runInner} back to the
-   * template method. Subclasses that delegate to a private inner
-   * queue must override this; the default returns an empty array,
-   * which works for subclasses that pass the real queue to the inner
-   * step directly.
-   *
-   * @internal
-   */
-  protected drainInnerQueue(): {
-    exchange: Exchange;
-    steps: Step<Adapter>[];
-  }[] {
-    return [];
   }
 }
