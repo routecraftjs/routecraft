@@ -67,22 +67,13 @@ The destination form is unchanged: `direct("fetch-order")` and `direct((exchange
 
 ### 1.3 Logger writes to stdout by default
 
-Framework logs now write to stdout, matching pino's default and 12-factor conventions. Any consumer parsing stderr for routecraft logs needs to switch streams.
-
-**Before (0.4.0):**
+Framework logs now write to stdout, matching pino's default and 12-factor conventions. To send logs to a file, use the `--log-file` flag:
 
 ```bash
-craft run server.js 2>./logs.txt
+craft run server.js --log-file ./logs.txt
 ```
 
-**After (0.5.0):**
-
-```bash
-craft run server.js 1>./logs.txt
-# or: &> for both
-```
-
-**Critical for stdio MCP servers:** routecraft logs will now corrupt the stdio MCP protocol stream unless you redirect them.
+**Critical for stdio MCP servers:** routecraft logs will now corrupt the stdio MCP protocol stream unless you redirect them out of stdout. Use one of:
 
 ```bash
 craft run mcp-server.js --log-file ./mcp.log
@@ -90,21 +81,42 @@ craft run mcp-server.js --log-file ./mcp.log
 craft run mcp-server.js --log-level silent
 ```
 
-### 1.4 `CraftConfig` is now an interface
+### 1.4 Define your config with `defineConfig`
 
-`CraftConfig` switched from `type` to `interface` so ecosystem packages can declaration-merge first-class config keys onto it.
-
-This only matters if you wrote:
+`CraftConfig` switched from `type` to `interface` so ecosystem packages can declaration-merge first-class config keys onto it. The recommended way to author your config is now the new `defineConfig` helper, which preserves literal-type inference at the call site without you having to declare a config type yourself:
 
 **Before (0.4.0):**
 
 ```ts
-type MyConfig = CraftConfig & { custom: string }
+import type { CraftConfig } from "@routecraft/routecraft"
+
+const config: CraftConfig = {
+  plugins: [...],
+  routes: [...],
+}
+export default config
 ```
 
 **After (0.5.0):**
 
 ```ts
+import { defineConfig } from "@routecraft/routecraft"
+import "@routecraft/ai" // side-effect import enables first-class llm/agent/mcp/embedding keys
+
+export default defineConfig({
+  llm: { providers: { anthropic: { apiKey: process.env.ANTHROPIC_API_KEY } } },
+  agent: { defaultOptions: { model: "anthropic:claude-opus-4-7" } },
+  routes: [...],
+})
+```
+
+If you actually extended the type, switch the `type` alias to an `interface`:
+
+```ts
+// Before
+type MyConfig = CraftConfig & { custom: string }
+
+// After
 interface MyConfig extends CraftConfig {
   custom: string
 }
@@ -330,24 +342,9 @@ Type changes:
 - `OAuthFactoryOptions.getClient` was renamed to `client`.
 - `OAuthPrincipal.expiresAt` is now contractually enforced.
 
-### 2.7 New first-class AI config keys (additive)
+### 2.7 First-class AI config keys (additive)
 
-Importing `@routecraft/ai` now augments `CraftConfig` with first-class `llm`, `mcp`, `embedding`, and `agent` keys via declaration merging. The `plugins: [llmPlugin(...), agentPlugin(...)]` shape is still supported, but a more concise option is available:
-
-```ts
-import { defineConfig } from "@routecraft/routecraft"
-import "@routecraft/ai" // side-effect import registers the keys
-
-export default defineConfig({
-  llm: { providers: { anthropic: { apiKey: process.env.ANTHROPIC_API_KEY } } },
-  agent: { defaultOptions: { model: "anthropic:claude-opus-4-7" } },
-  routes: [
-    /* ... */
-  ],
-})
-```
-
-This is purely additive. No migration is required.
+Importing `@routecraft/ai` now augments `CraftConfig` with first-class `llm`, `mcp`, `embedding`, and `agent` keys via declaration merging, so you can configure them directly on `defineConfig` instead of inside `plugins[]`. See section 1.4 for the recommended shape. The `plugins: [llmPlugin(...), agentPlugin(...)]` form continues to work — no migration required if you prefer it.
 
 ---
 
