@@ -82,22 +82,22 @@ on it for free by rethrowing on unrecoverable failure.
 
 A new wrapper takes about 50 lines plus builder glue. Subclass
 `WrapperStep<T>` from `packages/routecraft/src/operations/wrapper.ts`
-and implement `runInner(exchange)`:
+and implement `runInner(exchange, innerQueue)`:
 
 ```ts
 export class TimeoutWrapperStep<T extends Adapter = Adapter>
   extends WrapperStep<T>
 {
-  private innerPushed: { exchange: Exchange; steps: Step<Adapter>[] }[] = [];
-
   constructor(inner: Step<T>, private readonly ms: number) {
     super(inner);
   }
 
-  protected override async runInner(exchange: Exchange): Promise<WrapperOutcome> {
-    this.innerPushed = [];
-    const innerPromise = this.inner.execute(exchange, [], this.innerPushed);
-    const result = await Promise.race([
+  protected override async runInner(
+    exchange: Exchange,
+    innerQueue: { exchange: Exchange; steps: Step<Adapter>[] }[],
+  ): Promise<WrapperOutcome> {
+    const innerPromise = this.inner.execute(exchange, [], innerQueue);
+    return await Promise.race([
       innerPromise.then(() => "ok" as const),
       sleep(this.ms).then(() => {
         throw rcError("RC5012", undefined, {
@@ -105,14 +105,15 @@ export class TimeoutWrapperStep<T extends Adapter = Adapter>
         });
       }),
     ]);
-    return result;
-  }
-
-  protected override drainInnerQueue() {
-    return this.innerPushed;
   }
 }
 ```
+
+Key contract points:
+
+- `runInner` receives a per-execution `innerQueue` array as its second parameter. Pass it as the third argument to `this.inner.execute(exchange, [], innerQueue)` so the inner step's pushes (e.g. `split` children) flow back through the buffer.
+- The buffer is owned by the template's `execute()` and lives only for one call. Never store it on `this`; doing so leaks state across concurrent exchanges hitting the same step instance.
+- Throwing from `runInner` propagates out so the route's outer catch in `runSteps` cascades to the route-level handler (or default error path). Wrappers do not need to re-emit `step:failed` themselves; the template emits it via try/catch.
 
 Then add the dual-mode method on the builder:
 
@@ -183,7 +184,8 @@ accordingly.
 ## 8. `.standards` checklist for a new wrapper
 
 - [ ] New `XWrapperStep` extends `WrapperStep`, implements
-      `runInner` and `drainInnerQueue`.
+      `runInner(exchange, innerQueue)` (no instance state for the
+      queue; pass `innerQueue` straight to `this.inner.execute`).
 - [ ] Dual-mode `.x(...)` builder method on `StepBuilderBase` (step
       scope) with an override on `RouteBuilder` for the pre-from
       path.
