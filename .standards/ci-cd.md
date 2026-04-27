@@ -30,7 +30,7 @@ Every PR must pass these jobs before merge. The first column matches the GitHub 
 | `integration-test (bun)` | `pnpm test:integration` under the Bun runtime | Bun runtime divergence in source / generated code. |
 | `cubic · AI code reviewer` | External AI reviewer | Dual-use review signal; informational on PR but does not gate merge. |
 
-The `validate` job is the cheapest signal — if it's red, fix that first. The `test` job uploads `coverage-report` as an artifact; reviewers can download to inspect uncovered lines.
+The `validate` job is the cheapest signal: if it's red, fix that first. The `test` job uploads `coverage-report` as an artifact; reviewers can download to inspect uncovered lines.
 
 ## 3. Rules contributors must follow
 
@@ -57,7 +57,7 @@ CI uses `pull_request_target`, not `pull_request`. This gives forks access to re
 
 ## 4. Adding a new package to CI
 
-The CI doesn't enumerate packages — `pnpm -r run build`, `pnpm test`, etc. walk every workspace package. To make a new package CI-visible:
+The CI doesn't enumerate packages; `pnpm -r run build`, `pnpm test`, etc. walk every workspace package. To make a new package CI-visible:
 
 1. Add it to `pnpm-workspace.yaml` (it'll get picked up automatically).
 2. Add `build`, `test` (if any tests exist), and ensure `tsc --noEmit` cleanliness from the workspace root.
@@ -89,7 +89,7 @@ This is enforced informally by review. When adding a new internal package that o
 
 ## 6. Optional peer dependencies (provider SDKs)
 
-External SDKs that a package only needs when a specific feature is used (Vercel AI SDK adapters, `@huggingface/transformers`, `@modelcontextprotocol/sdk`, etc.) live in `peerDependencies` AND `peerDependenciesMeta.<name>.optional = true`. The framework dynamically imports them inside the relevant code path and throws a friendly install message when the import fails. Don't add such deps to `dependencies` — that bloats every install.
+External SDKs that a package only needs when a specific feature is used (Vercel AI SDK adapters, `@huggingface/transformers`, `@modelcontextprotocol/sdk`, etc.) live in `peerDependencies` AND `peerDependenciesMeta.<name>.optional = true`. The framework dynamically imports them inside the relevant code path and throws a friendly install message when the import fails. Don't add such deps to `dependencies`; that bloats every install.
 
 ## 7. Local pre-PR checklist
 

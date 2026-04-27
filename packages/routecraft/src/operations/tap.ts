@@ -58,7 +58,7 @@ export class TapStep<T = unknown> implements Step<Destination<T, unknown>> {
     const route = getExchangeRoute(exchange);
 
     if (!context || !route) {
-      throw new Error("Exchange has no context or route — cannot execute tap");
+      throw new Error("Exchange has no context or route; cannot execute tap");
     }
 
     const snapshot = snapshotExchange(exchange, context);

@@ -218,7 +218,7 @@ const integrationTest = packagesBuilt ? test : test.skip;
 // source. On local runs this catches stale dist after editing source without
 // running `pnpm build`. On CI it is a belt-and-suspenders against cache
 // issues on the `pull_request_target` workflow (see cache key scoping in
-// ci.yml). Cheap — one tsup run on a single package.
+// ci.yml). Cheap: one tsup run on a single package.
 if (packagesBuilt) {
   execSync("pnpm --filter @routecraft/routecraft build", {
     cwd: MONOREPO_ROOT,

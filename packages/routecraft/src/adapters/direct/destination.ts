@@ -35,7 +35,7 @@ export class DirectDestinationAdapter<T = unknown> implements Destination<
     const { getExchangeContext } = await import("../../exchange");
     const context = getExchangeContext(exchange);
     if (!context) {
-      throw new Error("Exchange has no context — cannot send via direct");
+      throw new Error("Exchange has no context; cannot send via direct");
     }
 
     // Resolve endpoint dynamically if needed

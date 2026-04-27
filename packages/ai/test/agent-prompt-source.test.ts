@@ -179,7 +179,7 @@ describe("agent prompt source: string and function forms (llm parity)", () => {
 
   /**
    * @case Function-form `system` that returns "" throws at dispatch
-   * @preconditions system: () => "" — empty resolved value
+   * @preconditions system: () => "" (empty resolved value)
    * @expectedResult Dispatch rejects with RC5003 and never calls the provider
    */
   test("function-form system returning empty string throws at dispatch", async () => {

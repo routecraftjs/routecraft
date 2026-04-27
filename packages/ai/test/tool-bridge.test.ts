@@ -3,7 +3,7 @@ import { z } from "zod";
 import { buildVercelTools } from "../src/agent/tool-bridge.ts";
 import type { ResolvedTool } from "../src/agent/tools/selection.ts";
 
-describe("buildVercelTools — execute path", () => {
+describe("buildVercelTools: execute path", () => {
   /**
    * @case Empty input returns empty record
    * @preconditions buildVercelTools([], undefined, signal)
@@ -38,7 +38,7 @@ describe("buildVercelTools — execute path", () => {
     const map = await buildVercelTools([resolved], undefined, sessionSignal);
     expect(Object.keys(map)).toEqual(["echo"]);
 
-    // Exercise the SDK's (input, options) contract — the second arg
+    // Exercise the SDK's (input, options) contract; the second arg
     // carries a per-call abortSignal which must override the
     // session-wide one captured at buildVercelTools time.
     const perCallSignal = new AbortController().signal;

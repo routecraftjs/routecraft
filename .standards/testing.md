@@ -104,7 +104,7 @@ Errors thrown at construction (e.g. `validateAgentOptions` running inside `agent
 
 ## 7. Negative-path logging is expected
 
-Tests that exercise an error path through the framework boundary will produce error-level log output. This is deliberate: the framework's own logger ran. Do not treat such output as a test failure or filter it from CI logs. If a test produces noisy output but passes, leave it — the noise is the framework working as designed.
+Tests that exercise an error path through the framework boundary will produce error-level log output. This is deliberate: the framework's own logger ran. Do not treat such output as a test failure or filter it from CI logs. If a test produces noisy output but passes, leave it: the noise is the framework working as designed.
 
 ## 8. Snapshots
 
@@ -119,7 +119,7 @@ If you reach for a snapshot, prefer inline (`toMatchInlineSnapshot()`) over a se
 
 - **Mock at the boundary.** Mock `vi.mock("../src/llm/providers/index.ts")` to stub `callLlm` rather than mocking the Vercel AI SDK; the boundary is more stable than the dependency's API.
 - **Mock the SDK only when testing the boundary itself.** E.g. `stream-llm.test.ts` mocks `ai`'s `streamText` to exercise the real `streamLlm` containment behaviour.
-- **Mirror real behaviour in mocks.** If the real code catches listener errors, the mock should too — otherwise the test passes for the wrong reason.
+- **Mirror real behaviour in mocks.** If the real code catches listener errors, the mock should too; otherwise the test passes for the wrong reason.
 
 ## 10. What runs in CI
 

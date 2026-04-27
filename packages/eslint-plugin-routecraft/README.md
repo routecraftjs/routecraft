@@ -41,8 +41,8 @@ export default [
 
 ## Rules
 
-- `routecraft/require-named-route` — Enforce `.id(<non-empty string>)` before `.from()` in a `craft()` chain
-- `routecraft/batch-before-from` — Enforce `batch()` is used as a route-level operation before `.from()`
+- `routecraft/require-named-route`: Enforce `.id(<non-empty string>)` before `.from()` in a `craft()` chain
+- `routecraft/batch-before-from`: Enforce `batch()` is used as a route-level operation before `.from()`
 
 ### routecraft/require-named-route
 

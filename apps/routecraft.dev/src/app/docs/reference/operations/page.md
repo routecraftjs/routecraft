@@ -529,7 +529,7 @@ Enrich the exchange with additional data from a destination adapter. Uses the sa
 .enrich(http({ url: 'https://api.example.com/user' }), only((r) => r.body?.name, "userName"))
 ```
 
-**`only(getValue, into?)`** — Returns an aggregator that merges one value from the enrichment result. Omit `into` to spread a plain object onto the body, or use fallbacks: string → `body.text`, array → `body.array`. Provide `into` to set `body[into]`. Values that are `null` or `undefined` are never merged (exchange unchanged).
+**`only(getValue, into?)`**: Returns an aggregator that merges one value from the enrichment result. Omit `into` to spread a plain object onto the body, or use fallbacks: string → `body.text`, array → `body.array`. Provide `into` to set `body[into]`. Values that are `null` or `undefined` are never merged (exchange unchanged).
 
 **Key difference from `.to()`:**
 

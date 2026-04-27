@@ -166,7 +166,7 @@ class InMemoryDirectChannel<T> implements DirectChannel<T> {
       return await this.handler(message);
     }
     throw rcError("RC5004", undefined, {
-      message: `No handler subscribed on direct endpoint "${endpoint}" — route may have stopped or was never started`,
+      message: `No handler subscribed on direct endpoint "${endpoint}"; route may have stopped or was never started`,
     });
   }
 
