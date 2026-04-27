@@ -34,20 +34,31 @@ If you stayed on the stable surface (route DSL, `http()`, `cron()`, `timer()`, `
 
 Previously, `direct()` source took an explicit endpoint name and discovery metadata as the second argument. Now the endpoint **is** the route id, and metadata lives on the route builder per section 1.1.
 
-```diff
-  craft()
-+   .id("ingest")
-+   .title("Ingest orders")
-+   .description("Process inbound orders")
-+   .input({ body: PostBody, headers: HeaderSchema })
--   .from(direct("ingest", {
--     description: "Process inbound orders",
--     schema: PostBody,
--     headerSchema: HeaderSchema,
--     keywords: ["orders"],
--   }))
-+   .from(direct())
-    .to(...)
+**Before (0.4.0):**
+
+```ts
+craft()
+  .from(
+    direct("ingest", {
+      description: "Process inbound orders",
+      schema: PostBody,
+      headerSchema: HeaderSchema,
+      keywords: ["orders"],
+    }),
+  )
+  .to(...)
+```
+
+**After (0.5.0):**
+
+```ts
+craft()
+  .id("ingest")
+  .title("Ingest orders")
+  .description("Process inbound orders")
+  .input({ body: PostBody, headers: HeaderSchema })
+  .from(direct())
+  .to(...)
 ```
 
 `DirectServerOptions` now contains only `channelType`. `description`, `schema`, `headerSchema`, and `keywords` are removed. A route without `.id()` becomes agent-only with a UUID endpoint. The framework now enforces route-id uniqueness instead of endpoint uniqueness.
@@ -58,9 +69,16 @@ The destination form is unchanged: `direct("fetch-order")` and `direct((exchange
 
 Framework logs now write to stdout, matching pino's default and 12-factor conventions. Any consumer parsing stderr for routecraft logs needs to switch streams.
 
-```diff
-- craft run server.js 2>./logs.txt
-+ craft run server.js 1>./logs.txt
+**Before (0.4.0):**
+
+```bash
+craft run server.js 2>./logs.txt
+```
+
+**After (0.5.0):**
+
+```bash
+craft run server.js 1>./logs.txt
 # or: &> for both
 ```
 
@@ -78,9 +96,18 @@ craft run mcp-server.js --log-level silent
 
 This only matters if you wrote:
 
-```diff
-- type MyConfig = CraftConfig & { custom: string }
-+ interface MyConfig extends CraftConfig { custom: string }
+**Before (0.4.0):**
+
+```ts
+type MyConfig = CraftConfig & { custom: string }
+```
+
+**After (0.5.0):**
+
+```ts
+interface MyConfig extends CraftConfig {
+  custom: string
+}
 ```
 
 Runtime behaviour is unaffected.
@@ -89,12 +116,11 @@ Runtime behaviour is unaffected.
 
 The `mcp-server-options` rule was removed. It enforced the old `mcp(name, { description })` shape, which no longer exists after the metadata hoist (1.1). The framework now validates at subscribe time with a clearer error.
 
-If you have this rule explicitly configured, drop it:
+If you have this rule explicitly configured, drop it from your ESLint config:
 
-```diff
-  rules: {
--   "routecraft/mcp-server-options": "error",
-  }
+```ts
+// remove this line from rules
+"routecraft/mcp-server-options": "error",
 ```
 
 ---
@@ -107,11 +133,18 @@ These all carried `@experimental` at 0.4.0. If you opted in, here are the rename
 
 `MailMessage.text` and `MailMessage.html` are grouped under a single `body` object. Mailparser collapses MIME into at most one of each, so the correct abstraction is a grouped alternative-pair.
 
-```diff
-- console.log(message.text)
-- console.log(message.html)
-+ console.log(message.body.text)
-+ console.log(message.body.html)
+**Before (0.4.0):**
+
+```ts
+console.log(message.text)
+console.log(message.html)
+```
+
+**After (0.5.0):**
+
+```ts
+console.log(message.body.text)
+console.log(message.body.html)
 ```
 
 `MailMessage.attachments` is unchanged.
@@ -120,20 +153,27 @@ These all carried `@experimental` at 0.4.0. If you opted in, here are the rename
 
 ### 2.2 `agent()` — model id, prompt fields, and tool authorisation
 
-```diff
-- agent({
--   modelId: "anthropic:claude-opus-4-7",
--   systemPrompt: "You are a summariser.",
--   userPrompt: (ex) => `Summarise: ${ex.body}`,
--   allowedRoutes: ["fetch-order", "cancel-order"],
--   allowedMcpServers: ["docs-server"],
-- })
-+ agent({
-+   model: "anthropic:claude-opus-4-7",
-+   system: "You are a summariser.",
-+   user: (ex) => `Summarise: ${ex.body}`,
-+   tools: tools(["fetch-order", "cancel-order", "mcp_docs-server:search"]),
-+ })
+**Before (0.4.0):**
+
+```ts
+agent({
+  modelId: "anthropic:claude-opus-4-7",
+  systemPrompt: "You are a summariser.",
+  userPrompt: (ex) => `Summarise: ${ex.body}`,
+  allowedRoutes: ["fetch-order", "cancel-order"],
+  allowedMcpServers: ["docs-server"],
+})
+```
+
+**After (0.5.0):**
+
+```ts
+agent({
+  model: "anthropic:claude-opus-4-7",
+  system: "You are a summariser.",
+  user: (ex) => `Summarise: ${ex.body}`,
+  tools: tools(["fetch-order", "cancel-order", "mcp_docs-server:search"]),
+})
 ```
 
 Field-level changes:
@@ -146,42 +186,69 @@ Field-level changes:
 
 Inline `LlmModelConfig` credentials on `agent({...})` are no longer accepted. Provider credentials now live exclusively on `llmPlugin`:
 
-```diff
-- agent({
--   model: { provider: "anthropic", apiKey: "...", model: "claude-opus-4-7" },
--   ...
-- })
-+ // Configure the provider once on llmPlugin
-+ llmPlugin({ providers: { anthropic: { apiKey: "..." } } })
-+ // Reference by id from agents
-+ agent({
-+   model: "anthropic:claude-opus-4-7",
-+   ...
-+ })
+**Before (0.4.0):**
+
+```ts
+agent({
+  model: { provider: "anthropic", apiKey: "...", model: "claude-opus-4-7" },
+  // ...
+})
+```
+
+**After (0.5.0):**
+
+```ts
+// Configure the provider once on llmPlugin
+llmPlugin({ providers: { anthropic: { apiKey: "..." } } })
+
+// Agents reference the model by id
+agent({
+  model: "anthropic:claude-opus-4-7",
+  // ...
+})
 ```
 
 **Removed type exports** from `@routecraft/ai`: `AgentModelId`, `AgentPromptSource`. If you imported either, switch to `LlmModelId` and `LlmPromptSource`.
 
 ### 2.3 `llm()` — schema field renames
 
-```diff
-  llm("anthropic:claude-opus-4-7", {
--   outputSchema: ResultSchema,
--   systemPrompt: "You are...",
--   userPrompt: (ex) => `Summarise ${ex.body}`,
-+   output: ResultSchema,
-+   system: "You are...",
-+   user: (ex) => `Summarise ${ex.body}`,
-  })
+**Before (0.4.0):**
+
+```ts
+llm("anthropic:claude-opus-4-7", {
+  outputSchema: ResultSchema,
+  systemPrompt: "You are...",
+  userPrompt: (ex) => `Summarise ${ex.body}`,
+})
+```
+
+**After (0.5.0):**
+
+```ts
+llm("anthropic:claude-opus-4-7", {
+  output: ResultSchema,
+  system: "You are...",
+  user: (ex) => `Summarise ${ex.body}`,
+})
 ```
 
 The result body still exposes `text`, `output`, and `usage` — no shape change to `LlmResult` / `LlmResultWithOutput`.
 
 ### 2.4 `embedding()` — `using` is now type-required
 
-```diff
-- embedding("openai:text-embedding-3-small", {})  // typechecked, threw RC5003 at runtime
-+ embedding("openai:text-embedding-3-small", { using: (ex) => ex.body.text })
+**Before (0.4.0):**
+
+```ts
+embedding("openai:text-embedding-3-small", {})
+// typechecked at compile time, but threw RC5003 at runtime
+```
+
+**After (0.5.0):**
+
+```ts
+embedding("openai:text-embedding-3-small", {
+  using: (ex) => ex.body.text,
+})
 ```
 
 Adapter factory option types are no longer wrapped in `Partial<>`, so required fields are now required at the type level. `llm()`, `direct()`, and `mail()` had no actually-required option fields, so no call-site change is needed for those.
@@ -190,20 +257,32 @@ Adapter factory option types are no longer wrapped in `Partial<>`, so required f
 
 The `mcp()` source no longer takes an endpoint name or descriptive metadata as arguments. The tool name is the route id; description, title, and input / output schemas come from the route builder.
 
-```diff
-  craft()
-+   .id("search")
-+   .description("Full-text search across documents")
-+   .input({ body: SearchQuery })
--   .from(mcp("search", {
--     description: "Full-text search across documents",
--     schema: SearchQuery,
--     keywords: ["search", "docs"],
--     annotations: { readOnlyHint: true },
--   }))
-+   .from(mcp({ annotations: { readOnlyHint: true } }))
-    .process(searchHandler)
-    .to(...)
+**Before (0.4.0):**
+
+```ts
+craft()
+  .from(
+    mcp("search", {
+      description: "Full-text search across documents",
+      schema: SearchQuery,
+      keywords: ["search", "docs"],
+      annotations: { readOnlyHint: true },
+    }),
+  )
+  .process(searchHandler)
+  .to(...)
+```
+
+**After (0.5.0):**
+
+```ts
+craft()
+  .id("search")
+  .description("Full-text search across documents")
+  .input({ body: SearchQuery })
+  .from(mcp({ annotations: { readOnlyHint: true } }))
+  .process(searchHandler)
+  .to(...)
 ```
 
 `McpServerOptions` now holds only MCP-protocol extras: `annotations` and `icons`. A non-empty `.description()` on the route is required for the MCP framework to expose the tool.
@@ -217,9 +296,21 @@ The `mcp()` source no longer takes an endpoint name or descriptive metadata as a
 
 `jwt()`, `jwks()`, and the principal types previously lived in `@routecraft/ai`. They now live in `@routecraft/routecraft`.
 
-```diff
-- import { jwt, jwks, type AuthPrincipal } from "@routecraft/ai"
-+ import { jwt, jwks, type Principal, type OAuthPrincipal } from "@routecraft/routecraft"
+**Before (0.4.0):**
+
+```ts
+import { jwt, jwks, type AuthPrincipal } from "@routecraft/ai"
+```
+
+**After (0.5.0):**
+
+```ts
+import {
+  jwt,
+  jwks,
+  type Principal,
+  type OAuthPrincipal,
+} from "@routecraft/routecraft"
 ```
 
 Type changes:
