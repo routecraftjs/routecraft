@@ -3,15 +3,21 @@ import type { JsonFileOptions } from "./types.ts";
 import type { FileOptions } from "../file/types.ts";
 import { file } from "../file/index.ts";
 import { DEFAULT_ON_PARSE_ERROR } from "../shared/parse.ts";
-import { rcError } from "../../error.ts";
 
 /**
  * JsonSourceAdapter reads and parses JSON files.
  *
  * Parses are deferred to the route's pipeline by passing a `parse` callback
  * to `handler(...)`: the runtime applies it as a synthetic first step so a
- * malformed JSON file becomes a normal pipeline error that the route's
- * `.error()` handler can catch (default `onParseError: 'fail'`). See #187.
+ * malformed JSON file becomes an observable pipeline event:
+ *
+ * | `onParseError` | Lifecycle on bad JSON                                          |
+ * |----------------|----------------------------------------------------------------|
+ * | `'fail'` (default) | `exchange:failed` (or `error:caught` if `.error()` recovers) |
+ * | `'abort'`      | `exchange:failed`, then source rejects and `context:error` fires |
+ * | `'drop'`       | `exchange:dropped` with `reason: "parse-failed"`               |
+ *
+ * See #187.
  */
 export class JsonSourceAdapter implements Source<unknown> {
   readonly adapterId = "routecraft.adapter.json.file";
@@ -41,41 +47,32 @@ export class JsonSourceAdapter implements Source<unknown> {
   ) => {
     const onParseError = this.options.onParseError ?? DEFAULT_ON_PARSE_ERROR;
     const reviver = this.options.reviver;
-    const filePath = this.options.path as string;
 
     return this.fileAdapter.subscribe(
       context,
       async (content: string) => {
-        if (onParseError === "fail") {
-          // Defer parse to the pipeline so route.error() can catch it.
-          return await handler(content as unknown, undefined, (raw) =>
-            JSON.parse(raw as string, reviver as never),
-          );
+        // All three modes route through the synthetic parse step so the
+        // exchange exists, lifecycle events fire, and the route can
+        // observe each outcome:
+        //   'fail'  -> exchange:failed (or .error() recovers)
+        //   'abort' -> exchange:failed, then we rethrow to abort the source
+        //   'drop'  -> exchange:dropped with reason "parse-failed"
+        const promise = handler(
+          content as unknown,
+          undefined,
+          (raw) => JSON.parse(raw as string, reviver as never),
+          onParseError,
+        );
+        if (onParseError === "abort") {
+          // Let the rejection propagate so FileSourceAdapter's caller
+          // observes it and the source dies with context:error.
+          return await promise;
         }
-
-        // 'abort' or 'skip': parse inline so we can either throw out of the
-        // source or silently swallow without ever creating an exchange.
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(content, reviver as never);
-        } catch (err) {
-          if (onParseError === "skip") {
-            context.logger.warn(
-              { err, path: filePath, adapter: "json" },
-              "json adapter: skipped malformed JSON file (onParseError: 'skip')",
-            );
-            // FileSourceAdapter ignores the resolved value of this callback,
-            // so a no-exchange short-circuit is safe to fudge as `never`.
-            return undefined as never;
-          }
-          // 'abort': wrap as RC5016 so the failure pattern is one error
-          // code regardless of `onParseError` mode.
-          const message = err instanceof Error ? err.message : String(err);
-          throw rcError("RC5016", err, {
-            message: `json adapter: failed to parse JSON: ${message}`,
-          });
-        }
-        return await handler(parsed);
+        // 'fail' and 'drop': swallow the rejection here (it has already
+        // been emitted as exchange:failed or exchange:dropped). Single-
+        // exchange adapter so there is no "next item" to continue to,
+        // but we still need to not propagate the error out of subscribe.
+        return await promise.catch(() => undefined as never);
       },
       abortController,
       onReady,

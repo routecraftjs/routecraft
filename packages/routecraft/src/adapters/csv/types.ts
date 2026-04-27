@@ -57,11 +57,17 @@ export interface CsvOptions {
 
   /**
    * How to handle a Papa Parse row error (chunked mode) or parse error
-   * (non-chunked mode). Default `'fail'`: the exchange fails so the route's
-   * `.error()` handler can catch it (or `exchange:failed` fires); chunked
-   * mode continues to the next row. `'abort'` rethrows out of the source on
-   * the first bad row. `'skip'` silently logs at warn and skips the bad
-   * row. See `OnParseError` for full semantics.
+   * (non-chunked mode).
+   *
+   * - `'fail'` (default): `exchange:failed` fires for the bad row; the
+   *   route's `.error()` handler can recover; chunked mode continues to
+   *   the next row.
+   * - `'abort'`: `exchange:failed` fires, then the source dies
+   *   (`context:error`).
+   * - `'drop'`: `exchange:dropped` fires with `reason: "parse-failed"`;
+   *   chunked mode continues.
+   *
+   * See `OnParseError` for full semantics.
    *
    * @default "fail"
    * @experimental

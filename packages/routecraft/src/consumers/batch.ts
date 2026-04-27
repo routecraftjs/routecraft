@@ -66,6 +66,7 @@ export class BatchConsumer implements Consumer<BatchOptions> {
       message: unknown,
       headers?: ExchangeHeaders,
       parse?: (raw: unknown) => unknown | Promise<unknown>,
+      parseFailureMode?: "fail" | "abort" | "drop",
     ) => Promise<Exchange>,
   ): Promise<void> {
     let batch: Message[] = [];
@@ -137,13 +138,18 @@ export class BatchConsumer implements Consumer<BatchOptions> {
       // item is NOT added to the in-progress batch.
       if (message.parse) {
         const itemParse = message.parse;
+        const itemMode = message.parseFailureMode;
         const rawMessage = message.message;
         try {
           message.message = await itemParse(rawMessage);
         } catch {
-          return handler(rawMessage, message.headers, itemParse);
+          // Route the failed item as a per-item exchange so the synthetic
+          // parse step fires the correct lifecycle event for the mode
+          // (fail/abort -> exchange:failed, drop -> exchange:dropped).
+          return handler(rawMessage, message.headers, itemParse, itemMode);
         }
         delete message.parse;
+        delete message.parseFailureMode;
       }
 
       const promise = new Promise<Exchange>((resolve, reject) => {

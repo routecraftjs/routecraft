@@ -90,17 +90,22 @@ export type ConsumerType<T extends Consumer, O = unknown> = new (
  *   `exchange.body = await parse(exchange.body)` inside the same try/catch
  *   that handles step errors, so a parse failure flows through the route's
  *   `errorHandler` and `exchange:failed` event path. See
- *   `adapters/shared/parse.ts` for the `OnParseError` semantics that adapters
- *   use to decide whether to set `parse` (= `'fail'`) or handle the error
- *   inline (`'abort'` / `'skip'`).
+ *   `adapters/shared/parse.ts` for the `OnParseError` semantics.
+ * @property parseFailureMode - Decides how the synthetic parse step handles
+ *   a thrown parse error. `"fail"` (default) and `"abort"` throw `RC5016`
+ *   so `exchange:failed` fires; `"drop"` instead emits `exchange:dropped`
+ *   with `reason: "parse-failed"`. Adapters set this from their
+ *   `onParseError` option; the source loop additionally rethrows for
+ *   `"abort"` so the source dies. See #187.
  *
- * @experimental The `parse` field is part of the parse-error-handling work
- * in #187. Its shape may evolve as more parsing adapters adopt the contract.
+ * @experimental The `parse`/`parseFailureMode` fields are part of the
+ * parse-error-handling work in #187. Their shape may evolve.
  */
 export type Message = {
   message: unknown;
   headers?: ExchangeHeaders;
   parse?: (raw: unknown) => unknown | Promise<unknown>;
+  parseFailureMode?: "fail" | "abort" | "drop";
 };
 
 export interface Consumer<O = unknown> {
@@ -125,6 +130,7 @@ export interface Consumer<O = unknown> {
       message: unknown,
       headers?: ExchangeHeaders,
       parse?: (raw: unknown) => unknown | Promise<unknown>,
+      parseFailureMode?: "fail" | "abort" | "drop",
     ) => Promise<Exchange>,
   ): void;
 }

@@ -228,7 +228,7 @@ A source adapter that converts raw bytes into a structured body (json, html, csv
 - Switch `onParseError` per adapter to control behaviour:
   - `'fail'` (default): the exchange fails; the route handles it. Streaming sources continue to the next item.
   - `'abort'`: the source aborts on the first parse failure (atomic-load semantics).
-  - `'skip'`: the bad item is silently dropped with a warn log (lossy ingest).
+  - `'drop'`: the bad item fires `exchange:dropped` with `reason: 'parse-failed'` (lossy ingest with structured observability).
 - For CSV chunked, inspect the row number on the captured error to identify the malformed row.
 
 ## RC9901

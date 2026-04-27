@@ -202,16 +202,22 @@ export interface MailServerOptions {
 
   /**
    * How to handle a per-message MIME parse failure (`mailparser`'s
-   * `simpleParser` throwing on malformed input). Default `'fail'`: the
-   * exchange fails so the route's `.error()` handler can catch it (or
-   * `exchange:failed` fires); the poll loop continues to the next message
-   * and leaves the malformed one un-Seen for retry. `'abort'` rethrows out
-   * of the source on the first malformed message. `'skip'` silently logs
-   * at warn and skips the message. See `OnParseError` for full semantics.
+   * `simpleParser` throwing on malformed input). All modes mark the
+   * malformed message as Seen so it does not refetch indefinitely.
    *
-   * Pre-#187 behaviour was equivalent to `'skip'` but logged at debug; that
-   * silent-degrade pattern is no longer the default. Set
-   * `onParseError: 'skip'` and bump your log level to keep the old shape.
+   * - `'fail'` (default): `exchange:failed` fires for the bad message; the
+   *   route's `.error()` handler can catch it; the poll loop continues.
+   * - `'abort'`: `exchange:failed` fires for the bad message, then the
+   *   source rejects and `context:error` fires.
+   * - `'drop'`: `exchange:dropped` fires with `reason: "parse-failed"` and
+   *   the poll loop continues. Use this when malformed mail is expected
+   *   and you want it counted in `exchange:dropped` metrics rather than
+   *   surfaced as route errors.
+   *
+   * Pre-#187 behaviour was equivalent to `'drop'` but logged at debug
+   * with no event; the new `'fail'` default routes the failure through
+   * `.error()` and is observable. Set `onParseError: 'drop'` to keep the
+   * lossy-ingest semantics with proper observability.
    *
    * @default "fail"
    * @experimental

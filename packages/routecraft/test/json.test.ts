@@ -363,7 +363,8 @@ describe("JSON Adapter", () => {
       expect(errSpy).toHaveBeenCalled();
       const errorPayload = errSpy.mock.calls[0][0];
       const error = errorPayload.details.error;
-      expect(error.message).toMatch(/failed to parse JSON/);
+      // Abort surfaces RC5016 from the synthetic parse step.
+      expect(error.rc).toBe("RC5016");
     });
 
     /**

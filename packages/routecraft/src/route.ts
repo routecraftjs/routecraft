@@ -119,41 +119,137 @@ export interface RouteDiscovery {
 const PARSE_STEP_ADAPTER: Adapter = { adapterId: "routecraft.parse" };
 
 /**
+ * Stable `reason` string emitted on `exchange:dropped` when a parsing source
+ * with `onParseError: 'drop'` rejects a malformed item. Mirrors the constant
+ * exported from `adapters/shared/parse.ts`. Subscribers can filter on this:
+ *
+ * ```ts
+ * ctx.on('route:*:exchange:dropped', ({ details }) => {
+ *   if (details.reason === 'parse-failed') metrics.increment('parse.dropped');
+ * });
+ * ```
+ */
+const PARSE_DROPPED_REASON = "parse-failed";
+
+/**
  * Build a synthetic pipeline step that runs a source-supplied parse function
  * against the exchange body. Inserted by `runSteps` as the first step when a
- * source attaches `parse` to its message; ensures parse failures flow through
- * the route's normal error-handling machinery (`.error()` handler,
- * `exchange:failed`) instead of aborting the source. See #187.
+ * source attaches `parse` to its message; this is what makes parse failures
+ * observable as normal pipeline events (rather than aborting the source).
+ * See #187.
  *
- * Errors are wrapped as `RC5016` so consumers can distinguish parse failures
- * from generic step failures (`RC5001`).
+ * Behaviour on parse failure depends on `failureMode`:
+ * - `"fail"` / `"abort"`: throw `RC5016` so `exchange:failed` fires (or the
+ *   route's `.error()` handler recovers). The adapter's caller distinguishes
+ *   `"abort"` by re-throwing the rejection out of subscribe.
+ * - `"drop"`: emit `exchange:dropped` with `reason: "parse-failed"` (matching
+ *   filter / validate drop semantics) and halt the pipeline cleanly without
+ *   invoking `.error()`.
  *
- * When `applyValidation` is supplied, it runs immediately after the parse so
- * route-level `.input()` schemas validate the parsed body, not the raw bytes.
- * A validation failure throws out of `applyValidation` and is handled by the
- * step loop's catch path the same way any step error is.
+ * When `applyValidation` is supplied, it runs immediately after a successful
+ * parse so route-level `.input()` schemas validate the parsed body, not the
+ * raw bytes. Validation failure throws out of `applyValidation` and is
+ * handled by the step loop's catch path like any step error.
+ *
+ * The step manages its own `step:started` / `step:completed` / `step:failed`
+ * lifecycle events (`skipStepEvents: true`) so we can emit `step:completed`
+ * for the drop case (drops are not failures) without the route loop
+ * double-emitting.
  */
 function buildParseStep(
   parse: (raw: unknown) => unknown | Promise<unknown>,
+  failureMode: "fail" | "abort" | "drop",
   applyValidation?: (exchange: Exchange) => Promise<void>,
 ): Step<Adapter> {
   return {
     operation: OperationType.PARSE,
     label: "parse",
     adapter: PARSE_STEP_ADAPTER,
+    skipStepEvents: true,
     async execute(exchange, remainingSteps, queue) {
+      const internals = EXCHANGE_INTERNALS.get(exchange);
+      const context = internals?.context;
+      const route = internals?.route;
+      const routeId =
+        route?.definition.id ??
+        (exchange.headers[HeadersKeys.ROUTE_ID] as string);
+      const correlationId = exchange.headers[
+        HeadersKeys.CORRELATION_ID
+      ] as string;
+      const stepStart = Date.now();
+
+      const emitStepStarted = () => {
+        context?.emit(`route:${routeId}:step:started` as EventName, {
+          routeId,
+          exchangeId: exchange.id,
+          correlationId,
+          operation: "parse",
+          adapter: "parse",
+        });
+      };
+      const emitStepCompleted = () => {
+        context?.emit(`route:${routeId}:step:completed` as EventName, {
+          routeId,
+          exchangeId: exchange.id,
+          correlationId,
+          operation: "parse",
+          adapter: "parse",
+          duration: Date.now() - stepStart,
+        });
+      };
+      const emitStepFailed = (err: unknown) => {
+        context?.emit(`route:${routeId}:step:failed` as EventName, {
+          routeId,
+          exchangeId: exchange.id,
+          correlationId,
+          operation: "parse",
+          adapter: "parse",
+          duration: Date.now() - stepStart,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      };
+
+      emitStepStarted();
+
       try {
         exchange.body = await parse(exchange.body);
       } catch (cause) {
+        if (failureMode === "drop") {
+          // Drops are not failures: emit step:completed (the step itself
+          // ran cleanly), then exchange:dropped with a stable reason.
+          emitStepCompleted();
+          context?.emit(`route:${routeId}:exchange:dropped` as EventName, {
+            routeId,
+            exchangeId: exchange.id,
+            correlationId,
+            reason: PARSE_DROPPED_REASON,
+            exchange,
+          });
+          // Mark dropped so the route engine does not emit
+          // exchange:completed for this exchange.
+          exchange.headers["routecraft.dropped"] = true;
+          return;
+        }
+        // 'fail' / 'abort': throw RC5016 so the step loop's catch path
+        // emits exchange:failed (or invokes the route's `.error()`).
+        emitStepFailed(cause);
         const causeMessage =
           cause instanceof Error ? cause.message : String(cause);
         throw rcError("RC5016", cause, {
           message: `Source payload parse failed: ${causeMessage}`,
         });
       }
+
       if (applyValidation) {
-        await applyValidation(exchange);
+        try {
+          await applyValidation(exchange);
+        } catch (cause) {
+          emitStepFailed(cause);
+          throw cause;
+        }
       }
+
+      emitStepCompleted();
       // Hand control back to the step loop with the user's pipeline.
       queue.push({ exchange, steps: remainingSteps });
     },
@@ -601,36 +697,38 @@ export class DefaultRoute implements Route {
     // validation without per-adapter wiring. On failure the engine emits
     // `exchange:dropped` for telemetry and re-throws so the source's own
     // caller (e.g. a direct channel's `send`) sees the validation error.
-    this.consumer.register(async (message, headers, parse) => {
-      const exchange = this.buildExchange(message, headers);
-      const inputSchemas = this.definition.discovery?.input;
-      const hasInputSchema = !!inputSchemas?.body || !!inputSchemas?.headers;
+    this.consumer.register(
+      async (message, headers, parse, parseFailureMode) => {
+        const exchange = this.buildExchange(message, headers);
+        const inputSchemas = this.definition.discovery?.input;
+        const hasInputSchema = !!inputSchemas?.body || !!inputSchemas?.headers;
 
-      if (parse) {
-        // Stash the source-supplied parser on exchange internals so
-        // `runSteps` can apply it as a synthetic first pipeline step. This
-        // is what makes parse errors (e.g. malformed JSONL line, bad CSV
-        // row) surface as normal pipeline errors that the route's
-        // `.error()` handler can catch, rather than aborting the source.
-        // See #187.
-        const internals = EXCHANGE_INTERNALS.get(exchange);
-        if (internals) {
-          internals.parse = parse;
-          // Validation must run AFTER parse so `.input()` schemas validate
-          // the parsed body, not the raw bytes. The synthetic parse step
-          // calls this hook once parse succeeds.
-          if (hasInputSchema) {
-            internals.applyValidation = (ex: Exchange) =>
-              this.applyInputValidation(ex, inputSchemas);
+        if (parse) {
+          // Stash the source-supplied parser on exchange internals so
+          // `runSteps` can apply it as a synthetic first pipeline step.
+          // This is what makes parse errors surface as normal pipeline
+          // events the route can observe (`.error()` for `'fail'`,
+          // `exchange:dropped` for `'drop'`). See #187.
+          const internals = EXCHANGE_INTERNALS.get(exchange);
+          if (internals) {
+            internals.parse = parse;
+            internals.parseFailureMode = parseFailureMode ?? "fail";
+            // Validation must run AFTER parse so `.input()` schemas
+            // validate the parsed body, not the raw bytes. The synthetic
+            // parse step calls this hook once parse succeeds.
+            if (hasInputSchema) {
+              internals.applyValidation = (ex: Exchange) =>
+                this.applyInputValidation(ex, inputSchemas);
+            }
           }
+        } else if (hasInputSchema) {
+          // No parse: run validation eagerly (preserves existing behaviour).
+          await this.applyInputValidation(exchange, inputSchemas);
         }
-      } else if (hasInputSchema) {
-        // No parse: run validation eagerly (preserves existing behaviour).
-        await this.applyInputValidation(exchange, inputSchemas);
-      }
 
-      return this.handler(exchange);
-    });
+        return this.handler(exchange);
+      },
+    );
 
     let emitted = false;
     const onReady = () => {
@@ -663,7 +761,7 @@ export class DefaultRoute implements Route {
     };
     return activeSource.subscribe(
       this.context,
-      (message, headers, parse) => {
+      (message, headers, parse, parseFailureMode) => {
         onReady(); // fallback: fire before first message if adapter never called it
         return this.messageChannel.enqueue({
           message,
@@ -671,6 +769,7 @@ export class DefaultRoute implements Route {
           ...(parse
             ? {
                 parse: parse as (raw: unknown) => unknown | Promise<unknown>,
+                parseFailureMode: parseFailureMode ?? "fail",
               }
             : {}),
         });
@@ -801,16 +900,21 @@ export class DefaultRoute implements Route {
     const internals = EXCHANGE_INTERNALS.get(exchange);
     const sourceParse = internals?.parse;
     const sourceValidate = internals?.applyValidation;
+    const sourceFailureMode = internals?.parseFailureMode ?? "fail";
     if (internals && sourceParse) {
       // Clear so parse never runs twice on the same exchange (e.g. if the
       // exchange is forwarded back through the queue).
       delete internals.parse;
+      delete internals.parseFailureMode;
       delete internals.applyValidation;
     }
 
     const userSteps = [...this.definition.steps];
     const initialSteps: Step<Adapter>[] = sourceParse
-      ? [buildParseStep(sourceParse, sourceValidate), ...userSteps]
+      ? [
+          buildParseStep(sourceParse, sourceFailureMode, sourceValidate),
+          ...userSteps,
+        ]
       : userSteps;
 
     const queue: { exchange: Exchange; steps: Step<Adapter>[] }[] = [

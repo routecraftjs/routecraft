@@ -93,7 +93,7 @@ describe("JSONL Adapter", () => {
     /**
      * @case Aborts source on parse error when onParseError is 'abort'
      * @preconditions JSONL file with invalid JSON on line 2 and onParseError: 'abort'
-     * @expectedResult subscribe promise rejects with the parse error
+     * @expectedResult Per-item exchange:failed fires, then context:error with RC5016
      */
     test("aborts source on parse error with onParseError: 'abort'", async () => {
       const filePath = path.join(tmpDir, "bad.jsonl");
@@ -103,15 +103,36 @@ describe("JSONL Adapter", () => {
         "utf-8",
       );
 
-      const adapter = jsonl({ path: filePath, onParseError: "abort" });
+      const s = spy();
+      const failed: { error: unknown }[] = [];
 
-      await expect(
-        adapter.subscribe(
-          {} as any,
-          async () => ({}) as any,
-          new AbortController(),
-        ),
-      ).rejects.toThrow(/not-json/);
+      t = await testContext()
+        .routes(
+          craft()
+            .id("jsonl-non-chunked-abort")
+            .from(jsonl({ path: filePath, onParseError: "abort" }))
+            .to(s),
+        )
+        .build();
+
+      t.ctx.on(
+        "route:jsonl-non-chunked-abort:exchange:failed" as never,
+        ((payload: { details: { error: unknown } }) => {
+          failed.push({ error: payload.details.error });
+        }) as never,
+      );
+
+      const ctxErrSpy: { error: unknown }[] = [];
+      t.ctx.on("context:error", (payload) => {
+        ctxErrSpy.push({ error: payload.details.error });
+      });
+
+      await t.ctx.start();
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(failed.length).toBe(1);
+      expect((failed[0].error as { rc?: string }).rc).toBe("RC5016");
+      expect(ctxErrSpy.length).toBeGreaterThanOrEqual(1);
     });
 
     /**
@@ -272,25 +293,45 @@ describe("JSONL Adapter", () => {
     /**
      * @case Chunked mode aborts source on parse error with onParseError: 'abort'
      * @preconditions JSONL file with invalid JSON, chunked mode, onParseError: 'abort'
-     * @expectedResult subscribe promise rejects with the parse error
+     * @expectedResult Per-line exchange:failed fires, then context:error with RC5016
      */
     test("aborts chunked source on parse error with onParseError: 'abort'", async () => {
       const filePath = path.join(tmpDir, "bad-chunked.jsonl");
-      await fsp.writeFile(filePath, '{"ok":1}\nnot-json', "utf-8");
+      await fsp.writeFile(filePath, '{"ok":1}\nnot-json\n{"ok":2}', "utf-8");
 
-      const adapter = jsonl({
-        path: filePath,
-        chunked: true,
-        onParseError: "abort",
+      const s = spy();
+      const failed: { error: unknown }[] = [];
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("jsonl-chunked-abort")
+            .from(
+              jsonl({ path: filePath, chunked: true, onParseError: "abort" }),
+            )
+            .to(s),
+        )
+        .build();
+
+      t.ctx.on(
+        "route:jsonl-chunked-abort:exchange:failed" as never,
+        ((payload: { details: { error: unknown } }) => {
+          failed.push({ error: payload.details.error });
+        }) as never,
+      );
+
+      const ctxErrSpy: { error: unknown }[] = [];
+      t.ctx.on("context:error", (payload) => {
+        ctxErrSpy.push({ error: payload.details.error });
       });
 
-      await expect(
-        adapter.subscribe(
-          {} as any,
-          async () => ({}) as any,
-          new AbortController(),
-        ),
-      ).rejects.toThrow(/not-json/);
+      await t.ctx.start();
+      await new Promise((r) => setTimeout(r, 0));
+
+      // Per-item exchange:failed fired for the bad line BEFORE the source died.
+      expect(failed.length).toBe(1);
+      expect((failed[0].error as { rc?: string }).rc).toBe("RC5016");
+      expect(ctxErrSpy.length).toBeGreaterThanOrEqual(1);
     });
 
     /**
@@ -330,12 +371,12 @@ describe("JSONL Adapter", () => {
     });
 
     /**
-     * @case Chunked mode 'skip' silently drops malformed lines and continues
-     * @preconditions JSONL file with bad lines and onParseError: 'skip'
-     * @expectedResult Only valid lines reach the spy; no error events fire
+     * @case Chunked mode 'drop' emits exchange:dropped for malformed lines and continues
+     * @preconditions JSONL file with bad lines and onParseError: 'drop'
+     * @expectedResult Valid lines reach the spy; exchange:dropped fires with reason "parse-failed"
      */
-    test("onParseError: 'skip' drops malformed lines silently", async () => {
-      const filePath = path.join(tmpDir, "skip-chunked.jsonl");
+    test("onParseError: 'drop' emits exchange:dropped for malformed lines", async () => {
+      const filePath = path.join(tmpDir, "drop-chunked.jsonl");
       await fsp.writeFile(
         filePath,
         '{"id":1}\nnot-json\n{"id":2}\nbroken{\n{"id":3}',
@@ -343,17 +384,25 @@ describe("JSONL Adapter", () => {
       );
 
       const s = spy();
+      const dropped: { reason: string }[] = [];
 
       t = await testContext()
         .routes(
           craft()
-            .id("jsonl-chunked-skip")
+            .id("jsonl-chunked-drop")
             .from(
-              jsonl({ path: filePath, chunked: true, onParseError: "skip" }),
+              jsonl({ path: filePath, chunked: true, onParseError: "drop" }),
             )
             .to(s),
         )
         .build();
+
+      t.ctx.on(
+        "route:jsonl-chunked-drop:exchange:dropped" as never,
+        ((payload: { details: { reason: string } }) => {
+          dropped.push({ reason: payload.details.reason });
+        }) as never,
+      );
 
       await t.ctx.start();
 
@@ -361,6 +410,8 @@ describe("JSONL Adapter", () => {
       expect(s.received[0].body).toEqual({ id: 1 });
       expect(s.received[1].body).toEqual({ id: 2 });
       expect(s.received[2].body).toEqual({ id: 3 });
+      expect(dropped.length).toBeGreaterThanOrEqual(2);
+      expect(dropped[0].reason).toBe("parse-failed");
     });
   });
 

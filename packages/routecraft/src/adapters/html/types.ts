@@ -60,11 +60,16 @@ export interface HtmlOptions<T = unknown, R = unknown> {
   createDirs?: boolean;
 
   /**
-   * How to handle a `extractHtml` failure on the file content (source mode
-   * only). Default `'fail'`: the exchange fails so the route's `.error()`
-   * handler can catch it (or `exchange:failed` fires). `'abort'` rethrows
-   * out of the source. `'skip'` silently logs at warn and emits no
-   * exchange. See `OnParseError` for full semantics.
+   * How to handle an `extractHtml` failure on the file content (source mode
+   * only).
+   *
+   * - `'fail'` (default): `exchange:failed` fires; the route's `.error()`
+   *   handler can recover.
+   * - `'abort'`: `exchange:failed` fires, then the source dies
+   *   (`context:error`).
+   * - `'drop'`: `exchange:dropped` fires with `reason: "parse-failed"`.
+   *
+   * See `OnParseError` for full semantics.
    *
    * @default "fail"
    * @experimental

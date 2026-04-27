@@ -16,10 +16,16 @@ export class SimpleConsumer implements Consumer<never> {
       message: unknown,
       headers?: ExchangeHeaders,
       parse?: (raw: unknown) => unknown | Promise<unknown>,
+      parseFailureMode?: "fail" | "abort" | "drop",
     ) => Promise<Exchange>,
   ): Promise<void> {
     this.channel.setHandler(async (message) => {
-      return await handler(message.message, message.headers, message.parse);
+      return await handler(
+        message.message,
+        message.headers,
+        message.parse,
+        message.parseFailureMode,
+      );
     });
   }
 }

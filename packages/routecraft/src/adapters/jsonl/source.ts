@@ -4,7 +4,6 @@ import type { JsonlSourceOptions } from "./types.ts";
 import { HeadersKeys, type ExchangeHeaders } from "../../exchange.ts";
 import { forEachLine, throwFileError } from "../shared/line-reader.ts";
 import { DEFAULT_ON_PARSE_ERROR } from "../shared/parse.ts";
-import { rcError } from "../../error.ts";
 
 /**
  * JsonlSourceAdapter reads JSON Lines files.
@@ -17,11 +16,15 @@ import { rcError } from "../../error.ts";
  * Chunked: emits one exchange per line with `JSONL_LINE` and `JSONL_PATH`
  * headers.
  *
- * Per-line `JSON.parse` failures are routed by the `onParseError` option
- * (default `'fail'`). With `'fail'`, the parse runs as a synthetic first
- * pipeline step so the route's `.error()` handler can catch it (or
- * `exchange:failed` fires) and the source continues to the next line in
- * chunked mode. See #187.
+ * Per-line `JSON.parse` failures are observable via the events bus:
+ *
+ * | `onParseError` | Lifecycle on bad line (chunked)                                  |
+ * |----------------|------------------------------------------------------------------|
+ * | `'fail'` (default) | `exchange:failed` (or `error:caught`); next line continues  |
+ * | `'abort'`      | `exchange:failed` for the bad line, then source dies (`context:error`) |
+ * | `'drop'`       | `exchange:dropped` (`reason: "parse-failed"`); next line continues |
+ *
+ * See #187.
  *
  * @beta
  */
@@ -66,48 +69,36 @@ export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
               message: T,
               headers?: ExchangeHeaders,
               parse?: (raw: unknown) => unknown | Promise<unknown>,
+              parseFailureMode?: "fail" | "abort" | "drop",
             ) => Promise<import("../../exchange.ts").Exchange>;
 
-            if (onParseError === "fail") {
-              // Defer parse to the pipeline; per-line errors flow through
-              // route.error() and the source continues to the next line.
-              // The .catch() here only fires AFTER `runSteps` has already
-              // emitted `exchange:failed` (or the route's `.error()` has
-              // run); debug-level is intentional to avoid double-logging
-              // what the route boundary already logged.
-              await lineHandler(
-                trimmed as unknown as T,
-                headers,
-                (raw) => JSON.parse(raw as string, reviver) as T,
-              ).catch((err) => {
-                context.logger.debug(
-                  { err, path: filePath, line: lineNumber, adapter: "jsonl" },
-                  "jsonl adapter: pipeline failed for line; continuing",
-                );
-              });
+            // Defer parse to the synthetic pipeline step. The mode the
+            // runtime uses controls observability:
+            //   'fail'  -> exchange:failed; we .catch() and continue
+            //   'abort' -> exchange:failed; we let the rejection propagate
+            //              out of forEachLine to abort the source
+            //   'drop'  -> exchange:dropped; promise resolves cleanly
+            const promise = lineHandler(
+              trimmed as unknown as T,
+              headers,
+              (raw) => JSON.parse(raw as string, reviver) as T,
+              onParseError,
+            );
+
+            if (onParseError === "abort") {
+              await promise;
               return;
             }
 
-            // 'abort' or 'skip': parse inline.
-            let parsed: T;
-            try {
-              parsed = JSON.parse(trimmed, reviver) as T;
-            } catch (err) {
-              if (onParseError === "skip") {
-                context.logger.warn(
-                  { err, path: filePath, line: lineNumber, adapter: "jsonl" },
-                  "jsonl adapter: skipped malformed line (onParseError: 'skip')",
-                );
-                return;
-              }
-              // 'abort': wrap as RC5016 so the failure pattern is one error
-              // code regardless of `onParseError` mode.
-              const message = err instanceof Error ? err.message : String(err);
-              throw rcError("RC5016", err, {
-                message: `jsonl adapter: failed to parse line ${lineNumber}: ${message}`,
-              });
-            }
-            await lineHandler(parsed, headers);
+            // 'fail' and 'drop': swallow rejection (route boundary already
+            // emitted the lifecycle event). Debug-level avoids
+            // double-logging what runSteps already logged.
+            await promise.catch((err) => {
+              context.logger.debug(
+                { err, path: filePath, line: lineNumber, adapter: "jsonl" },
+                "jsonl adapter: pipeline failed for line; continuing",
+              );
+            });
           },
         );
       } catch (err) {
@@ -117,7 +108,10 @@ export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
       return;
     }
 
-    // Non-chunked: single exchange with the full parsed array.
+    // Non-chunked: single exchange with the full parsed array. The
+    // synthetic parse step parses ALL lines as one operation, so a single
+    // bad line fails the whole array. For per-line granularity use
+    // chunked mode.
     const content = await fsp
       .readFile(filePath, { encoding })
       .catch((err) => throwFileError("jsonl", filePath, err));
@@ -129,47 +123,33 @@ export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
       message: T[],
       headers?: ExchangeHeaders,
       parse?: (raw: unknown) => unknown | Promise<unknown>,
+      parseFailureMode?: "fail" | "abort" | "drop",
     ) => Promise<import("../../exchange.ts").Exchange>;
 
-    if (onParseError === "fail") {
-      // Pass raw non-empty lines; the synthetic parse step parses each one.
-      const rawLines: string[] = [];
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (trimmed !== "") rawLines.push(trimmed);
-      }
-      await arrayHandler(rawLines as unknown as T[], undefined, (raw) =>
-        (raw as string[]).map((l) => JSON.parse(l, reviver) as T),
-      );
-      if (onReady) onReady();
-      return;
+    const rawLines: string[] = [];
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed !== "") rawLines.push(trimmed);
     }
 
-    // 'abort' or 'skip': parse inline.
-    const results: T[] = [];
-    for (let i = 0; i < lines.length; i++) {
-      const trimmed = lines[i].trim();
-      if (trimmed === "") continue;
-      try {
-        results.push(JSON.parse(trimmed, reviver) as T);
-      } catch (err) {
-        if (onParseError === "skip") {
-          context.logger.warn(
-            { err, path: filePath, line: i + 1, adapter: "jsonl" },
-            "jsonl adapter: skipped malformed line (onParseError: 'skip')",
-          );
-          continue;
-        }
-        // 'abort': wrap as RC5016 so the failure pattern is one error code
-        // regardless of `onParseError` mode.
-        const message = err instanceof Error ? err.message : String(err);
-        throw rcError("RC5016", err, {
-          message: `jsonl adapter: failed to parse line ${i + 1}: ${message}`,
-        });
-      }
+    const promise = arrayHandler(
+      rawLines as unknown as T[],
+      undefined,
+      (raw) => (raw as string[]).map((l) => JSON.parse(l, reviver) as T),
+      onParseError,
+    );
+
+    if (onParseError === "abort") {
+      await promise;
+    } else {
+      await promise.catch((err) => {
+        context.logger.debug(
+          { err, path: filePath, adapter: "jsonl" },
+          "jsonl adapter: pipeline failed; non-chunked emits one exchange",
+        );
+      });
     }
 
-    await arrayHandler(results);
     if (onReady) onReady();
   };
 }

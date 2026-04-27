@@ -747,11 +747,13 @@ import { mcp } from "@routecraft/mcp-adapter";
 
 Source adapters that convert raw bytes into a structured body (`json`, `html`, `csv`, `jsonl`, `mail`) accept a uniform `onParseError` option that controls what happens when parsing fails (malformed JSON, structurally-invalid CSV row, broken MIME, etc.). The default is `'fail'`.
 
-| Value | Behaviour | Use case |
-|-------|-----------|----------|
-| `'fail'` (default) | The exchange fails inside the pipeline. The route's `.error()` handler is invoked with an `RC5016` error, or `exchange:failed` fires when no handler is set. Streaming adapters (`csv` chunked, `jsonl` chunked, `mail`) continue to the next item. | Per-item observability with stream continuation. |
-| `'abort'` | The source aborts on the first parse failure. No exchange is created; the subscribe promise rejects and `context:error` fires. | Atomic-load semantics where partial data is unacceptable. |
-| `'skip'` | The malformed item is silently dropped. A `warn`-level log is emitted. No exchange is created. Streaming adapters continue. | Lossy upstreams (scraping, public feeds) where malformed items are expected. |
+All three modes are observable on the events bus -- parse failures are never silent.
+
+| Value | Lifecycle events | Use case |
+|-------|------------------|----------|
+| `'fail'` (default) | `exchange:started` -> `exchange:failed` (or `error:caught` if `.error()` recovers) with `error.rc === 'RC5016'`. Streaming adapters continue to the next item. | Per-item observability with stream continuation. |
+| `'abort'` | `exchange:started` -> `exchange:failed` for the bad item, then the source rejects and `context:error` fires. | Atomic-load semantics where partial data is unacceptable. |
+| `'drop'` | `exchange:started` -> `exchange:dropped` with `reason: 'parse-failed'`. No `.error()` invocation. Streaming adapters continue. | Lossy upstreams (scraping, public feeds) where malformed items are expected but should still be counted. |
 
 ```ts
 // Default: route per-line parse errors through .error(), keep streaming.
@@ -767,11 +769,16 @@ craft()
 // Stop the stream on the first malformed row (atomic-import semantics).
 craft().from(csv({ path: './daily.csv', chunked: true, onParseError: 'abort' })).to(load());
 
-// Silently drop unparseable mail messages.
-craft().from(mail('INBOX', { onParseError: 'skip' })).to(process());
+// Drop unparseable mail with structured event observability.
+craft().from(mail('INBOX', { onParseError: 'drop' })).to(process());
+
+// Subscribe to parse drops across all routes:
+ctx.on('route:*:exchange:dropped', ({ details }) => {
+  if (details.reason === 'parse-failed') metrics.increment('source.parse.dropped');
+});
 ```
 
-Internally, `'fail'` mode defers parsing to a synthetic first pipeline step injected by the runtime, so `exchange:started` fires before parsing runs. This is what lets the route's `.error()` handler catch parse failures without the source aborting.
+Internally, all three modes defer parsing to a synthetic first pipeline step injected by the runtime, so `exchange:started` fires before parsing runs. The synthetic step decides per-mode whether to throw (`'fail'`/`'abort'`) or emit `exchange:dropped` (`'drop'`).
 
 ## File adapters
 
@@ -913,7 +920,7 @@ Parse and format JSON data, or read/write JSON files.
 | `indent` / `space` | `number` | `0` | JSON formatting spaces (destination only) |
 | `reviver` | `(key, value) => unknown` | -- | JSON.parse reviver (source only) |
 | `replacer` | `(key, value) => unknown` | -- | JSON.stringify replacer (destination only) |
-| `onParseError` | `'fail' \| 'abort' \| 'skip'` | `'fail'` | How to handle a parse failure (source only). See [parse error handling](#parse-error-handling). |
+| `onParseError` | `'fail' \| 'abort' \| 'drop'` | `'fail'` | How to handle a parse failure (source only). See [parse error handling](#parse-error-handling). |
 
 **Exported types:** `JsonAdapter`, `JsonFileAdapter`, `JsonOptions`, `JsonTransformerOptions`, `JsonFileOptions`
 
@@ -992,11 +999,11 @@ npm install papaparse
 | `mode` | `'write' \| 'append'` | `'write'` | File operation mode (destination only) |
 | `createDirs` | `boolean` | `false` | Create parent directories (destination only) |
 | `chunked` | `boolean` | `false` | Emit one exchange per row instead of entire array (source only) |
-| `onParseError` | `'fail' \| 'abort' \| 'skip'` | `'fail'` | How to handle a row parse failure (source only). See [parse error handling](#parse-error-handling). |
+| `onParseError` | `'fail' \| 'abort' \| 'drop'` | `'fail'` | How to handle a row parse failure (source only). See [parse error handling](#parse-error-handling). |
 
 **Behavior:**
 - **Source** (default): Emits entire CSV as array of records (objects if `header: true`, arrays if `header: false`)
-- **Source** (`chunked: true`): Emits one exchange per row with `CSV_ROW` (1-based row number) and `CSV_PATH` headers. Returns `Source` only (no `Destination`). With `onParseError: 'fail'` (default) malformed rows are routed through the route's `.error()` handler and the stream continues; `'abort'` reverts to fail-fast on the first bad row; `'skip'` silently drops the row.
+- **Source** (`chunked: true`): Emits one exchange per row with `CSV_ROW` (1-based row number) and `CSV_PATH` headers. Returns `Source` only (no `Destination`). With `onParseError: 'fail'` (default) malformed rows are routed through the route's `.error()` handler and the stream continues; `'abort'` reverts to fail-fast on the first bad row; `'drop'` emits `exchange:dropped` with `reason: 'parse-failed'`.
 - **Destination**: Writes exchange body (array of objects/arrays) as CSV. For `mode: 'append'`, skips header row if file exists
 
 ```ts
@@ -1063,7 +1070,7 @@ Read and write [JSON Lines](https://jsonlines.org/) files (one JSON object per l
 | `encoding` | `BufferEncoding` | `'utf-8'` | Text encoding |
 | `chunked` | `boolean` | `false` | Emit one exchange per line instead of a single array |
 | `reviver` | `(key, value) => unknown` | - | Reviver function passed to `JSON.parse` |
-| `onParseError` | `'fail' \| 'abort' \| 'skip'` | `'fail'` | How to handle a line parse failure. See [parse error handling](#parse-error-handling). |
+| `onParseError` | `'fail' \| 'abort' \| 'drop'` | `'fail'` | How to handle a line parse failure. See [parse error handling](#parse-error-handling). |
 
 **Destination options (`JsonlDestinationOptions`):**
 
@@ -1077,7 +1084,7 @@ Read and write [JSON Lines](https://jsonlines.org/) files (one JSON object per l
 
 **Behavior:**
 - **Source** (default): Reads file, splits lines, parses each as JSON, emits `T[]` array. Empty lines are skipped.
-- **Source** (`chunked: true`): Emits one `T` exchange per line with `JSONL_LINE` (1-based) and `JSONL_PATH` headers. Returns `Source` only (no `Destination`). With `onParseError: 'fail'` (default) malformed lines are routed through the route's `.error()` handler and the stream continues; `'abort'` aborts on the first bad line; `'skip'` silently drops the line.
+- **Source** (`chunked: true`): Emits one `T` exchange per line with `JSONL_LINE` (1-based) and `JSONL_PATH` headers. Returns `Source` only (no `Destination`). With `onParseError: 'fail'` (default) malformed lines are routed through the route's `.error()` handler and the stream continues; `'abort'` aborts on the first bad line; `'drop'` emits `exchange:dropped` with `reason: 'parse-failed'`.
 - **Destination**: Stringifies body to `JSON.stringify(body) + '\n'`. Array bodies write one line per element. Default mode is append.
 
 **Chunked headers:**
@@ -1180,7 +1187,7 @@ All transformer options above, plus:
 | `mode` | `'read' \| 'write' \| 'append'` | `'read'` for source, `'write'` for destination | File operation mode |
 | `encoding` | `BufferEncoding` | `'utf-8'` | Text encoding |
 | `createDirs` | `boolean` | `false` | Create parent directories (destination only) |
-| `onParseError` | `'fail' \| 'abort' \| 'skip'` | `'fail'` | How to handle an extraction failure (source only). See [parse error handling](#parse-error-handling). |
+| `onParseError` | `'fail' \| 'abort' \| 'drop'` | `'fail'` | How to handle an extraction failure (source only). See [parse error handling](#parse-error-handling). |
 
 **Extract types:**
 - `text` / `innerText` / `textContent`: Plain text content (strips HTML tags, removes `<style>` and `<script>`)
@@ -1360,7 +1367,7 @@ When multiple accounts are configured, select one per adapter call with the `acc
 | `limit` | `number` | | Maximum messages per fetch |
 | `pollIntervalMs` | `number` | | Poll interval in ms (default: IMAP IDLE) |
 | `account` | `string` | | Named account from context config (uses default if omitted) |
-| `onParseError` | `'fail' \| 'abort' \| 'skip'` | `'fail'` | How to handle a per-message MIME parse failure. See [parse error handling](#parse-error-handling). Pre-#187 behaviour was equivalent to `'skip'` but logged at debug; the new `'fail'` default routes failures through `.error()` and marks the malformed message Seen so it does not retry forever. |
+| `onParseError` | `'fail' \| 'abort' \| 'drop'` | `'fail'` | How to handle a per-message MIME parse failure. See [parse error handling](#parse-error-handling). Pre-#187 behaviour was equivalent to silent `'drop'` (logged at debug, no event); the new `'fail'` default routes failures through `.error()` and marks the malformed message Seen so it does not retry forever. Set `onParseError: 'drop'` to keep lossy-ingest semantics with structured `exchange:dropped` observability. |
 
 **Client options (`MailClientOptions`):**
 

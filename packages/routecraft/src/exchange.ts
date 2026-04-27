@@ -16,6 +16,8 @@ export enum OperationType {
    * `parse` function to the queued message. Runs `exchange.body = parse(body)`
    * before any user steps so parse failures flow through the route's normal
    * error handling instead of aborting the source. See #187.
+   *
+   * @experimental Tracks `OnParseError`'s maturity.
    */
   PARSE = "parse",
   /** The exchange was processed by a processor */
@@ -237,6 +239,17 @@ type ExchangeInternals = {
    * @internal
    */
   parse?: (raw: unknown) => unknown | Promise<unknown>;
+  /**
+   * How the synthetic parse step should handle a parse failure.
+   * - `"fail"` / `"abort"`: throw `RC5016` so `exchange:failed` fires (and
+   *   for `"abort"` the adapter rethrows out of subscribe).
+   * - `"drop"`: emit `exchange:dropped` with `reason: "parse-failed"`,
+   *   matching filter/validate drop semantics; the pipeline halts cleanly
+   *   without invoking `.error()`. See #187.
+   *
+   * @internal
+   */
+  parseFailureMode?: "fail" | "abort" | "drop";
   /**
    * Optional input-schema validation deferred to run inside the synthetic
    * parse step. Used when a route has both `.input()` schemas and a

@@ -4,7 +4,6 @@ import type { FileOptions } from "../file/types.ts";
 import { file } from "../file/index.ts";
 import { extractHtml } from "./shared.ts";
 import { DEFAULT_ON_PARSE_ERROR } from "../shared/parse.ts";
-import { rcError } from "../../error.ts";
 
 /**
  * HtmlSourceAdapter reads HTML from a file and extracts data using CSS selectors.
@@ -12,8 +11,14 @@ import { rcError } from "../../error.ts";
  *
  * Extraction is deferred to the route's pipeline by passing a `parse`
  * callback to `handler(...)`: the runtime applies it as a synthetic first
- * step so a malformed HTML file becomes a normal pipeline error that the
- * route's `.error()` handler can catch (default `onParseError: 'fail'`).
+ * step so an extraction failure becomes an observable pipeline event.
+ *
+ * | `onParseError` | Lifecycle on extraction failure                                  |
+ * |----------------|------------------------------------------------------------------|
+ * | `'fail'` (default) | `exchange:failed` (or `error:caught` if `.error()` recovers) |
+ * | `'abort'`      | `exchange:failed`, then source rejects and `context:error` fires |
+ * | `'drop'`       | `exchange:dropped` with `reason: "parse-failed"`                 |
+ *
  * See #187.
  */
 export class HtmlSourceAdapter<
@@ -50,43 +55,21 @@ export class HtmlSourceAdapter<
     meta,
   ) => {
     const onParseError = this.options.onParseError ?? DEFAULT_ON_PARSE_ERROR;
-    const filePath = this.options.path as string;
     const opts = this.options as HtmlOptions<T, R>;
 
     return this.fileAdapter.subscribe(
       context,
       async (htmlContent: string) => {
-        if (onParseError === "fail") {
-          // Defer extraction to the pipeline so route.error() can catch it.
-          return await handler(
-            htmlContent as unknown as HtmlResult,
-            undefined,
-            (raw) => extractHtml(raw as T, opts) as HtmlResult,
-          );
+        const promise = handler(
+          htmlContent as unknown as HtmlResult,
+          undefined,
+          (raw) => extractHtml(raw as T, opts) as HtmlResult,
+          onParseError,
+        );
+        if (onParseError === "abort") {
+          return await promise;
         }
-
-        // 'abort' or 'skip': run extraction inline.
-        let result: HtmlResult;
-        try {
-          result = extractHtml(htmlContent as T, opts) as HtmlResult;
-        } catch (err) {
-          if (onParseError === "skip") {
-            context.logger.warn(
-              { err, path: filePath, adapter: "html" },
-              "html adapter: skipped malformed HTML file (onParseError: 'skip')",
-            );
-            // FileSourceAdapter ignores the resolved value of this callback,
-            // so a no-exchange short-circuit is safe to fudge as `never`.
-            return undefined as never;
-          }
-          // 'abort': wrap as RC5016 so the failure pattern is one error
-          // code regardless of `onParseError` mode.
-          const message = err instanceof Error ? err.message : String(err);
-          throw rcError("RC5016", err, {
-            message: `html adapter: failed to extract HTML: ${message}`,
-          });
-        }
-        return handler(result);
+        return await promise.catch(() => undefined as never);
       },
       abortController,
       onReady,

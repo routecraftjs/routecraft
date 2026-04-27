@@ -5,6 +5,15 @@
  * html, csv, jsonl, mail) accept this option to control what happens when
  * the parse step throws.
  *
+ * All three modes are observable via the events bus, mirroring the
+ * filter / validate operation patterns:
+ *
+ * | Mode    | Lifecycle events fired                       |
+ * |---------|----------------------------------------------|
+ * | `fail`  | `exchange:started` -> `exchange:failed` (or `error:caught` if `.error()` recovers) |
+ * | `abort` | `exchange:started` -> `exchange:failed`, then `context:error` and the source dies |
+ * | `drop`  | `exchange:started` -> `exchange:dropped` (`reason: "parse-failed"`) |
+ *
  * @experimental The shape of this option may evolve as more parsing adapters
  * adopt the contract.
  */
@@ -19,25 +28,45 @@ export type OnParseError =
    */
   | "fail"
   /**
-   * The source aborts on the first parse failure. No exchange is created;
-   * the subscribe promise rejects and `context:error` fires.
+   * The source aborts on the first parse failure. The bad item still emits
+   * `exchange:started` -> `exchange:failed` for per-item observability;
+   * then the source's subscribe promise rejects and `context:error` fires.
    *
    * Use when partial-data is unacceptable and a malformed item should stop
    * the import (atomic-load semantics).
    */
   | "abort"
   /**
-   * The parse failure is silently dropped. No exchange is created; a
-   * `warn`-level log is emitted. Streaming adapters continue to the next
-   * item.
+   * The parse failure is dropped from the pipeline. The synthetic parse
+   * step emits `exchange:started` -> `exchange:dropped` with
+   * `reason: "parse-failed"` (matching `filter` / `validate` drop
+   * semantics). Streaming adapters continue to the next item; no
+   * `exchange:failed` and no `.error()` handler invocation.
    *
    * Use when malformed items are expected (scraping, lossy upstreams) and
-   * you do not want them to surface as route errors.
+   * you want them counted in `exchange:dropped` metrics rather than
+   * surfaced as route errors.
    */
-  | "skip";
+  | "drop";
 
 /**
  * Default `OnParseError` value applied when a parsing adapter does not set
  * one explicitly.
+ *
+ * @experimental Tracks `OnParseError`'s maturity (#187).
  */
 export const DEFAULT_ON_PARSE_ERROR: OnParseError = "fail";
+
+/**
+ * Reason string emitted on `exchange:dropped` when an `onParseError: 'drop'`
+ * source rejects a malformed item. Stable so subscribers can filter:
+ *
+ * ```ts
+ * ctx.on('route:*:exchange:dropped', ({ details }) => {
+ *   if (details.reason === PARSE_DROPPED_REASON) metrics.increment('parse.dropped');
+ * });
+ * ```
+ *
+ * @experimental
+ */
+export const PARSE_DROPPED_REASON = "parse-failed";

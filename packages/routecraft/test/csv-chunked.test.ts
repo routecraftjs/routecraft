@@ -243,34 +243,44 @@ describe("CSV Adapter - Chunked Mode", () => {
   });
 
   /**
-   * @case onParseError: 'skip' silently drops malformed rows
-   * @preconditions CSV chunked mode with malformed row and onParseError: 'skip'
-   * @expectedResult Only valid rows reach the spy; no error events
+   * @case onParseError: 'drop' emits exchange:dropped for malformed rows
+   * @preconditions CSV chunked with malformed row and onParseError: 'drop'
+   * @expectedResult Only valid rows reach the spy; exchange:dropped fires with reason "parse-failed"
    */
-  test("onParseError: 'skip' silently drops malformed rows", async () => {
-    const filePath = path.join(tmpDir, "skip.csv");
+  test("onParseError: 'drop' emits exchange:dropped for malformed rows", async () => {
+    const filePath = path.join(tmpDir, "drop.csv");
     await fsp.writeFile(filePath, "a,b,c\n1,2,3\n4,5\n6,7,8\n", "utf-8");
 
     const s = spy();
+    const dropped: { reason: string }[] = [];
 
     t = await testContext()
       .routes(
         craft()
-          .id("csv-chunked-skip")
+          .id("csv-chunked-drop")
           .from(
             csv({
               path: filePath,
               header: true,
               chunked: true,
-              onParseError: "skip",
+              onParseError: "drop",
             }),
           )
           .to(s),
       )
       .build();
 
+    t.ctx.on(
+      "route:csv-chunked-drop:exchange:dropped" as never,
+      ((payload: { details: { reason: string } }) => {
+        dropped.push({ reason: payload.details.reason });
+      }) as never,
+    );
+
     await t.ctx.start();
 
     expect(s.received.length).toBe(2);
+    expect(dropped.length).toBeGreaterThanOrEqual(1);
+    expect(dropped[0].reason).toBe("parse-failed");
   });
 });

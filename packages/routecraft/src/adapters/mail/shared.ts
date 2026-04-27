@@ -550,6 +550,11 @@ async function parseMessageContent(
  * error through the route's `.error()` handler via the `parse` argument so
  * malformed MIME becomes a normal pipeline error instead of a silent
  * degraded delivery. See #187.
+ *
+ * @internal Module-level registry. Safe globally because each `MailMessage`
+ * is constructed for one and only one fetch cycle, and entries are deleted
+ * by the source loop as soon as they are consumed. WeakMap GC handles any
+ * messages that go unread (e.g. after an abort mid-fetch).
  */
 export const MAIL_PARSE_ERRORS = new WeakMap<MailMessage, Error>();
 
@@ -594,7 +599,6 @@ export async function fetchMessages(
 
     const { simpleParser } = await import("mailparser");
     const verify = options.verify ?? "headers";
-    const onParseError = options.onParseError ?? "fail";
 
     for (const criteria of criteriaSets) {
       let searchQuery: Record<string, unknown> | string = criteria;
@@ -620,18 +624,12 @@ export async function fetchMessages(
           );
         } catch (err) {
           const wrapped = err instanceof Error ? err : new Error(String(err));
-          if (onParseError === "abort") {
-            throw wrapped;
-          }
-          if (onParseError === "skip") {
-            logger?.warn(
-              { err: wrapped, uid: msg.uid, folder },
-              "mail adapter: skipped malformed message (onParseError: 'skip')",
-            );
-            continue;
-          }
-          // 'fail': capture the error and let the source loop route it
-          // through the route's `.error()` handler via the `parse` arg.
+          // 'fail', 'abort', and 'drop' all capture the error so the per-
+          // message lifecycle event fires from the synthetic parse step.
+          // For 'abort' the source loop rethrows after the event fires so
+          // the source still dies; for 'drop' the route emits
+          // `exchange:dropped`; for 'fail' the route's `.error()` handler
+          // catches it. See #187.
           parseError = wrapped;
           content = {};
         }

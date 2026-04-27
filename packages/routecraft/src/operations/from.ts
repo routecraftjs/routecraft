@@ -31,7 +31,14 @@ export interface SourceMeta {
  * route's `.error()` handler can catch it. Adapters that emit pre-parsed
  * values (direct, simple, cron, timer, event, file) ignore the third argument.
  *
- * @template T - Body type of messages produced by this source
+ * **Type caveat:** when `parse` is supplied, the `message` argument is the
+ * RAW value (e.g. a JSON line string, raw RFC-822 bytes), not the typed `T`.
+ * The exchange body is widened to `unknown` until the synthetic parse step
+ * runs, then narrowed to `T` for downstream user steps. `.error()` handlers
+ * tied to `Exchange<T>` should NOT assume the body is `T` when the failure
+ * came from the parse step itself; they may be looking at raw bytes.
+ *
+ * @template T - Body type of messages produced by this source (after parse)
  */
 export type CallableSource<T = unknown> = (
   context: CraftContext,
@@ -54,6 +61,21 @@ export type CallableSource<T = unknown> = (
      * the contract; see #187.
      */
     parse?: (raw: unknown) => unknown | Promise<unknown>,
+    /**
+     * Decides what the synthetic parse step does on failure:
+     * - `"fail"` (default): throw `RC5016` so `exchange:failed` fires (or
+     *   the route's `.error()` recovers it).
+     * - `"abort"`: same lifecycle as `"fail"` but the source rethrows the
+     *   rejection and dies (`context:error` fires).
+     * - `"drop"`: emit `exchange:dropped` with `reason: "parse-failed"`
+     *   instead of failing; the pipeline halts cleanly without invoking
+     *   `.error()`.
+     *
+     * Adapters set this from their `onParseError` option.
+     *
+     * @experimental
+     */
+    parseFailureMode?: "fail" | "abort" | "drop",
   ) => Promise<Exchange>,
   abortController: AbortController,
   onReady?: () => void,
