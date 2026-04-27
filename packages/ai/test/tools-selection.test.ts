@@ -199,6 +199,59 @@ describe("tools() resolver - { name, guard }", () => {
     t = await buildCtx({ functions: { ...defaultFns } });
     expect(() => tools([{ name: "" }]).resolve(t!.ctx)).toThrow(/non-empty/i);
   });
+
+  /**
+   * @case { name, description } overrides description for THIS binding
+   * @preconditions tools([{ name: "currentTime", description: "Per-agent framing" }]) with currentTime registered
+   * @expectedResult ResolvedTool.description is the override; the registry entry's description is unchanged
+   */
+  test("{ name, description } overrides description per binding", async () => {
+    t = await buildCtx({ functions: { ...defaultFns } });
+    const [resolved] = tools([
+      {
+        name: "currentTime",
+        description: "Per-agent framing of the time tool.",
+      },
+    ]).resolve(t.ctx);
+    expect(resolved.description).toBe("Per-agent framing of the time tool.");
+
+    // Registry entry stays canonical: a second binding without the
+    // override sees the original description.
+    const [resolved2] = tools(["currentTime"]).resolve(t.ctx);
+    expect(resolved2.description).toBe(defaultFns.currentTime.description);
+    expect(resolved2.description).not.toBe(resolved.description);
+  });
+
+  /**
+   * @case { name, description } rejects empty/blank string
+   * @preconditions tools([{ name: "currentTime", description: "" }])
+   * @expectedResult RC5003 with a message naming the field
+   */
+  test("{ name, description } rejects empty string", async () => {
+    t = await buildCtx({ functions: { ...defaultFns } });
+    expect(() =>
+      tools([{ name: "currentTime", description: "" }]).resolve(t!.ctx),
+    ).toThrow(/description.*non-empty/i);
+  });
+
+  /**
+   * @case { name, description } combines with guard override
+   * @preconditions Both description and guard set in the same item
+   * @expectedResult Resolved tool has both the override description and the guard
+   */
+  test("{ name, guard, description } applies both overrides", async () => {
+    t = await buildCtx({ functions: { ...defaultFns } });
+    const guard = vi.fn();
+    const [resolved] = tools([
+      {
+        name: "currentTime",
+        guard,
+        description: "Reframed for this agent.",
+      },
+    ]).resolve(t.ctx);
+    expect(resolved.guard).toBe(guard);
+    expect(resolved.description).toBe("Reframed for this agent.");
+  });
 });
 
 describe("tools() resolver - tag selectors", () => {

@@ -179,7 +179,7 @@ export class TestContext {
    * Start context, wait for all routes ready, optionally delay, drain in-flight, then stop.
    * Assert after this returns (mocks, t.errors, t.ctx.getStore() all valid).
    *
-   * @param options.delayBeforeDrainMs — If set, wait this many ms after routes are ready before draining.
+   * @param options.delayBeforeDrainMs If set, wait this many ms after routes are ready before draining.
    *   Use for timer (or other deferred) sources so at least one message is processed before drain/stop.
    */
   async test(options?: TestOptions): Promise<void> {

@@ -34,7 +34,7 @@ const EMPTY_OBJECT_JSON_SCHEMA = {
  *
  * Exposes both `~standard.validate` (mandatory per the spec) and the
  * non-standard `~standard.jsonSchema.{input,output}` extension that
- * the Vercel AI SDK bridge consumes — so this hand-rolled schema can
+ * the Vercel AI SDK bridge consumes, so this hand-rolled schema can
  * back tools and structured-output specs alongside Zod / Valibot
  * schemas without special-casing.
  */

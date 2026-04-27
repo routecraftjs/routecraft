@@ -27,9 +27,9 @@ export const craftConfig = defineConfig({
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `store` | `Map<keyof StoreRegistry, StoreRegistry[keyof StoreRegistry]>` | No | — | Initial values for the context store |
-| `on` | `Partial<Record<EventName, EventHandler \| EventHandler[]>>` | No | — | Event handlers to register on context creation |
-| `once` | `Partial<Record<EventName, EventHandler \| EventHandler[]>>` | No | — | One-time event handlers that fire once then auto-unsubscribe |
+| `store` | `Map<keyof StoreRegistry, StoreRegistry[keyof StoreRegistry]>` | No | -- | Initial values for the context store |
+| `on` | `Partial<Record<EventName, EventHandler \| EventHandler[]>>` | No | -- | Event handlers to register on context creation |
+| `once` | `Partial<Record<EventName, EventHandler \| EventHandler[]>>` | No | -- | One-time event handlers that fire once then auto-unsubscribe |
 | `cron` | `Partial<CronOptions>` | No | -- | Default options for all `cron()` sources ([details](#cron)) |
 | `direct` | `{ channelType?: DirectChannelType }` | No | -- | Custom channel implementation for all `direct()` endpoints ([details](#direct)) |
 | `mail` | `MailContextConfig` | No | -- | Mail adapter accounts (IMAP/SMTP) keyed by name |

@@ -29,15 +29,22 @@ export type ToolGuard = (
  *
  * - bare string: name lookup. Plain ids resolve against the fn registry;
  *   `direct_*` falls back to the direct registry via `directTool`.
- * - `{ name, guard? }`: same lookup, with a guard attached to that tool.
+ * - `{ name, guard?, description? }`: same lookup, with optional
+ *   per-binding overrides. The `description` override applies only to
+ *   THIS binding (the registry entry stays the source of truth, so
+ *   other agents binding the same fn see the canonical description).
+ *   Use this when an agent's calling context calls for a different
+ *   framing of the tool than the registered description provides.
  * - `{ tagged, guard? }`: select every fn / route whose tags include any
  *   of the requested tag(s). Optional guard applies to every match.
+ *   No description override here: applying one description to N
+ *   matched tools is almost always wrong.
  *
  * @experimental
  */
 export type ToolsItem =
   | string
-  | { name: string; guard?: ToolGuard }
+  | { name: string; guard?: ToolGuard; description?: string }
   | { tagged: Tag | Tag[]; guard?: ToolGuard };
 
 /**
@@ -157,7 +164,7 @@ export function tools(items: ToolsItem[]): ToolSelection {
         }
         if (item === null || typeof item !== "object") {
           throw rcError("RC5003", undefined, {
-            message: `tools(): each item must be a string, { name, guard? }, or { tagged, guard? }.`,
+            message: `tools(): each item must be a string, { name, guard?, description? }, or { tagged, guard? }.`,
           });
         }
         if ("name" in item) {
@@ -166,7 +173,23 @@ export function tools(items: ToolsItem[]): ToolSelection {
               message: `tools(): { name } must be a non-empty string.`,
             });
           }
-          const tool = resolveByName(ctx, item.name, item.guard);
+          if (
+            item.description !== undefined &&
+            (typeof item.description !== "string" ||
+              item.description.trim() === "")
+          ) {
+            throw rcError("RC5003", undefined, {
+              message: `tools(): { name: "${item.name}", description } must be a non-empty string when present.`,
+            });
+          }
+          const base = resolveByName(ctx, item.name, item.guard);
+          // Per-binding description override. The registry entry is
+          // never mutated, so other agents binding the same fn still
+          // see the canonical description.
+          const tool: ResolvedTool =
+            item.description !== undefined
+              ? { ...base, description: item.description }
+              : base;
           explicit.set(tool.name, tool);
         } else if (!("tagged" in item)) {
           throw rcError("RC5003", undefined, {

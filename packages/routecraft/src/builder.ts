@@ -665,7 +665,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
         const context = getExchangeContext(exchange);
         if (!context) {
           throw rcError("RC5001", undefined, {
-            message: "Exchange has no context — cannot execute default split",
+            message: "Exchange has no context; cannot execute default split",
           });
         }
         const body = exchange.body;

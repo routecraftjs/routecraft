@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Routecraft CLI — single entry point.
+ * Routecraft CLI: single entry point.
  *
  * 1. Check Node version (Pino 10 needs Node 18.19+)
  * 2. Define program and parse; log options are global and applied before lazy-loading run/util (which load the logger)
@@ -143,7 +143,7 @@ program
       setImmediate(() => process.exit(code));
       return;
     }
-    // Don't call process.exit() — let the event loop drain naturally.
+    // Don't call process.exit(); let the event loop drain naturally.
     // process.exit() triggers C++ static destructors that race with ONNX
     // Runtime cleanup (onnxruntime#25038: "mutex lock failed").
   });

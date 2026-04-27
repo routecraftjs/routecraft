@@ -73,7 +73,7 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
     const route = getExchangeRoute(exchange);
 
     if (!context) {
-      throw new Error("Exchange has no context — cannot execute split");
+      throw new Error("Exchange has no context; cannot execute split");
     }
 
     const routeId =

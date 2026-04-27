@@ -168,8 +168,8 @@ Options:
 | `delayMs` | `number` | `0` | No | Delay before first execution in milliseconds |
 | `repeatCount` | `number` | `Infinity` | No | Number of executions before stopping |
 | `fixedRate` | `boolean` | `false` | No | Execute at exact intervals ignoring processing time |
-| `exactTime` | `string` | — | No | Execute daily at time of day `HH:mm:ss` (fires once/day) |
-| `timePattern` | `string` | — | No | Custom date format for execution times |
+| `exactTime` | `string` | -- | No | Execute daily at time of day `HH:mm:ss` (fires once/day) |
+| `timePattern` | `string` | -- | No | Custom date format for execution times |
 | `jitterMs` | `number` | `0` | No | Random jitter added to each scheduled run |
 
 **Headers added:** Timer metadata including fired time, counter, period, and next run time
@@ -417,7 +417,7 @@ craft()
 
 **Header Validation**
 
-Without `input.headers`, all headers pass through unchanged. When specified, the same Zod 4 rules apply — with one twist: validated header values are always merged over the original request headers, so caller-supplied pass-through keys survive schemas that would normally strip them.
+Without `input.headers`, all headers pass through unchanged. When specified, the same Zod 4 rules apply, with one twist: validated header values are always merged over the original request headers, so caller-supplied pass-through keys survive schemas that would normally strip them.
 
 ```ts
 // No header schema - all headers pass through unchanged
@@ -572,12 +572,12 @@ Options:
 | Field | Type | Default | Required | Description |
 | --- | --- | --- | --- | --- |
 | `method` | `HttpMethod` | `'GET'` | No | HTTP method to use |
-| `url` | `string \| (exchange) => string` | — | Yes | Target URL (string or derived from exchange) |
+| `url` | `string \| (exchange) => string` | -- | Yes | Target URL (string or derived from exchange) |
 | `headers` | `Record<string,string> \| (exchange) => Record<string,string>` | `{}` | No | Request headers |
 | `query` | `Record<string,string|number|boolean> \| (exchange) => Query` | `{}` | No | Query parameters appended to URL |
-| `body` | `unknown \| (exchange) => unknown` | — | No | Request body (JSON serialized when not string/binary) |
+| `body` | `unknown \| (exchange) => unknown` | -- | No | Request body (JSON serialized when not string/binary) |
 | `throwOnHttpError` | `boolean` | `true` | No | Throw when response is non-2xx |
-| `timeoutMs` | `number` | — | No | Request timeout in milliseconds |
+| `timeoutMs` | `number` | -- | No | Request timeout in milliseconds |
 
 **Returns:** `HttpResult` object with `status`, `headers`, `body`, and `url`
 
@@ -727,7 +727,7 @@ craft()
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `runtime` | `"throw"` or `"noop"` | `"throw"` | `"throw"` (default): throw with adapter name when executed. `"noop"`: resolve without error (for tests). |
-| `args` | `"keyed"` | — | Set to `"keyed"` to get a factory `(key: string, opts?) => PseudoAdapter<R>`. |
+| `args` | `"keyed"` | -- | Set to `"keyed"` to get a factory `(key: string, opts?) => PseudoAdapter<R>`. |
 
 **Replacing with a real adapter:** keep the same call shape; only the import changes:
 
@@ -867,9 +867,9 @@ Parse and format JSON data, or read/write JSON files.
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `path` | `string` | — | Dot-notation path to extract (e.g., `"data.items[0]"`) |
+| `path` | `string` | -- | Dot-notation path to extract (e.g., `"data.items[0]"`) |
 | `from` | `(body) => string` | Uses `body` or `body.body` | Extract JSON string from exchange |
-| `getValue` | `(parsed) => V` | — | Transform parsed value |
+| `getValue` | `(parsed) => V` | -- | Transform parsed value |
 | `to` | `(body, result) => R` | Replaces body | Where to put result |
 
 **File Options** (when `path` is a file path):
@@ -881,8 +881,8 @@ Parse and format JSON data, or read/write JSON files.
 | `encoding` | `BufferEncoding` | `'utf-8'` | Text encoding |
 | `createDirs` | `boolean` | `false` | Create parent directories (destination only) |
 | `indent` / `space` | `number` | `0` | JSON formatting spaces (destination only) |
-| `reviver` | `(key, value) => unknown` | — | JSON.parse reviver (source only) |
-| `replacer` | `(key, value) => unknown` | — | JSON.stringify replacer (destination only) |
+| `reviver` | `(key, value) => unknown` | -- | JSON.parse reviver (source only) |
+| `replacer` | `(key, value) => unknown` | -- | JSON.stringify replacer (destination only) |
 
 **Exported types:** `JsonAdapter`, `JsonFileAdapter`, `JsonOptions`, `JsonTransformerOptions`, `JsonFileOptions`
 
@@ -1133,7 +1133,7 @@ Extract data from HTML using CSS selectors (powered by cheerio), or read/write H
 |--------|------|---------|-------------|
 | `selector` | `string` | Required | CSS selector to match elements |
 | `extract` | `'text' \| 'html' \| 'attr' \| 'outerHtml' \| 'innerText' \| 'textContent'` | `'text'` | What to extract from matched elements |
-| `attr` | `string` | — | Attribute name (required when `extract: 'attr'`) |
+| `attr` | `string` | -- | Attribute name (required when `extract: 'attr'`) |
 | `from` | `(body) => string` | Uses `body` or `body.body` | Extract HTML string from exchange |
 | `to` | `(body, result) => R` | Replaces body | Where to put extracted result |
 
@@ -1677,14 +1677,14 @@ Model ID format: `"provider:model-name"` (e.g., `"ollama:llama3.2"`, `"anthropic
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `system` | `string \| (exchange) => string` | — | System prompt (static or derived from exchange) |
-| `user` | `string \| (exchange) => string` | — | User prompt (static or derived from exchange) |
-| `output` | `StandardSchemaV1` | — | Zod/Valibot/ArkType schema for structured output |
-| `temperature` | `number` | — | Sampling temperature |
-| `maxTokens` | `number` | — | Maximum tokens to generate |
-| `topP` | `number` | — | Top-p sampling |
-| `frequencyPenalty` | `number` | — | Frequency penalty |
-| `presencePenalty` | `number` | — | Presence penalty |
+| `system` | `string \| (exchange) => string` | -- | System prompt (static or derived from exchange) |
+| `user` | `string \| (exchange) => string` | -- | User prompt (static or derived from exchange) |
+| `output` | `StandardSchemaV1` | -- | Zod/Valibot/ArkType schema for structured output |
+| `temperature` | `number` | -- | Sampling temperature |
+| `maxTokens` | `number` | -- | Maximum tokens to generate |
+| `topP` | `number` | -- | Top-p sampling |
+| `frequencyPenalty` | `number` | -- | Frequency penalty |
+| `presencePenalty` | `number` | -- | Presence penalty |
 
 **Result shape (merged into body by `.enrich()`):**
 

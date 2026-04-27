@@ -45,7 +45,7 @@ describe("agent runtime: tool wiring through callLlm", () => {
 
   /**
    * @case Agent without tools dispatches callLlm without `tools` or `stopWhen`
-   * @preconditions Inline agent({ system, model }) — no tools field
+   * @preconditions Inline agent({ system, model }) without a tools field
    * @expectedResult callLlm receives the prompt only; no tools, stopWhen, or output
    */
   test("agent without tools omits tool wiring", async () => {

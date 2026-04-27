@@ -996,7 +996,7 @@ describe("McpServer", () => {
         expect(h["routecraft.auth.audience"]).toEqual(["aud-a", "aud-b"]);
         expect(h["routecraft.auth.roles"]).toEqual(["member"]);
         expect(h["routecraft.auth.scopes"]).toEqual(["read", "write"]);
-        // JWT principals have no clientId — header must be absent.
+        // JWT principals have no clientId; header must be absent.
         expect(h["routecraft.auth.client_id"]).toBeUndefined();
       });
 

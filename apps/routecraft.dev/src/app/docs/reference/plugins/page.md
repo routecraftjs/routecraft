@@ -587,16 +587,16 @@ agentPlugin({
 
 Flat array of items. Each item is one of:
 
-- **Bare string** — name lookup. Plain ids resolve against the fn registry; `direct_*` falls back to the direct registry via `directTool`. `agent_*` and `mcp_*` are reserved for future stories and currently throw a clear "not yet supported" error.
-- **`{ name, guard? }`** — same name lookup, with an optional guard attached. The guard runs after schema validation and before the handler; throwing surfaces back to the LLM as a tool error so the model can self-correct.
-- **`{ tagged, guard? }`** — selects every fn / route whose tags overlap the requested set (single tag or array). Optional guard applies to every match. Tag-zero-match contributes nothing without throwing.
+- **Bare string**: name lookup. Plain ids resolve against the fn registry; `direct_*` falls back to the direct registry via `directTool`. `agent_*` and `mcp_*` are reserved for future stories and currently throw a clear "not yet supported" error.
+- **`{ name, guard?, description? }`**: same name lookup, with optional per-binding overrides. The guard runs after schema validation and before the handler; throwing surfaces back to the LLM as a tool error so the model can self-correct. The `description` override applies only to this binding (the registry entry stays the source of truth, so other agents binding the same fn still see the canonical description). Use it when an agent's calling context calls for a different framing of the tool than the registered description provides; descriptions affect LLM tool-selection accuracy noticeably.
+- **`{ tagged, guard? }`**: selects every fn / route whose tags overlap the requested set (single tag or array). Optional guard applies to every match. Tag-zero-match contributes nothing without throwing. No description override on the tagged form: applying a single description to N matched tools is almost always wrong.
 
 Resolution rules:
 
 - Final list deduplicated by tool name.
 - Explicit refs always win over tag-selector matches, regardless of position in the list.
 - A `directTool(routeId)` fn-registry wrapper supersedes the same direct route surfaced via the prefix convention.
-- Input, description, and tag overrides at the use site are intentionally not supported. Definition is a registration concern: register a separate fn with `directTool(routeId, { description, input, tags })` if you need a custom view.
+- `description` is the only override permitted at the use site, and only on the explicit `{ name }` form. Input schema, tags, and any other registration-time fields are not overridable here. Register a separate fn with `directTool(routeId, { input, tags })` if you need a fundamentally different view.
 
 #### Builders
 
