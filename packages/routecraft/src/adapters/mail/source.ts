@@ -4,7 +4,7 @@ import type { Exchange, ExchangeHeaders } from "../../exchange.ts";
 import { rcError } from "../../error.ts";
 import type { MailMessage, MailServerOptions } from "./types.ts";
 import type { MailClientManager } from "./client-manager.ts";
-import type { OnParseError } from "../shared/parse.ts";
+import { DEFAULT_ON_PARSE_ERROR, type OnParseError } from "../shared/parse.ts";
 import {
   getClientManager,
   createImapClient,
@@ -155,7 +155,7 @@ export class MailSourceAdapter implements Source<MailMessage> {
     // through the route's `.error()` handler; `'drop'` emits
     // `exchange:dropped` with `reason: "parse-failed"`; `'abort'` would
     // additionally re-throw out of the source loop.
-    const parseFailureMode = resolved.onParseError ?? "fail";
+    const parseFailureMode = resolved.onParseError ?? DEFAULT_ON_PARSE_ERROR;
 
     const handlerWithHeaders = (message: MailMessage) => {
       const headers: ExchangeHeaders = {
@@ -260,7 +260,7 @@ export class MailSourceAdapter implements Source<MailMessage> {
     abortController: AbortController,
     logger?: MailFetchLogger,
   ): Promise<void> {
-    const onParseError = options.onParseError ?? "fail";
+    const onParseError = options.onParseError ?? DEFAULT_ON_PARSE_ERROR;
     while (!abortController.signal.aborted) {
       const client = clientRef.current;
       if (!client) return;
@@ -392,7 +392,7 @@ export class MailSourceAdapter implements Source<MailMessage> {
   ): Promise<void> {
     const client = clientRef.current;
     if (!client) return;
-    const onParseError = options.onParseError ?? "fail";
+    const onParseError = options.onParseError ?? DEFAULT_ON_PARSE_ERROR;
 
     const messages = await fetchMessages(client, options, folder, logger);
     for (const message of messages) {

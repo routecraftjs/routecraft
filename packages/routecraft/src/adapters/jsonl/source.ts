@@ -1,9 +1,17 @@
 import * as fsp from "node:fs/promises";
 import type { Source, CallableSource } from "../../operations/from.ts";
 import type { JsonlSourceOptions } from "./types.ts";
-import { HeadersKeys, type ExchangeHeaders } from "../../exchange.ts";
+import {
+  HeadersKeys,
+  type Exchange,
+  type ExchangeHeaders,
+} from "../../exchange.ts";
 import { forEachLine, throwFileError } from "../shared/line-reader.ts";
-import { DEFAULT_ON_PARSE_ERROR, type OnParseError } from "../shared/parse.ts";
+import {
+  DEFAULT_ON_PARSE_ERROR,
+  isParseError,
+  type OnParseError,
+} from "../shared/parse.ts";
 
 /**
  * JsonlSourceAdapter reads JSON Lines files.
@@ -70,7 +78,7 @@ export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
               headers?: ExchangeHeaders,
               parse?: (raw: unknown) => unknown | Promise<unknown>,
               parseFailureMode?: OnParseError,
-            ) => Promise<import("../../exchange.ts").Exchange>;
+            ) => Promise<Exchange>;
 
             // Defer parse to the synthetic pipeline step. The mode the
             // runtime uses controls observability:
@@ -85,15 +93,14 @@ export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
               onParseError,
             );
 
-            if (onParseError === "abort") {
-              await promise;
-              return;
-            }
-
-            // 'fail' and 'drop': swallow rejection (route boundary already
-            // emitted the lifecycle event). Debug-level avoids
-            // double-logging what runSteps already logged.
-            await promise.catch((err) => {
+            await promise.catch((err: unknown) => {
+              // 'abort' is parse-specific: only RC5016 should tear
+              // down the source. Downstream destination errors must
+              // NOT propagate as an abort signal.
+              if (onParseError === "abort" && isParseError(err)) throw err;
+              // 'fail' / 'drop' / non-parse failures under 'abort': the
+              // route boundary already emitted the lifecycle event;
+              // debug-level avoids double-logging what runSteps logged.
               context.logger.debug(
                 { err, path: filePath, line: lineNumber, adapter: "jsonl" },
                 "jsonl adapter: pipeline failed for line; continuing",
@@ -103,6 +110,16 @@ export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
         );
       } catch (err) {
         if (abortController.signal.aborted) return;
+        // Preserve framework error codes (e.g. RC5016 from `'abort'` mode).
+        // `throwFileError` wraps as `RC5010` which would mask the original
+        // parse-error code, so re-throw RC-bearing errors as-is.
+        if (
+          typeof err === "object" &&
+          err !== null &&
+          "rc" in (err as Record<string, unknown>)
+        ) {
+          throw err;
+        }
         throwFileError("jsonl", filePath, err);
       }
       return;
@@ -124,7 +141,7 @@ export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
       headers?: ExchangeHeaders,
       parse?: (raw: unknown) => unknown | Promise<unknown>,
       parseFailureMode?: OnParseError,
-    ) => Promise<import("../../exchange.ts").Exchange>;
+    ) => Promise<Exchange>;
 
     const rawLines: string[] = [];
     for (const line of lines) {
@@ -139,16 +156,15 @@ export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
       onParseError,
     );
 
-    if (onParseError === "abort") {
-      await promise;
-    } else {
-      await promise.catch((err) => {
-        context.logger.debug(
-          { err, path: filePath, adapter: "jsonl" },
-          "jsonl adapter: pipeline failed; non-chunked emits one exchange",
-        );
-      });
-    }
+    await promise.catch((err: unknown) => {
+      // 'abort' is parse-specific: only RC5016 should tear down the
+      // source. Downstream destination errors must NOT propagate.
+      if (onParseError === "abort" && isParseError(err)) throw err;
+      context.logger.debug(
+        { err, path: filePath, adapter: "jsonl" },
+        "jsonl adapter: pipeline failed; non-chunked emits one exchange",
+      );
+    });
 
     if (onReady) onReady();
   };

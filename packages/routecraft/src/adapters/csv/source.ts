@@ -5,7 +5,11 @@ import { HeadersKeys, type ExchangeHeaders } from "../../exchange.ts";
 import { file } from "../file/index.ts";
 import { ensurePapaparse } from "./shared.ts";
 import { throwFileError } from "../shared/line-reader.ts";
-import { DEFAULT_ON_PARSE_ERROR, type OnParseError } from "../shared/parse.ts";
+import {
+  DEFAULT_ON_PARSE_ERROR,
+  isParseError,
+  type OnParseError,
+} from "../shared/parse.ts";
 import type { CraftContext } from "../../context.ts";
 
 /**
@@ -110,10 +114,22 @@ export class CsvSourceAdapter implements Source<CsvData | CsvRow> {
           parseFn,
           onParseError,
         );
-        if (onParseError === "abort") {
-          return await promise;
-        }
-        return await promise.catch(() => undefined as never);
+        // 'abort' is parse-specific: only RC5016 should tear down the
+        // source. A downstream destination error must NOT propagate as
+        // an abort signal even when onParseError === 'abort'.
+        return await promise.catch((err: unknown) => {
+          if (onParseError === "abort" && isParseError(err)) throw err;
+          if (onParseError !== "abort") return undefined as never;
+          // Non-parse failure under 'abort': log and swallow so the
+          // file source keeps reading. (For non-chunked there is only
+          // one exchange so this case is rare; we still keep abort
+          // narrow.)
+          context.logger.debug(
+            { err, path: filePath, adapter: "csv" },
+            "csv adapter: non-parse pipeline failure under 'abort'; not aborting source",
+          );
+          return undefined as never;
+        });
       },
       abortController,
       onReady,
@@ -224,17 +240,16 @@ export class CsvSourceAdapter implements Source<CsvData | CsvRow> {
               if (!aborted) parser.resume();
             })
             .catch((err) => {
-              if (onParseError === "abort") {
-                // Abort the stream and reject the subscribe promise so
-                // the source dies. The route boundary already emitted
-                // exchange:failed for this row.
+              // 'abort' is parse-specific: only RC5016 should tear
+              // down the stream. A downstream destination error must
+              // NOT abort even when onParseError === 'abort'; the
+              // route boundary has already emitted exchange:failed
+              // and we just continue.
+              if (onParseError === "abort" && isParseError(err)) {
                 parser.abort();
                 settle(() => reject(err));
                 return;
               }
-              // 'fail' or 'drop': route boundary has already emitted the
-              // appropriate lifecycle event (exchange:failed or
-              // exchange:dropped); just keep the stream flowing.
               context.logger.debug(
                 { err, path: filePath, row: currentRow, adapter: "csv" },
                 "csv adapter: pipeline failed for row; continuing",

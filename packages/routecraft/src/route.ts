@@ -21,7 +21,10 @@ import { rcError, RoutecraftError, RC, formatSchemaIssues } from "./error.ts";
 import { isRoutecraftError } from "./brand.ts";
 import { logger, childBindings } from "./logger.ts";
 import { type Source } from "./operations/from.ts";
-import { type OnParseError } from "./adapters/shared/parse.ts";
+import {
+  type OnParseError,
+  PARSE_DROPPED_REASON,
+} from "./adapters/shared/parse.ts";
 import {
   type Adapter,
   type Step,
@@ -120,19 +123,6 @@ export interface RouteDiscovery {
 const PARSE_STEP_ADAPTER: Adapter = { adapterId: "routecraft.parse" };
 
 /**
- * Stable `reason` string emitted on `exchange:dropped` when a parsing source
- * with `onParseError: 'drop'` rejects a malformed item. Mirrors the constant
- * exported from `adapters/shared/parse.ts`. Subscribers can filter on this:
- *
- * ```ts
- * ctx.on('route:*:exchange:dropped', ({ details }) => {
- *   if (details.reason === 'parse-failed') metrics.increment('parse.dropped');
- * });
- * ```
- */
-const PARSE_DROPPED_REASON = "parse-failed";
-
-/**
  * Build a synthetic pipeline step that runs a source-supplied parse function
  * against the exchange body. Inserted by `runSteps` as the first step when a
  * source attaches `parse` to its message; this is what makes parse failures
@@ -216,9 +206,12 @@ function buildParseStep(
         exchange.body = await parse(exchange.body);
       } catch (cause) {
         if (failureMode === "drop") {
-          // Drops are not failures: emit step:completed (the step itself
-          // ran cleanly), then exchange:dropped with a stable reason.
-          emitStepCompleted();
+          // The parse threw, so the step itself failed: emit step:failed
+          // (honest about what happened), then exchange:dropped with a
+          // stable reason (carries the policy decision). Subscribers
+          // counting parse failures see step:failed; subscribers
+          // tracking drop policy see exchange:dropped.
+          emitStepFailed(cause);
           context?.emit(`route:${routeId}:exchange:dropped` as EventName, {
             routeId,
             exchangeId: exchange.id,

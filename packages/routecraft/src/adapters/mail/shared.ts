@@ -476,72 +476,70 @@ async function parseMessageContent(
   // Throws on malformed MIME. Callers decide whether to swallow, route the
   // error through the route pipeline, or abort (see `onParseError` and #187).
   const parsed = await simpleParser(source);
-  {
-    const content: {
-      text?: string;
-      html?: string;
-      attachments?: Array<{
+  const content: {
+    text?: string;
+    html?: string;
+    attachments?: Array<{
+      filename?: string;
+      contentType: string;
+      size: number;
+      content: Buffer;
+    }>;
+    rawHeaders?: Record<string, string | string[]>;
+    analysisHeaders?: Record<string, string | string[]>;
+  } = {};
+  if (parsed.text) content.text = parsed.text;
+  if (typeof parsed.html === "string") content.html = parsed.html;
+  if (parsed.attachments && parsed.attachments.length > 0) {
+    content.attachments = parsed.attachments.map((att) => {
+      const a: {
         filename?: string;
         contentType: string;
         size: number;
         content: Buffer;
-      }>;
-      rawHeaders?: Record<string, string | string[]>;
-      analysisHeaders?: Record<string, string | string[]>;
-    } = {};
-    if (parsed.text) content.text = parsed.text;
-    if (typeof parsed.html === "string") content.html = parsed.html;
-    if (parsed.attachments && parsed.attachments.length > 0) {
-      content.attachments = parsed.attachments.map((att) => {
-        const a: {
-          filename?: string;
-          contentType: string;
-          size: number;
-          content: Buffer;
-        } = {
-          contentType: att.contentType,
-          size: att.size,
-          content: att.content,
-        };
-        if (att.filename) a.filename = att.filename;
-        return a;
-      });
-    }
-    if (requestedHeaders && parsed.headerLines) {
-      const hdrs: Record<string, string | string[]> = {};
-      const wanted =
-        requestedHeaders === true
-          ? null
-          : new Set(requestedHeaders.map((h) => h.toLowerCase()));
-      for (const entry of parsed.headerLines as Array<{
-        key: string;
-        line: string;
-      }>) {
-        if (wanted && !wanted.has(entry.key)) continue;
-        // Extract value portion after "Header-Name: "
-        const colonIdx = entry.line.indexOf(":");
-        const value =
-          colonIdx >= 0 ? entry.line.slice(colonIdx + 1).trim() : entry.line;
-        // Accumulate multi-value headers (e.g. Received) as arrays
-        const existing = hdrs[entry.key];
-        if (existing === undefined) {
-          hdrs[entry.key] = value;
-        } else if (Array.isArray(existing)) {
-          existing.push(value);
-        } else {
-          hdrs[entry.key] = [existing, value];
-        }
-      }
-      if (Object.keys(hdrs).length > 0) content.rawHeaders = hdrs;
-    }
-    if (includeAnalysisHeaders && parsed.headerLines) {
-      const analysis = extractAnalysisHeaders(
-        parsed.headerLines as ReadonlyArray<{ key: string; line: string }>,
-      );
-      if (Object.keys(analysis).length > 0) content.analysisHeaders = analysis;
-    }
-    return content;
+      } = {
+        contentType: att.contentType,
+        size: att.size,
+        content: att.content,
+      };
+      if (att.filename) a.filename = att.filename;
+      return a;
+    });
   }
+  if (requestedHeaders && parsed.headerLines) {
+    const hdrs: Record<string, string | string[]> = {};
+    const wanted =
+      requestedHeaders === true
+        ? null
+        : new Set(requestedHeaders.map((h) => h.toLowerCase()));
+    for (const entry of parsed.headerLines as Array<{
+      key: string;
+      line: string;
+    }>) {
+      if (wanted && !wanted.has(entry.key)) continue;
+      // Extract value portion after "Header-Name: "
+      const colonIdx = entry.line.indexOf(":");
+      const value =
+        colonIdx >= 0 ? entry.line.slice(colonIdx + 1).trim() : entry.line;
+      // Accumulate multi-value headers (e.g. Received) as arrays
+      const existing = hdrs[entry.key];
+      if (existing === undefined) {
+        hdrs[entry.key] = value;
+      } else if (Array.isArray(existing)) {
+        existing.push(value);
+      } else {
+        hdrs[entry.key] = [existing, value];
+      }
+    }
+    if (Object.keys(hdrs).length > 0) content.rawHeaders = hdrs;
+  }
+  if (includeAnalysisHeaders && parsed.headerLines) {
+    const analysis = extractAnalysisHeaders(
+      parsed.headerLines as ReadonlyArray<{ key: string; line: string }>,
+    );
+    if (Object.keys(analysis).length > 0) content.analysisHeaders = analysis;
+  }
+  return content;
 }
 
 /**

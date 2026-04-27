@@ -2,7 +2,7 @@ import type { Source, CallableSource } from "../../operations/from.ts";
 import type { JsonFileOptions } from "./types.ts";
 import type { FileOptions } from "../file/types.ts";
 import { file } from "../file/index.ts";
-import { DEFAULT_ON_PARSE_ERROR } from "../shared/parse.ts";
+import { DEFAULT_ON_PARSE_ERROR, isParseError } from "../shared/parse.ts";
 
 /**
  * JsonSourceAdapter reads and parses JSON files.
@@ -47,6 +47,7 @@ export class JsonSourceAdapter implements Source<unknown> {
   ) => {
     const onParseError = this.options.onParseError ?? DEFAULT_ON_PARSE_ERROR;
     const reviver = this.options.reviver;
+    const filePath = this.options.path as string;
 
     return this.fileAdapter.subscribe(
       context,
@@ -56,6 +57,7 @@ export class JsonSourceAdapter implements Source<unknown> {
         // observe each outcome:
         //   'fail'  -> exchange:failed (or .error() recovers)
         //   'abort' -> exchange:failed, then we rethrow to abort the source
+        //                (only for RC5016; downstream errors are swallowed)
         //   'drop'  -> exchange:dropped with reason "parse-failed"
         const promise = handler(
           content as unknown,
@@ -63,16 +65,20 @@ export class JsonSourceAdapter implements Source<unknown> {
           (raw) => JSON.parse(raw as string, reviver as never),
           onParseError,
         );
-        if (onParseError === "abort") {
-          // Let the rejection propagate so FileSourceAdapter's caller
-          // observes it and the source dies with context:error.
-          return await promise;
-        }
-        // 'fail' and 'drop': swallow the rejection here (it has already
-        // been emitted as exchange:failed or exchange:dropped). Single-
-        // exchange adapter so there is no "next item" to continue to,
-        // but we still need to not propagate the error out of subscribe.
-        return await promise.catch(() => undefined as never);
+        return await promise.catch((err: unknown) => {
+          // 'abort' is parse-specific: only RC5016 should tear down the
+          // source. A downstream destination error must NOT propagate
+          // as an abort signal.
+          if (onParseError === "abort" && isParseError(err)) throw err;
+          // 'fail' / 'drop' / non-parse failures under 'abort': route
+          // boundary already emitted the appropriate lifecycle event.
+          // Log at debug for operator parity with jsonl/source.ts.
+          context.logger.debug(
+            { err, path: filePath, adapter: "json" },
+            "json adapter: pipeline failed for file; continuing",
+          );
+          return undefined as never;
+        });
       },
       abortController,
       onReady,

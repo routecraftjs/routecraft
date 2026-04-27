@@ -335,7 +335,7 @@ describe("JSON Adapter", () => {
     /**
      * @case Invalid JSON file aborts source with onParseError: 'abort'
      * @preconditions File contains invalid JSON; onParseError: 'abort'
-     * @expectedResult Error thrown with "failed to parse" message via context:error
+     * @expectedResult RC5016 surfaces via context:error and the source dies
      */
     test("invalid JSON file aborts source with onParseError: 'abort'", async () => {
       await fs.writeFile(testFilePath, "{ invalid json }");

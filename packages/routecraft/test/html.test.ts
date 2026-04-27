@@ -529,6 +529,16 @@ describe("HTML Adapter", () => {
     let tempDir: string;
     let testFile: string;
 
+    afterEach(async () => {
+      if (tempDir) {
+        try {
+          await fs.rm(tempDir, { recursive: true, force: true });
+        } catch {
+          // Ignore cleanup errors
+        }
+      }
+    });
+
     /**
      * @case Default 'fail' routes extraction failure through .error()
      * @preconditions HTML source with extract: 'attr' but no attr option (extractHtml throws)

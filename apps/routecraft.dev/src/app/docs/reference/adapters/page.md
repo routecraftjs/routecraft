@@ -1367,7 +1367,7 @@ When multiple accounts are configured, select one per adapter call with the `acc
 | `limit` | `number` | | Maximum messages per fetch |
 | `pollIntervalMs` | `number` | | Poll interval in ms (default: IMAP IDLE) |
 | `account` | `string` | | Named account from context config (uses default if omitted) |
-| `onParseError` | `'fail' \| 'abort' \| 'drop'` | `'fail'` | How to handle a per-message MIME parse failure. See [parse error handling](#parse-error-handling). Pre-#187 behaviour was equivalent to silent `'drop'` (logged at debug, no event); the new `'fail'` default routes failures through `.error()` and marks the malformed message Seen so it does not retry forever. Set `onParseError: 'drop'` to keep lossy-ingest semantics with structured `exchange:dropped` observability. |
+| `onParseError` | `'fail' \| 'abort' \| 'drop'` | `'fail'` | How to handle a per-message MIME parse failure. See [parse error handling](#parse-error-handling). All three modes mark the malformed message Seen so it does not refetch forever. `'fail'` routes the failure through the route's `.error()` handler (or `exchange:failed` if no handler is set). `'drop'` does NOT invoke `.error()`; it emits `exchange:dropped` with `reason: 'parse-failed'` so subscribers can count parse drops as a structured event without scraping logs. Pre-#187 behaviour was equivalent to a silent `'drop'` (logged at debug, no event); set `onParseError: 'drop'` to keep lossy-ingest semantics with structured observability. |
 
 **Client options (`MailClientOptions`):**
 

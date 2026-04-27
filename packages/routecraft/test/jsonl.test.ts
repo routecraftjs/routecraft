@@ -134,6 +134,7 @@ describe("JSONL Adapter", () => {
       expect(failed.length).toBe(1);
       expect((failed[0].error as { rc?: string }).rc).toBe("RC5016");
       expect(ctxErrSpy.length).toBeGreaterThanOrEqual(1);
+      expect((ctxErrSpy[0].error as { rc?: string }).rc).toBe("RC5016");
     });
 
     /**
@@ -333,6 +334,7 @@ describe("JSONL Adapter", () => {
       expect(failed.length).toBe(1);
       expect((failed[0].error as { rc?: string }).rc).toBe("RC5016");
       expect(ctxErrSpy.length).toBeGreaterThanOrEqual(1);
+      expect((ctxErrSpy[0].error as { rc?: string }).rc).toBe("RC5016");
     });
 
     /**
@@ -411,8 +413,11 @@ describe("JSONL Adapter", () => {
       expect(s.received[0].body).toEqual({ id: 1 });
       expect(s.received[1].body).toEqual({ id: 2 });
       expect(s.received[2].body).toEqual({ id: 3 });
-      expect(dropped.length).toBeGreaterThanOrEqual(2);
+      // Two malformed lines, two structured drop events, both with the
+      // stable parse-failed reason.
+      expect(dropped).toHaveLength(2);
       expect(dropped[0].reason).toBe("parse-failed");
+      expect(dropped[1].reason).toBe("parse-failed");
     });
   });
 

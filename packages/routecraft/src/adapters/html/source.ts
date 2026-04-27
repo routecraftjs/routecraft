@@ -3,7 +3,7 @@ import type { HtmlOptions, HtmlResult } from "./types.ts";
 import type { FileOptions } from "../file/types.ts";
 import { file } from "../file/index.ts";
 import { extractHtml } from "./shared.ts";
-import { DEFAULT_ON_PARSE_ERROR } from "../shared/parse.ts";
+import { DEFAULT_ON_PARSE_ERROR, isParseError } from "../shared/parse.ts";
 
 /**
  * HtmlSourceAdapter reads HTML from a file and extracts data using CSS selectors.
@@ -55,7 +55,8 @@ export class HtmlSourceAdapter<
     meta,
   ) => {
     const onParseError = this.options.onParseError ?? DEFAULT_ON_PARSE_ERROR;
-    const opts = this.options as HtmlOptions<T, R>;
+    const opts = this.options;
+    const filePath = opts.path as string;
 
     return this.fileAdapter.subscribe(
       context,
@@ -66,10 +67,23 @@ export class HtmlSourceAdapter<
           (raw) => extractHtml(raw as T, opts) as HtmlResult,
           onParseError,
         );
-        if (onParseError === "abort") {
-          return await promise;
-        }
-        return await promise.catch(() => undefined as never);
+        // 'abort' is parse-specific: only RC5016 should tear down the
+        // source. Downstream destination errors must NOT propagate as
+        // an abort signal even when onParseError === 'abort'.
+        return await promise.catch((err: unknown) => {
+          if (onParseError === "abort" && isParseError(err)) throw err;
+          // 'fail' / 'drop' / non-parse failures under 'abort': route
+          // boundary already emitted the appropriate lifecycle event
+          // (exchange:failed or exchange:dropped). Log at debug for
+          // operator parity with jsonl/source.ts and swallow so the
+          // file source keeps reading. The file adapter ignores the
+          // resolved value, so returning undefined is safe.
+          context.logger.debug(
+            { err, path: filePath, adapter: "html" },
+            "html adapter: pipeline failed for file; continuing",
+          );
+          return undefined as never;
+        });
       },
       abortController,
       onReady,

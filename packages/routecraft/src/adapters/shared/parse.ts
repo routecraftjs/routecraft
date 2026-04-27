@@ -70,3 +70,22 @@ export const DEFAULT_ON_PARSE_ERROR: OnParseError = "fail";
  * @experimental
  */
 export const PARSE_DROPPED_REASON = "parse-failed";
+
+/**
+ * True if `err` is a Routecraft `RC5016` parse-failure error. Used by
+ * source adapters in `'abort'` mode to discriminate between parse failures
+ * (which should abort the source) and downstream pipeline failures
+ * (destination errors, transform errors, etc.) that should NOT abort -
+ * `'abort'` is documented as parse-specific behaviour.
+ *
+ * Mirrors the `isMailParseError` helper in the mail adapter.
+ *
+ * @experimental
+ */
+export function isParseError(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { rc?: unknown }).rc === "RC5016"
+  );
+}
