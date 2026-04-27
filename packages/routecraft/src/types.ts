@@ -513,6 +513,14 @@ type RouteEventDetails<S extends string> =
                                     correlationId: string;
                                     originalError: unknown;
                                     failedOperation: string;
+                                    /**
+                                     * `"route"` for the route-level (`.error()` before `.from()`)
+                                     * catch-all handler; `"step"` for a wrapper-scope handler
+                                     * attached to a single step (`.error()` after `.from()`).
+                                     */
+                                    scope?: "route" | "step";
+                                    /** Step label when `scope === "step"`. */
+                                    stepLabel?: string;
                                   }
                                 : S extends "error-handler:recovered"
                                   ? {
@@ -522,6 +530,10 @@ type RouteEventDetails<S extends string> =
                                       originalError: unknown;
                                       failedOperation: string;
                                       recoveryStrategy: string;
+                                      /** See `error-handler:invoked.scope`. */
+                                      scope?: "route" | "step";
+                                      /** Step label when `scope === "step"`. */
+                                      stepLabel?: string;
                                     }
                                   : S extends "error-handler:failed"
                                     ? {
@@ -531,6 +543,10 @@ type RouteEventDetails<S extends string> =
                                         originalError: unknown;
                                         failedOperation: string;
                                         recoveryStrategy?: string;
+                                        /** See `error-handler:invoked.scope`. */
+                                        scope?: "route" | "step";
+                                        /** Step label when `scope === "step"`. */
+                                        stepLabel?: string;
                                       }
                                     : // Choice operation
                                       S extends "operation:choice:matched"

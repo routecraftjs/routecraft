@@ -101,7 +101,7 @@ export class BranchBuilder<Current = unknown> extends StepBuilderBase<Current> {
   private readonly steps: Step<Adapter>[] = [];
 
   protected override pushStep<T extends Adapter>(step: Step<T>): void {
-    this.steps.push(step);
+    this.steps.push(this.applyPendingWrappers(step));
   }
 
   /**

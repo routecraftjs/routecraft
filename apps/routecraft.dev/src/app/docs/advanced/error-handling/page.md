@@ -94,6 +94,49 @@ If you only need to log or return a static fallback, you do not need `forward` a
 })
 ```
 
+## Step-scope handlers
+
+`.error()` is dual-mode. Chained AFTER `.from()` it wraps the **immediately next step** instead of the whole route. On wrapped-step success the pipeline continues unchanged. On wrapped-step failure the handler runs, its return value replaces `exchange.body`, and the pipeline continues with the next step.
+
+```ts
+craft()
+  .id('resilient-pipeline')
+  .from(timer({ intervalMs: 60_000 }))
+  .transform(prepareRequest)
+  .error((err) => ({ fallback: true, reason: String(err) }))
+  .to(http({ url: 'https://flaky.api/endpoint' }))
+  .to(database())
+```
+
+Reads as: "if `http(...)` throws, swallow it and continue to `database` with `{ fallback: true, reason: ... }` as the body". Subsequent steps see the recovery as if the step had succeeded.
+
+The handler signature is identical to the route-scope form: `(error, exchange, forward) => unknown | Promise<unknown>`.
+
+### Combined route + step handlers
+
+Step handlers are local recovery; route handlers are the safety net. Use both:
+
+```ts
+craft()
+  .id('with-safety-net')
+  .error((err, ex, forward) => forward('errors.catchall', ex.body))   // route scope
+  .from(timer({ intervalMs: 60_000 }))
+  .transform(prepareRequest)
+  .error((err) => ({ fallback: true }))                               // step scope
+  .to(http({ url: 'https://flaky.api/endpoint' }))
+  .to(database())
+```
+
+The step handler recovers `http` failures silently. If it ever throws, the route handler takes over and forwards to `errors.catchall`.
+
+### Cascade rule
+
+When a step handler itself throws, the wrapper rethrows. The route handler (when set) catches it; otherwise the default path fires (`route:*:error`, `context:error`, `exchange:failed`). The route is NOT stopped.
+
+### Scope only the next step
+
+A wrapper attaches to exactly one step. `.error(h).transform(a).transform(b)` does NOT cover `b` (or the `to()` after it); only `a`. Add another `.error(...)` before each step you want to wrap.
+
 ## When the error handler itself throws
 
 If your `.error()` handler throws, the context takes over:

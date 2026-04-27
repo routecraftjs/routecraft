@@ -91,6 +91,9 @@ export {
   replace,
 } from "./operations/enrich.ts";
 
+export { WrapperStep, type WrapperOutcome } from "./operations/wrapper.ts";
+export { ErrorWrapperStep } from "./operations/error-wrapper.ts";
+
 export {
   ContextBuilder,
   craft,
@@ -171,6 +174,7 @@ export {
   type Consumer,
   type EventName,
   type EventHandler,
+  type Step,
 } from "./types.ts";
 
 export { SimpleConsumer } from "./consumers/simple.ts";

@@ -374,6 +374,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    * ```
    */
   id(id: string): this {
+    this.assertNoPendingWrappers("id");
     this.pendingOptions = { ...(this.pendingOptions ?? {}), id };
     logger.trace({ route: id }, "Staging route id for next route");
     return this;
@@ -504,34 +505,72 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
   }
 
   /**
-   * Define a catch-all error handler for unhandled errors in the route's step pipeline.
+   * Attach an error handler. Dual-mode based on position relative to
+   * `.from()`:
    *
-   * Must be called before `.from()`. When any step throws an unhandled error, this handler
-   * is invoked instead of the default log-and-swallow behavior. The pipeline does not resume
-   * after the handler runs; its return value becomes the route's final exchange body.
+   * - **Before `.from()`** (route scope): stages a catch-all for the
+   *   route's pipeline. When any step throws an unhandled error the
+   *   handler runs and the pipeline does NOT resume; the handler's
+   *   return value becomes the route's final exchange body.
+   * - **After `.from()`** (step scope): wraps the immediately next
+   *   step. When that step throws the handler runs, its return value
+   *   replaces `exchange.body`, and the pipeline continues with the
+   *   next step. Subsequent steps see the recovery as if nothing went
+   *   wrong.
    *
-   * @param handler - Receives the error, the exchange at the point of failure, and a `forward`
-   *   function to delegate to another route via the direct adapter.
+   * The handler signature is identical in both positions
+   * (`(error, exchange, forward) => unknown`). When a step-scope
+   * handler itself throws, the wrapper rethrows so a route-scope
+   * handler (when set) catches it; otherwise the default error path
+   * fires (`route:*:error`, `context:error`, `exchange:failed`). The
+   * route is NOT stopped.
+   *
+   * @param handler - Receives the error, the exchange at the point of
+   *   failure, and a `forward` function to delegate to another route
+   *   via the direct adapter.
    * @returns This builder for chaining
    *
-   * @example
-   * ```typescript
+   * @example Route-scope catch-all
+   * ```ts
    * craft()
    *   .id('process-orders')
-   *   .error((error, exchange, forward) => {
-   *     return forward('error-route', { reason: error.message })
-   *   })
+   *   .error((err, ex, forward) => forward('error-route', { reason: String(err) }))
    *   .from(timer({ intervalMs: 60000 }))
    *   .to(dangerousDestination)
    * ```
+   *
+   * @example Step-scope recovery (pipeline continues)
+   * ```ts
+   * craft()
+   *   .id('resilient-pipeline')
+   *   .from(timer({ intervalMs: 60000 }))
+   *   .transform(prepareRequest)
+   *   .error((err) => ({ fallback: true, reason: String(err) }))
+   *   .to(http({ url: 'https://flaky.api/endpoint' }))
+   *   .to(database())
+   * ```
+   *
+   * @experimental Step-scope behaviour ships with the dual-mode
+   * wrapper pattern. See `.standards/resilience-wrappers.md`.
    */
-  error(handler: ErrorHandler): this {
-    this.pendingOptions = {
-      ...(this.pendingOptions ?? {}),
-      errorHandler: handler,
-    };
-    logger.trace("Staging error handler for next route");
-    return this;
+  override error(handler: ErrorHandler): this {
+    if (this.currentRoute === undefined || this.pendingOptions !== undefined) {
+      // Pre-`.from()` for the FIRST route, OR staging for the NEXT
+      // route in a chained `craft().id(a).from(...).to(...).id(b)
+      // .error(h)...` pattern. In both cases `.error()` configures
+      // route-scope behaviour for the route currently being staged
+      // by `pendingOptions`. The base-class wrapper stack stays empty.
+      this.pendingOptions = {
+        ...(this.pendingOptions ?? {}),
+        errorHandler: handler,
+      };
+      logger.trace("Staging route-scope error handler for next route");
+      return this;
+    }
+    // Post-`.from()` on the current route: delegate to the base-class
+    // step-scope path so the next pushed step is wrapped in
+    // `ErrorWrapperStep`.
+    return super.error(handler);
   }
 
   /**
@@ -558,6 +597,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
   from<T>(source: Source<T> | CallableSource<T>): RouteBuilder<T>;
   from<T>(source: Source<unknown> | CallableSource<unknown>): RouteBuilder<T>;
   from<T>(source: Source<T> | CallableSource<T>): RouteBuilder<T> {
+    this.assertNoPendingWrappers("from");
     const id = this.pendingOptions?.id ?? randomUUID();
     const consumer = this.pendingOptions?.consumer ?? {
       type: SimpleConsumer as unknown as ConsumerType<Consumer>,
@@ -623,11 +663,12 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    */
   protected override pushStep<T extends Adapter>(step: Step<T>): void {
     const route = this.requireSource();
+    const wrapped = this.applyPendingWrappers(step);
     logger.trace(
-      { operation: step.operation, route: route.id },
+      { operation: wrapped.operation, route: route.id },
       "Adding step to route",
     );
-    route.steps.push(step);
+    route.steps.push(wrapped);
   }
 
   /**
@@ -799,8 +840,30 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
         message: `Route metadata staged but never consumed by .from().`,
       });
     }
+    this.assertNoPendingWrappers("build");
     logger.trace({ routeCount: this.routes.length }, "Building routes");
     return this.routes;
+  }
+
+  /**
+   * Throw when a step-scope wrapper (`.error()`, future `.retry()` /
+   * `.timeout()` / `.cache()`) was staged but the user is starting a
+   * new route or finalising the build without consuming it. A wrapper
+   * attaches to the immediately next pipeline step; if no step
+   * follows on the current route, the wrapper would silently leak
+   * into the next route's first step. Symmetric with the existing
+   * "metadata staged but never consumed" rule.
+   *
+   * @internal
+   */
+  private assertNoPendingWrappers(method: string): void {
+    if (this.pendingStepWrappers.length > 0) {
+      throw rcError("RC2001", undefined, {
+        message:
+          `Wrapper(s) staged via .error() (or future .retry() / .timeout() / .cache()) but no step followed before .${method}(). ` +
+          `A wrapper attaches to the immediately next pipeline step; orphaning one (or letting it leak into the next route) is almost always a mistake.`,
+      });
+    }
   }
 }
 

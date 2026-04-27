@@ -108,9 +108,17 @@ After a split, each child exchange emits its own `exchange:started`. When aggreg
 
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `route:{routeId}:operation:error:invoked` | `.onError()` handler called | `{ routeId, exchangeId, correlationId }` |
-| `route:{routeId}:operation:error:recovered` | Handler succeeded | `{ routeId, exchangeId, correlationId }` |
-| `route:{routeId}:operation:error:failed` | Handler also failed | `{ routeId, exchangeId, correlationId, error }` |
+| `route:{routeId}:error-handler:invoked` | A `.error()` handler runs (route or step scope) | `{ routeId, exchangeId, correlationId, originalError, failedOperation, scope: "route" \| "step", stepLabel? }` |
+| `route:{routeId}:error-handler:recovered` | Handler returned a value; pipeline continues (step scope) or replaces body (route scope) | Same plus `recoveryStrategy` |
+| `route:{routeId}:error-handler:failed` | Handler itself threw; rethrows for the next layer (route scope or default error path) | Same |
+
+`scope` is `"route"` for the catch-all set via `.error()` BEFORE `.from()`, and `"step"` for a wrapper attached AFTER `.from()`. `stepLabel` is the label of the wrapped step when `scope === "step"`. Wildcard subscribers (`route:*:error-handler:*`) keep matching.
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `route:{routeId}:operation:error:invoked` | Reserved for the planned `.onError()` operation | `{ routeId, exchangeId, correlationId }` |
+| `route:{routeId}:operation:error:recovered` | Reserved for the planned `.onError()` operation | `{ routeId, exchangeId, correlationId }` |
+| `route:{routeId}:operation:error:failed` | Reserved for the planned `.onError()` operation | `{ routeId, exchangeId, correlationId, error }` |
 
 ### Source-parse operations
 

@@ -351,6 +351,17 @@ export interface Route<T = unknown> {
    * @internal
    */
   trackTask(promise: Promise<unknown>): void;
+
+  /**
+   * Build a forward function the route uses to delegate from an
+   * error / fallback handler to another route via the direct adapter.
+   * Exposed so step-scope `WrapperStep` subclasses can hand the same
+   * callable to a user-supplied handler as the route-level pipeline
+   * does.
+   *
+   * @internal
+   */
+  getForward(): ForwardFn;
 }
 
 /**
@@ -1105,6 +1116,20 @@ export class DefaultRoute implements Route {
         );
 
         if (this.definition.errorHandler) {
+          // Route-scope error-handler events. Step-scope wrappers
+          // emit the same set with `scope: "step"` and `stepLabel`.
+          this.context.emit(
+            `route:${this.definition.id}:error-handler:invoked` as const,
+            {
+              routeId: this.definition.id,
+              exchangeId: exchange.id,
+              correlationId,
+              originalError: err,
+              failedOperation: stepLabel,
+              scope: "route",
+            },
+          );
+
           try {
             const forward = this.buildForward();
             const result = await this.definition.errorHandler(
@@ -1124,6 +1149,18 @@ export class DefaultRoute implements Route {
                 exchange,
               },
             );
+            this.context.emit(
+              `route:${this.definition.id}:error-handler:recovered` as const,
+              {
+                routeId: this.definition.id,
+                exchangeId: exchange.id,
+                correlationId,
+                originalError: err,
+                failedOperation: stepLabel,
+                recoveryStrategy: "route-error-handler",
+                scope: "route",
+              },
+            );
           } catch (handlerError) {
             const handlerErr = this.processError(stepLabel, handlerError);
             exchange.logger.error(
@@ -1133,6 +1170,18 @@ export class DefaultRoute implements Route {
                 context: "error handler",
               },
               handlerErr.meta.message,
+            );
+            this.context.emit(
+              `route:${this.definition.id}:error-handler:failed` as const,
+              {
+                routeId: this.definition.id,
+                exchangeId: exchange.id,
+                correlationId,
+                originalError: err,
+                failedOperation: stepLabel,
+                recoveryStrategy: "route-error-handler",
+                scope: "route",
+              },
             );
             // Error handler rethrew -- route-level + context-level error
             this.context.emit(
@@ -1251,6 +1300,20 @@ export class DefaultRoute implements Route {
       dropped,
       error: stepError,
     };
+  }
+
+  /**
+   * Build a forward function that sends a payload to another route via the direct adapter.
+   *
+   * Exposed (`@internal`) so step-scope `WrapperStep` subclasses can hand
+   * the same forward callable to a user-supplied error / fallback handler
+   * as the route-level pipeline does. Resolve via
+   * `getExchangeRoute(exchange).getForward()`.
+   *
+   * @returns A forward function
+   */
+  getForward(): ForwardFn {
+    return this.buildForward();
   }
 
   /**

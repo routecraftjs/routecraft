@@ -20,7 +20,7 @@ DSL operators with signatures and examples. {% .lead %}
 |-----------|----------|-------------|
 | [`id`](#id) | Route | Set the unique identifier for the route |
 | [`batch`](#batch) | Route | Process exchanges in batches instead of one at a time |
-| [`error`](#error) | Route | Configure route-level error handling |
+| [`error`](#error) | Route + Wrapper | Configure error handling. Before `.from()` it catches every step (route scope); after `.from()` it wraps the next step and the pipeline continues after recovery (step scope). |
 | [`from`](#from) | Route | Define the source of data for the capability |
 | [`retry`](#retry) | Wrapper | Retry the next operation on failure {% badge color="purple" %}planned{% /badge %} |
 | [`throttle`](#throttle) | Wrapper | Rate limit the next operation {% badge color="purple" %}planned{% /badge %} |
@@ -48,7 +48,7 @@ DSL operators with signatures and examples. {% .lead %}
 
 ## Route operations
 
-Route operations configure the capability itself. `id`, `batch`, and `error` go before `from()` -- if called after an existing route, they are staged for the next `from()`. `from()` defines the source and creates the capability.
+Route operations configure the capability itself. `id`, `batch`, and route-scope `error` go before `from()`; if called after an existing route, they are staged for the next `from()`. `from()` defines the source and creates the capability. `error` is dual-mode: when chained AFTER `from()` it becomes a step-scope wrapper around the next step (see the [`error`](#error) section below).
 
 ### id
 
@@ -164,6 +164,44 @@ craft()
 2. **Context level**: Fallback for unhandled errors via `context.on('error', handler)`
 
 **Note about tap errors:** Tap operations emit errors to the route error handler via events. The main exchange continues (tap is fire-and-forget), but the error is observable for logging and monitoring.
+
+#### Step scope (after `.from()`)
+
+`.error()` is dual-mode. Chained AFTER `.from()` it becomes a **wrapper** around the immediately next step instead of a route-level catch-all. On wrapped-step success the pipeline continues unchanged. On wrapped-step failure the handler runs, its return value replaces `exchange.body`, and the pipeline continues with the next step. Subsequent steps see the recovery as if nothing went wrong.
+
+```ts
+// Recover from one flaky call, keep processing
+craft()
+  .id('resilient-pipeline')
+  .from(timer({ intervalMs: 60_000 }))
+  .transform(prepareRequest)
+  .error((err) => ({ fallback: true, reason: String(err) }))
+  .to(http({ url: 'https://flaky.api/endpoint' }))
+  .to(database())
+```
+
+The handler signature is identical in both positions: `(error, exchange, forward) => unknown | Promise<unknown>`.
+
+**Cascade rule.** When a step-scope handler itself throws, the wrapper rethrows. The route-scope handler (when set) catches it; otherwise the default error path fires (`route:*:error`, `context:error`, `exchange:failed`). The route is NOT stopped.
+
+```ts
+craft()
+  .id('with-safety-net')
+  .error((err, ex, forward) => forward('errors.catchall', ex.body))  // route scope
+  .from(timer({ intervalMs: 60_000 }))
+  .transform(prepareRequest)
+  .error((err) => ({ fallback: true }))                              // step scope
+  .to(http({ url: 'https://flaky.api/endpoint' }))
+  .to(database())
+```
+
+The step-scope handler recovers `http` failures silently. If it ever throws, the route-scope handler takes over and forwards to `errors.catchall`.
+
+**Stacking.** Multiple wrappers stack outside-in in declaration order. The first-declared wrapper is the outermost. (Until a second public wrapper ships, this only matters when manually composing wrappers in tests.)
+
+**Scope only the next step.** A wrapper attaches to exactly one step. `.error(h).transform(a).transform(b)` does NOT cover `b` (or `to()` after it); only `a`. Add another `.error(...)` before each step you want to wrap.
+
+For the architectural pattern wrappers follow, see [`.standards/resilience-wrappers.md`](https://github.com/routecraftjs/routecraft/blob/main/.standards/resilience-wrappers.md).
 
 **Note about direct destinations:** Direct destinations with their own routes have their own error handlers. Errors in direct destinations are handled by their route's error handler, not the calling route.
 
