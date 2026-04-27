@@ -1,9 +1,14 @@
-import type { CraftContext, Exchange } from "@routecraft/routecraft";
+import {
+  HeadersKeys,
+  type CraftContext,
+  type EventName,
+  type Exchange,
+} from "@routecraft/routecraft";
 import { callLlm, streamLlm } from "../llm/providers/index.ts";
 import { resolvePrompt, resolveUserPromptDefault } from "../llm/shared.ts";
 import type { LlmModelConfig, LlmResult } from "../llm/types.ts";
 import { toAiOutputSpec } from "../llm/structured-output.ts";
-import type { AgentEventListener } from "./events.ts";
+import type { AgentDeltaListener } from "./events.ts";
 import { buildVercelTools } from "./tool-bridge.ts";
 import type { ResolvedTool } from "./tools/selection.ts";
 import type {
@@ -12,10 +17,41 @@ import type {
   AgentResult,
 } from "./types.ts";
 
+/**
+ * Identity of the exchange driving the current dispatch. Used to emit
+ * `route:<routeId>:agent:*` events on the context bus with stable
+ * `exchangeId` / `correlationId` / `routeId` fields.
+ *
+ * @internal
+ */
+export interface AgentDispatchIdentity {
+  exchangeId: string;
+  correlationId: string;
+  routeId: string;
+}
+
+/**
+ * Extract the dispatch identity from an exchange. Returns `undefined`
+ * for synthetic exchanges that have no route binding (mostly tests).
+ *
+ * @internal
+ */
+export function dispatchIdentityFrom(
+  exchange: Exchange<unknown>,
+  routeId: string | undefined,
+): AgentDispatchIdentity | undefined {
+  if (routeId === undefined) return undefined;
+  return {
+    exchangeId: exchange.id,
+    correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
+    routeId,
+  };
+}
+
 /** Default sampling settings; aligned with the LLM destination defaults. */
 const DEFAULT_TEMPERATURE = 0;
 const DEFAULT_MAX_TOKENS = 1024;
-const DEFAULT_MAX_STEPS = 8;
+const DEFAULT_MAX_TURNS = 8;
 
 /**
  * Resolved agent inputs ready for dispatch. Computed once by the
@@ -40,6 +76,12 @@ export interface AgentSessionInput {
   readonly system: string;
   /** Optional context reference passed to tool handlers. */
   readonly context: CraftContext | undefined;
+  /**
+   * Dispatch identity used to emit `route:<routeId>:agent:*` events
+   * on the context bus. Undefined for synthetic exchanges with no
+   * route binding.
+   */
+  readonly dispatchIdentity: AgentDispatchIdentity | undefined;
 }
 
 /**
@@ -75,56 +117,128 @@ export class AgentSession {
   async runUntilDone(abortSignal: AbortSignal): Promise<AgentResult> {
     const { modelConfig, modelName, system, user, output, toolExtras } =
       await this.prepare(abortSignal);
-    const result = await callLlm({
-      config: modelConfig,
-      modelId: modelName,
-      options: {
-        temperature: DEFAULT_TEMPERATURE,
-        maxTokens: DEFAULT_MAX_TOKENS,
-      },
-      system,
-      user,
-      abortSignal,
-      ...(output !== undefined ? { output } : {}),
-      ...toolExtras,
-    });
-    return toAgentResult(result);
+    try {
+      const result = await callLlm({
+        config: modelConfig,
+        modelId: modelName,
+        options: {
+          temperature: DEFAULT_TEMPERATURE,
+          maxTokens: DEFAULT_MAX_TOKENS,
+        },
+        system,
+        user,
+        abortSignal,
+        ...(output !== undefined ? { output } : {}),
+        ...toolExtras,
+      });
+      this.emitFinished(result);
+      return toAgentResult(result);
+    } catch (err) {
+      this.emitError(err);
+      throw err;
+    }
   }
 
   /**
    * Run the streaming tool-calling loop. Same setup as
    * {@link AgentSession.runUntilDone}, but the dispatch goes through
-   * `streamText`: each normalised event is forwarded to `onEvent`
-   * while the loop runs, and the consolidated {@link AgentResult} is
-   * returned once the stream drains.
+   * `streamText`: each normalised token-level delta is forwarded to
+   * `onDelta` while the loop runs, and the consolidated
+   * {@link AgentResult} is returned once the stream drains. Coarse
+   * decision events (tool-call, tool-result, turn-finished, finished,
+   * error) flow on the context bus regardless of whether `onDelta`
+   * is set; see `route:<id>:agent:*` events.
    *
    * Listener errors are caught and logged inside the LLM-provider
    * layer; they never abort the dispatch. Stream-level errors
-   * (provider failure, network error) are surfaced as an "error"
-   * event AND propagate by rejecting this promise, so callers handle
-   * failure exactly like the sync path.
+   * (provider failure, network error) are surfaced both as an
+   * `agent:error` context event AND propagate by rejecting this
+   * promise, so callers handle failure exactly like the sync path.
    */
   async runStream(
     abortSignal: AbortSignal,
-    onEvent: AgentEventListener,
+    onDelta: AgentDeltaListener,
   ): Promise<AgentResult> {
     const { modelConfig, modelName, system, user, output, toolExtras } =
       await this.prepare(abortSignal);
-    const result = await streamLlm({
-      config: modelConfig,
-      modelId: modelName,
-      options: {
-        temperature: DEFAULT_TEMPERATURE,
-        maxTokens: DEFAULT_MAX_TOKENS,
-      },
-      system,
-      user,
-      abortSignal,
-      onEvent,
-      ...(output !== undefined ? { output } : {}),
-      ...toolExtras,
+    try {
+      const result = await streamLlm({
+        config: modelConfig,
+        modelId: modelName,
+        options: {
+          temperature: DEFAULT_TEMPERATURE,
+          maxTokens: DEFAULT_MAX_TOKENS,
+        },
+        system,
+        user,
+        abortSignal,
+        onDelta,
+        ...(output !== undefined ? { output } : {}),
+        ...toolExtras,
+      });
+      this.emitFinished(result);
+      return toAgentResult(result);
+    } catch (err) {
+      this.emitError(err);
+      throw err;
+    }
+  }
+
+  /**
+   * Emit `route:<id>:agent:finished` on the context bus once the
+   * dispatch returns a consolidated result. Carries finish reason
+   * and total token usage so observability consumers can wire
+   * dashboards / metrics / billing without subscribing to per-token
+   * deltas.
+   *
+   * @internal
+   */
+  private emitFinished(result: LlmResult): void {
+    const id = this.input.dispatchIdentity;
+    const ctx = this.input.context;
+    if (!id || !ctx) return;
+    const finishReason =
+      readString(
+        (result.raw as Record<string, unknown> | undefined) ?? {},
+        "finishReason",
+      ) ?? "unknown";
+    ctx.emit(`route:${id.routeId}:agent:finished` as EventName, {
+      routeId: id.routeId,
+      exchangeId: id.exchangeId,
+      correlationId: id.correlationId,
+      finishReason,
+      ...(result.usage?.inputTokens !== undefined && {
+        inputTokens: result.usage.inputTokens,
+      }),
+      ...(result.usage?.outputTokens !== undefined && {
+        outputTokens: result.usage.outputTokens,
+      }),
+      ...(result.usage?.totalTokens !== undefined && {
+        totalTokens: result.usage.totalTokens,
+      }),
     });
-    return toAgentResult(result);
+  }
+
+  /**
+   * Emit `route:<id>:agent:error` on the context bus when the
+   * dispatch promise rejects (provider failure, transport error, an
+   * unhandled tool throw cascading through the SDK). The error
+   * still propagates by rethrow; this just gives observability
+   * subscribers a chance to record the failure without wrapping
+   * every dispatch site.
+   *
+   * @internal
+   */
+  private emitError(err: unknown): void {
+    const id = this.input.dispatchIdentity;
+    const ctx = this.input.context;
+    if (!id || !ctx) return;
+    ctx.emit(`route:${id.routeId}:agent:error` as EventName, {
+      routeId: id.routeId,
+      exchangeId: id.exchangeId,
+      correlationId: id.correlationId,
+      error: err,
+    });
   }
 
   /**
@@ -145,15 +259,28 @@ export class AgentSession {
       | { tools: Record<string, unknown>; stopWhen: unknown }
       | Record<string, never>;
   }> {
-    const { options, modelConfig, modelName, tools, user, system, context } =
-      this.input;
-    const vercelTools = await buildVercelTools(tools, context, abortSignal);
+    const {
+      options,
+      modelConfig,
+      modelName,
+      tools,
+      user,
+      system,
+      context,
+      dispatchIdentity,
+    } = this.input;
+    const vercelTools = await buildVercelTools(
+      tools,
+      context,
+      abortSignal,
+      dispatchIdentity,
+    );
     const toolExtras =
       Object.keys(vercelTools).length > 0
         ? {
             tools: vercelTools,
             stopWhen: await buildStopWhen(
-              options.maxSteps ?? DEFAULT_MAX_STEPS,
+              options.maxTurns ?? DEFAULT_MAX_TURNS,
             ),
           }
         : {};
@@ -164,9 +291,17 @@ export class AgentSession {
   }
 }
 
-async function buildStopWhen(maxSteps: number): Promise<unknown> {
+async function buildStopWhen(maxTurns: number): Promise<unknown> {
   const { stepCountIs } = await import("ai");
-  return stepCountIs(maxSteps);
+  return stepCountIs(maxTurns);
+}
+
+function readString(
+  obj: Record<string, unknown>,
+  key: string,
+): string | undefined {
+  const v = obj[key];
+  return typeof v === "string" ? v : undefined;
 }
 
 function toAgentResult(result: LlmResult): AgentResult {

@@ -1,6 +1,6 @@
 import { logger as frameworkLogger } from "@routecraft/routecraft";
-import type { AgentEventListener } from "../../agent/events.ts";
-import { normalizeStreamPart } from "../../agent/events.ts";
+import type { AgentDeltaListener } from "../../agent/events.ts";
+import { normalizeStreamDelta } from "../../agent/events.ts";
 import type {
   LlmModelConfig,
   LlmOptionsMerged,
@@ -171,18 +171,18 @@ export async function callLlm(params: CallLlmParams): Promise<LlmResult> {
 /**
  * Streaming counterpart to {@link callLlm}. Resolves the language model
  * for the configured provider, calls Vercel's `streamText`, forwards
- * each normalised stream event to `onEvent`, and finally returns the
- * consolidated {@link LlmResult} once the stream drains.
+ * each normalised token-level delta to `onDelta`, and finally returns
+ * the consolidated {@link LlmResult} once the stream drains.
  *
  * Used by the agent destination when the user supplies
- * `AgentOptions.onEvent`. Exposed at the LLM-provider layer so the
+ * `AgentOptions.onDelta`. Exposed at the LLM-provider layer so the
  * provider plumbing (model resolution, option mapping, reasoning
  * extraction) stays in one place.
  */
 export async function streamLlm(
-  params: CallLlmParams & { onEvent: AgentEventListener },
+  params: CallLlmParams & { onDelta: AgentDeltaListener },
 ): Promise<LlmResult> {
-  const { config, modelId, options, system, user, onEvent } = params;
+  const { config, modelId, options, system, user, onDelta } = params;
   const model = await resolveLanguageModel(config, modelId);
   return runStreamGenerate(
     model,
@@ -190,7 +190,7 @@ export async function streamLlm(
     system,
     user,
     buildExtras(params),
-    onEvent,
+    onDelta,
   );
 }
 
@@ -401,14 +401,15 @@ async function runGenerate(
 
 /**
  * Shared `streamText` invocation. Iterates the SDK's `fullStream`,
- * forwards each normalised event to `onEvent`, then awaits the
+ * forwards each token-level delta to `onDelta`, then awaits the
  * consolidated values (text, usage, reasoning, optional structured
  * output) once the stream drains.
  *
  * Listener errors are caught and logged; they do not abort the
- * dispatch. Stream errors surface via an "error" event AND propagate
- * out of `await result.text`, so the dispatch fails normally after
- * the listener has been informed.
+ * dispatch. Stream errors propagate out of `await result.text`, so
+ * the dispatch fails normally; coarse decision events (tool calls,
+ * finish) are emitted on the context bus by the agent session, not
+ * here.
  *
  * @internal
  */
@@ -418,21 +419,21 @@ async function runStreamGenerate(
   system: string,
   user: string,
   extras: ProviderExtras,
-  onEvent: AgentEventListener,
+  onDelta: AgentDeltaListener,
 ): Promise<LlmResult> {
   const { streamText } = await import("ai");
   const params = buildSdkParams(model, options, system, user, extras);
   const result = streamText(params as Parameters<typeof streamText>[0]);
 
   for await (const part of result.fullStream) {
-    const event = normalizeStreamPart(part);
-    if (event === null) continue;
+    const delta = normalizeStreamDelta(part);
+    if (delta === null) continue;
     try {
-      await onEvent(event);
+      await onDelta(delta);
     } catch (err) {
       frameworkLogger.warn(
         { err },
-        "agent.onEvent listener threw; ignoring and continuing stream",
+        "agent.onDelta listener threw; ignoring and continuing stream",
       );
     }
   }

@@ -115,11 +115,11 @@ describe("agent runtime: tool wiring through callLlm", () => {
   });
 
   /**
-   * @case maxSteps shorthand resolves to a stopWhen value
-   * @preconditions agent.maxSteps = 3
+   * @case maxTurns shorthand resolves to a stopWhen value
+   * @preconditions agent.maxTurns = 3
    * @expectedResult callLlm receives a stopWhen (we don't unpack the SDK helper's shape; presence is enough)
    */
-  test("maxSteps shorthand produces a stopWhen", async () => {
+  test("maxTurns shorthand produces a stopWhen", async () => {
     t = await testContext()
       .with({
         plugins: [
@@ -129,14 +129,14 @@ describe("agent runtime: tool wiring through callLlm", () => {
       })
       .routes(
         craft()
-          .id("maxsteps")
+          .id("maxturns")
           .from(simple("hi"))
           .to(
             agent({
               system: "x",
               model: "anthropic:claude-opus-4-7",
               tools: tools(["currentTime"]),
-              maxSteps: 3,
+              maxTurns: 3,
             }),
           ),
       )

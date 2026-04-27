@@ -5,7 +5,10 @@ import {
   tagAdapter,
 } from "@routecraft/routecraft";
 import { parseProviderModel } from "../llm/shared.ts";
-import { AgentDestinationAdapter } from "./destination.ts";
+import {
+  AgentDestinationAdapter,
+  type AgentByNameOverrides,
+} from "./destination.ts";
 import { isToolSelection } from "./tools/selection.ts";
 import type { AgentOptions, AgentResult } from "./types.ts";
 
@@ -127,7 +130,12 @@ export function validateAgentOptions(options: AgentOptions): void {
 export function agent(options: AgentOptions): Destination<unknown, AgentResult>;
 export function agent(name: string): Destination<unknown, AgentResult>;
 export function agent(
+  name: string,
+  perCall: AgentByNameOverrides,
+): Destination<unknown, AgentResult>;
+export function agent(
   arg: AgentOptions | string,
+  perCall?: AgentByNameOverrides,
 ): Destination<unknown, AgentResult> {
   if (typeof arg === "string") {
     if (arg.trim() === "") {
@@ -136,7 +144,11 @@ export function agent(
       });
     }
     return tagAdapter(
-      new AgentDestinationAdapter({ kind: "by-name", name: arg }),
+      new AgentDestinationAdapter({
+        kind: "by-name",
+        name: arg,
+        ...(perCall ? { perCall } : {}),
+      }),
       agent,
       factoryArgs(arg),
     );

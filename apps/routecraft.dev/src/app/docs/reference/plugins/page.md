@@ -649,9 +649,9 @@ agentPlugin({
 
 Agent model references use the `"providerId:modelName"` format and resolve against the LLM provider registry populated by `llmPlugin`. **You must install `llmPlugin` with the relevant providers.** This is intentional: provider credentials live in one place, and agents reference them by id. There is no inline-credentials escape hatch on `agent({...})`; centralised wiring via `llmPlugin` is the only path.
 
-#### Step cap (`maxSteps`)
+#### Turn cap (`maxTurns`)
 
-The Vercel AI SDK's tool-calling loop runs until the model returns a final text response or a stop condition fires. Each iteration is one step (one model call plus the resulting tool calls / results). The agent caps step count to **8 by default**; override per agent via `maxSteps:` or context-wide via `defaultOptions.maxSteps`. When the cap fires the SDK returns whatever text the model produced last; downstream logic should treat truncated output as a possible outcome.
+The Vercel AI SDK's tool-calling loop runs until the model returns a final text response or a stop condition fires. Each iteration is one **turn** (one model call plus the resulting tool calls / results). The agent caps turn count to **8 by default**; override per agent via `maxTurns:` or context-wide via `defaultOptions.maxTurns`. When the cap fires the SDK returns whatever text the model produced last; downstream logic should treat truncated output as a possible outcome.
 
 #### Human-in-the-loop (today: blocking; tomorrow: durable)
 
@@ -678,43 +678,69 @@ A blocking tool handler today looks like:
 
 When the durable epic lands, the same handler migrates by replacing the blocking await with `throw new SuspendError({ reason: "awaiting-human-approval" })` and consuming the resume callback in a separate route. The runtime contract (return value, schema, `FnHandlerContext`) stays identical.
 
-#### Streaming (`onEvent`)
+#### Observability: two channels
 
-Set `onEvent` on an agent to stream tokens, tool calls, and finish reasons live as the model generates them. Internally the dispatch switches from `generateText` to `streamText`; externally the destination still returns a consolidated `AgentResult` once the stream drains, so downstream pipeline ops are unaffected.
+Agents emit on two distinct channels with different shapes and use cases:
+
+**1. Context bus** (`ctx.on('route:*:agent:*', ...)`): coarse decision events. Broadcast to every subscriber. Use for telemetry, dashboards, audit trails, TUIs. Always emitted; no opt-in needed.
+
+| Event | Fields | When |
+|---|---|---|
+| `route:<id>:agent:tool:invoked` | `toolCallId`, `toolName`, `input` | Agent decided to call a tool. |
+| `route:<id>:agent:tool:result` | `toolCallId`, `toolName`, `output`, `duration` | Tool handler returned successfully. |
+| `route:<id>:agent:tool:error` | `toolCallId`, `toolName`, `error`, `duration` | Tool handler / guard / input validation threw. |
+| `route:<id>:agent:finished` | `finishReason`, `inputTokens?`, `outputTokens?`, `totalTokens?` | Agent dispatch returned a consolidated result. |
+| `route:<id>:agent:error` | `error` | Provider / transport error during dispatch. |
+
+All events also carry `routeId`, `exchangeId`, `correlationId`. Wildcard subscriptions (`route:*:agent:tool:*`) work as expected.
+
+```ts
+ctx.on("route:*:agent:tool:invoked", ({ details }) => {
+  console.log(`[${details.routeId}] tool ${details.toolName} called with`, details.input);
+});
+
+ctx.on("route:*:agent:finished", ({ details }) => {
+  metrics.increment("agent.calls.total", { route: details.routeId });
+  metrics.histogram("agent.tokens.total", details.totalTokens ?? 0);
+});
+```
+
+**2. `onDelta` callback** (per-dispatch, opt-in): token-level deltas, directed delivery, back-pressure-aware. Use for streaming tokens to a chat UI / SSE / WebSocket where you want to render text as the model writes it.
 
 ```ts
 agent({
   model: "openai:gpt-4o",
   system: "Be helpful.",
   tools: tools(["search"]),
-  onEvent: (event) => {
-    if (event.type === "text-delta") sse.send({ data: event.text });
-    if (event.type === "tool-call") sse.send({ data: `calling ${event.toolName}` });
+  onDelta: (delta) => {
+    sse.send({ data: delta.text, type: delta.type });
   },
 })
 ```
 
-Event shapes (discriminated union, exported as `AgentEvent`):
+Setting `onDelta` switches dispatch from `generateText` to `streamText`; externally the destination still returns a consolidated `AgentResult` once the stream drains.
+
+`AgentDelta` is a narrow discriminated union:
 
 | Type | Fields | When |
 |---|---|---|
 | `text-delta` | `text` | Each token (or token chunk) emitted by the model. |
 | `reasoning-delta` | `text` | Provider reasoning text (Anthropic extended thinking, OpenAI o1). Useful for "thinking..." UI. |
-| `tool-call` | `toolCallId`, `toolName`, `input` | Model decided to call a tool. `input` is the validated args. |
-| `tool-result` | `toolCallId`, `toolName`, `output` | Tool handler returned a value. |
-| `tool-error` | `toolCallId`, `toolName`, `error` | Handler, guard, or input validation threw. |
-| `step-finish` | `finishReason`, `usage?` | One step (model call + tools) ended. |
-| `finish` | `finishReason`, `usage?` | The whole dispatch ended. |
-| `error` | `error` | Provider or transport error surfaced through the stream. |
 
 Behaviour notes:
 
-- **Listener errors are contained.** A throw inside `onEvent` is caught and logged; the dispatch keeps running and the consolidated `AgentResult` still reaches downstream ops.
-- **Async listeners are awaited.** Returning a `Promise` from `onEvent` applies back-pressure to the stream, which is what you want when forwarding to a slow consumer (database, remote SSE channel).
-- **Stream errors still throw.** Provider errors surface as an `error` event AND propagate out of the dispatch promise, so failure handling matches the non-streaming path.
-- **Per-agent only.** `onEvent` is not part of `defaultOptions` because event sinks are typically request-scoped (a per-connection SSE channel). For observability across all agents, use a telemetry plugin.
+- **Listener errors are contained.** A throw inside `onDelta` is caught and logged; the dispatch keeps running and the consolidated `AgentResult` still reaches downstream ops.
+- **Async listeners are awaited.** Returning a `Promise` from `onDelta` applies back-pressure to the stream, which is what you want when forwarding to a slow consumer (database, remote SSE channel).
+- **Stream errors still throw.** Provider errors propagate out of the dispatch promise; the `agent:error` context event also fires. Failure handling matches the non-streaming path.
+- **Per-agent only.** `onDelta` is not part of `defaultOptions` because delta sinks are typically request-scoped.
 
-The 90% use case is forwarding tokens into an HTTP SSE response so a UI updates as the model writes.
+For named agents that share a definition across requests, accept `onDelta` at the call site:
+
+```ts
+.to(agent("summariser", { onDelta: (d) => sse.send(d.text) }))
+```
+
+The 90% use case is forwarding tokens into an HTTP SSE response so a UI updates as the model writes. For everything else (per-tool observability, finish reasons, total usage, errors) use the context bus.
 
 ### Typed fn ids (`FnRegistry`)
 
