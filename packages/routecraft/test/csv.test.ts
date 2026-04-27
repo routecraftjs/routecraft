@@ -404,4 +404,116 @@ Alice,30
       expect(adapter.adapterId).toBe("routecraft.adapter.csv");
     });
   });
+
+  describe("source mode - non-chunked onParseError", () => {
+    /**
+     * @case Default 'fail' routes parse error through .error()
+     * @preconditions Non-chunked CSV with malformed row count, default onParseError
+     * @expectedResult .error() handler invoked with RC5016; spy receives nothing
+     */
+    test("default 'fail' routes parse error through .error()", async () => {
+      const filePath = path.join(tmpDir, "bad.csv");
+      // Mismatched columns force a Papa parse error.
+      await fsp.writeFile(filePath, "a,b,c\n1,2\n", "utf-8");
+
+      const s = spy();
+      const errors: { rc?: string }[] = [];
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("csv-non-chunked-fail")
+            .error((err) => {
+              errors.push(err as { rc?: string });
+              return undefined;
+            })
+            .from(csv({ path: filePath, header: true }))
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(errors.length).toBe(1);
+      expect(errors[0].rc).toBe("RC5016");
+      expect(s.received.length).toBe(0);
+    });
+
+    /**
+     * @case 'abort' emits exchange:failed then context:error
+     * @preconditions Non-chunked CSV with malformed row, onParseError: 'abort'
+     * @expectedResult Per-item exchange:failed fires; context:error fires
+     */
+    test("'abort' emits exchange:failed then context:error", async () => {
+      const filePath = path.join(tmpDir, "bad.csv");
+      await fsp.writeFile(filePath, "a,b,c\n1,2\n", "utf-8");
+
+      const s = spy();
+      const failed: { error: unknown }[] = [];
+      const ctxErrs: { error: unknown }[] = [];
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("csv-non-chunked-abort")
+            .from(csv({ path: filePath, header: true, onParseError: "abort" }))
+            .to(s),
+        )
+        .build();
+
+      t.ctx.on(
+        "route:csv-non-chunked-abort:exchange:failed" as never,
+        ((payload: { details: { error: unknown } }) => {
+          failed.push({ error: payload.details.error });
+        }) as never,
+      );
+      t.ctx.on("context:error", (payload) => {
+        ctxErrs.push({ error: payload.details.error });
+      });
+
+      await t.ctx.start();
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(failed.length).toBe(1);
+      expect((failed[0].error as { rc?: string }).rc).toBe("RC5016");
+      expect(ctxErrs.length).toBeGreaterThanOrEqual(1);
+    });
+
+    /**
+     * @case 'drop' emits exchange:dropped on parse failure
+     * @preconditions Non-chunked CSV with malformed row, onParseError: 'drop'
+     * @expectedResult exchange:dropped fires with reason 'parse-failed'; spy receives nothing
+     */
+    test("'drop' emits exchange:dropped on parse failure", async () => {
+      const filePath = path.join(tmpDir, "bad.csv");
+      await fsp.writeFile(filePath, "a,b,c\n1,2\n", "utf-8");
+
+      const s = spy();
+      const dropped: { reason: string }[] = [];
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("csv-non-chunked-drop")
+            .from(csv({ path: filePath, header: true, onParseError: "drop" }))
+            .to(s),
+        )
+        .build();
+
+      t.ctx.on(
+        "route:csv-non-chunked-drop:exchange:dropped" as never,
+        ((payload: { details: { reason: string } }) => {
+          dropped.push({ reason: payload.details.reason });
+        }) as never,
+      );
+
+      await t.ctx.start();
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(dropped.length).toBe(1);
+      expect(dropped[0].reason).toBe("parse-failed");
+      expect(s.received.length).toBe(0);
+    });
+  });
 });

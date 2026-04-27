@@ -80,4 +80,84 @@ describe("BatchConsumer", () => {
       waitTime: 50,
     });
   });
+
+  /**
+   * @case Parse failures route through the registered handler with the parse fn (#187)
+   * @preconditions Batch consumer; enqueue one item with a failing parse and one with a passing parse
+   * @expectedResult Bad item invokes the registered handler with raw message + parse fn + parseFailureMode; good item is added to the batch and flushed normally with the parsed value
+   */
+  test("routes parse failures through the registered handler instead of swallowing them", async () => {
+    const ctx = new CraftContext();
+    const queue = new InMemoryProcessingQueue<Message>();
+    const consumer = new BatchConsumer(
+      ctx,
+      createRouteDefinition("batched-parse"),
+      queue,
+      { size: 10, time: 50 },
+    );
+
+    type HandlerCall = {
+      message: unknown;
+      parseProvided: boolean;
+      mode: string | undefined;
+    };
+    const calls: HandlerCall[] = [];
+
+    await consumer.register(async (message, _headers, parse, mode) => {
+      calls.push({
+        message,
+        parseProvided: typeof parse === "function",
+        mode,
+      });
+      return {
+        id: "exchange-id",
+        body: message,
+        headers: {},
+        logger: ctx.logger,
+      } as Exchange;
+    });
+
+    // Enqueue a good item first so the batch starts.
+    const goodPromise = queue.enqueue({
+      message: '{"id":1}',
+      headers: {},
+      parse: (raw) => JSON.parse(raw as string),
+      parseFailureMode: "fail",
+    });
+
+    // Enqueue a bad item: pre-parse will throw and the consumer must
+    // route through the registered handler with the parse fn so the
+    // synthetic parse step (in the real route runtime) can fire RC5016.
+    const badPromise = queue.enqueue({
+      message: "not-json",
+      headers: {},
+      parse: (raw) => JSON.parse(raw as string),
+      parseFailureMode: "fail",
+    });
+
+    // The bad item is routed immediately as its own per-item exchange:
+    // the batch consumer calls handler(rawMessage, headers, parse, mode).
+    await badPromise;
+    expect(
+      calls.some(
+        (c) =>
+          c.message === "not-json" &&
+          c.parseProvided === true &&
+          c.mode === "fail",
+      ),
+    ).toBe(true);
+
+    // The good item stays in the batch until the timer fires.
+    await vi.advanceTimersByTimeAsync(50);
+    await goodPromise;
+    expect(
+      calls.some(
+        (c) =>
+          // After pre-parse the merged batch body is the parsed array.
+          Array.isArray(c.message) &&
+          c.message.length === 1 &&
+          (c.message[0] as { id?: number }).id === 1,
+      ),
+    ).toBe(true);
+  });
 });

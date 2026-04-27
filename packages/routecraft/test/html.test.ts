@@ -524,4 +524,151 @@ describe("HTML Adapter", () => {
       expect(fileContent).toBe(htmlContent);
     });
   });
+
+  describe("source-mode onParseError handling", () => {
+    let tempDir: string;
+    let testFile: string;
+
+    /**
+     * @case Default 'fail' routes extraction failure through .error()
+     * @preconditions HTML source with extract: 'attr' but no attr option (extractHtml throws)
+     * @expectedResult .error() handler invoked with RC5016; spy receives nothing
+     */
+    test("default 'fail' routes extraction failure through .error()", async () => {
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "html-parse-test-"));
+      testFile = path.join(tempDir, "page.html");
+      await fs.writeFile(
+        testFile,
+        "<html><body><a href='/x'>x</a></body></html>",
+      );
+
+      const s = spy();
+      const errors: { rc?: string }[] = [];
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("html-source-fail")
+            .error((err) => {
+              errors.push(err as { rc?: string });
+              return undefined;
+            })
+            .from(
+              html({
+                path: testFile,
+                selector: "a",
+                extract: "attr",
+                // attr intentionally omitted so extractHtml throws.
+              }),
+            )
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(errors.length).toBe(1);
+      expect(errors[0].rc).toBe("RC5016");
+      expect(s.received.length).toBe(0);
+    });
+
+    /**
+     * @case 'drop' mode emits exchange:dropped on extraction failure
+     * @preconditions HTML source with malformed extract config and onParseError: 'drop'
+     * @expectedResult exchange:dropped fires with reason 'parse-failed'; no .error() invocation
+     */
+    test("'drop' emits exchange:dropped on extraction failure", async () => {
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "html-parse-test-"));
+      testFile = path.join(tempDir, "page.html");
+      await fs.writeFile(
+        testFile,
+        "<html><body><a href='/x'>x</a></body></html>",
+      );
+
+      const s = spy();
+      const dropped: { reason: string }[] = [];
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("html-source-drop")
+            .from(
+              html({
+                path: testFile,
+                selector: "a",
+                extract: "attr",
+                onParseError: "drop",
+              }),
+            )
+            .to(s),
+        )
+        .build();
+
+      t.ctx.on(
+        "route:html-source-drop:exchange:dropped" as never,
+        ((payload: { details: { reason: string } }) => {
+          dropped.push({ reason: payload.details.reason });
+        }) as never,
+      );
+
+      await t.ctx.start();
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(dropped.length).toBe(1);
+      expect(dropped[0].reason).toBe("parse-failed");
+      expect(s.received.length).toBe(0);
+    });
+
+    /**
+     * @case 'abort' emits per-item exchange:failed before context:error
+     * @preconditions HTML source with extraction failure and onParseError: 'abort'
+     * @expectedResult exchange:failed fires for the item; context:error fires
+     */
+    test("'abort' emits exchange:failed then context:error", async () => {
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "html-parse-test-"));
+      testFile = path.join(tempDir, "page.html");
+      await fs.writeFile(
+        testFile,
+        "<html><body><a href='/x'>x</a></body></html>",
+      );
+
+      const s = spy();
+      const failed: { error: unknown }[] = [];
+      const ctxErrs: { error: unknown }[] = [];
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("html-source-abort")
+            .from(
+              html({
+                path: testFile,
+                selector: "a",
+                extract: "attr",
+                onParseError: "abort",
+              }),
+            )
+            .to(s),
+        )
+        .build();
+
+      t.ctx.on(
+        "route:html-source-abort:exchange:failed" as never,
+        ((payload: { details: { error: unknown } }) => {
+          failed.push({ error: payload.details.error });
+        }) as never,
+      );
+      t.ctx.on("context:error", (payload) => {
+        ctxErrs.push({ error: payload.details.error });
+      });
+
+      await t.ctx.start();
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(failed.length).toBe(1);
+      expect((failed[0].error as { rc?: string }).rc).toBe("RC5016");
+      expect(ctxErrs.length).toBeGreaterThanOrEqual(1);
+    });
+  });
 });
