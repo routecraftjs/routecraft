@@ -3,6 +3,7 @@ import { INTERNALS_KEY, BRAND, setBrand, setInternals } from "./brand.ts";
 import { type CraftContext } from "./context.ts";
 import { logger, childBindings } from "./logger.ts";
 import type { Route } from "./route.ts";
+import type { OnParseError } from "./adapters/shared/parse.ts";
 
 /**
  * Types of operations that can be performed on an exchange.
@@ -11,6 +12,15 @@ import type { Route } from "./route.ts";
 export enum OperationType {
   /** The exchange was created from a source */
   FROM = "from",
+  /**
+   * Synthetic step inserted by the runtime when a source adapter attaches a
+   * `parse` function to the queued message. Runs `exchange.body = parse(body)`
+   * before any user steps so parse failures flow through the route's normal
+   * error handling instead of aborting the source. See #187.
+   *
+   * @experimental Tracks `OnParseError`'s maturity.
+   */
+  PARSE = "parse",
   /** The exchange was processed by a processor */
   PROCESS = "process",
   /** The exchange was sent to a destination */
@@ -220,6 +230,36 @@ export type Exchange<T = unknown> = {
 type ExchangeInternals = {
   context: CraftContext;
   route?: Route;
+  /**
+   * Optional parser the runtime applies as a synthetic first pipeline step.
+   * Set by `DefaultRoute` from the queue `Message.parse` when a source
+   * adapter attaches one (see `CallableSource.handler` parse argument and
+   * #187). The runtime clears this after running it so it does not run
+   * twice.
+   *
+   * @internal
+   */
+  parse?: (raw: unknown) => unknown | Promise<unknown>;
+  /**
+   * How the synthetic parse step should handle a parse failure.
+   * - `"fail"` / `"abort"`: throw `RC5016` so `exchange:failed` fires (and
+   *   for `"abort"` the adapter rethrows out of subscribe).
+   * - `"drop"`: emit `exchange:dropped` with `reason: "parse-failed"`,
+   *   matching filter/validate drop semantics; the pipeline halts cleanly
+   *   without invoking `.error()`. See #187.
+   *
+   * @internal
+   */
+  parseFailureMode?: OnParseError;
+  /**
+   * Optional input-schema validation deferred to run inside the synthetic
+   * parse step. Used when a route has both `.input()` schemas and a
+   * parsing source: validation must see the parsed body, not the raw
+   * bytes. `DefaultRoute` populates this alongside `parse`. See #187.
+   *
+   * @internal
+   */
+  applyValidation?: (exchange: Exchange) => Promise<void>;
 };
 
 /**

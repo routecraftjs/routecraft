@@ -320,6 +320,10 @@ export class MailClientManager {
     if (overrides.body !== undefined) result.body = overrides.body;
     if (overrides.header !== undefined) result.header = overrides.header;
 
+    // Parse-error handling (#187).
+    if (overrides.onParseError !== undefined)
+      result.onParseError = overrides.onParseError;
+
     return result;
   }
 

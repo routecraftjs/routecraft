@@ -207,4 +207,80 @@ describe("CSV Adapter - Chunked Mode", () => {
     expect(received.length).toBeGreaterThanOrEqual(3);
     expect(received.length).toBeLessThan(50);
   }, 10000);
+
+  /**
+   * @case Default 'fail' mode routes per-row parse errors through .error() and continues
+   * @preconditions CSV chunked mode with a row Papa flags as malformed
+   * @expectedResult error handler invoked with RC5016, valid rows still reach the spy
+   */
+  test("default 'fail' routes per-row parse errors through .error() and continues", async () => {
+    const filePath = path.join(tmpDir, "mixed.csv");
+    // Mismatched column counts force PapaParse to flag a row error.
+    await fsp.writeFile(filePath, "a,b,c\n1,2,3\n4,5\n6,7,8\n", "utf-8");
+
+    const s = spy();
+    const errors: unknown[] = [];
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("csv-chunked-fail")
+          .error((err) => {
+            errors.push(err);
+            return undefined;
+          })
+          .from(csv({ path: filePath, header: true, chunked: true }))
+          .to(s),
+      )
+      .build();
+
+    await t.ctx.start();
+
+    expect(errors.length).toBeGreaterThanOrEqual(1);
+    expect((errors[0] as { rc?: string }).rc).toBe("RC5016");
+    // Two valid rows still flow through; the malformed one is caught by .error().
+    expect(s.received.length).toBe(2);
+  });
+
+  /**
+   * @case onParseError: 'drop' emits exchange:dropped for malformed rows
+   * @preconditions CSV chunked with malformed row and onParseError: 'drop'
+   * @expectedResult Only valid rows reach the spy; exchange:dropped fires with reason "parse-failed"
+   */
+  test("onParseError: 'drop' emits exchange:dropped for malformed rows", async () => {
+    const filePath = path.join(tmpDir, "drop.csv");
+    await fsp.writeFile(filePath, "a,b,c\n1,2,3\n4,5\n6,7,8\n", "utf-8");
+
+    const s = spy();
+    const dropped: { reason: string }[] = [];
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("csv-chunked-drop")
+          .from(
+            csv({
+              path: filePath,
+              header: true,
+              chunked: true,
+              onParseError: "drop",
+            }),
+          )
+          .to(s),
+      )
+      .build();
+
+    t.ctx.on(
+      "route:csv-chunked-drop:exchange:dropped" as never,
+      ((payload: { details: { reason: string } }) => {
+        dropped.push({ reason: payload.details.reason });
+      }) as never,
+    );
+
+    await t.ctx.start();
+
+    expect(s.received.length).toBe(2);
+    expect(dropped.length).toBeGreaterThanOrEqual(1);
+    expect(dropped[0].reason).toBe("parse-failed");
+  });
 });

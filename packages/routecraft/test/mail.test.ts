@@ -1506,6 +1506,145 @@ describe("Mail Adapter", () => {
 
       await expect(t.test()).rejects.toMatchObject({ rc: "RC5003" });
     });
+
+    /**
+     * @case Default 'fail' routes MIME parse failures through .error() and marks Seen
+     * @preconditions simpleParser throws on a fetched message; route has .error() handler
+     * @expectedResult .error() invoked with RC5016; markSeen called for the bad UID
+     */
+    test("onParseError default 'fail' routes MIME parse failures through .error()", async () => {
+      const { simpleParser } = await import("mailparser");
+      (simpleParser as any).mockRejectedValueOnce(new Error("malformed MIME"));
+      mockMessageFlagsAdd.mockReset();
+      mockMessageFlagsAdd.mockResolvedValue(undefined);
+
+      mockFetch.mockImplementationOnce(() => ({
+        async *[Symbol.asyncIterator]() {
+          yield {
+            uid: 99,
+            flags: new Set([]),
+            envelope: { messageId: "<bad@test.com>" },
+            source: Buffer.from("garbage"),
+          };
+        },
+      }));
+
+      const s = spy();
+      const errors: { rc?: string }[] = [];
+
+      t = await testContext()
+        .with({
+          mail: {
+            accounts: {
+              default: {
+                imap: {
+                  host: "imap.test.com",
+                  auth: { user: "u", pass: "p" },
+                },
+              },
+            },
+          },
+        })
+        .routes(
+          craft()
+            .id("mail-parse-fail")
+            .error((err) => {
+              errors.push(err as { rc?: string });
+              return undefined;
+            })
+            .from(mail("INBOX", { pollIntervalMs: 5, unseen: true }))
+            .to(s),
+        )
+        .build();
+
+      const startPromise = t.ctx.start();
+      await new Promise((r) => setTimeout(r, 20));
+      await t.ctx.stop();
+      await startPromise.catch(() => {});
+
+      expect(errors.length).toBe(1);
+      expect(errors[0].rc).toBe("RC5016");
+      // Mark Seen so the malformed message does not refetch forever.
+      expect(mockMessageFlagsAdd).toHaveBeenCalledWith(
+        "99",
+        ["\\Seen"],
+        expect.anything(),
+      );
+    });
+
+    /**
+     * @case 'drop' mode emits exchange:dropped for malformed MIME
+     * @preconditions simpleParser throws; onParseError: 'drop'
+     * @expectedResult exchange:dropped fires with reason 'parse-failed'; markSeen called
+     */
+    test("onParseError 'drop' emits exchange:dropped for malformed MIME", async () => {
+      const { simpleParser } = await import("mailparser");
+      (simpleParser as any).mockRejectedValueOnce(new Error("malformed MIME"));
+      mockMessageFlagsAdd.mockReset();
+      mockMessageFlagsAdd.mockResolvedValue(undefined);
+
+      mockFetch.mockImplementationOnce(() => ({
+        async *[Symbol.asyncIterator]() {
+          yield {
+            uid: 100,
+            flags: new Set([]),
+            envelope: { messageId: "<drop@test.com>" },
+            source: Buffer.from("garbage"),
+          };
+        },
+      }));
+
+      const s = spy();
+      const dropped: { reason: string }[] = [];
+
+      t = await testContext()
+        .with({
+          mail: {
+            accounts: {
+              default: {
+                imap: {
+                  host: "imap.test.com",
+                  auth: { user: "u", pass: "p" },
+                },
+              },
+            },
+          },
+        })
+        .routes(
+          craft()
+            .id("mail-parse-drop")
+            .from(
+              mail("INBOX", {
+                pollIntervalMs: 5,
+                unseen: true,
+                onParseError: "drop",
+              }),
+            )
+            .to(s),
+        )
+        .build();
+
+      t.ctx.on(
+        "route:mail-parse-drop:exchange:dropped" as never,
+        ((payload: { details: { reason: string } }) => {
+          dropped.push({ reason: payload.details.reason });
+        }) as never,
+      );
+
+      const startPromise = t.ctx.start();
+      await new Promise((r) => setTimeout(r, 20));
+      await t.ctx.stop();
+      await startPromise.catch(() => {});
+
+      expect(dropped.length).toBe(1);
+      expect(dropped[0].reason).toBe("parse-failed");
+      expect(mockMessageFlagsAdd).toHaveBeenCalledWith(
+        "100",
+        ["\\Seen"],
+        expect.anything(),
+      );
+      expect(s.received.length).toBe(0);
+    });
   });
 
   describe("buildSearchCriteriaSets", () => {

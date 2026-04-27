@@ -460,8 +460,6 @@ async function parseMessageContent(
   simpleParser: typeof import("mailparser").simpleParser,
   requestedHeaders?: true | string[],
   includeAnalysisHeaders?: boolean,
-  logger?: { debug: (obj: Record<string, unknown>, msg: string) => void },
-  uid?: number,
 ): Promise<{
   text?: string;
   html?: string;
@@ -475,83 +473,88 @@ async function parseMessageContent(
   analysisHeaders?: Record<string, string | string[]>;
 }> {
   if (!source) return {};
-  try {
-    const parsed = await simpleParser(source);
-    const content: {
-      text?: string;
-      html?: string;
-      attachments?: Array<{
+  // Throws on malformed MIME. Callers decide whether to swallow, route the
+  // error through the route pipeline, or abort (see `onParseError` and #187).
+  const parsed = await simpleParser(source);
+  const content: {
+    text?: string;
+    html?: string;
+    attachments?: Array<{
+      filename?: string;
+      contentType: string;
+      size: number;
+      content: Buffer;
+    }>;
+    rawHeaders?: Record<string, string | string[]>;
+    analysisHeaders?: Record<string, string | string[]>;
+  } = {};
+  if (parsed.text) content.text = parsed.text;
+  if (typeof parsed.html === "string") content.html = parsed.html;
+  if (parsed.attachments && parsed.attachments.length > 0) {
+    content.attachments = parsed.attachments.map((att) => {
+      const a: {
         filename?: string;
         contentType: string;
         size: number;
         content: Buffer;
-      }>;
-      rawHeaders?: Record<string, string | string[]>;
-      analysisHeaders?: Record<string, string | string[]>;
-    } = {};
-    if (parsed.text) content.text = parsed.text;
-    if (typeof parsed.html === "string") content.html = parsed.html;
-    if (parsed.attachments && parsed.attachments.length > 0) {
-      content.attachments = parsed.attachments.map((att) => {
-        const a: {
-          filename?: string;
-          contentType: string;
-          size: number;
-          content: Buffer;
-        } = {
-          contentType: att.contentType,
-          size: att.size,
-          content: att.content,
-        };
-        if (att.filename) a.filename = att.filename;
-        return a;
-      });
-    }
-    if (requestedHeaders && parsed.headerLines) {
-      const hdrs: Record<string, string | string[]> = {};
-      const wanted =
-        requestedHeaders === true
-          ? null
-          : new Set(requestedHeaders.map((h) => h.toLowerCase()));
-      for (const entry of parsed.headerLines as Array<{
-        key: string;
-        line: string;
-      }>) {
-        if (wanted && !wanted.has(entry.key)) continue;
-        // Extract value portion after "Header-Name: "
-        const colonIdx = entry.line.indexOf(":");
-        const value =
-          colonIdx >= 0 ? entry.line.slice(colonIdx + 1).trim() : entry.line;
-        // Accumulate multi-value headers (e.g. Received) as arrays
-        const existing = hdrs[entry.key];
-        if (existing === undefined) {
-          hdrs[entry.key] = value;
-        } else if (Array.isArray(existing)) {
-          existing.push(value);
-        } else {
-          hdrs[entry.key] = [existing, value];
-        }
-      }
-      if (Object.keys(hdrs).length > 0) content.rawHeaders = hdrs;
-    }
-    if (includeAnalysisHeaders && parsed.headerLines) {
-      const analysis = extractAnalysisHeaders(
-        parsed.headerLines as ReadonlyArray<{ key: string; line: string }>,
-      );
-      if (Object.keys(analysis).length > 0) content.analysisHeaders = analysis;
-    }
-    return content;
-  } catch (err) {
-    // Swallow per-message parse failures so one malformed MIME does not abort
-    // the whole fetch. Log at debug so operators can correlate an empty body /
-    // missing sender back to a parse error.
-    logger?.debug(
-      { err: err instanceof Error ? err : new Error(String(err)), uid },
-      "mail adapter failed to parse message source",
-    );
-    return {};
+      } = {
+        contentType: att.contentType,
+        size: att.size,
+        content: att.content,
+      };
+      if (att.filename) a.filename = att.filename;
+      return a;
+    });
   }
+  if (requestedHeaders && parsed.headerLines) {
+    const hdrs: Record<string, string | string[]> = {};
+    const wanted =
+      requestedHeaders === true
+        ? null
+        : new Set(requestedHeaders.map((h) => h.toLowerCase()));
+    for (const entry of parsed.headerLines as Array<{
+      key: string;
+      line: string;
+    }>) {
+      if (wanted && !wanted.has(entry.key)) continue;
+      // Extract value portion after "Header-Name: "
+      const colonIdx = entry.line.indexOf(":");
+      const value =
+        colonIdx >= 0 ? entry.line.slice(colonIdx + 1).trim() : entry.line;
+      // Accumulate multi-value headers (e.g. Received) as arrays
+      const existing = hdrs[entry.key];
+      if (existing === undefined) {
+        hdrs[entry.key] = value;
+      } else if (Array.isArray(existing)) {
+        existing.push(value);
+      } else {
+        hdrs[entry.key] = [existing, value];
+      }
+    }
+    if (Object.keys(hdrs).length > 0) content.rawHeaders = hdrs;
+  }
+  if (includeAnalysisHeaders && parsed.headerLines) {
+    const analysis = extractAnalysisHeaders(
+      parsed.headerLines as ReadonlyArray<{ key: string; line: string }>,
+    );
+    if (Object.keys(analysis).length > 0) content.analysisHeaders = analysis;
+  }
+  return content;
 }
+
+/**
+ * Per-message parse error attached to a `MailMessage` when the source's
+ * `onParseError` is `'fail'`. The mail source loop reads this and routes the
+ * error through the route's `.error()` handler via the `parse` argument so
+ * malformed MIME becomes a normal pipeline error instead of a silent
+ * degraded delivery. See #187.
+ *
+ * @internal Module-level registry. Safe globally because each `MailMessage`
+ * is constructed for one and only one fetch cycle, and entries are deleted
+ * by the source loop as soon as they are consumed. WeakMap GC handles any
+ * messages that go unread (e.g. after an abort mid-fetch).
+ */
+export const MAIL_PARSE_ERRORS = new WeakMap<MailMessage, Error>();
 
 /**
  * Minimal logger shape accepted by `fetchMessages`. Matches the methods used
@@ -606,14 +609,28 @@ export async function fetchMessages(
         if (seenUids.has(msg.uid)) continue;
         seenUids.add(msg.uid);
 
-        const content = await parseMessageContent(
-          msg.source,
-          simpleParser,
-          options.includeHeaders,
-          verify !== "off",
-          logger,
-          msg.uid,
-        );
+        let content:
+          | Awaited<ReturnType<typeof parseMessageContent>>
+          | undefined;
+        let parseError: Error | undefined;
+        try {
+          content = await parseMessageContent(
+            msg.source,
+            simpleParser,
+            options.includeHeaders,
+            verify !== "off",
+          );
+        } catch (err) {
+          const wrapped = err instanceof Error ? err : new Error(String(err));
+          // 'fail', 'abort', and 'drop' all capture the error so the per-
+          // message lifecycle event fires from the synthetic parse step.
+          // For 'abort' the source loop rethrows after the event fires so
+          // the source still dies; for 'drop' the route emits
+          // `exchange:dropped`; for 'fail' the route's `.error()` handler
+          // catches it. See #187.
+          parseError = wrapped;
+          content = {};
+        }
 
         const mailMessage = toMailMessage(
           {
@@ -624,6 +641,10 @@ export async function fetchMessages(
           folder,
           content,
         );
+
+        if (parseError) {
+          MAIL_PARSE_ERRORS.set(mailMessage, parseError);
+        }
 
         if (verify !== "off") {
           const analysisHeaders = content.analysisHeaders;

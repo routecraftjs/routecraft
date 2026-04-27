@@ -13,6 +13,7 @@ import {
   type ExchangeHeaders,
   type HeaderValue,
 } from "../exchange.ts";
+import { type OnParseError } from "../adapters/shared/parse.ts";
 
 export type BatchOptions = {
   /**
@@ -62,7 +63,12 @@ export class BatchConsumer implements Consumer<BatchOptions> {
   }
 
   async register(
-    handler: (message: unknown, headers?: ExchangeHeaders) => Promise<Exchange>,
+    handler: (
+      message: unknown,
+      headers?: ExchangeHeaders,
+      parse?: (raw: unknown) => unknown | Promise<unknown>,
+      parseFailureMode?: OnParseError,
+    ) => Promise<Exchange>,
   ): Promise<void> {
     let batch: Message[] = [];
     let resolvers: {
@@ -118,6 +124,46 @@ export class BatchConsumer implements Consumer<BatchOptions> {
     };
 
     this.channel.setHandler(async (message) => {
+      // When a source adapter attaches a `parse` function (see #187), the
+      // batch consumer cannot defer it to the synthetic pipeline step that
+      // the simple consumer relies on: the merged batch exchange has no
+      // per-item parse function, so the runtime cannot apply parsing after
+      // batching. We pre-parse here so the batch contains parsed values.
+      //
+      // On parse failure we route the bad item through the pipeline as its
+      // own per-item exchange (handler invoked with the raw message and the
+      // captured parse function so the synthetic parse step throws RC5016).
+      // This preserves `onParseError: 'fail'` semantics: the route's
+      // `.error()` handler fires, `exchange:failed` fires when no handler
+      // is set, and the source's per-item `.catch()` continues. The bad
+      // item is NOT added to the in-progress batch.
+      if (message.parse) {
+        const itemParse = message.parse;
+        const itemMode = message.parseFailureMode;
+        const rawMessage = message.message;
+        try {
+          message.message = await itemParse(rawMessage);
+        } catch (parseErr) {
+          // Route the failed item as a per-item exchange so the synthetic
+          // parse step fires the correct lifecycle event for the mode
+          // (fail/abort -> exchange:failed, drop -> exchange:dropped).
+          // Pass a closure that throws the captured error rather than
+          // re-invoking `itemParse` on the same input, since user-supplied
+          // parsers may have side effects (logging, metrics, prefetch).
+          // Mirrors the mail adapter's `MAIL_PARSE_ERRORS` pattern.
+          return handler(
+            rawMessage,
+            message.headers,
+            () => {
+              throw parseErr;
+            },
+            itemMode,
+          );
+        }
+        delete message.parse;
+        delete message.parseFailureMode;
+      }
+
       const promise = new Promise<Exchange>((resolve, reject) => {
         batch.push(message);
         resolvers.push({ resolve, reject });

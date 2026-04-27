@@ -162,6 +162,11 @@ export {
 export { tagAdapter, factoryArgs } from "./adapters/shared/factory-tag.ts";
 
 export {
+  type OnParseError,
+  DEFAULT_ON_PARSE_ERROR,
+} from "./adapters/shared/parse.ts";
+
+export {
   type Adapter,
   type Consumer,
   type EventName,
