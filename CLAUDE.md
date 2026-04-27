@@ -33,6 +33,7 @@ Detailed coding standards for contributors live in `.standards/`:
 - [Type Safety Registries](.standards/type-safety-registries.md) -- declaration-merging registries for typed adapters and endpoints
 - [Testing](.standards/testing.md) -- runner conventions, JSDoc-on-every-test, helpers, lifecycle, assertion patterns
 - [CI/CD](.standards/ci-cd.md) -- PR gates, hook policy, peer-dependency rules, release flow
+- [Resilience Wrappers](.standards/resilience-wrappers.md) -- dual-mode wrapper pattern (`.error()` and future resilience ops), authoring contract
 
 ## Merge Checklist
 

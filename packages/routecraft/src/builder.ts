@@ -504,34 +504,68 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
   }
 
   /**
-   * Define a catch-all error handler for unhandled errors in the route's step pipeline.
+   * Attach an error handler. Dual-mode based on position relative to
+   * `.from()`:
    *
-   * Must be called before `.from()`. When any step throws an unhandled error, this handler
-   * is invoked instead of the default log-and-swallow behavior. The pipeline does not resume
-   * after the handler runs; its return value becomes the route's final exchange body.
+   * - **Before `.from()`** (route scope): stages a catch-all for the
+   *   route's pipeline. When any step throws an unhandled error the
+   *   handler runs and the pipeline does NOT resume; the handler's
+   *   return value becomes the route's final exchange body.
+   * - **After `.from()`** (step scope): wraps the immediately next
+   *   step. When that step throws the handler runs, its return value
+   *   replaces `exchange.body`, and the pipeline continues with the
+   *   next step. Subsequent steps see the recovery as if nothing went
+   *   wrong.
    *
-   * @param handler - Receives the error, the exchange at the point of failure, and a `forward`
-   *   function to delegate to another route via the direct adapter.
+   * The handler signature is identical in both positions
+   * (`(error, exchange, forward) => unknown`). When a step-scope
+   * handler itself throws, the wrapper rethrows so a route-scope
+   * handler (when set) catches it; otherwise the default error path
+   * fires (`route:*:error`, `context:error`, `exchange:failed`). The
+   * route is NOT stopped.
+   *
+   * @param handler - Receives the error, the exchange at the point of
+   *   failure, and a `forward` function to delegate to another route
+   *   via the direct adapter.
    * @returns This builder for chaining
    *
-   * @example
-   * ```typescript
+   * @example Route-scope catch-all
+   * ```ts
    * craft()
    *   .id('process-orders')
-   *   .error((error, exchange, forward) => {
-   *     return forward('error-route', { reason: error.message })
-   *   })
+   *   .error((err, ex, forward) => forward('error-route', { reason: String(err) }))
    *   .from(timer({ intervalMs: 60000 }))
    *   .to(dangerousDestination)
    * ```
+   *
+   * @example Step-scope recovery (pipeline continues)
+   * ```ts
+   * craft()
+   *   .id('resilient-pipeline')
+   *   .from(timer({ intervalMs: 60000 }))
+   *   .transform(prepareRequest)
+   *   .error((err) => ({ fallback: true, reason: String(err) }))
+   *   .to(http({ url: 'https://flaky.api/endpoint' }))
+   *   .to(database())
+   * ```
+   *
+   * @experimental Step-scope behaviour ships with the dual-mode
+   * wrapper pattern. See `.standards/resilience-wrappers.md`.
    */
-  error(handler: ErrorHandler): this {
-    this.pendingOptions = {
-      ...(this.pendingOptions ?? {}),
-      errorHandler: handler,
-    };
-    logger.trace("Staging error handler for next route");
-    return this;
+  override error(handler: ErrorHandler): this {
+    if (this.currentRoute === undefined) {
+      // Pre-`.from()`: stage as the route-level catch-all (existing
+      // behaviour). The base-class wrapper stack stays empty.
+      this.pendingOptions = {
+        ...(this.pendingOptions ?? {}),
+        errorHandler: handler,
+      };
+      logger.trace("Staging route-scope error handler for next route");
+      return this;
+    }
+    // Post-`.from()`: delegate to the base-class step-scope path so
+    // the next pushed step is wrapped in `ErrorWrapperStep`.
+    return super.error(handler);
   }
 
   /**
@@ -623,11 +657,12 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    */
   protected override pushStep<T extends Adapter>(step: Step<T>): void {
     const route = this.requireSource();
+    const wrapped = this.applyPendingWrappers(step);
     logger.trace(
-      { operation: step.operation, route: route.id },
+      { operation: wrapped.operation, route: route.id },
       "Adding step to route",
     );
-    route.steps.push(step);
+    route.steps.push(wrapped);
   }
 
   /**

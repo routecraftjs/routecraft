@@ -17,6 +17,7 @@ import {
   type EnrichMergeShape,
   type EnrichAggregatorOption,
 } from "./operations/enrich.ts";
+import { ErrorWrapperStep } from "./operations/error-wrapper.ts";
 import {
   type Processor,
   type CallableProcessor,
@@ -34,7 +35,19 @@ import {
   ValidateStep,
 } from "./operations/validate.ts";
 import { HeaderStep } from "./operations/header.ts";
+import type { ErrorHandler } from "./route.ts";
 import { PUSH_STEP } from "./dsl-symbol.ts";
+
+/**
+ * Builder hook that wraps a single step in a "dual-mode wrapper"
+ * (e.g. `.error()`, future `.retry()` / `.timeout()` / `.cache()`).
+ * Pushed onto {@link StepBuilderBase}'s pending wrapper stack when the
+ * builder method runs in step scope; folded around the next pushed
+ * step inside {@link StepBuilderBase.applyPendingWrappers}.
+ *
+ * @internal
+ */
+export type StepWrapperFactory = <T extends Adapter>(inner: Step<T>) => Step<T>;
 
 // Type-only imports to avoid a runtime cycle. The `Retyped` conditional below
 // resolves `this` into the concrete subclass typed at `NewT`; the value side
@@ -92,14 +105,77 @@ export type Retyped<This, NewT> =
  */
 export abstract class StepBuilderBase<Current = unknown> {
   /**
+   * Stack of step-scope wrapper factories declared since the last
+   * pushed step, in declaration order. Folded around the next pushed
+   * step by {@link applyPendingWrappers}; the first-declared wrapper
+   * is outermost (`.retry().timeout().process(slow)` means
+   * `retry(timeout(process))`). Cleared after each push.
+   *
+   * @internal
+   */
+  protected pendingStepWrappers: StepWrapperFactory[] = [];
+
+  /**
+   * Fold any wrappers staged since the last push around `step`,
+   * returning the (possibly wrapped) step that subclasses should hand
+   * to their target collection. Clears the stack on every call so a
+   * wrapper attaches to exactly one step.
+   *
+   * @internal
+   */
+  protected applyPendingWrappers<T extends Adapter>(step: Step<T>): Step<T> {
+    if (this.pendingStepWrappers.length === 0) return step;
+    let wrapped: Step<Adapter> = step as Step<Adapter>;
+    for (let i = this.pendingStepWrappers.length - 1; i >= 0; i--) {
+      const factory = this.pendingStepWrappers[i]!;
+      wrapped = factory(wrapped);
+    }
+    this.pendingStepWrappers = [];
+    return wrapped as unknown as Step<T>;
+  }
+
+  /**
    * Append a step to the builder's pipeline. Implemented by each subclass
    * to route the step into the right collection (current route definition
    * vs. branch step array). Subclass-specific validation (e.g.
-   * `RouteBuilder.requireSource`) lives in the implementation.
+   * `RouteBuilder.requireSource`) lives in the implementation. Subclasses
+   * MUST run `step` through {@link applyPendingWrappers} so dual-mode
+   * wrappers (`.error()`, future `.retry()`, etc.) attach to the right
+   * step.
    *
    * @param step - The step to append
    */
   protected abstract pushStep<T extends Adapter>(step: Step<T>): void;
+
+  /**
+   * Attach an error handler to the next step. When the wrapped step
+   * throws, the handler runs with `(err, exchange, forward)` (same
+   * shape as the route-level handler), its return value replaces
+   * `exchange.body`, and the pipeline continues with the next step.
+   *
+   * On `RouteBuilder`, this method is dual-mode: when called BEFORE
+   * `.from()` it stages a route-level catch-all (existing behaviour);
+   * when called AFTER `.from()` it wraps the next step. On
+   * `BranchBuilder`, it is always step-scope.
+   *
+   * If the handler itself throws, the wrapper rethrows so the
+   * route-level handler (when set) catches it; otherwise the route's
+   * default error path fires (`route:*:error`, `context:error`,
+   * `exchange:failed`). The route is NOT stopped.
+   *
+   * Stacks left-to-right: `.error(h1).error(h2).to(dest)` produces
+   * `h1` outermost wrapping `h2` wrapping `dest`. `h2` runs first; if
+   * it rethrows, `h1` gets a chance.
+   *
+   * @experimental Step-scope behaviour ships with the dual-mode
+   * wrapper pattern (see `.standards/resilience-wrappers.md`).
+   */
+  error(handler: ErrorHandler): this {
+    this.pendingStepWrappers.push(
+      (inner) => new ErrorWrapperStep(inner, handler),
+    );
+    return this;
+  }
 
   /**
    * Return `this` re-typed to the concrete subclass at a new body type.
