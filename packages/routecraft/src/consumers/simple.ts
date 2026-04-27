@@ -2,6 +2,7 @@ import { CraftContext } from "../context.ts";
 import { type RouteDefinition } from "../route.ts";
 import { type ProcessingQueue, type Message, type Consumer } from "../types.ts";
 import { type Exchange, type ExchangeHeaders } from "../exchange.ts";
+import { type OnParseError } from "../adapters/shared/parse.ts";
 
 export class SimpleConsumer implements Consumer<never> {
   constructor(
@@ -16,7 +17,7 @@ export class SimpleConsumer implements Consumer<never> {
       message: unknown,
       headers?: ExchangeHeaders,
       parse?: (raw: unknown) => unknown | Promise<unknown>,
-      parseFailureMode?: "fail" | "abort" | "drop",
+      parseFailureMode?: OnParseError,
     ) => Promise<Exchange>,
   ): Promise<void> {
     this.channel.setHandler(async (message) => {

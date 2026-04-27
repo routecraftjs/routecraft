@@ -3,6 +3,7 @@ import { type OperationType } from "./exchange.ts";
 import { type CraftContext } from "./context.ts";
 import { type RouteDefinition } from "./route.ts";
 import { type Route } from "./route.ts";
+import { type OnParseError } from "./adapters/shared/parse.ts";
 
 /**
  * Base interface for all adapters (sources, destinations, transformers, filters, etc.).
@@ -105,7 +106,7 @@ export type Message = {
   message: unknown;
   headers?: ExchangeHeaders;
   parse?: (raw: unknown) => unknown | Promise<unknown>;
-  parseFailureMode?: "fail" | "abort" | "drop";
+  parseFailureMode?: OnParseError;
 };
 
 export interface Consumer<O = unknown> {
@@ -130,7 +131,7 @@ export interface Consumer<O = unknown> {
       message: unknown,
       headers?: ExchangeHeaders,
       parse?: (raw: unknown) => unknown | Promise<unknown>,
-      parseFailureMode?: "fail" | "abort" | "drop",
+      parseFailureMode?: OnParseError,
     ) => Promise<Exchange>,
   ): void;
 }

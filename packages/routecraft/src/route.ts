@@ -21,6 +21,7 @@ import { rcError, RoutecraftError, RC, formatSchemaIssues } from "./error.ts";
 import { isRoutecraftError } from "./brand.ts";
 import { logger, childBindings } from "./logger.ts";
 import { type Source } from "./operations/from.ts";
+import { type OnParseError } from "./adapters/shared/parse.ts";
 import {
   type Adapter,
   type Step,
@@ -158,7 +159,7 @@ const PARSE_DROPPED_REASON = "parse-failed";
  */
 function buildParseStep(
   parse: (raw: unknown) => unknown | Promise<unknown>,
-  failureMode: "fail" | "abort" | "drop",
+  failureMode: OnParseError,
   applyValidation?: (exchange: Exchange) => Promise<void>,
 ): Step<Adapter> {
   return {
@@ -485,7 +486,8 @@ export class DefaultRoute implements Route {
   }
 
   /**
-   * Validate an incoming exchange against the route's `input` schemas.
+   * Validate an incoming exchange against the route's `input` schemas BEFORE
+   * the pipeline runs (no `exchange:started` has fired yet).
    *
    * On success, the exchange body and headers are mutated in place with any
    * validated / coerced values (headers are merged over the originals so
@@ -493,6 +495,12 @@ export class DefaultRoute implements Route {
    * unknowns). On failure, emits `exchange:started` followed by
    * `exchange:dropped` for telemetry and throws an RC5002 error so the
    * source's caller (e.g. a direct channel's `send`) sees the rejection.
+   *
+   * MUST NOT be called after `handler()` has emitted `exchange:started` for
+   * the exchange (e.g. from inside the synthetic parse step). Use
+   * {@link validateInputOrThrow} for that path: it throws RC5002 without
+   * emitting events, so the parse step's `step:failed` -> runSteps catch ->
+   * `exchange:failed` lifecycle stays intact.
    */
   private async applyInputValidation(
     exchange: Exchange,
@@ -515,6 +523,41 @@ export class DefaultRoute implements Route {
         // Merge validated values over the originals in place so caller
         // pass-through keys (correlation IDs, adapter-injected metadata)
         // survive schemas that strip unknowns.
+        Object.assign(exchange.headers, headerValue);
+      }
+    }
+  }
+
+  /**
+   * Same as {@link applyInputValidation} but without emitting any
+   * `exchange:started` / `exchange:dropped` events on failure: just throws
+   * RC5002. Used by the synthetic parse step in `runSteps` so a validation
+   * failure becomes a normal step failure (`step:failed` -> `exchange:failed`)
+   * rather than a duplicate `started` + stray `dropped` followed by a
+   * `failed` (see #187).
+   */
+  private async validateInputOrThrow(
+    exchange: Exchange,
+    schemas: { body?: StandardSchemaV1; headers?: StandardSchemaV1 },
+  ): Promise<void> {
+    if (schemas.body) {
+      const res = await this.validateAgainst(schemas.body, exchange.body);
+      if (!res.ok) {
+        throw rcError("RC5002", new Error(res.message), {
+          message: `Body validation failed for route "${this.definition.id}"`,
+        });
+      }
+      exchange.body = res.value;
+    }
+    if (schemas.headers) {
+      const res = await this.validateAgainst(schemas.headers, exchange.headers);
+      if (!res.ok) {
+        throw rcError("RC5002", new Error(res.message), {
+          message: `Header validation failed for route "${this.definition.id}"`,
+        });
+      }
+      const headerValue = res.value as ExchangeHeaders | undefined;
+      if (headerValue !== undefined) {
         Object.assign(exchange.headers, headerValue);
       }
     }
@@ -715,10 +758,15 @@ export class DefaultRoute implements Route {
             internals.parseFailureMode = parseFailureMode ?? "fail";
             // Validation must run AFTER parse so `.input()` schemas
             // validate the parsed body, not the raw bytes. The synthetic
-            // parse step calls this hook once parse succeeds.
+            // parse step calls this hook once parse succeeds. Use the
+            // non-emitting variant so a validation failure inside the parse
+            // step throws RC5002 cleanly into the step loop's catch path
+            // (which emits `step:failed` and then `exchange:failed`),
+            // without firing duplicate `exchange:started` /
+            // `exchange:dropped` events (see #187).
             if (hasInputSchema) {
               internals.applyValidation = (ex: Exchange) =>
-                this.applyInputValidation(ex, inputSchemas);
+                this.validateInputOrThrow(ex, inputSchemas);
             }
           }
         } else if (hasInputSchema) {

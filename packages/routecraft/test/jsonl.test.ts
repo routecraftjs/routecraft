@@ -1,4 +1,5 @@
 import { describe, test, expect, afterEach, beforeEach } from "vitest";
+import { z } from "zod";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
 import { craft, simple, jsonl, HeadersKeys } from "@routecraft/routecraft";
 import * as fsp from "node:fs/promises";
@@ -412,6 +413,109 @@ describe("JSONL Adapter", () => {
       expect(s.received[2].body).toEqual({ id: 3 });
       expect(dropped.length).toBeGreaterThanOrEqual(2);
       expect(dropped[0].reason).toBe("parse-failed");
+    });
+  });
+
+  describe("source mode - parse + .input() schema", () => {
+    /**
+     * @case Valid JSONL line passes input validation against the parsed body
+     * @preconditions Chunked JSONL with valid lines, route has .input(zodSchema)
+     * @expectedResult The schema sees the parsed object (not the raw line); spy receives the validated body
+     */
+    test(".input() schema validates the parsed body, not the raw line", async () => {
+      const filePath = path.join(tmpDir, "valid-input.jsonl");
+      await fsp.writeFile(
+        filePath,
+        '{"id":1,"name":"Alice"}\n{"id":2,"name":"Bob"}',
+        "utf-8",
+      );
+
+      const schema = z.object({
+        id: z.number(),
+        name: z.string(),
+      });
+
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("jsonl-input-valid")
+            .input({ body: schema })
+            .from(jsonl({ path: filePath, chunked: true }))
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(s.received).toHaveLength(2);
+      expect(s.received[0].body).toEqual({ id: 1, name: "Alice" });
+      expect(s.received[1].body).toEqual({ id: 2, name: "Bob" });
+    });
+
+    /**
+     * @case Input validation failure on a parsed body emits exchange:failed once (no duplicate started/dropped)
+     * @preconditions Chunked JSONL with parsed body that violates schema
+     * @expectedResult Exactly one exchange:started, one exchange:failed (RC5002), zero exchange:dropped per bad item
+     */
+    test("input validation failure inside parse step emits clean lifecycle (no duplicate started/dropped)", async () => {
+      const filePath = path.join(tmpDir, "schema-fail.jsonl");
+      await fsp.writeFile(
+        filePath,
+        '{"id":"not-a-number"}\n{"id":42}',
+        "utf-8",
+      );
+
+      const schema = z.object({ id: z.number() });
+
+      const s = spy();
+      const started: string[] = [];
+      const failed: { error: { rc?: string } }[] = [];
+      const dropped: { reason: string }[] = [];
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("jsonl-input-bad")
+            .input({ body: schema })
+            .from(jsonl({ path: filePath, chunked: true }))
+            .to(s),
+        )
+        .build();
+
+      t.ctx.on(
+        "route:jsonl-input-bad:exchange:started" as never,
+        ((payload: { details: { exchangeId: string } }) => {
+          started.push(payload.details.exchangeId);
+        }) as never,
+      );
+      t.ctx.on(
+        "route:jsonl-input-bad:exchange:failed" as never,
+        ((payload: { details: { error: { rc?: string } } }) => {
+          failed.push({ error: payload.details.error });
+        }) as never,
+      );
+      t.ctx.on(
+        "route:jsonl-input-bad:exchange:dropped" as never,
+        ((payload: { details: { reason: string } }) => {
+          dropped.push({ reason: payload.details.reason });
+        }) as never,
+      );
+
+      await t.ctx.start();
+      await new Promise((r) => setTimeout(r, 0));
+
+      // Two lines processed: one bad (validation fails), one good.
+      // Each line gets exactly one exchange:started.
+      expect(started).toHaveLength(2);
+      // The bad line fails with RC5002; no spurious exchange:dropped fired.
+      expect(failed).toHaveLength(1);
+      expect(failed[0].error.rc).toBe("RC5002");
+      expect(dropped).toHaveLength(0);
+      // The good line still reaches the destination.
+      expect(s.received).toHaveLength(1);
+      expect(s.received[0].body).toEqual({ id: 42 });
     });
   });
 

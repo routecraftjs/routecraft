@@ -4,6 +4,7 @@ import type { Exchange, ExchangeHeaders } from "../../exchange.ts";
 import { rcError } from "../../error.ts";
 import type { MailMessage, MailServerOptions } from "./types.ts";
 import type { MailClientManager } from "./client-manager.ts";
+import type { OnParseError } from "../shared/parse.ts";
 import {
   getClientManager,
   createImapClient,
@@ -87,7 +88,7 @@ export class MailSourceAdapter implements Source<MailMessage> {
       message: MailMessage,
       headers?: ExchangeHeaders,
       parse?: (raw: unknown) => unknown | Promise<unknown>,
-      parseFailureMode?: "fail" | "abort" | "drop",
+      parseFailureMode?: OnParseError,
     ) => Promise<Exchange>,
     abortController: AbortController,
     onReady?: () => void,
@@ -269,6 +270,14 @@ export class MailSourceAdapter implements Source<MailMessage> {
       for (const message of messages) {
         if (abortController.signal.aborted) break;
         try {
+          // Mark-Seen-on-success covers two parse-failure paths via the
+          // handler resolving cleanly:
+          //   1. 'drop': synthetic parse step emits exchange:dropped and
+          //      runSteps returns without throwing.
+          //   2. 'fail' with a route .error() handler that recovers: catch
+          //      block sets exchange.body and runSteps returns cleanly.
+          // The catch block below covers the remaining parse-failure paths
+          // ('fail' without handler, 'abort').
           await handler(message);
           if (markSeenEnabled) {
             await markMessagesSeen(client, message.uid, logger);
@@ -286,9 +295,8 @@ export class MailSourceAdapter implements Source<MailMessage> {
             // synthetic parse step.
             if (onParseError === "abort") throw err;
           }
-          // 'fail' / 'drop' / non-parse failures: leave un-Seen for retry
-          // (transient handler errors are expected to recover) unless we
-          // already marked Seen above.
+          // Non-parse handler errors are treated as transient and left
+          // un-Seen for retry on the next cycle.
         }
       }
 

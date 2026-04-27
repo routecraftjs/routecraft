@@ -3,7 +3,7 @@ import type { Source, CallableSource } from "../../operations/from.ts";
 import type { JsonlSourceOptions } from "./types.ts";
 import { HeadersKeys, type ExchangeHeaders } from "../../exchange.ts";
 import { forEachLine, throwFileError } from "../shared/line-reader.ts";
-import { DEFAULT_ON_PARSE_ERROR } from "../shared/parse.ts";
+import { DEFAULT_ON_PARSE_ERROR, type OnParseError } from "../shared/parse.ts";
 
 /**
  * JsonlSourceAdapter reads JSON Lines files.
@@ -69,7 +69,7 @@ export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
               message: T,
               headers?: ExchangeHeaders,
               parse?: (raw: unknown) => unknown | Promise<unknown>,
-              parseFailureMode?: "fail" | "abort" | "drop",
+              parseFailureMode?: OnParseError,
             ) => Promise<import("../../exchange.ts").Exchange>;
 
             // Defer parse to the synthetic pipeline step. The mode the
@@ -123,7 +123,7 @@ export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
       message: T[],
       headers?: ExchangeHeaders,
       parse?: (raw: unknown) => unknown | Promise<unknown>,
-      parseFailureMode?: "fail" | "abort" | "drop",
+      parseFailureMode?: OnParseError,
     ) => Promise<import("../../exchange.ts").Exchange>;
 
     const rawLines: string[] = [];

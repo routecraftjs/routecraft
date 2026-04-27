@@ -57,7 +57,7 @@ export class CsvSourceAdapter implements Source<CsvData | CsvRow> {
           message: CsvRow,
           headers?: ExchangeHeaders,
           parse?: (raw: unknown) => unknown | Promise<unknown>,
-          parseFailureMode?: "fail" | "abort" | "drop",
+          parseFailureMode?: OnParseError,
         ) => Promise<import("../../exchange.ts").Exchange>,
         abortController,
         { header, delimiter, quoteChar, skipEmptyLines },
@@ -85,7 +85,7 @@ export class CsvSourceAdapter implements Source<CsvData | CsvRow> {
           message: CsvData,
           headers?: ExchangeHeaders,
           parse?: (raw: unknown) => unknown | Promise<unknown>,
-          parseFailureMode?: "fail" | "abort" | "drop",
+          parseFailureMode?: OnParseError,
         ) => Promise<import("../../exchange.ts").Exchange>;
 
         const parseFn = (raw: unknown): CsvData => {
@@ -128,7 +128,7 @@ export class CsvSourceAdapter implements Source<CsvData | CsvRow> {
       message: CsvRow,
       headers?: ExchangeHeaders,
       parse?: (raw: unknown) => unknown | Promise<unknown>,
-      parseFailureMode?: "fail" | "abort" | "drop",
+      parseFailureMode?: OnParseError,
     ) => Promise<import("../../exchange.ts").Exchange>,
     abortController: AbortController,
     parseOptions: {

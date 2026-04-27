@@ -2,6 +2,7 @@ import { type CraftContext } from "../context.ts";
 import { type Exchange, type ExchangeHeaders } from "../exchange.ts";
 import { type RouteDiscovery } from "../route.ts";
 import { type Adapter } from "../types.ts";
+import { type OnParseError } from "../adapters/shared/parse.ts";
 
 /**
  * Metadata the engine passes to a source adapter at subscribe time.
@@ -75,7 +76,7 @@ export type CallableSource<T = unknown> = (
      *
      * @experimental
      */
-    parseFailureMode?: "fail" | "abort" | "drop",
+    parseFailureMode?: OnParseError,
   ) => Promise<Exchange>,
   abortController: AbortController,
   onReady?: () => void,

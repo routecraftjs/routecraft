@@ -13,6 +13,7 @@ import {
   type ExchangeHeaders,
   type HeaderValue,
 } from "../exchange.ts";
+import { type OnParseError } from "../adapters/shared/parse.ts";
 
 export type BatchOptions = {
   /**
@@ -66,7 +67,7 @@ export class BatchConsumer implements Consumer<BatchOptions> {
       message: unknown,
       headers?: ExchangeHeaders,
       parse?: (raw: unknown) => unknown | Promise<unknown>,
-      parseFailureMode?: "fail" | "abort" | "drop",
+      parseFailureMode?: OnParseError,
     ) => Promise<Exchange>,
   ): Promise<void> {
     let batch: Message[] = [];
@@ -142,11 +143,22 @@ export class BatchConsumer implements Consumer<BatchOptions> {
         const rawMessage = message.message;
         try {
           message.message = await itemParse(rawMessage);
-        } catch {
+        } catch (parseErr) {
           // Route the failed item as a per-item exchange so the synthetic
           // parse step fires the correct lifecycle event for the mode
           // (fail/abort -> exchange:failed, drop -> exchange:dropped).
-          return handler(rawMessage, message.headers, itemParse, itemMode);
+          // Pass a closure that throws the captured error rather than
+          // re-invoking `itemParse` on the same input, since user-supplied
+          // parsers may have side effects (logging, metrics, prefetch).
+          // Mirrors the mail adapter's `MAIL_PARSE_ERRORS` pattern.
+          return handler(
+            rawMessage,
+            message.headers,
+            () => {
+              throw parseErr;
+            },
+            itemMode,
+          );
         }
         delete message.parse;
         delete message.parseFailureMode;

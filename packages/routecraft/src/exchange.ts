@@ -3,6 +3,7 @@ import { INTERNALS_KEY, BRAND, setBrand, setInternals } from "./brand.ts";
 import { type CraftContext } from "./context.ts";
 import { logger, childBindings } from "./logger.ts";
 import type { Route } from "./route.ts";
+import type { OnParseError } from "./adapters/shared/parse.ts";
 
 /**
  * Types of operations that can be performed on an exchange.
@@ -249,7 +250,7 @@ type ExchangeInternals = {
    *
    * @internal
    */
-  parseFailureMode?: "fail" | "abort" | "drop";
+  parseFailureMode?: OnParseError;
   /**
    * Optional input-schema validation deferred to run inside the synthetic
    * parse step. Used when a route has both `.input()` schemas and a
