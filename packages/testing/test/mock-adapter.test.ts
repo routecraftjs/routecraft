@@ -475,6 +475,10 @@ describe("mockAdapter", () => {
   describe("first-party adapter factory tagging", () => {
     type TaggedDestinationCase = readonly [
       label: string,
+      // `unknown[]` would be stricter, but TypeScript rejects assigning a
+      // factory with specific options types into a parameter typed as
+      // `unknown[]` (function parameter contravariance). `any[]` is the
+      // only annotation that accepts the heterogenous factories below.
       factory: (...args: any[]) => unknown,
       build: () => Destination<unknown, unknown>,
     ];
@@ -602,6 +606,58 @@ describe("mockAdapter", () => {
       expect(htmlTransformer).toHaveProperty("transform");
       expect(htmlTransformer).not.toHaveProperty("subscribe");
       expect(htmlTransformer).not.toHaveProperty("send");
+    });
+
+    /**
+     * @case mockAdapter(json, { send }) does not intercept .transform(json()) call sites
+     * @preconditions Route uses simple(jsonString).transform(json()).to(spy); a send-only mock is registered for json
+     * @expectedResult The transformer parses the body normally; the send override is never invoked, confirming the resolver only fires on subscribe/send
+     */
+    test("send overrides do not intercept json() transformer-mode call sites", async () => {
+      const jsonMock = mockAdapter(json, {
+        send: async () => "should-never-fire",
+      });
+      const captured = spy<unknown>();
+
+      const route = craft()
+        .id("json-transformer-bypass")
+        .from(simple('{"x":1}'))
+        .transform(json())
+        .to(captured);
+
+      t = await testContext().override(jsonMock).routes(route).build();
+      await t.test();
+
+      expect(jsonMock.calls.send).toHaveLength(0);
+      expect(captured.received).toHaveLength(1);
+      expect(captured.received[0].body).toEqual({ x: 1 });
+      expect(t.errors).toHaveLength(0);
+    });
+
+    /**
+     * @case mockAdapter(html, { send }) does not intercept .transform(html({ selector })) call sites
+     * @preconditions Route uses simple(htmlString).transform(html({ selector, extract })).to(spy); a send-only mock is registered for html
+     * @expectedResult The transformer extracts the selector text normally; the send override is never invoked
+     */
+    test("send overrides do not intercept html() transformer-mode call sites", async () => {
+      const htmlMock = mockAdapter(html, {
+        send: async () => "should-never-fire",
+      });
+      const captured = spy<unknown>();
+
+      const route = craft()
+        .id("html-transformer-bypass")
+        .from(simple("<html><title>Hello</title></html>"))
+        .transform(html({ selector: "title", extract: "text" }))
+        .to(captured);
+
+      t = await testContext().override(htmlMock).routes(route).build();
+      await t.test();
+
+      expect(htmlMock.calls.send).toHaveLength(0);
+      expect(captured.received).toHaveLength(1);
+      expect(captured.received[0].body).toBe("Hello");
+      expect(t.errors).toHaveLength(0);
     });
 
     /**
