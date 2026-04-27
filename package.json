@@ -38,7 +38,7 @@
     "lint-staged": "^16.4.0",
     "madge": "^8.0.0",
     "prettier": "^3.8.3",
-    "prettier-plugin-tailwindcss": "^0.7.2",
+    "prettier-plugin-tailwindcss": "^0.7.4",
     "size-limit": "^12.1.0",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
