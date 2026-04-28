@@ -24,17 +24,24 @@ import { DEFERRED_FN_BRAND, type DeferredFn } from "./types.ts";
 /**
  * Re-hydrate a frozen `ReadonlyPrincipal` (as exposed on
  * `FnHandlerContext`) into a fresh mutable `Principal` so it can be
- * attached to a downstream `DefaultExchange`. Shallow-clones the
- * arrays and the `claims` map so the downstream pipeline is free to
- * mutate them without reaching back into the agent's frozen
- * snapshot.
+ * attached to a downstream `DefaultExchange`.
+ *
+ * Arrays are spread-cloned. `claims` is deep-cloned via
+ * `structuredClone` so that nested claim objects in the downstream
+ * exchange's principal do not share references with the agent's
+ * frozen snapshot: a `.process()` step downstream that mutates a
+ * nested claim must not be able to reach back into the snapshot
+ * (and conversely, the snapshot's frozen state would otherwise
+ * propagate into a downstream pipeline that expects a writable
+ * principal).
  */
 function cloneFrozenPrincipal(rp: ReadonlyPrincipal): Principal {
   const out: Principal = { ...rp } as Principal;
   if (rp.audience) out.audience = [...rp.audience];
   if (rp.scopes) out.scopes = [...rp.scopes];
   if (rp.roles) out.roles = [...rp.roles];
-  if (rp.claims) out.claims = { ...rp.claims };
+  if (rp.claims)
+    out.claims = structuredClone(rp.claims) as Record<string, unknown>;
   return out;
 }
 

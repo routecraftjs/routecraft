@@ -193,6 +193,65 @@ describe("buildVercelTools: execute path", () => {
   });
 
   /**
+   * @case Nested claim objects are deep-cloned and deep-frozen
+   * @preconditions Principal with a nested object claim and a nested array claim
+   * @expectedResult Mutating the original nested objects does not affect the snapshot; runtime mutation of nested values throws TypeError
+   */
+  test("nested claim objects are deep-frozen and isolated", async () => {
+    let capturedCtx: { principal?: { claims?: Record<string, unknown> } } = {};
+    const handler = vi.fn(async (_input: unknown, ctx: unknown) => {
+      capturedCtx = ctx as {
+        principal?: { claims?: Record<string, unknown> };
+      };
+    });
+    const resolved: ResolvedTool = {
+      name: "nested-claims",
+      description: "Nested claims.",
+      input: z.object({}),
+      handler: handler as unknown as ResolvedTool["handler"],
+    };
+    const principal = {
+      kind: "jwt" as const,
+      scheme: "bearer" as const,
+      subject: "user-42",
+      claims: {
+        perms: { write: false, admin: false },
+        tags: ["alpha", "beta"],
+      },
+    };
+    const map = await buildVercelTools(
+      [resolved],
+      undefined,
+      new AbortController().signal,
+      undefined,
+      principal,
+    );
+    const tool = map["nested-claims"] as {
+      execute: (input: unknown) => Promise<unknown>;
+    };
+    await tool.execute({});
+
+    const claims = capturedCtx.principal!.claims as {
+      perms: { write: boolean; admin: boolean };
+      tags: string[];
+    };
+    // Snapshot is a deep clone: mutating the original nested perms / tags
+    // after dispatch must not leak into the snapshot.
+    principal.claims.perms.admin = true;
+    principal.claims.tags.push("gamma");
+    expect(claims.perms).toEqual({ write: false, admin: false });
+    expect(claims.tags).toEqual(["alpha", "beta"]);
+    // Runtime: a tool that bypasses the readonly type still cannot
+    // mutate any nested claim value or array.
+    expect(() => {
+      claims.perms.admin = true;
+    }).toThrow(TypeError);
+    expect(() => {
+      claims.tags.push("evil");
+    }).toThrow(TypeError);
+  });
+
+  /**
    * @case Guard that resolves passes through to the handler
    * @preconditions Guard returns void (no throw)
    * @expectedResult Handler runs and returns its value

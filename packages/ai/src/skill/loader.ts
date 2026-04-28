@@ -94,14 +94,14 @@ function toSkill(
  * });
  * ```
  */
-export function skills(
+export async function skills(
   path: string,
   overrides: Record<string, SkillOverride> = {},
-): Record<string, Skill> {
+): Promise<Record<string, Skill>> {
   const out: Record<string, Skill> = {};
   const docs = path.endsWith(".md")
-    ? [readMarkdownFile(path)]
-    : readMarkdownDir(path);
+    ? [await readMarkdownFile(path)]
+    : await readMarkdownDir(path);
   for (const doc of docs) {
     const skill = toSkill(doc.filename, doc.frontmatter, doc.body, doc.path);
     const override = overrides[skill.name];

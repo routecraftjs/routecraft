@@ -29,14 +29,14 @@ describe("skills() markdown loader", () => {
    * @preconditions Two well-formed skill files
    * @expectedResult Returns both skills with content from the body
    */
-  test("loads a directory of skill markdown files", () => {
+  test("loads a directory of skill markdown files", async () => {
     const dir = makeDir({
       "web-search.md":
         "---\nname: web-search\ndescription: Search the web\n---\nUse a search engine first.",
       "cite-sources.md":
         "---\nname: cite-sources\ndescription: Cite your sources\n---\nAlways include citations.",
     });
-    const result = skills(dir);
+    const result = await skills(dir);
     expect(Object.keys(result).sort()).toEqual(["cite-sources", "web-search"]);
     expect(result["web-search"]).toEqual({
       name: "web-search",
@@ -50,12 +50,12 @@ describe("skills() markdown loader", () => {
    * @preconditions A single skill markdown file
    * @expectedResult Returns one entry keyed by filename
    */
-  test("loads a single .md file path", () => {
+  test("loads a single .md file path", async () => {
     const dir = makeDir({
       "rules.md":
         "---\nname: rules\ndescription: The rules\n---\nRule one. Rule two.",
     });
-    const result = skills(join(dir, "rules.md"));
+    const result = await skills(join(dir, "rules.md"));
     expect(result).toEqual({
       rules: {
         name: "rules",
@@ -70,11 +70,11 @@ describe("skills() markdown loader", () => {
    * @preconditions File "x.md" with frontmatter name "y"
    * @expectedResult Throws RC5003 mentioning the mismatch
    */
-  test("throws when frontmatter name does not match filename", () => {
+  test("throws when frontmatter name does not match filename", async () => {
     const dir = makeDir({
       "actual.md": "---\nname: claimed\ndescription: ok\n---\nbody",
     });
-    expect(() => skills(dir)).toThrow(/must match the filename/);
+    await expect(skills(dir)).rejects.toThrow(/must match the filename/);
   });
 
   /**
@@ -82,11 +82,11 @@ describe("skills() markdown loader", () => {
    * @preconditions File with `version: 1` in frontmatter
    * @expectedResult Throws RC5003 listing the unsupported field
    */
-  test("rejects unsupported frontmatter fields", () => {
+  test("rejects unsupported frontmatter fields", async () => {
     const dir = makeDir({
       "x.md": "---\nname: x\ndescription: ok\nversion: 1\n---\nbody",
     });
-    expect(() => skills(dir)).toThrow(
+    await expect(skills(dir)).rejects.toThrow(
       /unsupported frontmatter field "version"/,
     );
   });
@@ -96,11 +96,11 @@ describe("skills() markdown loader", () => {
    * @preconditions Skill markdown with frontmatter only
    * @expectedResult Throws RC5003 mentioning empty body
    */
-  test("rejects empty skill body", () => {
+  test("rejects empty skill body", async () => {
     const dir = makeDir({
       "x.md": "---\nname: x\ndescription: ok\n---\n",
     });
-    expect(() => skills(dir)).toThrow(/skill body is empty/);
+    await expect(skills(dir)).rejects.toThrow(/skill body is empty/);
   });
 
   /**
@@ -108,11 +108,11 @@ describe("skills() markdown loader", () => {
    * @preconditions Markdown loaded with override that replaces description
    * @expectedResult Result reflects override; original content preserved
    */
-  test("applies per-skill overrides", () => {
+  test("applies per-skill overrides", async () => {
     const dir = makeDir({
       "x.md": "---\nname: x\ndescription: from-md\n---\nbody from md",
     });
-    const result = skills(dir, { x: { description: "overridden" } });
+    const result = await skills(dir, { x: { description: "overridden" } });
     expect(result["x"]?.description).toBe("overridden");
     expect(result["x"]?.content).toBe("body from md");
   });
@@ -122,11 +122,11 @@ describe("skills() markdown loader", () => {
    * @preconditions Override key not present in loaded files
    * @expectedResult Throws RC5003 with the offending key
    */
-  test("override for an unknown skill throws", () => {
+  test("override for an unknown skill throws", async () => {
     const dir = makeDir({
       "x.md": "---\nname: x\ndescription: ok\n---\nbody",
     });
-    expect(() => skills(dir, { y: { description: "nope" } })).toThrow(
+    await expect(skills(dir, { y: { description: "nope" } })).rejects.toThrow(
       /override for "y" but no skill with that name/,
     );
   });

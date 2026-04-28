@@ -1,7 +1,6 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve, basename, extname } from "node:path";
 import { rcError } from "@routecraft/routecraft";
-import { parse as parseYaml } from "yaml";
 
 /**
  * Parsed markdown document: front matter as a plain object plus the
@@ -21,6 +20,40 @@ export interface ParsedMarkdown {
 }
 
 /**
+ * YAML parser shape we depend on. Lazy-loaded the first time a
+ * markdown loader runs so the `yaml` package can be an optional peer
+ * dependency: callers that never invoke `agents()` / `skills()` do
+ * not need to install it, and it stays out of `@routecraft/ai`'s
+ * static import graph (size-limit is enforced on the entry bundle).
+ *
+ * @internal
+ */
+type YamlParse = (text: string) => unknown;
+let cachedParseYaml: YamlParse | undefined;
+
+async function loadYamlParse(): Promise<YamlParse> {
+  if (cachedParseYaml) return cachedParseYaml;
+  try {
+    const mod = (await import("yaml")) as { parse: YamlParse };
+    cachedParseYaml = mod.parse;
+    return cachedParseYaml;
+  } catch (err) {
+    if (
+      err instanceof Error &&
+      (err.message.includes("ERR_MODULE_NOT_FOUND") ||
+        err.message.includes("Cannot find module") ||
+        err.message.includes("Cannot find package")) &&
+      err.message.includes("yaml")
+    ) {
+      throw new Error(
+        `The markdown loaders (agents()/skills()) require the "yaml" package. Install it with: pnpm add yaml`,
+      );
+    }
+    throw err;
+  }
+}
+
+/**
  * Strip a `--- ... ---` YAML front-matter block from the start of the
  * file and return the parsed object plus the body. Files without a
  * leading `---` are treated as having no front matter (frontmatter is
@@ -28,7 +61,10 @@ export interface ParsedMarkdown {
  *
  * @internal
  */
-function splitFrontmatter(raw: string, path: string): ParsedMarkdown {
+async function splitFrontmatter(
+  raw: string,
+  path: string,
+): Promise<ParsedMarkdown> {
   const filename = basename(path, extname(path));
   if (!raw.startsWith("---")) {
     return {
@@ -48,7 +84,12 @@ function splitFrontmatter(raw: string, path: string): ParsedMarkdown {
   const body = raw.slice(end + 4).trim();
   let parsed: unknown;
   try {
-    parsed = yamlText ? parseYaml(yamlText) : {};
+    if (yamlText) {
+      const parseYaml = await loadYamlParse();
+      parsed = parseYaml(yamlText);
+    } else {
+      parsed = {};
+    }
   } catch (err) {
     throw rcError("RC5003", undefined, {
       message: `Markdown file "${path}": YAML front matter failed to parse. ${(err as Error).message}`,
@@ -74,7 +115,7 @@ function splitFrontmatter(raw: string, path: string): ParsedMarkdown {
  *
  * @internal
  */
-export function readMarkdownFile(path: string): ParsedMarkdown {
+export async function readMarkdownFile(path: string): Promise<ParsedMarkdown> {
   const abs = resolve(process.cwd(), path);
   let raw: string;
   try {
@@ -95,7 +136,7 @@ export function readMarkdownFile(path: string): ParsedMarkdown {
  *
  * @internal
  */
-export function readMarkdownDir(dir: string): ParsedMarkdown[] {
+export async function readMarkdownDir(dir: string): Promise<ParsedMarkdown[]> {
   const abs = resolve(process.cwd(), dir);
   let stats;
   try {
@@ -115,7 +156,7 @@ export function readMarkdownDir(dir: string): ParsedMarkdown[] {
     if (!entry.isFile()) continue;
     if (extname(entry.name).toLowerCase() !== ".md") continue;
     out.push(
-      splitFrontmatter(
+      await splitFrontmatter(
         readFileSync(join(abs, entry.name), "utf-8"),
         join(abs, entry.name),
       ),

@@ -193,14 +193,14 @@ function applyOverride(
  * });
  * ```
  */
-export function agents(
+export async function agents(
   path: string,
   overrides: Record<string, AgentMarkdownOverride> = {},
-): Record<string, AgentRegisteredOptions> {
+): Promise<Record<string, AgentRegisteredOptions>> {
   const out: Record<string, AgentRegisteredOptions> = {};
   const docs = path.endsWith(".md")
-    ? [readMarkdownFile(path)]
-    : readMarkdownDir(path);
+    ? [await readMarkdownFile(path)]
+    : await readMarkdownDir(path);
   for (const doc of docs) {
     const { name, agent } = toAgent(
       doc.filename,

@@ -25,8 +25,7 @@
   "dependencies": {
     "@routecraft/routecraft": "workspace:^0.5.0",
     "@standard-schema/spec": "^1.1.0",
-    "ai": "^6.0.168",
-    "yaml": "^2.8.0"
+    "ai": "^6.0.168"
   },
   "devDependencies": {
     "@ai-sdk/anthropic": "^3.0.71",
@@ -39,6 +38,7 @@
     "jose": "^6.2.2",
     "ollama-ai-provider-v2": "^3.5.0",
     "vitest": "^4.1.4",
+    "yaml": "^2.8.0",
     "zod": "^4.3.6"
   },
   "peerDependencies": {
@@ -50,7 +50,8 @@
     "@openrouter/ai-sdk-provider": "^2.2.3",
     "@routecraft/routecraft": "*",
     "express": "^5.0.0",
-    "ollama-ai-provider-v2": "^3.3.1"
+    "ollama-ai-provider-v2": "^3.3.1",
+    "yaml": "^2.8.0"
   },
   "keywords": [
     "routecraft",
@@ -90,6 +91,9 @@
       "optional": true
     },
     "ollama-ai-provider-v2": {
+      "optional": true
+    },
+    "yaml": {
       "optional": true
     }
   }
