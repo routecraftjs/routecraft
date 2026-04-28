@@ -252,6 +252,45 @@ describe("buildVercelTools: execute path", () => {
   });
 
   /**
+   * @case TypedArray (Buffer / Uint8Array) inside claims does not crash dispatch
+   * @preconditions Principal with `claims.binary = Uint8Array(...)`
+   * @expectedResult buildVercelTools + execute succeed; the binary value reaches the handler intact
+   */
+  test("binary claim values do not crash deep-freeze", async () => {
+    let captured: { binary?: Uint8Array } | undefined;
+    const handler = vi.fn(async (_input: unknown, ctx: unknown) => {
+      const c = ctx as {
+        principal?: { claims?: { binary?: Uint8Array } };
+      };
+      captured = c.principal?.claims;
+    });
+    const resolved: ResolvedTool = {
+      name: "binary-claim",
+      description: "Binary claim.",
+      input: z.object({}),
+      handler: handler as unknown as ResolvedTool["handler"],
+    };
+    const principal = {
+      kind: "jwt" as const,
+      scheme: "bearer" as const,
+      subject: "user-42",
+      claims: { binary: new Uint8Array([1, 2, 3]) },
+    };
+    const map = await buildVercelTools(
+      [resolved],
+      undefined,
+      new AbortController().signal,
+      undefined,
+      principal,
+    );
+    const tool = map["binary-claim"] as {
+      execute: (input: unknown) => Promise<unknown>;
+    };
+    await expect(tool.execute({})).resolves.toBeUndefined();
+    expect(Array.from(captured!.binary!)).toEqual([1, 2, 3]);
+  });
+
+  /**
    * @case Guard that resolves passes through to the handler
    * @preconditions Guard returns void (no throw)
    * @expectedResult Handler runs and returns its value

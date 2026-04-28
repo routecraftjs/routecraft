@@ -204,11 +204,22 @@ function freezePrincipal(principal: Principal): Principal {
  * self-referential principal won't blow the stack. Functions and
  * primitive values are left as-is.
  *
+ * Skips `ArrayBuffer.isView` values (TypedArray, DataView, Buffer):
+ * `Object.freeze` on a typed array with elements throws because the
+ * indexed properties on the backing buffer cannot be made
+ * non-configurable. A JWT claim that smuggles binary data (CBOR, an
+ * encrypted key, raw bytes) would otherwise crash the dispatch.
+ * `structuredClone` (used in `freezePrincipal` for `claims`) already
+ * gives us an independent copy of any TypedArray, so the caller's
+ * bytes are not shared with the snapshot; tool code that wants
+ * write-protection on a binary claim should treat its read as opaque.
+ *
  * @internal
  */
 function deepFreeze<T>(value: T, seen: WeakSet<object> = new WeakSet()): T {
   if (value === null || typeof value !== "object") return value;
   if (seen.has(value as object)) return value;
+  if (ArrayBuffer.isView(value)) return value;
   seen.add(value as object);
   for (const key of Object.keys(value as object)) {
     const v = (value as Record<string, unknown>)[key];
