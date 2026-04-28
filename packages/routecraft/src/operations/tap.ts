@@ -29,7 +29,13 @@ function snapshotExchange<T>(
     id: randomUUID(),
     body: structuredClone(exchange.body),
     headers: { ...exchange.headers },
-    principal: exchange.principal,
+    // Deep-clone the principal so a tap that runs concurrently with a
+    // downstream `.process()` cannot leak claims/scopes mutations across
+    // the snapshot boundary. Mirrors the body clone above.
+    principal:
+      exchange.principal !== undefined
+        ? structuredClone(exchange.principal)
+        : undefined,
   });
 }
 

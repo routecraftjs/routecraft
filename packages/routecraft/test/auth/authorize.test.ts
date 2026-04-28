@@ -424,6 +424,63 @@ describe("exchange.principal propagation", () => {
     expect(main.lastReceived().principal).toEqual(principal);
     expect(tapped.lastReceived().principal).toEqual(principal);
   });
+
+  /**
+   * @case Tap snapshot principal is deep-cloned, not shared by reference,
+   *       so concurrent mutation of one side does not leak to the other
+   * @preconditions Route attaches a principal whose `claims` is a mutable
+   *                object, taps to a spy, mutates the main exchange's
+   *                principal in a downstream `.process()`
+   * @expectedResult The tap spy's captured principal still carries the
+   *                 original `claims` value (unaffected by the mutation)
+   */
+  test("tap snapshot principal is isolated from main flow mutations", async () => {
+    const main = spy<string>();
+    const tapped = spy<string>();
+    const principal: Principal = {
+      kind: "custom",
+      scheme: "bearer",
+      subject: "user-1",
+      claims: { tenant: "acme", flags: ["original"] },
+    };
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("tap-principal-isolation")
+          .from(simple("hello"))
+          .process((ex) => {
+            ex.principal = principal;
+            return ex;
+          })
+          .tap(tapped)
+          .process((ex) => {
+            // Mutate the live principal AFTER tap has snapshotted it.
+            // If the snapshot shares the principal by reference, the tap
+            // spy will observe these mutations.
+            (ex.principal!.claims as Record<string, unknown>)["tenant"] =
+              "globex";
+            (ex.principal!.claims as { flags: string[] }).flags.push("mutated");
+            return ex;
+          })
+          .to(main),
+      )
+      .build();
+    await t.test();
+
+    // Tap snapshot must reflect the principal AT SNAPSHOT TIME, not the
+    // post-mutation state of the main flow.
+    expect(tapped.lastReceived().principal?.claims).toEqual({
+      tenant: "acme",
+      flags: ["original"],
+    });
+    // Main flow saw the mutation (sanity check that the test actually
+    // mutated something).
+    expect(main.lastReceived().principal?.claims).toEqual({
+      tenant: "globex",
+      flags: ["original", "mutated"],
+    });
+  });
 });
 
 describe(".authorize() type checks", () => {
