@@ -448,11 +448,20 @@ export class DefaultRoute implements Route {
     headers?: ExchangeHeaders,
     principal?: Principal | undefined,
   ): Exchange {
+    // Preserve the caller's correlation id when the source forwarded one
+    // (route-to-route via direct(), MCP tool calls, HTTP requests carrying
+    // a trace header). Falls back to a fresh UUID for sources that emit
+    // independent exchanges (timer, cron, simple, fresh ingress). This
+    // keeps cross-route logs / spans on the same logical request without
+    // requiring callers to thread the id manually.
+    const incomingCorrelationId = headers?.[HeadersKeys.CORRELATION_ID] as
+      | string
+      | undefined;
     const exchange = new DefaultExchange(this.context, {
       body: message,
       headers: {
         ...headers,
-        [HeadersKeys.CORRELATION_ID]: randomUUID(),
+        [HeadersKeys.CORRELATION_ID]: incomingCorrelationId ?? randomUUID(),
         [HeadersKeys.ROUTE_ID]: this.definition.id,
         [HeadersKeys.OPERATION]: OperationType.FROM,
       },

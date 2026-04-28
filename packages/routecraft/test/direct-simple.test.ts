@@ -276,4 +276,84 @@ describe("Direct adapter", () => {
       id: 3,
     });
   });
+
+  /**
+   * @case Correlation id is preserved across a direct() route-to-route call
+   * @preconditions Producer route forwards to a callee via direct()
+   * @expectedResult The callee's exchange carries the producer's correlation
+   *                 id (not a fresh UUID) so logs/spans tie together
+   */
+  test("propagates correlation id across direct() boundaries", async () => {
+    const callerCorrelationIds: string[] = [];
+    const calleeCorrelationIds: string[] = [];
+
+    t = await testContext()
+      .routes([
+        craft()
+          .id("caller")
+          .from(simple("ping"))
+          .tap((ex) => {
+            callerCorrelationIds.push(
+              ex.headers["routecraft.correlation_id"] as string,
+            );
+          })
+          .to(direct("callee")),
+        craft()
+          .id("callee")
+          .from(direct())
+          .tap((ex) => {
+            calleeCorrelationIds.push(
+              ex.headers["routecraft.correlation_id"] as string,
+            );
+          })
+          .to(() => "pong"),
+      ])
+      .build();
+
+    await t.test();
+
+    expect(callerCorrelationIds).toHaveLength(1);
+    expect(calleeCorrelationIds).toHaveLength(1);
+    expect(calleeCorrelationIds[0]).toBe(callerCorrelationIds[0]);
+  });
+
+  /**
+   * @case Principal flows from caller to callee across direct()
+   * @preconditions Producer route attaches a custom principal and forwards via direct()
+   * @expectedResult The callee's exchange carries the same principal so
+   *                 .authorize() / route handlers see the caller's identity
+   */
+  test("propagates principal across direct() boundaries", async () => {
+    const principal = {
+      kind: "custom" as const,
+      scheme: "bearer" as const,
+      subject: "user-1",
+      roles: ["admin"],
+    };
+    let capturedPrincipal: unknown;
+
+    t = await testContext()
+      .routes([
+        craft()
+          .id("caller-with-principal")
+          .from(simple("ping"))
+          .process((ex) => {
+            ex.principal = principal;
+            return ex;
+          })
+          .to(direct("callee-reads-principal")),
+        craft()
+          .id("callee-reads-principal")
+          .from(direct())
+          .tap((ex) => {
+            capturedPrincipal = ex.principal;
+          })
+          .to(() => "pong"),
+      ])
+      .build();
+
+    await t.test();
+
+    expect(capturedPrincipal).toEqual(principal);
+  });
 });
