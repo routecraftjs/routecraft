@@ -159,6 +159,7 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
       exchange.body = aggregatedExchange.body as unknown as T;
       (exchange as { headers: ExchangeHeaders }).headers =
         aggregatedExchange.headers;
+      exchange.principal = aggregatedExchange.principal ?? exchange.principal;
 
       if (context) {
         context.emit(`route:${routeId}:step:completed` as const, {
@@ -224,6 +225,7 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
     target.body = aggregatedExchange.body as unknown as T;
     (target as { headers: ExchangeHeaders }).headers =
       aggregatedExchange.headers;
+    target.principal = aggregatedExchange.principal ?? target.principal;
 
     // Remove the current group from hierarchy after aggregation
     const remainingHierarchy = splitHierarchy.slice(0, -1);

@@ -251,6 +251,7 @@ export class EnrichStep<T = unknown, R = unknown> implements Step<
     if (result !== exchange) {
       exchange.body = result.body;
       (exchange as { headers: ExchangeHeaders }).headers = result.headers;
+      exchange.principal = result.principal ?? exchange.principal;
     }
 
     // Push the exchange to the queue

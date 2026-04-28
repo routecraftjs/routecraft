@@ -3,6 +3,7 @@ import { type Exchange, type ExchangeHeaders } from "../exchange.ts";
 import { type RouteDiscovery } from "../route.ts";
 import { type Adapter } from "../types.ts";
 import { type OnParseError } from "../adapters/shared/parse.ts";
+import { type Principal } from "../auth/types.ts";
 
 /**
  * Metadata the engine passes to a source adapter at subscribe time.
@@ -38,6 +39,13 @@ export interface SourceMeta {
  * runs, then narrowed to `T` for downstream user steps. `.error()` handlers
  * tied to `Exchange<T>` should NOT assume the body is `T` when the failure
  * came from the parse step itself; they may be looking at raw bytes.
+ *
+ * The optional fifth argument, `principal`, lets sources forward an
+ * authenticated identity onto the route's first exchange. Existing
+ * sources need no change: structurally, they continue to pass two or
+ * three arguments and the framework treats the rest as undefined.
+ * Sources that authenticate at their boundary (e.g. the MCP server with
+ * `auth:` configured) opt in by passing the principal as the fifth arg.
  *
  * @template T - Body type of messages produced by this source (after parse)
  */
@@ -77,6 +85,17 @@ export type CallableSource<T = unknown> = (
      * @experimental
      */
     parseFailureMode?: OnParseError,
+    /**
+     * Authenticated principal resolved by the source, when applicable.
+     * Sources that perform authentication at their boundary (e.g. the MCP
+     * server when `auth:` is configured) pass it here so it lands on
+     * `exchange.principal` of the route's first exchange. Most adapters
+     * leave this undefined and rely on a downstream `.process()` to attach
+     * a custom principal.
+     *
+     * @experimental
+     */
+    principal?: Principal | undefined,
   ) => Promise<Exchange>,
   abortController: AbortController,
   onReady?: () => void,

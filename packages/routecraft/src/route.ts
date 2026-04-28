@@ -25,6 +25,7 @@ import {
   type OnParseError,
   PARSE_DROPPED_REASON,
 } from "./adapters/shared/parse.ts";
+import { type Principal } from "./auth/types.ts";
 import {
   type Adapter,
   type Step,
@@ -438,18 +439,33 @@ export class DefaultRoute implements Route {
    *
    * @param message The message data
    * @param headers Optional headers to include
+   * @param principal Optional authenticated principal forwarded by the source
    * @returns A new Exchange object
    * @private
    */
-  private buildExchange(message: unknown, headers?: ExchangeHeaders): Exchange {
+  private buildExchange(
+    message: unknown,
+    headers?: ExchangeHeaders,
+    principal?: Principal | undefined,
+  ): Exchange {
+    // Preserve the caller's correlation id when the source forwarded one
+    // (route-to-route via direct(), MCP tool calls, HTTP requests carrying
+    // a trace header). Falls back to a fresh UUID for sources that emit
+    // independent exchanges (timer, cron, simple, fresh ingress). This
+    // keeps cross-route logs / spans on the same logical request without
+    // requiring callers to thread the id manually.
+    const incomingCorrelationId = headers?.[HeadersKeys.CORRELATION_ID] as
+      | string
+      | undefined;
     const exchange = new DefaultExchange(this.context, {
       body: message,
       headers: {
         ...headers,
-        [HeadersKeys.CORRELATION_ID]: randomUUID(),
+        [HeadersKeys.CORRELATION_ID]: incomingCorrelationId ?? randomUUID(),
         [HeadersKeys.ROUTE_ID]: this.definition.id,
         [HeadersKeys.OPERATION]: OperationType.FROM,
       },
+      ...(principal !== undefined && { principal }),
     });
 
     // Add route to internals so steps like tap can access it (symbol-key for cross-instance)
@@ -745,8 +761,8 @@ export class DefaultRoute implements Route {
     // `exchange:dropped` for telemetry and re-throws so the source's own
     // caller (e.g. a direct channel's `send`) sees the validation error.
     this.consumer.register(
-      async (message, headers, parse, parseFailureMode) => {
-        const exchange = this.buildExchange(message, headers);
+      async (message, headers, parse, parseFailureMode, principal) => {
+        const exchange = this.buildExchange(message, headers, principal);
         const inputSchemas = this.definition.discovery?.input;
         const hasInputSchema = !!inputSchemas?.body || !!inputSchemas?.headers;
 
@@ -813,7 +829,7 @@ export class DefaultRoute implements Route {
     };
     return activeSource.subscribe(
       this.context,
-      (message, headers, parse, parseFailureMode) => {
+      (message, headers, parse, parseFailureMode, principal) => {
         onReady(); // fallback: fire before first message if adapter never called it
         return this.messageChannel.enqueue({
           message,
@@ -824,6 +840,7 @@ export class DefaultRoute implements Route {
                 parseFailureMode: parseFailureMode ?? "fail",
               }
             : {}),
+          ...(principal !== undefined && { principal }),
         });
       },
       this.abortController,

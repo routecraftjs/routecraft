@@ -160,4 +160,114 @@ describe("BatchConsumer", () => {
       ),
     ).toBe(true);
   });
+
+  /**
+   * @case Per-item parse-failure path forwards `message.principal` so authz
+   *       checks in `.error()` see the same identity the source resolved
+   * @preconditions Bad item with a `principal` set on the queued Message
+   * @expectedResult Handler is invoked with the principal as its 5th arg
+   */
+  test("forwards principal through the per-item parse-failure path", async () => {
+    const ctx = new CraftContext();
+    const queue = new InMemoryProcessingQueue<Message>();
+    const consumer = new BatchConsumer(
+      ctx,
+      createRouteDefinition("batched-principal-parse-fail"),
+      queue,
+      { size: 10, time: 50 },
+    );
+
+    const calls: { principal: unknown }[] = [];
+
+    await consumer.register(
+      async (_message, _headers, _parse, _mode, principal) => {
+        calls.push({ principal });
+        return {
+          id: "exchange-id",
+          body: _message,
+          headers: {},
+          logger: ctx.logger,
+        } as Exchange;
+      },
+    );
+
+    const principal = {
+      kind: "custom" as const,
+      scheme: "bearer" as const,
+      subject: "user-1",
+    };
+
+    const badPromise = queue.enqueue({
+      message: "not-json",
+      headers: {},
+      parse: (raw) => JSON.parse(raw as string),
+      parseFailureMode: "fail",
+      principal,
+    });
+
+    await badPromise;
+    expect(calls).toHaveLength(1);
+    expect(calls[0].principal).toEqual(principal);
+  });
+
+  /**
+   * @case Merged-batch path drops principals by design (multi-principal merge
+   *       has no defined policy); contract is documented on `register()`
+   * @preconditions Two queued items, each with a principal set
+   * @expectedResult Handler is invoked once with `principal === undefined`
+   *                 because the merged exchange does not carry per-item identity
+   */
+  test("does not forward principal through the merged batch path", async () => {
+    const ctx = new CraftContext();
+    const queue = new InMemoryProcessingQueue<Message>();
+    const consumer = new BatchConsumer(
+      ctx,
+      createRouteDefinition("batched-principal-merged"),
+      queue,
+      { size: 10, time: 50 },
+    );
+
+    const calls: { principal: unknown }[] = [];
+
+    await consumer.register(
+      async (_message, _headers, _parse, _mode, principal) => {
+        calls.push({ principal });
+        return {
+          id: "exchange-id",
+          body: _message,
+          headers: {},
+          logger: ctx.logger,
+        } as Exchange;
+      },
+    );
+
+    const principalA = {
+      kind: "custom" as const,
+      scheme: "bearer" as const,
+      subject: "user-a",
+    };
+    const principalB = {
+      kind: "custom" as const,
+      scheme: "bearer" as const,
+      subject: "user-b",
+    };
+
+    const promiseA = queue.enqueue({
+      message: 1,
+      headers: {},
+      principal: principalA,
+    });
+    const promiseB = queue.enqueue({
+      message: 2,
+      headers: {},
+      principal: principalB,
+    });
+
+    await vi.advanceTimersByTimeAsync(50);
+    await Promise.all([promiseA, promiseB]);
+
+    // One merged invocation; principal arg is intentionally undefined.
+    expect(calls).toHaveLength(1);
+    expect(calls[0].principal).toBeUndefined();
+  });
 });

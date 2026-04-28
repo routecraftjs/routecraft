@@ -15,6 +15,10 @@ import { TapStep } from "./operations/tap.ts";
 import { TransformStep, mapper } from "./operations/transform.ts";
 import { ValidateStep, schema } from "./operations/validate.ts";
 import { log, debug, type LogOptions } from "./adapters/log/index.ts";
+import {
+  requirePrincipal,
+  type RequirePrincipalOptions,
+} from "./auth/authorize.ts";
 
 // ---------------------------------------------------------------------------
 // registerDsl
@@ -144,6 +148,13 @@ registerDsl("schema", {
     new ValidateStep(schema(standardSchema)),
 });
 
+registerDsl("authorize", {
+  kind: "validate",
+  label: "authorize",
+  factory: (options?: RequirePrincipalOptions) =>
+    new ValidateStep(requirePrincipal(options)),
+});
+
 // ---------------------------------------------------------------------------
 // Module augmentation: TypeScript types for built-in sugar
 // ---------------------------------------------------------------------------
@@ -217,5 +228,28 @@ declare module "@routecraft/routecraft" {
     schema<S extends StandardSchemaV1>(
       standardSchema: S,
     ): Retyped<this, StandardSchemaV1.InferOutput<S>>;
+
+    /**
+     * Assert the exchange carries an authenticated principal and (optionally)
+     * that the principal has every required role and scope. Sugar for
+     * `.validate(requirePrincipal(options))`.
+     *
+     * Throws RC5012 when no principal is present and RC5015 when the
+     * principal fails an authorization check; route-level `.error()`
+     * handles both like any other validation failure.
+     *
+     * @experimental
+     * @param options - Required roles, scopes, or a custom predicate. When
+     *   omitted, only existence of a principal is checked.
+     *
+     * @example
+     * ```ts
+     * craft()
+     *   .from(mcpTool({ name: "delete-user" }))
+     *   .authorize({ roles: ["admin"] })
+     *   .to(...)
+     * ```
+     */
+    authorize(options?: RequirePrincipalOptions): this;
   }
 }

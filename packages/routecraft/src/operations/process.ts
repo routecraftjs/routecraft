@@ -45,9 +45,14 @@ export class ProcessStep<T = unknown, R = T> implements Step<Processor<T, R>> {
     queue: { exchange: Exchange<R>; steps: Step<Adapter>[] }[],
   ): Promise<void> {
     const newExchange = await Promise.resolve(this.adapter.process(exchange));
-    // Process adapter may return a modified exchange; copy properties to original
+    // Process adapter may return a modified exchange; copy properties to original.
+    // Principal uses `?? current` for parity with split/aggregate/enrich/tap:
+    // the principal rides through unless the processor explicitly attaches a
+    // different one on the returned exchange. Returning a fresh exchange with
+    // no principal does NOT clear the original's principal.
     exchange.body = newExchange.body as unknown as T;
     (exchange as { headers: ExchangeHeaders }).headers = newExchange.headers;
+    exchange.principal = newExchange.principal ?? exchange.principal;
     queue.push({
       exchange: exchange as unknown as Exchange<R>,
       steps: remainingSteps,

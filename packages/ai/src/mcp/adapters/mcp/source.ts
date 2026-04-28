@@ -3,6 +3,8 @@ import {
   type CraftContext,
   type Exchange,
   type ExchangeHeaders,
+  type OnParseError,
+  type Principal,
   type Source,
   type SourceMeta,
 } from "@routecraft/routecraft";
@@ -66,6 +68,9 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
     handler: (
       message: McpMessage<undefined>,
       headers?: ExchangeHeaders,
+      parse?: (raw: unknown) => unknown | Promise<unknown>,
+      parseFailureMode?: OnParseError,
+      principal?: Principal | undefined,
     ) => Promise<Exchange>,
     abortController: AbortController,
     onReady?: () => void,
@@ -122,11 +127,17 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
     }
 
     // The engine applies input validation before the handler runs, so the
-    // MCP adapter just hands the exchange body / headers through.
+    // MCP adapter just hands the exchange body / headers through. The
+    // principal (set by the MCP server when auth is configured) rides
+    // through as the 5th argument so the route's exchange surfaces the
+    // same identity.
     const entryHandler = async (exchange: Exchange): Promise<Exchange> => {
       return handler(
         exchange.body as McpMessage<undefined>,
         exchange.headers,
+        undefined,
+        undefined,
+        exchange.principal,
       ) as Promise<Exchange>;
     };
 
