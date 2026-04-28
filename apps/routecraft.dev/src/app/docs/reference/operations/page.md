@@ -37,6 +37,7 @@ DSL operators with signatures and examples. {% .lead %}
 | [`enrich`](#enrich) | Transform | Add additional data to current data |
 | [`filter`](#filter) | Flow Control | Filter data based on predicate |
 | [`validate`](#validate) | Flow Control | Validate data against schema |
+| [`authorize`](#authorize) | Flow Control | Assert exchange has an authenticated principal with required roles/scopes {% badge color="orange" %}experimental{% /badge %} |
 | [`dedupe`](#dedupe) | Flow Control | Suppress duplicate exchanges based on a key {% badge color="purple" %}planned{% /badge %} |
 | [`choice`](#choice) | Flow Control | Route to different paths based on conditions |
 | [`split`](#split) | Flow Control | Split arrays into individual items |
@@ -651,6 +652,67 @@ const userSchema = z.object({
 
 .schema(userSchema)
 // Validation failures throw RC5002: "Validation failed: "email": Invalid email; "age": Number must be greater than or equal to 0"
+```
+
+### authorize {% badge color="orange" %}experimental{% /badge %}
+
+```ts
+authorize(options?: RequirePrincipalOptions): RouteBuilder<Current>
+```
+
+Assert that the exchange carries an authenticated principal and (optionally) that the principal has every required role and scope. Type-preserving sugar for `.validate(requirePrincipal(options))`. The route builder type is unchanged.
+
+`RequirePrincipalOptions`:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `roles` | `string[]` | Required roles. The principal must carry every listed role. AND-combined. |
+| `scopes` | `string[]` | Required scopes. The principal must carry every listed scope. AND-combined. |
+| `predicate` | `(p: Principal) => boolean` | Custom check. Runs after the role and scope checks. Return `false` to reject. |
+
+Failure modes:
+
+- **No principal on the exchange:** throws [`RC5012`](/docs/reference/errors#rc5012). The source did not authenticate (no `auth:` configured) and no `.process()` step attached one.
+- **Missing role or scope:** throws [`RC5015`](/docs/reference/errors#rc5015). The error message lists the missing entries.
+- **Predicate returned `false`:** throws [`RC5015`](/docs/reference/errors#rc5015).
+
+Both error codes flow through the route's normal error path: `.error()` handles them like any other validation failure; without `.error()`, `exchange:failed` fires.
+
+```ts
+import { craft, mcp } from '@routecraft/routecraft'
+
+// Authentication at the boundary, authorization at the route step.
+craft()
+  .id('delete-user')
+  .from(mcp({ /* auth: jwt(...) configured on the server */ }))
+  .authorize({ roles: ['admin'] })
+  .to(deleteUserDestination)
+```
+
+```ts
+// Custom principal from inbound email so downstream actions are
+// attributed to the sender.
+craft()
+  .from(mail({ /* ... */ }))
+  .process((ex) => {
+    ex.principal = {
+      kind: 'custom',
+      scheme: 'email',
+      subject: ex.body.from?.address ?? 'anonymous',
+      email: ex.body.from?.address,
+      claims: { tenant: deriveTenant(ex.body.from?.address) },
+    }
+    return ex
+  })
+  .authorize({ predicate: (p) => p.email?.endsWith('@yourcompany.com') === true })
+  .to(yourDestination)
+```
+
+```ts
+// Underlying validator is also exported for composition with .validate()
+import { requirePrincipal } from '@routecraft/routecraft'
+
+.validate(requirePrincipal({ roles: ['admin'], scopes: ['billing:write'] }))
 ```
 
 ### dedupe {% badge color="purple" %}planned{% /badge %}

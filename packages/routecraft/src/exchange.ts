@@ -230,9 +230,13 @@ export type Exchange<T = unknown> = {
    * specific identity (for example, mapping the sender of an inbound email
    * onto a `kind: "custom"` principal).
    *
-   * The `| undefined` is intentional under `exactOptionalPropertyTypes`,
-   * so callers can explicitly clear the principal by assigning `undefined`
-   * (e.g. on a step that "demotes" an exchange to anonymous).
+   * Operations that re-stitch exchanges (`process`, `split`, `aggregate`,
+   * `enrich`, `tap`) propagate the principal with `?? current` semantics:
+   * a returned exchange that omits a principal inherits the parent's,
+   * rather than clearing it. The `| undefined` in the type lets callers
+   * pass `undefined` through `Partial<Exchange>` constructor options
+   * under `exactOptionalPropertyTypes`; it does NOT mean an assignment of
+   * `undefined` clears the field downstream.
    *
    * @experimental
    */

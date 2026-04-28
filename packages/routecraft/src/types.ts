@@ -4,6 +4,7 @@ import { type CraftContext } from "./context.ts";
 import { type RouteDefinition } from "./route.ts";
 import { type Route } from "./route.ts";
 import { type OnParseError } from "./adapters/shared/parse.ts";
+import { type Principal } from "./auth/types.ts";
 
 /**
  * Base interface for all adapters (sources, destinations, transformers, filters, etc.).
@@ -114,7 +115,7 @@ export type Message = {
    *
    * @experimental
    */
-  principal?: import("./auth/types.ts").Principal | undefined;
+  principal?: Principal | undefined;
 };
 
 export interface Consumer<O = unknown> {
@@ -140,7 +141,7 @@ export interface Consumer<O = unknown> {
       headers?: ExchangeHeaders,
       parse?: (raw: unknown) => unknown | Promise<unknown>,
       parseFailureMode?: OnParseError,
-      principal?: import("./auth/types.ts").Principal | undefined,
+      principal?: Principal | undefined,
     ) => Promise<Exchange>,
   ): void;
 }

@@ -25,6 +25,7 @@ import {
   type OnParseError,
   PARSE_DROPPED_REASON,
 } from "./adapters/shared/parse.ts";
+import { type Principal } from "./auth/types.ts";
 import {
   type Adapter,
   type Step,
@@ -445,7 +446,7 @@ export class DefaultRoute implements Route {
   private buildExchange(
     message: unknown,
     headers?: ExchangeHeaders,
-    principal?: import("./auth/types.ts").Principal | undefined,
+    principal?: Principal | undefined,
   ): Exchange {
     const exchange = new DefaultExchange(this.context, {
       body: message,

@@ -1,12 +1,15 @@
-import { describe, test, expect, afterEach } from "vitest";
+import { describe, test, expect, expectTypeOf, afterEach } from "vitest";
 import { spy, testContext, type TestContext } from "@routecraft/testing";
 import {
   craft,
   noop,
   requirePrincipal,
   simple,
+  type EventName,
   type Principal,
 } from "../../src/index.ts";
+
+type FailedEventDetails = { details: { error: unknown } };
 
 describe("requirePrincipal()", () => {
   let t: TestContext;
@@ -60,9 +63,12 @@ describe("requirePrincipal()", () => {
       .build();
 
     const failures: unknown[] = [];
-    t.ctx.on("route:anon:exchange:failed" as any, (payload: any) => {
-      failures.push(payload.details.error);
-    });
+    t.ctx.on(
+      "route:anon:exchange:failed" as EventName,
+      ((payload: FailedEventDetails) => {
+        failures.push(payload.details.error);
+      }) as Parameters<typeof t.ctx.on>[1],
+    );
 
     await t.test();
 
@@ -100,9 +106,12 @@ describe("requirePrincipal()", () => {
       .build();
 
     const failures: unknown[] = [];
-    t.ctx.on("route:rbac:exchange:failed" as any, (payload: any) => {
-      failures.push(payload.details.error);
-    });
+    t.ctx.on(
+      "route:rbac:exchange:failed" as EventName,
+      ((payload: FailedEventDetails) => {
+        failures.push(payload.details.error);
+      }) as Parameters<typeof t.ctx.on>[1],
+    );
 
     await t.test();
 
@@ -141,15 +150,25 @@ describe("requirePrincipal()", () => {
       .build();
 
     const failures: unknown[] = [];
-    t.ctx.on("route:multi-role:exchange:failed" as any, (payload: any) => {
-      failures.push(payload.details.error);
-    });
+    t.ctx.on(
+      "route:multi-role:exchange:failed" as EventName,
+      ((payload: FailedEventDetails) => {
+        failures.push(payload.details.error);
+      }) as Parameters<typeof t.ctx.on>[1],
+    );
 
     await t.test();
 
     expect(s.received).toHaveLength(0);
-    expect(String(failures[0])).toContain("billing");
-    expect(String(failures[0])).not.toContain("admin,");
+    // Anchor on the formatted "missing required role(s):" list rather than
+    // bare substring matches: a future formatter change (e.g. " and " join)
+    // shouldn't make this test pass for the wrong reason.
+    const msg = String(failures[0]);
+    const match = msg.match(
+      /missing required role\(s\):\s*([^.\n]+?)(?:\.|\n|$)/,
+    );
+    const missing = match?.[1]?.trim().split(/\s*,\s*/) ?? [];
+    expect(missing).toEqual(["billing"]);
   });
 
   /**
@@ -181,9 +200,12 @@ describe("requirePrincipal()", () => {
       .build();
 
     const failures: unknown[] = [];
-    t.ctx.on("route:scope:exchange:failed" as any, (payload: any) => {
-      failures.push(payload.details.error);
-    });
+    t.ctx.on(
+      "route:scope:exchange:failed" as EventName,
+      ((payload: FailedEventDetails) => {
+        failures.push(payload.details.error);
+      }) as Parameters<typeof t.ctx.on>[1],
+    );
 
     await t.test();
 
@@ -223,9 +245,12 @@ describe("requirePrincipal()", () => {
       .build();
 
     const failures: unknown[] = [];
-    t.ctx.on("route:predicate:exchange:failed" as any, (payload: any) => {
-      failures.push(payload.details.error);
-    });
+    t.ctx.on(
+      "route:predicate:exchange:failed" as EventName,
+      ((payload: FailedEventDetails) => {
+        failures.push(payload.details.error);
+      }) as Parameters<typeof t.ctx.on>[1],
+    );
 
     await t.test();
 
@@ -409,9 +434,37 @@ describe(".authorize() type checks", () => {
   });
 
   /**
-   * @case .authorize() is type-preserving (chainable on any builder)
-   * @preconditions Build a route with multiple .authorize() calls and a typed destination
-   * @expectedResult Chain compiles and runs without altering body type
+   * @case .authorize() is type-preserving (body type unchanged) on RouteBuilder
+   * @preconditions Build a route with .authorize() between a typed source and destination
+   * @expectedResult The builder's exchange-body type remains the source's body type
+   *                 across .authorize() calls; chained .to() compiles
+   */
+  test("is body-type-preserving on RouteBuilder (type-level)", () => {
+    const beforeAuthorize = craft()
+      .id("typed-route")
+      .from(simple({ id: "x" } as { id: string }))
+      .process((ex) => {
+        ex.principal = {
+          kind: "custom",
+          scheme: "bearer",
+          subject: "user-1",
+        };
+        return ex;
+      });
+
+    const afterAuthorize = beforeAuthorize.authorize({ roles: ["admin"] });
+
+    // .authorize() is a validate-style sugar declared as `(opts?) => this`.
+    // The builder type returned must equal the type before .authorize()
+    // (same Current generic, same subclass), so chained operators that
+    // depend on body inference (.to(spy<{id:string}>())) keep typing.
+    expectTypeOf(afterAuthorize).toEqualTypeOf(beforeAuthorize);
+  });
+
+  /**
+   * @case .authorize() chains alongside .to() without changing body inference
+   * @preconditions Multi-step route with two .authorize() calls and a typed spy
+   * @expectedResult Spy receives body { id: "x" } at runtime
    */
   test("is type-preserving and chainable", async () => {
     const s = spy<{ id: string }>();

@@ -14,6 +14,7 @@ import {
   type HeaderValue,
 } from "../exchange.ts";
 import { type OnParseError } from "../adapters/shared/parse.ts";
+import { type Principal } from "../auth/types.ts";
 
 export type BatchOptions = {
   /**
@@ -62,13 +63,28 @@ export class BatchConsumer implements Consumer<BatchOptions> {
     } as Required<BatchOptions>;
   }
 
+  /**
+   * Register the route handler for batched delivery.
+   *
+   * **Principal handling.** The merged-batch path does NOT forward a
+   * principal to the route's exchange: a batch may aggregate items from
+   * different identities (or none), and there is no defined merge policy
+   * for combining principals. Routes that need per-message identity
+   * attribution should use the simple consumer or attach a principal in a
+   * `.process()` step after the batch is unpacked.
+   *
+   * The per-item parse-failure escape hatch (where a bad item is routed as
+   * its own exchange instead of joining the batch) DOES forward
+   * `message.principal`, so authorization checks in `.error()` see the
+   * same identity the source resolved.
+   */
   async register(
     handler: (
       message: unknown,
       headers?: ExchangeHeaders,
       parse?: (raw: unknown) => unknown | Promise<unknown>,
       parseFailureMode?: OnParseError,
-      principal?: import("../auth/types.ts").Principal | undefined,
+      principal?: Principal | undefined,
     ) => Promise<Exchange>,
   ): Promise<void> {
     let batch: Message[] = [];
@@ -159,6 +175,7 @@ export class BatchConsumer implements Consumer<BatchOptions> {
               throw parseErr;
             },
             itemMode,
+            message.principal,
           );
         }
         delete message.parse;
