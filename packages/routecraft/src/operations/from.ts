@@ -86,12 +86,22 @@ export type CallableSource<T = unknown> = (
      */
     parseFailureMode?: OnParseError,
     /**
-     * Authenticated principal resolved by the source, when applicable.
+     * Authenticated principal resolved by the source, when applicable. This
+     * is the **5th positional argument** of the handler. The position is
+     * stable: existing 2- or 3-argument adapters keep working unchanged
+     * (slots 2-4 are filled with `undefined` by callers that opt in to
+     * the principal slot only).
+     *
      * Sources that perform authentication at their boundary (e.g. the MCP
      * server when `auth:` is configured) pass it here so it lands on
      * `exchange.principal` of the route's first exchange. Most adapters
      * leave this undefined and rely on a downstream `.process()` to attach
      * a custom principal.
+     *
+     * Test fixtures that simulate an authenticating source can call
+     * `handler(body, undefined, undefined, undefined, principal)` directly;
+     * the auth tests in `packages/routecraft/test/auth/authorize.test.ts`
+     * use exactly this shape via a small `principalSource()` helper.
      *
      * @experimental
      */

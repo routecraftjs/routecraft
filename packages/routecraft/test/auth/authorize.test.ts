@@ -1,17 +1,33 @@
 import { describe, test, expect, expectTypeOf, afterEach } from "vitest";
 import { spy, testContext, type TestContext } from "@routecraft/testing";
 import {
+  authorize,
   craft,
   noop,
-  requirePrincipal,
   simple,
   type EventName,
   type Principal,
+  type Source,
 } from "../../src/index.ts";
 
 type FailedEventDetails = { details: { error: unknown } };
 
-describe("requirePrincipal()", () => {
+/**
+ * Build a tiny test source that emits one body and forwards a principal
+ * via the 5th argument of the subscribe handler. Mirrors what real
+ * authenticating sources (e.g. `mcp({ auth: jwt(...) })`) do at their
+ * boundary, so the route's first exchange already carries the principal
+ * and pre-from `.authorize()` can gate it.
+ */
+function principalSource<T>(body: T, principal?: Principal): Source<T> {
+  return {
+    subscribe: async (_ctx, handler) => {
+      await handler(body, undefined, undefined, undefined, principal);
+    },
+  };
+}
+
+describe("authorize() validator", () => {
   let t: TestContext;
 
   afterEach(async () => {
@@ -20,7 +36,7 @@ describe("requirePrincipal()", () => {
 
   /**
    * @case Validator returns body unchanged when an authenticated principal is present
-   * @preconditions Route .process() attaches a custom principal then .authorize() runs
+   * @preconditions Route .process() attaches a principal then .validate(authorize()) runs
    * @expectedResult Spy destination receives the body, exchange.principal is preserved
    */
   test("passes through when principal is present", async () => {
@@ -40,7 +56,7 @@ describe("requirePrincipal()", () => {
             ex.principal = principal;
             return ex;
           })
-          .authorize()
+          .validate(authorize())
           .to(s),
       )
       .build();
@@ -52,14 +68,16 @@ describe("requirePrincipal()", () => {
 
   /**
    * @case Validator throws RC5012 when no principal is attached to the exchange
-   * @preconditions Route uses .authorize() but never sets exchange.principal
+   * @preconditions Route uses .validate(authorize()) but never sets exchange.principal
    * @expectedResult exchange:failed event fires with an RC5012-coded error and the destination is skipped
    */
   test("rejects with RC5012 when no principal is present", async () => {
     const s = spy<string>();
 
     t = await testContext()
-      .routes(craft().id("anon").from(simple("hello")).authorize().to(s))
+      .routes(
+        craft().id("anon").from(simple("hello")).validate(authorize()).to(s),
+      )
       .build();
 
     const failures: unknown[] = [];
@@ -79,7 +97,7 @@ describe("requirePrincipal()", () => {
 
   /**
    * @case Validator throws RC5015 when the principal is missing a required role
-   * @preconditions Principal has roles ["user"] but .authorize() requires ["admin"]
+   * @preconditions Principal has roles ["user"] but authorize() requires ["admin"]
    * @expectedResult exchange:failed fires with RC5015 mentioning the missing role
    */
   test("rejects with RC5015 when a required role is missing", async () => {
@@ -100,7 +118,7 @@ describe("requirePrincipal()", () => {
             ex.principal = principal;
             return ex;
           })
-          .authorize({ roles: ["admin"] })
+          .validate(authorize({ roles: ["admin"] }))
           .to(s),
       )
       .build();
@@ -123,7 +141,7 @@ describe("requirePrincipal()", () => {
 
   /**
    * @case All required roles must be present (AND-combined)
-   * @preconditions Principal has ["admin"] but .authorize() requires ["admin", "billing"]
+   * @preconditions Principal has ["admin"] but authorize() requires ["admin", "billing"]
    * @expectedResult exchange:failed fires with RC5015 listing the still-missing role
    */
   test("requires every listed role (AND)", async () => {
@@ -144,7 +162,7 @@ describe("requirePrincipal()", () => {
             ex.principal = principal;
             return ex;
           })
-          .authorize({ roles: ["admin", "billing"] })
+          .validate(authorize({ roles: ["admin", "billing"] }))
           .to(s),
       )
       .build();
@@ -173,7 +191,7 @@ describe("requirePrincipal()", () => {
 
   /**
    * @case Required scopes are AND-combined and rejection cites the missing scope
-   * @preconditions Principal has scope "read" but .authorize() requires ["read", "write"]
+   * @preconditions Principal has scope "read" but authorize() requires ["read", "write"]
    * @expectedResult exchange:failed fires with RC5015 mentioning "write"
    */
   test("rejects with RC5015 when a required scope is missing", async () => {
@@ -194,7 +212,7 @@ describe("requirePrincipal()", () => {
             ex.principal = principal;
             return ex;
           })
-          .authorize({ scopes: ["read", "write"] })
+          .validate(authorize({ scopes: ["read", "write"] }))
           .to(s),
       )
       .build();
@@ -237,9 +255,11 @@ describe("requirePrincipal()", () => {
             ex.principal = principal;
             return ex;
           })
-          .authorize({
-            predicate: (p) => p.claims?.["tenant"] === "globex",
-          })
+          .validate(
+            authorize({
+              predicate: (p) => p.claims?.["tenant"] === "globex",
+            }),
+          )
           .to(s),
       )
       .build();
@@ -257,13 +277,21 @@ describe("requirePrincipal()", () => {
     expect(s.received).toHaveLength(0);
     expect(String(failures[0])).toContain("RC5015");
   });
+});
+
+describe(".authorize() route-only method", () => {
+  let t: TestContext;
+
+  afterEach(async () => {
+    if (t) await t.stop();
+  });
 
   /**
-   * @case requirePrincipal as a plain validator works with .validate()
-   * @preconditions Route uses .validate(requirePrincipal({ roles: ["admin"] }))
-   * @expectedResult Authorized exchange flows through; unauthorized fails RC5015
+   * @case Pre-from .authorize() gates the route at entry and lets a valid principal through
+   * @preconditions Source emits a principal with role "admin"; pre-from .authorize() requires "admin"
+   * @expectedResult Spy receives the body
    */
-  test("requirePrincipal composes via .validate()", async () => {
+  test("pre-from .authorize() passes a principal that satisfies the requirement", async () => {
     const s = spy<string>();
     const principal: Principal = {
       kind: "custom",
@@ -275,19 +303,338 @@ describe("requirePrincipal()", () => {
     t = await testContext()
       .routes(
         craft()
-          .id("compose")
-          .from(simple("hello"))
-          .process((ex) => {
-            ex.principal = principal;
-            return ex;
-          })
-          .validate(requirePrincipal({ roles: ["admin"] }))
+          .id("pre-from-ok")
+          .authorize({ roles: ["admin"] })
+          .from(principalSource("hello", principal))
           .to(s),
       )
       .build();
     await t.test();
 
     expect(s.receivedBodies()).toEqual(["hello"]);
+  });
+
+  /**
+   * @case Pre-from .authorize() rejects when the source emits no principal
+   * @preconditions Source emits no principal; pre-from .authorize() with no options
+   * @expectedResult exchange:failed fires RC5012 and the destination is skipped
+   */
+  test("pre-from .authorize() rejects with RC5012 when source emits no principal", async () => {
+    const s = spy<string>();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("pre-from-anon")
+          .authorize()
+          .from(principalSource("hello"))
+          .to(s),
+      )
+      .build();
+
+    const failures: unknown[] = [];
+    t.ctx.on(
+      "route:pre-from-anon:exchange:failed" as EventName,
+      ((payload: FailedEventDetails) => {
+        failures.push(payload.details.error);
+      }) as Parameters<typeof t.ctx.on>[1],
+    );
+
+    await t.test();
+
+    expect(s.received).toHaveLength(0);
+    expect(String(failures[0])).toContain("RC5012");
+  });
+
+  /**
+   * @case Multiple .authorize() calls stack and AND-combine before any pipeline step
+   * @preconditions Two pre-from .authorize() calls (roles: admin, then scopes: read)
+   *                run before .to(); principal satisfies both
+   * @expectedResult Spy receives the body; both gates pass
+   */
+  test("stacks multiple .authorize() calls (AND-combined)", async () => {
+    const s = spy<{ id: string }>();
+    const principal: Principal = {
+      kind: "custom",
+      scheme: "bearer",
+      subject: "user-1",
+      roles: ["admin"],
+      scopes: ["read", "write"],
+    };
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("stack")
+          .authorize({ roles: ["admin"] })
+          .authorize({ scopes: ["read"] })
+          .from(principalSource({ id: "x" }, principal))
+          .to(s)
+          .to(noop()),
+      )
+      .build();
+    await t.test();
+
+    expect(s.receivedBodies()).toEqual([{ id: "x" }]);
+  });
+
+  /**
+   * @case Stacked .authorize() short-circuits at the first failure
+   * @preconditions First .authorize() requires role "admin" (principal lacks it);
+   *                second .authorize() has a predicate that would throw if invoked
+   * @expectedResult exchange:failed fires with RC5015 from the first gate;
+   *                 the second predicate never runs
+   */
+  test("stacked .authorize() short-circuits at the first failure", async () => {
+    const s = spy<string>();
+    const principal: Principal = {
+      kind: "custom",
+      scheme: "bearer",
+      subject: "user-1",
+      roles: ["user"],
+    };
+    let secondPredicateRan = false;
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("short-circuit")
+          .authorize({ roles: ["admin"] })
+          .authorize({
+            predicate: () => {
+              secondPredicateRan = true;
+              return true;
+            },
+          })
+          .from(principalSource("hello", principal))
+          .to(s),
+      )
+      .build();
+
+    const failures: unknown[] = [];
+    t.ctx.on(
+      "route:short-circuit:exchange:failed" as EventName,
+      ((payload: FailedEventDetails) => {
+        failures.push(payload.details.error);
+      }) as Parameters<typeof t.ctx.on>[1],
+    );
+
+    await t.test();
+
+    expect(s.received).toHaveLength(0);
+    expect(String(failures[0])).toContain("RC5015");
+    expect(secondPredicateRan).toBe(false);
+  });
+
+  /**
+   * @case Pre-from .authorize() runs before any user pipeline step
+   * @preconditions Pre-from .authorize() rejects; .process() would mutate body if reached
+   * @expectedResult Process step never runs; failure is reported
+   */
+  test("pre-from .authorize() runs before any user pipeline step", async () => {
+    const s = spy<string>();
+    let processRan = false;
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("entry-gate")
+          .authorize()
+          .from(principalSource("hello"))
+          .process((ex) => {
+            processRan = true;
+            return ex;
+          })
+          .to(s),
+      )
+      .build();
+
+    await t.test();
+
+    expect(s.received).toHaveLength(0);
+    expect(processRan).toBe(false);
+  });
+
+  /**
+   * @case Route-level .error() handler catches authorization failures
+   * @preconditions Pre-from .error() handler is set; pre-from .authorize()
+   *                rejects (no principal)
+   * @expectedResult The handler is invoked with an RC5012 error and no
+   *                 exchange:failed event fires (the route is recovered)
+   */
+  test("route-scope .error() handler catches an authorization failure", async () => {
+    let handlerInvoked = 0;
+    let errorSeen: unknown;
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("recover")
+          .error((err) => {
+            handlerInvoked++;
+            errorSeen = err;
+            return "fallback";
+          })
+          .authorize()
+          .from(principalSource("hello")),
+      )
+      .build();
+
+    const failures: unknown[] = [];
+    t.ctx.on(
+      "route:recover:exchange:failed" as EventName,
+      ((payload: FailedEventDetails) => {
+        failures.push(payload.details.error);
+      }) as Parameters<typeof t.ctx.on>[1],
+    );
+
+    await t.test();
+
+    expect(handlerInvoked).toBe(1);
+    expect(String(errorSeen)).toContain("RC5012");
+    expect(failures).toHaveLength(0);
+  });
+});
+
+describe(".authorize() positional rules", () => {
+  /**
+   * @case Mid-pipeline .authorize() (after .from(), before another .from()) is misuse
+   *       and is caught by requireSource() on the next pipeline op
+   * @preconditions craft().id().from(simple()).authorize().to(noop()) -- the .to()
+   *                tries to push a step on the current route while .authorize()
+   *                has already staged options for the next route
+   * @expectedResult Throws RC2001 (structural). Message lists .authorize among the
+   *                 staging ops that need .from() to follow.
+   */
+  test("throws RC2001 when a pipeline op follows a post-from .authorize()", () => {
+    let caught: unknown;
+    try {
+      craft()
+        .id("post-from")
+        .from(simple("hello"))
+        .authorize({ roles: ["admin"] })
+        .to(noop());
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toMatchObject({ rc: "RC2001" });
+  });
+
+  /**
+   * @case requireSource() RC2001 message enumerates .authorize alongside the other
+   *       route-level staging ops so users discover the right fix
+   * @preconditions As above; assert the message text lists .authorize
+   * @expectedResult Thrown error message includes ".authorize"
+   */
+  test("RC2001 message enumerates .authorize as a staging op", () => {
+    expect(() =>
+      craft()
+        .id("enum")
+        .from(simple("hello"))
+        .authorize({ roles: ["admin"] })
+        .to(noop()),
+    ).toThrow(/\.authorize/);
+  });
+
+  /**
+   * @case .authorize() works pre-from for a chained second route after an earlier .from()
+   * @preconditions craft().id(a).from(s1).to(d1).id(b).authorize().from(s2).to(d2)
+   * @expectedResult Both routes build without throwing; the second route gates on
+   *                 its own .authorize()
+   */
+  test("supports chained routes when staged via .id() before the next .from()", async () => {
+    const t = await testContext()
+      .routes(
+        craft()
+          .id("first")
+          .from(simple("a"))
+          .to(noop())
+          .id("second")
+          .authorize()
+          .from(principalSource("b"))
+          .to(noop()),
+      )
+      .build();
+
+    expect(t.ctx.getRoutes()).toHaveLength(2);
+    await t.stop();
+  });
+
+  /**
+   * @case .authorize() can act as a route-starter just like .id() / .title() etc.,
+   *       without requiring an explicit .id() between the previous route and the
+   *       next .authorize().from(...) chain
+   * @preconditions craft().id(a).from(s1).to(d1).authorize({roles:[admin]}).from(s2).to(d2)
+   *                where s2 emits a principal with role "admin"
+   * @expectedResult Both routes build; route 2's .authorize() gates its source.
+   *                 Spy attached to route 2 receives the body, proving the
+   *                 authorizer ran and accepted the principal.
+   */
+  test("acts as route-starter on its own (no preceding .id() required)", async () => {
+    const main = spy<string>();
+    const adminPrincipal: Principal = {
+      kind: "custom",
+      scheme: "bearer",
+      subject: "admin-1",
+      roles: ["admin"],
+    };
+
+    const t = await testContext()
+      .routes(
+        craft()
+          .id("first")
+          .from(simple("a"))
+          .to(noop())
+          .authorize({ roles: ["admin"] })
+          .from(principalSource("b", adminPrincipal))
+          .to(main),
+      )
+      .build();
+    await t.test();
+
+    expect(t.ctx.getRoutes()).toHaveLength(2);
+    expect(main.receivedBodies()).toEqual(["b"]);
+    await t.stop();
+  });
+
+  /**
+   * @case Route-starter .authorize() rejects the route when the source emits no principal
+   * @preconditions craft().id(a).from(s1).to(d1).authorize().from(s2).to(d2)
+   *                where s2 emits no principal
+   * @expectedResult Route 2's authorizer fires RC5012 and the destination is skipped;
+   *                 route 1 is unaffected.
+   */
+  test("acts as route-starter and gates rejected requests", async () => {
+    const main = spy<string>();
+
+    const t = await testContext()
+      .routes(
+        craft()
+          .id("first")
+          .from(simple("a"))
+          .to(noop())
+          .authorize()
+          .from(principalSource("b"))
+          .to(main),
+      )
+      .build();
+
+    const failures: unknown[] = [];
+    const routes = t.ctx.getRoutes();
+    const secondId = routes[1]?.definition.id ?? "";
+    t.ctx.on(
+      `route:${secondId}:exchange:failed` as EventName,
+      ((payload: FailedEventDetails) => {
+        failures.push(payload.details.error);
+      }) as Parameters<typeof t.ctx.on>[1],
+    );
+
+    await t.test();
+
+    expect(main.received).toHaveLength(0);
+    expect(failures).toHaveLength(1);
+    expect(String(failures[0])).toContain("RC5012");
+    await t.stop();
   });
 });
 
@@ -362,11 +709,11 @@ describe("exchange.principal propagation", () => {
   });
 
   /**
-   * @case `.authorize()` without options succeeds for any authenticated principal
-   * @preconditions Principal has no roles or scopes; .authorize() called without options
-   * @expectedResult Exchange flows through to the destination
+   * @case Source-emitted principal survives the route into the destination
+   * @preconditions principalSource attaches a principal at the source boundary
+   * @expectedResult The destination's exchange carries the same principal
    */
-  test(".authorize() without options accepts any principal", async () => {
+  test("source-emitted principal reaches the destination", async () => {
     const s = spy<string>();
     const principal: Principal = {
       kind: "custom",
@@ -377,19 +724,14 @@ describe("exchange.principal propagation", () => {
     t = await testContext()
       .routes(
         craft()
-          .id("any-auth")
-          .from(simple("hello"))
-          .process((ex) => {
-            ex.principal = principal;
-            return ex;
-          })
-          .authorize()
+          .id("source-principal")
+          .from(principalSource("hello", principal))
           .to(s),
       )
       .build();
     await t.test();
 
-    expect(s.receivedBodies()).toEqual(["hello"]);
+    expect(s.lastReceived().principal).toEqual(principal);
   });
 
   /**
@@ -484,71 +826,20 @@ describe("exchange.principal propagation", () => {
 });
 
 describe(".authorize() type checks", () => {
-  let t: TestContext;
-
-  afterEach(async () => {
-    if (t) await t.stop();
-  });
-
   /**
-   * @case .authorize() is type-preserving (body type unchanged) on RouteBuilder
-   * @preconditions Build a route with .authorize() between a typed source and destination
-   * @expectedResult The builder's exchange-body type remains the source's body type
-   *                 across .authorize() calls; chained .to() compiles
+   * @case Pre-from .authorize() preserves the body type that .from() introduces
+   * @preconditions craft().authorize().from<T>(source) chained with a typed .to()
+   * @expectedResult The builder's exchange-body type after .from() equals T,
+   *                 so a typed .to() compiles
    */
-  test("is body-type-preserving on RouteBuilder (type-level)", () => {
-    const beforeAuthorize = craft()
+  test("pre-from .authorize() does not perturb body inference", () => {
+    const built = craft()
       .id("typed-route")
-      .from(simple({ id: "x" } as { id: string }))
-      .process((ex) => {
-        ex.principal = {
-          kind: "custom",
-          scheme: "bearer",
-          subject: "user-1",
-        };
-        return ex;
-      });
+      .authorize({ roles: ["admin"] })
+      .from(principalSource({ id: "x" } as { id: string }));
 
-    const afterAuthorize = beforeAuthorize.authorize({ roles: ["admin"] });
-
-    // .authorize() is a validate-style sugar declared as `(opts?) => this`.
-    // The builder type returned must equal the type before .authorize()
-    // (same Current generic, same subclass), so chained operators that
-    // depend on body inference (.to(spy<{id:string}>())) keep typing.
-    expectTypeOf(afterAuthorize).toEqualTypeOf(beforeAuthorize);
-  });
-
-  /**
-   * @case .authorize() chains alongside .to() without changing body inference
-   * @preconditions Multi-step route with two .authorize() calls and a typed spy
-   * @expectedResult Spy receives body { id: "x" } at runtime
-   */
-  test("is type-preserving and chainable", async () => {
-    const s = spy<{ id: string }>();
-
-    t = await testContext()
-      .routes(
-        craft()
-          .id("chain")
-          .from(simple({ id: "x" }))
-          .process((ex) => {
-            ex.principal = {
-              kind: "custom",
-              scheme: "bearer",
-              subject: "user-1",
-              roles: ["admin"],
-              scopes: ["read", "write"],
-            };
-            return ex;
-          })
-          .authorize({ roles: ["admin"] })
-          .authorize({ scopes: ["read"] })
-          .to(s)
-          .to(noop()),
-      )
-      .build();
-    await t.test();
-
-    expect(s.receivedBodies()).toEqual([{ id: "x" }]);
+    // After .from<{id: string}>, the builder's Current generic must be
+    // {id: string} so a downstream .to(spy<{id:string}>()) type-checks.
+    expectTypeOf(built.to).toBeCallableWith(spy<{ id: string }>());
   });
 });

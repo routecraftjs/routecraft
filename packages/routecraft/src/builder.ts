@@ -45,6 +45,8 @@ import {
 } from "./operations/aggregate.ts";
 import { COLLECT_STEPS } from "./dsl-symbol.ts";
 import { ChoiceStep, ChoiceSubBuilder } from "./operations/choice.ts";
+import { ValidateStep } from "./operations/validate.ts";
+import { authorize, type AuthorizeOptions } from "./auth/authorize.ts";
 
 /**
  * Builder for creating a Routecraft context with routes and configuration.
@@ -353,6 +355,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
         };
         errorHandler?: ErrorHandler;
         discovery?: RouteDiscovery;
+        authorizers?: AuthorizeOptions[];
       }
     | undefined;
 
@@ -370,7 +373,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    *
    * @example
    * ```typescript
-   * craft().id('ingest-api').from(httpServer({ path: '/ingest' })).to(log()).build();
+   * craft().id('ingest-api').from(http({ path: '/ingest', method: 'POST' })).to(log()).build();
    * ```
    */
   id(id: string): this {
@@ -574,6 +577,71 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
   }
 
   /**
+   * Declare an authorization requirement on the next route. **Route-only**:
+   * stages the authorizer onto the next-route options and runs at route
+   * entry, before any pipeline step. Same staging convention as `.id`,
+   * `.title`, `.description`, `.input`, `.output`, `.tag`, and `.batch`:
+   * a route-level pipeline op (e.g. `.to()`, `.transform()`) called while
+   * authorizers are staged but no new `.from()` has opened a route throws
+   * RC2001. For a mid-pipeline check use `.validate(authorize({...}))`
+   * directly.
+   *
+   * The check verifies that the inbound exchange carries an authenticated
+   * principal and (optionally) that the principal has every required role
+   * and scope. It does NOT issue, mint, or attach any credential: it
+   * asserts an existing identity meets the criteria.
+   *
+   * Multiple `.authorize()` calls stack and AND-combine: each runs in
+   * declaration order, so a missing role in the first call short-circuits
+   * before later predicates run.
+   *
+   * Failures throw RC5012 (no principal) or RC5015 (principal failed the
+   * role / scope / predicate check). A route-level `.error()` handler
+   * catches both like any other validation failure.
+   *
+   * @experimental
+   * @param options - Required roles, scopes, or a custom predicate. When
+   *   omitted, only existence of an authenticated principal is checked.
+   *
+   * @example Route-entry guard on an MCP tool
+   * ```ts
+   * craft()
+   *   .id('delete-user')
+   *   .description('Delete a user by id')
+   *   .authorize({ roles: ['admin'] })
+   *   .from(mcp({ annotations: { destructiveHint: true } }))
+   *   .to(deleteUserDestination)
+   * ```
+   *
+   * @example Stacked authorizers on an HTTP route
+   * ```ts
+   * craft()
+   *   .id('admin-billing')
+   *   .authorize({ roles: ['admin'] })
+   *   .authorize({ scopes: ['billing:write'] })
+   *   .from(http({ path: '/admin/billing', method: 'POST' }))
+   *   .to(billingDestination)
+   * ```
+   *
+   * @example Chained routes
+   * ```ts
+   * craft()
+   *   .id('public').from(simple('hi')).to(noop())
+   *   .id('admin').authorize({ roles: ['admin'] }).from(adminSrc).to(noop())
+   * ```
+   */
+  authorize(options?: AuthorizeOptions): this {
+    const next = this.pendingOptions ?? {};
+    const existing = next.authorizers ?? [];
+    this.pendingOptions = {
+      ...next,
+      authorizers: [...existing, options ?? {}],
+    };
+    logger.trace("Staging route-scope authorization for next route");
+    return this;
+  }
+
+  /**
    * Define the source of data for this route.
    * This is typically the first step in defining a route.
    *
@@ -582,7 +650,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    * @returns A RouteBuilder with the specified type T
    * @example
    * // Simple source with inferred type
-   * .from<string[]>(httpServer({ path: '/api/data' }))
+   * .from<string[]>(http({ path: '/api/data', method: 'GET' }))
    *
    * // Source with callable function
    * .from<User[]>(async () => {
@@ -605,13 +673,21 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
     };
     const errorHandler = this.pendingOptions?.errorHandler;
     const discovery = this.pendingOptions?.discovery;
+    const authorizers = this.pendingOptions?.authorizers ?? [];
 
     logger.trace({ route: id }, "Creating route definition");
+
+    // Staged `.authorize()` calls become the route's first steps so they
+    // run before any pipeline operation. Multiple authorizers stack in
+    // declaration order; the first failure short-circuits the rest.
+    const authorizerSteps = authorizers.map(
+      (opts) => new ValidateStep(authorize(opts)),
+    );
 
     this.currentRoute = {
       id,
       source: typeof source === "function" ? { subscribe: source } : source,
-      steps: [],
+      steps: authorizerSteps,
       consumer: {
         type: consumer.type,
         options: consumer.options ?? undefined,
@@ -644,7 +720,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
       throw rcError("RC2001", undefined, {
         message:
           `Route metadata staged but no .from() called: route-level configuration ` +
-          `(.id / .title / .description / .input / .output / .batch / .error) must be ` +
+          `(.id / .title / .description / .input / .output / .batch / .error / .authorize) must be ` +
           `followed by .from() before pipeline operations on the next route.`,
       });
     }

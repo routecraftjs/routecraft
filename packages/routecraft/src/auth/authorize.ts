@@ -4,12 +4,12 @@ import { type CallableValidator } from "../operations/validate.ts";
 import { type Principal } from "./types.ts";
 
 /**
- * Options for {@link requirePrincipal}. All criteria are AND-combined: the
- * principal must satisfy every provided constraint to pass.
+ * Options accepted by {@link authorize}. All criteria are AND-combined: the
+ * principal must satisfy every provided constraint to pass the check.
  *
  * @experimental
  */
-export interface RequirePrincipalOptions {
+export interface AuthorizeOptions {
   /**
    * Required roles. The principal must carry every listed role on
    * `principal.roles`. Defaults to no role check.
@@ -28,27 +28,46 @@ export interface RequirePrincipalOptions {
 }
 
 /**
- * Build a {@link CallableValidator} that asserts the exchange carries an
+ * Build a {@link CallableValidator} that **checks** the exchange carries an
  * authenticated principal and (optionally) that the principal has every
- * required role and scope. Throws `RC5012` when no principal is present
- * and `RC5015` when the principal fails an authorization check.
+ * required role and scope. This is a verification primitive: it asserts an
+ * existing identity meets the criteria. It does NOT issue, mint, or attach
+ * credentials to the exchange.
  *
- * Used as the underlying validator for the `.authorize()` DSL sugar; you
- * can also pass it directly to `.validate()` if you need to compose it
- * with other validators.
+ * Throws `RC5012` when no principal is present and `RC5015` when the
+ * principal fails the role / scope / predicate check.
+ *
+ * Most routes should declare authorization at the route boundary using the
+ * pre-from `.authorize()` builder method, which wires this validator as a
+ * route-entry guard. Use this function directly with `.validate(...)` only
+ * when the check must run mid-pipeline (for example, after a `.process()`
+ * step that swaps the principal, or inside a `.choice()` branch).
  *
  * @experimental
  *
- * @example
+ * @example Route-entry guard (preferred)
  * ```ts
  * craft()
- *   .from(mcpTool({ name: "delete-user" }))
- *   .validate(requirePrincipal({ roles: ["admin"] }))
- *   .to(...)
+ *   .id("delete-user")
+ *   .description("Delete a user by id")
+ *   .authorize({ roles: ["admin"] })
+ *   .from(mcp({ annotations: { destructiveHint: true } }))
+ *   .to(deleteUserDestination)
+ * ```
+ *
+ * @example Mid-pipeline check (escape hatch)
+ * ```ts
+ * import { authorize } from "@routecraft/routecraft";
+ *
+ * craft()
+ *   .from(http({ path: "/admin", method: "POST" }))
+ *   .process(swapToServiceAccountPrincipal)
+ *   .validate(authorize({ roles: ["admin"] }))
+ *   .to(adminDestination)
  * ```
  */
-export function requirePrincipal(
-  options: RequirePrincipalOptions = {},
+export function authorize(
+  options: AuthorizeOptions = {},
 ): CallableValidator<unknown, unknown> {
   const { roles, scopes, predicate } = options;
   return (exchange: Exchange<unknown>) => {
@@ -57,7 +76,7 @@ export function requirePrincipal(
       throw rcError("RC5012", new Error("No authenticated principal"), {
         message: "Authorization failed: no authenticated principal",
         suggestion:
-          "Configure auth on the source (e.g. mcp({ auth: jwt(...) })) or attach a custom principal in a .process() step before calling .authorize().",
+          "Configure auth on the source so it emits a Principal (e.g. mcp({ auth: jwt(...) })). For a mid-pipeline .validate(authorize(...)) check, attach a custom principal in an earlier .process() step.",
       });
     }
 
@@ -71,7 +90,7 @@ export function requirePrincipal(
           {
             message: `Authorization failed: principal is missing required role(s): ${missing.join(", ")}`,
             suggestion:
-              "Grant the principal the missing role(s) at the IdP, or relax the .authorize() requirement.",
+              "Grant the principal the missing role(s) at the IdP, or relax the authorize() requirement.",
           },
         );
       }
@@ -87,7 +106,7 @@ export function requirePrincipal(
           {
             message: `Authorization failed: principal is missing required scope(s): ${missing.join(", ")}`,
             suggestion:
-              "Grant the principal the missing scope(s) at the IdP, or relax the .authorize() requirement.",
+              "Grant the principal the missing scope(s) at the IdP, or relax the authorize() requirement.",
           },
         );
       }

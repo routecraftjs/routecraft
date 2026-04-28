@@ -187,11 +187,11 @@ Authentication failed
 **Why it happens**  
 Two cases share this code:
 - An upstream service rejected the request: invalid credentials, expired token, or a 401 response.
-- A route reached `.authorize()` (or `requirePrincipal()` directly) and the exchange carried no authenticated principal. The source did not resolve one and no `.process()` step attached a custom one.
+- A route's `.authorize()` guard ran (or `.validate(authorize(...))` mid-pipeline) and the exchange carried no authenticated principal. The source did not resolve one and no `.process()` step attached a custom one.
 
 **Suggestion**  
 - For upstream-API failures: verify API keys, tokens, audience/issuer, and credential rotation. Check that the auth header is reaching the destination.
-- For in-route failures: configure `auth:` on the source (e.g. `mcp({ auth: jwt(...) })`) or attach a custom principal in a `.process()` step before `.authorize()`. See [`.authorize()`](/docs/reference/operations#authorize).
+- For in-route failures: configure `auth:` on the source (e.g. `mcp({ auth: jwt(...) })`) so the source emits a principal, or attach a custom principal in a `.process()` step before the `authorize()` validator runs. See [`.authorize()`](/docs/reference/operations#authorize).
 
 ## RC5013
 Rate limited
@@ -217,7 +217,7 @@ Permission denied
 **Why it happens**  
 Two cases share this code:
 - An upstream service denied the operation (e.g. 403 from access control or IAM).
-- A route reached `.authorize()` (or `requirePrincipal()` directly), the exchange had a principal, but the principal was missing a required role or scope, or a custom predicate returned `false`.
+- A route's `.authorize()` guard ran (or `.validate(authorize(...))` mid-pipeline), the exchange had a principal, but the principal was missing a required role or scope, or a custom predicate returned `false`.
 
 **Suggestion**  
 - For upstream denials: check IAM, ACLs, and scopes granted to the credential.

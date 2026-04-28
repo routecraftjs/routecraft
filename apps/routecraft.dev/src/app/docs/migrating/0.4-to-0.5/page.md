@@ -396,7 +396,7 @@ For reference, route-builder operations now fall into three groups:
 
 | Category            | Position relative to `.from()` | Examples                                                |
 | ------------------- | ------------------------------ | ------------------------------------------------------- |
-| Route-only          | Before                         | `.id()`, `.batch()`                                     |
+| Route-only          | Before                         | `.id()`, `.batch()`, `.authorize()`                     |
 | Dual-mode wrapper   | Before _or_ after              | `.error()` (more to follow in 0.6.0)                    |
 | Pipeline            | After                          | `.transform()`, `.filter()`, `.to()`, `.process()`, ... |
 
@@ -449,6 +449,37 @@ Lets you invoke routes from outside the framework lifecycle (test runners, scrip
 ### MCP OAuth 2.1 server provider
 
 The `mcp()` source can now sit behind an OAuth 2.1 authorisation server. The framework ships JWT and JWKS verifiers, an `oauth()` factory, and a typed `OAuthPrincipal` shape.
+
+### `.authorize()` route-entry guard {% badge color="orange" %}experimental{% /badge %}
+
+A new route-only `.authorize()` method declares an authorization requirement on a route. It runs at route entry, before any pipeline step, and verifies that the inbound exchange carries an authenticated `principal` and (optionally) that the principal carries every required role and scope.
+
+```ts
+craft()
+  .id("delete-user")
+  .description("Delete a user by id")
+  .authorize({ roles: ["admin"] })
+  .from(mcp({ annotations: { destructiveHint: true } }))
+  .to(deleteUserDestination)
+```
+
+Stack `.authorize()` calls to AND-combine; the first failure short-circuits.
+
+`.authorize()` is **route-only**: it stages onto the next route, same convention as `.id` / `.title` / `.description` / `.input` / `.output` / `.tag` / `.batch`. Calling a pipeline op (`.to`, `.transform`, `.process`, ...) while authorizers are staged but no new `.from()` has opened the next route throws `RC2001` with a message naming `.authorize` among the staging ops that need a `.from()` to follow. For a mid-pipeline check, drop down to the validator form -- useful when you swap the principal in a `.process()` step or want to gate a `.choice()` branch:
+
+```ts
+import { authorize } from "@routecraft/routecraft"
+
+craft()
+  .from(mail({ /* ... */ }))
+  .process(attachEmailPrincipal)
+  .validate(authorize({ predicate: (p) => p.email?.endsWith("@yourcompany.com") === true }))
+  .to(yourDestination)
+```
+
+Failures throw `RC5012` (no principal) or `RC5015` (principal failed the role / scope / predicate check). Both flow through the route's `.error()` handler like any other validation failure.
+
+`.authorize()` does NOT issue, mint, or attach any credential. It checks an existing identity. Authentication happens at the source boundary (`mcp({ auth: jwt(...) })`, `oauth()`, etc.) or in a `.process()` step that attaches a `Principal`.
 
 ### Runner argv channel
 
