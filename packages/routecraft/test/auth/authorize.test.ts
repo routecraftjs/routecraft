@@ -498,41 +498,49 @@ describe(".authorize() route-only method", () => {
 
 describe(".authorize() positional rules", () => {
   /**
-   * @case .authorize() called after .from() throws RC2001 with a pointer to the escape hatch
-   * @preconditions craft().from(simple()).authorize() (post-from misuse)
-   * @expectedResult Builder throws RC2001; the message names .validate(authorize()) as the alternative
+   * @case Mid-pipeline .authorize() (after .from(), before another .from()) is misuse
+   *       and is caught by requireSource() on the next pipeline op
+   * @preconditions craft().id().from(simple()).authorize().to(noop()) -- the .to()
+   *                tries to push a step on the current route while .authorize()
+   *                has already staged options for the next route
+   * @expectedResult Throws RC2001 (structural). Message lists .authorize among the
+   *                 staging ops that need .from() to follow.
    */
-  test("throws RC2001 when called after .from()", () => {
+  test("throws RC2001 when a pipeline op follows a post-from .authorize()", () => {
     let caught: unknown;
     try {
       craft()
         .id("post-from")
         .from(simple("hello"))
-        .authorize({ roles: ["admin"] });
+        .authorize({ roles: ["admin"] })
+        .to(noop());
     } catch (err) {
       caught = err;
     }
-    // Per .standards/testing.md section 5: assert on the structural `rc`
-    // code, not message wording. The thrown value is a RoutecraftError
-    // with `rc: "RC2001"`.
     expect(caught).toMatchObject({ rc: "RC2001" });
   });
 
   /**
-   * @case Error message points at the .validate(authorize()) escape hatch
-   * @preconditions As above
-   * @expectedResult Thrown error mentions .validate(authorize so users discover the mid-pipeline form
+   * @case requireSource() RC2001 message enumerates .authorize alongside the other
+   *       route-level staging ops so users discover the right fix
+   * @preconditions As above; assert the message text lists .authorize
+   * @expectedResult Thrown error message includes ".authorize"
    */
-  test("error message points at .validate(authorize()) escape hatch", () => {
+  test("RC2001 message enumerates .authorize as a staging op", () => {
     expect(() =>
-      craft().id("post-from-msg").from(simple("hello")).authorize(),
-    ).toThrow(/\.validate\(authorize/);
+      craft()
+        .id("enum")
+        .from(simple("hello"))
+        .authorize({ roles: ["admin"] })
+        .to(noop()),
+    ).toThrow(/\.authorize/);
   });
 
   /**
    * @case .authorize() works pre-from for a chained second route after an earlier .from()
-   * @preconditions craft().from(s1).to(d1).id("next").authorize().from(s2).to(d2)
-   * @expectedResult Both routes build without throwing; the second route gates on its own .authorize()
+   * @preconditions craft().id(a).from(s1).to(d1).id(b).authorize().from(s2).to(d2)
+   * @expectedResult Both routes build without throwing; the second route gates on
+   *                 its own .authorize()
    */
   test("supports chained routes when staged via .id() before the next .from()", async () => {
     const t = await testContext()
@@ -548,8 +556,84 @@ describe(".authorize() positional rules", () => {
       )
       .build();
 
-    // Route built; no throw. Engine wires both.
     expect(t.ctx.getRoutes()).toHaveLength(2);
+    await t.stop();
+  });
+
+  /**
+   * @case .authorize() can act as a route-starter just like .id() / .title() etc.,
+   *       without requiring an explicit .id() between the previous route and the
+   *       next .authorize().from(...) chain
+   * @preconditions craft().id(a).from(s1).to(d1).authorize({roles:[admin]}).from(s2).to(d2)
+   *                where s2 emits a principal with role "admin"
+   * @expectedResult Both routes build; route 2's .authorize() gates its source.
+   *                 Spy attached to route 2 receives the body, proving the
+   *                 authorizer ran and accepted the principal.
+   */
+  test("acts as route-starter on its own (no preceding .id() required)", async () => {
+    const main = spy<string>();
+    const adminPrincipal: Principal = {
+      kind: "custom",
+      scheme: "bearer",
+      subject: "admin-1",
+      roles: ["admin"],
+    };
+
+    const t = await testContext()
+      .routes(
+        craft()
+          .id("first")
+          .from(simple("a"))
+          .to(noop())
+          .authorize({ roles: ["admin"] })
+          .from(principalSource("b", adminPrincipal))
+          .to(main),
+      )
+      .build();
+    await t.test();
+
+    expect(t.ctx.getRoutes()).toHaveLength(2);
+    expect(main.receivedBodies()).toEqual(["b"]);
+    await t.stop();
+  });
+
+  /**
+   * @case Route-starter .authorize() rejects the route when the source emits no principal
+   * @preconditions craft().id(a).from(s1).to(d1).authorize().from(s2).to(d2)
+   *                where s2 emits no principal
+   * @expectedResult Route 2's authorizer fires RC5012 and the destination is skipped;
+   *                 route 1 is unaffected.
+   */
+  test("acts as route-starter and gates rejected requests", async () => {
+    const main = spy<string>();
+
+    const t = await testContext()
+      .routes(
+        craft()
+          .id("first")
+          .from(simple("a"))
+          .to(noop())
+          .authorize()
+          .from(principalSource("b"))
+          .to(main),
+      )
+      .build();
+
+    const failures: unknown[] = [];
+    const routes = t.ctx.getRoutes();
+    const secondId = routes[1]?.definition.id ?? "";
+    t.ctx.on(
+      `route:${secondId}:exchange:failed` as EventName,
+      ((payload: FailedEventDetails) => {
+        failures.push(payload.details.error);
+      }) as Parameters<typeof t.ctx.on>[1],
+    );
+
+    await t.test();
+
+    expect(main.received).toHaveLength(0);
+    expect(failures).toHaveLength(1);
+    expect(String(failures[0])).toContain("RC5012");
     await t.stop();
   });
 });

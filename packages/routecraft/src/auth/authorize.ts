@@ -76,7 +76,7 @@ export function authorize(
       throw rcError("RC5012", new Error("No authenticated principal"), {
         message: "Authorization failed: no authenticated principal",
         suggestion:
-          "Configure auth on the source (e.g. mcp({ auth: jwt(...) })) or attach a custom principal in a .process() step before the authorize() check.",
+          "Configure auth on the source so it emits a Principal (e.g. mcp({ auth: jwt(...) })). For a mid-pipeline .validate(authorize(...)) check, attach a custom principal in an earlier .process() step.",
       });
     }
 

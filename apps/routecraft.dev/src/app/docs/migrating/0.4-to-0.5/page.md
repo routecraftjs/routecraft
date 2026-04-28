@@ -465,7 +465,7 @@ craft()
 
 Stack `.authorize()` calls to AND-combine; the first failure short-circuits.
 
-`.authorize()` is **route-only**: must be called before `.from()`. Calling it after `.from()` throws `RC2001` with a message pointing at the mid-pipeline form, `.validate(authorize({ ... }))`. The escape hatch is for the rare case where you swap the principal in a `.process()` step or want to gate a `.choice()` branch:
+`.authorize()` is **route-only**: it stages onto the next route, same convention as `.id` / `.title` / `.description` / `.input` / `.output` / `.tag` / `.batch`. Calling a pipeline op (`.to`, `.transform`, `.process`, ...) while authorizers are staged but no new `.from()` has opened the next route throws `RC2001` with a message naming `.authorize` among the staging ops that need a `.from()` to follow. For a mid-pipeline check, drop down to the validator form -- useful when you swap the principal in a `.process()` step or want to gate a `.choice()` branch:
 
 ```ts
 import { authorize } from "@routecraft/routecraft"

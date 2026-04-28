@@ -577,16 +577,19 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
   }
 
   /**
-   * Declare an authorization requirement on the next route. Route-only:
-   * must be called BEFORE `.from()`. Throws RC2001 if called after
-   * `.from()`; for mid-pipeline checks, use `.validate(authorize({...}))`
+   * Declare an authorization requirement on the next route. **Route-only**:
+   * stages the authorizer onto the next-route options and runs at route
+   * entry, before any pipeline step. Same staging convention as `.id`,
+   * `.title`, `.description`, `.input`, `.output`, `.tag`, and `.batch`:
+   * a route-level pipeline op (e.g. `.to()`, `.transform()`) called while
+   * authorizers are staged but no new `.from()` has opened a route throws
+   * RC2001. For a mid-pipeline check use `.validate(authorize({...}))`
    * directly.
    *
-   * Stages an authorization check that runs at route entry, before any
-   * pipeline step. The check verifies that the inbound exchange carries an
-   * authenticated principal and (optionally) that the principal has every
-   * required role and scope. It does NOT issue, mint, or attach any
-   * credential: it asserts an existing identity meets the criteria.
+   * The check verifies that the inbound exchange carries an authenticated
+   * principal and (optionally) that the principal has every required role
+   * and scope. It does NOT issue, mint, or attach any credential: it
+   * asserts an existing identity meets the criteria.
    *
    * Multiple `.authorize()` calls stack and AND-combine: each runs in
    * declaration order, so a missing role in the first call short-circuits
@@ -599,9 +602,6 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    * @experimental
    * @param options - Required roles, scopes, or a custom predicate. When
    *   omitted, only existence of an authenticated principal is checked.
-   * @throws {RoutecraftError} RC2001 when called after `.from()` on the
-   *   current route. The error message points at the
-   *   `.validate(authorize({...}))` escape hatch.
    *
    * @example Route-entry guard on an MCP tool
    * ```ts
@@ -622,15 +622,15 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    *   .from(http({ path: '/admin/billing', method: 'POST' }))
    *   .to(billingDestination)
    * ```
+   *
+   * @example Chained routes
+   * ```ts
+   * craft()
+   *   .id('public').from(simple('hi')).to(noop())
+   *   .id('admin').authorize({ roles: ['admin'] }).from(adminSrc).to(noop())
+   * ```
    */
   authorize(options?: AuthorizeOptions): this {
-    if (this.currentRoute !== undefined && this.pendingOptions === undefined) {
-      throw rcError("RC2001", undefined, {
-        message:
-          ".authorize() is route-only and must be called before .from(). " +
-          "For a mid-pipeline check, use .validate(authorize({ ... })) instead.",
-      });
-    }
     const next = this.pendingOptions ?? {};
     const existing = next.authorizers ?? [];
     this.pendingOptions = {
@@ -720,7 +720,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
       throw rcError("RC2001", undefined, {
         message:
           `Route metadata staged but no .from() called: route-level configuration ` +
-          `(.id / .title / .description / .input / .output / .batch / .error) must be ` +
+          `(.id / .title / .description / .input / .output / .batch / .error / .authorize) must be ` +
           `followed by .from() before pipeline operations on the next route.`,
       });
     }

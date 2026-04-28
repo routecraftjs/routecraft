@@ -212,9 +212,11 @@ For the architectural pattern wrappers follow, see [`.standards/resilience-wrapp
 authorize(options?: AuthorizeOptions): RouteBuilder<Current>
 ```
 
-Declare an authorization requirement on the route. **Route-only**: must be called BEFORE `.from()`. Calling `.authorize()` after `.from()` throws [`RC2001`](/docs/reference/errors#rc2001).
+Declare an authorization requirement on the next route. **Route-only**, same staging convention as `.id`, `.title`, `.description`, `.input`, `.output`, `.tag`, and `.batch`: it writes onto the next-route options. Calling a pipeline op (`.to`, `.transform`, `.process`, ...) while authorizers are staged but no `.from()` has opened the next route throws [`RC2001`](/docs/reference/errors#rc2001) with a message that lists `.authorize` alongside the other staging ops. For a mid-pipeline check use `.validate(authorize({ ... }))` directly.
 
 The check runs at route entry, before any pipeline step. It verifies that the inbound exchange carries an authenticated principal and (optionally) that the principal has every required role and scope. It does NOT issue, mint, or attach any credential: it asserts an existing identity meets the criteria. Multiple `.authorize()` calls stack and AND-combine in declaration order, so a missing role in the first call short-circuits before later predicates run.
+
+`.authorize()` can also act as a route-starter when chaining routes: `craft().from(s1).to(d1).authorize({...}).from(s2).to(d2)` opens route 2 with the authorizer staged, no explicit `.id("next")` required.
 
 For mid-pipeline checks (rare, for example after a `.process()` swaps the principal or inside a `.choice()` branch), use `.validate(authorize({ ... }))` directly with the underlying validator function.
 
