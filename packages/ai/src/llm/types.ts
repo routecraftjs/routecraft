@@ -178,6 +178,23 @@ export interface LlmResult {
    * for post-dispatch assertions.
    */
   toolCalls?: LlmToolCallSummary[];
+  /**
+   * Number of model steps the SDK consumed in this call. Mirrors
+   * `result.steps.length` and is populated by both the sync and
+   * streaming paths. The agent session uses this to track the shared
+   * turn budget across `validate` retries: every retry's step count
+   * is added to the running total and compared against `maxTurns`.
+   */
+  stepsCount?: number;
+  /**
+   * Conversation messages emitted during this call (assistant + tool
+   * messages, in order; mirrors the SDK's `result.response.messages`).
+   * The agent session uses this to assemble the messages array for a
+   * `validate`-triggered retry: original user prompt + these response
+   * messages + the corrective user message become the next call's
+   * `prompt`.
+   */
+  responseMessages?: unknown[];
   /** Full generateText() result for advanced use (debugging, response metadata). */
   raw?: unknown;
 }

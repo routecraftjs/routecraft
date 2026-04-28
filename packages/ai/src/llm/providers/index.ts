@@ -104,7 +104,17 @@ export interface CallLlmParams {
     | "presencePenalty"
   >;
   system: string;
-  user: string;
+  /**
+   * User-side conversation. When a string, it is sent as a single
+   * user prompt. When an array, it is forwarded directly to the SDK
+   * as the `prompt` argument (Vercel AI SDK accepts
+   * `string | Array<ModelMessage>` for `prompt`). The agent session
+   * uses the array form to feed back the prior assistant + tool
+   * messages plus a validator-corrective user message on a `validate`
+   * retry, so the model sees the full history rather than a fresh
+   * conversation.
+   */
+  user: string | unknown[];
   /** Optional structured output spec (from toAiOutputSpec). Enables provider-level JSON schema. */
   output?: unknown;
   /**
@@ -350,7 +360,7 @@ function buildSdkParams(
   model: unknown,
   options: CallLlmParams["options"],
   system: string,
-  user: string,
+  user: string | unknown[],
   extras: ProviderExtras,
 ): Record<string, unknown> {
   const params: Record<string, unknown> = {
@@ -383,7 +393,7 @@ async function runGenerate(
   model: unknown,
   options: CallLlmParams["options"],
   system: string,
-  user: string,
+  user: string | unknown[],
   extras: ProviderExtras,
 ): Promise<LlmResult> {
   const { generateText } = await import("ai");
@@ -402,6 +412,11 @@ async function runGenerate(
   if (typeof finishReason === "string") out.finishReason = finishReason;
   const toolCalls = collectToolCalls(result);
   if (toolCalls.length > 0) out.toolCalls = toolCalls;
+  const steps = (result as { steps?: unknown }).steps;
+  if (Array.isArray(steps)) out.stepsCount = steps.length;
+  const responseMessages = (result as { response?: { messages?: unknown } })
+    .response?.messages;
+  if (Array.isArray(responseMessages)) out.responseMessages = responseMessages;
   return out;
 }
 
@@ -423,7 +438,7 @@ async function runStreamGenerate(
   model: unknown,
   options: CallLlmParams["options"],
   system: string,
-  user: string,
+  user: string | unknown[],
   extras: ProviderExtras,
   onDelta: AgentDeltaListener,
 ): Promise<LlmResult> {
@@ -483,6 +498,17 @@ async function runStreamGenerate(
   );
   const toolCalls = collectToolCalls({ steps });
   if (toolCalls.length > 0) out.toolCalls = toolCalls;
+  if (Array.isArray(steps)) out.stepsCount = steps.length;
+  // streamText exposes the consolidated response (messages, body, ...)
+  // as a Promise that resolves once the stream drains. Await it so the
+  // session can append response.messages to a validate-retry prompt
+  // without re-walking the stream.
+  const response = await safeAwait<{ messages?: unknown }>(
+    (result as { response?: PromiseLike<{ messages?: unknown }> }).response,
+  );
+  if (response && Array.isArray(response.messages)) {
+    out.responseMessages = response.messages;
+  }
   return out;
 }
 

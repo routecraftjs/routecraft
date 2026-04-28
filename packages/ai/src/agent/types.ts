@@ -1,3 +1,4 @@
+import type { Exchange } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { LlmModelId, LlmPromptSource, LlmUsage } from "../llm/types.ts";
 import type { AgentDeltaListener } from "./events.ts";
@@ -121,10 +122,51 @@ export interface AgentOptions {
    * Cap on tool-calling turns for the Vercel AI SDK loop. Each turn
    * is one model call (which may emit any number of tool calls) plus
    * the resulting tool results. Resolves to `stopWhen: stepCountIs(n)`
-   * at dispatch. Defaults to 8 when neither the agent nor
+   * at dispatch. Defaults to 20 when neither the agent nor
    * `defaultOptions.maxTurns` supplies a value.
+   *
+   * `validate` retries share this same budget: a corrective turn
+   * triggered by `validate` consumes one turn just like any other
+   * model step.
    */
   maxTurns?: number;
+
+  /**
+   * Pre-finish validator. Invoked after the model emits a final text
+   * response (and after any `output` schema parsing). Returning
+   * `void` accepts the result and the dispatch resolves with it.
+   * Returning a string sends the agent back for another turn with
+   * the string injected as a corrective user message
+   * (`"Validator: <msg>"`); the model sees the prior assistant
+   * messages and tool history, so it can self-correct.
+   *
+   * Throwing inside `validate` fails the dispatch with the thrown
+   * error; use this when the violation is unrecoverable.
+   *
+   * Validate retries share the `maxTurns` budget. When the budget is
+   * exhausted while `validate` is still rejecting, the dispatch
+   * fails with `RC5003` carrying the last validator message.
+   *
+   * Per-agent only; not part of `defaultOptions` because what
+   * "valid" means is intrinsic to a specific agent's job.
+   *
+   * @example
+   * ```ts
+   * agent({
+   *   model: "anthropic:claude-sonnet-4-6",
+   *   system: "...",
+   *   validate: (result) => {
+   *     if (!result.toolCalls?.some(t => t.toolName === "send_email")) {
+   *       return "You must send an email before finishing.";
+   *     }
+   *   },
+   * });
+   * ```
+   */
+  validate?: (
+    result: AgentResult,
+    ctx: { exchange: Exchange<unknown>; turnsUsed: number },
+  ) => void | string | Promise<void | string>;
 
   /**
    * Listener invoked for each token-level delta emitted while the

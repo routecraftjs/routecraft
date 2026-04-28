@@ -122,6 +122,7 @@ export class AgentDestinationAdapter implements Destination<
       user,
       system,
       context,
+      exchange,
       dispatchIdentity,
     });
 
