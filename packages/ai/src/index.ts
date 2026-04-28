@@ -152,6 +152,7 @@ export type {
   FnHandlerContext,
   FnOptions,
   FnRegistry,
+  ReadonlyPrincipal,
   RegisteredFnId,
 } from "./fn/index.ts";
 

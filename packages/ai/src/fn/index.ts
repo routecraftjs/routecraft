@@ -3,5 +3,6 @@ export type {
   FnHandlerContext,
   FnOptions,
   FnRegistry,
+  ReadonlyPrincipal,
   RegisteredFnId,
 } from "./types.ts";

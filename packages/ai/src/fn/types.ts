@@ -7,6 +7,29 @@ import type {
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
 /**
+ * Deep-readonly view of a `Principal`. Prevents tool code from
+ * mutating the caller's identity at compile time: top-level fields
+ * are `readonly` and the array members (`audience`, `scopes`,
+ * `roles`) are `readonly string[]` so `.push` / index-assignment
+ * fail to typecheck. The `claims` map is wrapped in `Readonly<...>`
+ * so its keys cannot be replaced.
+ *
+ * Runtime protection lives alongside this in tool-bridge, where the
+ * principal is `Object.freeze`'d (recursively across the arrays and
+ * the claims map) before being stored on the handler context.
+ *
+ * @experimental
+ */
+export type ReadonlyPrincipal = Readonly<
+  Omit<Principal, "audience" | "scopes" | "roles" | "claims">
+> & {
+  readonly audience?: readonly string[];
+  readonly scopes?: readonly string[];
+  readonly roles?: readonly string[];
+  readonly claims?: Readonly<Record<string, unknown>>;
+};
+
+/**
  * Minimal context handed to a fn handler. Additional fields may land in
  * follow-up stories without breaking this signature.
  *
@@ -31,10 +54,16 @@ export interface FnHandlerContext {
    * against the caller's identity (e.g.
    * `if (!ctx.principal?.scopes?.includes("write")) throw ...`).
    *
+   * Typed as {@link ReadonlyPrincipal} so the field, its arrays
+   * (`scopes`, `roles`, `audience`), and the `claims` map are all
+   * read-only at compile time. The runtime backs this with a
+   * recursive `Object.freeze` so a tool that bypasses the type
+   * system still cannot tamper.
+   *
    * Undefined when the originating exchange had no principal (e.g.
    * an unauthenticated source, or `testFn` outside a context).
    */
-  readonly principal?: Principal;
+  readonly principal?: ReadonlyPrincipal;
   /**
    * Correlation id of the calling exchange, when the fn was invoked
    * from inside a running route or agent dispatch. Propagated to any

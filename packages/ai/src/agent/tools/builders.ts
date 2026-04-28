@@ -9,12 +9,34 @@ import {
   type DirectRouteMetadata,
   type Exchange,
   type KnownTag,
+  type Principal,
   type Tag,
 } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { randomUUID } from "node:crypto";
-import type { FnHandlerContext, FnOptions } from "../../fn/types.ts";
+import type {
+  FnHandlerContext,
+  FnOptions,
+  ReadonlyPrincipal,
+} from "../../fn/types.ts";
 import { DEFERRED_FN_BRAND, type DeferredFn } from "./types.ts";
+
+/**
+ * Re-hydrate a frozen `ReadonlyPrincipal` (as exposed on
+ * `FnHandlerContext`) into a fresh mutable `Principal` so it can be
+ * attached to a downstream `DefaultExchange`. Shallow-clones the
+ * arrays and the `claims` map so the downstream pipeline is free to
+ * mutate them without reaching back into the agent's frozen
+ * snapshot.
+ */
+function cloneFrozenPrincipal(rp: ReadonlyPrincipal): Principal {
+  const out: Principal = { ...rp } as Principal;
+  if (rp.audience) out.audience = [...rp.audience];
+  if (rp.scopes) out.scopes = [...rp.scopes];
+  if (rp.roles) out.roles = [...rp.roles];
+  if (rp.claims) out.claims = { ...rp.claims };
+  return out;
+}
 
 /**
  * JSON Schema describing an empty object. Closed for additional
@@ -233,12 +255,18 @@ async function dispatchDirect<TIn>(
   // Forward the calling principal so the downstream direct route sees
   // the same authenticated identity as the agent that invoked the
   // tool. The agent layer never lets a tool override or escalate this:
-  // `principal` is read-only on FnHandlerContext, populated from the
-  // dispatching exchange at tool-bridge time.
+  // `principal` is deeply-readonly on FnHandlerContext (frozen at the
+  // tool-bridge boundary). Hand the downstream exchange a fresh
+  // mutable copy so it follows the existing Exchange.principal
+  // contract (a `.process()` step downstream may legitimately attach
+  // a different principal); the tool handler's own snapshot stays
+  // frozen and unaffected.
   const exchange = new DefaultExchange<TIn>(ctx, {
     body: input,
     ...(headers ? { headers } : {}),
-    ...(hctx.principal ? { principal: hctx.principal } : {}),
+    ...(hctx.principal
+      ? { principal: cloneFrozenPrincipal(hctx.principal) }
+      : {}),
   });
   const channel = getDirectChannel<TIn>(ctx, endpoint, {});
   const result = (await channel.send(endpoint, exchange)) as Exchange<unknown>;

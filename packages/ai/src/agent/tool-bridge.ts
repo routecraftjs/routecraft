@@ -162,6 +162,44 @@ function makeFnHandlerContext(
   return {
     logger: frameworkLogger.child({ tool: toolName }),
     abortSignal,
-    ...(principal ? { principal } : {}),
+    ...(principal ? { principal: freezePrincipal(principal) } : {}),
   };
+}
+
+/**
+ * Build a deep-frozen snapshot of the dispatching exchange's
+ * principal so a tool handler that bypasses the `ReadonlyPrincipal`
+ * type cannot mutate it at runtime.
+ *
+ * Clones first because `exchange.principal` is mutable by design
+ * (the routecraft pipeline lets a `.process()` step attach a custom
+ * principal), so freezing the live object in place would break
+ * downstream steps. The clone is shallow-by-field but freezes the
+ * `audience` / `scopes` / `roles` arrays and the `claims` map after
+ * shallow-cloning each, so a tool handler also cannot mutate any
+ * nested collection. `claims` value-objects are passed by reference
+ * (deep-cloning arbitrary claim payloads on every dispatch is too
+ * expensive); a tool that needs to defend against deeply nested
+ * claim mutation should treat its own reads as a hot copy.
+ *
+ * Runs once per dispatch in `buildVercelTools` and the same frozen
+ * reference is reused for every tool invocation in that dispatch.
+ *
+ * @internal
+ */
+function freezePrincipal(principal: Principal): Principal {
+  const snapshot: Principal = { ...principal };
+  if (snapshot.audience) {
+    snapshot.audience = Object.freeze([...snapshot.audience]) as string[];
+  }
+  if (snapshot.scopes) {
+    snapshot.scopes = Object.freeze([...snapshot.scopes]) as string[];
+  }
+  if (snapshot.roles) {
+    snapshot.roles = Object.freeze([...snapshot.roles]) as string[];
+  }
+  if (snapshot.claims) {
+    snapshot.claims = Object.freeze({ ...snapshot.claims });
+  }
+  return Object.freeze(snapshot);
 }

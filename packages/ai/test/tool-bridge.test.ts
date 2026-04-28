@@ -136,6 +136,63 @@ describe("buildVercelTools: execute path", () => {
   });
 
   /**
+   * @case Tool handler cannot mutate the principal snapshot at runtime
+   * @preconditions Principal supplied to buildVercelTools; handler attempts to push to scopes and replace claims
+   * @expectedResult Both attempts throw a TypeError (frozen object); the handler's ctx.principal !== the original (it's a snapshot clone) so freezing does not pollute the caller's reference
+   */
+  test("principal snapshot is deep-frozen and isolated from the caller", async () => {
+    let capturedCtx:
+      | { principal?: { scopes?: readonly string[]; claims?: object } }
+      | undefined;
+    const handler = vi.fn(async (_input: unknown, ctx: unknown) => {
+      capturedCtx = ctx as {
+        principal?: { scopes?: readonly string[]; claims?: object };
+      };
+    });
+    const resolved: ResolvedTool = {
+      name: "snapshot-check",
+      description: "Snapshot check.",
+      input: z.object({}),
+      handler: handler as unknown as ResolvedTool["handler"],
+    };
+    const principal = {
+      kind: "jwt" as const,
+      scheme: "bearer" as const,
+      subject: "user-42",
+      scopes: ["read"],
+      claims: { tenantId: "abc" },
+    };
+    const map = await buildVercelTools(
+      [resolved],
+      undefined,
+      new AbortController().signal,
+      undefined,
+      principal,
+    );
+    const tool = map["snapshot-check"] as {
+      execute: (input: unknown) => Promise<unknown>;
+    };
+    await tool.execute({});
+
+    const snapshot = capturedCtx!.principal!;
+    // The exposed snapshot is a clone, not the caller's original object.
+    expect(snapshot).not.toBe(principal);
+    // Mutating the original after the fact must not affect the snapshot.
+    principal.scopes.push("write");
+    expect(snapshot.scopes).toEqual(["read"]);
+    // Runtime: a tool that bypasses the readonly type still cannot mutate.
+    expect(() => {
+      (snapshot.scopes as string[]).push("admin");
+    }).toThrow(TypeError);
+    expect(() => {
+      (snapshot.claims as Record<string, unknown>)["tenantId"] = "evil";
+    }).toThrow(TypeError);
+    expect(() => {
+      (snapshot as { subject?: string }).subject = "impersonated";
+    }).toThrow(TypeError);
+  });
+
+  /**
    * @case Guard that resolves passes through to the handler
    * @preconditions Guard returns void (no throw)
    * @expectedResult Handler runs and returns its value
