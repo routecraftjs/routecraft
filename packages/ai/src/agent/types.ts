@@ -119,6 +119,19 @@ export interface AgentOptions {
   output?: StandardSchemaV1;
 
   /**
+   * Names of skills (registered via `agentPlugin({ skills })` or the
+   * `skills(path)` markdown loader) whose content is concatenated into
+   * this agent's system prompt at dispatch. The full skill content is
+   * injected verbatim (mirrors Claude's subagent skills semantic),
+   * not exposed as a tool the agent can choose to invoke.
+   *
+   * Unknown skill names throw `RC5003` at dispatch.
+   *
+   * @experimental
+   */
+  skills?: string[];
+
+  /**
    * Cap on tool-calling turns for the Vercel AI SDK loop. Each turn
    * is one model call (which may emit any number of tool calls) plus
    * the resulting tool results. Resolves to `stopWhen: stepCountIs(n)`

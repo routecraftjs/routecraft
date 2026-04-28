@@ -11,6 +11,7 @@ import {
 import { validateFnOptions } from "../fn/fn.ts";
 import { ADAPTER_FN_REGISTRY } from "../fn/store.ts";
 import { parseProviderModel } from "../llm/shared.ts";
+import { ADAPTER_SKILL_REGISTRY, type Skill } from "../skill/types.ts";
 import type { AgentDefaultOptions, AgentRegisteredOptions } from "./types.ts";
 import { isDeferredFn, type FnEntry } from "./tools/types.ts";
 import { isToolSelection } from "./tools/selection.ts";
@@ -40,6 +41,21 @@ export interface AgentPluginOptions {
    * `@routecraft/testing` rather than dispatching through the plugin.
    */
   functions?: Record<string, FnEntry>;
+
+  /**
+   * Skills available to agents via `AgentOptions.skills: ["name", ...]`.
+   * Keyed by skill name; each entry's `content` is concatenated into
+   * the system prompt of any agent that lists the name.
+   *
+   * Spread the `Record<string, Skill>` returned by `skills(path)` to
+   * load skills from markdown files.
+   *
+   * Duplicate skill names across multiple `agentPlugin` installs throw
+   * at context init.
+   *
+   * @experimental
+   */
+  skills?: Record<string, Skill>;
 
   /**
    * Context-level defaults applied to any agent that doesn't override
@@ -111,6 +127,7 @@ function validateRegisteredAgent(
 export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
   const agents = options.agents ?? {};
   const functions = options.functions ?? {};
+  const skillsMap = options.skills ?? {};
   const defaultOptions = validatePluginDefaults(options.defaultOptions);
   return {
     apply(ctx: CraftContext) {
@@ -181,6 +198,53 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
         ctx.setStore(
           ADAPTER_FN_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry,
           fnMap,
+        );
+      }
+
+      const existingSkills = ctx.getStore(
+        ADAPTER_SKILL_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry,
+      ) as Map<string, Skill> | undefined;
+      const skillMap = existingSkills ?? new Map<string, Skill>();
+      for (const [name, skill] of Object.entries(skillsMap)) {
+        if (typeof name !== "string" || name.trim() === "") {
+          throw rcError("RC5003", undefined, {
+            message: `agentPlugin: skill name must be a non-empty string.`,
+          });
+        }
+        if (skill === null || typeof skill !== "object") {
+          throw rcError("RC5003", undefined, {
+            message: `agentPlugin: skill "${name}" entry must be an object with name, description, and content.`,
+          });
+        }
+        if (skill.name !== name) {
+          throw rcError("RC5003", undefined, {
+            message: `agentPlugin: skill key "${name}" does not match its "name" field "${String(skill.name)}". Keys and names must match so the registry has one canonical id per skill.`,
+          });
+        }
+        if (
+          typeof skill.description !== "string" ||
+          skill.description.trim() === ""
+        ) {
+          throw rcError("RC5003", undefined, {
+            message: `agentPlugin: skill "${name}" is missing a non-empty "description".`,
+          });
+        }
+        if (typeof skill.content !== "string" || skill.content.trim() === "") {
+          throw rcError("RC5003", undefined, {
+            message: `agentPlugin: skill "${name}" is missing non-empty "content". Skills inject their content into the agent's system prompt; an empty content would not change behaviour.`,
+          });
+        }
+        if (skillMap.has(name)) {
+          throw rcError("RC5003", undefined, {
+            message: `agentPlugin: duplicate skill name "${name}". Each skill name must be unique within a context.`,
+          });
+        }
+        skillMap.set(name, skill);
+      }
+      if (!existingSkills && skillMap.size > 0) {
+        ctx.setStore(
+          ADAPTER_SKILL_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry,
+          skillMap,
         );
       }
 

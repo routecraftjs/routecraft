@@ -5,6 +5,7 @@ export {
   type AgentByNameOverrides,
 } from "./destination.ts";
 export type { AgentDelta, AgentDeltaListener } from "./events.ts";
+export { agents, type AgentMarkdownOverride } from "./loader.ts";
 export { agentPlugin, type AgentPluginOptions } from "./plugin.ts";
 export {
   ADAPTER_AGENT_DEFAULT_OPTIONS,

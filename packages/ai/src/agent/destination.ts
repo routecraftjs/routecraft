@@ -16,6 +16,7 @@ import {
   ADAPTER_AGENT_DEFAULT_OPTIONS,
   ADAPTER_AGENT_REGISTRY,
 } from "./store.ts";
+import { ADAPTER_SKILL_REGISTRY, type Skill } from "../skill/types.ts";
 import type { AgentDeltaListener } from "./events.ts";
 import type { ResolvedTool } from "./tools/selection.ts";
 import type {
@@ -96,17 +97,18 @@ export class AgentDestinationAdapter implements Destination<
     // System accepts the same string-or-function shape as `llm({ system })`,
     // so resolve it against the exchange here. The session then receives a
     // plain string, matching what the provider layer expects.
-    const system = resolvePrompt(merged.system, exchange);
+    const baseSystem = resolvePrompt(merged.system, exchange);
     // Mirror the construction-time check (validateAgentOptions) so a
     // function-form `system` resolver can't silently drop the prompt at
     // dispatch by returning an empty string.
-    if (system.trim() === "") {
+    if (baseSystem.trim() === "") {
       throw rcError("RC5003", undefined, {
         message:
           `Agent: "system" resolved to an empty string. ` +
           `When "system" is a function, it must return a non-empty string for the incoming exchange.`,
       });
     }
+    const system = appendSkillsToSystem(baseSystem, merged.skills, context);
 
     const route = getExchangeRoute(exchange);
     const dispatchIdentity = dispatchIdentityFrom(
@@ -256,4 +258,53 @@ function resolveAgentTools(
     });
   }
   return options.tools.resolve(context);
+}
+
+/**
+ * Build the final system prompt by concatenating the resolved skill
+ * content (when the agent declared `skills: ["name", ...]`) onto the
+ * agent's own system prompt. Each skill is wrapped in a heading so the
+ * model can see the skill name and its boundary in context.
+ *
+ * Throws `RC5003` when a referenced skill name is not registered,
+ * when an agent declares `skills` but no skills are registered at all,
+ * or when the agent has no live context to look up skills against.
+ *
+ * @internal
+ */
+function appendSkillsToSystem(
+  baseSystem: string,
+  skills: string[] | undefined,
+  context: CraftContext | undefined,
+): string {
+  if (!skills || skills.length === 0) return baseSystem;
+  if (!context) {
+    throw rcError("RC5003", undefined, {
+      message: `Agent: cannot resolve "skills" without a CraftContext.`,
+    });
+  }
+  const registry = context.getStore(
+    ADAPTER_SKILL_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry,
+  ) as Map<string, Skill> | undefined;
+  if (!registry || registry.size === 0) {
+    throw rcError("RC5003", undefined, {
+      message: `Agent: declared "skills" (${skills.map((s) => `"${s}"`).join(", ")}) but no skills are registered in this context. Install agentPlugin({ skills }) with the relevant entries.`,
+    });
+  }
+  const parts: string[] = [baseSystem];
+  for (const name of skills) {
+    const skill = registry.get(name);
+    if (!skill) {
+      const known = [...registry.keys()].sort();
+      throw rcError("RC5003", undefined, {
+        message:
+          `Agent: unknown skill "${name}". ` +
+          (known.length > 0
+            ? `Known skill names: ${known.map((k) => `"${k}"`).join(", ")}.`
+            : `No skills are registered in this context.`),
+      });
+    }
+    parts.push(`\n\n## Skill: ${skill.name}\n\n${skill.content}`);
+  }
+  return parts.join("");
 }
