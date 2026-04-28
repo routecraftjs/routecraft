@@ -21,6 +21,7 @@ DSL operators with signatures and examples. {% .lead %}
 | [`id`](#id) | Route | Set the unique identifier for the route |
 | [`batch`](#batch) | Route | Process exchanges in batches instead of one at a time |
 | [`error`](#error) | Route + Wrapper | Configure error handling. Before `.from()` it catches every step (route scope); after `.from()` it wraps the next step and the pipeline continues after recovery (step scope). |
+| [`authorize`](#authorize) | Route | Route-entry guard: principal must be authenticated and (optionally) have required roles/scopes. Pre-from only. {% badge color="orange" %}experimental{% /badge %} |
 | [`from`](#from) | Route | Define the source of data for the capability |
 | [`retry`](#retry) | Wrapper | Retry the next operation on failure {% badge color="purple" %}planned{% /badge %} |
 | [`throttle`](#throttle) | Wrapper | Rate limit the next operation {% badge color="purple" %}planned{% /badge %} |
@@ -37,7 +38,6 @@ DSL operators with signatures and examples. {% .lead %}
 | [`enrich`](#enrich) | Transform | Add additional data to current data |
 | [`filter`](#filter) | Flow Control | Filter data based on predicate |
 | [`validate`](#validate) | Flow Control | Validate data against schema |
-| [`authorize`](#authorize) | Flow Control | Assert exchange has an authenticated principal with required roles/scopes {% badge color="orange" %}experimental{% /badge %} |
 | [`dedupe`](#dedupe) | Flow Control | Suppress duplicate exchanges based on a key {% badge color="purple" %}planned{% /badge %} |
 | [`choice`](#choice) | Flow Control | Route to different paths based on conditions |
 | [`split`](#split) | Flow Control | Split arrays into individual items |
@@ -205,6 +205,80 @@ The step-scope handler recovers `http` failures silently. If it ever throws, the
 For the architectural pattern wrappers follow, see [`.standards/resilience-wrappers.md`](https://github.com/routecraftjs/routecraft/blob/main/.standards/resilience-wrappers.md).
 
 **Note about direct destinations:** Direct destinations with their own routes have their own error handlers. Errors in direct destinations are handled by their route's error handler, not the calling route.
+
+### authorize {% badge color="orange" %}experimental{% /badge %}
+
+```ts
+authorize(options?: AuthorizeOptions): RouteBuilder<Current>
+```
+
+Declare an authorization requirement on the route. **Route-only**: must be called BEFORE `.from()`. Calling `.authorize()` after `.from()` throws [`RC2001`](/docs/reference/errors#rc2001).
+
+The check runs at route entry, before any pipeline step. It verifies that the inbound exchange carries an authenticated principal and (optionally) that the principal has every required role and scope. It does NOT issue, mint, or attach any credential: it asserts an existing identity meets the criteria. Multiple `.authorize()` calls stack and AND-combine in declaration order, so a missing role in the first call short-circuits before later predicates run.
+
+For mid-pipeline checks (rare, for example after a `.process()` swaps the principal or inside a `.choice()` branch), use `.validate(authorize({ ... }))` directly with the underlying validator function.
+
+`AuthorizeOptions`:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `roles` | `string[]` | Required roles. The principal must carry every listed role. AND-combined. |
+| `scopes` | `string[]` | Required scopes. The principal must carry every listed scope. AND-combined. |
+| `predicate` | `(p: Principal) => boolean` | Custom check. Runs after the role and scope checks. Return `false` to reject. |
+
+Failure modes:
+
+- **No principal on the exchange:** throws [`RC5012`](/docs/reference/errors#rc5012). The source did not authenticate (no `auth:` configured) and no `.process()` step attached one before the route ran.
+- **Missing role or scope:** throws [`RC5015`](/docs/reference/errors#rc5015). The error message lists the missing entries.
+- **Predicate returned `false`:** throws [`RC5015`](/docs/reference/errors#rc5015).
+
+Both error codes flow through the route's normal error path: `.error()` handles them like any other validation failure; without `.error()`, `exchange:failed` fires.
+
+```ts
+import { craft, mcp } from '@routecraft/routecraft'
+
+// Route-entry guard: authentication at the source boundary,
+// authorization declared on the route.
+craft()
+  .id('delete-user')
+  .description('Delete a user by id')
+  .authorize({ roles: ['admin'] })
+  .from(mcp({ annotations: { destructiveHint: true } }))
+  .to(deleteUserDestination)
+```
+
+```ts
+// Stacked authorizers (AND-combined; first failure short-circuits)
+craft()
+  .id('billing-admin')
+  .authorize({ roles: ['admin'] })
+  .authorize({ scopes: ['billing:write'] })
+  .from(http({ path: '/admin/billing', method: 'POST' }))
+  .to(billingDestination)
+```
+
+```ts
+// Mid-pipeline check: route attaches a custom principal from an
+// inbound email and authorizes it after the .process() step.
+import { authorize } from '@routecraft/routecraft'
+
+craft()
+  .from(mail({ /* ... */ }))
+  .process((ex) => {
+    ex.principal = {
+      kind: 'custom',
+      scheme: 'email',
+      subject: ex.body.from?.address ?? 'anonymous',
+      email: ex.body.from?.address,
+      claims: { tenant: deriveTenant(ex.body.from?.address) },
+    }
+    return ex
+  })
+  .validate(authorize({
+    predicate: (p) => p.email?.endsWith('@yourcompany.com') === true,
+  }))
+  .to(yourDestination)
+```
 
 ### from
 
@@ -652,67 +726,6 @@ const userSchema = z.object({
 
 .schema(userSchema)
 // Validation failures throw RC5002: "Validation failed: "email": Invalid email; "age": Number must be greater than or equal to 0"
-```
-
-### authorize {% badge color="orange" %}experimental{% /badge %}
-
-```ts
-authorize(options?: RequirePrincipalOptions): RouteBuilder<Current>
-```
-
-Assert that the exchange carries an authenticated principal and (optionally) that the principal has every required role and scope. Type-preserving sugar for `.validate(requirePrincipal(options))`. The route builder type is unchanged.
-
-`RequirePrincipalOptions`:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `roles` | `string[]` | Required roles. The principal must carry every listed role. AND-combined. |
-| `scopes` | `string[]` | Required scopes. The principal must carry every listed scope. AND-combined. |
-| `predicate` | `(p: Principal) => boolean` | Custom check. Runs after the role and scope checks. Return `false` to reject. |
-
-Failure modes:
-
-- **No principal on the exchange:** throws [`RC5012`](/docs/reference/errors#rc5012). The source did not authenticate (no `auth:` configured) and no `.process()` step attached one.
-- **Missing role or scope:** throws [`RC5015`](/docs/reference/errors#rc5015). The error message lists the missing entries.
-- **Predicate returned `false`:** throws [`RC5015`](/docs/reference/errors#rc5015).
-
-Both error codes flow through the route's normal error path: `.error()` handles them like any other validation failure; without `.error()`, `exchange:failed` fires.
-
-```ts
-import { craft, mcp } from '@routecraft/routecraft'
-
-// Authentication at the boundary, authorization at the route step.
-craft()
-  .id('delete-user')
-  .from(mcp({ /* auth: jwt(...) configured on the server */ }))
-  .authorize({ roles: ['admin'] })
-  .to(deleteUserDestination)
-```
-
-```ts
-// Custom principal from inbound email so downstream actions are
-// attributed to the sender.
-craft()
-  .from(mail({ /* ... */ }))
-  .process((ex) => {
-    ex.principal = {
-      kind: 'custom',
-      scheme: 'email',
-      subject: ex.body.from?.address ?? 'anonymous',
-      email: ex.body.from?.address,
-      claims: { tenant: deriveTenant(ex.body.from?.address) },
-    }
-    return ex
-  })
-  .authorize({ predicate: (p) => p.email?.endsWith('@yourcompany.com') === true })
-  .to(yourDestination)
-```
-
-```ts
-// Underlying validator is also exported for composition with .validate()
-import { requirePrincipal } from '@routecraft/routecraft'
-
-.validate(requirePrincipal({ roles: ['admin'], scopes: ['billing:write'] }))
 ```
 
 ### dedupe {% badge color="purple" %}planned{% /badge %}

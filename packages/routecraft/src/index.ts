@@ -6,10 +6,7 @@ export type {
 } from "./auth/jwt.ts";
 export { jwks } from "./auth/jwks.ts";
 export type { JwksOptions } from "./auth/jwks.ts";
-export {
-  requirePrincipal,
-  type RequirePrincipalOptions,
-} from "./auth/authorize.ts";
+export { authorize, type AuthorizeOptions } from "./auth/authorize.ts";
 export type {
   ClaimMappers,
   JwtAudience,
