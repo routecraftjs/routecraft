@@ -3,6 +3,7 @@ import {
   logger as frameworkLogger,
   type CraftContext,
   type EventName,
+  type Principal,
 } from "@routecraft/routecraft";
 import { toAiInputSchema } from "../llm/structured-output.ts";
 import type { FnHandlerContext } from "../fn/types.ts";
@@ -38,6 +39,7 @@ export async function buildVercelTools(
   ctx: CraftContext | undefined,
   abortSignal: AbortSignal,
   dispatchIdentity?: AgentDispatchIdentity,
+  principal?: Principal,
 ): Promise<Record<string, unknown>> {
   if (resolved.length === 0)
     return Object.create(null) as Record<string, unknown>;
@@ -53,8 +55,8 @@ export async function buildVercelTools(
     const handler = r.handler;
     const baseCtx: FnHandlerContext = makeFnHandlerContext(
       r.name,
-      ctx,
       abortSignal,
+      principal,
     );
     out[r.name] = tool({
       description: r.description,
@@ -141,18 +143,87 @@ export async function buildVercelTools(
 /**
  * Construct the synthetic `FnHandlerContext` handed to a tool's guard
  * and handler during agent dispatch. Mirrors the shape `testFn`
- * provides: `logger`, `abortSignal`, optional `context`,
- * optional `correlationId` (not yet populated by the runtime), and
- * optional `checkpointId` (durable-agents epic).
+ * provides: `logger`, `abortSignal`, optional `principal` (carried
+ * over from the dispatching exchange so guards can authorise without
+ * re-reading the source request), optional `correlationId` (not yet
+ * populated by the runtime), and optional `checkpointId`
+ * (durable-agents epic).
+ *
+ * Intentionally does not expose the framework `CraftContext` to tool
+ * handlers; built-in tool builders that need to forward to a route
+ * (e.g. `directTool`) capture the context at resolve time and thread
+ * it through their own closure.
  */
 function makeFnHandlerContext(
   toolName: string,
-  ctx: CraftContext | undefined,
   abortSignal: AbortSignal,
+  principal: Principal | undefined,
 ): FnHandlerContext {
   return {
     logger: frameworkLogger.child({ tool: toolName }),
     abortSignal,
-    ...(ctx ? { context: ctx } : {}),
+    ...(principal ? { principal: freezePrincipal(principal) } : {}),
   };
+}
+
+/**
+ * Build a deep-frozen snapshot of the dispatching exchange's
+ * principal so a tool handler that bypasses the `ReadonlyPrincipal`
+ * type cannot mutate it at runtime.
+ *
+ * Clones first because `exchange.principal` is mutable by design
+ * (the routecraft pipeline lets a `.process()` step attach a custom
+ * principal), so freezing the live object in place would break
+ * downstream steps.
+ *
+ * `claims` is deep-cloned via `structuredClone` so that nested
+ * claim objects (e.g. `claims.perms.write`) are not shared with the
+ * original principal: shallow-cloning the top-level keys would let
+ * a tool handler mutate a nested value and have it leak back into
+ * the dispatching exchange's principal. After cloning, the entire
+ * snapshot is recursively frozen so any runtime mutation attempt
+ * (top-level field, array entry, nested claim object) throws.
+ *
+ * Runs once per dispatch in `buildVercelTools` and the same frozen
+ * reference is reused for every tool invocation in that dispatch.
+ *
+ * @internal
+ */
+function freezePrincipal(principal: Principal): Principal {
+  const snapshot: Principal = { ...principal };
+  if (snapshot.audience) snapshot.audience = [...snapshot.audience];
+  if (snapshot.scopes) snapshot.scopes = [...snapshot.scopes];
+  if (snapshot.roles) snapshot.roles = [...snapshot.roles];
+  if (snapshot.claims) snapshot.claims = structuredClone(snapshot.claims);
+  return deepFreeze(snapshot);
+}
+
+/**
+ * Recursively `Object.freeze` an object, walking arrays and plain
+ * object values. Cycles are guarded via a visited set so a
+ * self-referential principal won't blow the stack. Functions and
+ * primitive values are left as-is.
+ *
+ * Skips `ArrayBuffer.isView` values (TypedArray, DataView, Buffer):
+ * `Object.freeze` on a typed array with elements throws because the
+ * indexed properties on the backing buffer cannot be made
+ * non-configurable. A JWT claim that smuggles binary data (CBOR, an
+ * encrypted key, raw bytes) would otherwise crash the dispatch.
+ * `structuredClone` (used in `freezePrincipal` for `claims`) already
+ * gives us an independent copy of any TypedArray, so the caller's
+ * bytes are not shared with the snapshot; tool code that wants
+ * write-protection on a binary claim should treat its read as opaque.
+ *
+ * @internal
+ */
+function deepFreeze<T>(value: T, seen: WeakSet<object> = new WeakSet()): T {
+  if (value === null || typeof value !== "object") return value;
+  if (seen.has(value as object)) return value;
+  if (ArrayBuffer.isView(value)) return value;
+  seen.add(value as object);
+  for (const key of Object.keys(value as object)) {
+    const v = (value as Record<string, unknown>)[key];
+    if (v !== null && typeof v === "object") deepFreeze(v, seen);
+  }
+  return Object.freeze(value);
 }

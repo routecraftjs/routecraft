@@ -9,12 +9,41 @@ import {
   type DirectRouteMetadata,
   type Exchange,
   type KnownTag,
+  type Principal,
   type Tag,
 } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { randomUUID } from "node:crypto";
-import type { FnHandlerContext, FnOptions } from "../../fn/types.ts";
+import type {
+  FnHandlerContext,
+  FnOptions,
+  ReadonlyPrincipal,
+} from "../../fn/types.ts";
 import { DEFERRED_FN_BRAND, type DeferredFn } from "./types.ts";
+
+/**
+ * Re-hydrate a frozen `ReadonlyPrincipal` (as exposed on
+ * `FnHandlerContext`) into a fresh mutable `Principal` so it can be
+ * attached to a downstream `DefaultExchange`.
+ *
+ * Arrays are spread-cloned. `claims` is deep-cloned via
+ * `structuredClone` so that nested claim objects in the downstream
+ * exchange's principal do not share references with the agent's
+ * frozen snapshot: a `.process()` step downstream that mutates a
+ * nested claim must not be able to reach back into the snapshot
+ * (and conversely, the snapshot's frozen state would otherwise
+ * propagate into a downstream pipeline that expects a writable
+ * principal).
+ */
+function cloneFrozenPrincipal(rp: ReadonlyPrincipal): Principal {
+  const out: Principal = { ...rp } as Principal;
+  if (rp.audience) out.audience = [...rp.audience];
+  if (rp.scopes) out.scopes = [...rp.scopes];
+  if (rp.roles) out.roles = [...rp.roles];
+  if (rp.claims)
+    out.claims = structuredClone(rp.claims) as Record<string, unknown>;
+  return out;
+}
 
 /**
  * JSON Schema describing an empty object. Closed for additional
@@ -154,7 +183,7 @@ export function directTool<TIn = unknown>(
       }
       const tags = overrideTags ?? route.tags;
       const handler = ((input, hctx) =>
-        dispatchDirect(hctx, routeId, input)) as FnOptions["handler"];
+        dispatchDirect(ctx, hctx, routeId, input)) as FnOptions["handler"];
       return {
         description,
         input,
@@ -221,24 +250,32 @@ function readDirectRoute(
 }
 
 async function dispatchDirect<TIn>(
+  ctx: CraftContext,
   hctx: FnHandlerContext,
   routeId: string,
   input: TIn,
 ): Promise<unknown> {
-  if (!hctx.context) {
-    throw rcError("RC5003", undefined, {
-      message: `directTool: no CraftContext available on the handler context (cannot dispatch to direct route "${routeId}").`,
-    });
-  }
   const endpoint = sanitizeEndpoint(routeId);
   const headers = hctx.correlationId
     ? { [HeadersKeys.CORRELATION_ID]: hctx.correlationId }
     : undefined;
-  const exchange = new DefaultExchange<TIn>(hctx.context, {
+  // Forward the calling principal so the downstream direct route sees
+  // the same authenticated identity as the agent that invoked the
+  // tool. The agent layer never lets a tool override or escalate this:
+  // `principal` is deeply-readonly on FnHandlerContext (frozen at the
+  // tool-bridge boundary). Hand the downstream exchange a fresh
+  // mutable copy so it follows the existing Exchange.principal
+  // contract (a `.process()` step downstream may legitimately attach
+  // a different principal); the tool handler's own snapshot stays
+  // frozen and unaffected.
+  const exchange = new DefaultExchange<TIn>(ctx, {
     body: input,
     ...(headers ? { headers } : {}),
+    ...(hctx.principal
+      ? { principal: cloneFrozenPrincipal(hctx.principal) }
+      : {}),
   });
-  const channel = getDirectChannel<TIn>(hctx.context, endpoint, {});
+  const channel = getDirectChannel<TIn>(ctx, endpoint, {});
   const result = (await channel.send(endpoint, exchange)) as Exchange<unknown>;
   return result.body;
 }

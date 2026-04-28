@@ -1,3 +1,4 @@
+import type { Exchange } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { LlmModelId, LlmPromptSource, LlmUsage } from "../llm/types.ts";
 import type { AgentDeltaListener } from "./events.ts";
@@ -118,13 +119,67 @@ export interface AgentOptions {
   output?: StandardSchemaV1;
 
   /**
+   * Names of skills (registered via `agentPlugin({ skills })` or the
+   * `skills(path)` markdown loader) whose content is concatenated into
+   * this agent's system prompt at dispatch. The full skill content is
+   * injected verbatim (mirrors Claude's subagent skills semantic),
+   * not exposed as a tool the agent can choose to invoke.
+   *
+   * Unknown skill names throw `RC5003` at dispatch.
+   *
+   * @experimental
+   */
+  skills?: string[];
+
+  /**
    * Cap on tool-calling turns for the Vercel AI SDK loop. Each turn
    * is one model call (which may emit any number of tool calls) plus
    * the resulting tool results. Resolves to `stopWhen: stepCountIs(n)`
-   * at dispatch. Defaults to 8 when neither the agent nor
+   * at dispatch. Defaults to 20 when neither the agent nor
    * `defaultOptions.maxTurns` supplies a value.
+   *
+   * `validate` retries share this same budget: a corrective turn
+   * triggered by `validate` consumes one turn just like any other
+   * model step.
    */
   maxTurns?: number;
+
+  /**
+   * Pre-finish validator. Invoked after the model emits a final text
+   * response (and after any `output` schema parsing). Returning
+   * `void` accepts the result and the dispatch resolves with it.
+   * Returning a string sends the agent back for another turn with
+   * the string injected as a corrective user message
+   * (`"Validator: <msg>"`); the model sees the prior assistant
+   * messages and tool history, so it can self-correct.
+   *
+   * Throwing inside `validate` fails the dispatch with the thrown
+   * error; use this when the violation is unrecoverable.
+   *
+   * Validate retries share the `maxTurns` budget. When the budget is
+   * exhausted while `validate` is still rejecting, the dispatch
+   * fails with `RC5003` carrying the last validator message.
+   *
+   * Per-agent only; not part of `defaultOptions` because what
+   * "valid" means is intrinsic to a specific agent's job.
+   *
+   * @example
+   * ```ts
+   * agent({
+   *   model: "anthropic:claude-sonnet-4-6",
+   *   system: "...",
+   *   validate: (result) => {
+   *     if (!result.toolCalls?.some(t => t.toolName === "send_email")) {
+   *       return "You must send an email before finishing.";
+   *     }
+   *   },
+   * });
+   * ```
+   */
+  validate?: (
+    result: AgentResult,
+    ctx: { exchange: Exchange<unknown>; turnsUsed: number },
+  ) => void | string | Promise<void | string>;
 
   /**
    * Listener invoked for each token-level delta emitted while the
@@ -166,26 +221,92 @@ export interface AgentRegisteredOptions extends AgentOptions {
 }
 
 /**
+ * Summary of one tool invocation made during an agent dispatch.
+ * Captured for post-dispatch programmatic assertions: a downstream
+ * `.process()` step can inspect `AgentResult.toolCalls` to verify
+ * the agent called what it was supposed to (e.g. "must have called
+ * `replyEmail` before finishing"), and fail or escalate when it
+ * didn't.
+ *
+ * For real-time observability use the context-bus events
+ * (`route:<id>:agent:tool:invoked` / `result` / `error`) instead;
+ * this summary is for synchronous post-hoc checks.
+ *
+ * @experimental
+ */
+export interface AgentToolCallSummary {
+  /** Stable id assigned by the SDK to correlate invoked → result. */
+  toolCallId: string;
+  /** Name of the tool the model called. */
+  toolName: string;
+  /** Validated input passed to the handler. */
+  input: unknown;
+  /** Handler return value. Undefined when the call errored. */
+  output?: unknown;
+  /** Thrown value (or `RoutecraftError`). Undefined when the call succeeded. */
+  error?: unknown;
+}
+
+/**
  * Result produced by an agent destination. Body of the exchange is replaced
  * with this shape after the agent runs.
  *
  * @experimental
  */
 export interface AgentResult {
-  /** Generated text from the model. */
+  /**
+   * Raw text the model emitted as its final response. Always
+   * populated. When an `output` schema is set, this is the JSON
+   * string the model produced (which `output` exposes as the parsed,
+   * typed value); without an output schema, this is the conversational
+   * answer.
+   */
   text: string;
   /**
-   * Parsed structured output when an `output` schema was supplied on
-   * `AgentOptions` and the model produced a value matching the schema.
-   * Undefined otherwise.
+   * Parsed structured output. Populated **only** when an `output`
+   * schema was supplied on `AgentOptions` and the model produced a
+   * value matching that schema. With an output schema set, this is
+   * the canonical typed result; `text` carries the same data as a
+   * raw JSON string. Without an output schema, this field is
+   * undefined.
    */
   output?: unknown;
   /**
-   * Raw reasoning text from the provider when supplied (Anthropic
-   * extended thinking, OpenAI o1, etc.). Useful for debugging and
-   * audit; most consumers ignore it.
+   * Concatenated reasoning text from the provider (Anthropic extended
+   * thinking, OpenAI o1, etc.) when one was emitted. Useful for
+   * debugging and audit; most consumers ignore it.
    */
   reasoning?: string;
-  /** Token usage when reported by the provider. */
+  /**
+   * Token usage when reported by the provider. Most providers fill
+   * `inputTokens` + `outputTokens`; some also fill `totalTokens`.
+   */
   usage?: LlmUsage;
+  /**
+   * Flat summary of every tool the agent called during the dispatch,
+   * in invocation order. Empty (or absent) when the agent ran without
+   * invoking any tools.
+   *
+   * Consume in a post-dispatch `.process()` step to assert on agent
+   * behaviour and fail / escalate the route when the agent didn't do
+   * what was expected:
+   *
+   * ```ts
+   * .to(agent({ tools: tools(["replyEmail"]) }))
+   * .error((err, ex, forward) => forward("escalate", ex.body))
+   * .process((ex) => {
+   *   const r = ex.body as AgentResult;
+   *   const replied = r.toolCalls?.some(
+   *     c => c.toolName === "replyEmail" && !c.error,
+   *   );
+   *   if (!replied) throw new Error("Agent did not reply via tool");
+   *   return r;
+   * })
+   * ```
+   *
+   * For real-time observability subscribe to the context-bus events
+   * `route:<id>:agent:tool:invoked` / `:result` / `:error`. This
+   * summary is the synchronous post-hoc view of the same calls.
+   */
+  toolCalls?: AgentToolCallSummary[];
 }

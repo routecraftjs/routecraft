@@ -170,8 +170,49 @@ export interface LlmResult {
    * see a normalised string value.
    */
   finishReason?: string;
+  /**
+   * Flat list of tool calls made during the loop, in invocation
+   * order. Each entry pairs the model's call args with the handler's
+   * return (or thrown error). Populated by both sync and streaming
+   * paths; the agent layer surfaces these on `AgentResult.toolCalls`
+   * for post-dispatch assertions.
+   */
+  toolCalls?: LlmToolCallSummary[];
+  /**
+   * Number of model steps the SDK consumed in this call. Mirrors
+   * `result.steps.length` and is populated by both the sync and
+   * streaming paths. The agent session uses this to track the shared
+   * turn budget across `validate` retries: every retry's step count
+   * is added to the running total and compared against `maxTurns`.
+   */
+  stepsCount?: number;
+  /**
+   * Conversation messages emitted during this call (assistant + tool
+   * messages, in order; mirrors the SDK's `result.response.messages`).
+   * The agent session uses this to assemble the messages array for a
+   * `validate`-triggered retry: original user prompt + these response
+   * messages + the corrective user message become the next call's
+   * `prompt`.
+   */
+  responseMessages?: unknown[];
   /** Full generateText() result for advanced use (debugging, response metadata). */
   raw?: unknown;
+}
+
+/**
+ * One tool invocation captured during an LLM dispatch. Mirrors the
+ * shape of `AgentToolCallSummary` so the agent layer can re-export
+ * it without re-mapping. Keep `unknown` types loose here; the agent
+ * layer is the place to re-narrow if needed.
+ *
+ * @experimental
+ */
+export interface LlmToolCallSummary {
+  toolCallId: string;
+  toolName: string;
+  input: unknown;
+  output?: unknown;
+  error?: unknown;
 }
 
 /**

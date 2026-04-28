@@ -43,6 +43,7 @@ export type {
   LlmPromptSource,
   LlmProviderType,
   LlmResult,
+  LlmToolCallSummary,
   LlmUsage,
 } from "./llm/index.ts";
 
@@ -121,6 +122,7 @@ export {
   agent,
   AgentDestinationAdapter,
   agentPlugin,
+  agents,
   ADAPTER_AGENT_DEFAULT_OPTIONS,
   ADAPTER_AGENT_REGISTRY,
   SuspendError,
@@ -131,11 +133,13 @@ export type {
   AgentDefaultOptions,
   AgentByNameOverrides,
   AgentDelta,
+  AgentMarkdownOverride,
   AgentDeltaListener,
   AgentOptions,
   AgentPluginOptions,
   AgentRegisteredOptions,
   AgentResult,
+  AgentToolCallSummary,
   AgentUserPromptSource,
 } from "./agent/index.ts";
 
@@ -148,6 +152,7 @@ export type {
   FnHandlerContext,
   FnOptions,
   FnRegistry,
+  ReadonlyPrincipal,
   RegisteredFnId,
 } from "./fn/index.ts";
 
@@ -171,6 +176,16 @@ export {
   type ToolSelection,
   type ToolsItem,
 } from "./agent/tools/index.ts";
+
+// Skills (portable instruction-set primitive) and skills() markdown loader
+export {
+  ADAPTER_SKILL_REGISTRY,
+  skills,
+  type RegisteredSkillName,
+  type Skill,
+  type SkillOverride,
+  type SkillRegistry,
+} from "./skill/index.ts";
 
 // Embedding adapter and plugin
 export {

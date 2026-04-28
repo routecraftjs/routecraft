@@ -742,6 +742,34 @@ For named agents that share a definition across requests, accept `onDelta` at th
 
 The 90% use case is forwarding tokens into an HTTP SSE response so a UI updates as the model writes. For everything else (per-tool observability, finish reasons, total usage, errors) use the context bus.
 
+#### Asserting on agent behaviour (`AgentResult.toolCalls`)
+
+For programmatic assertions ("the agent must have replied via `replyEmail`, otherwise escalate"), inspect `AgentResult.toolCalls` in a downstream `.process()` step. The list pairs each tool call with its return value or thrown error in invocation order; combine with step-scope `.error()` for fallback routing:
+
+```ts
+craft()
+  .id("inbox-bot")
+  .from(mail({ account: "support" }))
+  .to(agent({
+    system: "Reply to the customer via replyEmail. If you cannot answer, leave it unanswered.",
+    tools: tools(["replyEmail"]),
+  }))
+  .error((err, ex, forward) => {
+    // Agent did not reply via tool; escalate to a human inbox
+    return forward("escalate-to-human", ex.body);
+  })
+  .process((ex) => {
+    const r = ex.body as AgentResult;
+    const replied = r.toolCalls?.some(
+      (c) => c.toolName === "replyEmail" && !c.error,
+    );
+    if (!replied) throw new Error("Agent finished without sending a reply");
+    return r;
+  })
+```
+
+The context bus events (`route:*:agent:tool:*`) are the live observation channel for the same calls; `toolCalls` on the result is the synchronous post-hoc view a pipeline step can branch on. Use the bus for telemetry / dashboards / TUIs; use `toolCalls` for assertions and routing.
+
 ### Typed fn ids (`FnRegistry`)
 
 For compile-time autocomplete of fn ids in the agent `tools: [...]` field (follow-up story), populate the `FnRegistry` marker interface via declaration merging in your project:

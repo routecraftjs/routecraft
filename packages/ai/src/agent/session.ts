@@ -1,12 +1,17 @@
 import {
   HeadersKeys,
+  rcError,
   type CraftContext,
   type EventName,
   type Exchange,
 } from "@routecraft/routecraft";
 import { callLlm, streamLlm } from "../llm/providers/index.ts";
 import { resolvePrompt, resolveUserPromptDefault } from "../llm/shared.ts";
-import type { LlmModelConfig, LlmResult } from "../llm/types.ts";
+import type {
+  LlmModelConfig,
+  LlmResult,
+  LlmToolCallSummary,
+} from "../llm/types.ts";
 import { toAiOutputSpec } from "../llm/structured-output.ts";
 import type { AgentDeltaListener } from "./events.ts";
 import { buildVercelTools } from "./tool-bridge.ts";
@@ -56,7 +61,7 @@ export function dispatchIdentityFrom(
 /** Default sampling settings; aligned with the LLM destination defaults. */
 const DEFAULT_TEMPERATURE = 0;
 const DEFAULT_MAX_TOKENS = 1024;
-const DEFAULT_MAX_TURNS = 8;
+const DEFAULT_MAX_TURNS = 20;
 
 /**
  * Resolved agent inputs ready for dispatch. Computed once by the
@@ -81,6 +86,13 @@ export interface AgentSessionInput {
   readonly system: string;
   /** Optional context reference passed to tool handlers. */
   readonly context: CraftContext | undefined;
+  /**
+   * Source exchange that triggered this dispatch. Forwarded to the
+   * `validate` hook (`ctx.exchange`) so validators can correlate the
+   * model's output with request-scoped state (headers, principal,
+   * correlation id) when deciding whether to accept or retry.
+   */
+  readonly exchange: Exchange<unknown>;
   /**
    * Dispatch identity used to emit `route:<routeId>:agent:*` events
    * on the context bus. Undefined for synthetic exchanges with no
@@ -118,34 +130,20 @@ export class AgentSession {
    * Run the synchronous tool-calling loop until the model emits a
    * final text response (or `stopWhen` fires). Returns the
    * consolidated `AgentResult`.
+   *
+   * When `validate` is set, runs the validation retry loop: every
+   * call's result is fed to the validator, and a string return
+   * triggers another model call with the validator message injected
+   * as a corrective user turn. Retries share the `maxTurns` budget;
+   * exhausting it with `validate` still rejecting fails the dispatch
+   * with `RC5003`.
    */
   async runUntilDone(abortSignal: AbortSignal): Promise<AgentResult> {
-    const { modelConfig, modelName, system, user, output, toolExtras } =
-      await this.prepare(abortSignal);
-    try {
-      const result = await callLlm({
-        config: modelConfig,
-        modelId: modelName,
-        options: {
-          temperature: DEFAULT_TEMPERATURE,
-          maxTokens: DEFAULT_MAX_TOKENS,
-        },
-        system,
-        user,
-        abortSignal,
-        ...(output !== undefined ? { output } : {}),
-        ...toolExtras,
-      });
-      this.emitFinished(result);
-      return toAgentResult(result);
-    } catch (err) {
-      this.emitError(err);
-      throw err;
-    }
+    return this.runWithValidation(abortSignal, undefined);
   }
 
   /**
-   * Run the streaming tool-calling loop. Same setup as
+   * Run the streaming tool-calling loop. Same shape as
    * {@link AgentSession.runUntilDone}, but the dispatch goes through
    * `streamText`: each normalised token-level delta is forwarded to
    * `onDelta` while the loop runs, and the consolidated
@@ -153,6 +151,10 @@ export class AgentSession {
    * decision events (tool-call, tool-result, finished,
    * error) flow on the context bus regardless of whether `onDelta`
    * is set; see `route:<id>:agent:*` events.
+   *
+   * `validate` retries follow the same loop as the sync path: each
+   * retry restarts the stream with the prior history + the validator
+   * message, and `onDelta` continues to fire across retries.
    *
    * Listener errors are caught and logged inside the LLM-provider
    * layer; they never abort the dispatch. Stream-level errors
@@ -164,25 +166,84 @@ export class AgentSession {
     abortSignal: AbortSignal,
     onDelta: AgentDeltaListener,
   ): Promise<AgentResult> {
-    const { modelConfig, modelName, system, user, output, toolExtras } =
-      await this.prepare(abortSignal);
+    return this.runWithValidation(abortSignal, onDelta);
+  }
+
+  /**
+   * Shared dispatch path used by both `runUntilDone` and `runStream`.
+   * Calls the model once, runs `validate` (when set), and either
+   * returns the accepted result or loops with a corrective user
+   * message until the validator accepts or `maxTurns` is exhausted.
+   *
+   * The cumulative `toolCalls` from every retry land on the final
+   * `AgentResult.toolCalls`, so post-dispatch assertions like
+   * "must have called send_email" see the agent's full tool history
+   * (not just the last call's).
+   *
+   * @internal
+   */
+  private async runWithValidation(
+    abortSignal: AbortSignal,
+    onDelta: AgentDeltaListener | undefined,
+  ): Promise<AgentResult> {
+    const { options, exchange } = this.input;
+    const validate = options.validate;
+    const maxTurns = options.maxTurns ?? DEFAULT_MAX_TURNS;
+    const prepared = await this.prepare(abortSignal);
+
+    let turnsUsed = 0;
+    let currentUser: string | unknown[] = this.input.user;
+    let lastValidatorMsg: string | undefined;
+    const accumulatedToolCalls: LlmToolCallSummary[] = [];
+
     try {
-      const result = await streamLlm({
-        config: modelConfig,
-        modelId: modelName,
-        options: {
-          temperature: DEFAULT_TEMPERATURE,
-          maxTokens: DEFAULT_MAX_TOKENS,
-        },
-        system,
-        user,
-        abortSignal,
-        onDelta,
-        ...(output !== undefined ? { output } : {}),
-        ...toolExtras,
-      });
-      this.emitFinished(result);
-      return toAgentResult(result);
+      while (true) {
+        const remaining = maxTurns - turnsUsed;
+        if (remaining <= 0) {
+          throw rcError("RC5003", undefined, {
+            message: lastValidatorMsg
+              ? `agent: maxTurns (${maxTurns}) reached while "validate" was still rejecting; last validator message: "${lastValidatorMsg}"`
+              : `agent: maxTurns (${maxTurns}) reached.`,
+          });
+        }
+        const result = await callOnce(
+          prepared,
+          currentUser,
+          remaining,
+          abortSignal,
+          onDelta,
+        );
+        turnsUsed += result.stepsCount ?? 1;
+        if (result.toolCalls && result.toolCalls.length > 0) {
+          accumulatedToolCalls.push(...result.toolCalls);
+        }
+        if (!validate) {
+          this.emitFinished(result);
+          return toAgentResult(result, accumulatedToolCalls);
+        }
+        const verdict = await Promise.resolve(
+          validate(toAgentResult(result, accumulatedToolCalls), {
+            exchange,
+            turnsUsed,
+          }),
+        );
+        if (verdict === undefined || verdict === null) {
+          this.emitFinished(result);
+          return toAgentResult(result, accumulatedToolCalls);
+        }
+        if (typeof verdict !== "string" || verdict.trim() === "") {
+          throw rcError("RC5003", undefined, {
+            message: `agent: "validate" returned a non-string, non-void value (${typeof verdict}). Return void to accept, a non-empty string to retry.`,
+          });
+        }
+        lastValidatorMsg = verdict;
+        currentUser = buildRetryPrompt(
+          this.input.user,
+          currentUser,
+          result,
+          verdict,
+        );
+      }
     } catch (err) {
       this.emitError(err);
       throw err;
@@ -247,10 +308,11 @@ export class AgentSession {
   }
 
   /**
-   * Shared setup for both dispatch paths: build the Vercel tool map,
-   * resolve the structured-output spec, and compute the
-   * tools/stopWhen extras. Pulled out so `runUntilDone` and
-   * `runStream` differ only in which underlying SDK call they make.
+   * Shared setup invoked once per dispatch (not per validate retry):
+   * builds the Vercel tool map and resolves the structured-output
+   * spec. `stopWhen` is built per call inside the validation loop
+   * so each call gets the *remaining* turn budget rather than the
+   * full `maxTurns`.
    *
    * @internal
    */
@@ -258,20 +320,17 @@ export class AgentSession {
     modelConfig: LlmModelConfig;
     modelName: string;
     system: string;
-    user: string;
     output?: unknown;
-    toolExtras:
-      | { tools: Record<string, unknown>; stopWhen: unknown }
-      | Record<string, never>;
+    vercelTools: Record<string, unknown>;
   }> {
     const {
       options,
       modelConfig,
       modelName,
       tools,
-      user,
       system,
       context,
+      exchange,
       dispatchIdentity,
     } = this.input;
     const vercelTools = await buildVercelTools(
@@ -279,21 +338,59 @@ export class AgentSession {
       context,
       abortSignal,
       dispatchIdentity,
+      exchange.principal,
     );
-    const toolExtras =
-      Object.keys(vercelTools).length > 0
-        ? {
-            tools: vercelTools,
-            stopWhen: await buildStopWhen(
-              options.maxTurns ?? DEFAULT_MAX_TURNS,
-            ),
-          }
-        : {};
-    const base = { modelConfig, modelName, system, user, toolExtras };
+    const base = { modelConfig, modelName, system, vercelTools };
     return options.output !== undefined
       ? { ...base, output: toAiOutputSpec(options.output) }
       : base;
   }
+}
+
+interface PreparedSession {
+  modelConfig: LlmModelConfig;
+  modelName: string;
+  system: string;
+  output?: unknown;
+  vercelTools: Record<string, unknown>;
+}
+
+/**
+ * One model call. Builds `stopWhen: stepCountIs(remainingTurns)` so a
+ * later validate-retry consumes turns from the same shared budget,
+ * then dispatches via `callLlm` (sync) or `streamLlm` (when an
+ * `onDelta` listener is attached).
+ *
+ * @internal
+ */
+async function callOnce(
+  prepared: PreparedSession,
+  user: string | unknown[],
+  remainingTurns: number,
+  abortSignal: AbortSignal,
+  onDelta: AgentDeltaListener | undefined,
+): Promise<LlmResult> {
+  const toolExtras =
+    Object.keys(prepared.vercelTools).length > 0
+      ? {
+          tools: prepared.vercelTools,
+          stopWhen: await buildStopWhen(remainingTurns),
+        }
+      : {};
+  const base = {
+    config: prepared.modelConfig,
+    modelId: prepared.modelName,
+    options: {
+      temperature: DEFAULT_TEMPERATURE,
+      maxTokens: DEFAULT_MAX_TOKENS,
+    },
+    system: prepared.system,
+    user,
+    abortSignal,
+    ...(prepared.output !== undefined ? { output: prepared.output } : {}),
+    ...toolExtras,
+  };
+  return onDelta ? streamLlm({ ...base, onDelta }) : callLlm(base);
 }
 
 async function buildStopWhen(maxTurns: number): Promise<unknown> {
@@ -301,11 +398,49 @@ async function buildStopWhen(maxTurns: number): Promise<unknown> {
   return stepCountIs(maxTurns);
 }
 
-function toAgentResult(result: LlmResult): AgentResult {
+/**
+ * Build the prompt array for a `validate`-triggered retry.
+ *
+ * Concatenates: prior user-side messages (the initial user prompt
+ * promoted to a `{ role: "user" }` message on the first retry, or
+ * the array carried over from a prior retry), the SDK's response
+ * messages from the just-finished call (assistant text + any tool
+ * messages), and a fresh user-role corrective `"Validator: <msg>"`.
+ *
+ * @internal
+ */
+function buildRetryPrompt(
+  initialUser: string,
+  currentUser: string | unknown[],
+  lastResult: LlmResult,
+  validatorMsg: string,
+): unknown[] {
+  const userMsgs: unknown[] =
+    typeof currentUser === "string"
+      ? [{ role: "user", content: initialUser }]
+      : currentUser;
+  const responseMessages = lastResult.responseMessages ?? [];
+  return [
+    ...userMsgs,
+    ...responseMessages,
+    { role: "user", content: `Validator: ${validatorMsg}` },
+  ];
+}
+
+function toAgentResult(
+  result: LlmResult,
+  accumulatedToolCalls: LlmToolCallSummary[],
+): AgentResult {
   const out: AgentResult = { text: result.text };
   if (result.output !== undefined) out.output = result.output;
   if (result.reasoning !== undefined) out.reasoning = result.reasoning;
   if (result.usage) out.usage = result.usage;
+  // Cumulative across all validate retries so post-dispatch assertions
+  // like "must have called X" see the agent's full tool history rather
+  // than only the last call's.
+  if (accumulatedToolCalls.length > 0) {
+    out.toolCalls = accumulatedToolCalls;
+  }
   return out;
 }
 

@@ -5,6 +5,7 @@ import type {
   LlmModelConfig,
   LlmOptionsMerged,
   LlmResult,
+  LlmToolCallSummary,
   LlmUsage,
 } from "../types.ts";
 
@@ -103,7 +104,17 @@ export interface CallLlmParams {
     | "presencePenalty"
   >;
   system: string;
-  user: string;
+  /**
+   * User-side conversation. When a string, it is sent as a single
+   * user prompt. When an array, it is forwarded directly to the SDK
+   * as the `prompt` argument (Vercel AI SDK accepts
+   * `string | Array<ModelMessage>` for `prompt`). The agent session
+   * uses the array form to feed back the prior assistant + tool
+   * messages plus a validator-corrective user message on a `validate`
+   * retry, so the model sees the full history rather than a fresh
+   * conversation.
+   */
+  user: string | unknown[];
   /** Optional structured output spec (from toAiOutputSpec). Enables provider-level JSON schema. */
   output?: unknown;
   /**
@@ -349,7 +360,7 @@ function buildSdkParams(
   model: unknown,
   options: CallLlmParams["options"],
   system: string,
-  user: string,
+  user: string | unknown[],
   extras: ProviderExtras,
 ): Record<string, unknown> {
   const params: Record<string, unknown> = {
@@ -382,7 +393,7 @@ async function runGenerate(
   model: unknown,
   options: CallLlmParams["options"],
   system: string,
-  user: string,
+  user: string | unknown[],
   extras: ProviderExtras,
 ): Promise<LlmResult> {
   const { generateText } = await import("ai");
@@ -399,6 +410,13 @@ async function runGenerate(
   // generateText resolves finishReason synchronously on the result.
   const finishReason = (result as { finishReason?: unknown }).finishReason;
   if (typeof finishReason === "string") out.finishReason = finishReason;
+  const toolCalls = collectToolCalls(result);
+  if (toolCalls.length > 0) out.toolCalls = toolCalls;
+  const steps = (result as { steps?: unknown }).steps;
+  if (Array.isArray(steps)) out.stepsCount = steps.length;
+  const responseMessages = (result as { response?: { messages?: unknown } })
+    .response?.messages;
+  if (Array.isArray(responseMessages)) out.responseMessages = responseMessages;
   return out;
 }
 
@@ -420,7 +438,7 @@ async function runStreamGenerate(
   model: unknown,
   options: CallLlmParams["options"],
   system: string,
-  user: string,
+  user: string | unknown[],
   extras: ProviderExtras,
   onDelta: AgentDeltaListener,
 ): Promise<LlmResult> {
@@ -471,6 +489,77 @@ async function runStreamGenerate(
     (result as { finishReason?: PromiseLike<string | undefined> }).finishReason,
   );
   if (typeof finishReason === "string") out.finishReason = finishReason;
+  // streamText exposes `steps` as a Promise that resolves with the
+  // full step history once the loop terminates. Await + flatten into
+  // the same `LlmToolCallSummary[]` shape `runGenerate` produces, so
+  // callers see one normalised tool-call list across both paths.
+  const steps = await safeAwait<unknown>(
+    (result as { steps?: PromiseLike<unknown> }).steps,
+  );
+  const toolCalls = collectToolCalls({ steps });
+  if (toolCalls.length > 0) out.toolCalls = toolCalls;
+  if (Array.isArray(steps)) out.stepsCount = steps.length;
+  // streamText exposes the consolidated response (messages, body, ...)
+  // as a Promise that resolves once the stream drains. Await it so the
+  // session can append response.messages to a validate-retry prompt
+  // without re-walking the stream.
+  const response = await safeAwait<{ messages?: unknown }>(
+    (result as { response?: PromiseLike<{ messages?: unknown }> }).response,
+  );
+  if (response && Array.isArray(response.messages)) {
+    out.responseMessages = response.messages;
+  }
+  return out;
+}
+
+/**
+ * Walk an SDK result's `steps` array (sync or post-await) and
+ * produce a flat list of `LlmToolCallSummary` entries pairing each
+ * tool call with its result or error. Tolerates missing fields and
+ * legacy SDK shapes.
+ *
+ * @internal
+ */
+function collectToolCalls(result: unknown): LlmToolCallSummary[] {
+  if (result === null || typeof result !== "object") return [];
+  const steps = (result as { steps?: unknown }).steps;
+  if (!Array.isArray(steps)) return [];
+  const out: LlmToolCallSummary[] = [];
+  for (const step of steps) {
+    if (step === null || typeof step !== "object") continue;
+    const calls = (step as { toolCalls?: unknown }).toolCalls;
+    const results = (step as { toolResults?: unknown }).toolResults;
+    if (!Array.isArray(calls)) continue;
+    for (const call of calls) {
+      if (call === null || typeof call !== "object") continue;
+      const c = call as Record<string, unknown>;
+      const toolCallId =
+        typeof c["toolCallId"] === "string" ? c["toolCallId"] : "";
+      const toolName = typeof c["toolName"] === "string" ? c["toolName"] : "";
+      const input = c["input"] ?? c["args"];
+      const summary: LlmToolCallSummary = {
+        toolCallId,
+        toolName,
+        input,
+      };
+      // Pair the matching result by toolCallId (preferred) or by
+      // identical position in the same step (legacy fallback).
+      if (Array.isArray(results)) {
+        const match = (results as Record<string, unknown>[]).find(
+          (r) => r["toolCallId"] === toolCallId,
+        );
+        if (match) {
+          if ("output" in match || "result" in match) {
+            summary.output = match["output"] ?? match["result"];
+          }
+          if ("error" in match && match["error"] !== undefined) {
+            summary.error = match["error"];
+          }
+        }
+      }
+      out.push(summary);
+    }
+  }
   return out;
 }
 
