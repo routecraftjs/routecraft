@@ -5,6 +5,7 @@ import {
   HeadersKeys,
   getExchangeContext,
   getExchangeRoute,
+  markDropped,
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
 import { COLLECT_STEPS } from "../dsl-symbol.ts";
@@ -76,7 +77,7 @@ export class HaltStep implements Step<HaltAdapter> {
       });
     }
 
-    exchange.headers["routecraft.dropped"] = true;
+    markDropped(exchange);
   }
 }
 
@@ -315,7 +316,7 @@ export class ChoiceStep<In = unknown> implements Step<ChoiceAdapter> {
           exchange,
         });
       }
-      exchange.headers["routecraft.dropped"] = true;
+      markDropped(exchange);
       return;
     }
 

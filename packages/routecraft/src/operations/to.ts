@@ -3,6 +3,7 @@ import {
   type Exchange,
   OperationType,
   getExchangeContext,
+  DefaultExchange,
 } from "../exchange.ts";
 import {
   resolveAdapterOverride,
@@ -81,12 +82,14 @@ export class ToStep<T = unknown, R = void> implements Step<Destination<T, R>> {
       this.metadata = getMetadata.call(this.adapter, result);
     }
 
-    // If result is defined, replace body with result
-    if (result !== undefined) {
-      exchange.body = result as T;
-    }
+    // If result is defined, replace body with result via a derived
+    // exchange (the original is frozen; constructing a new wrapper preserves
+    // identity and internals via rewrap).
+    const next =
+      result !== undefined
+        ? DefaultExchange.rewrap<T>(exchange, { body: result as T })
+        : exchange;
 
-    // Push the exchange to the queue
-    queue.push({ exchange, steps: remainingSteps });
+    queue.push({ exchange: next, steps: remainingSteps });
   }
 }

@@ -10,6 +10,7 @@ import {
   HeadersKeys,
   getExchangeContext,
   getExchangeRoute,
+  markDropped,
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
 
@@ -132,8 +133,10 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
           });
         }
         // Mark the exchange as dropped so the route engine does not emit
-        // exchange:completed for it after runSteps finishes.
-        exchange.headers["routecraft.dropped"] = true;
+        // exchange:completed for it after runSteps finishes. With frozen
+        // headers, drop is signalled out-of-band via a WeakSet rather than
+        // a header flag.
+        markDropped(exchange);
         return;
       }
     } catch (error: unknown) {

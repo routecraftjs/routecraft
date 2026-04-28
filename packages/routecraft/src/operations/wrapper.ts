@@ -6,6 +6,7 @@ import {
   getExchangeRoute,
   HeadersKeys,
   OperationType,
+  isDropped,
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
 
@@ -213,18 +214,23 @@ export abstract class WrapperStep<
       });
     }
 
-    // Relay any children the inner step pushed (e.g. `split` children
-    // when the wrapper is downstream of one) with `remainingSteps`
-    // reattached. When the inner step did not push:
-    // - If the inner intentionally dropped the exchange (filter
-    //   reject, choice unmatched, halt all set `routecraft.dropped`),
-    //   leave it dropped. Re-pushing would resurrect the drop and run
-    //   subsequent steps on a logically-removed exchange.
-    // - Otherwise push the mutated exchange so the rest of the
-    //   pipeline runs (the common case for transform / to / process /
-    //   header / tap / validate).
+    // Relay whatever the inner step pushed onto the per-execution
+    // `innerQueue` to the real route queue, reattaching `remainingSteps`
+    // so the rest of the pipeline runs after the wrapped step.
+    //
+    // Empty `innerQueue` means the inner step intentionally dropped the
+    // exchange (filter reject, choice unmatched, halt, or parse-drop, all
+    // of which call `markDropped(exchange)`). Leave it dropped: re-pushing
+    // would resurrect a logically-removed exchange.
+    //
+    // With immutable exchanges every other step (transform, to, process,
+    // header, tap, validate, error-recovered) pushes its derived exchange
+    // onto `innerQueue` itself, so this branch is the drop case only.
     if (innerQueue.length === 0) {
-      if (exchange.headers["routecraft.dropped"] === true) return;
+      if (isDropped(exchange)) return;
+      // Defensive: an inner step that neither pushed nor dropped
+      // shouldn't happen in well-behaved code, but if it does, forward
+      // the exchange so the pipeline does not silently stall.
       queue.push({ exchange, steps: remainingSteps });
       return;
     }

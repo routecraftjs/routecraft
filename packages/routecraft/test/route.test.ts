@@ -171,10 +171,10 @@ describe("Route Behavior", () => {
           })
           .transform((body) => body.toUpperCase())
           .to(noop())
-          .process((exchange) => {
-            exchange.body = `${exchange.body}!`;
-            return exchange;
-          })
+          .process((exchange) => ({
+            ...exchange,
+            body: `${exchange.body}!`,
+          }))
           .transform((body) => `${body} DONE`),
       )
       .build();
@@ -207,10 +207,7 @@ describe("Route Behavior", () => {
             },
           })
           .transform((body) => `${body}-a`)
-          .process((exchange) => {
-            exchange.body = `${exchange.body}-b`;
-            return exchange;
-          })
+          .process((exchange) => ({ ...exchange, body: `${exchange.body}-b` }))
           .transform((body: string) => `${body}-c`),
       )
       .build();
@@ -325,8 +322,13 @@ describe("Route Behavior", () => {
           })
           .process((exchange) => {
             capturedHeaders.push({ ...exchange.headers });
-            exchange.headers["processor.header"] = "added-value";
-            return exchange;
+            return {
+              ...exchange,
+              headers: {
+                ...exchange.headers,
+                "processor.header": "added-value",
+              },
+            };
           })
           .to((exchange) => {
             capturedHeaders.push({ ...exchange.headers });
@@ -391,12 +393,10 @@ describe("Route Behavior", () => {
               value: (body as { value: number }).value + 1,
             };
           })
-          .process((exchange) => {
-            exchange.body = {
-              value: (exchange.body as { value: number }).value * 2,
-            };
-            return exchange;
-          })
+          .process((exchange) => ({
+            ...exchange,
+            body: { value: (exchange.body as { value: number }).value * 2 },
+          }))
           .to(s),
       )
       .build();
@@ -419,10 +419,10 @@ describe("Route Behavior", () => {
         craft()
           .id("processor-returns")
           .from(simple(() => ({ num: 1 })))
-          .process((exchange) => {
-            exchange.body = (exchange.body as { num: number }).num.toString();
-            return exchange;
-          })
+          .process((exchange) => ({
+            ...exchange,
+            body: (exchange.body as { num: number }).num.toString(),
+          }))
           .transform((body) => {
             return `processed-${body}`;
           })

@@ -190,12 +190,16 @@ type RegistryHeaders = {
 };
 
 /**
- * Complete set of headers for an exchange.
- * Includes standard Routecraft headers, plugin-registered headers, and custom headers.
+ * Complete set of headers for an exchange. Read-only by contract: produce
+ * derived headers via spread (`{ ...exchange.headers, key: value }`) and the
+ * framework re-wraps the resulting exchange when the operation hands it back.
+ *
+ * Includes standard Routecraft headers, plugin-registered headers, and
+ * custom headers.
  */
-export type ExchangeHeaders = Partial<RoutecraftHeaders> &
-  RegistryHeaders &
-  Record<string, HeaderValue>;
+export type ExchangeHeaders = Readonly<
+  Partial<RoutecraftHeaders> & RegistryHeaders & Record<string, HeaderValue>
+>;
 
 /**
  * Represents a message being processed through a route.
@@ -209,6 +213,13 @@ export type ExchangeHeaders = Partial<RoutecraftHeaders> &
  *   adapters that perform authentication, or in a route step via
  *   `.process()` when callers want to attach a custom identity)
  *
+ * Exchanges are immutable. Operations that change body, headers, or
+ * principal must produce a new exchange (typically via spread) and return
+ * it; the framework re-wraps the result via {@link DefaultExchange.rewrap}
+ * so it preserves internal bindings (context, route). Body is not deep-
+ * frozen so adapter authors can attach arbitrary user payloads, but the
+ * framework will not mutate it and authors should treat it the same way.
+ *
  * @template T The type of data in the body
  */
 export type Exchange<T = unknown> = {
@@ -219,7 +230,7 @@ export type Exchange<T = unknown> = {
   readonly headers: ExchangeHeaders;
 
   /** The data being processed */
-  body: T;
+  readonly body: T;
 
   /**
    * Authenticated principal for this exchange, when one has been resolved.
@@ -240,10 +251,10 @@ export type Exchange<T = unknown> = {
    *
    * @experimental
    */
-  principal?: Principal | undefined;
+  readonly principal?: Principal | undefined;
 
   /** Logger for this exchange (pino child logger) */
-  logger: ReturnType<typeof logger.child>;
+  readonly logger: ReturnType<typeof logger.child>;
 };
 
 /**
@@ -282,9 +293,23 @@ type ExchangeInternals = {
    * parsing source: validation must see the parsed body, not the raw
    * bytes. `DefaultRoute` populates this alongside `parse`. See #187.
    *
+   * Returns the validated exchange (with body and/or headers updated)
+   * so the parse step can thread the new immutable instance forward.
+   *
    * @internal
    */
-  applyValidation?: (exchange: Exchange) => Promise<void>;
+  applyValidation?: (exchange: Exchange) => Promise<Exchange>;
+  /**
+   * When the engine first encounters an exchange in the step loop it
+   * records the start timestamp here, used later to compute duration
+   * for `exchange:completed`. Stored on internals (rather than headers)
+   * so it survives `rewrap` calls without consuming a header slot, and
+   * so aggregator code can read child start times without the engine
+   * having to thread a side-Map through.
+   *
+   * @internal
+   */
+  startedAt?: number;
 };
 
 /**
@@ -330,10 +355,91 @@ export function getExchangeRoute(exchange: Exchange): Route | undefined {
 }
 
 /**
+ * WeakSet recording exchanges that have been dropped (filtered, halted,
+ * unmatched in `.choice()`, or rejected by source-payload parse with
+ * `OnParseError: "drop"`). The runtime engine reads it after `runSteps`
+ * completes to decide whether to emit `exchange:completed`. Operations that
+ * drop call {@link markDropped}; consumers ask {@link isDropped}.
+ *
+ * Replaces the previous `exchange.headers["routecraft.dropped"] = true`
+ * pattern: with frozen headers, drop is signalled out-of-band so the
+ * headers contract stays clean.
+ *
+ * @internal
+ */
+const DROPPED_EXCHANGES = new WeakSet<Exchange>();
+
+/**
+ * Mark an exchange as dropped. Idempotent. Used by filter, choice, halt,
+ * and the synthetic parse step's drop branch.
+ *
+ * @internal
+ */
+export function markDropped(exchange: Exchange): void {
+  DROPPED_EXCHANGES.add(exchange);
+}
+
+/**
+ * Returns true if the exchange has been marked as dropped.
+ *
+ * @internal
+ */
+export function isDropped(exchange: Exchange): boolean {
+  return DROPPED_EXCHANGES.has(exchange);
+}
+
+/**
+ * Record the timestamp at which the runtime engine first encountered an
+ * exchange in the step loop. Stored on the exchange's internals so it
+ * survives `rewrap` (which shares internals between prev and next) and so
+ * aggregator code can read child start times without a side channel.
+ *
+ * @internal
+ */
+export function setStartedAt(exchange: Exchange, ts: number): void {
+  const internals =
+    (exchange as Exchange & { [INTERNALS_KEY]?: ExchangeInternals })[
+      INTERNALS_KEY
+    ] ?? EXCHANGE_INTERNALS.get(exchange);
+  if (internals) internals.startedAt = ts;
+}
+
+/**
+ * Read the recorded start timestamp for an exchange, if one was set.
+ *
+ * @internal
+ */
+export function getStartedAt(exchange: Exchange): number | undefined {
+  const internals =
+    (exchange as Exchange & { [INTERNALS_KEY]?: ExchangeInternals })[
+      INTERNALS_KEY
+    ] ?? EXCHANGE_INTERNALS.get(exchange);
+  return internals?.startedAt;
+}
+
+/**
+ * Internal options accepted by {@link DefaultExchange}'s constructor.
+ * The constructor freezes whatever it produces; callers can supply either a
+ * `Readonly<...>` headers object (e.g. from another exchange) or a plain
+ * literal.
+ *
+ * @internal
+ */
+type DefaultExchangeOptions<T> = {
+  id?: string;
+  body?: T;
+  headers?: ExchangeHeaders;
+  principal?: Principal | undefined;
+};
+
+/**
  * Default implementation of the Exchange interface.
  *
  * Provides standard exchange functionality with automatic
- * ID generation and header initialization.
+ * ID generation and header initialization. Instances are immutable: the
+ * constructor freezes the wrapper, headers, and principal. Body is left
+ * unfrozen so user payloads of any shape can flow through; the framework
+ * does not mutate it.
  *
  * @template T The type of data in the body
  *
@@ -358,10 +464,10 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
   readonly headers: ExchangeHeaders;
 
   /** The data being processed */
-  body: T;
+  readonly body: T;
 
   /** Authenticated principal, when one has been resolved. */
-  principal?: Principal | undefined;
+  readonly principal?: Principal | undefined;
 
   /** Logger for this exchange (pino child logger) */
   public readonly logger: ReturnType<typeof logger.child>;
@@ -372,24 +478,112 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
    * @param context The CraftContext this exchange belongs to
    * @param options Optional configuration for the exchange
    */
-  constructor(context: CraftContext, options?: Partial<Exchange<T>>) {
+  constructor(context: CraftContext, options?: DefaultExchangeOptions<T>) {
     this.id = options?.id || randomUUID();
-    this.headers = {
+    this.headers = Object.freeze({
       [HeadersKeys.ROUTE_ID]: randomUUID(),
       [HeadersKeys.OPERATION]: OperationType.FROM,
       [HeadersKeys.CORRELATION_ID]: randomUUID(),
       ...(options?.headers || {}),
-    };
-    this.body = options?.body || ({} as T);
-    if (options?.principal) {
-      this.principal = options.principal;
+    });
+    // Honour an explicit `body: undefined` from the caller (e.g. a
+    // transform that intentionally returns undefined for a missing JSON
+    // path). Only fall back to `{}` when the caller did not pass a body
+    // key at all.
+    this.body = options && "body" in options ? (options.body as T) : ({} as T);
+    if (options?.principal !== undefined) {
+      // Object.freeze on a primitive is a no-op; on a Principal object it
+      // makes claim mutation by adapters caught at runtime. We do not deep-
+      // freeze the principal's internals (e.g. nested claims); shallow is
+      // enough to stop direct rewrites like `exchange.principal.subject = ...`.
+      this.principal = Object.freeze(options.principal);
     }
 
-    // Store internals: symbol key (cross-instance) and WeakMap (same-instance compat)
+    // Store internals: symbol key (cross-instance) and WeakMap (same-instance compat).
+    // Internals live BEFORE the wrapper is frozen because freeze prevents
+    // adding new own properties; symbol-keyed `[INTERNALS_KEY]` must be
+    // attached now. The internals OBJECT itself stays mutable (split.ts
+    // sets `internals.route` after construction; that mutates the object,
+    // not the exchange).
     const internals: ExchangeInternals = { context };
     setInternals(this, INTERNALS_KEY, internals);
     EXCHANGE_INTERNALS.set(this, internals);
     setBrand(this, BRAND.Exchange);
     this.logger = logger.child(childBindings(this));
+
+    // Freeze the wrapper itself last so all properties (including the
+    // symbol-keyed internals slot and the brand) are sealed against
+    // reassignment. Mutating user code via `as any` casts now produces a
+    // TypeError in strict mode, which the package runs in.
+    Object.freeze(this);
+  }
+
+  /**
+   * Construct a new {@link DefaultExchange} that combines internals from a
+   * previous exchange (context, route binding, parse hooks) with field
+   * overrides from a partial. Used by the engine to normalise plain
+   * objects user code returns from `.process()` (or any `with*`-style
+   * spread) back into proper instances without losing the framework's
+   * back-channel state.
+   *
+   * - `id` defaults to `prev.id` (preserves identity through pipeline steps).
+   * - `headers` defaults to `prev.headers` (frozen reference is safe to share).
+   * - `body` defaults to `prev.body`.
+   * - `principal` follows `?? prev.principal` semantics so a returned
+   *   exchange that omits the principal inherits the parent's. Pass an
+   *   explicit `Principal` to set; passing `undefined` does NOT clear.
+   *
+   * @internal
+   */
+  static rewrap<T>(
+    prev: Exchange,
+    partial: {
+      readonly id?: string;
+      readonly body?: T;
+      readonly headers?: ExchangeHeaders;
+      readonly principal?: Principal;
+    } = {},
+  ): DefaultExchange<T> {
+    const prevInternals =
+      (prev as Exchange & { [INTERNALS_KEY]?: ExchangeInternals })[
+        INTERNALS_KEY
+      ] ?? EXCHANGE_INTERNALS.get(prev);
+    const context = prevInternals?.context;
+    if (!context) {
+      throw new Error(
+        "DefaultExchange.rewrap: previous exchange has no context binding; " +
+          "cannot construct a derived exchange. This usually means an " +
+          "adapter constructed an Exchange-shaped plain object outside the " +
+          "framework. Use `new DefaultExchange(context, { ... })` instead.",
+      );
+    }
+
+    // For body, use `'body' in partial` so an explicit `body: undefined`
+    // (e.g. `transform(() => undefined)` or `json({ path: missingKey })`)
+    // sets the new body to undefined rather than inheriting prev's. Headers
+    // are never undefined in the type system, and principal uses `??` to
+    // preserve `?? prev.principal` inheritance semantics.
+    const next = new DefaultExchange<T>(context, {
+      id: partial.id ?? prev.id,
+      headers: partial.headers ?? prev.headers,
+      body: ("body" in partial ? partial.body : prev.body) as T,
+      principal: partial.principal ?? prev.principal,
+    });
+
+    // Share the previous exchange's internals so route binding, parse hooks,
+    // and any other framework-internal state survive the rewrap. The new
+    // instance's constructor created a fresh internals object; replace it
+    // with the previous one and re-publish via both access paths.
+    const nextInternals = (
+      next as Exchange & { [INTERNALS_KEY]?: ExchangeInternals }
+    )[INTERNALS_KEY];
+    if (nextInternals && prevInternals) {
+      // Copy fields from prev onto next's internals object (which is
+      // already mounted on `next` via both the symbol key and the WeakMap).
+      // We cannot reassign the symbol slot because the wrapper is frozen.
+      Object.assign(nextInternals, prevInternals);
+    }
+
+    return next;
   }
 }

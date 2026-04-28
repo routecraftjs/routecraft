@@ -52,10 +52,7 @@ describe("authorize() validator", () => {
         craft()
           .id("ok")
           .from(simple("hello"))
-          .process((ex) => {
-            ex.principal = principal;
-            return ex;
-          })
+          .process((ex) => ({ ...ex, principal }))
           .validate(authorize())
           .to(s),
       )
@@ -114,10 +111,7 @@ describe("authorize() validator", () => {
         craft()
           .id("rbac")
           .from(simple("hello"))
-          .process((ex) => {
-            ex.principal = principal;
-            return ex;
-          })
+          .process((ex) => ({ ...ex, principal }))
           .validate(authorize({ roles: ["admin"] }))
           .to(s),
       )
@@ -158,10 +152,7 @@ describe("authorize() validator", () => {
         craft()
           .id("multi-role")
           .from(simple("hello"))
-          .process((ex) => {
-            ex.principal = principal;
-            return ex;
-          })
+          .process((ex) => ({ ...ex, principal }))
           .validate(authorize({ roles: ["admin", "billing"] }))
           .to(s),
       )
@@ -208,10 +199,7 @@ describe("authorize() validator", () => {
         craft()
           .id("scope")
           .from(simple("hello"))
-          .process((ex) => {
-            ex.principal = principal;
-            return ex;
-          })
+          .process((ex) => ({ ...ex, principal }))
           .validate(authorize({ scopes: ["read", "write"] }))
           .to(s),
       )
@@ -251,10 +239,7 @@ describe("authorize() validator", () => {
         craft()
           .id("predicate")
           .from(simple("hello"))
-          .process((ex) => {
-            ex.principal = principal;
-            return ex;
-          })
+          .process((ex) => ({ ...ex, principal }))
           .validate(
             authorize({
               predicate: (p) => p.claims?.["tenant"] === "globex",
@@ -664,10 +649,7 @@ describe("exchange.principal propagation", () => {
         craft()
           .id("email-attribution")
           .from(simple("hello"))
-          .process((ex) => {
-            ex.principal = principal;
-            return ex;
-          })
+          .process((ex) => ({ ...ex, principal }))
           .to(s),
       )
       .build();
@@ -694,10 +676,7 @@ describe("exchange.principal propagation", () => {
         craft()
           .id("transform-keeps-principal")
           .from(simple("hello"))
-          .process((ex) => {
-            ex.principal = principal;
-            return ex;
-          })
+          .process((ex) => ({ ...ex, principal }))
           .transform((body) => `${body}!`)
           .to(s),
       )
@@ -753,10 +732,7 @@ describe("exchange.principal propagation", () => {
         craft()
           .id("tap-principal")
           .from(simple("hello"))
-          .process((ex) => {
-            ex.principal = principal;
-            return ex;
-          })
+          .process((ex) => ({ ...ex, principal }))
           .tap(tapped)
           .to(main),
       )
@@ -791,10 +767,7 @@ describe("exchange.principal propagation", () => {
         craft()
           .id("tap-principal-isolation")
           .from(simple("hello"))
-          .process((ex) => {
-            ex.principal = principal;
-            return ex;
-          })
+          .process((ex) => ({ ...ex, principal }))
           .tap(tapped)
           .process((ex) => {
             // Mutate the live principal AFTER tap has snapshotted it.

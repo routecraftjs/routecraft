@@ -171,6 +171,41 @@ A lint rule covering this in `@routecraft/eslint-plugin-routecraft` would be the
 
 ---
 
+## Exchange Immutability
+
+`Exchange<T>` is immutable. The type marks every public field `readonly`, and `DefaultExchange` shallow-freezes the wrapper, the headers object, and the principal at construction. Body is left unfrozen so adapter authors can attach arbitrary user payloads, but the framework will not mutate it and authors must not either.
+
+### What this means for operations
+
+- A `.process()` callback receives a `Readonly<Exchange<T>>`. It cannot mutate the parameter; the type system rejects assignments and `Object.freeze` makes runtime mutation a `TypeError` in strict mode.
+- The canonical update pattern is a plain object spread. The framework re-wraps the resulting plain object back into a proper instance via `DefaultExchange.rewrap`, preserving internals (context binding, route, parse hooks, child start timestamps).
+
+```ts
+// Canonical:
+.process((ex) => ({ ...ex, body: { ...ex.body, hello: "world" } }))
+
+// Equivalent, framework-aware:
+.process((ex) => DefaultExchange.rewrap(ex, { body: { ...ex.body, hello: "world" } }))
+```
+
+A single batched spread allocates one wrapper plus one inner object per change set. Chained `withX` methods are not provided because each call would allocate a new wrapper.
+
+### Authoring contract for new operations
+
+- Steps must construct new exchanges via `new DefaultExchange(...)` or `DefaultExchange.rewrap(prev, partial)`. Direct mutation of `exchange.body`, `exchange.headers[...]`, or `exchange.principal` will fail to compile and throw at runtime.
+- Drop signalling uses `markDropped(exchange)` / `isDropped(exchange)`, not a header flag. Frozen headers cannot accept the legacy `"routecraft.dropped"` write.
+- Child start timestamps used for telemetry are stored on the exchange's internals via `setStartedAt` / `getStartedAt`, which survive `rewrap` because internals are shared between `prev` and `next`.
+
+### Engine cost
+
+Every step that previously mutated now produces one extra wrapper + frozen headers per change set. In benchmarked pipelines this is a low-single-digit percent cost on hot paths and is dominated by I/O. The engine itself rewraps once per step to update the `routecraft.operation` header before handing the exchange to `step.execute`.
+
+### Verification
+
+`packages/routecraft/test/exchange-immutability.test.ts` is the authoritative test for this contract. It asserts: instances are frozen, casts at runtime throw `TypeError`, spread updates produce fresh frozen instances, identity equality survives a no-op pass-through, and `rewrap` honours an explicit `body: undefined`.
+
+---
+
 ## References
 
 - Standard Schema: [standardschema.dev](https://standardschema.dev)
@@ -178,3 +213,4 @@ A lint rule covering this in `@routecraft/eslint-plugin-routecraft` would be the
 - Package: `@standard-schema/spec` (dependency in routecraft and ai packages)
 - Builder source: `packages/routecraft/src/builder.ts`
 - Types source: `packages/routecraft/src/types.ts`
+- Exchange and freeze policy: `packages/routecraft/src/exchange.ts`
