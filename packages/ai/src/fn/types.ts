@@ -1,4 +1,5 @@
 import type {
+  Principal,
   ResolveKey,
   Tag,
   logger as frameworkLogger,
@@ -23,6 +24,17 @@ export interface FnHandlerContext {
   readonly logger: ReturnType<typeof frameworkLogger.child>;
   /** Context-level abort signal. Honour in long-running work. */
   readonly abortSignal: AbortSignal;
+  /**
+   * Authenticated principal carried over from the exchange that
+   * triggered the agent dispatch. Read-only snapshot: tool handlers
+   * cannot escalate or impersonate, but can authorise their own work
+   * against the caller's identity (e.g.
+   * `if (!ctx.principal?.scopes?.includes("write")) throw ...`).
+   *
+   * Undefined when the originating exchange had no principal (e.g.
+   * an unauthenticated source, or `testFn` outside a context).
+   */
+  readonly principal?: Principal;
   /**
    * Correlation id of the calling exchange, when the fn was invoked
    * from inside a running route or agent dispatch. Propagated to any

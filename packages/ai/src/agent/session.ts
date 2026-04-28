@@ -330,6 +330,7 @@ export class AgentSession {
       tools,
       system,
       context,
+      exchange,
       dispatchIdentity,
     } = this.input;
     const vercelTools = await buildVercelTools(
@@ -337,6 +338,7 @@ export class AgentSession {
       context,
       abortSignal,
       dispatchIdentity,
+      exchange.principal,
     );
     const base = { modelConfig, modelName, system, vercelTools };
     return options.output !== undefined

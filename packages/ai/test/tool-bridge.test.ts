@@ -99,6 +99,43 @@ describe("buildVercelTools: execute path", () => {
   });
 
   /**
+   * @case Principal from the dispatching exchange surfaces on the tool ctx
+   * @preconditions buildVercelTools called with a Principal; handler captures its ctx
+   * @expectedResult Handler's ctx.principal matches the supplied Principal (not undefined)
+   */
+  test("principal flows through to the handler ctx", async () => {
+    const handler = vi.fn(async () => "done");
+    const resolved: ResolvedTool = {
+      name: "needs-auth",
+      description: "Needs auth.",
+      input: z.object({}),
+      handler: handler as ResolvedTool["handler"],
+    };
+    const principal = {
+      kind: "jwt" as const,
+      scheme: "bearer" as const,
+      subject: "user-42",
+      scopes: ["read", "write"],
+    };
+    const map = await buildVercelTools(
+      [resolved],
+      undefined,
+      new AbortController().signal,
+      undefined,
+      principal,
+    );
+    const tool = map["needs-auth"] as {
+      execute: (input: unknown) => Promise<unknown>;
+    };
+    await tool.execute({});
+    const callArgs = handler.mock.calls[0] as unknown as [
+      input: unknown,
+      ctx: { principal?: typeof principal },
+    ];
+    expect(callArgs[1].principal).toEqual(principal);
+  });
+
+  /**
    * @case Guard that resolves passes through to the handler
    * @preconditions Guard returns void (no throw)
    * @expectedResult Handler runs and returns its value

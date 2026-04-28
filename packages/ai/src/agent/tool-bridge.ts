@@ -3,6 +3,7 @@ import {
   logger as frameworkLogger,
   type CraftContext,
   type EventName,
+  type Principal,
 } from "@routecraft/routecraft";
 import { toAiInputSchema } from "../llm/structured-output.ts";
 import type { FnHandlerContext } from "../fn/types.ts";
@@ -38,6 +39,7 @@ export async function buildVercelTools(
   ctx: CraftContext | undefined,
   abortSignal: AbortSignal,
   dispatchIdentity?: AgentDispatchIdentity,
+  principal?: Principal,
 ): Promise<Record<string, unknown>> {
   if (resolved.length === 0)
     return Object.create(null) as Record<string, unknown>;
@@ -51,7 +53,11 @@ export async function buildVercelTools(
   for (const r of resolved) {
     const guard = r.guard;
     const handler = r.handler;
-    const baseCtx: FnHandlerContext = makeFnHandlerContext(r.name, abortSignal);
+    const baseCtx: FnHandlerContext = makeFnHandlerContext(
+      r.name,
+      abortSignal,
+      principal,
+    );
     out[r.name] = tool({
       description: r.description,
       inputSchema: toAiInputSchema(r.input) as Parameters<
@@ -137,9 +143,11 @@ export async function buildVercelTools(
 /**
  * Construct the synthetic `FnHandlerContext` handed to a tool's guard
  * and handler during agent dispatch. Mirrors the shape `testFn`
- * provides: `logger`, `abortSignal`, optional `correlationId` (not yet
- * populated by the runtime), and optional `checkpointId` (durable-agents
- * epic).
+ * provides: `logger`, `abortSignal`, optional `principal` (carried
+ * over from the dispatching exchange so guards can authorise without
+ * re-reading the source request), optional `correlationId` (not yet
+ * populated by the runtime), and optional `checkpointId`
+ * (durable-agents epic).
  *
  * Intentionally does not expose the framework `CraftContext` to tool
  * handlers; built-in tool builders that need to forward to a route
@@ -149,9 +157,11 @@ export async function buildVercelTools(
 function makeFnHandlerContext(
   toolName: string,
   abortSignal: AbortSignal,
+  principal: Principal | undefined,
 ): FnHandlerContext {
   return {
     logger: frameworkLogger.child({ tool: toolName }),
     abortSignal,
+    ...(principal ? { principal } : {}),
   };
 }

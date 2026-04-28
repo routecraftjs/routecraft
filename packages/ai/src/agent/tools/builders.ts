@@ -230,9 +230,15 @@ async function dispatchDirect<TIn>(
   const headers = hctx.correlationId
     ? { [HeadersKeys.CORRELATION_ID]: hctx.correlationId }
     : undefined;
+  // Forward the calling principal so the downstream direct route sees
+  // the same authenticated identity as the agent that invoked the
+  // tool. The agent layer never lets a tool override or escalate this:
+  // `principal` is read-only on FnHandlerContext, populated from the
+  // dispatching exchange at tool-bridge time.
   const exchange = new DefaultExchange<TIn>(ctx, {
     body: input,
     ...(headers ? { headers } : {}),
+    ...(hctx.principal ? { principal: hctx.principal } : {}),
   });
   const channel = getDirectChannel<TIn>(ctx, endpoint, {});
   const result = (await channel.send(endpoint, exchange)) as Exchange<unknown>;

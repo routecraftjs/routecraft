@@ -291,6 +291,54 @@ describe("tool builders - directTool dispatch", () => {
     );
     expect(result).toMatchObject({ orderId: "abc", ok: true });
   });
+
+  /**
+   * @case directTool forwards FnHandlerContext.principal to the downstream direct route's exchange
+   * @preconditions Handler invoked with a principal in its ctx; downstream route captures `ex.principal`
+   * @expectedResult Captured principal on the inner route equals the one from the calling tool ctx
+   */
+  test("dispatchDirect forwards the calling principal to the downstream exchange", async () => {
+    const inputSchema = z.object({ orderId: z.string() });
+    let downstreamPrincipal: unknown;
+    t = await testContext()
+      .routes([
+        craft()
+          .id("orders/fetch-with-auth")
+          .description("Fetch with auth.")
+          .input(inputSchema)
+          .from(direct())
+          .process((ex) => {
+            downstreamPrincipal = ex.principal;
+            return {
+              ...ex,
+              body: { ok: true },
+            };
+          })
+          .to(log()),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const principal = {
+      kind: "jwt" as const,
+      scheme: "bearer" as const,
+      subject: "agent-caller",
+      scopes: ["orders.read"],
+    };
+    const desc = directTool("orders/fetch-with-auth");
+    const fn = desc.resolve(t.ctx, "ordersFetchWithAuth");
+    await fn.handler(
+      { orderId: "abc" },
+      {
+        logger: undefined as unknown as Parameters<
+          typeof fn.handler
+        >[1]["logger"],
+        abortSignal: new AbortController().signal,
+        principal,
+      },
+    );
+    expect(downstreamPrincipal).toEqual(principal);
+  });
 });
 
 describe("tool builders - agentTool stub", () => {
