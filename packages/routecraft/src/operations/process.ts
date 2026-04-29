@@ -59,19 +59,18 @@ export class ProcessStep<T = unknown, R = T> implements Step<Processor<T, R>> {
     queue: { exchange: Exchange<R>; steps: Step<Adapter>[] }[],
   ): Promise<void> {
     const returned = await Promise.resolve(this.adapter.process(exchange));
-    // Honour what the user returned. If they returned a `DefaultExchange`
-    // instance directly (e.g. `new DefaultExchange(...)` or the same `ex`
-    // they were given), use it as-is. Otherwise they returned a plain
-    // spread (`{ ...ex, body: x }`) which has no framework internals;
-    // re-wrap it onto the previous exchange's context binding.
-    //
-    // Principal follows `?? prev.principal` semantics inside `rewrap`: a
-    // returned exchange that omits the principal inherits the parent's,
-    // matching the previous behaviour and keeping parity with split /
-    // aggregate / enrich / tap.
+    // The fast path is identity equality (the user returned the same `ex`
+    // they were given). For anything else -- a plain spread, a freshly
+    // constructed `DefaultExchange`, or even an exchange built against a
+    // foreign context -- always rewrap onto THIS exchange's internals.
+    // An `instanceof DefaultExchange` fast-path would let a user return
+    // `new DefaultExchange(otherContext, ...)` and break route binding
+    // for downstream telemetry / split / tap; rewrap restores it. This
+    // also keeps the principal sticky-set rule (`?? prev.principal`)
+    // consistent regardless of return shape.
     const next =
-      returned instanceof DefaultExchange
-        ? (returned as DefaultExchange<R>)
+      returned === (exchange as unknown as Exchange<R>)
+        ? (exchange as unknown as Exchange<R>)
         : DefaultExchange.rewrap<R>(exchange, {
             id: returned.id,
             body: returned.body,

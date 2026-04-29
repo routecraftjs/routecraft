@@ -88,11 +88,13 @@ export type ConsumerType<T extends Consumer, O = unknown> = new (
  *   exchange body.
  * @property headers - Optional exchange headers attached by the adapter.
  * @property parse - Optional parser the runtime invokes as a synthetic first
- *   step before any user-defined steps run. When provided, the runtime sets
- *   `exchange.body = await parse(exchange.body)` inside the same try/catch
- *   that handles step errors, so a parse failure flows through the route's
- *   `errorHandler` and `exchange:failed` event path. See
- *   `adapters/shared/parse.ts` for the `OnParseError` semantics.
+ *   step before any user-defined steps run. When provided, the runtime
+ *   builds a derived exchange via
+ *   `DefaultExchange.rewrap(exchange, { body: await parse(exchange.body) })`
+ *   inside the same try/catch that handles step errors, so a parse
+ *   failure flows through the route's `errorHandler` and
+ *   `exchange:failed` event path. See `adapters/shared/parse.ts` for
+ *   the `OnParseError` semantics.
  * @property parseFailureMode - Decides how the synthetic parse step handles
  *   a thrown parse error. `"fail"` (default) and `"abort"` throw `RC5016`
  *   so `exchange:failed` fires; `"drop"` instead emits `exchange:dropped`

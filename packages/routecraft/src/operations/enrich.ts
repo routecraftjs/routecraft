@@ -242,10 +242,12 @@ export class EnrichStep<T = unknown, R = unknown> implements Step<
     // Use the provided aggregator or the default one
     const aggregator = this.aggregator || defaultEnrichAggregator;
 
-    // Aggregator returns a (possibly new) exchange. If it returned the same
-    // input, no work needed; if it returned a fresh DefaultExchange, use it
-    // directly; if it returned a plain spread, re-wrap to restore framework
-    // internals (context, route binding) on the derived instance.
+    // Aggregator returns a (possibly new) exchange. The fast-path is
+    // identity equality (aggregator returned the same input); anything
+    // else -- plain spread, freshly constructed DefaultExchange,
+    // foreign-context exchange -- is always rewrapped onto THIS
+    // exchange's internals so route binding / context survive the
+    // aggregator and principal sticky-set semantics stay consistent.
     const result = (await Promise.resolve(
       aggregator(exchange, enrichmentData),
     )) as Exchange<T>;
@@ -253,15 +255,13 @@ export class EnrichStep<T = unknown, R = unknown> implements Step<
     const next: Exchange<T> =
       result === exchange
         ? exchange
-        : result instanceof DefaultExchange
-          ? (result as Exchange<T>)
-          : DefaultExchange.rewrap<T>(exchange, {
-              body: result.body,
-              headers: result.headers,
-              ...(result.principal !== undefined && {
-                principal: result.principal,
-              }),
-            });
+        : DefaultExchange.rewrap<T>(exchange, {
+            body: result.body,
+            headers: result.headers,
+            ...(result.principal !== undefined && {
+              principal: result.principal,
+            }),
+          });
 
     // Push the exchange to the queue
     queue.push({ exchange: next, steps: remainingSteps });

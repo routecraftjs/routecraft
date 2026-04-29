@@ -15,7 +15,8 @@ export enum OperationType {
   FROM = "from",
   /**
    * Synthetic step inserted by the runtime when a source adapter attaches a
-   * `parse` function to the queued message. Runs `exchange.body = parse(body)`
+   * `parse` function to the queued message. Builds a derived exchange via
+   * `DefaultExchange.rewrap(exchange, { body: await parse(exchange.body) })`
    * before any user steps so parse failures flow through the route's normal
    * error handling instead of aborting the source. See #187.
    *
@@ -433,6 +434,25 @@ type DefaultExchangeOptions<T> = {
 };
 
 /**
+ * Internal payload used by {@link DefaultExchange.rewrap} to thread state
+ * from the previous exchange into the new instance without going through
+ * the public constructor's default-injection / fresh-logger paths.
+ *
+ * - `internals` is shared by reference so any post-construction write
+ *   (route binding, child startedAt, parse hooks) is visible on every
+ *   rewrap of the same logical exchange.
+ * - `logger` is reused because its child bindings (contextId, route,
+ *   correlationId, exchangeId) are unchanged across `rewrap` (rewrap
+ *   preserves `id`).
+ *
+ * @internal
+ */
+type RewrapState = {
+  readonly internals: ExchangeInternals;
+  readonly logger: ReturnType<typeof logger.child>;
+};
+
+/**
  * Default implementation of the Exchange interface.
  *
  * Provides standard exchange functionality with automatic
@@ -477,15 +497,37 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
    *
    * @param context The CraftContext this exchange belongs to
    * @param options Optional configuration for the exchange
+   * @param rewrapState Internal: when {@link DefaultExchange.rewrap} is
+   *   building a derived instance, it threads the previous exchange's
+   *   internals and logger through this parameter so they are genuinely
+   *   shared (not just copied) and the constructor skips default
+   *   `randomUUID()` / `logger.child(...)` work that the rewrap path
+   *   would immediately overwrite. Not for direct adapter use.
    */
-  constructor(context: CraftContext, options?: DefaultExchangeOptions<T>) {
+  constructor(
+    context: CraftContext,
+    options?: DefaultExchangeOptions<T>,
+    rewrapState?: RewrapState,
+  ) {
     this.id = options?.id || randomUUID();
-    this.headers = Object.freeze({
-      [HeadersKeys.ROUTE_ID]: randomUUID(),
-      [HeadersKeys.OPERATION]: OperationType.FROM,
-      [HeadersKeys.CORRELATION_ID]: randomUUID(),
-      ...(options?.headers || {}),
-    });
+    // Skip the default `randomUUID()` calls for ROUTE_ID / CORRELATION_ID
+    // when the caller already supplies headers that include the standard
+    // keys. The rewrap path always does (it spreads `prev.headers`), and
+    // so do `buildExchange` / `split` (they set `routecraft.route`
+    // explicitly). The legacy code path generated two UUIDs per
+    // construction unconditionally and let the spread overwrite them,
+    // which on a 5-step pipeline meant ~10 wasted crypto calls per
+    // exchange.
+    const supplied = options?.headers;
+    this.headers =
+      supplied && HeadersKeys.ROUTE_ID in supplied
+        ? Object.freeze({ ...supplied })
+        : Object.freeze({
+            [HeadersKeys.ROUTE_ID]: randomUUID(),
+            [HeadersKeys.OPERATION]: OperationType.FROM,
+            [HeadersKeys.CORRELATION_ID]: randomUUID(),
+            ...(supplied || {}),
+          });
     // Honour an explicit `body: undefined` from the caller (e.g. a
     // transform that intentionally returns undefined for a missing JSON
     // path). Only fall back to `{}` when the caller did not pass a body
@@ -504,12 +546,18 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
     // adding new own properties; symbol-keyed `[INTERNALS_KEY]` must be
     // attached now. The internals OBJECT itself stays mutable (split.ts
     // sets `internals.route` after construction; that mutates the object,
-    // not the exchange).
-    const internals: ExchangeInternals = { context };
+    // not the exchange). When `rewrapState` is supplied, the previous
+    // exchange's internals object is reused by reference so any post-
+    // construction writes (route binding, child startedAt, parse hooks)
+    // are visible on every rewrap of the same logical exchange.
+    const internals: ExchangeInternals = rewrapState?.internals ?? { context };
     setInternals(this, INTERNALS_KEY, internals);
     EXCHANGE_INTERNALS.set(this, internals);
     setBrand(this, BRAND.Exchange);
-    this.logger = logger.child(childBindings(this));
+    // Reuse `prev`'s logger when rewrapping; the child bindings
+    // (contextId, route, correlationId, exchangeId) are unchanged because
+    // rewrap preserves id, so the logger stays correctly scoped.
+    this.logger = rewrapState?.logger ?? logger.child(childBindings(this));
 
     // Freeze the wrapper itself last so all properties (including the
     // symbol-keyed internals slot and the brand) are sealed against
@@ -563,27 +611,21 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
     // sets the new body to undefined rather than inheriting prev's. Headers
     // are never undefined in the type system, and principal uses `??` to
     // preserve `?? prev.principal` inheritance semantics.
-    const next = new DefaultExchange<T>(context, {
-      id: partial.id ?? prev.id,
-      headers: partial.headers ?? prev.headers,
-      body: ("body" in partial ? partial.body : prev.body) as T,
-      principal: partial.principal ?? prev.principal,
-    });
-
-    // Share the previous exchange's internals so route binding, parse hooks,
-    // and any other framework-internal state survive the rewrap. The new
-    // instance's constructor created a fresh internals object; replace it
-    // with the previous one and re-publish via both access paths.
-    const nextInternals = (
-      next as Exchange & { [INTERNALS_KEY]?: ExchangeInternals }
-    )[INTERNALS_KEY];
-    if (nextInternals && prevInternals) {
-      // Copy fields from prev onto next's internals object (which is
-      // already mounted on `next` via both the symbol key and the WeakMap).
-      // We cannot reassign the symbol slot because the wrapper is frozen.
-      Object.assign(nextInternals, prevInternals);
-    }
-
-    return next;
+    //
+    // Internals are shared by reference (not copied) via `rewrapState` so a
+    // post-construction write on either prev or next is visible on the
+    // other. The logger is reused for the same reason: bindings derive
+    // from id/contextId/route/correlationId, all of which `rewrap`
+    // preserves.
+    return new DefaultExchange<T>(
+      context,
+      {
+        id: partial.id ?? prev.id,
+        headers: partial.headers ?? prev.headers,
+        body: ("body" in partial ? partial.body : prev.body) as T,
+        principal: partial.principal ?? prev.principal,
+      },
+      { internals: prevInternals, logger: prev.logger },
+    );
   }
 }

@@ -495,6 +495,7 @@ Before submitting a new or modified adapter:
 - [ ] Respects `AbortController` in sources
 - [ ] Keeps transforms pure; side effects only in destinations
 - [ ] Uses typed `StoreRegistry` and `MergedOptions` if reading from context
+- [ ] **Does not mutate the exchange.** Processor / Destination / aggregator implementations build a derived exchange via spread (`{ ...exchange, body: x }`) or `DefaultExchange.rewrap`; direct assignment to `exchange.body`, `exchange.headers[...]`, or `exchange.principal` is absent. Drop signalling uses `markDropped(exchange)`, not a header flag.
 - [ ] JSDoc documentation added
 - [ ] Tests written and passing
 - [ ] Exported from package index
