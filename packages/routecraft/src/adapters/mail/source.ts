@@ -186,8 +186,11 @@ export class MailSourceAdapter implements Source<MailMessage> {
       if (resolved.pollIntervalMs) {
         await this.pollLoop(
           clientRef,
+          manager,
+          account,
           resolved,
           folder,
+          usePool,
           markSeenEnabled,
           handlerWithHeaders,
           abortController,
@@ -251,10 +254,18 @@ export class MailSourceAdapter implements Source<MailMessage> {
     }
   }
 
+  /**
+   * Reconnect on a dropped connection using the same backoff as IDLE. Without
+   * this, a transient socket failure during a fetch would tear the
+   * subscription down for good and the only recovery is a process restart.
+   */
   private async pollLoop(
     clientRef: { current: ImapClient | null },
+    manager: MailClientManager | null,
+    account: string | undefined,
     options: MailServerOptions,
     folder: string,
+    usePool: boolean,
     markSeenEnabled: boolean,
     handler: (message: MailMessage) => Promise<Exchange>,
     abortController: AbortController,
@@ -265,7 +276,35 @@ export class MailSourceAdapter implements Source<MailMessage> {
       const client = clientRef.current;
       if (!client) return;
 
-      const messages = await fetchMessages(client, options, folder, logger);
+      let messages: MailMessage[];
+      try {
+        messages = await fetchMessages(client, options, folder, logger);
+      } catch (error) {
+        if (abortController.signal.aborted) return;
+        if (isMailAuthError(error)) {
+          // Auth failures will not recover on reconnect; surface clearly and stop.
+          throwMailConnectionError(error, "IMAP");
+        }
+        logger?.warn(
+          {
+            err: error instanceof Error ? error : new Error(String(error)),
+            folder,
+          },
+          "mail adapter poll fetch failed; attempting reconnect",
+        );
+        await this.reconnectWithBackoff(
+          clientRef,
+          manager,
+          account,
+          options,
+          folder,
+          usePool,
+          abortController,
+          logger,
+        );
+        if (abortController.signal.aborted) return;
+        continue;
+      }
 
       for (const message of messages) {
         if (abortController.signal.aborted) break;

@@ -1448,6 +1448,100 @@ describe("Mail Adapter", () => {
     });
 
     /**
+     * @case Poll mode reconnects after a non-auth fetch failure
+     * @preconditions First fetch() throws "Connection not available", subsequent fetches succeed
+     * @expectedResult mailboxOpen is called more than once (initial + reconnect) and the route stays alive
+     */
+    test("poll reconnects after a transient fetch failure", async () => {
+      // Zero jitter so the reconnect backoff collapses to 0ms in the test.
+      vi.spyOn(Math, "random").mockReturnValue(0);
+
+      let fetchCalls = 0;
+      mockFetch.mockImplementation(() => {
+        fetchCalls++;
+        if (fetchCalls === 1) {
+          throw new Error("Connection not available");
+        }
+        return {
+          async *[Symbol.asyncIterator]() {},
+        };
+      });
+
+      t = await testContext()
+        .with({
+          mail: {
+            accounts: {
+              default: {
+                imap: {
+                  host: "imap.test.com",
+                  auth: { user: "u", pass: "p" },
+                },
+              },
+            },
+          },
+        })
+        .routes(
+          craft()
+            .id("test-poll-reconnect")
+            .from(mail("INBOX", { pollIntervalMs: 5 }))
+            .to(spy()),
+        )
+        .build();
+
+      const startPromise = t.ctx.start();
+      await new Promise((r) => setTimeout(r, 50));
+      await t.ctx.stop();
+      await startPromise.catch(() => {});
+
+      expect(fetchCalls).toBeGreaterThanOrEqual(2);
+      // Initial open + reconnect open
+      expect(mockMailboxOpen.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+
+    /**
+     * @case Auth errors during poll do not trigger reconnect
+     * @preconditions fetch() rejects with an auth error on the first call
+     * @expectedResult Subscription fails with an auth error and no reconnect is attempted
+     */
+    test("poll auth failure stops the subscription without reconnect", async () => {
+      let fetchCalls = 0;
+      mockFetch.mockImplementation(() => {
+        fetchCalls++;
+        throw new Error("AUTHENTICATIONFAILED");
+      });
+
+      t = await testContext()
+        .with({
+          mail: {
+            accounts: {
+              default: {
+                imap: {
+                  host: "imap.test.com",
+                  auth: { user: "u", pass: "wrong" },
+                },
+              },
+            },
+          },
+        })
+        .routes(
+          craft()
+            .id("test-poll-auth-fail")
+            .from(mail("INBOX", { pollIntervalMs: 5 }))
+            .to(spy()),
+        )
+        .build();
+
+      const startPromise = t.ctx.start();
+      await new Promise((r) => setTimeout(r, 30));
+      await t.ctx.stop();
+      await startPromise.catch(() => {});
+
+      expect(fetchCalls).toBe(1);
+      // No reconnect: mailboxOpen called once at initial subscribe
+      expect(mockMailboxOpen.mock.calls.length).toBe(1);
+    });
+
+    /**
      * @case Throws RC5003 at subscribe when markSeen is false without pollIntervalMs
      * @preconditions markSeen: false with no pollIntervalMs (IDLE flood footgun)
      * @expectedResult t.test() rejects with RC5003
