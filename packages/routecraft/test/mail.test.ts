@@ -1442,6 +1442,10 @@ describe("Mail Adapter", () => {
       await t.ctx.stop();
       await startPromise.catch(() => {});
 
+      // Auth errors flow through context:error -> t.errors, not start() rejection
+      // (the route runtime uses Promise.allSettled internally).
+      expect(t.errors).toHaveLength(1);
+      expect(t.errors[0]).toMatchObject({ rc: "RC5012" });
       expect(idleCalls).toBe(1);
       // No reconnect: mailboxOpen called once at initial subscribe
       expect(mockMailboxOpen.mock.calls.length).toBe(1);
@@ -1536,6 +1540,10 @@ describe("Mail Adapter", () => {
       await t.ctx.stop();
       await startPromise.catch(() => {});
 
+      // Auth errors flow through context:error -> t.errors, not start() rejection
+      // (the route runtime uses Promise.allSettled internally).
+      expect(t.errors).toHaveLength(1);
+      expect(t.errors[0]).toMatchObject({ rc: "RC5012" });
       expect(fetchCalls).toBe(1);
       // No reconnect: mailboxOpen called once at initial subscribe
       expect(mockMailboxOpen.mock.calls.length).toBe(1);

@@ -21,11 +21,11 @@ import {
 type ImapClient = InstanceType<typeof import("imapflow").ImapFlow>;
 
 /** Cap reconnect attempts so an unrecoverable server fault does not loop forever. */
-const IDLE_RECONNECT_MAX_ATTEMPTS = 30;
-/** Initial backoff between IDLE reconnect attempts. */
-const IDLE_RECONNECT_BASE_MS = 1_000;
+const MAIL_RECONNECT_MAX_ATTEMPTS = 30;
+/** Initial backoff between mail reconnect attempts. */
+const MAIL_RECONNECT_BASE_MS = 1_000;
 /** Cap for exponential backoff. */
-const IDLE_RECONNECT_MAX_MS = 60_000;
+const MAIL_RECONNECT_MAX_MS = 60_000;
 
 /**
  * Source adapter that receives email messages from IMAP using IDLE or polling.
@@ -299,6 +299,7 @@ export class MailSourceAdapter implements Source<MailMessage> {
           options,
           folder,
           usePool,
+          "poll",
           abortController,
           logger,
         );
@@ -394,6 +395,7 @@ export class MailSourceAdapter implements Source<MailMessage> {
           options,
           folder,
           usePool,
+          "idle",
           abortController,
           logger,
         );
@@ -458,9 +460,11 @@ export class MailSourceAdapter implements Source<MailMessage> {
   }
 
   /**
-   * Replace a dead IMAP client after an IDLE failure. Exponential backoff
-   * with jitter, capped total attempts. Releases the current client on the
-   * first attempt so the pool slot is freed for the new connection.
+   * Replace a dead IMAP client after a fetch or IDLE failure. Exponential
+   * backoff with jitter, capped total attempts. Releases the current client
+   * on the first attempt so the pool slot is freed for the new connection.
+   * `mode` is interpolated into log lines and the give-up error so operators
+   * can tell which loop the reconnect was driven from.
    */
   private async reconnectWithBackoff(
     clientRef: { current: ImapClient | null },
@@ -469,6 +473,7 @@ export class MailSourceAdapter implements Source<MailMessage> {
     options: MailServerOptions,
     folder: string,
     usePool: boolean,
+    mode: "idle" | "poll",
     abortController: AbortController,
     logger?: MailFetchLogger,
   ): Promise<void> {
@@ -486,12 +491,12 @@ export class MailSourceAdapter implements Source<MailMessage> {
       }
     }
 
-    for (let attempt = 1; attempt <= IDLE_RECONNECT_MAX_ATTEMPTS; attempt++) {
+    for (let attempt = 1; attempt <= MAIL_RECONNECT_MAX_ATTEMPTS; attempt++) {
       if (abortController.signal.aborted) return;
 
       const base = Math.min(
-        IDLE_RECONNECT_BASE_MS * 2 ** (attempt - 1),
-        IDLE_RECONNECT_MAX_MS,
+        MAIL_RECONNECT_BASE_MS * 2 ** (attempt - 1),
+        MAIL_RECONNECT_MAX_MS,
       );
       // Full jitter: pick uniformly in [0, base] so retries don't thunder.
       const delay = Math.floor(Math.random() * base);
@@ -508,8 +513,8 @@ export class MailSourceAdapter implements Source<MailMessage> {
         );
         clientRef.current = fresh;
         logger?.debug(
-          { folder, attempt },
-          "mail adapter IDLE reconnect succeeded",
+          { folder, attempt, mode },
+          `mail adapter ${mode} reconnect succeeded`,
         );
         return;
       } catch (error) {
@@ -521,14 +526,15 @@ export class MailSourceAdapter implements Source<MailMessage> {
             err: error instanceof Error ? error : new Error(String(error)),
             folder,
             attempt,
+            mode,
           },
-          "mail adapter IDLE reconnect attempt failed",
+          `mail adapter ${mode} reconnect attempt failed`,
         );
       }
     }
 
     throw rcError("RC5010", undefined, {
-      message: `Mail adapter IDLE reconnect gave up after ${IDLE_RECONNECT_MAX_ATTEMPTS} attempts on folder "${folder}".`,
+      message: `Mail adapter ${mode} reconnect gave up after ${MAIL_RECONNECT_MAX_ATTEMPTS} attempts on folder "${folder}".`,
     });
   }
 }
