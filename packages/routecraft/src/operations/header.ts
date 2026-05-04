@@ -3,6 +3,7 @@ import {
   type Exchange,
   OperationType,
   type HeaderValue,
+  type HeaderLiteral,
   DefaultExchange,
 } from "../exchange.ts";
 
@@ -37,7 +38,7 @@ export class HeaderStep<T = unknown> implements Step<HeaderSetter<T>> {
 
   constructor(
     key: string,
-    setterOrValue: CallableHeaderSetter<T> | HeaderValue,
+    setterOrValue: CallableHeaderSetter<T> | HeaderLiteral,
   ) {
     const set: CallableHeaderSetter<T> =
       typeof setterOrValue === "function"

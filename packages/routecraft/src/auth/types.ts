@@ -148,25 +148,15 @@ export interface OAuthValidatorAuthOptions {
 // targets the package specifier and not a relative path.
 declare module "@routecraft/routecraft" {
   interface RoutecraftHeaders {
-    /** Authenticated subject (from Principal). */
-    "routecraft.auth.subject"?: string;
-    /** Authentication scheme used (e.g. "bearer"). */
-    "routecraft.auth.scheme"?: string;
-    /** Authentication kind (jwt | jwks | oauth | custom). */
-    "routecraft.auth.kind"?: string;
-    /** Roles assigned to the authenticated principal. */
-    "routecraft.auth.roles"?: string[];
-    /** Scopes granted to the authenticated principal. */
-    "routecraft.auth.scopes"?: string[];
-    /** Email of the authenticated principal. */
-    "routecraft.auth.email"?: string;
-    /** Display name of the authenticated principal. */
-    "routecraft.auth.name"?: string;
-    /** Token issuer (JWT `iss`). */
-    "routecraft.auth.issuer"?: string;
-    /** Intended audience (JWT `aud`). */
-    "routecraft.auth.audience"?: string[];
-    /** OAuth client ID (distinct from subject). */
-    "routecraft.auth.client_id"?: string;
+    /**
+     * Authenticated principal resolved from the request, when available.
+     *
+     * One header carries the entire structured `Principal` rather than ten
+     * flat string keys (subject, issuer, audience, ...). The `ex.principal`
+     * getter is sugar over reading this header. See
+     * `.standards/exchange-state-model.md` for the rationale (cross-cutting
+     * concerns get one header key, never a special field).
+     */
+    "routecraft.auth.principal"?: Principal;
   }
 }

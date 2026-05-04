@@ -229,7 +229,7 @@ Subtypes:
 | `'basic'` | `name?` |
 | `'custom'` | `name?`, `email?`, `roles?`, `scopes?`, `expiresAt?`, `claims?` |
 
-The populated principal surfaces on the exchange via `routecraft.auth.*` headers (see `McpHeadersKeys`): `auth.subject`, `auth.scheme`, `auth.name`, `auth.email`, `auth.roles`, `auth.scopes`, `auth.issuer`, `auth.audience`, and `auth.client_id` (OAuth only).
+The populated principal rides on the exchange as a single structured header (`routecraft.auth.principal`) and is exposed ergonomically via the `ex.principal` getter; read fields with `ex.principal?.subject`, `ex.principal?.scopes`, `ex.principal?.claims`, etc.
 
 ### Built-in `jwt()` helper
 

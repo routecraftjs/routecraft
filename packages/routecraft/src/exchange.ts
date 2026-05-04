@@ -78,6 +78,8 @@ export interface HeaderKeysRegistry {}
  * {@link HeaderKeysRegistry} interface.
  */
 export const HeadersKeys = {
+  /** Unique identifier for this exchange. Stored in headers so it survives halt/continue alongside body. */
+  ID: "routecraft.id",
   /** The operation type (from, process, to) */
   OPERATION: "routecraft.operation",
   /** The route id */
@@ -124,6 +126,13 @@ export const HeadersKeys = {
   JSONL_LINE: "routecraft.jsonl.line",
   /** The file path when reading a JSONL file in chunked mode */
   JSONL_PATH: "routecraft.jsonl.path",
+
+  /**
+   * Authenticated principal resolved from the request, when available.
+   * Carries the structured `Principal` object; the `ex.principal` getter
+   * is sugar over `ex.headers[HeadersKeys.AUTH_PRINCIPAL]`.
+   */
+  AUTH_PRINCIPAL: "routecraft.auth.principal",
 } as const satisfies Record<string, string>;
 
 /**
@@ -134,6 +143,15 @@ export const HeadersKeys = {
  * {@link HeaderKeysRegistry} to add typed headers.
  */
 export interface RoutecraftHeaders {
+  /**
+   * Unique identifier for this exchange.
+   *
+   * Stored in headers (not as a separate field) so it travels with the
+   * exchange's serializable state. This is the single source of truth for
+   * exchange identity; the `ex.id` getter reads from this key.
+   */
+  "routecraft.id": string;
+
   /** The current operation being performed (OperationType or DSL label) */
   "routecraft.operation": OperationType | string;
 
@@ -175,22 +193,45 @@ export interface RoutecraftHeaders {
 }
 
 /**
- * Allowed types for a single header value. Custom headers can use any of these; standard headers use specific types (see RoutecraftHeaders).
+ * Allowed types for a single header value at the **bag** level.
  *
- * Array values are typed `readonly string[]` so they cannot be mutated
- * via `push` / `splice` / index assignment through the (already
- * `Readonly<>`) `ExchangeHeaders` map. The contract is type-level;
- * the constructor does not deep-clone or freeze array values, since
- * the only path that produces them is the framework itself
- * (`split` builds the `routecraft.split_hierarchy` array, then
- * `rewrap`s share frozen header references downstream).
+ * `unknown` lets cross-cutting concerns (auth principal, future tracing
+ * spans, tenancy contexts) live in `headers` as a single typed slot rather
+ * than being spread across many flat keys. Per-key types are narrowed by
+ * {@link RoutecraftHeaders} and by the {@link HeaderKeysRegistry}
+ * declaration-merging mechanism; this bag-level type is just the catch-all
+ * for unregistered keys.
+ *
+ * For API surfaces that accept a static header value (e.g. `.header("k",
+ * v)`), prefer {@link HeaderLiteral} which excludes function types so user
+ * lambdas get correct inference in the value-or-function overload.
+ *
+ * Array values declared on registered keys are typed `readonly string[]` so
+ * they cannot be mutated via `push` / `splice` / index assignment through
+ * the (already `Readonly<>`) `ExchangeHeaders` map. The contract is
+ * type-level; the constructor freezes array values defensively so a caller
+ * who casts away the readonly cannot mutate a shared reference.
  */
-export type HeaderValue =
+export type HeaderValue = unknown;
+
+/**
+ * Allowed types for a header value when supplied as a literal at an API
+ * boundary that also accepts a callback (e.g. `.header("k", v)` /
+ * `.header("k", ex => ...)`). Excludes function types so the callback arm
+ * of the union infers parameters correctly.
+ *
+ * Includes the original primitive types for source-compat plus
+ * `Readonly<Record<string, unknown>>` so structured values (Principal,
+ * future Span, etc.) can be assigned directly when they aren't mediated by
+ * a callback.
+ */
+export type HeaderLiteral =
   | string
   | number
   | boolean
   | undefined
-  | readonly string[];
+  | readonly string[]
+  | Readonly<Record<string, unknown>>;
 
 /**
  * Mapped type that surfaces keys declared via {@link HeaderKeysRegistry}
@@ -218,29 +259,42 @@ export type ExchangeHeaders = Readonly<
 /**
  * Represents a message being processed through a route.
  *
- * An exchange encapsulates:
- * - The data being processed (body)
- * - Metadata about the processing (headers)
- * - A unique identifier
- * - Logging capabilities
- * - The authenticated principal, if any (set at the source boundary by
- *   adapters that perform authentication, or in a route step via
- *   `.process()` when callers want to attach a custom identity)
+ * An exchange has two kinds of state:
  *
- * Exchanges are immutable. Operations that change body, headers, or
- * principal must produce a new exchange (typically via spread) and return
- * it; the framework re-wraps the result via {@link DefaultExchange.rewrap}
- * so it preserves internal bindings (context, route). Body is not deep-
- * frozen so adapter authors can attach arbitrary user payloads, but the
- * framework will not mutate it and authors should treat it the same way.
+ * 1. **Stored fields** (`body`, `headers`) carry the data and metadata that
+ *    must survive halt/continue. Persistence serializes exactly these two
+ *    slots; rehydration constructs a new instance around them.
+ * 2. **Derived accessors** (`id`, `principal`, `logger`) read from
+ *    `headers` (or runtime services) and look like properties at the call
+ *    site. They are not stored separately. `id` reads
+ *    `headers["routecraft.id"]`; `principal` reads
+ *    `headers["routecraft.auth.principal"]`; `logger` builds a child logger
+ *    lazily from the framework's logger and the exchange's id.
+ *
+ * Cross-cutting concerns (auth, tracing, tenancy) all live as keys in
+ * `headers` rather than as top-level fields. This keeps the serialization
+ * surface small and avoids a "special field" precedent for every new
+ * concern.
+ *
+ * Exchanges are immutable. Operations that change body or headers must
+ * produce a new exchange (typically via spread) and return it; the
+ * framework re-wraps the result via {@link DefaultExchange.rewrap} so it
+ * preserves internal bindings (context, route). Body is not deep-frozen so
+ * adapter authors can attach arbitrary user payloads, but the framework
+ * will not mutate it and authors should treat it the same way.
  *
  * @template T The type of data in the body
  */
 export type Exchange<T = unknown> = {
-  /** Unique identifier for this exchange */
+  /**
+   * Unique identifier for this exchange.
+   *
+   * Reads from `headers["routecraft.id"]`. Stable across `rewrap`s so
+   * pipeline steps see the same id throughout a route.
+   */
   readonly id: string;
 
-  /** Headers containing metadata */
+  /** Headers containing metadata, including cross-cutting concerns like the authenticated principal. */
   readonly headers: ExchangeHeaders;
 
   /** The data being processed */
@@ -249,25 +303,27 @@ export type Exchange<T = unknown> = {
   /**
    * Authenticated principal for this exchange, when one has been resolved.
    *
-   * Set automatically by source adapters that perform authentication (e.g.
-   * the MCP server when `auth:` is configured). Routes may also assign a
-   * custom principal in `.process()` to attribute downstream actions to a
-   * specific identity (for example, mapping the sender of an inbound email
-   * onto a `kind: "custom"` principal).
+   * Sugar over `headers["routecraft.auth.principal"]`. Set automatically by
+   * source adapters that perform authentication (e.g. the MCP server when
+   * `auth:` is configured) by writing the principal into headers. Routes
+   * may also assign a custom principal in `.process()` by spreading new
+   * headers with this key.
    *
-   * Operations that re-stitch exchanges (`process`, `split`, `aggregate`,
-   * `enrich`, `tap`) propagate the principal with `?? current` semantics:
-   * a returned exchange that omits a principal inherits the parent's,
-   * rather than clearing it. The `| undefined` in the type lets callers
-   * pass `undefined` through `Partial<Exchange>` constructor options
-   * under `exactOptionalPropertyTypes`; it does NOT mean an assignment of
-   * `undefined` clears the field downstream.
+   * Propagates naturally because it lives in `headers`: any operation that
+   * spreads `prev.headers` keeps the principal sticky-set automatically,
+   * with no special-case plumbing.
    *
    * @experimental
    */
   readonly principal?: Principal | undefined;
 
-  /** Logger for this exchange (pino child logger) */
+  /**
+   * Logger for this exchange (pino child logger).
+   *
+   * Built lazily from the framework's base logger and the exchange's id /
+   * route / correlation. Not stored as serializable state; rehydrated
+   * exchanges build a fresh child logger on first access.
+   */
   readonly logger: ReturnType<typeof logger.child>;
 };
 
@@ -452,13 +508,16 @@ export function getStartedAt(exchange: Exchange): number | undefined {
  * `Readonly<...>` headers object (e.g. from another exchange) or a plain
  * literal.
  *
+ * `id` and `principal` are NOT options here: they live inside `headers`
+ * (`headers["routecraft.id"]` and `headers["routecraft.auth.principal"]`).
+ * Callers that want to control them set the corresponding header keys when
+ * building `headers`.
+ *
  * @internal
  */
 type DefaultExchangeOptions<T> = {
-  id?: string;
   body?: T;
   headers?: ExchangeHeaders;
-  principal?: Principal | undefined;
 };
 
 /**
@@ -471,7 +530,8 @@ type DefaultExchangeOptions<T> = {
  *   rewrap of the same logical exchange.
  * - `logger` is reused because its child bindings (contextId, route,
  *   correlationId, exchangeId) are unchanged across `rewrap` (rewrap
- *   preserves `id`).
+ *   preserves `id`). Pre-populating the lazy `#logger` slot avoids
+ *   rebuilding the same child on every rewrap of a long pipeline.
  *
  * @internal
  */
@@ -483,9 +543,15 @@ type RewrapState = {
 /**
  * Default implementation of the Exchange interface.
  *
- * Provides standard exchange functionality with automatic
- * ID generation and header initialization. Instances are immutable: the
- * constructor freezes the wrapper, headers, and principal. Body is left
+ * The implementation stores exactly two fields, `body` and `headers`.
+ * Everything else surfaced on the public `Exchange<T>` API (`id`,
+ * `principal`, `logger`) is exposed through getters that derive from
+ * `headers` plus runtime services. This keeps the serialization surface
+ * for halt/continue narrow (just `{ body, headers }`) and removes the
+ * "special field" precedent for cross-cutting concerns.
+ *
+ * Instances are immutable: the constructor freezes the wrapper and headers
+ * (and any non-primitive header values, defensively). Body is left
  * unfrozen so user payloads of any shape can flow through; the framework
  * does not mutate it.
  *
@@ -499,62 +565,55 @@ type RewrapState = {
  * });
  *
  * // Access exchange properties
- * console.log(exchange.id);        // Unique UUID
+ * console.log(exchange.id);        // Unique UUID (read from headers["routecraft.id"])
  * console.log(exchange.body);      // "Hello, World!"
  * console.log(exchange.headers);   // Headers object with standard fields
  * ```
  */
 export class DefaultExchange<T = unknown> implements Exchange<T> {
-  /** Unique identifier for this exchange */
-  readonly id: string;
-
-  /** Headers containing metadata */
+  /** Headers containing metadata, including the exchange id and (when set) the authenticated principal. */
   readonly headers: ExchangeHeaders;
 
   /** The data being processed */
   readonly body: T;
 
-  /** Authenticated principal, when one has been resolved. */
-  readonly principal?: Principal | undefined;
-
-  /** Logger for this exchange (pino child logger) */
-  public readonly logger: ReturnType<typeof logger.child>;
+  /**
+   * Lazily-built pino child logger. Filled on first access by the `logger`
+   * getter, or pre-populated by `rewrap` so a long pipeline reuses the
+   * parent exchange's child instead of rebuilding it on every step.
+   *
+   * Private fields are stored in a hidden internal slot, not as own
+   * properties, so writes to `#logger` are unaffected by `Object.freeze(this)`.
+   */
+  #logger: ReturnType<typeof logger.child> | undefined;
 
   /**
    * Create a new exchange.
    *
    * @param context The CraftContext this exchange belongs to
-   * @param options Optional configuration for the exchange
+   * @param options Optional configuration for the exchange. Set the exchange
+   *   id by including `headers["routecraft.id"]`; set the principal by
+   *   including `headers["routecraft.auth.principal"]`. Both default to
+   *   sensible runtime values when omitted (id: `randomUUID()`).
    * @param rewrapState Internal: when {@link DefaultExchange.rewrap} is
    *   building a derived instance, it threads the previous exchange's
    *   internals and logger through this parameter so they are genuinely
-   *   shared (not just copied) and the constructor skips default
-   *   `randomUUID()` / `logger.child(...)` work that the rewrap path
-   *   would immediately overwrite. Not for direct adapter use.
+   *   shared (not just copied) and the constructor skips
+   *   `logger.child(...)` work that the rewrap path would otherwise repeat.
+   *   Not for direct adapter use.
    */
   constructor(
     context: CraftContext,
     options?: DefaultExchangeOptions<T>,
     rewrapState?: RewrapState,
   ) {
-    this.id = options?.id || randomUUID();
-    // Skip the default `randomUUID()` calls for ROUTE_ID / CORRELATION_ID
-    // when the caller already supplies headers that include the standard
-    // keys. The rewrap path always does (it spreads `prev.headers`), and
-    // so do `buildExchange` / `split` (they set `routecraft.route`
-    // explicitly). The legacy code path generated two UUIDs per
-    // construction unconditionally and let the spread overwrite them,
-    // which on a 5-step pipeline meant ~10 wasted crypto calls per
-    // exchange.
-    // Skip the default `randomUUID()` work per-key when the caller
-    // already supplies a value. The rewrap path always supplies all
-    // three (it spreads `prev.headers`), and so do `buildExchange` /
-    // `split`. The legacy code path generated two UUIDs per
-    // construction unconditionally and let the spread overwrite them,
-    // which on a 5-step pipeline meant ~10 wasted crypto calls per
-    // exchange. Per-key gating preserves required defaults (`OPERATION`,
-    // `CORRELATION_ID`) when a caller supplies only `ROUTE_ID`, instead
-    // of an all-or-nothing fast path that would silently drop them.
+    // Per-key gating preserves required defaults (`ID`, `OPERATION`,
+    // `ROUTE_ID`, `CORRELATION_ID`) when a caller supplies only some of
+    // them, instead of an all-or-nothing fast path that would silently
+    // drop the others. The rewrap path supplies all four via the spread
+    // of `prev.headers`, so the `??` branches are no-ops in the hot path
+    // and the per-construction `randomUUID()` cost is paid only at the
+    // route boundary.
     //
     // The supplied headers are spread FIRST so that the explicit
     // required-key slots that follow override an `undefined` value the
@@ -564,27 +623,45 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
     const supplied = options?.headers;
     const merged: Record<string, HeaderValue> = {
       ...(supplied || {}),
+      [HeadersKeys.ID]: supplied?.[HeadersKeys.ID] ?? randomUUID(),
       [HeadersKeys.ROUTE_ID]: supplied?.[HeadersKeys.ROUTE_ID] ?? randomUUID(),
       [HeadersKeys.OPERATION]:
         supplied?.[HeadersKeys.OPERATION] ?? OperationType.FROM,
       [HeadersKeys.CORRELATION_ID]:
         supplied?.[HeadersKeys.CORRELATION_ID] ?? randomUUID(),
     };
-    // Type-level `readonly` on `HeaderValue` array variants prevents
-    // mutation through `exchange.headers` in TypeScript code, but a
-    // caller who casts away the readonly could still `arr.push(...)`
-    // into a shared array reference. Clone-and-freeze each array
-    // value so the runtime guarantee matches the type contract; this
-    // is the same defence-in-depth applied to the headers wrapper
-    // itself. The clone leaves the caller's input array untouched
-    // (we don't want `Object.freeze(supplied[key])` to surprise them),
-    // and skipping arrays already frozen avoids an extra allocation
-    // when the value came from another exchange's headers via spread.
+    // Defensive freeze on values that callers might mutate by reference:
+    //
+    // - Arrays: type-level `readonly` on `HeaderValue` array variants
+    //   prevents mutation through `exchange.headers` in TypeScript code,
+    //   but a caller who casts away the readonly could still
+    //   `arr.push(...)` into a shared array reference. Clone-and-freeze
+    //   each unfrozen array so the runtime guarantee matches the type
+    //   contract.
+    // - Principal: a structured header value. Shallow-freezing the wrapper
+    //   makes claim mutation by adapters caught at runtime
+    //   (`exchange.principal.subject = ...` throws). Nested claims are
+    //   not deep-frozen.
+    //
+    // We don't deep-clone or freeze arbitrary objects; those are caller
+    // payloads and the framework treats them as opaque, the same way
+    // `body` is left unfrozen.
     for (const key of Object.keys(merged)) {
       const value = merged[key];
       if (Array.isArray(value) && !Object.isFrozen(value)) {
         merged[key] = Object.freeze([...value]);
       }
+    }
+    const principal = merged[HeadersKeys.AUTH_PRINCIPAL];
+    if (
+      principal !== undefined &&
+      typeof principal === "object" &&
+      principal !== null &&
+      !Object.isFrozen(principal)
+    ) {
+      merged[HeadersKeys.AUTH_PRINCIPAL] = Object.freeze({
+        ...(principal as Principal),
+      });
     }
     this.headers = Object.freeze(merged);
     // Honour an explicit `body: undefined` from the caller (e.g. a
@@ -592,13 +669,6 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
     // path). Only fall back to `{}` when the caller did not pass a body
     // key at all.
     this.body = options && "body" in options ? (options.body as T) : ({} as T);
-    if (options?.principal !== undefined) {
-      // Object.freeze on a primitive is a no-op; on a Principal object it
-      // makes claim mutation by adapters caught at runtime. We do not deep-
-      // freeze the principal's internals (e.g. nested claims); shallow is
-      // enough to stop direct rewrites like `exchange.principal.subject = ...`.
-      this.principal = Object.freeze(options.principal);
-    }
 
     // Store internals: symbol key (cross-instance) and WeakMap (same-instance compat).
     // Internals live BEFORE the wrapper is frozen because freeze prevents
@@ -613,16 +683,51 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
     setInternals(this, INTERNALS_KEY, internals);
     EXCHANGE_INTERNALS.set(this, internals);
     setBrand(this, BRAND.Exchange);
-    // Reuse `prev`'s logger when rewrapping; the child bindings
-    // (contextId, route, correlationId, exchangeId) are unchanged because
-    // rewrap preserves id, so the logger stays correctly scoped.
-    this.logger = rewrapState?.logger ?? logger.child(childBindings(this));
+    // Pre-populate the lazy logger slot when rewrapping. The child
+    // bindings (contextId, route, correlationId, exchangeId) are
+    // unchanged because rewrap preserves id, so the parent's logger
+    // stays correctly scoped. Fresh exchanges leave `#logger` undefined
+    // so the first read of `.logger` builds the child on demand.
+    if (rewrapState?.logger) {
+      this.#logger = rewrapState.logger;
+    }
 
-    // Freeze the wrapper itself last so all properties (including the
+    // Freeze the wrapper itself last so own properties (including the
     // symbol-keyed internals slot and the brand) are sealed against
     // reassignment. Mutating user code via `as any` casts now produces a
-    // TypeError in strict mode, which the package runs in.
+    // TypeError in strict mode, which the package runs in. Private fields
+    // (`#logger`) live in a hidden internal slot and are unaffected by
+    // freeze, so the lazy-build path keeps working post-freeze.
     Object.freeze(this);
+  }
+
+  /**
+   * Unique identifier for this exchange. Reads from
+   * `headers["routecraft.id"]` so the id travels with the serializable
+   * state and survives halt/continue.
+   */
+  get id(): string {
+    return this.headers[HeadersKeys.ID] as string;
+  }
+
+  /**
+   * Authenticated principal, when one has been resolved. Sugar over
+   * `headers["routecraft.auth.principal"]`.
+   */
+  get principal(): Principal | undefined {
+    return this.headers[HeadersKeys.AUTH_PRINCIPAL] as Principal | undefined;
+  }
+
+  /**
+   * Pino child logger scoped to this exchange. Built lazily from the
+   * framework's base logger; rebuilt on a rehydrated exchange because the
+   * logger is not part of the serializable state.
+   */
+  get logger(): ReturnType<typeof logger.child> {
+    if (this.#logger === undefined) {
+      this.#logger = logger.child(childBindings(this));
+    }
+    return this.#logger;
   }
 
   /**
@@ -633,22 +738,24 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
    * spread) back into proper instances without losing the framework's
    * back-channel state.
    *
-   * - `id` defaults to `prev.id` (preserves identity through pipeline steps).
-   * - `headers` defaults to `prev.headers` (frozen reference is safe to share).
+   * - `headers` defaults to `prev.headers`. Identity (`routecraft.id`) is
+   *   forced to `prev.id` so it survives a caller-supplied headers object
+   *   that came from a different exchange. Cross-cutting concerns
+   *   (`routecraft.auth.principal`, future tracing/tenancy keys) flow
+   *   through naturally because they live in the same headers bag.
    * - `body` defaults to `prev.body`.
-   * - `principal` follows `?? prev.principal` semantics so a returned
-   *   exchange that omits the principal inherits the parent's. Pass an
-   *   explicit `Principal` to set; passing `undefined` does NOT clear.
+   *
+   * Identity-changing operations (split, aggregate restoring a parent)
+   * construct a new `DefaultExchange` directly with fresh headers rather
+   * than calling `rewrap`.
    *
    * @internal
    */
   static rewrap<T>(
     prev: Exchange,
     partial: {
-      readonly id?: string;
       readonly body?: T;
       readonly headers?: ExchangeHeaders;
-      readonly principal?: Principal;
     } = {},
   ): DefaultExchange<T> {
     const prevInternals =
@@ -665,24 +772,33 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
       );
     }
 
+    // Force prev's id into the new headers so a caller-supplied `headers`
+    // object that came from a foreign exchange (e.g. user code returning
+    // `{ ...someOtherExchange, body: x }` from `.process()`) does not
+    // silently change the exchange identity mid-route. Identity is owned
+    // by the framework and is preserved across rewraps. Identity-changing
+    // operations (split, aggregate-restore-parent) construct a new
+    // `DefaultExchange` directly rather than going through `rewrap`.
+    //
     // For body, use `'body' in partial` so an explicit `body: undefined`
     // (e.g. `transform(() => undefined)` or `json({ path: missingKey })`)
-    // sets the new body to undefined rather than inheriting prev's. Headers
-    // are never undefined in the type system, and principal uses `??` to
-    // preserve `?? prev.principal` inheritance semantics.
+    // sets the new body to undefined rather than inheriting prev's.
     //
     // Internals are shared by reference (not copied) via `rewrapState` so a
     // post-construction write on either prev or next is visible on the
     // other. The logger is reused for the same reason: bindings derive
     // from id/contextId/route/correlationId, all of which `rewrap`
     // preserves.
+    const baseHeaders = partial.headers ?? prev.headers;
+    const newHeaders =
+      baseHeaders[HeadersKeys.ID] === prev.id
+        ? baseHeaders
+        : { ...baseHeaders, [HeadersKeys.ID]: prev.id };
     return new DefaultExchange<T>(
       context,
       {
-        id: partial.id ?? prev.id,
-        headers: partial.headers ?? prev.headers,
+        headers: newHeaders,
         body: ("body" in partial ? partial.body : prev.body) as T,
-        principal: partial.principal ?? prev.principal,
       },
       { internals: prevInternals, logger: prev.logger },
     );

@@ -160,9 +160,6 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
       const next = DefaultExchange.rewrap<R>(exchange, {
         body: aggregatedExchange.body,
         headers: aggregatedExchange.headers,
-        ...(aggregatedExchange.principal !== undefined && {
-          principal: aggregatedExchange.principal,
-        }),
       });
 
       if (context) {
@@ -245,9 +242,6 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
     const next = DefaultExchange.rewrap<R>(baseExchange, {
       body: aggregatedExchange.body,
       headers: finalHeaders,
-      ...(aggregatedExchange.principal !== undefined && {
-        principal: aggregatedExchange.principal,
-      }),
     });
 
     if (context) {

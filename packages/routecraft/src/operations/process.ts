@@ -65,9 +65,14 @@ export class ProcessStep<T = unknown, R = T> implements Step<Processor<T, R>> {
     // foreign context -- always rewrap onto THIS exchange's internals.
     // An `instanceof DefaultExchange` fast-path would let a user return
     // `new DefaultExchange(otherContext, ...)` and break route binding
-    // for downstream telemetry / split / tap; rewrap restores it. This
-    // also keeps the principal sticky-set rule (`?? prev.principal`)
-    // consistent regardless of return shape.
+    // for downstream telemetry / split / tap; rewrap restores it.
+    //
+    // Cross-cutting concerns like the authenticated principal flow through
+    // `returned.headers` automatically: rewrap forces `prev.id` for
+    // identity but otherwise threads the user's headers verbatim, so a
+    // returned exchange that preserves `headers` (the common case via
+    // spread) keeps its principal, span, tenant, etc. without any
+    // operation-specific plumbing.
     //
     // We do NOT forward `returned.id` into rewrap. `.process()` is a body
     // transform; identity is owned by the framework. A user who returns
@@ -82,9 +87,6 @@ export class ProcessStep<T = unknown, R = T> implements Step<Processor<T, R>> {
         : DefaultExchange.rewrap<R>(exchange, {
             body: returned.body,
             headers: returned.headers,
-            ...(returned.principal !== undefined && {
-              principal: returned.principal,
-            }),
           });
     queue.push({ exchange: next, steps: remainingSteps });
   }

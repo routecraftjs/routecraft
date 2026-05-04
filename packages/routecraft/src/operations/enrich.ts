@@ -258,9 +258,6 @@ export class EnrichStep<T = unknown, R = unknown> implements Step<
         : DefaultExchange.rewrap<T>(exchange, {
             body: result.body,
             headers: result.headers,
-            ...(result.principal !== undefined && {
-              principal: result.principal,
-            }),
           });
 
     // Push the exchange to the queue

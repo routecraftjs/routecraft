@@ -464,21 +464,24 @@ export class DefaultRoute implements Route {
     const incomingCorrelationId = headers?.[HeadersKeys.CORRELATION_ID] as
       | string
       | undefined;
+    const builtHeaders: Record<string, unknown> = {
+      ...headers,
+      [HeadersKeys.CORRELATION_ID]: incomingCorrelationId ?? randomUUID(),
+      [HeadersKeys.ROUTE_ID]: this.definition.id,
+      [HeadersKeys.OPERATION]: OperationType.FROM,
+    };
+    if (principal !== undefined) {
+      builtHeaders[HeadersKeys.AUTH_PRINCIPAL] = principal;
+    }
     const exchange = new DefaultExchange(this.context, {
       body: message,
-      headers: {
-        ...headers,
-        [HeadersKeys.CORRELATION_ID]: incomingCorrelationId ?? randomUUID(),
-        [HeadersKeys.ROUTE_ID]: this.definition.id,
-        [HeadersKeys.OPERATION]: OperationType.FROM,
-      },
-      ...(principal !== undefined && { principal }),
+      headers: builtHeaders,
     });
 
     // Add route to internals so steps like tap can access it (symbol-key for cross-instance)
     const internals =
       (
-        exchange as Exchange & {
+        exchange as unknown as Exchange & {
           [key: symbol]: { context: CraftContext; route?: Route };
         }
       )[INTERNALS_KEY] ?? EXCHANGE_INTERNALS.get(exchange);
