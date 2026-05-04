@@ -195,23 +195,6 @@ jobs:
           path: "**/node_modules"
           key: ${{ runner.os }}-modules-${{ hashFiles('**/pnpm-lock.yaml') }}
 
-      - name: Setup Pages
-        id: configure-pages
-        if: github.event_name == 'release'
-        uses: actions/configure-pages@v6
-        with:
-          static_site_generator: next
-
-      - name: Export Pages base path env
-        if: github.event_name == 'release'
-        run: |
-          echo "NEXT_PUBLIC_BASE_PATH=${{ steps.configure-pages.outputs.base_path }}" >> $GITHUB_ENV
-          echo "NEXT_PUBLIC_ASSET_PREFIX=${{ steps.configure-pages.outputs.asset_base_url }}" >> $GITHUB_ENV
-
-      - name: Set release version
-        if: github.event_name == 'release'
-        run: pnpm run version:set "${GITHUB_REF#refs/tags/v}"
-
       - name: Build packages
         run: pnpm run build
         env:
@@ -226,14 +209,6 @@ jobs:
         with:
           path: "**/dist"
           key: build-${{ github.event.pull_request.head.sha || github.sha }}
-
-      - name: Upload docs export artifact
-        if: github.event_name == 'release'
-        uses: actions/upload-artifact@v7
-        with:
-          name: docs-export
-          path: apps/routecraft.dev/out
-          if-no-files-found: error
 
   integration-test:
     needs: [changes, validate, test, build]
@@ -305,7 +280,7 @@ jobs:
             packages/ai/package.json packages/browser/package.json packages/cli/package.json \
             packages/create-routecraft/package.json packages/eslint-plugin-routecraft/package.json packages/os/package.json packages/routecraft/package.json packages/testing/package.json \
             packages/cli/src/index.ts \
-            apps/routecraft.dev/package.json apps/routecraft.dev/src/components/VersionSelector.tsx
+            apps/routecraft.dev/package.json
 
   publish-canary:
     needs: [changes, build, integration-test]
@@ -487,9 +462,138 @@ jobs:
             npm publish "./$pkg" --access public --provenance
           done
 
+  build-docs-site:
+    needs: [changes, validate, test, build]
+    if: |
+      github.event_name == 'workflow_dispatch'
+      || github.event_name == 'release'
+      || (github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.docs == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main (canary)
+        uses: actions/checkout@v6
+        with:
+          path: canary
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Use Node.js from .nvmrc
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: canary/.nvmrc
+          cache: pnpm
+          cache-dependency-path: canary/pnpm-lock.yaml
+
+      - name: Install canary dependencies
+        working-directory: canary
+        run: pnpm install --frozen-lockfile
+
+      - name: Build canary docs (/next)
+        working-directory: canary
+        env:
+          NEXT_PUBLIC_BASE_PATH: /next
+          NEXT_PUBLIC_DOC_VERSION: next
+          NEXT_PUBLIC_DOC_COMMIT: ${{ github.sha }}
+          NEXT_PUBLIC_POSTHOG_KEY: ${{ secrets.NEXT_PUBLIC_POSTHOG_KEY }}
+          NEXT_PUBLIC_POSTHOG_HOST: ${{ secrets.NEXT_PUBLIC_POSTHOG_HOST }}
+        run: pnpm --filter routecraft.dev build
+
+      - name: Find latest stable tag
+        id: latest
+        working-directory: canary
+        run: |
+          set -eo pipefail
+          if LATEST_TAG=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null); then
+            echo "tag=$LATEST_TAG" >> "$GITHUB_OUTPUT"
+            echo "version=${LATEST_TAG#v}" >> "$GITHUB_OUTPUT"
+            echo "Latest stable tag: $LATEST_TAG"
+          else
+            echo "tag=" >> "$GITHUB_OUTPUT"
+            echo "No stable tag found; deploying canary only"
+          fi
+
+      - name: Checkout stable tag
+        if: steps.latest.outputs.tag != ''
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.latest.outputs.tag }}
+          path: stable
+
+      - name: Install stable dependencies
+        if: steps.latest.outputs.tag != ''
+        working-directory: stable
+        run: pnpm install --frozen-lockfile
+
+      - name: Set stable version metadata
+        if: steps.latest.outputs.tag != ''
+        working-directory: stable
+        run: pnpm run version:set "${{ steps.latest.outputs.version }}"
+
+      - name: Build stable docs (/latest)
+        if: steps.latest.outputs.tag != ''
+        working-directory: stable
+        env:
+          NEXT_PUBLIC_BASE_PATH: /latest
+          NEXT_PUBLIC_DOC_VERSION: v${{ steps.latest.outputs.version }}
+          NEXT_PUBLIC_POSTHOG_KEY: ${{ secrets.NEXT_PUBLIC_POSTHOG_KEY }}
+          NEXT_PUBLIC_POSTHOG_HOST: ${{ secrets.NEXT_PUBLIC_POSTHOG_HOST }}
+        run: pnpm --filter routecraft.dev build
+
+      - name: Assemble merged site
+        env:
+          STABLE_VERSION: ${{ steps.latest.outputs.version }}
+        run: |
+          set -eo pipefail
+          mkdir -p site
+          mv canary/apps/routecraft.dev/out site/next
+
+          if [ -d stable/apps/routecraft.dev/out ]; then
+            mv stable/apps/routecraft.dev/out site/latest
+            ROOT_TARGET="/latest/"
+            cat > site/versions.json <<JSON
+          [
+            { "label": "next", "basePath": "/next" },
+            { "label": "v${STABLE_VERSION}", "basePath": "/latest", "default": true }
+          ]
+          JSON
+          else
+            ROOT_TARGET="/next/"
+            cat > site/versions.json <<'JSON'
+          [
+            { "label": "next", "basePath": "/next", "default": true }
+          ]
+          JSON
+          fi
+
+          cat > site/index.html <<HTML
+          <!doctype html>
+          <html lang="en">
+            <head>
+              <meta charset="utf-8">
+              <title>Routecraft Docs</title>
+              <meta http-equiv="refresh" content="0; url=${ROOT_TARGET}">
+              <link rel="canonical" href="${ROOT_TARGET}">
+            </head>
+            <body>
+              <p>Redirecting to <a href="${ROOT_TARGET}">${ROOT_TARGET}</a>...</p>
+            </body>
+          </html>
+          HTML
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
   deploy-pages:
-    needs: [build]
-    if: github.event_name == 'release'
+    needs: [changes, build-docs-site]
+    if: |
+      github.event_name == 'workflow_dispatch'
+      || github.event_name == 'release'
+      || (github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.docs == 'true')
     runs-on: ubuntu-latest
     concurrency:
       group: pages
@@ -499,20 +603,8 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     permissions:
       id-token: write
-      contents: read
       pages: write
     steps:
-      - name: Download docs export artifact
-        uses: actions/download-artifact@v8
-        with:
-          name: docs-export
-          path: docs-export
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v5
-        with:
-          path: docs-export
-
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
