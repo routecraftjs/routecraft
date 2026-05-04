@@ -64,6 +64,13 @@ export const defaultAggregate = <T>(
   // Check if any body is an array
   const hasArrayBody = exchanges.some((x) => Array.isArray(x.body));
 
+  // Spread-of-exchange (`{ ...exchanges[0], body }`) used to copy stored
+  // fields like `principal` forward; with the unified state model only
+  // `body` and `headers` are own-properties, so we hand the consuming
+  // `AggregateStep` the explicit shape it needs (body + headers from the
+  // first exchange). Identity, principal, and logger are derived from
+  // headers via getters and reattach automatically when the engine wraps
+  // the aggregate result back into a `DefaultExchange`.
   if (hasArrayBody) {
     // Flatten arrays and combine with scalar values
     const flattened: ExtractArrayElement<T>[] = [];
@@ -75,16 +82,16 @@ export const defaultAggregate = <T>(
       }
     }
     return {
-      ...exchanges[0],
+      headers: exchanges[0].headers,
       body: flattened as FlattenedAggregateResult<T>,
-    };
+    } as Exchange<FlattenedAggregateResult<T>>;
   }
 
   // No arrays found, return array of bodies (original behavior)
   return {
-    ...exchanges[0],
+    headers: exchanges[0].headers,
     body: exchanges.map((x) => x.body) as FlattenedAggregateResult<T>,
-  };
+  } as Exchange<FlattenedAggregateResult<T>>;
 };
 
 /**

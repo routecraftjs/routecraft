@@ -5,7 +5,9 @@ import {
   type HeaderValue,
   type HeaderLiteral,
   DefaultExchange,
+  HeadersKeys,
 } from "../exchange.ts";
+import { rcError } from "../error.ts";
 
 /**
  * Function that returns the value for a header. Can be async. Use with `.header(key, valueOrFn)`.
@@ -40,6 +42,20 @@ export class HeaderStep<T = unknown> implements Step<HeaderSetter<T>> {
     key: string,
     setterOrValue: CallableHeaderSetter<T> | HeaderLiteral,
   ) {
+    // Exchange identity is framework-owned: `DefaultExchange.rewrap`
+    // unconditionally restores `prev.id` into the new headers so identity
+    // is preserved across every pipeline step. A `.header()` write of
+    // `routecraft.id` would land in the merged record but be overwritten
+    // by the next rewrap, silently no-op-ing. Reject up front with a
+    // clear message rather than letting the user chase a phantom bug.
+    if (key === HeadersKeys.ID) {
+      throw rcError("RC5003", undefined, {
+        message: `.header() cannot set "${HeadersKeys.ID}": exchange identity is framework-owned and preserved across every rewrap.`,
+        suggestion:
+          "Identity is set once when the exchange is constructed and propagates automatically. If you need to correlate with an upstream id, use routecraft.correlation_id (settable via .header() or by source adapters).",
+      });
+    }
+
     const set: CallableHeaderSetter<T> =
       typeof setterOrValue === "function"
         ? (setterOrValue as CallableHeaderSetter<T>)

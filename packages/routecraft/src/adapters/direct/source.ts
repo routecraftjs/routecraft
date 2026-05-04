@@ -4,7 +4,6 @@ import type { CraftContext } from "../../context";
 import { rcError } from "../../error";
 import type { DirectServerOptions } from "./types";
 import { getDirectChannel, registerRoute, sanitizeEndpoint } from "./shared";
-import type { Principal } from "../../auth/types";
 
 /**
  * DirectSourceAdapter implements the Source interface for the direct adapter.
@@ -34,7 +33,6 @@ export class DirectSourceAdapter<T = unknown> implements Source<T> {
       headers?: ExchangeHeaders,
       parse?: (raw: unknown) => unknown | Promise<unknown>,
       parseFailureMode?: import("../shared/parse").OnParseError,
-      principal?: Principal | undefined,
     ) => Promise<Exchange>,
     abortController: AbortController,
     onReady?: () => void,
@@ -69,19 +67,15 @@ export class DirectSourceAdapter<T = unknown> implements Source<T> {
     }
 
     // Unwrap the channel's Exchange payload and hand body / headers to the
-    // framework-provided handler. The caller's principal rides through as
-    // the 5th arg so route-to-route invocations preserve identity (the
-    // called route's `.authorize()` sees the same principal as the caller).
+    // framework-provided handler. The caller's principal rides through on
+    // `headers["routecraft.auth.principal"]` (the source of truth after
+    // the state-model unification), so route-to-route invocations
+    // preserve identity automatically: the called route's `.authorize()`
+    // sees the same principal as the caller without a separate parameter.
     // Framework-level input validation runs inside the handler, so the
     // adapter has nothing more to do here.
     const wrappedHandler = async (exchange: Exchange<T>) => {
-      const result = await handler(
-        exchange.body as T,
-        exchange.headers,
-        undefined,
-        undefined,
-        exchange.principal,
-      );
+      const result = await handler(exchange.body as T, exchange.headers);
       return result as Exchange<T>;
     };
 

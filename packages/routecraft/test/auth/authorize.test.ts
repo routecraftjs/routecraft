@@ -14,15 +14,19 @@ type FailedEventDetails = { details: { error: unknown } };
 
 /**
  * Build a tiny test source that emits one body and forwards a principal
- * via the 5th argument of the subscribe handler. Mirrors what real
- * authenticating sources (e.g. `mcp({ auth: jwt(...) })`) do at their
- * boundary, so the route's first exchange already carries the principal
- * and pre-from `.authorize()` can gate it.
+ * by writing it onto `headers["routecraft.auth.principal"]` before
+ * invoking the handler. Mirrors what real authenticating sources
+ * (e.g. `mcp({ auth: jwt(...) })`) do at their boundary, so the route's
+ * first exchange already carries the principal and pre-from
+ * `.authorize()` can gate it.
  */
 function principalSource<T>(body: T, principal?: Principal): Source<T> {
   return {
     subscribe: async (_ctx, handler) => {
-      await handler(body, undefined, undefined, undefined, principal);
+      const headers = principal
+        ? { "routecraft.auth.principal": principal }
+        : undefined;
+      await handler(body, headers);
     },
   };
 }
@@ -791,18 +795,68 @@ describe("exchange.principal propagation", () => {
     expect(tapped.lastReceived().principal).toEqual(principal);
   });
 
-  // Note: the previous "tap snapshot principal is isolated from main flow
-  // mutations" test asserted a deep-clone of the principal in tap
-  // snapshots. With the unified state model (`{ body, headers }` is the
-  // serialization surface; cross-cutting concerns live in `headers` like
-  // anything else), the framework no longer special-cases principal in
-  // tap. The headers wrapper is shallow-frozen and the principal wrapper
-  // is shallow-frozen; nested mutations of any structured header value
-  // (e.g. `principal.claims.foo`) are an anti-pattern the framework does
-  // not prevent and therefore do not provide isolation guarantees against.
-  // Tap is for observation, not mutation; routes that need to attach a
-  // different identity should set a new principal in `headers` rather
-  // than mutating the existing one. See `.standards/exchange-state-model.md`.
+  /**
+   * @case Tap snapshots share structured-header values (like `principal.claims`)
+   *       by reference with the main flow. With the unified state model
+   *       (`{ body, headers }` is the serialization surface; cross-cutting
+   *       concerns live in `headers` like anything else), the framework no
+   *       longer deep-clones principal into tap snapshots. Nested mutation
+   *       of structured header values is an anti-pattern the framework
+   *       does not prevent or isolate against; routes that need a fresh
+   *       identity should set a new principal on `headers` rather than
+   *       mutating the existing one. This test pins that contract so a
+   *       future PR cannot silently re-introduce the deep-clone.
+   *       See `.standards/exchange-state-model.md`.
+   * @preconditions Route attaches a principal with mutable `claims`, taps,
+   *                then mutates `principal.claims.tenant` in a downstream
+   *                `.process()` step
+   * @expectedResult Both the tap snapshot and the main-flow exchange see
+   *                 the post-mutation `claims.tenant` value (shared by
+   *                 reference; no isolation)
+   */
+  test("tap snapshot shares principal claims by reference (no deep-clone)", async () => {
+    const main = spy<string>();
+    const tapped = spy<string>();
+    const principal: Principal = {
+      kind: "custom",
+      scheme: "bearer",
+      subject: "user-1",
+      claims: { tenant: "before" },
+    };
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("tap-principal-shared-ref")
+          .from(simple("hello"))
+          .process((ex) => ({
+            ...ex,
+            headers: {
+              ...ex.headers,
+              "routecraft.auth.principal": principal,
+            },
+          }))
+          .tap(tapped)
+          .process((ex) => {
+            // Anti-pattern (and the test's whole point): the framework
+            // does not isolate nested mutations of structured header
+            // values. The mutation leaks into the tap snapshot because
+            // they share the same `principal` object reference.
+            (ex.principal!.claims as { tenant: string }).tenant = "after";
+            return ex;
+          })
+          .to(main),
+      )
+      .build();
+    await t.test();
+
+    expect(
+      (main.lastReceived().principal!.claims as { tenant: string }).tenant,
+    ).toBe("after");
+    expect(
+      (tapped.lastReceived().principal!.claims as { tenant: string }).tenant,
+    ).toBe("after");
+  });
 });
 
 describe(".authorize() type checks", () => {

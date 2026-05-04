@@ -81,6 +81,13 @@ export class ProcessStep<T = unknown, R = T> implements Step<Processor<T, R>> {
     // event correlation, split bookkeeping, and child telemetry break.
     // Identity-changing operations (split, aggregate) have dedicated
     // paths.
+    // Fast-path: a processor that returns the same instance it was handed
+    // (typical for `tap`-like uses or transform-in-place patterns) skips
+    // a `rewrap` allocation. The double cast is required because
+    // `exchange: Exchange<T>` and `returned: Exchange<R>` have different
+    // generic parameters even when they are the same runtime reference;
+    // `===` operates on the runtime reference, the cast just satisfies
+    // the type checker that the reference is shape-compatible with R.
     const next =
       returned === (exchange as unknown as Exchange<R>)
         ? (exchange as unknown as Exchange<R>)

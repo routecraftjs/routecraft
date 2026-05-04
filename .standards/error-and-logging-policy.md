@@ -91,6 +91,8 @@ All boundaries use `err.meta.message` (`RoutecraftError`) or `err.message` (plai
 
 Every operation that alters an exchange's lifecycle must emit an observable event. No silent drops.
 
+The companion document for *where state lives on the exchange* is [`exchange-state-model.md`](./exchange-state-model.md). When you instrument a new operation, that document tells you which fields are stored (`body`, `headers`) versus derived (`id`, `principal`, `logger`); this document tells you which events to emit and what `exchangeId` / `correlationId` resolve to.
+
 | Event | When | Key details |
 |-------|------|-------------|
 | `exchange:started` | Exchange enters the pipeline (or a child is first processed) | `exchangeId`, `correlationId` |

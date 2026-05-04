@@ -162,12 +162,14 @@ describe("BatchConsumer", () => {
   });
 
   /**
-   * @case Per-item parse-failure path forwards `message.principal` so authz
-   *       checks in `.error()` see the same identity the source resolved
-   * @preconditions Bad item with a `principal` set on the queued Message
-   * @expectedResult Handler is invoked with the principal as its 5th arg
+   * @case Per-item parse-failure path forwards the source-supplied headers
+   *       (including `routecraft.auth.principal`) so authz checks in
+   *       `.error()` see the same identity the source resolved
+   * @preconditions Bad item with `routecraft.auth.principal` set on the
+   *                queued Message's headers
+   * @expectedResult Handler is invoked with the same headers, principal intact
    */
-  test("forwards principal through the per-item parse-failure path", async () => {
+  test("forwards principal header through the per-item parse-failure path", async () => {
     const ctx = new CraftContext();
     const queue = new InMemoryProcessingQueue<Message>();
     const consumer = new BatchConsumer(
@@ -179,17 +181,15 @@ describe("BatchConsumer", () => {
 
     const calls: { principal: unknown }[] = [];
 
-    await consumer.register(
-      async (_message, _headers, _parse, _mode, principal) => {
-        calls.push({ principal });
-        return {
-          id: "exchange-id",
-          body: _message,
-          headers: {},
-          logger: ctx.logger,
-        } as Exchange;
-      },
-    );
+    await consumer.register(async (_message, headers) => {
+      calls.push({ principal: headers?.["routecraft.auth.principal"] });
+      return {
+        id: "exchange-id",
+        body: _message,
+        headers: {},
+        logger: ctx.logger,
+      } as Exchange;
+    });
 
     const principal = {
       kind: "custom" as const,
@@ -199,10 +199,9 @@ describe("BatchConsumer", () => {
 
     const badPromise = queue.enqueue({
       message: "not-json",
-      headers: {},
+      headers: { "routecraft.auth.principal": principal },
       parse: (raw) => JSON.parse(raw as string),
       parseFailureMode: "fail",
-      principal,
     });
 
     await badPromise;
@@ -211,13 +210,15 @@ describe("BatchConsumer", () => {
   });
 
   /**
-   * @case Merged-batch path drops principals by design (multi-principal merge
-   *       has no defined policy); contract is documented on `register()`
-   * @preconditions Two queued items, each with a principal set
-   * @expectedResult Handler is invoked once with `principal === undefined`
-   *                 because the merged exchange does not carry per-item identity
+   * @case Merged-batch path uses last-write-wins semantics for headers,
+   *       including `routecraft.auth.principal`; multi-identity batches
+   *       resolve to the last item's principal. Documented on `register()`;
+   *       routes needing per-item identity should use the simple consumer
+   *       or supply a custom `merge`.
+   * @preconditions Two queued items, each with a different principal in headers
+   * @expectedResult Handler is invoked once with the second item's principal
    */
-  test("does not forward principal through the merged batch path", async () => {
+  test("merges principal header with last-write-wins semantics", async () => {
     const ctx = new CraftContext();
     const queue = new InMemoryProcessingQueue<Message>();
     const consumer = new BatchConsumer(
@@ -229,17 +230,15 @@ describe("BatchConsumer", () => {
 
     const calls: { principal: unknown }[] = [];
 
-    await consumer.register(
-      async (_message, _headers, _parse, _mode, principal) => {
-        calls.push({ principal });
-        return {
-          id: "exchange-id",
-          body: _message,
-          headers: {},
-          logger: ctx.logger,
-        } as Exchange;
-      },
-    );
+    await consumer.register(async (_message, headers) => {
+      calls.push({ principal: headers?.["routecraft.auth.principal"] });
+      return {
+        id: "exchange-id",
+        body: _message,
+        headers: {},
+        logger: ctx.logger,
+      } as Exchange;
+    });
 
     const principalA = {
       kind: "custom" as const,
@@ -254,20 +253,18 @@ describe("BatchConsumer", () => {
 
     const promiseA = queue.enqueue({
       message: 1,
-      headers: {},
-      principal: principalA,
+      headers: { "routecraft.auth.principal": principalA },
     });
     const promiseB = queue.enqueue({
       message: 2,
-      headers: {},
-      principal: principalB,
+      headers: { "routecraft.auth.principal": principalB },
     });
 
     await vi.advanceTimersByTimeAsync(50);
     await Promise.all([promiseA, promiseB]);
 
-    // One merged invocation; principal arg is intentionally undefined.
+    // One merged invocation; last-wins on the principal header.
     expect(calls).toHaveLength(1);
-    expect(calls[0].principal).toBeUndefined();
+    expect(calls[0].principal).toEqual(principalB);
   });
 });

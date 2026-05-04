@@ -1,4 +1,4 @@
-import { describe, test, expect, afterEach } from "vitest";
+import { describe, test, afterEach, expect, expectTypeOf } from "vitest";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
   craft,
@@ -146,6 +146,38 @@ describe("Exchange state model", () => {
     expect(ex.principal).toEqual(principal);
     expect(ex.headers["routecraft.id"]).toBe("fixed-id-123");
     expect(ex.headers["routecraft.auth.principal"]).toEqual(principal);
+  });
+
+  /**
+   * @case Type-level: registered headers preserve their narrow types when
+   *       indexed by literal key, while unregistered keys widen to
+   *       `unknown` (the bag-level `HeaderValue`). Locks the contract that
+   *       widening `HeaderValue` to `unknown` did not regress reads of
+   *       registered headers; future refactors of `ExchangeHeaders` must
+   *       not collapse this distinction.
+   * @preconditions A reference to `Exchange<unknown>` declared via type-only
+   * @expectedResult `routecraft.route` reads as `string | undefined`,
+   *                 `routecraft.timer.counter` as `number | undefined`,
+   *                 `routecraft.split_hierarchy` as `readonly string[] |
+   *                 undefined`, and an arbitrary key as `unknown`
+   */
+  test("registered header reads preserve narrow types; unknown keys widen to unknown", () => {
+    type H = Exchange["headers"];
+    expectTypeOf<H["routecraft.route"]>().toEqualTypeOf<string | undefined>();
+    expectTypeOf<H[typeof HeadersKeys.CORRELATION_ID]>().toEqualTypeOf<
+      string | undefined
+    >();
+    expectTypeOf<H["routecraft.timer.counter"]>().toEqualTypeOf<
+      number | undefined
+    >();
+    expectTypeOf<H["routecraft.split_hierarchy"]>().toEqualTypeOf<
+      readonly string[] | undefined
+    >();
+    expectTypeOf<H["routecraft.auth.principal"]>().toEqualTypeOf<
+      Principal | undefined
+    >();
+    // Unregistered keys widen to `unknown` (the bag-level catch-all).
+    expectTypeOf<H["my.custom.unregistered"]>().toEqualTypeOf<unknown>();
   });
 
   /**
