@@ -311,6 +311,21 @@ type ExchangeInternals = {
    * @internal
    */
   startedAt?: number;
+  /**
+   * Set by filter, choice (halt + unmatched), and the synthetic parse
+   * step when an exchange is dropped. The runtime engine reads this
+   * after `runSteps` completes to skip `exchange:completed` emission.
+   * Stored on internals so the flag survives `rewrap`: the engine
+   * rewraps an exchange before each step (to update the operation
+   * header), so an operation that calls `markDropped(exchange)` is
+   * marking the rewrapped instance, but the engine's outer parameter
+   * is the pre-rewrap original. Both share the same internals object
+   * via {@link DefaultExchange.rewrap}'s `rewrapState`, so the flag is
+   * visible from either reference.
+   *
+   * @internal
+   */
+  dropped?: boolean;
 };
 
 /**
@@ -356,37 +371,37 @@ export function getExchangeRoute(exchange: Exchange): Route | undefined {
 }
 
 /**
- * WeakSet recording exchanges that have been dropped (filtered, halted,
- * unmatched in `.choice()`, or rejected by source-payload parse with
- * `OnParseError: "drop"`). The runtime engine reads it after `runSteps`
- * completes to decide whether to emit `exchange:completed`. Operations that
- * drop call {@link markDropped}; consumers ask {@link isDropped}.
- *
- * Replaces the previous `exchange.headers["routecraft.dropped"] = true`
- * pattern: with frozen headers, drop is signalled out-of-band so the
- * headers contract stays clean.
- *
- * @internal
- */
-const DROPPED_EXCHANGES = new WeakSet<Exchange>();
-
-/**
  * Mark an exchange as dropped. Idempotent. Used by filter, choice, halt,
  * and the synthetic parse step's drop branch.
+ *
+ * The drop flag lives on the exchange's internals object (which is shared
+ * by reference across `rewrap`) rather than a per-instance WeakSet, so a
+ * filter that marks the rewrapped exchange the engine handed it remains
+ * visible to the engine's final `isDropped` check on the outer parameter:
+ * both reference the same internals.
  *
  * @internal
  */
 export function markDropped(exchange: Exchange): void {
-  DROPPED_EXCHANGES.add(exchange);
+  const internals =
+    (exchange as Exchange & { [INTERNALS_KEY]?: ExchangeInternals })[
+      INTERNALS_KEY
+    ] ?? EXCHANGE_INTERNALS.get(exchange);
+  if (internals) internals.dropped = true;
 }
 
 /**
- * Returns true if the exchange has been marked as dropped.
+ * Returns true if the exchange (or any rewrap of it sharing the same
+ * internals) has been marked as dropped.
  *
  * @internal
  */
 export function isDropped(exchange: Exchange): boolean {
-  return DROPPED_EXCHANGES.has(exchange);
+  const internals =
+    (exchange as Exchange & { [INTERNALS_KEY]?: ExchangeInternals })[
+      INTERNALS_KEY
+    ] ?? EXCHANGE_INTERNALS.get(exchange);
+  return internals?.dropped === true;
 }
 
 /**

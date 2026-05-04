@@ -238,11 +238,16 @@ describe("Exchange immutability contract", () => {
   });
 
   /**
-   * @case markDropped is keyed on instance, not on logical exchange identity
+   * @case markDropped survives rewrap because the flag lives on the
+   *   shared internals object
    * @preconditions Drop a captured exchange, then rewrap it
-   * @expectedResult isDropped(prev) is true; isDropped(next) is false. Drop signals must be raised on the exchange instance the engine sees, not on a derived rewrap.
+   * @expectedResult isDropped(prev) is true; isDropped(next) is also true.
+   *   The engine's runSteps loop rewraps an exchange before every step
+   *   (to update the operation header), so an operation that calls
+   *   markDropped on the rewrapped instance must remain visible to the
+   *   engine's final isDropped check on the outer parameter.
    */
-  test("markDropped is per-instance; rewrap does not carry the drop forward", async () => {
+  test("markDropped survives rewrap via shared internals", async () => {
     let prev: Exchange | undefined;
     t = await testContext()
       .routes(
@@ -265,13 +270,13 @@ describe("Exchange immutability contract", () => {
     markDropped(prev!);
     expect(isDropped(prev!)).toBe(true);
 
-    // Rewrap produces a new instance; the WeakSet is keyed on identity so
-    // the drop signal does NOT carry over. This is intentional: filter,
-    // halt, choice, and parse-drop all `markDropped` and then return
-    // without pushing, so subsequent steps never see the rewrapped
-    // exchange. Tests asserting drop behaviour must check the exchange
-    // the engine actually sees in `runSteps`, not a derived one.
-    const next = DefaultExchange.rewrap(prev!, { body: "still-dropped?" });
-    expect(isDropped(next)).toBe(false);
+    // The drop flag lives on the internals object that rewrap shares
+    // by reference between prev and next. So a drop signalled on
+    // either reference is visible from the other; this is what
+    // makes the engine's final isDropped check work even though the
+    // engine's outer parameter is the pre-rewrap original while
+    // operations like filter receive the rewrapped instance.
+    const next = DefaultExchange.rewrap(prev!, { body: "still-dropped" });
+    expect(isDropped(next)).toBe(true);
   });
 });

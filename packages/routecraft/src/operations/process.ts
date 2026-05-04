@@ -68,11 +68,18 @@ export class ProcessStep<T = unknown, R = T> implements Step<Processor<T, R>> {
     // for downstream telemetry / split / tap; rewrap restores it. This
     // also keeps the principal sticky-set rule (`?? prev.principal`)
     // consistent regardless of return shape.
+    //
+    // We do NOT forward `returned.id` into rewrap. `.process()` is a body
+    // transform; identity is owned by the framework. A user who returns
+    // `new DefaultExchange(ctx, ...)` (with a fresh UUID) inside a
+    // processor must not silently change the exchange id mid-route, or
+    // event correlation, split bookkeeping, and child telemetry break.
+    // Identity-changing operations (split, aggregate) have dedicated
+    // paths.
     const next =
       returned === (exchange as unknown as Exchange<R>)
         ? (exchange as unknown as Exchange<R>)
         : DefaultExchange.rewrap<R>(exchange, {
-            id: returned.id,
             body: returned.body,
             headers: returned.headers,
             ...(returned.principal !== undefined && {
