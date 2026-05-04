@@ -1,6 +1,10 @@
 import { ENRICH_MERGE_TYPE } from "./brand.ts";
 import { type Adapter, type Step } from "./types.ts";
-import { type Exchange, type HeaderValue } from "./exchange.ts";
+import {
+  type Exchange,
+  type HeaderValue,
+  type HeaderLiteral,
+} from "./exchange.ts";
 import {
   type Destination,
   type CallableDestination,
@@ -293,7 +297,7 @@ export abstract class StepBuilderBase<Current = unknown> {
   header(
     key: string,
     valueOrFn:
-      | HeaderValue
+      | HeaderLiteral
       | ((exchange: Exchange<Current>) => HeaderValue | Promise<HeaderValue>),
   ): this {
     this.pushStep(new HeaderStep<Current>(key, valueOrFn));

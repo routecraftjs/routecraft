@@ -14,15 +14,19 @@ type FailedEventDetails = { details: { error: unknown } };
 
 /**
  * Build a tiny test source that emits one body and forwards a principal
- * via the 5th argument of the subscribe handler. Mirrors what real
- * authenticating sources (e.g. `mcp({ auth: jwt(...) })`) do at their
- * boundary, so the route's first exchange already carries the principal
- * and pre-from `.authorize()` can gate it.
+ * by writing it onto `headers["routecraft.auth.principal"]` before
+ * invoking the handler. Mirrors what real authenticating sources
+ * (e.g. `mcp({ auth: jwt(...) })`) do at their boundary, so the route's
+ * first exchange already carries the principal and pre-from
+ * `.authorize()` can gate it.
  */
 function principalSource<T>(body: T, principal?: Principal): Source<T> {
   return {
     subscribe: async (_ctx, handler) => {
-      await handler(body, undefined, undefined, undefined, principal);
+      const headers = principal
+        ? { "routecraft.auth.principal": principal }
+        : undefined;
+      await handler(body, headers);
     },
   };
 }
@@ -52,7 +56,13 @@ describe("authorize() validator", () => {
         craft()
           .id("ok")
           .from(simple("hello"))
-          .process((ex) => ({ ...ex, principal }))
+          .process((ex) => ({
+            ...ex,
+            headers: {
+              ...ex.headers,
+              "routecraft.auth.principal": principal,
+            },
+          }))
           .validate(authorize())
           .to(s),
       )
@@ -111,7 +121,13 @@ describe("authorize() validator", () => {
         craft()
           .id("rbac")
           .from(simple("hello"))
-          .process((ex) => ({ ...ex, principal }))
+          .process((ex) => ({
+            ...ex,
+            headers: {
+              ...ex.headers,
+              "routecraft.auth.principal": principal,
+            },
+          }))
           .validate(authorize({ roles: ["admin"] }))
           .to(s),
       )
@@ -152,7 +168,13 @@ describe("authorize() validator", () => {
         craft()
           .id("multi-role")
           .from(simple("hello"))
-          .process((ex) => ({ ...ex, principal }))
+          .process((ex) => ({
+            ...ex,
+            headers: {
+              ...ex.headers,
+              "routecraft.auth.principal": principal,
+            },
+          }))
           .validate(authorize({ roles: ["admin", "billing"] }))
           .to(s),
       )
@@ -199,7 +221,13 @@ describe("authorize() validator", () => {
         craft()
           .id("scope")
           .from(simple("hello"))
-          .process((ex) => ({ ...ex, principal }))
+          .process((ex) => ({
+            ...ex,
+            headers: {
+              ...ex.headers,
+              "routecraft.auth.principal": principal,
+            },
+          }))
           .validate(authorize({ scopes: ["read", "write"] }))
           .to(s),
       )
@@ -239,7 +267,13 @@ describe("authorize() validator", () => {
         craft()
           .id("predicate")
           .from(simple("hello"))
-          .process((ex) => ({ ...ex, principal }))
+          .process((ex) => ({
+            ...ex,
+            headers: {
+              ...ex.headers,
+              "routecraft.auth.principal": principal,
+            },
+          }))
           .validate(
             authorize({
               predicate: (p) => p.claims?.["tenant"] === "globex",
@@ -649,7 +683,13 @@ describe("exchange.principal propagation", () => {
         craft()
           .id("email-attribution")
           .from(simple("hello"))
-          .process((ex) => ({ ...ex, principal }))
+          .process((ex) => ({
+            ...ex,
+            headers: {
+              ...ex.headers,
+              "routecraft.auth.principal": principal,
+            },
+          }))
           .to(s),
       )
       .build();
@@ -676,7 +716,13 @@ describe("exchange.principal propagation", () => {
         craft()
           .id("transform-keeps-principal")
           .from(simple("hello"))
-          .process((ex) => ({ ...ex, principal }))
+          .process((ex) => ({
+            ...ex,
+            headers: {
+              ...ex.headers,
+              "routecraft.auth.principal": principal,
+            },
+          }))
           .transform((body) => `${body}!`)
           .to(s),
       )
@@ -732,7 +778,13 @@ describe("exchange.principal propagation", () => {
         craft()
           .id("tap-principal")
           .from(simple("hello"))
-          .process((ex) => ({ ...ex, principal }))
+          .process((ex) => ({
+            ...ex,
+            headers: {
+              ...ex.headers,
+              "routecraft.auth.principal": principal,
+            },
+          }))
           .tap(tapped)
           .to(main),
       )
@@ -744,38 +796,53 @@ describe("exchange.principal propagation", () => {
   });
 
   /**
-   * @case Tap snapshot principal is deep-cloned, not shared by reference,
-   *       so concurrent mutation of one side does not leak to the other
-   * @preconditions Route attaches a principal whose `claims` is a mutable
-   *                object, taps to a spy, mutates the main exchange's
-   *                principal in a downstream `.process()`
-   * @expectedResult The tap spy's captured principal still carries the
-   *                 original `claims` value (unaffected by the mutation)
+   * @case Tap snapshots share structured-header values (like `principal.claims`)
+   *       by reference with the main flow. With the unified state model
+   *       (`{ body, headers }` is the serialization surface; cross-cutting
+   *       concerns live in `headers` like anything else), the framework no
+   *       longer deep-clones principal into tap snapshots. Nested mutation
+   *       of structured header values is an anti-pattern the framework
+   *       does not prevent or isolate against; routes that need a fresh
+   *       identity should set a new principal on `headers` rather than
+   *       mutating the existing one. This test pins that contract so a
+   *       future PR cannot silently re-introduce the deep-clone.
+   *       See `.standards/exchange-state-model.md`.
+   * @preconditions Route attaches a principal with mutable `claims`, taps,
+   *                then mutates `principal.claims.tenant` in a downstream
+   *                `.process()` step
+   * @expectedResult Both the tap snapshot and the main-flow exchange see
+   *                 the post-mutation `claims.tenant` value (shared by
+   *                 reference; no isolation)
    */
-  test("tap snapshot principal is isolated from main flow mutations", async () => {
+  test("tap snapshot shares principal claims by reference (no deep-clone)", async () => {
     const main = spy<string>();
     const tapped = spy<string>();
     const principal: Principal = {
       kind: "custom",
       scheme: "bearer",
       subject: "user-1",
-      claims: { tenant: "acme", flags: ["original"] },
+      claims: { tenant: "before" },
     };
 
     t = await testContext()
       .routes(
         craft()
-          .id("tap-principal-isolation")
+          .id("tap-principal-shared-ref")
           .from(simple("hello"))
-          .process((ex) => ({ ...ex, principal }))
+          .process((ex) => ({
+            ...ex,
+            headers: {
+              ...ex.headers,
+              "routecraft.auth.principal": principal,
+            },
+          }))
           .tap(tapped)
           .process((ex) => {
-            // Mutate the live principal AFTER tap has snapshotted it.
-            // If the snapshot shares the principal by reference, the tap
-            // spy will observe these mutations.
-            (ex.principal!.claims as Record<string, unknown>)["tenant"] =
-              "globex";
-            (ex.principal!.claims as { flags: string[] }).flags.push("mutated");
+            // Anti-pattern (and the test's whole point): the framework
+            // does not isolate nested mutations of structured header
+            // values. The mutation leaks into the tap snapshot because
+            // they share the same `principal` object reference.
+            (ex.principal!.claims as { tenant: string }).tenant = "after";
             return ex;
           })
           .to(main),
@@ -783,18 +850,12 @@ describe("exchange.principal propagation", () => {
       .build();
     await t.test();
 
-    // Tap snapshot must reflect the principal AT SNAPSHOT TIME, not the
-    // post-mutation state of the main flow.
-    expect(tapped.lastReceived().principal?.claims).toEqual({
-      tenant: "acme",
-      flags: ["original"],
-    });
-    // Main flow saw the mutation (sanity check that the test actually
-    // mutated something).
-    expect(main.lastReceived().principal?.claims).toEqual({
-      tenant: "globex",
-      flags: ["original", "mutated"],
-    });
+    expect(
+      (main.lastReceived().principal!.claims as { tenant: string }).tenant,
+    ).toBe("after");
+    expect(
+      (tapped.lastReceived().principal!.claims as { tenant: string }).tenant,
+    ).toBe("after");
   });
 });
 

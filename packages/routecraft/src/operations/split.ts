@@ -125,21 +125,26 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
     const splitHierarchy = [...existingHierarchy, groupId];
 
     for (const resultExchange of splitExchanges) {
+      // Spread parent headers first so cross-cutting concerns
+      // (`routecraft.auth.principal`, future tracing/tenancy keys) flow
+      // through to children when the user-supplied splitter result omits
+      // them. The user's headers override on collision; the framework
+      // assigns a fresh id and the split-hierarchy slot last.
       const postProcessedExchange = new DefaultExchange<R>(context, {
-        id: randomUUID(),
         body: resultExchange.body,
         headers: {
+          ...exchange.headers,
           ...resultExchange.headers,
+          [HeadersKeys.ID]: randomUUID(),
           [HeadersKeys.SPLIT_HIERARCHY]: splitHierarchy,
         },
-        principal: resultExchange.principal ?? exchange.principal,
       });
 
       // Set route in internals if it exists (symbol-key for cross-instance)
       if (route) {
         const internals =
           (
-            postProcessedExchange as Exchange & {
+            postProcessedExchange as unknown as Exchange & {
               [key: symbol]: { context: unknown; route?: Route };
             }
           )[INTERNALS_KEY] ?? EXCHANGE_INTERNALS.get(postProcessedExchange);

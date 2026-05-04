@@ -26,7 +26,7 @@ async function invokeTool(
   t: TestContext,
   endpoint: string,
   body: unknown,
-  headers: Record<string, string | string[] | undefined> = {},
+  headers: Record<string, unknown> = {},
 ): Promise<void> {
   const registry = t.ctx.getStore(MCP_LOCAL_KEY) as
     | Map<string, McpLocalToolEntry>
@@ -229,6 +229,11 @@ describe("mcp() DSL function", () => {
       .build();
 
     await t.startAndWaitReady();
+    const principal = {
+      kind: "custom" as const,
+      scheme: "bearer" as const,
+      subject: "user-42",
+    };
     await invokeTool(
       t,
       "merge-tool",
@@ -236,16 +241,21 @@ describe("mcp() DSL function", () => {
       {
         [McpHeadersKeys.TOOL]: "merge-tool",
         [McpHeadersKeys.SESSION]: "sess-1",
-        [McpHeadersKeys.AUTH_SUBJECT]: "user-42",
+        "routecraft.auth.principal": principal,
         "x-tenant": "acme",
       },
     );
 
     expect(consumer).toHaveBeenCalledTimes(1);
-    const headers = consumer.mock.calls[0][0].headers as Record<string, string>;
+    const headers = consumer.mock.calls[0][0].headers as Record<
+      string,
+      unknown
+    >;
     expect(headers[McpHeadersKeys.TOOL]).toBe("merge-tool");
     expect(headers[McpHeadersKeys.SESSION]).toBe("sess-1");
-    expect(headers[McpHeadersKeys.AUTH_SUBJECT]).toBe("user-42");
+    expect(headers["routecraft.auth.principal"]).toMatchObject({
+      subject: "user-42",
+    });
     expect(headers["x-tenant"]).toBe("acme");
   });
 

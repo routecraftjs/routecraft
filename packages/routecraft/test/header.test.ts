@@ -1,6 +1,6 @@
 import { describe, test, expect, afterEach } from "vitest";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
-import { craft, simple } from "@routecraft/routecraft";
+import { craft, HeadersKeys, simple } from "@routecraft/routecraft";
 
 describe("Header operation", () => {
   let t: TestContext;
@@ -57,5 +57,22 @@ describe("Header operation", () => {
 
     expect(s.received).toHaveLength(1);
     expect(s.received[0].headers["user-id"]).toBe("u1");
+  });
+
+  /**
+   * @case `.header()` rejects writes to the framework-owned identity key
+   *       up front, instead of silently no-op-ing once `rewrap` restores
+   *       `prev.id` over the user's value
+   * @preconditions Builder pipeline tries to set `routecraft.id`
+   * @expectedResult Constructor throws RC5003 with a clear message
+   */
+  test("rejects .header() writes to routecraft.id with RC5003", () => {
+    expect(() =>
+      craft()
+        .id("header-rejects-id")
+        .from(simple("test"))
+        .header(HeadersKeys.ID, "fixed-id")
+        .to(spy()),
+    ).toThrow(/routecraft\.id/);
   });
 });

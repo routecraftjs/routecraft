@@ -262,20 +262,26 @@ craft()
 ```ts
 // Mid-pipeline check: route attaches a custom principal from an
 // inbound email and authorizes it after the .process() step.
+// Exchanges are immutable; return a new one with the principal set
+// on `headers["routecraft.auth.principal"]` (the `ex.principal`
+// getter reads from the same header).
 import { authorize } from '@routecraft/routecraft'
 
 craft()
   .from(mail({ /* ... */ }))
-  .process((ex) => {
-    ex.principal = {
-      kind: 'custom',
-      scheme: 'email',
-      subject: ex.body.from?.address ?? 'anonymous',
-      email: ex.body.from?.address,
-      claims: { tenant: deriveTenant(ex.body.from?.address) },
-    }
-    return ex
-  })
+  .process((ex) => ({
+    ...ex,
+    headers: {
+      ...ex.headers,
+      'routecraft.auth.principal': {
+        kind: 'custom',
+        scheme: 'email',
+        subject: ex.body.from?.address ?? 'anonymous',
+        email: ex.body.from?.address,
+        claims: { tenant: deriveTenant(ex.body.from?.address) },
+      },
+    },
+  }))
   .validate(authorize({
     predicate: (p) => p.email?.endsWith('@yourcompany.com') === true,
   }))
