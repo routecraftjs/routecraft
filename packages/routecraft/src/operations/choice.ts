@@ -67,6 +67,10 @@ export class HaltStep implements Step<HaltAdapter> {
       HeadersKeys.CORRELATION_ID
     ] as string;
 
+    // Mark before emit so subscribers calling `isDropped(event.details.exchange)`
+    // observe the correct state.
+    markDropped(exchange);
+
     if (context) {
       context.emit(`route:${routeId}:exchange:dropped` as EventName, {
         routeId,
@@ -76,8 +80,6 @@ export class HaltStep implements Step<HaltAdapter> {
         exchange,
       });
     }
-
-    markDropped(exchange);
   }
 }
 
@@ -291,6 +293,9 @@ export class ChoiceStep<In = unknown> implements Step<ChoiceAdapter> {
     }
 
     if (!matchedBranch) {
+      // Mark before emit so subscribers calling
+      // `isDropped(event.details.exchange)` observe the correct state.
+      markDropped(exchange);
       if (context) {
         context.emit(`route:${routeId}:step:completed` as EventName, {
           routeId,
@@ -316,7 +321,6 @@ export class ChoiceStep<In = unknown> implements Step<ChoiceAdapter> {
           exchange,
         });
       }
-      markDropped(exchange);
       return;
     }
 

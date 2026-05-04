@@ -34,7 +34,7 @@ Every change -- feature, fix, refactor -- must satisfy the checklists below befo
 - [ ] Wildcard subscriptions still work: new event names must be compatible with `*` and `**` glob patterns
 - [ ] New events are documented on the events reference page with their payload shape and when they fire
 - [ ] If the change removes or renames an event, treat it as a breaking change and document the migration path
-- [ ] Event payloads do not hold live mutable references that could change after emission. The exchange is immutable (frozen wrapper, headers, principal) and safe to attach by reference; any other field copied from a step's local state must be a primitive or a snapshot (spread / `structuredClone`) so subscribers see the value at the time of emission.
+- [ ] Event payloads do not hold live mutable references that could change after emission. The `Exchange` wrapper, `headers`, and `principal` are shallow-frozen by `DefaultExchange` and safe to attach by reference; `body` is intentionally left mutable so adapter authors can attach arbitrary user payloads, so any payload that includes `exchange.body` (or other unfrozen fields like nested `principal.claims`) must be snapshotted (spread / `structuredClone`) at emission time when subscribers depend on payload stability.
 
 ## When you add or modify an adapter
 

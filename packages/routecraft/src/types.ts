@@ -94,7 +94,9 @@ export type ConsumerType<T extends Consumer, O = unknown> = new (
  *   inside the same try/catch that handles step errors, so a parse
  *   failure flows through the route's `errorHandler` and
  *   `exchange:failed` event path. See `adapters/shared/parse.ts` for
- *   the `OnParseError` semantics.
+ *   the `OnParseError` semantics. If `parse` resolves to `undefined`
+ *   the body is explicitly set to `undefined` (the rewrap respects an
+ *   explicit `body: undefined`), not left as the previous value.
  * @property parseFailureMode - Decides how the synthetic parse step handles
  *   a thrown parse error. `"fail"` (default) and `"abort"` throw `RC5016`
  *   so `exchange:failed` fires; `"drop"` instead emits `exchange:dropped`

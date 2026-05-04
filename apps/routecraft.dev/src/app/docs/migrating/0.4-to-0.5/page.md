@@ -163,7 +163,7 @@ Code that mutated the parameter inside `.process()`, a custom `.enrich()` aggreg
 
 The framework re-wraps the returned plain object back into a proper instance via `DefaultExchange.rewrap`, preserving the context binding, route binding, and identity (`exchange.id`). Returning the same `exchange` unchanged is still a valid no-op pass-through.
 
-Custom `.enrich()` aggregators follow the same rule — return a spread instead of mutating `original.body`. The built-in aggregators (`only`, `replace`, `none`, `defaultEnrichAggregator`) already follow the new contract.
+Custom `.enrich()` aggregators follow the same rule: return a spread instead of mutating `original.body`. The built-in aggregators (`only`, `replace`, `none`, `defaultEnrichAggregator`) already follow the new contract.
 
 Two related framework signals moved off headers (which would now fail because they are frozen) onto out-of-band helpers. They only affect you if you fork an operation or write a custom step:
 

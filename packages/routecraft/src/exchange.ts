@@ -144,7 +144,7 @@ export interface RoutecraftHeaders {
   "routecraft.correlation_id": string;
 
   /** Hierarchy path for split operations */
-  "routecraft.split_hierarchy"?: string[];
+  "routecraft.split_hierarchy"?: readonly string[];
 
   /** Timer-specific headers */
   "routecraft.timer.time"?: string;
@@ -176,8 +176,21 @@ export interface RoutecraftHeaders {
 
 /**
  * Allowed types for a single header value. Custom headers can use any of these; standard headers use specific types (see RoutecraftHeaders).
+ *
+ * Array values are typed `readonly string[]` so they cannot be mutated
+ * via `push` / `splice` / index assignment through the (already
+ * `Readonly<>`) `ExchangeHeaders` map. The contract is type-level;
+ * the constructor does not deep-clone or freeze array values, since
+ * the only path that produces them is the framework itself
+ * (`split` builds the `routecraft.split_hierarchy` array, then
+ * `rewrap`s share frozen header references downstream).
  */
-export type HeaderValue = string | number | boolean | undefined | string[];
+export type HeaderValue =
+  | string
+  | number
+  | boolean
+  | undefined
+  | readonly string[];
 
 /**
  * Mapped type that surfaces keys declared via {@link HeaderKeysRegistry}
@@ -533,16 +546,24 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
     // construction unconditionally and let the spread overwrite them,
     // which on a 5-step pipeline meant ~10 wasted crypto calls per
     // exchange.
+    // Skip the default `randomUUID()` work per-key when the caller
+    // already supplies a value. The rewrap path always supplies all
+    // three (it spreads `prev.headers`), and so do `buildExchange` /
+    // `split`. The legacy code path generated two UUIDs per
+    // construction unconditionally and let the spread overwrite them,
+    // which on a 5-step pipeline meant ~10 wasted crypto calls per
+    // exchange. Per-key gating preserves required defaults (`OPERATION`,
+    // `CORRELATION_ID`) when a caller supplies only `ROUTE_ID`, instead
+    // of an all-or-nothing fast path that would silently drop them.
     const supplied = options?.headers;
-    this.headers =
-      supplied && HeadersKeys.ROUTE_ID in supplied
-        ? Object.freeze({ ...supplied })
-        : Object.freeze({
-            [HeadersKeys.ROUTE_ID]: randomUUID(),
-            [HeadersKeys.OPERATION]: OperationType.FROM,
-            [HeadersKeys.CORRELATION_ID]: randomUUID(),
-            ...(supplied || {}),
-          });
+    this.headers = Object.freeze({
+      [HeadersKeys.ROUTE_ID]: supplied?.[HeadersKeys.ROUTE_ID] ?? randomUUID(),
+      [HeadersKeys.OPERATION]:
+        supplied?.[HeadersKeys.OPERATION] ?? OperationType.FROM,
+      [HeadersKeys.CORRELATION_ID]:
+        supplied?.[HeadersKeys.CORRELATION_ID] ?? randomUUID(),
+      ...(supplied || {}),
+    });
     // Honour an explicit `body: undefined` from the caller (e.g. a
     // transform that intentionally returns undefined for a missing JSON
     // path). Only fall back to `{}` when the caller did not pass a body

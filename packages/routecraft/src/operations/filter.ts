@@ -113,6 +113,14 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
           "Filter rejected exchange",
         );
 
+        // Mark the exchange as dropped before emitting `exchange:dropped`
+        // so a subscriber that calls `isDropped(event.details.exchange)`
+        // observes the correct state. The drop flag lives on the
+        // exchange's shared internals object (see `markDropped` /
+        // `isDropped` in `exchange.ts`); the route engine reads it
+        // after `runSteps` to skip `exchange:completed`.
+        markDropped(exchange);
+
         if (context) {
           // Emit step:completed first, then exchange:dropped
           context.emit(`route:${routeId}:step:completed` as EventName, {
@@ -132,11 +140,6 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
             exchange,
           });
         }
-        // Mark the exchange as dropped so the route engine does not emit
-        // exchange:completed for it after runSteps finishes. With frozen
-        // headers, drop is signalled out-of-band via a WeakSet rather than
-        // a header flag.
-        markDropped(exchange);
         return;
       }
     } catch (error: unknown) {

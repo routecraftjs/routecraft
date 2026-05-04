@@ -218,6 +218,11 @@ function buildParseStep(
           // counting parse failures see step:failed; subscribers
           // tracking drop policy see exchange:dropped.
           emitStepFailed(cause);
+          // Mark dropped before `exchange:dropped` fires so subscribers
+          // calling `isDropped(event.details.exchange)` observe the
+          // correct state. The route engine reads it after `runSteps`
+          // to skip `exchange:completed`.
+          markDropped(exchange);
           context?.emit(`route:${routeId}:exchange:dropped` as EventName, {
             routeId,
             exchangeId: exchange.id,
@@ -225,9 +230,6 @@ function buildParseStep(
             reason: PARSE_DROPPED_REASON,
             exchange,
           });
-          // Mark dropped so the route engine does not emit
-          // exchange:completed for this exchange.
-          markDropped(exchange);
           return;
         }
         // 'fail' / 'abort': throw RC5016 so the step loop's catch path
@@ -647,6 +649,7 @@ export class DefaultRoute implements Route {
     exchange: Exchange,
     error: unknown,
     startTime: number,
+    schemas: { body?: StandardSchemaV1; headers?: StandardSchemaV1 },
   ): Promise<{
     exchange: Exchange;
     failed: boolean;
@@ -673,9 +676,17 @@ export class DefaultRoute implements Route {
           exchange,
           forward,
         );
-        const recoveredExchange = DefaultExchange.rewrap(exchange, {
-          body: recovered,
-        });
+        // Re-validate the recovered body against the same output schemas
+        // before declaring success. Without this, an `errorHandler` that
+        // returns another invalid payload would silently bypass the
+        // route's `.output()` contract and flow out via
+        // `exchange:completed`. A second failure here cascades through
+        // the existing handlerErr branch so the failure surfaces the
+        // same way (`exchange:failed` plus the failure result).
+        const recoveredExchange = await this.applyOutputValidation(
+          DefaultExchange.rewrap(exchange, { body: recovered }),
+          schemas,
+        );
         this.context.emit(`route:${routeId}:error:caught` as EventName, {
           error,
           route: this,
@@ -929,6 +940,7 @@ export class DefaultRoute implements Route {
                 result.exchange,
                 err,
                 startTime,
+                outputSchemas,
               );
             }
           }
@@ -1352,9 +1364,12 @@ export class DefaultRoute implements Route {
       }
     }
 
-    // Check if the root exchange was dropped (e.g. by a filter). Drop is
-    // signalled via a WeakSet (`markDropped`/`isDropped`) so the headers
-    // contract stays clean now that headers are frozen.
+    // Check if the root exchange was dropped (e.g. by a filter). The drop
+    // flag lives on the exchange's shared internals object (see
+    // `markDropped` / `isDropped` in `exchange.ts`), so it survives the
+    // engine's per-step `rewrap`: an operation that marks the rewrapped
+    // exchange handed to it remains visible from the outer parameter
+    // because both reference the same internals.
     if (isDropped(exchange)) {
       dropped = true;
     }

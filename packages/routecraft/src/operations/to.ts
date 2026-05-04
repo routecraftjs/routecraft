@@ -36,6 +36,19 @@ export interface Destination<T = unknown, R = void> extends Adapter {
 }
 
 /**
+ * The body type that flows downstream from a `.to()` step.
+ *
+ * Destinations declared with `R extends void` (the default) leave the
+ * body untouched, so the queued exchange stays `Exchange<T>`. A
+ * destination that returns a meaningful `R` replaces the body, so the
+ * queued exchange becomes `Exchange<R>`. The queue and the local
+ * derived exchange in `execute` are typed against this so destination
+ * type changes propagate through the type system instead of being
+ * silently widened to `T` via cast.
+ */
+type ToResultBody<T, R> = [R] extends [void] ? T : R;
+
+/**
  * Step that sends the exchange to a destination. If the destination returns a value, the body is replaced with it; otherwise the body is unchanged.
  */
 export class ToStep<T = unknown, R = void> implements Step<Destination<T, R>> {
@@ -50,7 +63,10 @@ export class ToStep<T = unknown, R = void> implements Step<Destination<T, R>> {
   async execute(
     exchange: Exchange<T>,
     remainingSteps: Step<Adapter>[],
-    queue: { exchange: Exchange<T>; steps: Step<Adapter>[] }[],
+    queue: {
+      exchange: Exchange<ToResultBody<T, R>>;
+      steps: Step<Adapter>[];
+    }[],
   ): Promise<void> {
     // Resolve a test-time override (if any) registered on the context.
     // When present, the mock handler stands in for adapter.send; if the mock
@@ -84,11 +100,16 @@ export class ToStep<T = unknown, R = void> implements Step<Destination<T, R>> {
 
     // If result is defined, replace body with result via a derived
     // exchange (the original is frozen; constructing a new wrapper preserves
-    // identity and internals via rewrap).
-    const next =
+    // identity and internals via rewrap). The next exchange is typed
+    // `Exchange<ToResultBody<T, R>>` so a non-void destination return
+    // type flows through to subsequent steps instead of being silently
+    // widened to `T`.
+    const next: Exchange<ToResultBody<T, R>> =
       result !== undefined
-        ? DefaultExchange.rewrap<T>(exchange, { body: result as T })
-        : exchange;
+        ? DefaultExchange.rewrap<ToResultBody<T, R>>(exchange, {
+            body: result as ToResultBody<T, R>,
+          })
+        : (exchange as Exchange<ToResultBody<T, R>>);
 
     queue.push({ exchange: next, steps: remainingSteps });
   }
