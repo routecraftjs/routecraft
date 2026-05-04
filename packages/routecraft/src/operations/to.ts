@@ -38,15 +38,19 @@ export interface Destination<T = unknown, R = void> extends Adapter {
 /**
  * The body type that flows downstream from a `.to()` step.
  *
- * Destinations declared with `R extends void` (the default) leave the
- * body untouched, so the queued exchange stays `Exchange<T>`. A
- * destination that returns a meaningful `R` replaces the body, so the
- * queued exchange becomes `Exchange<R>`. The queue and the local
- * derived exchange in `execute` are typed against this so destination
- * type changes propagate through the type system instead of being
- * silently widened to `T` via cast.
+ * Destinations declared with `R = void` (the default) leave the body
+ * untouched, so the queued exchange stays `Exchange<T>`. A destination
+ * that returns a meaningful `R` replaces the body, so the queued
+ * exchange becomes `Exchange<R>`. The `Extract<R, void>` distinction
+ * (rather than `[R] extends [void]`) handles unions that include `void`:
+ * for `R = string | void`, the result is `T | string` (the `void`
+ * branch contributes the original `T`, the `string` branch contributes
+ * the new body), instead of letting the `void` leak through into a
+ * downstream `Exchange<string | void>`.
  */
-type ToResultBody<T, R> = [R] extends [void] ? T : R;
+type ToResultBody<T, R> = [Extract<R, void>] extends [never]
+  ? R
+  : T | Exclude<R, void>;
 
 /**
  * Step that sends the exchange to a destination. If the destination returns a value, the body is replaced with it; otherwise the body is unchanged.

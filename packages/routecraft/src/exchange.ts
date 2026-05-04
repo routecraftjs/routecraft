@@ -555,14 +555,20 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
     // exchange. Per-key gating preserves required defaults (`OPERATION`,
     // `CORRELATION_ID`) when a caller supplies only `ROUTE_ID`, instead
     // of an all-or-nothing fast path that would silently drop them.
+    //
+    // The supplied headers are spread FIRST so that the explicit
+    // required-key slots that follow override an `undefined` value the
+    // caller may have included (e.g. `{ ROUTE_ID: undefined }`). If the
+    // spread came last, an explicit `undefined` would clobber the
+    // just-computed default and leave required headers missing.
     const supplied = options?.headers;
     this.headers = Object.freeze({
+      ...(supplied || {}),
       [HeadersKeys.ROUTE_ID]: supplied?.[HeadersKeys.ROUTE_ID] ?? randomUUID(),
       [HeadersKeys.OPERATION]:
         supplied?.[HeadersKeys.OPERATION] ?? OperationType.FROM,
       [HeadersKeys.CORRELATION_ID]:
         supplied?.[HeadersKeys.CORRELATION_ID] ?? randomUUID(),
-      ...(supplied || {}),
     });
     // Honour an explicit `body: undefined` from the caller (e.g. a
     // transform that intentionally returns undefined for a missing JSON
