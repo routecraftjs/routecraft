@@ -475,7 +475,7 @@ jobs:
         with:
           path: canary
           fetch-depth: 0
-          ref: ${{ github.sha }}
+          ref: ${{ github.event_name == 'push' && github.sha || 'refs/heads/main' }}
 
       - name: Install pnpm
         uses: pnpm/action-setup@v5
