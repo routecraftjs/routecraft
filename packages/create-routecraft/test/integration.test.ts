@@ -9,41 +9,32 @@ import { generateProjectStructure, type InitOptions } from "../src/lib.js";
 
 const execAsync = promisify(exec);
 
-type PackageManagerId = "npm" | "bun";
+type PackageManagerId = "bun";
 
 interface PackageManagerDef {
   id: PackageManagerId;
   pmOption: Required<InitOptions>["packageManager"];
   install: string;
   typecheck: string;
-  /**
-   * Runs the scaffolded project via `craft run index.ts`. For bun we force the
-   * bun runtime (via `--bun`) so the CLI executes on bun, not on node.
-   */
+  /** Runs the scaffolded project via `craft run index.ts`. */
   start: string;
 }
 
+// The craft CLI is Bun-only. Node users are covered by the embedding
+// smoke test (.github/scripts/smoke-test-embedding.mjs), which exercises
+// `@routecraft/routecraft` programmatically without going through the CLI.
 const PACKAGE_MANAGER_DEFS: Record<PackageManagerId, PackageManagerDef> = {
-  npm: {
-    id: "npm",
-    pmOption: "npm",
-    install: "npm install --no-audit --no-fund",
-    typecheck: "npx tsc --noEmit",
-    start: "npx craft run index.ts",
-  },
   bun: {
     id: "bun",
     pmOption: "bun",
     install: "bun install",
     typecheck: "bunx tsc --noEmit",
-    // `bun x --bun` forces bun runtime on the spawned binary (the craft bin
-    // has a `#!/usr/bin/env node` shebang which would otherwise invoke node).
-    start: "bun x --bun craft run index.ts",
+    start: "bunx craft run index.ts",
   },
 };
 
 function selectedPackageManager(): PackageManagerDef {
-  const id = (process.env["TEST_PACKAGE_MANAGER"] ?? "npm") as PackageManagerId;
+  const id = (process.env["TEST_PACKAGE_MANAGER"] ?? "bun") as PackageManagerId;
   const def = PACKAGE_MANAGER_DEFS[id];
   if (!def) {
     throw new Error(

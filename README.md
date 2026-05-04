@@ -5,6 +5,7 @@
   <p><strong>AI automation as code</strong></p>
 
   <a href="https://github.com/routecraftjs/routecraft/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/routecraftjs/routecraft/actions/workflows/ci.yml/badge.svg"></a>
+  <img alt="Bun" src="https://img.shields.io/badge/Bun-1.1%2B-fbf0df?logo=bun">
   <img alt="Node.js" src="https://img.shields.io/badge/Node.js-22%2B-3c873a?logo=node.js">
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5.9%2B-3178c6?logo=typescript">
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/License-Apache%202.0-blue"></a>
@@ -57,12 +58,14 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 {
   "mcpServers": {
     "my-tools": {
-      "command": "npx",
+      "command": "bunx",
       "args": ["@routecraft/cli", "run", "./routes/tools.mjs"]
     }
   }
 }
 ```
+
+> The `craft` CLI runs on Bun (>=1.1.0). Node users embed `@routecraft/routecraft` programmatically; see the [Programmatic Invocation guide](https://routecraft.dev/docs/advanced/programmatic-invocation).
 
 Now talk to Claude: *"Send an email to john@example.com thanking him for yesterday's meeting"*
 

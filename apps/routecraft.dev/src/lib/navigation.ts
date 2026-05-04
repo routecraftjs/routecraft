@@ -58,6 +58,7 @@ export const navigation = [
       { title: 'Events', href: '/docs/reference/events' },
       { title: 'Configuration', href: '/docs/reference/configuration' },
       { title: 'CLI', href: '/docs/reference/cli' },
+      { title: 'Runtime', href: '/docs/reference/runtime' },
       { title: 'Plugins', href: '/docs/reference/plugins' },
       { title: 'Linting', href: '/docs/reference/linting' },
       { title: 'Errors', href: '/docs/reference/errors' },

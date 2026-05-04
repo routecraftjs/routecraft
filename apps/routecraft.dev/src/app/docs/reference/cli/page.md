@@ -4,6 +4,10 @@ title: CLI
 
 Run Routecraft capabilities from the command line. {% .lead %}
 
+{% callout type="note" title="Bun-only runtime" %}
+The `craft` CLI runs on Bun (>=1.1.0). Node users should embed `@routecraft/routecraft` programmatically instead -- see [Programmatic Invocation](/docs/advanced/programmatic-invocation) and the [Runtime reference](/docs/reference/runtime).
+{% /callout %}
+
 ## Basic usage
 
 ```bash

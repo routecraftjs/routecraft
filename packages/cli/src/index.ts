@@ -1,71 +1,27 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 
 /**
  * Routecraft CLI: single entry point.
  *
- * 1. Check Node version (Pino 10 needs Node 18.19+)
- * 2. Define program and parse; log options are global and applied before lazy-loading run/util (which load the logger)
+ * The CLI runs on Bun. For Node-based usage, embed @routecraft/routecraft
+ * programmatically (see https://routecraft.dev/docs/advanced/programmatic-invocation).
+ *
+ * 1. Bun runtime gate (presence + version floor)
+ * 2. Define program and parse; log options are global and applied before
+ *    lazy-loading run/util (which load the logger)
  */
 
-// ── 1. Node version gate ────────────────────────────────────────────
-const [major, minor] = process.version.slice(1).split(".").map(Number) as [
-  number,
-  number,
-];
+import { checkBunRuntime } from "./runtime-gate.js";
 
-if (!(major > 18 || (major === 18 && minor >= 19))) {
+// ── 1. Bun runtime gate ─────────────────────────────────────────────
+const gate = checkBunRuntime();
+if (!gate.ok) {
   // eslint-disable-next-line no-console
-  console.error(
-    `[routecraft] Node.js ${process.version} is not supported. ` +
-      `Routecraft requires Node.js 18.19.0 or later (e.g. 20 or 22). ` +
-      `Please upgrade Node or configure your MCP client to use a newer Node.`,
-  );
+  console.error(gate.message);
   process.exit(1);
 }
 
-// ── 2. Re-exec with tsx loader if a .ts file is being run ───────────────────
-// Node's native --experimental-strip-types does not handle extensionless
-// imports or .js-to-.ts resolution. tsx (via --import tsx/esm) does.
-// We set CRAFT_TSX_LOADER=1 before re-execing to avoid an infinite loop.
-// Bun has native TypeScript support, so we skip the re-exec entirely there.
-const hasTSFile = process.argv
-  .slice(2)
-  .some((arg) => !arg.startsWith("-") && arg.endsWith(".ts"));
-const isBun = typeof process.versions["bun"] === "string";
-
-if (hasTSFile && !isBun && !process.env["CRAFT_TSX_LOADER"]) {
-  const { execFileSync } = await import("node:child_process");
-  const { createRequire } = await import("node:module");
-  // Resolve tsx/esm relative to the CLI package so it works regardless of CWD
-  const tsxEsmPath = createRequire(import.meta.url).resolve("tsx/esm");
-
-  // Let the child handle SIGINT/SIGTERM for graceful shutdown.
-  // Without this the parent dies on the first signal, orphaning the child
-  // mid-teardown (connections not closed, logs truncated).
-  process.on("SIGINT", () => {});
-  process.on("SIGTERM", () => {});
-
-  try {
-    execFileSync(
-      process.execPath,
-      [
-        "--import",
-        tsxEsmPath,
-        ...process.execArgv,
-        process.argv[1]!,
-        ...process.argv.slice(2),
-      ],
-      { stdio: "inherit", env: { ...process.env, CRAFT_TSX_LOADER: "1" } },
-    );
-    process.exit(0);
-  } catch (err: unknown) {
-    process.exit(
-      (err as NodeJS.ErrnoException & { status?: number }).status ?? 1,
-    );
-  }
-}
-
-// ── 3. CLI definition (only Commander; run/util are lazy-loaded so logger sees env) ─
+// ── 2. CLI definition (only Commander; run/util are lazy-loaded so logger sees env) ─
 const { Command } = await import("commander");
 const program = new Command();
 
