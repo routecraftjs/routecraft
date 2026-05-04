@@ -562,14 +562,31 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
     // spread came last, an explicit `undefined` would clobber the
     // just-computed default and leave required headers missing.
     const supplied = options?.headers;
-    this.headers = Object.freeze({
+    const merged: Record<string, HeaderValue> = {
       ...(supplied || {}),
       [HeadersKeys.ROUTE_ID]: supplied?.[HeadersKeys.ROUTE_ID] ?? randomUUID(),
       [HeadersKeys.OPERATION]:
         supplied?.[HeadersKeys.OPERATION] ?? OperationType.FROM,
       [HeadersKeys.CORRELATION_ID]:
         supplied?.[HeadersKeys.CORRELATION_ID] ?? randomUUID(),
-    });
+    };
+    // Type-level `readonly` on `HeaderValue` array variants prevents
+    // mutation through `exchange.headers` in TypeScript code, but a
+    // caller who casts away the readonly could still `arr.push(...)`
+    // into a shared array reference. Clone-and-freeze each array
+    // value so the runtime guarantee matches the type contract; this
+    // is the same defence-in-depth applied to the headers wrapper
+    // itself. The clone leaves the caller's input array untouched
+    // (we don't want `Object.freeze(supplied[key])` to surprise them),
+    // and skipping arrays already frozen avoids an extra allocation
+    // when the value came from another exchange's headers via spread.
+    for (const key of Object.keys(merged)) {
+      const value = merged[key];
+      if (Array.isArray(value) && !Object.isFrozen(value)) {
+        merged[key] = Object.freeze([...value]);
+      }
+    }
+    this.headers = Object.freeze(merged);
     // Honour an explicit `body: undefined` from the caller (e.g. a
     // transform that intentionally returns undefined for a missing JSON
     // path). Only fall back to `{}` when the caller did not pass a body
