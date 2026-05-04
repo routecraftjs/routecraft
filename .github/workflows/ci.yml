@@ -477,6 +477,11 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event_name == 'push' && github.sha || 'refs/heads/main' }}
 
+      - name: Record canary commit
+        id: canary_commit
+        working-directory: canary
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Install pnpm
         uses: pnpm/action-setup@v5
 
@@ -496,7 +501,7 @@ jobs:
         env:
           NEXT_PUBLIC_BASE_PATH: /next
           NEXT_PUBLIC_DOC_VERSION: next
-          NEXT_PUBLIC_DOC_COMMIT: ${{ github.sha }}
+          NEXT_PUBLIC_DOC_COMMIT: ${{ steps.canary_commit.outputs.sha }}
           NEXT_PUBLIC_POSTHOG_KEY: ${{ secrets.NEXT_PUBLIC_POSTHOG_KEY }}
           NEXT_PUBLIC_POSTHOG_HOST: ${{ secrets.NEXT_PUBLIC_POSTHOG_HOST }}
         run: pnpm --filter routecraft.dev build

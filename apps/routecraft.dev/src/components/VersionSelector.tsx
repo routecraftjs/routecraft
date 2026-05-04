@@ -61,7 +61,8 @@ export function VersionSelector(props: { className?: string }) {
   const handleChange = (target: Version) => {
     if (target.basePath === currentBasePath) return
     const suffix = pathname.endsWith('/') ? pathname : `${pathname}/`
-    window.location.href = `${target.basePath}${suffix}`
+    const { search, hash } = window.location
+    window.location.href = `${target.basePath}${suffix}${search}${hash}`
   }
 
   return (
