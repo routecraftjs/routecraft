@@ -29,6 +29,7 @@ The `retryable` property indicates whether the [`retry`](/docs/reference/operati
 | [RC5014](#rc5014) | Adapter | Resource not found | No |
 | [RC5015](#rc5015) | Adapter | Permission denied | No |
 | [RC5016](#rc5016) | Adapter | Source payload parse failed | No |
+| [RC5017](#rc5017) | Adapter | Optional peer dependency missing | No |
 | [RC9901](#rc9901) | Runtime | Unknown error | Yes |
 
 ---
@@ -236,6 +237,21 @@ A source adapter that converts raw bytes into a structured body (json, html, csv
   - `'abort'`: the source aborts on the first parse failure (atomic-load semantics).
   - `'drop'`: the bad item fires `exchange:dropped` with `reason: 'parse-failed'` (lossy ingest with structured observability).
 - For CSV chunked, inspect the row number on the captured error to identify the malformed row.
+
+## RC5017
+Optional peer dependency missing
+
+**Why it happens**  
+An adapter with a driver declared as an optional peer dependency was used, but the package is not installed. Examples: `cron()` requires `croner`, `html()` requires `cheerio`, `mail()` requires `imapflow` / `nodemailer` / `mailparser`. The package itself loads without these peers; the error fires lazily on first use of the adapter so unrelated routes never need the drivers.
+
+**Suggestion**  
+Install the package the error message names. For example:
+
+```bash
+bun add croner   # or: npm install croner
+```
+
+The error message names the adapter (`cron`, `html`, ...) and the missing package, so the install line is copyable from the log. If you see this for a feature you do not use, find the route or capability that imports the adapter and remove it.
 
 ## RC9901
 Unknown error

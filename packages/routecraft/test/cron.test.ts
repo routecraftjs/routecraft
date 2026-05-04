@@ -8,6 +8,13 @@ import {
 } from "../src/exchange.ts";
 import { CraftContext } from "../src/context.ts";
 
+// Prime croner so the lazy `await import("croner")` inside CronSourceAdapter
+// resolves on a microtask, not a fake-timer tick. vi.useFakeTimers() mocks
+// setImmediate which Node's dynamic-import internals lean on, so without
+// this prime the IIFE's first await never settles inside a test that uses
+// fake timers.
+await import("croner");
+
 function mockContext(): CraftContext {
   const store = new Map();
   return {
@@ -28,13 +35,18 @@ function mockContext(): CraftContext {
  * Advance fake timers by the given milliseconds, flushing microtasks at each
  * step to allow croner's internal scheduling and async handler callbacks to
  * execute.
+ *
+ * `advanceTimersByTimeAsync(0)` only flushes a single microtask cycle, so we
+ * follow it with a few `Promise.resolve()` awaits to drain the multi-hop
+ * chains the cron source uses (lazy dynamic import of croner -> Cron
+ * registration -> async handler).
  */
 async function advanceTime(ms: number, step = 1000) {
   const steps = Math.ceil(ms / step);
   for (let i = 0; i < steps; i++) {
     vi.advanceTimersByTime(step);
-    // Flush microtasks so croner's setTimeout callbacks and async handlers run
     await vi.advanceTimersByTimeAsync(0);
+    for (let j = 0; j < 5; j++) await Promise.resolve();
   }
 }
 

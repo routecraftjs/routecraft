@@ -64,7 +64,7 @@ export class HtmlSourceAdapter<
         const promise = handler(
           htmlContent as unknown as HtmlResult,
           undefined,
-          (raw) => extractHtml(raw as T, opts) as HtmlResult,
+          (raw) => extractHtml(raw as T, opts) as Promise<HtmlResult>,
           onParseError,
         );
         // 'abort' is parse-specific: only RC5016 should tear down the

@@ -13,7 +13,7 @@ export class HtmlTransformerAdapter<
 
   constructor(private readonly options: HtmlOptions<T, R>) {}
 
-  transform(body: T): R {
+  transform(body: T): Promise<R> {
     return extractHtml(body, this.options);
   }
 }

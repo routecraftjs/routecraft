@@ -11,5 +11,7 @@ export default defineConfig({
   treeshake: true,
   target: "node20",
   platform: "node",
-  external: ["cheerio", "agent-browser", "better-sqlite3"],
+  // Optional peer deps must be marked external so they stay as runtime
+  // imports (loaded lazily by the adapter) rather than getting inlined.
+  external: ["cheerio", "croner", "agent-browser", "better-sqlite3"],
 });
