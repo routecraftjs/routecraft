@@ -2,9 +2,9 @@ import { ENRICH_MERGE_TYPE } from "../brand.ts";
 import { type Adapter, type Step } from "../types.ts";
 import {
   type Exchange,
-  type ExchangeHeaders,
   OperationType,
   getExchangeContext,
+  DefaultExchange,
 } from "../exchange.ts";
 import { type Destination, type CallableDestination } from "./to.ts";
 import {
@@ -37,6 +37,10 @@ export type EnrichMergeShape = Record<string, unknown>;
  * - Object: spread onto body.
  * - Primitive/array: set at body.stdout or body.array; non-object bodies are wrapped as { stdout } first.
  *
+ * Aggregators are pure: they return a new exchange (typically via spread).
+ * The framework re-wraps the returned plain object back into a proper
+ * exchange instance.
+ *
  * @example
  * ```typescript
  * .enrich(http({ url: 'https://api.example.com/user' }))
@@ -61,12 +65,10 @@ export const defaultEnrichAggregator = <T = unknown, R = unknown>(
     ? (enrichmentData as Record<string, unknown>)
     : { stdout: enrichmentData };
 
-  original.body = {
-    ...originalBody,
-    ...enrichmentObject,
-  } as T;
-
-  return original;
+  return {
+    ...original,
+    body: { ...originalBody, ...enrichmentObject } as T,
+  };
 };
 
 /**
@@ -113,25 +115,24 @@ export function only<T = unknown, R = unknown, V = unknown>(
       : { stdout: original.body };
 
     if (into !== undefined) {
-      original.body = { ...originalBody, [into]: value } as T;
-      return original;
+      return { ...original, body: { ...originalBody, [into]: value } as T };
     }
 
     const isPlainObject =
       typeof value === "object" && value !== null && !Array.isArray(value);
     if (isPlainObject) {
-      original.body = {
-        ...originalBody,
-        ...(value as Record<string, unknown>),
-      } as T;
-      return original;
+      return {
+        ...original,
+        body: {
+          ...originalBody,
+          ...(value as Record<string, unknown>),
+        } as T,
+      };
     }
     if (Array.isArray(value)) {
-      original.body = { ...originalBody, array: value } as T;
-      return original;
+      return { ...original, body: { ...originalBody, array: value } as T };
     }
-    original.body = { ...originalBody, stdout: value } as T;
-    return original;
+    return { ...original, body: { ...originalBody, stdout: value } as T };
   };
 }
 
@@ -171,8 +172,7 @@ export const replace = <R>(): DestinationAggregator<unknown, R> => {
     original: Exchange<unknown>,
     enrichmentData: R,
   ): Exchange<unknown> => {
-    original.body = enrichmentData;
-    return original;
+    return { ...original, body: enrichmentData };
   };
 };
 
@@ -242,19 +242,28 @@ export class EnrichStep<T = unknown, R = unknown> implements Step<
     // Use the provided aggregator or the default one
     const aggregator = this.aggregator || defaultEnrichAggregator;
 
-    // Aggregate the original exchange with the enrichment data (aggregator mutates exchange in place)
+    // Aggregator returns a (possibly new) exchange. The fast-path is
+    // identity equality (aggregator returned the same input); anything
+    // else -- plain spread, freshly constructed DefaultExchange,
+    // foreign-context exchange -- is always rewrapped onto THIS
+    // exchange's internals so route binding / context survive the
+    // aggregator and principal sticky-set semantics stay consistent.
     const result = (await Promise.resolve(
       aggregator(exchange, enrichmentData),
     )) as Exchange<T>;
 
-    // If aggregator returned a different exchange, copy properties back
-    if (result !== exchange) {
-      exchange.body = result.body;
-      (exchange as { headers: ExchangeHeaders }).headers = result.headers;
-      exchange.principal = result.principal ?? exchange.principal;
-    }
+    const next: Exchange<T> =
+      result === exchange
+        ? exchange
+        : DefaultExchange.rewrap<T>(exchange, {
+            body: result.body,
+            headers: result.headers,
+            ...(result.principal !== undefined && {
+              principal: result.principal,
+            }),
+          });
 
     // Push the exchange to the queue
-    queue.push({ exchange, steps: remainingSteps });
+    queue.push({ exchange: next, steps: remainingSteps });
   }
 }

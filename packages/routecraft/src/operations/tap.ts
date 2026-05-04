@@ -16,8 +16,14 @@ import {
 } from "../testing-hooks.ts";
 
 /**
- * Creates a snapshot of an exchange for async tap execution.
- * Deep-clones body and headers; correlation id is preserved. Used so tap can run in the background without mutating the main exchange.
+ * Creates a snapshot of an exchange for async tap execution. Body and
+ * principal are deep-cloned so tap-side mutations (which the framework
+ * cannot prevent for arbitrary user payloads or nested principal claims)
+ * do not race with the main pipeline. Headers are framework-immutable
+ * (shallow-frozen) and therefore safe to share between snapshot and main
+ * pipeline by reference; we only freeze the wrapper of the principal,
+ * not its nested claims, so a downstream `.process()` that mutates
+ * `principal.claims.someKey` would otherwise leak into the tap snapshot.
  *
  * @internal
  */
@@ -28,14 +34,10 @@ function snapshotExchange<T>(
   return new DefaultExchange<T>(context, {
     id: randomUUID(),
     body: structuredClone(exchange.body),
-    headers: { ...exchange.headers },
-    // Deep-clone the principal so a tap that runs concurrently with a
-    // downstream `.process()` cannot leak claims/scopes mutations across
-    // the snapshot boundary. Mirrors the body clone above.
-    principal:
-      exchange.principal !== undefined
-        ? structuredClone(exchange.principal)
-        : undefined,
+    headers: exchange.headers,
+    ...(exchange.principal !== undefined && {
+      principal: structuredClone(exchange.principal),
+    }),
   });
 }
 

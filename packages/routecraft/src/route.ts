@@ -9,6 +9,9 @@ import {
   type ExchangeHeaders,
   DefaultExchange,
   EXCHANGE_INTERNALS,
+  isDropped,
+  markDropped,
+  setStartedAt,
 } from "./exchange.ts";
 import { type RegisteredDirectEndpoint } from "./registry.ts";
 import { SPLIT_PARENT_STORE } from "./operations/split.ts";
@@ -151,7 +154,7 @@ const PARSE_STEP_ADAPTER: Adapter = { adapterId: "routecraft.parse" };
 function buildParseStep(
   parse: (raw: unknown) => unknown | Promise<unknown>,
   failureMode: OnParseError,
-  applyValidation?: (exchange: Exchange) => Promise<void>,
+  applyValidation?: (exchange: Exchange) => Promise<Exchange>,
 ): Step<Adapter> {
   return {
     operation: OperationType.PARSE,
@@ -203,8 +206,10 @@ function buildParseStep(
 
       emitStepStarted();
 
+      let parsed: Exchange;
       try {
-        exchange.body = await parse(exchange.body);
+        const parsedBody = await parse(exchange.body);
+        parsed = DefaultExchange.rewrap(exchange, { body: parsedBody });
       } catch (cause) {
         if (failureMode === "drop") {
           // The parse threw, so the step itself failed: emit step:failed
@@ -213,6 +218,11 @@ function buildParseStep(
           // counting parse failures see step:failed; subscribers
           // tracking drop policy see exchange:dropped.
           emitStepFailed(cause);
+          // Mark dropped before `exchange:dropped` fires so subscribers
+          // calling `isDropped(event.details.exchange)` observe the
+          // correct state. The route engine reads it after `runSteps`
+          // to skip `exchange:completed`.
+          markDropped(exchange);
           context?.emit(`route:${routeId}:exchange:dropped` as EventName, {
             routeId,
             exchangeId: exchange.id,
@@ -220,9 +230,6 @@ function buildParseStep(
             reason: PARSE_DROPPED_REASON,
             exchange,
           });
-          // Mark dropped so the route engine does not emit
-          // exchange:completed for this exchange.
-          exchange.headers["routecraft.dropped"] = true;
           return;
         }
         // 'fail' / 'abort': throw RC5016 so the step loop's catch path
@@ -237,7 +244,7 @@ function buildParseStep(
 
       if (applyValidation) {
         try {
-          await applyValidation(exchange);
+          parsed = await applyValidation(parsed);
         } catch (cause) {
           emitStepFailed(cause);
           throw cause;
@@ -246,7 +253,7 @@ function buildParseStep(
 
       emitStepCompleted();
       // Hand control back to the step loop with the user's pipeline.
-      queue.push({ exchange, steps: remainingSteps });
+      queue.push({ exchange: parsed, steps: remainingSteps });
     },
   };
 }
@@ -509,12 +516,12 @@ export class DefaultRoute implements Route {
    * Validate an incoming exchange against the route's `input` schemas BEFORE
    * the pipeline runs (no `exchange:started` has fired yet).
    *
-   * On success, the exchange body and headers are mutated in place with any
-   * validated / coerced values (headers are merged over the originals so
-   * pass-through keys like correlation IDs survive schemas that strip
-   * unknowns). On failure, emits `exchange:started` followed by
-   * `exchange:dropped` for telemetry and throws an RC5002 error so the
-   * source's caller (e.g. a direct channel's `send`) sees the rejection.
+   * On success returns a (possibly new) exchange with validated / coerced
+   * values; headers are merged over the originals so pass-through keys
+   * like correlation IDs survive schemas that strip unknowns. On failure
+   * emits `exchange:started` followed by `exchange:dropped` for telemetry
+   * and throws an RC5002 error so the source's caller (e.g. a direct
+   * channel's `send`) sees the rejection.
    *
    * MUST NOT be called after `handler()` has emitted `exchange:started` for
    * the exchange (e.g. from inside the synthetic parse step). Use
@@ -525,27 +532,31 @@ export class DefaultRoute implements Route {
   private async applyInputValidation(
     exchange: Exchange,
     schemas: { body?: StandardSchemaV1; headers?: StandardSchemaV1 },
-  ): Promise<void> {
+  ): Promise<Exchange> {
+    let current = exchange;
     if (schemas.body) {
-      const res = await this.validateAgainst(schemas.body, exchange.body);
+      const res = await this.validateAgainst(schemas.body, current.body);
       if (!res.ok) {
-        throw this.emitInputValidationFailure(exchange, "body", res.message);
+        throw this.emitInputValidationFailure(current, "body", res.message);
       }
-      exchange.body = res.value;
+      current = DefaultExchange.rewrap(current, { body: res.value });
     }
     if (schemas.headers) {
-      const res = await this.validateAgainst(schemas.headers, exchange.headers);
+      const res = await this.validateAgainst(schemas.headers, current.headers);
       if (!res.ok) {
-        throw this.emitInputValidationFailure(exchange, "headers", res.message);
+        throw this.emitInputValidationFailure(current, "headers", res.message);
       }
       const headerValue = res.value as ExchangeHeaders | undefined;
       if (headerValue !== undefined) {
-        // Merge validated values over the originals in place so caller
-        // pass-through keys (correlation IDs, adapter-injected metadata)
-        // survive schemas that strip unknowns.
-        Object.assign(exchange.headers, headerValue);
+        // Merge validated values over the originals so caller pass-through
+        // keys (correlation IDs, adapter-injected metadata) survive
+        // schemas that strip unknowns.
+        current = DefaultExchange.rewrap(current, {
+          headers: { ...current.headers, ...headerValue },
+        });
       }
     }
+    return current;
   }
 
   /**
@@ -559,18 +570,19 @@ export class DefaultRoute implements Route {
   private async validateInputOrThrow(
     exchange: Exchange,
     schemas: { body?: StandardSchemaV1; headers?: StandardSchemaV1 },
-  ): Promise<void> {
+  ): Promise<Exchange> {
+    let current = exchange;
     if (schemas.body) {
-      const res = await this.validateAgainst(schemas.body, exchange.body);
+      const res = await this.validateAgainst(schemas.body, current.body);
       if (!res.ok) {
         throw rcError("RC5002", new Error(res.message), {
           message: `Body validation failed for route "${this.definition.id}"`,
         });
       }
-      exchange.body = res.value;
+      current = DefaultExchange.rewrap(current, { body: res.value });
     }
     if (schemas.headers) {
-      const res = await this.validateAgainst(schemas.headers, exchange.headers);
+      const res = await this.validateAgainst(schemas.headers, current.headers);
       if (!res.ok) {
         throw rcError("RC5002", new Error(res.message), {
           message: `Header validation failed for route "${this.definition.id}"`,
@@ -578,9 +590,12 @@ export class DefaultRoute implements Route {
       }
       const headerValue = res.value as ExchangeHeaders | undefined;
       if (headerValue !== undefined) {
-        Object.assign(exchange.headers, headerValue);
+        current = DefaultExchange.rewrap(current, {
+          headers: { ...current.headers, ...headerValue },
+        });
       }
     }
+    return current;
   }
 
   /**
@@ -634,6 +649,7 @@ export class DefaultRoute implements Route {
     exchange: Exchange,
     error: unknown,
     startTime: number,
+    schemas: { body?: StandardSchemaV1; headers?: StandardSchemaV1 },
   ): Promise<{
     exchange: Exchange;
     failed: boolean;
@@ -660,13 +676,23 @@ export class DefaultRoute implements Route {
           exchange,
           forward,
         );
-        exchange.body = recovered;
+        // Re-validate the recovered body against the same output schemas
+        // before declaring success. Without this, an `errorHandler` that
+        // returns another invalid payload would silently bypass the
+        // route's `.output()` contract and flow out via
+        // `exchange:completed`. A second failure here cascades through
+        // the existing handlerErr branch so the failure surfaces the
+        // same way (`exchange:failed` plus the failure result).
+        const recoveredExchange = await this.applyOutputValidation(
+          DefaultExchange.rewrap(exchange, { body: recovered }),
+          schemas,
+        );
         this.context.emit(`route:${routeId}:error:caught` as EventName, {
           error,
           route: this,
-          exchange,
+          exchange: recoveredExchange,
         });
-        return { exchange, failed: false, dropped: false };
+        return { exchange: recoveredExchange, failed: false, dropped: false };
       } catch (handlerErr) {
         this.context.emit(`route:${routeId}:exchange:failed` as const, {
           routeId,
@@ -693,24 +719,26 @@ export class DefaultRoute implements Route {
 
   /**
    * Validate the final exchange against the route's `output` schemas.
-   * On failure, throws an RC5002 error so the normal error / error-handler
-   * flow takes over.
+   * On success returns the validated (possibly new) exchange. On failure
+   * throws an RC5002 error so the normal error / error-handler flow takes
+   * over.
    */
   private async applyOutputValidation(
     exchange: Exchange,
     schemas: { body?: StandardSchemaV1; headers?: StandardSchemaV1 },
-  ): Promise<void> {
+  ): Promise<Exchange> {
+    let current = exchange;
     if (schemas.body) {
-      const res = await this.validateAgainst(schemas.body, exchange.body);
+      const res = await this.validateAgainst(schemas.body, current.body);
       if (!res.ok) {
         throw rcError("RC5002", new Error(res.message), {
           message: `Output body validation failed for route "${this.definition.id}"`,
         });
       }
-      exchange.body = res.value;
+      current = DefaultExchange.rewrap(current, { body: res.value });
     }
     if (schemas.headers) {
-      const res = await this.validateAgainst(schemas.headers, exchange.headers);
+      const res = await this.validateAgainst(schemas.headers, current.headers);
       if (!res.ok) {
         throw rcError("RC5002", new Error(res.message), {
           message: `Output header validation failed for route "${this.definition.id}"`,
@@ -718,9 +746,12 @@ export class DefaultRoute implements Route {
       }
       const headerValue = res.value as ExchangeHeaders | undefined;
       if (headerValue !== undefined) {
-        Object.assign(exchange.headers, headerValue);
+        current = DefaultExchange.rewrap(current, {
+          headers: { ...current.headers, ...headerValue },
+        });
       }
     }
+    return current;
   }
 
   /**
@@ -762,10 +793,11 @@ export class DefaultRoute implements Route {
     // caller (e.g. a direct channel's `send`) sees the validation error.
     this.consumer.register(
       async (message, headers, parse, parseFailureMode, principal) => {
-        const exchange = this.buildExchange(message, headers, principal);
+        const initialExchange = this.buildExchange(message, headers, principal);
         const inputSchemas = this.definition.discovery?.input;
         const hasInputSchema = !!inputSchemas?.body || !!inputSchemas?.headers;
 
+        let exchange: Exchange = initialExchange;
         if (parse) {
           // Stash the source-supplied parser on exchange internals so
           // `runSteps` can apply it as a synthetic first pipeline step.
@@ -790,8 +822,10 @@ export class DefaultRoute implements Route {
             }
           }
         } else if (hasInputSchema) {
-          // No parse: run validation eagerly (preserves existing behaviour).
-          await this.applyInputValidation(exchange, inputSchemas);
+          // No parse: run validation eagerly. The validated exchange
+          // replaces the initial one; with frozen headers/body the
+          // validator returns a new instance via `rewrap`.
+          exchange = await this.applyInputValidation(exchange, inputSchemas);
         }
 
         return this.handler(exchange);
@@ -896,12 +930,17 @@ export class DefaultRoute implements Route {
           const outputSchemas = this.definition.discovery?.output;
           if (outputSchemas?.body || outputSchemas?.headers) {
             try {
-              await this.applyOutputValidation(result.exchange, outputSchemas);
+              const validated = await this.applyOutputValidation(
+                result.exchange,
+                outputSchemas,
+              );
+              finalResult = { ...result, exchange: validated };
             } catch (err) {
               finalResult = await this.handleOutputValidationFailure(
                 result.exchange,
                 err,
                 startTime,
+                outputSchemas,
               );
             }
           }
@@ -1011,7 +1050,12 @@ export class DefaultRoute implements Route {
       : new Set<string>();
 
     while (queue.length > 0) {
-      const { exchange, steps } = queue.shift()!;
+      const popped = queue.shift()!;
+      const { steps } = popped;
+      // `let` because the engine may rewrap the exchange below to update
+      // bookkeeping headers (operation label) without mutating the frozen
+      // wrapper. Subsequent reads in this iteration use the rewrapped value.
+      let exchange = popped.exchange;
       if (steps.length === 0) {
         // Emit exchange:completed for child exchanges when their steps are done
         if (
@@ -1046,7 +1090,11 @@ export class DefaultRoute implements Route {
         seenChildExchanges.add(exchange.id);
         const childNow = Date.now();
         childStartTimes.set(exchange.id, childNow);
-        exchange.headers["routecraft.startedAt"] = childNow;
+        // Stash the start timestamp on the exchange's internals so
+        // aggregate (and other observers) can read child duration without
+        // a side-Map handed across module boundaries. Internals survive
+        // `rewrap` because rewrap shares them between prev and next.
+        setStartedAt(exchange, childNow);
         const correlationId = exchange.headers[
           HeadersKeys.CORRELATION_ID
         ] as string;
@@ -1065,8 +1113,13 @@ export class DefaultRoute implements Route {
       // Prefer the DSL label (e.g., "log") over the raw OperationType (e.g., "tap")
       const stepLabel = step.label ?? step.operation;
 
-      // Update operation header for this step
-      exchange.headers[HeadersKeys.OPERATION] = stepLabel;
+      // Update the operation header for this step. Headers are frozen, so
+      // we rewrap onto a derived exchange (preserves id and internals).
+      // The cost is one allocation per step on top of whatever the step
+      // itself produces; in practice the dominant cost is still I/O.
+      exchange = DefaultExchange.rewrap(exchange, {
+        headers: { ...exchange.headers, [HeadersKeys.OPERATION]: stepLabel },
+      });
 
       const adapterLabel = getAdapterLabel(step.adapter);
       exchange.logger.debug(
@@ -1154,8 +1207,13 @@ export class DefaultRoute implements Route {
               exchange,
               forward,
             );
-            exchange.body = result;
-            lastProcessedExchange = exchange;
+            // Replace body via rewrap (frozen exchange); keep id and
+            // internals so telemetry continues to reference the same
+            // logical exchange.
+            const recovered = DefaultExchange.rewrap(exchange, {
+              body: result,
+            });
+            lastProcessedExchange = recovered;
 
             // Error handler recovered
             this.context.emit(
@@ -1163,14 +1221,14 @@ export class DefaultRoute implements Route {
               {
                 error: err,
                 route: this,
-                exchange,
+                exchange: recovered,
               },
             );
             this.context.emit(
               `route:${this.definition.id}:error-handler:recovered` as const,
               {
                 routeId: this.definition.id,
-                exchangeId: exchange.id,
+                exchangeId: recovered.id,
                 correlationId,
                 originalError: err,
                 failedOperation: stepLabel,
@@ -1306,8 +1364,13 @@ export class DefaultRoute implements Route {
       }
     }
 
-    // Check if the root exchange was dropped (e.g. by a filter)
-    if (exchange.headers["routecraft.dropped"] === true) {
+    // Check if the root exchange was dropped (e.g. by a filter). The drop
+    // flag lives on the exchange's shared internals object (see
+    // `markDropped` / `isDropped` in `exchange.ts`), so it survives the
+    // engine's per-step `rewrap`: an operation that marks the rewrapped
+    // exchange handed to it remains visible from the outer parameter
+    // because both reference the same internals.
+    if (isDropped(exchange)) {
       dropped = true;
     }
 

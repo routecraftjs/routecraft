@@ -1,5 +1,5 @@
 import { type Adapter, type Step } from "../types.ts";
-import { type Exchange, OperationType } from "../exchange.ts";
+import { type Exchange, OperationType, DefaultExchange } from "../exchange.ts";
 
 /**
  * Function form of a transformer: maps the body to a new value. Headers are unchanged.
@@ -84,9 +84,8 @@ export class TransformStep<T = unknown, R = T> implements Step<
     const newBody = await Promise.resolve(
       this.adapter.transform(exchange.body),
     );
-    exchange.body = newBody as unknown as T;
     queue.push({
-      exchange: exchange as unknown as Exchange<R>,
+      exchange: DefaultExchange.rewrap<R>(exchange, { body: newBody }),
       steps: remainingSteps,
     });
   }

@@ -383,6 +383,8 @@ export class MyApiAdapter<T = unknown> implements Destination<T, ApiResult> {
 
 ### Processor adapter
 
+`Exchange<T>` is immutable: every field is `readonly` and the wrapper, headers, and principal are shallow-frozen at construction. Processors must build a new exchange and return it; mutating the parameter fails at compile time and again at runtime as a `TypeError`. The framework re-wraps the returned plain object back into a `DefaultExchange` so context binding and route internals survive the spread.
+
 ```ts
 import { type Processor, type Exchange } from "@routecraft/routecraft";
 
@@ -394,6 +396,18 @@ export class MyProcessorAdapter<T = unknown, R = T> implements Processor<T, R> {
   }
 }
 ```
+
+To change multiple fields, batch them in one spread (one wrapper + one headers/body allocation regardless of how many fields change):
+
+```ts
+return {
+  ...exchange,
+  body: nextBody,
+  headers: { ...exchange.headers, "x-stage": "processed" },
+};
+```
+
+Avoid chained per-field updates; each chained call allocates an extra wrapper. See `.standards/type-safety-and-schemas.md` (Exchange Immutability) for the full contract.
 
 ### Transformer adapter (pure)
 
@@ -481,6 +495,7 @@ Before submitting a new or modified adapter:
 - [ ] Respects `AbortController` in sources
 - [ ] Keeps transforms pure; side effects only in destinations
 - [ ] Uses typed `StoreRegistry` and `MergedOptions` if reading from context
+- [ ] **Does not mutate the exchange.** Processor / Destination / aggregator implementations build a derived exchange via spread (`{ ...exchange, body: x }`) or `DefaultExchange.rewrap`; direct assignment to `exchange.body`, `exchange.headers[...]`, or `exchange.principal` is absent. Drop signalling uses `markDropped(exchange)`, not a header flag.
 - [ ] JSDoc documentation added
 - [ ] Tests written and passing
 - [ ] Exported from package index

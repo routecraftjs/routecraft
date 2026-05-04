@@ -135,6 +135,43 @@ If you have this rule explicitly configured, drop it from your ESLint config:
 "routecraft/mcp-server-options": "error",
 ```
 
+### 1.6 `Exchange` is immutable
+
+Every field on `Exchange<T>` is now `readonly`, and `DefaultExchange` shallow-freezes the wrapper, headers, and (when present) principal at construction. Body is intentionally **not** deep-frozen so adapter authors can attach arbitrary user payloads, but the framework will not mutate it and your code should not either.
+
+Code that mutated the parameter inside `.process()`, a custom `.enrich()` aggregator, or a custom `WrapperStep` will fail to compile (the parameter is `Readonly<>`) and again at runtime in strict mode (`TypeError` on a frozen field).
+
+**Before (0.4.0):**
+
+```ts
+.process((exchange) => {
+  exchange.body = { ...exchange.body, hello: "world" };
+  exchange.headers["x-stage"] = "processed";
+  return exchange;
+})
+```
+
+**After (0.5.0):**
+
+```ts
+.process((exchange) => ({
+  ...exchange,
+  body: { ...exchange.body, hello: "world" },
+  headers: { ...exchange.headers, "x-stage": "processed" },
+}))
+```
+
+The framework re-wraps the returned plain object back into a proper instance via `DefaultExchange.rewrap`, preserving the context binding, route binding, and identity (`exchange.id`). Returning the same `exchange` unchanged is still a valid no-op pass-through.
+
+Custom `.enrich()` aggregators follow the same rule: return a spread instead of mutating `original.body`. The built-in aggregators (`only`, `replace`, `none`, `defaultEnrichAggregator`) already follow the new contract.
+
+Two related framework signals moved off headers (which would now fail because they are frozen) onto out-of-band helpers. They only affect you if you fork an operation or write a custom step:
+
+- `exchange.headers["routecraft.dropped"]` is gone. Drop signalling (`filter`, `choice` halt + unmatched, source-payload parse with `OnParseError: "drop"`) uses `markDropped(exchange)` / `isDropped(exchange)` from `@routecraft/routecraft`.
+- `exchange.headers["routecraft.startedAt"]` is gone. Child exchange start timestamps used by `aggregate` for duration emission live on the exchange's internals via framework-internal helpers; survives `rewrap`.
+
+For deeper details, see `.standards/type-safety-and-schemas.md` § Exchange Immutability.
+
 ---
 
 ## 2. Experimental-API changes

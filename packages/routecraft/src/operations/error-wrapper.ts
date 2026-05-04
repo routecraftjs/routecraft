@@ -3,6 +3,7 @@ import {
   getExchangeContext,
   getExchangeRoute,
   HeadersKeys,
+  DefaultExchange,
 } from "../exchange.ts";
 import { rcError, RoutecraftError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
@@ -106,13 +107,19 @@ export class ErrorWrapperStep<
           });
         }
         const recovered = await this.handler(innerError, exchange, forward);
-        exchange.body = recovered;
-        // The recovery replaced the body; subsequent pipeline steps
-        // see the new value. Drop any partial pushes the failed inner
-        // step made before throwing so the template method routes the
-        // single recovered exchange forward, not the half-finished
-        // children.
+        // Drop any partial pushes the failed inner step made before
+        // throwing so the template method routes the single recovered
+        // exchange forward, not the half-finished children.
         innerQueue.length = 0;
+        // Build a recovered exchange (the original is frozen) and push
+        // it onto innerQueue so the wrapper template method relays it
+        // to the real queue with `remainingSteps` reattached. Inheriting
+        // identity / internals via rewrap keeps event correlation
+        // (exchangeId, route binding) consistent across the recovery.
+        innerQueue.push({
+          exchange: DefaultExchange.rewrap(exchange, { body: recovered }),
+          steps: [],
+        });
 
         if (route && context && routeId) {
           context.emit(

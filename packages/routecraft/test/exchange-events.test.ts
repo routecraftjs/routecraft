@@ -135,13 +135,11 @@ describe("Exchange and Step Lifecycle Events", () => {
       .process((ex) => {
         // simple() emits each array element separately as individual messages
         const num = ex.body as unknown as number;
-        (ex.body as unknown) = num * 2;
-        return ex;
+        return { ...ex, body: num * 2 };
       })
       .process((ex) => {
         const num = ex.body as unknown as number;
-        (ex.body as unknown) = num + 10;
-        return ex;
+        return { ...ex, body: num + 10 };
       })
       .to(log());
 

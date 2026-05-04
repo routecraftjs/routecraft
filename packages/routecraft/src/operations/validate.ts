@@ -1,6 +1,6 @@
 import { type StandardSchemaV1 } from "@standard-schema/spec";
 import { type Adapter, type Step } from "../types.ts";
-import { type Exchange, OperationType } from "../exchange.ts";
+import { type Exchange, OperationType, DefaultExchange } from "../exchange.ts";
 import { formatSchemaIssues, rcError } from "../error.ts";
 
 /** Standard Schema validate() result shape: success has value, failure has issues. */
@@ -57,8 +57,10 @@ export class ValidateStep<T = unknown, R = T> implements Step<Validator<T, R>> {
     const result = await Promise.resolve(
       this.adapter.validate(exchange as Exchange<T>),
     );
-    exchange.body = result;
-    queue.push({ exchange, steps: remainingSteps });
+    queue.push({
+      exchange: DefaultExchange.rewrap<R>(exchange, { body: result }),
+      steps: remainingSteps,
+    });
   }
 }
 

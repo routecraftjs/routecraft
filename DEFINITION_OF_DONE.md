@@ -34,6 +34,7 @@ Every change -- feature, fix, refactor -- must satisfy the checklists below befo
 - [ ] Wildcard subscriptions still work: new event names must be compatible with `*` and `**` glob patterns
 - [ ] New events are documented on the events reference page with their payload shape and when they fire
 - [ ] If the change removes or renames an event, treat it as a breaking change and document the migration path
+- [ ] Event payloads do not hold live mutable references that could change after emission. The `Exchange` wrapper, `headers`, and `principal` are shallow-frozen by `DefaultExchange` and safe to attach by reference; `body` is intentionally left mutable so adapter authors can attach arbitrary user payloads, so any payload that includes `exchange.body` (or other unfrozen fields like nested `principal.claims`) must be snapshotted (spread / `structuredClone`) at emission time when subscribers depend on payload stability.
 
 ## When you add or modify an adapter
 
@@ -49,6 +50,7 @@ Every change -- feature, fix, refactor -- must satisfy the checklists below befo
 - [ ] If it is an AI adapter (`packages/ai/`), also update the AI package exports
 - [ ] New adapters must include a JSDoc release tag on the factory function (see General Checklist)
 - [ ] If the adapter depends on a third-party package, add it as an optional `peerDependency` (with `peerDependenciesMeta`) in `@routecraft/routecraft` and as a regular `dependency` in `@routecraft/cli` so the CLI bundles it
+- [ ] Adapter implementations do not mutate the exchange parameter. Processor / Destination / aggregator code builds a derived exchange via spread or `DefaultExchange.rewrap`; direct assignment to `exchange.body`, `exchange.headers[...]`, or `exchange.principal` is absent. Drop signalling uses `markDropped(exchange)`. (See `.standards/type-safety-and-schemas.md` § Exchange Immutability.)
 
 ## When you add or modify an operation
 

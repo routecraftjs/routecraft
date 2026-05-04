@@ -337,10 +337,7 @@ describe("Direct adapter", () => {
         craft()
           .id("caller-with-principal")
           .from(simple("ping"))
-          .process((ex) => {
-            ex.principal = principal;
-            return ex;
-          })
+          .process((ex) => ({ ...ex, principal }))
           .to(direct("callee-reads-principal")),
         craft()
           .id("callee-reads-principal")

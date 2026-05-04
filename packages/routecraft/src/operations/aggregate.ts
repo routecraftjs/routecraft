@@ -1,11 +1,12 @@
 import { type Adapter, type Step } from "../types.ts";
 import {
   type Exchange,
-  type ExchangeHeaders,
   OperationType,
   HeadersKeys,
   getExchangeContext,
   getExchangeRoute,
+  getStartedAt,
+  DefaultExchange,
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
 import { SPLIT_PARENT_STORE } from "./split.ts";
@@ -156,16 +157,19 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
       const aggregatedExchange = await Promise.resolve(
         this.adapter.aggregate([exchange]),
       );
-      exchange.body = aggregatedExchange.body as unknown as T;
-      (exchange as { headers: ExchangeHeaders }).headers =
-        aggregatedExchange.headers;
-      exchange.principal = aggregatedExchange.principal ?? exchange.principal;
+      const next = DefaultExchange.rewrap<R>(exchange, {
+        body: aggregatedExchange.body,
+        headers: aggregatedExchange.headers,
+        ...(aggregatedExchange.principal !== undefined && {
+          principal: aggregatedExchange.principal,
+        }),
+      });
 
       if (context) {
         context.emit(`route:${routeId}:step:completed` as const, {
           routeId,
-          exchangeId: exchange.id,
-          correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
+          exchangeId: next.id,
+          correlationId: next.headers[HeadersKeys.CORRELATION_ID] as string,
           operation: this.operation,
           duration: Date.now() - stepStartTime,
           metadata: { inputCount: 1 },
@@ -173,7 +177,7 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
       }
 
       queue.push({
-        exchange: exchange as unknown as Exchange<R>,
+        exchange: next,
         steps: remainingSteps,
       });
       return;
@@ -197,8 +201,7 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
     // Emit exchange:completed for each child being aggregated
     if (context) {
       for (const child of aggregationGroup) {
-        const childStart =
-          (child.headers["routecraft.startedAt"] as number) ?? Date.now();
+        const childStart = getStartedAt(child) ?? Date.now();
         context.emit(`route:${routeId}:exchange:completed` as const, {
           routeId,
           exchangeId: child.id,
@@ -220,27 +223,38 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
       }
     }
 
-    // Restore the parent exchange identity
-    const target = parentExchange ?? exchange;
-    target.body = aggregatedExchange.body as unknown as T;
-    (target as { headers: ExchangeHeaders }).headers =
-      aggregatedExchange.headers;
-    target.principal = aggregatedExchange.principal ?? target.principal;
+    // Restore the parent exchange identity by deriving from `parentExchange`
+    // (or the current exchange when no parent was stashed). The new exchange
+    // takes the aggregator's body / headers / principal but the parent's id
+    // and internals (context, route binding) so post-aggregate telemetry
+    // continues to reference the parent's lifecycle.
+    const baseExchange = parentExchange ?? exchange;
 
-    // Remove the current group from hierarchy after aggregation
+    // Compute final headers: aggregator's headers minus the current split
+    // group from the hierarchy (or strip the hierarchy entirely if this was
+    // the outermost split).
     const remainingHierarchy = splitHierarchy.slice(0, -1);
-    if (remainingHierarchy.length > 0) {
-      (target.headers as ExchangeHeaders)[HeadersKeys.SPLIT_HIERARCHY] =
-        remainingHierarchy;
-    } else {
-      delete (target.headers as ExchangeHeaders)[HeadersKeys.SPLIT_HIERARCHY];
-    }
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructure to omit
+    const { [HeadersKeys.SPLIT_HIERARCHY]: _stripped, ...restHeaders } =
+      aggregatedExchange.headers;
+    const finalHeaders =
+      remainingHierarchy.length > 0
+        ? { ...restHeaders, [HeadersKeys.SPLIT_HIERARCHY]: remainingHierarchy }
+        : restHeaders;
+
+    const next = DefaultExchange.rewrap<R>(baseExchange, {
+      body: aggregatedExchange.body,
+      headers: finalHeaders,
+      ...(aggregatedExchange.principal !== undefined && {
+        principal: aggregatedExchange.principal,
+      }),
+    });
 
     if (context) {
       context.emit(`route:${routeId}:step:completed` as const, {
         routeId,
-        exchangeId: target.id,
-        correlationId: target.headers[HeadersKeys.CORRELATION_ID] as string,
+        exchangeId: next.id,
+        correlationId: next.headers[HeadersKeys.CORRELATION_ID] as string,
         operation: this.operation,
         duration: Date.now() - stepStartTime,
         metadata: { inputCount: aggregationGroup.length },
@@ -248,7 +262,7 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
     }
 
     queue.push({
-      exchange: target as unknown as Exchange<R>,
+      exchange: next,
       steps: remainingSteps,
     });
   }

@@ -1,5 +1,10 @@
 import { type Adapter, type Step } from "../types.ts";
-import { type Exchange, OperationType, type HeaderValue } from "../exchange.ts";
+import {
+  type Exchange,
+  OperationType,
+  type HeaderValue,
+  DefaultExchange,
+} from "../exchange.ts";
 
 /**
  * Function that returns the value for a header. Can be async. Use with `.header(key, valueOrFn)`.
@@ -48,7 +53,9 @@ export class HeaderStep<T = unknown> implements Step<HeaderSetter<T>> {
     queue: { exchange: Exchange<T>; steps: Step<Adapter>[] }[],
   ): Promise<void> {
     const value = await Promise.resolve(this.adapter.set(exchange));
-    exchange.headers[this.adapter.key] = value;
-    queue.push({ exchange, steps: remainingSteps });
+    const next = DefaultExchange.rewrap<T>(exchange, {
+      headers: { ...exchange.headers, [this.adapter.key]: value },
+    });
+    queue.push({ exchange: next, steps: remainingSteps });
   }
 }

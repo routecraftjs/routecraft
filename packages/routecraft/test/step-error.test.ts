@@ -2,6 +2,7 @@ import { describe, test, expect, afterEach, vi } from "vitest";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
 import {
   craft,
+  DefaultExchange,
   direct,
   ErrorWrapperStep,
   simple,
@@ -496,9 +497,18 @@ describe(".error() step scope: dual-mode wrapper", () => {
           await this.inner.execute(exchange, [], innerQueue);
           return "ok";
         } catch {
-          // Swallow inner's throw so the test asserts the inner's step events.
-          (exchange as { body?: unknown }).body = "outer-recovered";
+          // Swallow inner's throw so the test asserts the inner's step
+          // events. Drop any partial pushes the inner made and push a
+          // recovered exchange onto innerQueue so the wrapper template
+          // method relays it forward (exchanges are frozen; rewrap to
+          // produce a derived instance with the new body).
           innerQueue.length = 0;
+          innerQueue.push({
+            exchange: DefaultExchange.rewrap(exchange, {
+              body: "outer-recovered",
+            }),
+            steps: [],
+          });
           return "recovered";
         }
       }

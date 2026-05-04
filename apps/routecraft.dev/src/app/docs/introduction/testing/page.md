@@ -143,14 +143,16 @@ A mock stands in for the adapter's `send` / `subscribe`, nothing more. These sid
 - **Tracking ids and correlation data** that specific adapters attach to exchanges.
 - **Timing and I/O side effects** (connection pooling, retries, backoff) that the real adapter performs around the call.
 
-If your route asserts on something the real adapter would have added, set it yourself from the `send` handler before returning:
+If your route asserts on something the real adapter would have added, shape your mock's `send` return value to match the body the real adapter would have produced and assert on `exchange.body` downstream. The mock cannot mutate the incoming exchange (exchanges are immutable: frozen wrapper, headers, and principal), and the override path bypasses `getMetadata`, so any metadata-style fields the real adapter would have stamped onto headers must instead be carried through the result body in the mock.
 
 ```ts
 const httpMock = mockAdapter(http, {
-  send: async (exchange) => {
-    exchange.headers["http.status"] = 200;
-    return { status: 200, headers: {}, body: { ok: true }, url: "x" };
-  },
+  send: async (_exchange) => ({
+    status: 200,
+    headers: {},
+    body: { ok: true },
+    url: "x",
+  }),
 });
 ```
 
