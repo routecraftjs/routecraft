@@ -9,14 +9,17 @@ updates:
       prefix: "chore"
       include: "scope"
 
-  - package-ecosystem: "npm"
+  - package-ecosystem: "bun"
     directory: "/"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 3
     commit-message:
       prefix: "chore"
       include: "scope"
+    cooldown:
+      semver-minor-days: 14
+      semver-patch-days: 7
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
