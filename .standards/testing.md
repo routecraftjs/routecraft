@@ -123,7 +123,7 @@ If you reach for a snapshot, prefer inline (`toMatchInlineSnapshot()`) over a se
 
 ## 10. What runs in CI
 
-- `bun run test` (excludes `*.integration.test.ts`) runs on the main `test` job.
+- The main `test` job runs `bun run test:coverage` (which excludes `*.integration.test.ts` and uploads a `coverage-report` artifact). Locally, `bun run test` runs the same exclusion without the coverage instrumentation.
 - The dedicated `integration-test` job runs a two-arm matrix:
   - `bun` arm: `bun run test:integration` exercises the scaffolder twice -- once with `TEST_PACKAGE_MANAGER=bun` (full scaffold + `craft run` dispatch) and once with `TEST_PACKAGE_MANAGER=npm` (install + typecheck only; the dispatch test skips because the CLI is Bun-only).
   - `node` arm: `node .github/scripts/smoke-test-embedding.mjs` packs `@routecraft/routecraft`, npm-installs it into a fresh temp dir, and runs a `runner.ts` under plain Node to verify the embedding path. Includes a negative arm asserting `RC5017` fires when `cron()` is used without `croner` installed.
