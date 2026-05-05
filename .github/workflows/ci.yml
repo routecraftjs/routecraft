@@ -217,8 +217,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pm: [npm, bun]
-    name: integration-test (${{ matrix.pm }})
+        runtime: [bun, node]
+    name: integration-test (${{ matrix.runtime }})
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -235,7 +235,7 @@ jobs:
           cache: "pnpm"
 
       - name: Install bun
-        if: matrix.pm == 'bun'
+        if: matrix.runtime == 'bun'
         uses: oven-sh/setup-bun@v2
 
       - name: Restore node_modules
@@ -258,10 +258,15 @@ jobs:
           VERSION=$(node -p "require('./packages/routecraft/package.json').version")
           pnpm run version:set "$VERSION"
 
-      - name: Run integration tests
+      - name: Run scaffolder integration tests (bun)
+        if: matrix.runtime == 'bun'
         env:
-          TEST_PACKAGE_MANAGER: ${{ matrix.pm }}
+          TEST_PACKAGE_MANAGER: bun
         run: pnpm test:integration
+
+      - name: Smoke test Node embedding (pack + npm install + node runner.ts)
+        if: matrix.runtime == 'node'
+        run: node .github/scripts/smoke-test-embedding.mjs
 
       - name: Restore repo (only paths set-version touched)
         run: |
