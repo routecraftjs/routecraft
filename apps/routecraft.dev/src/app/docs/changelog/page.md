@@ -8,6 +8,91 @@ Routecraft is in active development -- APIs may change between minor versions.
 
 ---
 
+## [v0.5.0](https://github.com/routecraftjs/routecraft/releases/tag/v0.5.0) {% badge color="yellow" %}Pre-release{% /badge %}
+
+*May 2026*
+
+Several breaking changes across the core, AI, mail, logger, and CLI surfaces. See the [0.4.x to 0.5.0 migration guide](/docs/migrating/0.4-to-0.5) for the full public-API diff and step-by-step upgrade notes.
+
+### Core
+
+- **Dual-mode wrapper pattern** -- `.error()` is the first wrapper in a new dual-mode design; route-level error handling is now a wrapper rather than a top-level method. Source-level parse errors now flow through the same handler.
+- **Immutable Exchange** -- the `Exchange` is frozen and mutation is replaced with explicit copy-on-write. State is unified on `{ body, headers }`, with `principal`, `id`, and `logger` exposed as getters.
+- **`.authorize()` route-entry guard** -- new principal accessor on `Exchange` and a route-only authorization validator. Replaces the previous `requirePrincipal` validator.
+- **Choice operation** -- new conditional routing primitive with `transform()` and `enrich()` available on branch builders. Core operations are shared between routes and branches via a `StepBuilderBase`.
+- **Discovery metadata on the route builder** -- route id, description, and validation move from source options to the route builder itself.
+
+### AI & MCP
+
+- **Agent runtime** -- tool-calling loop, streaming via `onEvent` and `onDelta`, agent destination, and per-binding tool description overrides.
+- **`tools()` DSL** -- declarative tool registration, selection, and resolution.
+- **Agent configuration overhaul** -- `agentPlugin.agents` is a record (no `defineAgent`), `defaultOptions` set context-level defaults, `system`/`user` accept string or function, and agent enhancements (`toolCalls`, `validate`, skills + agents loaders) narrow `FnHandlerContext`.
+- **Config applier system** -- first-class AI plugin keys via a config applier hook.
+- **MCP OAuth 2.1 server** -- OAuth 2.1 authentication provider with principal hierarchy, plus a general MCP HTTP auth surface and tool annotations.
+- **Isolated local tool registry** -- MCP local tools live in a dedicated registry separate from direct routes.
+
+### Adapters
+
+- **Adapter mocking** -- `mockAdapter` swaps any tagged adapter in tests; `file`, `csv`, `json`, `jsonl`, and `html` factories are tagged out of the box.
+- **Mail (IMAP)** -- the IMAP source is reliable across poll and re-evaluation workloads, with reconnect on transient fetch failures. `MailMessage` body is reshaped and a verify-sender option is available.
+
+### Logger
+
+- **stdout default** -- the logger writes to stdout instead of stderr.
+
+### CLI & Tooling
+
+- **Bun-only `craft` CLI** -- the published `craft` binary now requires Bun >= 1.1.0.
+- **Bun monorepo** -- the monorepo migrates from pnpm to Bun for installs, scripts, and lockfile.
+- **`create-routecraft` refactor** -- scaffolder library extracted with expanded test coverage.
+
+### Docs
+
+- **Migration guide** -- new [0.4.x to 0.5.0 migration guide](/docs/migrating/0.4-to-0.5).
+- **Canary docs at `/next/`** -- canary docs deploy to `/next/` on GitHub Pages alongside the latest stable build at the root.
+- **Operator reference** -- `log` and `debug` operators documented; `map` and `schema` clarified.
+- **Claude Code skills** -- Agent Skills for authoring Routecraft adapters and capabilities are bundled at the repo root.
+
+---
+
+## [v0.4.0](https://github.com/routecraftjs/routecraft/releases/tag/v0.4.0) {% badge color="yellow" %}Pre-release{% /badge %}
+
+*March 2026*
+
+### Adapters
+
+- **Cron source** -- new adapter for scheduling capabilities with cron expressions.
+- **JSONL adapter and chunked mode** -- read and write line-delimited JSON with chunked streaming for large files.
+- **Modular adapter structure** -- adapters refactored into a consistent file layout with a unified DSL registration system.
+- **Merged options** -- `cron` and `direct` adapters now support merged options across config and route.
+
+### AI & MCP
+
+- **stdio MCP client** -- spawn and manage stdio-based MCP servers with a unified tool registry.
+- **Bearer token authentication** -- secure MCP HTTP transport with bearer tokens.
+
+### Framework
+
+- **Terminal UI** -- new TUI for inspecting running contexts and routes.
+- **Reduced public API surface** -- internal-only exports are no longer published, tightening the long-term API contract.
+
+### TypeScript
+
+- **Declaration-merging registries** -- compile-time adapter safety via type registries that adapter packages can extend.
+
+### Testing
+
+- **Spy adapter assertions** -- richer assertion helpers in `@routecraft/testing` for spying on capability output.
+
+### Docs
+
+- **Light mode** -- hero section and syntax highlighting now respect light mode.
+- **Copy-to-clipboard** -- code blocks gain a copy button.
+- **Community resources** -- new section linking external content and contributors.
+- **Dark-mode contrast** -- prose strong text is more readable on dark backgrounds.
+
+---
+
 ## [v0.3.0](https://github.com/routecraftjs/routecraft/releases/tag/v0.3.0) {% badge color="yellow" %}Pre-release{% /badge %}
 
 *March 2026*

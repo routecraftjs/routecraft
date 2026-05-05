@@ -575,30 +575,6 @@ jobs:
         working-directory: canary
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Use Node.js from .nvmrc
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: canary/.nvmrc
-
-      - name: Install bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: canary/package.json
-
-      - name: Install canary dependencies
-        working-directory: canary
-        run: bun install --frozen-lockfile
-
-      - name: Build canary docs (/next)
-        working-directory: canary
-        env:
-          NEXT_PUBLIC_BASE_PATH: /next
-          NEXT_PUBLIC_DOC_VERSION: next
-          NEXT_PUBLIC_DOC_COMMIT: ${{ steps.canary_commit.outputs.sha }}
-          NEXT_PUBLIC_POSTHOG_KEY: ${{ secrets.NEXT_PUBLIC_POSTHOG_KEY }}
-          NEXT_PUBLIC_POSTHOG_HOST: ${{ secrets.NEXT_PUBLIC_POSTHOG_HOST }}
-        run: bun run --filter routecraft.dev build
-
       - name: Find latest stable tag
         id: latest
         working-directory: canary
@@ -620,6 +596,33 @@ jobs:
             echo "tag=" >> "$GITHUB_OUTPUT"
             echo "No stable tag found; deploying canary only"
           fi
+
+      - name: Use Node.js from .nvmrc
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: canary/.nvmrc
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: canary/package.json
+
+      - name: Install canary dependencies
+        working-directory: canary
+        run: bun install --frozen-lockfile
+
+      - name: Build canary docs
+        working-directory: canary
+        env:
+          # Canary lives under /next/ when a stable build is also deployed at root.
+          # When no usable stable tag exists, canary becomes the root deploy and
+          # must be built with an empty basePath so its assets resolve.
+          NEXT_PUBLIC_BASE_PATH: ${{ steps.latest.outputs.tag != '' && '/next' || '' }}
+          NEXT_PUBLIC_DOC_VERSION: next
+          NEXT_PUBLIC_DOC_COMMIT: ${{ steps.canary_commit.outputs.sha }}
+          NEXT_PUBLIC_POSTHOG_KEY: ${{ secrets.NEXT_PUBLIC_POSTHOG_KEY }}
+          NEXT_PUBLIC_POSTHOG_HOST: ${{ secrets.NEXT_PUBLIC_POSTHOG_HOST }}
+        run: bun run --filter routecraft.dev build
 
       - name: Checkout stable tag
         if: steps.latest.outputs.tag != ''
