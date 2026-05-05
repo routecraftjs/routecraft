@@ -1,11 +1,7 @@
-import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
 import { craft, simple } from "@routecraft/routecraft";
-import {
-  agentBrowser,
-  type AgentBrowserResult,
-  sanitizeSessionId,
-} from "@routecraft/browser";
+import type { AgentBrowserResult } from "@routecraft/browser";
 
 type CommandArg = { id: string; action: string; [key: string]: unknown };
 type CommandResult = Promise<{
@@ -14,22 +10,25 @@ type CommandResult = Promise<{
   error?: string;
 }>;
 
-const { executeCommandMock, BrowserManagerMock } = vi.hoisted(() => ({
-  executeCommandMock:
-    vi.fn<(cmd: CommandArg, manager: unknown) => CommandResult>(),
-  BrowserManagerMock: vi.fn(function BrowserManager(this: unknown) {
-    return {};
-  }),
-}));
+// Bun:test does not hoist `mock.module`. Declare the mocks (which the
+// factories reference by closure) before installing the module mocks,
+// then dynamically import the consumer so it picks up the mocked modules.
+const executeCommandMock =
+  mock<(cmd: CommandArg, manager: unknown) => CommandResult>();
+const BrowserManagerMock = mock(function BrowserManager(this: unknown) {
+  return {};
+});
 
-vi.mock("agent-browser/dist/actions.js", () => ({
+mock.module("agent-browser/dist/actions.js", () => ({
   executeCommand: (cmd: CommandArg, manager: unknown) =>
     executeCommandMock(cmd, manager),
 }));
 
-vi.mock("agent-browser/dist/browser.js", () => ({
+mock.module("agent-browser/dist/browser.js", () => ({
   BrowserManager: BrowserManagerMock,
 }));
+
+const { agentBrowser, sanitizeSessionId } = await import("@routecraft/browser");
 
 describe("Browser Adapter", () => {
   let t: TestContext;
@@ -54,7 +53,7 @@ describe("Browser Adapter", () => {
 
   afterEach(async () => {
     if (t) await t.stop();
-    vi.restoreAllMocks();
+    mock.restore();
   });
 
   describe("sanitizeSessionId", () => {

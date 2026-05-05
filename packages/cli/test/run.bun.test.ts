@@ -1,21 +1,18 @@
-import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, test, expect, spyOn, beforeEach, afterEach } from "bun:test";
 import { writeFile, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// .ts files are supported on Node 22.6+ via --experimental-strip-types / built-in stripping
+// Silence logger output. Bun:test has no `importActual`/spread-and-override
+// equivalent for `mock.module`, so spy on the live `logger` exports
+// directly. Pino-style loggers are mutable; the spies live for the file's
+// lifetime.
+const { logger } = await import("@routecraft/routecraft");
+spyOn(logger, "info").mockImplementation(() => {});
+spyOn(logger, "error").mockImplementation(() => {});
+spyOn(logger, "debug").mockImplementation(() => {});
+spyOn(logger, "warn").mockImplementation(() => {});
 
-// Silence logger output
-vi.mock("@routecraft/routecraft", async () => {
-  const actual = await vi.importActual<any>("@routecraft/routecraft");
-  return {
-    ...actual,
-    logger: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() },
-  };
-});
-
-// Hoist the dynamic import to module level so individual tests do not pay
-// the transform cost inside their 5s default timeout under parallel load.
 const runModule = await import("../src/run");
 
 describe("CLI run command", () => {
@@ -32,7 +29,7 @@ describe("CLI run command", () => {
   afterEach(async () => {
     process.chdir(cwd);
     await rm(dir, { recursive: true, force: true });
-    vi.clearAllMocks();
+    // No-op under bun:test; the logger spies live for the file's lifetime.
   });
 
   /**
