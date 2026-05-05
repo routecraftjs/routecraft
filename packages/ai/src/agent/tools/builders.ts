@@ -256,24 +256,24 @@ async function dispatchDirect<TIn>(
   input: TIn,
 ): Promise<unknown> {
   const endpoint = sanitizeEndpoint(routeId);
-  const headers = hctx.correlationId
-    ? { [HeadersKeys.CORRELATION_ID]: hctx.correlationId }
-    : undefined;
   // Forward the calling principal so the downstream direct route sees
   // the same authenticated identity as the agent that invoked the
   // tool. The agent layer never lets a tool override or escalate this:
   // `principal` is deeply-readonly on FnHandlerContext (frozen at the
   // tool-bridge boundary). Hand the downstream exchange a fresh
-  // mutable copy so it follows the existing Exchange.principal
-  // contract (a `.process()` step downstream may legitimately attach
-  // a different principal); the tool handler's own snapshot stays
-  // frozen and unaffected.
+  // mutable copy so a `.process()` step downstream may legitimately
+  // attach a different principal; the tool handler's own snapshot
+  // stays frozen and unaffected.
+  const headers: Record<string, unknown> = {};
+  if (hctx.correlationId) {
+    headers[HeadersKeys.CORRELATION_ID] = hctx.correlationId;
+  }
+  if (hctx.principal) {
+    headers[HeadersKeys.AUTH_PRINCIPAL] = cloneFrozenPrincipal(hctx.principal);
+  }
   const exchange = new DefaultExchange<TIn>(ctx, {
     body: input,
-    ...(headers ? { headers } : {}),
-    ...(hctx.principal
-      ? { principal: cloneFrozenPrincipal(hctx.principal) }
-      : {}),
+    ...(Object.keys(headers).length > 0 ? { headers } : {}),
   });
   const channel = getDirectChannel<TIn>(ctx, endpoint, {});
   const result = (await channel.send(endpoint, exchange)) as Exchange<unknown>;

@@ -3,6 +3,7 @@ import { type Adapter, type Step } from "../types.ts";
 import {
   type Exchange,
   OperationType,
+  HeadersKeys,
   DefaultExchange,
   getExchangeContext,
   getExchangeRoute,
@@ -16,14 +17,19 @@ import {
 } from "../testing-hooks.ts";
 
 /**
- * Creates a snapshot of an exchange for async tap execution. Body and
- * principal are deep-cloned so tap-side mutations (which the framework
- * cannot prevent for arbitrary user payloads or nested principal claims)
- * do not race with the main pipeline. Headers are framework-immutable
- * (shallow-frozen) and therefore safe to share between snapshot and main
- * pipeline by reference; we only freeze the wrapper of the principal,
- * not its nested claims, so a downstream `.process()` that mutates
- * `principal.claims.someKey` would otherwise leak into the tap snapshot.
+ * Creates a snapshot of an exchange for async tap execution. Body is
+ * deep-cloned so tap-side mutations (which the framework cannot prevent
+ * for arbitrary user payloads) do not race with the main pipeline.
+ * Headers are framework-immutable (shallow-frozen) and safe to share
+ * between snapshot and main pipeline by reference; structured header
+ * values like `Principal` are shallow-frozen by the constructor so direct
+ * field rewrites are caught at runtime. Taps that mutate nested fields
+ * (e.g. `principal.claims.foo`) are an anti-pattern; tap is for
+ * observation, not mutation.
+ *
+ * The snapshot gets a fresh id (overriding the parent's
+ * `routecraft.id`) so log lines and any downstream identity-aware
+ * tooling can distinguish tap from main pipeline.
  *
  * @internal
  */
@@ -32,12 +38,11 @@ function snapshotExchange<T>(
   context: CraftContext,
 ): Exchange<T> {
   return new DefaultExchange<T>(context, {
-    id: randomUUID(),
     body: structuredClone(exchange.body),
-    headers: exchange.headers,
-    ...(exchange.principal !== undefined && {
-      principal: structuredClone(exchange.principal),
-    }),
+    headers: {
+      ...exchange.headers,
+      [HeadersKeys.ID]: randomUUID(),
+    },
   });
 }
 

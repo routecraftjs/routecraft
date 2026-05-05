@@ -229,7 +229,7 @@ Subtypes:
 | `'basic'` | `name?` |
 | `'custom'` | `name?`, `email?`, `roles?`, `scopes?`, `expiresAt?`, `claims?` |
 
-The populated principal surfaces on the exchange via `routecraft.auth.*` headers (see `McpHeadersKeys`): `auth.subject`, `auth.scheme`, `auth.name`, `auth.email`, `auth.roles`, `auth.scopes`, `auth.issuer`, `auth.audience`, and `auth.client_id` (OAuth only).
+The populated principal rides on the exchange as a single structured header (`routecraft.auth.principal`) and is exposed ergonomically via the `ex.principal` getter; read fields with `ex.principal?.subject`, `ex.principal?.scopes`, `ex.principal?.claims`, etc.
 
 ### Built-in `jwt()` helper
 
@@ -303,7 +303,7 @@ auth: oauth({
 })
 ```
 
-`issuer` and `audience` are required, so the server cannot silently accept tokens from a different IdP or minted for a different resource. The factory maps standard JWT claims (`sub`, `client_id`, `email`, `name`, `iss`, `aud`, `scope`, `roles`, `exp`) to `OAuthPrincipal` fields automatically; all of them surface as `routecraft.auth.*` exchange headers.
+`issuer` and `audience` are required, so the server cannot silently accept tokens from a different IdP or minted for a different resource. The factory maps standard JWT claims (`sub`, `client_id`, `email`, `name`, `iss`, `aud`, `scope`, `roles`, `exp`) to `OAuthPrincipal` fields automatically; the resolved principal surfaces on the structured `routecraft.auth.principal` exchange header and is exposed ergonomically via the `ex.principal` getter.
 
 `client` accepts either a static `OAuthClientInfo` (matched on `client_id`; unknown IDs are rejected) or a supplier `(clientId) => Promise<OAuthClientInfo | undefined>` for dynamic lookup against a database or registry.
 

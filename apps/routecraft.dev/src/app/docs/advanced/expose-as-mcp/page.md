@@ -244,7 +244,7 @@ auth: {
 }
 ```
 
-The returned `Principal` is a flat object tagged with `kind` (`"jwt"`, `"jwks"`, `"oauth"`, or `"custom"`). Its fields are forwarded to your routes as `routecraft.auth.*` exchange headers.
+The returned `Principal` is a flat object tagged with `kind` (`"jwt"`, `"jwks"`, `"oauth"`, or `"custom"`). It rides on the exchange as a structured `routecraft.auth.principal` header and is exposed ergonomically via the `ex.principal` getter.
 
 ### OAuth 2.1 proxy (`oauth()`)
 
@@ -303,7 +303,7 @@ auth: oauth({
 
 `expiresAt` is required by the MCP SDK's bearer middleware; the server will throw if the verifier returns a principal without it.
 
-The populated `Principal` surfaces every identity field on the exchange: `routecraft.auth.subject`, `routecraft.auth.client_id`, `routecraft.auth.email`, `routecraft.auth.name`, `routecraft.auth.issuer`, `routecraft.auth.audience`, `routecraft.auth.scopes`, `routecraft.auth.roles`, and `routecraft.auth.kind`.
+The populated `Principal` rides on the exchange as a single structured header (`routecraft.auth.principal`) and is exposed ergonomically via the `ex.principal` getter, e.g. `ex.principal?.subject`, `ex.principal?.scopes`, `ex.principal?.claims`.
 
 See the [plugins reference](/docs/reference/plugins#mcpplugin) for the full `Principal` field list.
 

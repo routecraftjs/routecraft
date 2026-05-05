@@ -3,7 +3,6 @@ import { type RouteDefinition } from "../route.ts";
 import { type ProcessingQueue, type Message, type Consumer } from "../types.ts";
 import { type Exchange, type ExchangeHeaders } from "../exchange.ts";
 import { type OnParseError } from "../adapters/shared/parse.ts";
-import { type Principal } from "../auth/types.ts";
 
 export class SimpleConsumer implements Consumer<never> {
   constructor(
@@ -19,7 +18,6 @@ export class SimpleConsumer implements Consumer<never> {
       headers?: ExchangeHeaders,
       parse?: (raw: unknown) => unknown | Promise<unknown>,
       parseFailureMode?: OnParseError,
-      principal?: Principal | undefined,
     ) => Promise<Exchange>,
   ): Promise<void> {
     this.channel.setHandler(async (message) => {
@@ -28,7 +26,6 @@ export class SimpleConsumer implements Consumer<never> {
         message.headers,
         message.parse,
         message.parseFailureMode,
-        message.principal,
       );
     });
   }

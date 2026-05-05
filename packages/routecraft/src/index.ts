@@ -27,6 +27,7 @@ export {
   type HeaderKeysRegistry,
   HeadersKeys,
   type HeaderValue,
+  type HeaderLiteral,
   OperationType,
   type RoutecraftHeaders,
 } from "./exchange.ts";

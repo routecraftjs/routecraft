@@ -154,46 +154,26 @@ export type McpClientServerConfig = McpClientHttpConfig | McpClientStdioConfig;
 
 /**
  * Header keys set on exchanges created by the MCP server.
- * Use these with `exchange.headers[McpHeadersKeys.AUTH_SUBJECT]` for type-safe access.
+ *
+ * Authenticated identity is exposed via `ex.principal` (a getter over
+ * `ex.headers["routecraft.auth.principal"]`); read principal fields off the
+ * structured object instead of looking them up under flat header keys.
  *
  * @example
  * ```ts
  * import { McpHeadersKeys } from '@routecraft/ai'
  *
  * .process((ex) => {
- *   const user = ex.headers[McpHeadersKeys.AUTH_SUBJECT]
+ *   const subject = ex.principal?.subject
  *   const tool = ex.headers[McpHeadersKeys.TOOL]
  * })
  * ```
  */
-// The `routecraft.auth.*` key strings below mirror the RoutecraftHeaders
-// augmentation in `@routecraft/routecraft/src/auth/types.ts`. Any rename or
-// addition must be kept in sync in both places.
 export enum McpHeadersKeys {
   /** The MCP tool name that triggered this exchange. */
   TOOL = "routecraft.mcp.tool",
   /** The MCP session identifier. */
   SESSION = "routecraft.mcp.session",
-  /** Authenticated subject (from Principal). */
-  AUTH_SUBJECT = "routecraft.auth.subject",
-  /** Authentication scheme used. */
-  AUTH_SCHEME = "routecraft.auth.scheme",
-  /** Authentication kind (jwt | jwks | oauth | custom). */
-  AUTH_KIND = "routecraft.auth.kind",
-  /** Roles assigned to the authenticated principal. */
-  AUTH_ROLES = "routecraft.auth.roles",
-  /** Scopes granted to the authenticated principal. */
-  AUTH_SCOPES = "routecraft.auth.scopes",
-  /** Email of the authenticated principal. */
-  AUTH_EMAIL = "routecraft.auth.email",
-  /** Display name of the authenticated principal. */
-  AUTH_NAME = "routecraft.auth.name",
-  /** Token issuer (JWT `iss`). */
-  AUTH_ISSUER = "routecraft.auth.issuer",
-  /** Intended audience (JWT `aud`). */
-  AUTH_AUDIENCE = "routecraft.auth.audience",
-  /** OAuth client ID (distinct from subject). */
-  AUTH_CLIENT_ID = "routecraft.auth.client_id",
 }
 
 /**
@@ -257,8 +237,9 @@ export interface OAuthAuthOptions {
    * Called on every authenticated request to `/mcp`.
    *
    * The returned principal flows through to route exchanges as
-   * `routecraft.auth.*` headers. `expiresAt` is part of the type contract
-   * because the MCP SDK's bearer middleware requires it.
+   * `headers["routecraft.auth.principal"]` (surfaced via the `ex.principal`
+   * getter). `expiresAt` is part of the type contract because the MCP
+   * SDK's bearer middleware requires it.
    */
   verifyAccessToken: (token: string) => Promise<OAuthPrincipal>;
   /**

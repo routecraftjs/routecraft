@@ -27,6 +27,7 @@ Type-safe integration and automation framework. Monorepo with pnpm workspaces.
 Detailed coding standards for contributors live in `.standards/`:
 
 - [Adapter Architecture](.standards/adapter-architecture.md) -- patterns, file structure, facade, authoring guide
+- [Exchange State Model](.standards/exchange-state-model.md) -- where state lives on an exchange (`body`/`headers` vs derivations), halt/continue contract
 - [Naming Policy](.standards/naming-policy.md) -- Source/Destination vs Server/Client conventions
 - [Error and Logging Policy](.standards/error-and-logging-policy.md) -- throw/boundary rules, log levels, error codes
 - [Type Safety and Schemas](.standards/type-safety-and-schemas.md) -- type flow, Standard Schema, plugin vs config

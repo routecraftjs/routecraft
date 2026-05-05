@@ -193,14 +193,12 @@ export function childBindings(
 
       // Include non-PII auth identifiers from the principal when present.
       // Only subject and issuer are safe for logs; fields like email,
-      // name, and roles are omitted to avoid leaking PII. Falls back to
-      // the legacy flat headers so adapters that only set headers (and
-      // not the principal) still get auth bindings in logs.
+      // name, and roles are omitted to avoid leaking PII.
       const principal = ex.principal;
-      const sub = principal?.subject ?? ex.headers["routecraft.auth.subject"];
-      if (sub !== undefined) bindings["auth.subject"] = sub;
-      const iss = principal?.issuer ?? ex.headers["routecraft.auth.issuer"];
-      if (iss !== undefined) bindings["auth.issuer"] = iss;
+      if (principal?.subject !== undefined)
+        bindings["auth.subject"] = principal.subject;
+      if (principal?.issuer !== undefined)
+        bindings["auth.issuer"] = principal.issuer;
 
       return bindings;
     }

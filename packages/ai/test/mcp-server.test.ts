@@ -1,7 +1,7 @@
 import { describe, test, expect, afterEach } from "vitest";
 import { McpServer } from "../src/mcp/server.ts";
 import { testContext, type TestContext } from "@routecraft/testing";
-import { craft, direct, noop } from "@routecraft/routecraft";
+import { craft, direct, noop, type Principal } from "@routecraft/routecraft";
 import { mcp, MCP_PLUGIN_REGISTERED } from "../src/index.ts";
 import { buildAuthHeaders } from "../src/mcp/build-auth-headers.ts";
 import { z } from "zod";
@@ -676,14 +676,14 @@ describe("McpServer", () => {
 
     describe("oauth auth", () => {
       /**
-       * @case oauth() verify returning a fully populated Principal surfaces every identity field as a routecraft.auth.* header
+       * @case oauth() verify returning a fully populated Principal rides as one structured header
        * @preconditions McpServer with oauth() auth; verify returns subject, clientId, email, name, issuer, audience, roles, scopes, expiresAt, claims
-       * @expectedResult Route's tap receives exchange headers with auth.subject = JWT sub (not clientId), auth.client_id, auth.email, auth.name, auth.issuer, auth.audience, auth.roles, auth.scopes, auth.scheme
+       * @expectedResult Route receives a single structured principal at headers["routecraft.auth.principal"] (also exposed via the ex.principal getter); legacy flat routecraft.auth.* keys are no longer set
        */
-      test("surfaces full principal claims as exchange headers", async () => {
+      test("surfaces full principal as a single structured header", async () => {
         const { oauth } = await import("../src/mcp/oauth.ts");
-        let captured: Record<string, string | string[] | undefined> | undefined;
         let capturedPrincipal: unknown | undefined;
+        let capturedHeaders: Record<string, unknown> | undefined;
 
         const authConfig = oauth({
           resourceIssuerUrl: "http://localhost:9999",
@@ -722,10 +722,7 @@ describe("McpServer", () => {
               .input({ body: z.object({}) })
               .from(mcp())
               .tap((ex) => {
-                captured = ex.headers as Record<
-                  string,
-                  string | string[] | undefined
-                >;
+                capturedHeaders = ex.headers as Record<string, unknown>;
                 capturedPrincipal = ex.principal;
               })
               .to(noop()),
@@ -748,37 +745,39 @@ describe("McpServer", () => {
         );
         expect(callRes.statusCode).toBe(200);
 
-        expect(captured).toBeDefined();
-        const h = captured as Record<string, string | string[] | undefined>;
-        expect(h["routecraft.auth.subject"]).toBe("user-42");
-        expect(h["routecraft.auth.client_id"]).toBe("client-abc");
-        expect(h["routecraft.auth.scheme"]).toBe("bearer");
-        expect(h["routecraft.auth.name"]).toBe("Ada Lovelace");
-        expect(h["routecraft.auth.email"]).toBe("ada@example.com");
-        expect(h["routecraft.auth.issuer"]).toBe("https://idp.example.com");
-        expect(h["routecraft.auth.audience"]).toEqual(["mcp.example.com"]);
-        expect(h["routecraft.auth.roles"]).toEqual(["admin"]);
-        expect(h["routecraft.auth.scopes"]).toEqual(["email", "profile"]);
-
-        // Full structured principal also rides on the exchange so route
-        // handlers can read claims, expiresAt, etc. (fields that don't
-        // flatten cleanly into the per-key auth headers).
         expect(capturedPrincipal).toMatchObject({
           kind: "oauth",
+          scheme: "bearer",
           subject: "user-42",
           clientId: "client-abc",
+          name: "Ada Lovelace",
+          email: "ada@example.com",
+          issuer: "https://idp.example.com",
+          audience: ["mcp.example.com"],
+          roles: ["admin"],
+          scopes: ["email", "profile"],
           claims: { sub: "user-42", custom: "value" },
         });
+
+        // The principal rides on the structured header key; the ex.principal
+        // getter is sugar over it. Legacy flat routecraft.auth.* keys are
+        // no longer set.
+        expect(capturedHeaders?.["routecraft.auth.principal"]).toBe(
+          capturedPrincipal,
+        );
+        expect(capturedHeaders?.["routecraft.auth.subject"]).toBeUndefined();
+        expect(capturedHeaders?.["routecraft.auth.client_id"]).toBeUndefined();
+        expect(capturedHeaders?.["routecraft.auth.email"]).toBeUndefined();
       });
 
       /**
-       * @case Minimal Principal (no identity enrichment) populates only subject, client_id, scheme, scopes
+       * @case Minimal Principal carries only the fields verify returned; absent fields stay undefined on the principal
        * @preconditions McpServer with oauth(); verify returns only required fields (kind, scheme, subject, clientId, scopes)
-       * @expectedResult Exchange headers include subject, client_id, scheme, scopes; optional identity headers are absent
+       * @expectedResult ex.principal has subject, clientId, scheme, scopes set; email/name/issuer/audience are undefined on the structured object
        */
-      test("minimal principal omits optional identity headers", async () => {
+      test("minimal principal omits optional identity fields", async () => {
         const { oauth } = await import("../src/mcp/oauth.ts");
-        let captured: Record<string, string | string[] | undefined> | undefined;
+        let capturedPrincipal: Principal | undefined;
 
         const authConfig = oauth({
           resourceIssuerUrl: "http://localhost:9999",
@@ -809,10 +808,7 @@ describe("McpServer", () => {
               .input({ body: z.object({}) })
               .from(mcp())
               .tap((ex) => {
-                captured = ex.headers as Record<
-                  string,
-                  string | string[] | undefined
-                >;
+                capturedPrincipal = ex.principal;
               })
               .to(noop()),
           ],
@@ -834,16 +830,15 @@ describe("McpServer", () => {
         );
         expect(callRes.statusCode).toBe(200);
 
-        expect(captured).toBeDefined();
-        const h = captured as Record<string, string | string[] | undefined>;
-        expect(h["routecraft.auth.subject"]).toBe("client-only");
-        expect(h["routecraft.auth.client_id"]).toBe("client-only");
-        expect(h["routecraft.auth.scheme"]).toBe("bearer");
-        expect(h["routecraft.auth.scopes"]).toEqual(["read"]);
-        expect(h["routecraft.auth.email"]).toBeUndefined();
-        expect(h["routecraft.auth.name"]).toBeUndefined();
-        expect(h["routecraft.auth.issuer"]).toBeUndefined();
-        expect(h["routecraft.auth.audience"]).toBeUndefined();
+        expect(capturedPrincipal).toBeDefined();
+        expect(capturedPrincipal?.subject).toBe("client-only");
+        expect(capturedPrincipal?.clientId).toBe("client-only");
+        expect(capturedPrincipal?.scheme).toBe("bearer");
+        expect(capturedPrincipal?.scopes).toEqual(["read"]);
+        expect(capturedPrincipal?.email).toBeUndefined();
+        expect(capturedPrincipal?.name).toBeUndefined();
+        expect(capturedPrincipal?.issuer).toBeUndefined();
+        expect(capturedPrincipal?.audience).toBeUndefined();
       });
 
       /**
@@ -948,8 +943,8 @@ describe("McpServer", () => {
        * @preconditions McpServer with validator returning kind: "jwt" with claims, issuer, audience, roles
        * @expectedResult Exchange headers include auth.issuer, auth.audience, auth.roles, auth.email, auth.name
        */
-      test("jwt principal populates jwt-specific headers", async () => {
-        let captured: Record<string, string | string[] | undefined> | undefined;
+      test("jwt principal carries jwt-specific fields", async () => {
+        let capturedPrincipal: Principal | undefined;
 
         const { post, initSession } = await startHttpServer(
           [
@@ -959,10 +954,7 @@ describe("McpServer", () => {
               .input({ body: z.object({}) })
               .from(mcp())
               .tap((ex) => {
-                captured = ex.headers as Record<
-                  string,
-                  string | string[] | undefined
-                >;
+                capturedPrincipal = ex.principal;
               })
               .to(noop()),
           ],
@@ -1000,25 +992,26 @@ describe("McpServer", () => {
         );
         expect(callRes.statusCode).toBe(200);
 
-        const h = captured as Record<string, string | string[] | undefined>;
-        expect(h["routecraft.auth.subject"]).toBe("jwt-user");
-        expect(h["routecraft.auth.name"]).toBe("JWT User");
-        expect(h["routecraft.auth.email"]).toBe("jwt@example.com");
-        expect(h["routecraft.auth.issuer"]).toBe("https://idp.example.com");
-        expect(h["routecraft.auth.audience"]).toEqual(["aud-a", "aud-b"]);
-        expect(h["routecraft.auth.roles"]).toEqual(["member"]);
-        expect(h["routecraft.auth.scopes"]).toEqual(["read", "write"]);
-        // JWT principals have no clientId; header must be absent.
-        expect(h["routecraft.auth.client_id"]).toBeUndefined();
+        expect(capturedPrincipal).toBeDefined();
+        expect(capturedPrincipal?.kind).toBe("jwt");
+        expect(capturedPrincipal?.subject).toBe("jwt-user");
+        expect(capturedPrincipal?.name).toBe("JWT User");
+        expect(capturedPrincipal?.email).toBe("jwt@example.com");
+        expect(capturedPrincipal?.issuer).toBe("https://idp.example.com");
+        expect(capturedPrincipal?.audience).toEqual(["aud-a", "aud-b"]);
+        expect(capturedPrincipal?.roles).toEqual(["member"]);
+        expect(capturedPrincipal?.scopes).toEqual(["read", "write"]);
+        // JWT principals have no clientId.
+        expect(capturedPrincipal?.clientId).toBeUndefined();
       });
 
       /**
-       * @case Validator returning a custom Principal surfaces subject and name but no JWT-specific headers
+       * @case Validator returning a custom Principal carries subject and name but no JWT-specific fields
        * @preconditions McpServer with validator returning kind: "custom" with a name
-       * @expectedResult Exchange headers include auth.subject, auth.scheme, auth.name; JWT-only headers are absent
+       * @expectedResult ex.principal has subject, scheme, name; email/issuer/audience/scopes/clientId are undefined
        */
-      test("custom principal omits jwt-only headers", async () => {
-        let captured: Record<string, string | string[] | undefined> | undefined;
+      test("custom principal omits jwt-only fields", async () => {
+        let capturedPrincipal: Principal | undefined;
 
         const { post, initSession } = await startHttpServer(
           [
@@ -1028,10 +1021,7 @@ describe("McpServer", () => {
               .input({ body: z.object({}) })
               .from(mcp())
               .tap((ex) => {
-                captured = ex.headers as Record<
-                  string,
-                  string | string[] | undefined
-                >;
+                capturedPrincipal = ex.principal;
               })
               .to(noop()),
           ],
@@ -1062,15 +1052,16 @@ describe("McpServer", () => {
         );
         expect(callRes.statusCode).toBe(200);
 
-        const h = captured as Record<string, string | string[] | undefined>;
-        expect(h["routecraft.auth.subject"]).toBe("key-123");
-        expect(h["routecraft.auth.scheme"]).toBe("bearer");
-        expect(h["routecraft.auth.name"]).toBe("Deploy key");
-        expect(h["routecraft.auth.email"]).toBeUndefined();
-        expect(h["routecraft.auth.issuer"]).toBeUndefined();
-        expect(h["routecraft.auth.audience"]).toBeUndefined();
-        expect(h["routecraft.auth.scopes"]).toBeUndefined();
-        expect(h["routecraft.auth.client_id"]).toBeUndefined();
+        expect(capturedPrincipal).toBeDefined();
+        expect(capturedPrincipal?.kind).toBe("custom");
+        expect(capturedPrincipal?.subject).toBe("key-123");
+        expect(capturedPrincipal?.scheme).toBe("bearer");
+        expect(capturedPrincipal?.name).toBe("Deploy key");
+        expect(capturedPrincipal?.email).toBeUndefined();
+        expect(capturedPrincipal?.issuer).toBeUndefined();
+        expect(capturedPrincipal?.audience).toBeUndefined();
+        expect(capturedPrincipal?.scopes).toBeUndefined();
+        expect(capturedPrincipal?.clientId).toBeUndefined();
       });
     });
   });

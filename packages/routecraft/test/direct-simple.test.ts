@@ -319,9 +319,8 @@ describe("Direct adapter", () => {
 
   /**
    * @case Principal flows from caller to callee across direct()
-   * @preconditions Producer route attaches a custom principal and forwards via direct()
-   * @expectedResult The callee's exchange carries the same principal so
-   *                 .authorize() / route handlers see the caller's identity
+   * @preconditions Producer route attaches a custom principal under headers["routecraft.auth.principal"] and forwards via direct()
+   * @expectedResult The callee's exchange carries the same principal so .authorize() / route handlers see the caller's identity
    */
   test("propagates principal across direct() boundaries", async () => {
     const principal = {
@@ -337,7 +336,10 @@ describe("Direct adapter", () => {
         craft()
           .id("caller-with-principal")
           .from(simple("ping"))
-          .process((ex) => ({ ...ex, principal }))
+          .process((ex) => ({
+            ...ex,
+            headers: { ...ex.headers, "routecraft.auth.principal": principal },
+          }))
           .to(direct("callee-reads-principal")),
         craft()
           .id("callee-reads-principal")

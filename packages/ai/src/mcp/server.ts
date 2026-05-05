@@ -1,5 +1,9 @@
 import type { CraftContext } from "@routecraft/routecraft";
-import { DefaultExchange, isRoutecraftError } from "@routecraft/routecraft";
+import {
+  DefaultExchange,
+  HeadersKeys,
+  isRoutecraftError,
+} from "@routecraft/routecraft";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createServer } from "node:http";
 import type { IncomingMessage } from "node:http";
@@ -1000,35 +1004,21 @@ export class McpServer {
         "MCP tool call exchange body",
       );
 
-      // Build exchange headers, including auth principal if present.
+      // Build exchange headers. The authenticated principal (when present)
+      // rides as a single structured header rather than ten flat keys; the
+      // `ex.principal` getter on the exchange surfaces it ergonomically.
       const principal = principalStore.getStore();
-      const headers: Record<string, string | string[] | undefined> = {
+      const headers: Record<string, unknown> = {
         [McpHeadersKeys.TOOL]: toolName,
         [McpHeadersKeys.SESSION]: `mcp-${Date.now()}`,
       };
       if (principal) {
-        headers[McpHeadersKeys.AUTH_SUBJECT] = principal.subject;
-        headers[McpHeadersKeys.AUTH_SCHEME] = principal.scheme;
-        headers[McpHeadersKeys.AUTH_KIND] = principal.kind;
-        if (principal.name) headers[McpHeadersKeys.AUTH_NAME] = principal.name;
-        if (principal.email)
-          headers[McpHeadersKeys.AUTH_EMAIL] = principal.email;
-        if (principal.roles)
-          headers[McpHeadersKeys.AUTH_ROLES] = principal.roles;
-        if (principal.scopes)
-          headers[McpHeadersKeys.AUTH_SCOPES] = principal.scopes;
-        if (principal.issuer)
-          headers[McpHeadersKeys.AUTH_ISSUER] = principal.issuer;
-        if (principal.audience)
-          headers[McpHeadersKeys.AUTH_AUDIENCE] = principal.audience;
-        if (principal.clientId)
-          headers[McpHeadersKeys.AUTH_CLIENT_ID] = principal.clientId;
+        headers[HeadersKeys.AUTH_PRINCIPAL] = principal;
       }
 
       const exchange = new DefaultExchange(this.context, {
         body,
         headers,
-        principal,
       });
 
       this.context.emit(`plugin:mcp:tool:called`, {
