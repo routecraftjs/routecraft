@@ -22,7 +22,7 @@ function GitHubIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
 }
 
 function Header() {
-  let [isScrolled, setIsScrolled] = useState(false)
+  const [isScrolled, setIsScrolled] = useState(false)
 
   useEffect(() => {
     function onScroll() {
@@ -78,8 +78,8 @@ function Header() {
 }
 
 export function Layout({ children }: { children: React.ReactNode }) {
-  let pathname = usePathname()
-  let isHomePage = pathname === '/'
+  const pathname = usePathname()
+  const isHomePage = pathname === '/'
 
   return (
     <div className="flex w-full flex-col">

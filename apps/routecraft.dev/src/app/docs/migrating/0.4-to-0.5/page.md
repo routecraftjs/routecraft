@@ -487,7 +487,7 @@ Lets you invoke routes from outside the framework lifecycle (test runners, scrip
 
 The `mcp()` source can now sit behind an OAuth 2.1 authorisation server. The framework ships JWT and JWKS verifiers, an `oauth()` factory, and a typed `OAuthPrincipal` shape.
 
-### `.authorize()` route-entry guard {% badge color="orange" %}experimental{% /badge %}
+### `.authorize()` route-entry guard
 
 A new route-only `.authorize()` method declares an authorization requirement on a route. It runs at route entry, before any pipeline step, and verifies that the inbound exchange carries an authenticated `principal` and (optionally) that the principal carries every required role and scope.
 

@@ -18,6 +18,7 @@ coverage/
 
 # Next.js build output
 **/.next/
+**/next-env.d.ts
 
 *.md
 

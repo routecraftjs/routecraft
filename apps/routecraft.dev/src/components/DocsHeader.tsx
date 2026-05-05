@@ -6,15 +6,17 @@ import { navigation } from '@/lib/navigation'
 import { Badge } from '@/components/Badge'
 import { CopyDocsButton } from '@/components/CopyDocsButton'
 
+type BadgeColor = React.ComponentProps<typeof Badge>['color']
+
 export function DocsHeader({
   title,
   titleBadges,
 }: {
   title?: string
-  titleBadges?: Array<{ text: string; color?: string }>
+  titleBadges?: Array<{ text: string; color?: BadgeColor }>
 }) {
-  let pathname = usePathname().replace(/\/+$/, '') || '/'
-  let section = navigation.find((section) =>
+  const pathname = usePathname().replace(/\/+$/, '') || '/'
+  const section = navigation.find((section) =>
     section.links.find((link) => link.href === pathname),
   )
 
@@ -39,7 +41,7 @@ export function DocsHeader({
           <span className="inline-flex items-center gap-2">
             <span>{title}</span>
             {titleBadges?.map((b, i) => (
-              <Badge key={i} color={(b.color as any) ?? 'yellow'}>
+              <Badge key={i} color={b.color ?? 'yellow'}>
                 {b.text}
               </Badge>
             ))}
