@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "bun:test";
 import { jwks, __jwksLoaders } from "../../src/auth/jwks.ts";
 import { rcError } from "../../src/error.ts";
 

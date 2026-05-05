@@ -54,6 +54,7 @@
     "packages/ai/test/llm.bun.test.ts",
     "packages/ai/test/mcp-server.test.ts",
     "packages/ai/test/mcp.test.ts",
+    "packages/ai/test/mcp.bun.test.ts",
     "packages/browser/test/browser.test.ts",
     "packages/routecraft/test/direct-validation.test.ts",
     "packages/routecraft/test/direct-validation.bun.test.ts",

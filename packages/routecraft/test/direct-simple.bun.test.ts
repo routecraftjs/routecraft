@@ -1,4 +1,4 @@
-import { describe, test, expect, afterEach, vi } from "vitest";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { craft, simple, direct, type Source } from "@routecraft/routecraft";
 import type { CallableDestination } from "../src/operations/to.ts";
@@ -16,7 +16,7 @@ describe("Direct adapter", () => {
    * @expectedResult Should process message synchronously without errors
    */
   test("basic direct communication", async () => {
-    const consumer = vi.fn();
+    const consumer = mock();
 
     t = await testContext()
       .routes([
@@ -39,8 +39,8 @@ describe("Direct adapter", () => {
    * @expectedResult Each consumer should only receive messages from its endpoint
    */
   test("endpoint isolation", async () => {
-    const consumerA = vi.fn();
-    const consumerB = vi.fn();
+    const consumerA = mock();
+    const consumerB = mock();
 
     t = await testContext()
       .routes([
@@ -70,21 +70,20 @@ describe("Direct adapter", () => {
    * @expectedResult Build throws the duplicate-route-id error (RC1002)
    */
   test("duplicate direct subscribers rejected via route id uniqueness", async () => {
-    await expect(async () => {
-      await testContext()
-        .routes([
-          craft().id("producer").from(simple("message")).to(direct("shared")),
-          craft()
-            .id("shared")
-            .from(direct())
-            .to(vi.fn() as never),
-          craft()
-            .id("shared")
-            .from(direct())
-            .to(vi.fn() as never),
-        ])
-        .build();
-    }).rejects.toMatchObject({ rc: "RC1002" });
+    const builder = testContext()
+      .routes([
+        craft().id("producer").from(simple("message")).to(direct("shared")),
+        craft()
+          .id("shared")
+          .from(direct())
+          .to(mock() as never),
+        craft()
+          .id("shared")
+          .from(direct())
+          .to(mock() as never),
+      ])
+      .build();
+    await expect(builder).rejects.toMatchObject({ rc: "RC1002" });
   });
 
   /**
@@ -93,8 +92,8 @@ describe("Direct adapter", () => {
    * @expectedResult Messages should route to correct endpoints based on body
    */
   test("dynamic endpoint based on body", async () => {
-    const handlerA = vi.fn();
-    const handlerB = vi.fn();
+    const handlerA = mock();
+    const handlerB = mock();
 
     t = await testContext()
       .routes([
@@ -132,8 +131,8 @@ describe("Direct adapter", () => {
    * @expectedResult Messages should route to correct endpoints based on headers
    */
   test("dynamic endpoint based on headers", async () => {
-    const highPriorityHandler = vi.fn();
-    const normalPriorityHandler = vi.fn();
+    const highPriorityHandler = mock();
+    const normalPriorityHandler = mock();
 
     t = await testContext()
       .routes([
@@ -178,7 +177,7 @@ describe("Direct adapter", () => {
    * @expectedResult Special characters should be URL-encoded for collision-free routing
    */
   test("dynamic endpoint sanitization", async () => {
-    const consumer = vi.fn();
+    const consumer = mock();
 
     // The route id itself must avoid `:` because event names are
     // colon-delimited; the endpoint registry still URL-encodes other special
@@ -210,18 +209,15 @@ describe("Direct adapter", () => {
     // With the refactored adapter, build() now throws RC1001 (invalid-consumer)
     // because DirectDestinationAdapter doesn't have a subscribe method.
     // This is actually better - fail fast at build time rather than runtime.
-    await expect(async () => {
-      await testContext()
-        .routes([
-          craft()
-            .id("invalid-consumer")
-            .from(
-              direct(() => "dynamic-endpoint") as unknown as Source<unknown>,
-            )
-            .to(vi.fn() as CallableDestination<unknown, void>),
-        ])
-        .build();
-    }).rejects.toThrow("invalid-consumer");
+    const builder = testContext()
+      .routes([
+        craft()
+          .id("invalid-consumer")
+          .from(direct(() => "dynamic-endpoint") as unknown as Source<unknown>)
+          .to(mock() as CallableDestination<unknown, void>),
+      ])
+      .build();
+    await expect(builder).rejects.toThrow("invalid-consumer");
   });
 
   /**
@@ -230,9 +226,9 @@ describe("Direct adapter", () => {
    * @expectedResult Each handler receives only its designated messages
    */
   test("multiple dynamic routes with complex routing", async () => {
-    const orderHandler = vi.fn();
-    const userHandler = vi.fn();
-    const productHandler = vi.fn();
+    const orderHandler = mock();
+    const userHandler = mock();
+    const productHandler = mock();
 
     t = await testContext()
       .routes([

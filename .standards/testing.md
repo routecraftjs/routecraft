@@ -30,9 +30,7 @@ Default to `bun:test`. Stay on vitest only when the test hits a known bun:test g
 |---|---|
 | Fake timers (`vi.useFakeTimers`, `advanceTimersByTime`) | Bun 1.3.11's `node:test` `mock.timers` is documented but not implemented. Re-migrate when Bun ships it. |
 | `vi.hoisted` / `vi.importActual` complex module mocks | Different hoisting semantics; per-file workaround needed. |
-| `mock.module` factory that throws synchronously | Bun:test evaluates the factory eagerly; vitest defers. Affects "missing optional peer" test scaffolding. |
 | `toMatchObject` followed by access to matched fields | Bun:test mutates the actual object, replacing matched fields with matcher refs. Use a shallow-copy match or restructure the test. |
-| `expect(async fn).rejects.toThrow(...)` (passing a function, not a promise) | Bun:test requires a Promise. Convert to `expect(asyncFn()).rejects.toThrow(...)`. |
 | ink-testing-library renderers | Output diffs under bun:test. Investigate later. |
 | ESLint `RuleTester` | Compatibility surface to investigate. |
 | `jose` remote JWKS over real HTTP | `fetchImpl` resolves differently under Bun. Investigate later. |

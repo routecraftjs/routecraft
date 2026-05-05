@@ -1,4 +1,4 @@
-import { describe, test, expect, afterEach, vi } from "vitest";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
 import {
   mcp,
@@ -50,7 +50,7 @@ describe("mcp() DSL function", () => {
    * @expectedResult Handler forwards the body to the route consumer
    */
   test("invoking mcp() entry delivers body to consumer", async () => {
-    const consumer = vi.fn();
+    const consumer = mock();
 
     t = await testContext()
       .routes([
@@ -76,8 +76,8 @@ describe("mcp() DSL function", () => {
    * @expectedResult Direct send reaches the direct consumer; invoking the mcp entry reaches the mcp consumer
    */
   test("mcp() and direct() coexist via distinct registries", async () => {
-    const mcpConsumer = vi.fn();
-    const directConsumer = vi.fn();
+    const mcpConsumer = mock();
+    const directConsumer = mock();
 
     t = await testContext()
       .routes([
@@ -115,7 +115,7 @@ describe("mcp() DSL function", () => {
       url: z.string().url(),
     });
 
-    const consumer = vi.fn();
+    const consumer = mock();
 
     t = await testContext()
       .routes([
@@ -152,7 +152,7 @@ describe("mcp() DSL function", () => {
           .description("Fetch a URL")
           .input({ body: schema })
           .from(mcp())
-          .to(vi.fn()),
+          .to(mock()),
       ])
       .store(MCP_PLUGIN_KEY, true)
       .build();
@@ -181,7 +181,7 @@ describe("mcp() DSL function", () => {
           .input({ body: z.object({ query: z.string() }) })
           .output({ body: z.object({ hits: z.number() }) })
           .from(mcp({ annotations: { readOnlyHint: true }, icons }))
-          .to(vi.fn()),
+          .to(mock()),
       ])
       .store(MCP_PLUGIN_KEY, true)
       .build();
@@ -208,7 +208,7 @@ describe("mcp() DSL function", () => {
    * @expectedResult Route consumer still sees `routecraft.mcp.tool` and any MCP-set headers alongside the validated user header
    */
   test("input.headers schema preserves MCP-injected headers", async () => {
-    const consumer = vi.fn();
+    const consumer = mock();
 
     t = await testContext()
       .routes([
@@ -280,7 +280,7 @@ describe("mcp() DSL function", () => {
               },
             }),
           )
-          .to(vi.fn()),
+          .to(mock()),
       ])
       .store(MCP_PLUGIN_KEY, true)
       .build();
@@ -310,7 +310,7 @@ describe("mcp() DSL function", () => {
           .id("plain-tool")
           .description("A plain tool")
           .from(mcp())
-          .to(vi.fn()),
+          .to(mock()),
       ])
       .store(MCP_PLUGIN_KEY, true)
       .build();
@@ -335,8 +335,8 @@ describe("mcp() DSL function", () => {
           .id("exposed")
           .description("Exposed tool")
           .from(mcp())
-          .to(vi.fn()),
-        craft().id("internal").from(direct()).to(vi.fn()),
+          .to(mock()),
+        craft().id("internal").from(direct()).to(mock()),
       ])
       .store(MCP_PLUGIN_KEY, true)
       .build();
@@ -359,15 +359,14 @@ describe("mcp() DSL function", () => {
    * @expectedResult Build raises RC1002 (duplicate route id)
    */
   test("duplicate mcp() endpoint surfaces as duplicate route id", async () => {
-    await expect(async () => {
-      await testContext()
-        .routes([
-          craft().id("dup-tool").description("First").from(mcp()).to(vi.fn()),
-          craft().id("dup-tool").description("Second").from(mcp()).to(vi.fn()),
-        ])
-        .store(MCP_PLUGIN_KEY, true)
-        .build();
-    }).rejects.toMatchObject({ rc: "RC1002" });
+    const builder = testContext()
+      .routes([
+        craft().id("dup-tool").description("First").from(mcp()).to(mock()),
+        craft().id("dup-tool").description("Second").from(mcp()).to(mock()),
+      ])
+      .store(MCP_PLUGIN_KEY, true)
+      .build();
+    await expect(builder).rejects.toMatchObject({ rc: "RC1002" });
   });
 
   /**
@@ -382,7 +381,7 @@ describe("mcp() DSL function", () => {
           .id("ephemeral")
           .description("Short-lived")
           .from(mcp())
-          .to(vi.fn()),
+          .to(mock()),
       ])
       .store(MCP_PLUGIN_KEY, true)
       .build();
@@ -435,7 +434,7 @@ describe("mcp() DSL function", () => {
     const invalid = ["bad/name", "has space", "", "a".repeat(65)];
     for (const id of invalid) {
       const ctx = await testContext()
-        .routes([craft().id(id).description("invalid").from(mcp()).to(vi.fn())])
+        .routes([craft().id(id).description("invalid").from(mcp()).to(mock())])
         .store(MCP_PLUGIN_KEY, true)
         .build();
       await expect(ctx.startAndWaitReady()).rejects.toMatchObject({
@@ -447,7 +446,7 @@ describe("mcp() DSL function", () => {
     // Valid names subscribe without error and register in the local tool registry.
     const okCtx = await testContext()
       .routes([
-        craft().id("good_name-1").description("ok").from(mcp()).to(vi.fn()),
+        craft().id("good_name-1").description("ok").from(mcp()).to(mock()),
       ])
       .store(MCP_PLUGIN_KEY, true)
       .build();
@@ -466,7 +465,7 @@ describe("mcp() DSL function", () => {
    */
   test("mcp() source requires a route-level description", async () => {
     const ctx = await testContext()
-      .routes([craft().id("missing-desc").from(mcp()).to(vi.fn())])
+      .routes([craft().id("missing-desc").from(mcp()).to(mock())])
       .store(MCP_PLUGIN_KEY, true)
       .build();
     await expect(ctx.startAndWaitReady()).rejects.toMatchObject({
