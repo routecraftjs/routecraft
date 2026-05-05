@@ -185,9 +185,10 @@ describe("Lifecycle Management", () => {
     await t.ctx.start();
 
     await t.ctx.stop();
-    const secondStop = t.ctx.stop(); // Should be no-op
-
-    await expect(secondStop).resolves.not.toThrow();
+    // Second stop should be a no-op; assert it resolves without throwing.
+    // Avoid `.resolves.not.toThrow()` -- bun:test rejects when the resolved
+    // value is undefined (vitest accepts).
+    await expect(t.ctx.stop()).resolves.toBeUndefined();
   });
 
   /**
