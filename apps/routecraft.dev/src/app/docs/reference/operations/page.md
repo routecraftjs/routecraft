@@ -32,12 +32,13 @@ DSL operators with signatures and examples. {% .lead %}
 | [`delay`](#delay) | Wrapper | Add delay before the next operation {% badge color="purple" %}planned{% /badge %} |
 | [`onError`](#onError) | Wrapper | Handle errors from the next operation {% badge color="purple" %}planned{% /badge %} |
 | [`transform`](#transform) | Transform | Transform data using a function (body only) |
-| [`map`](#map) | Transform | Map fields from source to target object |
+| [`map`](#map) | Transform | Sugar for `transform(mapper(...))`: map fields from source to target object |
 | [`process`](#process) | Transform | Process data with full exchange access |
 | [`header`](#header) | Transform | Set or override an exchange header |
 | [`enrich`](#enrich) | Transform | Add additional data to current data |
 | [`filter`](#filter) | Flow Control | Filter data based on predicate |
 | [`validate`](#validate) | Flow Control | Validate data against schema |
+| [`schema`](#schema) | Flow Control | Sugar for `validate(schema(...))`: validate against a Standard Schema |
 | [`dedupe`](#dedupe) | Flow Control | Suppress duplicate exchanges based on a key {% badge color="purple" %}planned{% /badge %} |
 | [`choice`](#choice) | Flow Control | Route to different paths based on conditions |
 | [`split`](#split) | Flow Control | Split arrays into individual items |
@@ -45,6 +46,8 @@ DSL operators with signatures and examples. {% .lead %}
 | [`multicast`](#multicast) | Flow Control | Send exchange to multiple destinations {% badge color="purple" %}planned{% /badge %} |
 | [`loop`](#loop) | Flow Control | Repeat operations while condition is true {% badge color="purple" %}planned{% /badge %} |
 | [`tap`](#tap) | Side Effect | Fire-and-forget side effect, does not block the pipeline |
+| [`log`](#log) | Side Effect | Sugar for `tap(log())`: log the current exchange at info level |
+| [`debug`](#debug) | Side Effect | Sugar for `tap(debug())`: log the current exchange at debug level |
 | [`to`](#to) | Side Effect | Send data to a destination adapter and end the pipeline |
 
 ## Route operations
@@ -549,7 +552,7 @@ Set or override a header on the exchange. The body remains unchanged.
 map<Return>(fieldMappings: Record<keyof Return, (src: Current) => Return[keyof Return]>): RouteBuilder<Return>
 ```
 
-Map fields from the current data to create a new object of a specified type. This is a specialized transformer that creates a new object by mapping fields from the source object.
+Map fields from the current data to create a new object of a specified type. Sugar for `.transform(mapper({...}))`: a specialized transformer that creates a new object by mapping fields from the source object.
 
 ```ts
 // Map from API response to database model
@@ -1045,6 +1048,49 @@ The tap receives a **deep copy** of the exchange with:
 - `context.stop()` automatically calls `context.drain()` to wait for all tap jobs
 - Ensures all async work finishes before shutdown completes
 
+
+### log
+
+```ts
+log(
+  formatter?: (exchange: Exchange<Current>) => unknown,
+  options?: { level?: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal' },
+): RouteBuilder<Current>
+```
+
+Sugar for `.tap(log(formatter, options))`. Logs the current exchange via the exchange logger and continues the pipeline unchanged. Defaults to `info` level. By default the logger prints `id`, `body`, and `headers`; pass a `formatter` to log a derived value instead.
+
+```ts
+// Log id, body, headers at info level
+.log()
+
+// Log a derived value
+.log((exchange) => ({ id: exchange.id, body: exchange.body }))
+
+// Log at a different level
+.log(undefined, { level: 'warn' })
+```
+
+Use `.log()` for ad-hoc visibility inside a route. For more control or a non-default destination, use `.tap(log(...))` directly.
+
+### debug
+
+```ts
+debug(
+  formatter?: (exchange: Exchange<Current>) => unknown,
+  options?: Record<string, never>,
+): RouteBuilder<Current>
+```
+
+Sugar for `.tap(debug(formatter))`. Same shape as `.log()`, but the level is fixed to `debug`. Useful for verbose pipeline tracing that can be silenced via the logger configuration without removing the call.
+
+```ts
+// Debug log id, body, headers
+.debug()
+
+// Debug log a derived value
+.debug((exchange) => ({ correlation: exchange.headers['x-correlation-id'], body: exchange.body }))
+```
 
 ### to
 
