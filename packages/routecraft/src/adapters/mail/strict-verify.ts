@@ -8,6 +8,7 @@
  */
 
 import { rcError } from "../../error.ts";
+import { loadOptionalPeer } from "../shared/optional-peer.ts";
 import type { MailSender } from "./analysis.ts";
 
 /**
@@ -39,20 +40,16 @@ export async function verifyStrict(
 
   if (!authenticatePromise) {
     authenticatePromise = (async () => {
-      try {
-        const mod = (await import("mailauth")) as unknown as {
-          authenticate: (
-            input: Buffer | string,
-            options?: Record<string, unknown>,
-          ) => Promise<MailAuthResult>;
-        };
-        return mod.authenticate;
-      } catch (error) {
-        throw rcError("RC5003", error instanceof Error ? error : undefined, {
-          message:
-            "Mail adapter verify: 'strict' requires the optional `mailauth` package. Install it with `bun add mailauth`.",
-        });
-      }
+      const mod = (await loadOptionalPeer(() => import("mailauth"), {
+        adapterName: "mail (verify: 'strict')",
+        packageName: "mailauth",
+      })) as unknown as {
+        authenticate: (
+          input: Buffer | string,
+          options?: Record<string, unknown>,
+        ) => Promise<MailAuthResult>;
+      };
+      return mod.authenticate;
     })();
   }
   const authenticate = await authenticatePromise;

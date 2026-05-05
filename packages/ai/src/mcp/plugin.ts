@@ -2,6 +2,7 @@ import {
   type CraftContext,
   type CraftPlugin,
   type EventName,
+  loadOptionalPeer,
 } from "@routecraft/routecraft";
 import { McpServer } from "./server.ts";
 import {
@@ -232,10 +233,20 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
     const existing = httpClients.get(serverId);
     if (existing) return existing;
 
-    const { Client } =
-      await import("@modelcontextprotocol/sdk/client/index.js");
-    const { StreamableHTTPClientTransport } =
-      await import("@modelcontextprotocol/sdk/client/streamableHttp.js");
+    const { Client } = await loadOptionalPeer(
+      () => import("@modelcontextprotocol/sdk/client/index.js"),
+      {
+        adapterName: "mcp (http client)",
+        packageName: "@modelcontextprotocol/sdk",
+      },
+    );
+    const { StreamableHTTPClientTransport } = await loadOptionalPeer(
+      () => import("@modelcontextprotocol/sdk/client/streamableHttp.js"),
+      {
+        adapterName: "mcp (http client)",
+        packageName: "@modelcontextprotocol/sdk",
+      },
+    );
 
     const headers = await buildAuthHeaders(auth);
     const transportOptions = headers ? { requestInit: { headers } } : undefined;

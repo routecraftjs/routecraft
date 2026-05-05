@@ -4,6 +4,23 @@ import type {
   OAuthValidatorAuthOptions,
 } from "./types.ts";
 import { assertIssuerAudience, principalFromJwtPayload } from "./jwt-utils.ts";
+import { loadOptionalPeer } from "../adapters/shared/optional-peer.ts";
+
+/**
+ * Loader for the `jose` driver. Exposed as a mutable seam so tests can
+ * substitute an implementation that simulates the missing-peer path
+ * without `vi.mock("jose", ...)`, which surfaces a generic vitest wrapper
+ * error rather than the underlying ERR_MODULE_NOT_FOUND and defeats the
+ * package-name discrimination loadOptionalPeer relies on.
+ * @internal
+ */
+export const __jwksLoaders = {
+  loadJose: (): Promise<JoseSubset> =>
+    loadOptionalPeer(() => import("jose"), {
+      adapterName: "jwks",
+      packageName: "jose",
+    }) as unknown as Promise<JoseSubset>,
+};
 
 /**
  * Narrow subset of `jose` the JWKS verifier uses. Declared so the verifier
@@ -132,13 +149,7 @@ export function jwks(options: JwksOptions): OAuthValidatorAuthOptions {
   return {
     validator: async (token: string) => {
       if (joseMod === null) {
-        try {
-          joseMod = (await import("jose")) as unknown as JoseSubset;
-        } catch {
-          throw new Error(
-            'jwks() requires the optional peer dependency "jose". Install it with: bun add jose',
-          );
-        }
+        joseMod = await __jwksLoaders.loadJose();
       }
       if (jwkSet === null) {
         jwkSet = joseMod.createRemoteJWKSet(
