@@ -1,14 +1,26 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import {
   Listbox,
   ListboxButton,
   ListboxOption,
   ListboxOptions,
 } from '@headlessui/react'
+import { usePathname } from 'next/navigation'
 import clsx from 'clsx'
 
-const versions = [{ label: 'v0.4.0', value: 'v0.4.0' }]
+type Version = {
+  label: string
+  basePath: string
+  default?: boolean
+}
+
+const currentLabel = process.env.NEXT_PUBLIC_DOC_VERSION ?? 'dev'
+const currentBasePath = process.env.NEXT_PUBLIC_BASE_PATH ?? ''
+const fallbackVersions: Version[] = [
+  { label: currentLabel, basePath: currentBasePath },
+]
 
 function ChevronDownIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
   return (
@@ -25,17 +37,41 @@ function ChevronDownIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
   )
 }
 
-export function VersionSelector(
-  props: React.ComponentPropsWithoutRef<typeof Listbox<'div'>>,
-) {
+export function VersionSelector(props: { className?: string }) {
+  const [versions, setVersions] = useState<Version[]>(fallbackVersions)
+  const pathname = usePathname()
+
+  useEffect(() => {
+    const controller = new AbortController()
+    fetch('/versions.json', { signal: controller.signal })
+      .then((res) => (res.ok ? (res.json() as Promise<Version[]>) : null))
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) {
+          setVersions(data)
+        }
+      })
+      .catch(() => {
+        // Manifest is optional; fall back to the build-time label.
+      })
+    return () => controller.abort()
+  }, [])
+
+  const current = versions.find((v) => v.label === currentLabel) ?? versions[0]
+
+  const handleChange = (target: Version) => {
+    if (target.basePath === currentBasePath) return
+    const suffix = pathname.endsWith('/') ? pathname : `${pathname}/`
+    const { search, hash } = window.location
+    window.location.href = `${target.basePath}${suffix}${search}${hash}`
+  }
+
   return (
-    <Listbox
+    <Listbox<'div', Version>
       as="div"
-      value={versions[0].value}
-      onChange={() => {
-        // TODO: implement version switching logic
-      }}
-      {...props}
+      value={current}
+      onChange={handleChange}
+      by="label"
+      className={props.className}
     >
       <div className="relative">
         <ListboxButton
@@ -48,14 +84,14 @@ export function VersionSelector(
           )}
           aria-label="Documentation version"
         >
-          <span>{versions[0].value}</span>
+          <span>{current.label}</span>
           <ChevronDownIcon className="h-4 w-4 text-slate-400 dark:text-slate-300" />
         </ListboxButton>
         <ListboxOptions className="absolute top-[calc(100%+0.5rem)] right-0 z-50 w-36 space-y-1 rounded-xl bg-white p-2 text-sm font-medium text-slate-700 shadow-sm dark:bg-slate-900 dark:text-slate-100">
           {versions.map((version) => (
             <ListboxOption
-              key={version.value}
-              value={version.value}
+              key={version.label}
+              value={version}
               className={({ active, selected }) =>
                 clsx(
                   'flex cursor-pointer items-center rounded-lg px-3 py-2 transition-colors select-none',
