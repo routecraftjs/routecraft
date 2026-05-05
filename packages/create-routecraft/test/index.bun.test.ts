@@ -214,7 +214,7 @@ describe("generateProjectStructure", () => {
   /**
    * @case Hello-world example places test file alongside capability
    * @preconditions example = "hello-world"
-   * @expectedResult capabilities/hello-world.test.ts exists
+   * @expectedResult capabilities/hello-world.bun.test.ts exists
    */
   test("hello-world example includes test file", async () => {
     await generateProjectStructure(
@@ -223,7 +223,7 @@ describe("generateProjectStructure", () => {
     );
 
     expect(
-      existsSync(join(projectDir, "capabilities", "hello-world.test.ts")),
+      existsSync(join(projectDir, "capabilities", "hello-world.bun.test.ts")),
     ).toBe(true);
   });
 
@@ -354,7 +354,7 @@ describe("generateProjectStructure", () => {
   /**
    * @case All expected config files are present at project root
    * @preconditions Default options
-   * @expectedResult .gitignore, .prettierrc, craft.config.ts, eslint.config.mjs, tsconfig.json, vitest.config.ts exist
+   * @expectedResult .gitignore, .prettierrc, craft.config.ts, eslint.config.mjs, tsconfig.json exist (vitest.config.ts not present; template uses bun:test)
    */
   test("all config files are present at project root", async () => {
     await generateProjectStructure(projectDir, makeOptions());
@@ -365,7 +365,6 @@ describe("generateProjectStructure", () => {
       "craft.config.ts",
       "eslint.config.mjs",
       "tsconfig.json",
-      "vitest.config.ts",
       "package.json",
       "index.ts",
     ];

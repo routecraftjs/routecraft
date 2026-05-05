@@ -40,7 +40,7 @@ mock.module("@ai-sdk/anthropic", () => ({
   ),
 }));
 
-import { streamLlm } from "../src/llm/providers/index.ts";
+import { streamLlm } from "../src/llm/providers/stream-llm.ts";
 
 describe("streamLlm: production listener-error containment", () => {
   let warnSpy: ReturnType<typeof spyOn>;

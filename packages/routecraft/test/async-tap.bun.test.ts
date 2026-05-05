@@ -9,7 +9,6 @@ describe("Async Tap Execution", () => {
     if (t) {
       await t.stop();
     }
-    mock.restore();
   });
 
   /**

@@ -6,7 +6,7 @@ Authoritative rules and conventions for tests in Routecraft.
 
 ## 1. Runners and layout
 
-Routecraft is mid-migration from vitest to `bun:test`. Both runners coexist; new tests should default to `bun:test` unless they hit a known incompatibility (see § 1.2).
+Routecraft has completed its migration from vitest to `bun:test`. New tests must use `bun:test`. The handful of remaining vitest files are explicit exceptions listed in § 1.2 -- any new vitest file requires justification and a row in that table.
 
 ### 1.1. File placement and naming
 
@@ -150,8 +150,9 @@ If you reach for a snapshot, prefer inline (`toMatchInlineSnapshot()`) over a se
 - **Mock at the boundary.** Mock `mock.module("../src/llm/providers/index.ts", ...)` to stub `callLlm` rather than mocking the Vercel AI SDK; the boundary is more stable than the dependency's API.
 - **Mock the SDK only when testing the boundary itself.** E.g. `stream-llm.bun.test.ts` mocks `ai`'s `streamText` to exercise the real `streamLlm` containment behaviour.
 - **Mirror real behaviour in mocks.** If the real code catches listener errors, the mock should too; otherwise the test passes for the wrong reason.
-- **`mock.module()` at module top-level is idiomatic.** In bun:test, `mock.module()` is hoisted like `vi.mock()` and is isolated per file via bun's module registry. Calling it at the top of the file (before the imports that depend on it) is the correct pattern.
-- **Reset mock state between tests with `mockClear()`, not `mock.restore()`.** `mock.restore()` tears down `mock()` and `spyOn()` implementations; use it in `afterAll` for spies on shared singletons. `mock.module()` has no explicit restore -- isolation is per-file.
+- **`mock.module()` at module top-level is idiomatic.** In bun:test, `mock.module()` is hoisted like `vi.mock()`. Calling it at the top of the file (before the imports that depend on it) is the correct pattern.
+- **`mock.module()` is process-global in bun 1.3.11.** The module registry is shared across all test files in a single `bun test` run -- there is no per-file isolation. If two test files mock the same path, the last registration wins and may break the other file. Authors must ensure test files mock non-overlapping paths, OR add an `afterAll` that restores the original module. To restore, call `mock.module(path, factory)` again with a factory that returns the real module (capture the real module before the mock takes effect using a sibling file or separate export). See `packages/ai/src/llm/providers/stream-llm.ts` for an example of structuring production code to avoid cross-file mock collisions.
+- **Reset mock state between tests with `mock.clearAllMocks()`, not `mock.restore()`.** `mock.restore()` tears down spy implementations (those set by `spyOn` or `mock.mockImplementation`); use it in `afterAll` for spies on shared singletons. `mock.clearAllMocks()` resets call counts and recorded arguments without removing implementations -- use it in `beforeEach` when you have top-level `mock()` instances that need fresh counts each test (see `stdio-client-manager.bun.test.ts`). `mock.module()` has no automatic restore; manage it manually as described above.
 
 ## 10. Cross-runtime adapter tests
 

@@ -34,7 +34,7 @@ describe("Browser Adapter", () => {
   let t: TestContext;
 
   beforeEach(() => {
-    executeCommandMock.mockClear();
+    mock.clearAllMocks();
     executeCommandMock.mockImplementation(async (cmd: CommandArg) => {
       if (cmd.action === "launch")
         return { success: true, data: { launched: true } };
@@ -53,7 +53,6 @@ describe("Browser Adapter", () => {
 
   afterEach(async () => {
     if (t) await t.stop();
-    mock.restore();
   });
 
   describe("sanitizeSessionId", () => {

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, describe, expect, test, mock } from "bun:test";
 import { http } from "@routecraft/routecraft";
 import {
   mockAdapter,
@@ -14,7 +14,6 @@ describe("Hello World Routes", () => {
     if (t) {
       await t.stop();
     }
-    mock.restore();
   });
 
   /**
@@ -22,7 +21,7 @@ describe("Hello World Routes", () => {
    * @preconditions Both routes registered; mockAdapter(http, ...) stands in for the real fetch
    * @expectedResult Greet route logs "Hello, [name]!" and the http mock received the expected URL
    */
-  it("dispatches from simple route into direct route and greets by name", async () => {
+  test("dispatches from simple route into direct route and greets by name", async () => {
     const httpMock = mockAdapter(http, {
       send: async () => ({
         status: 200,

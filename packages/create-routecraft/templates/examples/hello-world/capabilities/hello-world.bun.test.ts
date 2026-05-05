@@ -15,7 +15,6 @@ describe("Hello World Routes", () => {
     if (t) {
       await t.stop();
     }
-    mock.restore();
   });
 
   /**

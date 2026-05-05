@@ -1,13 +1,9 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { craft, simple, type CraftPlugin } from "@routecraft/routecraft";
 
 describe("CraftContext", () => {
   let t: TestContext;
-
-  beforeEach(() => {
-    mock.restore();
-  });
 
   afterEach(async () => {
     if (t) {

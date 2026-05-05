@@ -25,9 +25,6 @@ describe("Unified Destination Adapter", () => {
     if (t) {
       await t.stop();
     }
-    mock.restore();
-    // Restore the real fetch -- mock.restore() does not undo the manual
-    // `globalThis.fetch` reassignment in beforeEach.
     globalThis.fetch = originalFetch;
   });
 

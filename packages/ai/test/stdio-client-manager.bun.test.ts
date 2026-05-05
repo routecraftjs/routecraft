@@ -107,9 +107,16 @@ describe("StdioClientManager", () => {
   beforeEach(() => {
     clock = FakeTimers.install({
       shouldAdvanceTime: false,
-      toFake: ["setTimeout", "setInterval", "Date", "setImmediate"],
+      toFake: [
+        "setTimeout",
+        "clearTimeout",
+        "setInterval",
+        "clearInterval",
+        "Date",
+        "setImmediate",
+      ],
     });
-    mock.restore();
+    mock.clearAllMocks();
     mockConnect.mockResolvedValue(undefined);
     mockClose.mockResolvedValue(undefined);
     mockListTools.mockResolvedValue({

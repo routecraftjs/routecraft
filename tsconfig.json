@@ -61,6 +61,7 @@
     "packages/ai/test/mcp.test.ts",
     "packages/ai/test/mcp.bun.test.ts",
     "packages/browser/test/browser.test.ts",
+    "packages/browser/test/browser.bun.test.ts",
     "packages/routecraft/test/direct-validation.test.ts",
     "packages/routecraft/test/direct-validation.bun.test.ts",
     "packages/routecraft/test/group.test.ts",

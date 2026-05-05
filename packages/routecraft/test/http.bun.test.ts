@@ -23,10 +23,6 @@ describe("HTTP Adapter", () => {
     if (t) {
       await t.stop();
     }
-    mock.restore();
-    // mock.restore() does not undo the manual `globalThis.fetch` reassignment
-    // in beforeEach; restore the original explicitly so subsequent tests
-    // (in this or any other file run in the same worker) see real fetch.
     globalThis.fetch = originalFetch;
   });
 
