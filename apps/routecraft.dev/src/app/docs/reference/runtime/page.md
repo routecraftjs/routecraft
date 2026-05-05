@@ -28,6 +28,10 @@ Bun has native TypeScript support, which means the CLI can load `.ts` capability
 
 Users who want to run Routecraft inside a Node application embed the library directly instead of going through the CLI. The library itself works on **Node 22.6 or later** (for runtime type stripping) and is recommended on **Node 23.6 or later** where stripping is on by default.
 
+A few features of the library are Bun-only because they depend on Bun built-ins that have no Node equivalent:
+
+- **`telemetry()` SQLite sink.** Backed by `bun:sqlite`. Under Node, the sink disables itself with a warn log and only the OTel external path runs. Configure `telemetry({ tracerProvider })` with an OTLP exporter (Datadog, Honeycomb, Better Stack, etc.) for production telemetry under either runtime.
+
 ```ts
 import { ContextBuilder, craft, direct, log } from "@routecraft/routecraft";
 
