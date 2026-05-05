@@ -2,12 +2,14 @@ import {
   describe,
   test,
   expect,
-  vi,
+  mock,
+  spyOn,
   afterAll,
   afterEach,
   beforeAll,
   beforeEach,
-} from "vitest";
+} from "bun:test";
+import FakeTimers from "@sinonjs/fake-timers";
 import { Cron } from "croner";
 import { cron } from "../src/index.ts";
 import { CronSourceAdapter } from "../src/adapters/cron/index.ts";
@@ -18,10 +20,13 @@ import {
 } from "../src/exchange.ts";
 import { CraftContext } from "../src/context.ts";
 
-// Substitute the lazy croner loader with a sync resolver. The default loader
-// goes through `await import("croner")` whose Node internals lean on
-// `setImmediate`, which `vi.useFakeTimers()` mocks. Without this override the
-// subscribe IIFE never settles inside a fake-timer test.
+// Bun:test 1.3.11 does not implement `node:test`'s `mock.timers` (the
+// docs page exists but the API is missing). Use `@sinonjs/fake-timers`
+// directly -- the same library Vitest wraps for `vi.useFakeTimers`.
+let clock: ReturnType<typeof FakeTimers.install> | undefined;
+
+// Substitute the lazy croner loader with a sync resolver so the dynamic
+// import doesn't lean on the now-mocked timers.
 const ORIGINAL_LOAD_DRIVER = CronSourceAdapter.loadDriver;
 beforeAll(() => {
   CronSourceAdapter.loadDriver = () => Promise.resolve(Cron);
@@ -34,40 +39,38 @@ function mockContext(): CraftContext {
   const store = new Map();
   return {
     logger: {
-      trace: vi.fn(),
-      debug: vi.fn(),
-      info: vi.fn(),
-      warn: vi.fn(),
-      error: vi.fn(),
-      fatal: vi.fn(),
+      trace: mock(),
+      debug: mock(),
+      info: mock(),
+      warn: mock(),
+      error: mock(),
+      fatal: mock(),
     },
     getStore: (key: symbol) => store.get(key),
     setStore: (key: symbol, value: unknown) => store.set(key, value),
   } as unknown as CraftContext;
 }
 
-/**
- * Advance fake timers by the given milliseconds, flushing microtasks at each
- * step to allow croner's internal scheduling and async handler callbacks to
- * execute.
- */
 async function advanceTime(ms: number, step = 1000) {
+  if (!clock) throw new Error("clock not installed");
   const steps = Math.ceil(ms / step);
   for (let i = 0; i < steps; i++) {
-    vi.advanceTimersByTime(step);
-    // Flush microtasks so croner's setTimeout callbacks and async handlers run
-    await vi.advanceTimersByTimeAsync(0);
+    await clock.tickAsync(step);
   }
 }
 
 describe("CronSourceAdapter", () => {
   beforeEach(() => {
-    vi.useFakeTimers();
+    clock = FakeTimers.install({
+      shouldAdvanceTime: false,
+      toFake: ["setTimeout", "setInterval", "Date", "setImmediate"],
+    });
   });
 
   afterEach(() => {
-    vi.useRealTimers();
-    vi.restoreAllMocks();
+    clock?.uninstall();
+    clock = undefined;
+    mock.restore();
   });
 
   /**
@@ -99,8 +102,8 @@ describe("CronSourceAdapter", () => {
     const adapter = new CronSourceAdapter("not-a-valid-expression");
     const context = mockContext();
     const abortController = new AbortController();
-    const handler = vi.fn().mockResolvedValue({} as Exchange);
-    const onReady = vi.fn();
+    const handler = mock().mockResolvedValue({} as Exchange);
+    const onReady = mock();
 
     const promise = adapter.subscribe(
       context,
@@ -127,8 +130,8 @@ describe("CronSourceAdapter", () => {
     const adapter = new CronSourceAdapter("* * * * * *", { maxFires: 1 });
     const context = mockContext();
     const abortController = new AbortController();
-    const handler = vi.fn().mockResolvedValue({} as Exchange);
-    const onReady = vi.fn();
+    const handler = mock().mockResolvedValue({} as Exchange);
+    const onReady = mock();
 
     const promise = adapter.subscribe(
       context,
@@ -160,7 +163,7 @@ describe("CronSourceAdapter", () => {
     const adapter = new CronSourceAdapter("* * * * * *", { maxFires: 2 });
     const context = mockContext();
     const abortController = new AbortController();
-    const handler = vi.fn().mockResolvedValue({} as Exchange);
+    const handler = mock().mockResolvedValue({} as Exchange);
 
     const promise = adapter.subscribe(context, handler, abortController);
 
@@ -181,7 +184,7 @@ describe("CronSourceAdapter", () => {
     const adapter = new CronSourceAdapter("* * * * * *");
     const context = mockContext();
     const abortController = new AbortController();
-    const handler = vi.fn().mockImplementation(async () => {
+    const handler = mock().mockImplementation(async () => {
       abortController.abort();
       return {} as Exchange;
     });
@@ -206,7 +209,7 @@ describe("CronSourceAdapter", () => {
     });
     const context = mockContext();
     const abortController = new AbortController();
-    const handler = vi.fn().mockResolvedValue({} as Exchange);
+    const handler = mock().mockResolvedValue({} as Exchange);
 
     const promise = adapter.subscribe(context, handler, abortController);
 
@@ -232,7 +235,7 @@ describe("CronSourceAdapter", () => {
     });
     const context = mockContext();
     const abortController = new AbortController();
-    const handler = vi.fn().mockResolvedValue({} as Exchange);
+    const handler = mock().mockResolvedValue({} as Exchange);
 
     const promise = adapter.subscribe(context, handler, abortController);
 
@@ -255,8 +258,7 @@ describe("CronSourceAdapter", () => {
     const adapter = new CronSourceAdapter("* * * * * *");
     const context = mockContext();
     const abortController = new AbortController();
-    const handler = vi
-      .fn()
+    const handler = mock()
       .mockRejectedValueOnce(new Error("test error"))
       .mockResolvedValue({} as Exchange);
 
@@ -282,7 +284,7 @@ describe("CronSourceAdapter", () => {
     const adapter = new CronSourceAdapter("* * * * * *", { maxFires: 2 });
     const context = mockContext();
     const abortController = new AbortController();
-    const handler = vi.fn().mockResolvedValue({} as Exchange);
+    const handler = mock().mockResolvedValue({} as Exchange);
 
     const promise = adapter.subscribe(context, handler, abortController);
 
@@ -324,7 +326,7 @@ describe("CronSourceAdapter", () => {
     });
     const context = mockContext();
     const abortController = new AbortController();
-    const handler = vi.fn().mockResolvedValue({} as Exchange);
+    const handler = mock().mockResolvedValue({} as Exchange);
 
     const promise = (source as CronSourceAdapter).subscribe(
       context,
@@ -355,7 +357,7 @@ describe("CronSourceAdapter", () => {
     });
     const context = mockContext();
     const abortController = new AbortController();
-    const handler = vi.fn().mockResolvedValue({} as Exchange);
+    const handler = mock().mockResolvedValue({} as Exchange);
 
     const promise = adapter.subscribe(context, handler, abortController);
 
@@ -373,14 +375,14 @@ describe("CronSourceAdapter", () => {
    * @expectedResult Handler is never called, subscribe resolves cleanly
    */
   test("abort during jitter delay prevents handler call", async () => {
-    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.99);
+    const randomSpy = spyOn(Math, "random").mockReturnValue(0.99);
 
     const adapter = new CronSourceAdapter("* * * * * *", {
       jitterMs: 10000,
     });
     const context = mockContext();
     const abortController = new AbortController();
-    const handler = vi.fn().mockResolvedValue({} as Exchange);
+    const handler = mock().mockResolvedValue({} as Exchange);
 
     const promise = adapter.subscribe(context, handler, abortController);
 
@@ -404,7 +406,7 @@ describe("CronSourceAdapter", () => {
     const adapter = new CronSourceAdapter("* * * * * *", { maxFires: 2 });
     const context = mockContext();
     const abortController = new AbortController();
-    const handler = vi.fn().mockResolvedValue({} as Exchange);
+    const handler = mock().mockResolvedValue({} as Exchange);
 
     const promise = adapter.subscribe(context, handler, abortController);
 
@@ -433,7 +435,7 @@ describe("CronSourceAdapter", () => {
     });
     const context = mockContext();
     const abortController = new AbortController();
-    const handler = vi.fn().mockImplementation(async () => {
+    const handler = mock().mockImplementation(async () => {
       inFlight++;
       maxInFlight = Math.max(maxInFlight, inFlight);
       // Simulate slow work spanning multiple tick intervals
@@ -467,7 +469,7 @@ describe("CronSourceAdapter", () => {
     });
     const context = mockContext();
     const abortController = new AbortController();
-    const handler = vi.fn().mockImplementation(async () => {
+    const handler = mock().mockImplementation(async () => {
       inFlight++;
       maxInFlight = Math.max(maxInFlight, inFlight);
       // Simulate slow work spanning multiple tick intervals
@@ -501,7 +503,7 @@ describe("CronSourceAdapter", () => {
     });
     const context = mockContext();
     const abortController = new AbortController();
-    const handler = vi.fn().mockResolvedValue({} as Exchange);
+    const handler = mock().mockResolvedValue({} as Exchange);
 
     const promise = adapter.subscribe(context, handler, abortController);
 
@@ -530,7 +532,7 @@ describe("CronSourceAdapter", () => {
     });
     const context = mockContext();
     const abortController = new AbortController();
-    const handler = vi.fn().mockResolvedValue({} as Exchange);
+    const handler = mock().mockResolvedValue({} as Exchange);
 
     const promise = adapter.subscribe(context, handler, abortController);
 

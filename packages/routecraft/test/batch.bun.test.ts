@@ -1,4 +1,5 @@
-import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import FakeTimers from "@sinonjs/fake-timers";
 import { BatchConsumer } from "../src/consumers/batch.ts";
 import { CraftContext } from "../src/context.ts";
 import { InMemoryProcessingQueue } from "../src/queue.ts";
@@ -15,14 +16,20 @@ function createRouteDefinition(id: string): RouteDefinition {
   } as RouteDefinition;
 }
 
+let clock: ReturnType<typeof FakeTimers.install> | undefined;
+
 describe("BatchConsumer", () => {
   beforeEach(() => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    clock = FakeTimers.install({
+      now: new Date("2026-01-01T00:00:00.000Z"),
+      shouldAdvanceTime: false,
+      toFake: ["setTimeout", "setInterval", "Date", "setImmediate"],
+    });
   });
 
   afterEach(() => {
-    vi.useRealTimers();
+    clock?.uninstall();
+    clock = undefined;
   });
 
   /**
@@ -58,7 +65,7 @@ describe("BatchConsumer", () => {
       } as Exchange;
     });
 
-    await vi.advanceTimersByTimeAsync(200);
+    await clock!.tickAsync(200);
     expect(started).toHaveLength(0);
 
     const exchangePromise = queue.enqueue({ message: "hello", headers: {} });
@@ -66,10 +73,10 @@ describe("BatchConsumer", () => {
     expect(started).toHaveLength(1);
     expect(flushed).toHaveLength(0);
 
-    await vi.advanceTimersByTimeAsync(49);
+    await clock!.tickAsync(49);
     expect(flushed).toHaveLength(0);
 
-    await vi.advanceTimersByTimeAsync(1);
+    await clock!.tickAsync(1);
     await exchangePromise;
 
     expect(flushed).toHaveLength(1);
@@ -148,7 +155,7 @@ describe("BatchConsumer", () => {
     ).toBe(true);
 
     // The good item stays in the batch until the timer fires.
-    await vi.advanceTimersByTimeAsync(50);
+    await clock!.tickAsync(50);
     await goodPromise;
     expect(
       calls.some(
@@ -260,7 +267,7 @@ describe("BatchConsumer", () => {
       headers: { "routecraft.auth.principal": principalB },
     });
 
-    await vi.advanceTimersByTimeAsync(50);
+    await clock!.tickAsync(50);
     await Promise.all([promiseA, promiseB]);
 
     // One merged invocation; last-wins on the principal header.
