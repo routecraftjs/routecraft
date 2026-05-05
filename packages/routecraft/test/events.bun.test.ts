@@ -1,4 +1,4 @@
-import { describe, test, expect, afterEach } from "vitest";
+import { describe, test, expect, afterEach } from "bun:test";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { craft, simple, log } from "@routecraft/routecraft";
 import type { EventName, EventHandler } from "../src/types.ts";
@@ -573,15 +573,18 @@ describe("Event ordering", () => {
     }
 
     // -- Exchange events --
+    // Match against shallow clones because bun:test's toMatchObject mutates
+    // the actual object, replacing matched fields with matcher refs. We
+    // need to read exchangeId/correlationId AFTER asserting shape.
     const exStarted = one("route:r:exchange:started");
-    expect(exStarted).toMatchObject({
+    expect({ ...exStarted }).toMatchObject({
       routeId: "r",
       exchangeId: expect.any(String),
       correlationId: expect.any(String),
     });
 
     const exCompleted = one("route:r:exchange:completed");
-    expect(exCompleted).toMatchObject({
+    expect({ ...exCompleted }).toMatchObject({
       routeId: "r",
       exchangeId: expect.any(String),
       correlationId: expect.any(String),
@@ -596,7 +599,7 @@ describe("Event ordering", () => {
     const stepStarted = byName("route:r:step:started");
     expect(stepStarted).toHaveLength(2); // transform + to
     for (const step of stepStarted) {
-      expect(step.details).toMatchObject({
+      expect({ ...step.details }).toMatchObject({
         routeId: "r",
         exchangeId: expect.any(String),
         correlationId: expect.any(String),
@@ -609,7 +612,7 @@ describe("Event ordering", () => {
     const stepCompleted = byName("route:r:step:completed");
     expect(stepCompleted).toHaveLength(2);
     for (const step of stepCompleted) {
-      expect(step.details).toMatchObject({
+      expect({ ...step.details }).toMatchObject({
         routeId: "r",
         exchangeId: expect.any(String),
         correlationId: expect.any(String),
@@ -649,7 +652,7 @@ describe("Event ordering", () => {
       (e) => e.event === "route:r:exchange:failed",
     );
     expect(failed).toBeDefined();
-    expect(failed!.details).toMatchObject({
+    expect({ ...failed!.details }).toMatchObject({
       routeId: "r",
       exchangeId: expect.any(String),
       correlationId: expect.any(String),
@@ -669,7 +672,7 @@ describe("Event ordering", () => {
       (e) => e.event === "route:r:exchange:dropped",
     );
     expect(dropped).toBeDefined();
-    expect(dropped!.details).toMatchObject({
+    expect({ ...dropped!.details }).toMatchObject({
       routeId: "r",
       exchangeId: expect.any(String),
       correlationId: expect.any(String),
