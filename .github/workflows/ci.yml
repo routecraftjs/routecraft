@@ -555,13 +555,41 @@ jobs:
             npm publish "./$pkg" --access public --provenance
           done
 
-  build-docs-site:
-    needs: [changes, validate, test, build]
+  build-and-deploy-docs:
+    needs:
+      [
+        changes,
+        validate,
+        test,
+        build,
+        scaffolder-smoke,
+        embedding-smoke,
+        adapter-cross-runtime,
+      ]
+    # `always()` overrides GitHub's default of skipping a job when any of its
+    # `needs:` was skipped (which is what happens on docs-only pushes, where
+    # the integration jobs gate themselves out via `changes.outputs.packages`).
+    # The explicit `!contains(needs.*.result, ...)` checks then block deploy
+    # if any integration job actually ran and failed or was cancelled.
     if: |
-      github.event_name == 'workflow_dispatch'
-      || github.event_name == 'release'
-      || (github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.docs == 'true')
+      always()
+      && !contains(needs.*.result, 'failure')
+      && !contains(needs.*.result, 'cancelled')
+      && (
+        github.event_name == 'workflow_dispatch'
+        || github.event_name == 'release'
+        || (github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.docs == 'true')
+      )
     runs-on: ubuntu-latest
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      id-token: write
+      pages: write
     steps:
       - name: Checkout main (canary)
         uses: actions/checkout@v6
@@ -682,23 +710,6 @@ jobs:
         with:
           path: site
 
-  deploy-pages:
-    needs: [changes, build-docs-site]
-    if: |
-      github.event_name == 'workflow_dispatch'
-      || github.event_name == 'release'
-      || (github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.docs == 'true')
-    runs-on: ubuntu-latest
-    concurrency:
-      group: pages
-      cancel-in-progress: false
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    permissions:
-      id-token: write
-      pages: write
-    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5

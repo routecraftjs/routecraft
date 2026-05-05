@@ -8,13 +8,18 @@ What `.github/workflows/ci.yml` enforces and the policies contributors must know
 
 ```
   changes  ─┬─►  validate ─┐
-            │              │
-   setup ───┼─►  test  ────┼─►  integration-test (bun + node)  ──►  approve  ──►  merge
-            │              │                                          │
-            └─►  build ────┘                                          └─►  publish-canary  ──►  publish  ──►  deploy-pages
+            │              ├─►  scaffolder-smoke ─────────┬─►  approve ─►  merge
+   setup ───┼─►  test  ────┤                              │
+            │              ├─►  embedding-smoke ──────────┼─►  publish-canary
+            └─►  build ────┤                              │
+                           └─►  adapter-cross-runtime  ───┴─►  publish
+                                  (bun + node)            │
+                                                          └─►  build-and-deploy-docs
 ```
 
 The `setup` job runs `bun install --frozen-lockfile` and seeds the workspace's `**/node_modules`. Every downstream job restores that cache (key: `hashFiles('**/bun.lock')`), so the install only repeats on a cache miss. `changes` skips downstream jobs when the diff doesn't touch package or workflow paths.
+
+Docs deployment (`build-and-deploy-docs`) is gated on the same integration-test trio as `publish-canary` and `publish`, so we never ship docs from a build that failed integration. On docs-only pushes the integration jobs are skipped and the deploy proceeds (`if: !cancelled() && !failure()`).
 
 ## 2. The PR gates
 
