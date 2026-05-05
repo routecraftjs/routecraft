@@ -132,6 +132,13 @@ jobs:
           path: "**/node_modules"
           key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
 
+      # Defensive: cache restore can corrupt node_modules under tar
+      # contention (parallel jobs), surfacing as "tar exit 2". Re-run
+      # bun install to ensure node_modules matches bun.lock; this is
+      # fast (~1-2s) when the cache restored cleanly.
+      - name: Verify dependencies
+        run: bun install --frozen-lockfile
+
       - name: Run checks
         run: |
           bun run format
@@ -163,6 +170,13 @@ jobs:
         with:
           path: "**/node_modules"
           key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
+
+      # Defensive: cache restore can corrupt node_modules under tar
+      # contention (parallel jobs), surfacing as "tar exit 2". Re-run
+      # bun install to ensure node_modules matches bun.lock; this is
+      # fast (~1-2s) when the cache restored cleanly.
+      - name: Verify dependencies
+        run: bun install --frozen-lockfile
 
       - name: Run tests
         run: bun run test:coverage
@@ -198,6 +212,13 @@ jobs:
         with:
           path: "**/node_modules"
           key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
+
+      # Defensive: cache restore can corrupt node_modules under tar
+      # contention (parallel jobs), surfacing as "tar exit 2". Re-run
+      # bun install to ensure node_modules matches bun.lock; this is
+      # fast (~1-2s) when the cache restored cleanly.
+      - name: Verify dependencies
+        run: bun install --frozen-lockfile
 
       - name: Build packages
         run: bun run build
@@ -240,6 +261,13 @@ jobs:
         with:
           path: "**/node_modules"
           key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
+
+      # Defensive: cache restore can corrupt node_modules under tar
+      # contention (parallel jobs), surfacing as "tar exit 2". Re-run
+      # bun install to ensure node_modules matches bun.lock; this is
+      # fast (~1-2s) when the cache restored cleanly.
+      - name: Verify dependencies
+        run: bun install --frozen-lockfile
 
       - name: Restore build artifacts
         uses: actions/cache@v5
@@ -300,6 +328,13 @@ jobs:
           path: "**/node_modules"
           key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
 
+      # Defensive: cache restore can corrupt node_modules under tar
+      # contention (parallel jobs), surfacing as "tar exit 2". Re-run
+      # bun install to ensure node_modules matches bun.lock; this is
+      # fast (~1-2s) when the cache restored cleanly.
+      - name: Verify dependencies
+        run: bun install --frozen-lockfile
+
       - name: Restore build artifacts
         uses: actions/cache@v5
         with:
@@ -359,6 +394,13 @@ jobs:
           path: "**/node_modules"
           key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
 
+      # Defensive: cache restore can corrupt node_modules under tar
+      # contention (parallel jobs), surfacing as "tar exit 2". Re-run
+      # bun install to ensure node_modules matches bun.lock; this is
+      # fast (~1-2s) when the cache restored cleanly.
+      - name: Verify dependencies
+        run: bun install --frozen-lockfile
+
       - name: Restore build artifacts
         uses: actions/cache@v5
         with:
@@ -404,6 +446,13 @@ jobs:
         with:
           path: "**/node_modules"
           key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
+
+      # Defensive: cache restore can corrupt node_modules under tar
+      # contention (parallel jobs), surfacing as "tar exit 2". Re-run
+      # bun install to ensure node_modules matches bun.lock; this is
+      # fast (~1-2s) when the cache restored cleanly.
+      - name: Verify dependencies
+        run: bun install --frozen-lockfile
 
       - name: Restore build artifacts
         uses: actions/cache@v5
@@ -527,6 +576,13 @@ jobs:
         with:
           path: "**/node_modules"
           key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
+
+      # Defensive: cache restore can corrupt node_modules under tar
+      # contention (parallel jobs), surfacing as "tar exit 2". Re-run
+      # bun install to ensure node_modules matches bun.lock; this is
+      # fast (~1-2s) when the cache restored cleanly.
+      - name: Verify dependencies
+        run: bun install --frozen-lockfile
 
       - name: Restore build artifacts
         uses: actions/cache@v5
