@@ -1,4 +1,12 @@
-import { describe, test, expect, afterEach, beforeEach } from "vitest";
+import {
+  describe,
+  test,
+  expect,
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+} from "vitest";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -12,6 +20,14 @@ import {
   SqliteConnection,
 } from "@routecraft/routecraft";
 
+// Production loads `bun:sqlite` via `SqliteConnection.loadDriver`; in tests
+// we substitute `better-sqlite3` because vitest runs under Node (the
+// `vitest` bin shebang is `#!/usr/bin/env node`, so even `bun run vitest`
+// invokes Node) and `bun:sqlite` is a Bun-only built-in. The two drivers
+// share enough surface (`exec`, `prepare`, `transaction`, `close`, plus
+// statement `run`/`all`/`get`) for the plugin's needs, and SQLite files
+// are interoperable so test assertions remain valid for real production
+// data shapes.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const Database = require("better-sqlite3");
 
@@ -29,6 +45,22 @@ describe("TelemetryPlugin", () => {
   let t: TestContext;
   let dbPath: string;
   let testDir: string;
+
+  // Swap the bun:sqlite driver for better-sqlite3 for the duration of this
+  // describe block. The original is restored after so any other test files
+  // that depend on the unmocked behaviour are unaffected.
+  const originalLoadDriver = SqliteConnection.loadDriver;
+  beforeAll(() => {
+    SqliteConnection.loadDriver = async () =>
+      Database as unknown as ReturnType<
+        typeof originalLoadDriver
+      > extends Promise<infer R>
+        ? R
+        : never;
+  });
+  afterAll(() => {
+    SqliteConnection.loadDriver = originalLoadDriver;
+  });
 
   beforeEach(() => {
     testDir = resolve(tmpdir(), `routecraft-telemetry-test-${randomUUID()}`);
@@ -321,14 +353,32 @@ describe("TelemetryPlugin", () => {
   });
 
   /**
-   * @case SqliteConnection.open returns connection when better-sqlite3 available
-   * @preconditions better-sqlite3 installed
-   * @expectedResult Connection is non-null
+   * @case SqliteConnection.open returns a usable connection when the driver loader resolves
+   * @preconditions Default loadDriver substituted with better-sqlite3 (test scaffolding); see the comment at the top of this file for why the substitution is needed under vitest's Node pool
+   * @expectedResult Connection is non-null and the db file is created on disk
    */
-  test("SqliteConnection.open succeeds", async () => {
+  test("SqliteConnection.open succeeds with a resolvable driver", async () => {
     const conn = await SqliteConnection.open({ dbPath });
     expect(conn).not.toBeNull();
     conn!.close();
     expect(existsSync(dbPath)).toBe(true);
+  });
+
+  /**
+   * @case SqliteConnection.open returns null when the runtime is not Bun
+   * @preconditions Driver loader is overridden to throw, simulating Node where bun:sqlite cannot resolve
+   * @expectedResult open() resolves to null so the calling plugin can skip the SQLite path with a warn log
+   */
+  test("SqliteConnection.open returns null when bun:sqlite is unavailable", async () => {
+    const original = SqliteConnection.loadDriver;
+    SqliteConnection.loadDriver = async () => {
+      throw new Error("bun:sqlite is only available under Bun");
+    };
+    try {
+      const conn = await SqliteConnection.open({ dbPath });
+      expect(conn).toBeNull();
+    } finally {
+      SqliteConnection.loadDriver = original;
+    }
   });
 });

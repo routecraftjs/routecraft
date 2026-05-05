@@ -1,3 +1,4 @@
+/// <reference types="bun-types" />
 import { mkdirSync } from "node:fs";
 import { dirname, resolve, isAbsolute } from "node:path";
 import { ALL_DDL } from "./schema.ts";
@@ -43,16 +44,32 @@ const PRUNE_INTERVAL_MS = 60_000;
  * entirely within this class.
  *
  * Used by both {@link SqliteSpanProcessor} and {@link SqliteEventWriter}.
+ *
+ * Backed by `bun:sqlite`, so the SQLite sink only works under Bun. Under
+ * Node, {@link open} returns `null` and the calling plugin disables the
+ * SQLite path with a warn log. Node embedders should configure an OTLP
+ * exporter via `telemetry({ tracerProvider })` instead.
  */
 export class SqliteConnection {
-  readonly db: BetterSqlite3Database;
+  readonly db: BunSqliteDatabase;
   readonly logger: TelemetryLogger | undefined;
   private pruneTimer: ReturnType<typeof setInterval> | undefined;
 
-  private constructor(db: BetterSqlite3Database, logger?: TelemetryLogger) {
+  private constructor(db: BunSqliteDatabase, logger?: TelemetryLogger) {
     this.db = db;
     this.logger = logger;
   }
+
+  /**
+   * Loader for the `bun:sqlite` driver. Exposed as a static so tests can
+   * substitute an alternate implementation (e.g. better-sqlite3 under
+   * vitest's Node pool, before the full bun:test migration).
+   * @internal
+   */
+  static loadDriver: () => Promise<BunSqliteDatabaseConstructor> = async () => {
+    const mod = await import("bun:sqlite");
+    return mod.Database as unknown as BunSqliteDatabaseConstructor;
+  };
 
   /**
    * Open (or create) the telemetry database.
@@ -61,7 +78,7 @@ export class SqliteConnection {
    * prunes on startup and schedules periodic pruning automatically.
    * The timer is stopped when {@link close} is called.
    *
-   * @returns A connection, or `null` if `better-sqlite3` is not installed.
+   * @returns A connection, or `null` if the runtime is not Bun.
    */
   static async open(
     options?: SqliteConnectionOptions,
@@ -73,11 +90,17 @@ export class SqliteConnection {
       : resolve(process.cwd(), dbPathRaw);
     const walMode = options?.walMode !== false;
 
-    let Database: BetterSqlite3Constructor;
+    let Database: BunSqliteDatabaseConstructor;
     try {
-      const mod = await import("better-sqlite3");
-      Database = (mod.default ?? mod) as BetterSqlite3Constructor;
-    } catch {
+      Database = await SqliteConnection.loadDriver();
+    } catch (err) {
+      // Under Node, `bun:sqlite` resolves to ERR_MODULE_NOT_FOUND -- expected,
+      // disable silently. Under Bun, a throw from the dynamic import indicates
+      // a real bug (broken Bun install, removed module, etc.) and we must NOT
+      // silently swallow it; surface via the logger.
+      if (typeof process.versions["bun"] === "string") {
+        logger?.warn({ err }, "Failed to load bun:sqlite driver");
+      }
       return null;
     }
 
@@ -87,7 +110,7 @@ export class SqliteConnection {
       const db = new Database(dbPath);
 
       if (walMode) {
-        db.pragma("journal_mode = WAL");
+        db.exec("PRAGMA journal_mode = WAL");
       }
 
       for (const ddl of ALL_DDL) {
@@ -165,21 +188,27 @@ export class SqliteConnection {
   }
 }
 
-// Minimal type definitions for better-sqlite3 to avoid requiring
-// @types/better-sqlite3 as a production dependency.
+// Minimal type definitions for `bun:sqlite` to avoid pulling `bun-types`
+// into the public type surface. These mirror the subset of the API used
+// by `SqliteConnection` and downstream telemetry consumers.
 
-type BetterSqlite3Database = {
-  pragma(pragma: string): unknown;
+type BunSqliteDatabase = {
   exec(sql: string): void;
-  prepare(sql: string): BetterSqlite3Statement;
+  prepare(sql: string): BunSqliteStatement;
+  query(sql: string): BunSqliteStatement;
   transaction<T>(fn: (...args: T[]) => void): (...args: T[]) => void;
   close(): void;
 };
 
-type BetterSqlite3Statement = {
+type BunSqliteStatement = {
   run(...params: unknown[]): unknown;
+  all(...params: unknown[]): unknown[];
+  get(...params: unknown[]): unknown;
 };
 
-type BetterSqlite3Constructor = new (filename: string) => BetterSqlite3Database;
+type BunSqliteDatabaseConstructor = new (
+  filename: string,
+  options?: { readonly?: boolean; create?: boolean },
+) => BunSqliteDatabase;
 
-export type { BetterSqlite3Database, BetterSqlite3Statement };
+export type { BunSqliteDatabase, BunSqliteStatement };

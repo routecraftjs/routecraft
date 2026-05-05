@@ -13,5 +13,7 @@ export default defineConfig({
   platform: "node",
   // Optional peer deps must be marked external so they stay as runtime
   // imports (loaded lazily by the adapter) rather than getting inlined.
-  external: ["cheerio", "croner", "agent-browser", "better-sqlite3"],
+  // `bun:sqlite` is a Bun built-in, marked external so esbuild leaves it
+  // untouched (the dynamic import resolves at runtime under Bun only).
+  external: ["cheerio", "croner", "agent-browser", "bun:sqlite"],
 });

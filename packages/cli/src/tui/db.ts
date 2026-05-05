@@ -1,3 +1,4 @@
+/// <reference types="bun-types" />
 import type { TelemetryEvent } from "@routecraft/routecraft";
 
 /** Exchange row shape from the telemetry SQLite database. */
@@ -14,12 +15,14 @@ interface TelemetryExchange {
 }
 
 /**
- * Minimal type for the better-sqlite3 database to avoid hard dependency.
+ * Minimal type for the bun:sqlite database to avoid pulling bun-types
+ * into the CLI's public type surface.
  */
 interface Database {
   prepare(sql: string): Statement;
+  query(sql: string): Statement;
+  exec(sql: string): void;
   close(): void;
-  pragma(pragma: string): unknown;
 }
 
 interface Statement {
@@ -30,7 +33,7 @@ interface Statement {
 
 type DatabaseConstructor = new (
   filename: string,
-  options?: { readonly?: boolean },
+  options?: { readonly?: boolean; create?: boolean },
 ) => Database;
 
 /**
@@ -65,28 +68,24 @@ export class TelemetryDb {
   /**
    * Open a telemetry database in read-only mode.
    *
-   * Uses dynamic `import()` so the module resolves correctly under Bun's
-   * isolated linker (CJS `require()` from an ESM bundle does not follow
-   * the package's own dependency graph).
+   * Uses dynamic `import("bun:sqlite")` so the module resolves at runtime
+   * (the CLI is Bun-only; `bun:sqlite` is a Bun built-in and is not a
+   * resolvable spec under Node).
    */
   static async open(dbPath: string): Promise<TelemetryDb> {
     let Database: DatabaseConstructor;
     try {
-      const mod = await import("better-sqlite3");
-      Database = (
-        "default" in mod && typeof mod.default === "function"
-          ? mod.default
-          : mod
-      ) as DatabaseConstructor;
+      const mod = await import("bun:sqlite");
+      Database = mod.Database as unknown as DatabaseConstructor;
     } catch {
       throw new Error(
-        "better-sqlite3 is not installed. Install it with: bun add better-sqlite3",
+        "bun:sqlite is not available. The craft CLI requires Bun >= 1.1.0.",
       );
     }
 
     const db = new Database(dbPath, { readonly: true });
     try {
-      db.pragma("journal_mode = WAL");
+      db.exec("PRAGMA journal_mode = WAL");
     } catch {
       // Read-only connection cannot change journal mode; safe to ignore
     }

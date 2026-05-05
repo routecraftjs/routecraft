@@ -143,7 +143,7 @@ The `:node` script resolves to `node node_modules/vitest/vitest.mjs run --passWi
 
 **When to add one.** New adapters with a Bun-vs-Node driver split, or library code that touches runtime-specific APIs (`Bun.file`, `bun:sqlite` direct usage, `worker_threads`, etc.). For pure type-only code or code that uses the same driver under both runtimes, the regular unit tests are sufficient.
 
-**Reference.** `packages/routecraft/test/cross-runtime/telemetry-sqlite.cross.test.ts` opens an in-memory `SqliteConnection` and exercises a trivial pragma. The same code runs under both runtimes today (both load `better-sqlite3` via `loadOptionalPeer`); the test exists to demonstrate the layout pattern and provide a regression check for the dynamic-import path.
+**Reference.** No live cross-runtime tests exist today. The directory and CI matrix are in place for the upcoming Postgres ([#294](https://github.com/routecraftjs/routecraft/issues/294)) and S3 ([#295](https://github.com/routecraftjs/routecraft/issues/295)) adapters, which will land the first real entries (`Bun.sql` vs `pg`, `Bun.s3` vs `@aws-sdk/client-s3`). Until then both `adapter-cross-runtime` legs run with `--passWithNoTests`.
 
 ## 11. What runs in CI
 

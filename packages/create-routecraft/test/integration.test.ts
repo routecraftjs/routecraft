@@ -31,11 +31,10 @@ interface PackageManagerDef {
 // embedding @routecraft/routecraft programmatically are covered separately
 // by `.github/scripts/smoke-test-embedding.mjs`.
 // `--ignore-scripts` is intentional: the scaffolded hello-world test does not
-// exercise any code path that needs a compiled native binding (better-sqlite3
-// only loads inside the TUI / telemetry plugin, which the test does not hit).
-// Skipping postinstalls dodges a recurring CI flake where bun's transient
-// `bunx node-gyp@latest` cache is missing one of its own transitive deps
-// (env-paths, undici interceptors, etc.) when better-sqlite3 tries to compile.
+// need any postinstall steps to run, and skipping them dodges historical CI
+// flakes around bun's transient `bunx node-gyp@latest` cache (originally
+// triggered by better-sqlite3 native compilation; now defensive against any
+// future native binding pulled in by an adapter's optional peer).
 const PACKAGE_MANAGER_DEFS: Record<PackageManagerId, PackageManagerDef> = {
   bun: {
     id: "bun",

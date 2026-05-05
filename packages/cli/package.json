@@ -16,7 +16,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsup src/index.ts src/tui/app.tsx src/tui/db.ts --format esm --dts --external react --external ink --external better-sqlite3",
+    "build": "tsup src/index.ts src/tui/app.tsx src/tui/db.ts --format esm --dts --external react --external ink --external bun:sqlite",
     "test": "vitest",
     "test:coverage": "vitest --coverage",
     "prepublishOnly": "bun run build"
@@ -25,7 +25,6 @@
     "@opentelemetry/sdk-trace-base": "^2.7.1",
     "@routecraft/routecraft": "workspace:^0.5.0",
     "agent-browser": "^0.17.1",
-    "better-sqlite3": "^11.10.0",
     "cheerio": "^1.2.0",
     "commander": "^14.0.3",
     "croner": "^10.0.1",
@@ -40,7 +39,6 @@
     "react": "^18.3.1"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
     "@types/mailparser": "^3.4.6",
     "@types/nodemailer": "^6.4.23",
     "@types/react": "^18.3.28",

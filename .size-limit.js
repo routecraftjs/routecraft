@@ -17,6 +17,13 @@ function readExternals(pkgPath) {
 /** Node built-ins should never count toward bundle size. */
 const nodeBuiltins = ["node:*"];
 
+/**
+ * Bun built-in module specifiers that are loaded via dynamic import in the
+ * library (e.g. `bun:sqlite` for the telemetry sink). They have no on-disk
+ * resolution and must be marked external for esbuild measurement.
+ */
+const bunBuiltins = ["bun:sqlite"];
+
 function makeNodeEsmConfig(name, path, limit, pkgJsonPath) {
   const pkgExternals = readExternals(pkgJsonPath);
   return {
@@ -30,6 +37,7 @@ function makeNodeEsmConfig(name, path, limit, pkgJsonPath) {
       config.external = [
         ...(config.external || []),
         ...nodeBuiltins,
+        ...bunBuiltins,
         ...pkgExternals,
       ];
       return config;

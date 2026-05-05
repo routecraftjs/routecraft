@@ -103,11 +103,7 @@ export const craftConfig = {
 }
 ```
 
-The database is written to `.routecraft/telemetry.db` in the current working directory. `better-sqlite3` must be installed:
-
-```bash
-bun add better-sqlite3
-```
+The database is written to `.routecraft/telemetry.db` in the current working directory. The SQLite sink uses Bun's built-in [`bun:sqlite`](https://bun.com/docs/api/sqlite), so it requires Bun (the `craft` CLI is already Bun-only). When the runtime is Node, the sink disables itself with a warn log and only the OTel external path runs; configure `telemetry({ tracerProvider })` with an OTLP exporter for production telemetry.
 
 ### Configuration
 
