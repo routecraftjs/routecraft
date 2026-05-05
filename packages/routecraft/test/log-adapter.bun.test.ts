@@ -1,0 +1,206 @@
+import { describe, expect, mock, test } from "bun:test";
+import { log, debug } from "../src/index.ts";
+import { LogDestinationAdapter } from "../src/adapters/log/index.ts";
+import type { Exchange } from "../src/exchange.ts";
+
+function mockExchange<T = unknown>(
+  body: T,
+): Exchange<T> & {
+  logger: {
+    trace: ReturnType<typeof mock>;
+    debug: ReturnType<typeof mock>;
+    info: ReturnType<typeof mock>;
+    warn: ReturnType<typeof mock>;
+    error: ReturnType<typeof mock>;
+    fatal: ReturnType<typeof mock>;
+  };
+} {
+  const logger = {
+    trace: mock(),
+    debug: mock(),
+    info: mock(),
+    warn: mock(),
+    error: mock(),
+    fatal: mock(),
+  };
+  return {
+    id: "test-id",
+    body,
+    headers: {},
+    logger,
+  } as Exchange<T> & { logger: typeof logger };
+}
+
+describe("LogDestinationAdapter", () => {
+  /**
+   * @case Default level is info for send()
+   * @preconditions LogDestinationAdapter created with no options
+   * @expectedResult exchange.logger.info() is called
+   */
+  test("send() uses info level by default", async () => {
+    const adapter = new LogDestinationAdapter();
+    const exchange = mockExchange("hello");
+
+    await adapter.send(exchange);
+
+    expect(exchange.logger.info).toHaveBeenCalledTimes(1);
+    expect(exchange.logger.info).toHaveBeenCalledWith(
+      { id: "test-id", body: "hello", headers: {}, adapter: "log" },
+      "LogAdapter output",
+    );
+    expect(exchange.logger.debug).not.toHaveBeenCalled();
+  });
+
+  /**
+   * @case Options level overrides default
+   * @preconditions LogDestinationAdapter created with undefined formatter and { level: 'debug' }
+   * @expectedResult exchange.logger.debug() is called
+   */
+  test("send() uses configured level", async () => {
+    const adapter = new LogDestinationAdapter(undefined, { level: "debug" });
+    const exchange = mockExchange("data");
+
+    await adapter.send(exchange);
+    expect(exchange.logger.debug).toHaveBeenCalledWith(
+      { id: "test-id", body: "data", headers: {}, adapter: "log" },
+      "LogAdapter output",
+    );
+  });
+
+  /**
+   * @case Formatter function as first parameter
+   * @preconditions LogDestinationAdapter created with formatter function only
+   * @expectedResult level is info, formatter output is logged
+   */
+  test("constructor accepts formatter function as first param", async () => {
+    const adapter = new LogDestinationAdapter((ex) => `body: ${ex.body}`);
+    const exchange = mockExchange("payload");
+
+    await adapter.send(exchange);
+
+    expect(exchange.logger.info).toHaveBeenCalledWith(
+      { adapter: "log", value: "body: payload" },
+      "LogAdapter output",
+    );
+  });
+
+  /**
+   * @case Formatter and level in separate parameters
+   * @preconditions LogDestinationAdapter created with formatter as first param and { level: 'warn' } as second
+   * @expectedResult exchange.logger.warn() called with formatter result
+   */
+  test("constructor with formatter and level option", async () => {
+    const adapter = new LogDestinationAdapter((ex) => ({ custom: ex.body }), {
+      level: "warn",
+    });
+    const exchange = mockExchange({ foo: 1 });
+
+    await adapter.send(exchange);
+
+    expect(exchange.logger.warn).toHaveBeenCalledWith(
+      { custom: { foo: 1 }, adapter: "log" },
+      "LogAdapter output",
+    );
+  });
+});
+
+describe("log() DSL", () => {
+  /**
+   * @case log() with no args creates adapter with default level
+   * @preconditions log() called with no arguments
+   * @expectedResult Adapter uses info level
+   */
+  test("log() with no args uses info level", async () => {
+    const adapter = log();
+    const exchange = mockExchange("x");
+
+    await adapter.send(exchange);
+
+    expect(exchange.logger.info).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * @case log(formatter) uses formatter and info level
+   * @preconditions log((ex) => ...) called
+   * @expectedResult Adapter uses formatter and info level
+   */
+  test("log(formatter) uses formatter and info level", async () => {
+    const adapter = log((ex) => ex.id);
+    const exchange = mockExchange("y");
+
+    await adapter.send(exchange);
+
+    expect(exchange.logger.info).toHaveBeenCalledWith(
+      { adapter: "log", value: "test-id" },
+      "LogAdapter output",
+    );
+  });
+
+  /**
+   * @case log(undefined, { level }) uses specified level
+   * @preconditions log(undefined, { level: 'debug' }) called
+   * @expectedResult Adapter uses debug level
+   */
+  test("log(undefined, { level: 'debug' }) uses debug level", async () => {
+    const adapter = log(undefined, { level: "debug" });
+    const exchange = mockExchange("z");
+
+    await adapter.send(exchange);
+
+    expect(exchange.logger.debug).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * @case log(formatter, { level }) uses both
+   * @preconditions log(formatter, { level: 'error' }) called
+   * @expectedResult Adapter uses error level and formatter
+   */
+  test("log(formatter, { level: 'error' }) uses both", async () => {
+    const adapter = log((ex) => ex.body, { level: "error" });
+    const exchange = mockExchange("err-payload");
+
+    await adapter.send(exchange);
+
+    expect(exchange.logger.error).toHaveBeenCalledWith(
+      { adapter: "log", value: "err-payload" },
+      "LogAdapter output",
+    );
+  });
+});
+
+describe("debug() DSL helper", () => {
+  /**
+   * @case debug() creates adapter at debug level
+   * @preconditions debug() called with no args
+   * @expectedResult Adapter uses debug level
+   */
+  test("debug() uses debug level", async () => {
+    const adapter = debug();
+    const exchange = mockExchange("debug-data");
+
+    await adapter.send(exchange);
+
+    expect(exchange.logger.debug).toHaveBeenCalledTimes(1);
+    expect(exchange.logger.debug).toHaveBeenCalledWith(
+      { id: "test-id", body: "debug-data", headers: {}, adapter: "log" },
+      "LogAdapter output",
+    );
+  });
+
+  /**
+   * @case debug(formatter) uses debug level with formatter
+   * @preconditions debug((ex) => ...) called
+   * @expectedResult Adapter uses debug level and formatter
+   */
+  test("debug(formatter) uses debug level with formatter", async () => {
+    const adapter = debug((ex) => ({ debugBody: ex.body }));
+    const exchange = mockExchange("test");
+
+    await adapter.send(exchange);
+
+    expect(exchange.logger.debug).toHaveBeenCalledWith(
+      { debugBody: "test", adapter: "log" },
+      "LogAdapter output",
+    );
+  });
+});

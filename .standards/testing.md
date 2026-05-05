@@ -4,13 +4,42 @@ Authoritative rules and conventions for tests in Routecraft.
 
 ---
 
-## 1. Runner and layout
+## 1. Runners and layout
 
-- **Runner:** Vitest. Same config across packages; the workspace `vitest --run` is the source of truth (root `package.json` script `test`).
-- **File placement:** colocated with the package they exercise.
-  - Unit tests: `packages/<name>/test/*.test.ts`.
-  - Integration tests (real network, real subprocesses, slow setup): `packages/<name>/test/*.integration.test.ts` and run via `bun run test:integration`. The default `bun run test` excludes them.
+Routecraft is mid-migration from vitest to `bun:test`. Both runners coexist; new tests should default to `bun:test` unless they hit a known incompatibility (see § 1.2).
+
+### 1.1. File placement and naming
+
+- Unit tests: `packages/<name>/test/<feature>.test.ts` (vitest) or `packages/<name>/test/<feature>.bun.test.ts` (bun:test).
+- Integration tests (real network, real subprocesses, slow setup): `packages/<name>/test/<feature>.integration.test.ts`, run via `bun run test:integration`. The default `bun run test` excludes them.
 - **One feature per file.** Group tests around the unit they exercise, not by category. A test file maps to a code file (or a closely related cluster), not to "all the validation tests in the package".
+
+The filename suffix selects the runner. `bun run test` runs both:
+
+```sh
+bun run test           # both runners (test:bun + test:vitest)
+bun run test:bun       # bun:test files only (`*.bun.test.{ts,tsx}`)
+bun run test:vitest    # vitest files only (`*.test.{ts,tsx}` excluding `*.bun.test.*`)
+```
+
+### 1.2. Choosing a runner
+
+Default to `bun:test`. Stay on vitest only when the test hits a known bun:test gap:
+
+| Reason | Status |
+|---|---|
+| Fake timers (`vi.useFakeTimers`, `advanceTimersByTime`) | Bun 1.3.11's `node:test` `mock.timers` is documented but not implemented. Re-migrate when Bun ships it. |
+| `vi.hoisted` / `vi.importActual` complex module mocks | Different hoisting semantics; per-file workaround needed. |
+| `mock.module` factory that throws synchronously | Bun:test evaluates the factory eagerly; vitest defers. Affects "missing optional peer" test scaffolding. |
+| `toMatchObject` followed by access to matched fields | Bun:test mutates the actual object, replacing matched fields with matcher refs. Use a shallow-copy match or restructure the test. |
+| `expect(async fn).rejects.toThrow(...)` (passing a function, not a promise) | Bun:test requires a Promise. Convert to `expect(asyncFn()).rejects.toThrow(...)`. |
+| ink-testing-library renderers | Output diffs under bun:test. Investigate later. |
+| ESLint `RuleTester` | Compatibility surface to investigate. |
+| `jose` remote JWKS over real HTTP | `fetchImpl` resolves differently under Bun. Investigate later. |
+
+When migrating a vitest file: rename `.test.ts` → `.bun.test.ts`, swap `from "vitest"` → `from "bun:test"`, replace `vi.fn` → `mock`, `vi.spyOn` → `spyOn`, `vi.mock` → `mock.module`, `vi.restoreAllMocks` → `mock.restore`. Run `bun test bun.test` to verify.
+
+When a migrated file hits a gap, revert it (`mv foo.bun.test.ts foo.test.ts` and restore the vitest imports). Add a row to the table above so the next contributor knows why.
 
 ## 2. Every test gets a JSDoc header
 
