@@ -115,7 +115,3 @@ await context.start();
 **Second signal** (Ctrl+C again): forces an immediate exit for when graceful shutdown is stuck or taking too long.
 
 The function returns a cleanup callback that removes the signal handlers, useful in tests or when you manage the lifecycle yourself.
-
-{% callout type="warning" title="Experimental" %}
-`shutdownHandler` is marked `@experimental` and may change in future releases.
-{% /callout %}
