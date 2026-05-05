@@ -26,10 +26,12 @@ export function loadOptionalPeer<T>(
   // tripped fake-timer based cron tests where advanceTimersByTimeAsync(0)
   // only flushes a single cycle of microtasks.
   return loader().catch((cause: unknown) => {
-    if (!isModuleNotFound(cause)) {
-      // Genuine load-time failure of an installed package; rethrow so the
-      // route boundary surfaces the original error. Don't pretend the
-      // package is missing.
+    if (!isMissingExpectedPackage(cause, ctx.packageName)) {
+      // Either an unrelated error code, or `ERR_MODULE_NOT_FOUND` for a
+      // *different* package than the one we tried to load (i.e. the peer
+      // is installed but imports a missing transitive dep). Rethrow so
+      // the user sees the real failure rather than a misleading "install
+      // <our peer>" hint.
       throw cause;
     }
     throw rcError("RC5017", cause, {
@@ -40,7 +42,24 @@ export function loadOptionalPeer<T>(
   });
 }
 
-function isModuleNotFound(cause: unknown): boolean {
-  const code = (cause as { code?: unknown } | null)?.code;
-  return code === "ERR_MODULE_NOT_FOUND" || code === "MODULE_NOT_FOUND";
+function isMissingExpectedPackage(
+  cause: unknown,
+  packageName: string,
+): boolean {
+  if (cause === null || typeof cause !== "object") return false;
+  const code = (cause as { code?: unknown }).code;
+  if (code !== "ERR_MODULE_NOT_FOUND" && code !== "MODULE_NOT_FOUND") {
+    return false;
+  }
+  const message = (cause as { message?: unknown }).message;
+  if (typeof message !== "string") return false;
+  // Node phrasings observed in the wild:
+  //   ESM: `Cannot find package 'pkg' imported from /path`
+  //   ESM bare: `Cannot find module '/abs/path/pkg/index.js' imported from ...`
+  //   CJS: `Cannot find module 'pkg'`
+  // Match the package name surrounded by quotes so we do not mistake
+  // a transitive-dep miss inside the same package for a missing peer.
+  return (
+    message.includes(`'${packageName}'`) || message.includes(`"${packageName}"`)
+  );
 }

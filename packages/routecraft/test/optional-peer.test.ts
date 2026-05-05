@@ -48,9 +48,10 @@ describe("loadOptionalPeer", () => {
    * @expectedResult Thrown error is a branded RoutecraftError carrying the original cause
    */
   test("wraps the original error as cause and is brand-detectable", async () => {
-    const cause = Object.assign(new Error("npm install fake-pkg, then retry"), {
-      code: "ERR_MODULE_NOT_FOUND",
-    });
+    const cause = Object.assign(
+      new Error("Cannot find package 'fake-pkg' imported from /tmp/runner.ts"),
+      { code: "ERR_MODULE_NOT_FOUND" },
+    );
     let thrown: unknown;
     try {
       await loadOptionalPeer(
@@ -73,6 +74,33 @@ describe("loadOptionalPeer", () => {
    */
   test("rethrows non-missing errors verbatim", async () => {
     const cause = new Error("native binding crashed during init");
+    let thrown: unknown;
+    try {
+      await loadOptionalPeer(
+        async () => {
+          throw cause;
+        },
+        { adapterName: "fake", packageName: "fake-pkg" },
+      );
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBe(cause);
+    expect(isRoutecraftError(thrown)).toBe(false);
+  });
+
+  /**
+   * @case Loader throws ERR_MODULE_NOT_FOUND for a transitive dependency, not the requested peer
+   * @preconditions The peer is installed but its own dynamic-import chain is missing a different package
+   * @expectedResult The original error is rethrown unchanged; not misreported as "install fake-pkg"
+   */
+  test("rethrows ERR_MODULE_NOT_FOUND when the missing module is a transitive dep", async () => {
+    const cause = Object.assign(
+      new Error(
+        "Cannot find package 'some-transitive' imported from /node_modules/fake-pkg/dist/index.js",
+      ),
+      { code: "ERR_MODULE_NOT_FOUND" },
+    );
     let thrown: unknown;
     try {
       await loadOptionalPeer(
