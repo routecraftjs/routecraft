@@ -5,19 +5,17 @@ Scaffold a new Routecraft project with best practices and example capabilities.
 ## Usage
 
 ```bash
-npm create routecraft@latest
-```
-
-or
-
-```bash
+# Bun (recommended)
 bunx create-routecraft
-```
 
-or
+# npm
+npm create routecraft@latest
 
-```bash
-npx create-routecraft
+# pnpm
+pnpm create routecraft@latest
+
+# yarn
+yarn create routecraft
 ```
 
 ## What's Included
@@ -40,13 +38,21 @@ The CLI will guide you through:
 
 ## Next Steps
 
-After creating your project:
+After creating your project, install dependencies and start the dev loop. Substitute the install/run command for the package manager you chose at the prompt:
 
 ```bash
+# Bun
+cd your-project-name
+bun install
+bun run start
+
+# npm
 cd your-project-name
 npm install
-npm run dev
+npm run start
 ```
+
+The `start` script invokes the `craft` CLI under the hood, which requires Bun >= 1.1.0 on the host regardless of which package manager you chose for dependency management.
 
 ## Documentation
 

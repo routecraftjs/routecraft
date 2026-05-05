@@ -1,17 +1,17 @@
 # @routecraft/cli
 
-Run Routecraft capabilities from the terminal.
+Run Routecraft capabilities from the terminal. **Bun-only runtime** (>= 1.1.0); see the [Runtime reference](https://routecraft.dev/docs/reference/runtime) for the rationale and the Node embedding alternative.
 
 ## Installation
 
 ```bash
-npm install -g @routecraft/cli
-```
-
-or
-
-```bash
+# Bun (recommended)
 bun add -g @routecraft/cli
+
+# npm / pnpm / yarn (still requires Bun on the host at runtime)
+npm install -g @routecraft/cli
+pnpm add -g @routecraft/cli
+yarn global add @routecraft/cli
 ```
 
 ## Usage
@@ -22,7 +22,9 @@ craft run my-capability.ts
 
 The CLI loads your capability file, starts all registered capabilities, and keeps the process running. It handles graceful shutdown on `SIGINT`/`SIGTERM` and automatically loads a `.env` file from the current directory if present.
 
-TypeScript files are supported directly -- no build step required.
+TypeScript files are supported directly -- Bun strips types natively, no build step required.
+
+If Bun is missing, the CLI fails fast with a `[routecraft]` error pointing at the install instructions. Node users should embed `@routecraft/routecraft` programmatically rather than going through the CLI -- see [Programmatic Invocation](https://routecraft.dev/docs/advanced/programmatic-invocation).
 
 ## Options
 

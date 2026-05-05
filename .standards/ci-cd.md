@@ -89,11 +89,19 @@ This is enforced informally by review. When adding a new internal package that o
 
 ## 6. Optional peer dependencies (provider SDKs)
 
-External SDKs that a package only needs when a specific feature is used (Vercel AI SDK adapters, `@huggingface/transformers`, `@modelcontextprotocol/sdk`, `croner`, `cheerio`, etc.) live in `peerDependencies` AND `peerDependenciesMeta.<name>.optional = true`. The adapter dynamically imports them via `loadOptionalPeer` (`packages/routecraft/src/adapters/shared/optional-peer.ts`) and throws **`RC5017`** with an install hint when the import fails. Don't add such deps to `dependencies`; that bloats every install. Don't write a bespoke try/catch; use the helper so the error code and message shape stay consistent across adapters.
+External SDKs that a package only needs when a specific feature is used (Vercel AI SDK adapters, `@huggingface/transformers`, `@modelcontextprotocol/sdk`, `croner`, `cheerio`, etc.) live in `peerDependencies` AND `peerDependenciesMeta.<name>.optional = true`. The adapter dynamically imports them via `loadOptionalPeer` (`packages/routecraft/src/adapters/shared/optional-peer.ts`) and throws **`RC5017`** with an install hint when the import fails. Don't add such deps to `dependencies`; that bloats every install.
 
-The cron source (`packages/routecraft/src/adapters/cron/source.ts`) and the html adapter (`packages/routecraft/src/adapters/html/shared.ts`) are the canonical references.
+**New code MUST use `loadOptionalPeer`.** The cron source (`packages/routecraft/src/adapters/cron/source.ts`) and the html adapter (`packages/routecraft/src/adapters/html/shared.ts`) are the canonical references; copy the shape (lazy import via the thunk, RC5017 message, type-only `import type` at the top of the file).
 
-## 7. Local pre-PR checklist
+A pre-existing migration backlog of bespoke try/catch sites in `packages/ai/src/mcp/*`, `packages/routecraft/src/auth/jwks.ts`, `packages/routecraft/src/telemetry/plugin.ts`, `packages/routecraft/src/adapters/mail/strict-verify.ts`, and `packages/cli/src/tui/db.ts` is tracked in [#287](https://github.com/routecraftjs/routecraft/issues/287). When touching one of those files for an unrelated reason, opportunistically migrate it as part of the PR. They surface inconsistent error shapes today (some `Error`, one `RC5003`, none `RC5017`); the migration normalises them.
+
+## 7. Bun command conventions
+
+- Use `bun run <script>` for any `package.json` script (root or workspace). E.g. `bun run lint`, `bun run --filter routecraft.dev dev`.
+- Use `bunx <bin>` for one-shot binary execution from a `node_modules/.bin` entry. E.g. `bunx madge --circular .`, `bunx create-routecraft`.
+- Don't mix conventions in the same doc or script. If you find an inconsistency, fix it and call it out in the PR description.
+
+## 8. Local pre-PR checklist
 
 Run before opening a PR; matches what CI runs:
 
@@ -109,7 +117,7 @@ Or the bundled `bun run all`, which runs `lint --fix`, `format:write`, `typechec
 
 Integration tests require a tarball + global CLI install and aren't expected to run locally for every PR. CI covers that path.
 
-## 8. Release flow
+## 9. Release flow
 
 | Trigger | Result |
 |---------|--------|

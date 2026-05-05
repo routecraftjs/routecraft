@@ -5,13 +5,13 @@ ESLint plugin for Routecraft with rules to enforce capability authoring best pra
 ## Installation
 
 ```bash
-npm install --save-dev @routecraft/eslint-plugin-routecraft eslint
-```
-
-or
-
-```bash
+# Bun (recommended)
 bun add -D @routecraft/eslint-plugin-routecraft eslint
+
+# npm / pnpm / yarn
+npm install --save-dev @routecraft/eslint-plugin-routecraft eslint
+pnpm add -D @routecraft/eslint-plugin-routecraft eslint
+yarn add -D @routecraft/eslint-plugin-routecraft eslint
 ```
 
 ## Requirements

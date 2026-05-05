@@ -5,13 +5,13 @@ AI adapters and MCP integration for Routecraft. Call LLMs, run agents, generate 
 ## Installation
 
 ```bash
-npm install @routecraft/ai
-```
-
-or
-
-```bash
+# Bun (recommended)
 bun add @routecraft/ai
+
+# npm / pnpm / yarn
+npm install @routecraft/ai
+pnpm add @routecraft/ai
+yarn add @routecraft/ai
 ```
 
 ## Quick Start
@@ -41,10 +41,10 @@ const ctx = new ContextBuilder()
 await ctx.start();
 ```
 
-Run it as an MCP server:
+Run it as an MCP server (requires Bun on the host):
 
 ```bash
-npx @routecraft/cli run capabilities/fetch-webpage.ts
+bunx @routecraft/cli run capabilities/fetch-webpage.ts
 ```
 
 ## Two Modes

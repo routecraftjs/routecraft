@@ -5,13 +5,13 @@ Test utilities for Routecraft capabilities. Use with [Vitest](https://vitest.dev
 ## Installation
 
 ```bash
-npm install -D @routecraft/testing
-```
-
-or
-
-```bash
+# Bun (recommended)
 bun add -D @routecraft/testing
+
+# npm / pnpm / yarn
+npm install -D @routecraft/testing
+pnpm add -D @routecraft/testing
+yarn add -D @routecraft/testing
 ```
 
 Install as a devDependency. Requires `vitest` (>=4.0.0) and `@routecraft/routecraft`.
