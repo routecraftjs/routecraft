@@ -51,7 +51,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
 {
   "mcpServers": {
     "my-tools": {
-      "command": "npx",
+      "command": "bunx",
       "args": [
         "@routecraft/cli",
         "run",
@@ -71,7 +71,7 @@ Open **Cursor Settings** > **Features** > **Model Context Protocol**, then add:
 ```json
 {
   "my-tools": {
-    "command": "npx",
+    "command": "bunx",
     "args": [
       "@routecraft/cli",
       "run",
@@ -89,7 +89,7 @@ Add the following to your `.mcp.json` (project-level) or `~/.claude/mcp.json` (g
 {
   "mcpServers": {
     "my-tools": {
-      "command": "npx",
+      "command": "bunx",
       "args": [
         "@routecraft/cli",
         "run",
@@ -315,7 +315,7 @@ Pin the CLI version so your capabilities do not break on package updates:
 {
   "mcpServers": {
     "my-tools": {
-      "command": "npx",
+      "command": "bunx",
       "args": [
         "@routecraft/cli@2.0.0",
         "run",
