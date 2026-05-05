@@ -11,6 +11,7 @@ import {
 describe("HTTP Adapter", () => {
   let t: TestContext;
   let fetchMock: ReturnType<typeof mock>;
+  const originalFetch = globalThis.fetch;
 
   beforeEach(() => {
     // Mock globalThis.fetch
@@ -23,6 +24,10 @@ describe("HTTP Adapter", () => {
       await t.stop();
     }
     mock.restore();
+    // mock.restore() does not undo the manual `globalThis.fetch` reassignment
+    // in beforeEach; restore the original explicitly so subsequent tests
+    // (in this or any other file run in the same worker) see real fetch.
+    globalThis.fetch = originalFetch;
   });
 
   /**
