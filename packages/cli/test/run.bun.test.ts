@@ -9,7 +9,6 @@ import {
   afterEach,
 } from "bun:test";
 import { writeFile, mkdir, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 // Silence logger output. Bun:test has no `importActual`/spread-and-override
@@ -41,7 +40,9 @@ describe("CLI run command", () => {
 
   beforeEach(async () => {
     cwd = process.cwd();
-    dir = join(tmpdir(), `rc-cli-${Date.now()}`);
+    // Use a dir inside the package so that dynamic imports of temp files can
+    // resolve workspace packages by climbing up to the root node_modules.
+    dir = join(import.meta.dir, `tmp-${Date.now()}`);
     await mkdir(dir, { recursive: true });
     process.chdir(dir);
   });
@@ -67,8 +68,8 @@ describe("CLI run command", () => {
 
   /**
    * @case Verifies that supported file extensions are accepted
-   * @preconditions Files with supported extensions (.js, .mjs, .cjs, .ts)
-   * @expectedResult runCommand should process files without extension errors
+   * @preconditions Files with supported extensions (.js, .mjs, .cjs, .ts) containing valid in-memory routes
+   * @expectedResult runCommand succeeds for each extension
    */
   test("accepts supported extensions", async () => {
     const files = ["a.js", "b.mjs", "c.cjs", "d.ts"];
@@ -82,8 +83,7 @@ describe("CLI run command", () => {
       );
       const { runCommand } = runModule;
       const res = await runCommand(f);
-      // May fail later at start, but should pass validation+loading
-      expect(res.success === true || res.success === false).toBe(true);
+      expect(res.success).toBe(true);
     }
   });
 
@@ -120,7 +120,7 @@ describe("CLI run command", () => {
   /**
    * @case Verifies that craftConfig named export is properly detected and processed
    * @preconditions A file with both craftConfig named export and valid default route export
-   * @expectedResult runCommand should process both exports without error
+   * @expectedResult runCommand succeeds and processes both exports
    */
   test("craftConfig named export is detected", async () => {
     await writeFile(
@@ -133,13 +133,13 @@ describe("CLI run command", () => {
     );
     const { runCommand } = runModule;
     const res = await runCommand("with-config.js");
-    expect(res.success === true || res.success === false).toBe(true);
+    expect(res.success).toBe(true);
   });
 
   /**
    * @case Verifies that RouteBuilder instances are correctly distinguished from RouteDefinitions
    * @preconditions A file exporting a RouteBuilder instance (with .id() method)
-   * @expectedResult runCommand should recognize it as RouteBuilder and call .build()
+   * @expectedResult runCommand succeeds, recognizing the RouteBuilder and calling .build()
    */
   test("RouteBuilder with .id() method is correctly identified", async () => {
     await writeFile(
@@ -151,16 +151,13 @@ describe("CLI run command", () => {
     );
     const { runCommand } = runModule;
     const res = await runCommand("route-builder.js");
-    if (!res.success) {
-      expect(res.message).not.toContain("Route definition failed validation");
-      expect(res.message).not.toMatch(/id\(.*\{.*return.*this\.pendingOptions/);
-    }
+    expect(res.success).toBe(true);
   });
 
   /**
    * @case Verifies that arrays of RouteBuilders are correctly processed
    * @preconditions A file exporting an array of RouteBuilder instances
-   * @expectedResult runCommand should recognize all as RouteBuilders and process them
+   * @expectedResult runCommand succeeds, recognizing all RouteBuilders and processing them
    */
   test("array of RouteBuilders is correctly identified", async () => {
     await writeFile(
@@ -174,10 +171,7 @@ describe("CLI run command", () => {
     );
     const { runCommand } = runModule;
     const res = await runCommand("route-builder-array.js");
-    if (!res.success) {
-      expect(res.message).not.toContain("Route definition failed validation");
-      expect(res.message).not.toMatch(/id\(.*\{.*return.*this\.pendingOptions/);
-    }
+    expect(res.success).toBe(true);
   });
 
   // Runtime execution of .ts files relies on Node's type stripping (22.6+ flag, 23.6+ default).
