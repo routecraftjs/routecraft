@@ -71,7 +71,7 @@ Now talk to Claude: *"Send an email to john@example.com thanking him for yesterd
 
 Claude discovers your tool and uses it automatically. ✨
 
-📚 [Get Started](https://routecraft.dev/docs/introduction) | [AI Examples](https://routecraft.dev/docs/examples/ai-email-parser) | [API Docs](https://routecraft.dev/docs/reference)
+📚 [Get Started](https://routecraft.dev/docs/introduction) | [Examples](https://routecraft.dev/docs/examples) | [API Reference](https://routecraft.dev/docs/reference)
 
 ## Key Features
 
@@ -84,19 +84,29 @@ Claude discovers your tool and uses it automatically. ✨
 ## Monorepo Structure
 
 - `packages/routecraft` – Core library (builder, DSL, context, adapters, consumers)
-- `packages/ai` – AI and MCP integrations (`mcp()`, schema validation, discovery)
-- `packages/cli` – CLI to run files or folders of routes and start contexts
+- `packages/ai` – AI integrations: LLM providers, agents, embeddings, MCP server / client
+- `packages/browser` – Browser automation adapter (headless / headed via agent-browser)
+- `packages/cli` – `craft` CLI to run capabilities and start contexts (Bun >= 1.1.0)
+- `packages/create-routecraft` – Project scaffolder (`bunx create-routecraft`)
+- `packages/eslint-plugin-routecraft` – ESLint rules for capability authoring
+- `packages/os` – System-native adapters (shell, etc.) – placeholder, in development
+- `packages/testing` – Test utilities (`testContext`, spy logger, `mockAdapter`, fixtures)
 - `apps/routecraft.dev` – Documentation site (docs, examples, guides)
-- `examples/` – Runnable example routes and tests
+- `examples/` – Runnable example capabilities
 
 ## Examples
 
-**Real-world automation:**
-- **Email Assistant** - [Send and manage emails](https://routecraft.dev/docs/examples/ai-email-parser)
-- **Calendar & Meetings** - [Schedule meetings automatically](https://routecraft.dev/docs/examples/ai-agent-tools)
-- **Travel & Booking** - [Search flights and book restaurants](https://routecraft.dev/docs/examples/ai-document-processor)
+Browse runnable examples in [`examples/src/`](./examples/src/) — `hello-world.ts`, `mcp-greet.ts`, `agent.ts`, `mail-noreply-notify.ts`, `programmatic-invocation.ts`, `split.ts`. Each demonstrates a different feature combination.
 
-Try it yourself: `pnpm craft run ./examples/mcp-echo.mjs`
+Try one:
+
+```bash
+bun install
+bun run build
+bunx craft run ./examples/dist/mcp-greet.js
+```
+
+For end-to-end walkthroughs, see [the docs site](https://routecraft.dev/docs/examples).
 
 ## Contributing
 

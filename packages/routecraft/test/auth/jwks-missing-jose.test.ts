@@ -9,7 +9,7 @@ describe("jwks() without jose installed", () => {
   /**
    * @case Validator surfaces a clear install hint when `jose` cannot be resolved
    * @preconditions `jose` import is mocked to throw a module-not-found error
-   * @expectedResult Validator rejects with a message instructing `pnpm add jose`
+   * @expectedResult Validator rejects with a message instructing `bun add jose`
    */
   test("rejects with install hint when jose is missing", async () => {
     const { validator } = jwks({
@@ -19,7 +19,7 @@ describe("jwks() without jose installed", () => {
     });
 
     await expect(validator("irrelevant-token")).rejects.toThrow(
-      /jose.*pnpm add jose/,
+      /jose.*bun add jose/,
     );
   });
 });

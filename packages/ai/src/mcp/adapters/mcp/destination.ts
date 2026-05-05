@@ -236,7 +236,7 @@ export class McpDestinationAdapter implements Destination<unknown, unknown> {
         await import("@modelcontextprotocol/sdk/client/streamableHttp.js");
     } catch {
       throw new Error(
-        'MCP client requires "@modelcontextprotocol/sdk". Install it with: pnpm add @modelcontextprotocol/sdk',
+        'MCP client requires "@modelcontextprotocol/sdk". Install it with: bun add @modelcontextprotocol/sdk',
       );
     }
     const Client = clientModule.Client;

@@ -251,7 +251,7 @@ The returned `Principal` is a flat object tagged with `kind` (`"jwt"`, `"jwks"`,
 For the full OAuth 2.1 Authorization Code flow with an upstream IdP, use `oauth()`. It proxies the authorization and token endpoints and validates incoming bearer tokens. It requires `express` and (for JWKS verification) `jose` as optional peer dependencies:
 
 ```sh
-pnpm add express jose
+bun add express jose
 ```
 
 Compose `oauth()` with `jwks()` (or a raw verifier function) via the `verify` option:

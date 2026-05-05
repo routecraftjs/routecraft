@@ -196,7 +196,7 @@ The core limitation is that TypeScript cannot scan your project to discover endp
 ### What `craft typegen` would do
 
 ```bash
-pnpm craft typegen
+bun run craft typegen
 ```
 
 1. **Direct endpoints** - scan all `.ts` files for `direct('name', {` and `direct('name', options)` patterns (the two-argument form = source). Collect all string literals. Write them into `DirectEndpointRegistry`.
@@ -234,7 +234,7 @@ declare module '@routecraft/ai' {
 ### Watch mode
 
 ```bash
-pnpm craft typegen --watch
+bun run craft typegen --watch
 ```
 
 Re-runs on file save. As soon as you add `craft().from(direct('invoices', {}))`, the `invoices` entry appears in the registry and `direct('invoices')` destinations immediately become valid.
@@ -244,7 +244,7 @@ Re-runs on file save. As soon as you add `craft().from(direct('invoices', {}))`,
 The generated file should be committed. This gives the team a clear diff when endpoints or providers change, and CI can verify the file is not stale:
 
 ```bash
-pnpm craft typegen && git diff --exit-code src/types/routecraft.generated.d.ts
+bun run craft typegen && git diff --exit-code src/types/routecraft.generated.d.ts
 ```
 
 ### What codegen still cannot fix

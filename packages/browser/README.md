@@ -5,13 +5,13 @@ Browser automation adapter for Routecraft. Drive headless or headed browsers fro
 ## Installation
 
 ```bash
+# Bun (recommended)
+bun add @routecraft/browser agent-browser
+
+# npm / pnpm / yarn
 npm install @routecraft/browser agent-browser
-```
-
-or
-
-```bash
 pnpm add @routecraft/browser agent-browser
+yarn add @routecraft/browser agent-browser
 ```
 
 `agent-browser` is a peer dependency. The adapter loads it lazily, so it is optional at install time but required at runtime.

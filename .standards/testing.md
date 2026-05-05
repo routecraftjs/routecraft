@@ -9,7 +9,7 @@ Authoritative rules and conventions for tests in Routecraft.
 - **Runner:** Vitest. Same config across packages; the workspace `vitest --run` is the source of truth (root `package.json` script `test`).
 - **File placement:** colocated with the package they exercise.
   - Unit tests: `packages/<name>/test/*.test.ts`.
-  - Integration tests (real network, real subprocesses, slow setup): `packages/<name>/test/*.integration.test.ts` and run via `pnpm test:integration`. The default `pnpm test` excludes them.
+  - Integration tests (real network, real subprocesses, slow setup): `packages/<name>/test/*.integration.test.ts` and run via `bun run test:integration`. The default `bun run test` excludes them.
 - **One feature per file.** Group tests around the unit they exercise, not by category. A test file maps to a code file (or a closely related cluster), not to "all the validation tests in the package".
 
 ## 2. Every test gets a JSDoc header
@@ -123,9 +123,11 @@ If you reach for a snapshot, prefer inline (`toMatchInlineSnapshot()`) over a se
 
 ## 10. What runs in CI
 
-- `pnpm test` (excludes `*.integration.test.ts`) runs on the main `test` job.
-- `pnpm test:integration` runs on the dedicated `integration-test` matrix (bun + npm) against published-shaped tarballs.
-- Both must pass for a PR to be mergeable. See [CI/CD](./ci-cd.md).
+- The main `test` job runs `bun run test:coverage` (which excludes `*.integration.test.ts` and uploads a `coverage-report` artifact). Locally, `bun run test` runs the same exclusion without the coverage instrumentation.
+- The dedicated `integration-test` job runs a two-arm matrix:
+  - `bun` arm: `bun run test:integration` exercises the scaffolder twice -- once with `TEST_PACKAGE_MANAGER=bun` (full scaffold + `craft run` dispatch) and once with `TEST_PACKAGE_MANAGER=npm` (install + typecheck only; the dispatch test skips because the CLI is Bun-only).
+  - `node` arm: `node .github/scripts/smoke-test-embedding.mjs` packs `@routecraft/routecraft`, npm-installs it into a fresh temp dir, and runs a `runner.ts` under plain Node to verify the embedding path. Includes a negative arm asserting `RC5017` fires when `cron()` is used without `croner` installed.
+- Both arms must pass for a PR to be mergeable. See [CI/CD](./ci-cd.md).
 
 ---
 

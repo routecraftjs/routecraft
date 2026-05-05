@@ -106,7 +106,7 @@ export const craftConfig = {
 The database is written to `.routecraft/telemetry.db` in the current working directory. `better-sqlite3` must be installed:
 
 ```bash
-pnpm add better-sqlite3
+bun add better-sqlite3
 ```
 
 ### Configuration
@@ -128,7 +128,7 @@ telemetry({
 Because the telemetry plugin uses OpenTelemetry, you can export traces to any OTel-compatible backend alongside the local SQLite database. Install the OTel SDK and an OTLP exporter:
 
 ```bash
-pnpm add @opentelemetry/sdk-trace-base @opentelemetry/exporter-trace-otlp-http
+bun add @opentelemetry/sdk-trace-base @opentelemetry/exporter-trace-otlp-http
 ```
 
 Then configure a `TracerProvider` and pass it to `telemetry()`. Here is an example using [Better Stack](https://betterstack.com/):

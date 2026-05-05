@@ -11,7 +11,7 @@ import type {
 
 function throwProviderInstallError(pkg: string, provider: string): never {
   throw new Error(
-    `The ${provider} LLM provider requires the "${pkg}" package. Install it with: pnpm add ${pkg}`,
+    `The ${provider} LLM provider requires the "${pkg}" package. Install it with: bun add ${pkg}`,
   );
 }
 

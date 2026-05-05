@@ -7,13 +7,13 @@ Routecraft is a TypeScript-first framework for building automation capabilities 
 ## Installation
 
 ```bash
+# Bun (recommended)
+bun add @routecraft/routecraft
+
+# npm / pnpm / yarn
 npm install @routecraft/routecraft
-```
-
-or
-
-```bash
 pnpm add @routecraft/routecraft
+yarn add @routecraft/routecraft
 ```
 
 ## Quick Start
@@ -29,11 +29,13 @@ export default craft()
   .to(log());
 ```
 
-Run it directly:
+Run it directly with the `craft` CLI (requires Bun on the host):
 
 ```bash
-npx @routecraft/cli run capabilities/timer-ping.ts
+bunx @routecraft/cli run capabilities/timer-ping.ts
 ```
+
+For Node-based projects, embed the library programmatically instead of using the CLI -- see [Programmatic Invocation](https://routecraft.dev/docs/advanced/programmatic-invocation).
 
 ## Core Concepts
 
