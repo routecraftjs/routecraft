@@ -1,4 +1,4 @@
 #!/usr/bin/env sh
 set -e
-pnpm lint-staged
-pnpm typecheck
+bun run lint-staged
+bun run typecheck

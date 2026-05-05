@@ -13,7 +13,7 @@ export default [
       "**/dist/**",
       "coverage/**",
       ".husky/_/**",
-      "pnpm-lock.yaml",
+      "bun.lock",
       "**/.next/**",
       "apps/routecraft.dev/**",
       // Test files with type/lint issues – fix later; other tests remain checked

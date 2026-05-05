@@ -24,7 +24,7 @@
     "build": "tsup",
     "test": "vitest",
     "test:coverage": "vitest --coverage",
-    "prepublishOnly": "pnpm run build"
+    "prepublishOnly": "bun run build"
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.1",
