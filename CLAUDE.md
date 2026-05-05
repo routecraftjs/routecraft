@@ -56,6 +56,10 @@ See [DEFINITION_OF_DONE.md](DEFINITION_OF_DONE.md) for what must be satisfied be
 | `@routecraft/eslint-plugin-routecraft` | `packages/eslint-plugin-routecraft` | ESLint plugin |
 | `create-routecraft` | `packages/create-routecraft` | Project scaffolder |
 
+## Agent Skills
+
+Routecraft ships Agent Skills (open standard, any agent) at the repo root in `skills/` for authoring adapters and capabilities. Install with the Vercel `skills` CLI: `bunx skills add routecraftjs/routecraft`. See [skills/README.md](./skills/README.md). The repo root also doubles as a Claude Code plugin (`.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json`); install via `/plugin install routecraft-skills@routecraft`.
+
 ## Documentation
 
 - Docs site source: `apps/routecraft.dev/src/app/docs/`

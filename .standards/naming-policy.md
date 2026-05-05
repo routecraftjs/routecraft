@@ -20,6 +20,27 @@ For adapters that can both receive and send on a protocol (direct, mcp, http, we
 
 Examples: `DirectServerOptions` / `DirectClientOptions`, `McpServerOptions` / `McpClientOptions`, `HttpServerOptions` / `HttpClientOptions`.
 
+### Shared fields between roles
+
+When the two roles genuinely share fields (auth config, base URL, common headers, retry policy), factor them into **XxxBaseOptions** and have both `XxxServerOptions` and `XxxClientOptions` `extends XxxBaseOptions`. Export the union as **XxxOptions**:
+
+```ts
+export interface HttpBaseOptions { auth?: HttpAuth; baseUrl?: string; }
+export interface HttpServerOptions extends HttpBaseOptions { /* server-only */ }
+export interface HttpClientOptions extends HttpBaseOptions { /* client-only */ }
+export type HttpOptions = HttpServerOptions | HttpClientOptions;
+```
+
+When the two roles do not share fields (e.g. `mail`: IMAP polling on the server side and SMTP send on the client side), declare each independently and export the union directly:
+
+```ts
+export interface MailServerOptions { /* IMAP-only */ }
+export interface MailClientOptions { /* SMTP-only */ }
+export type MailOptions = MailServerOptions | MailClientOptions;
+```
+
+Do not invent an empty `XxxBaseOptions` to make the structure look uniform; the union is what matters and an empty parent only adds friction. The decision rule is "would I write the same field on both Server and Client?" -- if yes for two or more fields, factor; otherwise, declare independently.
+
 ## Single-role adapters
 
 Adapters that only act as source or only as destination (timer, simple, log, noop) use a single options type: **XxxOptions** (e.g., `TimerOptions`, `LogOptions`). Do not use Server/Client in their option names.
