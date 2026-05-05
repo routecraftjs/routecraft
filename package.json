@@ -26,6 +26,7 @@
     "test:coverage": "vitest --run --coverage --exclude '**/integration.test.ts' --exclude '**/test/cross-runtime/**'",
     "test:integration": "vitest --run 'integration.test.ts'",
     "test:cross-runtime": "vitest run --passWithNoTests test/cross-runtime/",
+    "test:cross-runtime:node": "node node_modules/vitest/vitest.mjs run --passWithNoTests test/cross-runtime/",
     "limit:size": "size-limit",
     "prepare": "husky",
     "build": "bun run --filter '*' build",

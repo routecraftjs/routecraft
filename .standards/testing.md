@@ -136,10 +136,10 @@ bun run test:cross-runtime
 This runs vitest under Bun against the cross-runtime suite. To verify under Node:
 
 ```sh
-node node_modules/vitest/vitest.mjs run --include '**/test/cross-runtime/**/*.test.ts'
+npm run test:cross-runtime:node
 ```
 
-CI runs both invocations as separate jobs (`adapter-cross-runtime (bun)` and `adapter-cross-runtime (node)`).
+The `:node` script resolves to `node node_modules/vitest/vitest.mjs run --passWithNoTests test/cross-runtime/` -- one canonical invocation referenced by both the workflow and these docs. CI runs both invocations as separate jobs (`adapter-cross-runtime (bun)` and `adapter-cross-runtime (node)`).
 
 **When to add one.** New adapters with a Bun-vs-Node driver split, or library code that touches runtime-specific APIs (`Bun.file`, `bun:sqlite` direct usage, `worker_threads`, etc.). For pure type-only code or code that uses the same driver under both runtimes, the regular unit tests are sufficient.
 

@@ -371,7 +371,7 @@ jobs:
 
       - name: Run cross-runtime adapter tests (node)
         if: matrix.runtime == 'node'
-        run: node node_modules/vitest/vitest.mjs run --passWithNoTests test/cross-runtime/
+        run: npm run test:cross-runtime:node
 
   publish-canary:
     needs:
