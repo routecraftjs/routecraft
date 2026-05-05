@@ -30,18 +30,24 @@ interface PackageManagerDef {
 // level, since `lib.ts` still emits npm/pnpm/yarn variants. Node users
 // embedding @routecraft/routecraft programmatically are covered separately
 // by `.github/scripts/smoke-test-embedding.mjs`.
+// `--ignore-scripts` is intentional: the scaffolded hello-world test does not
+// exercise any code path that needs a compiled native binding (better-sqlite3
+// only loads inside the TUI / telemetry plugin, which the test does not hit).
+// Skipping postinstalls dodges a recurring CI flake where bun's transient
+// `bunx node-gyp@latest` cache is missing one of its own transitive deps
+// (env-paths, undici interceptors, etc.) when better-sqlite3 tries to compile.
 const PACKAGE_MANAGER_DEFS: Record<PackageManagerId, PackageManagerDef> = {
   bun: {
     id: "bun",
     pmOption: "bun",
-    install: "bun install",
+    install: "bun install --ignore-scripts",
     typecheck: "bunx tsc --noEmit",
     start: "bunx craft run index.ts",
   },
   npm: {
     id: "npm",
     pmOption: "npm",
-    install: "npm install --no-audit --no-fund",
+    install: "npm install --no-audit --no-fund --ignore-scripts",
     typecheck: "npx tsc --noEmit",
     start: null,
   },
