@@ -36,7 +36,7 @@ Default to `bun:test`. Stay on vitest only when the test hits a known bun:test g
 
 Ink-testing-library renderers and ESLint `RuleTester` both work under bun:test with the binding pattern shown in `packages/eslint-plugin-routecraft/test/*.bun.test.ts`. They are no longer blockers.
 
-When migrating a vitest file: rename `.test.ts` → `.bun.test.ts`, swap `from "vitest"` → `from "bun:test"`, replace `vi.fn` → `mock`, `vi.spyOn` → `spyOn`, `vi.mock` → `mock.module`, `vi.restoreAllMocks` → `mock.restore`. Run `bun run test:bun` to verify.
+When migrating a vitest file: rename `.test.ts` → `.bun.test.ts`, swap `from "vitest"` → `from "bun:test"`, replace `vi.fn` → `mock`, `vi.spyOn` → `spyOn`, `vi.mock` → `mock.module`, `vi.restoreAllMocks` → `mock.restore`, `vi.clearAllMocks` → `mock.clearAllMocks`. Run `bun run test:bun` to verify.
 
 When a migrated file hits a gap, revert it (`mv foo.bun.test.ts foo.test.ts` and restore the vitest imports). Add a row to the table above so the next contributor knows why.
 

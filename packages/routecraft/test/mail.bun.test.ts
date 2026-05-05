@@ -1366,7 +1366,7 @@ describe("Mail Adapter", () => {
      */
     test("IDLE reconnects after a transient connection drop", async () => {
       // Zero jitter so the reconnect backoff collapses to 0ms in the test.
-      spyOn(Math, "random").mockReturnValue(0);
+      const mathRandomSpy = spyOn(Math, "random").mockReturnValue(0);
 
       mockFetch.mockImplementation(() => ({
         async *[Symbol.asyncIterator]() {},
@@ -1409,6 +1409,7 @@ describe("Mail Adapter", () => {
       expect(idleCalls).toBeGreaterThanOrEqual(2);
       // Initial open + reconnect open
       expect(mockMailboxOpen.mock.calls.length).toBeGreaterThanOrEqual(2);
+      mathRandomSpy.mockRestore();
     });
 
     /**
@@ -1466,7 +1467,7 @@ describe("Mail Adapter", () => {
      */
     test("poll reconnects after a transient fetch failure", async () => {
       // Zero jitter so the reconnect backoff collapses to 0ms in the test.
-      spyOn(Math, "random").mockReturnValue(0);
+      const mathRandomSpy = spyOn(Math, "random").mockReturnValue(0);
 
       let fetchCalls = 0;
       mockFetch.mockImplementation(() => {
@@ -1508,6 +1509,7 @@ describe("Mail Adapter", () => {
       expect(fetchCalls).toBeGreaterThanOrEqual(2);
       // Initial open + reconnect open
       expect(mockMailboxOpen.mock.calls.length).toBeGreaterThanOrEqual(2);
+      mathRandomSpy.mockRestore();
     });
 
     /**
