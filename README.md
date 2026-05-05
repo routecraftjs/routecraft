@@ -91,6 +91,7 @@ Claude discovers your tool and uses it automatically. ✨
 - `packages/eslint-plugin-routecraft` – ESLint rules for capability authoring
 - `packages/os` – System-native adapters (shell, etc.) – placeholder, in development
 - `packages/testing` – Test utilities (`testContext`, spy logger, `mockAdapter`, fixtures)
+- `skills/` – Agent Skills for authoring Routecraft (Claude Code, Cursor, Codex, Windsurf, Cline, Continue, Copilot, ...; `bunx skills add routecraftjs/routecraft`). See [skills/README.md](./skills/README.md)
 - `apps/routecraft.dev` – Documentation site (docs, examples, guides)
 - `examples/` – Runnable example capabilities
 

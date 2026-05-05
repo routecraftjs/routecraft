@@ -280,6 +280,8 @@ jobs:
           git checkout -- package.json examples/package.json \
             packages/ai/package.json packages/browser/package.json packages/cli/package.json \
             packages/create-routecraft/package.json packages/eslint-plugin-routecraft/package.json packages/os/package.json packages/routecraft/package.json packages/testing/package.json \
+            .claude-plugin/plugin.json \
+            .claude-plugin/marketplace.json \
             packages/cli/src/index.ts \
             apps/routecraft.dev/package.json
 

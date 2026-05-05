@@ -2,6 +2,10 @@
 
 Every change -- feature, fix, refactor -- must satisfy the checklists below before it can be merged. CI enforces builds, linting, formatting, and type checking automatically. The checklists here cover what CI **cannot** catch.
 
+## Scope
+
+The checklists below apply to **packages that ship code**: anything under `packages/*` whose published artefact contains executable JavaScript or TypeScript declarations. Documentation-only packages (no `.js`, `.ts`, or `.d.ts` files in their `files` allowlist; for example `@routecraft/skills`, which ships only Markdown and JSON) are exempt from the General Checklist test rule and the per-surface checklists. They must still satisfy: Conventional Commits, the no-em-dashes rule, and any policy that applies to documentation prose.
+
 ## General Checklist (every change)
 
 - [ ] New or changed behavior has corresponding tests in `packages/*/test/**/*.test.ts`

@@ -1,0 +1,19 @@
+{
+  "name": "routecraft",
+  "description": "Official Routecraft Claude Code plugins. Currently ships routecraft-skills for authoring adapters and capabilities.",
+  "owner": {
+    "name": "routecraftjs",
+    "email": "hello@routecraft.dev"
+  },
+  "plugins": [
+    {
+      "name": "routecraft-skills",
+      "source": "./",
+      "description": "Skills for authoring Routecraft adapters and capabilities. Each skill points Claude at the closest example and the matching public docs, then runs lint, typecheck, and tests until clean.",
+      "version": "0.5.0",
+      "author": {
+        "name": "routecraftjs"
+      }
+    }
+  ]
+}
