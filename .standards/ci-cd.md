@@ -100,7 +100,7 @@ External SDKs that a package only needs when a specific feature is used (Vercel 
 
 **New code MUST use `loadOptionalPeer`.** The cron source (`packages/routecraft/src/adapters/cron/source.ts`) and the html adapter (`packages/routecraft/src/adapters/html/shared.ts`) are the canonical references; copy the shape (lazy import via the thunk, RC5017 message, type-only `import type` at the top of the file).
 
-A pre-existing migration backlog of bespoke try/catch sites in `packages/ai/src/mcp/*`, `packages/routecraft/src/auth/jwks.ts`, `packages/routecraft/src/telemetry/plugin.ts`, `packages/routecraft/src/adapters/mail/strict-verify.ts`, and `packages/cli/src/tui/db.ts` is tracked in [#287](https://github.com/routecraftjs/routecraft/issues/287). When touching one of those files for an unrelated reason, opportunistically migrate it as part of the PR. They surface inconsistent error shapes today (some `Error`, one `RC5003`, none `RC5017`); the migration normalises them.
+The pre-existing migration backlog tracked in [#287](https://github.com/routecraftjs/routecraft/issues/287) is closed: every dynamic-import optional-peer site now goes through `loadOptionalPeer`. `loadOptionalPeer` is exported from `@routecraft/routecraft` so cross-package adapters (`@routecraft/ai`'s mcp suite, `@routecraft/cli`) reuse the same helper. New code MUST follow the same shape and is reviewed against this contract.
 
 ## 7. Bun command conventions
 

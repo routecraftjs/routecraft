@@ -165,6 +165,7 @@ export {
 } from "./testing-hooks.ts";
 
 export { tagAdapter, factoryArgs } from "./adapters/shared/factory-tag.ts";
+export { loadOptionalPeer } from "./adapters/shared/optional-peer.ts";
 
 export {
   type OnParseError,

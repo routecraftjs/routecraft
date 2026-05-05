@@ -1,8 +1,6 @@
+import { loadOptionalPeer } from "@routecraft/routecraft";
 import type { McpTool } from "./types.ts";
 import { extractContent } from "./extract-content.ts";
-
-const MCP_SDK_INSTALL =
-  'MCP stdio client requires "@modelcontextprotocol/sdk". Install it with: bun add @modelcontextprotocol/sdk';
 
 export interface StdioClientManagerOptions {
   serverId: string;
@@ -83,20 +81,20 @@ export class StdioClientManager {
       this.restartTimer = null;
     }
 
-    type SdkClientModule =
-      typeof import("@modelcontextprotocol/sdk/client/index.js");
-    type SdkStdioModule =
-      typeof import("@modelcontextprotocol/sdk/client/stdio.js");
-
-    let clientMod: SdkClientModule;
-    let stdioMod: SdkStdioModule;
-
-    try {
-      clientMod = await import("@modelcontextprotocol/sdk/client/index.js");
-      stdioMod = await import("@modelcontextprotocol/sdk/client/stdio.js");
-    } catch {
-      throw new Error(MCP_SDK_INSTALL);
-    }
+    const clientMod = await loadOptionalPeer(
+      () => import("@modelcontextprotocol/sdk/client/index.js"),
+      {
+        adapterName: "mcp (stdio client)",
+        packageName: "@modelcontextprotocol/sdk",
+      },
+    );
+    const stdioMod = await loadOptionalPeer(
+      () => import("@modelcontextprotocol/sdk/client/stdio.js"),
+      {
+        adapterName: "mcp (stdio client)",
+        packageName: "@modelcontextprotocol/sdk",
+      },
+    );
 
     const { serverId, command, args, env, cwd } = this.options;
 

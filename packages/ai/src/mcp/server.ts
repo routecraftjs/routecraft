@@ -3,6 +3,7 @@ import {
   DefaultExchange,
   HeadersKeys,
   isRoutecraftError,
+  loadOptionalPeer,
 } from "@routecraft/routecraft";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createServer } from "node:http";
@@ -38,9 +39,6 @@ type SdkAuthInfo = AuthInfo;
  * read in handleToolCall to populate exchange headers.
  */
 const principalStore = new AsyncLocalStorage<Principal | undefined>();
-
-const MCP_SDK_INSTALL =
-  'MCP server requires "@modelcontextprotocol/sdk". Install it with: bun add @modelcontextprotocol/sdk';
 
 /** Resolved options with defaults applied (internal use). */
 type McpServerResolvedOptions = Required<
@@ -130,21 +128,20 @@ export class McpServer {
    * Start stdio transport
    */
   private async startStdio(): Promise<void> {
-    let Server: new (
+    const serverMod = await loadOptionalPeer(
+      () => import("@modelcontextprotocol/sdk/server/index.js"),
+      { adapterName: "mcp (stdio)", packageName: "@modelcontextprotocol/sdk" },
+    );
+    const Server = serverMod.Server as new (
       info: { name: string; version: string },
       options: { capabilities: { tools: Record<string, unknown> } },
     ) => unknown;
-    let StdioServerTransport: new () => unknown;
-    try {
-      const serverMod =
-        await import("@modelcontextprotocol/sdk/server/index.js");
-      Server = serverMod.Server;
-      const stdioMod =
-        await import("@modelcontextprotocol/sdk/server/stdio.js");
-      StdioServerTransport = stdioMod.StdioServerTransport;
-    } catch {
-      throw new Error(MCP_SDK_INSTALL);
-    }
+    const stdioMod = await loadOptionalPeer(
+      () => import("@modelcontextprotocol/sdk/server/stdio.js"),
+      { adapterName: "mcp (stdio)", packageName: "@modelcontextprotocol/sdk" },
+    );
+    const StdioServerTransport =
+      stdioMod.StdioServerTransport as new () => unknown;
 
     this.server = new Server(
       {
@@ -191,18 +188,20 @@ export class McpServer {
       enableJsonResponse?: boolean;
     }) => unknown;
   }> {
-    let ServerCtor: new (
+    const serverModule = await loadOptionalPeer(
+      () => import("@modelcontextprotocol/sdk/server/index.js"),
+      { adapterName: "mcp (http)", packageName: "@modelcontextprotocol/sdk" },
+    );
+    const ServerCtor = serverModule.Server as new (
       info: { name: string; version: string },
       options: { capabilities: { tools: Record<string, unknown> } },
     ) => unknown;
-    try {
-      const serverModule =
-        await import("@modelcontextprotocol/sdk/server/index.js");
-      ServerCtor = serverModule.Server;
-    } catch {
-      throw new Error(MCP_SDK_INSTALL);
-    }
 
+    // streamableHttp is a sub-export that may not exist on older SDK
+    // versions; the `.catch(() => null)` lets the OAuth-aware fallback
+    // kick in instead of failing the whole startup. Don't route through
+    // loadOptionalPeer here because the missing-sub-export case is
+    // distinct from the missing-package case.
     const streamableModule =
       await import("@modelcontextprotocol/sdk/server/streamableHttp.js").catch(
         () => null,
@@ -425,11 +424,6 @@ export class McpServer {
         cb: () => void,
       ) => ReturnType<typeof createServer>;
     };
-    let mcpAuthRouter: (options: Record<string, unknown>) => unknown;
-    let requireBearerAuth: (options: Record<string, unknown>) => unknown;
-    let ProxyOAuthServerProvider: new (
-      options: Record<string, unknown>,
-    ) => unknown;
 
     try {
       // @ts-expect-error -- Express is a transitive dep of @modelcontextprotocol/sdk; no type declarations in this project
@@ -441,30 +435,36 @@ export class McpServer {
       );
     }
 
-    try {
-      const routerMod =
-        await import("@modelcontextprotocol/sdk/server/auth/router.js");
-      mcpAuthRouter = (routerMod as Record<string, unknown>)[
-        "mcpAuthRouter"
-      ] as typeof mcpAuthRouter;
+    // OAuth sub-modules require @modelcontextprotocol/sdk v1.27.0+. If the
+    // package is missing entirely loadOptionalPeer fires RC5017 with the
+    // install hint. If the package is present but the sub-path is not (older
+    // SDK), the underlying ERR_MODULE_NOT_FOUND for the sub-path propagates,
+    // which is more diagnostic than a generic "install" message.
+    const routerMod = await loadOptionalPeer(
+      () => import("@modelcontextprotocol/sdk/server/auth/router.js"),
+      { adapterName: "mcp (oauth)", packageName: "@modelcontextprotocol/sdk" },
+    );
+    const mcpAuthRouter = (routerMod as Record<string, unknown>)[
+      "mcpAuthRouter"
+    ] as (options: Record<string, unknown>) => unknown;
 
-      const bearerMod =
-        await import("@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js");
-      requireBearerAuth = (bearerMod as Record<string, unknown>)[
-        "requireBearerAuth"
-      ] as typeof requireBearerAuth;
+    const bearerMod = await loadOptionalPeer(
+      () =>
+        import("@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js"),
+      { adapterName: "mcp (oauth)", packageName: "@modelcontextprotocol/sdk" },
+    );
+    const requireBearerAuth = (bearerMod as Record<string, unknown>)[
+      "requireBearerAuth"
+    ] as (options: Record<string, unknown>) => unknown;
 
-      const proxyMod =
-        await import("@modelcontextprotocol/sdk/server/auth/providers/proxyProvider.js");
-      ProxyOAuthServerProvider = (proxyMod as Record<string, unknown>)[
-        "ProxyOAuthServerProvider"
-      ] as typeof ProxyOAuthServerProvider;
-    } catch {
-      throw new Error(
-        "OAuth auth requires @modelcontextprotocol/sdk v1.27.0+ with OAuth support. " +
-          "Install it with: bun add @modelcontextprotocol/sdk",
-      );
-    }
+    const proxyMod = await loadOptionalPeer(
+      () =>
+        import("@modelcontextprotocol/sdk/server/auth/providers/proxyProvider.js"),
+      { adapterName: "mcp (oauth)", packageName: "@modelcontextprotocol/sdk" },
+    );
+    const ProxyOAuthServerProvider = (proxyMod as Record<string, unknown>)[
+      "ProxyOAuthServerProvider"
+    ] as new (options: Record<string, unknown>) => unknown;
 
     // Wrap the user's verifier so the MCP SDK sees a clean AuthInfo while the
     // rich OAuthPrincipal rides through in `extra.principal` for
@@ -755,16 +755,10 @@ export class McpServer {
    * Uses SDK request schemas so setRequestHandler receives a proper schema (method literal).
    */
   private async setupRequestHandlersOn(server: unknown): Promise<void> {
-    let typesModule: Record<string, unknown>;
-    try {
-      typesModule =
-        (await import("@modelcontextprotocol/sdk/types.js")) as Record<
-          string,
-          unknown
-        >;
-    } catch {
-      throw new Error(MCP_SDK_INSTALL);
-    }
+    const typesModule = (await loadOptionalPeer(
+      () => import("@modelcontextprotocol/sdk/types.js"),
+      { adapterName: "mcp", packageName: "@modelcontextprotocol/sdk" },
+    )) as Record<string, unknown>;
     const t = typesModule;
     const ListToolsRequestSchema = t["ListToolsRequestSchema"];
     const CallToolRequestSchema = t["CallToolRequestSchema"];

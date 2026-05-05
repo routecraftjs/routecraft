@@ -1,5 +1,5 @@
 import type { Exchange, Destination } from "@routecraft/routecraft";
-import { getExchangeContext } from "@routecraft/routecraft";
+import { getExchangeContext, loadOptionalPeer } from "@routecraft/routecraft";
 import type {
   McpClientOptions,
   McpArgsExtractor,
@@ -215,13 +215,25 @@ export class McpDestinationAdapter implements Destination<unknown, unknown> {
     args: Record<string, unknown>,
     auth?: McpClientAuthOptions,
   ): Promise<unknown> {
-    let clientModule: {
+    const clientModule = (await loadOptionalPeer(
+      () => import("@modelcontextprotocol/sdk/client/index.js"),
+      {
+        adapterName: "mcp (http client)",
+        packageName: "@modelcontextprotocol/sdk",
+      },
+    )) as unknown as {
       Client: new (
         info: { name: string; version: string },
         options?: { capabilities?: Record<string, unknown> },
       ) => unknown;
     };
-    let transportModule: {
+    const transportModule = (await loadOptionalPeer(
+      () => import("@modelcontextprotocol/sdk/client/streamableHttp.js"),
+      {
+        adapterName: "mcp (http client)",
+        packageName: "@modelcontextprotocol/sdk",
+      },
+    )) as unknown as {
       StreamableHTTPClientTransport: new (
         url: URL,
         options?: {
@@ -230,15 +242,6 @@ export class McpDestinationAdapter implements Destination<unknown, unknown> {
         },
       ) => unknown;
     };
-    try {
-      clientModule = await import("@modelcontextprotocol/sdk/client/index.js");
-      transportModule =
-        await import("@modelcontextprotocol/sdk/client/streamableHttp.js");
-    } catch {
-      throw new Error(
-        'MCP client requires "@modelcontextprotocol/sdk". Install it with: bun add @modelcontextprotocol/sdk',
-      );
-    }
     const Client = clientModule.Client;
     const StreamableHTTPClientTransport =
       transportModule.StreamableHTTPClientTransport;
