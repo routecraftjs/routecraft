@@ -537,11 +537,11 @@ jobs:
         working-directory: stable
         run: pnpm run version:set "${{ steps.latest.outputs.version }}"
 
-      - name: Build stable docs (/latest)
+      - name: Build stable docs (root)
         if: steps.latest.outputs.tag != ''
         working-directory: stable
         env:
-          NEXT_PUBLIC_BASE_PATH: /latest
+          NEXT_PUBLIC_BASE_PATH: ""
           NEXT_PUBLIC_DOC_VERSION: v${{ steps.latest.outputs.version }}
           NEXT_PUBLIC_POSTHOG_KEY: ${{ secrets.NEXT_PUBLIC_POSTHOG_KEY }}
           NEXT_PUBLIC_POSTHOG_HOST: ${{ secrets.NEXT_PUBLIC_POSTHOG_HOST }}
@@ -552,41 +552,26 @@ jobs:
           STABLE_VERSION: ${{ steps.latest.outputs.version }}
         run: |
           set -eo pipefail
-          mkdir -p site
-          mv canary/apps/routecraft.dev/out site/next
 
           if [ -d stable/apps/routecraft.dev/out ]; then
-            mv stable/apps/routecraft.dev/out site/latest
-            ROOT_TARGET="/latest/"
+            # Stable serves at root; canary serves at /next/
+            mv stable/apps/routecraft.dev/out site
+            mv canary/apps/routecraft.dev/out site/next
             cat > site/versions.json <<JSON
           [
             { "label": "next", "basePath": "/next" },
-            { "label": "v${STABLE_VERSION}", "basePath": "/latest", "default": true }
+            { "label": "v${STABLE_VERSION}", "basePath": "", "default": true }
           ]
           JSON
           else
-            ROOT_TARGET="/next/"
+            # No stable tag yet: canary serves at root, no /next/
+            mv canary/apps/routecraft.dev/out site
             cat > site/versions.json <<'JSON'
           [
-            { "label": "next", "basePath": "/next", "default": true }
+            { "label": "next", "basePath": "", "default": true }
           ]
           JSON
           fi
-
-          cat > site/index.html <<HTML
-          <!doctype html>
-          <html lang="en">
-            <head>
-              <meta charset="utf-8">
-              <title>Routecraft Docs</title>
-              <meta http-equiv="refresh" content="0; url=${ROOT_TARGET}">
-              <link rel="canonical" href="${ROOT_TARGET}">
-            </head>
-            <body>
-              <p>Redirecting to <a href="${ROOT_TARGET}">${ROOT_TARGET}</a>...</p>
-            </body>
-          </html>
-          HTML
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
