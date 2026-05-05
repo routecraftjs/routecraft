@@ -28,7 +28,7 @@
     "noImplicitOverride": true,
 
     // Add these
-    "types": ["node", "vitest/globals", "bun-types"],
+    "types": ["node", "vitest/globals"],
     "paths": {
       "@routecraft/testing": ["packages/testing/src/index.ts"],
       "@routecraft/*": ["packages/*/src/index.ts"]

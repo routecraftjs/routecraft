@@ -1,3 +1,4 @@
+/// <reference types="bun-types" />
 import { mkdirSync } from "node:fs";
 import { dirname, resolve, isAbsolute } from "node:path";
 import { ALL_DDL } from "./schema.ts";
@@ -61,14 +62,11 @@ export class SqliteConnection {
 
   /**
    * Loader for the `bun:sqlite` driver. Exposed as a static so tests can
-   * substitute an alternate implementation (e.g. force the Node fallback
-   * branch on a Bun runner).
+   * substitute an alternate implementation (e.g. better-sqlite3 under
+   * vitest's Node pool, before the full bun:test migration).
    * @internal
    */
   static loadDriver: () => Promise<BunSqliteDatabaseConstructor> = async () => {
-    if (typeof process.versions["bun"] !== "string") {
-      throw new Error("bun:sqlite is only available under Bun");
-    }
     const mod = await import("bun:sqlite");
     return mod.Database as unknown as BunSqliteDatabaseConstructor;
   };
@@ -95,7 +93,14 @@ export class SqliteConnection {
     let Database: BunSqliteDatabaseConstructor;
     try {
       Database = await SqliteConnection.loadDriver();
-    } catch {
+    } catch (err) {
+      // Under Node, `bun:sqlite` resolves to ERR_MODULE_NOT_FOUND -- expected,
+      // disable silently. Under Bun, a throw from the dynamic import indicates
+      // a real bug (broken Bun install, removed module, etc.) and we must NOT
+      // silently swallow it; surface via the logger.
+      if (typeof process.versions["bun"] === "string") {
+        logger?.warn({ err }, "Failed to load bun:sqlite driver");
+      }
       return null;
     }
 

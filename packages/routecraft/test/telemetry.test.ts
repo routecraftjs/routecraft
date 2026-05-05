@@ -353,11 +353,11 @@ describe("TelemetryPlugin", () => {
   });
 
   /**
-   * @case SqliteConnection.open returns a connection under Bun
-   * @preconditions Test runs under Bun (CI test job uses `bun run test:coverage`)
-   * @expectedResult Connection is non-null and the db file is created
+   * @case SqliteConnection.open returns a usable connection when the driver loader resolves
+   * @preconditions Default loadDriver substituted with better-sqlite3 (test scaffolding); see the comment at the top of this file for why the substitution is needed under vitest's Node pool
+   * @expectedResult Connection is non-null and the db file is created on disk
    */
-  test("SqliteConnection.open succeeds under Bun", async () => {
+  test("SqliteConnection.open succeeds with a resolvable driver", async () => {
     const conn = await SqliteConnection.open({ dbPath });
     expect(conn).not.toBeNull();
     conn!.close();

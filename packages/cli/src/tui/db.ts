@@ -1,3 +1,4 @@
+/// <reference types="bun-types" />
 import type { TelemetryEvent } from "@routecraft/routecraft";
 
 /** Exchange row shape from the telemetry SQLite database. */
