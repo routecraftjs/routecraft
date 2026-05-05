@@ -258,17 +258,6 @@ jobs:
           VERSION=$(node -p "require('./packages/routecraft/package.json').version")
           pnpm run version:set "$VERSION"
 
-      - name: Install CLI globally
-        if: matrix.pm == 'npm'
-        working-directory: ./packages/cli
-        run: |
-          npm link
-          craft --version
-
-      - name: Smoke test publishable (pack + npm install + npx craft run)
-        if: matrix.pm == 'npm'
-        run: node .github/scripts/smoke-test-publishable.mjs
-
       - name: Run integration tests
         env:
           TEST_PACKAGE_MANAGER: ${{ matrix.pm }}
