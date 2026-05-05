@@ -849,11 +849,9 @@ describe("McpServer", () => {
        *                dynamically wired plugin or `as any` escape hatch in user code)
        * @expectedResult HTTP 401 response; auth:rejected event emitted with reason "missing_expires_at"
        */
-      // Skip: the MCP SDK's SSE transport keeps the response stream open even
-      // for 401 rejections in bun 1.3.11, so r.on("end") never fires and the
-      // test body times out. The runtime guard is exercised by the server-unit
-      // tests; re-enable once bun's http module respects Connection:close for
-      // streaming responses.
+      // Skip: bun 1.3.11 + MCP SSE transport leaves the response stream open even
+      // for 401 rejections, so r.on("end") never fires and afterEach times out.
+      // The runtime guard is exercised by server-unit tests. Re-enable once resolved.
       test.skip("rejects principal without expiresAt and emits auth:rejected", async () => {
         const { oauth } = await import("../src/mcp/oauth.ts");
 
@@ -900,6 +898,10 @@ describe("McpServer", () => {
         await server.start();
         const port = server.getHttpPort()!;
 
+        // Use Accept: application/json (not text/event-stream) so the server
+        // sends a plain JSON error response and closes the connection. An SSE
+        // Accept causes the MCP transport to keep the response stream open even
+        // for 401 rejections, making r.on("end") never fire.
         const res = await new Promise<{ statusCode: number }>(
           (resolve, reject) => {
             const req = http.request(
@@ -910,7 +912,7 @@ describe("McpServer", () => {
                 method: "POST",
                 headers: {
                   "Content-Type": "application/json",
-                  Accept: "application/json, text/event-stream",
+                  Accept: "application/json",
                   Authorization: "Bearer some-token",
                   Connection: "close",
                 },
@@ -919,8 +921,6 @@ describe("McpServer", () => {
                 let body = "";
                 r.on("data", (chunk) => (body += chunk));
                 r.on("end", () => {
-                  // Force-close the socket so httpServer.close() in afterEach
-                  // does not wait for the TCP half-close handshake to finish.
                   r.socket?.destroy();
                   resolve({ statusCode: r.statusCode ?? 0 });
                 });
