@@ -484,6 +484,8 @@ jobs:
 
       - name: Install pnpm
         uses: pnpm/action-setup@v5
+        with:
+          package_json_file: canary/package.json
 
       - name: Use Node.js from .nvmrc
         uses: actions/setup-node@v6
