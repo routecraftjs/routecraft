@@ -1,5 +1,5 @@
 import { render } from "ink-testing-library";
-import { describe, test, expect } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { CenterExchangeDetail } from "../../../src/tui/components/center-exchange-detail.js";
 import { makeExchange, makeEvent } from "../../tui/fixtures.js";
 

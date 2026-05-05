@@ -1,4 +1,4 @@
-import { describe, test, expect, afterEach, vi, beforeEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { craft, simple, type CraftPlugin } from "@routecraft/routecraft";
 
@@ -6,7 +6,7 @@ describe("CraftContext", () => {
   let t: TestContext;
 
   beforeEach(() => {
-    vi.restoreAllMocks();
+    mock.restore();
   });
 
   afterEach(async () => {
@@ -70,10 +70,10 @@ describe("CraftContext", () => {
    * @expectedResult Both handlers should be called exactly once
    */
   test("Executes lifecycle events", async () => {
-    const contextStarting = vi.fn();
-    const contextStarted = vi.fn();
-    const contextStopping = vi.fn();
-    const contextStopped = vi.fn();
+    const contextStarting = mock();
+    const contextStarted = mock();
+    const contextStopping = mock();
+    const contextStopped = mock();
 
     t = await testContext()
       .on("context:starting", contextStarting)
@@ -114,7 +114,7 @@ describe("Error Handling", () => {
       .build();
 
     // Start won't reject because we emit errors and continue; verify error event fires
-    const errSpy = vi.fn();
+    const errSpy = mock();
     t.ctx.on("context:error", errSpy);
     await t.ctx.start();
     await new Promise((r) => setTimeout(r, 0));
@@ -256,7 +256,7 @@ describe("Route Independence", () => {
    * @expectedResult Working route should process and eventually call destination adapter
    */
   test("Failed route does not prevent others from processing and calls destination adapter", async () => {
-    const sendSpy = vi.fn();
+    const sendSpy = mock();
 
     // Create context with failing and working routes.
     t = await testContext()

@@ -1,5 +1,5 @@
 import { render } from "ink-testing-library";
-import { describe, test, expect } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { EventsView } from "../../../src/tui/components/events-view.js";
 import { makeEvent } from "../../tui/fixtures.js";
 

@@ -1,5 +1,5 @@
 import { render } from "ink-testing-library";
-import { describe, test, expect } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { RouteHeader } from "../../../src/tui/components/route-header.js";
 import { makeRoute } from "../../tui/fixtures.js";
 

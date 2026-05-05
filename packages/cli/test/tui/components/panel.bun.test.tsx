@@ -1,6 +1,6 @@
 import { Text } from "ink";
 import { render } from "ink-testing-library";
-import { describe, test, expect } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { Panel } from "../../../src/tui/components/panel.js";
 
 describe("Panel", () => {

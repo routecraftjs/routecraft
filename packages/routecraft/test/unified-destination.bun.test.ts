@@ -13,6 +13,7 @@ import {
 describe("Unified Destination Adapter", () => {
   let t: TestContext;
   let fetchMock: ReturnType<typeof mock>;
+  const originalFetch = globalThis.fetch;
 
   beforeEach(() => {
     // Mock globalThis.fetch
@@ -25,6 +26,9 @@ describe("Unified Destination Adapter", () => {
       await t.stop();
     }
     mock.restore();
+    // Restore the real fetch -- mock.restore() does not undo the manual
+    // `globalThis.fetch` reassignment in beforeEach.
+    globalThis.fetch = originalFetch;
   });
 
   /**

@@ -1,5 +1,5 @@
 import { render } from "ink-testing-library";
-import { describe, test, expect } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { DotGraph } from "../../../src/tui/components/dot-graph.js";
 
 describe("DotGraph", () => {

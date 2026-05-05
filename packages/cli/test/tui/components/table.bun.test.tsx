@@ -1,6 +1,6 @@
 import { Text } from "ink";
 import { render } from "ink-testing-library";
-import { describe, test, expect } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { Table, type ColumnDef } from "../../../src/tui/components/table.js";
 
 type Row = { id: string; name: string };
