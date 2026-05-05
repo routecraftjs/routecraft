@@ -46,7 +46,7 @@ async function loadYamlParse(): Promise<YamlParse> {
       err.message.includes("yaml")
     ) {
       throw new Error(
-        `The markdown loaders (agents()/skills()) require the "yaml" package. Install it with: pnpm add yaml`,
+        `The markdown loaders (agents()/skills()) require the "yaml" package. Install it with: bun add yaml`,
       );
     }
     throw err;

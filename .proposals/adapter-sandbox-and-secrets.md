@@ -156,7 +156,7 @@ True process isolation is the right answer for actively malicious code in a mult
 
 ## Verification
 
-- `pnpm typecheck`: removing the public `getExchangeContext` export should produce compile errors at every adapter call site that currently reaches the context. Convert each.
+- `bun run typecheck`: removing the public `getExchangeContext` export should produce compile errors at every adapter call site that currently reaches the context. Convert each.
 - New test: `JSON.stringify({ apiKey: new Secret("sk-..." )})` returns `[REDACTED]`. Same for `util.inspect` and template-string coercion.
 - New test: an adapter whose manifest does not declare `reads: ["@some/key"]` cannot read that key at runtime; `ctx.store.get("@some/key")` throws.
 - New test: an agent tool registered without `needsContext` cannot reach `CraftContext`. A tool that returns a `Secret` instance has its output redacted before reaching the model.

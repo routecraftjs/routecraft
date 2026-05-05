@@ -9,7 +9,7 @@ Authoritative rules and conventions for tests in Routecraft.
 - **Runner:** Vitest. Same config across packages; the workspace `vitest --run` is the source of truth (root `package.json` script `test`).
 - **File placement:** colocated with the package they exercise.
   - Unit tests: `packages/<name>/test/*.test.ts`.
-  - Integration tests (real network, real subprocesses, slow setup): `packages/<name>/test/*.integration.test.ts` and run via `pnpm test:integration`. The default `pnpm test` excludes them.
+  - Integration tests (real network, real subprocesses, slow setup): `packages/<name>/test/*.integration.test.ts` and run via `bun run test:integration`. The default `bun run test` excludes them.
 - **One feature per file.** Group tests around the unit they exercise, not by category. A test file maps to a code file (or a closely related cluster), not to "all the validation tests in the package".
 
 ## 2. Every test gets a JSDoc header
@@ -123,8 +123,8 @@ If you reach for a snapshot, prefer inline (`toMatchInlineSnapshot()`) over a se
 
 ## 10. What runs in CI
 
-- `pnpm test` (excludes `*.integration.test.ts`) runs on the main `test` job.
-- `pnpm test:integration` runs on the dedicated `integration-test` matrix (bun + npm) against published-shaped tarballs.
+- `bun run test` (excludes `*.integration.test.ts`) runs on the main `test` job.
+- `bun run test:integration` runs on the dedicated `integration-test` matrix (bun + node) against published-shaped tarballs and an embedding smoke test.
 - Both must pass for a PR to be mergeable. See [CI/CD](./ci-cd.md).
 
 ---

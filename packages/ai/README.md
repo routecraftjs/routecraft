@@ -11,7 +11,7 @@ npm install @routecraft/ai
 or
 
 ```bash
-pnpm add @routecraft/ai
+bun add @routecraft/ai
 ```
 
 ## Quick Start

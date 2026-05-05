@@ -11,7 +11,7 @@ npm install --save-dev @routecraft/eslint-plugin-routecraft eslint
 or
 
 ```bash
-pnpm add -D @routecraft/eslint-plugin-routecraft eslint
+bun add -D @routecraft/eslint-plugin-routecraft eslint
 ```
 
 ## Requirements

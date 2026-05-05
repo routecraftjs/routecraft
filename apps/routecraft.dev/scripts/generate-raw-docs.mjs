@@ -93,9 +93,9 @@ let combined = parts.join('\n')
 combined = combined.replace(/^(# .+)\n\n# .+$/gm, '$1')
 // 2. Strip image lines (LLMs cannot see images)
 combined = combined.replace(/^!\[.*?\]\(.*?\)\n?/gm, '')
-// 3. Keep only pnpm install blocks, strip npm/yarn/bun variants
+// 3. Keep only bun install blocks, strip npm/yarn/pnpm variants
 combined = combined.replace(
-  /\*\*(?:npm|yarn|bun):?\*\*:?\n```\w*\n.*?\n```\n?/gs,
+  /\*\*(?:npm|yarn|pnpm):?\*\*:?\n```\w*\n.*?\n```\n?/gs,
   '',
 )
 // 4. Collapse whitespace

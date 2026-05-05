@@ -50,7 +50,7 @@ export async function verifyStrict(
       } catch (error) {
         throw rcError("RC5003", error instanceof Error ? error : undefined, {
           message:
-            "Mail adapter verify: 'strict' requires the optional `mailauth` package. Install it with `pnpm add mailauth`.",
+            "Mail adapter verify: 'strict' requires the optional `mailauth` package. Install it with `bun add mailauth`.",
         });
       }
     })();

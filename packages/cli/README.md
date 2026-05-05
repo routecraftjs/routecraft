@@ -11,7 +11,7 @@ npm install -g @routecraft/cli
 or
 
 ```bash
-pnpm add -g @routecraft/cli
+bun add -g @routecraft/cli
 ```
 
 ## Usage

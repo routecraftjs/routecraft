@@ -11,7 +11,7 @@ npm install -D @routecraft/testing
 or
 
 ```bash
-pnpm add -D @routecraft/testing
+bun add -D @routecraft/testing
 ```
 
 Install as a devDependency. Requires `vitest` (>=4.0.0) and `@routecraft/routecraft`.

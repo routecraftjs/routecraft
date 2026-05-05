@@ -96,7 +96,7 @@ Claude discovers your tool and uses it automatically. ✨
 - **Calendar & Meetings** - [Schedule meetings automatically](https://routecraft.dev/docs/examples/ai-agent-tools)
 - **Travel & Booking** - [Search flights and book restaurants](https://routecraft.dev/docs/examples/ai-document-processor)
 
-Try it yourself: `pnpm craft run ./examples/mcp-echo.mjs`
+Try it yourself: `bun run craft run ./examples/mcp-echo.mjs`
 
 ## Contributing
 

@@ -404,7 +404,7 @@ expect(new Set(captured).size).toBe(1);
 Use the CLI to run compiled capability files/folders as an integration check:
 
 ```bash
-pnpm craft run ./examples/dist/hello-world.js
+bun run craft run ./examples/dist/hello-world.js
 ```
 
 ## Troubleshooting

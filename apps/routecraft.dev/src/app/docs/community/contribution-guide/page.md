@@ -12,8 +12,8 @@ How to contribute to Routecraft. {% .lead %}
 
 ## Prerequisites
 
-- Node.js 22+
-- pnpm (workspace managed)
+- Bun 1.1.0+ (the workspace is Bun-managed; the `craft` CLI also requires Bun)
+- Node.js 22+ (some scripts and the embedding test path run on Node)
 - Git
 
 ## Local Development
@@ -22,19 +22,19 @@ How to contribute to Routecraft. {% .lead %}
 # Clone and install
 git clone https://github.com/routecraftjs/routecraft.git
 cd routecraft
-pnpm install
+bun install
 
 # Build, lint, typecheck, and test
-pnpm build
-pnpm lint
-pnpm typecheck
-pnpm test
+bun run build
+bun run lint
+bun run typecheck
+bun run test
 
 # Run example capabilities
-pnpm craft run ./examples/dist/hello-world.js
+bun run craft run ./examples/dist/hello-world.js
 
 # Run docs site locally
-pnpm docs
+bun run docs
 ```
 
 ## Project Structure
@@ -90,8 +90,8 @@ refactor(builder): simplify type inference for map()
 - Run tests and coverage locally:
 
 ```bash
-pnpm test
-pnpm test:coverage
+bun run test
+bun run test:coverage
 ```
 
 ## Pull Request Checklist
@@ -99,12 +99,14 @@ pnpm test:coverage
 Before opening a PR:
 
 ```bash
-pnpm format        # check formatting
-pnpm lint          # lint all packages
-pnpm typecheck     # TypeScript checks
-pnpm test          # run tests
-pnpm build         # build all packages
+bun run format        # check formatting
+bun run lint          # lint all packages
+bun run typecheck     # TypeScript checks
+bun run test          # run tests
+bun run build         # build all packages
 ```
+
+Or run the bundled `bun run all`, which executes lint --fix, format:write, typecheck, build, and test in one pass.
 
 Include in your PR description:
 

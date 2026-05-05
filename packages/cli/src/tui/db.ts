@@ -65,8 +65,8 @@ export class TelemetryDb {
   /**
    * Open a telemetry database in read-only mode.
    *
-   * Uses dynamic `import()` so the module resolves correctly under pnpm's
-   * strict hoisting (CJS `require()` from an ESM bundle does not follow
+   * Uses dynamic `import()` so the module resolves correctly under Bun's
+   * isolated linker (CJS `require()` from an ESM bundle does not follow
    * the package's own dependency graph).
    */
   static async open(dbPath: string): Promise<TelemetryDb> {
@@ -80,7 +80,7 @@ export class TelemetryDb {
       ) as DatabaseConstructor;
     } catch {
       throw new Error(
-        "better-sqlite3 is not installed. Install it with: pnpm add better-sqlite3",
+        "better-sqlite3 is not installed. Install it with: bun add better-sqlite3",
       );
     }
 

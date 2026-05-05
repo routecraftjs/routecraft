@@ -11,7 +11,7 @@ npm create routecraft@latest
 or
 
 ```bash
-pnpm create routecraft
+bunx create-routecraft
 ```
 
 or
@@ -35,7 +35,7 @@ The scaffolded project includes:
 The CLI will guide you through:
 
 1. **Project name**: Choose a name for your project
-2. **Package manager**: Select npm, pnpm, or yarn
+2. **Package manager**: Select bun, npm, pnpm, or yarn
 3. **Template**: Pick from available starter templates
 
 ## Next Steps

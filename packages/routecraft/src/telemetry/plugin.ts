@@ -121,7 +121,7 @@ class TelemetryPlugin implements CraftPlugin {
       } else {
         ctx.logger.warn(
           {},
-          "better-sqlite3 is not installed. Telemetry SQLite backend disabled. Install it with: pnpm add better-sqlite3",
+          "better-sqlite3 is not installed. Telemetry SQLite backend disabled. Install it with: bun add better-sqlite3",
         );
       }
     }

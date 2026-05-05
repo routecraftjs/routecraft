@@ -1,16 +1,18 @@
 # Routecraft
 
-Type-safe integration and automation framework. Monorepo with pnpm workspaces.
+Type-safe integration and automation framework. Monorepo with Bun workspaces (>=1.1.0).
 
 ## Quick Reference
 
-- Build: `pnpm build`
-- Test: `pnpm test`
-- Lint: `pnpm lint`
-- Typecheck: `pnpm typecheck`
-- Format: `pnpm format`
-- Run examples: `pnpm craft run ./examples/dist/hello-world.js`
-- Run docs site: `pnpm docs`
+- Install: `bun install`
+- Build: `bun run build`
+- Test: `bun run test`
+- Lint: `bun run lint`
+- Typecheck: `bun run typecheck`
+- Format: `bun run format`
+- Run examples: `bun run craft run ./examples/dist/hello-world.js`
+- Run docs site: `bun run docs`
+- All-in-one pre-PR check: `bun run all`
 
 ## Key Rules
 
@@ -21,6 +23,8 @@ Type-safe integration and automation framework. Monorepo with pnpm workspaces.
 - Follow Conventional Commits for commit messages; use `/git-commit-message` for detailed formatting
 - Source/Destination for interfaces; Server/Client for option type names only (two-sided adapters)
 - Every test must have JSDoc with `@case`, `@preconditions`, and `@expectedResult`
+- The `craft` CLI is Bun-only (`#!/usr/bin/env bun`, `engines.bun >= 1.1.0`); the core library targets both Node 22.6+ and Bun
+- Optional peer dependencies use `loadOptionalPeer` (`packages/routecraft/src/adapters/shared/optional-peer.ts`) to lazy-load drivers and emit `RC5017` with an install hint when missing
 
 ## Internal Standards
 

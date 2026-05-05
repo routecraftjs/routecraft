@@ -53,7 +53,7 @@ function resolveHuggingFaceModel(modelName: string): string {
 }
 
 const HUGGINGFACE_INSTALL =
-  'The Hugging Face embedding provider requires "@huggingface/transformers". Install it with: pnpm add @huggingface/transformers';
+  'The Hugging Face embedding provider requires "@huggingface/transformers". Install it with: bun add @huggingface/transformers';
 
 function isModuleNotFoundFor(error: unknown, pkg: string): boolean {
   if (!(error instanceof Error)) return false;

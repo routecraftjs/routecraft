@@ -13,7 +13,7 @@ npm install @routecraft/routecraft
 or
 
 ```bash
-pnpm add @routecraft/routecraft
+bun add @routecraft/routecraft
 ```
 
 ## Quick Start

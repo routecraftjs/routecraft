@@ -2,7 +2,7 @@ import type { McpTool } from "./types.ts";
 import { extractContent } from "./extract-content.ts";
 
 const MCP_SDK_INSTALL =
-  'MCP stdio client requires "@modelcontextprotocol/sdk". Install it with: pnpm add @modelcontextprotocol/sdk';
+  'MCP stdio client requires "@modelcontextprotocol/sdk". Install it with: bun add @modelcontextprotocol/sdk';
 
 export interface StdioClientManagerOptions {
   serverId: string;

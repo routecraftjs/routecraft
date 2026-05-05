@@ -40,7 +40,7 @@ type SdkAuthInfo = AuthInfo;
 const principalStore = new AsyncLocalStorage<Principal | undefined>();
 
 const MCP_SDK_INSTALL =
-  'MCP server requires "@modelcontextprotocol/sdk". Install it with: pnpm add @modelcontextprotocol/sdk';
+  'MCP server requires "@modelcontextprotocol/sdk". Install it with: bun add @modelcontextprotocol/sdk';
 
 /** Resolved options with defaults applied (internal use). */
 type McpServerResolvedOptions = Required<
@@ -437,7 +437,7 @@ export class McpServer {
       expressFn = (expressMod["default"] ?? expressMod) as typeof expressFn;
     } catch {
       throw new Error(
-        'OAuth auth requires "express" (optional peer dependency of @routecraft/ai). Install it with: pnpm add express',
+        'OAuth auth requires "express" (optional peer dependency of @routecraft/ai). Install it with: bun add express',
       );
     }
 
@@ -462,7 +462,7 @@ export class McpServer {
     } catch {
       throw new Error(
         "OAuth auth requires @modelcontextprotocol/sdk v1.27.0+ with OAuth support. " +
-          "Install it with: pnpm add @modelcontextprotocol/sdk",
+          "Install it with: bun add @modelcontextprotocol/sdk",
       );
     }
 

@@ -101,7 +101,7 @@ export interface JwksOptions {
  *
  * Requires the optional peer dependency `jose`:
  * ```sh
- * pnpm add jose
+ * bun add jose
  * ```
  *
  * @example
@@ -136,7 +136,7 @@ export function jwks(options: JwksOptions): OAuthValidatorAuthOptions {
           joseMod = (await import("jose")) as unknown as JoseSubset;
         } catch {
           throw new Error(
-            'jwks() requires the optional peer dependency "jose". Install it with: pnpm add jose',
+            'jwks() requires the optional peer dependency "jose". Install it with: bun add jose',
           );
         }
       }
