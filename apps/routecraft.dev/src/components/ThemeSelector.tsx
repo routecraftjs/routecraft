@@ -1,5 +1,6 @@
-import { useSyncExternalStore } from 'react'
 import { useTheme } from 'next-themes'
+
+import { useClientValue } from '@/lib/use-client-value'
 import {
   Label,
   Listbox,
@@ -54,12 +55,8 @@ function SystemIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
 export function ThemeSelector(
   props: React.ComponentPropsWithoutRef<typeof Listbox<'div'>>,
 ) {
-  let { theme, setTheme } = useTheme()
-  let mounted = useSyncExternalStore(
-    () => () => {},
-    () => true,
-    () => false,
-  )
+  const { theme, setTheme } = useTheme()
+  const mounted = useClientValue(() => true, false)
 
   if (!mounted) {
     return <div className="h-6 w-6" />

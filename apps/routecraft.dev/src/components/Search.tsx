@@ -9,7 +9,6 @@ import {
   useId,
   useRef,
   useState,
-  useSyncExternalStore,
 } from 'react'
 import Highlighter from 'react-highlight-words'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
@@ -23,6 +22,7 @@ import { Dialog, DialogPanel } from '@headlessui/react'
 import clsx from 'clsx'
 
 import { navigation } from '@/lib/navigation'
+import { useClientValue } from '@/lib/use-client-value'
 import { type Result } from '@/markdoc/search.mjs'
 
 type EmptyObject = Record<string, never>
@@ -47,14 +47,21 @@ function useAutocomplete({
 }: {
   close: (autocomplete: Autocomplete) => void
 }) {
-  let id = useId()
-  let router = useRouter()
-  let [autocompleteState, setAutocompleteState] = useState<
+  const id = useId()
+  const router = useRouter()
+  const [autocompleteState, setAutocompleteState] = useState<
     AutocompleteState<Result> | EmptyObject
   >({})
 
-  let [autocomplete] = useState<Autocomplete>(() => {
-    let instance: Autocomplete
+  const [autocomplete] = useState<Autocomplete>(() => {
+    // `navigate` and the autocomplete instance reference each other:
+    // `createAutocomplete({ navigator: { navigate } })` captures `navigate`,
+    // and `navigate` calls `close(instance)` after a successful navigation.
+    // The library only invokes `navigator.navigate` from user-driven event
+    // handlers (never during construction), so by the time the closure runs
+    // `holder.current` is set. The explicit holder avoids a non-null
+    // assertion and makes the ordering assumption visible.
+    const holder: { current: Autocomplete | null } = { current: null }
 
     function navigate({ itemUrl }: { itemUrl?: string }) {
       if (!itemUrl) {
@@ -65,13 +72,16 @@ function useAutocomplete({
 
       if (
         itemUrl ===
-        window.location.pathname + window.location.search + window.location.hash
+          window.location.pathname +
+            window.location.search +
+            window.location.hash &&
+        holder.current
       ) {
-        close(instance!)
+        close(holder.current)
       }
     }
 
-    instance = createAutocomplete<
+    holder.current = createAutocomplete<
       Result,
       React.SyntheticEvent,
       React.MouseEvent,
@@ -107,14 +117,14 @@ function useAutocomplete({
       },
     })
 
-    return instance
+    return holder.current
   })
 
   return { autocomplete, autocompleteState }
 }
 
 function LoadingIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
-  let id = useId()
+  const id = useId()
 
   return (
     <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" {...props}>
@@ -164,12 +174,12 @@ function SearchResult({
   collection: AutocompleteCollection<Result>
   query: string
 }) {
-  let id = useId()
+  const id = useId()
 
-  let sectionTitle = navigation.find((section) =>
+  const sectionTitle = navigation.find((section) =>
     section.links.find((link) => link.href === result.url.split('#')[0]),
   )?.title
-  let hierarchy = [sectionTitle, result.pageTitle].filter(
+  const hierarchy = [sectionTitle, result.pageTitle].filter(
     (x): x is string => typeof x === 'string',
   )
 
@@ -252,14 +262,14 @@ function SearchResults({
 }
 
 const SearchInput = forwardRef<
-  React.ElementRef<'input'>,
+  HTMLInputElement,
   {
     autocomplete: Autocomplete
     autocompleteState: AutocompleteState<Result> | EmptyObject
     onClose: () => void
   }
 >(function SearchInput({ autocomplete, autocompleteState, onClose }, inputRef) {
-  let inputProps = autocomplete.getInputProps({ inputElement: null })
+  const inputProps = autocomplete.getInputProps({ inputElement: null })
 
   return (
     <div className="group relative flex h-12">
@@ -306,8 +316,8 @@ function CloseOnNavigation({
   close: (autocomplete: Autocomplete) => void
   autocomplete: Autocomplete
 }) {
-  let pathname = usePathname()
-  let searchParams = useSearchParams()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
 
   useEffect(() => {
     close(autocomplete)
@@ -325,17 +335,17 @@ function SearchDialog({
   setOpen: (open: boolean) => void
   className?: string
 }) {
-  let formRef = useRef<React.ElementRef<'form'>>(null)
-  let panelRef = useRef<React.ElementRef<'div'>>(null)
+  const formRef = useRef<HTMLFormElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
   // Tracked as state (not a ref) so the autocomplete library receives the
   // input element via render props. Reading `inputRef.current` during render
   // is flagged by `react-hooks/refs`, and the autocomplete API needs the
   // element to wire up keyboard/focus handling.
-  let [inputElement, setInputElement] = useState<React.ElementRef<
-    typeof SearchInput
-  > | null>(null)
+  const [inputElement, setInputElement] = useState<HTMLInputElement | null>(
+    null,
+  )
 
-  let close = useCallback(
+  const close = useCallback(
     (autocomplete: Autocomplete) => {
       setOpen(false)
       autocomplete.setQuery('')
@@ -343,7 +353,7 @@ function SearchDialog({
     [setOpen],
   )
 
-  let { autocomplete, autocompleteState } = useAutocomplete({
+  const { autocomplete, autocompleteState } = useAutocomplete({
     close() {
       close(autocomplete)
     },
@@ -418,8 +428,8 @@ function SearchDialog({
 }
 
 function useSearchProps() {
-  let buttonRef = useRef<React.ElementRef<'button'>>(null)
-  let [open, setOpen] = useState(false)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const [open, setOpen] = useState(false)
 
   return {
     buttonProps: {
@@ -431,7 +441,7 @@ function useSearchProps() {
     dialogProps: {
       open,
       setOpen: useCallback((open: boolean) => {
-        let { width = 0, height = 0 } =
+        const { width = 0, height = 0 } =
           buttonRef.current?.getBoundingClientRect() ?? {}
         if (!open || (width !== 0 && height !== 0)) {
           setOpen(open)
@@ -442,12 +452,11 @@ function useSearchProps() {
 }
 
 export function Search() {
-  let modifierKey = useSyncExternalStore(
-    () => () => {},
+  const modifierKey = useClientValue<string | undefined>(
     () => (/(Mac|iPhone|iPod|iPad)/i.test(navigator.platform) ? '⌘' : 'Ctrl '),
-    () => undefined,
+    undefined,
   )
-  let { buttonProps, dialogProps } = useSearchProps()
+  const { buttonProps, dialogProps } = useSearchProps()
 
   return (
     <>

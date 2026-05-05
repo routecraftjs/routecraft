@@ -1,5 +1,6 @@
 import { type Node } from '@markdoc/markdoc'
 
+import { type BadgeColor } from '@/components/Badge'
 import { DocsHeader } from '@/components/DocsHeader'
 import { PrevNextLinks } from '@/components/PrevNextLinks'
 import { Prose } from '@/components/Prose'
@@ -14,11 +15,11 @@ export function DocsLayout({
   children: React.ReactNode
   frontmatter: {
     title?: string
-    titleBadges?: Array<{ text: string; color?: string }>
+    titleBadges?: Array<{ text: string; color?: BadgeColor }>
   }
   nodes: Array<Node>
 }) {
-  let tableOfContents = collectSections(nodes)
+  const tableOfContents = collectSections(nodes)
 
   return (
     <>

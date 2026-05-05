@@ -1,24 +1,26 @@
 import clsx from 'clsx'
 
+export type BadgeColor =
+  | 'yellow'
+  | 'red'
+  | 'green'
+  | 'gray'
+  | 'blue'
+  | 'indigo'
+  | 'purple'
+  | 'pink'
+  // Back-compat aliases
+  | 'amber'
+  | 'sky'
+  | 'slate'
+  | 'rose'
+
 export function Badge({
   color = 'yellow',
   className,
   children,
 }: {
-  color?:
-    | 'yellow'
-    | 'red'
-    | 'green'
-    | 'gray'
-    | 'blue'
-    | 'indigo'
-    | 'purple'
-    | 'pink'
-    // Back-compat aliases
-    | 'amber'
-    | 'sky'
-    | 'slate'
-    | 'rose'
+  color?: BadgeColor
   className?: string
   children: React.ReactNode
 }) {

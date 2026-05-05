@@ -1,3 +1,9 @@
+// IMPORTANT: package.json `dev` and `build` scripts pass `--webpack`. The
+// markdoc loader pipeline below (withMarkdoc + withSearch + withDocsMarkdown)
+// hooks `nextConfig.webpack(...)` and is webpack-only. Turbopack (the Next 16+
+// default) silently skips these hooks, which produces a "successful" build
+// where every `.md` page renders empty. Do not drop `--webpack` until the
+// markdoc pipeline (or a Turbopack equivalent) supports both.
 import withMarkdoc from '@markdoc/next.js'
 
 import withDocsMarkdown from './src/markdoc/docs-markdown.mjs'
