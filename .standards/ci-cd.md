@@ -24,10 +24,12 @@ Every PR must pass these jobs before merge. The first column matches the GitHub 
 |-----|------|---------|
 | `setup` | `bun install --frozen-lockfile` | Lockfile drift, install failures, dependabot lockfile updates. |
 | `validate` | `bun run format && bun run typecheck && bun run lint && bunx madge --circular .` | Prettier drift, TS errors, ESLint violations, circular imports. |
-| `test` | `bun run test:coverage` (excludes `**/integration.test.ts`) | Unit-test regressions, coverage report uploaded as artifact. |
+| `test` | `bun run test:coverage` (excludes `**/integration.test.ts` and `**/test/cross-runtime/**`) | Unit-test regressions, coverage report uploaded as artifact. |
 | `build` | `bun run build` and `bun run limit:size` | Build failures, bundle size regressions (size-limit). |
-| `integration-test (bun)` | `bun run test:integration` with `TEST_PACKAGE_MANAGER=bun` and `TEST_PACKAGE_MANAGER=npm` | Scaffolder + `craft` CLI under Bun; scaffolder install + typecheck under npm. |
-| `integration-test (node)` | `node .github/scripts/smoke-test-embedding.mjs` | Embedding `@routecraft/routecraft` programmatically under plain Node, including a negative arm asserting `RC5017` fires when an optional peer is missing. |
+| `scaffolder-smoke` | `bun run test:integration` twice (`TEST_PACKAGE_MANAGER=bun`, then `=npm`) | End-to-end scaffolder flow: `create-routecraft` -> install -> `bunx tsc --noEmit` -> `bunx craft run` (npm arm skips the run since `craft` is Bun-only). Catches CLI binary regressions, scaffolder template drift, package-manager-specific install failures. |
+| `embedding-smoke` | `node .github/scripts/smoke-test-embedding.mjs` | Library embeds into a plain Node app: `npm pack` + `npm install` + `node --experimental-strip-types runner.ts`. Includes a negative arm asserting `RC5017` fires when `cron()` is used without `croner` installed. Catches Node compatibility regressions in the core library and the optional-peer contract. |
+| `adapter-cross-runtime (bun)` | `bun run test:cross-runtime` (matches `**/test/cross-runtime/**/*.test.ts`) | Adapter tests that must produce identical observable behaviour under Bun and Node. Bun arm runs the suite under Bun. |
+| `adapter-cross-runtime (node)` | `npm run test:cross-runtime:node` (resolves to `node node_modules/vitest/vitest.mjs run --passWithNoTests test/cross-runtime/`) | Same suite as above, run under Node. New adapters with a runtime-specific code path (`Bun.sql` vs `pg`, `Bun.s3` vs `@aws-sdk/client-s3`, etc.) drop a sibling test in `packages/<pkg>/test/cross-runtime/*.test.ts` and both arms must pass. |
 | `cubic · AI code reviewer` | External AI reviewer | Dual-use review signal; informational on PR but does not gate merge. |
 
 The `validate` job is the cheapest signal: if it's red, fix that first. The `test` job uploads `coverage-report` as an artifact; reviewers can download to inspect uncovered lines.
