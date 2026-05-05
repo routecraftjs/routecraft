@@ -566,12 +566,15 @@ jobs:
         embedding-smoke,
         adapter-cross-runtime,
       ]
-    # Run when docs-or-release-or-manual triggers AND nothing required has failed.
-    # `!failure()` lets us proceed when the integration jobs were skipped (e.g.
-    # docs-only push where `changes.outputs.packages == 'false'`) but blocks
-    # deploy when they ran and failed.
+    # `always()` overrides GitHub's default of skipping a job when any of its
+    # `needs:` was skipped (which is what happens on docs-only pushes, where
+    # the integration jobs gate themselves out via `changes.outputs.packages`).
+    # The explicit `!contains(needs.*.result, ...)` checks then block deploy
+    # if any integration job actually ran and failed or was cancelled.
     if: |
-      !cancelled() && !failure()
+      always()
+      && !contains(needs.*.result, 'failure')
+      && !contains(needs.*.result, 'cancelled')
       && (
         github.event_name == 'workflow_dispatch'
         || github.event_name == 'release'
