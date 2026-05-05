@@ -7,15 +7,15 @@ Enforce Routecraft best practices with ESLint. {% .lead %}
 ## Installation
 
 {% code-tabs %}
-{% code-tab label="npm" language="bash" %}
+{% code-tab label="bun" language="bash" %}
 ```bash
-npm install -D eslint @eslint/js typescript-eslint @routecraft/eslint-plugin-routecraft
+bun add -d eslint @eslint/js typescript-eslint @routecraft/eslint-plugin-routecraft
 ```
 {% /code-tab %}
 
-{% code-tab label="yarn" language="bash" %}
+{% code-tab label="npm" language="bash" %}
 ```bash
-yarn add -D eslint @eslint/js typescript-eslint @routecraft/eslint-plugin-routecraft
+npm install -D eslint @eslint/js typescript-eslint @routecraft/eslint-plugin-routecraft
 ```
 {% /code-tab %}
 
@@ -25,9 +25,9 @@ pnpm add -D eslint @eslint/js typescript-eslint @routecraft/eslint-plugin-routec
 ```
 {% /code-tab %}
 
-{% code-tab label="bun" language="bash" %}
+{% code-tab label="yarn" language="bash" %}
 ```bash
-bun add -d eslint @eslint/js typescript-eslint @routecraft/eslint-plugin-routecraft
+yarn add -D eslint @eslint/js typescript-eslint @routecraft/eslint-plugin-routecraft
 ```
 {% /code-tab %}
 

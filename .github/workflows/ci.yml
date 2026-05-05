@@ -264,6 +264,12 @@ jobs:
           TEST_PACKAGE_MANAGER: bun
         run: pnpm test:integration
 
+      - name: Run scaffolder integration tests (npm, install + typecheck only)
+        if: matrix.runtime == 'bun'
+        env:
+          TEST_PACKAGE_MANAGER: npm
+        run: pnpm test:integration
+
       - name: Smoke test Node embedding (pack + npm install + node runner.ts)
         if: matrix.runtime == 'node'
         run: node .github/scripts/smoke-test-embedding.mjs

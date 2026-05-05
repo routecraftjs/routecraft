@@ -9,7 +9,7 @@ import { generateProjectStructure, type InitOptions } from "../src/lib.js";
 
 const execAsync = promisify(exec);
 
-type PackageManagerId = "npm" | "bun";
+type PackageManagerId = "bun" | "npm";
 
 interface PackageManagerDef {
   id: PackageManagerId;
@@ -17,33 +17,38 @@ interface PackageManagerDef {
   install: string;
   typecheck: string;
   /**
-   * Runs the scaffolded project via `craft run index.ts`. For bun we force the
-   * bun runtime (via `--bun`) so the CLI executes on bun, not on node.
+   * Runs the scaffolded project via `craft run index.ts`. Set to `null` for
+   * package managers that cannot exercise the CLI on their own (the craft
+   * bin requires Bun on the host); the dispatch test is skipped in that case.
    */
-  start: string;
+  start: string | null;
 }
 
+// The craft CLI is Bun-only. The bun arm exercises the full scaffold +
+// install + run path. The npm arm exists to keep the scaffolder's other
+// supported package managers regression-tested at the install + typecheck
+// level, since `lib.ts` still emits npm/pnpm/yarn variants. Node users
+// embedding @routecraft/routecraft programmatically are covered separately
+// by `.github/scripts/smoke-test-embedding.mjs`.
 const PACKAGE_MANAGER_DEFS: Record<PackageManagerId, PackageManagerDef> = {
-  npm: {
-    id: "npm",
-    pmOption: "npm",
-    install: "npm install --no-audit --no-fund",
-    typecheck: "npx tsc --noEmit",
-    start: "npx craft run index.ts",
-  },
   bun: {
     id: "bun",
     pmOption: "bun",
     install: "bun install",
     typecheck: "bunx tsc --noEmit",
-    // `bun x --bun` forces bun runtime on the spawned binary (the craft bin
-    // has a `#!/usr/bin/env node` shebang which would otherwise invoke node).
-    start: "bun x --bun craft run index.ts",
+    start: "bunx craft run index.ts",
+  },
+  npm: {
+    id: "npm",
+    pmOption: "npm",
+    install: "npm install --no-audit --no-fund",
+    typecheck: "npx tsc --noEmit",
+    start: null,
   },
 };
 
 function selectedPackageManager(): PackageManagerDef {
-  const id = (process.env["TEST_PACKAGE_MANAGER"] ?? "npm") as PackageManagerId;
+  const id = (process.env["TEST_PACKAGE_MANAGER"] ?? "bun") as PackageManagerId;
   const def = PACKAGE_MANAGER_DEFS[id];
   if (!def) {
     throw new Error(
@@ -305,7 +310,17 @@ describe(`integration (${pm.id}): scaffolded project compiles`, () => {
   integrationTest.concurrent(
     "hello-world project type-checks and dispatches simple -> direct via craft",
     { timeout: 180_000 },
-    async () => {
+    async (ctx) => {
+      // pm.start is null for package managers that cannot drive the CLI on
+      // their own (the craft bin is Bun-only). The install + typecheck
+      // coverage above is enough to keep the scaffolder regression-tested
+      // for those PMs. Use ctx.skip() so the leg shows the test as
+      // skipped rather than passed-without-assertions.
+      if (pm.start === null) {
+        ctx.skip();
+        return;
+      }
+      const startCmd = pm.start;
       await withProjectDir(async (projectDir) => {
         await generateProjectStructure(
           projectDir,
@@ -322,7 +337,7 @@ describe(`integration (${pm.id}): scaffolded project compiles`, () => {
         // terminate the process rather than wait for natural exit.
         // CRAFT_LOG_LEVEL=info ensures the greeting reaches the log stream
         // (default level is warn).
-        await runUntilOutput(pm.start, {
+        await runUntilOutput(startCmd, {
           cwd: projectDir,
           expectedOutput: "Hello, Leanne Graham!",
           timeoutMs: 60_000,

@@ -6,9 +6,11 @@ System requirements, manual setup, and production builds. {% .lead %}
 
 ## System requirements
 
-- **Node.js 22.6 or later** - required for the `--experimental-strip-types` flag, which lets you run `.ts` files directly without a build step.
-- **Node.js 23.6 or later** - recommended. TypeScript stripping is stable and enabled by default; no flags needed.
+- **Bun 1.1.0 or later** - required to run the `craft` CLI. Bun has native TypeScript support so `.ts` capabilities run directly with no build step.
+- **Node.js 22.6 or later** - only needed if you embed `@routecraft/routecraft` inside a Node application instead of using the CLI. Node 23.6+ recommended (type stripping is on by default).
 - macOS, Windows (including WSL), or Linux.
+
+The CLI is Bun-only. See the [Runtime reference](/docs/reference/runtime) for the rationale and the Node embedding path.
 
 ## Create a new project
 
@@ -93,13 +95,13 @@ export default craft()
   .to(log());
 ```
 
-Run it directly with the CLI:
+Run it directly with the CLI (requires Bun on the machine):
 
 ```bash
-npx @routecraft/cli run capabilities/my-capability.ts
+bunx craft run capabilities/my-capability.ts
 ```
 
-On Node 22.6+, the CLI strips TypeScript at runtime with no `tsc` step required. On Node 23.6+ this happens automatically without any flags.
+The CLI runs on Bun and loads `.ts` files natively, so no `tsc` step is required.
 
 ## TypeScript configuration
 
@@ -151,21 +153,32 @@ yarn build && yarn start
 
 {% /code-tabs %}
 
+{% callout type="note" title="Bun is required on the host" %}
+The `start` script invokes the local `craft` bin, which runs on Bun (>=1.1.0) regardless of which package manager runs the script. Install Bun on the production host, or follow the [Node embedding path](/docs/advanced/programmatic-invocation) instead.
+{% /callout %}
+
 The build step compiles your capabilities to JavaScript. The compiled output in `dist/` is what runs in production with no Node flags and no runtime overhead.
 
 ## Embedding Routecraft in your app
 
-If you're running capabilities from within an existing Node application instead of using the CLI, use `CraftContext` directly:
+To run capabilities from inside an existing Node or Bun application, use `ContextBuilder` directly instead of the CLI. This is the recommended path for Node users.
 
 ```ts
-import { CraftContext } from "@routecraft/routecraft";
+import { ContextBuilder, craft, direct, log } from "@routecraft/routecraft";
 
-const ctx = new CraftContext();
-await ctx.load("capabilities/");
-await ctx.start();
+const route = craft()
+  .id("greet")
+  .from(direct<{ name: string }>())
+  .transform((body) => `Hello, ${body.name}!`)
+  .to(log());
+
+const { context, client } = await new ContextBuilder().routes(route).build();
+context.start();
+
+await client.send("greet", { name: "World" });
 ```
 
-This gives you full programmatic control: load specific capability files, run a single capability for a batch job, or integrate Routecraft into a larger Express or Fastify server.
+You get full programmatic control: load specific capability files, run a single capability for a batch job, or integrate Routecraft into a larger Express, Next.js, or Fastify server. See the [Programmatic Invocation guide](/docs/advanced/programmatic-invocation) for the full pattern.
 
 ---
 

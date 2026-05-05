@@ -44,6 +44,7 @@
     "arktype": "^2.2.0",
     "better-sqlite3": "^11.10.0",
     "cheerio": "^1.2.0",
+    "croner": "^10.0.1",
     "imapflow": "^1.3.3",
     "mailauth": "^4.13.2",
     "mailparser": "^3.9.8",

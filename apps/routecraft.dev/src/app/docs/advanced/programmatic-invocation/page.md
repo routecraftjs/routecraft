@@ -4,6 +4,49 @@ title: Programmatic Invocation
 
 Use `CraftClient` to dispatch messages into Routecraft routes from any external code -- CLI tools, HTTP handlers, background jobs, or application logic. {% .lead %}
 
+## When to embed instead of using the CLI
+
+The `craft` CLI is Bun-only (see the [Runtime reference](/docs/reference/runtime)). If your application must run on Node, embed `@routecraft/routecraft` directly: import the builder, define your routes, and run them inside your existing Node process. No CLI, no Bun.
+
+The library itself works on **Node 22.6 or later** for runtime type stripping, and is recommended on **Node 23.6 or later** where stripping is on by default. It also works under Bun if you prefer not to use the CLI for an embedded use case.
+
+Install:
+
+{% code-tabs %}
+{% code-tab label="bun" language="bash" %}
+```bash
+bun add @routecraft/routecraft
+```
+{% /code-tab %}
+
+{% code-tab label="npm" language="bash" %}
+```bash
+npm install @routecraft/routecraft
+```
+{% /code-tab %}
+
+{% code-tab label="pnpm" language="bash" %}
+```bash
+pnpm add @routecraft/routecraft
+```
+{% /code-tab %}
+
+{% code-tab label="yarn" language="bash" %}
+```bash
+yarn add @routecraft/routecraft
+```
+{% /code-tab %}
+
+{% /code-tabs %}
+
+Run a Node entry under type stripping:
+
+```bash
+node --experimental-strip-types runner.ts
+```
+
+(The flag is a no-op on Node 23.6+; type stripping is on by default.)
+
 ## How it works
 
 When you build a context with `ContextBuilder`, you get back both the `context` and a `client`. The client's `send()` method dispatches a message to any route that uses a `direct()` source, runs it through the full route pipeline (transforms, destinations, error handling), and returns the result.

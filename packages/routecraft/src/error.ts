@@ -18,6 +18,7 @@ export type RCCode =
   | "RC5014"
   | "RC5015"
   | "RC5016"
+  | "RC5017"
   | "RC9901";
 
 export type RCMeta = {
@@ -159,6 +160,14 @@ export const RC: Record<RCCode, RCMeta> = {
     suggestion:
       "Check the input data matches the adapter's expected format (JSON, CSV, JSONL, HTML, MIME). Wire .error() on the route to recover, or set onParseError to 'abort' (stop the source) or 'drop' (emit exchange:dropped) on the adapter.",
     docs: `${DOCS_BASE}#rc-5016`,
+    retryable: false,
+  },
+  RC5017: {
+    category: "Adapter",
+    message: "Optional peer dependency missing",
+    suggestion:
+      "Install the optional peer the adapter requires (the error message names the package).",
+    docs: `${DOCS_BASE}#rc-5017`,
     retryable: false,
   },
   RC9901: {

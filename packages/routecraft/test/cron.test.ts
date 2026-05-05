@@ -1,4 +1,14 @@
-import { describe, test, expect, vi, afterEach, beforeEach } from "vitest";
+import {
+  describe,
+  test,
+  expect,
+  vi,
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+} from "vitest";
+import { Cron } from "croner";
 import { cron } from "../src/index.ts";
 import { CronSourceAdapter } from "../src/adapters/cron/index.ts";
 import {
@@ -7,6 +17,18 @@ import {
   type ExchangeHeaders,
 } from "../src/exchange.ts";
 import { CraftContext } from "../src/context.ts";
+
+// Substitute the lazy croner loader with a sync resolver. The default loader
+// goes through `await import("croner")` whose Node internals lean on
+// `setImmediate`, which `vi.useFakeTimers()` mocks. Without this override the
+// subscribe IIFE never settles inside a fake-timer test.
+const ORIGINAL_LOAD_DRIVER = CronSourceAdapter.loadDriver;
+beforeAll(() => {
+  CronSourceAdapter.loadDriver = () => Promise.resolve(Cron);
+});
+afterAll(() => {
+  CronSourceAdapter.loadDriver = ORIGINAL_LOAD_DRIVER;
+});
 
 function mockContext(): CraftContext {
   const store = new Map();
@@ -66,6 +88,34 @@ describe("CronSourceAdapter", () => {
   test("adapterId is routecraft.adapter.cron", () => {
     const adapter = new CronSourceAdapter("* * * * *");
     expect(adapter.adapterId).toBe("routecraft.adapter.cron");
+  });
+
+  /**
+   * @case Subscribe rejects (does not hang) when croner throws on the cron expression
+   * @preconditions CronSourceAdapter constructed with a syntactically invalid expression
+   * @expectedResult The subscribe promise rejects with the underlying croner error rather than hanging on the abort signal
+   */
+  test("subscribe rejects when the cron expression is invalid", async () => {
+    const adapter = new CronSourceAdapter("not-a-valid-expression");
+    const context = mockContext();
+    const abortController = new AbortController();
+    const handler = vi.fn().mockResolvedValue({} as Exchange);
+    const onReady = vi.fn();
+
+    const promise = adapter.subscribe(
+      context,
+      handler,
+      abortController,
+      onReady,
+    );
+
+    // Drain microtasks so the IIFE's load + new Cron throw lands on reject.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await expect(promise).rejects.toThrow();
+    expect(onReady).not.toHaveBeenCalled();
+    expect(handler).not.toHaveBeenCalled();
   });
 
   /**

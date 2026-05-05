@@ -80,13 +80,10 @@ smokePkg.type = "module";
 writeFileSync(smokePkgPath, JSON.stringify(smokePkg, null, 2) + "\n");
 
 const tarballPath = join(packDir, tarballs[0]);
-// croner and cheerio are declared optional peer deps, but the bundled
-// dist/index.js currently statically imports them; install alongside
-// routecraft so the embed loads. Once the optional-peer contract is
-// honoured (lazy dynamic imports), this can be reduced to the tarball
-// alone and the negative arm of this smoke test (cron() without croner)
-// becomes meaningful.
-run(`npm install "${tarballPath}" croner cheerio`, { cwd: smokeDir });
+// Install only @routecraft/routecraft; optional peer deps (croner, cheerio,
+// imapflow, ...) must NOT be required for an embed that does not use the
+// corresponding adapters.
+run(`npm install "${tarballPath}"`, { cwd: smokeDir });
 
 // 3. Write a runner.ts that exercises the embedding API: ContextBuilder,
 //    a route with direct() source and log() destination, and a single
@@ -142,4 +139,73 @@ if (!output.includes("Hello, embedded-node!")) {
 }
 
 console.log(output);
-console.log("\nNode embedding smoke test passed.");
+
+// 5. Negative arm: a runner that uses cron() (whose driver `croner` is an
+//    optional peer dep that we deliberately did not install) should fail
+//    with the friendly RC5017 message rather than `ERR_MODULE_NOT_FOUND`.
+//    Locks the optional-peer contract: the package loads without croner,
+//    the friendly error fires only when the adapter is actually used.
+const negativeRunnerSource = `import {
+  craft,
+  cron,
+  log,
+  ContextBuilder,
+} from "@routecraft/routecraft";
+
+const route = craft()
+  .id("tick")
+  .from(cron("* * * * *"))
+  .to(log());
+
+const builder = new ContextBuilder();
+builder.routes(route);
+const { context } = await builder.build();
+
+let captured = null;
+context.on("context:error", ({ details }) => {
+  if (!captured) captured = details.error;
+});
+
+await context.start();
+// Give the rejecting subscribe() a tick to land on context:error.
+await new Promise((r) => setTimeout(r, 100));
+await context.stop();
+
+if (!captured) {
+  console.error("[smoke-embedding] expected context:error to fire");
+  process.exit(1);
+}
+const err = captured;
+console.log("[smoke-embedding] rc=" + (err && err.rc ? err.rc : "?"));
+console.log(
+  "[smoke-embedding] message=" +
+    (err instanceof Error ? err.message : String(err)),
+);
+`;
+writeFileSync(join(smokeDir, "negative-runner.ts"), negativeRunnerSource);
+
+const negativeOutput = run(
+  "node --experimental-strip-types negative-runner.ts",
+  {
+    cwd: smokeDir,
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, CRAFT_LOG_LEVEL: "silent" },
+  },
+).toString();
+
+if (!negativeOutput.includes("rc=RC5017")) {
+  console.error(
+    "Expected rc=RC5017 in negative-arm output, got:\n" + negativeOutput,
+  );
+  process.exit(1);
+}
+if (!negativeOutput.includes("croner")) {
+  console.error(
+    'Expected "croner" mentioned in negative-arm output, got:\n' +
+      negativeOutput,
+  );
+  process.exit(1);
+}
+
+console.log(negativeOutput);
+console.log("\nNode embedding smoke test passed (positive + negative).");

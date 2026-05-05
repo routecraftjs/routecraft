@@ -1,4 +1,4 @@
-import { Cron } from "croner";
+import type { Cron as CronType } from "croner";
 import {
   HeadersKeys,
   type Exchange,
@@ -6,6 +6,7 @@ import {
 } from "../../exchange";
 import { type Source } from "../../operations/from";
 import { type CraftContext, type MergedOptions } from "../../context";
+import { loadOptionalPeer } from "../shared/optional-peer";
 import type { CronExpression, CronOptions } from "./types";
 
 /**
@@ -43,6 +44,19 @@ export class CronSourceAdapter
   readonly adapterId = "routecraft.adapter.cron";
   public options: Partial<CronOptions>;
 
+  /**
+   * Loader for the `croner` driver. Exposed as a static so tests can
+   * substitute a synchronous implementation and avoid the dynamic-import
+   * + fake-timer interaction (Node's dynamic import internals lean on
+   * `setImmediate`, which `vi.useFakeTimers()` mocks).
+   * @internal
+   */
+  static loadDriver: () => Promise<typeof CronType> = () =>
+    loadOptionalPeer(() => import("croner"), {
+      adapterName: "cron",
+      packageName: "croner",
+    }).then((m) => m.Cron);
+
   constructor(
     private readonly expression: CronExpression,
     options?: CronOptions,
@@ -73,12 +87,16 @@ export class CronSourceAdapter
    *
    * Creates a `croner` job from the configured expression and invokes
    * the handler on each scheduled fire. The returned promise resolves
-   * when the job is stopped (via abort, maxFires, or handler error).
+   * when the job is stopped (via abort, maxFires, or handler error),
+   * and rejects if croner is missing or the expression is invalid.
    *
    * @param context - CraftContext for logging and merged options
    * @param handler - Called with `undefined` body and cron headers on each fire
    * @param abortController - Abort signal to stop the cron job
-   * @param onReady - Called once the job is scheduled and ready
+   * @param onReady - Called once the job is scheduled and ready. Fires after
+   *   the lazy `croner` import resolves on first use, so on a cold start it
+   *   lands one or more microtasks after `subscribe()` returns rather than
+   *   synchronously. Consumers of `route:{id}:started` see the same delay.
    */
   subscribe(
     context: CraftContext,
@@ -112,75 +130,98 @@ export class CronSourceAdapter
       return Promise.resolve();
     }
 
-    return new Promise<void>((resolve) => {
+    return new Promise<void>((resolve, reject) => {
       let counter = 0;
       let settled = false;
+      let job: CronType | null = null;
 
       const settle = () => {
         if (settled) return;
         settled = true;
-        job.stop();
+        job?.stop();
         resolve();
       };
 
-      const job = new Cron(
-        this.expression,
-        {
-          ...(timezone ? { timezone } : {}),
-          protect,
-          ...(maxFires !== Infinity ? { maxRuns: maxFires } : {}),
-          ...(startAt ? { startAt } : {}),
-          ...(stopAt ? { stopAt } : {}),
-          paused: false,
-        },
-        async () => {
-          if (settled || abortController.signal.aborted) {
-            settle();
-            return;
-          }
-
-          counter++;
-          const firedTime = new Date();
-
-          // Apply jitter delay before firing (blocking, not fire-and-forget)
-          if (jitterMs > 0) {
-            const jitter = Math.floor(Math.random() * jitterMs);
-            await new Promise((r) => setTimeout(r, jitter));
-            if (abortController.signal.aborted) {
-              settle();
-              return;
-            }
-          }
-
-          const nextDate = job.nextRun();
-          const headers: ExchangeHeaders = {
-            [HeadersKeys.CRON_EXPRESSION]: this.expression,
-            [HeadersKeys.CRON_FIRED_TIME]: firedTime.toISOString(),
-            [HeadersKeys.CRON_COUNTER]: counter,
-            ...(nextDate
-              ? { [HeadersKeys.CRON_NEXT_RUN]: nextDate.toISOString() }
-              : {}),
-            ...(timezone ? { [HeadersKeys.CRON_TIMEZONE]: timezone } : {}),
-            ...(name ? { [HeadersKeys.CRON_NAME]: name } : {}),
-          };
-
-          try {
-            await handler(undefined, headers);
-          } catch {
-            // Exchange error already logged by the route pipeline.
-            // Cron jobs are long-running; continue to the next scheduled fire.
-          }
-
-          // Settle when croner has exhausted maxRuns
-          if (job.runsLeft() === 0) {
-            settle();
-          }
-        },
-      );
-
+      // Register the abort listener synchronously so an abort that arrives
+      // before the dynamic croner import resolves still tears the source down.
       abortController.signal.addEventListener("abort", () => settle());
 
-      onReady?.();
+      // croner is declared as an optional peer dep; load it lazily so
+      // routes that never use cron() do not require the package.
+      void (async () => {
+        let Cron: typeof CronType;
+        try {
+          Cron = await CronSourceAdapter.loadDriver();
+        } catch (err) {
+          reject(err);
+          return;
+        }
+        if (settled) return;
+
+        // Wrap synchronous setup (`new Cron`, `onReady`) so a throw from
+        // croner (e.g. invalid expression) rejects the outer promise
+        // instead of leaking as an unhandled rejection.
+        try {
+          job = new Cron(
+            this.expression,
+            {
+              ...(timezone ? { timezone } : {}),
+              protect,
+              ...(maxFires !== Infinity ? { maxRuns: maxFires } : {}),
+              ...(startAt ? { startAt } : {}),
+              ...(stopAt ? { stopAt } : {}),
+              paused: false,
+            },
+            async () => {
+              if (settled || abortController.signal.aborted) {
+                settle();
+                return;
+              }
+
+              counter++;
+              const firedTime = new Date();
+
+              // Apply jitter delay before firing (blocking, not fire-and-forget)
+              if (jitterMs > 0) {
+                const jitter = Math.floor(Math.random() * jitterMs);
+                await new Promise((r) => setTimeout(r, jitter));
+                if (abortController.signal.aborted) {
+                  settle();
+                  return;
+                }
+              }
+
+              const nextDate = job!.nextRun();
+              const headers: ExchangeHeaders = {
+                [HeadersKeys.CRON_EXPRESSION]: this.expression,
+                [HeadersKeys.CRON_FIRED_TIME]: firedTime.toISOString(),
+                [HeadersKeys.CRON_COUNTER]: counter,
+                ...(nextDate
+                  ? { [HeadersKeys.CRON_NEXT_RUN]: nextDate.toISOString() }
+                  : {}),
+                ...(timezone ? { [HeadersKeys.CRON_TIMEZONE]: timezone } : {}),
+                ...(name ? { [HeadersKeys.CRON_NAME]: name } : {}),
+              };
+
+              try {
+                await handler(undefined, headers);
+              } catch {
+                // Exchange error already logged by the route pipeline.
+                // Cron jobs are long-running; continue to the next scheduled fire.
+              }
+
+              // Settle when croner has exhausted maxRuns
+              if (job!.runsLeft() === 0) {
+                settle();
+              }
+            },
+          );
+
+          onReady?.();
+        } catch (err) {
+          reject(err);
+        }
+      })();
     });
   }
 }

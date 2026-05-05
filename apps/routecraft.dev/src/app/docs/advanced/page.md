@@ -14,7 +14,7 @@ Deeper patterns, integrations, and operational topics. {% .lead %}
 {% quick-link title="Expose as MCP" icon="plugins" href="/docs/advanced/expose-as-mcp" description="Expose capabilities as tools for AI agents via MCP." /%}
 {% quick-link title="Call an MCP" icon="plugins" href="/docs/advanced/call-an-mcp" description="Call external MCP servers from your capabilities." /%}
 {% quick-link title="Testing" icon="presets" href="/docs/introduction/testing" description="Fast unit tests and optional E2E runs for your capabilities." /%}
-{% quick-link title="Deployment" icon="installation" href="/docs/introduction/deployment" description="Deploy as a Node.js process or Docker container." /%}
+{% quick-link title="Deployment" icon="installation" href="/docs/introduction/deployment" description="Deploy the CLI on Bun or embed Routecraft in a Node service." /%}
 {% quick-link title="Monitoring" icon="theming" href="/docs/introduction/monitoring" description="Logging, events, and observability." /%}
 
 {% /quick-links %}

@@ -1,5 +1,24 @@
-import * as cheerio from "cheerio";
 import type { HtmlResult, HtmlOptions } from "./types.ts";
+import { loadOptionalPeer } from "../shared/optional-peer.ts";
+
+// Memoise the loaded cheerio module so high-volume html() calls do not
+// re-pay the dynamic-import lookup or re-allocate the loadOptionalPeer
+// closures. The promise is shared across all callers, so the import
+// happens at most once per process.
+//
+// A rejected promise is intentionally cached too: if cheerio is genuinely
+// missing it cannot appear mid-process, so retrying would reproduce the
+// same RC5017 with the same install hint. Caching the rejection avoids
+// log noise from repeated dynamic-import failures across every html()
+// call on a route that fires many times.
+let cheerioPromise: Promise<typeof import("cheerio")> | null = null;
+function getCheerio(): Promise<typeof import("cheerio")> {
+  cheerioPromise ??= loadOptionalPeer(() => import("cheerio"), {
+    adapterName: "html",
+    packageName: "cheerio",
+  });
+  return cheerioPromise;
+}
 
 export function getHtml<T>(
   body: T,
@@ -30,8 +49,14 @@ export function stripHtmlTags(s: string): string {
 
 /**
  * Core HTML extraction logic shared by transformer and source adapters.
+ *
+ * cheerio is declared as an optional peer dep; it is loaded lazily inside
+ * this function so routes that never use html() do not require the package.
  */
-export function extractHtml<T, R>(body: T, options: HtmlOptions<T, R>): R {
+export async function extractHtml<T, R>(
+  body: T,
+  options: HtmlOptions<T, R>,
+): Promise<R> {
   const htmlString = getHtml(body, options.from);
   const extract = options.extract ?? "text";
   const selector = options.selector;
@@ -47,6 +72,7 @@ export function extractHtml<T, R>(body: T, options: HtmlOptions<T, R>): R {
     throw new Error('html adapter: extract "attr" requires an attr option');
   }
 
+  const cheerio = await getCheerio();
   const $ = cheerio.load(htmlString);
   const $el = $(selector);
   const length = $el.length;
