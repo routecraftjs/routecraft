@@ -214,15 +214,11 @@ jobs:
           path: "**/dist"
           key: build-${{ github.event.pull_request.head.sha || github.sha }}
 
-  integration-test:
+  scaffolder-smoke:
     needs: [changes, validate, test, build]
     if: needs.changes.outputs.packages == 'true' || github.event_name == 'release'
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        runtime: [bun, node]
-    name: integration-test (${{ matrix.runtime }})
+    name: scaffolder-smoke
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -260,19 +256,65 @@ jobs:
           bun run version:set "$VERSION"
 
       - name: Run scaffolder integration tests (bun)
-        if: matrix.runtime == 'bun'
         env:
           TEST_PACKAGE_MANAGER: bun
         run: bun run test:integration
 
       - name: Run scaffolder integration tests (npm, install + typecheck only)
-        if: matrix.runtime == 'bun'
         env:
           TEST_PACKAGE_MANAGER: npm
         run: bun run test:integration
 
+      - name: Restore repo (only paths set-version touched)
+        run: |
+          git checkout -- package.json examples/package.json \
+            packages/ai/package.json packages/browser/package.json packages/cli/package.json \
+            packages/create-routecraft/package.json packages/eslint-plugin-routecraft/package.json packages/os/package.json packages/routecraft/package.json packages/testing/package.json \
+            packages/cli/src/index.ts \
+            apps/routecraft.dev/package.json
+
+  embedding-smoke:
+    needs: [changes, validate, test, build]
+    if: needs.changes.outputs.packages == 'true' || github.event_name == 'release'
+    runs-on: ubuntu-latest
+    name: embedding-smoke
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
+
+      - name: Use Node.js from .nvmrc
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: ".nvmrc"
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: "package.json"
+
+      - name: Restore node_modules
+        uses: actions/cache@v5
+        with:
+          path: "**/node_modules"
+          key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
+
+      - name: Restore build artifacts
+        uses: actions/cache@v5
+        with:
+          path: "**/dist"
+          key: build-${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Fetch tags
+        run: git fetch --force --tags
+
+      - name: Set version for smoke test
+        run: |
+          VERSION=$(node -p "require('./packages/routecraft/package.json').version")
+          bun run version:set "$VERSION"
+
       - name: Smoke test Node embedding (pack + npm install + node runner.ts)
-        if: matrix.runtime == 'node'
         run: node .github/scripts/smoke-test-embedding.mjs
 
       - name: Restore repo (only paths set-version touched)
@@ -285,8 +327,55 @@ jobs:
             packages/cli/src/index.ts \
             apps/routecraft.dev/package.json
 
+  adapter-cross-runtime:
+    needs: [changes, validate, test, build]
+    if: needs.changes.outputs.packages == 'true' || github.event_name == 'release'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: [bun, node]
+    name: adapter-cross-runtime (${{ matrix.runtime }})
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
+
+      - name: Use Node.js from .nvmrc
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: ".nvmrc"
+
+      - name: Install bun
+        if: matrix.runtime == 'bun'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: "package.json"
+
+      - name: Restore node_modules
+        uses: actions/cache@v5
+        with:
+          path: "**/node_modules"
+          key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
+
+      - name: Restore build artifacts
+        uses: actions/cache@v5
+        with:
+          path: "**/dist"
+          key: build-${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Run cross-runtime adapter tests (bun)
+        if: matrix.runtime == 'bun'
+        run: bun run test:cross-runtime
+
+      - name: Run cross-runtime adapter tests (node)
+        if: matrix.runtime == 'node'
+        run: node node_modules/vitest/vitest.mjs run --passWithNoTests test/cross-runtime/
+
   publish-canary:
-    needs: [changes, build, integration-test]
+    needs:
+      [changes, build, scaffolder-smoke, embedding-smoke, adapter-cross-runtime]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.packages == 'true'
     runs-on: ubuntu-latest
     concurrency:
@@ -365,7 +454,7 @@ jobs:
   approve:
     name: approve
     runs-on: ubuntu-latest
-    needs: [integration-test]
+    needs: [scaffolder-smoke, embedding-smoke, adapter-cross-runtime]
     if: github.event_name == 'pull_request_target' && github.actor == 'dependabot[bot]' && !failure() && !cancelled()
     permissions:
       pull-requests: write
@@ -404,7 +493,7 @@ jobs:
             })
 
   publish:
-    needs: [build, integration-test]
+    needs: [build, scaffolder-smoke, embedding-smoke, adapter-cross-runtime]
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
     permissions:

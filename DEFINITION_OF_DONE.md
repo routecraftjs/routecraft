@@ -53,7 +53,9 @@ The checklists below apply to **packages that ship code**: anything under `packa
 - [ ] Export the adapter from the package's `index.ts`
 - [ ] If it is an AI adapter (`packages/ai/`), also update the AI package exports
 - [ ] New adapters must include a JSDoc release tag on the factory function (see General Checklist)
-- [ ] If the adapter depends on a third-party package, add it as an optional `peerDependency` (with `peerDependenciesMeta`) in `@routecraft/routecraft` and as a regular `dependency` in `@routecraft/cli` so the CLI bundles it
+- [ ] If the adapter depends on a third-party package, add it as an optional `peerDependency` (with `peerDependenciesMeta.<name>.optional = true`) in `@routecraft/routecraft` and as a regular `dependency` in `@routecraft/cli` so the CLI bundles it
+- [ ] Optional peer drivers load via `loadOptionalPeer` (`packages/routecraft/src/adapters/shared/optional-peer.ts`), not a bespoke `try/catch`. The missing-peer error is `RC5017` with an install hint. See `.standards/ci-cd.md` § 6 for the contract; cron and html are the canonical references.
+- [ ] If the adapter has a runtime-specific code path (e.g. `Bun.sql` under Bun + `pg` under Node, or `Bun.s3` + `@aws-sdk/client-s3`), add a `packages/<pkg>/test/cross-runtime/<name>.cross.test.ts` that exercises the same observable contract on both runtimes. The `adapter-cross-runtime (bun)` and `adapter-cross-runtime (node)` CI jobs run the suite on each runtime; both must pass.
 - [ ] Adapter implementations do not mutate the exchange parameter. Processor / Destination / aggregator code builds a derived exchange via spread or `DefaultExchange.rewrap`; direct assignment to `exchange.body`, `exchange.headers[...]`, or `exchange.principal` is absent. Drop signalling uses `markDropped(exchange)`. (See `.standards/type-safety-and-schemas.md` § Exchange Immutability.)
 
 ## When you add or modify an operation

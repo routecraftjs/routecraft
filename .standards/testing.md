@@ -121,13 +121,37 @@ If you reach for a snapshot, prefer inline (`toMatchInlineSnapshot()`) over a se
 - **Mock the SDK only when testing the boundary itself.** E.g. `stream-llm.test.ts` mocks `ai`'s `streamText` to exercise the real `streamLlm` containment behaviour.
 - **Mirror real behaviour in mocks.** If the real code catches listener errors, the mock should too; otherwise the test passes for the wrong reason.
 
-## 10. What runs in CI
+## 10. Cross-runtime adapter tests
 
-- The main `test` job runs `bun run test:coverage` (which excludes `*.integration.test.ts` and uploads a `coverage-report` artifact). Locally, `bun run test` runs the same exclusion without the coverage instrumentation.
-- The dedicated `integration-test` job runs a two-arm matrix:
-  - `bun` arm: `bun run test:integration` exercises the scaffolder twice -- once with `TEST_PACKAGE_MANAGER=bun` (full scaffold + `craft run` dispatch) and once with `TEST_PACKAGE_MANAGER=npm` (install + typecheck only; the dispatch test skips because the CLI is Bun-only).
-  - `node` arm: `node .github/scripts/smoke-test-embedding.mjs` packs `@routecraft/routecraft`, npm-installs it into a fresh temp dir, and runs a `runner.ts` under plain Node to verify the embedding path. Includes a negative arm asserting `RC5017` fires when `cron()` is used without `croner` installed.
-- Both arms must pass for a PR to be mergeable. See [CI/CD](./ci-cd.md).
+Some adapters have runtime-specific code paths -- for example, a Postgres source might use `Bun.sql` under Bun and the `pg` driver under Node, or an S3 destination might use `Bun.s3` under Bun and `@aws-sdk/client-s3` under Node. The cross-runtime test suite verifies that the observable behaviour is identical on both runtimes.
+
+**Layout.** Place these tests at `packages/<pkg>/test/cross-runtime/*.test.ts`. The default `bun run test` and `bun run test:coverage` scripts exclude this directory; only the dedicated `adapter-cross-runtime` CI job picks them up.
+
+**Local execution.** From the repo root:
+
+```sh
+bun run test:cross-runtime
+```
+
+This runs vitest under Bun against the cross-runtime suite. To verify under Node:
+
+```sh
+node node_modules/vitest/vitest.mjs run --include '**/test/cross-runtime/**/*.test.ts'
+```
+
+CI runs both invocations as separate jobs (`adapter-cross-runtime (bun)` and `adapter-cross-runtime (node)`).
+
+**When to add one.** New adapters with a Bun-vs-Node driver split, or library code that touches runtime-specific APIs (`Bun.file`, `bun:sqlite` direct usage, `worker_threads`, etc.). For pure type-only code or code that uses the same driver under both runtimes, the regular unit tests are sufficient.
+
+**Reference.** `packages/routecraft/test/cross-runtime/telemetry-sqlite.cross.test.ts` opens an in-memory `SqliteConnection` and exercises a trivial pragma. The same code runs under both runtimes today (both load `better-sqlite3` via `loadOptionalPeer`); the test exists to demonstrate the layout pattern and provide a regression check for the dynamic-import path.
+
+## 11. What runs in CI
+
+- The main `test` job runs `bun run test:coverage` (which excludes `**/integration.test.ts` and `**/test/cross-runtime/**`, and uploads a `coverage-report` artifact). Locally, `bun run test` runs the same exclusions without the coverage instrumentation.
+- `scaffolder-smoke` runs `bun run test:integration` twice -- once with `TEST_PACKAGE_MANAGER=bun` (full scaffold + `craft run` dispatch) and once with `TEST_PACKAGE_MANAGER=npm` (install + typecheck only; the dispatch test skips because the CLI is Bun-only).
+- `embedding-smoke` runs `node .github/scripts/smoke-test-embedding.mjs` to verify the Node embedding path, including a negative arm asserting `RC5017` fires when `cron()` is used without `croner` installed.
+- `adapter-cross-runtime (bun)` and `adapter-cross-runtime (node)` run the cross-runtime suite under each runtime; both arms must pass for a PR to be mergeable.
+- See [CI/CD](./ci-cd.md) for the full job graph.
 
 ---
 
