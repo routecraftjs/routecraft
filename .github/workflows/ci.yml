@@ -516,9 +516,17 @@ jobs:
         run: |
           set -eo pipefail
           if LATEST_TAG=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null); then
-            echo "tag=$LATEST_TAG" >> "$GITHUB_OUTPUT"
-            echo "version=${LATEST_TAG#v}" >> "$GITHUB_OUTPUT"
-            echo "Latest stable tag: $LATEST_TAG"
+            # Skip pre-Bun-migration tags: they require pnpm to install,
+            # which is no longer available on the runner. The presence
+            # of `bun.lock` at the tagged commit is the gating signal.
+            if git show "${LATEST_TAG}:bun.lock" >/dev/null 2>&1; then
+              echo "tag=$LATEST_TAG" >> "$GITHUB_OUTPUT"
+              echo "version=${LATEST_TAG#v}" >> "$GITHUB_OUTPUT"
+              echo "Latest stable tag: $LATEST_TAG (bun.lock present)"
+            else
+              echo "tag=" >> "$GITHUB_OUTPUT"
+              echo "Latest stable tag $LATEST_TAG predates the Bun migration (no bun.lock); deploying canary only"
+            fi
           else
             echo "tag=" >> "$GITHUB_OUTPUT"
             echo "No stable tag found; deploying canary only"
