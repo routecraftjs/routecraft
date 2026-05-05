@@ -60,6 +60,15 @@ describe("checkBunRuntime", () => {
   });
 
   /**
+   * @case Bun version has SemVer build metadata
+   * @preconditions process.versions.bun is "1.1.0+build.1"
+   * @expectedResult Returns ok: true; the build metadata is stripped before semver comparison
+   */
+  test("accepts versions with SemVer build metadata", () => {
+    expect(checkBunRuntime("1.1.0+build.1")).toEqual({ ok: true });
+  });
+
+  /**
    * @case Bun reports a version string that is not parseable as semver
    * @preconditions process.versions.bun is "not-a-version"
    * @expectedResult Returns ok: false with a "could not parse" message that still points at the install URL

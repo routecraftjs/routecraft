@@ -1,4 +1,14 @@
-import { describe, test, expect, vi, afterEach, beforeEach } from "vitest";
+import {
+  describe,
+  test,
+  expect,
+  vi,
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+} from "vitest";
+import { Cron } from "croner";
 import { cron } from "../src/index.ts";
 import { CronSourceAdapter } from "../src/adapters/cron/index.ts";
 import {
@@ -8,12 +18,17 @@ import {
 } from "../src/exchange.ts";
 import { CraftContext } from "../src/context.ts";
 
-// Prime croner so the lazy `await import("croner")` inside CronSourceAdapter
-// resolves on a microtask, not a fake-timer tick. vi.useFakeTimers() mocks
-// setImmediate which Node's dynamic-import internals lean on, so without
-// this prime the IIFE's first await never settles inside a test that uses
-// fake timers.
-await import("croner");
+// Substitute the lazy croner loader with a sync resolver. The default loader
+// goes through `await import("croner")` whose Node internals lean on
+// `setImmediate`, which `vi.useFakeTimers()` mocks. Without this override the
+// subscribe IIFE never settles inside a fake-timer test.
+const ORIGINAL_LOAD_DRIVER = CronSourceAdapter.loadDriver;
+beforeAll(() => {
+  CronSourceAdapter.loadDriver = () => Promise.resolve(Cron);
+});
+afterAll(() => {
+  CronSourceAdapter.loadDriver = ORIGINAL_LOAD_DRIVER;
+});
 
 function mockContext(): CraftContext {
   const store = new Map();
@@ -35,18 +50,13 @@ function mockContext(): CraftContext {
  * Advance fake timers by the given milliseconds, flushing microtasks at each
  * step to allow croner's internal scheduling and async handler callbacks to
  * execute.
- *
- * `advanceTimersByTimeAsync(0)` only flushes a single microtask cycle, so we
- * follow it with a few `Promise.resolve()` awaits to drain the multi-hop
- * chains the cron source uses (lazy dynamic import of croner -> Cron
- * registration -> async handler).
  */
 async function advanceTime(ms: number, step = 1000) {
   const steps = Math.ceil(ms / step);
   for (let i = 0; i < steps; i++) {
     vi.advanceTimersByTime(step);
+    // Flush microtasks so croner's setTimeout callbacks and async handlers run
     await vi.advanceTimersByTimeAsync(0);
-    for (let j = 0; j < 5; j++) await Promise.resolve();
   }
 }
 
@@ -78,6 +88,34 @@ describe("CronSourceAdapter", () => {
   test("adapterId is routecraft.adapter.cron", () => {
     const adapter = new CronSourceAdapter("* * * * *");
     expect(adapter.adapterId).toBe("routecraft.adapter.cron");
+  });
+
+  /**
+   * @case Subscribe rejects (does not hang) when croner throws on the cron expression
+   * @preconditions CronSourceAdapter constructed with a syntactically invalid expression
+   * @expectedResult The subscribe promise rejects with the underlying croner error rather than hanging on the abort signal
+   */
+  test("subscribe rejects when the cron expression is invalid", async () => {
+    const adapter = new CronSourceAdapter("not-a-valid-expression");
+    const context = mockContext();
+    const abortController = new AbortController();
+    const handler = vi.fn().mockResolvedValue({} as Exchange);
+    const onReady = vi.fn();
+
+    const promise = adapter.subscribe(
+      context,
+      handler,
+      abortController,
+      onReady,
+    );
+
+    // Drain microtasks so the IIFE's load + new Cron throw lands on reject.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await expect(promise).rejects.toThrow();
+    expect(onReady).not.toHaveBeenCalled();
+    expect(handler).not.toHaveBeenCalled();
   });
 
   /**

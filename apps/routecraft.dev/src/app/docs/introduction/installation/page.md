@@ -153,6 +153,10 @@ yarn build && yarn start
 
 {% /code-tabs %}
 
+{% callout type="note" title="Bun is required on the host" %}
+The `start` script invokes the local `craft` bin, which runs on Bun (>=1.1.0) regardless of which package manager runs the script. Install Bun on the production host, or follow the [Node embedding path](/docs/advanced/programmatic-invocation) instead.
+{% /callout %}
+
 The build step compiles your capabilities to JavaScript. The compiled output in `dist/` is what runs in production with no Node flags and no runtime overhead.
 
 ## Embedding Routecraft in your app

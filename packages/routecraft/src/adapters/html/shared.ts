@@ -1,6 +1,19 @@
 import type { HtmlResult, HtmlOptions } from "./types.ts";
 import { loadOptionalPeer } from "../shared/optional-peer.ts";
 
+// Memoise the loaded cheerio module so high-volume html() calls do not
+// re-pay the dynamic-import lookup or re-allocate the loadOptionalPeer
+// closures. The promise is shared across all callers, so the import
+// happens at most once per process.
+let cheerioPromise: Promise<typeof import("cheerio")> | null = null;
+function getCheerio(): Promise<typeof import("cheerio")> {
+  cheerioPromise ??= loadOptionalPeer(() => import("cheerio"), {
+    adapterName: "html",
+    packageName: "cheerio",
+  });
+  return cheerioPromise;
+}
+
 export function getHtml<T>(
   body: T,
   from: ((body: T) => string) | undefined,
@@ -53,10 +66,7 @@ export async function extractHtml<T, R>(
     throw new Error('html adapter: extract "attr" requires an attr option');
   }
 
-  const cheerio = await loadOptionalPeer(() => import("cheerio"), {
-    adapterName: "html",
-    packageName: "cheerio",
-  });
+  const cheerio = await getCheerio();
   const $ = cheerio.load(htmlString);
   const $el = $(selector);
   const length = $el.length;

@@ -29,7 +29,8 @@ export function checkBunRuntime(
     };
   }
 
-  const stripped = bunVersion.split("-")[0] ?? "";
+  // Strip both prerelease (`-`) and build metadata (`+`) per SemVer.
+  const stripped = bunVersion.split(/[-+]/)[0] ?? "";
   const [majorStr, minorStr, patchStr] = stripped.split(".");
   const major = Number(majorStr);
   const minor = Number(minorStr);
