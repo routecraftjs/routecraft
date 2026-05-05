@@ -1,11 +1,22 @@
-import { describe, it, expect, afterEach, beforeEach } from "vitest";
+import { describe, it, expect, afterEach, beforeEach } from "bun:test";
 import { mail, type MailMessage } from "@routecraft/routecraft";
 import {
   mockAdapter,
   testContext,
   type TestContext,
 } from "@routecraft/testing";
-import route from "../src/mail-noreply-notify";
+
+// The example imports `../src/env.ts` which validates required env vars
+// with Zod at module load. Set placeholders BEFORE the dynamic import so
+// the schema accepts; the actual values are unused (the test mocks the
+// mail adapter wholesale).
+process.env["JWT_SECRET"] ??= "test-jwt-secret";
+process.env["MAIL_USER"] ??= "test@example.test";
+process.env["MAIL_APP_PASSWORD"] ??= "test-pw";
+process.env["GEMINI_API_KEY"] ??= "test-gemini";
+process.env["OPENROUTER_API_KEY"] ??= "test-openrouter";
+
+const route = (await import("../src/mail-noreply-notify")).default;
 
 describe("mail-noreply-notify", () => {
   let t: TestContext;

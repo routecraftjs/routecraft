@@ -1,11 +1,19 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach, mock } from "bun:test";
 import { mcp } from "@routecraft/ai";
 import {
   mockAdapter,
   testContext,
   type TestContext,
 } from "@routecraft/testing";
-import route from "../src/mcp-greet";
+
+// env.ts validates with Zod at module load; provide placeholders.
+process.env["JWT_SECRET"] ??= "test-jwt-secret";
+process.env["MAIL_USER"] ??= "test@example.test";
+process.env["MAIL_APP_PASSWORD"] ??= "test-pw";
+process.env["GEMINI_API_KEY"] ??= "test-gemini";
+process.env["OPENROUTER_API_KEY"] ??= "test-openrouter";
+
+const route = (await import("../src/mcp-greet")).default;
 
 describe("mcp-greet", () => {
   let t: TestContext;
@@ -31,7 +39,7 @@ describe("mcp-greet", () => {
     expect(mcpMock.calls.source[0].yielded).toBe(1);
 
     // The tap(log()) in the route logs the payload before transform.
-    const infoSpy = t.logger.info as ReturnType<typeof vi.fn>;
+    const infoSpy = t.logger.info as ReturnType<typeof mock>;
     const tapLog = infoSpy.mock.calls.find((c) => c[1] === "LogAdapter output");
     expect(tapLog).toBeDefined();
     expect((tapLog![0] as { body: { user: string } }).body.user).toBe("Ada");

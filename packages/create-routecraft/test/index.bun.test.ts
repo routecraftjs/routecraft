@@ -1,4 +1,12 @@
-import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
+import {
+  describe,
+  test,
+  expect,
+  mock,
+  spyOn,
+  beforeEach,
+  afterEach,
+} from "bun:test";
 import { mkdir, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,12 +20,12 @@ import {
 
 // Suppress console output during tests
 beforeEach(() => {
-  vi.spyOn(console, "log").mockImplementation(() => {});
-  vi.spyOn(console, "error").mockImplementation(() => {});
-  vi.spyOn(console, "warn").mockImplementation(() => {});
+  spyOn(console, "log").mockImplementation(() => {});
+  spyOn(console, "error").mockImplementation(() => {});
+  spyOn(console, "warn").mockImplementation(() => {});
 });
 afterEach(() => {
-  vi.restoreAllMocks();
+  mock.restore();
 });
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
