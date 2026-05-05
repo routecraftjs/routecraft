@@ -25,6 +25,13 @@ const nextConfig = {
   },
 }
 
+// nextjsExports: [] disables the auto-emitted `metadata` / `revalidate`
+// re-exports from `@markdoc/next.js`. No page sets `nextjs:` frontmatter,
+// so they were always `undefined`, and Next 16 rejects exporting `metadata`
+// from any module its RSC graph classifies as client (which the markdoc
+// schema imports trigger via tags like `<CodeTabs>` and `<Callout>`).
 export default withDocsMarkdown(
-  withSearch(withMarkdoc({ schemaPath: './src/markdoc' })(nextConfig)),
+  withSearch(
+    withMarkdoc({ schemaPath: './src/markdoc', nextjsExports: [] })(nextConfig),
+  ),
 )

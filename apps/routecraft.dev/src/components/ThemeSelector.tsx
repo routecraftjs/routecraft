@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useSyncExternalStore } from 'react'
 import { useTheme } from 'next-themes'
 import {
   Label,
@@ -55,11 +55,11 @@ export function ThemeSelector(
   props: React.ComponentPropsWithoutRef<typeof Listbox<'div'>>,
 ) {
   let { theme, setTheme } = useTheme()
-  let [mounted, setMounted] = useState(false)
-
-  useEffect(() => {
-    setMounted(true)
-  }, [])
+  let mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  )
 
   if (!mounted) {
     return <div className="h-6 w-6" />

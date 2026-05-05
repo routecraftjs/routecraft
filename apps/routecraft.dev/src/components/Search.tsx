@@ -9,6 +9,7 @@ import {
   useId,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react'
 import Highlighter from 'react-highlight-words'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
@@ -52,23 +53,25 @@ function useAutocomplete({
     AutocompleteState<Result> | EmptyObject
   >({})
 
-  function navigate({ itemUrl }: { itemUrl?: string }) {
-    if (!itemUrl) {
-      return
+  let [autocomplete] = useState<Autocomplete>(() => {
+    let instance: Autocomplete
+
+    function navigate({ itemUrl }: { itemUrl?: string }) {
+      if (!itemUrl) {
+        return
+      }
+
+      router.push(itemUrl)
+
+      if (
+        itemUrl ===
+        window.location.pathname + window.location.search + window.location.hash
+      ) {
+        close(instance!)
+      }
     }
 
-    router.push(itemUrl)
-
-    if (
-      itemUrl ===
-      window.location.pathname + window.location.search + window.location.hash
-    ) {
-      close(autocomplete)
-    }
-  }
-
-  let [autocomplete] = useState<Autocomplete>(() =>
-    createAutocomplete<
+    instance = createAutocomplete<
       Result,
       React.SyntheticEvent,
       React.MouseEvent,
@@ -102,8 +105,10 @@ function useAutocomplete({
           ]
         })
       },
-    }),
-  )
+    })
+
+    return instance
+  })
 
   return { autocomplete, autocompleteState }
 }
@@ -322,7 +327,13 @@ function SearchDialog({
 }) {
   let formRef = useRef<React.ElementRef<'form'>>(null)
   let panelRef = useRef<React.ElementRef<'div'>>(null)
-  let inputRef = useRef<React.ElementRef<typeof SearchInput>>(null)
+  // Tracked as state (not a ref) so the autocomplete library receives the
+  // input element via render props. Reading `inputRef.current` during render
+  // is flagged by `react-hooks/refs`, and the autocomplete API needs the
+  // element to wire up keyboard/focus handling.
+  let [inputElement, setInputElement] = useState<React.ElementRef<
+    typeof SearchInput
+  > | null>(null)
 
   let close = useCallback(
     (autocomplete: Autocomplete) => {
@@ -375,11 +386,11 @@ function SearchDialog({
               <form
                 ref={formRef}
                 {...autocomplete.getFormProps({
-                  inputElement: inputRef.current,
+                  inputElement,
                 })}
               >
                 <SearchInput
-                  ref={inputRef}
+                  ref={setInputElement}
                   autocomplete={autocomplete}
                   autocompleteState={autocompleteState}
                   onClose={() => setOpen(false)}
@@ -431,14 +442,12 @@ function useSearchProps() {
 }
 
 export function Search() {
-  let [modifierKey, setModifierKey] = useState<string>()
+  let modifierKey = useSyncExternalStore(
+    () => () => {},
+    () => (/(Mac|iPhone|iPod|iPad)/i.test(navigator.platform) ? '⌘' : 'Ctrl '),
+    () => undefined,
+  )
   let { buttonProps, dialogProps } = useSearchProps()
-
-  useEffect(() => {
-    setModifierKey(
-      /(Mac|iPhone|iPod|iPad)/i.test(navigator.platform) ? '⌘' : 'Ctrl ',
-    )
-  }, [])
 
   return (
     <>
