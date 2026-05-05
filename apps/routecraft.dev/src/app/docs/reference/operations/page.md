@@ -21,7 +21,7 @@ DSL operators with signatures and examples. {% .lead %}
 | [`id`](#id) | Route | Set the unique identifier for the route |
 | [`batch`](#batch) | Route | Process exchanges in batches instead of one at a time |
 | [`error`](#error) | Route + Wrapper | Configure error handling. Before `.from()` it catches every step (route scope); after `.from()` it wraps the next step and the pipeline continues after recovery (step scope). |
-| [`authorize`](#authorize) | Route | Route-entry guard: principal must be authenticated and (optionally) have required roles/scopes. Pre-from only. {% badge color="orange" %}experimental{% /badge %} |
+| [`authorize`](#authorize) | Route | Route-entry guard: principal must be authenticated and (optionally) have required roles/scopes. Pre-from only. |
 | [`from`](#from) | Route | Define the source of data for the capability |
 | [`retry`](#retry) | Wrapper | Retry the next operation on failure {% badge color="purple" %}planned{% /badge %} |
 | [`throttle`](#throttle) | Wrapper | Rate limit the next operation {% badge color="purple" %}planned{% /badge %} |
@@ -209,7 +209,7 @@ For the architectural pattern wrappers follow, see [`.standards/resilience-wrapp
 
 **Note about direct destinations:** Direct destinations with their own routes have their own error handlers. Errors in direct destinations are handled by their route's error handler, not the calling route.
 
-### authorize {% badge color="orange" %}experimental{% /badge %}
+### authorize
 
 ```ts
 authorize(options?: AuthorizeOptions): RouteBuilder<Current>

@@ -37,7 +37,7 @@ export default craft()
 Run it instantly without any setup:
 
 ```bash
-npx @routecraft/cli run capabilities/hello-world.ts
+bunx @routecraft/cli run capabilities/hello-world.ts
 ```
 
 This pattern (source, enrich, transform, destination) is the foundation of every Routecraft capability.

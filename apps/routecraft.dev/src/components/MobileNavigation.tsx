@@ -39,8 +39,8 @@ function CloseIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
 }
 
 function CloseOnNavigation({ close }: { close: () => void }) {
-  let pathname = usePathname()
-  let searchParams = useSearchParams()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
 
   useEffect(() => {
     close()
@@ -50,11 +50,11 @@ function CloseOnNavigation({ close }: { close: () => void }) {
 }
 
 export function MobileNavigation() {
-  let [isOpen, setIsOpen] = useState(false)
-  let close = useCallback(() => setIsOpen(false), [setIsOpen])
+  const [isOpen, setIsOpen] = useState(false)
+  const close = useCallback(() => setIsOpen(false), [setIsOpen])
 
   function onLinkClick(event: React.MouseEvent<HTMLAnchorElement>) {
-    let link = event.currentTarget
+    const link = event.currentTarget
     if (
       link.pathname + link.search + link.hash ===
       window.location.pathname + window.location.search + window.location.hash

@@ -1,6 +1,8 @@
 import { type Node } from '@markdoc/markdoc'
 import { slugifyWithCounter } from '@sindresorhus/slugify'
 
+import { type BadgeColor } from '@/components/Badge'
+
 interface HeadingNode extends Node {
   type: 'heading'
   attributes: {
@@ -39,39 +41,23 @@ function isH3Node(node: Node): node is H3Node {
   return isHeadingNode(node) && node.attributes.level === 3
 }
 
-function getNodeText(node: Node) {
-  let text = ''
-  for (let child of node.children ?? []) {
-    if (child.type === 'text') {
-      text += child.attributes.content
-    }
-    text += getNodeText(child)
-  }
-  return text
-}
-
 function extractHeadingContent(node: Node): {
   title: string
-  badges: Array<{ text: string; color?: string }>
+  badges: Array<{ text: string; color?: BadgeColor }>
 } {
   let title = ''
-  let badges: Array<{ text: string; color?: string }> = []
+  const badges: Array<{ text: string; color?: BadgeColor }> = []
 
-  for (let child of node.children ?? []) {
+  for (const child of node.children ?? []) {
     if (child.type === 'text') {
-      title += String((child as any).attributes?.content ?? '')
+      title += String(child.attributes?.content ?? '')
       continue
     }
 
-    const isTag = child.type === 'tag'
-    const tagName = isTag
-      ? ((child as any).name ?? (child as any).tag)
-      : undefined
-
-    if (isTag && tagName === 'badge') {
+    if (child.type === 'tag' && child.tag === 'badge') {
       // Extract inner text for badge label, do not include in title
       const inner = extractHeadingContent(child)
-      const color = (child as any).attributes?.color as string | undefined
+      const color = child.attributes?.color as BadgeColor | undefined
       const text = inner.title.trim()
       if (text) badges.push({ text, color })
       continue
@@ -89,14 +75,14 @@ function extractHeadingContent(node: Node): {
 export type Subsection = H3Node['attributes'] & {
   id: string
   title: string
-  badges?: Array<{ text: string; color?: string }>
+  badges?: Array<{ text: string; color?: BadgeColor }>
   children?: undefined
 }
 
 export type Section = H2Node['attributes'] & {
   id: string
   title: string
-  badges?: Array<{ text: string; color?: string }>
+  badges?: Array<{ text: string; color?: BadgeColor }>
   children: Array<Subsection>
 }
 
@@ -104,13 +90,13 @@ export function collectSections(
   nodes: Array<Node>,
   slugify = slugifyWithCounter(),
 ) {
-  let sections: Array<Section> = []
+  const sections: Array<Section> = []
 
-  for (let node of nodes) {
+  for (const node of nodes) {
     if (isH2Node(node) || isH3Node(node)) {
       const { title, badges } = extractHeadingContent(node)
       if (title) {
-        let id = slugify(title)
+        const id = slugify(title)
         if (isH3Node(node)) {
           if (!sections[sections.length - 1]) {
             throw new Error(
