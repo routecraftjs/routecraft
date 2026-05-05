@@ -320,7 +320,7 @@ describe("TelemetryPlugin", () => {
 
   /**
    * @case SqliteConnection.open returns a usable connection when the driver loader resolves
-   * @preconditions Default loadDriver substituted with better-sqlite3 (test scaffolding); see the comment at the top of this file for why the substitution is needed under vitest's Node pool
+   * @preconditions Fresh temp directory; default loadDriver resolves to bun:sqlite (native under Bun, no substitution needed)
    * @expectedResult Connection is non-null and the db file is created on disk
    */
   test("SqliteConnection.open succeeds with a resolvable driver", async () => {

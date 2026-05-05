@@ -1,23 +1,43 @@
-import { describe, test, expect, spyOn, beforeEach, afterEach } from "bun:test";
+import {
+  describe,
+  test,
+  expect,
+  spyOn,
+  beforeAll,
+  beforeEach,
+  afterAll,
+  afterEach,
+} from "bun:test";
 import { writeFile, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 // Silence logger output. Bun:test has no `importActual`/spread-and-override
-// equivalent for `mock.module`, so spy on the live `logger` exports
-// directly. Pino-style loggers are mutable; the spies live for the file's
-// lifetime.
+// equivalent for `mock.module`, so spy on the live `logger` singleton
+// directly. Pino-style loggers are mutable. Spies are installed once and
+// restored after all tests so the singleton is clean for other test files.
 const { logger } = await import("@routecraft/routecraft");
-spyOn(logger, "info").mockImplementation(() => {});
-spyOn(logger, "error").mockImplementation(() => {});
-spyOn(logger, "debug").mockImplementation(() => {});
-spyOn(logger, "warn").mockImplementation(() => {});
-
 const runModule = await import("../src/run");
 
 describe("CLI run command", () => {
   let cwd: string;
   let dir: string;
+
+  let spies: Array<{ mockRestore: () => void }> = [];
+
+  beforeAll(() => {
+    spies = [
+      spyOn(logger, "info").mockImplementation(() => {}),
+      spyOn(logger, "error").mockImplementation(() => {}),
+      spyOn(logger, "debug").mockImplementation(() => {}),
+      spyOn(logger, "warn").mockImplementation(() => {}),
+    ];
+  });
+
+  afterAll(() => {
+    for (const s of spies) s.mockRestore();
+    spies = [];
+  });
 
   beforeEach(async () => {
     cwd = process.cwd();
@@ -29,7 +49,6 @@ describe("CLI run command", () => {
   afterEach(async () => {
     process.chdir(cwd);
     await rm(dir, { recursive: true, force: true });
-    // No-op under bun:test; the logger spies live for the file's lifetime.
   });
 
   /**
@@ -121,8 +140,6 @@ describe("CLI run command", () => {
    * @case Verifies that RouteBuilder instances are correctly distinguished from RouteDefinitions
    * @preconditions A file exporting a RouteBuilder instance (with .id() method)
    * @expectedResult runCommand should recognize it as RouteBuilder and call .build()
-   * @description This tests the fix for the bug where RouteBuilder.id (method) was
-   *              mistaken for RouteDefinition.id (string property)
    */
   test("RouteBuilder with .id() method is correctly identified", async () => {
     await writeFile(
@@ -134,8 +151,6 @@ describe("CLI run command", () => {
     );
     const { runCommand } = runModule;
     const res = await runCommand("route-builder.js");
-    // Should not get "Route definition failed validation" error
-    // May fail at start due to test environment, but validation should pass
     if (!res.success) {
       expect(res.message).not.toContain("Route definition failed validation");
       expect(res.message).not.toMatch(/id\(.*\{.*return.*this\.pendingOptions/);
@@ -159,7 +174,6 @@ describe("CLI run command", () => {
     );
     const { runCommand } = runModule;
     const res = await runCommand("route-builder-array.js");
-    // Should not get "Route definition failed validation" error
     if (!res.success) {
       expect(res.message).not.toContain("Route definition failed validation");
       expect(res.message).not.toMatch(/id\(.*\{.*return.*this\.pendingOptions/);

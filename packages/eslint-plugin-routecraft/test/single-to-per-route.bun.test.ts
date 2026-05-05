@@ -5,6 +5,8 @@ import singleToPerRouteRule from "../src/rules/single-to-per-route";
 // Bind RuleTester runner hooks before any .run(); rule cases must be
 // declared at module top-level under bun:test (it doesn't allow new
 // test() registrations from inside a running test() callback).
+// See .standards/testing.md § 2 for why RuleTester files use
+// describe-level JSDoc instead of per-test JSDoc.
 (
   RuleTester as unknown as { describe: typeof describe; it: typeof test }
 ).describe = describe;
@@ -18,6 +20,11 @@ const ruleTester = new RuleTester({
   },
 });
 
+/**
+ * @case single-to-per-route rule: one .to() per route segment passes; multiple .to() calls in the same segment are flagged
+ * @preconditions craft() chains with varying .to() counts per route segment
+ * @expectedResult Valid cases produce no errors; each invalid case produces exactly one multipleToPerRoute error
+ */
 ruleTester.run("single-to-per-route", singleToPerRouteRule, {
   valid: [
     {

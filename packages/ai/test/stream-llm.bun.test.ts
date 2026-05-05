@@ -1,15 +1,22 @@
-import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
+import {
+  describe,
+  test,
+  expect,
+  mock,
+  spyOn,
+  beforeEach,
+  afterEach,
+} from "bun:test";
 import { logger as frameworkLogger } from "@routecraft/routecraft";
 
-// Mock the Vercel AI SDK so the real `streamLlm` (not its
-// re-implementation in agent-streaming.test.ts) is exercised end to
-// end. The mock provides a minimal `streamText` whose `fullStream`
-// yields a controlled sequence and whose consolidation accessors
-// resolve as Promises. Two text-deltas plus a coarse `finish` part
-// (which is now filtered out by `normalizeStreamDelta`); the test
-// asserts that only the deltas drive `onDelta` invocations.
-vi.mock("ai", () => ({
-  streamText: vi.fn(() => ({
+// Mock the Vercel AI SDK so the real `streamLlm` (not its re-implementation
+// in agent-streaming.bun.test.ts) is exercised end to end. The mock provides
+// a minimal `streamText` whose `fullStream` yields a controlled sequence and
+// whose consolidation accessors resolve as Promises. Two text-deltas plus a
+// coarse `finish` part (which is filtered out by `normalizeStreamDelta`); the
+// test asserts that only the deltas drive `onDelta` invocations.
+mock.module("ai", () => ({
+  streamText: mock(() => ({
     fullStream: (async function* () {
       yield { type: "text-delta", text: "o" };
       yield { type: "text-delta", text: "k" };
@@ -24,8 +31,8 @@ vi.mock("ai", () => ({
 
 // Mock the Anthropic provider so resolveLanguageModel doesn't try to
 // load `@ai-sdk/anthropic` from disk during the test.
-vi.mock("@ai-sdk/anthropic", () => ({
-  createAnthropic: vi.fn(
+mock.module("@ai-sdk/anthropic", () => ({
+  createAnthropic: mock(
     () =>
       function model() {
         return { doGenerate: () => null, doStream: () => null };
@@ -36,10 +43,10 @@ vi.mock("@ai-sdk/anthropic", () => ({
 import { streamLlm } from "../src/llm/providers/index.ts";
 
 describe("streamLlm: production listener-error containment", () => {
-  let warnSpy: ReturnType<typeof vi.spyOn>;
+  let warnSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
-    warnSpy = vi.spyOn(frameworkLogger, "warn").mockImplementation(() => {});
+    warnSpy = spyOn(frameworkLogger, "warn").mockImplementation(() => {});
   });
 
   afterEach(() => {

@@ -1,10 +1,11 @@
-import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
+import FakeTimers from "@sinonjs/fake-timers";
 import { StdioClientManager } from "../src/mcp/stdio-client-manager.ts";
 
-// Mock the MCP SDK dynamic imports
-const mockConnect = vi.fn().mockResolvedValue(undefined);
-const mockClose = vi.fn().mockResolvedValue(undefined);
-const mockListTools = vi.fn().mockResolvedValue({
+// Mock MCP SDK dynamic imports before any import that triggers them.
+const mockConnect = mock().mockResolvedValue(undefined);
+const mockClose = mock().mockResolvedValue(undefined);
+const mockListTools = mock().mockResolvedValue({
   tools: [
     {
       name: "test-tool",
@@ -13,7 +14,7 @@ const mockListTools = vi.fn().mockResolvedValue({
     },
   ],
 });
-const mockCallTool = vi.fn().mockResolvedValue({
+const mockCallTool = mock().mockResolvedValue({
   content: [{ type: "text", text: "result" }],
 });
 
@@ -22,8 +23,8 @@ let capturedOnerror: ((error: Error) => void) | undefined;
 let capturedListChangedConfig: Record<string, unknown> | undefined;
 
 class MockTransportImpl {
-  stderr = { on: vi.fn() };
-  close = vi.fn().mockResolvedValue(undefined);
+  stderr = { on: mock() };
+  close = mock().mockResolvedValue(undefined);
 
   set onclose(fn: (() => void) | undefined) {
     capturedOnclose = fn;
@@ -39,11 +40,11 @@ class MockTransportImpl {
   }
 }
 
-const MockTransport = vi.fn().mockImplementation(function () {
+const MockTransport = mock().mockImplementation(function () {
   return new MockTransportImpl();
 });
 
-const MockClient = vi.fn().mockImplementation(function (
+const MockClient = mock().mockImplementation(function (
   _info: unknown,
   options?: Record<string, unknown>,
 ) {
@@ -58,20 +59,20 @@ const MockClient = vi.fn().mockImplementation(function (
   };
 });
 
-vi.mock("@modelcontextprotocol/sdk/client/index.js", () => ({
+mock.module("@modelcontextprotocol/sdk/client/index.js", () => ({
   Client: MockClient,
 }));
 
-vi.mock("@modelcontextprotocol/sdk/client/stdio.js", () => ({
+mock.module("@modelcontextprotocol/sdk/client/stdio.js", () => ({
   StdioClientTransport: MockTransport,
 }));
 
 function createLogger() {
   return {
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
+    info: mock(),
+    warn: mock(),
+    error: mock(),
+    debug: mock(),
   };
 }
 
@@ -79,8 +80,8 @@ function createManager(
   overrides: Partial<ConstructorParameters<typeof StdioClientManager>[0]> = {},
 ) {
   const logger = createLogger();
-  const onEvent = vi.fn();
-  const onToolsUpdated = vi.fn();
+  const onEvent = mock();
+  const onToolsUpdated = mock();
 
   const manager = new StdioClientManager(
     {
@@ -100,23 +101,46 @@ function createManager(
   return { manager, logger, onEvent, onToolsUpdated };
 }
 
+let clock: ReturnType<typeof FakeTimers.install> | undefined;
+
 describe("StdioClientManager", () => {
   beforeEach(() => {
-    vi.useFakeTimers();
-    vi.clearAllMocks();
+    clock = FakeTimers.install({
+      shouldAdvanceTime: false,
+      toFake: ["setTimeout", "setInterval", "Date", "setImmediate"],
+    });
+    mock.restore();
+    mockConnect.mockResolvedValue(undefined);
+    mockClose.mockResolvedValue(undefined);
+    mockListTools.mockResolvedValue({
+      tools: [
+        {
+          name: "test-tool",
+          description: "A test tool",
+          inputSchema: {
+            type: "object",
+            properties: { q: { type: "string" } },
+          },
+        },
+      ],
+    });
+    mockCallTool.mockResolvedValue({
+      content: [{ type: "text", text: "result" }],
+    });
     capturedOnclose = undefined;
     capturedOnerror = undefined;
     capturedListChangedConfig = undefined;
   });
 
   afterEach(() => {
-    vi.useRealTimers();
+    clock?.uninstall();
+    clock = undefined;
   });
 
   /**
    * @case Start creates transport and client, connects, and lists tools
    * @preconditions Manager created with valid options
-   * @expectedResult SDK Client.connect and Client.listTools called
+   * @expectedResult SDK Client.connect and Client.listTools called; manager is running with one tool
    */
   test("start creates transport+client, connects, and lists tools", async () => {
     const { manager, onEvent, onToolsUpdated } = createManager();
@@ -157,7 +181,7 @@ describe("StdioClientManager", () => {
   /**
    * @case Stop gracefully closes client and transport
    * @preconditions Manager started
-   * @expectedResult client.close() and transport.close() called, isRunning false
+   * @expectedResult client.close() called, isRunning false, stopped event emitted
    */
   test("stop gracefully closes client and transport", async () => {
     const { manager, onEvent } = createManager();
@@ -175,13 +199,12 @@ describe("StdioClientManager", () => {
   /**
    * @case Auto-restart on unexpected disconnect
    * @preconditions Manager started, then transport.onclose fires
-   * @expectedResult Restart scheduled with delay, then reconnects
+   * @expectedResult Restart scheduled with delay, then reconnects; restarted event emitted
    */
   test("auto-restart on unexpected disconnect", async () => {
     const { manager, onEvent } = createManager();
     await manager.start();
 
-    // Simulate unexpected disconnect
     capturedOnclose?.();
 
     expect(manager.isRunning()).toBe(false);
@@ -190,10 +213,8 @@ describe("StdioClientManager", () => {
       expect.objectContaining({ reason: "unexpected" }),
     );
 
-    // Fast-forward past the restart delay (100ms)
-    await vi.advanceTimersByTimeAsync(100);
+    await clock!.tickAsync(100);
 
-    // Should have restarted
     expect(mockConnect).toHaveBeenCalledTimes(2);
     expect(manager.isRunning()).toBe(true);
     expect(onEvent).toHaveBeenCalledWith(
@@ -206,11 +227,10 @@ describe("StdioClientManager", () => {
 
   /**
    * @case Exponential backoff on successive restarts
-   * @preconditions Manager restarts multiple times
-   * @expectedResult Delays increase: 100, 200, 400ms
+   * @preconditions Manager restarts multiple times; connect fails on restarts 2 and 3
+   * @expectedResult Delays increase: 100ms, 200ms, 400ms before successful reconnect
    */
   test("exponential backoff on successive restarts", async () => {
-    // Make start fail after first success to trigger repeated restarts
     let startCount = 0;
     mockConnect.mockImplementation(() => {
       startCount++;
@@ -223,33 +243,28 @@ describe("StdioClientManager", () => {
     const { manager, onEvent } = createManager();
     await manager.start();
 
-    // Simulate disconnect
     capturedOnclose?.();
 
-    // First restart at 100ms - will fail
-    await vi.advanceTimersByTimeAsync(100);
+    await clock!.tickAsync(100);
     expect(onEvent).toHaveBeenCalledWith(
       "plugin:mcp:client:test-server:error",
       expect.objectContaining({ serverId: "test-server" }),
     );
 
-    // Second restart at 200ms (100 * 2^1) - will fail
-    await vi.advanceTimersByTimeAsync(200);
+    await clock!.tickAsync(200);
     expect(mockConnect).toHaveBeenCalledTimes(3);
 
-    // Third restart at 400ms (100 * 2^2) - will succeed
     mockConnect.mockResolvedValue(undefined);
-    await vi.advanceTimersByTimeAsync(400);
+    await clock!.tickAsync(400);
     expect(mockConnect).toHaveBeenCalledTimes(4);
 
     await manager.stop();
-    mockConnect.mockResolvedValue(undefined);
   });
 
   /**
    * @case Max restarts exceeded emits error and stops retrying
-   * @preconditions maxRestarts set to 1, two disconnects occur
-   * @expectedResult Error event emitted, no more restart attempts
+   * @preconditions maxRestarts set to 1; connect fails on all restart attempts
+   * @expectedResult Error event emitted with Max restarts message; no further reconnect
    */
   test("max restarts exceeded emits error and stops retrying", async () => {
     mockConnect.mockImplementation(() => {
@@ -262,12 +277,9 @@ describe("StdioClientManager", () => {
     const { manager, onEvent } = createManager({ maxRestarts: 1 });
     await manager.start();
 
-    // First disconnect
     capturedOnclose?.();
-    await vi.advanceTimersByTimeAsync(100);
+    await clock!.tickAsync(100);
 
-    // Restart failed, handleDisconnect called again with restartCount=1 >= maxRestarts=1
-    // Should get max restarts error
     expect(onEvent).toHaveBeenCalledWith(
       "plugin:mcp:client:test-server:error",
       expect.objectContaining({
@@ -303,7 +315,7 @@ describe("StdioClientManager", () => {
   /**
    * @case callTool throws when not running
    * @preconditions Manager not started
-   * @expectedResult Throws error about not running
+   * @expectedResult Throws error matching /not running/
    */
   test("callTool throws when not running", async () => {
     const { manager } = createManager();
@@ -314,8 +326,8 @@ describe("StdioClientManager", () => {
 
   /**
    * @case Stop cancels pending restart timer
-   * @preconditions Manager disconnected, restart pending
-   * @expectedResult After stop, no restart occurs
+   * @preconditions Manager disconnected, restart pending in queue
+   * @expectedResult After stop, no additional connect calls fired after delay
    */
   test("stop cancels pending restart timer", async () => {
     const { manager } = createManager();
@@ -323,23 +335,18 @@ describe("StdioClientManager", () => {
 
     const connectCallsBefore = mockConnect.mock.calls.length;
 
-    // Trigger disconnect (schedules restart)
     capturedOnclose?.();
-
-    // Stop before restart fires
     await manager.stop();
 
-    // Advance past restart delay
-    await vi.advanceTimersByTimeAsync(200);
+    await clock!.tickAsync(200);
 
-    // No additional connect calls
     expect(mockConnect.mock.calls.length).toBe(connectCallsBefore);
   });
 
   /**
    * @case transport.onerror emits error event
    * @preconditions Manager started, transport error occurs
-   * @expectedResult Error event emitted
+   * @expectedResult Error event emitted with the transport error
    */
   test("transport.onerror emits error event", async () => {
     const { manager, onEvent } = createManager();
@@ -358,7 +365,7 @@ describe("StdioClientManager", () => {
 
   /**
    * @case start with env and cwd passes them to transport
-   * @preconditions Manager created with env and cwd
+   * @preconditions Manager created with env and cwd overrides
    * @expectedResult StdioClientTransport receives env and cwd
    */
   test("start passes env and cwd to transport", async () => {
@@ -379,9 +386,9 @@ describe("StdioClientManager", () => {
   });
 
   /**
-   * @case listChanged.tools.onChanged is configured
+   * @case listChanged.tools.onChanged is configured on client creation
    * @preconditions Manager started
-   * @expectedResult Client created with listChanged config
+   * @expectedResult Client constructed with listChanged config present
    */
   test("configures listChanged.tools.onChanged on client", async () => {
     const { manager } = createManager();
@@ -398,12 +405,12 @@ describe("StdioClientManager", () => {
   /**
    * @case Idempotent start (calling start twice does nothing)
    * @preconditions Manager already running
-   * @expectedResult Second start is no-op
+   * @expectedResult Second start is a no-op; connect called exactly once
    */
   test("start is idempotent when already running", async () => {
     const { manager } = createManager();
     await manager.start();
-    await manager.start(); // should be no-op
+    await manager.start();
 
     expect(mockConnect).toHaveBeenCalledTimes(1);
 

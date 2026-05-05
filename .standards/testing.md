@@ -26,16 +26,17 @@ bun run test:vitest    # vitest files only (`*.test.{ts,tsx}` excluding `*.bun.t
 
 Default to `bun:test`. Stay on vitest only when the test hits a known bun:test gap:
 
-| Reason | Status |
+| Reason | Workaround / Status |
 |---|---|
-| Fake timers (`vi.useFakeTimers`, `advanceTimersByTime`) | Bun 1.3.11's `node:test` `mock.timers` is documented but not implemented. Re-migrate when Bun ships it. |
+| Fake timers (`vi.useFakeTimers`, `advanceTimersByTime`) | Bun 1.3.11's `mock.timers` is not yet implemented. Use `@sinonjs/fake-timers` directly -- the same library vitest wraps. Install as a devDependency and call `FakeTimers.install(...)` in `beforeEach`. Re-migrate if Bun ships native fake timers. |
 | `vi.hoisted` / `vi.importActual` complex module mocks | Different hoisting semantics; per-file workaround needed. |
 | `toMatchObject` followed by access to matched fields | Bun:test mutates the actual object, replacing matched fields with matcher refs. Use a shallow-copy match or restructure the test. |
-| ink-testing-library renderers | Output diffs under bun:test. Investigate later. |
-| ESLint `RuleTester` | Compatibility surface to investigate. |
 | `jose` remote JWKS over real HTTP | `fetchImpl` resolves differently under Bun. Investigate later. |
+| MCP stdio subprocess / stream tests | Spawns real child processes; migration deferred. |
 
-When migrating a vitest file: rename `.test.ts` → `.bun.test.ts`, swap `from "vitest"` → `from "bun:test"`, replace `vi.fn` → `mock`, `vi.spyOn` → `spyOn`, `vi.mock` → `mock.module`, `vi.restoreAllMocks` → `mock.restore`. Run `bun test bun.test` to verify.
+Ink-testing-library renderers and ESLint `RuleTester` both work under bun:test with the binding pattern shown in `packages/eslint-plugin-routecraft/test/*.bun.test.ts`. They are no longer blockers.
+
+When migrating a vitest file: rename `.test.ts` → `.bun.test.ts`, swap `from "vitest"` → `from "bun:test"`, replace `vi.fn` → `mock`, `vi.spyOn` → `spyOn`, `vi.mock` → `mock.module`, `vi.restoreAllMocks` → `mock.restore`. Run `bun run test:bun` to verify.
 
 When a migrated file hits a gap, revert it (`mv foo.bun.test.ts foo.test.ts` and restore the vitest imports). Add a row to the table above so the next contributor knows why.
 
@@ -61,6 +62,8 @@ test("single resolved tool builds a Vercel tool that runs the handler", async ()
 | `@expectedResult` | The observable outcome the assertions check. |
 
 The `test(...)` string itself is the searchable label. Keep it short and declarative; the JSDoc carries the explanation.
+
+**Exception -- ESLint `RuleTester` files.** RuleTester registers its own `describe`/`test` blocks by calling the bound runner hooks synchronously when `.run(...)` executes. Because bun:test does not allow new test registrations from inside a running `test()` callback, `.run(...)` must be called at module top-level -- wrapping it in a `test()` would cause registration-after-execution errors. For these files, place a single JSDoc block immediately above the `ruleTester.run(...)` call (not inside any `test()`) covering all cases in that run. The three required tags still apply; `@case` describes the full rule surface, `@preconditions` describes the input classes exercised, and `@expectedResult` describes what the valid/invalid partition asserts.
 
 ## 3. Test helpers from `@routecraft/testing`
 
@@ -144,9 +147,11 @@ If you reach for a snapshot, prefer inline (`toMatchInlineSnapshot()`) over a se
 
 ## 9. Mocking guidance
 
-- **Mock at the boundary.** Mock `vi.mock("../src/llm/providers/index.ts")` to stub `callLlm` rather than mocking the Vercel AI SDK; the boundary is more stable than the dependency's API.
-- **Mock the SDK only when testing the boundary itself.** E.g. `stream-llm.test.ts` mocks `ai`'s `streamText` to exercise the real `streamLlm` containment behaviour.
+- **Mock at the boundary.** Mock `mock.module("../src/llm/providers/index.ts", ...)` to stub `callLlm` rather than mocking the Vercel AI SDK; the boundary is more stable than the dependency's API.
+- **Mock the SDK only when testing the boundary itself.** E.g. `stream-llm.bun.test.ts` mocks `ai`'s `streamText` to exercise the real `streamLlm` containment behaviour.
 - **Mirror real behaviour in mocks.** If the real code catches listener errors, the mock should too; otherwise the test passes for the wrong reason.
+- **`mock.module()` at module top-level is idiomatic.** In bun:test, `mock.module()` is hoisted like `vi.mock()` and is isolated per file via bun's module registry. Calling it at the top of the file (before the imports that depend on it) is the correct pattern.
+- **Reset mock state between tests with `mockClear()`, not `mock.restore()`.** `mock.restore()` tears down `mock()` and `spyOn()` implementations; use it in `afterAll` for spies on shared singletons. `mock.module()` has no explicit restore -- isolation is per-file.
 
 ## 10. Cross-runtime adapter tests
 

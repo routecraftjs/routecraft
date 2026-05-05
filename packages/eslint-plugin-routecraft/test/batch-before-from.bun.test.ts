@@ -3,10 +3,11 @@ import { RuleTester } from "eslint";
 import batchBeforeFromRule from "../src/rules/batch-before-from";
 
 // ESLint's RuleTester registers describe/it blocks dynamically when
-// `.run(...)` is called. Bun:test does not allow new test
-// registrations from inside a running test() callback, so the
-// `.run(...)` calls must happen at module top-level. Bind RuleTester's
-// runner hooks to bun:test before any registration.
+// `.run(...)` is called. Bun:test does not allow new test registrations
+// from inside a running test() callback, so `.run(...)` must happen at
+// module top-level. Bind RuleTester's runner hooks to bun:test before
+// any registration. See .standards/testing.md § 2 for why RuleTester
+// files use describe-level JSDoc instead of per-test JSDoc.
 (
   RuleTester as unknown as { describe: typeof describe; it: typeof test }
 ).describe = describe;
@@ -20,6 +21,11 @@ const ruleTester = new RuleTester({
   },
 });
 
+/**
+ * @case batch-before-from rule: valid placements pass, post-from placements are flagged
+ * @preconditions craft() chains with batch() at various positions relative to from()
+ * @expectedResult Valid cases produce no errors; invalid cases produce exactly one batchAfterFrom error each
+ */
 ruleTester.run("batch-before-from", batchBeforeFromRule, {
   valid: [
     // batch before from

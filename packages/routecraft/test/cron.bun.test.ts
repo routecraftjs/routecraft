@@ -51,6 +51,10 @@ function mockContext(): CraftContext {
   } as unknown as CraftContext;
 }
 
+/**
+ * Advance the installed fake clock by the given milliseconds in 1s slices so
+ * croner's setTimeout callbacks and async handlers run between steps.
+ */
 async function advanceTime(ms: number, step = 1000) {
   if (!clock) throw new Error("clock not installed");
   const steps = Math.ceil(ms / step);

@@ -3,9 +3,10 @@ import { RuleTester } from "eslint";
 import requireNamedRouteRule from "../src/rules/require-named-route";
 
 // ESLint's RuleTester registers describe/it blocks dynamically when
-// `.run(...)` is called. Bun:test does not allow new test
-// registrations from inside a running test() callback, so the
-// `.run(...)` calls must happen at module top-level.
+// `.run(...)` is called. Bun:test does not allow new test registrations
+// from inside a running test() callback, so `.run(...)` must happen at
+// module top-level. See .standards/testing.md § 2 for why RuleTester
+// files use describe-level JSDoc instead of per-test JSDoc.
 (
   RuleTester as unknown as { describe: typeof describe; it: typeof test }
 ).describe = describe;
@@ -19,6 +20,11 @@ const ruleTester = new RuleTester({
   },
 });
 
+/**
+ * @case require-named-route rule: routes with a static string .id() pass; routes without or with a dynamic id are flagged
+ * @preconditions craft() chains with various id() usages (missing, empty, whitespace, dynamic expression, late placement)
+ * @expectedResult Valid cases produce no errors; each invalid case produces exactly one missingId error
+ */
 ruleTester.run("require-named-route", requireNamedRouteRule, {
   valid: [
     {

@@ -25,7 +25,7 @@
     "test": "bun run test:bun && bun run test:vitest",
     "test:bun": "bun test bun.test",
     "test:vitest": "vitest --run --exclude '**/integration.test.ts' --exclude '**/test/cross-runtime/**' --exclude '**/*.bun.test.ts' --exclude '**/*.bun.test.tsx'",
-    "test:coverage": "bun run test:bun --coverage && bun run test:vitest --coverage",
+    "test:coverage": "bun test bun.test --coverage --coverage-reporter=lcov --coverage-reporter=text --coverage-dir=coverage/bun && bun run test:vitest --coverage",
     "test:integration": "vitest --run 'integration.test.ts'",
     "test:cross-runtime": "vitest run --passWithNoTests test/cross-runtime/",
     "test:cross-runtime:node": "node node_modules/vitest/vitest.mjs run --passWithNoTests test/cross-runtime/",

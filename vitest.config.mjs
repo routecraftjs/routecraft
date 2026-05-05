@@ -5,5 +5,8 @@ export default defineConfig({
     environment: "node",
     projects: ["packages/*", "examples"],
     exclude: configDefaults.exclude,
+    coverage: {
+      reportsDirectory: "coverage/vitest",
+    },
   },
 });
