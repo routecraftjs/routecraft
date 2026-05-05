@@ -16,10 +16,16 @@ const EMBEDDING_DOC_URL =
 
 export type RuntimeGateResult = { ok: true } | { ok: false; message: string };
 
+// Accept `null` (not `undefined`) to express "not running on Bun" so tests can
+// reliably exercise the missing-bun path. JS default-parameter semantics
+// re-apply the default for explicit `undefined`, which would otherwise let
+// `process.versions.bun` leak in when the suite runs under Bun.
 export function checkBunRuntime(
-  bunVersion: string | undefined = process.versions["bun"],
+  bunVersion: string | null = process.versions["bun"] ?? null,
 ): RuntimeGateResult {
-  if (!bunVersion) {
+  const version = bunVersion;
+
+  if (!version) {
     return {
       ok: false,
       message:
@@ -30,7 +36,7 @@ export function checkBunRuntime(
   }
 
   // Strip both prerelease (`-`) and build metadata (`+`) per SemVer.
-  const stripped = bunVersion.split(/[-+]/)[0] ?? "";
+  const stripped = version.split(/[-+]/)[0] ?? "";
   const [majorStr, minorStr, patchStr] = stripped.split(".");
   const major = Number(majorStr);
   const minor = Number(minorStr);
@@ -44,7 +50,7 @@ export function checkBunRuntime(
     return {
       ok: false,
       message:
-        `[routecraft] Could not parse Bun version "${bunVersion}". ` +
+        `[routecraft] Could not parse Bun version "${version}". ` +
         `Routecraft requires Bun ${formatVersion(MIN_BUN_VERSION)} or later. ` +
         `Upgrade Bun: ${INSTALL_URL}.`,
     };
@@ -60,7 +66,7 @@ export function checkBunRuntime(
     return {
       ok: false,
       message:
-        `[routecraft] Bun ${bunVersion} is not supported. ` +
+        `[routecraft] Bun ${version} is not supported. ` +
         `Routecraft requires Bun ${formatVersion(MIN_BUN_VERSION)} or later. ` +
         `Upgrade Bun: ${INSTALL_URL}.`,
     };

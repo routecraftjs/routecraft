@@ -44,11 +44,13 @@ describe("loadOptionalPeer", () => {
 
   /**
    * @case Error preserves cause and brand
-   * @preconditions Loader rejects with an Error
+   * @preconditions Loader rejects with a missing-module error
    * @expectedResult Thrown error is a branded RoutecraftError carrying the original cause
    */
   test("wraps the original error as cause and is brand-detectable", async () => {
-    const cause = new Error("npm install fake-pkg, then retry");
+    const cause = Object.assign(new Error("npm install fake-pkg, then retry"), {
+      code: "ERR_MODULE_NOT_FOUND",
+    });
     let thrown: unknown;
     try {
       await loadOptionalPeer(
@@ -62,5 +64,27 @@ describe("loadOptionalPeer", () => {
     }
     expect(isRoutecraftError(thrown)).toBe(true);
     expect((thrown as Error & { cause?: unknown }).cause).toBeInstanceOf(Error);
+  });
+
+  /**
+   * @case Loader throws an unrelated error (package installed but throws during init)
+   * @preconditions Loader rejects with an Error that has no MODULE_NOT_FOUND code (e.g. ESM/CJS interop bug, native binding crash)
+   * @expectedResult The original error is rethrown unchanged; not rewrapped as RC5017
+   */
+  test("rethrows non-missing errors verbatim", async () => {
+    const cause = new Error("native binding crashed during init");
+    let thrown: unknown;
+    try {
+      await loadOptionalPeer(
+        async () => {
+          throw cause;
+        },
+        { adapterName: "fake", packageName: "fake-pkg" },
+      );
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBe(cause);
+    expect(isRoutecraftError(thrown)).toBe(false);
   });
 });

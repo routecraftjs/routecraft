@@ -310,12 +310,16 @@ describe(`integration (${pm.id}): scaffolded project compiles`, () => {
   integrationTest.concurrent(
     "hello-world project type-checks and dispatches simple -> direct via craft",
     { timeout: 180_000 },
-    async () => {
+    async (ctx) => {
       // pm.start is null for package managers that cannot drive the CLI on
       // their own (the craft bin is Bun-only). The install + typecheck
       // coverage above is enough to keep the scaffolder regression-tested
-      // for those PMs.
-      if (pm.start === null) return;
+      // for those PMs. Use ctx.skip() so the leg shows the test as
+      // skipped rather than passed-without-assertions.
+      if (pm.start === null) {
+        ctx.skip();
+        return;
+      }
       const startCmd = pm.start;
       await withProjectDir(async (projectDir) => {
         await generateProjectStructure(

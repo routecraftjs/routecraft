@@ -4,11 +4,11 @@ import { checkBunRuntime } from "../src/runtime-gate";
 describe("checkBunRuntime", () => {
   /**
    * @case Runtime is Node, not Bun
-   * @preconditions process.versions.bun is undefined
+   * @preconditions Caller passes `null` (the contract for "Bun is not the runtime"); using `null` rather than `undefined` so the default-parameter does not re-apply when the suite runs under Bun
    * @expectedResult Returns ok: false with a message that flags Bun is required and points at the embedding doc
    */
   test("rejects when bun is not the runtime", () => {
-    const result = checkBunRuntime(undefined);
+    const result = checkBunRuntime(null);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.message).toContain("requires Bun");

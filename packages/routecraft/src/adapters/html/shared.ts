@@ -5,6 +5,12 @@ import { loadOptionalPeer } from "../shared/optional-peer.ts";
 // re-pay the dynamic-import lookup or re-allocate the loadOptionalPeer
 // closures. The promise is shared across all callers, so the import
 // happens at most once per process.
+//
+// A rejected promise is intentionally cached too: if cheerio is genuinely
+// missing it cannot appear mid-process, so retrying would reproduce the
+// same RC5017 with the same install hint. Caching the rejection avoids
+// log noise from repeated dynamic-import failures across every html()
+// call on a route that fires many times.
 let cheerioPromise: Promise<typeof import("cheerio")> | null = null;
 function getCheerio(): Promise<typeof import("cheerio")> {
   cheerioPromise ??= loadOptionalPeer(() => import("cheerio"), {
