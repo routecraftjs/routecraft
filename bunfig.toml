@@ -1,0 +1,7 @@
+# Use the isolated linker (pnpm-style strict isolation) so workspaces with
+# different versions of the same package -- e.g. @types/react@18 in the CLI
+# package (via `ink`) vs @types/react@19 in apps/routecraft.dev (Next.js 15)
+# -- do not collide on a hoisted node_modules. Mirrors what pnpm did before
+# the migration.
+[install]
+linker = "isolated"

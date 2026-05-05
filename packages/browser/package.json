@@ -19,7 +19,7 @@
   "scripts": {
     "build": "tsup src/index.ts --format esm,cjs --dts",
     "test": "vitest",
-    "prepublishOnly": "pnpm run build"
+    "prepublishOnly": "bun run build"
   },
   "dependencies": {
     "@routecraft/routecraft": "workspace:^0.5.0"

@@ -7,7 +7,7 @@
  * it under plain Node (no CLI). Asserts the expected log line appears in
  * stdout and the process exits 0.
  *
- * Run from repo root after `pnpm run version:set` and `pnpm build`. Uses only
+ * Run from repo root after `bun run version:set` and `bun run build`. Uses only
  * npm and node so behaviour matches a real Node user embedding Routecraft in
  * their own application.
  *
