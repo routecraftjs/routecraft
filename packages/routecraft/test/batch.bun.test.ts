@@ -5,7 +5,7 @@ import { CraftContext } from "../src/context.ts";
 import { InMemoryProcessingQueue } from "../src/queue.ts";
 import type { Exchange } from "../src/exchange.ts";
 import type { RouteDefinition } from "../src/route.ts";
-import type { Message } from "../src/types.ts";
+import type { EventName, Message } from "../src/types.ts";
 
 function createRouteDefinition(id: string): RouteDefinition {
   return {
@@ -273,5 +273,46 @@ describe("BatchConsumer", () => {
     // One merged invocation; last-wins on the principal header.
     expect(calls).toHaveLength(1);
     expect(calls[0].principal).toEqual(principalB);
+  });
+
+  /**
+   * @case batch:stopped is emitted when the route stopping signal fires
+   * @preconditions BatchConsumer registered; route:stopping emitted for the same route id
+   * @expectedResult batch:stopped event fires with routeId and batchId
+   */
+  test("emits batch:stopped when route:stopping fires for the same route", async () => {
+    const routeId = "batched-stopped-route";
+    const ctx = new CraftContext();
+    const queue = new InMemoryProcessingQueue<Message>();
+    const consumer = new BatchConsumer(
+      ctx,
+      createRouteDefinition(routeId),
+      queue,
+      { size: 10, time: 50 },
+    );
+
+    const stopped: unknown[] = [];
+    ctx.on(`route:${routeId}:batch:stopped` as EventName, ({ details }) => {
+      stopped.push(details);
+    });
+
+    await consumer.register(async (message) => {
+      return {
+        id: "exchange-id",
+        body: message,
+        headers: {},
+        logger: ctx.logger,
+      } as Exchange;
+    });
+
+    ctx.emit(
+      `route:${routeId}:stopping` as EventName,
+      {
+        route: { definition: { id: routeId } },
+      } as never,
+    );
+
+    expect(stopped).toHaveLength(1);
+    expect(stopped[0]).toMatchObject({ routeId });
   });
 });
