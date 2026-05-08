@@ -812,6 +812,15 @@ export class McpServer {
         }
         this.httpSessions.clear();
 
+        // Force-close any lingering connections (e.g. SSE streams that keep
+        // the socket open indefinitely). closeAllConnections() is available
+        // in Node 18.2+ and Bun; without it, server.close() would hang
+        // forever waiting for long-lived SSE connections to drain.
+        const srv = this.httpServer as unknown as Record<string, unknown>;
+        if (typeof srv["closeAllConnections"] === "function") {
+          (srv["closeAllConnections"] as () => void)();
+        }
+
         await new Promise<void>((resolve) => {
           this.httpServer!.close(() => resolve());
         });

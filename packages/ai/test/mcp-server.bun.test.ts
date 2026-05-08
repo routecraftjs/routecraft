@@ -849,10 +849,7 @@ describe("McpServer", () => {
        *                dynamically wired plugin or `as any` escape hatch in user code)
        * @expectedResult HTTP 401 response; auth:rejected event emitted with reason "missing_expires_at"
        */
-      // Skip: bun 1.3.11 + MCP SSE transport leaves the response stream open even
-      // for 401 rejections, so r.on("end") never fires and afterEach times out.
-      // The runtime guard is exercised by server-unit tests. Re-enable once resolved.
-      test.skip("rejects principal without expiresAt and emits auth:rejected", async () => {
+      test("rejects principal without expiresAt and emits auth:rejected", async () => {
         const { oauth } = await import("../src/mcp/oauth.ts");
 
         const rejections: Array<Record<string, unknown>> = [];
@@ -898,12 +895,14 @@ describe("McpServer", () => {
         await server.start();
         const port = server.getHttpPort()!;
 
-        // Use Accept: application/json (not text/event-stream) so the server
-        // sends a plain JSON error response and closes the connection. An SSE
-        // Accept causes the MCP transport to keep the response stream open even
-        // for 401 rejections, making r.on("end") never fire.
+        // Resolve as soon as response headers arrive -- the statusCode is
+        // available immediately, and we don't need the body. Destroy the
+        // socket right after to close the connection on both sides; otherwise
+        // the MCP SSE transport holds the connection open and server.stop()
+        // blocks waiting for all connections to drain.
         const res = await new Promise<{ statusCode: number }>(
           (resolve, reject) => {
+            let resolved = false;
             const req = http.request(
               {
                 host: "127.0.0.1",
@@ -918,15 +917,15 @@ describe("McpServer", () => {
                 },
               },
               (r) => {
-                let body = "";
-                r.on("data", (chunk) => (body += chunk));
-                r.on("end", () => {
-                  r.socket?.destroy();
-                  resolve({ statusCode: r.statusCode ?? 0 });
-                });
+                resolved = true;
+                resolve({ statusCode: r.statusCode ?? 0 });
+                r.resume();
+                r.socket?.destroy();
               },
             );
-            req.on("error", reject);
+            req.on("error", (err) => {
+              if (!resolved) reject(err);
+            });
             req.write(
               JSON.stringify({
                 jsonrpc: "2.0",
