@@ -66,6 +66,7 @@ async function advanceTime(ms: number, step = 1000) {
 describe("CronSourceAdapter", () => {
   beforeEach(() => {
     clock = FakeTimers.install({
+      now: new Date("2026-01-01T00:00:00.000Z"),
       shouldAdvanceTime: false,
       toFake: ["setTimeout", "setInterval", "Date", "setImmediate"],
     });

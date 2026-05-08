@@ -1,4 +1,5 @@
-import { describe, it, expect, afterEach, mock } from "bun:test";
+import { describe, it, expect, afterEach } from "bun:test";
+import type { Mock } from "bun:test";
 import { mcp } from "@routecraft/ai";
 import {
   mockAdapter,
@@ -39,7 +40,7 @@ describe("mcp-greet", () => {
     expect(mcpMock.calls.source[0].yielded).toBe(1);
 
     // The tap(log()) in the route logs the payload before transform.
-    const infoSpy = t.logger.info as ReturnType<typeof mock>;
+    const infoSpy = t.logger.info as Mock<(...args: unknown[]) => void>;
     const tapLog = infoSpy.mock.calls.find((c) => c[1] === "LogAdapter output");
     expect(tapLog).toBeDefined();
     expect((tapLog![0] as { body: { user: string } }).body.user).toBe("Ada");
