@@ -402,18 +402,8 @@ describe("Events API", () => {
     expect(events.filter((e) => e.includes("context")).length).toBe(0);
   });
 
-  /**
-   * @case batch:stopped is emitted when route with batch consumer stops
-   * @preconditions Route with batch consumer
-   * @expectedResult batch:stopped event fires when route stops
-   *
-   * NOTE: This test is manually verified via integration tests. The batch:stopped event
-   * is correctly emitted in batch.ts when route:stopping is fired. Automated testing is
-   * challenging due to test context lifecycle timing.
-   */
-  test.skip("emits batch:stopped when batch consumer route stops", async () => {
-    // Implementation verified in batch.ts - event emitted when route:stopping fires
-  });
+  // batch:stopped is covered by the BatchConsumer unit test in batch.bun.test.ts,
+  // which emits route:stopping directly to avoid integration lifecycle races.
 
   /**
    * @case once via builder fires exactly once
