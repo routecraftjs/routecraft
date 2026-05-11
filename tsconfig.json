@@ -46,12 +46,16 @@
     "examples/src/**/*"
   ],
   "exclude": [
+    "**/*.bun.test.ts",
+    "**/*.bun.test.tsx",
     "packages/ai/test/agent.test.ts",
     "packages/ai/test/embedding.test.ts",
     "packages/ai/test/llm.test.ts",
     "packages/ai/test/mcp-server.test.ts",
+    "packages/ai/test/stdio-client-manager.test.ts",
+    "packages/ai/test/stream-llm.test.ts",
     "packages/ai/test/mcp.test.ts",
-    "packages/routecraft/test/browser.test.ts",
+    "packages/browser/test/browser.test.ts",
     "packages/routecraft/test/direct-validation.test.ts",
     "packages/routecraft/test/group.test.ts",
     "packages/routecraft/test/plugin.test.ts",

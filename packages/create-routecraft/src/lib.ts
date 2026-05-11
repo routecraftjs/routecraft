@@ -426,7 +426,6 @@ export async function generateProjectStructure(
     "craft.config.ts": "craft.config.ts",
     "eslint.config.mjs": "eslint.config.mjs",
     "tsconfig.json": "tsconfig.json",
-    "vitest.config.ts": "vitest.config.ts",
   };
 
   const routecraftVersion = getRoutecraftVersion();

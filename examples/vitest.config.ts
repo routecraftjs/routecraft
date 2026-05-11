@@ -1,5 +1,5 @@
 import dotenv from "dotenv";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 import tsconfigPaths from "vite-tsconfig-paths";
 
 // Test env comes from `.env.example`: contributors already copy it to
@@ -41,5 +41,10 @@ export default defineConfig({
       provider: "v8",
       reporter: ["lcov", "text"],
     },
+    exclude: [
+      ...configDefaults.exclude,
+      "**/*.bun.test.ts",
+      "**/*.bun.test.tsx",
+    ],
   },
 });

@@ -6,7 +6,12 @@ export default defineConfig({
       provider: "v8",
       reporter: ["lcov", "text"],
     },
-    exclude: [...configDefaults.exclude, "**/templates/**"],
+    exclude: [
+      ...configDefaults.exclude,
+      "**/templates/**",
+      "**/*.bun.test.ts",
+      "**/*.bun.test.tsx",
+    ],
     environment: "node",
   },
 });

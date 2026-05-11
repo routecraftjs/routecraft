@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig({
   resolve: {
@@ -19,5 +19,10 @@ export default defineConfig({
       reporter: ["lcov", "text"],
     },
     environment: "node",
+    exclude: [
+      ...configDefaults.exclude,
+      "**/*.bun.test.ts",
+      "**/*.bun.test.tsx",
+    ],
   },
 });

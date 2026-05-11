@@ -1,0 +1,188 @@
+import {
+  describe,
+  test,
+  expect,
+  spyOn,
+  beforeAll,
+  beforeEach,
+  afterAll,
+  afterEach,
+} from "bun:test";
+import { writeFile, mkdir, rm } from "node:fs/promises";
+import { join } from "node:path";
+
+// Silence logger output. Bun:test has no `importActual`/spread-and-override
+// equivalent for `mock.module`, so spy on the live `logger` singleton
+// directly. Pino-style loggers are mutable. Spies are installed once and
+// restored after all tests so the singleton is clean for other test files.
+const { logger } = await import("@routecraft/routecraft");
+const runModule = await import("../src/run");
+
+describe("CLI run command", () => {
+  let cwd: string;
+  let dir: string;
+
+  let spies: Array<{ mockRestore: () => void }> = [];
+
+  beforeAll(() => {
+    spies = [
+      spyOn(logger, "info").mockImplementation(() => {}),
+      spyOn(logger, "error").mockImplementation(() => {}),
+      spyOn(logger, "debug").mockImplementation(() => {}),
+      spyOn(logger, "warn").mockImplementation(() => {}),
+    ];
+  });
+
+  afterAll(() => {
+    for (const s of spies) s.mockRestore();
+    spies = [];
+  });
+
+  beforeEach(async () => {
+    cwd = process.cwd();
+    // Use a dir inside the package so that dynamic imports of temp files can
+    // resolve workspace packages by climbing up to the root node_modules.
+    dir = join(import.meta.dir, `tmp-${Date.now()}`);
+    await mkdir(dir, { recursive: true });
+    process.chdir(dir);
+  });
+
+  afterEach(async () => {
+    process.chdir(cwd);
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  /**
+   * @case Verifies that unsupported file extensions are rejected
+   * @preconditions A file with unsupported extension (.py)
+   * @expectedResult runCommand should return failure with appropriate message
+   */
+  test("rejects unsupported extension", async () => {
+    const { runCommand } = runModule;
+    const res = await runCommand("file.py");
+    expect(res.success).toBe(false);
+    if (res.success === false) {
+      expect(res.message).toContain("file types are supported");
+    }
+  });
+
+  /**
+   * @case Verifies that supported file extensions are accepted
+   * @preconditions Files with supported extensions (.js, .mjs, .cjs, .ts) containing valid in-memory routes
+   * @expectedResult runCommand succeeds for each extension
+   */
+  test("accepts supported extensions", async () => {
+    const files = ["a.js", "b.mjs", "c.cjs", "d.ts"];
+    for (const f of files) {
+      await writeFile(
+        f,
+        `
+        import { craft, simple, log } from "@routecraft/routecraft";
+        export default craft().id("x").from(simple("y")).to(log());
+      `,
+      );
+      const { runCommand } = runModule;
+      const res = await runCommand(f);
+      expect(res.success).toBe(true);
+    }
+  });
+
+  /**
+   * @case Verifies that files without default export fail gracefully
+   * @preconditions A file with no default export
+   * @expectedResult runCommand should return failure indicating missing default export
+   */
+  test("missing default export fails", async () => {
+    await writeFile("no-default.js", "export const x = 1;");
+    const { runCommand } = runModule;
+    const res = await runCommand("no-default.js");
+    expect(res.success).toBe(false);
+    if (res.success === false) {
+      expect(res.message).toContain("No default export found");
+    }
+  });
+
+  /**
+   * @case Verifies that files with invalid default export fail gracefully
+   * @preconditions A file with invalid default export (string instead of route)
+   * @expectedResult runCommand should return failure indicating invalid default export
+   */
+  test("invalid default export fails", async () => {
+    await writeFile("invalid.js", 'export default "nope";');
+    const { runCommand } = runModule;
+    const res = await runCommand("invalid.js");
+    expect(res.success).toBe(false);
+    if (res.success === false) {
+      expect(res.message).toContain("Invalid default export");
+    }
+  });
+
+  /**
+   * @case Verifies that craftConfig named export is properly detected and processed
+   * @preconditions A file with both craftConfig named export and valid default route export
+   * @expectedResult runCommand succeeds and processes both exports
+   */
+  test("craftConfig named export is detected", async () => {
+    await writeFile(
+      "with-config.js",
+      `
+      import { craft, simple, log } from "@routecraft/routecraft";
+      export const craftConfig = { };
+      export default craft().id("x").from(simple("y")).to(log());
+    `,
+    );
+    const { runCommand } = runModule;
+    const res = await runCommand("with-config.js");
+    expect(res.success).toBe(true);
+  });
+
+  /**
+   * @case Verifies that RouteBuilder instances are correctly distinguished from RouteDefinitions
+   * @preconditions A file exporting a RouteBuilder instance (with .id() method)
+   * @expectedResult runCommand succeeds, recognizing the RouteBuilder and calling .build()
+   */
+  test("RouteBuilder with .id() method is correctly identified", async () => {
+    await writeFile(
+      "route-builder.js",
+      `
+      import { craft, simple, log } from "@routecraft/routecraft";
+      export default craft().id("test-route").from(simple("test")).to(log());
+    `,
+    );
+    const { runCommand } = runModule;
+    const res = await runCommand("route-builder.js");
+    expect(res.success).toBe(true);
+  });
+
+  /**
+   * @case Verifies that arrays of RouteBuilders are correctly processed
+   * @preconditions A file exporting an array of RouteBuilder instances
+   * @expectedResult runCommand succeeds, recognizing all RouteBuilders and processing them
+   */
+  test("array of RouteBuilders is correctly identified", async () => {
+    await writeFile(
+      "route-builder-array.js",
+      `
+      import { craft, simple, log } from "@routecraft/routecraft";
+      const route1 = craft().id("route-1").from(simple("test1")).to(log());
+      const route2 = craft().id("route-2").from(simple("test2")).to(log());
+      export default [route1, route2];
+    `,
+    );
+    const { runCommand } = runModule;
+    const res = await runCommand("route-builder-array.js");
+    expect(res.success).toBe(true);
+  });
+
+  // Runtime execution of .ts files relies on Node's type stripping (22.6+ flag, 23.6+ default).
+  // The re-exec logic lives in index.ts. run.ts only validates the extension.
+
+  /**
+   * Manual test for "two-copy" duck-typing (different CLI vs route package):
+   * 1. From repo root: bun run build
+   * 2. Run: npx @routecraft/cli@canary run examples/index.mjs
+   * The CLI uses its own @routecraft/routecraft; the loaded file resolves to the
+   * workspace package, so RouteBuilder is from a different copy. With duck-typing
+   * the server should start; without it you get "Route definition failed validation: id(e){return..."
+   */
+});

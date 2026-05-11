@@ -28,6 +28,8 @@
     "ai": "^6.0.174"
   },
   "devDependencies": {
+    "@sinonjs/fake-timers": "^11.3.1",
+    "@types/sinonjs__fake-timers": "^15.0.1",
     "@ai-sdk/anthropic": "^3.0.74",
     "@ai-sdk/google": "^3.0.67",
     "@ai-sdk/openai": "^3.0.58",

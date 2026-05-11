@@ -1,0 +1,556 @@
+import {
+  describe,
+  test,
+  expect,
+  mock,
+  spyOn,
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+} from "bun:test";
+import FakeTimers from "@sinonjs/fake-timers";
+import { Cron } from "croner";
+import { cron } from "../src/index.ts";
+import { CronSourceAdapter } from "../src/adapters/cron/index.ts";
+import {
+  HeadersKeys,
+  type Exchange,
+  type ExchangeHeaders,
+} from "../src/exchange.ts";
+import { CraftContext } from "../src/context.ts";
+
+// Bun:test 1.3.11 does not implement `node:test`'s `mock.timers` (the
+// docs page exists but the API is missing). Use `@sinonjs/fake-timers`
+// directly -- the same library Vitest wraps for `vi.useFakeTimers`.
+let clock: ReturnType<typeof FakeTimers.install> | undefined;
+
+// Substitute the lazy croner loader with a sync resolver so the dynamic
+// import doesn't lean on the now-mocked timers.
+const ORIGINAL_LOAD_DRIVER = CronSourceAdapter.loadDriver;
+beforeAll(() => {
+  CronSourceAdapter.loadDriver = () => Promise.resolve(Cron);
+});
+afterAll(() => {
+  CronSourceAdapter.loadDriver = ORIGINAL_LOAD_DRIVER;
+});
+
+function mockContext(): CraftContext {
+  const store = new Map();
+  return {
+    logger: {
+      trace: mock(),
+      debug: mock(),
+      info: mock(),
+      warn: mock(),
+      error: mock(),
+      fatal: mock(),
+    },
+    getStore: (key: symbol) => store.get(key),
+    setStore: (key: symbol, value: unknown) => store.set(key, value),
+  } as unknown as CraftContext;
+}
+
+/**
+ * Advance the installed fake clock by the given milliseconds in 1s slices so
+ * croner's setTimeout callbacks and async handlers run between steps.
+ */
+async function advanceTime(ms: number, step = 1000) {
+  if (!clock) throw new Error("clock not installed");
+  const steps = Math.ceil(ms / step);
+  for (let i = 0; i < steps; i++) {
+    await clock.tickAsync(step);
+  }
+}
+
+describe("CronSourceAdapter", () => {
+  beforeEach(() => {
+    clock = FakeTimers.install({
+      now: new Date("2026-01-01T00:00:00.000Z"),
+      shouldAdvanceTime: false,
+      toFake: ["setTimeout", "setInterval", "Date", "setImmediate"],
+    });
+  });
+
+  afterEach(() => {
+    clock?.uninstall();
+    clock = undefined;
+    mock.restore();
+  });
+
+  /**
+   * @case cron() factory returns a Source<undefined>
+   * @preconditions Called with a valid cron expression
+   * @expectedResult Returns an instance of CronSourceAdapter with correct adapterId
+   */
+  test("cron() factory returns a CronSourceAdapter", () => {
+    const source = cron("* * * * *");
+    expect(source).toBeInstanceOf(CronSourceAdapter);
+  });
+
+  /**
+   * @case Adapter has correct adapterId
+   * @preconditions CronSourceAdapter instantiated
+   * @expectedResult adapterId is "routecraft.adapter.cron"
+   */
+  test("adapterId is routecraft.adapter.cron", () => {
+    const adapter = new CronSourceAdapter("* * * * *");
+    expect(adapter.adapterId).toBe("routecraft.adapter.cron");
+  });
+
+  /**
+   * @case Subscribe rejects (does not hang) when croner throws on the cron expression
+   * @preconditions CronSourceAdapter constructed with a syntactically invalid expression
+   * @expectedResult The subscribe promise rejects with the underlying croner error rather than hanging on the abort signal
+   */
+  test("subscribe rejects when the cron expression is invalid", async () => {
+    const adapter = new CronSourceAdapter("not-a-valid-expression");
+    const context = mockContext();
+    const abortController = new AbortController();
+    const handler = mock().mockResolvedValue({} as Exchange);
+    const onReady = mock();
+
+    const promise = adapter.subscribe(
+      context,
+      handler,
+      abortController,
+      onReady,
+    );
+
+    // Drain microtasks so the IIFE's load + new Cron throw lands on reject.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await expect(promise).rejects.toThrow();
+    expect(onReady).not.toHaveBeenCalled();
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  /**
+   * @case Cron fires and provides correct headers
+   * @preconditions CronSourceAdapter with per-second expression and maxFires=1
+   * @expectedResult Handler is called once with correct cron headers
+   */
+  test("subscribe fires handler with cron headers", async () => {
+    const adapter = new CronSourceAdapter("* * * * * *", { maxFires: 1 });
+    const context = mockContext();
+    const abortController = new AbortController();
+    const handler = mock().mockResolvedValue({} as Exchange);
+    const onReady = mock();
+
+    const promise = adapter.subscribe(
+      context,
+      handler,
+      abortController,
+      onReady,
+    );
+
+    await advanceTime(2000);
+
+    abortController.abort();
+    await promise;
+
+    expect(onReady).toHaveBeenCalledTimes(1);
+    expect(handler).toHaveBeenCalledTimes(1);
+
+    const headers: ExchangeHeaders = handler.mock.calls[0][1];
+    expect(headers[HeadersKeys.CRON_EXPRESSION]).toBe("* * * * * *");
+    expect(headers[HeadersKeys.CRON_FIRED_TIME]).toBeDefined();
+    expect(headers[HeadersKeys.CRON_COUNTER]).toBe(1);
+  });
+
+  /**
+   * @case maxFires limits execution count
+   * @preconditions CronSourceAdapter with per-second expression and maxFires=2
+   * @expectedResult Handler is called exactly 2 times
+   */
+  test("maxFires limits the number of executions", async () => {
+    const adapter = new CronSourceAdapter("* * * * * *", { maxFires: 2 });
+    const context = mockContext();
+    const abortController = new AbortController();
+    const handler = mock().mockResolvedValue({} as Exchange);
+
+    const promise = adapter.subscribe(context, handler, abortController);
+
+    await advanceTime(5000);
+
+    expect(handler).toHaveBeenCalledTimes(2);
+
+    abortController.abort();
+    await promise;
+  });
+
+  /**
+   * @case AbortController stops the cron job
+   * @preconditions CronSourceAdapter with per-second expression, aborted after first fire
+   * @expectedResult Handler is called once, then the job stops
+   */
+  test("abortController stops the cron job", async () => {
+    const adapter = new CronSourceAdapter("* * * * * *");
+    const context = mockContext();
+    const abortController = new AbortController();
+    const handler = mock().mockImplementation(async () => {
+      abortController.abort();
+      return {} as Exchange;
+    });
+
+    const promise = adapter.subscribe(context, handler, abortController);
+
+    await advanceTime(2000);
+    await promise;
+
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * @case Timezone option is passed in headers
+   * @preconditions CronSourceAdapter with timezone option and maxFires=1
+   * @expectedResult Headers contain the configured timezone
+   */
+  test("timezone is included in headers", async () => {
+    const adapter = new CronSourceAdapter("* * * * * *", {
+      maxFires: 1,
+      timezone: "America/New_York",
+    });
+    const context = mockContext();
+    const abortController = new AbortController();
+    const handler = mock().mockResolvedValue({} as Exchange);
+
+    const promise = adapter.subscribe(context, handler, abortController);
+
+    await advanceTime(2000);
+
+    abortController.abort();
+    await promise;
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    const headers: ExchangeHeaders = handler.mock.calls[0][1];
+    expect(headers[HeadersKeys.CRON_TIMEZONE]).toBe("America/New_York");
+  });
+
+  /**
+   * @case Name option is passed in headers
+   * @preconditions CronSourceAdapter with name option and maxFires=1
+   * @expectedResult Headers contain the configured name
+   */
+  test("name is included in headers", async () => {
+    const adapter = new CronSourceAdapter("* * * * * *", {
+      maxFires: 1,
+      name: "test-job",
+    });
+    const context = mockContext();
+    const abortController = new AbortController();
+    const handler = mock().mockResolvedValue({} as Exchange);
+
+    const promise = adapter.subscribe(context, handler, abortController);
+
+    await advanceTime(2000);
+
+    abortController.abort();
+    await promise;
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    const headers: ExchangeHeaders = handler.mock.calls[0][1];
+    expect(headers[HeadersKeys.CRON_NAME]).toBe("test-job");
+  });
+
+  /**
+   * @case Handler error does not stop the cron job
+   * @preconditions CronSourceAdapter with per-second expression, handler throws on first call then succeeds
+   * @expectedResult Cron continues firing after a handler error
+   */
+  test("handler error does not stop the cron job", async () => {
+    const adapter = new CronSourceAdapter("* * * * * *");
+    const context = mockContext();
+    const abortController = new AbortController();
+    const handler = mock()
+      .mockRejectedValueOnce(new Error("test error"))
+      .mockResolvedValue({} as Exchange);
+
+    const promise = adapter.subscribe(context, handler, abortController);
+
+    await advanceTime(3000);
+
+    abortController.abort();
+    await promise;
+
+    // Handler was called more than once: the error on the first call
+    // did not kill the cron job.
+    expect(handler.mock.calls.length).toBeGreaterThan(1);
+    expect(abortController.signal.aborted).toBe(true);
+  });
+
+  /**
+   * @case Counter increments on each fire
+   * @preconditions CronSourceAdapter with per-second expression and maxFires=2
+   * @expectedResult Counter header values are 1 and 2 respectively
+   */
+  test("counter increments on each fire", async () => {
+    const adapter = new CronSourceAdapter("* * * * * *", { maxFires: 2 });
+    const context = mockContext();
+    const abortController = new AbortController();
+    const handler = mock().mockResolvedValue({} as Exchange);
+
+    const promise = adapter.subscribe(context, handler, abortController);
+
+    await advanceTime(5000);
+
+    abortController.abort();
+    await promise;
+
+    expect(handler).toHaveBeenCalledTimes(2);
+    const firstHeaders: ExchangeHeaders = handler.mock.calls[0][1];
+    const secondHeaders: ExchangeHeaders = handler.mock.calls[1][1];
+    expect(firstHeaders[HeadersKeys.CRON_COUNTER]).toBe(1);
+    expect(secondHeaders[HeadersKeys.CRON_COUNTER]).toBe(2);
+  });
+
+  /**
+   * @case Cron expression nicknames are supported
+   * @preconditions CronSourceAdapter created with @daily nickname
+   * @expectedResult Adapter instantiates without error
+   */
+  test("supports cron expression nicknames like @daily", () => {
+    expect(() => new CronSourceAdapter("@daily")).not.toThrow();
+    expect(() => new CronSourceAdapter("@weekly")).not.toThrow();
+    expect(() => new CronSourceAdapter("@hourly")).not.toThrow();
+    expect(() => new CronSourceAdapter("@monthly")).not.toThrow();
+    expect(() => new CronSourceAdapter("@yearly")).not.toThrow();
+  });
+
+  /**
+   * @case cron() factory with options passes them through
+   * @preconditions cron() called with expression and options
+   * @expectedResult Resulting adapter has the configured options
+   */
+  test("cron() factory passes options to adapter", async () => {
+    const source = cron("* * * * * *", {
+      maxFires: 1,
+      name: "factory-test",
+      timezone: "UTC",
+    });
+    const context = mockContext();
+    const abortController = new AbortController();
+    const handler = mock().mockResolvedValue({} as Exchange);
+
+    const promise = (source as CronSourceAdapter).subscribe(
+      context,
+      handler,
+      abortController,
+    );
+
+    await advanceTime(2000);
+
+    abortController.abort();
+    await promise;
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    const headers: ExchangeHeaders = handler.mock.calls[0][1];
+    expect(headers[HeadersKeys.CRON_NAME]).toBe("factory-test");
+    expect(headers[HeadersKeys.CRON_TIMEZONE]).toBe("UTC");
+  });
+
+  /**
+   * @case jitterMs delays handler execution without leaking timeouts
+   * @preconditions CronSourceAdapter with per-second expression, jitterMs=2000, maxFires=1
+   * @expectedResult Handler is called exactly once after jitter delay
+   */
+  test("jitterMs delays handler execution correctly", async () => {
+    const adapter = new CronSourceAdapter("* * * * * *", {
+      maxFires: 1,
+      jitterMs: 2000,
+    });
+    const context = mockContext();
+    const abortController = new AbortController();
+    const handler = mock().mockResolvedValue({} as Exchange);
+
+    const promise = adapter.subscribe(context, handler, abortController);
+
+    await advanceTime(5000);
+
+    abortController.abort();
+    await promise;
+
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * @case Aborting during jitter delay does not fire handler
+   * @preconditions CronSourceAdapter with per-second expression and jitterMs=5000, aborted before jitter elapses
+   * @expectedResult Handler is never called, subscribe resolves cleanly
+   */
+  test("abort during jitter delay prevents handler call", async () => {
+    const randomSpy = spyOn(Math, "random").mockReturnValue(0.99);
+
+    const adapter = new CronSourceAdapter("* * * * * *", {
+      jitterMs: 10000,
+    });
+    const context = mockContext();
+    const abortController = new AbortController();
+    const handler = mock().mockResolvedValue({} as Exchange);
+
+    const promise = adapter.subscribe(context, handler, abortController);
+
+    // Advance past the first cron tick but not past the ~9900ms jitter
+    await advanceTime(2000);
+    abortController.abort();
+    await advanceTime(1000);
+    await promise;
+
+    randomSpy.mockRestore();
+
+    expect(handler).toHaveBeenCalledTimes(0);
+  });
+
+  /**
+   * @case nextRun header is provided when there is a next run
+   * @preconditions CronSourceAdapter with per-second expression and maxFires=2
+   * @expectedResult First fire headers contain a valid nextRun ISO string
+   */
+  test("nextRun header is populated", async () => {
+    const adapter = new CronSourceAdapter("* * * * * *", { maxFires: 2 });
+    const context = mockContext();
+    const abortController = new AbortController();
+    const handler = mock().mockResolvedValue({} as Exchange);
+
+    const promise = adapter.subscribe(context, handler, abortController);
+
+    await advanceTime(5000);
+
+    abortController.abort();
+    await promise;
+
+    expect(handler).toHaveBeenCalledTimes(2);
+    const headers: ExchangeHeaders = handler.mock.calls[0][1];
+    const nextRun = headers[HeadersKeys.CRON_NEXT_RUN];
+    expect(nextRun).toBeDefined();
+    expect(new Date(nextRun as string).getTime()).toBeGreaterThan(0);
+  });
+
+  /**
+   * @case protect option prevents concurrent handler execution
+   * @preconditions CronSourceAdapter with per-second expression, protect=true (default), slow handler
+   * @expectedResult Max in-flight count never exceeds 1
+   */
+  test("protect: true prevents concurrent handler execution", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const adapter = new CronSourceAdapter("* * * * * *", {
+      maxFires: 3,
+    });
+    const context = mockContext();
+    const abortController = new AbortController();
+    const handler = mock().mockImplementation(async () => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      // Simulate slow work spanning multiple tick intervals
+      await new Promise((r) => setTimeout(r, 2500));
+      inFlight--;
+      return {} as Exchange;
+    });
+
+    const promise = adapter.subscribe(context, handler, abortController);
+
+    await advanceTime(10000);
+
+    abortController.abort();
+    await promise;
+
+    expect(maxInFlight).toBe(1);
+    expect(handler).toHaveBeenCalled();
+  });
+
+  /**
+   * @case protect: false allows concurrent handler execution
+   * @preconditions CronSourceAdapter with per-second expression, protect=false, slow handler
+   * @expectedResult Max in-flight count exceeds 1 (overlap occurs)
+   */
+  test("protect: false allows overlapping handler calls", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const adapter = new CronSourceAdapter("* * * * * *", {
+      protect: false,
+      maxFires: 3,
+    });
+    const context = mockContext();
+    const abortController = new AbortController();
+    const handler = mock().mockImplementation(async () => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      // Simulate slow work spanning multiple tick intervals
+      await new Promise((r) => setTimeout(r, 2500));
+      inFlight--;
+      return {} as Exchange;
+    });
+
+    const promise = adapter.subscribe(context, handler, abortController);
+
+    await advanceTime(10000);
+
+    abortController.abort();
+    await promise;
+
+    expect(maxInFlight).toBeGreaterThan(1);
+    expect(handler).toHaveBeenCalledTimes(3);
+  });
+
+  /**
+   * @case stopAt prevents firing after the specified date
+   * @preconditions CronSourceAdapter with per-second expression and stopAt set 3 seconds in the future
+   * @expectedResult Handler fires only while current time is before stopAt
+   */
+  test("stopAt stops the cron job at the specified date", async () => {
+    const now = new Date();
+    const stopAt = new Date(now.getTime() + 3000);
+
+    const adapter = new CronSourceAdapter("* * * * * *", {
+      stopAt,
+    });
+    const context = mockContext();
+    const abortController = new AbortController();
+    const handler = mock().mockResolvedValue({} as Exchange);
+
+    const promise = adapter.subscribe(context, handler, abortController);
+
+    await advanceTime(6000);
+
+    abortController.abort();
+    await promise;
+
+    // Should have fired approximately 2-3 times (before stopAt), not 5-6
+    expect(handler.mock.calls.length).toBeLessThanOrEqual(3);
+    expect(handler.mock.calls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  /**
+   * @case startAt delays firing until the specified date
+   * @preconditions CronSourceAdapter with per-second expression and startAt set 3 seconds in the future
+   * @expectedResult Handler does not fire before startAt
+   */
+  test("startAt delays cron firing until the specified date", async () => {
+    const now = new Date();
+    const startAt = new Date(now.getTime() + 3000);
+
+    const adapter = new CronSourceAdapter("* * * * * *", {
+      startAt,
+      maxFires: 1,
+    });
+    const context = mockContext();
+    const abortController = new AbortController();
+    const handler = mock().mockResolvedValue({} as Exchange);
+
+    const promise = adapter.subscribe(context, handler, abortController);
+
+    // Advance 2 seconds -- handler should not have fired yet
+    await advanceTime(2000);
+    expect(handler).toHaveBeenCalledTimes(0);
+
+    // Advance past startAt
+    await advanceTime(3000);
+
+    abortController.abort();
+    await promise;
+
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+});
