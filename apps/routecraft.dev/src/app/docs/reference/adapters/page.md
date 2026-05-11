@@ -13,7 +13,7 @@ Full catalog of adapters with signatures and options. {% .lead %}
 | [`timer`](#timer) | Core | Scheduled/recurring execution | `Source` |
 | [`cron`](#cron) | Core | Cron-scheduled execution with timezone support | `Source` |
 | [`direct`](#direct) | Core | Synchronous inter-route communication | `Source`, `Destination` |
-| [`http`](#http) | Core | Outbound HTTP client requests (inbound/server support planned) | `Destination` |
+| [`http`](#http) | Core | HTTP client (`.to()`) and HTTP server (`.from()`) via `defineConfig({ http })` | `Source`, `Destination` |
 | [`noop`](#noop) | Test | No-operation placeholder | `Destination` |
 | [`pseudo`](#pseudo) | Test | Typed placeholder for docs/examples | `Source`, `Destination`, `Processor` |
 | [`spy`](#spy) | Test | Records exchanges for assertions | `Destination`, `Processor` |
@@ -503,18 +503,150 @@ const routes = registry ? Array.from(registry.values()) : []
 // [{ endpoint, title?, description?, input?, output? }]
 ```
 
-The direct registry stores only the direct adapter's own metadata. Other adapters that expose routes externally (such as [`mcp()`](#mcp) or a future inbound `http()`) maintain their own parallel registries; they are never written to or read from the direct registry.
+The direct registry stores only the direct adapter's own metadata. Other adapters that expose routes externally (such as [`mcp()`](#mcp) or `http()` source) maintain their own parallel registries; they are never written to or read from the direct registry.
 
 ### http
 ```ts
+// Source overload (inbound)
+http(options: HttpSourceOptions): Source<HttpRequestBody>
+
+// Destination overload (outbound)
 http<T, R>(options: HttpOptions<T>): Destination<T, HttpResult<R>>
 ```
 
-Make HTTP requests. Returns a `Destination` adapter that works with both `.to()` and `.enrich()`.
+`http()` is overloaded by option shape:
 
-**Current support:** Routecraft currently exports `http()` only as an outbound/client adapter for making HTTP requests.
+- Pass `{ path, method?, public? }` to `.from(...)` for an **HTTP source** that exposes the route over HTTP.
+- Pass `{ url, ... }` to `.to(...)` / `.enrich(...)` / `.tap(...)` for an **HTTP destination** that calls a remote endpoint.
 
-**Planned inbound support:** Routecraft does **not** yet ship an inbound HTTP source/server adapter. The planned design is shown in [Planned inbound/server HTTP support](#planned-inboundserver-http-support) below and may change before implementation.
+#### HTTP source (inbound)
+
+The server, port, host, and global auth all live on `defineConfig({ http: {...} })` so routes only declare the path and method they want to handle. Bun runtimes bind via `Bun.serve`; Node 22+ via a thin `node:http` shim. Zero runtime dependencies.
+
+```ts
+// craft.config.ts
+import { defineConfig, jwt } from "@routecraft/routecraft";
+
+export const craftConfig = defineConfig({
+  http: {
+    port: 8080,
+    host: "0.0.0.0",
+    auth: jwt({
+      secret: process.env.JWT_SECRET!,
+      issuer: process.env.JWT_ISSUER!,
+      audience: process.env.JWT_AUDIENCE!,
+    }),
+  },
+});
+```
+
+```ts
+// routes/orders.ts
+import { craft, http, noop } from "@routecraft/routecraft";
+
+// GET /orders/:id  -> 200 application/json
+export const getOrder = craft()
+  .id("get-order")
+  .description("Fetch an order by id")
+  .from(http({ path: "/orders/:id", method: "GET" }))
+  .process(async (ex) => {
+    const params = ex.headers["routecraft.http.params"];
+    return DefaultExchange.rewrap(ex, { body: await loadOrder(params?.id) });
+  })
+  .to(noop());
+
+// POST /orders  -> 200 application/json with the created order body
+export const createOrder = craft()
+  .id("create-order")
+  .description("Create a new order")
+  .input({ body: createOrderSchema })
+  .authorize({ scopes: ["orders.write"] })
+  .from(http({ path: "/orders", method: "POST" }))
+  .transform((body) => saveOrder(body))
+  .to(noop());
+
+// DELETE /orders/:id  -> 204 No Content
+export const deleteOrder = craft()
+  .id("delete-order")
+  .authorize({ roles: ["admin"] })
+  .from(http({ path: "/orders/:id", method: "DELETE" }))
+  .transform(() => undefined)
+  .to(noop());
+
+// Public endpoint (bypasses the global JWT check)
+export const health = craft()
+  .id("health")
+  .from(http({ path: "/health-extra", method: "GET", public: true }))
+  .transform(() => ({ status: "ok" }))
+  .to(noop());
+```
+
+**Request metadata on the exchange**
+
+The plugin populates these headers before calling the route handler:
+
+- `routecraft.http.method` -- request method (typed `HttpMethod`).
+- `routecraft.http.path` -- matched pattern (e.g. `/orders/:id`).
+- `routecraft.http.url` -- raw request URL (path + query).
+- `routecraft.http.params` -- `Record<string, string>` of URL-decoded path params.
+- `routecraft.http.query` -- `Record<string, string>` of query params.
+- `routecraft.http.headers` -- `Record<string, string>` of request headers, lower-cased.
+- `routecraft.auth.principal` -- the authenticated `Principal` (when auth is configured). `ex.principal` is sugar over this header.
+
+**Request body parsing (driven by `Content-Type`)**
+
+- `application/json` -> parsed object.
+- `text/*` -> string.
+- `application/x-www-form-urlencoded` -> object built from `URLSearchParams`.
+- `multipart/form-data` -> Web `FormData` (with `File` entries for uploads).
+- anything else -> `Uint8Array`.
+
+Cap controlled by `http: { maxBodySize?: number }` (default 10 MB). Larger requests return `413 Payload Too Large`.
+
+**Response convention (deterministic, override via exchange headers)**
+
+- `undefined` / `null` -> `204 No Content`.
+- string -> `200`, `Content-Type: text/plain; charset=utf-8`.
+- `Uint8Array` / `ArrayBuffer` -> `200`, `Content-Type: application/octet-stream`.
+- object / array -> `200`, `Content-Type: application/json; charset=utf-8`.
+- `ReadableStream` / `AsyncIterable` -> rejected with `RC5018` (SSE deferred to a follow-up).
+
+Override via the exchange before the response is built:
+
+- `routecraft.http.response.status` -> numeric status (e.g. `201`).
+- `routecraft.http.response.contentType` -> explicit content-type.
+- `routecraft.http.response.headers` -> extra response headers.
+
+**Built-in endpoints**
+
+Registered alongside user routes; user routes with the same path always win.
+
+- `GET /health` -> `200` `{ status: "ok" }`. K8s liveness target.
+- `GET /ready` -> `200` `{ status: "ready", routes }`. K8s readiness target.
+- `GET /openapi.json` -> OpenAPI 3.1 document built from the route registry. Paths, methods, summaries, descriptions, and path params populate in v1; request/response body schemas are stubs until the Standard-Schema-to-JSON-Schema follow-up lands.
+
+**Auth**
+
+`http: { auth }` accepts:
+
+- `jwt({...})` / `jwks({...})` -- bearer token with validator (same shape MCP uses).
+- `apiKey({ keys: [...] })` -- static allowlist on a header (`x-api-key` default) or query parameter.
+- `apiKey({ verify: (key) => Principal | null })` -- custom verifier that resolves to a per-user principal.
+
+The middleware runs once per incoming request. Rejection returns `401` directly (no route runs). Admission attaches the resolved `Principal` to the exchange (`routecraft.auth.principal`), and per-route guards via the existing `.authorize({ roles, scopes, predicate })` builder take it from there. Per-route opt-out via `http({ public: true })` skips both the auth middleware and principal attachment.
+
+OAuth 2.1 is reserved in the auth union for a future release.
+
+**Events**
+
+- `plugin:http:server:listening` -> `{ port, host }` after the listener binds.
+- `plugin:http:server:closed` after graceful shutdown.
+- `plugin:http:request:completed` -> `{ method, path, status, durationMs, routeId?, principal? }` per request (toggle with `http: { events: { perRequest: false } }`).
+- `auth:success` / `auth:rejected` -- reused from the framework's existing auth event surface.
+
+#### HTTP destination (outbound)
+
+Returns a `Destination` adapter that works with both `.to()` and `.enrich()`. Unchanged from earlier releases.
 
 **With `.enrich()` (merge result into body):**
 
@@ -580,34 +712,6 @@ Options:
 | `timeoutMs` | `number` | -- | No | Request timeout in milliseconds |
 
 **Returns:** `HttpResult` object with `status`, `headers`, `body`, and `url`
-
-#### Planned inbound/server HTTP support {% badge color="purple" %}planned{% /badge %}
-
-Tentative source signature: `http({ path, method, ...options })`.
-
-```ts
-// Simple webhook endpoint
-.id('webhook-receiver')
-.from(http({ path: '/webhook', method: 'POST' }))
-
-// Multiple methods on same path
-.id('data-api')
-.from(http({ path: '/api/data', method: ['GET', 'POST', 'PUT'] }))
-```
-
-| Option | Type | Default | Required | Description |
-| --- | --- | --- | --- | --- |
-| `path` | `string` | `'/'` | No | URL path to mount |
-| `method` | `HttpMethod \| HttpMethod[]` | `'POST'` | No | Accepted HTTP methods |
-
-Exchange body: `{ method, url, headers, body, query, params }`.
-The final exchange becomes the HTTP response; no explicit `.to()` step is required.
-
-Response behavior:
-
-- The final exchange is returned to the HTTP client. If the final body is an object with optional fields `{ status?: number, headers?: Record<string,string>, body?: unknown }`, those fields are used to build the response.
-- If `status` or `headers` are not provided, Routecraft returns the body with `200` status and no additional headers.
-- For serialization and setting `Content-Type`, use a formatting step in your capability (e.g., a `.transform(...)` that sets appropriate headers).
 
 ## Test adapters
 

@@ -43,6 +43,13 @@ export {
 export { defineConfig } from "./define-config.ts";
 export { registerConfigApplier, type ConfigApplier } from "./config-applier.ts";
 export { type HttpConfig } from "./adapters/http/types.ts";
+
+// Side-effect: register the `http` config applier so `defineConfig({ http })`
+// materialises the plugin without users importing httpPlugin manually.
+import "./plugins/http/config.ts";
+
+export { httpPlugin } from "./plugins/http/plugin.ts";
+export { apiKey } from "./plugins/http/auth.ts";
 /** @deprecated Use `CraftConfig.direct` instead. Will be removed in next major version. */
 export { type DirectConfig } from "./adapters/direct/types.ts";
 
@@ -206,6 +213,12 @@ export {
   type HttpResult,
   type HttpMethod,
   type QueryParams,
+  type HttpSourceOptions,
+  type HttpPluginOptions,
+  type HttpRequestBody,
+  type HttpResponseHint,
+  type HttpAuth,
+  type ApiKeyAuthOptions,
 } from "./adapters/http/index.ts";
 export {
   type DirectBaseOptions,

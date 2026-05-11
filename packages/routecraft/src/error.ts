@@ -19,6 +19,8 @@ export type RCCode =
   | "RC5015"
   | "RC5016"
   | "RC5017"
+  | "RC5018"
+  | "RC5019"
   | "RC9901";
 
 export type RCMeta = {
@@ -168,6 +170,22 @@ export const RC: Record<RCCode, RCMeta> = {
     suggestion:
       "Install the optional peer the adapter requires (the error message names the package).",
     docs: `${DOCS_BASE}#rc-5017`,
+    retryable: false,
+  },
+  RC5018: {
+    category: "Adapter",
+    message: "HTTP source request rejected",
+    suggestion:
+      "Check that the request method and path match a registered http() source. 404 means no route is bound to that path; 405 means the path exists but the method differs; unsupported response body shapes (ReadableStream, AsyncIterable) fall under this code until SSE lands in a follow-up.",
+    docs: `${DOCS_BASE}#rc-5018`,
+    retryable: false,
+  },
+  RC5019: {
+    category: "Adapter",
+    message: "HTTP server bind failed",
+    suggestion:
+      "Check that the configured port is free and the host is reachable. EADDRINUSE means another process owns the port; EADDRNOTAVAIL means the host is not one this machine can bind to.",
+    docs: `${DOCS_BASE}#rc-5019`,
     retryable: false,
   },
   RC9901: {
