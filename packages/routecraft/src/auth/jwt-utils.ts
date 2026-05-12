@@ -105,11 +105,10 @@ export function principalFromJwtPayload(
 
   if (clientIdValue !== undefined) principal.clientId = clientIdValue;
 
-  const email =
-    options.claims?.email?.(payload) ?? stringClaim(payload["email"]);
+  const email = stringClaim(payload["email"]);
   if (email) principal.email = email;
 
-  const name = options.claims?.name?.(payload) ?? stringClaim(payload["name"]);
+  const name = stringClaim(payload["name"]);
   if (name) principal.name = name;
 
   if (typeof payload["iss"] === "string") principal.issuer = payload["iss"];
@@ -122,13 +121,11 @@ export function principalFromJwtPayload(
       : undefined);
   if (scopes !== undefined) principal.scopes = scopes;
 
-  const roles =
-    options.claims?.roles?.(payload) ??
-    (Array.isArray(payload["roles"])
-      ? (payload["roles"] as unknown[]).filter(
-          (r): r is string => typeof r === "string",
-        )
-      : undefined);
+  const roles = Array.isArray(payload["roles"])
+    ? (payload["roles"] as unknown[]).filter(
+        (r): r is string => typeof r === "string",
+      )
+    : undefined;
   if (roles !== undefined) principal.roles = roles;
 
   return principal;

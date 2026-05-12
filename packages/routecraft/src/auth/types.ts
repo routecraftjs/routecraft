@@ -22,14 +22,8 @@ export interface ClaimMappers {
   subject?: (payload: Record<string, unknown>) => string;
   /** Map to `Principal.clientId`. Default: `payload.client_id` then `azp`. */
   clientId?: (payload: Record<string, unknown>) => string;
-  /** Map to `Principal.email`. Default: `payload.email`. */
-  email?: (payload: Record<string, unknown>) => string | undefined;
-  /** Map to `Principal.name`. Default: `payload.name`. */
-  name?: (payload: Record<string, unknown>) => string | undefined;
   /** Map to `Principal.scopes`. Default: space-split `payload.scope`. */
   scopes?: (payload: Record<string, unknown>) => string[] | undefined;
-  /** Map to `Principal.roles`. Default: `payload.roles` when it is `string[]`. */
-  roles?: (payload: Record<string, unknown>) => string[] | undefined;
 }
 
 /**
@@ -142,6 +136,14 @@ export interface ValidatorAuthOptions {
 export interface OAuthValidatorAuthOptions {
   /** Verifier called with the raw bearer token on every request. Throw to reject. */
   validator: OAuthTokenVerifier;
+  /**
+   * Expected token issuer(s), surfaced from the underlying helper (`jwt()` /
+   * `jwks()`). Read by `oauth({ userinfo: true })` to locate the OIDC Discovery
+   * document. Optional because custom validators may not declare an issuer; if
+   * absent, OIDC auto-discovery cannot be used and the caller must pass an
+   * explicit userinfo URL or function.
+   */
+  issuer?: string | string[];
 }
 
 // See .standards/type-safety-and-schemas.md#module-augmentation for why this

@@ -34,8 +34,9 @@ export interface AuthorizeOptions {
  * existing identity meets the criteria. It does NOT issue, mint, or attach
  * credentials to the exchange.
  *
- * Throws `RC5012` when no principal is present and `RC5015` when the
- * principal fails the role / scope / predicate check.
+ * Throws `RC5012` when no principal is present, `RC5020` when the principal
+ * carries an `expiresAt` in the past (mid-pipeline token expiry), and `RC5015`
+ * when the principal fails the role / scope / predicate check.
  *
  * Most routes should declare authorization at the route boundary using the
  * pre-from `.authorize()` builder method, which wires this validator as a
@@ -77,6 +78,17 @@ export function authorize(
         message: "Authorization failed: no authenticated principal",
         suggestion:
           "Configure auth on the source so it emits a Principal (e.g. mcp({ auth: jwt(...) })). For a mid-pipeline .validate(authorize(...)) check, attach a custom principal in an earlier .process() step.",
+      });
+    }
+
+    if (
+      principal.expiresAt !== undefined &&
+      Date.now() / 1000 > principal.expiresAt
+    ) {
+      throw rcError("RC5020", new Error("Token expired"), {
+        message: "Authorization failed: token expired during processing",
+        suggestion:
+          "The token's `exp` is in the past. A long-running step likely outlived the credential; the client should refresh and retry. To recover in-route, restructure the pipeline so authorize() runs before the slow step or attach a fresh principal in a .process() before the validator.",
       });
     }
 

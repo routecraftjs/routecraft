@@ -303,6 +303,47 @@ auth: oauth({
 
 `expiresAt` is required by the MCP SDK's bearer middleware; the server will throw if the verifier returns a principal without it.
 
+#### Principal enrichment via `userinfo`
+
+OAuth access tokens are intentionally thin: they authorize but rarely identify. Identity fields needed to gate routes (`email`, `name`, `roles`, org membership) usually live behind the IdP's userinfo endpoint, not in the token itself. The optional `userinfo` slot on `oauth({})` runs after `verify` succeeds and merges enrichment onto the verified principal. Three shapes are accepted:
+
+```ts
+auth: oauth({
+  resourceIssuerUrl: '...',
+  endpoints: { ... },
+  verify: jwks({ jwksUrl, issuer: 'https://idp.example.com', audience }),
+  client: { ... },
+
+  // 1. Auto-discover via OIDC Discovery (requires single-string `issuer` on verify).
+  userinfo: true,
+
+  // 2. Explicit userinfo endpoint URL.
+  userinfo: 'https://idp.example.com/oauth/userinfo',
+
+  // 3. Custom function for any non-OIDC backend.
+  userinfo: async (principal, token) => {
+    const [profile, roles] = await Promise.all([
+      fetch('https://idp.example.com/oauth/userinfo', {
+        headers: { Authorization: `Bearer ${token}` },
+      }).then((r) => r.json()),
+      myService.getRoles(principal.subject),
+    ])
+    return { ...profile, roles }
+  },
+})
+```
+
+Semantics:
+
+- **Runs after verify.** The verified principal is the starting point; userinfo only adds or overwrites non-protected fields.
+- **Verify wins on protected fields.** `subject`, `issuer`, `audience`, and `expiresAt` always come from the token. An enrichment that tries to overwrite them is silently dropped.
+- **`sub` invariant (URL and discovery modes).** The userinfo response MUST include `sub` and it MUST equal the verified token's `sub` (OIDC Core §5.3.2). Mismatches reject the request. The function variant is trusted by contract.
+- **Auto-discovery (`userinfo: true`).** The framework fetches `${issuer}/.well-known/openid-configuration` once at first use, reads `userinfo_endpoint`, and caches the URL for the server lifetime. A discovery doc missing `userinfo_endpoint` (or unreachable) raises a clear error on the first request rather than silently degrading.
+- **Token-bound caching.** Enriched principals are memoised by token and evicted at `expiresAt`. No `cache:` knob, no TTL to pick. Refresh-token rotation triggers one re-enrichment for the new token.
+- **Fail-closed.** Any userinfo fetch, parse, or merge error rejects the request. There is no opt-in "best effort" mode; if you need that, write a function variant that swallows its own errors.
+
+Use `userinfo` when the bearer alone does not carry the identity fields you need. Skip it when the token already contains everything (e.g. a Clerk JWT with `email` and `roles` claims).
+
 The populated `Principal` rides on the exchange as a single structured header (`routecraft.auth.principal`) and is exposed ergonomically via the `ex.principal` getter, e.g. `ex.principal?.subject`, `ex.principal?.scopes`, `ex.principal?.claims`.
 
 See the [plugins reference](/docs/reference/plugins#mcpplugin) for the full `Principal` field list.

@@ -19,6 +19,7 @@ export type RCCode =
   | "RC5015"
   | "RC5016"
   | "RC5017"
+  | "RC5020"
   | "RC9901";
 
 export type RCMeta = {
@@ -168,6 +169,14 @@ export const RC: Record<RCCode, RCMeta> = {
     suggestion:
       "Install the optional peer the adapter requires (the error message names the package).",
     docs: `${DOCS_BASE}#rc-5017`,
+    retryable: false,
+  },
+  RC5020: {
+    category: "Adapter",
+    message: "Authorization failed: token expired during processing",
+    suggestion:
+      "The verified principal carried an `expiresAt` that is now in the past; a long-running step (LLM call, slow downstream) outlived the credential. The client should refresh and retry. Distinct from RC5012 (no principal) and RC5015 (wrong roles/scopes) so callers can react accordingly.",
+    docs: `${DOCS_BASE}#rc-5020`,
     retryable: false,
   },
   RC9901: {

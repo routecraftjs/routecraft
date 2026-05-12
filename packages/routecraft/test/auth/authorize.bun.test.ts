@@ -859,6 +859,178 @@ describe("exchange.principal propagation", () => {
   });
 });
 
+describe("authorize() expiresAt enforcement", () => {
+  let t: TestContext;
+
+  afterEach(async () => {
+    if (t) await t.stop();
+  });
+
+  /**
+   * @case Validator passes through when principal.expiresAt is in the future
+   * @preconditions Principal has expiresAt = now + 60s
+   * @expectedResult Spy destination receives the body; no RC5020 fires
+   */
+  test("passes through when expiresAt is in the future", async () => {
+    const s = spy<string>();
+    const principal: Principal = {
+      kind: "custom",
+      scheme: "bearer",
+      subject: "user-1",
+      expiresAt: Math.floor(Date.now() / 1000) + 60,
+    };
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("exp-future")
+          .from(simple("hello"))
+          .process((ex) => ({
+            ...ex,
+            headers: {
+              ...ex.headers,
+              "routecraft.auth.principal": principal,
+            },
+          }))
+          .validate(authorize())
+          .to(s),
+      )
+      .build();
+    await t.test();
+
+    expect(s.receivedBodies()).toEqual(["hello"]);
+  });
+
+  /**
+   * @case Validator passes through when principal carries no expiresAt
+   * @preconditions Principal has no expiresAt field (custom auth, opaque token)
+   * @expectedResult Spy destination receives the body; no RC5020 fires
+   */
+  test("passes through when expiresAt is absent", async () => {
+    const s = spy<string>();
+    const principal: Principal = {
+      kind: "custom",
+      scheme: "bearer",
+      subject: "user-1",
+    };
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("exp-absent")
+          .from(simple("hello"))
+          .process((ex) => ({
+            ...ex,
+            headers: {
+              ...ex.headers,
+              "routecraft.auth.principal": principal,
+            },
+          }))
+          .validate(authorize())
+          .to(s),
+      )
+      .build();
+    await t.test();
+
+    expect(s.receivedBodies()).toEqual(["hello"]);
+  });
+
+  /**
+   * @case Validator throws RC5020 when principal.expiresAt is in the past
+   * @preconditions Principal has expiresAt = now - 60s (mid-pipeline expiry)
+   * @expectedResult exchange:failed fires with RC5020; destination is skipped
+   */
+  test("rejects with RC5020 when expiresAt has passed", async () => {
+    const s = spy<string>();
+    const principal: Principal = {
+      kind: "custom",
+      scheme: "bearer",
+      subject: "user-1",
+      expiresAt: Math.floor(Date.now() / 1000) - 60,
+    };
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("exp-past")
+          .from(simple("hello"))
+          .process((ex) => ({
+            ...ex,
+            headers: {
+              ...ex.headers,
+              "routecraft.auth.principal": principal,
+            },
+          }))
+          .validate(authorize())
+          .to(s),
+      )
+      .build();
+
+    const failures: unknown[] = [];
+    t.ctx.on(
+      "route:exp-past:exchange:failed" as EventName,
+      ((payload: FailedEventDetails) => {
+        failures.push(payload.details.error);
+      }) as Parameters<typeof t.ctx.on>[1],
+    );
+
+    await t.test();
+
+    expect(s.received).toHaveLength(0);
+    expect(failures).toHaveLength(1);
+    expect(String(failures[0])).toContain("RC5020");
+    expect(String(failures[0])).toContain("expired");
+  });
+
+  /**
+   * @case RC5020 is distinct from RC5012 (no principal) and RC5015 (wrong roles)
+   * @preconditions Expired principal also lacks a required role
+   * @expectedResult RC5020 wins (expiry check runs before role check)
+   */
+  test("RC5020 fires before role / scope checks when expired", async () => {
+    const s = spy<string>();
+    const principal: Principal = {
+      kind: "custom",
+      scheme: "bearer",
+      subject: "user-1",
+      roles: ["user"],
+      expiresAt: Math.floor(Date.now() / 1000) - 60,
+    };
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("exp-precedence")
+          .from(simple("hello"))
+          .process((ex) => ({
+            ...ex,
+            headers: {
+              ...ex.headers,
+              "routecraft.auth.principal": principal,
+            },
+          }))
+          .validate(authorize({ roles: ["admin"] }))
+          .to(s),
+      )
+      .build();
+
+    const failures: unknown[] = [];
+    t.ctx.on(
+      "route:exp-precedence:exchange:failed" as EventName,
+      ((payload: FailedEventDetails) => {
+        failures.push(payload.details.error);
+      }) as Parameters<typeof t.ctx.on>[1],
+    );
+
+    await t.test();
+
+    expect(failures).toHaveLength(1);
+    const msg = String(failures[0]);
+    expect(msg).toContain("RC5020");
+    expect(msg).not.toContain("RC5015");
+  });
+});
+
 describe(".authorize() type checks", () => {
   /**
    * @case Pre-from .authorize() preserves the body type that .from() introduces

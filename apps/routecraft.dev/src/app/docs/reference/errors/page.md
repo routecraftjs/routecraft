@@ -30,6 +30,7 @@ The `retryable` property indicates whether the [`retry`](/docs/reference/operati
 | [RC5015](#rc5015) | Adapter | Permission denied | No |
 | [RC5016](#rc5016) | Adapter | Source payload parse failed | No |
 | [RC5017](#rc5017) | Adapter | Optional peer dependency missing | No |
+| [RC5020](#rc5020) | Adapter | Authorization failed: token expired during processing | No |
 | [RC9901](#rc9901) | Runtime | Unknown error | Yes |
 
 ---
@@ -252,6 +253,19 @@ bun add croner   # or: npm install croner
 ```
 
 The error message names the adapter (`cron`, `html`, ...) and the missing package, so the install line is copyable from the log. If you see this for a feature you do not use, find the route or capability that imports the adapter and remove it.
+
+## RC5020
+Authorization failed: token expired during processing
+
+**Why it happens**  
+A mid-pipeline `.validate(authorize(...))` (or the pre-from `.authorize()` guard) ran on an exchange whose principal carries an `expiresAt` (Unix epoch seconds) in the past. The token was valid when verify ran at the route boundary, but a long-running step in between (LLM call, slow downstream, queue wait) outlived the credential. The framework refuses to authorize on an expired token.
+
+The check is distinct from `RC5012` (no principal at all) and `RC5015` (principal failed a role / scope / predicate check) so clients can react accordingly: a `RC5020` signal almost always means "refresh and retry," whereas `RC5015` is a permanent denial under the current credentials.
+
+**Suggestion**  
+- The client should refresh the bearer and retry the request.
+- To recover server-side, restructure the pipeline so `authorize()` runs before the slow step, or attach a fresh principal in a `.process()` step before the validator.
+- If the principal genuinely has no expiry (e.g. an API key with infinite lifetime), leave `expiresAt` unset on the `Principal` so the check is skipped.
 
 ## RC9901
 Unknown error

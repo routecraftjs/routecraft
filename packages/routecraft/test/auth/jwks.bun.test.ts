@@ -339,4 +339,35 @@ describe("jwks()", () => {
       }
     });
   });
+
+  describe("issuer propagation", () => {
+    /**
+     * @case jwks() surfaces a string issuer on its returned options
+     * @preconditions jwks({ issuer: "https://idp.example.com", ... })
+     * @expectedResult Returned object carries `issuer` equal to the configured value
+     */
+    test("string issuer is exposed on the returned options", () => {
+      const result = jwks({
+        jwksUrl: "http://localhost/jwks.json",
+        issuer: ISSUER,
+        audience: AUDIENCE,
+      });
+      expect(result.issuer).toBe(ISSUER);
+    });
+
+    /**
+     * @case jwks() preserves an array issuer on its returned options
+     * @preconditions jwks({ issuer: [a, b], ... })
+     * @expectedResult Returned object carries the exact issuer array
+     */
+    test("string[] issuer is exposed on the returned options", () => {
+      const issuers = [ISSUER, "https://alt.example.com"];
+      const result = jwks({
+        jwksUrl: "http://localhost/jwks.json",
+        issuer: issuers,
+        audience: AUDIENCE,
+      });
+      expect(result.issuer).toEqual(issuers);
+    });
+  });
 });
