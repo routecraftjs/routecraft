@@ -234,6 +234,11 @@ export function oauth(options: OAuthFactoryOptions): OAuthAuthOptions {
     );
   }
 
+  if (!options.verify) {
+    throw new TypeError(
+      "oauth: `verify` is required. Pass jwks(...), jwt(...), or a custom (token) => OAuthPrincipal function.",
+    );
+  }
   const verifyAccessToken =
     options.userinfo !== undefined
       ? buildEnrichedVerifier(options.verify, options.userinfo)

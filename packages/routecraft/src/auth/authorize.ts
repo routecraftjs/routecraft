@@ -91,15 +91,22 @@ export function authorize(
       });
     }
 
-    if (
-      principal.expiresAt !== undefined &&
-      Date.now() / 1000 > principal.expiresAt + clockToleranceSec
-    ) {
-      throw rcError("RC5020", new Error("Token expired"), {
-        message: "Authorization failed: token expired during processing",
-        suggestion:
-          "The token's `exp` is in the past. A long-running step likely outlived the credential; the client should refresh and retry. To recover in-route, restructure the pipeline so authorize() runs before the slow step or attach a fresh principal in a .process() before the validator.",
-      });
+    if (principal.expiresAt !== undefined) {
+      // Fail closed on non-finite inputs: a NaN `expiresAt` or
+      // `clockToleranceSec` would make every `>` comparison false and
+      // silently bypass the check, so treat that as expired rather than
+      // valid.
+      if (
+        !Number.isFinite(principal.expiresAt) ||
+        !Number.isFinite(clockToleranceSec) ||
+        Date.now() / 1000 > principal.expiresAt + clockToleranceSec
+      ) {
+        throw rcError("RC5020", new Error("Token expired"), {
+          message: "Authorization failed: token expired during processing",
+          suggestion:
+            "The token's `exp` is in the past (or `expiresAt` / `clockToleranceSec` was non-finite). A long-running step likely outlived the credential; the client should refresh and retry. To recover in-route, restructure the pipeline so authorize() runs before the slow step or attach a fresh principal in a .process() before the validator.",
+        });
+      }
     }
 
     if (roles && roles.length > 0) {

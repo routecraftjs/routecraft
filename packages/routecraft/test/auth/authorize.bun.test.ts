@@ -1064,6 +1064,52 @@ describe("authorize() expiresAt enforcement", () => {
   });
 
   /**
+   * @case Non-finite expiresAt fails closed (does not silently bypass the check)
+   * @preconditions Principal expiresAt is NaN (e.g. attached by a buggy .process() step)
+   * @expectedResult RC5020 fires; NaN cannot mask the guard
+   */
+  test("non-finite expiresAt fails closed with RC5020", async () => {
+    const s = spy<string>();
+    const principal: Principal = {
+      kind: "custom",
+      scheme: "bearer",
+      subject: "user-1",
+      expiresAt: Number.NaN,
+    };
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("exp-nan")
+          .from(simple("hello"))
+          .process((ex) => ({
+            ...ex,
+            headers: {
+              ...ex.headers,
+              "routecraft.auth.principal": principal,
+            },
+          }))
+          .validate(authorize())
+          .to(s),
+      )
+      .build();
+
+    const failures: unknown[] = [];
+    t.ctx.on(
+      "route:exp-nan:exchange:failed" as EventName,
+      ((payload: FailedEventDetails) => {
+        failures.push(payload.details.error);
+      }) as Parameters<typeof t.ctx.on>[1],
+    );
+
+    await t.test();
+
+    expect(s.received).toHaveLength(0);
+    expect(failures).toHaveLength(1);
+    expect(String(failures[0])).toContain("RC5020");
+  });
+
+  /**
    * @case RC5020 is distinct from RC5012 (no principal) and RC5015 (wrong roles)
    * @preconditions Expired principal also lacks a required role
    * @expectedResult RC5020 wins (expiry check runs before role check)

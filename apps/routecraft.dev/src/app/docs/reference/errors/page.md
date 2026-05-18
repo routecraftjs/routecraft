@@ -260,13 +260,16 @@ The error message names the adapter (`cron`, `html`, ...) and the missing packag
 Authorization failed: token expired during processing
 
 **Why it happens**  
-A mid-pipeline `.validate(authorize(...))` (or the pre-from `.authorize()` guard) ran on an exchange whose principal carries an `expiresAt` (Unix epoch seconds) in the past. The token was valid when verify ran at the route boundary, but a long-running step in between (LLM call, slow downstream, queue wait) outlived the credential. The framework refuses to authorize on an expired token.
+A mid-pipeline `.validate(authorize(...))` (or the pre-from `.authorize()` guard) ran on an exchange whose principal carries an `expiresAt` (Unix epoch seconds) that is beyond the configured `clockToleranceSec` window. The token was valid when verify ran at the route boundary, but a long-running step in between (LLM call, slow downstream, queue wait) outlived the credential. The framework refuses to authorize once the tolerance-adjusted expiry is exceeded.
+
+The check is also raised fail-closed when either `expiresAt` or `clockToleranceSec` is non-finite (`NaN`, `Infinity`); a numeric-coercion bug must not silently bypass the guard.
 
 The check is distinct from `RC5012` (no principal at all) and `RC5015` (principal failed a role / scope / predicate check) so clients can react accordingly: a `RC5020` signal almost always means "refresh and retry," whereas `RC5015` is a permanent denial under the current credentials.
 
 **Suggestion**  
 - The client should refresh the bearer and retry the request.
 - To recover server-side, restructure the pipeline so `authorize()` runs before the slow step, or attach a fresh principal in a `.process()` step before the validator.
+- If your source-side verifier (`jwt()` / `jwks()`) sets a `clockToleranceSec`, pass the same value to `authorize({ clockToleranceSec })` so the boundary and mid-pipeline checks agree on a token's validity window.
 - If the principal genuinely has no expiry (e.g. an API key with infinite lifetime), leave `expiresAt` unset on the `Principal` so the check is skipped.
 
 ## RC5021

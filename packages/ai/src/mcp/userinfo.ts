@@ -56,19 +56,25 @@ const DEFAULT_CACHE_MAX_ENTRIES = 10_000;
 const DEFAULT_DISCOVERY_TTL_SEC = 3600;
 
 interface CacheEntry {
-  principal: OAuthPrincipal;
+  enrichment: Partial<OAuthPrincipal>;
   expiresAt: number;
 }
 
 /**
  * Token-bound enrichment cache with in-flight request coalescing.
  *
- * Entries are keyed by a SHA-256 hash of the bearer token (not the raw
- * token) so a heap dump or accidental log snapshot does not expose
- * plaintext bearers. Entries self-evict at the principal's `expiresAt`; a
- * configurable insertion-order cap (`maxEntries`) provides a hard memory
- * ceiling so a misbehaving client that never reuses a token cannot grow the
- * map without bound.
+ * Caches the enrichment payload (a `Partial<OAuthPrincipal>`), NOT the
+ * fully merged principal. The base verifier runs on every request so any
+ * dynamic checks the verifier performs (introspection, revocation, clock
+ * comparisons) still fire per request; only the userinfo / function-mode
+ * enrichment is memoised.
+ *
+ * Entries are keyed by a SHA-256 hash of the bearer token so a heap dump
+ * or accidental log snapshot does not expose plaintext bearers. Entries
+ * self-evict at the principal's `expiresAt`; a configurable
+ * insertion-order cap (`maxEntries`) provides a hard memory ceiling so a
+ * misbehaving client that never reuses a token cannot grow the map
+ * without bound.
  *
  * Concurrent calls for the same uncached token share a single in-flight
  * enrichment promise; the IdP receives one userinfo fetch per
@@ -78,7 +84,10 @@ interface CacheEntry {
  */
 export class UserinfoCache {
   private readonly entries = new Map<string, CacheEntry>();
-  private readonly inFlight = new Map<string, Promise<OAuthPrincipal>>();
+  private readonly inFlight = new Map<
+    string,
+    Promise<Partial<OAuthPrincipal>>
+  >();
   private readonly maxEntries: number;
 
   constructor(maxEntries: number = DEFAULT_CACHE_MAX_ENTRIES) {
@@ -86,18 +95,20 @@ export class UserinfoCache {
   }
 
   /**
-   * Return the cached enriched principal for the token, or run `compute()`
-   * to produce one and cache the result. Concurrent callers for the same
-   * token share the in-flight promise.
+   * Return the cached enrichment for the token, or run `compute()` to
+   * produce one and cache the result. Concurrent callers for the same
+   * token share the in-flight promise. The cached entry self-evicts at
+   * `expiresAt` (Unix epoch seconds, typically the principal's expiry).
    */
   async getOrCompute(
     token: string,
-    compute: () => Promise<OAuthPrincipal>,
-  ): Promise<OAuthPrincipal> {
+    expiresAt: number,
+    compute: () => Promise<Partial<OAuthPrincipal>>,
+  ): Promise<Partial<OAuthPrincipal>> {
     const key = hashToken(token);
     const cached = this.entries.get(key);
     if (cached) {
-      if (Date.now() / 1000 < cached.expiresAt) return cached.principal;
+      if (Date.now() / 1000 < cached.expiresAt) return cached.enrichment;
       this.entries.delete(key);
     }
 
@@ -105,10 +116,10 @@ export class UserinfoCache {
     if (pending) return pending;
 
     const promise = compute().then(
-      (principal) => {
-        this.store(key, principal);
+      (enrichment) => {
+        this.store(key, enrichment, expiresAt);
         this.inFlight.delete(key);
-        return principal;
+        return enrichment;
       },
       (err: unknown) => {
         this.inFlight.delete(key);
@@ -125,12 +136,13 @@ export class UserinfoCache {
     this.inFlight.clear();
   }
 
-  private store(key: string, principal: OAuthPrincipal): void {
+  private store(
+    key: string,
+    enrichment: Partial<OAuthPrincipal>,
+    expiresAt: number,
+  ): void {
     if (this.entries.has(key)) this.entries.delete(key);
-    this.entries.set(key, {
-      principal,
-      expiresAt: principal.expiresAt,
-    });
+    this.entries.set(key, { enrichment, expiresAt });
     while (this.entries.size > this.maxEntries) {
       const oldest = this.entries.keys().next().value;
       if (oldest === undefined) break;
@@ -156,7 +168,7 @@ function parseMaxAge(headerValue: string | null): number | undefined {
   const match = headerValue.match(/(?:^|,\s*)max-age=(\d+)/i);
   if (!match) return undefined;
   const value = Number.parseInt(match[1]!, 10);
-  return Number.isFinite(value) && value > 0 ? value : undefined;
+  return Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
 /**
@@ -375,20 +387,24 @@ function callBaseVerifier(
 }
 
 /**
- * Wrap a base verifier with userinfo enrichment. After the base verify
- * succeeds:
+ * Wrap a base verifier with userinfo enrichment.
  *
- * 1. Cache + in-flight lookup keyed by SHA-256(token). Hit -> return cached
- *    principal. In-flight -> share the pending enrichment.
- * 2. Miss -> fetch userinfo (URL or discovery modes) or invoke the user
- *    function, enforce the `sub` invariant for URL / discovery modes
- *    (RC5022 on mismatch / missing sub), merge onto the principal with
- *    protected fields preserved, and cache the result with TTL =
- *    `principal.expiresAt`.
+ * The base verifier runs on every request so any dynamic checks it
+ * performs (introspection, revocation, clock comparisons) still fire per
+ * request. Only the enrichment payload is memoised, keyed by
+ * SHA-256(token) and TTL'd to `principal.expiresAt`.
  *
- * Fail-closed: every error (network, parse, sub mismatch) rejects the
- * request. Network / fetch failures wrap as `RC5021`; sub-invariant
- * violations wrap as `RC5022`.
+ * Concurrent first-callers for the same token share a single in-flight
+ * enrichment promise, so the IdP receives one userinfo fetch per
+ * (token, expiresAt) window. The merge is recomputed on every request
+ * against the freshly-verified principal, so the returned object is never
+ * a shared reference into the cache.
+ *
+ * Sub-invariant enforcement (URL / discovery modes only): the userinfo
+ * response `sub` MUST match the first verified principal's `subject` (per
+ * OIDC Core §5.3.2). Mismatches raise `RC5022`; the function variant is
+ * trusted by contract. Network / fetch / parse failures raise `RC5021`.
+ * Fail-closed throughout.
  *
  * @internal
  */
@@ -400,50 +416,58 @@ export function buildEnrichedVerifier(
   const cache = new UserinfoCache();
 
   if (typeof userinfo === "function") {
-    return (token: string) =>
-      cache.getOrCompute(token, async () => {
-        const principal = await baseVerifier(token);
-        const enrichment = await userinfo(principal, token);
-        return mergeEnrichment(principal, enrichment);
-      });
+    return async (token: string) => {
+      const principal = await baseVerifier(token);
+      const enrichment = await cache.getOrCompute(
+        token,
+        principal.expiresAt,
+        () => userinfo(principal, token),
+      );
+      return mergeEnrichment(principal, enrichment);
+    };
   }
 
   const verifyIssuer = typeof verify === "function" ? undefined : verify.issuer;
   const resolveUserinfoUrl = createUserinfoUrlResolver(userinfo, verifyIssuer);
 
-  return (token: string) =>
-    cache.getOrCompute(token, async () => {
-      const principal = await baseVerifier(token);
-      const url = await resolveUserinfoUrl();
-      const payload = await fetchUserinfo(url, token);
-      const responseSub = payload["sub"];
-      if (typeof responseSub !== "string" || responseSub.length === 0) {
-        throw rcError(
-          "RC5022",
-          new Error("userinfo response is missing `sub`"),
-          {
-            message:
-              "userinfo response is missing `sub` (required per OIDC Core §5.3.2)",
-            suggestion:
-              "Inspect the userinfo endpoint manually; the response MUST include a `sub` claim. If the IdP returns a non-standard identifier, use a function-mode `userinfo` and map it yourself.",
-          },
-        );
-      }
-      if (responseSub !== principal.subject) {
-        throw rcError(
-          "RC5022",
-          new Error(
-            `userinfo \`sub\` (${responseSub}) does not match token \`sub\` (${principal.subject})`,
-          ),
-          {
-            message:
-              "userinfo response `sub` does not match the verified token's `sub` (OIDC Core §5.3.2 violation)",
-            suggestion:
-              "This indicates a compromised userinfo endpoint or a misconfigured userinfo URL. Verify the issuer / userinfo mapping; do not relax this check.",
-          },
-        );
-      }
-      const enrichment = liftOidcClaims(payload);
-      return mergeEnrichment(principal, enrichment);
-    });
+  return async (token: string) => {
+    const principal = await baseVerifier(token);
+    const enrichment = await cache.getOrCompute(
+      token,
+      principal.expiresAt,
+      async () => {
+        const url = await resolveUserinfoUrl();
+        const payload = await fetchUserinfo(url, token);
+        const responseSub = payload["sub"];
+        if (typeof responseSub !== "string" || responseSub.length === 0) {
+          throw rcError(
+            "RC5022",
+            new Error("userinfo response is missing `sub`"),
+            {
+              message:
+                "userinfo response is missing `sub` (required per OIDC Core §5.3.2)",
+              suggestion:
+                "Inspect the userinfo endpoint manually; the response MUST include a `sub` claim. If the IdP returns a non-standard identifier, use a function-mode `userinfo` and map it yourself.",
+            },
+          );
+        }
+        if (responseSub !== principal.subject) {
+          throw rcError(
+            "RC5022",
+            new Error(
+              `userinfo \`sub\` (${responseSub}) does not match token \`sub\` (${principal.subject})`,
+            ),
+            {
+              message:
+                "userinfo response `sub` does not match the verified token's `sub` (OIDC Core §5.3.2 violation)",
+              suggestion:
+                "This indicates a compromised userinfo endpoint or a misconfigured userinfo URL. Verify the issuer / userinfo mapping; do not relax this check.",
+            },
+          );
+        }
+        return liftOidcClaims(payload);
+      },
+    );
+    return mergeEnrichment(principal, enrichment);
+  };
 }

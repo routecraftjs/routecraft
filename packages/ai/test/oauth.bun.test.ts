@@ -302,11 +302,15 @@ async function serveJson(
 
 describe("oauth({ userinfo }) enrichment", () => {
   function makeVerify(subject: string, expiresIn = 60) {
+    // Snapshot expiresAt at helper-creation time. Recomputing per call would
+    // make deep-equality assertions (and the cache-hit tests) flaky if the
+    // calls straddle a second boundary.
+    const expiresAt = Math.floor(Date.now() / 1000) + expiresIn;
     return async (): Promise<OAuthPrincipal> => ({
       kind: "custom",
       scheme: "bearer",
       subject,
-      expiresAt: Math.floor(Date.now() / 1000) + expiresIn,
+      expiresAt,
     });
   }
 
@@ -480,6 +484,35 @@ describe("oauth({ userinfo }) enrichment", () => {
   });
 
   /**
+   * @case Base verifier runs on every request, even on cache hits
+   * @preconditions Custom verify increments a counter; userinfo is cheap
+   * @expectedResult verify is called once per verifyAccessToken; dynamic checks (introspection, revocation) keep firing
+   */
+  test("base verifier runs on every request (cache hits do not bypass verify)", async () => {
+    let verifyCalls = 0;
+    const verify = async (): Promise<OAuthPrincipal> => {
+      verifyCalls += 1;
+      return {
+        kind: "custom",
+        scheme: "bearer",
+        subject: "user-42",
+        expiresAt: Math.floor(Date.now() / 1000) + 60,
+      };
+    };
+    const config = oauth({
+      ...BASE_OPTIONS,
+      verify,
+      userinfo: async () => ({ email: "ada@example.com" }),
+    });
+
+    await config.verifyAccessToken("token");
+    await config.verifyAccessToken("token");
+    await config.verifyAccessToken("token");
+
+    expect(verifyCalls).toBe(3);
+  });
+
+  /**
    * @case userinfo: true auto-discovers the userinfo endpoint via OIDC Discovery
    * @preconditions Local server serves /.well-known/openid-configuration and /userinfo
    * @expectedResult Principal is enriched from the discovered endpoint
@@ -564,6 +597,21 @@ describe("oauth({ userinfo }) enrichment", () => {
         userinfo: true,
       }),
     ).toThrow(/array|single/i);
+  });
+
+  /**
+   * @case oauth() throws fail-fast when verify is missing, even with userinfo set
+   * @preconditions options.verify is undefined; options.userinfo is set (would have masked the check)
+   * @expectedResult Factory throws TypeError mentioning verify at construction time
+   */
+  test("oauth() rejects missing verify even when userinfo is set", () => {
+    expect(() =>
+      oauth({
+        ...BASE_OPTIONS,
+        verify: undefined as unknown as ReturnType<typeof makeVerify>,
+        userinfo: async () => ({}),
+      }),
+    ).toThrow(/verify/i);
   });
 
   /**
