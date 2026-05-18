@@ -1,0 +1,33 @@
+name: Dependabot auto-merge
+
+# This is the ONLY workflow that uses `pull_request_target`. It runs with
+# repo-write trust, so it MUST NOT check out or execute PR-controlled code.
+# It just enables auto-merge; branch protection enforces required checks
+# from the untrusted `pull_request`-triggered CI run before the merge fires.
+
+on:
+  pull_request_target:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  auto-merge:
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Approve PR
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr review --approve "$PR_URL"
+
+      - name: Enable auto-merge
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr merge --auto --squash "$PR_URL"
