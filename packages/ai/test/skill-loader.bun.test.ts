@@ -235,6 +235,20 @@ describe("skills() markdown loader", () => {
   });
 
   /**
+   * @case Flat and nested skills resolving to the same name are rejected
+   * @preconditions Both `foo.md` and `foo/SKILL.md` declare `name: foo`
+   * @expectedResult Throws RC5003 mentioning both source paths so the
+   *   conflict is visible at load time rather than silently last-write-wins
+   */
+  test("rejects duplicate skill names from flat and nested layouts", async () => {
+    const dir = makeDir({
+      "foo.md": "---\nname: foo\ndescription: flat\n---\nflat body",
+      "foo/SKILL.md": "---\nname: foo\ndescription: nested\n---\nnested body",
+    });
+    await expect(skills(dir)).rejects.toThrow(/duplicate skill name "foo"/);
+  });
+
+  /**
    * @case Nested layout coexists with bundled sibling files (Claude Code allows
    *   scripts/templates/examples alongside SKILL.md)
    * @preconditions `summarize/SKILL.md` plus a sibling `scripts/visualize.sh`

@@ -107,11 +107,22 @@ export async function skills(
   overrides: Record<string, SkillOverride> = {},
 ): Promise<Record<string, Skill>> {
   const out: Record<string, Skill> = {};
+  const sources = new Map<string, string>();
   const docs = path.endsWith(".md")
     ? [await readMarkdownFile(path)]
     : await readMarkdownDir(path, { sentinelFilename: "SKILL.md" });
   for (const doc of docs) {
     const skill = toSkill(doc.filename, doc.frontmatter, doc.body, doc.path);
+    // Flat `foo.md` and nested `foo/SKILL.md` can both resolve to the
+    // same skill name. Reject explicitly so the conflict is visible
+    // at load time instead of silently last-write-wins.
+    const previousSource = sources.get(skill.name);
+    if (previousSource) {
+      throw rcError("RC5003", undefined, {
+        message: `skills("${path}"): duplicate skill name "${skill.name}" loaded from both "${previousSource}" and "${doc.path}". Each skill name must be unique within a directory; rename or remove one source.`,
+      });
+    }
+    sources.set(skill.name, doc.path);
     const override = overrides[skill.name];
     out[skill.name] = override ? { ...skill, ...override } : skill;
   }
