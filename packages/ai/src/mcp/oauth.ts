@@ -52,15 +52,7 @@ export type OAuthVerifier = OAuthValidatorAuthOptions | OAuthTokenVerifier;
  * @experimental
  */
 export interface OAuthFactoryOptions {
-  /**
-   * Issuer URL for this MCP server's OAuth metadata discovery endpoint.
-   * Must be HTTPS in production.
-   *
-   * Renamed from `issuerUrl` to avoid confusion with the IdP issuer inside
-   * the `verify` config.
-   */
-  resourceIssuerUrl: string | URL;
-  /** Base URL for OAuth endpoints (defaults to resourceIssuerUrl). */
+  /** Base URL for OAuth endpoints (defaults to the resolved resource URL). */
   baseUrl?: string | URL;
   /** Upstream OAuth provider endpoints to proxy. */
   endpoints: OAuthProxyEndpoints;
@@ -86,14 +78,8 @@ export interface OAuthFactoryOptions {
    * during every authorize/token/revoke call; treat it as a hot path.
    */
   client: OAuthClientInfo | OAuthClientSupplier;
-  /** OAuth scopes the server advertises as supported. */
-  scopesSupported?: string[];
-  /** Scopes required on every request to `/mcp`. */
+  /** Scopes required on every request to `/mcp`. Enforcement policy, not metadata. */
   requiredScopes?: string[];
-  /** URL to service documentation (included in OAuth metadata). */
-  serviceDocumentationUrl?: string | URL;
-  /** Human-readable resource name (included in OAuth metadata). */
-  resourceName?: string;
   /**
    * Principal enrichment after `verify` succeeds. Three input shapes:
    *
@@ -175,8 +161,8 @@ function buildVerifier(
  *
  * mcpPlugin({
  *   transport: "http",
+ *   resource: { url: "https://mcp.example.com" },
  *   auth: oauth({
- *     resourceIssuerUrl: "https://mcp.example.com",
  *     endpoints: {
  *       authorizationUrl: "https://idp.example.com/authorize",
  *       tokenUrl: "https://idp.example.com/token",
@@ -205,7 +191,6 @@ function buildVerifier(
  * @example Custom verification (opaque tokens, introspection, etc.)
  * ```ts
  * oauth({
- *   resourceIssuerUrl: "https://mcp.example.com",
  *   endpoints: { authorizationUrl: "...", tokenUrl: "..." },
  *   verify: async (token) => {
  *     const principal = await myIntrospectionCall(token);
@@ -224,16 +209,6 @@ function buildVerifier(
  * @experimental
  */
 export function oauth(options: OAuthFactoryOptions): OAuthAuthOptions {
-  const issuer = new URL(options.resourceIssuerUrl.toString());
-  if (
-    issuer.protocol !== "https:" &&
-    process.env["NODE_ENV"] === "production"
-  ) {
-    throw new TypeError(
-      "oauth: resourceIssuerUrl must use HTTPS in production",
-    );
-  }
-
   if (!options.verify) {
     throw new TypeError(
       "oauth: `verify` is required. Pass jwks(...), jwt(...), or a custom (token) => OAuthPrincipal function.",
@@ -247,22 +222,12 @@ export function oauth(options: OAuthFactoryOptions): OAuthAuthOptions {
 
   const result: OAuthAuthOptions = {
     provider: "oauth",
-    resourceIssuerUrl: options.resourceIssuerUrl,
     endpoints: options.endpoints,
     verifyAccessToken,
     getClient,
     ...(options.baseUrl !== undefined && { baseUrl: options.baseUrl }),
-    ...(options.scopesSupported !== undefined && {
-      scopesSupported: options.scopesSupported,
-    }),
     ...(options.requiredScopes !== undefined && {
       requiredScopes: options.requiredScopes,
-    }),
-    ...(options.serviceDocumentationUrl !== undefined && {
-      serviceDocumentationUrl: options.serviceDocumentationUrl,
-    }),
-    ...(options.resourceName !== undefined && {
-      resourceName: options.resourceName,
     }),
   };
 

@@ -11,6 +11,7 @@ import type { IncomingMessage } from "node:http";
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import type {
   OAuthPrincipal,
+  OAuthValidatorAuthOptions,
   Principal,
   ValidatorAuthOptions,
 } from "@routecraft/routecraft";
@@ -44,7 +45,27 @@ const principalStore = new AsyncLocalStorage<Principal | undefined>();
 type McpServerResolvedOptions = Required<
   Pick<McpPluginOptions, "name" | "version" | "transport" | "port" | "host">
 > &
-  Pick<McpPluginOptions, "tools" | "auth">;
+  Pick<McpPluginOptions, "tools" | "auth" | "title" | "resource">;
+
+/**
+ * RFC 9728 OAuth 2.0 Protected Resource Metadata payload returned by
+ * `GET /.well-known/oauth-protected-resource`. Optional fields are omitted
+ * from the JSON when unset.
+ *
+ * @internal
+ */
+interface ProtectedResourceMetadata {
+  resource: string;
+  resource_name?: string;
+  authorization_servers?: string[];
+  bearer_methods_supported: ["header"];
+  scopes_supported?: string[];
+  resource_documentation?: string;
+}
+
+/** Path of the RFC 9728 metadata document. Relative to the server origin. */
+const PROTECTED_RESOURCE_METADATA_PATH =
+  "/.well-known/oauth-protected-resource";
 
 /**
  * McpServer wraps the MCP SDK and bridges it to Routecraft's DirectChannel infrastructure.
@@ -83,6 +104,28 @@ export class McpServer {
       host: "localhost",
       ...options,
     };
+    this.validateResourceConfig();
+  }
+
+  /**
+   * Validate plugin-level resource config at construction time. Runs the
+   * HTTPS-in-production guard on an explicit `resource.url`. The default
+   * fallback `http://{host}:{port}/mcp` is permitted as a dev-only
+   * convenience; the guard only fires when the user explicitly opted in to
+   * an `http://` URL in production.
+   */
+  private validateResourceConfig(): void {
+    const explicit = this.options.resource?.url;
+    if (explicit === undefined) return;
+    const parsed = new URL(explicit.toString());
+    if (
+      parsed.protocol !== "https:" &&
+      process.env["NODE_ENV"] === "production"
+    ) {
+      throw new TypeError(
+        "mcpPlugin: resource.url must use HTTPS in production",
+      );
+    }
   }
 
   /**
@@ -133,7 +176,7 @@ export class McpServer {
       { adapterName: "mcp (stdio)", packageName: "@modelcontextprotocol/sdk" },
     );
     const Server = serverMod.Server as new (
-      info: { name: string; version: string },
+      info: { name: string; version: string; title?: string },
       options: { capabilities: { tools: Record<string, unknown> } },
     ) => unknown;
     const stdioMod = await loadOptionalPeer(
@@ -179,7 +222,7 @@ export class McpServer {
    */
   private async importSdkHttp(): Promise<{
     ServerCtor: new (
-      info: { name: string; version: string },
+      info: { name: string; version: string; title?: string },
       options: { capabilities: { tools: Record<string, unknown> } },
     ) => unknown;
     TransportClass: new (options?: {
@@ -193,7 +236,7 @@ export class McpServer {
       { adapterName: "mcp (http)", packageName: "@modelcontextprotocol/sdk" },
     );
     const ServerCtor = serverModule.Server as new (
-      info: { name: string; version: string },
+      info: { name: string; version: string; title?: string },
       options: { capabilities: { tools: Record<string, unknown> } },
     ) => unknown;
 
@@ -231,7 +274,7 @@ export class McpServer {
    */
   private async createSession(
     ServerCtor: new (
-      info: { name: string; version: string },
+      info: { name: string; version: string; title?: string },
       options: { capabilities: { tools: Record<string, unknown> } },
     ) => unknown,
     TransportClass: new (options?: {
@@ -248,7 +291,11 @@ export class McpServer {
     ) => Promise<void>;
   }> {
     const server = new ServerCtor(
-      { name: this.options.name, version: this.options.version },
+      {
+        name: this.options.name,
+        version: this.options.version,
+        ...(this.options.title !== undefined && { title: this.options.title }),
+      },
       { capabilities: { tools: {} } },
     );
 
@@ -359,6 +406,116 @@ export class McpServer {
   }
 
   /**
+   * Resolve the RFC 9728 `resource` URL. Resolution order:
+   *   1. `mcpPlugin({ resource: { url } })`
+   *   2. bound fallback `http://{host}:{port}/mcp`
+   *
+   * The HTTPS-in-production guard on an explicit `resource.url` runs eagerly
+   * in the constructor (see `validateResourceConfig`); this resolver is a
+   * pure projection. Should be called after `.listen()` so the bound port is
+   * known. The OAuth path resolves at startup (pre-listen) because the MCP
+   * SDK closes over the URL when middleware is registered; that path
+   * forbids `port: 0` with an unset `resource.url` separately to avoid
+   * baking `:0` into advertised URLs.
+   */
+  private resolveResourceUrl(): string {
+    const explicit = this.options.resource?.url;
+    if (explicit !== undefined) return explicit.toString();
+    const host = this.options.host;
+    const port = this.getHttpPort() ?? this.options.port;
+    return `http://${host}:${port}/mcp`;
+  }
+
+  /**
+   * Resolve the RFC 9728 `resource_name` value: `title` -> `name`.
+   */
+  private resolveResourceName(): string {
+    return this.options.title ?? this.options.name;
+  }
+
+  /**
+   * Build the RFC 9728 protected-resource metadata document.
+   *
+   * `authorization_servers` is populated from the validator's `issuer` (when
+   * `auth` is `OAuthValidatorAuthOptions` from `jwks()` / `jwt()`). When the
+   * verifier exposes no issuer, the field is omitted (RFC 9728 allows that).
+   *
+   * @internal
+   */
+  private buildProtectedResourceMetadata(): ProtectedResourceMetadata {
+    const metadata: ProtectedResourceMetadata = {
+      resource: this.resolveResourceUrl(),
+      bearer_methods_supported: ["header"],
+    };
+    metadata.resource_name = this.resolveResourceName();
+
+    const auth = this.options.auth;
+    if (auth && !("provider" in auth) && "issuer" in auth) {
+      const issuer = (auth as OAuthValidatorAuthOptions).issuer;
+      if (issuer !== undefined) {
+        metadata.authorization_servers = Array.isArray(issuer)
+          ? issuer
+          : [issuer];
+      }
+    }
+
+    const resource = this.options.resource;
+    if (resource?.scopesSupported && resource.scopesSupported.length > 0) {
+      metadata.scopes_supported = resource.scopesSupported;
+    }
+    if (resource?.documentationUrl !== undefined) {
+      metadata.resource_documentation = resource.documentationUrl.toString();
+    }
+
+    return metadata;
+  }
+
+  /**
+   * Build the absolute URL of the protected-resource metadata document.
+   * Combines `PROTECTED_RESOURCE_METADATA_PATH` (always rooted at origin)
+   * with the resolved `resource.url`'s origin.
+   *
+   * @internal
+   */
+  private resolveResourceMetadataUrl(): string {
+    return new URL(
+      PROTECTED_RESOURCE_METADATA_PATH,
+      this.resolveResourceUrl(),
+    ).toString();
+  }
+
+  /**
+   * Build the `WWW-Authenticate` header value for a 401, with an absolute
+   * `resource_metadata` URL per RFC 9728 §5.1.
+   */
+  private buildWwwAuthenticateHeader(): string {
+    const metadataUrl = this.resolveResourceMetadataUrl();
+    return `Bearer realm="mcp", resource_metadata="${metadataUrl}"`;
+  }
+
+  /**
+   * Serve the RFC 9728 protected-resource metadata document.
+   *
+   * Shared between validator and OAuth-proxy modes so both produce the
+   * exact same JSON shape. Default `Cache-Control: public, max-age=3600`
+   * follows RFC 9728 §3.3's caching guidance; auto-discovering MCP clients
+   * fetch this document on every connection, so a short cache prevents the
+   * IdP from being polled needlessly.
+   *
+   * @internal
+   */
+  private serveProtectedResourceMetadata(
+    res: import("node:http").ServerResponse,
+  ): void {
+    const metadata = this.buildProtectedResourceMetadata();
+    res.writeHead(200, {
+      "Content-Type": "application/json",
+      "Cache-Control": "public, max-age=3600",
+    });
+    res.end(JSON.stringify(metadata));
+  }
+
+  /**
    * Start HTTP transport with validator-based auth (existing behavior).
    * Uses raw Node.js `http.createServer`.
    */
@@ -372,6 +529,12 @@ export class McpServer {
 
     this.httpServer = createServer(async (req, res) => {
       const url = req.url?.split("?")[0] ?? "";
+
+      if (url === PROTECTED_RESOURCE_METADATA_PATH) {
+        this.serveProtectedResourceMetadata(res);
+        return;
+      }
+
       if (url !== "/mcp" && url !== "/mcp/") {
         res.writeHead(404, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "Not Found", path: url }));
@@ -384,7 +547,7 @@ export class McpServer {
         if (!result) {
           res.writeHead(401, {
             "Content-Type": "application/json",
-            "WWW-Authenticate": 'Bearer realm="mcp"',
+            "WWW-Authenticate": this.buildWwwAuthenticateHeader(),
           });
           res.end(JSON.stringify({ error: "Unauthorized" }));
           return;
@@ -416,6 +579,7 @@ export class McpServer {
     // Express types are not available at compile time (transitive dep of SDK),
     // so all Express values are typed as unknown and accessed dynamically.
     let expressFn: (...args: unknown[]) => {
+      get: (...args: unknown[]) => void;
       use: (...args: unknown[]) => void;
       all: (...args: unknown[]) => void;
       listen: (
@@ -543,31 +707,74 @@ export class McpServer {
     const port = this.options.port;
     const host = this.options.host;
 
+    // OAuth-proxy mode resolves the resource URL at startup because the MCP
+    // SDK's `mcpAuthRouter` and `requireBearerAuth` middleware close over
+    // the URL when they are mounted. With `port: 0` (an ephemeral port,
+    // commonly used in tests) and no explicit `resource.url`, the bound
+    // port is unknown at this point and would be baked into the discovery
+    // document and `WWW-Authenticate` header as `:0`. Reject that
+    // combination loudly so the user picks a fixed port or a public URL.
+    if (port === 0 && this.options.resource?.url === undefined) {
+      throw new TypeError(
+        "mcpPlugin: OAuth-proxy mode requires either a fixed `port` or an explicit `resource.url`. " +
+          "With `port: 0` (ephemeral) and no `resource.url`, the protected-resource metadata URL " +
+          'would advertise `:0`. Pass `resource: { url: "https://..." }` or a non-zero `port`.',
+      );
+    }
+
+    // Single source of truth for the resource URL (validates HTTPS in
+    // production when explicitly set; falls back to the configured port
+    // otherwise).
+    const resourceUrl = new URL(this.resolveResourceUrl());
+
     const app = expressFn();
+
+    // Mount our own protected-resource metadata handler BEFORE
+    // `mcpAuthRouter`. The SDK's router also mounts a doc, but at a
+    // path-aware URL (`/.well-known/oauth-protected-resource{rsPath}`)
+    // and without the `bearer_methods_supported` field RFC 9728 §2
+    // recommends. Mounting ours first means clients fetching the URL we
+    // advertise in the 401 always get the same JSON shape as validator
+    // mode -- the design's "auto-mount, same shape, regardless of auth
+    // mode" promise. Express matches the more specific `app.get(...)`
+    // before the more general `router.use(...)` registered later.
+    app.get(PROTECTED_RESOURCE_METADATA_PATH, (_req: unknown, res: unknown) => {
+      this.serveProtectedResourceMetadata(
+        res as import("node:http").ServerResponse,
+      );
+    });
 
     // Mount OAuth endpoints at root (discovery, authorize, token, revoke).
     const authRouterOptions: Record<string, unknown> = {
       provider,
-      issuerUrl: new URL(oauthOptions.resourceIssuerUrl.toString()),
+      issuerUrl: resourceUrl,
     };
     if (oauthOptions.baseUrl) {
       authRouterOptions["baseUrl"] = new URL(oauthOptions.baseUrl.toString());
     }
-    if (oauthOptions.scopesSupported) {
-      authRouterOptions["scopesSupported"] = oauthOptions.scopesSupported;
+    const resource = this.options.resource;
+    if (resource?.scopesSupported && resource.scopesSupported.length > 0) {
+      authRouterOptions["scopesSupported"] = resource.scopesSupported;
     }
-    if (oauthOptions.serviceDocumentationUrl) {
+    if (resource?.documentationUrl !== undefined) {
       authRouterOptions["serviceDocumentationUrl"] = new URL(
-        oauthOptions.serviceDocumentationUrl.toString(),
+        resource.documentationUrl.toString(),
       );
     }
-    if (oauthOptions.resourceName) {
-      authRouterOptions["resourceName"] = oauthOptions.resourceName;
+    const resourceName = this.resolveResourceName();
+    if (resourceName) {
+      authRouterOptions["resourceName"] = resourceName;
     }
     app.use(mcpAuthRouter(authRouterOptions));
 
-    // Bearer auth middleware for /mcp.
-    const bearerOptions: Record<string, unknown> = { verifier: provider };
+    // Bearer auth middleware for /mcp. The SDK appends
+    // `resource_metadata="..."` to its 401 WWW-Authenticate header when
+    // `resourceMetadataUrl` is provided. Use an absolute URL (RFC 9728
+    // §5.1 SHOULD) that points at the doc we just mounted above.
+    const bearerOptions: Record<string, unknown> = {
+      verifier: provider,
+      resourceMetadataUrl: this.resolveResourceMetadataUrl(),
+    };
     if (oauthOptions.requiredScopes) {
       bearerOptions["requiredScopes"] = oauthOptions.requiredScopes;
     }

@@ -86,6 +86,7 @@ export {
   type McpLocalToolEntry,
   type McpOptions,
   type McpPluginOptions,
+  type McpResourceOptions,
   type McpServerOptions,
   type McpTool,
   type McpToolAnnotations,
