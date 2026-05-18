@@ -19,6 +19,9 @@ import type { DirectEndpoint, DirectServerOptions } from "./types";
  * - **Destination (for `.to()` / `.tap()`):** Call with a string or function
  *   naming the target route: `direct("fetch-order")` or
  *   `direct((exchange) => exchange.headers["x-endpoint"] as string)`.
+ * - **Destination with explicit input/output types:** Supply two type
+ *   arguments to express a route whose response body shape differs from
+ *   the caller's input shape, e.g. `direct<ChatInput, AgentResult>("agent")`.
  *
  * Semantics: single consumer per endpoint (last subscriber wins), blocking
  * send (sender waits for response).
@@ -42,6 +45,10 @@ import type { DirectEndpoint, DirectServerOptions } from "./types";
  * // Destination
  * .to(direct("ingest"))
  * .to(direct((ex) => ex.headers["x-endpoint"] as string))
+ *
+ * // Destination with input != output (e.g. in-process agent call)
+ * .transform((b) => ({ name: b.agent, body: b.text }))
+ * .enrich(direct<{ name: string; body: string }, AgentResult>("agent"))
  * ```
  */
 export function direct(options: DirectServerOptions): Source<unknown>;
@@ -52,12 +59,13 @@ export function direct<K extends RegisteredDirectEndpoint>(
 export function direct<T = unknown>(
   endpoint: DirectEndpoint<T>,
 ): Destination<T, T>;
-export function direct<T = unknown>(
-  arg?: DirectEndpoint<T> | DirectServerOptions,
-): Source<unknown> | Destination<T, T> {
+export function direct<TIn, TOut>(endpoint: string): Destination<TIn, TOut>;
+export function direct<TIn = unknown, TOut = TIn>(
+  arg?: DirectEndpoint<TIn> | DirectServerOptions,
+): Source<unknown> | Destination<TIn, TOut> {
   // String or function first-arg -> Destination (names a target route).
   if (typeof arg === "string" || typeof arg === "function") {
-    return new DirectDestinationAdapter<T>(arg) as Destination<T, T>;
+    return new DirectDestinationAdapter<TIn, TOut>(arg);
   }
   // Undefined or options object -> Source (endpoint resolved from route id).
   return new DirectSourceAdapter(arg ?? {}) as Source<unknown>;

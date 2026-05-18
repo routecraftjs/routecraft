@@ -246,6 +246,9 @@ direct(options?: Partial<DirectServerOptions>): Source<unknown>
 
 // Destination (names a target route)
 direct<T>(endpoint: string | ((exchange: Exchange<T>) => string)): Destination<T, T>
+
+// Destination with explicit input != output (e.g. in-process agent call)
+direct<TInput, TOutput>(endpoint: string): Destination<TInput, TOutput>
 ```
 
 Enable synchronous inter-route communication. Perfect for composable route architectures where you need request-response patterns. The source form uses the route's `.id()` as the endpoint name; destinations address the target by id.
@@ -311,6 +314,14 @@ craft()
   .input({ body: z.object({ query: z.string() }) })
   .from(direct())
   .process(fetchSnippets)
+
+// Destination where the callee returns a different body shape than the caller sends.
+// Supply two type arguments to express the response shape (e.g. an in-process agent).
+craft()
+  .id('agent-caller')
+  .from(httpSource)
+  .transform((body) => ({ name: body.agent, query: body.text }))
+  .enrich(direct<{ name: string; query: string }, AgentResult>('agent'))
 ```
 
 **Source options (adapter-specific only):**

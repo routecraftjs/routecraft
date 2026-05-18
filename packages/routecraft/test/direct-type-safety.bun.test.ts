@@ -85,4 +85,38 @@ describe("Direct adapter type safety", () => {
       Source<unknown>
     >();
   });
+
+  /**
+   * @case Explicit two-generic form produces Destination<TIn, TOut>
+   * @preconditions direct<{ name: string }, { result: number }>("ep")
+   * @expectedResult Type matches Destination<{ name: string }, { result: number }>
+   */
+  test("direct<TIn, TOut>(string) returns Destination<TIn, TOut>", () => {
+    type In = { name: string; body: string };
+    type Out = { result: number; latencyMs: number };
+    expectTypeOf(direct<In, Out>("ep")).toMatchTypeOf<Destination<In, Out>>();
+  });
+
+  /**
+   * @case Explicit two-generic form does not collapse to the symmetric variant
+   * @preconditions direct<{ a: 1 }, { b: 2 }>("ep")
+   * @expectedResult Type does not match Destination<{ a: 1 }, { a: 1 }>
+   */
+  test("direct<TIn, TOut> with TIn != TOut is not assignable to Destination<TIn, TIn>", () => {
+    const dest = direct<{ a: 1 }, { b: 2 }>("ep");
+    expectTypeOf(dest).not.toMatchTypeOf<Destination<{ a: 1 }, { a: 1 }>>();
+  });
+
+  /**
+   * @case Function-form endpoint still resolves to the symmetric overload
+   * @preconditions direct((ex) => "ep") with Exchange<X>
+   * @expectedResult Type matches Destination<X, X>
+   */
+  test("direct(function) still returns Destination<T, T>", () => {
+    type X = { id: string };
+    expectTypeOf(
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- param only for type
+      direct((_ex: { body: X; headers: Record<string, unknown> }) => "ep"),
+    ).toMatchTypeOf<Destination<X, X>>();
+  });
 });
