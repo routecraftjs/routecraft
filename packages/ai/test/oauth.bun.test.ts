@@ -569,15 +569,126 @@ describe("oauth({ userinfo }) enrichment", () => {
   /**
    * @case userinfo absent leaves oauth() behaviour unchanged (regression guard)
    * @preconditions Same options minus userinfo; verify resolves a thin principal
-   * @expectedResult Principal matches verify output exactly; no enrichment
+   * @expectedResult Principal returned by verifyAccessToken matches the raw verify output via deep equality
    */
   test("oauth() without userinfo is unchanged", async () => {
-    const config = oauth({
-      ...BASE_OPTIONS,
-      verify: makeVerify("user-42"),
-    });
+    const verify = makeVerify("user-42");
+    const baseline = await verify();
+    const config = oauth({ ...BASE_OPTIONS, verify });
     const principal = await config.verifyAccessToken("token");
-    expect(principal.subject).toBe("user-42");
-    expect(principal.email).toBeUndefined();
+    expect(principal).toEqual(baseline);
+  });
+
+  /**
+   * @case URL-mode enrichment preserves the verified JWT payload on principal.claims
+   * @preconditions verify returns a principal with claims = {iat, custom}; userinfo response carries different fields
+   * @expectedResult principal.claims is unchanged; userinfo response lives on principal.userinfoClaims
+   */
+  test("URL-mode enrichment preserves principal.claims and stashes userinfo on userinfoClaims", async () => {
+    const jwtClaims = { iat: 1700000000, custom: "v" };
+    const verify = async (): Promise<OAuthPrincipal> => ({
+      kind: "jwks",
+      scheme: "bearer",
+      subject: "user-42",
+      expiresAt: Math.floor(Date.now() / 1000) + 60,
+      claims: jwtClaims,
+    });
+    const { baseUrl, close } = await serveJson(({ url }) => {
+      if (url === "/userinfo") {
+        return {
+          body: {
+            sub: "user-42",
+            email: "ada@example.com",
+            picture: "https://example.com/p.png",
+          },
+        };
+      }
+      return { status: 404, body: {} };
+    });
+    try {
+      const config = oauth({
+        ...BASE_OPTIONS,
+        verify,
+        userinfo: `${baseUrl}/userinfo`,
+      });
+      const principal = await config.verifyAccessToken("token");
+      expect(principal.claims).toEqual(jwtClaims);
+      expect(principal.userinfoClaims).toEqual({
+        sub: "user-42",
+        email: "ada@example.com",
+        picture: "https://example.com/p.png",
+      });
+      expect(principal.email).toBe("ada@example.com");
+    } finally {
+      await close();
+    }
+  });
+
+  /**
+   * @case OIDC discovery retries on transient failure rather than caching the rejection
+   * @preconditions Discovery endpoint returns 500 on first call and 200 on second
+   * @expectedResult First verifyAccessToken rejects with RC5021; second succeeds
+   */
+  test("OIDC discovery retries after a transient failure", async () => {
+    let calls = 0;
+    const { baseUrl, close } = await serveJson(({ url }) => {
+      if (url === "/.well-known/openid-configuration") {
+        calls += 1;
+        if (calls === 1) return { status: 500, body: { error: "boom" } };
+        return { body: { userinfo_endpoint: `${baseUrl}/userinfo` } };
+      }
+      if (url === "/userinfo") {
+        return { body: { sub: "user-42", email: "ada@example.com" } };
+      }
+      return { status: 404, body: {} };
+    });
+    try {
+      const config = oauth({
+        ...BASE_OPTIONS,
+        verify: { validator: makeVerify("user-42"), issuer: baseUrl },
+        userinfo: true,
+      });
+      await expect(config.verifyAccessToken("token-a")).rejects.toThrow(
+        /RC5021|Discovery/,
+      );
+      const principal = await config.verifyAccessToken("token-b");
+      expect(principal.email).toBe("ada@example.com");
+      expect(calls).toBe(2);
+    } finally {
+      await close();
+    }
+  });
+
+  /**
+   * @case OIDC discovery preserves the issuer's path component (Keycloak realm, Azure tenant)
+   * @preconditions issuer ends with "/realms/test"; discovery doc is served under that prefix
+   * @expectedResult Discovery resolves at "/realms/test/.well-known/openid-configuration" and enrichment succeeds
+   */
+  test("OIDC discovery preserves issuer path component", async () => {
+    const { baseUrl, close } = await serveJson(({ url }) => {
+      if (url === "/realms/test/.well-known/openid-configuration") {
+        return {
+          body: { userinfo_endpoint: `${baseUrl}/realms/test/userinfo` },
+        };
+      }
+      if (url === "/realms/test/userinfo") {
+        return { body: { sub: "user-42", email: "ada@example.com" } };
+      }
+      return { status: 404, body: {} };
+    });
+    try {
+      const config = oauth({
+        ...BASE_OPTIONS,
+        verify: {
+          validator: makeVerify("user-42"),
+          issuer: `${baseUrl}/realms/test`,
+        },
+        userinfo: true,
+      });
+      const principal = await config.verifyAccessToken("token");
+      expect(principal.email).toBe("ada@example.com");
+    } finally {
+      await close();
+    }
   });
 });

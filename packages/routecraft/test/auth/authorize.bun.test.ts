@@ -983,6 +983,87 @@ describe("authorize() expiresAt enforcement", () => {
   });
 
   /**
+   * @case clockToleranceSec admits a token whose expiresAt is within tolerance
+   * @preconditions Principal expiresAt is now - 2s; authorize({ clockToleranceSec: 5 })
+   * @expectedResult Validator passes through; matches the boundary-side clock tolerance
+   */
+  test("clockToleranceSec admits a token within tolerance", async () => {
+    const s = spy<string>();
+    const principal: Principal = {
+      kind: "custom",
+      scheme: "bearer",
+      subject: "user-1",
+      expiresAt: Math.floor(Date.now() / 1000) - 2,
+    };
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("exp-tolerated")
+          .from(simple("hello"))
+          .process((ex) => ({
+            ...ex,
+            headers: {
+              ...ex.headers,
+              "routecraft.auth.principal": principal,
+            },
+          }))
+          .validate(authorize({ clockToleranceSec: 5 }))
+          .to(s),
+      )
+      .build();
+    await t.test();
+
+    expect(s.receivedBodies()).toEqual(["hello"]);
+  });
+
+  /**
+   * @case clockToleranceSec still rejects when expiresAt is past the tolerance window
+   * @preconditions Principal expiresAt is now - 60s; authorize({ clockToleranceSec: 5 })
+   * @expectedResult exchange:failed fires with RC5020
+   */
+  test("clockToleranceSec still rejects past the tolerance window", async () => {
+    const s = spy<string>();
+    const principal: Principal = {
+      kind: "custom",
+      scheme: "bearer",
+      subject: "user-1",
+      expiresAt: Math.floor(Date.now() / 1000) - 60,
+    };
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("exp-beyond-tolerance")
+          .from(simple("hello"))
+          .process((ex) => ({
+            ...ex,
+            headers: {
+              ...ex.headers,
+              "routecraft.auth.principal": principal,
+            },
+          }))
+          .validate(authorize({ clockToleranceSec: 5 }))
+          .to(s),
+      )
+      .build();
+
+    const failures: unknown[] = [];
+    t.ctx.on(
+      "route:exp-beyond-tolerance:exchange:failed" as EventName,
+      ((payload: FailedEventDetails) => {
+        failures.push(payload.details.error);
+      }) as Parameters<typeof t.ctx.on>[1],
+    );
+
+    await t.test();
+
+    expect(s.received).toHaveLength(0);
+    expect(failures).toHaveLength(1);
+    expect(String(failures[0])).toContain("RC5020");
+  });
+
+  /**
    * @case RC5020 is distinct from RC5012 (no principal) and RC5015 (wrong roles)
    * @preconditions Expired principal also lacks a required role
    * @expectedResult RC5020 wins (expiry check runs before role check)

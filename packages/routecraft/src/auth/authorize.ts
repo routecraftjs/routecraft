@@ -25,6 +25,16 @@ export interface AuthorizeOptions {
    * after the role and scope checks.
    */
   predicate?: (principal: Principal) => boolean;
+  /**
+   * Clock skew tolerance in seconds applied to the `expiresAt` check.
+   * Matches the semantics of `jwt({ clockToleranceSec })` and
+   * `jwks({ clockToleranceSec })`: a token whose `expiresAt` is less than
+   * `clockToleranceSec` seconds in the past is still accepted. Defaults to
+   * `0` (strict). Set to the same value used on the source-side verifier so
+   * a token accepted at the route boundary is not rejected mid-pipeline by
+   * a fraction of a second.
+   */
+  clockToleranceSec?: number;
 }
 
 /**
@@ -70,7 +80,7 @@ export interface AuthorizeOptions {
 export function authorize(
   options: AuthorizeOptions = {},
 ): CallableValidator<unknown, unknown> {
-  const { roles, scopes, predicate } = options;
+  const { roles, scopes, predicate, clockToleranceSec = 0 } = options;
   return (exchange: Exchange<unknown>) => {
     const principal = exchange.principal;
     if (!principal) {
@@ -83,7 +93,7 @@ export function authorize(
 
     if (
       principal.expiresAt !== undefined &&
-      Date.now() / 1000 > principal.expiresAt
+      Date.now() / 1000 > principal.expiresAt + clockToleranceSec
     ) {
       throw rcError("RC5020", new Error("Token expired"), {
         message: "Authorization failed: token expired during processing",

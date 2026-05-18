@@ -63,6 +63,17 @@ export interface Principal {
   expiresAt?: number;
   /** Full decoded JWT payload (when available). */
   claims?: Record<string, unknown>;
+  /**
+   * Raw OIDC userinfo response (when available). Populated only when
+   * `oauth({ userinfo: ... })` runs in URL or auto-discovery mode and the
+   * userinfo endpoint returns a non-empty JSON body. Distinct from `claims`,
+   * which always carries the verified JWT payload.
+   *
+   * Function-mode enrichment is free to merge into this field directly if
+   * the user wants the raw upstream response surfaced; the framework does
+   * not populate it automatically for the function variant.
+   */
+  userinfoClaims?: Record<string, unknown>;
 }
 
 /**

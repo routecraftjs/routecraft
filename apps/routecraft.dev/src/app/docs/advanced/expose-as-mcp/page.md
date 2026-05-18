@@ -336,11 +336,13 @@ auth: oauth({
 Semantics:
 
 - **Runs after verify.** The verified principal is the starting point; userinfo only adds or overwrites non-protected fields.
-- **Verify wins on protected fields.** `subject`, `issuer`, `audience`, and `expiresAt` always come from the token. An enrichment that tries to overwrite them is silently dropped.
-- **`sub` invariant (URL and discovery modes).** The userinfo response MUST include `sub` and it MUST equal the verified token's `sub` (OIDC Core §5.3.2). Mismatches reject the request. The function variant is trusted by contract.
-- **Auto-discovery (`userinfo: true`).** The framework fetches `${issuer}/.well-known/openid-configuration` once at first use, reads `userinfo_endpoint`, and caches the URL for the server lifetime. A discovery doc missing `userinfo_endpoint` (or unreachable) raises a clear error on the first request rather than silently degrading.
-- **Token-bound caching.** Enriched principals are memoised by token and evicted at `expiresAt`. No `cache:` knob, no TTL to pick. Refresh-token rotation triggers one re-enrichment for the new token.
-- **Fail-closed.** Any userinfo fetch, parse, or merge error rejects the request. There is no opt-in "best effort" mode; if you need that, write a function variant that swallows its own errors.
+- **Verify wins on protected fields.** `subject`, `issuer`, `audience`, `expiresAt`, and `claims` always come from the token. An enrichment that tries to overwrite them is silently dropped. The raw userinfo response is surfaced on a separate `userinfoClaims` field so `principal.claims` keeps its meaning ("verified JWT payload") regardless of whether enrichment ran.
+- **`sub` invariant (URL and discovery modes).** The userinfo response MUST include `sub` and it MUST equal the verified token's `sub` (OIDC Core §5.3.2). Mismatches reject the request with `RC5022`. The function variant is trusted by contract.
+- **Auto-discovery (`userinfo: true`).** The framework fetches the OIDC Discovery document relative to the verify helper's `issuer` (preserving the issuer's path, so Keycloak realms and tenant-prefixed IdPs work), reads `userinfo_endpoint`, and caches the resolved URL honouring the response's `Cache-Control: max-age` (default one hour). A missing `userinfo_endpoint` or an unreachable discovery doc raises `RC5021` on the first request.
+- **Token-bound caching with coalescing.** Enriched principals are memoised by token (keyed by a SHA-256 hash, not the raw bearer) and evicted at `expiresAt`. The cache has a default cap of 10,000 entries with insertion-order eviction. Concurrent verifies of the same token share a single in-flight enrichment, so the IdP receives one userinfo fetch per token, not one per inbound request.
+- **Fail-closed.** Userinfo fetch, parse, and discovery errors raise `RC5021`; sub-invariant violations raise `RC5022`. There is no opt-in "best effort" mode; if you need that, write a function variant that swallows its own errors.
+
+If `authorize()` runs mid-pipeline after a slow step, set `authorize({ clockToleranceSec })` to the same value used on the source-side verifier so a token accepted at the route boundary is not rejected by a fraction of a second.
 
 Use `userinfo` when the bearer alone does not carry the identity fields you need. Skip it when the token already contains everything (e.g. a Clerk JWT with `email` and `roles` claims).
 
