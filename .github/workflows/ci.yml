@@ -8,7 +8,7 @@ on:
       - "**/README.md"
       - ".github/ISSUE_TEMPLATE/**"
       - ".cursor/**"
-  pull_request_target:
+  pull_request:
     branches: ["main"]
     paths-ignore:
       - "**/README.md"
@@ -17,8 +17,15 @@ on:
   release:
     types: [created]
 
+permissions:
+  contents: read
+
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request_target' && github.event.pull_request.number || github.ref }}
+  # Include event_name so the new pull_request-triggered run doesn't collide
+  # with main's still-live pull_request_target workflow during the transition.
+  # After this PR merges, only pull_request fires, so the event_name segment
+  # becomes a no-op and concurrency works as before.
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -29,12 +36,10 @@ jobs:
       docs: ${{ steps.filter.outputs.docs }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Detect changed paths
-        uses: dorny/paths-filter@v4
+        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
         id: filter
         with:
           filters: |
@@ -53,56 +58,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Use Node.js from .nvmrc
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version-file: ".nvmrc"
 
       - name: Install bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: "package.json"
 
-      - name: Checkout PR branch for lockfile update
-        if: ${{ github.event_name == 'pull_request_target' && github.actor == 'dependabot[bot]' }}
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          token: ${{ secrets.GITHUB_TOKEN }}
-          fetch-depth: 0
-
-      - name: Update lockfile
-        if: ${{ github.event_name == 'pull_request_target' && github.actor == 'dependabot[bot]' }}
-        run: |
-          bun install
-
-      - name: Commit lockfile changes
-        if: ${{ github.event_name == 'pull_request_target' && github.actor == 'dependabot[bot]' }}
-        run: |
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-          git add bun.lock
-          if git diff --cached --quiet; then
-            echo "No lockfile changes needed"
-          else
-            git commit --amend --no-edit
-            git push --force-with-lease
-          fi
-
       - name: Install dependencies
-        run: |
-          if [ "${{ github.actor }}" = "dependabot[bot]" ]; then
-            bun install
-          else
-            bun install --frozen-lockfile
-          fi
+        run: bun install --frozen-lockfile
 
       - name: Cache node_modules
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: "**/node_modules"
           key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
@@ -112,22 +84,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Use Node.js from .nvmrc
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version-file: ".nvmrc"
 
       - name: Install bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: "package.json"
 
       - name: Restore node_modules
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: "**/node_modules"
           key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
@@ -144,22 +114,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Use Node.js from .nvmrc
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version-file: ".nvmrc"
 
       - name: Install bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: "package.json"
 
       - name: Restore node_modules
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: "**/node_modules"
           key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
@@ -168,7 +136,7 @@ jobs:
         run: bun run test:coverage
 
       - name: Upload coverage reports
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: coverage-report
           path: coverage/
@@ -179,22 +147,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Use Node.js from .nvmrc
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version-file: ".nvmrc"
 
       - name: Install bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: "package.json"
 
       - name: Restore node_modules
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: "**/node_modules"
           key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
@@ -202,14 +168,16 @@ jobs:
       - name: Build packages
         run: bun run build
         env:
-          NEXT_PUBLIC_POSTHOG_KEY: ${{ secrets.NEXT_PUBLIC_POSTHOG_KEY }}
-          NEXT_PUBLIC_POSTHOG_HOST: ${{ secrets.NEXT_PUBLIC_POSTHOG_HOST }}
+          # PostHog keys are NEXT_PUBLIC_* so technically safe to expose, but
+          # the PR build artifact is thrown away. Only inject on trusted triggers.
+          NEXT_PUBLIC_POSTHOG_KEY: ${{ github.event_name != 'pull_request' && secrets.NEXT_PUBLIC_POSTHOG_KEY || '' }}
+          NEXT_PUBLIC_POSTHOG_HOST: ${{ github.event_name != 'pull_request' && secrets.NEXT_PUBLIC_POSTHOG_HOST || '' }}
 
       - name: Check bundle size
         run: bun run limit:size
 
       - name: Cache build artifacts
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: "**/dist"
           key: build-${{ github.event.pull_request.head.sha || github.sha }}
@@ -221,28 +189,26 @@ jobs:
     name: scaffolder-smoke
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Use Node.js from .nvmrc
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version-file: ".nvmrc"
 
       - name: Install bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: "package.json"
 
       - name: Restore node_modules
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: "**/node_modules"
           key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
 
       - name: Restore build artifacts
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: "**/dist"
           key: build-${{ github.event.pull_request.head.sha || github.sha }}
@@ -280,28 +246,26 @@ jobs:
     name: embedding-smoke
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Use Node.js from .nvmrc
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version-file: ".nvmrc"
 
       - name: Install bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: "package.json"
 
       - name: Restore node_modules
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: "**/node_modules"
           key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
 
       - name: Restore build artifacts
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: "**/dist"
           key: build-${{ github.event.pull_request.head.sha || github.sha }}
@@ -338,29 +302,27 @@ jobs:
     name: adapter-cross-runtime (${{ matrix.runtime }})
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Use Node.js from .nvmrc
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version-file: ".nvmrc"
 
       - name: Install bun
         if: matrix.runtime == 'bun'
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: "package.json"
 
       - name: Restore node_modules
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: "**/node_modules"
           key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
 
       - name: Restore build artifacts
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: "**/dist"
           key: build-${{ github.event.pull_request.head.sha || github.sha }}
@@ -386,27 +348,27 @@ jobs:
       id-token: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Use Node.js from .nvmrc
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version-file: ".nvmrc"
           registry-url: "https://registry.npmjs.org"
 
       - name: Install bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: "package.json"
 
       - name: Restore node_modules
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: "**/node_modules"
           key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
 
       - name: Restore build artifacts
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: "**/dist"
           key: build-${{ github.event.pull_request.head.sha || github.sha }}
@@ -451,54 +413,13 @@ jobs:
             npm publish "./$pkg" --tag canary --access public --provenance
           done
 
-  approve:
-    name: approve
-    runs-on: ubuntu-latest
-    needs: [scaffolder-smoke, embedding-smoke, adapter-cross-runtime]
-    if: github.event_name == 'pull_request_target' && github.actor == 'dependabot[bot]' && !failure() && !cancelled()
-    permissions:
-      pull-requests: write
-    steps:
-      - name: Approve PR
-        uses: actions/github-script@v8
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            await github.rest.pulls.createReview({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: context.payload.pull_request.number,
-              event: 'APPROVE'
-            })
-
-  merge:
-    name: merge
-    runs-on: ubuntu-latest
-    needs: [approve]
-    if: github.event_name == 'pull_request_target' && github.actor == 'dependabot[bot]' && success()
-    permissions:
-      contents: write
-      pull-requests: write
-    steps:
-      - name: Merge PR
-        uses: actions/github-script@v8
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            await github.rest.pulls.merge({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: context.payload.pull_request.number,
-              merge_method: 'squash'
-            })
-
   publish:
     needs: [build, scaffolder-smoke, embedding-smoke, adapter-cross-runtime]
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
       contents: read
+      id-token: write
     steps:
       - name: Validate release name matches tag
         run: |
@@ -509,27 +430,27 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Use Node.js from .nvmrc
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version-file: ".nvmrc"
           registry-url: "https://registry.npmjs.org"
 
       - name: Install bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: "package.json"
 
       - name: Restore node_modules
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: "**/node_modules"
           key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
 
       - name: Restore build artifacts
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: "**/dist"
           key: build-${{ github.event.pull_request.head.sha || github.sha }}
@@ -588,11 +509,12 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     permissions:
+      contents: read
       id-token: write
       pages: write
     steps:
       - name: Checkout main (canary)
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           path: canary
           fetch-depth: 0
@@ -626,12 +548,12 @@ jobs:
           fi
 
       - name: Use Node.js from .nvmrc
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version-file: canary/.nvmrc
 
       - name: Install bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: canary/package.json
 
@@ -654,7 +576,7 @@ jobs:
 
       - name: Checkout stable tag
         if: steps.latest.outputs.tag != ''
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ steps.latest.outputs.tag }}
           path: stable
@@ -706,10 +628,10 @@ jobs:
           fi
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v5
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: site
 
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
