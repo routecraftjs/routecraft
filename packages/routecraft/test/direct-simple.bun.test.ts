@@ -314,6 +314,50 @@ describe("Direct adapter", () => {
   });
 
   /**
+   * @case A direct destination can be typed with distinct input and output bodies
+   * @preconditions Caller route uses `.enrich(direct<TIn, TOut>("callee"))`
+   *                where the callee returns a body shape different from the caller's
+   * @expectedResult The merged body downstream has both the caller's input fields
+   *                 and the callee's output fields, with runtime values intact
+   */
+  test("enriches with a typed direct destination where input != output", async () => {
+    type AgentInput = { name: string; query: string };
+    type AgentResult = { answer: string; tokens: number };
+
+    let downstreamBody: unknown;
+
+    t = await testContext()
+      .routes([
+        craft()
+          .id("agent-caller")
+          .from(simple<AgentInput>({ name: "kb", query: "hello" }))
+          .enrich(direct<AgentInput, AgentResult>("agent"))
+          .tap((ex) => {
+            downstreamBody = ex.body;
+          }),
+        craft()
+          .id("agent")
+          .from(direct())
+          .transform(
+            (body): AgentResult => ({
+              answer: `echo:${(body as AgentInput).query}`,
+              tokens: 42,
+            }),
+          ),
+      ])
+      .build();
+
+    await t.test();
+
+    expect(downstreamBody).toEqual({
+      name: "kb",
+      query: "hello",
+      answer: "echo:hello",
+      tokens: 42,
+    });
+  });
+
+  /**
    * @case Principal flows from caller to callee across direct()
    * @preconditions Producer route attaches a custom principal under headers["routecraft.auth.principal"] and forwards via direct()
    * @expectedResult The callee's exchange carries the same principal so .authorize() / route handlers see the caller's identity

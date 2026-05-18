@@ -11,26 +11,31 @@ import { getDirectChannel, sanitizeEndpoint } from "./shared";
  * - `direct((exchange) => endpoint)` where endpoint is a function
  *
  * It sends messages to a specific endpoint (static or dynamic).
+ *
+ * The two generics model the in-process request/response shape: `TIn` is the
+ * body type the caller sends, `TOut` is the body type the target route
+ * returns. They default to being equal for backwards compatibility with the
+ * symmetric `Destination<T, T>` overload of `direct()`.
  */
-export class DirectDestinationAdapter<T = unknown> implements Destination<
-  T,
-  T
-> {
+export class DirectDestinationAdapter<
+  TIn = unknown,
+  TOut = TIn,
+> implements Destination<TIn, TOut> {
   readonly adapterId: string = "routecraft.adapter.direct";
 
-  private rawEndpoint: DirectEndpoint<T>;
+  private rawEndpoint: DirectEndpoint<TIn>;
   public options: DirectClientOptions;
   private lastResolvedEndpoint?: string;
 
   constructor(
-    rawEndpoint: DirectEndpoint<T>,
+    rawEndpoint: DirectEndpoint<TIn>,
     options: DirectClientOptions = {},
   ) {
     this.rawEndpoint = rawEndpoint;
     this.options = options;
   }
 
-  async send(exchange: Exchange<T>): Promise<T> {
+  async send(exchange: Exchange<TIn>): Promise<TOut> {
     // Import dynamically to avoid circular dependency
     const { getExchangeContext } = await import("../../exchange");
     const context = getExchangeContext(exchange);
@@ -47,13 +52,15 @@ export class DirectDestinationAdapter<T = unknown> implements Destination<
       "Preparing to send message to direct endpoint",
     );
 
-    const channel = getDirectChannel<T>(context, endpoint, this.options);
+    const channel = getDirectChannel<TIn>(context, endpoint, this.options);
 
     // Send and wait for result - this is synchronous blocking behavior
     const result = await channel.send(endpoint, exchange);
 
-    // Return the body from the result exchange
-    return result.body;
+    // The wire-level channel is body-symmetric, but the consumer route may
+    // produce a body whose shape differs from the caller's input. That shape
+    // is opaque to this adapter at compile time, so we widen here.
+    return result.body as unknown as TOut;
   }
 
   /**
@@ -67,7 +74,7 @@ export class DirectDestinationAdapter<T = unknown> implements Destination<
     };
   }
 
-  private resolveEndpoint(exchange: Exchange<T>): string {
+  private resolveEndpoint(exchange: Exchange<TIn>): string {
     const endpoint =
       typeof this.rawEndpoint === "function"
         ? this.rawEndpoint(exchange)
