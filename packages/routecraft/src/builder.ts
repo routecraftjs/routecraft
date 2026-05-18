@@ -47,6 +47,7 @@ import { COLLECT_STEPS } from "./dsl-symbol.ts";
 import { ChoiceStep, ChoiceSubBuilder } from "./operations/choice.ts";
 import { ValidateStep } from "./operations/validate.ts";
 import { authorize, type AuthorizeOptions } from "./auth/authorize.ts";
+import { type CacheOptions } from "./operations/cache-wrapper.ts";
 
 /**
  * Builder for creating a Routecraft context with routes and configuration.
@@ -574,6 +575,27 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
     // step-scope path so the next pushed step is wrapped in
     // `ErrorWrapperStep`.
     return super.error(handler);
+  }
+
+  /**
+   * Cache the result of the next step. Dual-mode: route-scope (before
+   * `.from()`) is reserved for #112 follow-up work and currently
+   * throws RC2001; step-scope (after `.from()`) wraps the
+   * immediately-next step. See {@link StepBuilderBase.cache} for the
+   * step-scope contract and option shape.
+   *
+   * @experimental
+   */
+  override cache(options: CacheOptions<Current> = {}): this {
+    if (this.currentRoute === undefined || this.pendingOptions !== undefined) {
+      throw rcError("RC2001", undefined, {
+        message:
+          "Route-scope .cache() (called before .from()) is not yet supported. " +
+          "Place .cache() after .from() to wrap the next step. " +
+          "Route-scope semantics are tracked in https://github.com/routecraftjs/routecraft/issues/112.",
+      });
+    }
+    return super.cache(options);
   }
 
   /**

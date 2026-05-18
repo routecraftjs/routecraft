@@ -19,6 +19,7 @@ export type RCCode =
   | "RC5015"
   | "RC5016"
   | "RC5017"
+  | "RC5018"
   | "RC9901";
 
 export type RCMeta = {
@@ -169,6 +170,14 @@ export const RC: Record<RCCode, RCMeta> = {
       "Install the optional peer the adapter requires (the error message names the package).",
     docs: `${DOCS_BASE}#rc-5017`,
     retryable: false,
+  },
+  RC5018: {
+    category: "Adapter",
+    message: "Cache provider failed",
+    suggestion:
+      "Inspect the underlying cache backend (in-memory, Redis, etc.); transient backend errors may resolve on retry. For default key derivation failures, supply an explicit `key` function in cache({ key: ... }).",
+    docs: `${DOCS_BASE}#rc-5018`,
+    retryable: true,
   },
   RC9901: {
     category: "Runtime",

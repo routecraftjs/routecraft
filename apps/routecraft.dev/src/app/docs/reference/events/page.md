@@ -114,6 +114,17 @@ After a split, each child exchange emits its own `exchange:started`. When aggreg
 
 `scope` is `"route"` for the catch-all set via `.error()` BEFORE `.from()`, and `"step"` for a wrapper attached AFTER `.from()`. `stepLabel` is the label of the wrapped step when `scope === "step"`. Wildcard subscribers (`route:*:error-handler:*`) keep matching.
 
+### Cache wrapper operations
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `route:{routeId}:cache:hit` | A cached value was reused; the wrapped step was skipped | `{ routeId, exchangeId, correlationId, failedOperation, stepLabel, scope: "step", key }` |
+| `route:{routeId}:cache:miss` | No cached value; the wrapped step ran (or was dropped) | Same plus `dropped?: true` when the wrapped step dropped the exchange |
+| `route:{routeId}:cache:stored` | A fresh value was written to the cache | Same plus `ttl?: number` when a per-call TTL was set |
+| `route:{routeId}:cache:failed` | The provider threw during key derivation, read, or write | Same plus `phase: "key" \| "get" \| "set" \| "inner"` and `error: string` |
+
+`failed` with `phase: "set"` is observational only and does NOT fail the pipeline: the wrapped step's result still flows forward. The `phase: "inner"` event fires when the wrapped step (running inside the provider's `getOrCompute` loader) threw; that error is rethrown so outer wrappers / route-level handlers cascade as usual.
+
 | Event | When it fires | Details |
 | --- | --- | --- |
 | `route:{routeId}:operation:error:invoked` | Reserved for the planned `.onError()` operation | `{ routeId, exchangeId, correlationId }` |

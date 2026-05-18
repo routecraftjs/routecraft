@@ -212,8 +212,11 @@ accordingly.
 - `#139` (Circuit Breaker): see "When a wrapper is not enough"; the
   step-scope side is a wrapper, the route-scope side needs consumer
   integration.
-- `#112` (Cache): pure wrapper at both scopes; first wrapper after
-  `.error()` to validate the pattern at scale.
+- `#112` (Cache): pure wrapper at both scopes. Shipped step-scope in
+  the first cut (`CacheWrapperStep` + `MemoryCacheProvider`);
+  route-scope semantics (caching whole-pipeline output keyed by source
+  body) intentionally throw RC2001 from `RouteBuilder.cache()` until a
+  follow-up nails the contract.
 - `WrapperStep` source: `packages/routecraft/src/operations/wrapper.ts`.
 - `ErrorWrapperStep` source:
   `packages/routecraft/src/operations/error-wrapper.ts`.

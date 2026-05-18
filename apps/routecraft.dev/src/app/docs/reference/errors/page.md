@@ -30,6 +30,7 @@ The `retryable` property indicates whether the [`retry`](/docs/reference/operati
 | [RC5015](#rc5015) | Adapter | Permission denied | No |
 | [RC5016](#rc5016) | Adapter | Source payload parse failed | No |
 | [RC5017](#rc5017) | Adapter | Optional peer dependency missing | No |
+| [RC5018](#rc5018) | Adapter | Cache provider failed | Yes |
 | [RC9901](#rc9901) | Runtime | Unknown error | Yes |
 
 ---
@@ -252,6 +253,22 @@ bun add croner   # or: npm install croner
 ```
 
 The error message names the adapter (`cron`, `html`, ...) and the missing package, so the install line is copyable from the log. If you see this for a feature you do not use, find the route or capability that imports the adapter and remove it.
+
+## RC5018
+Cache provider failed
+
+**Why it happens**  
+The `.cache()` wrapper's provider threw while reading, writing, or computing the default cache key. Common causes: a remote cache backend (Redis, etc.) is unreachable; the default key derivation hit a non-JSON-serialisable body (functions, symbols, circular references); a custom `key` function threw.
+
+**Suggestion**  
+- For default-key failures, supply an explicit `key` function:
+
+```ts
+.cache({ key: (e) => String(e.body.id) })
+```
+
+- For provider connectivity failures, inspect the underlying backend. Transient errors are retryable; consider wrapping the step with `.retry()` once that wrapper ships.
+- Writes that fail post-compute do NOT fail the pipeline: the wrapped step's result still flows forward and a `cache:failed` event with `phase: "set"` is emitted for observability.
 
 ## RC9901
 Unknown error

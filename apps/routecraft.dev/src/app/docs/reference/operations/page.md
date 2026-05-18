@@ -457,18 +457,18 @@ craft()
   .to(destination)
 ```
 
-### cache {% badge color="purple" %}planned{% /badge %}
+### cache {% badge color="green" %}experimental{% /badge %}
 
 ```ts
 cache(options?: CacheOptions): RouteBuilder<Current>
 ```
 
-Cache and reuse the result of an expensive operation. When a cached value exists for the derived key, it replaces the body and the wrapped operation is skipped. Only successful executions are cached.
+Cache and reuse the result of an expensive operation. When a cached value exists for the derived key, the body is replaced with the cached value and the wrapped operation is skipped. Only successful executions are cached; errors and dropped exchanges leave the cache untouched.
 
-**Mental model:** A wrapper around the next operation. Similar to `retry`, but driven by duplicate input rather than failure.
+**Mental model:** A wrapper around the next operation. Similar to `retry`, but driven by duplicate input rather than failure. Step-scope only in this release; route-scope (`.cache()` called before `.from()`) throws RC2001 and is tracked in [issue #112](https://github.com/routecraftjs/routecraft/issues/112).
 
 ```ts
-// Default: key derived from body hash
+// Default: key derived from body hash, process-wide in-memory provider
 craft()
   .id('document-processor')
   .from(source)
@@ -492,19 +492,27 @@ craft()
   .process(expensiveOperation) // Result is cached per file content hash
   .to(destination)
 
-// Both key and TTL
+// Custom provider (e.g. an isolated in-memory store, or future Redis)
+import { MemoryCacheProvider } from '@routecraft/routecraft'
+
+const provider = new MemoryCacheProvider({ max: 10_000, ttl: 60_000 })
+
 craft()
   .id('file-processor')
   .from(fileWatcher())
-  .cache({ key: e => e.headers[HeadersKeys.FILE_CONTENT_HASH] as string, ttl: 3600000 })
-  .process(expensiveOperation) // Cached for 1 hour per file content hash
+  .cache({ provider, key: e => e.headers[HeadersKeys.FILE_CONTENT_HASH] as string })
+  .process(expensiveOperation)
   .to(destination)
 ```
 
 **Options:**
-- `key` (optional) - Function to derive the cache key from the exchange. If omitted, a key is derived by hashing the exchange body. See [default key derivation](#default-key-derivation).
-- `ttl` - Time to live in milliseconds. After expiry, the next execution recomputes the value
-- `scope` - What to cache: `'body'` (default) or `'exchange'` (body plus selected headers)
+- `key` (optional) - Function to derive the cache key from the exchange. If omitted, a key is derived by SHA-256 hashing `JSON.stringify(body)`. Supply an explicit `key` when the body is not JSON-serialisable or when a stable identity lives in headers.
+- `ttl` (optional) - Time to live in milliseconds. After expiry, the next execution recomputes the value. When omitted, the provider's default expiry applies (the bundled in-memory provider keeps entries until LRU eviction).
+- `provider` (optional) - A {% code %}CacheProvider{% /code %} implementation. Defaults to a process-wide {% code %}MemoryCacheProvider{% /code %} backed by `lru-cache`. Pass a custom provider to plug in Redis, multi-tier, or file-backed stores.
+
+**Concurrency:** When multiple exchanges race against the same key, the provider's `getOrCompute` is responsible for deduplication. The bundled `MemoryCacheProvider` runs the wrapped step at most once per key per TTL window; concurrent waiters share the result.
+
+**Custom providers:** Implement {% code %}CacheProvider{% /code %} (`get`, `set`, `delete`, `has`, `getOrCompute`) and pass an instance via `cache({ provider })`. A future release will allow a global default to be set on `CraftConfig`.
 
 ## Transform operations
 
