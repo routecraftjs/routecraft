@@ -311,42 +311,6 @@ export function agentTool(
 }
 
 /**
- * Wrap an MCP tool as a fn-shaped tool. Lands in story E (MCP tools).
- * Available now as a builder so the prefix auto-resolution path in
- * `tools(...)` can recognise `mcp_*` and emit a clear "not supported
- * yet" error.
- *
- * @experimental
- */
-export function mcpTool(
-  serverId: string,
-  toolName: string,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- shape mirrors the future story E signature
-  _overrides?: never,
-): DeferredFn {
-  if (typeof serverId !== "string" || serverId.trim() === "") {
-    throw rcError("RC5003", undefined, {
-      message: `mcpTool: serverId must be a non-empty string.`,
-    });
-  }
-  if (typeof toolName !== "string" || toolName.trim() === "") {
-    throw rcError("RC5003", undefined, {
-      message: `mcpTool: toolName must be a non-empty string.`,
-    });
-  }
-  return {
-    [DEFERRED_FN_BRAND]: true,
-    kind: "mcp",
-    targetId: `${serverId}:${toolName}`,
-    resolve(_ctx, fnId): FnOptions {
-      throw rcError("RC5003", undefined, {
-        message: `mcpTool("${serverId}", "${toolName}") (referenced as fn "${fnId}") is not yet supported. MCP tools land in a follow-up story.`,
-      });
-    },
-  };
-}
-
-/**
  * Small starter set of generic, broadly useful fns. Spread into your
  * `agentPlugin({ functions: { ... } })` config to give every agent in
  * the context the basics for free.

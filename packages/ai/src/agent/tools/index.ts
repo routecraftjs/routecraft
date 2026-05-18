@@ -2,7 +2,6 @@ export {
   agentTool,
   defaultFns,
   directTool,
-  mcpTool,
   type ToolBuilderOverrides,
 } from "./builders.ts";
 export {

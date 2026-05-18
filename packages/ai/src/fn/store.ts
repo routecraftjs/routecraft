@@ -5,8 +5,8 @@ import type { FnEntry } from "../agent/tools/types.ts";
  * the agent tool loop at dispatch time (follow-up story).
  *
  * Entries are either eagerly authored `FnOptions` or deferred
- * descriptors emitted by `directTool` / `agentTool` / `mcpTool`. The
- * agent runtime resolves deferred entries on first dispatch when all
+ * descriptors emitted by `directTool` / `agentTool`. The agent
+ * runtime resolves deferred entries on first dispatch when all
  * registries are live.
  *
  * @experimental

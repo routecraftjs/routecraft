@@ -166,7 +166,6 @@ export {
   agentTool,
   defaultFns,
   directTool,
-  mcpTool,
   isDeferredFn,
   isToolSelection,
   tools,

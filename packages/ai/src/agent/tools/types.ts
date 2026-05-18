@@ -12,13 +12,15 @@ export const DEFERRED_FN_BRAND = Symbol.for("routecraft.ai.fn.deferred");
 
 /**
  * The kinds of underlying things `tools(...)` can wrap as a fn. Each
- * builder helper (`directTool`, `agentTool`, `mcpTool`) emits one of
- * these kinds; the kind is purely informational at runtime (used for
+ * builder helper (`directTool`, `agentTool`) emits one of these
+ * kinds; the kind is purely informational at runtime (used for
  * error messages and the prefix-auto-resolution path in `tools()`).
+ * MCP tools are resolved directly from `MCP_TOOL_REGISTRY` at
+ * selection time and do not go through a deferred-fn descriptor.
  *
  * @experimental
  */
-export type DeferredFnKind = "direct" | "agent" | "mcp";
+export type DeferredFnKind = "direct" | "agent";
 
 /**
  * A fn that cannot be fully constructed at config-write time because it
@@ -66,7 +68,7 @@ export interface DeferredFn {
 
 /**
  * Type guard. Returns true when the value is a deferred fn descriptor
- * emitted by `directTool` / `agentTool` / `mcpTool`.
+ * emitted by `directTool` / `agentTool`.
  *
  * @internal
  */
@@ -81,8 +83,8 @@ export function isDeferredFn(value: unknown): value is DeferredFn {
 
 /**
  * What the fn registry actually holds. Eagerly authored fns are stored
- * as `FnOptions`; entries from `directTool` / `agentTool` / `mcpTool`
- * are stored as `DeferredFn` and resolved on first agent dispatch.
+ * as `FnOptions`; entries from `directTool` / `agentTool` are stored
+ * as `DeferredFn` and resolved on first agent dispatch.
  *
  * @experimental
  */

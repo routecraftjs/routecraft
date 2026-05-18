@@ -8,7 +8,6 @@ import {
   defaultFns,
   directTool,
   isDeferredFn,
-  mcpTool,
   ADAPTER_FN_REGISTRY,
   type FnEntry,
   type FnOptions,
@@ -362,31 +361,6 @@ describe("tool builders - agentTool stub", () => {
    */
   test("agentTool throws on empty agentId", () => {
     expect(() => agentTool("")).toThrow(/agentId/i);
-  });
-});
-
-describe("tool builders - mcpTool stub", () => {
-  /**
-   * @case mcpTool returns a deferred descriptor whose resolve throws
-   * @preconditions mcpTool("brave", "search")
-   * @expectedResult deferred kind === "mcp"; resolve throws RC5003 mentioning the story
-   */
-  test("mcpTool returns a deferred descriptor that resolves to a not-yet-supported error", () => {
-    const desc = mcpTool("brave", "search");
-    expect(desc.kind).toBe("mcp");
-    expect(() => desc.resolve(undefined as never, "searchWeb")).toThrow(
-      /not yet supported/i,
-    );
-  });
-
-  /**
-   * @case mcpTool throws on empty serverId or toolName
-   * @preconditions mcpTool with blank inputs
-   * @expectedResult RC5003 thrown synchronously
-   */
-  test("mcpTool throws on empty serverId / toolName", () => {
-    expect(() => mcpTool("", "search")).toThrow(/serverId/i);
-    expect(() => mcpTool("brave", "")).toThrow(/toolName/i);
   });
 });
 

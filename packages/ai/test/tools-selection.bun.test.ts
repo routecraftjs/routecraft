@@ -327,14 +327,15 @@ describe("tools() resolver - tag selectors", () => {
   });
 
   /**
-   * @case Tag-zero-match returns nothing and does not throw
+   * @case Tag-zero-match throws RC5003 so a misconfigured tag never silently no-ops
    * @preconditions No registered entry has tag "ghost"
-   * @expectedResult tools([{ tagged: "ghost" }]).resolve() returns []
+   * @expectedResult tools([{ tagged: "ghost" }]).resolve() throws RC5003 naming the tag
    */
-  test("tag-zero-match returns nothing without throwing", async () => {
+  test("tag-zero-match throws RC5003", async () => {
     t = await buildCtx({ functions: { ...defaultFns } });
-    const resolved = tools([{ tagged: "ghost" }]).resolve(t.ctx);
-    expect(resolved).toEqual([]);
+    expect(() => tools([{ tagged: "ghost" }]).resolve(t!.ctx)).toThrow(
+      /matched no tools/,
+    );
   });
 
   /**
@@ -376,12 +377,12 @@ describe("tools() resolver - regression", () => {
   });
 
   /**
-   * @case Tag selectors must NOT resolve agentTool/mcpTool stubs even when those stubs are present in the registry
-   * @preconditions agentPlugin functions has both an `agentTool("x")` and an `mcpTool("a","b")` deferred entry, plus eager fns; query unrelated tag
-   * @expectedResult Resolution returns matching eager fns; the stubs are silently skipped (not thrown)
+   * @case Tag selectors must NOT resolve agentTool stubs even when those stubs are present in the registry
+   * @preconditions agentPlugin functions has an `agentTool("x")` deferred stub plus eager fns; query an unrelated tag that only the eager fns carry
+   * @expectedResult Resolution returns matching eager fns; the stub is silently skipped (not thrown)
    */
   test("tag walk silently skips non-direct deferred stubs", async () => {
-    const { agentTool, mcpTool } = await import("../src/index.ts");
+    const { agentTool } = await import("../src/index.ts");
     t = await testContext()
       .with({
         plugins: [
@@ -389,7 +390,6 @@ describe("tools() resolver - regression", () => {
             functions: {
               ...defaultFns,
               futureAgent: agentTool("researcher"),
-              futureMcp: mcpTool("brave", "search"),
             },
           }),
         ],
