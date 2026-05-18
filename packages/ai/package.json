@@ -25,14 +25,14 @@
   "dependencies": {
     "@routecraft/routecraft": "workspace:^0.5.0",
     "@standard-schema/spec": "^1.1.0",
-    "ai": "^6.0.174"
+    "ai": "^6.0.177"
   },
   "devDependencies": {
     "@sinonjs/fake-timers": "^11.3.1",
     "@types/sinonjs__fake-timers": "^15.0.1",
-    "@ai-sdk/anthropic": "^3.0.74",
-    "@ai-sdk/google": "^3.0.67",
-    "@ai-sdk/openai": "^3.0.58",
+    "@ai-sdk/anthropic": "^3.0.76",
+    "@ai-sdk/google": "^3.0.71",
+    "@ai-sdk/openai": "^3.0.63",
     "@huggingface/transformers": "^3.8.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@openrouter/ai-sdk-provider": "^2.9.0",
