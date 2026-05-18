@@ -25,6 +25,16 @@ export interface AuthorizeOptions {
    * after the role and scope checks.
    */
   predicate?: (principal: Principal) => boolean;
+  /**
+   * Clock skew tolerance in seconds applied to the `expiresAt` check.
+   * Matches the semantics of `jwt({ clockToleranceSec })` and
+   * `jwks({ clockToleranceSec })`: a token whose `expiresAt` is less than
+   * `clockToleranceSec` seconds in the past is still accepted. Defaults to
+   * `0` (strict). Set to the same value used on the source-side verifier so
+   * a token accepted at the route boundary is not rejected mid-pipeline by
+   * a fraction of a second.
+   */
+  clockToleranceSec?: number;
 }
 
 /**
@@ -34,8 +44,9 @@ export interface AuthorizeOptions {
  * existing identity meets the criteria. It does NOT issue, mint, or attach
  * credentials to the exchange.
  *
- * Throws `RC5012` when no principal is present and `RC5015` when the
- * principal fails the role / scope / predicate check.
+ * Throws `RC5012` when no principal is present, `RC5020` when the principal
+ * carries an `expiresAt` in the past (mid-pipeline token expiry), and `RC5015`
+ * when the principal fails the role / scope / predicate check.
  *
  * Most routes should declare authorization at the route boundary using the
  * pre-from `.authorize()` builder method, which wires this validator as a
@@ -69,7 +80,7 @@ export interface AuthorizeOptions {
 export function authorize(
   options: AuthorizeOptions = {},
 ): CallableValidator<unknown, unknown> {
-  const { roles, scopes, predicate } = options;
+  const { roles, scopes, predicate, clockToleranceSec = 0 } = options;
   return (exchange: Exchange<unknown>) => {
     const principal = exchange.principal;
     if (!principal) {
@@ -78,6 +89,24 @@ export function authorize(
         suggestion:
           "Configure auth on the source so it emits a Principal (e.g. mcp({ auth: jwt(...) })). For a mid-pipeline .validate(authorize(...)) check, attach a custom principal in an earlier .process() step.",
       });
+    }
+
+    if (principal.expiresAt !== undefined) {
+      // Fail closed on non-finite inputs: a NaN `expiresAt` or
+      // `clockToleranceSec` would make every `>` comparison false and
+      // silently bypass the check, so treat that as expired rather than
+      // valid.
+      if (
+        !Number.isFinite(principal.expiresAt) ||
+        !Number.isFinite(clockToleranceSec) ||
+        Date.now() / 1000 > principal.expiresAt + clockToleranceSec
+      ) {
+        throw rcError("RC5020", new Error("Token expired"), {
+          message: "Authorization failed: token expired during processing",
+          suggestion:
+            "The token's `exp` is in the past (or `expiresAt` / `clockToleranceSec` was non-finite). A long-running step likely outlived the credential; the client should refresh and retry. To recover in-route, restructure the pipeline so authorize() runs before the slow step or attach a fresh principal in a .process() before the validator.",
+        });
+      }
     }
 
     if (roles && roles.length > 0) {

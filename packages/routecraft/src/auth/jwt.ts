@@ -362,5 +362,5 @@ export function jwt(options: JwtAuthOptions): OAuthValidatorAuthOptions {
     ? createHmacValidator(options)
     : createRsaValidator(options);
 
-  return { validator };
+  return { validator, issuer: options.issuer };
 }

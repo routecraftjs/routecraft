@@ -266,3 +266,477 @@ describe("oauth({ verify: jwks(...) }) end-to-end", () => {
     }
   });
 });
+
+/** Serve a configurable JSON response at a local URL. Handler receives each request. */
+async function serveJson(
+  handler: (req: {
+    url: string;
+    headers: Record<string, string | string[] | undefined>;
+  }) =>
+    | { status?: number; body: unknown }
+    | Promise<{ status?: number; body: unknown }>,
+): Promise<{ baseUrl: string; close: () => Promise<void> }> {
+  const server = createServer(async (req, res) => {
+    const url = req.url ?? "/";
+    const headers = req.headers as Record<
+      string,
+      string | string[] | undefined
+    >;
+    const result = await handler({ url, headers });
+    res.statusCode = result.status ?? 200;
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify(result.body));
+  });
+  await new Promise<void>((resolve) =>
+    server.listen(0, "127.0.0.1", () => resolve()),
+  );
+  const port = (server.address() as AddressInfo).port;
+  return {
+    baseUrl: `http://127.0.0.1:${port}`,
+    close: () =>
+      new Promise<void>((resolve, reject) =>
+        server.close((err) => (err ? reject(err) : resolve())),
+      ),
+  };
+}
+
+describe("oauth({ userinfo }) enrichment", () => {
+  function makeVerify(subject: string, expiresIn = 60) {
+    // Snapshot expiresAt at helper-creation time. Recomputing per call would
+    // make deep-equality assertions (and the cache-hit tests) flaky if the
+    // calls straddle a second boundary.
+    const expiresAt = Math.floor(Date.now() / 1000) + expiresIn;
+    return async (): Promise<OAuthPrincipal> => ({
+      kind: "custom",
+      scheme: "bearer",
+      subject,
+      expiresAt,
+    });
+  }
+
+  /**
+   * @case Function userinfo enriches the verified principal
+   * @preconditions verify resolves a thin principal; userinfo function returns email and roles
+   * @expectedResult Returned principal carries the enrichment, verify fields preserved
+   */
+  test("function userinfo merges onto the verified principal", async () => {
+    const verify = makeVerify("user-42");
+    const config = oauth({
+      ...BASE_OPTIONS,
+      verify,
+      userinfo: async (principal) => {
+        expect(principal.subject).toBe("user-42");
+        return { email: "ada@example.com", roles: ["admin"] };
+      },
+    });
+
+    const principal = await config.verifyAccessToken("token");
+    expect(principal.subject).toBe("user-42");
+    expect(principal.email).toBe("ada@example.com");
+    expect(principal.roles).toEqual(["admin"]);
+  });
+
+  /**
+   * @case Verify-wins merge rule: enrichment cannot overwrite subject / issuer / audience / expiresAt
+   * @preconditions Function userinfo tries to overwrite all protected fields
+   * @expectedResult Protected fields remain the verify values; only non-protected fields are merged
+   */
+  test("protected fields cannot be overwritten by userinfo", async () => {
+    const verify = makeVerify("verified-sub", 120);
+    const verifiedExp = (await verify()).expiresAt;
+    const config = oauth({
+      ...BASE_OPTIONS,
+      verify,
+      userinfo: async () =>
+        ({
+          subject: "evil-sub",
+          issuer: "https://evil.example.com",
+          audience: ["https://evil.example.com"],
+          expiresAt: 0,
+          email: "good@example.com",
+        }) as unknown as Partial<OAuthPrincipal>,
+    });
+
+    const principal = await config.verifyAccessToken("token");
+    expect(principal.subject).toBe("verified-sub");
+    expect(principal.issuer).toBeUndefined();
+    expect(principal.audience).toBeUndefined();
+    expect(principal.expiresAt).toBe(verifiedExp);
+    expect(principal.email).toBe("good@example.com");
+  });
+
+  /**
+   * @case Explicit URL userinfo fetches the endpoint and lifts OIDC claims
+   * @preconditions verify resolves sub "user-99"; local /userinfo returns sub + email
+   * @expectedResult Principal.email is populated; sub invariant passes
+   */
+  test("string-URL userinfo lifts OIDC claims from the response", async () => {
+    const { baseUrl, close } = await serveJson(({ url }) => {
+      if (url === "/userinfo") {
+        return {
+          body: { sub: "user-99", email: "ada@example.com", name: "Ada" },
+        };
+      }
+      return { status: 404, body: {} };
+    });
+    try {
+      const config = oauth({
+        ...BASE_OPTIONS,
+        verify: makeVerify("user-99"),
+        userinfo: `${baseUrl}/userinfo`,
+      });
+      const principal = await config.verifyAccessToken("token");
+      expect(principal.email).toBe("ada@example.com");
+      expect(principal.name).toBe("Ada");
+    } finally {
+      await close();
+    }
+  });
+
+  /**
+   * @case Sub mismatch between verified token and userinfo response rejects the request
+   * @preconditions verify resolves sub "user-A"; userinfo response carries sub "user-B"
+   * @expectedResult verifyAccessToken throws and message mentions sub mismatch
+   */
+  test("rejects when userinfo sub does not match token sub", async () => {
+    const { baseUrl, close } = await serveJson(() => ({
+      body: { sub: "user-B", email: "evil@example.com" },
+    }));
+    try {
+      const config = oauth({
+        ...BASE_OPTIONS,
+        verify: makeVerify("user-A"),
+        userinfo: `${baseUrl}/userinfo`,
+      });
+      await expect(config.verifyAccessToken("token")).rejects.toThrow(/sub/i);
+    } finally {
+      await close();
+    }
+  });
+
+  /**
+   * @case Missing sub in userinfo response rejects per OIDC Core §5.3.2
+   * @preconditions Userinfo response omits sub entirely
+   * @expectedResult verifyAccessToken throws with a sub-related error
+   */
+  test("rejects when userinfo response is missing sub", async () => {
+    const { baseUrl, close } = await serveJson(() => ({
+      body: { email: "x@example.com" },
+    }));
+    try {
+      const config = oauth({
+        ...BASE_OPTIONS,
+        verify: makeVerify("user-A"),
+        userinfo: `${baseUrl}/userinfo`,
+      });
+      await expect(config.verifyAccessToken("token")).rejects.toThrow(/sub/i);
+    } finally {
+      await close();
+    }
+  });
+
+  /**
+   * @case Userinfo fetch failure rejects the request (fail-closed)
+   * @preconditions Userinfo URL returns 500
+   * @expectedResult verifyAccessToken throws; no principal returned
+   */
+  test("rejects when the userinfo endpoint returns a non-2xx response", async () => {
+    const { baseUrl, close } = await serveJson(() => ({
+      status: 500,
+      body: { error: "boom" },
+    }));
+    try {
+      const config = oauth({
+        ...BASE_OPTIONS,
+        verify: makeVerify("user-A"),
+        userinfo: `${baseUrl}/userinfo`,
+      });
+      await expect(config.verifyAccessToken("token")).rejects.toThrow();
+    } finally {
+      await close();
+    }
+  });
+
+  /**
+   * @case Token-bound cache: identical tokens skip the userinfo call on subsequent verifies
+   * @preconditions Function userinfo increments a counter on each call
+   * @expectedResult Counter is 1 after two verifies with the same token
+   */
+  test("caches the enrichment per token", async () => {
+    let calls = 0;
+    const config = oauth({
+      ...BASE_OPTIONS,
+      verify: makeVerify("user-42"),
+      userinfo: async () => {
+        calls += 1;
+        return { email: "ada@example.com" };
+      },
+    });
+
+    const a = await config.verifyAccessToken("token");
+    const b = await config.verifyAccessToken("token");
+    expect(calls).toBe(1);
+    expect(a.email).toBe("ada@example.com");
+    expect(b.email).toBe("ada@example.com");
+
+    await config.verifyAccessToken("other-token");
+    expect(calls).toBe(2);
+  });
+
+  /**
+   * @case Base verifier runs on every request, even on cache hits
+   * @preconditions Custom verify increments a counter; userinfo is cheap
+   * @expectedResult verify is called once per verifyAccessToken; dynamic checks (introspection, revocation) keep firing
+   */
+  test("base verifier runs on every request (cache hits do not bypass verify)", async () => {
+    let verifyCalls = 0;
+    const verify = async (): Promise<OAuthPrincipal> => {
+      verifyCalls += 1;
+      return {
+        kind: "custom",
+        scheme: "bearer",
+        subject: "user-42",
+        expiresAt: Math.floor(Date.now() / 1000) + 60,
+      };
+    };
+    const config = oauth({
+      ...BASE_OPTIONS,
+      verify,
+      userinfo: async () => ({ email: "ada@example.com" }),
+    });
+
+    await config.verifyAccessToken("token");
+    await config.verifyAccessToken("token");
+    await config.verifyAccessToken("token");
+
+    expect(verifyCalls).toBe(3);
+  });
+
+  /**
+   * @case userinfo: true auto-discovers the userinfo endpoint via OIDC Discovery
+   * @preconditions Local server serves /.well-known/openid-configuration and /userinfo
+   * @expectedResult Principal is enriched from the discovered endpoint
+   */
+  test("userinfo: true resolves the endpoint via OIDC Discovery", async () => {
+    const { baseUrl, close } = await serveJson(({ url }) => {
+      if (url === "/.well-known/openid-configuration") {
+        return { body: { userinfo_endpoint: `${baseUrl}/userinfo` } };
+      }
+      if (url === "/userinfo") {
+        return { body: { sub: "user-42", email: "ada@example.com" } };
+      }
+      return { status: 404, body: {} };
+    });
+    try {
+      const config = oauth({
+        ...BASE_OPTIONS,
+        verify: { validator: makeVerify("user-42"), issuer: baseUrl },
+        userinfo: true,
+      });
+      const principal = await config.verifyAccessToken("token");
+      expect(principal.email).toBe("ada@example.com");
+    } finally {
+      await close();
+    }
+  });
+
+  /**
+   * @case userinfo: true throws when the discovery document does not advertise userinfo_endpoint
+   * @preconditions Discovery doc returns {} (no userinfo_endpoint field)
+   * @expectedResult verifyAccessToken throws a clear TypeError on first use
+   */
+  test("userinfo: true rejects when the discovery doc lacks userinfo_endpoint", async () => {
+    const { baseUrl, close } = await serveJson(({ url }) => {
+      if (url === "/.well-known/openid-configuration") {
+        return { body: {} };
+      }
+      return { status: 404, body: {} };
+    });
+    try {
+      const config = oauth({
+        ...BASE_OPTIONS,
+        verify: { validator: makeVerify("user-42"), issuer: baseUrl },
+        userinfo: true,
+      });
+      await expect(config.verifyAccessToken("token")).rejects.toThrow(
+        /userinfo_endpoint/,
+      );
+    } finally {
+      await close();
+    }
+  });
+
+  /**
+   * @case userinfo: true throws at construction time when verify exposes no issuer
+   * @preconditions verify is a raw function (no issuer metadata)
+   * @expectedResult oauth() throws TypeError mentioning issuer
+   */
+  test("userinfo: true requires issuer to be exposed by the verifier", () => {
+    expect(() =>
+      oauth({
+        ...BASE_OPTIONS,
+        verify: makeVerify("user-42"),
+        userinfo: true,
+      }),
+    ).toThrow(/issuer/i);
+  });
+
+  /**
+   * @case userinfo: true with array issuer is rejected at construction time
+   * @preconditions Verifier exposes issuer as a string[]
+   * @expectedResult oauth() throws TypeError mentioning array
+   */
+  test("userinfo: true rejects an array issuer", () => {
+    expect(() =>
+      oauth({
+        ...BASE_OPTIONS,
+        verify: {
+          validator: makeVerify("user-42"),
+          issuer: ["https://a", "https://b"],
+        },
+        userinfo: true,
+      }),
+    ).toThrow(/array|single/i);
+  });
+
+  /**
+   * @case oauth() throws fail-fast when verify is missing, even with userinfo set
+   * @preconditions options.verify is undefined; options.userinfo is set (would have masked the check)
+   * @expectedResult Factory throws TypeError mentioning verify at construction time
+   */
+  test("oauth() rejects missing verify even when userinfo is set", () => {
+    expect(() =>
+      oauth({
+        ...BASE_OPTIONS,
+        verify: undefined as unknown as ReturnType<typeof makeVerify>,
+        userinfo: async () => ({}),
+      }),
+    ).toThrow(/verify/i);
+  });
+
+  /**
+   * @case userinfo absent leaves oauth() behaviour unchanged (regression guard)
+   * @preconditions Same options minus userinfo; verify resolves a thin principal
+   * @expectedResult Principal returned by verifyAccessToken matches the raw verify output via deep equality
+   */
+  test("oauth() without userinfo is unchanged", async () => {
+    const verify = makeVerify("user-42");
+    const baseline = await verify();
+    const config = oauth({ ...BASE_OPTIONS, verify });
+    const principal = await config.verifyAccessToken("token");
+    expect(principal).toEqual(baseline);
+  });
+
+  /**
+   * @case URL-mode enrichment preserves the verified JWT payload on principal.claims
+   * @preconditions verify returns a principal with claims = {iat, custom}; userinfo response carries different fields
+   * @expectedResult principal.claims is unchanged; userinfo response lives on principal.userinfoClaims
+   */
+  test("URL-mode enrichment preserves principal.claims and stashes userinfo on userinfoClaims", async () => {
+    const jwtClaims = { iat: 1700000000, custom: "v" };
+    const verify = async (): Promise<OAuthPrincipal> => ({
+      kind: "jwks",
+      scheme: "bearer",
+      subject: "user-42",
+      expiresAt: Math.floor(Date.now() / 1000) + 60,
+      claims: jwtClaims,
+    });
+    const { baseUrl, close } = await serveJson(({ url }) => {
+      if (url === "/userinfo") {
+        return {
+          body: {
+            sub: "user-42",
+            email: "ada@example.com",
+            picture: "https://example.com/p.png",
+          },
+        };
+      }
+      return { status: 404, body: {} };
+    });
+    try {
+      const config = oauth({
+        ...BASE_OPTIONS,
+        verify,
+        userinfo: `${baseUrl}/userinfo`,
+      });
+      const principal = await config.verifyAccessToken("token");
+      expect(principal.claims).toEqual(jwtClaims);
+      expect(principal.userinfoClaims).toEqual({
+        sub: "user-42",
+        email: "ada@example.com",
+        picture: "https://example.com/p.png",
+      });
+      expect(principal.email).toBe("ada@example.com");
+    } finally {
+      await close();
+    }
+  });
+
+  /**
+   * @case OIDC discovery retries on transient failure rather than caching the rejection
+   * @preconditions Discovery endpoint returns 500 on first call and 200 on second
+   * @expectedResult First verifyAccessToken rejects with RC5021; second succeeds
+   */
+  test("OIDC discovery retries after a transient failure", async () => {
+    let calls = 0;
+    const { baseUrl, close } = await serveJson(({ url }) => {
+      if (url === "/.well-known/openid-configuration") {
+        calls += 1;
+        if (calls === 1) return { status: 500, body: { error: "boom" } };
+        return { body: { userinfo_endpoint: `${baseUrl}/userinfo` } };
+      }
+      if (url === "/userinfo") {
+        return { body: { sub: "user-42", email: "ada@example.com" } };
+      }
+      return { status: 404, body: {} };
+    });
+    try {
+      const config = oauth({
+        ...BASE_OPTIONS,
+        verify: { validator: makeVerify("user-42"), issuer: baseUrl },
+        userinfo: true,
+      });
+      await expect(config.verifyAccessToken("token-a")).rejects.toThrow(
+        /RC5021|Discovery/,
+      );
+      const principal = await config.verifyAccessToken("token-b");
+      expect(principal.email).toBe("ada@example.com");
+      expect(calls).toBe(2);
+    } finally {
+      await close();
+    }
+  });
+
+  /**
+   * @case OIDC discovery preserves the issuer's path component (Keycloak realm, Azure tenant)
+   * @preconditions issuer ends with "/realms/test"; discovery doc is served under that prefix
+   * @expectedResult Discovery resolves at "/realms/test/.well-known/openid-configuration" and enrichment succeeds
+   */
+  test("OIDC discovery preserves issuer path component", async () => {
+    const { baseUrl, close } = await serveJson(({ url }) => {
+      if (url === "/realms/test/.well-known/openid-configuration") {
+        return {
+          body: { userinfo_endpoint: `${baseUrl}/realms/test/userinfo` },
+        };
+      }
+      if (url === "/realms/test/userinfo") {
+        return { body: { sub: "user-42", email: "ada@example.com" } };
+      }
+      return { status: 404, body: {} };
+    });
+    try {
+      const config = oauth({
+        ...BASE_OPTIONS,
+        verify: {
+          validator: makeVerify("user-42"),
+          issuer: `${baseUrl}/realms/test`,
+        },
+        userinfo: true,
+      });
+      const principal = await config.verifyAccessToken("token");
+      expect(principal.email).toBe("ada@example.com");
+    } finally {
+      await close();
+    }
+  });
+});

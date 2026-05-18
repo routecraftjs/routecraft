@@ -321,12 +321,11 @@ auth: oauth({
 
 | Field | Default when omitted |
 |-------|----------------------|
-| `subject` | `payload.sub` |
-| `clientId` | `payload.client_id` |
-| `email` | `payload.email` |
-| `name` | `payload.name` |
+| `subject` | `payload.sub`, then `payload.client_id`, then `payload.azp` |
+| `clientId` | `payload.client_id`, then `payload.azp` |
 | `scopes` | space-split `payload.scope` |
-| `roles` | `payload.roles` when it is `string[]` |
+
+`email`, `name`, and `roles` are not mappable here. They are read from the standard claim names (`email`, `name`, `roles`) when present in the token. For identity fields that do not live in the bearer (most IdPs do not put them there), use the [`userinfo` slot on `oauth({})`](/docs/advanced/expose-as-mcp#principal-enrichment-via-userinfo) — function variant for custom mappings, OIDC Discovery or an explicit URL for the standard `/userinfo` endpoint.
 
 **Claim overrides for non-standard IdPs:**
 
@@ -337,7 +336,6 @@ jwt: {
   audience: '<app-id>',
   claims: {
     subject: (p) => p.oid as string,
-    roles: (p) => p['roles'] as string[] | undefined,
   },
 }
 ```

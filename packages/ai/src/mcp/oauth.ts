@@ -8,6 +8,9 @@ import type {
   OAuthClientInfo,
   OAuthProxyEndpoints,
 } from "./types.ts";
+import { buildEnrichedVerifier, type UserinfoOption } from "./userinfo.ts";
+
+export type { UserinfoFn, UserinfoOption } from "./userinfo.ts";
 
 /**
  * Supplier for a registered OAuth client.
@@ -91,6 +94,29 @@ export interface OAuthFactoryOptions {
   serviceDocumentationUrl?: string | URL;
   /** Human-readable resource name (included in OAuth metadata). */
   resourceName?: string;
+  /**
+   * Principal enrichment after `verify` succeeds. Three input shapes:
+   *
+   * - `true`: auto-discover the userinfo endpoint via OIDC Discovery at
+   *   `${issuer}/.well-known/openid-configuration`. Requires the `verify`
+   *   helper to expose a single-string `issuer` (`jwks()` / `jwt()` do).
+   * - `string | URL`: explicit userinfo endpoint URL. The framework fetches
+   *   it with the bearer token and lifts standard OIDC claims (`email`,
+   *   `name`, `roles`, etc.) onto the principal.
+   * - `(principal, token) => Promise<Partial<OAuthPrincipal>>`: custom
+   *   enrichment from any backend (Clerk Backend API, internal DB, etc.).
+   *
+   * For URL and discovery modes the userinfo response `sub` MUST equal the
+   * verified token's `sub` (OIDC Core §5.3.2); mismatches reject the
+   * request. Verify wins on `subject`, `issuer`, `audience`, `expiresAt`;
+   * other fields are overwritten by the enrichment payload. Results are
+   * cached per token and evicted at `principal.expiresAt`. All enrichment
+   * errors are fail-closed (the request is rejected; no silent
+   * degradation).
+   *
+   * @experimental
+   */
+  userinfo?: UserinfoOption;
 }
 
 /**
@@ -208,7 +234,15 @@ export function oauth(options: OAuthFactoryOptions): OAuthAuthOptions {
     );
   }
 
-  const verifyAccessToken = buildVerifier(options.verify);
+  if (!options.verify) {
+    throw new TypeError(
+      "oauth: `verify` is required. Pass jwks(...), jwt(...), or a custom (token) => OAuthPrincipal function.",
+    );
+  }
+  const verifyAccessToken =
+    options.userinfo !== undefined
+      ? buildEnrichedVerifier(options.verify, options.userinfo)
+      : buildVerifier(options.verify);
   const getClient = normaliseClientSupplier(options.client);
 
   const result: OAuthAuthOptions = {

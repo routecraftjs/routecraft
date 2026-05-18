@@ -30,6 +30,9 @@ The `retryable` property indicates whether the [`retry`](/docs/reference/operati
 | [RC5015](#rc5015) | Adapter | Permission denied | No |
 | [RC5016](#rc5016) | Adapter | Source payload parse failed | No |
 | [RC5017](#rc5017) | Adapter | Optional peer dependency missing | No |
+| [RC5020](#rc5020) | Adapter | Authorization failed: token expired during processing | No |
+| [RC5021](#rc5021) | Adapter | Principal enrichment failed | No |
+| [RC5022](#rc5022) | Adapter | Userinfo sub invariant violated | No |
 | [RC9901](#rc9901) | Runtime | Unknown error | Yes |
 
 ---
@@ -252,6 +255,46 @@ bun add croner   # or: npm install croner
 ```
 
 The error message names the adapter (`cron`, `html`, ...) and the missing package, so the install line is copyable from the log. If you see this for a feature you do not use, find the route or capability that imports the adapter and remove it.
+
+## RC5020
+Authorization failed: token expired during processing
+
+**Why it happens**  
+A mid-pipeline `.validate(authorize(...))` (or the pre-from `.authorize()` guard) ran on an exchange whose principal carries an `expiresAt` (Unix epoch seconds) that is beyond the configured `clockToleranceSec` window. The token was valid when verify ran at the route boundary, but a long-running step in between (LLM call, slow downstream, queue wait) outlived the credential. The framework refuses to authorize once the tolerance-adjusted expiry is exceeded.
+
+The check is also raised fail-closed when either `expiresAt` or `clockToleranceSec` is non-finite (`NaN`, `Infinity`); a numeric-coercion bug must not silently bypass the guard.
+
+The check is distinct from `RC5012` (no principal at all) and `RC5015` (principal failed a role / scope / predicate check) so clients can react accordingly: a `RC5020` signal almost always means "refresh and retry," whereas `RC5015` is a permanent denial under the current credentials.
+
+**Suggestion**  
+- The client should refresh the bearer and retry the request.
+- To recover server-side, restructure the pipeline so `authorize()` runs before the slow step, or attach a fresh principal in a `.process()` step before the validator.
+- If your source-side verifier (`jwt()` / `jwks()`) sets a `clockToleranceSec`, pass the same value to `authorize({ clockToleranceSec })` so the boundary and mid-pipeline checks agree on a token's validity window.
+- If the principal genuinely has no expiry (e.g. an API key with infinite lifetime), leave `expiresAt` unset on the `Principal` so the check is skipped.
+
+## RC5021
+Principal enrichment failed
+
+**Why it happens**  
+The `userinfo` slot on `oauth({})` could not enrich the verified principal. Causes include: a non-2xx response from the userinfo endpoint (rate limit, bearer scope insufficient, IdP outage), a network error reaching the userinfo or OIDC Discovery URL, malformed JSON, or a Discovery document that does not advertise a `userinfo_endpoint`. The framework is fail-closed: any enrichment error rejects the request rather than authorize on a partial principal.
+
+**Suggestion**  
+- Inspect the underlying cause attached to the error: it names the URL and HTTP status.
+- Check that the bearer token has the scopes the IdP requires for `/userinfo` (typically `openid`, `email`, `profile`).
+- If the IdP does not advertise OIDC Discovery (or advertises it without a `userinfo_endpoint`), pass an explicit `userinfo: "https://..."` or a function variant.
+- Verify outbound network access from the MCP server to the IdP.
+
+## RC5022
+Userinfo sub invariant violated
+
+**Why it happens**  
+Per [OIDC Core §5.3.2](https://openid.net/specs/openid-connect-core-1_0.html#UserInfoResponse), the userinfo response MUST carry a `sub` claim equal to the verified token's `sub`. The framework throws RC5022 when the response is missing `sub` or when it differs from the token's `sub`. This guards against a compromised userinfo endpoint impersonating a different user on the principal, or a misconfigured userinfo URL paired with the wrong issuer.
+
+This check applies only to URL and OIDC-discovery `userinfo` modes; the function variant is trusted by contract (the caller owns the backend).
+
+**Suggestion**  
+- Verify the `userinfo` URL matches the issuer of the bearer token. A common cause is configuring a `userinfo` URL for a different tenant or realm.
+- Do not silence this error. If a legitimate IdP returns a non-standard subject under a different field, switch to a function-mode `userinfo` and map the response yourself.
 
 ## RC9901
 Unknown error

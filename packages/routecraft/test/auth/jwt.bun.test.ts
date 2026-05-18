@@ -348,34 +348,6 @@ describe("jwt()", () => {
       const result = await validator(token);
       expect(result.subject).toBe("azure-oid");
     });
-
-    /**
-     * @case Custom roles mapper overrides the default roles extraction
-     * @preconditions jwt() with claims.roles override; token carries roles under non-standard key
-     * @expectedResult Principal.roles comes from the override callback
-     */
-    test("applies claims.roles override", async () => {
-      const { validator } = jwt({
-        secret: SECRET,
-        issuer: ISSUER,
-        audience: AUDIENCE,
-        claims: {
-          roles: (p) => p["groups"] as string[],
-        },
-      });
-      const token = signHs256(
-        {
-          sub: "u",
-          iss: ISSUER,
-          aud: AUDIENCE,
-          exp: FUTURE,
-          groups: ["admin"],
-        },
-        SECRET,
-      );
-      const result = await validator(token);
-      expect(result.roles).toEqual(["admin"]);
-    });
   });
 
   describe("principal shape", () => {
@@ -436,6 +408,37 @@ describe("jwt()", () => {
       );
       const result = await validator(token);
       expect(result.subject).toBe("svc-account");
+    });
+  });
+
+  describe("issuer propagation", () => {
+    /**
+     * @case jwt() surfaces a string issuer on its returned options
+     * @preconditions jwt({ issuer: "https://idp.example.com", ... })
+     * @expectedResult Returned object carries `issuer` equal to the configured value
+     */
+    test("string issuer is exposed on the returned options", () => {
+      const result = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+      });
+      expect(result.issuer).toBe(ISSUER);
+    });
+
+    /**
+     * @case jwt() preserves an array issuer on its returned options
+     * @preconditions jwt({ issuer: [a, b], ... })
+     * @expectedResult Returned object carries the exact issuer array
+     */
+    test("string[] issuer is exposed on the returned options", () => {
+      const issuers = [ISSUER, "https://alt.example.com"];
+      const result = jwt({
+        secret: SECRET,
+        issuer: issuers,
+        audience: AUDIENCE,
+      });
+      expect(result.issuer).toEqual(issuers);
     });
   });
 });

@@ -147,6 +147,7 @@ export function jwks(options: JwksOptions): OAuthValidatorAuthOptions {
   const algorithms = options.algorithms ?? DEFAULT_JWKS_ALGORITHMS;
 
   return {
+    issuer: options.issuer,
     validator: async (token: string) => {
       if (joseMod === null) {
         joseMod = await __jwksLoaders.loadJose();

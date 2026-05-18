@@ -100,6 +100,8 @@ export {
   type OAuthFactoryOptions,
   type OAuthProxyEndpoints,
   type OAuthVerifier,
+  type UserinfoFn,
+  type UserinfoOption,
 } from "./mcp/index.ts";
 export type {
   McpClientAuthOptions,
