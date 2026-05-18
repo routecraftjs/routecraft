@@ -235,7 +235,9 @@ export interface McpResourceOptions {
   url?: string | URL;
   /**
    * OAuth scopes this resource advertises as supported.
-   * Becomes the `scopes_supported` field in the metadata document.
+   * Becomes the `scopes_supported` field in the metadata document. An empty
+   * array is treated as unset and the field is omitted entirely (RFC 9728
+   * §2 permits this; most MCP clients treat absence and empty as equivalent).
    */
   scopesSupported?: string[];
   /**

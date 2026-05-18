@@ -22,14 +22,18 @@ Several breaking changes across the core, AI, mail, logger, and CLI surfaces. Se
 - **Choice operation** -- new conditional routing primitive with `transform()` and `enrich()` available on branch builders. Core operations are shared between routes and branches via a `StepBuilderBase`.
 - **Discovery metadata on the route builder** -- route id, description, and validation move from source options to the route builder itself.
 
-### AI & MCP
+### AI & MCP {% badge color="red" %}Breaking{% /badge %}
 
 - **Agent runtime** -- tool-calling loop, streaming via `onEvent` and `onDelta`, agent destination, and per-binding tool description overrides.
 - **`tools()` DSL** -- declarative tool registration, selection, and resolution.
 - **Agent configuration overhaul** -- `agentPlugin.agents` is a record (no `defineAgent`), `defaultOptions` set context-level defaults, `system`/`user` accept string or function, and agent enhancements (`toolCalls`, `validate`, skills + agents loaders) narrow `FnHandlerContext`.
 - **Config applier system** -- first-class AI plugin keys via a config applier hook.
 - **MCP OAuth 2.1 server** -- OAuth 2.1 authentication provider with principal hierarchy, plus a general MCP HTTP auth surface and tool annotations.
-- **MCP HTTP server identity and protected-resource metadata** -- new `mcpPlugin({ title, resource: { url, scopesSupported, documentationUrl } })` shape. Resource identity is now first-class on the plugin, orthogonal to the auth mode. Both validator-mode (`jwks()` / `jwt()`) and OAuth-proxy mode (`oauth()`) auto-mount `GET /.well-known/oauth-protected-resource` (RFC 9728) and append `resource_metadata="..."` to 401 `WWW-Authenticate` headers, so auto-discovering clients (Claude.ai connectors, MCP Inspector, `mcp-remote`) can locate the authorization server. `OAuthAuthOptions` is reduced to pure proxy mechanics: `resourceIssuerUrl`, `resourceName`, `scopesSupported`, and `serviceDocumentationUrl` move to the plugin-level `resource: {}` (and `title`) options.
+- **MCP HTTP server identity and protected-resource metadata** -- new `mcpPlugin({ title, resource: { url, scopesSupported, documentationUrl } })` shape. Resource identity is now first-class on the plugin, orthogonal to the auth mode. Both validator-mode (`jwks()` / `jwt()`) and OAuth-proxy mode (`oauth()`) auto-mount `GET /.well-known/oauth-protected-resource` (RFC 9728) with the same JSON shape (including `bearer_methods_supported`) and append an absolute `resource_metadata="..."` URL to 401 `WWW-Authenticate` headers, so auto-discovering clients (Claude.ai connectors, MCP Inspector, `mcp-remote`) can locate the authorization server. `OAuthAuthOptions` is reduced to pure proxy mechanics. Field migration:
+  - `oauth({ resourceIssuerUrl })` -> `mcpPlugin({ resource: { url } })`
+  - `oauth({ scopesSupported })` -> `mcpPlugin({ resource: { scopesSupported } })`
+  - `oauth({ serviceDocumentationUrl })` -> `mcpPlugin({ resource: { documentationUrl } })`
+  - `oauth({ resourceName })` -> `mcpPlugin({ title })` (with `name` as the final fallback)
 - **OAuth `userinfo` enrichment slot** -- post-verify principal enrichment on `oauth({ userinfo })` accepting `true` (auto-discover via OIDC Discovery), `string | URL` (explicit endpoint), or a custom function. The framework enforces the OIDC Core §5.3.2 `sub` invariant on URL / discovery modes, fails closed on any fetch / parse error, and memoises enrichment per token (SHA-256 hashed) with insertion-order eviction, in-flight coalescing, and TTL bound to `principal.expiresAt`. The raw userinfo response is surfaced on a separate `principal.userinfoClaims` field so `principal.claims` continues to mean "verified JWT payload."
 - **`OAuthValidatorAuthOptions.issuer`** -- `jwks()` and `jwt()` now surface the expected issuer on the returned options so `userinfo: true` discovery and RFC 9728 `authorization_servers` work without re-declaring the IdP.
 - **`ClaimMappers.{email,name,roles}` removed** -- superseded by the `userinfo` enrichment slot. `ClaimMappers.{subject,clientId,scopes}` remain for token-level claim mapping.
