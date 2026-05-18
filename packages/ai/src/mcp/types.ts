@@ -213,22 +213,52 @@ export interface OAuthProxyEndpoints {
 }
 
 /**
+ * Protected-resource (RFC 9728) metadata for the MCP server.
+ *
+ * Used by both validator-mode and OAuth-proxy auth to populate
+ * `/.well-known/oauth-protected-resource` and the `resource_metadata`
+ * parameter on 401 responses. Orthogonal to the auth mode: identifies WHAT
+ * is being protected, not HOW it authenticates.
+ *
+ * When omitted entirely, the framework still advertises a baseline metadata
+ * document built from the bound URL and (in validator mode) the IdP issuer
+ * surfaced by `jwks()` / `jwt()`.
+ *
+ * @experimental
+ */
+export interface McpResourceOptions {
+  /**
+   * Identifies this MCP server as an OAuth 2.0 Protected Resource (RFC 9728).
+   * Becomes the `resource` field in the metadata document. Must be HTTPS in
+   * production. Defaults to `http://{host}:{port}/mcp` when unset.
+   */
+  url?: string | URL;
+  /**
+   * OAuth scopes this resource advertises as supported.
+   * Becomes the `scopes_supported` field in the metadata document.
+   */
+  scopesSupported?: string[];
+  /**
+   * URL to human-readable documentation describing this protected resource.
+   * Becomes the `resource_documentation` field in the metadata document.
+   */
+  documentationUrl?: string | URL;
+}
+
+/**
  * OAuth provider auth: full OAuth 2.1 server flow with proxy to upstream IdP.
  * Mounts discovery, authorization, token, and revocation endpoints alongside `/mcp`.
  * Uses the MCP SDK's `ProxyOAuthServerProvider` and `mcpAuthRouter` internally.
+ *
+ * Protected-resource metadata (`resource`, `scopes_supported`, etc.) lives on
+ * `mcpPlugin({ resource })`, not here -- it is orthogonal to the auth mode.
  *
  * @experimental
  */
 export interface OAuthAuthOptions {
   /** Discriminant for the union. Always `"oauth"`. */
   provider: "oauth";
-  /**
-   * Issuer URL for OAuth metadata discovery (the MCP server's own issuer).
-   * Must be HTTPS in production. Renamed from `issuerUrl` to disambiguate from
-   * the IdP issuer inside the `verify` config.
-   */
-  resourceIssuerUrl: string | URL;
-  /** Base URL for OAuth endpoints (defaults to resourceIssuerUrl). */
+  /** Base URL for OAuth endpoints (defaults to the resolved resource URL). */
   baseUrl?: string | URL;
   /** Upstream OAuth provider endpoints to proxy. */
   endpoints: OAuthProxyEndpoints;
@@ -247,14 +277,8 @@ export interface OAuthAuthOptions {
    * Return `undefined` to reject the client.
    */
   getClient: (clientId: string) => Promise<OAuthClientInfo | undefined>;
-  /** OAuth scopes the server advertises as supported. */
-  scopesSupported?: string[];
-  /** Scopes required on every request to `/mcp`. */
+  /** Scopes required on every request to `/mcp`. Enforcement policy, not metadata. */
   requiredScopes?: string[];
-  /** URL to service documentation (included in OAuth metadata). */
-  serviceDocumentationUrl?: string | URL;
-  /** Human-readable resource name (included in OAuth metadata). */
-  resourceName?: string;
 }
 
 /**
@@ -315,8 +339,15 @@ export interface McpClientAuthOptions {
  * One plugin per adapter: this is the single options type for the MCP plugin.
  */
 export interface McpPluginOptions {
-  /** Server name in MCP protocol handshake. Default: "routecraft" */
+  /** Server name in MCP protocol handshake. Default: "routecraft". Machine identifier. */
   name?: string;
+
+  /**
+   * Human-readable display title for this MCP server. Defaults to `name` when unset.
+   * Used for MCP `serverInfo.title` (where the SDK protocol exposes it) and as
+   * the `resource_name` field in RFC 9728 protected-resource metadata.
+   */
+  title?: string;
 
   /** Server version. Default: "1.0.0" */
   version?: string;
@@ -329,6 +360,18 @@ export interface McpPluginOptions {
 
   /** Host to bind to. Default: "localhost" (only used with transport: "http") */
   host?: string;
+
+  /**
+   * Protected-resource (RFC 9728) metadata for the HTTP transport. When set,
+   * the server advertises `/.well-known/oauth-protected-resource` and adds
+   * `resource_metadata="..."` to 401 `WWW-Authenticate` headers. Used by both
+   * validator and OAuth-proxy auth modes; ignored for stdio.
+   *
+   * When omitted, baseline metadata is still served (deriving `resource` from
+   * the bound URL and `authorization_servers` from the validator's IdP
+   * issuer when present).
+   */
+  resource?: McpResourceOptions;
 
   /**
    * Authentication for the HTTP transport. When set, every request to `/mcp` must

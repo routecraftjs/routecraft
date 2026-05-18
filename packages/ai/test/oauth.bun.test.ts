@@ -30,7 +30,6 @@ async function serveJwks(jwkSet: {
 
 /** Handy stub for required factory options used across tests. */
 const BASE_OPTIONS = {
-  resourceIssuerUrl: "http://localhost:9999",
   endpoints: {
     authorizationUrl: "http://localhost:9999/authorize",
     tokenUrl: "http://localhost:9999/token",
@@ -159,11 +158,11 @@ describe("oauth() factory", () => {
   });
 
   /**
-   * @case resourceIssuerUrl is surfaced on the returned OAuthAuthOptions
-   * @preconditions Options with a valid resourceIssuerUrl
-   * @expectedResult Returned config.resourceIssuerUrl matches input
+   * @case oauth() carries only proxy-mechanics fields on the returned options (no protected-resource metadata)
+   * @preconditions Options include verify and client; no resource metadata is accepted by the factory
+   * @expectedResult Returned config has provider/endpoints/verify/client but no resourceIssuerUrl / scopesSupported / serviceDocumentationUrl / resourceName fields
    */
-  test("exposes resourceIssuerUrl on returned config", () => {
+  test("returns proxy-mechanics fields only (no resource metadata)", () => {
     const verify = async (): Promise<OAuthPrincipal> => ({
       kind: "custom",
       scheme: "bearer",
@@ -171,7 +170,16 @@ describe("oauth() factory", () => {
       expiresAt: 9999999999,
     });
     const result = oauth({ ...BASE_OPTIONS, verify });
-    expect(result.resourceIssuerUrl.toString()).toBe("http://localhost:9999");
+    expect(result.provider).toBe("oauth");
+    expect(result.endpoints.authorizationUrl).toBe(
+      BASE_OPTIONS.endpoints.authorizationUrl,
+    );
+    expect(typeof result.verifyAccessToken).toBe("function");
+    expect(typeof result.getClient).toBe("function");
+    expect(result).not.toHaveProperty("resourceIssuerUrl");
+    expect(result).not.toHaveProperty("scopesSupported");
+    expect(result).not.toHaveProperty("serviceDocumentationUrl");
+    expect(result).not.toHaveProperty("resourceName");
   });
 });
 

@@ -213,6 +213,8 @@ describe("McpServer", () => {
         port?: number;
         host?: string;
         auth?: import("../src/mcp/types.ts").McpHttpAuthOptions;
+        resource?: import("../src/mcp/types.ts").McpResourceOptions;
+        title?: string;
       } = {},
     ) {
       t = await testContext().routes(routes).store(MCP_STORE_KEY, true).build();
@@ -293,6 +295,40 @@ describe("McpServer", () => {
         });
       }
 
+      function get(path: string): Promise<{
+        statusCode: number;
+        body: string;
+        headers: Record<string, string | string[] | undefined>;
+      }> {
+        return new Promise((resolve, reject) => {
+          const req = http.request(
+            {
+              host: "127.0.0.1",
+              port,
+              path,
+              method: "GET",
+              headers: { Connection: "close" },
+            },
+            (res) => {
+              let data = "";
+              res.on("data", (chunk) => (data += chunk));
+              res.on("end", () =>
+                resolve({
+                  statusCode: res.statusCode ?? 0,
+                  body: data,
+                  headers: res.headers as Record<
+                    string,
+                    string | string[] | undefined
+                  >,
+                }),
+              );
+            },
+          );
+          req.on("error", reject);
+          req.end();
+        });
+      }
+
       async function initSession(
         authHeaders?: Record<string, string>,
       ): Promise<string> {
@@ -309,7 +345,7 @@ describe("McpServer", () => {
         return Array.isArray(sid) ? sid[0] : (sid as string);
       }
 
-      return { post, port, initSession };
+      return { post, get, port, initSession };
     }
 
     /**
@@ -505,7 +541,7 @@ describe("McpServer", () => {
       /**
        * @case Request without Authorization header returns 401 when auth is configured
        * @preconditions McpServer with auth.validator set; POST /mcp without Authorization header
-       * @expectedResult 401 status code with WWW-Authenticate header
+       * @expectedResult 401 status code with WWW-Authenticate header including realm and resource_metadata (RFC 9728)
        */
       test("returns 401 when no Authorization header and auth is configured", async () => {
         const { post } = await startHttpServer([], {
@@ -520,7 +556,12 @@ describe("McpServer", () => {
         });
         const res = await post(initBody);
         expect(res.statusCode).toBe(401);
-        expect(res.headers["www-authenticate"]).toMatch(/Bearer/);
+        const wwwAuth = res.headers["www-authenticate"];
+        expect(wwwAuth).toMatch(/Bearer/);
+        expect(wwwAuth).toMatch(/realm="mcp"/);
+        expect(wwwAuth).toMatch(
+          /resource_metadata="\/\.well-known\/oauth-protected-resource"/,
+        );
       });
 
       /**
@@ -675,6 +716,198 @@ describe("McpServer", () => {
       });
     });
 
+    describe("RFC 9728 protected-resource metadata (validator mode)", () => {
+      const validPrincipal = {
+        kind: "custom" as const,
+        subject: "user-1",
+        scheme: "bearer" as const,
+      };
+
+      /**
+       * @case Discovery endpoint is served at /.well-known/oauth-protected-resource without auth
+       * @preconditions McpServer with validator auth configured; GET without Authorization header
+       * @expectedResult 200 status code with application/json content-type and Cache-Control: no-store
+       */
+      test("GET /.well-known/oauth-protected-resource returns 200 JSON without auth", async () => {
+        const { get } = await startHttpServer([], {
+          auth: { validator: () => validPrincipal },
+        });
+        const res = await get("/.well-known/oauth-protected-resource");
+        expect(res.statusCode).toBe(200);
+        expect(res.headers["content-type"]).toMatch(/application\/json/);
+        expect(res.headers["cache-control"]).toBe("no-store");
+        expect(() => JSON.parse(res.body)).not.toThrow();
+      });
+
+      /**
+       * @case Metadata document carries the explicit `resource.url` when configured
+       * @preconditions resource.url is set to "https://mcp.example.com"
+       * @expectedResult `resource` field equals the configured value
+       */
+      test("resource field uses configured resource.url", async () => {
+        const { get } = await startHttpServer([], {
+          auth: { validator: () => validPrincipal },
+          resource: { url: "https://mcp.example.com" },
+        });
+        const res = await get("/.well-known/oauth-protected-resource");
+        const doc = JSON.parse(res.body) as { resource: string };
+        expect(doc.resource).toBe("https://mcp.example.com");
+      });
+
+      /**
+       * @case Metadata document falls back to bound URL when resource.url is unset
+       * @preconditions No resource.url; server bound on 127.0.0.1:{port}
+       * @expectedResult `resource` field is http://127.0.0.1:{port}/mcp
+       */
+      test("resource field falls back to http://host:port/mcp when unset", async () => {
+        const { get, port } = await startHttpServer([], {
+          auth: { validator: () => validPrincipal },
+        });
+        const res = await get("/.well-known/oauth-protected-resource");
+        const doc = JSON.parse(res.body) as { resource: string };
+        expect(doc.resource).toBe(`http://127.0.0.1:${port}/mcp`);
+      });
+
+      /**
+       * @case bearer_methods_supported is always ["header"]
+       * @preconditions Any validator-mode configuration
+       * @expectedResult Metadata `bearer_methods_supported` array is exactly ["header"]
+       */
+      test('bearer_methods_supported is ["header"]', async () => {
+        const { get } = await startHttpServer([], {
+          auth: { validator: () => validPrincipal },
+        });
+        const res = await get("/.well-known/oauth-protected-resource");
+        const doc = JSON.parse(res.body) as {
+          bearer_methods_supported: string[];
+        };
+        expect(doc.bearer_methods_supported).toEqual(["header"]);
+      });
+
+      /**
+       * @case authorization_servers is populated from the validator's `issuer` field
+       * @preconditions Validator carries issuer: "https://idp.example.com" (mirrors what jwks()/jwt() produce)
+       * @expectedResult Metadata `authorization_servers` is ["https://idp.example.com"]
+       */
+      test("authorization_servers is [validator.issuer] when present", async () => {
+        const { get } = await startHttpServer([], {
+          auth: {
+            validator: () => validPrincipal,
+            issuer: "https://idp.example.com",
+          },
+        });
+        const res = await get("/.well-known/oauth-protected-resource");
+        const doc = JSON.parse(res.body) as {
+          authorization_servers?: string[];
+        };
+        expect(doc.authorization_servers).toEqual(["https://idp.example.com"]);
+      });
+
+      /**
+       * @case authorization_servers forwards array issuers as-is
+       * @preconditions Validator carries issuer: ["https://a.example.com", "https://b.example.com"]
+       * @expectedResult Metadata `authorization_servers` contains both entries
+       */
+      test("authorization_servers forwards array issuers", async () => {
+        const { get } = await startHttpServer([], {
+          auth: {
+            validator: () => validPrincipal,
+            issuer: ["https://a.example.com", "https://b.example.com"],
+          },
+        });
+        const res = await get("/.well-known/oauth-protected-resource");
+        const doc = JSON.parse(res.body) as {
+          authorization_servers?: string[];
+        };
+        expect(doc.authorization_servers).toEqual([
+          "https://a.example.com",
+          "https://b.example.com",
+        ]);
+      });
+
+      /**
+       * @case authorization_servers is omitted when the validator has no issuer
+       * @preconditions Plain `{ validator }` with no `issuer` field (custom verifier)
+       * @expectedResult `authorization_servers` is absent from the metadata document
+       */
+      test("authorization_servers is omitted when validator has no issuer", async () => {
+        const { get } = await startHttpServer([], {
+          auth: { validator: () => validPrincipal },
+        });
+        const res = await get("/.well-known/oauth-protected-resource");
+        const doc = JSON.parse(res.body) as Record<string, unknown>;
+        expect(doc.authorization_servers).toBeUndefined();
+      });
+
+      /**
+       * @case resource_name derives from title when set, else falls back to name
+       * @preconditions title: "Eywa MCP" is set on the plugin options
+       * @expectedResult Metadata `resource_name` equals "Eywa MCP"
+       */
+      test("resource_name uses title when set", async () => {
+        const { get } = await startHttpServer([], {
+          auth: { validator: () => validPrincipal },
+          title: "Eywa MCP",
+        });
+        const res = await get("/.well-known/oauth-protected-resource");
+        const doc = JSON.parse(res.body) as { resource_name?: string };
+        expect(doc.resource_name).toBe("Eywa MCP");
+      });
+
+      /**
+       * @case resource_name falls back to name when title is unset
+       * @preconditions No title; default name "routecraft" is used
+       * @expectedResult Metadata `resource_name` equals "routecraft"
+       */
+      test("resource_name falls back to name when title is unset", async () => {
+        const { get } = await startHttpServer([], {
+          auth: { validator: () => validPrincipal },
+        });
+        const res = await get("/.well-known/oauth-protected-resource");
+        const doc = JSON.parse(res.body) as { resource_name?: string };
+        expect(doc.resource_name).toBe("routecraft");
+      });
+
+      /**
+       * @case scopes_supported and resource_documentation come from resource: {...}
+       * @preconditions resource: { scopesSupported: ["read","write"], documentationUrl: "https://docs.example.com" }
+       * @expectedResult Both fields appear in the metadata document
+       */
+      test("scopes_supported and resource_documentation pass through from resource: {...}", async () => {
+        const { get } = await startHttpServer([], {
+          auth: { validator: () => validPrincipal },
+          resource: {
+            scopesSupported: ["read", "write"],
+            documentationUrl: "https://docs.example.com",
+          },
+        });
+        const res = await get("/.well-known/oauth-protected-resource");
+        const doc = JSON.parse(res.body) as {
+          scopes_supported?: string[];
+          resource_documentation?: string;
+        };
+        expect(doc.scopes_supported).toEqual(["read", "write"]);
+        expect(doc.resource_documentation).toBe("https://docs.example.com");
+      });
+
+      /**
+       * @case Metadata endpoint is served even when no auth is configured (baseline document)
+       * @preconditions No auth, no resource options; default plugin config
+       * @expectedResult Discovery returns 200 with at least `resource` and `bearer_methods_supported`
+       */
+      test("metadata endpoint is served without auth configured", async () => {
+        const { get, port } = await startHttpServer([]);
+        const res = await get("/.well-known/oauth-protected-resource");
+        expect(res.statusCode).toBe(200);
+        const doc = JSON.parse(res.body) as {
+          resource: string;
+          bearer_methods_supported: string[];
+        };
+        expect(doc.resource).toBe(`http://127.0.0.1:${port}/mcp`);
+        expect(doc.bearer_methods_supported).toEqual(["header"]);
+      });
+    });
+
     describe("oauth auth", () => {
       /**
        * @case oauth() verify returning a fully populated Principal rides as one structured header
@@ -687,7 +920,6 @@ describe("McpServer", () => {
         let capturedHeaders: Record<string, unknown> | undefined;
 
         const authConfig = oauth({
-          resourceIssuerUrl: "http://localhost:9999",
           endpoints: {
             authorizationUrl: "http://localhost:9999/authorize",
             tokenUrl: "http://localhost:9999/token",
@@ -728,7 +960,10 @@ describe("McpServer", () => {
               })
               .to(noop()),
           ],
-          { auth: authConfig },
+          {
+            auth: authConfig,
+            resource: { url: "http://localhost:9999" },
+          },
         );
 
         const sessionId = await initSession({
@@ -781,7 +1016,6 @@ describe("McpServer", () => {
         let capturedPrincipal: Principal | undefined;
 
         const authConfig = oauth({
-          resourceIssuerUrl: "http://localhost:9999",
           endpoints: {
             authorizationUrl: "http://localhost:9999/authorize",
             tokenUrl: "http://localhost:9999/token",
@@ -813,7 +1047,10 @@ describe("McpServer", () => {
               })
               .to(noop()),
           ],
-          { auth: authConfig },
+          {
+            auth: authConfig,
+            resource: { url: "http://localhost:9999" },
+          },
         );
 
         const sessionId = await initSession({
@@ -865,7 +1102,6 @@ describe("McpServer", () => {
         });
 
         const authConfig = oauth({
-          resourceIssuerUrl: "http://localhost:9999",
           endpoints: {
             authorizationUrl: "http://localhost:9999/authorize",
             tokenUrl: "http://localhost:9999/token",
@@ -885,6 +1121,7 @@ describe("McpServer", () => {
           port: 0,
           host: "127.0.0.1",
           auth: authConfig,
+          resource: { url: "http://localhost:9999" },
         });
 
         t.ctx.on("auth:rejected", (payload) => {

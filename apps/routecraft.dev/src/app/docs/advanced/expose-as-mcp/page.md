@@ -254,27 +254,30 @@ For the full OAuth 2.1 Authorization Code flow with an upstream IdP, use `oauth(
 bun add express jose
 ```
 
-Compose `oauth()` with `jwks()` (or a raw verifier function) via the `verify` option:
+Compose `oauth()` with `jwks()` (or a raw verifier function) via the `verify` option. The protected-resource identity (`resource.url`) lives on the plugin, not on `oauth()`:
 
 ```ts
-import { oauth, jwks } from '@routecraft/ai'
+import { mcpPlugin, oauth, jwks } from '@routecraft/ai'
 
 // Clerk example
-auth: oauth({
-  resourceIssuerUrl: 'https://mcp.example.com',
-  endpoints: {
-    authorizationUrl: 'https://clerk.example.com/oauth/authorize',
-    tokenUrl: 'https://clerk.example.com/oauth/token',
-  },
-  verify: jwks({
-    jwksUrl: 'https://clerk.example.com/.well-known/jwks.json',
-    issuer: 'https://clerk.example.com',
-    audience: 'https://mcp.example.com',
+mcpPlugin({
+  transport: 'http',
+  resource: { url: 'https://mcp.example.com' },
+  auth: oauth({
+    endpoints: {
+      authorizationUrl: 'https://clerk.example.com/oauth/authorize',
+      tokenUrl: 'https://clerk.example.com/oauth/token',
+    },
+    verify: jwks({
+      jwksUrl: 'https://clerk.example.com/.well-known/jwks.json',
+      issuer: 'https://clerk.example.com',
+      audience: 'https://mcp.example.com',
+    }),
+    client: {
+      client_id: 'my-mcp-server',
+      redirect_uris: ['http://localhost:3000/callback'],
+    },
   }),
-  client: {
-    client_id: 'my-mcp-server',
-    redirect_uris: ['http://localhost:3000/callback'],
-  },
 })
 ```
 
@@ -282,7 +285,6 @@ For opaque tokens or custom introspection, pass a raw `verify` function instead:
 
 ```ts
 auth: oauth({
-  resourceIssuerUrl: 'https://mcp.example.com',
   endpoints: { authorizationUrl: '...', tokenUrl: '...' },
   verify: async (token) => {
     const info = await myIntrospectionCall(token)
@@ -311,7 +313,6 @@ OAuth access tokens are intentionally thin: they authorize but rarely identify. 
 
 ```ts
 auth: oauth({
-  resourceIssuerUrl: '...',
   endpoints: { ... },
   verify: jwks({ jwksUrl, issuer: 'https://idp.example.com', audience }),
   client: { ... },
@@ -323,7 +324,6 @@ auth: oauth({
 
 ```ts
 auth: oauth({
-  resourceIssuerUrl: '...',
   endpoints: { ... },
   verify: jwks({ jwksUrl, issuer: 'https://idp.example.com', audience }),
   client: { ... },
@@ -335,7 +335,6 @@ auth: oauth({
 
 ```ts
 auth: oauth({
-  resourceIssuerUrl: '...',
   endpoints: { ... },
   verify: jwks({ jwksUrl, issuer: 'https://idp.example.com', audience }),
   client: { ... },
@@ -367,6 +366,38 @@ Use `userinfo` when the bearer alone does not carry the identity fields you need
 The populated `Principal` rides on the exchange as a single structured header (`routecraft.auth.principal`) and is exposed ergonomically via the `ex.principal` getter, e.g. `ex.principal?.subject`, `ex.principal?.scopes`, `ex.principal?.claims`.
 
 See the [plugins reference](/docs/reference/plugins#mcpplugin) for the full `Principal` field list.
+
+### Protected-resource metadata (RFC 9728)
+
+Auto-discovering MCP clients (Claude.ai custom connectors, MCP Inspector, `mcp-remote`, Claude Desktop) probe `/mcp`, receive a 401, then fetch `/.well-known/oauth-protected-resource` to find out which authorization server to use. The framework serves this RFC 9728 metadata document in both validator and OAuth-proxy auth modes, and appends a `resource_metadata="..."` parameter to the 401 `WWW-Authenticate` header so clients know where the document lives.
+
+Protected-resource identity is configured on the plugin, not on the auth helper. It is orthogonal to the auth mode: the same `resource: {...}` block works whether you use `jwt()` / `jwks()` (validator mode) or `oauth()` (proxy mode).
+
+```ts
+mcpPlugin({
+  name: 'eywa',                          // machine identifier (MCP `serverInfo.name`)
+  title: 'Eywa MCP',                     // human display; also the metadata `resource_name`
+  transport: 'http',
+  host: '0.0.0.0',
+  port: 3001,
+  resource: {
+    url: 'https://mcp.example.com',      // metadata `resource` field; defaults to bound URL
+    scopesSupported: ['read', 'write'],  // metadata `scopes_supported`
+    documentationUrl: 'https://docs.example.com',  // metadata `resource_documentation`
+  },
+  auth: jwks({
+    jwksUrl: 'https://idp.example.com/.well-known/jwks.json',
+    issuer: 'https://idp.example.com',
+    audience: 'https://mcp.example.com',
+  }),
+})
+```
+
+The metadata document populates `authorization_servers` from the validator's `issuer` (surfaced by `jwks()` / `jwt()`) when present. Custom validators with no declared issuer omit the field, which RFC 9728 allows. OAuth-proxy mode derives `authorization_servers` from the MCP SDK's `mcpAuthRouter`.
+
+When `resource.url` is omitted, the framework advertises the bound `http://{host}:{port}/mcp`. This is fine for local dev but should be overridden in production with the public-facing URL clients use to reach the server. In production, `resource.url` must be HTTPS or the plugin throws at startup.
+
+The motivating case is IdPs that do not support server-side Dynamic Client Registration (DCR) and therefore cannot use OAuth proxy mode -- WorkOS AuthKit is the canonical example. In that setup, validator mode (`auth: jwks(...)`) is the only correct integration, and the RFC 9728 metadata document is what lets MCP clients still auto-discover the IdP.
 
 ## Production
 
