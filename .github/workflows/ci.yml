@@ -21,7 +21,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # Include event_name so the new pull_request-triggered run doesn't collide
+  # with main's still-live pull_request_target workflow during the transition.
+  # After this PR merges, only pull_request fires, so the event_name segment
+  # becomes a no-op and concurrency works as before.
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
