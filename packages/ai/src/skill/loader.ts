@@ -7,14 +7,6 @@ import {
 import type { Skill } from "./types.ts";
 
 /**
- * Reject unknown frontmatter fields up front so a misspelt key never
- * silently disappears. The frontmatter shape mirrors a deliberately
- * narrow subset of Claude's subagent skills schema (`name`,
- * `description`); future fields will land incrementally.
- */
-const SUPPORTED_SKILL_KEYS = new Set(["name", "description"]);
-
-/**
  * Per-skill override applied on top of the markdown frontmatter.
  *
  * @experimental
@@ -26,9 +18,18 @@ export interface SkillOverride {
 
 /**
  * Convert a parsed markdown file into a `Skill`. Validates that
- * frontmatter `name` matches the filename so the registry id is
- * unambiguous, and that body is non-empty so the agent never injects
- * a hollow skill into its system prompt.
+ * frontmatter `name`, when present, matches the directory or
+ * filename so the registry id is unambiguous, and that body is
+ * non-empty so the agent never injects a hollow skill into its
+ * system prompt.
+ *
+ * Unknown top-level frontmatter keys are silently accepted: Claude
+ * Code's full skill frontmatter schema (`allowed-tools`,
+ * `argument-hint`, `disable-model-invocation`, `when_to_use`, etc.)
+ * is much wider than routecraft consumes, and tooling commonly
+ * layers further metadata on top. Keys other than `name` and
+ * `description` are ignored by the runtime; only those two are
+ * validated.
  *
  * @internal
  */
@@ -38,13 +39,6 @@ function toSkill(
   body: string,
   source: string,
 ): Skill {
-  for (const key of Object.keys(frontmatter)) {
-    if (!SUPPORTED_SKILL_KEYS.has(key)) {
-      throw rcError("RC5003", undefined, {
-        message: `Markdown file "${source}": unsupported frontmatter field "${key}". Skills currently support only "name" and "description"; further fields land in follow-up stories.`,
-      });
-    }
-  }
   const name = requireString(frontmatter["name"], "name", source);
   if (name !== filename) {
     throw rcError("RC5003", undefined, {
@@ -67,16 +61,30 @@ function toSkill(
 /**
  * Load skills from a markdown file or directory.
  *
- * - If `path` points to a directory, every `.md` file directly under it
- *   becomes one skill. The filename (without `.md`) is the skill name
- *   and must match the frontmatter `name`.
- * - If `path` points to a single `.md` file, the file becomes one
- *   skill keyed by its filename.
+ * Two directory layouts are supported and may coexist in the same
+ * folder, matching the [Claude Code skill convention](https://code.claude.com/docs/en/skills):
  *
- * Frontmatter currently supports only `name` (required) and
- * `description` (required). Body of the file becomes
- * `Skill.content` and is concatenated into the system prompt of any
- * agent that lists the skill name in its `skills` array.
+ * - **Flat:** a `.md` file directly under the directory. The filename
+ *   (without `.md`) is the skill name and must match frontmatter
+ *   `name`.
+ * - **Nested:** a `<name>/SKILL.md` file inside a subdirectory. The
+ *   subdirectory name is the skill name and must match frontmatter
+ *   `name`. The folder can also bundle supporting assets (scripts,
+ *   templates, examples); the loader only consumes `SKILL.md`.
+ *
+ * Subdirectories without a `SKILL.md` sentinel are silently skipped.
+ *
+ * If `path` points to a single `.md` file, the file becomes one
+ * skill keyed by its filename.
+ *
+ * Frontmatter requires `name` and `description`. Any other keys
+ * (including Claude Code fields like `allowed-tools`, `when_to_use`,
+ * `argument-hint`, `disable-model-invocation`, or arbitrary metadata
+ * blocks added by other tooling) are silently accepted and ignored.
+ *
+ * Body of the file becomes `Skill.content` and is concatenated into
+ * the system prompt of any agent that lists the skill name in its
+ * `skills` array.
  *
  * Pass `overrides` keyed by skill name to replace `description` or
  * `content` per skill without editing the markdown source.
@@ -101,7 +109,7 @@ export async function skills(
   const out: Record<string, Skill> = {};
   const docs = path.endsWith(".md")
     ? [await readMarkdownFile(path)]
-    : await readMarkdownDir(path);
+    : await readMarkdownDir(path, { sentinelFilename: "SKILL.md" });
   for (const doc of docs) {
     const skill = toSkill(doc.filename, doc.frontmatter, doc.body, doc.path);
     const override = overrides[skill.name];

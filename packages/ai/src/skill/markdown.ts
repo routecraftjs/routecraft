@@ -129,14 +129,43 @@ export async function readMarkdownFile(path: string): Promise<ParsedMarkdown> {
 }
 
 /**
- * Read every `.md` file directly under `dir` and return one
- * `ParsedMarkdown` entry per file. Subdirectories are not recursed
- * (Claude's subagent layout is flat; supporting nesting would
- * complicate id derivation).
+ * Options controlling how {@link readMarkdownDir} discovers entries.
  *
  * @internal
  */
-export async function readMarkdownDir(dir: string): Promise<ParsedMarkdown[]> {
+export interface ReadMarkdownDirOptions {
+  /**
+   * When set, subdirectories of `dir` are also inspected. If a
+   * subdirectory contains a file with this exact name (e.g.
+   * `"SKILL.md"`), it is yielded as a single `ParsedMarkdown` whose
+   * `filename` is the **subdirectory name**, not the sentinel stem.
+   * This matches the Claude Code skill convention
+   * (`<name>/SKILL.md`), where the directory name is the identity and
+   * the folder can also bundle supporting assets. Subdirectories
+   * without the sentinel are silently skipped.
+   */
+  sentinelFilename?: string;
+}
+
+/**
+ * Read markdown documents from `dir` and return one `ParsedMarkdown`
+ * entry per discovered file.
+ *
+ * - Flat `.md` files directly under `dir` are always loaded.
+ * - When `sentinelFilename` is set, subdirectories containing that
+ *   exact file are loaded too, keyed by the **subdirectory name**.
+ *
+ * Subdirectories without the configured sentinel (or any
+ * subdirectories at all when the option is absent) are silently
+ * skipped, so a `node_modules`-style folder mixed in with real skills
+ * does not produce noise.
+ *
+ * @internal
+ */
+export async function readMarkdownDir(
+  dir: string,
+  options: ReadMarkdownDirOptions = {},
+): Promise<ParsedMarkdown[]> {
   const abs = resolve(process.cwd(), dir);
   let stats;
   try {
@@ -153,14 +182,33 @@ export async function readMarkdownDir(dir: string): Promise<ParsedMarkdown[]> {
   }
   const out: ParsedMarkdown[] = [];
   for (const entry of readdirSync(abs, { withFileTypes: true })) {
-    if (!entry.isFile()) continue;
-    if (extname(entry.name).toLowerCase() !== ".md") continue;
-    out.push(
-      await splitFrontmatter(
-        readFileSync(join(abs, entry.name), "utf-8"),
-        join(abs, entry.name),
-      ),
-    );
+    if (entry.isFile()) {
+      if (extname(entry.name).toLowerCase() !== ".md") continue;
+      out.push(
+        await splitFrontmatter(
+          readFileSync(join(abs, entry.name), "utf-8"),
+          join(abs, entry.name),
+        ),
+      );
+      continue;
+    }
+    if (entry.isDirectory() && options.sentinelFilename) {
+      const sentinelPath = join(abs, entry.name, options.sentinelFilename);
+      let sentinelStats;
+      try {
+        sentinelStats = statSync(sentinelPath);
+      } catch {
+        continue;
+      }
+      if (!sentinelStats.isFile()) continue;
+      const parsed = await splitFrontmatter(
+        readFileSync(sentinelPath, "utf-8"),
+        sentinelPath,
+      );
+      // The subdirectory name is the identity, not the sentinel stem.
+      parsed.filename = entry.name;
+      out.push(parsed);
+    }
   }
   // Sort so file order is deterministic regardless of filesystem
   // listing order. Useful for stable tests and reproducible builds.
