@@ -244,12 +244,19 @@ Options:
 // layer; schemas live on the route builder via `.input()` / `.output()`.
 direct(options?: Partial<DirectServerOptions>): Source<unknown>
 
+// Destination (registry-aware: body type resolves from DirectEndpointRegistry when populated)
+direct<K extends RegisteredDirectEndpoint>(endpoint: K): Destination<ResolveBody<DirectEndpointRegistry, K>, unknown>
+
 // Destination (names a target route)
 direct<T>(endpoint: string | ((exchange: Exchange<T>) => string)): Destination<T, T>
 
 // Destination with explicit input != output (e.g. in-process agent call)
-direct<TInput, TOutput>(endpoint: string): Destination<TInput, TOutput>
+direct<TIn, TOut>(
+  endpoint: RegisteredDirectEndpoint | ((exchange: Exchange<TIn>) => string),
+): Destination<TIn, TOut>
 ```
+
+See [Type Safety: Registries](https://github.com/routecraftjs/routecraft/blob/main/.standards/type-safety-registries.md) for how to populate `DirectEndpointRegistry`.
 
 Enable synchronous inter-route communication. Perfect for composable route architectures where you need request-response patterns. The source form uses the route's `.id()` as the endpoint name; destinations address the target by id.
 

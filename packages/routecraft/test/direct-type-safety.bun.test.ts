@@ -1,4 +1,5 @@
 import { describe, expectTypeOf, test } from "bun:test";
+import { craft, simple } from "@routecraft/routecraft";
 import { direct } from "../src/adapters/direct/index.ts";
 import type { Source } from "../src/operations/from.ts";
 import type { Destination } from "../src/operations/to.ts";
@@ -118,5 +119,39 @@ describe("Direct adapter type safety", () => {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars -- param only for type
       direct((_ex: { body: X; headers: Record<string, unknown> }) => "ep"),
     ).toMatchTypeOf<Destination<X, X>>();
+  });
+
+  /**
+   * @case Explicit two-generic form accepts a function endpoint
+   * @preconditions direct<TIn, TOut>((ex: Exchange<TIn>) => "ep")
+   * @expectedResult Type matches Destination<TIn, TOut>
+   */
+  test("direct<TIn, TOut>(function) returns Destination<TIn, TOut>", () => {
+    type In = { kind: "lookup"; id: string };
+    type Out = { found: boolean; value: number };
+    expectTypeOf(
+      direct<In, Out>(
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars -- param only for type
+        (_ex: { body: In; headers: Record<string, unknown> }) => "ep",
+      ),
+    ).toMatchTypeOf<Destination<In, Out>>();
+  });
+
+  /**
+   * @case .enrich(direct<TIn, TOut>(...)) propagates TIn & TOut to downstream body
+   * @preconditions Builder chain: from(simple<TIn>(...)).enrich(direct<TIn, TOut>("ep")).tap(...)
+   * @expectedResult The tap's exchange.body type is TIn & TOut
+   */
+  test(".enrich(direct<TIn, TOut>(string)) narrows downstream body to TIn & TOut", () => {
+    type In = { query: string };
+    type Out = { answer: string; tokens: number };
+
+    craft()
+      .id("type-test-caller")
+      .from(simple<In>({ query: "hi" }))
+      .enrich(direct<In, Out>("type-test-callee"))
+      .tap((ex) => {
+        expectTypeOf(ex.body).toEqualTypeOf<In & Out>();
+      });
   });
 });
