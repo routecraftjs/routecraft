@@ -587,7 +587,7 @@ Flat array of items. Each item is one of:
 
 - **Bare string**: name lookup. Plain ids resolve against the fn registry; `direct_*` falls back to the direct registry via `directTool`; `mcp_<client>:<tool>` resolves against `MCP_TOOL_REGISTRY` (populated by `defineConfig.mcp` / `mcpPlugin({ clients })`), and `mcp_<client>:*` expands at dispatch time to every tool the named client exposed. `agent_*` is reserved for sub-agent tools (follow-up story) and currently throws a clear "not yet supported" error.
 - **`{ name, guard?, description? }`**: same name lookup, with optional per-binding overrides. The guard runs after schema validation and before the handler; throwing surfaces back to the LLM as a tool error so the model can self-correct. The `description` override applies only to this binding for fn-style names. MCP references reject `description` (the MCP server is the source of truth for description and schema; do not override).
-- **`{ tagged, from?, guard? }`**: selects every fn / route / MCP tool whose tags overlap the requested set (single tag or array; OR semantics across the array). `from?: string` scopes the walk to a single source — today `from: "mcp_<client>"` restricts the selection to one MCP client. Optional guard applies to every match. Tag-zero-match throws RC5003 so a misconfigured selector cannot silently strip every tool from an agent.
+- **`{ tagged, from?, guard? }`**: selects every fn / route / MCP tool whose tags overlap the requested set (single tag or array; OR semantics across the array). `from?: string` scopes the walk to a single source; today `from: "mcp_<client>"` restricts the selection to one MCP client. Optional guard applies to every match. Tag-zero-match throws RC5003 so a misconfigured selector cannot silently strip every tool from an agent.
 
 MCP tools are auto-tagged at registration from each tool's MCP annotations: `readOnlyHint → "read-only"`, `destructiveHint → "destructive"`, `idempotentHint → "idempotent"`, `openWorldHint → "open-world"`. That means `{ tagged: "read-only" }` matches fns, routes, AND MCP tools out of the box.
 
@@ -629,7 +629,7 @@ Resolution rules:
 | `directTool(routeId, overrides?)` | Adapt a registered direct route as a fn. Pulls description, input schema, and tags from the route's discovery bundle by default; `overrides` can replace any of those. |
 | `defaultFns` | A small starter set (`currentTime`, `randomUuid`) tagged `read-only`/`idempotent`. Spread into your `functions:` config. |
 
-MCP tools are NOT exposed via a builder. Use the `mcp_<client>:<tool>` / `mcp_<client>:*` grammar inside `tools([...])` instead — the registry populated by `defineConfig.mcp` is the source of truth.
+MCP tools are NOT exposed via a builder. Use the `mcp_<client>:<tool>` / `mcp_<client>:*` grammar inside `tools([...])` instead; the registry populated by `defineConfig.mcp` is the source of truth.
 
 #### Tags
 
