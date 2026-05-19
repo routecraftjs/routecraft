@@ -174,7 +174,7 @@ export function tools(items: ToolsItem[]): ToolSelection {
       // Phase 1: explicit refs (bare strings + { name, guard }).
       for (const item of items) {
         if (typeof item === "string") {
-          if (item.startsWith("mcp_")) {
+          if (isMcpRefName(item)) {
             for (const tool of resolveMcpRefs(ctx, item, undefined)) {
               explicit.set(tool.name, tool);
             }
@@ -204,7 +204,7 @@ export function tools(items: ToolsItem[]): ToolSelection {
               message: `tools(): { name: "${item.name}", description } must be a non-empty string when present.`,
             });
           }
-          if (item.name.startsWith("mcp_")) {
+          if (isMcpRefName(item.name)) {
             if (item.description !== undefined) {
               throw rcError("RC5003", undefined, {
                 message: `tools(): { name: "${item.name}", description } is not supported for MCP tools. The MCP server is the source of truth for description and schema; do not override.`,
@@ -279,14 +279,11 @@ function resolveByName(
       message: `tools(): "${name}" looks like an agent reference. Sub-agent tools land in a follow-up story.`,
     });
   }
-  if (name.startsWith("mcp_")) {
-    // MCP refs can expand to multiple tools (wildcard) so they go
-    // through a separate path in Phase 1; reaching this branch from
-    // resolveByName means the caller forgot to special-case them.
-    throw rcError("RC5003", undefined, {
-      message: `tools(): "${name}" must be resolved via resolveMcpRefs; this is a bug in the agent tools pipeline.`,
-    });
-  }
+  // `mcp_<client>:<tool>` refs are handled by Phase 1 before this
+  // function is called (see `isMcpRefName`). A plain `mcp_*` name that
+  // arrives here is a fn id that just happens to share the prefix; let
+  // it fall through to the fn-registry / direct-registry walk above
+  // and the unknown-tool error below.
   if (name.startsWith("direct_")) {
     const routeId = name.slice("direct_".length);
     if (routeId === "") {
@@ -335,6 +332,23 @@ function toResolvedTool(
     ...(guard ? { guard } : {}),
     handler: fn.handler as FnOptions["handler"],
   };
+}
+
+/**
+ * Recognise an MCP tool reference. The grammar is
+ * `mcp_<client>:<tool>` (or `mcp_<client>:*` for a wildcard) — so a
+ * legit MCP ref always carries a `:` somewhere after the `mcp_`
+ * prefix and before the end. Without this guard, a plain fn id like
+ * `mcp_healthcheck` would be hijacked by the MCP path and throw a
+ * grammar error instead of resolving via the fn registry.
+ *
+ * @internal
+ */
+function isMcpRefName(name: string): boolean {
+  if (!name.startsWith("mcp_")) return false;
+  const rest = name.slice("mcp_".length);
+  const colon = rest.indexOf(":");
+  return colon > 0 && colon < rest.length - 1;
 }
 
 /**

@@ -1,4 +1,5 @@
 import {
+  isRoutecraftError,
   loadOptionalPeer,
   rcError,
   type CraftContext,
@@ -42,7 +43,14 @@ export async function dispatchMcpCall(
   const stdioManagers = ctx.getStore(MCP_STDIO_MANAGERS);
   const manager = stdioManagers?.get(serverId);
   if (manager) {
-    return manager.callTool(toolName, args);
+    try {
+      return await manager.callTool(toolName, args);
+    } catch (cause) {
+      if (isRoutecraftError(cause)) throw cause;
+      throw rcError("RC5003", cause, {
+        message: `mcp dispatch: stdio call to "${serverId}:${toolName}" failed.`,
+      });
+    }
   }
 
   const servers = ctx.getStore(ADAPTER_MCP_CLIENT_SERVERS);
@@ -145,6 +153,18 @@ export async function callRemoteTool(
       arguments: args,
     });
     return extractContent(response);
+  } catch (cause) {
+    // Wrap SDK / transport / network errors as RC5003 with the original
+    // attached as `cause`, matching the Error and Logging Policy
+    // (`level 1`: throw rcError with the right framework code so the
+    // dispatch boundary always surfaces an MCP-tagged error rather than
+    // a bare TypeError or SDK-specific class). `RoutecraftError`s
+    // thrown by called helpers pass through unchanged so caller-facing
+    // error codes are preserved.
+    if (isRoutecraftError(cause)) throw cause;
+    throw rcError("RC5003", cause, {
+      message: `mcp dispatch: failed to call tool "${toolName}" at "${serverUrl}".`,
+    });
   } finally {
     const clientCleanup = client as unknown as {
       close?: () => void | Promise<void>;

@@ -230,6 +230,32 @@ describe("tools() resolver - MCP refs", () => {
   });
 
   /**
+   * @case A plain fn id that happens to start with "mcp_" resolves via the fn registry, not the MCP path
+   * @preconditions agentPlugin registers a fn named "mcp_healthcheck"; tools(["mcp_healthcheck"])
+   * @expectedResult Resolution returns the fn-registry tool; no MCP grammar error
+   */
+  test("mcp_-prefixed fn id without ':' resolves via fn registry", async () => {
+    t = await buildCtxWithMcp([], {
+      functions: {
+        mcp_healthcheck: {
+          description: "Ping the local mcp infra.",
+          input: {
+            "~standard": {
+              version: 1,
+              vendor: "routecraft",
+              validate: (value: unknown) => ({ value }),
+            },
+          } as never,
+          handler: async () => ({ ok: true }),
+        },
+      },
+    });
+    const resolved = tools(["mcp_healthcheck"]).resolve(t.ctx);
+    expect(resolved).toHaveLength(1);
+    expect(resolved[0]!.name).toBe("mcp_healthcheck");
+  });
+
+  /**
    * @case MCP_TOOL_REGISTRY missing throws a helpful "install mcpPlugin" error
    * @preconditions Context built without mcpPlugin; user references an MCP tool
    * @expectedResult Throw mentions install hint
