@@ -1312,6 +1312,66 @@ describe("McpServer", () => {
       });
 
       /**
+       * @case `initialize` response exposes Mcp-Session-Id so a browser-side follow-up can echo it
+       * @preconditions Default cors policy; loopback Origin; the SDK runs in stateful mode (sessionIdGenerator set in createSession), so Mcp-Session-Id is emitted on `initialize`
+       * @expectedResult Access-Control-Expose-Headers contains "Mcp-Session-Id" (and "WWW-Authenticate", and "Last-Event-ID"). Without this, browser MCP clients read Mcp-Session-Id as undefined and the second request fails with 400 from the SDK transport.
+       */
+      test("initialize exposes Mcp-Session-Id for browser clients", async () => {
+        const { post } = await startHttpServer([]);
+        const res = await post(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: INIT_PARAMS,
+          }),
+          undefined,
+          { Origin: LOOPBACK_ORIGIN },
+        );
+        expect(res.statusCode).toBe(200);
+        // Sanity: the SDK actually emitted a session id.
+        expect(res.headers["mcp-session-id"]).toBeDefined();
+        // And the CORS exposure listing tells the browser it can read it.
+        const expose = res.headers["access-control-expose-headers"];
+        const exposeStr = Array.isArray(expose) ? expose.join(", ") : expose;
+        expect(exposeStr).toBeDefined();
+        expect(exposeStr).toContain("Mcp-Session-Id");
+        expect(exposeStr!.toLowerCase()).toContain("www-authenticate");
+        expect(exposeStr).toContain("Last-Event-ID");
+      });
+
+      /**
+       * @case Two-request flow: a follow-up tools/list with the echoed Mcp-Session-Id succeeds with CORS headers intact
+       * @preconditions Default cors policy; loopback Origin; valid initialize then a subsequent tools/list with the captured Mcp-Session-Id
+       * @expectedResult Both responses are 200; the second response also carries Access-Control-Allow-Origin -- proving the CORS contract holds across the stateful session lifecycle, not just on initialize
+       */
+      test("two-step session: tools/list after initialize keeps CORS headers", async () => {
+        const { post, initSession } = await startHttpServer([
+          craft()
+            .id("two-step-tool")
+            .description("Tool for the two-step CORS test")
+            .from(mcp())
+            .to(noop()),
+        ]);
+        const sessionId = await initSession({ Origin: LOOPBACK_ORIGIN });
+        expect(sessionId).toBeDefined();
+        const res = await post(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 2,
+            method: "tools/list",
+            params: {},
+          }),
+          sessionId,
+          { Origin: LOOPBACK_ORIGIN },
+        );
+        expect(res.statusCode).toBe(200);
+        expect(res.headers["access-control-allow-origin"]).toBe(
+          LOOPBACK_ORIGIN,
+        );
+      });
+
+      /**
        * @case POST /mcp from a non-loopback Origin under the default policy gets no Access-Control-Allow-Origin
        * @preconditions Default cors policy; valid initialize call from https://evil.example
        * @expectedResult Response status is 200 (the JSON-RPC request itself succeeds), but the browser-readability gate (Allow-Origin) is absent; Vary: Origin is still emitted so caches stay correct

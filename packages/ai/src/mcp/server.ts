@@ -802,8 +802,10 @@ export class McpServer {
     // recommends. Mounting ours first means clients fetching the URL we
     // advertise in the 401 always get the same JSON shape as validator
     // mode -- the design's "auto-mount, same shape, regardless of auth
-    // mode" promise. Express matches the more specific `app.get(...)`
-    // before the more general `router.use(...)` registered later.
+    // mode" promise. Express runs middleware in registration order, so the
+    // handler registered first wins for the matching URL; do NOT move this
+    // below `app.use(mcpAuthRouter(...))` or the SDK's path-aware doc will
+    // shadow ours when the resource URL collapses to root.
     // CORS headers are committed by the middleware above via `setHeader`,
     // so the handler does not need to re-emit them in `writeHead`.
     app.get(PROTECTED_RESOURCE_METADATA_PATH, (_req: unknown, res: unknown) => {

@@ -220,7 +220,16 @@ describe("MCP CORS helper", () => {
         "http://localhost:6274",
       );
       expect(headers["Vary"]).toBe("Origin");
-      expect(headers["Access-Control-Expose-Headers"]).toBe("WWW-Authenticate");
+      // Browser MCP clients need three response headers exposed:
+      //   - WWW-Authenticate so the RFC 9728 hint on 401 is readable
+      //   - Mcp-Session-Id because the stateful SDK transport requires it
+      //     on every request after `initialize`
+      //   - Last-Event-ID for SSE resume
+      const expose = headers["Access-Control-Expose-Headers"];
+      expect(expose).toBeDefined();
+      expect(expose).toContain("WWW-Authenticate");
+      expect(expose).toContain("Mcp-Session-Id");
+      expect(expose).toContain("Last-Event-ID");
     });
 
     /**
@@ -236,17 +245,18 @@ describe("MCP CORS helper", () => {
     });
 
     /**
-     * @case Preflight responses include Access-Control-Allow-Methods and Allow-Headers
+     * @case Preflight responses include Allow-Methods/Allow-Headers but omit Expose-Headers
      * @preconditions Default policy; preflight=true; loopback Origin
-     * @expectedResult Methods header lists GET, POST, OPTIONS; Headers is "*"
+     * @expectedResult Methods header lists GET, POST, OPTIONS; Headers is "*"; Expose-Headers is absent (browsers ignore it on preflight per the Fetch spec)
      */
-    test("preflight emits methods and headers", () => {
+    test("preflight emits methods and headers, omits expose-headers", () => {
       const cors = resolveCorsOptions(undefined);
       const headers = buildCorsHeaders(cors, "http://localhost:6274", true);
       expect(headers["Access-Control-Allow-Methods"]).toContain("GET");
       expect(headers["Access-Control-Allow-Methods"]).toContain("POST");
       expect(headers["Access-Control-Allow-Methods"]).toContain("OPTIONS");
       expect(headers["Access-Control-Allow-Headers"]).toBe("*");
+      expect(headers["Access-Control-Expose-Headers"]).toBeUndefined();
     });
 
     /**

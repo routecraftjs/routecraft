@@ -70,11 +70,11 @@ export interface McpCorsOptions {
 
 /**
  * Internal resolved CORS shape. The consumer never has to branch on string vs
- * array vs function form of `origin`.
+ * array vs function form of `origin`. Not exported beyond this file.
  *
  * @internal
  */
-export interface ResolvedMcpCors {
+interface ResolvedMcpCors {
   resolveOrigin: McpCorsOriginResolver;
   /** `true` when `origin` was the literal `"*"`. Skips `Vary: Origin`. */
   isWildcard: boolean;
@@ -88,14 +88,21 @@ export interface ResolvedMcpCors {
  * - `Access-Control-Allow-Headers`: `*` is the right default; `Authorization`,
  *   `Content-Type`, and `MCP-Protocol-Version` are the headers MCP clients
  *   send today, but the spec permits more and we do not want to gate.
- * - `Access-Control-Expose-Headers`: `WWW-Authenticate` so browser clients
- *   can read the RFC 9728 `resource_metadata` hint on a 401.
+ * - `Access-Control-Expose-Headers` (non-preflight only): the response headers
+ *   browser clients must be able to read.
+ *   - `WWW-Authenticate` -- RFC 9728 `resource_metadata` hint on a 401.
+ *   - `Mcp-Session-Id` -- emitted by the SDK on `initialize` in stateful mode
+ *     (see `server.ts` createSession). The MCP spec requires clients to echo
+ *     this value on every subsequent request; browsers cannot read it
+ *     cross-origin without it being exposed.
+ *   - `Last-Event-ID` -- SSE resume cursor; required for browser-based SSE
+ *     reconnection.
  *
  * @internal
  */
 const ALLOW_METHODS = "GET, POST, OPTIONS";
 const ALLOW_HEADERS = "*";
-const EXPOSE_HEADERS = "WWW-Authenticate";
+const EXPOSE_HEADERS = "WWW-Authenticate, Mcp-Session-Id, Last-Event-ID";
 
 /**
  * Hostnames recognised as loopback by the default policy.
@@ -236,10 +243,14 @@ export function buildCorsHeaders(
   if (allowed === false) return headers;
 
   headers["Access-Control-Allow-Origin"] = allowed;
-  headers["Access-Control-Expose-Headers"] = EXPOSE_HEADERS;
+  // Allow-Methods/Allow-Headers belong on preflight (204) only;
+  // Expose-Headers belongs on the actual response only (browsers ignore it
+  // on a preflight per the Fetch spec). Mirror that asymmetry here.
   if (preflight) {
     headers["Access-Control-Allow-Methods"] = ALLOW_METHODS;
     headers["Access-Control-Allow-Headers"] = ALLOW_HEADERS;
+  } else {
+    headers["Access-Control-Expose-Headers"] = EXPOSE_HEADERS;
   }
   return headers;
 }

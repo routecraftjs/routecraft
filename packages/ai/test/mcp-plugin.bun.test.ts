@@ -294,6 +294,50 @@ describe("MCP Plugin Integration", () => {
       });
       expect(typeof p.apply).toBe("function");
     });
+
+    /**
+     * @case Validation rejects an invalid cors.origin shape at plugin-apply time
+     * @preconditions transport: 'http', cors: { origin: 42 } cast through unknown to bypass TypeScript
+     * @expectedResult TypeError thrown by `validateMcpPluginOptions`, not deferred to server start; surfaces alongside `auth`/`port`/`host` shape errors
+     */
+    test("rejects invalid cors.origin shape at apply time", () => {
+      expect(() =>
+        mcpPlugin({
+          transport: "http",
+          cors: { origin: 42 as unknown as string },
+        }),
+      ).toThrow(/cors\.origin must be/);
+    });
+
+    /**
+     * @case `cors: false` and well-formed `cors.origin` shapes pass validation
+     * @preconditions transport: 'http' with cors: false, then cors: { origin: '*' | string | string[] | function }
+     * @expectedResult No throw for any of the four legal shapes
+     */
+    test("accepts well-formed cors shapes", () => {
+      expect(() => mcpPlugin({ transport: "http", cors: false })).not.toThrow();
+      expect(() =>
+        mcpPlugin({ transport: "http", cors: { origin: "*" } }),
+      ).not.toThrow();
+      expect(() =>
+        mcpPlugin({
+          transport: "http",
+          cors: { origin: "https://app.example.com" },
+        }),
+      ).not.toThrow();
+      expect(() =>
+        mcpPlugin({
+          transport: "http",
+          cors: { origin: ["https://a.example", "https://b.example"] },
+        }),
+      ).not.toThrow();
+      expect(() =>
+        mcpPlugin({
+          transport: "http",
+          cors: { origin: () => false },
+        }),
+      ).not.toThrow();
+    });
   });
 
   describe("stdio client config acceptance", () => {

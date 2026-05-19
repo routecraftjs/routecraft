@@ -33,6 +33,26 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
 
   // Note: `cors` is silently ignored when transport is not 'http', matching
   // the `auth` posture. The stdio startup path simply does not read it.
+  // The shape of `cors.origin` is validated here so misconfiguration fails at
+  // plugin-apply time alongside `auth`, `port`, and `host`; `resolveCorsOptions`
+  // keeps the same throw as defence-in-depth for callers who bypass this gate.
+  if (
+    options.transport === "http" &&
+    options.cors !== undefined &&
+    options.cors !== false
+  ) {
+    const { origin } = options.cors;
+    const ok =
+      origin === "*" ||
+      typeof origin === "string" ||
+      Array.isArray(origin) ||
+      typeof origin === "function";
+    if (!ok) {
+      throw new TypeError(
+        "mcpPlugin: cors.origin must be '*', a string, a string array, or a function",
+      );
+    }
+  }
 
   // Validate auth options
   if (options.auth !== undefined) {
