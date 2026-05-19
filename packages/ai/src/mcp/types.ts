@@ -4,6 +4,7 @@ import type {
   Principal,
   ValidatorAuthOptions,
 } from "@routecraft/routecraft";
+import type { McpCorsOptions } from "./cors.ts";
 import type { McpToolRegistry } from "./tool-registry.ts";
 
 /**
@@ -386,6 +387,30 @@ export interface McpPluginOptions {
    * ```
    */
   auth?: McpHttpAuthOptions;
+
+  /**
+   * CORS configuration for the HTTP transport. Controls which browser origins
+   * can read responses from `/mcp`, `/.well-known/oauth-protected-resource`,
+   * and the 401 `WWW-Authenticate` hint. Ignored for stdio.
+   *
+   * Default (when omitted): **loopback-only**. Browser MCP clients on
+   * `localhost`, `127.0.0.1`, or `[::1]` (any port, http or https) work out of
+   * the box; non-loopback browser origins must be allowlisted explicitly. This
+   * is production-safe by construction; see `.standards/security.md` ->
+   * "Security defaults policy".
+   *
+   * - `cors: false` -- disable CORS entirely (e.g. fronted by a CDN/proxy that owns CORS).
+   * - `cors: { origin: "https://app.example.com" }` -- exact origin allowlist.
+   * - `cors: { origin: ["https://a.example", "https://b.example"] }` -- multi-origin allowlist.
+   * - `cors: { origin: "*" }` -- permissive opt-in (cannot be combined with `credentials: true`).
+   * - `cors: { origin: (req) => ... }` -- custom resolver.
+   *
+   * Server-to-server callers (curl, `mcp-remote`, the MCP CLI) are unaffected
+   * regardless of this setting because they do not send an `Origin` header.
+   *
+   * @experimental
+   */
+  cors?: false | McpCorsOptions;
 
   /**
    * Filter which tools to expose. Default: all mcp() routes.

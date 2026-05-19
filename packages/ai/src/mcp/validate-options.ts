@@ -31,6 +31,9 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
     }
   }
 
+  // Note: `cors` is silently ignored when transport is not 'http', matching
+  // the `auth` posture. The stdio startup path simply does not read it.
+
   // Validate auth options
   if (options.auth !== undefined) {
     if ("provider" in options.auth) {
