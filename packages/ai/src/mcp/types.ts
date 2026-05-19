@@ -402,11 +402,15 @@ export interface McpPluginOptions {
    * - `cors: false` -- disable CORS entirely (e.g. fronted by a CDN/proxy that owns CORS).
    * - `cors: { origin: "https://app.example.com" }` -- exact origin allowlist.
    * - `cors: { origin: ["https://a.example", "https://b.example"] }` -- multi-origin allowlist.
-   * - `cors: { origin: "*" }` -- permissive opt-in (cannot be combined with `credentials: true`).
+   * - `cors: { origin: "*" }` -- permissive opt-in.
    * - `cors: { origin: (req) => ... }` -- custom resolver.
    *
    * Server-to-server callers (curl, `mcp-remote`, the MCP CLI) are unaffected
    * regardless of this setting because they do not send an `Origin` header.
+   *
+   * Method, allowed-header, exposed-header, credentials, and preflight-cache
+   * values are framework constants and not user-configurable. `WWW-Authenticate`
+   * is always exposed so browser clients can read the RFC 9728 hint on a 401.
    *
    * @experimental
    */

@@ -105,19 +105,15 @@ describe("MCP CORS helper", () => {
     });
 
     /**
-     * @case origin: "*" produces a permissive policy and is incompatible with credentials
-     * @preconditions origin: "*", credentials true vs false
-     * @expectedResult origin:"*" works without credentials; combining with credentials throws TypeError
+     * @case origin: "*" produces a permissive policy
+     * @preconditions origin: "*"; any request Origin
+     * @expectedResult Resolved policy is wildcard; resolver returns "*" for every input
      */
-    test("origin: '*' is permissive but rejects credentials", () => {
+    test("origin: '*' is permissive", () => {
       const resolved = resolveCorsOptions({ origin: "*" });
       expect(resolved).not.toBeNull();
       expect(resolved!.isWildcard).toBe(true);
       expect(resolved!.resolveOrigin("https://anywhere.example")).toBe("*");
-
-      expect(() =>
-        resolveCorsOptions({ origin: "*", credentials: true }),
-      ).toThrow(/cors\.credentials.*cors\.origin is '\*'/i);
     });
 
     /**
@@ -180,26 +176,6 @@ describe("MCP CORS helper", () => {
         resolveCorsOptions({ origin: 42 as unknown as string }),
       ).toThrow(TypeError);
     });
-
-    /**
-     * @case Custom exposeHeaders are additive with the WWW-Authenticate default
-     * @preconditions exposeHeaders: ["X-Custom", "X-Request-Id"]
-     * @expectedResult Resolved exposeHeaders includes WWW-Authenticate plus the user values, case-insensitive dedupe
-     */
-    test("exposeHeaders is additive with the WWW-Authenticate default", () => {
-      const resolved = resolveCorsOptions({
-        exposeHeaders: ["X-Custom", "www-authenticate", "X-Request-Id"],
-      });
-      const list = resolved!.exposeHeaders.split(", ");
-      expect(list).toContain("WWW-Authenticate");
-      expect(list).toContain("X-Custom");
-      expect(list).toContain("X-Request-Id");
-      // Case-insensitive dedupe: user passed "www-authenticate" lowercase but
-      // the default WWW-Authenticate is kept and the duplicate dropped.
-      expect(
-        list.filter((h) => h.toLowerCase() === "www-authenticate").length,
-      ).toBe(1);
-    });
   });
 
   describe("buildCorsHeaders", () => {
@@ -260,18 +236,17 @@ describe("MCP CORS helper", () => {
     });
 
     /**
-     * @case Preflight responses include Access-Control-Allow-Methods/Headers and optional Max-Age
-     * @preconditions Default policy + maxAge: 600; preflight=true; loopback Origin
-     * @expectedResult Methods, Headers, and Max-Age fields present in the response
+     * @case Preflight responses include Access-Control-Allow-Methods and Allow-Headers
+     * @preconditions Default policy; preflight=true; loopback Origin
+     * @expectedResult Methods header lists GET, POST, OPTIONS; Headers is "*"
      */
-    test("preflight emits methods, headers, and max-age", () => {
-      const cors = resolveCorsOptions({ maxAge: 600 });
+    test("preflight emits methods and headers", () => {
+      const cors = resolveCorsOptions(undefined);
       const headers = buildCorsHeaders(cors, "http://localhost:6274", true);
       expect(headers["Access-Control-Allow-Methods"]).toContain("GET");
       expect(headers["Access-Control-Allow-Methods"]).toContain("POST");
       expect(headers["Access-Control-Allow-Methods"]).toContain("OPTIONS");
       expect(headers["Access-Control-Allow-Headers"]).toBe("*");
-      expect(headers["Access-Control-Max-Age"]).toBe("600");
     });
 
     /**
@@ -284,21 +259,6 @@ describe("MCP CORS helper", () => {
       const headers = buildCorsHeaders(cors, "http://localhost:6274", false);
       expect(headers["Access-Control-Allow-Methods"]).toBeUndefined();
       expect(headers["Access-Control-Allow-Headers"]).toBeUndefined();
-      expect(headers["Access-Control-Max-Age"]).toBeUndefined();
-    });
-
-    /**
-     * @case Credentials flag with explicit origin emits Allow-Credentials: true
-     * @preconditions origin: "https://app.example.com"; credentials: true
-     * @expectedResult Access-Control-Allow-Credentials: true on a matching origin
-     */
-    test("credentials flag emits Allow-Credentials with explicit origin", () => {
-      const cors = resolveCorsOptions({
-        origin: "https://app.example.com",
-        credentials: true,
-      });
-      const headers = buildCorsHeaders(cors, "https://app.example.com", false);
-      expect(headers["Access-Control-Allow-Credentials"]).toBe("true");
     });
 
     /**

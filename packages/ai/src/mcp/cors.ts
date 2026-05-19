@@ -16,6 +16,12 @@
  * Server-to-server callers (curl, `mcp-remote`, the MCP CLI) are unaffected by
  * CORS because they do not send an `Origin` header.
  *
+ * The public option surface is intentionally minimal: only `origin` is
+ * configurable. Method, header, expose-header, credentials, and preflight-cache
+ * values are framework-controlled constants -- chosen to satisfy the RFC 9728
+ * discovery contract and the MCP JSON-RPC handshake -- and can be expanded
+ * later if a real use case demands it.
+ *
  * @experimental
  */
 
@@ -42,11 +48,11 @@ export type McpCorsOriginResolver = (
 
 /**
  * CORS configuration for the MCP HTTP transport. Passed via
- * `mcpPlugin({ cors: { ... } })`.
+ * `mcpPlugin({ cors: { origin: ... } })`.
  *
- * Omitting `cors` entirely applies the loopback-only default. Pass `cors: false`
- * on `McpPluginOptions` to disable CORS handling completely (useful when a
- * reverse proxy or CDN owns CORS).
+ * Omitting `cors` entirely applies the loopback-only default. Pass
+ * `cors: false` on `McpPluginOptions` to disable CORS handling completely
+ * (useful when a reverse proxy or CDN owns CORS).
  *
  * @experimental
  */
@@ -58,33 +64,13 @@ export interface McpCorsOptions {
    * - `string` -- exact match against the request `Origin`; non-match returns no allow header.
    * - `string[]` -- allowlist; if the request `Origin` matches one entry, it is reflected.
    * - {@link McpCorsOriginResolver} -- custom resolver, returns the value to echo or `false` to disallow.
-   *
-   * Omitting this property falls back to the loopback allowlist.
    */
-  origin?: "*" | string | string[] | McpCorsOriginResolver;
-  /** Methods allowed on `/mcp` and the metadata endpoint. Default: `["GET", "POST", "OPTIONS"]`. */
-  allowMethods?: string[];
-  /** Request headers permitted on cross-origin requests. Default: `["*"]`. */
-  allowHeaders?: string[];
-  /**
-   * Response headers exposed to the browser. `WWW-Authenticate` is always
-   * exposed by default so browser clients can read the RFC 9728
-   * `resource_metadata` hint on a 401. Custom values are additive with this default.
-   */
-  exposeHeaders?: string[];
-  /**
-   * Whether to set `Access-Control-Allow-Credentials: true`. Cannot be combined
-   * with `origin: "*"` per the CORS spec; an explicit origin or allowlist is required.
-   * Default: `false`.
-   */
-  credentials?: boolean;
-  /** Preflight cache duration in seconds. Default: omitted (browser default). */
-  maxAge?: number;
+  origin: "*" | string | string[] | McpCorsOriginResolver;
 }
 
 /**
- * Internal resolved CORS shape. Always fully populated; the consumer never has
- * to branch on string vs array vs function.
+ * Internal resolved CORS shape. The consumer never has to branch on string vs
+ * array vs function form of `origin`.
  *
  * @internal
  */
@@ -92,12 +78,24 @@ export interface ResolvedMcpCors {
   resolveOrigin: McpCorsOriginResolver;
   /** `true` when `origin` was the literal `"*"`. Skips `Vary: Origin`. */
   isWildcard: boolean;
-  allowMethods: string;
-  allowHeaders: string;
-  exposeHeaders: string;
-  credentials: boolean;
-  maxAge: number | undefined;
 }
+
+/**
+ * Framework-controlled CORS constants. Not user-configurable; chosen to
+ * satisfy the RFC 9728 discovery contract and the MCP JSON-RPC handshake.
+ *
+ * - `Access-Control-Allow-Methods`: the verbs the transport accepts.
+ * - `Access-Control-Allow-Headers`: `*` is the right default; `Authorization`,
+ *   `Content-Type`, and `MCP-Protocol-Version` are the headers MCP clients
+ *   send today, but the spec permits more and we do not want to gate.
+ * - `Access-Control-Expose-Headers`: `WWW-Authenticate` so browser clients
+ *   can read the RFC 9728 `resource_metadata` hint on a 401.
+ *
+ * @internal
+ */
+const ALLOW_METHODS = "GET, POST, OPTIONS";
+const ALLOW_HEADERS = "*";
+const EXPOSE_HEADERS = "WWW-Authenticate";
 
 /**
  * Hostnames recognised as loopback by the default policy.
@@ -139,10 +137,6 @@ export function defaultLoopbackOriginResolver(
   return LOOPBACK_HOSTS.has(parsed.hostname) ? requestOrigin : false;
 }
 
-const DEFAULT_ALLOW_METHODS = ["GET", "POST", "OPTIONS"];
-const DEFAULT_ALLOW_HEADERS = ["*"];
-const DEFAULT_EXPOSE_HEADERS = ["WWW-Authenticate"];
-
 /**
  * Resolve a `cors` config slot into either a fully-populated internal shape or
  * `null` (CORS disabled entirely). `undefined` produces the loopback default.
@@ -153,71 +147,41 @@ export function resolveCorsOptions(
   input: false | McpCorsOptions | undefined,
 ): ResolvedMcpCors | null {
   if (input === false) return null;
-  const opts = input ?? {};
-
-  const credentials = opts.credentials === true;
-
-  let resolveOrigin: McpCorsOriginResolver;
-  let isWildcard = false;
-  if (opts.origin === undefined) {
-    resolveOrigin = defaultLoopbackOriginResolver;
-  } else if (opts.origin === "*") {
-    if (credentials) {
-      throw new TypeError(
-        "mcpPlugin: cors.credentials cannot be true when cors.origin is '*' (per the CORS spec). " +
-          "Use an explicit origin string, an allowlist, or a resolver function.",
-      );
-    }
-    resolveOrigin = () => "*";
-    isWildcard = true;
-  } else if (typeof opts.origin === "string") {
-    const allowed = opts.origin;
-    resolveOrigin = (requestOrigin) =>
-      requestOrigin === allowed ? allowed : false;
-  } else if (Array.isArray(opts.origin)) {
-    const allowed = new Set(opts.origin);
-    resolveOrigin = (requestOrigin) =>
-      requestOrigin !== undefined && allowed.has(requestOrigin)
-        ? requestOrigin
-        : false;
-  } else if (typeof opts.origin === "function") {
-    resolveOrigin = opts.origin;
-  } else {
-    throw new TypeError(
-      "mcpPlugin: cors.origin must be '*', a string, a string array, or a function",
-    );
+  if (input === undefined) {
+    return {
+      resolveOrigin: defaultLoopbackOriginResolver,
+      isWildcard: false,
+    };
   }
 
-  const exposeHeaders = mergeExposeHeaders(opts.exposeHeaders);
-
-  return {
-    resolveOrigin,
-    isWildcard,
-    allowMethods: (opts.allowMethods ?? DEFAULT_ALLOW_METHODS).join(", "),
-    allowHeaders: (opts.allowHeaders ?? DEFAULT_ALLOW_HEADERS).join(", "),
-    exposeHeaders,
-    credentials,
-    maxAge: opts.maxAge,
-  };
-}
-
-/**
- * Merge user-supplied `exposeHeaders` with the `WWW-Authenticate` default,
- * deduplicating case-insensitively. The default exists so browser clients can
- * read the RFC 9728 `resource_metadata` hint on a 401.
- */
-function mergeExposeHeaders(user: string[] | undefined): string {
-  const merged = [...DEFAULT_EXPOSE_HEADERS];
-  if (user) {
-    const lower = new Set(merged.map((h) => h.toLowerCase()));
-    for (const h of user) {
-      if (!lower.has(h.toLowerCase())) {
-        merged.push(h);
-        lower.add(h.toLowerCase());
-      }
-    }
+  const { origin } = input;
+  if (origin === "*") {
+    return { resolveOrigin: () => "*", isWildcard: true };
   }
-  return merged.join(", ");
+  if (typeof origin === "string") {
+    const allowed = origin;
+    return {
+      resolveOrigin: (requestOrigin) =>
+        requestOrigin === allowed ? allowed : false,
+      isWildcard: false,
+    };
+  }
+  if (Array.isArray(origin)) {
+    const allowed = new Set(origin);
+    return {
+      resolveOrigin: (requestOrigin) =>
+        requestOrigin !== undefined && allowed.has(requestOrigin)
+          ? requestOrigin
+          : false,
+      isWildcard: false,
+    };
+  }
+  if (typeof origin === "function") {
+    return { resolveOrigin: origin, isWildcard: false };
+  }
+  throw new TypeError(
+    "mcpPlugin: cors.origin must be '*', a string, a string array, or a function",
+  );
 }
 
 /**
@@ -253,7 +217,7 @@ function safeResolveOrigin(
  *
  * @param cors Resolved CORS options, or `null` to short-circuit.
  * @param requestOrigin Value of the request's `Origin` header.
- * @param preflight `true` to include `Access-Control-Allow-Methods/Headers/Max-Age`.
+ * @param preflight `true` to include `Access-Control-Allow-Methods/Headers`.
  * @internal
  */
 export function buildCorsHeaders(
@@ -272,16 +236,10 @@ export function buildCorsHeaders(
   if (allowed === false) return headers;
 
   headers["Access-Control-Allow-Origin"] = allowed;
-  headers["Access-Control-Expose-Headers"] = cors.exposeHeaders;
-  if (cors.credentials) {
-    headers["Access-Control-Allow-Credentials"] = "true";
-  }
+  headers["Access-Control-Expose-Headers"] = EXPOSE_HEADERS;
   if (preflight) {
-    headers["Access-Control-Allow-Methods"] = cors.allowMethods;
-    headers["Access-Control-Allow-Headers"] = cors.allowHeaders;
-    if (cors.maxAge !== undefined) {
-      headers["Access-Control-Max-Age"] = String(cors.maxAge);
-    }
+    headers["Access-Control-Allow-Methods"] = ALLOW_METHODS;
+    headers["Access-Control-Allow-Headers"] = ALLOW_HEADERS;
   }
   return headers;
 }

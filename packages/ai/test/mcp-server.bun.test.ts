@@ -1284,32 +1284,6 @@ describe("McpServer", () => {
       });
 
       /**
-       * @case Custom exposeHeaders is additive with the WWW-Authenticate default
-       * @preconditions cors: { exposeHeaders: ['X-Request-Id'] }; 401 response from loopback Origin
-       * @expectedResult Expose-Headers includes both WWW-Authenticate and X-Request-Id
-       */
-      test("custom exposeHeaders is additive with WWW-Authenticate", async () => {
-        const { post } = await startHttpServer([], {
-          auth: { validator: () => validPrincipal },
-          cors: { exposeHeaders: ["X-Request-Id"] },
-        });
-        const res = await post(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            id: 1,
-            method: "initialize",
-            params: INIT_PARAMS,
-          }),
-          undefined,
-          { Origin: LOOPBACK_ORIGIN },
-        );
-        const expose = res.headers["access-control-expose-headers"];
-        const exposeStr = Array.isArray(expose) ? expose.join(", ") : expose;
-        expect(exposeStr!.toLowerCase()).toContain("www-authenticate");
-        expect(exposeStr).toContain("X-Request-Id");
-      });
-
-      /**
        * @case Successful POST /mcp from loopback Origin carries CORS headers on the streamed response
        * @preconditions Default cors policy; no auth; valid initialize call from loopback Origin
        * @expectedResult Response is 200 (session established); Allow-Origin echoes Origin (set via setHeader before the SDK responds)

@@ -407,6 +407,8 @@ The default policy is **loopback-only**: a browser request whose `Origin` is on 
 
 Server-to-server callers (`curl`, `mcp-remote`, the MCP CLI) do not send an `Origin` header and are unaffected by this policy regardless of configuration.
 
+The option surface is intentionally minimal: only `origin` is configurable. The framework controls allowed methods (`GET, POST, OPTIONS`), allowed headers (`*`), and exposed headers (`WWW-Authenticate`) so browser clients can read the RFC 9728 `resource_metadata` hint on a 401 and follow discovery.
+
 ```ts
 // Default: no config needed for local browser MCP tooling
 mcpPlugin({
@@ -426,7 +428,15 @@ mcpPlugin({
   cors: { origin: ['https://claude.ai', 'https://inspector.example.com'] },
 })
 
-// Last-resort permissive (cannot combine with credentials)
+// Custom resolver
+mcpPlugin({
+  cors: {
+    origin: (requestOrigin) =>
+      requestOrigin?.endsWith('.tenants.example.com') ? requestOrigin : false,
+  },
+})
+
+// Last-resort permissive
 mcpPlugin({
   cors: { origin: '*' },
 })
@@ -436,8 +446,6 @@ mcpPlugin({
   cors: false,
 })
 ```
-
-`WWW-Authenticate` is exposed by default (`Access-Control-Expose-Headers: WWW-Authenticate`) so browser clients can read the RFC 9728 `resource_metadata` hint on a 401 and follow discovery. Custom `exposeHeaders` are additive with this default.
 
 The OAuth-proxy mode's SDK-owned endpoints (`/register`, `/token`, `/revoke`, the SDK's own metadata) keep their own permissive CORS handling from the MCP SDK. The `cors` slot governs only the routes the framework owns (`/mcp` and the protected-resource metadata).
 
