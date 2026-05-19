@@ -1227,6 +1227,30 @@ describe("McpServer", () => {
       });
 
       /**
+       * @case Validator mode: non-default resource.url.pathname is served at the SDK-derived URL, not a hardcoded one
+       * @preconditions resource.url = `http://localhost:9999/api/mcp`; GET /.well-known/oauth-protected-resource/api/mcp from loopback Origin
+       * @expectedResult 200 with the framework's enriched metadata at the derived URL. Hardcoded `/mcp` suffix would have failed this case (the request would 404 because we'd only serve at /mcp).
+       */
+      test("validator mode serves metadata at non-default rsPath", async () => {
+        const { get } = await startHttpServer([], {
+          resource: { url: "http://localhost:9999/api/mcp" },
+        });
+        const res = await get("/.well-known/oauth-protected-resource/api/mcp", {
+          Origin: LOOPBACK_ORIGIN,
+        });
+        expect(res.statusCode).toBe(200);
+        const doc = JSON.parse(res.body) as {
+          bearer_methods_supported?: string[];
+          resource: string;
+        };
+        expect(doc.bearer_methods_supported).toEqual(["header"]);
+        expect(doc.resource).toBe("http://localhost:9999/api/mcp");
+        expect(res.headers["access-control-allow-origin"]).toBe(
+          LOOPBACK_ORIGIN,
+        );
+      });
+
+      /**
        * @case OPTIONS preflight on the path-suffixed metadata URL returns 204 with CORS
        * @preconditions Default cors policy; OPTIONS /.well-known/oauth-protected-resource/mcp with loopback Origin
        * @expectedResult 204 with full preflight CORS headers, mirroring the root variant
@@ -1607,7 +1631,7 @@ describe("McpServer", () => {
         const auth = await buildOAuthAuth();
         const { get } = await startHttpServer([], {
           auth,
-          resource: { url: "http://localhost:9999" },
+          resource: { url: "http://localhost:9999/mcp" },
         });
         const rootRes = await get("/.well-known/oauth-protected-resource", {
           Origin: LOOPBACK_ORIGIN,
@@ -1628,6 +1652,53 @@ describe("McpServer", () => {
       });
 
       /**
+       * @case OAuth-proxy mode: with a non-default resource.url pathname, the framework's enriched metadata wins at the SDK-derived URL
+       * @preconditions oauth() auth; resource.url = `http://localhost:9999/api/mcp` so the SDK rsPath = `/api/mcp`; GET /.well-known/oauth-protected-resource/api/mcp
+       * @expectedResult 200 with `bearer_methods_supported: ["header"]` (our handler, not the SDK's). Regression coverage for the previous hardcoded `/mcp` suffix that would have served at the wrong URL.
+       */
+      test("OAuth-proxy mode shadows the SDK doc at the non-default rsPath", async () => {
+        const auth = await buildOAuthAuth();
+        const { get } = await startHttpServer([], {
+          auth,
+          resource: { url: "http://localhost:9999/api/mcp" },
+        });
+        const res = await get("/.well-known/oauth-protected-resource/api/mcp", {
+          Origin: LOOPBACK_ORIGIN,
+        });
+        expect(res.statusCode).toBe(200);
+        const doc = JSON.parse(res.body) as {
+          bearer_methods_supported?: string[];
+          resource: string;
+        };
+        expect(doc.bearer_methods_supported).toEqual(["header"]);
+        expect(doc.resource).toBe("http://localhost:9999/api/mcp");
+        expect(res.headers["access-control-allow-origin"]).toBe(
+          LOOPBACK_ORIGIN,
+        );
+      });
+
+      /**
+       * @case OAuth-proxy mode: OPTIONS preflight on the path-suffixed metadata URL returns 204 with CORS
+       * @preconditions oauth() auth; resource.url with `/mcp` pathname; OPTIONS /.well-known/oauth-protected-resource/mcp with loopback Origin
+       * @expectedResult 204 with Allow-Origin reflecting Origin and Allow-Methods including GET, verifying the owned-paths set includes the dynamically-derived suffixed metadata URL
+       */
+      test("OAuth-proxy OPTIONS on path-suffixed metadata URL returns 204 with CORS", async () => {
+        const auth = await buildOAuthAuth();
+        const { options } = await startHttpServer([], {
+          auth,
+          resource: { url: "http://localhost:9999/mcp" },
+        });
+        const res = await options("/.well-known/oauth-protected-resource/mcp", {
+          Origin: LOOPBACK_ORIGIN,
+        });
+        expect(res.statusCode).toBe(204);
+        expect(res.headers["access-control-allow-origin"]).toBe(
+          LOOPBACK_ORIGIN,
+        );
+        expect(res.headers["access-control-allow-methods"]).toContain("GET");
+      });
+
+      /**
        * @case OAuth-proxy mode: 404 on unknown path carries CORS headers when CORS is enabled
        * @preconditions oauth() auth + default cors; GET /not/a/real/path with loopback Origin
        * @expectedResult 404 with Allow-Origin set so the browser can read the status
@@ -1643,6 +1714,23 @@ describe("McpServer", () => {
         expect(res.headers["access-control-allow-origin"]).toBe(
           LOOPBACK_ORIGIN,
         );
+      });
+
+      /**
+       * @case OAuth-proxy mode: 404 on unknown path omits CORS headers when cors: false
+       * @preconditions oauth() auth; cors: false; GET /not/a/real/path with loopback Origin
+       * @expectedResult 404 status with no Access-Control-* headers. `cors: false` means the CORS middleware is not registered at all in OAuth-proxy mode -- a distinct code path from "applyCorsHeaders is a no-op", worth its own assertion.
+       */
+      test("OAuth-proxy 404 on unknown path omits CORS headers when cors: false", async () => {
+        const auth = await buildOAuthAuth();
+        const { get } = await startHttpServer([], {
+          auth,
+          resource: { url: "http://localhost:9999" },
+          cors: false,
+        });
+        const res = await get("/not/a/real/path", { Origin: LOOPBACK_ORIGIN });
+        expect(res.statusCode).toBe(404);
+        expect(res.headers["access-control-allow-origin"]).toBeUndefined();
       });
     });
 

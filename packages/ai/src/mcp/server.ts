@@ -28,10 +28,8 @@ import type {
 } from "./types.ts";
 import {
   applyCorsHeaders,
-  isMcpOwnedPath,
-  isProtectedResourceMetadataPath,
+  buildMcpOwnedPaths,
   PROTECTED_RESOURCE_METADATA_PATH,
-  PROTECTED_RESOURCE_METADATA_PATH_SUFFIXED,
   resolveCorsOptions,
 } from "./cors.ts";
 
@@ -540,13 +538,20 @@ export class McpServer {
       const url = req.url?.split("?")[0] ?? "";
       const rawOrigin = req.headers["origin"];
       const originValue = Array.isArray(rawOrigin) ? rawOrigin[0] : rawOrigin;
+      // Resolved owned/metadata paths derived from the bound resource URL.
+      // Computed per-request because `resolveResourceUrl()` depends on the
+      // bound port for the default fallback (port: 0 is only known after
+      // .listen()). The computation is cheap (URL parse + small set build).
+      const resolvedResourceUrl = new URL(this.resolveResourceUrl());
+      const { ownedPaths, metadataPaths } =
+        buildMcpOwnedPaths(resolvedResourceUrl);
 
       // OPTIONS preflight on an owned path: answer 204 with CORS headers.
       // When `cors === null` (user opted out via `cors: false`) we DO NOT
       // synthesize a preflight response -- the user said a fronting
       // proxy/CDN owns CORS, so we must let the request fall through
       // rather than swallowing OPTIONS here.
-      if (req.method === "OPTIONS" && cors !== null && isMcpOwnedPath(url)) {
+      if (req.method === "OPTIONS" && cors !== null && ownedPaths.has(url)) {
         applyCorsHeaders(res, cors, originValue, true);
         res.writeHead(204);
         res.end();
@@ -556,11 +561,15 @@ export class McpServer {
       // Commit CORS headers via setHeader/appendHeader for every non-OPTIONS
       // response, including the catch-all 404 below. Browser clients that
       // probe unknown paths (e.g. RFC 9728 discovery fallbacks) need to read
-      // the status, not a misleading CORS error. `applyCorsHeaders` is a
-      // no-op when `cors === null`.
-      applyCorsHeaders(res, cors, originValue, false);
+      // the status, not a misleading CORS error. Gated on `!= OPTIONS` so
+      // unowned-path OPTIONS (which fell through the short-circuit above)
+      // do not pick up non-preflight `Expose-Headers` they cannot use.
+      // `applyCorsHeaders` is a no-op when `cors === null`.
+      if (req.method !== "OPTIONS") {
+        applyCorsHeaders(res, cors, originValue, false);
+      }
 
-      if (isProtectedResourceMetadataPath(url)) {
+      if (metadataPaths.has(url)) {
         this.serveProtectedResourceMetadata(res);
         return;
       }
@@ -756,6 +765,7 @@ export class McpServer {
     // production when explicitly set; falls back to the configured port
     // otherwise).
     const resourceUrl = new URL(this.resolveResourceUrl());
+    const { ownedPaths, metadataPaths } = buildMcpOwnedPaths(resourceUrl);
 
     const app = expressFn();
 
@@ -784,18 +794,23 @@ export class McpServer {
         // SDK-owned OAuth endpoints (`/register`, `/token`, ...) have their
         // own `cors()` middleware that handles preflight per their policy,
         // and we must not swallow those.
-        if (nodeReq.method === "OPTIONS" && isMcpOwnedPath(url)) {
+        if (nodeReq.method === "OPTIONS" && ownedPaths.has(url)) {
           applyCorsHeaders(nodeRes, oauthCors, originValue, true);
           nodeRes.writeHead(204);
           nodeRes.end();
           return;
         }
-        // Apply CORS headers via setHeader on every other request, including
-        // unowned paths. For SDK endpoints the SDK's own `cors()` runs later
-        // and overrides via setHeader; for the Express default 404 fallthrough
-        // on unknown paths our values persist so browser clients can read the
-        // status rather than seeing a misleading CORS error.
-        applyCorsHeaders(nodeRes, oauthCors, originValue, false);
+        // Apply CORS headers via setHeader on every other non-OPTIONS request,
+        // including unowned paths. For SDK endpoints the SDK's own `cors()`
+        // runs later and overrides via setHeader; for the Express default
+        // 404 fallthrough on unknown paths our values persist so browser
+        // clients can read the status rather than seeing a misleading CORS
+        // error. Unowned-path OPTIONS (e.g. preflight against a route we
+        // don't handle) is left untouched so the SDK's per-route preflight
+        // policy is the only one in play there.
+        if (nodeReq.method !== "OPTIONS") {
+          applyCorsHeaders(nodeRes, oauthCors, originValue, false);
+        }
         (next as () => void)();
       });
     }
@@ -814,17 +829,20 @@ export class McpServer {
     // CORS headers are committed by the middleware above via `setHeader`,
     // so the handler does not need to re-emit them in `writeHead`.
     //
-    // Mount BOTH the root and path-suffixed URLs (RFC 9728 §3): clients
-    // probe `/.well-known/oauth-protected-resource/mcp` first because the
-    // MCP transport is mounted at `/mcp`. Both URLs return the identical
-    // document.
+    // Mount on every metadata path resolved from the resource URL (RFC 9728
+    // §3): root plus the path-suffixed variant matching the SDK's `rsPath`
+    // math (derived from `resource.url.pathname`). Both URLs return the
+    // identical document; this guarantees we shadow the SDK's path-aware
+    // doc at whichever URL it chose to mount, regardless of how the user
+    // configured `resource.url`.
     const serveMetadata = (_req: unknown, res: unknown) => {
       this.serveProtectedResourceMetadata(
         res as import("node:http").ServerResponse,
       );
     };
-    app.get(PROTECTED_RESOURCE_METADATA_PATH, serveMetadata);
-    app.get(PROTECTED_RESOURCE_METADATA_PATH_SUFFIXED, serveMetadata);
+    for (const path of metadataPaths) {
+      app.get(path, serveMetadata);
+    }
 
     // Mount OAuth endpoints at root (discovery, authorize, token, revoke).
     const authRouterOptions: Record<string, unknown> = {
