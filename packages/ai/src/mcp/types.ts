@@ -1,4 +1,4 @@
-import type { Exchange } from "@routecraft/routecraft";
+import type { Exchange, Tag } from "@routecraft/routecraft";
 import type {
   OAuthPrincipal,
   Principal,
@@ -605,6 +605,19 @@ export interface McpToolRegistryEntry {
   transport: "stdio" | "http" | "local";
   /** MCP tool annotations (behavior hints). */
   annotations?: McpToolAnnotations;
+  /**
+   * Capability tags derived from the MCP `annotations` field at
+   * registration time. Mirrors the `Tag` namespace fns and direct
+   * routes use, so the agent `tools([{ tagged: "read-only" }])`
+   * selector matches MCP tools alongside fn/route entries.
+   *
+   * Mapping: `readOnlyHint -> "read-only"`,
+   * `destructiveHint -> "destructive"`, `idempotentHint -> "idempotent"`,
+   * `openWorldHint -> "open-world"`.
+   *
+   * @experimental
+   */
+  tags?: readonly Tag[];
 }
 
 /**

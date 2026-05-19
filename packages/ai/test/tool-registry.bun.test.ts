@@ -242,4 +242,66 @@ describe("McpToolRegistry", () => {
     const tool = registry.getTool("plain");
     expect(tool?.annotations).toBeUndefined();
   });
+
+  /**
+   * @case Annotations are derived into `tags` so the `{ tagged }` selector picks up MCP tools
+   * @preconditions Four tools each carrying a different annotation hint
+   * @expectedResult Each entry's `tags` matches the documented mapping (readOnlyHint -> "read-only", destructiveHint -> "destructive", idempotentHint -> "idempotent", openWorldHint -> "open-world")
+   */
+  test("derives tags from annotations at registration time", () => {
+    registry.setToolsForSource("server-a", "http", [
+      {
+        name: "read",
+        inputSchema: { type: "object" },
+        annotations: { readOnlyHint: true },
+      },
+      {
+        name: "write",
+        inputSchema: { type: "object" },
+        annotations: { destructiveHint: true },
+      },
+      {
+        name: "idem",
+        inputSchema: { type: "object" },
+        annotations: { idempotentHint: true },
+      },
+      {
+        name: "world",
+        inputSchema: { type: "object" },
+        annotations: { openWorldHint: true },
+      },
+    ]);
+    expect(registry.getTool("read")?.tags).toEqual(["read-only"]);
+    expect(registry.getTool("write")?.tags).toEqual(["destructive"]);
+    expect(registry.getTool("idem")?.tags).toEqual(["idempotent"]);
+    expect(registry.getTool("world")?.tags).toEqual(["open-world"]);
+  });
+
+  /**
+   * @case Multiple annotation hints combine into multiple tags
+   * @preconditions readOnlyHint and idempotentHint both true
+   * @expectedResult tags include both "read-only" and "idempotent" in mapping order
+   */
+  test("combines multiple annotation hints into multiple tags", () => {
+    registry.setToolsForSource("server-a", "http", [
+      {
+        name: "safe",
+        inputSchema: { type: "object" },
+        annotations: { readOnlyHint: true, idempotentHint: true },
+      },
+    ]);
+    expect(registry.getTool("safe")?.tags).toEqual(["read-only", "idempotent"]);
+  });
+
+  /**
+   * @case Tools without active hints carry no tags
+   * @preconditions Tool with an annotations object whose hints are all false / undefined
+   * @expectedResult tags field is omitted from the registry entry
+   */
+  test("omits tags field when no hints apply", () => {
+    registry.setToolsForSource("server-a", "http", [
+      { name: "plain", inputSchema: { type: "object" }, annotations: {} },
+    ]);
+    expect(registry.getTool("plain")?.tags).toBeUndefined();
+  });
 });

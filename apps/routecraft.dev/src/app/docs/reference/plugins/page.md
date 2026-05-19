@@ -586,25 +586,51 @@ agentPlugin({
 
 Flat array of items. Each item is one of:
 
-- **Bare string**: name lookup. Plain ids resolve against the fn registry; `direct_*` falls back to the direct registry via `directTool`. `agent_*` and `mcp_*` are reserved for future stories and currently throw a clear "not yet supported" error.
-- **`{ name, guard?, description? }`**: same name lookup, with optional per-binding overrides. The guard runs after schema validation and before the handler; throwing surfaces back to the LLM as a tool error so the model can self-correct. The `description` override applies only to this binding (the registry entry stays the source of truth, so other agents binding the same fn still see the canonical description). Use it when an agent's calling context calls for a different framing of the tool than the registered description provides; descriptions affect LLM tool-selection accuracy noticeably.
-- **`{ tagged, guard? }`**: selects every fn / route whose tags overlap the requested set (single tag or array). Optional guard applies to every match. Tag-zero-match contributes nothing without throwing. No description override on the tagged form: applying a single description to N matched tools is almost always wrong.
+- **Bare string**: name lookup. Plain ids resolve against the fn registry; `direct_*` falls back to the direct registry via `directTool`; `mcp_<client>:<tool>` resolves against `MCP_TOOL_REGISTRY` (populated by `defineConfig.mcp` / `mcpPlugin({ clients })`), and `mcp_<client>:*` expands at dispatch time to every tool the named client exposed. `agent_*` is reserved for sub-agent tools (follow-up story) and currently throws a clear "not yet supported" error.
+- **`{ name, guard?, description? }`**: same name lookup, with optional per-binding overrides. The guard runs after schema validation and before the handler; throwing surfaces back to the LLM as a tool error so the model can self-correct. The `description` override applies only to this binding for fn-style names. MCP references reject `description` (the MCP server is the source of truth for description and schema; do not override).
+- **`{ tagged, from?, guard? }`**: selects every fn / route / MCP tool whose tags overlap the requested set (single tag or array; OR semantics across the array). `from?: string` scopes the walk to a single source; today `from: "mcp_<client>"` restricts the selection to one MCP client. Optional guard applies to every match. Tag-zero-match throws RC5003 so a misconfigured selector cannot silently strip every tool from an agent.
+
+MCP tools are auto-tagged at registration from each tool's MCP annotations: `readOnlyHint → "read-only"`, `destructiveHint → "destructive"`, `idempotentHint → "idempotent"`, `openWorldHint → "open-world"`. That means `{ tagged: "read-only" }` matches fns, routes, AND MCP tools out of the box.
+
+Examples:
+
+```ts
+agent({
+  tools: tools([
+    'currentTime',                                  // fn
+    'direct_orders/fetch',                          // direct route
+    'mcp_Nuclino:list_teams',                       // one MCP tool
+    'mcp_Stripe:*',                                 // all tools from one MCP client
+    { tagged: 'read-only' },                        // cross-cutting tag filter
+    { tagged: 'destructive', from: 'mcp_Nuclino' }, // tag filter scoped to one MCP client
+    {
+      name: 'mcp_Nuclino:get_item',
+      guard: (input, ctx) => {
+        if (!ctx.principal?.scopes?.includes('nuclino.read')) {
+          throw new Error('missing nuclino.read scope');
+        }
+      },
+    },
+  ]),
+});
+```
 
 Resolution rules:
 
 - Final list deduplicated by tool name.
 - Explicit refs always win over tag-selector matches, regardless of position in the list.
 - A `directTool(routeId)` fn-registry wrapper supersedes the same direct route surfaced via the prefix convention.
-- `description` is the only override permitted at the use site, and only on the explicit `{ name }` form. Input schema, tags, and any other registration-time fields are not overridable here. Register a separate fn with `directTool(routeId, { input, tags })` if you need a fundamentally different view.
+- `description` is the only override permitted at the use site, and only on the explicit `{ name }` form for fn-style names. Input schema, tags, and any other registration-time fields are not overridable here. Register a separate fn with `directTool(routeId, { input, tags })` if you need a fundamentally different view. MCP refs reject `description` outright.
+- The agent does NOT forward `FnHandlerContext.principal` to the MCP server. Principal authenticates the caller into Routecraft; MCP `auth` (configured on the client) authenticates the Routecraft → MCP hop. To thread user-specific data into an MCP call, put it in the tool's input as a regular argument and let the MCP server enforce its own policy. See `.standards/security.md` §11.
 
 #### Builders
 
 | Builder | Use |
 |---|---|
 | `directTool(routeId, overrides?)` | Adapt a registered direct route as a fn. Pulls description, input schema, and tags from the route's discovery bundle by default; `overrides` can replace any of those. |
-| `agentTool(agentId)` | Reserved for sub-agent tools (follow-up story). Currently a stub that throws a clear "not yet supported" error. |
-| `mcpTool(server, tool)` | Reserved for MCP tools (follow-up story). Currently a stub. |
 | `defaultFns` | A small starter set (`currentTime`, `randomUuid`) tagged `read-only`/`idempotent`. Spread into your `functions:` config. |
+
+MCP tools are NOT exposed via a builder. Use the `mcp_<client>:<tool>` / `mcp_<client>:*` grammar inside `tools([...])` instead; the registry populated by `defineConfig.mcp` is the source of truth.
 
 #### Tags
 

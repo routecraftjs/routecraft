@@ -1,4 +1,33 @@
-import type { McpTool, McpToolRegistryEntry } from "./types.ts";
+import type { Tag } from "@routecraft/routecraft";
+import type {
+  McpTool,
+  McpToolAnnotations,
+  McpToolRegistryEntry,
+} from "./types.ts";
+
+/**
+ * Derive capability tags from MCP `annotations` hints so MCP tools
+ * surface alongside fns and direct routes under the same `Tag`
+ * selectors (`tools([{ tagged: "read-only" }])`).
+ *
+ * Mapping: `readOnlyHint -> "read-only"`,
+ * `destructiveHint -> "destructive"`, `idempotentHint -> "idempotent"`,
+ * `openWorldHint -> "open-world"`. Returns an empty array (omitted
+ * from the entry) when no hints apply.
+ *
+ * @internal
+ */
+function deriveTagsFromAnnotations(
+  annotations: McpToolAnnotations | undefined,
+): Tag[] {
+  if (!annotations) return [];
+  const tags: Tag[] = [];
+  if (annotations.readOnlyHint) tags.push("read-only");
+  if (annotations.destructiveHint) tags.push("destructive");
+  if (annotations.idempotentHint) tags.push("idempotent");
+  if (annotations.openWorldHint) tags.push("open-world");
+  return tags;
+}
 
 /**
  * Central registry of MCP tools discovered from remote MCP servers.
@@ -47,6 +76,10 @@ export class McpToolRegistry {
       }
       if (tool.annotations !== undefined) {
         entry.annotations = tool.annotations;
+      }
+      const derivedTags = deriveTagsFromAnnotations(tool.annotations);
+      if (derivedTags.length > 0) {
+        entry.tags = derivedTags;
       }
       sourceMap.set(tool.name, entry);
     }

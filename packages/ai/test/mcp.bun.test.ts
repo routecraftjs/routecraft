@@ -474,3 +474,147 @@ describe("mcp() DSL function", () => {
     await ctx.stop();
   });
 });
+
+describe("dispatchMcpCall: RC5003 error wrapping", () => {
+  /**
+   * @case Stdio dispatch errors surface as RC5003 with the original error preserved on `cause`
+   * @preconditions Context with a stdio manager whose callTool rejects with a raw TypeError
+   * @expectedResult dispatchMcpCall rejects with a RoutecraftError; rc === "RC5003"; cause === original TypeError
+   */
+  test("wraps stdio dispatch errors as RC5003 with cause", async () => {
+    const { dispatchMcpCall } = await import("../src/mcp/dispatch.ts");
+    const { MCP_STDIO_MANAGERS } = await import("../src/index.ts");
+    const { isRoutecraftError } = await import("@routecraft/routecraft");
+    const original = new TypeError("simulated SDK fault");
+    const t = await testContext()
+      .with({
+        plugins: [
+          {
+            apply(ctx) {
+              const managers = new Map<
+                string,
+                {
+                  callTool(
+                    name: string,
+                    args: Record<string, unknown>,
+                  ): Promise<unknown>;
+                }
+              >();
+              managers.set("Nuclino", {
+                async callTool() {
+                  throw original;
+                },
+              });
+              ctx.setStore(MCP_STDIO_MANAGERS, managers);
+            },
+          },
+        ],
+      })
+      .build();
+    try {
+      let caught: unknown;
+      try {
+        await dispatchMcpCall(t.ctx, "Nuclino", "list_teams", {});
+      } catch (err) {
+        caught = err;
+      }
+      expect(isRoutecraftError(caught)).toBe(true);
+      const rcerr = caught as { rc: string; cause?: unknown };
+      expect(rcerr.rc).toBe("RC5003");
+      expect(rcerr.cause).toBe(original);
+    } finally {
+      await t.stop();
+    }
+  });
+
+  /**
+   * @case A RoutecraftError thrown from inside the stdio manager passes through unchanged
+   * @preconditions Manager's callTool rejects with a pre-tagged RC5021
+   * @expectedResult dispatchMcpCall rethrows the same error; rc remains "RC5021"; no double-wrap
+   */
+  test("does not double-wrap an inner RoutecraftError", async () => {
+    const { dispatchMcpCall } = await import("../src/mcp/dispatch.ts");
+    const { MCP_STDIO_MANAGERS } = await import("../src/index.ts");
+    const { rcError } = await import("@routecraft/routecraft");
+    const original = rcError("RC5021", undefined, {
+      message: "userinfo enrichment failed",
+    });
+    const t = await testContext()
+      .with({
+        plugins: [
+          {
+            apply(ctx) {
+              const managers = new Map<
+                string,
+                {
+                  callTool(
+                    name: string,
+                    args: Record<string, unknown>,
+                  ): Promise<unknown>;
+                }
+              >();
+              managers.set("Nuclino", {
+                async callTool() {
+                  throw original;
+                },
+              });
+              ctx.setStore(MCP_STDIO_MANAGERS, managers);
+            },
+          },
+        ],
+      })
+      .build();
+    try {
+      let caught: unknown;
+      try {
+        await dispatchMcpCall(t.ctx, "Nuclino", "list_teams", {});
+      } catch (err) {
+        caught = err;
+      }
+      expect((caught as { rc: string }).rc).toBe("RC5021");
+    } finally {
+      await t.stop();
+    }
+  });
+
+  /**
+   * @case Malformed HTTP server URL surfaces as RC5003, not a raw TypeError
+   * @preconditions Server registered with `url: "not a url"`; dispatchMcpCall invoked
+   * @expectedResult Caught error is a RoutecraftError with rc "RC5003"; the underlying TypeError travels on `cause`
+   */
+  test("malformed serverUrl throws RC5003 (URL construction is inside the try)", async () => {
+    const { dispatchMcpCall } = await import("../src/mcp/dispatch.ts");
+    const { ADAPTER_MCP_CLIENT_SERVERS } = await import("../src/index.ts");
+    const { isRoutecraftError } = await import("@routecraft/routecraft");
+    const t = await testContext()
+      .with({
+        plugins: [
+          {
+            apply(ctx) {
+              const servers = new Map<
+                string,
+                { url: string; auth?: undefined }
+              >();
+              servers.set("bad", { url: "not a url" });
+              ctx.setStore(ADAPTER_MCP_CLIENT_SERVERS, servers);
+            },
+          },
+        ],
+      })
+      .build();
+    try {
+      let caught: unknown;
+      try {
+        await dispatchMcpCall(t.ctx, "bad", "anything", {});
+      } catch (err) {
+        caught = err;
+      }
+      expect(isRoutecraftError(caught)).toBe(true);
+      const rcerr = caught as { rc: string; cause?: unknown };
+      expect(rcerr.rc).toBe("RC5003");
+      expect(rcerr.cause).toBeInstanceOf(TypeError);
+    } finally {
+      await t.stop();
+    }
+  });
+});

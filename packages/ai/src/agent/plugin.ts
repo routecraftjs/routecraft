@@ -30,7 +30,7 @@ export interface AgentPluginOptions {
    * in follow-up stories). Keyed by the fn id; each entry is either an
    * eagerly-authored `FnOptions` (description, input, handler) or a
    * deferred descriptor emitted by a builder helper such as
-   * `directTool(routeId)` / `agentTool(agentId)` / `mcpTool(server, tool)`.
+   * `directTool(routeId)`.
    * Deferred descriptors resolve at agent dispatch time when all
    * registries are populated.
    *

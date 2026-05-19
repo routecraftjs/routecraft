@@ -156,18 +156,6 @@ describe("tools() resolver - bare references", () => {
       /sub-agent|follow-up/i,
     );
   });
-
-  /**
-   * @case mcp_<server>_<tool> reference surfaces a clear "story E" error
-   * @preconditions resolve tools(["mcp_brave_search"])
-   * @expectedResult RC5003 thrown mentioning MCP / follow-up story
-   */
-  test("mcp_<...> bare ref throws not-yet-supported", async () => {
-    t = await buildCtx({});
-    expect(() => tools(["mcp_brave_search"]).resolve(t!.ctx)).toThrow(
-      /MCP|follow-up/i,
-    );
-  });
 });
 
 describe("tools() resolver - { name, guard }", () => {
@@ -327,14 +315,15 @@ describe("tools() resolver - tag selectors", () => {
   });
 
   /**
-   * @case Tag-zero-match returns nothing and does not throw
+   * @case Tag-zero-match throws RC5003 so a misconfigured tag never silently no-ops
    * @preconditions No registered entry has tag "ghost"
-   * @expectedResult tools([{ tagged: "ghost" }]).resolve() returns []
+   * @expectedResult tools([{ tagged: "ghost" }]).resolve() throws RC5003 naming the tag
    */
-  test("tag-zero-match returns nothing without throwing", async () => {
+  test("tag-zero-match throws RC5003", async () => {
     t = await buildCtx({ functions: { ...defaultFns } });
-    const resolved = tools([{ tagged: "ghost" }]).resolve(t.ctx);
-    expect(resolved).toEqual([]);
+    expect(() => tools([{ tagged: "ghost" }]).resolve(t!.ctx)).toThrow(
+      /matched no tools/,
+    );
   });
 
   /**
@@ -373,32 +362,6 @@ describe("tools() resolver - regression", () => {
   afterEach(async () => {
     if (t) await t.stop();
     t = undefined;
-  });
-
-  /**
-   * @case Tag selectors must NOT resolve agentTool/mcpTool stubs even when those stubs are present in the registry
-   * @preconditions agentPlugin functions has both an `agentTool("x")` and an `mcpTool("a","b")` deferred entry, plus eager fns; query unrelated tag
-   * @expectedResult Resolution returns matching eager fns; the stubs are silently skipped (not thrown)
-   */
-  test("tag walk silently skips non-direct deferred stubs", async () => {
-    const { agentTool, mcpTool } = await import("../src/index.ts");
-    t = await testContext()
-      .with({
-        plugins: [
-          agentPlugin({
-            functions: {
-              ...defaultFns,
-              futureAgent: agentTool("researcher"),
-              futureMcp: mcpTool("brave", "search"),
-            },
-          }),
-        ],
-      })
-      .build();
-
-    const resolved = tools([{ tagged: "read-only" }]).resolve(t.ctx);
-    const names = resolved.map((r) => r.name).sort();
-    expect(names).toEqual(["currentTime", "randomUuid"]);
   });
 
   /**
@@ -586,5 +549,40 @@ describe("tools() resolver - dedup and prefix-convention coverage", () => {
     const names = resolved.map((r) => r.name);
     expect(names).toContain("fetchOrder");
     expect(names).not.toContain("direct_fetch-order");
+  });
+
+  /**
+   * @case Same dedup holds for route ids that include URL-special characters (the direct registry stores them sanitised, but the wrapper carries the raw id)
+   * @preconditions Route "orders/fetch" tagged "read-only"; functions: { ordersFetch: directTool("orders/fetch") }; tag selector { tagged: "read-only" }
+   * @expectedResult Only the fn-registry wrapper "ordersFetch" surfaces; the sanitised `direct_orders%2Ffetch` form is suppressed (dedup compares sanitised on both sides)
+   */
+  test("directTool fn registry wrapper supersedes the same direct route even when the route id contains URL-special characters", async () => {
+    t = await testContext()
+      .with({
+        plugins: [
+          agentPlugin({
+            functions: {
+              ordersFetch: directTool("orders/fetch"),
+            },
+          }),
+        ],
+      })
+      .routes([
+        craft()
+          .id("orders/fetch")
+          .description("Fetch an order.")
+          .input(z.object({ orderId: z.string() }))
+          .tag("read-only")
+          .from(direct())
+          .to(log()),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const resolved = tools([{ tagged: "read-only" }]).resolve(t.ctx);
+    const names = resolved.map((r) => r.name);
+    expect(names).toContain("ordersFetch");
+    expect(names).not.toContain("direct_orders/fetch");
+    expect(names).not.toContain("direct_orders%2Ffetch");
   });
 });

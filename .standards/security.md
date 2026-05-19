@@ -113,3 +113,28 @@ When you add a new default that affects authentication, authorization, network e
 - **HTTP transport boundary** (`startHttpWithValidator` / `startHttpWithOAuth`): serves RFC 9728 metadata; emits 401 with `resource_metadata`.
 
 Each boundary is the *only* place that handles its class of error (does not re-throw). Crossing a boundary without logging duplicates entries; not logging at the boundary loses the failure entirely.
+
+## 11. Agent -> MCP auth boundary
+
+When an agent calls an MCP tool via `tools(["mcp_<client>:<tool>"])`, the
+agent runtime does NOT forward `FnHandlerContext.principal` (or the bearer it
+came from) to the MCP server. The MCP server is reached using the static
+credentials registered on `defineConfig.mcp({ clients: { name: { auth } } })`.
+
+This is intentional. Two trust boundaries:
+
+- **Principal authenticates the caller into Routecraft.** It identifies the
+  user / service that triggered the route or agent. Used by `.authorize()`,
+  guards, and downstream `directTool` dispatches that stay inside the
+  in-process trust zone.
+- **MCP `auth` authenticates the Routecraft -> MCP hop.** It identifies the
+  Routecraft instance to the remote MCP server. The MCP server has its own
+  authorisation model; mixing the routecraft principal into the MCP credential
+  conflates two policies.
+
+If an agent needs to thread user-specific data into an MCP tool call (e.g.
+"only fetch documents for tenant X"), do it as a regular tool argument: the
+agent can read `ctx.principal` in a guard or in its own handler and put a
+`tenantId` field into the MCP call's input. The MCP server then enforces
+that argument against its own policy. Never repurpose a credential field as
+a per-user parameter; never reuse a per-user bearer as an MCP credential.
