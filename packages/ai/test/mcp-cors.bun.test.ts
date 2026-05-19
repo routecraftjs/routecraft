@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import {
+  applyCorsHeaders,
   buildCorsHeaders,
   defaultLoopbackOriginResolver,
   resolveCorsOptions,
@@ -44,6 +45,38 @@ describe("MCP CORS helper", () => {
         defaultLoopbackOriginResolver("chrome-extension://abcdef/index.html"),
       ).toBe(false);
       expect(defaultLoopbackOriginResolver("not a url")).toBe(false);
+    });
+
+    /**
+     * @case Non-canonical Origin shapes are rejected even when the host is loopback
+     * @preconditions Origin values with path, userinfo, query, or fragment components
+     * @expectedResult Resolver returns false; only canonical `scheme://host[:port]` Origins are accepted
+     */
+    test("rejects non-canonical Origin shapes (path, userinfo, query, fragment)", () => {
+      // Path appended -- RFC 6454 §7.1 says Origin has no path component
+      expect(
+        defaultLoopbackOriginResolver("http://localhost:3000/anything"),
+      ).toBe(false);
+      // Userinfo -- never present on a legitimate Origin
+      expect(
+        defaultLoopbackOriginResolver("http://user:pass@localhost:3000"),
+      ).toBe(false);
+      // Query and fragment -- never on a canonical Origin
+      expect(defaultLoopbackOriginResolver("http://localhost:3000?x=1")).toBe(
+        false,
+      );
+      expect(defaultLoopbackOriginResolver("http://localhost:3000#frag")).toBe(
+        false,
+      );
+    });
+
+    /**
+     * @case The literal string "null" Origin (sandboxed iframes, srcdoc) is rejected
+     * @preconditions Origin: "null"
+     * @expectedResult Resolver returns false; the literal "null" is treated as a sentinel, not parsed as a URL
+     */
+    test("rejects literal 'null' Origin", () => {
+      expect(defaultLoopbackOriginResolver("null")).toBe(false);
     });
   });
 
@@ -183,14 +216,20 @@ describe("MCP CORS helper", () => {
     });
 
     /**
-     * @case Non-allowed origins produce no Access-Control-* headers
+     * @case Non-allowed origins produce no Access-Control-* but still emit Vary: Origin
      * @preconditions Default (loopback-only) policy; Origin is a public domain
-     * @expectedResult Empty object; browser will block the response
+     * @expectedResult Vary: Origin present so shared caches do not serve a no-CORS variant to a loopback origin; no Access-Control-Allow-Origin
      */
-    test("rejects non-loopback origins under the default policy", () => {
+    test("rejects non-loopback origins but still emits Vary: Origin", () => {
       const cors = resolveCorsOptions(undefined);
-      expect(buildCorsHeaders(cors, "https://evil.example", false)).toEqual({});
-      expect(buildCorsHeaders(cors, "https://evil.example", true)).toEqual({});
+      const nonPreflight = buildCorsHeaders(
+        cors,
+        "https://evil.example",
+        false,
+      );
+      expect(nonPreflight).toEqual({ Vary: "Origin" });
+      const preflight = buildCorsHeaders(cors, "https://evil.example", true);
+      expect(preflight).toEqual({ Vary: "Origin" });
     });
 
     /**
@@ -260,6 +299,109 @@ describe("MCP CORS helper", () => {
       });
       const headers = buildCorsHeaders(cors, "https://app.example.com", false);
       expect(headers["Access-Control-Allow-Credentials"]).toBe("true");
+    });
+
+    /**
+     * @case A throwing user resolver fails closed rather than crashing the request
+     * @preconditions origin: () => { throw new Error("boom") }; any request Origin
+     * @expectedResult buildCorsHeaders treats the throw as "disallowed", returning only Vary: Origin -- no Allow-Origin
+     */
+    test("origin resolver that throws fails closed (returns Vary only)", () => {
+      const cors = resolveCorsOptions({
+        origin: () => {
+          throw new Error("boom");
+        },
+      });
+      const headers = buildCorsHeaders(cors, "http://localhost:6274", false);
+      expect(headers).toEqual({ Vary: "Origin" });
+    });
+  });
+
+  describe("applyCorsHeaders", () => {
+    /**
+     * Minimal fake of a Node ServerResponse that records setHeader/appendHeader calls.
+     */
+    function fakeRes(initial: Record<string, string | string[]> = {}) {
+      const single: Record<string, string> = {};
+      const lists: Record<string, string[]> = { ...initial };
+      for (const [k, v] of Object.entries(initial)) {
+        if (typeof v === "string") {
+          lists[k.toLowerCase()] = [v];
+        } else {
+          lists[k.toLowerCase()] = [...v];
+        }
+      }
+      return {
+        setHeader: (name: string, value: string) => {
+          single[name] = value;
+          lists[name.toLowerCase()] = [value];
+        },
+        appendHeader: (name: string, value: string) => {
+          const key = name.toLowerCase();
+          if (!lists[key]) lists[key] = [];
+          lists[key].push(value);
+        },
+        single,
+        lists,
+      };
+    }
+
+    /**
+     * @case applyCorsHeaders appends Vary so a pre-existing Vary value is preserved
+     * @preconditions Response already has `Vary: Accept-Encoding` from compression middleware; loopback request
+     * @expectedResult Both `Accept-Encoding` and `Origin` are present as Vary values; setHeader does not clobber the prior value
+     */
+    test("appendHeader preserves an existing Vary value", () => {
+      const cors = resolveCorsOptions(undefined);
+      const res = fakeRes({ Vary: "Accept-Encoding" });
+      applyCorsHeaders(
+        res as unknown as Parameters<typeof applyCorsHeaders>[0],
+        cors,
+        "http://localhost:6274",
+        false,
+      );
+      const vary = res.lists["vary"];
+      expect(vary).toBeDefined();
+      expect(vary).toContain("Accept-Encoding");
+      expect(vary).toContain("Origin");
+      expect(res.single["Access-Control-Allow-Origin"]).toBe(
+        "http://localhost:6274",
+      );
+    });
+
+    /**
+     * @case applyCorsHeaders is a no-op when CORS is disabled
+     * @preconditions resolveCorsOptions(false); any request Origin
+     * @expectedResult No setHeader or appendHeader calls leave traces on the response
+     */
+    test("no-op when CORS is disabled", () => {
+      const res = fakeRes();
+      applyCorsHeaders(
+        res as unknown as Parameters<typeof applyCorsHeaders>[0],
+        null,
+        "http://localhost:6274",
+        false,
+      );
+      expect(Object.keys(res.single)).toEqual([]);
+      expect(Object.keys(res.lists)).toEqual([]);
+    });
+
+    /**
+     * @case applyCorsHeaders still appends Vary when the request Origin is rejected (loopback default)
+     * @preconditions Default policy; non-loopback Origin
+     * @expectedResult Vary: Origin is appended; no Access-Control-Allow-Origin set
+     */
+    test("rejected origin still appends Vary: Origin", () => {
+      const cors = resolveCorsOptions(undefined);
+      const res = fakeRes();
+      applyCorsHeaders(
+        res as unknown as Parameters<typeof applyCorsHeaders>[0],
+        cors,
+        "https://evil.example",
+        false,
+      );
+      expect(res.lists["vary"]).toEqual(["Origin"]);
+      expect(res.single["Access-Control-Allow-Origin"]).toBeUndefined();
     });
   });
 });

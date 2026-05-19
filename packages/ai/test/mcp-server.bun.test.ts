@@ -1226,18 +1226,23 @@ describe("McpServer", () => {
       });
 
       /**
-       * @case cors: false disables CORS entirely
+       * @case cors: false disables CORS entirely and does NOT hijack OPTIONS preflight
        * @preconditions cors: false; OPTIONS and GET requests with loopback Origin
-       * @expectedResult No Access-Control-* headers on any response; OPTIONS preflight still returns 204 but unsupported by browser
+       * @expectedResult GET response carries no Access-Control-* headers. OPTIONS preflight is NOT answered with 204 -- the request falls through to the route handler (the framework's contract is that a fronting proxy/CDN owns CORS, so we must let the preflight through rather than swallowing it).
        */
-      test("cors: false suppresses all CORS headers", async () => {
+      test("cors: false suppresses CORS headers and defers OPTIONS to the proxy", async () => {
         const { get, options } = await startHttpServer([], { cors: false });
         const getRes = await get("/.well-known/oauth-protected-resource", {
           Origin: LOOPBACK_ORIGIN,
         });
+        expect(getRes.statusCode).toBe(200);
         expect(getRes.headers["access-control-allow-origin"]).toBeUndefined();
+        expect(getRes.headers["vary"]).toBeUndefined();
+
         const optRes = await options("/mcp", { Origin: LOOPBACK_ORIGIN });
-        expect(optRes.statusCode).toBe(204);
+        // SDK transport rejects OPTIONS on /mcp with 405; the important
+        // contract is that we did NOT synthesize a 204 ourselves.
+        expect(optRes.statusCode).not.toBe(204);
         expect(optRes.headers["access-control-allow-origin"]).toBeUndefined();
       });
 
@@ -1325,6 +1330,58 @@ describe("McpServer", () => {
         expect(res.headers["access-control-allow-origin"]).toBe(
           LOOPBACK_ORIGIN,
         );
+        // Vary: Origin must be present so shared caches do not serve a
+        // non-loopback response back to this origin.
+        const vary = res.headers["vary"];
+        const varyStr = Array.isArray(vary) ? vary.join(", ") : vary;
+        expect(varyStr).toContain("Origin");
+      });
+
+      /**
+       * @case POST /mcp from a non-loopback Origin under the default policy gets no Access-Control-Allow-Origin
+       * @preconditions Default cors policy; valid initialize call from https://evil.example
+       * @expectedResult Response status is 200 (the JSON-RPC request itself succeeds), but the browser-readability gate (Allow-Origin) is absent; Vary: Origin is still emitted so caches stay correct
+       */
+      test("non-loopback POST /mcp gets no Allow-Origin (default policy)", async () => {
+        const { post } = await startHttpServer([]);
+        const res = await post(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: INIT_PARAMS,
+          }),
+          undefined,
+          { Origin: "https://evil.example" },
+        );
+        expect(res.statusCode).toBe(200);
+        expect(res.headers["access-control-allow-origin"]).toBeUndefined();
+        const vary = res.headers["vary"];
+        const varyStr = Array.isArray(vary) ? vary.join(", ") : vary;
+        expect(varyStr).toContain("Origin");
+      });
+
+      /**
+       * @case 401 response from /mcp on a non-loopback Origin gets no Allow-Origin and no exposed WWW-Authenticate
+       * @preconditions Auth validator configured; POST without Authorization from https://evil.example
+       * @expectedResult 401 status; no Access-Control-Allow-Origin; the WWW-Authenticate header is present on the wire but unreadable to a cross-origin browser caller (correct behaviour: only allowlisted origins can read the RFC 9728 hint)
+       */
+      test("non-loopback 401 from /mcp gets no Allow-Origin", async () => {
+        const { post } = await startHttpServer([], {
+          auth: { validator: () => validPrincipal },
+        });
+        const res = await post(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: INIT_PARAMS,
+          }),
+          undefined,
+          { Origin: "https://evil.example" },
+        );
+        expect(res.statusCode).toBe(401);
+        expect(res.headers["access-control-allow-origin"]).toBeUndefined();
       });
     });
 

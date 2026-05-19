@@ -6,7 +6,7 @@
  * without CORS headers. This module owns the policy and the header math.
  *
  * The default is **loopback-only**: a request whose `Origin` is on `localhost`,
- * `127.0.0.1`, or `[::1]` (any port, http or https) gets reflected; everything
+ * `127.0.0.1`, or `::1` (any port, http or https) gets reflected; everything
  * else gets no `Access-Control-Allow-Origin` header back and is blocked by the
  * browser. This is intentionally production-safe by construction: local
  * browser tooling works with zero config, while production deployments must
@@ -19,10 +19,17 @@
  * @experimental
  */
 
+import type { ServerResponse } from "node:http";
+
 /**
  * Resolver form of `origin`. Receives the request's `Origin` header (or
  * `undefined` when absent) and returns either the value to echo in
  * `Access-Control-Allow-Origin`, or `false` to disallow.
+ *
+ * Implementations SHOULD NOT throw. A thrown error is caught at the request
+ * boundary and treated as `false` (fail-closed), but emitting an exception
+ * also clears CORS for that request silently. Return `false` explicitly to
+ * disallow.
  *
  * Keeping this transport-agnostic (no `IncomingMessage`) lets the helper run
  * on Bun, Node, and in tests without coupling to `node:http`.
@@ -93,15 +100,24 @@ export interface ResolvedMcpCors {
 }
 
 /**
- * Hostnames recognised as loopback by the default policy. IPv6 loopback
- * appears as both `::1` and bracketed `[::1]` in `Origin` headers depending on
- * the client; both are accepted.
+ * Hostnames recognised as loopback by the default policy.
+ *
+ * IPv6: both Node and Bun's `URL.hostname` return the bracketed form
+ * `"[::1]"` for `http://[::1]:8080`, not `"::1"`. The unbracketed `"::1"`
+ * entry is kept as defence-in-depth in case a future URL parser surfaces it
+ * (the WHATWG URL spec is unsettled on this; older parsers and some
+ * synthesised inputs may produce the unbracketed form).
  */
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 
 /**
- * Default origin resolver: reflect the request `Origin` iff it is loopback.
- * Returns `false` otherwise.
+ * Default origin resolver: reflect the request `Origin` iff it is loopback
+ * AND in canonical form per RFC 6454 §7.1 (`scheme://host[:port]`, no path,
+ * no userinfo, no query, no fragment). Returns `false` otherwise.
+ *
+ * Real browsers never emit anything other than a canonical Origin, so this
+ * tightening costs nothing in practice while ensuring we never echo a
+ * malformed value into `Access-Control-Allow-Origin`.
  *
  * @internal
  */
@@ -109,6 +125,7 @@ export function defaultLoopbackOriginResolver(
   requestOrigin: string | undefined,
 ): string | false {
   if (!requestOrigin) return false;
+  if (requestOrigin === "null") return false;
   let parsed: URL;
   try {
     parsed = new URL(requestOrigin);
@@ -116,6 +133,9 @@ export function defaultLoopbackOriginResolver(
     return false;
   }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+  if (parsed.username || parsed.password) return false;
+  if (parsed.pathname !== "/" && parsed.pathname !== "") return false;
+  if (parsed.search || parsed.hash) return false;
   return LOOPBACK_HOSTS.has(parsed.hostname) ? requestOrigin : false;
 }
 
@@ -201,12 +221,35 @@ function mergeExposeHeaders(user: string[] | undefined): string {
 }
 
 /**
- * Build the response headers to add for a given request `Origin`. Returns an
- * empty object when CORS is disabled or the request `Origin` is disallowed.
+ * Run the resolver in a try/catch so a misbehaving custom origin function
+ * fails closed rather than crashing the in-flight MCP request.
+ */
+function safeResolveOrigin(
+  cors: ResolvedMcpCors,
+  requestOrigin: string | undefined,
+): string | false {
+  try {
+    return cors.resolveOrigin(requestOrigin);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Build the response headers to add for a given request `Origin`.
  *
- * The caller is responsible for setting these headers on the response. The
- * helper is pure to keep it testable in isolation and reusable from both the
- * raw-`node:http` (validator) and Express (OAuth-proxy) paths.
+ * Returns an empty object when CORS is disabled (`cors === null`).
+ *
+ * When the policy is origin-dependent (non-wildcard), `Vary: Origin` is
+ * **always** included -- including for rejected origins -- so a shared cache
+ * keyed by the response cannot serve a no-CORS response back to a loopback
+ * origin. Disallowed origins receive `{ Vary: "Origin" }` only, with no
+ * `Access-Control-Allow-Origin`.
+ *
+ * The caller is responsible for applying these headers. Use
+ * {@link applyCorsHeaders} on a Node `ServerResponse` to merge `Vary` with
+ * any existing value (compression middleware, etc.); spread the record into
+ * a `writeHead` call when no prior `setHeader("Vary", ...)` is in play.
  *
  * @param cors Resolved CORS options, or `null` to short-circuit.
  * @param requestOrigin Value of the request's `Origin` header.
@@ -219,16 +262,17 @@ export function buildCorsHeaders(
   preflight: boolean,
 ): Record<string, string> {
   if (!cors) return {};
-  const allowed = cors.resolveOrigin(requestOrigin);
-  if (allowed === false) return {};
 
-  const headers: Record<string, string> = {
-    "Access-Control-Allow-Origin": allowed,
-    "Access-Control-Expose-Headers": cors.exposeHeaders,
-  };
+  const headers: Record<string, string> = {};
   if (!cors.isWildcard) {
     headers["Vary"] = "Origin";
   }
+
+  const allowed = safeResolveOrigin(cors, requestOrigin);
+  if (allowed === false) return headers;
+
+  headers["Access-Control-Allow-Origin"] = allowed;
+  headers["Access-Control-Expose-Headers"] = cors.exposeHeaders;
   if (cors.credentials) {
     headers["Access-Control-Allow-Credentials"] = "true";
   }
@@ -240,4 +284,52 @@ export function buildCorsHeaders(
     }
   }
   return headers;
+}
+
+/**
+ * Apply CORS headers to a Node `ServerResponse`. Uses `setHeader` for the
+ * `Access-Control-*` family and `appendHeader` for `Vary` so any existing
+ * `Vary` value (e.g. `Vary: Accept-Encoding` from compression middleware)
+ * is preserved.
+ *
+ * A no-op when `cors === null`.
+ *
+ * @internal
+ */
+export function applyCorsHeaders(
+  res: ServerResponse,
+  cors: ResolvedMcpCors | null,
+  requestOrigin: string | undefined,
+  preflight: boolean,
+): void {
+  if (!cors) return;
+  const { Vary, ...rest } = buildCorsHeaders(cors, requestOrigin, preflight);
+  for (const [name, value] of Object.entries(rest)) {
+    res.setHeader(name, value);
+  }
+  if (Vary !== undefined) {
+    res.appendHeader("Vary", Vary);
+  }
+}
+
+/** Paths on which the MCP HTTP transport applies CORS. */
+export const PROTECTED_RESOURCE_METADATA_PATH =
+  "/.well-known/oauth-protected-resource";
+
+/**
+ * Whether a request path is one the MCP HTTP transport owns (and applies
+ * its CORS policy to). The transport listens on exactly `/mcp` (with or
+ * without trailing slash) plus the RFC 9728 metadata path. Sub-paths
+ * (`/mcp/sessions/...`) are not handled and must be added here if ever
+ * introduced; centralising the matcher prevents the validator and OAuth
+ * paths from drifting.
+ *
+ * @internal
+ */
+export function isMcpOwnedPath(url: string): boolean {
+  return (
+    url === PROTECTED_RESOURCE_METADATA_PATH ||
+    url === "/mcp" ||
+    url === "/mcp/"
+  );
 }

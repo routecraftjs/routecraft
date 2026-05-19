@@ -26,7 +26,12 @@ import type {
   McpTool,
   OAuthAuthOptions,
 } from "./types.ts";
-import { buildCorsHeaders, resolveCorsOptions } from "./cors.ts";
+import {
+  applyCorsHeaders,
+  isMcpOwnedPath,
+  PROTECTED_RESOURCE_METADATA_PATH,
+  resolveCorsOptions,
+} from "./cors.ts";
 
 /**
  * MCP SDK `AuthInfo` shape. Imported as a type so nothing is required at
@@ -63,10 +68,6 @@ interface ProtectedResourceMetadata {
   scopes_supported?: string[];
   resource_documentation?: string;
 }
-
-/** Path of the RFC 9728 metadata document. Relative to the server origin. */
-const PROTECTED_RESOURCE_METADATA_PATH =
-  "/.well-known/oauth-protected-resource";
 
 /**
  * McpServer wraps the MCP SDK and bridges it to Routecraft's DirectChannel infrastructure.
@@ -507,13 +508,15 @@ export class McpServer {
    */
   private serveProtectedResourceMetadata(
     res: import("node:http").ServerResponse,
-    corsHeaders: Record<string, string> = {},
   ): void {
     const metadata = this.buildProtectedResourceMetadata();
+    // CORS headers, when applicable, are committed by the surrounding
+    // request handler via `applyCorsHeaders` before this helper runs. They
+    // survive `writeHead` because the headers object below does not name
+    // any `Access-Control-*` or `Vary` key.
     res.writeHead(200, {
       "Content-Type": "application/json",
       "Cache-Control": "public, max-age=3600",
-      ...corsHeaders,
     });
     res.end(JSON.stringify(metadata));
   }
@@ -533,42 +536,37 @@ export class McpServer {
 
     this.httpServer = createServer(async (req, res) => {
       const url = req.url?.split("?")[0] ?? "";
-      const requestOrigin = req.headers["origin"];
-      const originValue = Array.isArray(requestOrigin)
-        ? requestOrigin[0]
-        : requestOrigin;
+      const rawOrigin = req.headers["origin"];
+      const originValue = Array.isArray(rawOrigin) ? rawOrigin[0] : rawOrigin;
 
-      // Preflight: handle OPTIONS before any URL routing. The CORS spec
-      // requires preflight responses on the same path as the actual request,
-      // so we mirror the routing the real verbs use.
-      if (req.method === "OPTIONS") {
-        if (
-          url === PROTECTED_RESOURCE_METADATA_PATH ||
-          url === "/mcp" ||
-          url === "/mcp/"
-        ) {
-          const preflightHeaders = buildCorsHeaders(cors, originValue, true);
-          res.writeHead(204, preflightHeaders);
-          res.end();
-          return;
-        }
-        res.writeHead(404);
+      // OPTIONS preflight on an owned path: answer 204 with CORS headers.
+      // When `cors === null` (user opted out via `cors: false`) we DO NOT
+      // synthesize a preflight response -- the user said a fronting
+      // proxy/CDN owns CORS, so we must let the request fall through
+      // rather than swallowing OPTIONS here.
+      if (req.method === "OPTIONS" && cors !== null && isMcpOwnedPath(url)) {
+        applyCorsHeaders(res, cors, originValue, true);
+        res.writeHead(204);
         res.end();
         return;
       }
 
-      const responseCorsHeaders = buildCorsHeaders(cors, originValue, false);
+      // Commit CORS headers via setHeader/appendHeader for every owned-path
+      // request. They survive whatever writeHead() the rest of the handler
+      // (or the SDK transport) calls, except when the same key is in the
+      // writeHead headers argument -- we avoid that for `Access-Control-*`
+      // and `Vary` everywhere below.
+      if (isMcpOwnedPath(url)) {
+        applyCorsHeaders(res, cors, originValue, false);
+      }
 
       if (url === PROTECTED_RESOURCE_METADATA_PATH) {
-        this.serveProtectedResourceMetadata(res, responseCorsHeaders);
+        this.serveProtectedResourceMetadata(res);
         return;
       }
 
       if (url !== "/mcp" && url !== "/mcp/") {
-        res.writeHead(404, {
-          "Content-Type": "application/json",
-          ...responseCorsHeaders,
-        });
+        res.writeHead(404, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "Not Found", path: url }));
         return;
       }
@@ -580,7 +578,6 @@ export class McpServer {
           res.writeHead(401, {
             "Content-Type": "application/json",
             "WWW-Authenticate": this.buildWwwAuthenticateHeader(),
-            ...responseCorsHeaders,
           });
           res.end(JSON.stringify({ error: "Unauthorized" }));
           return;
@@ -588,14 +585,6 @@ export class McpServer {
         principal = result;
       }
 
-      // The SDK transport owns the response from here. Commit CORS headers
-      // via setHeader() so they are merged into whatever writeHead() the SDK
-      // calls. Node merges setHeader() values with writeHead() arguments
-      // unless writeHead() explicitly overrides a header by name, and the
-      // SDK does not set `Access-Control-*` itself.
-      for (const [name, value] of Object.entries(responseCorsHeaders)) {
-        res.setHeader(name, value);
-      }
       await this.handleMcpRequest(req, res, principal, createSessionFn);
     });
 
@@ -778,33 +767,33 @@ export class McpServer {
     // design). The SDK-owned OAuth endpoints (`/register`, `/token`,
     // `/revoke`, the SDK's metadata) carry their own permissive CORS via
     // `mcpAuthRouter` -> the `cors` npm package -- we leave those alone.
-    const corsForPaths = new Set([
-      PROTECTED_RESOURCE_METADATA_PATH,
-      "/mcp",
-      "/mcp/",
-    ]);
-    app.use((req: unknown, res: unknown, next: unknown) => {
-      const nodeReq = req as IncomingMessage;
-      const nodeRes = res as import("node:http").ServerResponse;
-      const url = nodeReq.url?.split("?")[0] ?? "";
-      if (!corsForPaths.has(url)) {
+    //
+    // When `oauthCors === null` (user opted out via `cors: false`) the
+    // middleware is not registered at all: preflight requests fall through
+    // to the bearer middleware / route handler, exactly as they would if
+    // CORS support had never been built. The user told us a fronting
+    // proxy/CDN owns CORS.
+    if (oauthCors !== null) {
+      app.use((req: unknown, res: unknown, next: unknown) => {
+        const nodeReq = req as IncomingMessage;
+        const nodeRes = res as import("node:http").ServerResponse;
+        const url = nodeReq.url?.split("?")[0] ?? "";
+        if (!isMcpOwnedPath(url)) {
+          (next as () => void)();
+          return;
+        }
+        const rawOrigin = nodeReq.headers["origin"];
+        const originValue = Array.isArray(rawOrigin) ? rawOrigin[0] : rawOrigin;
+        if (nodeReq.method === "OPTIONS") {
+          applyCorsHeaders(nodeRes, oauthCors, originValue, true);
+          nodeRes.writeHead(204);
+          nodeRes.end();
+          return;
+        }
+        applyCorsHeaders(nodeRes, oauthCors, originValue, false);
         (next as () => void)();
-        return;
-      }
-      const rawOrigin = nodeReq.headers["origin"];
-      const originValue = Array.isArray(rawOrigin) ? rawOrigin[0] : rawOrigin;
-      if (nodeReq.method === "OPTIONS") {
-        const preflight = buildCorsHeaders(oauthCors, originValue, true);
-        nodeRes.writeHead(204, preflight);
-        nodeRes.end();
-        return;
-      }
-      const headers = buildCorsHeaders(oauthCors, originValue, false);
-      for (const [name, value] of Object.entries(headers)) {
-        nodeRes.setHeader(name, value);
-      }
-      (next as () => void)();
-    });
+      });
+    }
 
     // Mount our own protected-resource metadata handler BEFORE
     // `mcpAuthRouter`. The SDK's router also mounts a doc, but at a
