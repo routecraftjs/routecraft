@@ -221,6 +221,7 @@ describe("McpServer", () => {
         auth?: import("../src/mcp/types.ts").McpHttpAuthOptions;
         resource?: import("../src/mcp/types.ts").McpResourceOptions;
         title?: string;
+        cors?: false | import("../src/mcp/cors.ts").McpCorsOptions;
       } = {},
     ) {
       t = await testContext().routes(routes).store(MCP_STORE_KEY, true).build();
@@ -301,19 +302,24 @@ describe("McpServer", () => {
         });
       }
 
-      function get(path: string): Promise<{
+      function get(
+        path: string,
+        extraHeaders?: Record<string, string>,
+      ): Promise<{
         statusCode: number;
         body: string;
         headers: Record<string, string | string[] | undefined>;
       }> {
         return new Promise((resolve, reject) => {
+          const headers: Record<string, string> = { Connection: "close" };
+          if (extraHeaders) Object.assign(headers, extraHeaders);
           const req = http.request(
             {
               host: "127.0.0.1",
               port,
               path,
               method: "GET",
-              headers: { Connection: "close" },
+              headers,
             },
             (res) => {
               let data = "";
@@ -322,6 +328,44 @@ describe("McpServer", () => {
                 resolve({
                   statusCode: res.statusCode ?? 0,
                   body: data,
+                  headers: res.headers as Record<
+                    string,
+                    string | string[] | undefined
+                  >,
+                }),
+              );
+            },
+          );
+          req.on("error", reject);
+          req.end();
+        });
+      }
+
+      function options(
+        path: string,
+        extraHeaders?: Record<string, string>,
+      ): Promise<{
+        statusCode: number;
+        headers: Record<string, string | string[] | undefined>;
+      }> {
+        return new Promise((resolve, reject) => {
+          const headers: Record<string, string> = { Connection: "close" };
+          if (extraHeaders) Object.assign(headers, extraHeaders);
+          const req = http.request(
+            {
+              host: "127.0.0.1",
+              port,
+              path,
+              method: "OPTIONS",
+              headers,
+            },
+            (res) => {
+              res.on("data", () => {
+                /* drain */
+              });
+              res.on("end", () =>
+                resolve({
+                  statusCode: res.statusCode ?? 0,
                   headers: res.headers as Record<
                     string,
                     string | string[] | undefined
@@ -351,7 +395,7 @@ describe("McpServer", () => {
         return Array.isArray(sid) ? sid[0] : (sid as string);
       }
 
-      return { post, get, port, initSession };
+      return { post, get, options, port, initSession };
     }
 
     /**
@@ -1063,6 +1107,431 @@ describe("McpServer", () => {
         };
         expect(doc.bearer_methods_supported).toEqual(["header"]);
         expect(doc.resource).toBe("http://localhost:9999");
+      });
+    });
+
+    describe("CORS (validator mode)", () => {
+      const validPrincipal = {
+        kind: "custom" as const,
+        subject: "user-1",
+        scheme: "bearer" as const,
+      };
+      const LOOPBACK_ORIGIN = "http://localhost:6274";
+
+      /**
+       * @case OPTIONS preflight on /mcp from a loopback Origin returns 204 with allow headers
+       * @preconditions Default cors policy (loopback-only); request Origin is http://localhost:6274
+       * @expectedResult 204 status, Access-Control-Allow-Origin echoes the request Origin, Allow-Methods includes POST
+       */
+      test("OPTIONS /mcp preflight from loopback returns 204 with allow headers", async () => {
+        const { options } = await startHttpServer([]);
+        const res = await options("/mcp", { Origin: LOOPBACK_ORIGIN });
+        expect(res.statusCode).toBe(204);
+        expect(res.headers["access-control-allow-origin"]).toBe(
+          LOOPBACK_ORIGIN,
+        );
+        expect(res.headers["access-control-allow-methods"]).toContain("POST");
+        expect(res.headers["access-control-allow-methods"]).toContain(
+          "OPTIONS",
+        );
+        expect(res.headers["vary"]).toBe("Origin");
+        // Chrome Private Network Access opt-in so public->loopback browser
+        // clients (e.g. hosted Inspector tunnelled to a local MCP server) are
+        // not blocked at the PNA preflight gate.
+        expect(res.headers["access-control-allow-private-network"]).toBe(
+          "true",
+        );
+      });
+
+      /**
+       * @case OPTIONS preflight on the metadata endpoint also returns 204 with allow headers
+       * @preconditions Default cors policy; request Origin is loopback
+       * @expectedResult 204 status with full preflight headers (mirrors /mcp)
+       */
+      test("OPTIONS /.well-known/oauth-protected-resource preflight returns 204", async () => {
+        const { options } = await startHttpServer([]);
+        const res = await options("/.well-known/oauth-protected-resource", {
+          Origin: LOOPBACK_ORIGIN,
+        });
+        expect(res.statusCode).toBe(204);
+        expect(res.headers["access-control-allow-origin"]).toBe(
+          LOOPBACK_ORIGIN,
+        );
+      });
+
+      /**
+       * @case GET metadata from a loopback Origin carries Access-Control-Allow-Origin
+       * @preconditions Default cors policy; GET /.well-known/oauth-protected-resource with loopback Origin
+       * @expectedResult 200 response; Allow-Origin reflects the request Origin; Vary: Origin present
+       */
+      test("GET metadata reflects loopback origin", async () => {
+        const { get } = await startHttpServer([]);
+        const res = await get("/.well-known/oauth-protected-resource", {
+          Origin: LOOPBACK_ORIGIN,
+        });
+        expect(res.statusCode).toBe(200);
+        expect(res.headers["access-control-allow-origin"]).toBe(
+          LOOPBACK_ORIGIN,
+        );
+        expect(res.headers["vary"]).toBe("Origin");
+      });
+
+      /**
+       * @case 401 response on /mcp carries CORS headers and exposes WWW-Authenticate
+       * @preconditions Auth validator configured; POST without Authorization from loopback Origin
+       * @expectedResult 401 status; Allow-Origin echoes Origin; Expose-Headers includes WWW-Authenticate (so browsers can read the RFC 9728 hint)
+       */
+      test("401 from /mcp carries CORS headers and exposes WWW-Authenticate", async () => {
+        const { post } = await startHttpServer([], {
+          auth: { validator: () => validPrincipal },
+        });
+        const res = await post(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: INIT_PARAMS,
+          }),
+          undefined,
+          { Origin: LOOPBACK_ORIGIN },
+        );
+        expect(res.statusCode).toBe(401);
+        expect(res.headers["access-control-allow-origin"]).toBe(
+          LOOPBACK_ORIGIN,
+        );
+        const expose = res.headers["access-control-expose-headers"];
+        const exposeStr = Array.isArray(expose) ? expose.join(", ") : expose;
+        expect(exposeStr).toBeDefined();
+        expect(exposeStr!.toLowerCase()).toContain("www-authenticate");
+      });
+
+      /**
+       * @case Non-loopback Origin gets no Access-Control-Allow-Origin under the default policy
+       * @preconditions Default cors policy; request Origin is https://evil.example
+       * @expectedResult Underlying response status is unchanged, but no Allow-Origin header is emitted (browser will block the response)
+       */
+      test("non-loopback origin is rejected by the default policy", async () => {
+        const { get } = await startHttpServer([]);
+        const res = await get("/.well-known/oauth-protected-resource", {
+          Origin: "https://evil.example",
+        });
+        expect(res.statusCode).toBe(200);
+        expect(res.headers["access-control-allow-origin"]).toBeUndefined();
+      });
+
+      /**
+       * @case Server-to-server callers (no Origin header) are unaffected by CORS
+       * @preconditions Default cors policy; no Origin header on the request
+       * @expectedResult Response carries no Access-Control-* headers; caller is not gated by CORS
+       */
+      test("no Origin header means no CORS headers are emitted", async () => {
+        const { get } = await startHttpServer([]);
+        const res = await get("/.well-known/oauth-protected-resource");
+        expect(res.statusCode).toBe(200);
+        expect(res.headers["access-control-allow-origin"]).toBeUndefined();
+      });
+
+      /**
+       * @case cors: false disables CORS entirely and does NOT hijack OPTIONS preflight
+       * @preconditions cors: false; OPTIONS and GET requests with loopback Origin
+       * @expectedResult GET response carries no Access-Control-* headers. OPTIONS preflight is NOT answered with 204 -- the request falls through to the route handler (the framework's contract is that a fronting proxy/CDN owns CORS, so we must let the preflight through rather than swallowing it).
+       */
+      test("cors: false suppresses CORS headers and defers OPTIONS to the proxy", async () => {
+        const { get, options } = await startHttpServer([], { cors: false });
+        const getRes = await get("/.well-known/oauth-protected-resource", {
+          Origin: LOOPBACK_ORIGIN,
+        });
+        expect(getRes.statusCode).toBe(200);
+        expect(getRes.headers["access-control-allow-origin"]).toBeUndefined();
+        expect(getRes.headers["vary"]).toBeUndefined();
+
+        const optRes = await options("/mcp", { Origin: LOOPBACK_ORIGIN });
+        // SDK transport rejects OPTIONS on /mcp with 405; the important
+        // contract is that we did NOT synthesize a 204 ourselves.
+        expect(optRes.statusCode).not.toBe(204);
+        expect(optRes.headers["access-control-allow-origin"]).toBeUndefined();
+      });
+
+      /**
+       * @case cors: { origin } restricts to the configured allowlist in production
+       * @preconditions cors: { origin: "https://app.example.com" }; requests with matching and non-matching Origin
+       * @expectedResult Matching Origin is reflected; non-matching Origin gets no Allow-Origin (browser blocks)
+       */
+      test("cors: { origin: '...' } restricts to the configured origin", async () => {
+        const { get } = await startHttpServer([], {
+          cors: { origin: "https://app.example.com" },
+        });
+        const matching = await get("/.well-known/oauth-protected-resource", {
+          Origin: "https://app.example.com",
+        });
+        expect(matching.headers["access-control-allow-origin"]).toBe(
+          "https://app.example.com",
+        );
+        const nonMatching = await get("/.well-known/oauth-protected-resource", {
+          Origin: "https://other.example",
+        });
+        expect(
+          nonMatching.headers["access-control-allow-origin"],
+        ).toBeUndefined();
+      });
+
+      /**
+       * @case cors: { origin: '*' } is fully permissive and skips Vary: Origin
+       * @preconditions cors: { origin: '*' }; any request Origin
+       * @expectedResult Allow-Origin: *; Vary header is NOT set (cache-friendly per CORS spec)
+       */
+      test("cors: { origin: '*' } reflects wildcard without Vary", async () => {
+        const { get } = await startHttpServer([], { cors: { origin: "*" } });
+        const res = await get("/.well-known/oauth-protected-resource", {
+          Origin: "https://anywhere.example",
+        });
+        expect(res.headers["access-control-allow-origin"]).toBe("*");
+        expect(res.headers["vary"]).toBeUndefined();
+      });
+
+      /**
+       * @case Successful POST /mcp from loopback Origin carries CORS headers on the streamed response
+       * @preconditions Default cors policy; no auth; valid initialize call from loopback Origin
+       * @expectedResult Response is 200 (session established); Allow-Origin echoes Origin (set via setHeader before the SDK responds)
+       */
+      test("successful POST /mcp carries Access-Control-Allow-Origin", async () => {
+        const { post } = await startHttpServer([]);
+        const res = await post(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: INIT_PARAMS,
+          }),
+          undefined,
+          { Origin: LOOPBACK_ORIGIN },
+        );
+        expect(res.statusCode).toBe(200);
+        expect(res.headers["access-control-allow-origin"]).toBe(
+          LOOPBACK_ORIGIN,
+        );
+        // Vary: Origin must be present so shared caches do not serve a
+        // non-loopback response back to this origin.
+        const vary = res.headers["vary"];
+        const varyStr = Array.isArray(vary) ? vary.join(", ") : vary;
+        expect(varyStr).toContain("Origin");
+      });
+
+      /**
+       * @case `initialize` response exposes Mcp-Session-Id so a browser-side follow-up can echo it
+       * @preconditions Default cors policy; loopback Origin; the SDK runs in stateful mode (sessionIdGenerator set in createSession), so Mcp-Session-Id is emitted on `initialize`
+       * @expectedResult Access-Control-Expose-Headers contains "Mcp-Session-Id" (and "WWW-Authenticate", and "Last-Event-ID"). Without this, browser MCP clients read Mcp-Session-Id as undefined and the second request fails with 400 from the SDK transport.
+       */
+      test("initialize exposes Mcp-Session-Id for browser clients", async () => {
+        const { post } = await startHttpServer([]);
+        const res = await post(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: INIT_PARAMS,
+          }),
+          undefined,
+          { Origin: LOOPBACK_ORIGIN },
+        );
+        expect(res.statusCode).toBe(200);
+        // Sanity: the SDK actually emitted a session id.
+        expect(res.headers["mcp-session-id"]).toBeDefined();
+        // And the CORS exposure listing tells the browser it can read it.
+        const expose = res.headers["access-control-expose-headers"];
+        const exposeStr = Array.isArray(expose) ? expose.join(", ") : expose;
+        expect(exposeStr).toBeDefined();
+        expect(exposeStr).toContain("Mcp-Session-Id");
+        expect(exposeStr!.toLowerCase()).toContain("www-authenticate");
+        expect(exposeStr).toContain("Last-Event-ID");
+      });
+
+      /**
+       * @case Two-request flow: a follow-up tools/list with the echoed Mcp-Session-Id succeeds with CORS headers intact
+       * @preconditions Default cors policy; loopback Origin; valid initialize then a subsequent tools/list with the captured Mcp-Session-Id
+       * @expectedResult Both responses are 200; the second response also carries Access-Control-Allow-Origin -- proving the CORS contract holds across the stateful session lifecycle, not just on initialize
+       */
+      test("two-step session: tools/list after initialize keeps CORS headers", async () => {
+        const { post, initSession } = await startHttpServer([
+          craft()
+            .id("two-step-tool")
+            .description("Tool for the two-step CORS test")
+            .from(mcp())
+            .to(noop()),
+        ]);
+        const sessionId = await initSession({ Origin: LOOPBACK_ORIGIN });
+        expect(sessionId).toBeDefined();
+        const res = await post(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 2,
+            method: "tools/list",
+            params: {},
+          }),
+          sessionId,
+          { Origin: LOOPBACK_ORIGIN },
+        );
+        expect(res.statusCode).toBe(200);
+        expect(res.headers["access-control-allow-origin"]).toBe(
+          LOOPBACK_ORIGIN,
+        );
+      });
+
+      /**
+       * @case POST /mcp from a non-loopback Origin under the default policy gets no Access-Control-Allow-Origin
+       * @preconditions Default cors policy; valid initialize call from https://evil.example
+       * @expectedResult Response status is 200 (the JSON-RPC request itself succeeds), but the browser-readability gate (Allow-Origin) is absent; Vary: Origin is still emitted so caches stay correct
+       */
+      test("non-loopback POST /mcp gets no Allow-Origin (default policy)", async () => {
+        const { post } = await startHttpServer([]);
+        const res = await post(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: INIT_PARAMS,
+          }),
+          undefined,
+          { Origin: "https://evil.example" },
+        );
+        expect(res.statusCode).toBe(200);
+        expect(res.headers["access-control-allow-origin"]).toBeUndefined();
+        const vary = res.headers["vary"];
+        const varyStr = Array.isArray(vary) ? vary.join(", ") : vary;
+        expect(varyStr).toContain("Origin");
+      });
+
+      /**
+       * @case 401 response from /mcp on a non-loopback Origin gets no Allow-Origin and no exposed WWW-Authenticate
+       * @preconditions Auth validator configured; POST without Authorization from https://evil.example
+       * @expectedResult 401 status; no Access-Control-Allow-Origin; the WWW-Authenticate header is present on the wire but unreadable to a cross-origin browser caller (correct behaviour: only allowlisted origins can read the RFC 9728 hint)
+       */
+      test("non-loopback 401 from /mcp gets no Allow-Origin", async () => {
+        const { post } = await startHttpServer([], {
+          auth: { validator: () => validPrincipal },
+        });
+        const res = await post(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: INIT_PARAMS,
+          }),
+          undefined,
+          { Origin: "https://evil.example" },
+        );
+        expect(res.statusCode).toBe(401);
+        expect(res.headers["access-control-allow-origin"]).toBeUndefined();
+      });
+    });
+
+    describe("CORS (OAuth-proxy mode)", () => {
+      const LOOPBACK_ORIGIN = "http://localhost:6274";
+
+      async function buildOAuthAuth() {
+        const { oauth } = await import("../src/mcp/oauth.ts");
+        return oauth({
+          endpoints: {
+            authorizationUrl: "http://localhost:9999/authorize",
+            tokenUrl: "http://localhost:9999/token",
+          },
+          verify: async () => ({
+            kind: "oauth" as const,
+            scheme: "bearer" as const,
+            subject: "u",
+            clientId: "u",
+            expiresAt: Math.floor(Date.now() / 1000) + 60,
+          }),
+          client: async (clientId) => ({
+            client_id: clientId,
+            redirect_uris: ["http://localhost:3000/callback"],
+          }),
+        });
+      }
+
+      /**
+       * @case OAuth-proxy mode: OPTIONS preflight on /mcp returns 204 with CORS headers
+       * @preconditions oauth() auth with explicit resource.url; loopback Origin
+       * @expectedResult 204 with Allow-Origin reflecting Origin (covers the SDK-uncovered /mcp gap)
+       */
+      test("OPTIONS /mcp returns 204 with CORS headers in OAuth-proxy mode", async () => {
+        const auth = await buildOAuthAuth();
+        const { options } = await startHttpServer([], {
+          auth,
+          resource: { url: "http://localhost:9999" },
+        });
+        const res = await options("/mcp", { Origin: LOOPBACK_ORIGIN });
+        expect(res.statusCode).toBe(204);
+        expect(res.headers["access-control-allow-origin"]).toBe(
+          LOOPBACK_ORIGIN,
+        );
+      });
+
+      /**
+       * @case OAuth-proxy mode: 401 from /mcp carries Access-Control-Allow-Origin and exposes WWW-Authenticate
+       * @preconditions oauth() auth; POST /mcp with no Authorization from loopback Origin
+       * @expectedResult 401 with CORS headers so browsers can read the WWW-Authenticate hint and follow RFC 9728 discovery
+       */
+      test("401 from /mcp carries CORS headers in OAuth-proxy mode", async () => {
+        const auth = await buildOAuthAuth();
+        const { post } = await startHttpServer([], {
+          auth,
+          resource: { url: "http://localhost:9999" },
+        });
+        const res = await post(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: INIT_PARAMS,
+          }),
+          undefined,
+          { Origin: LOOPBACK_ORIGIN },
+        );
+        expect(res.statusCode).toBe(401);
+        expect(res.headers["access-control-allow-origin"]).toBe(
+          LOOPBACK_ORIGIN,
+        );
+        const expose = res.headers["access-control-expose-headers"];
+        const exposeStr = Array.isArray(expose) ? expose.join(", ") : expose;
+        expect(exposeStr).toBeDefined();
+        expect(exposeStr!.toLowerCase()).toContain("www-authenticate");
+      });
+
+      /**
+       * @case OAuth-proxy mode: GET metadata carries CORS headers
+       * @preconditions oauth() auth; GET /.well-known/oauth-protected-resource from loopback
+       * @expectedResult Allow-Origin reflects the loopback Origin
+       */
+      test("GET metadata reflects loopback Origin in OAuth-proxy mode", async () => {
+        const auth = await buildOAuthAuth();
+        const { get } = await startHttpServer([], {
+          auth,
+          resource: { url: "http://localhost:9999" },
+        });
+        const res = await get("/.well-known/oauth-protected-resource", {
+          Origin: LOOPBACK_ORIGIN,
+        });
+        expect(res.statusCode).toBe(200);
+        expect(res.headers["access-control-allow-origin"]).toBe(
+          LOOPBACK_ORIGIN,
+        );
+      });
+
+      /**
+       * @case OAuth-proxy mode: non-loopback Origin is rejected by the default policy
+       * @preconditions oauth() auth; OPTIONS on /mcp with a public Origin
+       * @expectedResult 204 returned (CORS does not 4xx), but no Allow-Origin header is emitted
+       */
+      test("non-loopback Origin gets no Allow-Origin in OAuth-proxy mode", async () => {
+        const auth = await buildOAuthAuth();
+        const { options } = await startHttpServer([], {
+          auth,
+          resource: { url: "http://localhost:9999" },
+        });
+        const res = await options("/mcp", { Origin: "https://evil.example" });
+        expect(res.statusCode).toBe(204);
+        expect(res.headers["access-control-allow-origin"]).toBeUndefined();
       });
     });
 

@@ -47,6 +47,25 @@ Authoritative rules for authentication, authorization, principal propagation, an
 - **`port: 0` + OAuth + unset `resource.url` is rejected eagerly.** The MCP SDK's middleware closes over the resource URL pre-listen; an ephemeral port would bake `:0` into the discovery document and 401 headers.
 - **Both auth modes serve identical JSON.** Validator mode mounts the doc in raw Node HTTP; OAuth mode mounts our own handler on Express **before** `mcpAuthRouter` so the SDK's path-aware doc never wins for the URL we advertise.
 - **401 `WWW-Authenticate` carries an absolute `resource_metadata` URL** (RFC 9728 §5.1 SHOULD). Relative URLs break reverse-proxy deployments.
+- **CORS on the MCP HTTP transport defaults to loopback-only.** `mcpPlugin({ cors })` controls `/mcp`, `/.well-known/oauth-protected-resource`, and the 401 `WWW-Authenticate` response. The default policy reflects loopback `Origin` headers (`localhost`, `127.0.0.1`, `[::1]`) so local browser MCP tooling works with zero config, and rejects everything else so non-loopback browser origins must be allowlisted explicitly via `cors: { origin }`. Server-to-server callers (no `Origin` header) are unaffected. `WWW-Authenticate` is exposed by default so browser clients can follow the RFC 9728 hint. The SDK-owned OAuth endpoints (`/register`, `/token`, `/revoke`, the SDK's own metadata) retain the SDK's permissive `cors()` defaults; we own `/mcp` and our metadata endpoint and apply the strict default there.
+
+## 6a. Security defaults policy
+
+Defaults must be safe to ship to production. Where dev ergonomics conflict with production safety, relax the default explicitly in dev (gated on `NODE_ENV !== "production"`, an explicit loopback check, or a clearly named opt-in field), never the other way around.
+
+The principle generalises across the security surface; it is not a network-exposure rule. Concrete instances already in the codebase, drawn from different parts of the stack:
+
+- **`audience` is required, with `"*"` as the named opt-out** (see §1). The default is rejection of any token whose audience is not the configured value; opting out is deliberate and visible at construction. The "easier" inverse (default to accepting any audience, opt-in to enforcement) would be the polarity inversion this policy forbids.
+- **`UserinfoCache` is bounded by default** (see §4). `DEFAULT_CACHE_MAX_ENTRIES = 10_000` is hard-coded; callers cannot accidentally create an unbounded cache. The dev relaxation (a higher cap) is a deliberate value change, not a flag flip.
+- **HTTPS-in-production guard** for `mcpPlugin({ resource.url })` (see §6). `http://` URLs throw in production; the dev fallback is permitted because the default URL is only used when no explicit one is supplied.
+- **CORS on the MCP HTTP transport** (see §6). Default reflects loopback origins only; non-loopback browser origins require an explicit `cors: { origin }` opt-in.
+
+When you add a new default that affects authentication, authorization, network exposure, secret material, or any trust boundary:
+
+1. Make the production-safe behaviour the unconfigured default.
+2. Surface the dev/relaxed mode behind an explicit, named opt-in (config field, env gate, or loopback / `NODE_ENV` check). Never invert the polarity (no `secure: true` flag where the default is insecure).
+3. Document the new default on its relevant docs reference page and in the section of this standard that governs the affected surface (§1 for token verification, §4 for caching, §6 for transport, etc.). Add a short rationale: what threat the default closes.
+4. The General Checklist in `DEFINITION_OF_DONE.md` references this policy; reviewers MUST push back if a new feature ships a permissive default that needs to be tightened.
 
 ## 7. `authorize()` is a verification primitive
 

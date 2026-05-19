@@ -399,6 +399,56 @@ When `resource.url` is omitted, the framework advertises the bound `http://{host
 
 The motivating case is IdPs that do not support server-side Dynamic Client Registration (DCR) and therefore cannot use OAuth proxy mode -- WorkOS AuthKit is the canonical example. In that setup, validator mode (`auth: jwks(...)`) is the only correct integration, and the RFC 9728 metadata document is what lets MCP clients still auto-discover the IdP.
 
+### CORS
+
+Browser-based MCP clients (MCP Inspector UI, Claude.ai custom connectors, web-hosted Claude Desktop) need CORS headers on the MCP HTTP transport. The framework handles this on three surfaces: `/mcp`, `/.well-known/oauth-protected-resource`, and the 401 `WWW-Authenticate` response.
+
+The default policy is **loopback-only**: a browser request whose `Origin` is on `localhost`, `127.0.0.1`, or `[::1]` (any port, http or https) gets reflected; everything else gets no `Access-Control-Allow-Origin` and is blocked by the browser. This is production-safe by construction: local browser tooling like MCP Inspector at `http://localhost:6274` works with zero config, while production browser origins must be allowlisted explicitly.
+
+Server-to-server callers (`curl`, `mcp-remote`, the MCP CLI) do not send an `Origin` header and are unaffected by this policy regardless of configuration.
+
+The option surface is intentionally minimal: only `origin` is configurable. The framework controls allowed methods (`GET, POST, OPTIONS`), allowed headers (`*`), and exposed headers (`WWW-Authenticate, Mcp-Session-Id, Last-Event-ID`) so browser clients can read the RFC 9728 `resource_metadata` hint on a 401 and follow discovery, echo the SDK-issued `Mcp-Session-Id` on every request after `initialize` (stateful transport), and resume SSE streams via `Last-Event-ID`. Preflight responses also carry `Access-Control-Allow-Private-Network: true` so Chrome PNA crossings (e.g. a hosted browser client tunnelled to a local MCP server) are not blocked.
+
+```ts
+// Default: no config needed for local browser MCP tooling
+mcpPlugin({
+  transport: 'http',
+  auth: jwks({ jwksUrl: '...', issuer: '...' }),
+})
+
+// Production: allowlist your browser MCP client's origin
+mcpPlugin({
+  transport: 'http',
+  auth: jwks({ /* ... */ }),
+  cors: { origin: 'https://claude.ai' },
+})
+
+// Multi-origin allowlist
+mcpPlugin({
+  cors: { origin: ['https://claude.ai', 'https://inspector.example.com'] },
+})
+
+// Custom resolver
+mcpPlugin({
+  cors: {
+    origin: (requestOrigin) =>
+      requestOrigin?.endsWith('.tenants.example.com') ? requestOrigin : false,
+  },
+})
+
+// Last-resort permissive
+mcpPlugin({
+  cors: { origin: '*' },
+})
+
+// Disable entirely (e.g. when fronted by a CDN/proxy that owns CORS)
+mcpPlugin({
+  cors: false,
+})
+```
+
+The OAuth-proxy mode's SDK-owned endpoints (`/register`, `/token`, `/revoke`, the SDK's own metadata) keep their own permissive CORS handling from the MCP SDK. The `cors` slot governs only the routes the framework owns (`/mcp` and the protected-resource metadata).
+
 ## Production
 
 Pin the CLI version so your capabilities do not break on package updates:

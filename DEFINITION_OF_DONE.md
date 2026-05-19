@@ -21,6 +21,7 @@ The checklists below apply to **packages that ship code**: anything under `packa
 - [ ] Write commit messages following [Conventional Commits](https://www.conventionalcommits.org/); use the `/git-commit-message` slash command for detailed formatting
 - [ ] Do not use em-dashes in documentation, JSDoc, comments, or written output
 - [ ] Coverage for modified packages does not regress against the base branch. The `test` job uploads a coverage report on every PR; reviewers compare against the `main` baseline. A net decrease for any package touched by the change requires either added tests or an explicit rationale in the PR description (e.g. removing dead code with its tests). New error paths and new public surfaces are covered by tests, not measured only as side-effect coverage of existing tests.
+- [ ] Any new default that affects authentication, network exposure, or trust boundaries is safe in production by construction. Dev or local relaxations must be explicit opt-ins, named or gated (loopback check, `NODE_ENV` guard, dedicated config field). Never invert the polarity (no `secure: true` flag whose absence is insecure). See [`.standards/security.md` §6a "Security defaults policy"](.standards/security.md).
 
 ## Events and Tracing (every change that introduces observable behavior)
 
