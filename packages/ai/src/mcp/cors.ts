@@ -296,19 +296,43 @@ export const PROTECTED_RESOURCE_METADATA_PATH =
   "/.well-known/oauth-protected-resource";
 
 /**
+ * Path-suffixed variant of the RFC 9728 metadata URL. Per §3, clients
+ * construct the metadata URL by inserting `.well-known/oauth-protected-resource`
+ * between the host and the resource path. Our MCP transport is mounted at
+ * `/mcp`, so the canonical client probe is at this URL. The suffix is the
+ * literal transport path -- NOT `resource.url`'s pathname -- because clients
+ * derive it from the URL they were given to connect to.
+ *
+ * @internal
+ */
+export const PROTECTED_RESOURCE_METADATA_PATH_SUFFIXED =
+  "/.well-known/oauth-protected-resource/mcp";
+
+/**
+ * Whether a request path is either RFC 9728 metadata URL. Both serve the
+ * identical document.
+ *
+ * @internal
+ */
+export function isProtectedResourceMetadataPath(url: string): boolean {
+  return (
+    url === PROTECTED_RESOURCE_METADATA_PATH ||
+    url === PROTECTED_RESOURCE_METADATA_PATH_SUFFIXED
+  );
+}
+
+/**
  * Whether a request path is one the MCP HTTP transport owns (and applies
  * its CORS policy to). The transport listens on exactly `/mcp` (with or
- * without trailing slash) plus the RFC 9728 metadata path. Sub-paths
- * (`/mcp/sessions/...`) are not handled and must be added here if ever
- * introduced; centralising the matcher prevents the validator and OAuth
- * paths from drifting.
+ * without trailing slash) plus the RFC 9728 metadata paths (root and
+ * path-suffixed). Sub-paths (`/mcp/sessions/...`) are not handled and must
+ * be added here if ever introduced; centralising the matcher prevents the
+ * validator and OAuth paths from drifting.
  *
  * @internal
  */
 export function isMcpOwnedPath(url: string): boolean {
   return (
-    url === PROTECTED_RESOURCE_METADATA_PATH ||
-    url === "/mcp" ||
-    url === "/mcp/"
+    isProtectedResourceMetadataPath(url) || url === "/mcp" || url === "/mcp/"
   );
 }

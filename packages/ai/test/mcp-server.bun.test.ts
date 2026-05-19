@@ -1206,6 +1206,70 @@ describe("McpServer", () => {
       });
 
       /**
+       * @case Path-suffixed RFC 9728 metadata URL returns identical body to root
+       * @preconditions Default cors policy; GET /.well-known/oauth-protected-resource and /.well-known/oauth-protected-resource/mcp
+       * @expectedResult Both URLs return 200 with byte-identical JSON; clients probing either variant (per RFC 9728 §3) see the same document
+       */
+      test("path-suffixed metadata URL returns identical body to root", async () => {
+        const { get } = await startHttpServer([]);
+        const rootRes = await get("/.well-known/oauth-protected-resource", {
+          Origin: LOOPBACK_ORIGIN,
+        });
+        const suffRes = await get("/.well-known/oauth-protected-resource/mcp", {
+          Origin: LOOPBACK_ORIGIN,
+        });
+        expect(rootRes.statusCode).toBe(200);
+        expect(suffRes.statusCode).toBe(200);
+        expect(suffRes.body).toBe(rootRes.body);
+        expect(suffRes.headers["access-control-allow-origin"]).toBe(
+          LOOPBACK_ORIGIN,
+        );
+      });
+
+      /**
+       * @case OPTIONS preflight on the path-suffixed metadata URL returns 204 with CORS
+       * @preconditions Default cors policy; OPTIONS /.well-known/oauth-protected-resource/mcp with loopback Origin
+       * @expectedResult 204 with full preflight CORS headers, mirroring the root variant
+       */
+      test("OPTIONS on path-suffixed metadata URL returns 204 with CORS", async () => {
+        const { options } = await startHttpServer([]);
+        const res = await options("/.well-known/oauth-protected-resource/mcp", {
+          Origin: LOOPBACK_ORIGIN,
+        });
+        expect(res.statusCode).toBe(204);
+        expect(res.headers["access-control-allow-origin"]).toBe(
+          LOOPBACK_ORIGIN,
+        );
+        expect(res.headers["access-control-allow-methods"]).toContain("GET");
+      });
+
+      /**
+       * @case 404 on an unknown path still carries CORS headers when CORS is enabled
+       * @preconditions Default cors policy; GET /not/a/real/path with loopback Origin
+       * @expectedResult Response is 404, but Access-Control-Allow-Origin is set so the browser can read the status rather than surfacing a misleading CORS error
+       */
+      test("404 on unknown path carries CORS headers", async () => {
+        const { get } = await startHttpServer([]);
+        const res = await get("/not/a/real/path", { Origin: LOOPBACK_ORIGIN });
+        expect(res.statusCode).toBe(404);
+        expect(res.headers["access-control-allow-origin"]).toBe(
+          LOOPBACK_ORIGIN,
+        );
+      });
+
+      /**
+       * @case 404 on unknown path emits no CORS headers when CORS is disabled
+       * @preconditions cors: false; GET /not/a/real/path with loopback Origin
+       * @expectedResult 404 status with no Access-Control-* headers (proxy is expected to own CORS)
+       */
+      test("404 on unknown path omits CORS headers when cors: false", async () => {
+        const { get } = await startHttpServer([], { cors: false });
+        const res = await get("/not/a/real/path", { Origin: LOOPBACK_ORIGIN });
+        expect(res.statusCode).toBe(404);
+        expect(res.headers["access-control-allow-origin"]).toBeUndefined();
+      });
+
+      /**
        * @case Non-loopback Origin gets no Access-Control-Allow-Origin under the default policy
        * @preconditions Default cors policy; request Origin is https://evil.example
        * @expectedResult Underlying response status is unchanged, but no Allow-Origin header is emitted (browser will block the response)
@@ -1532,6 +1596,53 @@ describe("McpServer", () => {
         const res = await options("/mcp", { Origin: "https://evil.example" });
         expect(res.statusCode).toBe(204);
         expect(res.headers["access-control-allow-origin"]).toBeUndefined();
+      });
+
+      /**
+       * @case OAuth-proxy mode: path-suffixed metadata URL returns identical body to root and carries `bearer_methods_supported`
+       * @preconditions oauth() auth; GET both metadata URLs from loopback Origin
+       * @expectedResult Both URLs return 200 with the same body; bearer_methods_supported is present (proving our handler wins over the SDK's path-aware doc on the suffixed URL too)
+       */
+      test("OAuth-proxy mode serves identical metadata at both URLs", async () => {
+        const auth = await buildOAuthAuth();
+        const { get } = await startHttpServer([], {
+          auth,
+          resource: { url: "http://localhost:9999" },
+        });
+        const rootRes = await get("/.well-known/oauth-protected-resource", {
+          Origin: LOOPBACK_ORIGIN,
+        });
+        const suffRes = await get("/.well-known/oauth-protected-resource/mcp", {
+          Origin: LOOPBACK_ORIGIN,
+        });
+        expect(rootRes.statusCode).toBe(200);
+        expect(suffRes.statusCode).toBe(200);
+        expect(suffRes.body).toBe(rootRes.body);
+        const doc = JSON.parse(suffRes.body) as {
+          bearer_methods_supported?: string[];
+        };
+        expect(doc.bearer_methods_supported).toEqual(["header"]);
+        expect(suffRes.headers["access-control-allow-origin"]).toBe(
+          LOOPBACK_ORIGIN,
+        );
+      });
+
+      /**
+       * @case OAuth-proxy mode: 404 on unknown path carries CORS headers when CORS is enabled
+       * @preconditions oauth() auth + default cors; GET /not/a/real/path with loopback Origin
+       * @expectedResult 404 with Allow-Origin set so the browser can read the status
+       */
+      test("OAuth-proxy 404 on unknown path carries CORS headers", async () => {
+        const auth = await buildOAuthAuth();
+        const { get } = await startHttpServer([], {
+          auth,
+          resource: { url: "http://localhost:9999" },
+        });
+        const res = await get("/not/a/real/path", { Origin: LOOPBACK_ORIGIN });
+        expect(res.statusCode).toBe(404);
+        expect(res.headers["access-control-allow-origin"]).toBe(
+          LOOPBACK_ORIGIN,
+        );
       });
     });
 
