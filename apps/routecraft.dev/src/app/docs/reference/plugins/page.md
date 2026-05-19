@@ -185,6 +185,7 @@ export default config
 | `port` | `number` | `3001` | HTTP port (http transport only) |
 | `host` | `string` | `'localhost'` | HTTP host (http transport only) |
 | `auth` | `McpHttpAuthOptions` | -- | Auth for the HTTP endpoint (http transport only; see below) |
+| `cors` | `false \| McpCorsOptions` | loopback-only | CORS for the HTTP transport. Default reflects loopback `Origin` headers; set to `false` to disable or `{ origin }` to allowlist production browser clients. See [Expose as MCP -> CORS](/docs/advanced/expose-as-mcp#cors). |
 | `tools` | `string[] \| (meta) => boolean` | -- | Allowlist of tool names to expose, or a filter function |
 | `clients` | `Record<string, McpClientHttpConfig \| McpClientStdioConfig>` | -- | Named remote MCP servers (see below) |
 | `maxRestarts` | `number` | `5` | Max automatic restarts for stdio clients before giving up |
