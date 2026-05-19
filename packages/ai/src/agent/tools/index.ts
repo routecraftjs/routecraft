@@ -1,5 +1,4 @@
 export {
-  agentTool,
   defaultFns,
   directTool,
   type ToolBuilderOverrides,

@@ -365,31 +365,6 @@ describe("tools() resolver - regression", () => {
   });
 
   /**
-   * @case Tag selectors must NOT resolve agentTool stubs even when those stubs are present in the registry
-   * @preconditions agentPlugin functions has an `agentTool("x")` deferred stub plus eager fns; query an unrelated tag that only the eager fns carry
-   * @expectedResult Resolution returns matching eager fns; the stub is silently skipped (not thrown)
-   */
-  test("tag walk silently skips non-direct deferred stubs", async () => {
-    const { agentTool } = await import("../src/index.ts");
-    t = await testContext()
-      .with({
-        plugins: [
-          agentPlugin({
-            functions: {
-              ...defaultFns,
-              futureAgent: agentTool("researcher"),
-            },
-          }),
-        ],
-      })
-      .build();
-
-    const resolved = tools([{ tagged: "read-only" }]).resolve(t.ctx);
-    const names = resolved.map((r) => r.name).sort();
-    expect(names).toEqual(["currentTime", "randomUuid"]);
-  });
-
-  /**
    * @case Tag selectors must NOT throw when a misconfigured directTool wrapper is in the registry; only explicit refs throw
    * @preconditions functions: { broken: directTool("does-not-exist") }; tag selector that matches eager fns
    * @expectedResult Selector returns the eager match; broken wrapper is silently skipped because its underlying route has no matching tag
@@ -574,5 +549,40 @@ describe("tools() resolver - dedup and prefix-convention coverage", () => {
     const names = resolved.map((r) => r.name);
     expect(names).toContain("fetchOrder");
     expect(names).not.toContain("direct_fetch-order");
+  });
+
+  /**
+   * @case Same dedup holds for route ids that include URL-special characters (the direct registry stores them sanitised, but the wrapper carries the raw id)
+   * @preconditions Route "orders/fetch" tagged "read-only"; functions: { ordersFetch: directTool("orders/fetch") }; tag selector { tagged: "read-only" }
+   * @expectedResult Only the fn-registry wrapper "ordersFetch" surfaces; the sanitised `direct_orders%2Ffetch` form is suppressed (dedup compares sanitised on both sides)
+   */
+  test("directTool fn registry wrapper supersedes the same direct route even when the route id contains URL-special characters", async () => {
+    t = await testContext()
+      .with({
+        plugins: [
+          agentPlugin({
+            functions: {
+              ordersFetch: directTool("orders/fetch"),
+            },
+          }),
+        ],
+      })
+      .routes([
+        craft()
+          .id("orders/fetch")
+          .description("Fetch an order.")
+          .input(z.object({ orderId: z.string() }))
+          .tag("read-only")
+          .from(direct())
+          .to(log()),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const resolved = tools([{ tagged: "read-only" }]).resolve(t.ctx);
+    const names = resolved.map((r) => r.name);
+    expect(names).toContain("ordersFetch");
+    expect(names).not.toContain("direct_orders/fetch");
+    expect(names).not.toContain("direct_orders%2Ffetch");
   });
 });

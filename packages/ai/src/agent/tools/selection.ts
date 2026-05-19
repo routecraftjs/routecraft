@@ -195,15 +195,9 @@ export function tools(items: ToolsItem[]): ToolSelection {
               message: `tools(): { name } must be a non-empty string.`,
             });
           }
-          if (
-            item.description !== undefined &&
-            (typeof item.description !== "string" ||
-              item.description.trim() === "")
-          ) {
-            throw rcError("RC5003", undefined, {
-              message: `tools(): { name: "${item.name}", description } must be a non-empty string when present.`,
-            });
-          }
+          // MCP refs reject any description override (empty or not) so
+          // users see the precise "MCP server is the source of truth"
+          // message instead of the generic empty-string error.
           if (isMcpRefName(item.name)) {
             if (item.description !== undefined) {
               throw rcError("RC5003", undefined, {
@@ -214,6 +208,15 @@ export function tools(items: ToolsItem[]): ToolSelection {
               explicit.set(tool.name, tool);
             }
             continue;
+          }
+          if (
+            item.description !== undefined &&
+            (typeof item.description !== "string" ||
+              item.description.trim() === "")
+          ) {
+            throw rcError("RC5003", undefined, {
+              message: `tools(): { name: "${item.name}", description } must be a non-empty string when present.`,
+            });
           }
           const base = resolveByName(ctx, item.name, item.guard);
           // Per-binding description override. The registry entry is
@@ -466,10 +469,21 @@ function mcpEntryToResolvedTool(
       : `MCP tool "${entry.name}" on client "${entry.source}".`;
   const input = wrapJsonSchemaAsStandard(entry.inputSchema);
   const handler: FnOptions["handler"] = async (rawInput) => {
-    const args =
-      rawInput && typeof rawInput === "object"
-        ? (rawInput as Record<string, unknown>)
-        : {};
+    // MCP tools expect a JSON-object argument. Silently coercing a
+    // non-object value to `{}` would discard the LLM's args and surface
+    // an unrelated server-side error; fail loudly so the model sees a
+    // precise correction message and can retry with the right shape.
+    if (
+      rawInput === null ||
+      rawInput === undefined ||
+      typeof rawInput !== "object" ||
+      Array.isArray(rawInput)
+    ) {
+      throw rcError("RC5003", undefined, {
+        message: `mcp tool "${name}" expects an object argument; received ${rawInput === null ? "null" : Array.isArray(rawInput) ? "array" : typeof rawInput}.`,
+      });
+    }
+    const args = rawInput as Record<string, unknown>;
     return dispatchMcpCall(ctx, entry.source, entry.name, args);
   };
   const tool: ResolvedTool = {
@@ -579,10 +593,9 @@ function resolveByTags(
   if (scope.kind === "all") {
     // Walk the fn registry first so explicit fn-side tags (incl. directTool
     // wrappers) take precedence over a parallel direct-registry walk.
-    // Skip non-direct deferred entries entirely: agentTool always throws
-    // on .resolve() by design, and a misconfigured directTool would throw
-    // too -- swallowing failures here would mask real config bugs, so we
-    // don't resolve such entries unless an explicit by-name ref forces it.
+    // Skip non-direct deferred entries entirely (none exist today now that
+    // `agentTool` is gone, but the guard is kept so future deferred kinds
+    // do not silently surface here without an explicit by-name ref).
     const fnRegistry = ctx.getStore(ADAPTER_FN_REGISTRY) as
       | Map<string, FnEntry>
       | undefined;
@@ -600,7 +613,12 @@ function resolveByTags(
           const fn = entry.resolve(ctx, name);
           out.push(toResolvedTool(name, fn, guard));
           seenNames.add(name);
-          coveredRouteIds.add(entry.targetId);
+          // Direct routes register under their sanitised endpoint, but
+          // `directTool` wrappers carry the user-supplied raw id. Store the
+          // sanitised form so the direct-registry walk below (which
+          // iterates the registry by its sanitised key) dedups correctly
+          // even when the route id contains URL-special chars like "/".
+          coveredRouteIds.add(sanitizeEndpoint(entry.targetId));
           continue;
         }
         const tags = entry.tags ?? [];
@@ -612,7 +630,9 @@ function resolveByTags(
     }
 
     // Walk the direct registry for routes not already surfaced via a
-    // fn-registry wrapper. Use the prefix-convention name `direct_<id>`.
+    // fn-registry wrapper. Registry keys are the sanitised endpoint;
+    // `coveredRouteIds` is also keyed by the sanitised form so the
+    // dedup works for raw ids containing URL-special characters.
     const directRegistry = ctx.getStore(ADAPTER_DIRECT_REGISTRY) as
       | Map<string, DirectRouteMetadata>
       | undefined;

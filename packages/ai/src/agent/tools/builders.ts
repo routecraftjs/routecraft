@@ -281,36 +281,6 @@ async function dispatchDirect<TIn>(
 }
 
 /**
- * Wrap a registered agent as a fn-shaped tool. Lands in story F (sub-
- * agents). Available now as a builder so the prefix auto-resolution
- * path in `tools(...)` can recognise `agent_*` and emit a clear "not
- * supported yet" error rather than treating the name as an unknown fn.
- *
- * @experimental
- */
-export function agentTool(
-  agentId: string,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- shape mirrors the future story F signature
-  _overrides?: never,
-): DeferredFn {
-  if (typeof agentId !== "string" || agentId.trim() === "") {
-    throw rcError("RC5003", undefined, {
-      message: `agentTool: agentId must be a non-empty string.`,
-    });
-  }
-  return {
-    [DEFERRED_FN_BRAND]: true,
-    kind: "agent",
-    targetId: agentId,
-    resolve(_ctx, fnId): FnOptions {
-      throw rcError("RC5003", undefined, {
-        message: `agentTool("${agentId}") (referenced as fn "${fnId}") is not yet supported. Sub-agent tools land in a follow-up story.`,
-      });
-    },
-  };
-}
-
-/**
  * Small starter set of generic, broadly useful fns. Spread into your
  * `agentPlugin({ functions: { ... } })` config to give every agent in
  * the context the basics for free.

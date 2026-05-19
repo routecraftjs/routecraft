@@ -4,7 +4,6 @@ import { craft, direct, isRoutecraftError, log } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
   agentPlugin,
-  agentTool,
   defaultFns,
   directTool,
   isDeferredFn,
@@ -337,30 +336,6 @@ describe("tool builders - directTool dispatch", () => {
       },
     );
     expect(downstreamPrincipal).toEqual(principal);
-  });
-});
-
-describe("tool builders - agentTool stub", () => {
-  /**
-   * @case agentTool returns a deferred descriptor whose resolve throws
-   * @preconditions agentTool("researcher")
-   * @expectedResult deferred kind === "agent"; resolve throws RC5003 mentioning the story
-   */
-  test("agentTool returns a deferred descriptor that resolves to a not-yet-supported error", () => {
-    const desc = agentTool("researcher");
-    expect(desc.kind).toBe("agent");
-    expect(() => desc.resolve(undefined as never, "research")).toThrow(
-      /not yet supported/i,
-    );
-  });
-
-  /**
-   * @case agentTool throws on empty agentId at build time
-   * @preconditions agentTool("")
-   * @expectedResult RC5003 thrown synchronously
-   */
-  test("agentTool throws on empty agentId", () => {
-    expect(() => agentTool("")).toThrow(/agentId/i);
   });
 });
 

@@ -299,6 +299,69 @@ describe("tools() resolver - MCP refs", () => {
       tools([{ name: "mcp_X:y", description: "override" }]).resolve(t!.ctx),
     ).toThrow(/description.*MCP server is the source of truth/);
   });
+
+  /**
+   * @case Empty-string description on an MCP { name } item throws the MCP-specific error, not the generic empty-string error
+   * @preconditions { name: "mcp_X:y", description: "" } in tools()
+   * @expectedResult RC5003 mentioning "MCP server is the source of truth", not "must be a non-empty string"
+   */
+  test("empty-string description on an MCP { name } item throws the MCP-specific error", async () => {
+    t = await buildCtxWithMcp([
+      { source: "X", transport: "http", tools: [{ name: "y" }] },
+    ]);
+    expect(() =>
+      tools([{ name: "mcp_X:y", description: "" }]).resolve(t!.ctx),
+    ).toThrow(/MCP server is the source of truth/);
+  });
+
+  /**
+   * @case description override on an MCP wildcard { name } item throws the MCP-specific error
+   * @preconditions { name: "mcp_X:*", description: "x" } in tools()
+   * @expectedResult RC5003 mentioning MCP server is the source of truth
+   */
+  test("description override on an MCP wildcard { name } item throws", async () => {
+    t = await buildCtxWithMcp([
+      { source: "X", transport: "http", tools: [{ name: "y" }] },
+    ]);
+    expect(() =>
+      tools([{ name: "mcp_X:*", description: "override" }]).resolve(t!.ctx),
+    ).toThrow(/MCP server is the source of truth/);
+  });
+
+  /**
+   * @case MCP tool handler rejects non-object input instead of silently coercing to {}
+   * @preconditions Resolved MCP tool's handler called with null / array / number
+   * @expectedResult RC5003 thrown synchronously naming the tool and the received type; dispatch never runs
+   */
+  test("MCP tool handler throws RC5003 on non-object input", async () => {
+    t = await buildCtxWithMcp([
+      {
+        source: "Nuclino",
+        transport: "http",
+        tools: [
+          {
+            name: "search_items",
+            description: "search",
+            inputSchema: { type: "object", properties: {} },
+          },
+        ],
+      },
+    ]);
+    const resolved = tools(["mcp_Nuclino:search_items"]).resolve(t!.ctx);
+    expect(resolved).toHaveLength(1);
+    const tool = resolved[0]!;
+    await expect(
+      tool.handler(null as unknown, {} as FnHandlerContext),
+    ).rejects.toThrow(/mcp tool.*expects an object argument.*null/);
+    await expect(
+      tool.handler([1, 2] as unknown, {} as FnHandlerContext),
+    ).rejects.toThrow(/mcp tool.*expects an object argument.*array/);
+    await expect(
+      tool.handler(42 as unknown, {} as FnHandlerContext),
+    ).rejects.toThrow(/mcp tool.*expects an object argument.*number/);
+    // Sanity: a real object argument still dispatches through.
+    expect(recordedDispatches).toHaveLength(0);
+  });
 });
 
 describe("tools() resolver - { tagged, from? } over MCP", () => {

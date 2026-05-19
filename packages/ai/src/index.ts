@@ -159,11 +159,12 @@ export type {
   RegisteredFnId,
 } from "./fn/index.ts";
 
-// Tool builders: wrap registered routes / agents / MCP tools as
-// fn-shaped entries usable from `agentPlugin({ functions: { ... } })`,
-// plus the `tools([...])` selector consumed by the agent runtime.
+// Tool builders: wrap registered routes as fn-shaped entries usable
+// from `agentPlugin({ functions: { ... } })`, plus the `tools([...])`
+// selector consumed by the agent runtime. MCP tools are resolved
+// directly via the `mcp_<client>:<tool>` grammar inside `tools(...)`;
+// sub-agent tools land in a follow-up story.
 export {
-  agentTool,
   defaultFns,
   directTool,
   isDeferredFn,
