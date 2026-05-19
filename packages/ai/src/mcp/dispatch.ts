@@ -125,18 +125,20 @@ export async function callRemoteTool(
     ) => unknown;
   };
 
-  const url = new URL(serverUrl);
-  const headers = await buildAuthHeaders(auth);
-  const transportOptions = headers ? { requestInit: { headers } } : undefined;
-  const transport = new transportModule.StreamableHTTPClientTransport(
-    url,
-    transportOptions,
-  );
-  const client = new clientModule.Client(
-    { name: "routecraft-mcp-client", version: "1.0.0" },
-    { capabilities: {} },
-  );
+  let transport: unknown;
+  let client: unknown;
   try {
+    const url = new URL(serverUrl);
+    const headers = await buildAuthHeaders(auth);
+    const transportOptions = headers ? { requestInit: { headers } } : undefined;
+    transport = new transportModule.StreamableHTTPClientTransport(
+      url,
+      transportOptions,
+    );
+    client = new clientModule.Client(
+      { name: "routecraft-mcp-client", version: "1.0.0" },
+      { capabilities: {} },
+    );
     await (client as unknown as { connect(t: unknown): Promise<void> }).connect(
       transport,
     );
@@ -166,28 +168,36 @@ export async function callRemoteTool(
       message: `mcp dispatch: failed to call tool "${toolName}" at "${serverUrl}".`,
     });
   } finally {
-    const clientCleanup = client as unknown as {
-      close?: () => void | Promise<void>;
-      disconnect?: () => void | Promise<void>;
-    };
-    const closeOrDisconnect = clientCleanup.close ?? clientCleanup.disconnect;
-    if (typeof closeOrDisconnect === "function") {
-      try {
-        await Promise.resolve(closeOrDisconnect.call(client));
-      } catch {
-        // Ignore cleanup errors so original error propagates
+    // `client` and `transport` may be undefined when an early step
+    // inside the try block (URL parsing, auth header building,
+    // transport / client construction) threw before they were
+    // assigned. Guard each cleanup with a truthy check.
+    if (client) {
+      const clientCleanup = client as {
+        close?: () => void | Promise<void>;
+        disconnect?: () => void | Promise<void>;
+      };
+      const closeOrDisconnect = clientCleanup.close ?? clientCleanup.disconnect;
+      if (typeof closeOrDisconnect === "function") {
+        try {
+          await Promise.resolve(closeOrDisconnect.call(client));
+        } catch {
+          // Ignore cleanup errors so original error propagates
+        }
       }
     }
-    const transportCleanup = transport as unknown as {
-      close?: () => void | Promise<void>;
-      destroy?: () => void;
-    };
-    const closeOrDestroy = transportCleanup.close ?? transportCleanup.destroy;
-    if (typeof closeOrDestroy === "function") {
-      try {
-        await Promise.resolve(closeOrDestroy.call(transport));
-      } catch {
-        // Ignore cleanup errors so original error propagates
+    if (transport) {
+      const transportCleanup = transport as {
+        close?: () => void | Promise<void>;
+        destroy?: () => void;
+      };
+      const closeOrDestroy = transportCleanup.close ?? transportCleanup.destroy;
+      if (typeof closeOrDestroy === "function") {
+        try {
+          await Promise.resolve(closeOrDestroy.call(transport));
+        } catch {
+          // Ignore cleanup errors so original error propagates
+        }
       }
     }
   }

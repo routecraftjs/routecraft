@@ -576,4 +576,45 @@ describe("dispatchMcpCall: RC5003 error wrapping", () => {
       await t.stop();
     }
   });
+
+  /**
+   * @case Malformed HTTP server URL surfaces as RC5003, not a raw TypeError
+   * @preconditions Server registered with `url: "not a url"`; dispatchMcpCall invoked
+   * @expectedResult Caught error is a RoutecraftError with rc "RC5003"; the underlying TypeError travels on `cause`
+   */
+  test("malformed serverUrl throws RC5003 (URL construction is inside the try)", async () => {
+    const { dispatchMcpCall } = await import("../src/mcp/dispatch.ts");
+    const { ADAPTER_MCP_CLIENT_SERVERS } = await import("../src/index.ts");
+    const { isRoutecraftError } = await import("@routecraft/routecraft");
+    const t = await testContext()
+      .with({
+        plugins: [
+          {
+            apply(ctx) {
+              const servers = new Map<
+                string,
+                { url: string; auth?: undefined }
+              >();
+              servers.set("bad", { url: "not a url" });
+              ctx.setStore(ADAPTER_MCP_CLIENT_SERVERS, servers);
+            },
+          },
+        ],
+      })
+      .build();
+    try {
+      let caught: unknown;
+      try {
+        await dispatchMcpCall(t.ctx, "bad", "anything", {});
+      } catch (err) {
+        caught = err;
+      }
+      expect(isRoutecraftError(caught)).toBe(true);
+      const rcerr = caught as { rc: string; cause?: unknown };
+      expect(rcerr.rc).toBe("RC5003");
+      expect(rcerr.cause).toBeInstanceOf(TypeError);
+    } finally {
+      await t.stop();
+    }
+  });
 });

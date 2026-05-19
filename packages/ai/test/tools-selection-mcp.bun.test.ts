@@ -256,6 +256,23 @@ describe("tools() resolver - MCP refs", () => {
   });
 
   /**
+   * @case Malformed MCP refs with an empty client or tool segment surface as MCP grammar errors, not generic "unknown tool"
+   * @preconditions Registry populated with one valid Nuclino tool; user writes `mcp_:foo` or `mcp_foo:`
+   * @expectedResult Each throws RC5003 mentioning the MCP grammar (form "mcp_<client>:<tool>"), not "unknown tool"
+   */
+  test("malformed mcp_ refs (empty client / empty tool) emit MCP-specific errors", async () => {
+    t = await buildCtxWithMcp([
+      { source: "Nuclino", transport: "http", tools: [{ name: "real_tool" }] },
+    ]);
+    expect(() => tools(["mcp_:foo"]).resolve(t!.ctx)).toThrow(
+      /MCP reference.*form "mcp_<client>:<tool>".*empty client or tool/,
+    );
+    expect(() => tools(["mcp_foo:"]).resolve(t!.ctx)).toThrow(
+      /MCP reference.*form "mcp_<client>:<tool>".*empty client or tool/,
+    );
+  });
+
+  /**
    * @case MCP_TOOL_REGISTRY missing throws a helpful "install mcpPlugin" error
    * @preconditions Context built without mcpPlugin; user references an MCP tool
    * @expectedResult Throw mentions install hint

@@ -335,20 +335,19 @@ function toResolvedTool(
 }
 
 /**
- * Recognise an MCP tool reference. The grammar is
- * `mcp_<client>:<tool>` (or `mcp_<client>:*` for a wildcard) — so a
- * legit MCP ref always carries a `:` somewhere after the `mcp_`
- * prefix and before the end. Without this guard, a plain fn id like
- * `mcp_healthcheck` would be hijacked by the MCP path and throw a
- * grammar error instead of resolving via the fn registry.
+ * Recognise an attempted MCP tool reference. The grammar is
+ * `mcp_<client>:<tool>` (or `mcp_<client>:*` for a wildcard), so any
+ * `mcp_*` name that contains a `:` is treated as an MCP ref. Plain
+ * fn ids like `mcp_healthcheck` (no `:`) fall through to fn-registry
+ * lookup. Malformed shapes like `mcp_:foo` or `mcp_foo:` are still
+ * caught here so `resolveMcpRefs` can emit the precise grammar error
+ * instead of a generic "unknown tool" message.
  *
  * @internal
  */
 function isMcpRefName(name: string): boolean {
   if (!name.startsWith("mcp_")) return false;
-  const rest = name.slice("mcp_".length);
-  const colon = rest.indexOf(":");
-  return colon > 0 && colon < rest.length - 1;
+  return name.slice("mcp_".length).includes(":");
 }
 
 /**
