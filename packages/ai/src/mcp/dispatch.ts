@@ -10,18 +10,7 @@ import {
   MCP_STDIO_MANAGERS,
   type McpClientAuthOptions,
   type McpClientHttpConfig,
-  type McpClientStdioConfig,
 } from "./types.ts";
-
-/**
- * Stdio-call shape stored in `MCP_STDIO_MANAGERS`. Kept narrow so this
- * module does not depend on `StdioClientManager` directly.
- *
- * @internal
- */
-interface StdioCallable {
-  callTool(name: string, args: Record<string, unknown>): Promise<unknown>;
-}
 
 /**
  * Dispatch an MCP tool call against a server registered via
@@ -50,19 +39,13 @@ export async function dispatchMcpCall(
   toolName: string,
   args: Record<string, unknown>,
 ): Promise<unknown> {
-  const stdioManagers = ctx.getStore(
-    MCP_STDIO_MANAGERS as keyof import("@routecraft/routecraft").StoreRegistry,
-  ) as Map<string, StdioCallable> | undefined;
+  const stdioManagers = ctx.getStore(MCP_STDIO_MANAGERS);
   const manager = stdioManagers?.get(serverId);
   if (manager) {
     return manager.callTool(toolName, args);
   }
 
-  const servers = ctx.getStore(
-    ADAPTER_MCP_CLIENT_SERVERS as keyof import("@routecraft/routecraft").StoreRegistry,
-  ) as
-    | Map<string, McpClientHttpConfig | McpClientStdioConfig | string>
-    | undefined;
+  const servers = ctx.getStore(ADAPTER_MCP_CLIENT_SERVERS);
   const config = servers?.get(serverId);
   if (!config) {
     throw rcError("RC5003", undefined, {
@@ -93,13 +76,14 @@ export async function dispatchMcpCall(
 
 /**
  * Open a one-shot MCP SDK client over Streamable HTTP, dispatch the
- * tool, then close. Mirrors the implementation in
- * `mcp/adapters/mcp/destination.ts` so both call sites agree on
- * transport setup, auth-header building, and content extraction.
+ * tool, then close. Used by `dispatchMcpCall` for the HTTP path and
+ * by `McpDestinationAdapter` for inline-URL routes that bypass the
+ * registry. Centralised here so transport setup, auth-header
+ * building, and content extraction stay in one place.
  *
  * @internal
  */
-async function callRemoteTool(
+export async function callRemoteTool(
   serverUrl: string,
   toolName: string,
   args: Record<string, unknown>,
@@ -162,16 +146,28 @@ async function callRemoteTool(
     });
     return extractContent(response);
   } finally {
-    const cleanup = client as unknown as {
+    const clientCleanup = client as unknown as {
       close?: () => void | Promise<void>;
       disconnect?: () => void | Promise<void>;
     };
-    const closeOrDisconnect = cleanup.close ?? cleanup.disconnect;
+    const closeOrDisconnect = clientCleanup.close ?? clientCleanup.disconnect;
     if (typeof closeOrDisconnect === "function") {
       try {
         await Promise.resolve(closeOrDisconnect.call(client));
       } catch {
-        /* swallow cleanup errors */
+        // Ignore cleanup errors so original error propagates
+      }
+    }
+    const transportCleanup = transport as unknown as {
+      close?: () => void | Promise<void>;
+      destroy?: () => void;
+    };
+    const closeOrDestroy = transportCleanup.close ?? transportCleanup.destroy;
+    if (typeof closeOrDestroy === "function") {
+      try {
+        await Promise.resolve(closeOrDestroy.call(transport));
+      } catch {
+        // Ignore cleanup errors so original error propagates
       }
     }
   }

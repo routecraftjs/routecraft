@@ -156,18 +156,6 @@ describe("tools() resolver - bare references", () => {
       /sub-agent|follow-up/i,
     );
   });
-
-  /**
-   * @case mcp_<server>_<tool> reference surfaces a clear "story E" error
-   * @preconditions resolve tools(["mcp_brave_search"])
-   * @expectedResult RC5003 thrown mentioning MCP / follow-up story
-   */
-  test("mcp_<...> bare ref throws not-yet-supported", async () => {
-    t = await buildCtx({});
-    expect(() => tools(["mcp_brave_search"]).resolve(t!.ctx)).toThrow(
-      /MCP|follow-up/i,
-    );
-  });
 });
 
 describe("tools() resolver - { name, guard }", () => {

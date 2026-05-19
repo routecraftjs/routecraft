@@ -79,8 +79,9 @@ export interface ToolSelection {
   /**
    * Resolve the selection against the live context. Throws RC5003 on
    * any unresolvable explicit reference (unknown name, deferred
-   * resolution failure). Tag selectors that match nothing contribute
-   * zero tools and never throw.
+   * resolution failure) AND on tag selectors that match zero tools,
+   * so a misconfigured selector cannot silently strip every tool from
+   * an agent.
    */
   readonly resolve: (ctx: CraftContext) => ResolvedTool[];
 }
@@ -236,12 +237,11 @@ export function tools(items: ToolsItem[]): ToolSelection {
         if (typeof item === "object" && item !== null && "tagged" in item) {
           const wanted = normalizeTags(item.tagged);
           if (wanted.length === 0) continue;
-          const from = normalizeFrom(item.from);
-          const matches = resolveByTags(ctx, wanted, item.guard, from);
+          const matches = resolveByTags(ctx, wanted, item.guard, item.from);
           if (matches.length === 0) {
             throw rcError("RC5003", undefined, {
-              message: from
-                ? `tools(): tagged selector matched no tools (tagged: ${formatTags(wanted)}, from: "${from}").`
+              message: item.from
+                ? `tools(): tagged selector matched no tools (tagged: ${formatTags(wanted)}, from: "${item.from}").`
                 : `tools(): tagged selector matched no tools (tagged: ${formatTags(wanted)}).`,
             });
           }
@@ -380,9 +380,7 @@ function resolveMcpRefs(
       message: `tools(): MCP reference "${ref}" must use the form "mcp_<client>:<tool>" or "mcp_<client>:*"; got empty client or tool segment.`,
     });
   }
-  const registry = ctx.getStore(
-    MCP_TOOL_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry,
-  ) as McpToolRegistry | undefined;
+  const registry = ctx.getStore(MCP_TOOL_REGISTRY);
   if (!registry) {
     throw rcError("RC5003", undefined, {
       message: `tools(): MCP reference "${ref}" but no MCP_TOOL_REGISTRY is present. Install mcpPlugin (defineConfig.mcp) so external clients populate the registry.`,
@@ -429,6 +427,17 @@ function resolveMcpRefs(
  * resolution time and dispatches via `dispatchMcpCall`, so a tool
  * call goes through the same stdio / HTTP plumbing as the `mcp(...)`
  * destination adapter.
+ *
+ * Auth boundary: the routecraft principal (`FnHandlerContext.principal`)
+ * authenticates the caller into routecraft and is intentionally
+ * NOT forwarded to the MCP server. The MCP client is authenticated
+ * separately via the static credentials registered on
+ * `defineConfig.mcp({ clients: { name: { auth } } })`. If the agent
+ * needs to thread user-specific data into a tool call, it must do so
+ * as a regular tool argument (e.g. include a `tenantId` field), never
+ * by piggybacking on a credential. Two trust boundaries: principal
+ * authenticates Routecraft; MCP `auth` authenticates the
+ * Routecraft -> MCP hop.
  *
  * @internal
  */
@@ -545,6 +554,9 @@ function resolveByTags(
   // double-include them. Wrappers that didn't match the wanted tag set
   // are NOT added here -- the underlying route may still match by its
   // own tags and is allowed to surface under the prefix convention.
+  // MCP entries are walked separately at the end of this function via
+  // MCP_TOOL_REGISTRY (not the fn-registry deferred path), so they
+  // sit outside this dedup set.
   const coveredRouteIds = new Set<string>();
 
   // fn registry and direct registry walks only run when scope is
@@ -618,9 +630,7 @@ function resolveByTags(
 
   // Walk the MCP registry. Under "all" scope every client is in
   // scope; under "mcp" scope only the named client contributes.
-  const mcpRegistry = ctx.getStore(
-    MCP_TOOL_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry,
-  ) as McpToolRegistry | undefined;
+  const mcpRegistry = ctx.getStore(MCP_TOOL_REGISTRY);
   if (mcpRegistry) {
     let entries: McpToolRegistryEntry[];
     if (scope.kind === "mcp") {
@@ -660,16 +670,6 @@ function formatTags(tags: Tag[]): string {
   return tags.length === 1
     ? `"${tags[0]}"`
     : `[${tags.map((t) => `"${t}"`).join(", ")}]`;
-}
-
-function normalizeFrom(from: unknown): string | undefined {
-  if (from === undefined) return undefined;
-  if (typeof from !== "string") {
-    throw rcError("RC5003", undefined, {
-      message: `tools(): "from" must be a string when present.`,
-    });
-  }
-  return from;
 }
 
 function peekDirectTags(ctx: CraftContext, routeId: string): Tag[] {
