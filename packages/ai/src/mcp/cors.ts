@@ -249,6 +249,16 @@ export function buildCorsHeaders(
   if (preflight) {
     headers["Access-Control-Allow-Methods"] = ALLOW_METHODS;
     headers["Access-Control-Allow-Headers"] = ALLOW_HEADERS;
+    // Chrome Private Network Access: when a non-loopback Origin reaches a
+    // loopback/private target (e.g. a hosted browser MCP client tunneled
+    // to a local MCP server during integration testing), Chrome blocks the
+    // preflight unless the server opts in via this header. The header is
+    // ignored by other browsers and by Chrome when the cross-network
+    // condition does not apply, so emitting it unconditionally on preflight
+    // -- gated on the origin already being allowlisted by the policy --
+    // is safe and avoids threading the request headers through the helper.
+    // Spec: https://wicg.github.io/private-network-access/
+    headers["Access-Control-Allow-Private-Network"] = "true";
   } else {
     headers["Access-Control-Expose-Headers"] = EXPOSE_HEADERS;
   }

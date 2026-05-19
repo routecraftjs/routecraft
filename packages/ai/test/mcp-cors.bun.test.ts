@@ -245,18 +245,30 @@ describe("MCP CORS helper", () => {
     });
 
     /**
-     * @case Preflight responses include Allow-Methods/Allow-Headers but omit Expose-Headers
+     * @case Preflight responses include Allow-Methods/Allow-Headers and PNA opt-in but omit Expose-Headers
      * @preconditions Default policy; preflight=true; loopback Origin
-     * @expectedResult Methods header lists GET, POST, OPTIONS; Headers is "*"; Expose-Headers is absent (browsers ignore it on preflight per the Fetch spec)
+     * @expectedResult Methods header lists GET, POST, OPTIONS; Headers is "*"; Allow-Private-Network is "true" so Chrome PNA preflights succeed for public->loopback crossings; Expose-Headers is absent (browsers ignore it on preflight per the Fetch spec)
      */
-    test("preflight emits methods and headers, omits expose-headers", () => {
+    test("preflight emits methods, headers, PNA opt-in; omits expose-headers", () => {
       const cors = resolveCorsOptions(undefined);
       const headers = buildCorsHeaders(cors, "http://localhost:6274", true);
       expect(headers["Access-Control-Allow-Methods"]).toContain("GET");
       expect(headers["Access-Control-Allow-Methods"]).toContain("POST");
       expect(headers["Access-Control-Allow-Methods"]).toContain("OPTIONS");
       expect(headers["Access-Control-Allow-Headers"]).toBe("*");
+      expect(headers["Access-Control-Allow-Private-Network"]).toBe("true");
       expect(headers["Access-Control-Expose-Headers"]).toBeUndefined();
+    });
+
+    /**
+     * @case Disallowed origins do not receive the PNA opt-in even on preflight
+     * @preconditions Default policy; preflight=true; non-loopback Origin
+     * @expectedResult Only Vary: Origin is set; no Allow-Origin, no PNA opt-in (browser should not see a private-network grant for an origin we are not allowing in the first place)
+     */
+    test("rejected origin preflight does not emit Allow-Private-Network", () => {
+      const cors = resolveCorsOptions(undefined);
+      const headers = buildCorsHeaders(cors, "https://evil.example", true);
+      expect(headers).toEqual({ Vary: "Origin" });
     });
 
     /**

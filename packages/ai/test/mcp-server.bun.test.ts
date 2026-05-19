@@ -1135,6 +1135,12 @@ describe("McpServer", () => {
           "OPTIONS",
         );
         expect(res.headers["vary"]).toBe("Origin");
+        // Chrome Private Network Access opt-in so public->loopback browser
+        // clients (e.g. hosted Inspector tunnelled to a local MCP server) are
+        // not blocked at the PNA preflight gate.
+        expect(res.headers["access-control-allow-private-network"]).toBe(
+          "true",
+        );
       });
 
       /**
