@@ -223,22 +223,6 @@ craft()
 
 Icons resolve with the same rule at both levels: omit `icons` to inherit (a tool with no icon of its own shows the server's icon, including the Routecraft default), set `icons: [...]` for a custom icon, or set `icons: []` to show none.
 
-### Migrating from `McpToolIcon`
-
-The icon type was renamed from `McpToolIcon` to the shared `McpIcon` and reshaped to match the MCP `Icon` spec. If you set per-tool icons before, update the field shape:
-
-```ts
-// Before
-icons: [{ src: '/icon.svg', sizes: '48x48', type: 'image/svg+xml' }]
-
-// After
-icons: [{ src: '/icon.svg', sizes: ['48x48'], mimeType: 'image/svg+xml' }]
-```
-
-- `type` is renamed to `mimeType`.
-- `sizes` changes from a space-separated string to a string array (`'48x48 96x96'` becomes `['48x48', '96x96']`).
-- A new optional `theme: 'light' | 'dark'` field is available.
-
 ## Authentication
 
 When using HTTP transport, secure the endpoint with the `auth` option.
