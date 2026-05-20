@@ -35,6 +35,7 @@ import {
 } from "./cors.ts";
 import { ROUTECRAFT_DEFAULT_ICONS } from "./default-icon.ts";
 import { buildEnrichedVerifier } from "./userinfo.ts";
+import { isExpiredTokenError } from "./auth-errors.ts";
 
 /**
  * MCP SDK `AuthInfo` shape. Imported as a type so nothing is required at
@@ -787,10 +788,11 @@ export class McpServer {
 
     // Wrap the user's verifier so the MCP SDK sees a clean AuthInfo while the
     // rich OAuthPrincipal rides through in `extra.principal` for
-    // this.authInfoToPrincipal. Token verification errors are logged and
-    // emitted as `auth:rejected` so operators can observe brute-force
-    // attempts, expired tokens, and mismatched audiences alongside the
-    // validator path's rejections.
+    // this.authInfoToPrincipal. Token verification failures emit `auth:rejected`
+    // so operators can observe brute-force attempts, mismatched audiences, and
+    // expired tokens alongside the validator path's rejections. Expiry is
+    // routine (the client refreshes and retries) so it logs at `debug`; every
+    // other failure logs at `warn`.
     const wrappedVerifier = async (token: string): Promise<SdkAuthInfo> => {
       let principal: OAuthPrincipal;
       try {
@@ -803,10 +805,17 @@ export class McpServer {
           source: "mcp",
           path: "oauth",
         };
-        this.context.logger.warn(
-          { err, ...detail },
-          "Auth rejected: token validation failed",
-        );
+        if (isExpiredTokenError(err)) {
+          this.context.logger.debug(
+            { err, ...detail },
+            "Auth rejected: token expired",
+          );
+        } else {
+          this.context.logger.warn(
+            { err, ...detail },
+            "Auth rejected: token validation failed",
+          );
+        }
         this.context.emit("auth:rejected", detail);
         throw err;
       }
@@ -1143,7 +1152,11 @@ export class McpServer {
         scheme: "bearer",
         source: "mcp",
       };
-      this.context.logger.warn(
+      // A tokenless request is the spec-defined MCP OAuth discovery probe (the
+      // client fetches without credentials to read the 401 + WWW-Authenticate,
+      // then runs the flow and retries), so it is logged at `debug`. The
+      // `auth:rejected` event still fires so observers can count probes.
+      this.context.logger.debug(
         detail,
         "Auth rejected: missing or malformed Authorization header",
       );
@@ -1158,7 +1171,10 @@ export class McpServer {
         scheme: "bearer",
         source: "mcp",
       };
-      this.context.logger.warn(
+      // Same class as a tokenless probe: the client has not authenticated yet,
+      // so this is routine discovery noise rather than a failed authentication.
+      // Logged at `debug`; the `auth:rejected` event still fires.
+      this.context.logger.debug(
         detail,
         "Auth rejected: unsupported authorization scheme",
       );
@@ -1186,10 +1202,20 @@ export class McpServer {
         scheme: "bearer",
         source: "mcp",
       };
-      this.context.logger.warn(
-        { err, ...detail },
-        "Auth rejected: token validation failed",
-      );
+      // An expired token is routine (the client refreshes and retries), so it
+      // logs at `debug`; any other validation failure stays at `warn` as an
+      // operator signal. The `auth:rejected` event fires for both.
+      if (isExpiredTokenError(err)) {
+        this.context.logger.debug(
+          { err, ...detail },
+          "Auth rejected: token expired",
+        );
+      } else {
+        this.context.logger.warn(
+          { err, ...detail },
+          "Auth rejected: token validation failed",
+        );
+      }
       this.context.emit("auth:rejected", detail);
       return null;
     }
