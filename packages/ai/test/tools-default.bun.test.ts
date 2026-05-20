@@ -21,7 +21,7 @@ describe("agentPlugin defaultOptions storage", () => {
 
   /**
    * @case defaultOptions.tools is stored under ADAPTER_AGENT_DEFAULT_OPTIONS
-   * @preconditions agentPlugin({ defaultOptions: { tools: tools(["currentTime"]) } })
+   * @preconditions agentPlugin({ defaultOptions: { tools: tools(["CurrentTime"]) } })
    * @expectedResult Store entry has a `tools` ToolSelection
    */
   test("agentPlugin stores defaultOptions.tools under the new symbol", async () => {
@@ -30,7 +30,7 @@ describe("agentPlugin defaultOptions storage", () => {
         plugins: [
           agentPlugin({
             functions: { ...defaultFns },
-            defaultOptions: { tools: tools(["currentTime"]) },
+            defaultOptions: { tools: tools(["CurrentTime"]) },
           }),
         ],
       })
@@ -86,10 +86,10 @@ describe("agentPlugin defaultOptions storage", () => {
           plugins: [
             agentPlugin({
               functions: { ...defaultFns },
-              defaultOptions: { tools: tools(["currentTime"]) },
+              defaultOptions: { tools: tools(["CurrentTime"]) },
             }),
             agentPlugin({
-              defaultOptions: { tools: tools(["randomUuid"]) },
+              defaultOptions: { tools: tools(["RandomUuid"]) },
             }),
           ],
         })
@@ -133,7 +133,7 @@ describe("agentPlugin defaultOptions storage", () => {
           }),
           agentPlugin({
             functions: { ...defaultFns },
-            defaultOptions: { tools: tools(["currentTime"]) },
+            defaultOptions: { tools: tools(["CurrentTime"]) },
           }),
         ],
       })
@@ -197,7 +197,7 @@ describe("agentPlugin per-agent tools field", () => {
    * @expectedResult Registered options contain the same ToolSelection
    */
   test("per-agent tools selection is preserved on AgentRegisteredOptions", async () => {
-    const sel = tools(["currentTime"]);
+    const sel = tools(["CurrentTime"]);
     t = await testContext()
       .with({
         plugins: [
@@ -252,7 +252,7 @@ describe("agentPlugin per-agent tools field", () => {
 
   /**
    * @case agentPlugin throws when an agent's tools is not a ToolSelection
-   * @preconditions agents entry with tools: ["currentTime"] cast to never
+   * @preconditions agents entry with tools: ["CurrentTime"] cast to never
    * @expectedResult RC5003 thrown at context init naming the agent
    */
   test("agentPlugin throws when agent tools is not a ToolSelection", async () => {
@@ -266,7 +266,7 @@ describe("agentPlugin per-agent tools field", () => {
                   description: "x",
                   model: "anthropic:claude-opus-4-7",
                   system: "y",
-                  tools: ["currentTime"] as never,
+                  tools: ["CurrentTime"] as never,
                 },
               },
             }),
@@ -280,7 +280,7 @@ describe("agentPlugin per-agent tools field", () => {
 describe("agent() inline tools validation", () => {
   /**
    * @case Inline agent({ tools }) rejects a non-ToolSelection synchronously
-   * @preconditions agent({ ..., tools: ["currentTime"] as never })
+   * @preconditions agent({ ..., tools: ["CurrentTime"] as never })
    * @expectedResult RC5003 thrown synchronously by validateAgentOptions
    */
   test("inline agent({ tools }) rejects a non-ToolSelection", () => {
@@ -288,21 +288,21 @@ describe("agent() inline tools validation", () => {
       agent({
         model: "anthropic:claude-opus-4-7",
         system: "Be helpful.",
-        tools: ["currentTime"] as never,
+        tools: ["CurrentTime"] as never,
       }),
     ).toThrow(/tools\(/);
   });
 
   /**
    * @case Inline agent({ tools: tools([...]) }) accepts a ToolSelection
-   * @preconditions agent with tools: tools(["currentTime"])
+   * @preconditions agent with tools: tools(["CurrentTime"])
    * @expectedResult agent() returns a destination without throwing
    */
   test("inline agent({ tools: tools(...) }) accepts a ToolSelection", () => {
     const dest = agent({
       model: "anthropic:claude-opus-4-7",
       system: "Be helpful.",
-      tools: tools(["currentTime"]),
+      tools: tools(["CurrentTime"]),
     });
     expect(dest).toBeDefined();
   });

@@ -341,31 +341,31 @@ describe("tool builders - directTool dispatch", () => {
 
 describe("tool builders - defaultFns", () => {
   /**
-   * @case defaultFns ships currentTime and randomUuid as eager FnOptions
+   * @case defaultFns ships CurrentTime and RandomUuid as eager FnOptions
    * @preconditions Spread defaultFns into agentPlugin.functions
    * @expectedResult Both registered, both have description / schema / handler / tags
    */
-  test("defaultFns provides currentTime and randomUuid as eager fns", () => {
-    expect(defaultFns.currentTime).toBeDefined();
-    expect(isDeferredFn(defaultFns.currentTime!)).toBe(false);
-    const ct = defaultFns.currentTime as FnOptions;
+  test("defaultFns provides CurrentTime and RandomUuid as eager fns", () => {
+    expect(defaultFns.CurrentTime).toBeDefined();
+    expect(isDeferredFn(defaultFns.CurrentTime!)).toBe(false);
+    const ct = defaultFns.CurrentTime as FnOptions;
     expect(typeof ct.description).toBe("string");
     expect(typeof ct.handler).toBe("function");
     expect(ct.tags).toContain("read-only");
 
-    expect(defaultFns.randomUuid).toBeDefined();
-    const ru = defaultFns.randomUuid as FnOptions;
+    expect(defaultFns.RandomUuid).toBeDefined();
+    const ru = defaultFns.RandomUuid as FnOptions;
     expect(typeof ru.description).toBe("string");
     expect(typeof ru.handler).toBe("function");
   });
 
   /**
-   * @case currentTime handler returns an ISO 8601 timestamp string
-   * @preconditions Call defaultFns.currentTime.handler({}, ctx)
+   * @case CurrentTime handler returns an ISO 8601 timestamp string
+   * @preconditions Call defaultFns.CurrentTime.handler({}, ctx)
    * @expectedResult Returns a parseable ISO string within a second of now
    */
-  test("currentTime handler returns a fresh ISO timestamp", async () => {
-    const ct = defaultFns.currentTime as FnOptions<
+  test("CurrentTime handler returns a fresh ISO timestamp", async () => {
+    const ct = defaultFns.CurrentTime as FnOptions<
       Record<string, never>,
       string
     >;

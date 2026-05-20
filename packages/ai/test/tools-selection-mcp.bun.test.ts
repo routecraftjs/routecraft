@@ -379,7 +379,7 @@ describe("tools() resolver - { tagged, from? } over MCP", () => {
 
   /**
    * @case `{ tagged: "read-only" }` walks fns AND MCP tools in one selection
-   * @preconditions defaultFns provides currentTime ("read-only"); registry has Nuclino:get_item with readOnlyHint
+   * @preconditions defaultFns provides CurrentTime ("read-only"); registry has Nuclino:get_item with readOnlyHint
    * @expectedResult Both tools appear in the resolved list
    */
   test("{ tagged } walks fns and MCP tools together", async () => {
@@ -395,7 +395,7 @@ describe("tools() resolver - { tagged, from? } over MCP", () => {
     );
     const resolved = tools([{ tagged: "read-only" }]).resolve(t.ctx);
     const names = resolved.map((r) => r.name).sort();
-    expect(names).toContain("currentTime");
+    expect(names).toContain("CurrentTime");
     expect(names).toContain("mcp_Nuclino:get_item");
   });
 
@@ -489,11 +489,11 @@ describe("tools() resolver - { tagged, from? } over MCP", () => {
     const resolved = tools([
       "mcp_Nuclino:*",
       { tagged: "destructive", from: "mcp_Nuclino" },
-      "currentTime",
+      "CurrentTime",
     ]).resolve(t.ctx);
     const names = resolved.map((r) => r.name).sort();
     expect(names).toEqual([
-      "currentTime",
+      "CurrentTime",
       "mcp_Nuclino:delete_item",
       "mcp_Nuclino:get_item",
     ]);

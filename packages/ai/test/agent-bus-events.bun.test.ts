@@ -106,7 +106,7 @@ describe("agent context-bus events", () => {
             agent({
               system: "Be helpful.",
               model: "anthropic:claude-opus-4-7",
-              tools: tools(["currentTime"]),
+              tools: tools(["CurrentTime"]),
             }),
           ),
       )
@@ -131,10 +131,10 @@ describe("agent context-bus events", () => {
     expect(events.map((e) => e.name)).toEqual(["invoked", "result"]);
     const invoked = events[0]!.details as Record<string, unknown>;
     expect(invoked["routeId"]).toBe("with-tool");
-    expect(invoked["toolName"]).toBe("currentTime");
-    expect(invoked["toolCallId"]).toBe("call-currentTime-1");
+    expect(invoked["toolName"]).toBe("CurrentTime");
+    expect(invoked["toolCallId"]).toBe("call-CurrentTime-1");
     const result = events[1]!.details as Record<string, unknown>;
-    expect(result["toolName"]).toBe("currentTime");
+    expect(result["toolName"]).toBe("CurrentTime");
     expect(result["duration"]).toBeTypeOf("number");
   });
 

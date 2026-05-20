@@ -151,7 +151,7 @@ export function isToolSelection(value: unknown): value is ToolSelection {
  * ```ts
  * agent({
  *   tools: tools([
- *     "currentTime",
+ *     "CurrentTime",
  *     "fetchOrder",
  *     "direct_cancel-order",
  *     { name: "sendSlack", guard: confirmGuard },

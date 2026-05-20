@@ -298,13 +298,13 @@ async function dispatchDirect<TIn>(
  * ```
  */
 export const defaultFns = {
-  currentTime: {
+  CurrentTime: {
     description: "Returns the current UTC timestamp in ISO 8601 format.",
     input: emptyObjectSchema,
     handler: () => new Date().toISOString(),
     tags: ["read-only", "idempotent"] satisfies KnownTag[],
   } satisfies FnOptions<Record<string, never>, string>,
-  randomUuid: {
+  RandomUuid: {
     description: "Generates a fresh random UUID v4.",
     input: emptyObjectSchema,
     handler: () => randomUUID(),

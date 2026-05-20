@@ -79,8 +79,8 @@ describe("agent runtime: tool wiring through callLlm", () => {
 
   /**
    * @case Agent with one fn tool passes a single Vercel tool to callLlm with stopWhen
-   * @preconditions agentPlugin functions: { currentTime }; agent.tools = tools(["currentTime"])
-   * @expectedResult callLlm receives tools.currentTime (Vercel tool object) and a stopWhen
+   * @preconditions agentPlugin functions: { CurrentTime }; agent.tools = tools(["CurrentTime"])
+   * @expectedResult callLlm receives tools.CurrentTime (Vercel tool object) and a stopWhen
    */
   test("agent with one fn tool passes the tool map to callLlm", async () => {
     t = await testContext()
@@ -98,7 +98,7 @@ describe("agent runtime: tool wiring through callLlm", () => {
             agent({
               system: "Be helpful.",
               model: "anthropic:claude-opus-4-7",
-              tools: tools(["currentTime"]),
+              tools: tools(["CurrentTime"]),
             }),
           ),
       )
@@ -109,7 +109,7 @@ describe("agent runtime: tool wiring through callLlm", () => {
     const args = callLlmMock.mock.calls[0][0];
     expect(args.tools).toBeDefined();
     expect(Object.keys(args.tools as Record<string, unknown>)).toEqual([
-      "currentTime",
+      "CurrentTime",
     ]);
     expect(args.stopWhen).toBeDefined();
   });
@@ -135,7 +135,7 @@ describe("agent runtime: tool wiring through callLlm", () => {
             agent({
               system: "x",
               model: "anthropic:claude-opus-4-7",
-              tools: tools(["currentTime"]),
+              tools: tools(["CurrentTime"]),
               maxTurns: 3,
             }),
           ),
@@ -249,7 +249,7 @@ describe("agent runtime: tool wiring through callLlm", () => {
 
   /**
    * @case Agent inherits defaultOptions.tools when tools field is omitted
-   * @preconditions agentPlugin.defaultOptions.tools = tools(["currentTime"]); agent omits tools
+   * @preconditions agentPlugin.defaultOptions.tools = tools(["CurrentTime"]); agent omits tools
    * @expectedResult callLlm receives the inherited tool map
    */
   test("agent inherits defaultOptions.tools when its own tools is omitted", async () => {
@@ -259,7 +259,7 @@ describe("agent runtime: tool wiring through callLlm", () => {
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
           agentPlugin({
             functions: { ...defaultFns },
-            defaultOptions: { tools: tools(["currentTime"]) },
+            defaultOptions: { tools: tools(["CurrentTime"]) },
           }),
         ],
       })
@@ -274,14 +274,14 @@ describe("agent runtime: tool wiring through callLlm", () => {
     await t.test();
     const args = callLlmMock.mock.calls[0][0];
     expect(Object.keys(args.tools as Record<string, unknown>)).toEqual([
-      "currentTime",
+      "CurrentTime",
     ]);
   });
 
   /**
    * @case Explicit tools on the agent override defaultOptions.tools entirely
-   * @preconditions defaultOptions.tools includes only "currentTime"; agent.tools includes only "randomUuid"
-   * @expectedResult callLlm receives only "randomUuid"
+   * @preconditions defaultOptions.tools includes only "CurrentTime"; agent.tools includes only "RandomUuid"
+   * @expectedResult callLlm receives only "RandomUuid"
    */
   test("per-agent tools overrides defaultOptions.tools", async () => {
     t = await testContext()
@@ -290,7 +290,7 @@ describe("agent runtime: tool wiring through callLlm", () => {
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
           agentPlugin({
             functions: { ...defaultFns },
-            defaultOptions: { tools: tools(["currentTime"]) },
+            defaultOptions: { tools: tools(["CurrentTime"]) },
           }),
         ],
       })
@@ -302,7 +302,7 @@ describe("agent runtime: tool wiring through callLlm", () => {
             agent({
               system: "x",
               model: "anthropic:claude-opus-4-7",
-              tools: tools(["randomUuid"]),
+              tools: tools(["RandomUuid"]),
             }),
           ),
       )
@@ -311,7 +311,7 @@ describe("agent runtime: tool wiring through callLlm", () => {
     await t.test();
     const args = callLlmMock.mock.calls[0][0];
     expect(Object.keys(args.tools as Record<string, unknown>)).toEqual([
-      "randomUuid",
+      "RandomUuid",
     ]);
   });
 });
