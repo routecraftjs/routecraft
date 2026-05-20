@@ -177,6 +177,115 @@ describe("tools() resolver - MCP refs", () => {
   });
 
   /**
+   * @case MCP(server:tool) sugar resolves identically to the raw mcp__server__tool form
+   * @preconditions Registry has Nuclino:list_teams
+   * @expectedResult One ResolvedTool named mcp__Nuclino__list_teams whose handler dispatches through dispatchMcpCall
+   */
+  test("MCP(server:tool) sugar resolves to one ResolvedTool", async () => {
+    t = await buildCtxWithMcp([
+      {
+        source: "Nuclino",
+        transport: "http",
+        tools: [{ name: "list_teams", description: "List teams." }],
+      },
+    ]);
+    const resolved = tools(["MCP(Nuclino:list_teams)"]).resolve(t.ctx);
+    expect(resolved).toHaveLength(1);
+    expect(resolved[0]!.name).toBe("mcp__Nuclino__list_teams");
+    expect(resolved[0]!.description).toBe("List teams.");
+    await resolved[0]!.handler(
+      { foo: "bar" } as unknown,
+      {} as FnHandlerContext,
+    );
+    expect(recordedDispatches).toEqual([
+      { serverId: "Nuclino", toolName: "list_teams", args: { foo: "bar" } },
+    ]);
+  });
+
+  /**
+   * @case MCP(server) and raw mcp__server both expand to every tool on the server
+   * @preconditions Registry has two Nuclino tools
+   * @expectedResult Both forms yield the same set of mcp__Nuclino__<tool> names
+   */
+  test("MCP(server) and raw mcp__server expand to all server tools", async () => {
+    t = await buildCtxWithMcp([
+      {
+        source: "Nuclino",
+        transport: "http",
+        tools: [{ name: "list_teams" }, { name: "search_items" }],
+      },
+    ]);
+    const viaSugar = tools(["MCP(Nuclino)"])
+      .resolve(t.ctx)
+      .map((r) => r.name)
+      .sort();
+    const viaRaw = tools(["mcp__Nuclino"])
+      .resolve(t.ctx)
+      .map((r) => r.name)
+      .sort();
+    expect(viaSugar).toEqual([
+      "mcp__Nuclino__list_teams",
+      "mcp__Nuclino__search_items",
+    ]);
+    expect(viaRaw).toEqual(viaSugar);
+  });
+
+  /**
+   * @case MCP(server) with a guard attaches the guard to every expanded tool
+   * @preconditions Server with two tools; { name: "MCP(Nuclino)", guard }
+   * @expectedResult Every resolved tool carries the same guard reference
+   */
+  test("MCP(server) with a guard attaches the guard to every expanded tool", async () => {
+    t = await buildCtxWithMcp([
+      {
+        source: "Nuclino",
+        transport: "http",
+        tools: [{ name: "a" }, { name: "b" }],
+      },
+    ]);
+    const guard = mock(async () => undefined);
+    const resolved = tools([{ name: "MCP(Nuclino)", guard }]).resolve(t.ctx);
+    expect(resolved).toHaveLength(2);
+    for (const r of resolved) expect(r.guard).toBe(guard);
+  });
+
+  /**
+   * @case A fn id starting with mcp__ wins over the MCP-ref grammar (exact fn id is authoritative)
+   * @preconditions agentPlugin registers a fn named "mcp__health"; an MCP server is also registered
+   * @expectedResult tools(["mcp__health"]) resolves the fn, not a whole-server MCP ref
+   */
+  test("fn id starting with mcp__ resolves via fn registry, not MCP grammar", async () => {
+    t = await buildCtxWithMcp(
+      [
+        {
+          source: "Nuclino",
+          transport: "http",
+          tools: [{ name: "list_teams" }],
+        },
+      ],
+      {
+        functions: {
+          mcp__health: {
+            description: "Ping the local mcp infra.",
+            input: {
+              "~standard": {
+                version: 1,
+                vendor: "routecraft",
+                validate: (value: unknown) => ({ value }),
+              },
+            } as never,
+            handler: async () => ({ ok: true }),
+          },
+        },
+      },
+    );
+    const resolved = tools(["mcp__health"]).resolve(t.ctx);
+    expect(resolved).toHaveLength(1);
+    expect(resolved[0]!.name).toBe("mcp__health");
+    expect(resolved[0]!.description).toBe("Ping the local mcp infra.");
+  });
+
+  /**
    * @case Unknown MCP client throws RC5003 listing known clients
    * @preconditions Registry has client "Nuclino"; user references "Foo"
    * @expectedResult Throw mentioning client "Foo" and listing "Nuclino"

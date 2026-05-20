@@ -532,7 +532,7 @@ describe("tools() resolver - regression", () => {
   });
 });
 
-describe("tools() resolver - dedup and prefix-convention coverage", () => {
+describe("tools() resolver - dedup and direct-route surfacing coverage", () => {
   let t: TestContext | undefined;
   afterEach(async () => {
     if (t) await t.stop();

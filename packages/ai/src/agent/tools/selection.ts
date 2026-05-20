@@ -174,7 +174,9 @@ export function tools(items: ToolsItem[]): ToolSelection {
       // Phase 1: explicit refs (bare strings + { name, guard }).
       for (const item of items) {
         if (typeof item === "string") {
-          if (isMcpRefName(item)) {
+          // An exact fn id always wins over the MCP-ref grammar, so a fn
+          // whose id happens to start with `mcp__` stays reachable.
+          if (isMcpRefName(item) && !fnRegistryHas(ctx, item)) {
             for (const tool of resolveMcpRefs(ctx, item, undefined)) {
               explicit.set(tool.name, tool);
             }
@@ -198,7 +200,7 @@ export function tools(items: ToolsItem[]): ToolSelection {
           // MCP refs reject any description override (empty or not) so
           // users see the precise "MCP server is the source of truth"
           // message instead of the generic empty-string error.
-          if (isMcpRefName(item.name)) {
+          if (isMcpRefName(item.name) && !fnRegistryHas(ctx, item.name)) {
             if (item.description !== undefined) {
               throw rcError("RC5003", undefined, {
                 message: `tools(): { name: "${item.name}", description } is not supported for MCP tools. The MCP server is the source of truth for description and schema; do not override.`,
@@ -257,6 +259,20 @@ export function tools(items: ToolsItem[]): ToolSelection {
       return [...out.values()];
     },
   };
+}
+
+/**
+ * True when the fn registry holds an exact entry for `name`. Used to let
+ * an explicitly registered fn win over the MCP-ref grammar for bare
+ * strings (so a fn id starting with `mcp__` stays reachable).
+ *
+ * @internal
+ */
+function fnRegistryHas(ctx: CraftContext, name: string): boolean {
+  const fnRegistry = ctx.getStore(ADAPTER_FN_REGISTRY) as
+    | Map<string, FnEntry>
+    | undefined;
+  return fnRegistry?.has(name) ?? false;
 }
 
 function resolveByName(
@@ -339,6 +355,9 @@ function toResolvedTool(
  * `mcp__<server>__*` for a whole server), which is what Claude Code
  * agent files carry, and the `MCP(server:tool)` / `MCP(server)` sugar.
  *
+ * Callers consult the fn registry first, so an exact fn id (even one
+ * starting with `mcp__`) takes precedence over this grammar.
+ *
  * @internal
  */
 function isMcpRefName(name: string): boolean {
@@ -358,7 +377,10 @@ function isMcpRefName(name: string): boolean {
  * - Sugar `MCP(server:tool)`. Colon-separated; `MCP(server)` and
  *   `MCP(server:*)` select every tool on the server.
  *
- * A `toolName` of `*` means "every tool on the server".
+ * A `toolName` of `*` means "every tool on the server". Separators
+ * beyond the first split (extra `__` in the raw form, extra `:` in the
+ * sugar) stay in the tool segment and are forwarded to the MCP server
+ * verbatim.
  *
  * @internal
  */
@@ -593,7 +615,7 @@ function resolveByTags(
   // **that actually contributed** so the direct-registry walk doesn't
   // double-include them. Wrappers that didn't match the wanted tag set
   // are NOT added here -- the underlying route may still match by its
-  // own tags and is allowed to surface under the prefix convention.
+  // own tags and is allowed to surface under its direct_<routeId> name.
   // MCP entries are walked separately at the end of this function via
   // MCP_TOOL_REGISTRY (not the fn-registry deferred path), so they
   // sit outside this dedup set.
