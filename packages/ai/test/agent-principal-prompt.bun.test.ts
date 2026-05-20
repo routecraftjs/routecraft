@@ -133,44 +133,11 @@ describe("agent principal: ## Caller injection at dispatch", () => {
   });
 
   /**
-   * @case principal defaults to on: the section is injected when the flag is omitted
-   * @preconditions Exchange carries a principal; the agent does not set the principal flag
-   * @expectedResult Captured system prompt contains the ## Caller block with the caller's name
-   */
-  test("flag omitted: section is injected by default", async () => {
-    const sink = spy();
-    const principal = principalOf({ name: "Jane Doe" });
-    t = await testContext()
-      .with({
-        plugins: [
-          llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
-        ],
-      })
-      .routes(
-        craft()
-          .id("flag-default")
-          .from(simple("hi"))
-          .header(HeadersKeys.AUTH_PRINCIPAL, () => principal)
-          .to(
-            agent({
-              system: "You are an analyst.",
-              model: "anthropic:claude-opus-4-7",
-            }),
-          )
-          .to(sink),
-      )
-      .build();
-    await t.test();
-    expect(capturedSystem).toContain("## Caller");
-    expect(capturedSystem).toContain("- Name: Jane Doe");
-  });
-
-  /**
-   * @case principal: false suppresses the ## Caller section even when a principal is present
-   * @preconditions Exchange carries a principal; the agent opts out with principal: false
+   * @case principal omitted leaves the system prompt untouched even when a principal is present
+   * @preconditions Exchange carries a principal but the agent does not set principal: true
    * @expectedResult Captured system prompt equals the author's prompt with no ## Caller section
    */
-  test("principal: false opts out of the caller section", async () => {
+  test("flag omitted: no ## Caller section is appended", async () => {
     const sink = spy();
     const principal = principalOf({ name: "Jane Doe" });
     t = await testContext()
@@ -188,7 +155,6 @@ describe("agent principal: ## Caller injection at dispatch", () => {
             agent({
               system: "You are an analyst.",
               model: "anthropic:claude-opus-4-7",
-              principal: false,
             }),
           )
           .to(sink),

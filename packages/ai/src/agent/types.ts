@@ -132,19 +132,16 @@ export interface AgentOptions {
   skills?: string[];
 
   /**
-   * Append a `## Caller` section to the system prompt that tells the
-   * model who triggered the request. The section is derived from
-   * `exchange.principal` at dispatch and carries the caller's identity
-   * (`name`, `email`, `subject`) and `roles`. When no principal is
-   * present (the request is unauthenticated), the section says so
+   * When `true`, append a `## Caller` section to the system prompt that
+   * tells the model who triggered the request. The section is derived
+   * from `exchange.principal` at dispatch and carries the caller's
+   * identity (`name`, `email`, `subject`) and `roles`. When no principal
+   * is present (the request is unauthenticated), the section says so
    * explicitly, so the model never has to guess or invent an identity.
    *
-   * Defaults to `true`: agents understand the caller out of the box. Set
-   * to `false` to suppress the section, for example to keep identity
-   * fields out of the prompt sent to the model provider, or for
-   * non-interactive agents (timer / cron) where there is no caller. The
-   * block is appended after `skills`, so the author's own `system` prompt
-   * and any skill content come first.
+   * Opt-in, defaulting to `false`, so existing agents see no change to
+   * their prompt or token usage. The block is appended after `skills`, so
+   * the author's own `system` prompt and any skill content come first.
    *
    * Only loggable identity fields are surfaced (see `.standards/security.md`
    * § 3). Scopes, `claims`, `userinfoClaims`, and the bearer token are
@@ -152,9 +149,9 @@ export interface AgentOptions {
    * guards; this block is informational context for the model, not an
    * authorization gate.
    *
-   * For full control over placement or formatting, set `principal: false`
-   * and use the function form of `system`, reading `exchange.principal`
-   * directly instead.
+   * For full control over placement or formatting, use the function form
+   * of `system` and read `exchange.principal` directly instead of this
+   * flag.
    *
    * @experimental
    */
