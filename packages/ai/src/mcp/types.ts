@@ -509,6 +509,8 @@ export interface McpToolAnnotations {
  * Icon reference for an MCP server or tool. Mirrors the MCP specification's
  * `Icon` shape, which is reused by `serverInfo.icons`, `Tool.icons`, and the
  * resource/prompt primitives.
+ *
+ * @experimental
  */
 export interface McpIcon {
   /** URL or data URI of the icon. */

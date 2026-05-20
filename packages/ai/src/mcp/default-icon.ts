@@ -18,12 +18,12 @@ const toDataUri = (svg: string): string =>
  */
 export const ROUTECRAFT_DEFAULT_ICONS: McpIcon[] = [
   {
-    src: toDataUri(logoSvg("white")),
+    src: toDataUri(logoSvg("#ffffff")),
     mimeType: "image/svg+xml",
     theme: "dark",
   },
   {
-    src: toDataUri(logoSvg("black")),
+    src: toDataUri(logoSvg("#000000")),
     mimeType: "image/svg+xml",
     theme: "light",
   },

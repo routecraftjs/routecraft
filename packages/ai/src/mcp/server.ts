@@ -155,6 +155,20 @@ export class McpServer {
   }
 
   /**
+   * Apply a default when the value is unset, then treat an empty string as an
+   * explicit opt-out (returns `undefined` so the caller omits the field). This
+   * is the uniform "default unless empty" contract used by every optional
+   * string field of the server identity.
+   */
+  private defaultUnlessEmpty(
+    value: string | undefined,
+    fallback: string,
+  ): string | undefined {
+    const resolved = value ?? fallback;
+    return resolved === "" ? undefined : resolved;
+  }
+
+  /**
    * Build the MCP `serverInfo` (`Implementation`) object shared by both
    * transports. Applies the Routecraft "powered by" defaults for description,
    * websiteUrl, and icons; an empty string/array opts out of a given field.
@@ -168,13 +182,19 @@ export class McpServer {
       info.title = this.options.title;
     }
 
-    const description = this.options.description ?? "Powered by Routecraft.dev";
-    if (description !== "") {
+    const description = this.defaultUnlessEmpty(
+      this.options.description,
+      "Powered by Routecraft.dev",
+    );
+    if (description !== undefined) {
       info.description = description;
     }
 
-    const websiteUrl = this.options.websiteUrl ?? "https://routecraft.dev";
-    if (websiteUrl !== "") {
+    const websiteUrl = this.defaultUnlessEmpty(
+      this.options.websiteUrl,
+      "https://routecraft.dev",
+    );
+    if (websiteUrl !== undefined) {
       info.websiteUrl = websiteUrl;
     }
 
@@ -185,11 +205,16 @@ export class McpServer {
     return info;
   }
 
-  /** Build the MCP `Server` options arg (capabilities plus optional instructions). */
+  /**
+   * Build the MCP `Server` options arg (capabilities plus optional
+   * instructions). `instructions` has no default; an empty string opts out,
+   * matching the empty-value contract of the serverInfo string fields.
+   */
   private buildServerOptions(): SdkServerOptions {
     const options: SdkServerOptions = { capabilities: { tools: {} } };
-    if (this.options.instructions !== undefined) {
-      options.instructions = this.options.instructions;
+    const instructions = this.defaultUnlessEmpty(this.options.instructions, "");
+    if (instructions !== undefined) {
+      options.instructions = instructions;
     }
     return options;
   }

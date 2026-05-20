@@ -600,14 +600,14 @@ describe("McpServer", () => {
     });
 
     /**
-     * @case Empty-string identity fields and an empty icons array are omitted from serverInfo
-     * @preconditions HTTP server with description:"", websiteUrl:"", icons:[]
-     * @expectedResult serverInfo omits description, websiteUrl, and icons
+     * @case Empty-string identity fields, empty icons, and empty instructions are omitted
+     * @preconditions HTTP server with description:"", websiteUrl:"", icons:[], instructions:""
+     * @expectedResult serverInfo omits description, websiteUrl, and icons; result omits instructions
      */
     test("initialize omits suppressed identity fields", async () => {
       const { post } = await startHttpServer(
         [craft().id("id-tool").description("Tool").from(mcp()).to(noop())],
-        { description: "", websiteUrl: "", icons: [] },
+        { description: "", websiteUrl: "", icons: [], instructions: "" },
       );
       const res = await post(
         JSON.stringify({
@@ -617,10 +617,11 @@ describe("McpServer", () => {
           params: INIT_PARAMS,
         }),
       );
-      const info = JSON.parse(res.body).result.serverInfo;
-      expect(info).not.toHaveProperty("description");
-      expect(info).not.toHaveProperty("websiteUrl");
-      expect(info).not.toHaveProperty("icons");
+      const result = JSON.parse(res.body).result;
+      expect(result.serverInfo).not.toHaveProperty("description");
+      expect(result.serverInfo).not.toHaveProperty("websiteUrl");
+      expect(result.serverInfo).not.toHaveProperty("icons");
+      expect(result.instructions).toBeUndefined();
     });
 
     /**
