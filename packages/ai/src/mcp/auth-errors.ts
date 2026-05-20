@@ -67,21 +67,25 @@ const NETWORK_ERROR_CODES = new Set([
  * rejection, which keeps custom and built-in `jwt()` validators that throw a
  * plain `Error` mapping to 401.
  *
+ * The whole `cause` chain is inspected, not just the immediate error: Node /
+ * undici nest the real errno under a `fetch failed` TypeError, and a verifier
+ * may wrap the underlying failure one or more levels deep. The walk is bounded
+ * to guard against a self-referential `cause` cycle.
+ *
  * @internal
  */
 export function isInfrastructureError(err: unknown): boolean {
-  if (typeof err !== "object" || err === null) return false;
-  const code = (err as { code?: unknown }).code;
-  if (typeof code === "string") {
-    if (JOSE_INFRASTRUCTURE_CODES.has(code)) return true;
-    if (NETWORK_ERROR_CODES.has(code)) return true;
-  }
-  const cause = (err as { cause?: unknown }).cause;
-  if (typeof cause === "object" && cause !== null) {
-    const causeCode = (cause as { code?: unknown }).code;
-    if (typeof causeCode === "string" && NETWORK_ERROR_CODES.has(causeCode)) {
+  let current: unknown = err;
+  for (let depth = 0; depth < 5; depth++) {
+    if (typeof current !== "object" || current === null) return false;
+    const code = (current as { code?: unknown }).code;
+    if (
+      typeof code === "string" &&
+      (JOSE_INFRASTRUCTURE_CODES.has(code) || NETWORK_ERROR_CODES.has(code))
+    ) {
       return true;
     }
+    current = (current as { cause?: unknown }).cause;
   }
   return false;
 }

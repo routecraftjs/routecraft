@@ -101,6 +101,32 @@ describe("isInfrastructureError", () => {
   });
 
   /**
+   * @case An infrastructure error wrapped several levels deep is still detected
+   * @preconditions An Error whose cause chain reaches a jose ERR_JWKS_TIMEOUT two levels down
+   * @expectedResult Returns true (the full cause chain is walked, not just the immediate cause)
+   */
+  test("returns true for a nested wrapped infrastructure error", () => {
+    const root = Object.assign(new Error("jwks timed out"), {
+      code: "ERR_JWKS_TIMEOUT",
+    });
+    const wrapped = new Error("verifier failed", {
+      cause: new Error("while verifying", { cause: root }),
+    });
+    expect(isInfrastructureError(wrapped)).toBe(true);
+  });
+
+  /**
+   * @case A self-referential cause cycle does not loop forever
+   * @preconditions An Error whose cause points back to itself, with no infra code
+   * @expectedResult Returns false within the bounded walk (no infinite loop)
+   */
+  test("returns false and terminates on a cyclic cause chain", () => {
+    const err = new Error("boom") as Error & { cause?: unknown };
+    err.cause = err;
+    expect(isInfrastructureError(err)).toBe(false);
+  });
+
+  /**
    * @case Token-rejection errors are NOT classified as infrastructure
    * @preconditions jose errors for expiry, claim mismatch, signature failure, and no-matching-key
    * @expectedResult Returns false for each (these map to 401 invalid_token)
