@@ -108,10 +108,11 @@ When you add a new default that affects authentication, authorization, network e
   3. A docs update describing the user-visible behavior change.
 - Reviewers MUST push back on the easier path of "just delete the check." A working test suite without the original threat-model assertion is not evidence the change is safe.
 
-## 10. Event payloads
+## 10. Event payloads and rejection log levels
 
 - `auth:success` and `auth:rejected` events carry sanitised detail objects: `{ subject, scheme, source }` (success) or `{ reason, source }` (rejected). Do not extend these payloads to include the raw token or any high-cardinality identifier (full JWT, opaque session id) that an aggregator would index and retain.
 - Principal-shaped payloads on other events (e.g. `route:*:exchange:processed`) MAY include the full `Principal` object via `ex.principal` because the principal itself is sanitised; the bearer is not in it.
+- **Rejection log levels.** `auth:rejected` fires for every rejection so observers can count them, but the log level must distinguish routine handshake noise from failures that warrant attention. Log at `debug`: a request with no `Authorization` header (the spec-defined MCP OAuth discovery probe, which fires on essentially every client connect), an unparseable or non-bearer scheme, and an expired token (clients routinely present a stale cached token, then refresh). Reserve `warn` for a presented bearer token that fails validation for any other reason (bad signature, wrong audience or issuer, malformed). This keeps `warn` a usable signal rather than one line per connect. Expiry is detected via `isExpiredTokenError` (`packages/ai/src/mcp/auth-errors.ts`), which keys off `jose`'s stable `ERR_JWT_EXPIRED` code.
 
 ---
 
@@ -120,7 +121,7 @@ When you add a new default that affects authentication, authorization, network e
 - **Source boundary** (`mcp()`, future `http()`): runs `verify` / `validator`; emits `auth:success` or `auth:rejected`; attaches `Principal` to the exchange.
 - **Route boundary** (`.authorize()` / `.validate(authorize(...))`): checks principal against role / scope / predicate / expiry; emits `exchange:failed` on rejection.
 - **Userinfo boundary** (`buildEnrichedVerifier`): runs after `verify` succeeds; merges enrichment with protected fields preserved; raises `RC5021` / `RC5022` on failure.
-- **HTTP transport boundary** (`startHttpWithValidator` / `startHttpWithOAuth`): serves RFC 9728 metadata; emits 401 with `resource_metadata`.
+- **HTTP transport boundary** (`startHttpWithValidator` / `startHttpWithOAuth`): serves RFC 9728 metadata; emits 401 with `resource_metadata`. A failed token validation MUST result in `401 invalid_token` (so the client refreshes), not a generic 500. On the OAuth path the SDK's bearer middleware only maps an `InvalidTokenError` to 401, so `wrappedVerifier` re-throws token-validation failures as `InvalidTokenError`. Server-side failures map to 500 instead, so a backend blip is never reported to the client as an invalid token (which would make every client discard a valid cached token and stampede the IdP with refreshes): framework errors (`RC5021` / `RC5022`) and JWKS infrastructure failures (endpoint unreachable, timed out, or returning a bad response, detected via `isInfrastructureError` in `packages/ai/src/mcp/auth-errors.ts`) propagate unchanged. The default for an unclassified throw is 401, which keeps custom and built-in `jwt()` validators that reject with a plain `Error` mapping to 401.
 
 Each boundary is the *only* place that handles its class of error (does not re-throw). Crossing a boundary without logging duplicates entries; not logging at the boundary loses the failure entirely.
 

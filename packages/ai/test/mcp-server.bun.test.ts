@@ -6,6 +6,7 @@ import {
   direct,
   jwks,
   noop,
+  rcError,
   type Principal,
 } from "@routecraft/routecraft";
 import { mcp, MCP_PLUGIN_REGISTERED } from "../src/index.ts";
@@ -963,6 +964,151 @@ describe("McpServer", () => {
           Authorization: "Bearer any-token",
         });
         expect(res.statusCode).toBe(401);
+      });
+
+      describe("rejection log levels (validator mode)", () => {
+        const initBody = JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: INIT_PARAMS,
+        });
+
+        /**
+         * @case A tokenless request (the MCP OAuth discovery probe) logs at debug, not warn
+         * @preconditions McpServer with validator auth; POST /mcp with no Authorization header
+         * @expectedResult 401; debug logged with reason "missing_header"; no warn for that message; auth:rejected emitted
+         */
+        test("logs the no-token discovery probe at debug, not warn", async () => {
+          const rejections: Array<Record<string, unknown>> = [];
+          const { post } = await startHttpServer([], {
+            auth: { validator: () => validPrincipal },
+          });
+          t.ctx.on("auth:rejected", (payload) => {
+            rejections.push(payload.details as Record<string, unknown>);
+          });
+
+          const res = await post(initBody);
+          expect(res.statusCode).toBe(401);
+
+          const msg =
+            "Auth rejected: missing or malformed Authorization header";
+          const debugCall = t.logger.debug.mock.calls.find((c) => c[1] === msg);
+          expect(debugCall).toBeDefined();
+          expect(debugCall?.[0]).toMatchObject({
+            reason: "missing_header",
+            scheme: "bearer",
+            source: "mcp",
+          });
+          expect(t.logger.warn.mock.calls.some((c) => c[1] === msg)).toBe(
+            false,
+          );
+          expect(rejections.some((r) => r.reason === "missing_header")).toBe(
+            true,
+          );
+        });
+
+        /**
+         * @case A non-bearer scheme (client not yet authenticated) logs at debug, not warn
+         * @preconditions McpServer with validator auth; POST /mcp with a Basic Authorization header
+         * @expectedResult 401; debug logged with reason "unsupported_scheme"; no warn for that message
+         */
+        test("logs an unsupported auth scheme at debug, not warn", async () => {
+          const { post } = await startHttpServer([], {
+            auth: { validator: () => validPrincipal },
+          });
+
+          const res = await post(initBody, undefined, {
+            Authorization: "Basic dXNlcjpwYXNz",
+          });
+          expect(res.statusCode).toBe(401);
+
+          const msg = "Auth rejected: unsupported authorization scheme";
+          const debugCall = t.logger.debug.mock.calls.find((c) => c[1] === msg);
+          expect(debugCall).toBeDefined();
+          expect(debugCall?.[0]).toMatchObject({
+            reason: "unsupported_scheme",
+          });
+          expect(t.logger.warn.mock.calls.some((c) => c[1] === msg)).toBe(
+            false,
+          );
+        });
+
+        /**
+         * @case An expired token (routine refresh cycle) logs at debug, not warn
+         * @preconditions McpServer with a validator that throws jose's ERR_JWT_EXPIRED; POST /mcp with a bearer token
+         * @expectedResult 401; debug logged as "Auth rejected: token expired"; no "token validation failed" warn
+         */
+        test("logs an expired token at debug, not warn", async () => {
+          const expiredError = Object.assign(
+            new Error('"exp" claim timestamp check failed'),
+            { code: "ERR_JWT_EXPIRED" },
+          );
+          const { post } = await startHttpServer([], {
+            auth: {
+              validator: () => {
+                throw expiredError;
+              },
+            },
+          });
+
+          const res = await post(initBody, undefined, {
+            Authorization: "Bearer expired-token",
+          });
+          expect(res.statusCode).toBe(401);
+
+          const expiredMsg = "Auth rejected: token expired";
+          const debugCall = t.logger.debug.mock.calls.find(
+            (c) => c[1] === expiredMsg,
+          );
+          expect(debugCall).toBeDefined();
+          expect(debugCall?.[0]).toMatchObject({
+            reason: '"exp" claim timestamp check failed',
+            scheme: "bearer",
+            source: "mcp",
+          });
+          expect(
+            t.logger.warn.mock.calls.some(
+              (c) => c[1] === "Auth rejected: token validation failed",
+            ),
+          ).toBe(false);
+        });
+
+        /**
+         * @case A genuinely invalid token (bad signature) stays at warn
+         * @preconditions McpServer with a validator that throws a generic Error; POST /mcp with a bearer token
+         * @expectedResult 401; warn logged as "token validation failed"; no "token expired" debug
+         */
+        test("logs a genuinely invalid token at warn", async () => {
+          const { post } = await startHttpServer([], {
+            auth: {
+              validator: () => {
+                throw new Error("invalid signature");
+              },
+            },
+          });
+
+          const res = await post(initBody, undefined, {
+            Authorization: "Bearer bad-token",
+          });
+          expect(res.statusCode).toBe(401);
+
+          const failedMsg = "Auth rejected: token validation failed";
+          const warnCall = t.logger.warn.mock.calls.find(
+            (c) => c[1] === failedMsg,
+          );
+          expect(warnCall).toBeDefined();
+          expect(warnCall?.[0]).toMatchObject({
+            reason: "invalid signature",
+            scheme: "bearer",
+            source: "mcp",
+          });
+          expect(
+            t.logger.debug.mock.calls.some(
+              (c) => c[1] === "Auth rejected: token expired",
+            ),
+          ).toBe(false);
+        });
       });
     });
 
@@ -2515,6 +2661,182 @@ describe("McpServer", () => {
         expect(capturedPrincipal?.audience).toBeUndefined();
         expect(capturedPrincipal?.scopes).toBeUndefined();
         expect(capturedPrincipal?.clientId).toBeUndefined();
+      });
+
+      describe("rejection log levels (oauth mode)", () => {
+        const initBody = JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: INIT_PARAMS,
+        });
+        const oauthEndpoints = {
+          authorizationUrl: "http://localhost:9999/authorize",
+          tokenUrl: "http://localhost:9999/token",
+        };
+        const oauthClient = async (clientId: string) => ({
+          client_id: clientId,
+          redirect_uris: ["http://localhost:3000/callback"],
+        });
+
+        /**
+         * @case An expired token on the OAuth verifier path returns 401 and logs at debug
+         * @preconditions McpServer with oauth() whose verify throws jose's ERR_JWT_EXPIRED; POST /mcp with a bearer token
+         * @expectedResult 401 with WWW-Authenticate invalid_token; debug logged as "Auth rejected: token expired"; no "token validation failed" warn
+         */
+        test("returns 401 and logs an expired oauth token at debug", async () => {
+          const { oauth } = await import("../src/mcp/oauth.ts");
+          const expiredError = Object.assign(
+            new Error('"exp" claim timestamp check failed'),
+            { code: "ERR_JWT_EXPIRED" },
+          );
+          const { post } = await startHttpServer([], {
+            auth: oauth({
+              endpoints: oauthEndpoints,
+              verify: async () => {
+                throw expiredError;
+              },
+              client: oauthClient,
+            }),
+            resource: { url: "http://localhost:9999" },
+          });
+
+          const res = await post(initBody, undefined, {
+            Authorization: "Bearer expired-token",
+          });
+          // A token-validation failure is surfaced as InvalidTokenError so the
+          // SDK answers 401 invalid_token (the client refreshes), not 500.
+          expect(res.statusCode).toBe(401);
+          expect(res.headers["www-authenticate"]).toMatch(
+            /error="invalid_token"/,
+          );
+
+          const expiredMsg = "Auth rejected: token expired";
+          const debugCall = t.logger.debug.mock.calls.find(
+            (c) => c[1] === expiredMsg,
+          );
+          expect(debugCall).toBeDefined();
+          expect(debugCall?.[0]).toMatchObject({
+            reason: '"exp" claim timestamp check failed',
+            path: "oauth",
+          });
+          expect(
+            t.logger.warn.mock.calls.some(
+              (c) => c[1] === "Auth rejected: token validation failed",
+            ),
+          ).toBe(false);
+        });
+
+        /**
+         * @case A genuinely invalid token on the OAuth verifier path returns 401 and logs at warn
+         * @preconditions McpServer with oauth() whose verify throws a generic Error; POST /mcp with a bearer token
+         * @expectedResult 401 with WWW-Authenticate invalid_token; warn logged as "token validation failed"; no "token expired" debug
+         */
+        test("returns 401 and logs a genuinely invalid oauth token at warn", async () => {
+          const { oauth } = await import("../src/mcp/oauth.ts");
+          const { post } = await startHttpServer([], {
+            auth: oauth({
+              endpoints: oauthEndpoints,
+              verify: async () => {
+                throw new Error("invalid signature");
+              },
+              client: oauthClient,
+            }),
+            resource: { url: "http://localhost:9999" },
+          });
+
+          const res = await post(initBody, undefined, {
+            Authorization: "Bearer bad-token",
+          });
+          expect(res.statusCode).toBe(401);
+          expect(res.headers["www-authenticate"]).toMatch(
+            /error="invalid_token"/,
+          );
+
+          const failedMsg = "Auth rejected: token validation failed";
+          const warnCall = t.logger.warn.mock.calls.find(
+            (c) => c[1] === failedMsg,
+          );
+          expect(warnCall).toBeDefined();
+          expect(warnCall?.[0]).toMatchObject({
+            reason: "invalid signature",
+            path: "oauth",
+          });
+          expect(
+            t.logger.debug.mock.calls.some(
+              (c) => c[1] === "Auth rejected: token expired",
+            ),
+          ).toBe(false);
+        });
+
+        /**
+         * @case A framework infrastructure error on the OAuth verifier path stays a 500
+         * @preconditions McpServer with oauth() whose verify throws a RoutecraftError (e.g. RC5021 userinfo fetch failure); POST /mcp with a bearer token
+         * @expectedResult 500 (server-side failure, not invalid_token); warn logged; auth:rejected emitted
+         */
+        test("returns 500 for a framework infrastructure error", async () => {
+          const { oauth } = await import("../src/mcp/oauth.ts");
+          const rejections: Array<Record<string, unknown>> = [];
+          const { post } = await startHttpServer([], {
+            auth: oauth({
+              endpoints: oauthEndpoints,
+              verify: async () => {
+                throw rcError(
+                  "RC5021",
+                  new Error("userinfo endpoint unreachable"),
+                );
+              },
+              client: oauthClient,
+            }),
+            resource: { url: "http://localhost:9999" },
+          });
+          t.ctx.on("auth:rejected", (payload) => {
+            rejections.push(payload.details as Record<string, unknown>);
+          });
+
+          const res = await post(initBody, undefined, {
+            Authorization: "Bearer some-token",
+          });
+          // A server-side failure must not be reported to the client as an
+          // invalid token; it stays a 500 so the client retries rather than
+          // discarding a token that may be valid.
+          expect(res.statusCode).toBe(500);
+          expect(res.headers["www-authenticate"]).toBeUndefined();
+          expect(
+            t.logger.warn.mock.calls.some(
+              (c) => c[1] === "Auth rejected: token validation failed",
+            ),
+          ).toBe(true);
+          expect(rejections.length).toBeGreaterThanOrEqual(1);
+        });
+
+        /**
+         * @case A JWKS infrastructure failure on the OAuth verifier path returns 500, not 401
+         * @preconditions McpServer with oauth() whose verify throws a jose error with code ERR_JWKS_TIMEOUT; POST /mcp with a bearer token
+         * @expectedResult 500 with no WWW-Authenticate; the client must retry, not treat its token as invalid
+         */
+        test("returns 500 for a jose JWKS infrastructure failure", async () => {
+          const { oauth } = await import("../src/mcp/oauth.ts");
+          const jwksTimeout = Object.assign(new Error("request timed out"), {
+            code: "ERR_JWKS_TIMEOUT",
+          });
+          const { post } = await startHttpServer([], {
+            auth: oauth({
+              endpoints: oauthEndpoints,
+              verify: async () => {
+                throw jwksTimeout;
+              },
+              client: oauthClient,
+            }),
+            resource: { url: "http://localhost:9999" },
+          });
+
+          const res = await post(initBody, undefined, {
+            Authorization: "Bearer some-token",
+          });
+          expect(res.statusCode).toBe(500);
+          expect(res.headers["www-authenticate"]).toBeUndefined();
+        });
       });
     });
   });
