@@ -34,8 +34,9 @@ export type ToolGuard = (
  * One entry in the agent's `tools([...])` list.
  *
  * - bare string: name lookup. Plain ids resolve against the fn registry;
- *   `direct_*` falls back to the direct registry via `directTool`;
- *   `mcp_<client>:<tool>` and `mcp_<client>:*` resolve against
+ *   `Direct(<routeId>)` wraps a direct route via `directTool`;
+ *   `MCP(server:tool)` / `MCP(server)` and the raw `mcp__server__tool`
+ *   / `mcp__server` / `mcp__server__*` forms resolve against
  *   `MCP_TOOL_REGISTRY` (populated by `defineConfig.mcp` /
  *   `mcpPlugin({ clients })`).
  * - `{ name, guard?, description? }`: same lookup, with optional
@@ -44,12 +45,12 @@ export type ToolGuard = (
  *   other agents binding the same fn see the canonical description).
  *   Use this when an agent's calling context calls for a different
  *   framing of the tool than the registered description provides.
- *   For an MCP wildcard (`{ name: "mcp_<client>:*", guard }`) the guard
- *   is attached to every expanded tool.
+ *   For an MCP whole-server ref (`{ name: "MCP(server)", guard }`) the
+ *   guard is attached to every expanded tool.
  * - `{ tagged, from?, guard? }`: select every fn / route / MCP tool
  *   whose tags include any of the requested tag(s) (OR semantics).
  *   `from?: string` restricts the selection to a single source:
- *   `from: "mcp_<client>"` matches only that client's MCP tools.
+ *   `from: "mcp__<server>"` matches only that server's MCP tools.
  *   Optional guard applies to every match.
  *
  * @experimental
@@ -93,7 +94,7 @@ export interface ToolSelection {
  * @experimental
  */
 export interface ResolvedTool {
-  /** Tool name presented to the LLM (matches the registered fn id or, for routes referenced by convention, `direct_<routeId>`). */
+  /** Tool name presented to the LLM: the registered fn id, `direct_<routeId>` for routes, or `mcp__<server>__<tool>` for MCP tools. */
   name: string;
   /** Description shown to the LLM. */
   description: string;
@@ -130,18 +131,16 @@ export function isToolSelection(value: unknown): value is ToolSelection {
  * Resolution happens lazily at agent dispatch time.
  *
  * Resolution rules:
- * - Bare names look up exact matches in the fn registry first; if
- *   missing AND the name starts with `direct_`, the suffix is treated
- *   as a direct route id and wrapped via `directTool`. Names starting
- *   with `mcp_` follow the `mcp_<client>:<tool>` grammar (with `*`
- *   wildcard for the tool slot) and resolve against
- *   `MCP_TOOL_REGISTRY`. Names starting with `agent_` produce a "not
- *   yet supported" error (sub-agent tools land in a follow-up story).
+ * - Bare names look up exact matches in the fn registry first.
+ *   `Direct(<routeId>)` wraps a direct route via `directTool` (the
+ *   LLM-facing tool name stays `direct_<routeId>`). `MCP(server:tool)`
+ *   / `MCP(server)` and the raw `mcp__server__tool` / `mcp__server` /
+ *   `mcp__server__*` forms resolve against `MCP_TOOL_REGISTRY`.
  * - Tag selectors walk the fn registry, the direct route registry,
  *   and the MCP tool registry, including any entry whose tags overlap
  *   with the requested set. `from?: string` narrows the walk: pass
- *   `from: "mcp_<client>"` to scope a tag selection to a single MCP
- *   client.
+ *   `from: "mcp__<server>"` to scope a tag selection to a single MCP
+ *   server.
  * - Final list is deduplicated by tool name. Explicit references win
  *   over tag-selector matches regardless of position in the list.
  *
@@ -153,7 +152,8 @@ export function isToolSelection(value: unknown): value is ToolSelection {
  *   tools: tools([
  *     "CurrentTime",
  *     "fetchOrder",
- *     "direct_cancel-order",
+ *     "Direct(cancel-order)",
+ *     "MCP(github:create_issue)",
  *     { name: "sendSlack", guard: confirmGuard },
  *     { tagged: "read-only" },
  *   ]),
@@ -277,26 +277,22 @@ function resolveByName(
     return resolveFnEntry(ctx, name, fnEntry, guard);
   }
 
-  if (name.startsWith("agent_")) {
-    throw rcError("RC5003", undefined, {
-      message: `tools(): "${name}" looks like an agent reference. Sub-agent tools land in a follow-up story.`,
-    });
-  }
-  // `mcp_<client>:<tool>` refs are handled by Phase 1 before this
-  // function is called (see `isMcpRefName`). A plain `mcp_*` name that
-  // arrives here is a fn id that just happens to share the prefix; let
-  // it fall through to the fn-registry / direct-registry walk above
-  // and the unknown-tool error below.
-  if (name.startsWith("direct_")) {
-    const routeId = name.slice("direct_".length);
+  // `Direct(<routeId>)` wraps a registered direct route as a tool. The
+  // LLM-facing tool name stays the valid `direct_<routeId>` form (tool
+  // names cannot contain parentheses); `Direct(...)` is only the
+  // reference grammar a developer writes in `tools([...])`.
+  const directMatch = /^Direct\((.*)\)$/.exec(name);
+  if (directMatch) {
+    const routeId = directMatch[1]!.trim();
     if (routeId === "") {
       throw rcError("RC5003", undefined, {
-        message: `tools(): "${name}" has an empty direct route id.`,
+        message: `tools(): "${name}" has an empty route id; use "Direct(<routeId>)".`,
       });
     }
+    const toolName = `direct_${routeId}`;
     const wrapper = directTool(routeId);
-    const fn = wrapper.resolve(ctx, name);
-    return toResolvedTool(name, fn, guard);
+    const fn = wrapper.resolve(ctx, toolName);
+    return toResolvedTool(toolName, fn, guard);
   }
 
   const known = listKnownNames(ctx);
@@ -338,36 +334,71 @@ function toResolvedTool(
 }
 
 /**
- * Recognise an attempted MCP tool reference. The grammar is
- * `mcp_<client>:<tool>` (or `mcp_<client>:*` for a wildcard), so any
- * `mcp_*` name that contains a `:` is treated as an MCP ref. Plain
- * fn ids like `mcp_healthcheck` (no `:`) fall through to fn-registry
- * lookup. Malformed shapes like `mcp_:foo` or `mcp_foo:` are still
- * caught here so `resolveMcpRefs` can emit the precise grammar error
- * instead of a generic "unknown tool" message.
+ * Recognise an attempted MCP tool reference. Two accepted forms: the
+ * raw flat identity `mcp__<server>__<tool>` (also `mcp__<server>` and
+ * `mcp__<server>__*` for a whole server), which is what Claude Code
+ * agent files carry, and the `MCP(server:tool)` / `MCP(server)` sugar.
  *
  * @internal
  */
 function isMcpRefName(name: string): boolean {
-  if (!name.startsWith("mcp_")) return false;
-  return name.slice("mcp_".length).includes(":");
+  if (name.startsWith("mcp__")) return true;
+  return name.startsWith("MCP(") && name.endsWith(")");
 }
 
 /**
- * Resolve an `mcp_<client>:<tool>` or `mcp_<client>:*` reference into
- * one or more `ResolvedTool` entries. Grammar:
+ * Parse an MCP reference into its server (client) and tool parts.
+ * Accepts two forms:
  *
- * - kind: everything before the first `_` (always `mcp` here).
- * - client: everything after the first `_` up to the first `:`.
- *   Client names may contain underscores
- *   (e.g. `mcp_my_company_api:fetch_user`).
- * - tool: everything after the first `:`. The literal `*` expands to
- *   every tool registered under `<client>` at dispatch time. Other
- *   colons in the tool name are tolerated and forwarded verbatim to
- *   the MCP server.
+ * - Raw identity `mcp__<server>__<tool>`. Server and tool split on the
+ *   first `__` after the `mcp__` prefix (so single-underscore server
+ *   names like `my_company_api` are preserved). `mcp__<server>` and
+ *   `mcp__<server>__*` select every tool on the server. This is the
+ *   string Claude Code agent files carry, so they resolve unchanged.
+ * - Sugar `MCP(server:tool)`. Colon-separated; `MCP(server)` and
+ *   `MCP(server:*)` select every tool on the server.
  *
- * Throws RC5003 when the registry is absent, the client is unknown,
- * the client is registered but has no tools, or the specific tool is
+ * A `toolName` of `*` means "every tool on the server".
+ *
+ * @internal
+ */
+function parseMcpRef(ref: string): { clientName: string; toolName: string } {
+  if (ref.startsWith("MCP(") && ref.endsWith(")")) {
+    const inner = ref.slice(4, -1).trim();
+    const colon = inner.indexOf(":");
+    const clientName = colon === -1 ? inner : inner.slice(0, colon).trim();
+    const toolName = colon === -1 ? "*" : inner.slice(colon + 1).trim();
+    if (clientName === "" || toolName === "") {
+      throw rcError("RC5003", undefined, {
+        message: `tools(): MCP reference "${ref}" must use "MCP(server:tool)" or "MCP(server)"; got an empty server or tool segment.`,
+      });
+    }
+    return { clientName, toolName };
+  }
+  if (ref.startsWith("mcp__")) {
+    const rest = ref.slice("mcp__".length);
+    const sep = rest.indexOf("__");
+    const clientName = sep === -1 ? rest : rest.slice(0, sep);
+    const toolName = sep === -1 ? "*" : rest.slice(sep + 2);
+    if (clientName.trim() === "" || toolName.trim() === "") {
+      throw rcError("RC5003", undefined, {
+        message: `tools(): MCP reference "${ref}" must use "mcp__server__tool" or "mcp__server"; got an empty server or tool segment.`,
+      });
+    }
+    return { clientName, toolName };
+  }
+  throw rcError("RC5003", undefined, {
+    message: `tools(): MCP reference "${ref}" must use "MCP(server:tool)", "MCP(server)", or the raw "mcp__server__tool" form.`,
+  });
+}
+
+/**
+ * Resolve an MCP reference into one or more `ResolvedTool` entries.
+ * The whole-server forms expand to every tool registered under the
+ * server at dispatch time.
+ *
+ * Throws RC5003 when the registry is absent, the server is unknown,
+ * the server is registered but has no tools, or the specific tool is
  * not registered.
  *
  * @internal
@@ -377,25 +408,7 @@ function resolveMcpRefs(
   ref: string,
   guard: ToolGuard | undefined,
 ): ResolvedTool[] {
-  if (!ref.startsWith("mcp_")) {
-    throw rcError("RC5003", undefined, {
-      message: `tools(): MCP reference "${ref}" must start with "mcp_".`,
-    });
-  }
-  const rest = ref.slice("mcp_".length);
-  const colon = rest.indexOf(":");
-  if (colon === -1) {
-    throw rcError("RC5003", undefined, {
-      message: `tools(): MCP reference "${ref}" must use the form "mcp_<client>:<tool>" or "mcp_<client>:*".`,
-    });
-  }
-  const clientName = rest.slice(0, colon);
-  const toolName = rest.slice(colon + 1);
-  if (clientName.trim() === "" || toolName.trim() === "") {
-    throw rcError("RC5003", undefined, {
-      message: `tools(): MCP reference "${ref}" must use the form "mcp_<client>:<tool>" or "mcp_<client>:*"; got empty client or tool segment.`,
-    });
-  }
+  const { clientName, toolName } = parseMcpRef(ref);
   const registry = ctx.getStore(MCP_TOOL_REGISTRY);
   if (!registry) {
     throw rcError("RC5003", undefined, {
@@ -462,7 +475,7 @@ function mcpEntryToResolvedTool(
   entry: McpToolRegistryEntry,
   guard: ToolGuard | undefined,
 ): ResolvedTool {
-  const name = `mcp_${entry.source}:${entry.name}`;
+  const name = `mcp__${entry.source}__${entry.name}`;
   const description =
     entry.description && entry.description.trim() !== ""
       ? entry.description
@@ -552,17 +565,17 @@ function parseFromScope(from: string | undefined): FromScope {
       message: `tools(): "from" must be a non-empty string when present.`,
     });
   }
-  if (from.startsWith("mcp_")) {
-    const client = from.slice("mcp_".length);
+  if (from.startsWith("mcp__")) {
+    const client = from.slice("mcp__".length);
     if (client.trim() === "") {
       throw rcError("RC5003", undefined, {
-        message: `tools(): from "${from}" has an empty client name; use "mcp_<client>".`,
+        message: `tools(): from "${from}" has an empty server name; use "mcp__<server>".`,
       });
     }
     return { kind: "mcp", mcpClient: client };
   }
   throw rcError("RC5003", undefined, {
-    message: `tools(): from "${from}" is not a supported source filter. Use "mcp_<client>".`,
+    message: `tools(): from "${from}" is not a supported source filter. Use "mcp__<server>".`,
   });
 }
 
@@ -588,7 +601,7 @@ function resolveByTags(
 
   // fn registry and direct registry walks only run when scope is
   // unrestricted ("all"). A scoped selector like
-  // `{ tagged: "read-only", from: "mcp_Nuclino" }` deliberately
+  // `{ tagged: "read-only", from: "mcp__Nuclino" }` deliberately
   // excludes fns and routes.
   if (scope.kind === "all") {
     // Walk the fn registry first so explicit fn-side tags (incl. directTool
@@ -672,7 +685,7 @@ function resolveByTags(
         const known = listKnownMcpClients(mcpRegistry);
         throw rcError("RC5003", undefined, {
           message:
-            `tools(): from "mcp_${scope.mcpClient}" has no registered tools. ` +
+            `tools(): from "mcp__${scope.mcpClient}" has no registered tools. ` +
             (known.length > 0
               ? `Known MCP clients: ${known.map((k) => `"${k}"`).join(", ")}.`
               : `No MCP clients are registered in this context.`),
@@ -692,7 +705,7 @@ function resolveByTags(
   } else if (scope.kind === "mcp") {
     // Asked for a specific MCP client but the registry isn't installed.
     throw rcError("RC5003", undefined, {
-      message: `tools(): from "mcp_${scope.mcpClient}" but no MCP_TOOL_REGISTRY is present. Install mcpPlugin (defineConfig.mcp).`,
+      message: `tools(): from "mcp__${scope.mcpClient}" but no MCP_TOOL_REGISTRY is present. Install mcpPlugin (defineConfig.mcp).`,
     });
   }
 
@@ -732,6 +745,6 @@ function listKnownNames(ctx: CraftContext): string[] {
         | Map<string, DirectRouteMetadata>
         | undefined) ?? new Map()
     ).keys(),
-  ].map((id) => `direct_${id}`);
+  ].map((id) => `Direct(${id})`);
   return [...fnNames, ...routeNames].sort();
 }

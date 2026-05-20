@@ -221,7 +221,7 @@ agent({
   model: "anthropic:claude-opus-4-7",
   system: "You are a summariser.",
   user: (ex) => `Summarise: ${ex.body}`,
-  tools: tools(["fetch-order", "cancel-order", "mcp_docs-server:search"]),
+  tools: tools(["fetch-order", "cancel-order", "MCP(docs-server:search)"]),
 })
 ```
 

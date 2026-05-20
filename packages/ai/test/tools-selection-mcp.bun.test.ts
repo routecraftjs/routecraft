@@ -100,11 +100,11 @@ describe("tools() resolver - MCP refs", () => {
   });
 
   /**
-   * @case mcp_<client>:<tool> resolves to a single ResolvedTool
+   * @case mcp__server__tool resolves to a single ResolvedTool
    * @preconditions Registry has Nuclino:list_teams with description and JSON Schema
-   * @expectedResult Resolution yields one tool named mcp_Nuclino:list_teams whose handler dispatches through dispatchMcpCall
+   * @expectedResult Resolution yields one tool named mcp__Nuclino__list_teams whose handler dispatches through dispatchMcpCall
    */
-  test("mcp_<client>:<tool> resolves to one ResolvedTool", async () => {
+  test("mcp__server__tool resolves to one ResolvedTool", async () => {
     t = await buildCtxWithMcp([
       {
         source: "Nuclino",
@@ -118,9 +118,9 @@ describe("tools() resolver - MCP refs", () => {
         ],
       },
     ]);
-    const resolved = tools(["mcp_Nuclino:list_teams"]).resolve(t.ctx);
+    const resolved = tools(["mcp__Nuclino__list_teams"]).resolve(t.ctx);
     expect(resolved).toHaveLength(1);
-    expect(resolved[0]!.name).toBe("mcp_Nuclino:list_teams");
+    expect(resolved[0]!.name).toBe("mcp__Nuclino__list_teams");
     expect(resolved[0]!.description).toBe("List teams.");
     await resolved[0]!.handler(
       { foo: "bar" } as unknown,
@@ -132,11 +132,11 @@ describe("tools() resolver - MCP refs", () => {
   });
 
   /**
-   * @case mcp_<client>:* expands to every tool registered under the client
+   * @case mcp__server__* expands to every tool registered under the client
    * @preconditions Registry has three Nuclino tools
-   * @expectedResult Resolution yields three ResolvedTools, one per registered tool, names follow mcp_Nuclino:<tool>
+   * @expectedResult Resolution yields three ResolvedTools, one per registered tool, names follow mcp__Nuclino__<tool>
    */
-  test("mcp_<client>:* expands to every tool on the client", async () => {
+  test("mcp__server__* expands to every tool on the client", async () => {
     t = await buildCtxWithMcp([
       {
         source: "Nuclino",
@@ -148,21 +148,21 @@ describe("tools() resolver - MCP refs", () => {
         ],
       },
     ]);
-    const resolved = tools(["mcp_Nuclino:*"]).resolve(t.ctx);
+    const resolved = tools(["mcp__Nuclino__*"]).resolve(t.ctx);
     const names = resolved.map((r) => r.name).sort();
     expect(names).toEqual([
-      "mcp_Nuclino:list_teams",
-      "mcp_Nuclino:list_workspaces",
-      "mcp_Nuclino:search_items",
+      "mcp__Nuclino__list_teams",
+      "mcp__Nuclino__list_workspaces",
+      "mcp__Nuclino__search_items",
     ]);
   });
 
   /**
    * @case Wildcard with a guard attaches the guard to every expanded tool
-   * @preconditions Client with two tools; { name: "mcp_X:*", guard }
+   * @preconditions Client with two tools; { name: "mcp__X__*", guard }
    * @expectedResult Every resolved tool carries the same guard reference
    */
-  test("mcp_<client>:* with a guard attaches the guard to every expanded tool", async () => {
+  test("mcp__server__* with a guard attaches the guard to every expanded tool", async () => {
     t = await buildCtxWithMcp([
       {
         source: "Nuclino",
@@ -171,7 +171,7 @@ describe("tools() resolver - MCP refs", () => {
       },
     ]);
     const guard = mock(async () => undefined);
-    const resolved = tools([{ name: "mcp_Nuclino:*", guard }]).resolve(t.ctx);
+    const resolved = tools([{ name: "mcp__Nuclino__*", guard }]).resolve(t.ctx);
     expect(resolved).toHaveLength(2);
     for (const r of resolved) expect(r.guard).toBe(guard);
   });
@@ -189,7 +189,7 @@ describe("tools() resolver - MCP refs", () => {
         tools: [{ name: "list_teams" }],
       },
     ]);
-    expect(() => tools(["mcp_Foo:bar"]).resolve(t!.ctx)).toThrow(
+    expect(() => tools(["mcp__Foo__bar"]).resolve(t!.ctx)).toThrow(
       /client "Foo" has no registered tools.*Nuclino/s,
     );
   });
@@ -207,7 +207,7 @@ describe("tools() resolver - MCP refs", () => {
         tools: [{ name: "list_teams" }, { name: "search_items" }],
       },
     ]);
-    expect(() => tools(["mcp_Nuclino:nope"]).resolve(t!.ctx)).toThrow(
+    expect(() => tools(["mcp__Nuclino__nope"]).resolve(t!.ctx)).toThrow(
       /"nope".*list_teams.*search_items/s,
     );
   });
@@ -215,7 +215,7 @@ describe("tools() resolver - MCP refs", () => {
   /**
    * @case Client names containing underscores resolve correctly
    * @preconditions Registry has client "my_company_api"
-   * @expectedResult mcp_my_company_api:get_user resolves to the right tool
+   * @expectedResult mcp__my_company_api__get_user resolves to the right tool
    */
   test("client names with underscores resolve correctly", async () => {
     t = await buildCtxWithMcp([
@@ -225,9 +225,9 @@ describe("tools() resolver - MCP refs", () => {
         tools: [{ name: "get_user", description: "Get a user." }],
       },
     ]);
-    const resolved = tools(["mcp_my_company_api:get_user"]).resolve(t.ctx);
+    const resolved = tools(["mcp__my_company_api__get_user"]).resolve(t.ctx);
     expect(resolved).toHaveLength(1);
-    expect(resolved[0]!.name).toBe("mcp_my_company_api:get_user");
+    expect(resolved[0]!.name).toBe("mcp__my_company_api__get_user");
   });
 
   /**
@@ -257,19 +257,19 @@ describe("tools() resolver - MCP refs", () => {
   });
 
   /**
-   * @case Malformed MCP refs with an empty client or tool segment surface as MCP grammar errors, not generic "unknown tool"
-   * @preconditions Registry populated with one valid Nuclino tool; user writes `mcp_:foo` or `mcp_foo:`
-   * @expectedResult Each throws RC5003 mentioning the MCP grammar (form "mcp_<client>:<tool>"), not "unknown tool"
+   * @case Malformed MCP refs with an empty server or tool segment surface as MCP grammar errors, not generic "unknown tool"
+   * @preconditions Registry populated with one valid Nuclino tool; user writes `MCP(:foo)` or `MCP(foo:)`
+   * @expectedResult Each throws RC5003 mentioning the MCP grammar, not "unknown tool"
    */
-  test("malformed mcp_ refs (empty client / empty tool) emit MCP-specific errors", async () => {
+  test("malformed MCP refs (empty server / empty tool) emit MCP-specific errors", async () => {
     t = await buildCtxWithMcp([
       { source: "Nuclino", transport: "http", tools: [{ name: "real_tool" }] },
     ]);
-    expect(() => tools(["mcp_:foo"]).resolve(t!.ctx)).toThrow(
-      /MCP reference.*form "mcp_<client>:<tool>".*empty client or tool/,
+    expect(() => tools(["MCP(:foo)"]).resolve(t!.ctx)).toThrow(
+      /MCP reference.*empty server or tool/,
     );
-    expect(() => tools(["mcp_foo:"]).resolve(t!.ctx)).toThrow(
-      /MCP reference.*form "mcp_<client>:<tool>".*empty client or tool/,
+    expect(() => tools(["MCP(foo:)"]).resolve(t!.ctx)).toThrow(
+      /MCP reference.*empty server or tool/,
     );
   });
 
@@ -282,14 +282,14 @@ describe("tools() resolver - MCP refs", () => {
     t = await testContext()
       .with({ plugins: [agentPlugin({})] })
       .build();
-    expect(() => tools(["mcp_Foo:bar"]).resolve(t!.ctx)).toThrow(
+    expect(() => tools(["mcp__Foo__bar"]).resolve(t!.ctx)).toThrow(
       /no MCP_TOOL_REGISTRY is present/,
     );
   });
 
   /**
-   * @case mcp_<client>:<tool> with description override on { name } shape throws
-   * @preconditions { name: "mcp_X:y", description: "x" } in tools()
+   * @case mcp__server__tool with description override on { name } shape throws
+   * @preconditions { name: "mcp__X__y", description: "x" } in tools()
    * @expectedResult RC5003 explaining MCP descriptions are server-owned
    */
   test("description override on an MCP { name } item throws", async () => {
@@ -297,13 +297,13 @@ describe("tools() resolver - MCP refs", () => {
       { source: "X", transport: "http", tools: [{ name: "y" }] },
     ]);
     expect(() =>
-      tools([{ name: "mcp_X:y", description: "override" }]).resolve(t!.ctx),
+      tools([{ name: "mcp__X__y", description: "override" }]).resolve(t!.ctx),
     ).toThrow(/description.*MCP server is the source of truth/);
   });
 
   /**
    * @case Empty-string description on an MCP { name } item throws the MCP-specific error, not the generic empty-string error
-   * @preconditions { name: "mcp_X:y", description: "" } in tools()
+   * @preconditions { name: "mcp__X__y", description: "" } in tools()
    * @expectedResult RC5003 mentioning "MCP server is the source of truth", not "must be a non-empty string"
    */
   test("empty-string description on an MCP { name } item throws the MCP-specific error", async () => {
@@ -311,13 +311,13 @@ describe("tools() resolver - MCP refs", () => {
       { source: "X", transport: "http", tools: [{ name: "y" }] },
     ]);
     expect(() =>
-      tools([{ name: "mcp_X:y", description: "" }]).resolve(t!.ctx),
+      tools([{ name: "mcp__X__y", description: "" }]).resolve(t!.ctx),
     ).toThrow(/MCP server is the source of truth/);
   });
 
   /**
    * @case description override on an MCP wildcard { name } item throws the MCP-specific error
-   * @preconditions { name: "mcp_X:*", description: "x" } in tools()
+   * @preconditions { name: "mcp__X__*", description: "x" } in tools()
    * @expectedResult RC5003 mentioning MCP server is the source of truth
    */
   test("description override on an MCP wildcard { name } item throws", async () => {
@@ -325,7 +325,7 @@ describe("tools() resolver - MCP refs", () => {
       { source: "X", transport: "http", tools: [{ name: "y" }] },
     ]);
     expect(() =>
-      tools([{ name: "mcp_X:*", description: "override" }]).resolve(t!.ctx),
+      tools([{ name: "mcp__X__*", description: "override" }]).resolve(t!.ctx),
     ).toThrow(/MCP server is the source of truth/);
   });
 
@@ -348,7 +348,7 @@ describe("tools() resolver - MCP refs", () => {
         ],
       },
     ]);
-    const resolved = tools(["mcp_Nuclino:search_items"]).resolve(t!.ctx);
+    const resolved = tools(["mcp__Nuclino__search_items"]).resolve(t!.ctx);
     expect(resolved).toHaveLength(1);
     const tool = resolved[0]!;
     await expect(
@@ -397,11 +397,11 @@ describe("tools() resolver - { tagged, from? } over MCP", () => {
     const resolved = tools([{ tagged: "read-only" }]).resolve(t.ctx);
     const names = resolved.map((r) => r.name).sort();
     expect(names).toContain("CurrentTime");
-    expect(names).toContain("mcp_Nuclino:get_item");
+    expect(names).toContain("mcp__Nuclino__get_item");
   });
 
   /**
-   * @case `from: "mcp_<client>"` scopes the tag selector to one MCP client
+   * @case `from: "mcp__<server>"` scopes the tag selector to one MCP client
    * @preconditions Built-in read-only fns registered; registry has Nuclino read-only tool and Stripe read-only tool
    * @expectedResult Only Nuclino's read-only tool appears; the local fns and Stripe are excluded
    */
@@ -424,16 +424,16 @@ describe("tools() resolver - { tagged, from? } over MCP", () => {
       { functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() } },
     );
     const resolved = tools([
-      { tagged: "read-only", from: "mcp_Nuclino" },
+      { tagged: "read-only", from: "mcp__Nuclino" },
     ]).resolve(t.ctx);
     const names = resolved.map((r) => r.name).sort();
-    expect(names).toEqual(["mcp_Nuclino:get_item"]);
+    expect(names).toEqual(["mcp__Nuclino__get_item"]);
   });
 
   /**
    * @case `from: "mcp_<unknown>"` throws RC5003 listing registered clients
-   * @preconditions Registry has Nuclino only; user scopes from "mcp_Foo"
-   * @expectedResult Throw mentions "mcp_Foo" and lists "Nuclino"
+   * @preconditions Registry has Nuclino only; user scopes from "mcp__Foo"
+   * @expectedResult Throw mentions "mcp__Foo" and lists "Nuclino"
    */
   test("{ tagged, from } against an unknown MCP client throws", async () => {
     t = await buildCtxWithMcp([
@@ -444,8 +444,8 @@ describe("tools() resolver - { tagged, from? } over MCP", () => {
       },
     ]);
     expect(() =>
-      tools([{ tagged: "read-only", from: "mcp_Foo" }]).resolve(t!.ctx),
-    ).toThrow(/mcp_Foo.*Nuclino/s);
+      tools([{ tagged: "read-only", from: "mcp__Foo" }]).resolve(t!.ctx),
+    ).toThrow(/mcp__Foo.*Nuclino/s);
   });
 
   /**
@@ -464,7 +464,7 @@ describe("tools() resolver - { tagged, from? } over MCP", () => {
       },
     ]);
     expect(() =>
-      tools([{ tagged: "read-only", from: "mcp_Nuclino" }]).resolve(t!.ctx),
+      tools([{ tagged: "read-only", from: "mcp__Nuclino" }]).resolve(t!.ctx),
     ).toThrow(/matched no tools/);
   });
 
@@ -488,15 +488,15 @@ describe("tools() resolver - { tagged, from? } over MCP", () => {
       { functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() } },
     );
     const resolved = tools([
-      "mcp_Nuclino:*",
-      { tagged: "destructive", from: "mcp_Nuclino" },
+      "mcp__Nuclino__*",
+      { tagged: "destructive", from: "mcp__Nuclino" },
       "CurrentTime",
     ]).resolve(t.ctx);
     const names = resolved.map((r) => r.name).sort();
     expect(names).toEqual([
       "CurrentTime",
-      "mcp_Nuclino:delete_item",
-      "mcp_Nuclino:get_item",
+      "mcp__Nuclino__delete_item",
+      "mcp__Nuclino__get_item",
     ]);
   });
 });

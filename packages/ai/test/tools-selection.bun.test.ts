@@ -68,11 +68,11 @@ describe("tools() resolver - bare references", () => {
   });
 
   /**
-   * @case direct_<routeId> bare ref resolves via the direct registry
+   * @case Direct(routeId) ref resolves via the direct registry
    * @preconditions Direct route "fetch-order" registered with description + input
-   * @expectedResult Single ResolvedTool named "direct_fetch-order"
+   * @expectedResult Single ResolvedTool whose LLM-facing name is "direct_fetch-order"
    */
-  test("direct_<routeId> bare ref resolves via the direct registry", async () => {
+  test("Direct(routeId) ref resolves via the direct registry", async () => {
     const inputSchema = z.object({ orderId: z.string() });
     t = await testContext()
       .routes([
@@ -86,7 +86,7 @@ describe("tools() resolver - bare references", () => {
       .build();
     await t.startAndWaitReady();
 
-    const resolved = tools(["direct_fetch-order"]).resolve(t.ctx);
+    const resolved = tools(["Direct(fetch-order)"]).resolve(t.ctx);
     expect(resolved).toHaveLength(1);
     expect(resolved[0].name).toBe("direct_fetch-order");
     expect(resolved[0].description).toBe("Fetch an order by id.");
@@ -94,11 +94,11 @@ describe("tools() resolver - bare references", () => {
   });
 
   /**
-   * @case Fn registry entry with id "direct_x" wins over the prefix convention
-   * @preconditions Route "x" registered AND fn registry entry named "direct_x" with explicit description
-   * @expectedResult Resolution returns the fn registry entry (not the route-derived one)
+   * @case A bare "direct_x" is a plain fn id; the route form is "Direct(x)"
+   * @preconditions Route "x" registered AND a fn registry entry literally named "direct_x"
+   * @expectedResult tools(["direct_x"]) resolves the fn; tools(["Direct(x)"]) resolves the route
    */
-  test("explicit fn registry entry wins over the prefix convention", async () => {
+  test("bare direct_ name is a plain fn id; Direct(id) is the route", async () => {
     t = await testContext()
       .with({
         plugins: [
@@ -125,8 +125,12 @@ describe("tools() resolver - bare references", () => {
       .build();
     await t.startAndWaitReady();
 
-    const [resolved] = tools(["direct_x"]).resolve(t.ctx);
-    expect(resolved.description).toBe("Explicit fn registry entry.");
+    const [asFn] = tools(["direct_x"]).resolve(t.ctx);
+    expect(asFn.description).toBe("Explicit fn registry entry.");
+
+    const [asRoute] = tools(["Direct(x)"]).resolve(t.ctx);
+    expect(asRoute.name).toBe("direct_x");
+    expect(asRoute.description).toBe("Route description.");
   });
 
   /**
@@ -151,14 +155,14 @@ describe("tools() resolver - bare references", () => {
   });
 
   /**
-   * @case agent_<id> reference surfaces a clear "story F" error
-   * @preconditions resolve tools(["agent_researcher"])
-   * @expectedResult RC5003 thrown mentioning sub-agent / follow-up story
+   * @case Agent(...) references are not supported and surface as unknown tools
+   * @preconditions resolve tools(["Agent(researcher)"]) with no such fn registered
+   * @expectedResult RC5003 unknown-tool error (sub-agent tools are not implemented)
    */
-  test("agent_<id> bare ref throws not-yet-supported", async () => {
+  test("Agent(...) ref throws unknown-tool", async () => {
     t = await buildCtx({});
-    expect(() => tools(["agent_researcher"]).resolve(t!.ctx)).toThrow(
-      /sub-agent|follow-up/i,
+    expect(() => tools(["Agent(researcher)"]).resolve(t!.ctx)).toThrow(
+      /unknown tool/i,
     );
   });
 });
