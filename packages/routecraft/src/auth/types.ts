@@ -65,7 +65,7 @@ export interface Principal {
   claims?: Record<string, unknown>;
   /**
    * Raw OIDC userinfo response (when available). Populated only when
-   * `oauth({ userinfo: ... })` runs in URL or auto-discovery mode and the
+   * `mcpPlugin({ userinfo: ... })` runs in URL or auto-discovery mode and the
    * userinfo endpoint returns a non-empty JSON body. Distinct from `claims`,
    * which always carries the verified JWT payload.
    *
@@ -149,10 +149,10 @@ export interface OAuthValidatorAuthOptions {
   validator: OAuthTokenVerifier;
   /**
    * Expected token issuer(s), surfaced from the underlying helper (`jwt()` /
-   * `jwks()`). Read by `oauth({ userinfo: true })` to locate the OIDC Discovery
-   * document. Optional because custom validators may not declare an issuer; if
-   * absent, OIDC auto-discovery cannot be used and the caller must pass an
-   * explicit userinfo URL or function.
+   * `jwks()`). Read by `mcpPlugin({ userinfo: true })` to locate the OIDC
+   * Discovery document. Optional because custom validators may not declare an
+   * issuer; if absent, OIDC auto-discovery cannot be used and the caller must
+   * pass an explicit userinfo URL or function.
    */
   issuer?: string | string[];
 }

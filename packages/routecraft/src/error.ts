@@ -185,7 +185,7 @@ export const RC: Record<RCCode, RCMeta> = {
     category: "Adapter",
     message: "Principal enrichment failed",
     suggestion:
-      "The `userinfo` slot on `oauth({})` could not enrich the verified principal. The cause names the underlying problem (HTTP status, network error, malformed JSON, missing `userinfo_endpoint` in the OIDC Discovery document). Verify the userinfo endpoint URL, IdP availability, and the bearer token's scope grants. Fail-closed: the request is rejected to prevent silent identity gaps.",
+      "The `userinfo` option on `mcpPlugin({})` could not enrich the verified principal. The cause names the underlying problem (HTTP status, network error, malformed JSON, missing `userinfo_endpoint` in the OIDC Discovery document). Verify the userinfo endpoint URL, IdP availability, and the bearer token's scope grants. Fail-closed: the request is rejected to prevent silent identity gaps.",
     docs: `${DOCS_BASE}#rc-5021`,
     retryable: false,
   },

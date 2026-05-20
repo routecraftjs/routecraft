@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
-import { rcError, type OAuthPrincipal } from "@routecraft/routecraft";
-import type { OAuthVerifier } from "./oauth.ts";
+import { rcError, type Principal } from "@routecraft/routecraft";
 
 /**
  * Custom enrichment function. Receives the verified principal and the raw
@@ -14,15 +13,20 @@ import type { OAuthVerifier } from "./oauth.ts";
  * token always win regardless of what the function returns. If you want the
  * raw upstream response surfaced, return `{ userinfoClaims: ... }`.
  *
+ * The `principal` parameter is typed as {@link Principal} because enrichment
+ * works in both validator and OAuth-proxy modes. When the verifier is
+ * `jwks()` / `jwt()` / `oauth()`, the principal carries `expiresAt` at
+ * runtime (it is an `OAuthPrincipal`); a custom `{ validator }` may not.
+ *
  * @experimental
  */
 export type UserinfoFn = (
-  principal: OAuthPrincipal,
+  principal: Principal,
   token: string,
-) => Promise<Partial<OAuthPrincipal>>;
+) => Promise<Partial<Principal>>;
 
 /**
- * Input shape for the `userinfo` slot on `oauth({})`.
+ * Input shape for the `userinfo` slot on `mcpPlugin({})`.
  *
  * - `true`: auto-discover the userinfo endpoint via OIDC Discovery. The
  *   discovery document is fetched relative to the verify helper's `issuer`,
@@ -56,7 +60,7 @@ const DEFAULT_CACHE_MAX_ENTRIES = 10_000;
 const DEFAULT_DISCOVERY_TTL_SEC = 3600;
 
 interface CacheEntry {
-  enrichment: Partial<OAuthPrincipal>;
+  enrichment: Partial<Principal>;
   expiresAt: number;
 }
 
@@ -84,10 +88,7 @@ interface CacheEntry {
  */
 export class UserinfoCache {
   private readonly entries = new Map<string, CacheEntry>();
-  private readonly inFlight = new Map<
-    string,
-    Promise<Partial<OAuthPrincipal>>
-  >();
+  private readonly inFlight = new Map<string, Promise<Partial<Principal>>>();
   private readonly maxEntries: number;
 
   constructor(maxEntries: number = DEFAULT_CACHE_MAX_ENTRIES) {
@@ -99,12 +100,20 @@ export class UserinfoCache {
    * produce one and cache the result. Concurrent callers for the same
    * token share the in-flight promise. The cached entry self-evicts at
    * `expiresAt` (Unix epoch seconds, typically the principal's expiry).
+   *
+   * When `expiresAt` is `undefined` or non-finite (a custom validator that
+   * produced a principal without `exp`), the result is computed fresh on
+   * every call: there is no natural TTL to bound a cache entry, so caching
+   * is skipped rather than guessed.
    */
   async getOrCompute(
     token: string,
-    expiresAt: number,
-    compute: () => Promise<Partial<OAuthPrincipal>>,
-  ): Promise<Partial<OAuthPrincipal>> {
+    expiresAt: number | undefined,
+    compute: () => Promise<Partial<Principal>>,
+  ): Promise<Partial<Principal>> {
+    if (expiresAt === undefined || !Number.isFinite(expiresAt)) {
+      return compute();
+    }
     const key = hashToken(token);
     const cached = this.entries.get(key);
     if (cached) {
@@ -138,7 +147,7 @@ export class UserinfoCache {
 
   private store(
     key: string,
-    enrichment: Partial<OAuthPrincipal>,
+    enrichment: Partial<Principal>,
     expiresAt: number,
   ): void {
     if (this.entries.has(key)) this.entries.delete(key);
@@ -336,17 +345,22 @@ async function fetchUserinfo(
  * principal's. The raw userinfo response lives on `userinfoClaims` in URL /
  * discovery mode; function-mode enrichment can populate it explicitly.
  */
-function mergeEnrichment(
-  principal: OAuthPrincipal,
-  enrichment: Partial<OAuthPrincipal> | Record<string, unknown>,
-): OAuthPrincipal {
-  const merged = { ...principal } as OAuthPrincipal & Record<string, unknown>;
+function mergeEnrichment<P extends Principal>(
+  principal: P,
+  enrichment: Partial<Principal> | Record<string, unknown>,
+): P {
+  // Copy into a plain record so the indexed write type-checks under a generic
+  // `P`; every original field is preserved, only non-protected fields are
+  // overwritten, so the cast back to `P` is sound.
+  const merged: Record<string, unknown> = {
+    ...(principal as Record<string, unknown>),
+  };
   for (const [key, value] of Object.entries(enrichment)) {
     if ((PROTECTED_FIELDS as readonly string[]).includes(key)) continue;
     if (value === undefined) continue;
     merged[key] = value;
   }
-  return merged;
+  return merged as P;
 }
 
 /**
@@ -358,10 +372,8 @@ function mergeEnrichment(
  * that want the raw payload. The verified JWT payload on `principal.claims`
  * is preserved.
  */
-function liftOidcClaims(
-  payload: Record<string, unknown>,
-): Partial<OAuthPrincipal> {
-  const out: Partial<OAuthPrincipal> = { userinfoClaims: payload };
+function liftOidcClaims(payload: Record<string, unknown>): Partial<Principal> {
+  const out: Partial<Principal> = { userinfoClaims: payload };
   if (typeof payload["email"] === "string") out.email = payload["email"];
   if (typeof payload["name"] === "string") out.name = payload["name"];
   if (Array.isArray(payload["roles"])) {
@@ -373,26 +385,17 @@ function liftOidcClaims(
 }
 
 /**
- * Normalise the `verify` option into a `(token) => Promise<OAuthPrincipal>`
- * callback. Mirrors the inner helper in `oauth.ts` but exposed for the
- * enrichment wrapper.
- */
-function callBaseVerifier(
-  verify: OAuthVerifier,
-): (token: string) => Promise<OAuthPrincipal> {
-  if (typeof verify === "function") {
-    return async (token) => verify(token);
-  }
-  return async (token) => verify.validator(token);
-}
-
-/**
  * Wrap a base verifier with userinfo enrichment.
  *
  * The base verifier runs on every request so any dynamic checks it
  * performs (introspection, revocation, clock comparisons) still fire per
  * request. Only the enrichment payload is memoised, keyed by
  * SHA-256(token) and TTL'd to `principal.expiresAt`.
+ *
+ * Generic over the principal type so the same wrapper serves validator
+ * mode (`jwks()` / `jwt()` / custom `{ validator }`) and OAuth-proxy mode
+ * (`oauth()`); the caller supplies the base verifier and the IdP `issuer`
+ * (needed only for `userinfo: true` OIDC Discovery).
  *
  * Concurrent first-callers for the same token share a single in-flight
  * enrichment promise, so the IdP receives one userinfo fetch per
@@ -406,13 +409,17 @@ function callBaseVerifier(
  * trusted by contract. Network / fetch / parse failures raise `RC5021`.
  * Fail-closed throughout.
  *
+ * For `userinfo: true`, this throws synchronously at call time when no
+ * single-string `issuer` is available, so the server can fail fast at
+ * startup rather than on the first request.
+ *
  * @internal
  */
-export function buildEnrichedVerifier(
-  verify: OAuthVerifier,
+export function buildEnrichedVerifier<P extends Principal>(
+  baseVerifier: (token: string) => Promise<P>,
   userinfo: UserinfoOption,
-): (token: string) => Promise<OAuthPrincipal> {
-  const baseVerifier = callBaseVerifier(verify);
+  issuer: string | string[] | undefined,
+): (token: string) => Promise<P> {
   const cache = new UserinfoCache();
 
   if (typeof userinfo === "function") {
@@ -427,8 +434,7 @@ export function buildEnrichedVerifier(
     };
   }
 
-  const verifyIssuer = typeof verify === "function" ? undefined : verify.issuer;
-  const resolveUserinfoUrl = createUserinfoUrlResolver(userinfo, verifyIssuer);
+  const resolveUserinfoUrl = createUserinfoUrlResolver(userinfo, issuer);
 
   return async (token: string) => {
     const principal = await baseVerifier(token);

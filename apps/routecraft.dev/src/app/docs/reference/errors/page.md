@@ -276,7 +276,7 @@ The check is distinct from `RC5012` (no principal at all) and `RC5015` (principa
 Principal enrichment failed
 
 **Why it happens**  
-The `userinfo` slot on `oauth({})` could not enrich the verified principal. Causes include: a non-2xx response from the userinfo endpoint (rate limit, bearer scope insufficient, IdP outage), a network error reaching the userinfo or OIDC Discovery URL, malformed JSON, or a Discovery document that does not advertise a `userinfo_endpoint`. The framework is fail-closed: any enrichment error rejects the request rather than authorize on a partial principal.
+The `userinfo` option on `mcpPlugin({})` could not enrich the verified principal. Causes include: a non-2xx response from the userinfo endpoint (rate limit, bearer scope insufficient, IdP outage), a network error reaching the userinfo or OIDC Discovery URL, malformed JSON, or a Discovery document that does not advertise a `userinfo_endpoint`. The framework is fail-closed: any enrichment error rejects the request rather than authorize on a partial principal.
 
 **Suggestion**  
 - Inspect the underlying cause attached to the error: it names the URL and HTTP status.

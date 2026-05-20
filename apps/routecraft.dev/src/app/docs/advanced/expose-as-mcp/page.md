@@ -360,17 +360,22 @@ auth: oauth({
 
 `expiresAt` is required by the MCP SDK's bearer middleware; the server will throw if the verifier returns a principal without it.
 
-#### Principal enrichment via `userinfo`
+The populated `Principal` rides on the exchange as a single structured header (`routecraft.auth.principal`) and is exposed ergonomically via the `ex.principal` getter, e.g. `ex.principal?.subject`, `ex.principal?.scopes`, `ex.principal?.claims`.
 
-OAuth access tokens are intentionally thin: they authorize but rarely identify. Identity fields needed to gate routes (`email`, `name`, `roles`, org membership) usually live behind the IdP's userinfo endpoint, not in the token itself. The optional `userinfo` slot on `oauth({})` runs after `verify` succeeds and merges enrichment onto the verified principal. Three shapes are accepted; choose exactly one per `oauth({})` call.
+### Principal enrichment via `userinfo`
+
+OAuth access tokens are intentionally thin: they authorize but rarely identify. Identity fields needed to gate routes (`email`, `name`, `roles`, org membership) usually live behind the IdP's userinfo endpoint, not in the token itself. The optional `userinfo` option on `mcpPlugin({})` runs after `auth` verifies the token and merges enrichment onto the verified principal.
+
+`userinfo` is **plugin-level and orthogonal to the auth mode**: it works with `jwks()` / `jwt()` (validator mode), a custom `{ validator }`, and `oauth()`. This is the path for IdPs like WorkOS AuthKit where OAuth proxy mode is not viable (no server-side DCR) but you still need identity beyond the thin token.
+
+Three shapes are accepted; choose exactly one.
 
 **Shape 1: auto-discover via OIDC Discovery.** Requires a single-string `issuer` on the verify helper (`jwks({ issuer })` / `jwt({ issuer })`). The framework resolves the userinfo endpoint from the discovery document at `${issuer}/.well-known/openid-configuration` and caches the URL honouring `Cache-Control: max-age` (default 1 hour).
 
 ```ts
-auth: oauth({
-  endpoints: { ... },
-  verify: jwks({ jwksUrl, issuer: 'https://idp.example.com', audience }),
-  client: { ... },
+mcpPlugin({
+  transport: 'http',
+  auth: jwks({ jwksUrl, issuer: 'https://idp.example.com', audience }),
   userinfo: true,
 })
 ```
@@ -378,21 +383,19 @@ auth: oauth({
 **Shape 2: explicit userinfo endpoint URL.** Skips discovery; use when the IdP does not advertise OIDC Discovery or you want to pin the URL explicitly.
 
 ```ts
-auth: oauth({
-  endpoints: { ... },
-  verify: jwks({ jwksUrl, issuer: 'https://idp.example.com', audience }),
-  client: { ... },
+mcpPlugin({
+  transport: 'http',
+  auth: jwks({ jwksUrl, issuer: 'https://idp.example.com', audience }),
   userinfo: 'https://idp.example.com/oauth/userinfo',
 })
 ```
 
-**Shape 3: custom function** for non-OIDC backends (Clerk Backend API, internal DB, etc.). Sub-invariant enforcement is the caller's responsibility in this mode.
+**Shape 3: custom function** for non-OIDC backends (WorkOS / Clerk Backend API, internal DB, etc.). Sub-invariant enforcement is the caller's responsibility in this mode.
 
 ```ts
-auth: oauth({
-  endpoints: { ... },
-  verify: jwks({ jwksUrl, issuer: 'https://idp.example.com', audience }),
-  client: { ... },
+mcpPlugin({
+  transport: 'http',
+  auth: jwks({ jwksUrl, issuer: 'https://idp.example.com', audience }),
   userinfo: async (principal, token) => {
     const [profile, roles] = await Promise.all([
       fetch('https://idp.example.com/oauth/userinfo', {
@@ -405,20 +408,21 @@ auth: oauth({
 })
 ```
 
+The same `userinfo` option works unchanged when `auth` is `oauth({})`.
+
 Semantics:
 
+- **Default is no enrichment.** When `userinfo` is omitted, the principal carries only what the token itself provided (`email` / `name` / `roles` only if those claims are in the JWT). Set `userinfo` to fetch them for thin tokens.
 - **Runs after verify.** The verified principal is the starting point; userinfo only adds or overwrites non-protected fields.
 - **Verify wins on protected fields.** `subject`, `issuer`, `audience`, `expiresAt`, and `claims` always come from the token. An enrichment that tries to overwrite them is silently dropped. The raw userinfo response is surfaced on a separate `userinfoClaims` field so `principal.claims` keeps its meaning ("verified JWT payload") regardless of whether enrichment ran.
 - **`sub` invariant (URL and discovery modes).** The userinfo response MUST include `sub` and it MUST equal the verified token's `sub` (OIDC Core §5.3.2). Mismatches reject the request with `RC5022`. The function variant is trusted by contract.
-- **Auto-discovery (`userinfo: true`).** The framework fetches the OIDC Discovery document relative to the verify helper's `issuer` (preserving the issuer's path, so Keycloak realms and tenant-prefixed IdPs work), reads `userinfo_endpoint`, and caches the resolved URL honouring the response's `Cache-Control: max-age` (default one hour). A missing `userinfo_endpoint` or an unreachable discovery doc raises `RC5021` on the first request.
-- **Token-bound enrichment caching with coalescing.** The base verifier (`verify`) runs on every request, so dynamic checks (introspection, revocation, clock comparisons) still fire per request. Only the enrichment payload is memoised, keyed by SHA-256 of the bearer (not the raw bearer) and evicted at `expiresAt`. The cache has a default cap of 10,000 entries with insertion-order eviction. Concurrent first-callers for the same token share a single in-flight enrichment, so the IdP receives one userinfo fetch per token, not one per inbound request.
+- **Auto-discovery (`userinfo: true`).** The framework fetches the OIDC Discovery document relative to the verifier's `issuer` (preserving the issuer's path, so Keycloak realms and tenant-prefixed IdPs work), reads `userinfo_endpoint`, and caches the resolved URL honouring the response's `Cache-Control: max-age` (default one hour). A missing single-string issuer fails fast at startup; a missing `userinfo_endpoint` or unreachable discovery doc raises `RC5021` on the first request.
+- **Token-bound enrichment caching with coalescing.** The verifier runs on every request, so dynamic checks (introspection, revocation, clock comparisons) still fire per request. Only the enrichment payload is memoised, keyed by SHA-256 of the bearer (not the raw bearer) and evicted at `expiresAt`. The cache has a default cap of 10,000 entries with insertion-order eviction. Concurrent first-callers for the same token share a single in-flight enrichment, so the IdP receives one userinfo fetch per token, not one per inbound request.
 - **Fail-closed.** Userinfo fetch, parse, and discovery errors raise `RC5021`; sub-invariant violations raise `RC5022`. There is no opt-in "best effort" mode; if you need that, write a function variant that swallows its own errors.
 
 If `authorize()` runs mid-pipeline after a slow step, set `authorize({ clockToleranceSec })` to the same value used on the source-side verifier so a token accepted at the route boundary is not rejected by a fraction of a second.
 
 Use `userinfo` when the bearer alone does not carry the identity fields you need. Skip it when the token already contains everything (e.g. a Clerk JWT with `email` and `roles` claims).
-
-The populated `Principal` rides on the exchange as a single structured header (`routecraft.auth.principal`) and is exposed ergonomically via the `ex.principal` getter, e.g. `ex.principal?.subject`, `ex.principal?.scopes`, `ex.principal?.claims`.
 
 See the [plugins reference](/docs/reference/plugins#mcpplugin) for the full `Principal` field list.
 
