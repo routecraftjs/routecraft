@@ -291,24 +291,47 @@ export function applyCorsHeaders(
   }
 }
 
-/** Paths on which the MCP HTTP transport applies CORS. */
+/** Root path of the RFC 9728 protected-resource metadata document. */
 export const PROTECTED_RESOURCE_METADATA_PATH =
   "/.well-known/oauth-protected-resource";
 
 /**
- * Whether a request path is one the MCP HTTP transport owns (and applies
- * its CORS policy to). The transport listens on exactly `/mcp` (with or
- * without trailing slash) plus the RFC 9728 metadata path. Sub-paths
- * (`/mcp/sessions/...`) are not handled and must be added here if ever
- * introduced; centralising the matcher prevents the validator and OAuth
- * paths from drifting.
+ * Build the set of paths the MCP HTTP transport owns for CORS purposes, given
+ * the resolved resource URL.
+ *
+ * The transport always listens on `/mcp` (and `/mcp/`). RFC 9728 §3 metadata
+ * lives at the root path **and** at a path-suffixed variant derived from
+ * `resource.url`'s pathname: e.g. for `resource.url = https://example.com/api/mcp`
+ * the canonical client probe is `/.well-known/oauth-protected-resource/api/mcp`.
+ * Both metadata URLs serve the identical document.
+ *
+ * The path-suffixed URL is derived dynamically because the MCP SDK's
+ * `mcpAuthRouter` mounts its own path-aware doc at the same SDK-derived URL
+ * (`/.well-known/oauth-protected-resource${rsPath}`); we must register our
+ * handler at the same URL to shadow it and preserve the
+ * "identical JSON regardless of auth mode" promise in
+ * `.standards/security.md` §6.
+ *
+ * Returns the set of owned paths (always includes `/mcp`, `/mcp/`, and the
+ * root metadata path; conditionally includes the path-suffixed metadata path).
+ * The `metadataPaths` field is the subset on which the metadata document
+ * is served.
  *
  * @internal
  */
-export function isMcpOwnedPath(url: string): boolean {
-  return (
-    url === PROTECTED_RESOURCE_METADATA_PATH ||
-    url === "/mcp" ||
-    url === "/mcp/"
-  );
+export interface McpOwnedPaths {
+  /** All paths the framework owns (CORS allowlist + OPTIONS short-circuit). */
+  ownedPaths: ReadonlySet<string>;
+  /** Subset of ownedPaths on which the RFC 9728 metadata doc is served. */
+  metadataPaths: ReadonlySet<string>;
+}
+
+export function buildMcpOwnedPaths(resourceUrl: URL): McpOwnedPaths {
+  const metadataPaths = new Set<string>([PROTECTED_RESOURCE_METADATA_PATH]);
+  const rsPath = resourceUrl.pathname;
+  if (rsPath && rsPath !== "/" && rsPath !== "") {
+    metadataPaths.add(`${PROTECTED_RESOURCE_METADATA_PATH}${rsPath}`);
+  }
+  const ownedPaths = new Set<string>([...metadataPaths, "/mcp", "/mcp/"]);
+  return { ownedPaths, metadataPaths };
 }
