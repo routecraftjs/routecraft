@@ -21,6 +21,7 @@ import {
   isOAuthAuth,
 } from "./types.ts";
 import type {
+  McpIcon,
   McpLocalToolEntry,
   McpPluginOptions,
   McpTool,
@@ -32,6 +33,7 @@ import {
   PROTECTED_RESOURCE_METADATA_PATH,
   resolveCorsOptions,
 } from "./cors.ts";
+import { ROUTECRAFT_DEFAULT_ICONS } from "./default-icon.ts";
 
 /**
  * MCP SDK `AuthInfo` shape. Imported as a type so nothing is required at
@@ -51,7 +53,40 @@ const principalStore = new AsyncLocalStorage<Principal | undefined>();
 type McpServerResolvedOptions = Required<
   Pick<McpPluginOptions, "name" | "version" | "transport" | "port" | "host">
 > &
-  Pick<McpPluginOptions, "tools" | "auth" | "title" | "resource" | "cors">;
+  Pick<
+    McpPluginOptions,
+    | "tools"
+    | "auth"
+    | "title"
+    | "resource"
+    | "cors"
+    | "description"
+    | "websiteUrl"
+    | "instructions"
+    | "icons"
+  >;
+
+/** The MCP SDK `Server` constructor info arg (the fields we populate). */
+type SdkServerInfo = {
+  name: string;
+  version: string;
+  title?: string;
+  description?: string;
+  websiteUrl?: string;
+  icons?: McpIcon[];
+};
+
+/** The MCP SDK `Server` constructor options arg (the fields we populate). */
+type SdkServerOptions = {
+  capabilities: { tools: Record<string, unknown> };
+  instructions?: string;
+};
+
+/** The MCP SDK `Server` constructor as we consume it via dynamic import. */
+type SdkServerCtor = new (
+  info: SdkServerInfo,
+  options: SdkServerOptions,
+) => unknown;
 
 /**
  * RFC 9728 OAuth 2.0 Protected Resource Metadata payload returned by
@@ -107,6 +142,56 @@ export class McpServer {
       ...options,
     };
     this.validateResourceConfig();
+  }
+
+  /**
+   * Resolve the server-level icons: the Routecraft default when unset, the
+   * consumer's icons otherwise (an explicit empty array means "no icon").
+   */
+  private resolveServerIcons(): McpIcon[] {
+    return this.options.icons === undefined
+      ? ROUTECRAFT_DEFAULT_ICONS
+      : this.options.icons;
+  }
+
+  /**
+   * Build the MCP `serverInfo` (`Implementation`) object shared by both
+   * transports. Applies the Routecraft "powered by" defaults for description,
+   * websiteUrl, and icons; an empty string/array opts out of a given field.
+   */
+  private buildServerInfo(): SdkServerInfo {
+    const info: SdkServerInfo = {
+      name: this.options.name,
+      version: this.options.version,
+    };
+    if (this.options.title !== undefined) {
+      info.title = this.options.title;
+    }
+
+    const description = this.options.description ?? "Powered by Routecraft.dev";
+    if (description !== "") {
+      info.description = description;
+    }
+
+    const websiteUrl = this.options.websiteUrl ?? "https://routecraft.dev";
+    if (websiteUrl !== "") {
+      info.websiteUrl = websiteUrl;
+    }
+
+    const icons = this.resolveServerIcons();
+    if (icons.length > 0) {
+      info.icons = icons;
+    }
+    return info;
+  }
+
+  /** Build the MCP `Server` options arg (capabilities plus optional instructions). */
+  private buildServerOptions(): SdkServerOptions {
+    const options: SdkServerOptions = { capabilities: { tools: {} } };
+    if (this.options.instructions !== undefined) {
+      options.instructions = this.options.instructions;
+    }
+    return options;
   }
 
   /**
@@ -177,10 +262,7 @@ export class McpServer {
       () => import("@modelcontextprotocol/sdk/server/index.js"),
       { adapterName: "mcp (stdio)", packageName: "@modelcontextprotocol/sdk" },
     );
-    const Server = serverMod.Server as new (
-      info: { name: string; version: string; title?: string },
-      options: { capabilities: { tools: Record<string, unknown> } },
-    ) => unknown;
+    const Server = serverMod.Server as SdkServerCtor;
     const stdioMod = await loadOptionalPeer(
       () => import("@modelcontextprotocol/sdk/server/stdio.js"),
       { adapterName: "mcp (stdio)", packageName: "@modelcontextprotocol/sdk" },
@@ -188,13 +270,7 @@ export class McpServer {
     const StdioServerTransport =
       stdioMod.StdioServerTransport as new () => unknown;
 
-    this.server = new Server(
-      {
-        name: this.options.name,
-        version: this.options.version,
-      },
-      { capabilities: { tools: {} } },
-    );
+    this.server = new Server(this.buildServerInfo(), this.buildServerOptions());
 
     await this.setupRequestHandlers();
 
@@ -223,10 +299,7 @@ export class McpServer {
    * Shared by both HTTP startup paths.
    */
   private async importSdkHttp(): Promise<{
-    ServerCtor: new (
-      info: { name: string; version: string; title?: string },
-      options: { capabilities: { tools: Record<string, unknown> } },
-    ) => unknown;
+    ServerCtor: SdkServerCtor;
     TransportClass: new (options?: {
       sessionIdGenerator?: () => string;
       onsessioninitialized?: (sessionId: string) => void;
@@ -237,10 +310,7 @@ export class McpServer {
       () => import("@modelcontextprotocol/sdk/server/index.js"),
       { adapterName: "mcp (http)", packageName: "@modelcontextprotocol/sdk" },
     );
-    const ServerCtor = serverModule.Server as new (
-      info: { name: string; version: string; title?: string },
-      options: { capabilities: { tools: Record<string, unknown> } },
-    ) => unknown;
+    const ServerCtor = serverModule.Server as SdkServerCtor;
 
     // streamableHttp is a sub-export that may not exist on older SDK
     // versions; the `.catch(() => null)` lets the OAuth-aware fallback
@@ -275,10 +345,7 @@ export class McpServer {
    * Called on every initialization request (no session ID header).
    */
   private async createSession(
-    ServerCtor: new (
-      info: { name: string; version: string; title?: string },
-      options: { capabilities: { tools: Record<string, unknown> } },
-    ) => unknown,
+    ServerCtor: SdkServerCtor,
     TransportClass: new (options?: {
       sessionIdGenerator?: () => string;
       onsessioninitialized?: (sessionId: string) => void;
@@ -293,12 +360,8 @@ export class McpServer {
     ) => Promise<void>;
   }> {
     const server = new ServerCtor(
-      {
-        name: this.options.name,
-        version: this.options.version,
-        ...(this.options.title !== undefined && { title: this.options.title }),
-      },
-      { capabilities: { tools: {} } },
+      this.buildServerInfo(),
+      this.buildServerOptions(),
     );
 
     await this.setupRequestHandlersOn(server);
@@ -1219,8 +1282,9 @@ export class McpServer {
     if (entry.annotations !== undefined) {
       tool.annotations = entry.annotations;
     }
-    if (entry.icons !== undefined) {
-      tool.icons = entry.icons;
+    const icons = entry.icons ?? this.resolveServerIcons();
+    if (icons.length > 0) {
+      tool.icons = icons;
     }
     return tool;
   }

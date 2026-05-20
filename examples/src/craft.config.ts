@@ -29,7 +29,9 @@ export const craftConfig = defineConfig({
   },
   mcp: {
     name: "routecraft",
+    title: "Routecraft Examples",
     version,
+    description: "Example capabilities exposed over MCP.",
     transport: "http",
     auth: jwt({
       secret: env.JWT_SECRET,

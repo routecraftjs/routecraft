@@ -9,6 +9,7 @@ import {
   type Principal,
 } from "@routecraft/routecraft";
 import { mcp, MCP_PLUGIN_REGISTERED } from "../src/index.ts";
+import { ROUTECRAFT_DEFAULT_ICONS } from "../src/mcp/default-icon.ts";
 import { buildAuthHeaders } from "../src/mcp/build-auth-headers.ts";
 import { z } from "zod";
 import http from "node:http";
@@ -211,6 +212,112 @@ describe("McpServer", () => {
     expect(tools[0]).not.toHaveProperty("annotations");
   });
 
+  /**
+   * @case A tool without its own icons inherits the default Routecraft server icons
+   * @preconditions Default server options; route uses mcp() without icons
+   * @expectedResult getAvailableTools() reports the tool carrying ROUTECRAFT_DEFAULT_ICONS
+   */
+  test("tools inherit the default server icons", async () => {
+    t = await testContext()
+      .routes([
+        craft().id("plain").description("No icons").from(mcp()).to(noop()),
+      ])
+      .store(MCP_STORE_KEY, true)
+      .build();
+    server = new McpServer(t.ctx);
+    await t.startAndWaitReady();
+    const tools = server.getAvailableTools();
+    expect(tools[0].icons).toEqual(ROUTECRAFT_DEFAULT_ICONS);
+  });
+
+  /**
+   * @case A tool inherits custom server-level icons when it declares none of its own
+   * @preconditions Server configured with custom icons; route uses mcp() without icons
+   * @expectedResult The tool carries the custom server icons
+   */
+  test("tools inherit custom server icons", async () => {
+    const serverIcons = [
+      { src: "https://acme.example.com/logo.svg", mimeType: "image/svg+xml" },
+    ];
+    t = await testContext()
+      .routes([
+        craft().id("plain").description("No icons").from(mcp()).to(noop()),
+      ])
+      .store(MCP_STORE_KEY, true)
+      .build();
+    server = new McpServer(t.ctx, { icons: serverIcons });
+    await t.startAndWaitReady();
+    const tools = server.getAvailableTools();
+    expect(tools[0].icons).toEqual(serverIcons);
+  });
+
+  /**
+   * @case A tool's own icons take precedence over inherited server icons
+   * @preconditions Server with custom icons; route uses mcp({ icons })
+   * @expectedResult The tool keeps its own icons, not the server's
+   */
+  test("tool icons override inherited server icons", async () => {
+    const toolIcons = [
+      { src: "https://acme.example.com/tool.svg", mimeType: "image/svg+xml" },
+    ];
+    t = await testContext()
+      .routes([
+        craft()
+          .id("custom")
+          .description("Has icons")
+          .from(mcp({ icons: toolIcons }))
+          .to(noop()),
+      ])
+      .store(MCP_STORE_KEY, true)
+      .build();
+    server = new McpServer(t.ctx, {
+      icons: [{ src: "https://acme.example.com/server.svg" }],
+    });
+    await t.startAndWaitReady();
+    const tools = server.getAvailableTools();
+    expect(tools[0].icons).toEqual(toolIcons);
+  });
+
+  /**
+   * @case An empty per-tool icons array opts the tool out of inheriting any icon
+   * @preconditions Default server icons; route uses mcp({ icons: [] })
+   * @expectedResult The tool omits the icons field
+   */
+  test("empty tool icons suppress inheritance", async () => {
+    t = await testContext()
+      .routes([
+        craft()
+          .id("bare")
+          .description("Suppressed")
+          .from(mcp({ icons: [] }))
+          .to(noop()),
+      ])
+      .store(MCP_STORE_KEY, true)
+      .build();
+    server = new McpServer(t.ctx);
+    await t.startAndWaitReady();
+    const tools = server.getAvailableTools();
+    expect(tools[0]).not.toHaveProperty("icons");
+  });
+
+  /**
+   * @case Suppressing server icons removes branding from inheriting tools too
+   * @preconditions Server with icons: []; route uses mcp() without icons
+   * @expectedResult The tool omits the icons field
+   */
+  test("server icons: [] disables default branding for tools", async () => {
+    t = await testContext()
+      .routes([
+        craft().id("plain").description("No icons").from(mcp()).to(noop()),
+      ])
+      .store(MCP_STORE_KEY, true)
+      .build();
+    server = new McpServer(t.ctx, { icons: [] });
+    await t.startAndWaitReady();
+    const tools = server.getAvailableTools();
+    expect(tools[0]).not.toHaveProperty("icons");
+  });
+
   describe("HTTP transport", () => {
     /** Start HTTP server with given route builders; returns post helper and port. Call initSession() to get session id. */
     async function startHttpServer(
@@ -221,6 +328,10 @@ describe("McpServer", () => {
         auth?: import("../src/mcp/types.ts").McpHttpAuthOptions;
         resource?: import("../src/mcp/types.ts").McpResourceOptions;
         title?: string;
+        description?: string;
+        websiteUrl?: string;
+        instructions?: string;
+        icons?: import("../src/mcp/types.ts").McpIcon[];
         cors?: false | import("../src/mcp/cors.ts").McpCorsOptions;
       } = {},
     ) {
@@ -428,6 +539,88 @@ describe("McpServer", () => {
         (t) => t.name,
       );
       expect(toolNames).toContain("http-tool");
+    });
+
+    /**
+     * @case initialize returns the default Routecraft server identity
+     * @preconditions HTTP server with default options; send initialize
+     * @expectedResult serverInfo carries the default description, websiteUrl, and icons; no instructions
+     */
+    test("initialize returns the default server identity", async () => {
+      const { post } = await startHttpServer([
+        craft().id("id-tool").description("Tool").from(mcp()).to(noop()),
+      ]);
+      const res = await post(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: INIT_PARAMS,
+        }),
+      );
+      expect(res.statusCode).toBe(200);
+      const result = JSON.parse(res.body).result;
+      expect(result.serverInfo.description).toBe("Powered by Routecraft.dev");
+      expect(result.serverInfo.websiteUrl).toBe("https://routecraft.dev");
+      expect(result.serverInfo.icons).toEqual(ROUTECRAFT_DEFAULT_ICONS);
+      expect(result.instructions).toBeUndefined();
+    });
+
+    /**
+     * @case initialize reflects custom server identity and instructions
+     * @preconditions HTTP server with custom description/websiteUrl/instructions/icons
+     * @expectedResult serverInfo and instructions carry the configured values
+     */
+    test("initialize reflects custom server identity", async () => {
+      const icons = [
+        { src: "https://acme.example.com/logo.svg", mimeType: "image/svg+xml" },
+      ];
+      const { post } = await startHttpServer(
+        [craft().id("id-tool").description("Tool").from(mcp()).to(noop())],
+        {
+          description: "Acme over MCP",
+          websiteUrl: "https://acme.example.com",
+          instructions: "Call id-tool first.",
+          icons,
+        },
+      );
+      const res = await post(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: INIT_PARAMS,
+        }),
+      );
+      const result = JSON.parse(res.body).result;
+      expect(result.serverInfo.description).toBe("Acme over MCP");
+      expect(result.serverInfo.websiteUrl).toBe("https://acme.example.com");
+      expect(result.serverInfo.icons).toEqual(icons);
+      expect(result.instructions).toBe("Call id-tool first.");
+    });
+
+    /**
+     * @case Empty-string identity fields and an empty icons array are omitted from serverInfo
+     * @preconditions HTTP server with description:"", websiteUrl:"", icons:[]
+     * @expectedResult serverInfo omits description, websiteUrl, and icons
+     */
+    test("initialize omits suppressed identity fields", async () => {
+      const { post } = await startHttpServer(
+        [craft().id("id-tool").description("Tool").from(mcp()).to(noop())],
+        { description: "", websiteUrl: "", icons: [] },
+      );
+      const res = await post(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: INIT_PARAMS,
+        }),
+      );
+      const info = JSON.parse(res.body).result.serverInfo;
+      expect(info).not.toHaveProperty("description");
+      expect(info).not.toHaveProperty("websiteUrl");
+      expect(info).not.toHaveProperty("icons");
     });
 
     /**

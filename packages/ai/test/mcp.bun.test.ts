@@ -170,7 +170,13 @@ describe("mcp() DSL function", () => {
    * @expectedResult Registry contains entry with every tool-shape field
    */
   test("mcp() registers in local tool registry", async () => {
-    const icons = [{ src: "https://example.com/icon.svg", sizes: "48x48" }];
+    const icons = [
+      {
+        src: "https://example.com/icon.svg",
+        mimeType: "image/svg+xml",
+        sizes: ["48x48"],
+      },
+    ];
 
     t = await testContext()
       .routes([
