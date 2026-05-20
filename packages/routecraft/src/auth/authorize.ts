@@ -1,6 +1,7 @@
 import { type Exchange } from "../exchange.ts";
 import { rcError } from "../error.ts";
 import { type CallableValidator } from "../operations/validate.ts";
+import { isAuthentic } from "./authentic.ts";
 import { type Principal } from "./types.ts";
 
 /**
@@ -42,17 +43,20 @@ export interface AuthorizeOptions {
  * authenticated principal and (optionally) that the principal has every
  * required role and scope. This is a verification primitive: it asserts an
  * existing identity meets the criteria. It does NOT issue, mint, or attach
- * credentials to the exchange.
+ * credentials to the exchange (use `.authenticate()` / `authenticate()` for
+ * that), and it trusts only principals established by a trusted origin.
  *
- * Throws `RC5012` when no principal is present, `RC5020` when the principal
- * carries an `expiresAt` in the past (mid-pipeline token expiry), and `RC5015`
- * when the principal fails the role / scope / predicate check.
+ * Throws `RC5012` when no principal is present, `RC5023` when a principal is
+ * present but was not established by a trusted origin (a self-asserted plain
+ * object), `RC5020` when the principal carries an `expiresAt` in the past
+ * (mid-pipeline token expiry), and `RC5015` when the principal fails the
+ * role / scope / predicate check.
  *
  * Most routes should declare authorization at the route boundary using the
  * pre-from `.authorize()` builder method, which wires this validator as a
  * route-entry guard. Use this function directly with `.validate(...)` only
- * when the check must run mid-pipeline (for example, after a `.process()`
- * step that swaps the principal, or inside a `.choice()` branch).
+ * when the check must run mid-pipeline (for example, after an `.authenticate()`
+ * step that establishes the principal, or inside a `.choice()` branch).
  *
  * @experimental
  *
@@ -72,7 +76,7 @@ export interface AuthorizeOptions {
  *
  * craft()
  *   .from(http({ path: "/admin", method: "POST" }))
- *   .process(swapToServiceAccountPrincipal)
+ *   .authenticate(() => ({ subject: "service-account", roles: ["admin"] }))
  *   .validate(authorize({ roles: ["admin"] }))
  *   .to(adminDestination)
  * ```
@@ -87,7 +91,22 @@ export function authorize(
       throw rcError("RC5012", new Error("No authenticated principal"), {
         message: "Authorization failed: no authenticated principal",
         suggestion:
-          "Configure auth on the source so it emits a Principal (e.g. mcp({ auth: jwt(...) })). For a mid-pipeline .validate(authorize(...)) check, attach a custom principal in an earlier .process() step.",
+          "Configure auth on the source so it emits a Principal (e.g. mcp({ auth: jwt(...) })). For a mid-pipeline check, mint a principal with the .authenticate() operation (or the authenticate() helper) before authorize().",
+      });
+    }
+
+    // Trust only principals established by a trusted origin: a source-side
+    // verifier (jwt/jwks/oauth) or an explicit authenticate() mint. A plain
+    // object written onto headers["routecraft.auth.principal"] is treated as
+    // self-asserted and rejected, so identity cannot be forged by an
+    // incidental header write or by spreading an existing principal with
+    // elevated roles.
+    if (!isAuthentic(principal)) {
+      throw rcError("RC5023", new Error("Principal is not authentic"), {
+        message:
+          "Authorization failed: principal was not established by a trusted origin",
+        suggestion:
+          'Mint the identity with the .authenticate() operation or the authenticate() helper (or let a source verifier such as jwt()/jwks()/oauth() attach it). A plain object assigned to headers["routecraft.auth.principal"] is not trusted.',
       });
     }
 

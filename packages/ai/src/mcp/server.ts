@@ -4,6 +4,7 @@ import {
   HeadersKeys,
   isRoutecraftError,
   loadOptionalPeer,
+  markAuthentic,
 } from "@routecraft/routecraft";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createServer } from "node:http";
@@ -1463,13 +1464,18 @@ export class McpServer {
       // Build exchange headers. The authenticated principal (when present)
       // rides as a single structured header rather than ten flat keys; the
       // `ex.principal` getter on the exchange surfaces it ergonomically.
+      // This is the single attach point for every MCP auth mode (validator
+      // jwt/jwks/custom and OAuth proxy) and runs after any userinfo
+      // enrichment, so branding here marks the verified identity as
+      // authentic for downstream `authorize()` without freezing it too
+      // early to enrich.
       const principal = principalStore.getStore();
       const headers: Record<string, unknown> = {
         [McpHeadersKeys.TOOL]: toolName,
         [McpHeadersKeys.SESSION]: `mcp-${Date.now()}`,
       };
       if (principal) {
-        headers[HeadersKeys.AUTH_PRINCIPAL] = principal;
+        headers[HeadersKeys.AUTH_PRINCIPAL] = markAuthentic(principal);
       }
 
       const exchange = new DefaultExchange(this.context, {

@@ -7,6 +7,8 @@ export type {
 export { jwks } from "./auth/jwks.ts";
 export type { JwksOptions } from "./auth/jwks.ts";
 export { authorize, type AuthorizeOptions } from "./auth/authorize.ts";
+export { authenticate, type PrincipalClaims } from "./auth/authenticate.ts";
+export { isAuthentic, markAuthentic } from "./auth/authentic.ts";
 export type {
   ClaimMappers,
   JwtAudience,
@@ -85,6 +87,8 @@ export {
 } from "./operations/choice.ts";
 
 export { type HeaderSetter } from "./operations/header.ts";
+
+export { type CallableAuthenticator } from "./operations/authenticate.ts";
 
 export {
   type DestinationAggregator,
