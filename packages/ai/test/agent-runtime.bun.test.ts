@@ -5,7 +5,8 @@ import { z } from "zod";
 import {
   agent,
   agentPlugin,
-  defaultFns,
+  currentTime,
+  randomUuid,
   llmPlugin,
   tools,
   type AgentResult,
@@ -87,7 +88,9 @@ describe("agent runtime: tool wiring through callLlm", () => {
       .with({
         plugins: [
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
-          agentPlugin({ functions: { ...defaultFns } }),
+          agentPlugin({
+            functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
+          }),
         ],
       })
       .routes(
@@ -124,7 +127,9 @@ describe("agent runtime: tool wiring through callLlm", () => {
       .with({
         plugins: [
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
-          agentPlugin({ functions: { ...defaultFns } }),
+          agentPlugin({
+            functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
+          }),
         ],
       })
       .routes(
@@ -258,7 +263,7 @@ describe("agent runtime: tool wiring through callLlm", () => {
         plugins: [
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
           agentPlugin({
-            functions: { ...defaultFns },
+            functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
             defaultOptions: { tools: tools(["CurrentTime"]) },
           }),
         ],
@@ -289,7 +294,7 @@ describe("agent runtime: tool wiring through callLlm", () => {
         plugins: [
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
           agentPlugin({
-            functions: { ...defaultFns },
+            functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
             defaultOptions: { tools: tools(["CurrentTime"]) },
           }),
         ],

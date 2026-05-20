@@ -445,7 +445,7 @@ ESLint rules continue to enforce route-only positioning. Wrapper positioning is 
 - `tools()` helper for declarative tool authorisation (explicit names, tag selectors, per-binding guards and overrides).
 - `fn()` primitive for ad-hoc in-process functions registered via `agentPlugin({ functions })`.
 - Streaming agents: opt in via `stream: true` to receive an `AgentStream` body. The HTTP server bridges to SSE automatically.
-- `defaultFns`: built-in read-only fns (`currentTime`, `randomUuid`).
+- Built-in fn factories: `currentTime()`, `randomUuid()` (read-only).
 - Forward-compat hooks landed for durable agents (0.6.0): `SuspendError` (`@experimental`), `FnHandlerContext.checkpointId`, `AgentSession`.
 
 ### Choice operation

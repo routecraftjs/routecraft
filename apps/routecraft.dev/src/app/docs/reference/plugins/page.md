@@ -556,14 +556,16 @@ Tags, the `tools([...])` selector, the builder helpers, and the context-level `d
 import {
   agentPlugin,
   agent,
-  defaultFns,
+  currentTime,
   directTool,
+  randomUuid,
   tools,
 } from '@routecraft/ai'
 
 agentPlugin({
   functions: {
-    ...defaultFns,                                  // currentTime, randomUuid (read-only, idempotent)
+    CurrentTime: currentTime(),                     // built-in (read-only, idempotent)
+    RandomUuid: randomUuid(),                        // built-in (read-only)
     sendSlack: { description, input, handler, tags: ['destructive', 'messaging'] },
     fetchOrder: directTool('fetch-order'),          // wraps a direct route as a fn
   },
@@ -571,7 +573,7 @@ agentPlugin({
     researcher: {
       description, system,                          // model + tools inherit from defaultOptions
       tools: tools([
-        'currentTime',                              // bare ref
+        'CurrentTime',                              // bare ref
         'fetchOrder',
         'direct_cancel-order',                      // prefix convention
         { name: 'sendSlack', guard: requireApproval },
@@ -582,7 +584,7 @@ agentPlugin({
   },
   defaultOptions: {
     model: 'anthropic:claude-opus-4-7',             // applies to agents that omit `model`
-    tools: tools(['currentTime', { tagged: 'read-only' }]),
+    tools: tools(['CurrentTime', { tagged: 'read-only' }]),
   },
 })
 ```
@@ -602,7 +604,7 @@ Examples:
 ```ts
 agent({
   tools: tools([
-    'currentTime',                                  // fn
+    'CurrentTime',                                  // fn
     'direct_orders/fetch',                          // direct route
     'mcp_Nuclino:list_teams',                       // one MCP tool
     'mcp_Stripe:*',                                 // all tools from one MCP client
@@ -633,7 +635,7 @@ Resolution rules:
 | Builder | Use |
 |---|---|
 | `directTool(routeId, overrides?)` | Adapt a registered direct route as a fn. Pulls description, input schema, and tags from the route's discovery bundle by default; `overrides` can replace any of those. |
-| `defaultFns` | A small starter set (`currentTime`, `randomUuid`) tagged `read-only`/`idempotent`. Spread into your `functions:` config. |
+| `currentTime()` / `randomUuid()` | Built-in fn factories (read-only / idempotent). Assign each a tool name in your `functions:` config, the same way as `directTool`. |
 
 MCP tools are NOT exposed via a builder. Use the `mcp_<client>:<tool>` / `mcp_<client>:*` grammar inside `tools([...])` instead; the registry populated by `defineConfig.mcp` is the source of truth.
 
@@ -668,7 +670,7 @@ Two `agentPlugin` installs that each set the same field throw at context init. T
 agentPlugin({
   defaultOptions: {
     model: 'anthropic:claude-opus-4-7',
-    tools: tools(['currentTime', { tagged: 'read-only' }]),
+    tools: tools(['CurrentTime', { tagged: 'read-only' }]),
   },
   agents: {
     researcher: { description, system },                            // inherits both

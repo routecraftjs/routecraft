@@ -5,7 +5,8 @@ import { z } from "zod";
 import {
   agent,
   agentPlugin,
-  defaultFns,
+  currentTime,
+  randomUuid,
   llmPlugin,
   tools,
   type AgentDelta,
@@ -95,7 +96,9 @@ describe("agent context-bus events", () => {
       .with({
         plugins: [
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
-          agentPlugin({ functions: { ...defaultFns } }),
+          agentPlugin({
+            functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
+          }),
         ],
       })
       .routes(

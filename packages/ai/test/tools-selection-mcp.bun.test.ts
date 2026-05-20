@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
   agentPlugin,
-  defaultFns,
+  currentTime,
+  randomUuid,
   MCP_TOOL_REGISTRY,
   tools,
   type FnHandlerContext,
@@ -379,7 +380,7 @@ describe("tools() resolver - { tagged, from? } over MCP", () => {
 
   /**
    * @case `{ tagged: "read-only" }` walks fns AND MCP tools in one selection
-   * @preconditions defaultFns provides CurrentTime ("read-only"); registry has Nuclino:get_item with readOnlyHint
+   * @preconditions currentTime() registered ("read-only"); registry has Nuclino:get_item with readOnlyHint
    * @expectedResult Both tools appear in the resolved list
    */
   test("{ tagged } walks fns and MCP tools together", async () => {
@@ -391,7 +392,7 @@ describe("tools() resolver - { tagged, from? } over MCP", () => {
           tools: [{ name: "get_item", annotations: { readOnlyHint: true } }],
         },
       ],
-      { functions: { ...defaultFns } },
+      { functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() } },
     );
     const resolved = tools([{ tagged: "read-only" }]).resolve(t.ctx);
     const names = resolved.map((r) => r.name).sort();
@@ -401,8 +402,8 @@ describe("tools() resolver - { tagged, from? } over MCP", () => {
 
   /**
    * @case `from: "mcp_<client>"` scopes the tag selector to one MCP client
-   * @preconditions defaultFns ships read-only fns; registry has Nuclino read-only tool and Stripe read-only tool
-   * @expectedResult Only Nuclino's read-only tool appears; defaultFns and Stripe are excluded
+   * @preconditions Built-in read-only fns registered; registry has Nuclino read-only tool and Stripe read-only tool
+   * @expectedResult Only Nuclino's read-only tool appears; the local fns and Stripe are excluded
    */
   test("{ tagged, from } scopes to a single MCP client", async () => {
     t = await buildCtxWithMcp(
@@ -420,7 +421,7 @@ describe("tools() resolver - { tagged, from? } over MCP", () => {
           ],
         },
       ],
-      { functions: { ...defaultFns } },
+      { functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() } },
     );
     const resolved = tools([
       { tagged: "read-only", from: "mcp_Nuclino" },
@@ -469,7 +470,7 @@ describe("tools() resolver - { tagged, from? } over MCP", () => {
 
   /**
    * @case Mixed selection of MCP wildcard, MCP scoped tag, fn, and direct in one array
-   * @preconditions Two MCP tools (one read-only, one destructive); two defaultFns
+   * @preconditions Two MCP tools (one read-only, one destructive); two built-in fns
    * @expectedResult Resolved list contains the wildcard expansion + the tag-filtered subset + the explicit fn, deduped
    */
   test("mixes MCP refs, tag filters, and fn names in one selection", async () => {
@@ -484,7 +485,7 @@ describe("tools() resolver - { tagged, from? } over MCP", () => {
           ],
         },
       ],
-      { functions: { ...defaultFns } },
+      { functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() } },
     );
     const resolved = tools([
       "mcp_Nuclino:*",

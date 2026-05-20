@@ -166,10 +166,11 @@ export type {
 // directly via the `mcp_<client>:<tool>` grammar inside `tools(...)`;
 // sub-agent tools land in a follow-up story.
 export {
-  defaultFns,
+  currentTime,
   directTool,
   isDeferredFn,
   isToolSelection,
+  randomUuid,
   tools,
   type DeferredFn,
   type DeferredFnKind,

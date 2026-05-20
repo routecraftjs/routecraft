@@ -57,7 +57,7 @@ const EMPTY_OBJECT_JSON_SCHEMA = {
 
 /**
  * Standard Schema implementation of an empty input object. Used by the
- * `defaultFns` so this module stays free of a Zod runtime dependency
+ * built-in fn factories so this module stays free of a Zod runtime dependency
  * (per CLAUDE.md "Use Standard Schema, not Zod/Valibot directly in
  * shared code").
  *
@@ -281,9 +281,10 @@ async function dispatchDirect<TIn>(
 }
 
 /**
- * Small starter set of generic, broadly useful fns. Spread into your
- * `agentPlugin({ functions: { ... } })` config to give every agent in
- * the context the basics for free.
+ * Built-in fn factory: returns the current UTC timestamp in ISO 8601
+ * format. Takes no configuration. Assign it a tool name in your
+ * `agentPlugin({ functions: { ... } })` config, the same way you use
+ * `directTool(...)`.
  *
  * @experimental
  *
@@ -291,23 +292,38 @@ async function dispatchDirect<TIn>(
  * ```ts
  * agentPlugin({
  *   functions: {
- *     ...defaultFns,
+ *     CurrentTime: currentTime(),
  *     fetchOrder: directTool("fetch-order"),
  *   },
  * });
  * ```
  */
-export const defaultFns = {
-  CurrentTime: {
+export function currentTime(): FnOptions<Record<string, never>, string> {
+  return {
     description: "Returns the current UTC timestamp in ISO 8601 format.",
     input: emptyObjectSchema,
     handler: () => new Date().toISOString(),
     tags: ["read-only", "idempotent"] satisfies KnownTag[],
-  } satisfies FnOptions<Record<string, never>, string>,
-  RandomUuid: {
+  };
+}
+
+/**
+ * Built-in fn factory: generates a fresh random UUID v4. Takes no
+ * configuration. Assign it a tool name in your
+ * `agentPlugin({ functions: { ... } })` config.
+ *
+ * @experimental
+ *
+ * @example
+ * ```ts
+ * agentPlugin({ functions: { RandomUuid: randomUuid() } });
+ * ```
+ */
+export function randomUuid(): FnOptions<Record<string, never>, string> {
+  return {
     description: "Generates a fresh random UUID v4.",
     input: emptyObjectSchema,
     handler: () => randomUUID(),
     tags: ["read-only"] satisfies KnownTag[],
-  } satisfies FnOptions<Record<string, never>, string>,
-};
+  };
+}

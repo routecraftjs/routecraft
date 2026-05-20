@@ -6,7 +6,8 @@ import {
   ADAPTER_AGENT_REGISTRY,
   agent,
   agentPlugin,
-  defaultFns,
+  currentTime,
+  randomUuid,
   isToolSelection,
   tools,
   type AgentRegisteredOptions,
@@ -29,7 +30,7 @@ describe("agentPlugin defaultOptions storage", () => {
       .with({
         plugins: [
           agentPlugin({
-            functions: { ...defaultFns },
+            functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
             defaultOptions: { tools: tools(["CurrentTime"]) },
           }),
         ],
@@ -68,7 +69,13 @@ describe("agentPlugin defaultOptions storage", () => {
    */
   test("agentPlugin without defaultOptions does not set the store", async () => {
     t = await testContext()
-      .with({ plugins: [agentPlugin({ functions: { ...defaultFns } })] })
+      .with({
+        plugins: [
+          agentPlugin({
+            functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
+          }),
+        ],
+      })
       .build();
 
     expect(t.ctx.getStore(ADAPTER_AGENT_DEFAULT_OPTIONS)).toBeUndefined();
@@ -85,7 +92,10 @@ describe("agentPlugin defaultOptions storage", () => {
         .with({
           plugins: [
             agentPlugin({
-              functions: { ...defaultFns },
+              functions: {
+                CurrentTime: currentTime(),
+                RandomUuid: randomUuid(),
+              },
               defaultOptions: { tools: tools(["CurrentTime"]) },
             }),
             agentPlugin({
@@ -132,7 +142,7 @@ describe("agentPlugin defaultOptions storage", () => {
             defaultOptions: { model: "anthropic:claude-opus-4-7" },
           }),
           agentPlugin({
-            functions: { ...defaultFns },
+            functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
             defaultOptions: { tools: tools(["CurrentTime"]) },
           }),
         ],
@@ -202,7 +212,7 @@ describe("agentPlugin per-agent tools field", () => {
       .with({
         plugins: [
           agentPlugin({
-            functions: { ...defaultFns },
+            functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
             agents: {
               researcher: {
                 description: "Research workflow coordinator.",

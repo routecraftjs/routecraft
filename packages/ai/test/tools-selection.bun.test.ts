@@ -4,7 +4,8 @@ import { craft, direct, isRoutecraftError, log } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
   agentPlugin,
-  defaultFns,
+  currentTime,
+  randomUuid,
   directTool,
   isToolSelection,
   tools,
@@ -52,10 +53,12 @@ describe("tools() resolver - bare references", () => {
   /**
    * @case Bare fn name resolves against the fn registry
    * @preconditions agentPlugin functions includes CurrentTime; resolve tools(["CurrentTime"])
-   * @expectedResult Single ResolvedTool named "CurrentTime" with description and handler from defaultFns
+   * @expectedResult Single ResolvedTool named "CurrentTime" with description and handler from currentTime()
    */
   test("bare fn name resolves to a registered fn", async () => {
-    t = await buildCtx({ functions: { ...defaultFns } });
+    t = await buildCtx({
+      functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
+    });
     const resolved = tools(["CurrentTime"]).resolve(t.ctx);
     expect(resolved).toHaveLength(1);
     expect(resolved[0].name).toBe("CurrentTime");
@@ -132,7 +135,9 @@ describe("tools() resolver - bare references", () => {
    * @expectedResult RC5003 thrown listing available names
    */
   test("unknown bare name throws RC5003", async () => {
-    t = await buildCtx({ functions: { ...defaultFns } });
+    t = await buildCtx({
+      functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
+    });
     let caught: unknown;
     try {
       tools(["missing"]).resolve(t.ctx);
@@ -171,7 +176,9 @@ describe("tools() resolver - { name, guard }", () => {
    * @expectedResult ResolvedTool.guard is the supplied function
    */
   test("{ name, guard } attaches the guard", async () => {
-    t = await buildCtx({ functions: { ...defaultFns } });
+    t = await buildCtx({
+      functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
+    });
     const guard = mock();
     const [resolved] = tools([{ name: "CurrentTime", guard }]).resolve(t.ctx);
     expect(resolved.name).toBe("CurrentTime");
@@ -184,7 +191,9 @@ describe("tools() resolver - { name, guard }", () => {
    * @expectedResult RC5003 thrown synchronously at resolve
    */
   test("{ name } rejects empty string", async () => {
-    t = await buildCtx({ functions: { ...defaultFns } });
+    t = await buildCtx({
+      functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
+    });
     expect(() => tools([{ name: "" }]).resolve(t!.ctx)).toThrow(/non-empty/i);
   });
 
@@ -194,7 +203,9 @@ describe("tools() resolver - { name, guard }", () => {
    * @expectedResult ResolvedTool.description is the override; the registry entry's description is unchanged
    */
   test("{ name, description } overrides description per binding", async () => {
-    t = await buildCtx({ functions: { ...defaultFns } });
+    t = await buildCtx({
+      functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
+    });
     const [resolved] = tools([
       {
         name: "CurrentTime",
@@ -206,7 +217,7 @@ describe("tools() resolver - { name, guard }", () => {
     // Registry entry stays canonical: a second binding without the
     // override sees the original description.
     const [resolved2] = tools(["CurrentTime"]).resolve(t.ctx);
-    expect(resolved2.description).toBe(defaultFns.CurrentTime.description);
+    expect(resolved2.description).toBe(currentTime().description);
     expect(resolved2.description).not.toBe(resolved.description);
   });
 
@@ -216,7 +227,9 @@ describe("tools() resolver - { name, guard }", () => {
    * @expectedResult RC5003 with a message naming the field
    */
   test("{ name, description } rejects empty string", async () => {
-    t = await buildCtx({ functions: { ...defaultFns } });
+    t = await buildCtx({
+      functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
+    });
     expect(() =>
       tools([{ name: "CurrentTime", description: "" }]).resolve(t!.ctx),
     ).toThrow(/description.*non-empty/i);
@@ -228,7 +241,9 @@ describe("tools() resolver - { name, guard }", () => {
    * @expectedResult Resolved tool has both the override description and the guard
    */
   test("{ name, guard, description } applies both overrides", async () => {
-    t = await buildCtx({ functions: { ...defaultFns } });
+    t = await buildCtx({
+      functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
+    });
     const guard = mock();
     const [resolved] = tools([
       {
@@ -251,11 +266,13 @@ describe("tools() resolver - tag selectors", () => {
 
   /**
    * @case Single-tag selector matches eager fn registry entries
-   * @preconditions defaultFns spread (CurrentTime + RandomUuid both tagged "read-only")
+   * @preconditions currentTime() + randomUuid() registered (both tagged "read-only")
    * @expectedResult { tagged: "read-only" } resolves to both fns
    */
   test("{ tagged } matches eager fn registry entries", async () => {
-    t = await buildCtx({ functions: { ...defaultFns } });
+    t = await buildCtx({
+      functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
+    });
     const resolved = tools([{ tagged: "read-only" }]).resolve(t.ctx);
     const names = resolved.map((r) => r.name).sort();
     expect(names).toEqual(["CurrentTime", "RandomUuid"]);
@@ -292,13 +309,14 @@ describe("tools() resolver - tag selectors", () => {
 
   /**
    * @case OR-of-tags: matches entries with ANY of the requested tags
-   * @preconditions defaultFns (read-only, idempotent for CurrentTime; read-only for RandomUuid) + a fn tagged only "destructive"
+   * @preconditions currentTime() (read-only, idempotent) + randomUuid() (read-only) + a fn tagged only "destructive"
    * @expectedResult { tagged: ["idempotent", "destructive"] } returns CurrentTime and the destructive fn but not RandomUuid
    */
   test("{ tagged: [...] } is an OR over the listed tags", async () => {
     t = await buildCtx({
       functions: {
-        ...defaultFns,
+        CurrentTime: currentTime(),
+        RandomUuid: randomUuid(),
         wipe: {
           description: "Wipe data.",
           input: z.object({}),
@@ -320,7 +338,9 @@ describe("tools() resolver - tag selectors", () => {
    * @expectedResult tools([{ tagged: "ghost" }]).resolve() throws RC5003 naming the tag
    */
   test("tag-zero-match throws RC5003", async () => {
-    t = await buildCtx({ functions: { ...defaultFns } });
+    t = await buildCtx({
+      functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
+    });
     expect(() => tools([{ tagged: "ghost" }]).resolve(t!.ctx)).toThrow(
       /matched no tools/,
     );
@@ -332,7 +352,9 @@ describe("tools() resolver - tag selectors", () => {
    * @expectedResult Both ResolvedTools have ResolvedTool.guard === g
    */
   test("tag selector guard applies to every matched tool", async () => {
-    t = await buildCtx({ functions: { ...defaultFns } });
+    t = await buildCtx({
+      functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
+    });
     const guard = mock();
     const resolved = tools([{ tagged: "read-only", guard }]).resolve(t.ctx);
     expect(resolved.length).toBeGreaterThanOrEqual(1);
@@ -345,7 +367,9 @@ describe("tools() resolver - tag selectors", () => {
    * @expectedResult Final list contains "CurrentTime" with the explicit guard
    */
   test("explicit refs win over tag-selector matches", async () => {
-    t = await buildCtx({ functions: { ...defaultFns } });
+    t = await buildCtx({
+      functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
+    });
     const explicitGuard = mock();
     const tagGuard = mock();
     const resolved = tools([
@@ -375,7 +399,8 @@ describe("tools() resolver - regression", () => {
         plugins: [
           agentPlugin({
             functions: {
-              ...defaultFns,
+              CurrentTime: currentTime(),
+              RandomUuid: randomUuid(),
               broken: directTool("does-not-exist"),
             },
           }),
@@ -396,7 +421,11 @@ describe("tools() resolver - regression", () => {
   test("tools() throws on object items lacking both name and tagged", async () => {
     t = await testContext()
       .with({
-        plugins: [agentPlugin({ functions: { ...defaultFns } })],
+        plugins: [
+          agentPlugin({
+            functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
+          }),
+        ],
       })
       .build();
 
@@ -484,7 +513,7 @@ describe("tools() resolver - regression", () => {
             functions: {
               padded: {
                 description: "x",
-                input: defaultFns.CurrentTime.input,
+                input: currentTime().input,
                 handler: () => "ok",
                 tags: ["  read-only  "],
               },
@@ -512,7 +541,9 @@ describe("tools() resolver - dedup and prefix-convention coverage", () => {
    * @expectedResult Single ResolvedTool
    */
   test("duplicate explicit refs are deduplicated", async () => {
-    t = await buildCtx({ functions: { ...defaultFns } });
+    t = await buildCtx({
+      functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
+    });
     const resolved = tools(["CurrentTime", "CurrentTime"]).resolve(t.ctx);
     expect(resolved).toHaveLength(1);
   });

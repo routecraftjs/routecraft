@@ -4,7 +4,8 @@ import { craft, direct, isRoutecraftError, log } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
   agentPlugin,
-  defaultFns,
+  currentTime,
+  randomUuid,
   directTool,
   isDeferredFn,
   ADAPTER_FN_REGISTRY,
@@ -339,36 +340,33 @@ describe("tool builders - directTool dispatch", () => {
   });
 });
 
-describe("tool builders - defaultFns", () => {
+describe("tool builders - built-in fn factories", () => {
   /**
-   * @case defaultFns ships CurrentTime and RandomUuid as eager FnOptions
-   * @preconditions Spread defaultFns into agentPlugin.functions
-   * @expectedResult Both registered, both have description / schema / handler / tags
+   * @case currentTime() and randomUuid() factories return eager FnOptions
+   * @preconditions Call the factories directly
+   * @expectedResult Both return objects with description / schema / handler / tags
    */
-  test("defaultFns provides CurrentTime and RandomUuid as eager fns", () => {
-    expect(defaultFns.CurrentTime).toBeDefined();
-    expect(isDeferredFn(defaultFns.CurrentTime!)).toBe(false);
-    const ct = defaultFns.CurrentTime as FnOptions;
+  test("currentTime() and randomUuid() return eager fns", () => {
+    expect(currentTime()).toBeDefined();
+    expect(isDeferredFn(currentTime())).toBe(false);
+    const ct = currentTime() as FnOptions;
     expect(typeof ct.description).toBe("string");
     expect(typeof ct.handler).toBe("function");
     expect(ct.tags).toContain("read-only");
 
-    expect(defaultFns.RandomUuid).toBeDefined();
-    const ru = defaultFns.RandomUuid as FnOptions;
+    expect(randomUuid()).toBeDefined();
+    const ru = randomUuid() as FnOptions;
     expect(typeof ru.description).toBe("string");
     expect(typeof ru.handler).toBe("function");
   });
 
   /**
    * @case CurrentTime handler returns an ISO 8601 timestamp string
-   * @preconditions Call defaultFns.CurrentTime.handler({}, ctx)
+   * @preconditions Call currentTime().handler({}, ctx)
    * @expectedResult Returns a parseable ISO string within a second of now
    */
   test("CurrentTime handler returns a fresh ISO timestamp", async () => {
-    const ct = defaultFns.CurrentTime as FnOptions<
-      Record<string, never>,
-      string
-    >;
+    const ct = currentTime() as FnOptions<Record<string, never>, string>;
     const before = Date.now();
     const out = await ct.handler(
       {},
