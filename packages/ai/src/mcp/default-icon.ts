@@ -16,15 +16,18 @@ const toDataUri = (svg: string): string =>
  * set their own. Two variants so the mark stays legible on either client theme:
  * a white logo for dark UIs and a black logo for light UIs.
  */
-export const ROUTECRAFT_DEFAULT_ICONS: McpIcon[] = [
-  {
+// Frozen because this single array is handed out by reference to every server's
+// serverInfo and every inheriting tool; freezing prevents an accidental in-place
+// mutation from leaking process-wide into the shared default.
+export const ROUTECRAFT_DEFAULT_ICONS: McpIcon[] = Object.freeze([
+  Object.freeze({
     src: toDataUri(logoSvg("#ffffff")),
     mimeType: "image/svg+xml",
     theme: "dark",
-  },
-  {
+  }),
+  Object.freeze({
     src: toDataUri(logoSvg("#000000")),
     mimeType: "image/svg+xml",
     theme: "light",
-  },
-];
+  }),
+]) as McpIcon[];
