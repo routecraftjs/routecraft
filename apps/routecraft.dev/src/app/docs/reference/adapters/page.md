@@ -1863,7 +1863,7 @@ agent({
 
 When the request is authenticated, the model sees:
 
-```
+```text
 ## Caller
 
 The current request is authenticated.
@@ -1875,7 +1875,7 @@ The current request is authenticated.
 
 When there is no principal:
 
-```
+```text
 ## Caller
 
 The current request is not authenticated. No verified user identity is
