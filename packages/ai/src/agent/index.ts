@@ -15,6 +15,7 @@ export { SuspendError, isSuspendError } from "./suspend.ts";
 export type {
   AgentDefaultOptions,
   AgentOptions,
+  AgentPrincipalRenderer,
   AgentRegisteredOptions,
   AgentResult,
   AgentToolCallSummary,

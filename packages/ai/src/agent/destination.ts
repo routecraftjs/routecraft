@@ -5,6 +5,7 @@ import {
   type CraftContext,
   type Destination,
   type Exchange,
+  type Principal,
 } from "@routecraft/routecraft";
 import { resolveModel, resolvePrompt } from "../llm/shared.ts";
 import {
@@ -22,6 +23,7 @@ import type { ResolvedTool } from "./tools/selection.ts";
 import type {
   AgentDefaultOptions,
   AgentOptions,
+  AgentPrincipalRenderer,
   AgentRegisteredOptions,
   AgentResult,
 } from "./types.ts";
@@ -108,7 +110,16 @@ export class AgentDestinationAdapter implements Destination<
           `When "system" is a function, it must return a non-empty string for the incoming exchange.`,
       });
     }
-    const system = appendSkillsToSystem(baseSystem, merged.skills, context);
+    const withSkills = appendSkillsToSystem(baseSystem, merged.skills, context);
+    // Caller identity is appended last (after skills) so the author's own
+    // prompt and any skill content frame the model first, with the
+    // request-scoped "who am I serving" footer closest to the user turn.
+    const system = appendPrincipalToSystem(
+      withSkills,
+      merged.principal,
+      exchange.principal,
+      exchange,
+    );
 
     const route = getExchangeRoute(exchange);
     const dispatchIdentity = dispatchIdentityFrom(
@@ -233,6 +244,9 @@ function mergeWithDefaults(
   if (out.maxTurns === undefined && defaults.maxTurns !== undefined) {
     out.maxTurns = defaults.maxTurns;
   }
+  if (out.principal === undefined && defaults.principal !== undefined) {
+    out.principal = defaults.principal;
+  }
   return out;
 }
 
@@ -307,4 +321,81 @@ function appendSkillsToSystem(
     parts.push(`\n\n## Skill: ${skill.name}\n\n${skill.content}`);
   }
   return parts.join("");
+}
+
+/**
+ * Append a `## Caller` section describing the request's principal. Opt-in:
+ * returns the base prompt unchanged when `principal` is omitted or `false`,
+ * so existing agents are unaffected. When `principal` is a function it
+ * renders the section itself (an empty return appends nothing); otherwise
+ * the built-in {@link formatCallerSection} block is used.
+ *
+ * The section is informational context for the model (who triggered the
+ * request), never an authorization gate; `.authorize()` and guards remain
+ * the only enforcement points.
+ *
+ * @internal
+ */
+function appendPrincipalToSystem(
+  baseSystem: string,
+  principalOption: boolean | AgentPrincipalRenderer | undefined,
+  principal: Principal | undefined,
+  exchange: Exchange<unknown>,
+): string {
+  if (principalOption === undefined || principalOption === false) {
+    return baseSystem;
+  }
+  const section =
+    typeof principalOption === "function"
+      ? principalOption(principal, exchange)
+      : formatCallerSection(principal);
+  if (section.trim() === "") return baseSystem;
+  return `${baseSystem}\n\n${section}`;
+}
+
+/**
+ * Render the built-in `## Caller` block from a principal. Surfaces only
+ * the loggable identity fields (`name`, `email`, `subject`) and `roles`
+ * (see `.standards/security.md` § 3); scopes, `claims`, `userinfoClaims`,
+ * and the bearer token are never included. Absent fields are omitted
+ * rather than printed as `undefined`. When no principal is present the
+ * block states the request is unauthenticated so the model does not
+ * invent an identity.
+ *
+ * @internal
+ */
+function formatCallerSection(principal: Principal | undefined): string {
+  if (!principal) {
+    return (
+      "## Caller\n\n" +
+      "The current request is not authenticated. No verified user identity " +
+      "is available. Do not assume, infer, or invent the caller's name, " +
+      "email, or permissions."
+    );
+  }
+  const lines: string[] = [];
+  if (principal.name) lines.push(`- Name: ${oneLine(principal.name)}`);
+  if (principal.email) lines.push(`- Email: ${oneLine(principal.email)}`);
+  lines.push(`- Subject: ${oneLine(principal.subject)}`);
+  const roles = principal.roles
+    ?.map((r) => oneLine(r))
+    .filter((r) => r.length > 0);
+  if (roles && roles.length > 0) {
+    lines.push(`- Roles: ${roles.join(", ")}`);
+  }
+  return `## Caller\n\nThe current request is authenticated.\n${lines.join("\n")}`;
+}
+
+/**
+ * Collapse newlines (and surrounding whitespace) in an interpolated
+ * identity field. Principal strings like `name` / `email` are
+ * integrity-verified (they reached us unmodified from the IdP) but may be
+ * subject-controlled at self-service IdPs; collapsing newlines pins a
+ * value to its `- Label:` line so it cannot break out of the list item or
+ * forge a `##` heading in the trusted system channel.
+ *
+ * @internal
+ */
+function oneLine(value: string): string {
+  return value.replace(/\s*[\r\n]+\s*/g, " ").trim();
 }
