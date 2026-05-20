@@ -183,6 +183,7 @@ describe("agent() destination", () => {
             agent({
               model: "anthropic:claude-opus-4-7",
               system: "Be helpful.",
+              principal: false,
             }),
           )
           .to(sink),
@@ -509,6 +510,7 @@ describe("agent(name) by-name destination + agentPlugin", () => {
                 description: "Summarises text",
                 model: "anthropic:claude-opus-4-7",
                 system: "Summarise the input.",
+                principal: false,
               },
             },
           }),

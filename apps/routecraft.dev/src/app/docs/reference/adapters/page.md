@@ -1817,7 +1817,7 @@ Model ID format: `"provider:model-name"` (same as `llm()`). The provider must be
 | `system` | `string` | -- | Yes | System prompt. Load from disk yourself when sourcing from a file |
 | `user` | `(exchange) => string` | body as-is / JSON | No | Override for deriving the user prompt. Defaults to body (string as-is, JSON for objects) |
 | `tools` | `ToolSelection` | -- | No | Tool whitelist built via `tools([...])`. Inherits `defaultOptions.tools` when omitted; an explicit value replaces the default entirely |
-| `principal` | `boolean` | `false` | No | When `true`, append a `## Caller` section to the system prompt describing `exchange.principal` (identity + roles), or stating the request is unauthenticated. See [Telling the agent who the caller is](#telling-the-agent-who-the-caller-is) |
+| `principal` | `boolean` | `true` | No | Append a `## Caller` section to the system prompt describing `exchange.principal` (identity + roles), or stating the request is unauthenticated. On by default; set `false` to suppress. See [Telling the agent who the caller is](#telling-the-agent-who-the-caller-is) |
 | `output` | `StandardSchemaV1` | -- | No | Schema for structured output. Validated and parsed onto `AgentResult.output` after dispatch (runtime ships in a follow-up release) |
 
 **`AgentRegisteredOptions` (entries in `agentPlugin({ agents: {...} })`, for by-name reuse):** same as `AgentOptions` plus:
@@ -1849,15 +1849,23 @@ Provider credentials are configured once in `llmPlugin()` and shared across all 
 
 #### Telling the agent who the caller is
 
-By default the only part of the exchange that reaches the model is the body (as the user prompt). The authenticated caller (`exchange.principal`) is **not** in the prompt, so the model does not know who it is serving unless you put that there yourself.
-
-Set `principal: true` to append a `## Caller` section to the system prompt. It is appended after your own prompt and any `skills`, and it covers the unauthenticated case explicitly so the model never invents an identity:
+Other than the body (which becomes the user prompt), the only piece of the exchange the model sees is the caller. The agent appends a `## Caller` section to the system prompt by default, derived from `exchange.principal`. It is appended after your own prompt and any `skills`, and it covers the unauthenticated case explicitly so the model never invents an identity:
 
 ```typescript
 agent({
   model: 'anthropic:claude-opus-4-7',
   system: 'You are a support assistant.',
-  principal: true,
+  // principal: true is the default; the ## Caller section is appended automatically.
+});
+```
+
+Set `principal: false` to suppress it, for example to keep identity fields (`name`, `email`) out of the prompt sent to your model provider, or for non-interactive agents (timer / cron) where there is no caller:
+
+```typescript
+agent({
+  model: 'anthropic:claude-opus-4-7',
+  system: 'Summarise the overnight batch.',
+  principal: false,
 });
 ```
 
@@ -1885,7 +1893,7 @@ permissions.
 
 Only the loggable identity fields (`name`, `email`, `subject`) and `roles` are surfaced; fields that are absent on the principal are omitted. Scopes, `claims`, `userinfoClaims`, and the bearer token are never injected. The block is informational context only: authorization is still enforced by [`.authorize()`](/docs/reference/operations) and tool guards, never by the model.
 
-For full control over wording or placement, omit `principal` and use the function form of `system` instead, reading `exchange.principal` yourself:
+For full control over wording or placement, set `principal: false` and use the function form of `system` instead, reading `exchange.principal` yourself:
 
 ```typescript
 agent({

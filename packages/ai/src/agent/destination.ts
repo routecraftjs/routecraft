@@ -319,9 +319,9 @@ function appendSkillsToSystem(
 }
 
 /**
- * Append a `## Caller` section describing the request's principal when the
- * agent opted in via `principal: true`. Returns the base prompt unchanged
- * when the flag is off, so existing agents are unaffected.
+ * Append a `## Caller` section describing the request's principal. On by
+ * default; returns the base prompt unchanged only when the agent set
+ * `principal: false`.
  *
  * The section is informational context for the model (who triggered the
  * request), never an authorization gate; `.authorize()` and guards remain
@@ -334,7 +334,7 @@ function appendPrincipalToSystem(
   includePrincipal: boolean | undefined,
   principal: Principal | undefined,
 ): string {
-  if (!includePrincipal) return baseSystem;
+  if (includePrincipal === false) return baseSystem;
   return `${baseSystem}\n\n${formatCallerSection(principal)}`;
 }
 

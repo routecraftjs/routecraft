@@ -55,6 +55,7 @@ describe("agent prompt source: string and function forms (llm parity)", () => {
             agent({
               system: "static system prompt",
               model: "anthropic:claude-opus-4-7",
+              principal: false,
             }),
           ),
       )
@@ -84,6 +85,7 @@ describe("agent prompt source: string and function forms (llm parity)", () => {
             agent({
               system: (exchange) => `Hello ${exchange.body as string}`,
               model: "anthropic:claude-opus-4-7",
+              principal: false,
             }),
           ),
       )
