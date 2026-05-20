@@ -132,6 +132,32 @@ export interface AgentOptions {
   skills?: string[];
 
   /**
+   * When `true`, append a `## Caller` section to the system prompt that
+   * tells the model who triggered the request. The section is derived
+   * from `exchange.principal` at dispatch and carries the caller's
+   * identity (`name`, `email`, `subject`) and `roles`. When no principal
+   * is present (the request is unauthenticated), the section says so
+   * explicitly, so the model never has to guess or invent an identity.
+   *
+   * Opt-in, defaulting to `false`, so existing agents see no change to
+   * their prompt or token usage. The block is appended after `skills`, so
+   * the author's own `system` prompt and any skill content come first.
+   *
+   * Only loggable identity fields are surfaced (see `.standards/security.md`
+   * § 3). Scopes, `claims`, `userinfoClaims`, and the bearer token are
+   * never injected. Authorization is still enforced by `.authorize()` and
+   * guards; this block is informational context for the model, not an
+   * authorization gate.
+   *
+   * For full control over placement or formatting, use the function form
+   * of `system` and read `exchange.principal` directly instead of this
+   * flag.
+   *
+   * @experimental
+   */
+  principal?: boolean;
+
+  /**
    * Cap on tool-calling turns for the Vercel AI SDK loop. Each turn
    * is one model call (which may emit any number of tool calls) plus
    * the resulting tool results. Resolves to `stopWhen: stepCountIs(n)`

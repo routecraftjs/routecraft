@@ -1817,6 +1817,7 @@ Model ID format: `"provider:model-name"` (same as `llm()`). The provider must be
 | `system` | `string` | -- | Yes | System prompt. Load from disk yourself when sourcing from a file |
 | `user` | `(exchange) => string` | body as-is / JSON | No | Override for deriving the user prompt. Defaults to body (string as-is, JSON for objects) |
 | `tools` | `ToolSelection` | -- | No | Tool whitelist built via `tools([...])`. Inherits `defaultOptions.tools` when omitted; an explicit value replaces the default entirely |
+| `principal` | `boolean` | `false` | No | When `true`, append a `## Caller` section to the system prompt describing `exchange.principal` (identity + roles), or stating the request is unauthenticated. See [Telling the agent who the caller is](#telling-the-agent-who-the-caller-is) |
 | `output` | `StandardSchemaV1` | -- | No | Schema for structured output. Validated and parsed onto `AgentResult.output` after dispatch (runtime ships in a follow-up release) |
 
 **`AgentRegisteredOptions` (entries in `agentPlugin({ agents: {...} })`, for by-name reuse):** same as `AgentOptions` plus:
@@ -1845,6 +1846,56 @@ The id is the record key in `agentPlugin({ agents: { [id]: {...} } })`.
 - Referencing an unknown registered agent name fails at dispatch with `RC5004` (No handler available).
 
 Provider credentials are configured once in `llmPlugin()` and shared across all `agent()` calls. See [Plugins reference](/docs/reference/plugins).
+
+#### Telling the agent who the caller is
+
+By default the only part of the exchange that reaches the model is the body (as the user prompt). The authenticated caller (`exchange.principal`) is **not** in the prompt, so the model does not know who it is serving unless you put that there yourself.
+
+Set `principal: true` to append a `## Caller` section to the system prompt. It is appended after your own prompt and any `skills`, and it covers the unauthenticated case explicitly so the model never invents an identity:
+
+```typescript
+agent({
+  model: 'anthropic:claude-opus-4-7',
+  system: 'You are a support assistant.',
+  principal: true,
+});
+```
+
+When the request is authenticated, the model sees:
+
+```
+## Caller
+
+The current request is authenticated.
+- Name: Jane Doe
+- Email: jane@example.com
+- Subject: user_2a9f
+- Roles: admin, editor
+```
+
+When there is no principal:
+
+```
+## Caller
+
+The current request is not authenticated. No verified user identity is
+available. Do not assume, infer, or invent the caller's name, email, or
+permissions.
+```
+
+Only the loggable identity fields (`name`, `email`, `subject`) and `roles` are surfaced; fields that are absent on the principal are omitted. Scopes, `claims`, `userinfoClaims`, and the bearer token are never injected. The block is informational context only: authorization is still enforced by [`.authorize()`](/docs/reference/operations) and tool guards, never by the model.
+
+For full control over wording or placement, omit `principal` and use the function form of `system` instead, reading `exchange.principal` yourself:
+
+```typescript
+agent({
+  model: 'anthropic:claude-opus-4-7',
+  system: (ex) =>
+    `You assist ${ex.principal?.name ?? 'an anonymous user'}.\n${basePrompt}`,
+});
+```
+
+Inside a tool handler, the same principal is available as `ctx.principal` (a deep-frozen, read-only snapshot).
 
 ### embedding
 ```ts

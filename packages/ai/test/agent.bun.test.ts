@@ -140,6 +140,28 @@ describe("agent() destination", () => {
   });
 
   /**
+   * @case agent({ principal }) rejects a non-boolean value at construction
+   * @preconditions agent with principal set to a string
+   * @expectedResult Construction throws RC5003 and the message mentions "principal"
+   */
+  test("agent({ principal }) must be a boolean", () => {
+    const dest = agent({
+      model: "anthropic:claude-opus-4-7",
+      system: "Be helpful.",
+      principal: true,
+    });
+    expect(dest).toBeInstanceOf(AgentDestinationAdapter);
+
+    expect(() =>
+      agent({
+        model: "anthropic:claude-opus-4-7",
+        system: "Be helpful.",
+        principal: "yes" as never,
+      }),
+    ).toThrow(/principal/i);
+  });
+
+  /**
    * @case end-to-end: route with agent calls callLlm with system + body-derived user prompt
    * @preconditions Route from simple body, .to(agent({...})), .to(spy)
    * @expectedResult callLlm is called once with the configured system and the body as user prompt; downstream body is AgentResult

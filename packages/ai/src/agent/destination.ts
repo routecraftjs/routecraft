@@ -5,6 +5,7 @@ import {
   type CraftContext,
   type Destination,
   type Exchange,
+  type Principal,
 } from "@routecraft/routecraft";
 import { resolveModel, resolvePrompt } from "../llm/shared.ts";
 import {
@@ -108,7 +109,15 @@ export class AgentDestinationAdapter implements Destination<
           `When "system" is a function, it must return a non-empty string for the incoming exchange.`,
       });
     }
-    const system = appendSkillsToSystem(baseSystem, merged.skills, context);
+    const withSkills = appendSkillsToSystem(baseSystem, merged.skills, context);
+    // Caller identity is appended last (after skills) so the author's own
+    // prompt and any skill content frame the model first, with the
+    // request-scoped "who am I serving" footer closest to the user turn.
+    const system = appendPrincipalToSystem(
+      withSkills,
+      merged.principal,
+      exchange.principal,
+    );
 
     const route = getExchangeRoute(exchange);
     const dispatchIdentity = dispatchIdentityFrom(
@@ -307,4 +316,54 @@ function appendSkillsToSystem(
     parts.push(`\n\n## Skill: ${skill.name}\n\n${skill.content}`);
   }
   return parts.join("");
+}
+
+/**
+ * Append a `## Caller` section describing the request's principal when the
+ * agent opted in via `principal: true`. Returns the base prompt unchanged
+ * when the flag is off, so existing agents are unaffected.
+ *
+ * The section is informational context for the model (who triggered the
+ * request), never an authorization gate; `.authorize()` and guards remain
+ * the only enforcement points.
+ *
+ * @internal
+ */
+function appendPrincipalToSystem(
+  baseSystem: string,
+  includePrincipal: boolean | undefined,
+  principal: Principal | undefined,
+): string {
+  if (!includePrincipal) return baseSystem;
+  return `${baseSystem}\n\n${formatCallerSection(principal)}`;
+}
+
+/**
+ * Render the `## Caller` block from a principal. Surfaces only the
+ * loggable identity fields (`name`, `email`, `subject`) and `roles`
+ * (see `.standards/security.md` § 3); scopes, `claims`, `userinfoClaims`,
+ * and the bearer token are never included. Absent fields are omitted
+ * rather than printed as `undefined`. When no principal is present the
+ * block states the request is unauthenticated so the model does not
+ * invent an identity.
+ *
+ * @internal
+ */
+function formatCallerSection(principal: Principal | undefined): string {
+  if (!principal) {
+    return (
+      "## Caller\n\n" +
+      "The current request is not authenticated. No verified user identity " +
+      "is available. Do not assume, infer, or invent the caller's name, " +
+      "email, or permissions."
+    );
+  }
+  const lines: string[] = [];
+  if (principal.name) lines.push(`- Name: ${principal.name}`);
+  if (principal.email) lines.push(`- Email: ${principal.email}`);
+  lines.push(`- Subject: ${principal.subject}`);
+  if (principal.roles && principal.roles.length > 0) {
+    lines.push(`- Roles: ${principal.roles.join(", ")}`);
+  }
+  return `## Caller\n\nThe current request is authenticated.\n${lines.join("\n")}`;
 }
