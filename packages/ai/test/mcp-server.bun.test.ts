@@ -332,6 +332,7 @@ describe("McpServer", () => {
         websiteUrl?: string;
         instructions?: string;
         icons?: import("../src/mcp/types.ts").McpIcon[];
+        userinfo?: import("../src/mcp/userinfo.ts").UserinfoOption;
         cors?: false | import("../src/mcp/cors.ts").McpCorsOptions;
       } = {},
     ) {
@@ -1982,6 +1983,132 @@ describe("McpServer", () => {
           result: { serverInfo: { name: string; title?: string } };
         };
         expect(parsed.result.serverInfo.title).toBeUndefined();
+      });
+    });
+
+    describe("plugin-level userinfo (validator mode)", () => {
+      /**
+       * @case mcpPlugin({ userinfo: fn }) enriches the validator-mode principal
+       * @preconditions Validator returns a thin principal; plugin-level userinfo function adds email + roles
+       * @expectedResult The route's exchange principal carries the enriched fields, validator fields preserved
+       */
+      test("function userinfo enriches the principal in validator mode", async () => {
+        let capturedPrincipal: Principal | undefined;
+        const { post, initSession } = await startHttpServer(
+          [
+            craft()
+              .id("userinfo-capture")
+              .description("Capture enriched principal for validator userinfo")
+              .input({ body: z.object({}) })
+              .from(mcp())
+              .tap((ex) => {
+                capturedPrincipal = ex.principal;
+              })
+              .to(noop()),
+          ],
+          {
+            auth: {
+              validator: () => ({
+                kind: "custom" as const,
+                scheme: "bearer" as const,
+                subject: "user-42",
+                expiresAt: Math.floor(Date.now() / 1000) + 3600,
+              }),
+            },
+            userinfo: async (principal) => {
+              expect(principal.subject).toBe("user-42");
+              return { email: "ada@example.com", roles: ["admin"] };
+            },
+          },
+        );
+
+        const sessionId = await initSession({ Authorization: "Bearer t" });
+        const callRes = await post(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 2,
+            method: "tools/call",
+            params: { name: "userinfo-capture", arguments: {} },
+          }),
+          sessionId,
+          { Authorization: "Bearer t" },
+        );
+        expect(callRes.statusCode).toBe(200);
+
+        expect(capturedPrincipal).toMatchObject({
+          subject: "user-42",
+          email: "ada@example.com",
+          roles: ["admin"],
+        });
+      });
+
+      /**
+       * @case userinfo: true without a validator issuer fails fast at startup
+       * @preconditions Plain custom validator (no issuer) + plugin-level userinfo: true
+       * @expectedResult server.start() rejects with a TypeError mentioning issuer
+       */
+      test("userinfo: true without an issuer throws at startup", async () => {
+        await expect(
+          startHttpServer([], {
+            auth: {
+              validator: () => ({
+                kind: "custom" as const,
+                scheme: "bearer" as const,
+                subject: "user-42",
+                expiresAt: Math.floor(Date.now() / 1000) + 3600,
+              }),
+            },
+            userinfo: true,
+          }),
+        ).rejects.toThrow(/issuer/i);
+      });
+
+      /**
+       * @case userinfo absent leaves the validator principal unchanged
+       * @preconditions Validator returns a thin principal; no plugin-level userinfo
+       * @expectedResult The route's principal has no email / roles beyond what the validator returned
+       */
+      test("no userinfo leaves the principal unenriched", async () => {
+        let capturedPrincipal: Principal | undefined;
+        const { post, initSession } = await startHttpServer(
+          [
+            craft()
+              .id("noenrich-capture")
+              .description("Capture principal with no userinfo")
+              .input({ body: z.object({}) })
+              .from(mcp())
+              .tap((ex) => {
+                capturedPrincipal = ex.principal;
+              })
+              .to(noop()),
+          ],
+          {
+            auth: {
+              validator: () => ({
+                kind: "custom" as const,
+                scheme: "bearer" as const,
+                subject: "user-42",
+                expiresAt: Math.floor(Date.now() / 1000) + 3600,
+              }),
+            },
+          },
+        );
+
+        const sessionId = await initSession({ Authorization: "Bearer t" });
+        await post(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 2,
+            method: "tools/call",
+            params: { name: "noenrich-capture", arguments: {} },
+          }),
+          sessionId,
+          { Authorization: "Bearer t" },
+        );
+
+        expect(capturedPrincipal?.subject).toBe("user-42");
+        expect(capturedPrincipal?.email).toBeUndefined();
+        expect(capturedPrincipal?.roles).toBeUndefined();
       });
     });
 

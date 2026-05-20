@@ -34,6 +34,7 @@ import {
   resolveCorsOptions,
 } from "./cors.ts";
 import { ROUTECRAFT_DEFAULT_ICONS } from "./default-icon.ts";
+import { buildEnrichedVerifier } from "./userinfo.ts";
 
 /**
  * MCP SDK `AuthInfo` shape. Imported as a type so nothing is required at
@@ -60,6 +61,7 @@ type McpServerResolvedOptions = Required<
     | "title"
     | "resource"
     | "cors"
+    | "userinfo"
     | "description"
     | "websiteUrl"
     | "instructions"
@@ -130,6 +132,14 @@ export class McpServer {
   >();
   private running = false;
   private toolsListLogged = false;
+  /**
+   * Validator-mode token verifier, optionally wrapped with `userinfo`
+   * enrichment. Built eagerly in `startHttpWithValidator` so a misconfigured
+   * `userinfo: true` (no issuer) fails at startup rather than on first
+   * request. `null` until the validator HTTP path starts.
+   */
+  private validatorVerifier: ((token: string) => Promise<Principal>) | null =
+    null;
 
   constructor(context: CraftContext, options: McpPluginOptions = {}) {
     this.context = context;
@@ -619,6 +629,11 @@ export class McpServer {
     const host = this.options.host;
     const cors = resolveCorsOptions(this.options.cors);
 
+    // Build the (optionally enriched) validator verifier eagerly so a
+    // misconfigured `userinfo: true` (no issuer) throws at startup, not on
+    // the first request.
+    this.validatorVerifier = this.buildValidatorVerifier();
+
     const createSessionFn = () =>
       this.createSession(ServerCtor, TransportClass);
 
@@ -757,6 +772,19 @@ export class McpServer {
       "ProxyOAuthServerProvider"
     ] as new (options: Record<string, unknown>) => unknown;
 
+    // Apply plugin-level `userinfo` enrichment to the OAuth verifier. The
+    // issuer for `userinfo: true` discovery is surfaced on the oauth() result
+    // from the verify helper. Built eagerly so a misconfigured `userinfo: true`
+    // (no issuer) throws at startup.
+    const verifyAccessToken =
+      this.options.userinfo === undefined
+        ? oauthOptions.verifyAccessToken
+        : buildEnrichedVerifier(
+            oauthOptions.verifyAccessToken,
+            this.options.userinfo,
+            oauthOptions.issuer,
+          );
+
     // Wrap the user's verifier so the MCP SDK sees a clean AuthInfo while the
     // rich OAuthPrincipal rides through in `extra.principal` for
     // this.authInfoToPrincipal. Token verification errors are logged and
@@ -766,7 +794,7 @@ export class McpServer {
     const wrappedVerifier = async (token: string): Promise<SdkAuthInfo> => {
       let principal: OAuthPrincipal;
       try {
-        principal = await oauthOptions.verifyAccessToken(token);
+        principal = await verifyAccessToken(token);
       } catch (err) {
         const reason = err instanceof Error ? err.message : "invalid_token";
         const detail = {
@@ -1072,6 +1100,32 @@ export class McpServer {
   }
 
   /**
+   * Build the validator-mode token verifier, optionally wrapped with
+   * `userinfo` enrichment. The base verifier is the configured `validator`;
+   * when `mcpPlugin({ userinfo })` is set, it is wrapped with
+   * `buildEnrichedVerifier` (token cache, in-flight coalescing, sub
+   * invariant, fail-closed). The issuer for `userinfo: true` discovery comes
+   * from the verifier's `issuer` (surfaced by `jwks()` / `jwt()`).
+   */
+  private buildValidatorVerifier():
+    | ((token: string) => Promise<Principal>)
+    | null {
+    const authOptions = this.options.auth as
+      | (ValidatorAuthOptions & { issuer?: string | string[] })
+      | undefined;
+    if (!authOptions || !("validator" in authOptions)) return null;
+
+    const base = (token: string): Promise<Principal> =>
+      Promise.resolve(authOptions.validator(token));
+    if (this.options.userinfo === undefined) return base;
+    return buildEnrichedVerifier(
+      base,
+      this.options.userinfo,
+      authOptions.issuer,
+    );
+  }
+
+  /**
    * Validate the Authorization header using the configured validator.
    * Only used on the validator auth path (not OAuth -- that uses Express middleware).
    * Returns the authenticated principal on success, or `null` to reject with 401.
@@ -1079,6 +1133,8 @@ export class McpServer {
   private async validateAuth(req: IncomingMessage): Promise<Principal | null> {
     const authOptions = this.options.auth as ValidatorAuthOptions | undefined;
     if (!authOptions || !("validator" in authOptions)) return null;
+    const verifier = this.validatorVerifier ?? this.buildValidatorVerifier();
+    if (!verifier) return null;
 
     const rawHeader = req.headers["authorization"];
     if (!rawHeader || Array.isArray(rawHeader)) {
@@ -1111,9 +1167,10 @@ export class McpServer {
     }
     const token = schemeMatch[1];
 
-    // Delegate to the validator. Throw to reject; return Principal to accept.
+    // Delegate to the verifier (validator + optional userinfo enrichment).
+    // Throw to reject; return Principal to accept.
     try {
-      const result = await authOptions.validator(token);
+      const result = await verifier(token);
       const successDetail = {
         subject: result.subject,
         scheme: result.scheme,

@@ -6,6 +6,7 @@ import type {
 } from "@routecraft/routecraft";
 import type { McpCorsOptions } from "./cors.ts";
 import type { McpToolRegistry } from "./tool-registry.ts";
+import type { UserinfoOption } from "./userinfo.ts";
 
 /**
  * Store key set by mcpPlugin() when applied; routes using .from(mcp(...)) require it.
@@ -282,6 +283,13 @@ export interface OAuthAuthOptions {
   getClient: (clientId: string) => Promise<OAuthClientInfo | undefined>;
   /** Scopes required on every request to `/mcp`. Enforcement policy, not metadata. */
   requiredScopes?: string[];
+  /**
+   * IdP issuer surfaced from the `verify` helper (`jwks()` / `jwt()`). Read by
+   * the server to resolve the OIDC Discovery document when plugin-level
+   * `mcpPlugin({ userinfo: true })` is configured. Not user-set; populated by
+   * the `oauth()` factory.
+   */
+  issuer?: string | string[];
 }
 
 /**
@@ -416,6 +424,35 @@ export interface McpPluginOptions {
    * ```
    */
   auth?: McpHttpAuthOptions;
+
+  /**
+   * Principal enrichment that runs after `auth` verifies a token, for the
+   * HTTP transport. Orthogonal to the auth mode: works with `jwks()` /
+   * `jwt()` (validator mode), a custom `{ validator }`, and `oauth()`.
+   * Three input shapes:
+   *
+   * - `true`: auto-discover the userinfo endpoint via OIDC Discovery at
+   *   `${issuer}/.well-known/openid-configuration`. Requires the verifier to
+   *   expose a single-string `issuer` (`jwks()` / `jwt()` do).
+   * - `string | URL`: explicit userinfo endpoint URL. The framework fetches
+   *   it with the bearer token and lifts standard OIDC claims (`email`,
+   *   `name`, `roles`) onto the principal.
+   * - `(principal, token) => Promise<Partial<Principal>>`: custom enrichment
+   *   from any backend (WorkOS / Clerk Backend API, internal DB, etc.).
+   *
+   * For URL and discovery modes the userinfo response `sub` MUST equal the
+   * verified token's `sub` (OIDC Core §5.3.2); mismatches reject the
+   * request. Verify wins on `subject`, `issuer`, `audience`, `expiresAt`,
+   * `claims`; other fields are overwritten by the enrichment, and the raw
+   * userinfo response is surfaced on `principal.userinfoClaims`. Results are
+   * cached per token (SHA-256 keyed) and evicted at `expiresAt`; concurrent
+   * requests for the same token share one in-flight fetch. All enrichment
+   * errors are fail-closed (the request is rejected). Defaults to no
+   * enrichment.
+   *
+   * @experimental
+   */
+  userinfo?: UserinfoOption;
 
   /**
    * CORS configuration for the HTTP transport. Controls which browser origins

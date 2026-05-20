@@ -8,9 +8,6 @@ import type {
   OAuthClientInfo,
   OAuthProxyEndpoints,
 } from "./types.ts";
-import { buildEnrichedVerifier, type UserinfoOption } from "./userinfo.ts";
-
-export type { UserinfoFn, UserinfoOption } from "./userinfo.ts";
 
 /**
  * Supplier for a registered OAuth client.
@@ -80,29 +77,6 @@ export interface OAuthFactoryOptions {
   client: OAuthClientInfo | OAuthClientSupplier;
   /** Scopes required on every request to `/mcp`. Enforcement policy, not metadata. */
   requiredScopes?: string[];
-  /**
-   * Principal enrichment after `verify` succeeds. Three input shapes:
-   *
-   * - `true`: auto-discover the userinfo endpoint via OIDC Discovery at
-   *   `${issuer}/.well-known/openid-configuration`. Requires the `verify`
-   *   helper to expose a single-string `issuer` (`jwks()` / `jwt()` do).
-   * - `string | URL`: explicit userinfo endpoint URL. The framework fetches
-   *   it with the bearer token and lifts standard OIDC claims (`email`,
-   *   `name`, `roles`, etc.) onto the principal.
-   * - `(principal, token) => Promise<Partial<OAuthPrincipal>>`: custom
-   *   enrichment from any backend (Clerk Backend API, internal DB, etc.).
-   *
-   * For URL and discovery modes the userinfo response `sub` MUST equal the
-   * verified token's `sub` (OIDC Core §5.3.2); mismatches reject the
-   * request. Verify wins on `subject`, `issuer`, `audience`, `expiresAt`;
-   * other fields are overwritten by the enrichment payload. Results are
-   * cached per token and evicted at `principal.expiresAt`. All enrichment
-   * errors are fail-closed (the request is rejected; no silent
-   * degradation).
-   *
-   * @experimental
-   */
-  userinfo?: UserinfoOption;
 }
 
 /**
@@ -214,17 +188,22 @@ export function oauth(options: OAuthFactoryOptions): OAuthAuthOptions {
       "oauth: `verify` is required. Pass jwks(...), jwt(...), or a custom (token) => OAuthPrincipal function.",
     );
   }
-  const verifyAccessToken =
-    options.userinfo !== undefined
-      ? buildEnrichedVerifier(options.verify, options.userinfo)
-      : buildVerifier(options.verify);
+  const verifyAccessToken = buildVerifier(options.verify);
   const getClient = normaliseClientSupplier(options.client);
+
+  // Surface the IdP issuer from the verify helper so the server can resolve
+  // the OIDC Discovery document for plugin-level `userinfo: true`. Principal
+  // enrichment itself lives on `mcpPlugin({ userinfo })`, orthogonal to the
+  // auth mode (mirrors how `resource` was promoted off `oauth()`).
+  const verifyIssuer =
+    typeof options.verify === "function" ? undefined : options.verify.issuer;
 
   const result: OAuthAuthOptions = {
     provider: "oauth",
     endpoints: options.endpoints,
     verifyAccessToken,
     getClient,
+    ...(verifyIssuer !== undefined && { issuer: verifyIssuer }),
     ...(options.baseUrl !== undefined && { baseUrl: options.baseUrl }),
     ...(options.requiredScopes !== undefined && {
       requiredScopes: options.requiredScopes,

@@ -9,9 +9,8 @@ export type {
   OAuthFactoryOptions,
   OAuthClientSupplier,
   OAuthVerifier,
-  UserinfoFn,
-  UserinfoOption,
 } from "./oauth.ts";
+export type { UserinfoFn, UserinfoOption } from "./userinfo.ts";
 export type { McpCorsOptions, McpCorsOriginResolver } from "./cors.ts";
 export { mcpPlugin } from "./plugin.ts";
 export { McpServer } from "./server.ts";
