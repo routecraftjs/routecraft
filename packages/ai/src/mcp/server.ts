@@ -773,6 +773,20 @@ export class McpServer {
       "ProxyOAuthServerProvider"
     ] as new (options: Record<string, unknown>) => unknown;
 
+    // The SDK's bearer middleware maps a thrown verify error to an HTTP status
+    // by its type: only an `InvalidTokenError` becomes a 401 (with a
+    // `WWW-Authenticate: Bearer error="invalid_token"` header that drives the
+    // client to refresh); anything else falls through to a generic 500. The
+    // wrapped verifier below converts token-validation failures into this error
+    // so an expired or invalid bearer yields 401, not 500.
+    const errorsMod = await loadOptionalPeer(
+      () => import("@modelcontextprotocol/sdk/server/auth/errors.js"),
+      { adapterName: "mcp (oauth)", packageName: "@modelcontextprotocol/sdk" },
+    );
+    const InvalidTokenError = (errorsMod as Record<string, unknown>)[
+      "InvalidTokenError"
+    ] as new (message: string) => Error;
+
     // Apply plugin-level `userinfo` enrichment to the OAuth verifier. The
     // issuer for `userinfo: true` discovery is surfaced on the oauth() result
     // from the verify helper. Built eagerly so a misconfigured `userinfo: true`
@@ -792,7 +806,8 @@ export class McpServer {
     // so operators can observe brute-force attempts, mismatched audiences, and
     // expired tokens alongside the validator path's rejections. Expiry is
     // routine (the client refreshes and retries) so it logs at `debug`; every
-    // other failure logs at `warn`.
+    // other failure logs at `warn`. A token-validation failure is re-thrown as
+    // InvalidTokenError so the SDK answers 401 (the client refreshes), not 500.
     const wrappedVerifier = async (token: string): Promise<SdkAuthInfo> => {
       let principal: OAuthPrincipal;
       try {
@@ -817,7 +832,15 @@ export class McpServer {
           );
         }
         this.context.emit("auth:rejected", detail);
-        throw err;
+        // A framework error (RC5021 userinfo/discovery fetch, RC5022 sub
+        // mismatch) is a server-side / configuration failure, so it propagates
+        // unchanged and the SDK maps it to 500. Every other throw is the
+        // verifier rejecting the token; surface it as InvalidTokenError so the
+        // client gets 401 invalid_token (and refreshes) instead of 500.
+        if (isRoutecraftError(err)) throw err;
+        throw new InvalidTokenError(
+          isExpiredTokenError(err) ? "Token has expired" : "Invalid token",
+        );
       }
       // Belt-and-suspenders: the type system already guarantees `expiresAt`,
       // but third-party code using `as any` or dynamic plugin wiring could

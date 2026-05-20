@@ -113,7 +113,7 @@ When you add a new default that affects authentication, authorization, network e
 - **Source boundary** (`mcp()`, future `http()`): runs `verify` / `validator`; emits `auth:success` or `auth:rejected`; attaches `Principal` to the exchange.
 - **Route boundary** (`.authorize()` / `.validate(authorize(...))`): checks principal against role / scope / predicate / expiry; emits `exchange:failed` on rejection.
 - **Userinfo boundary** (`buildEnrichedVerifier`): runs after `verify` succeeds; merges enrichment with protected fields preserved; raises `RC5021` / `RC5022` on failure.
-- **HTTP transport boundary** (`startHttpWithValidator` / `startHttpWithOAuth`): serves RFC 9728 metadata; emits 401 with `resource_metadata`.
+- **HTTP transport boundary** (`startHttpWithValidator` / `startHttpWithOAuth`): serves RFC 9728 metadata; emits 401 with `resource_metadata`. A failed token validation MUST result in `401 invalid_token` (so the client refreshes), not a generic 500. On the OAuth path the SDK's bearer middleware only maps an `InvalidTokenError` to 401, so `wrappedVerifier` re-throws token-validation failures as `InvalidTokenError`; framework infrastructure errors (`RC5021` / `RC5022`) propagate unchanged and map to 500, since a server-side failure must not be reported to the client as an invalid token.
 
 Each boundary is the *only* place that handles its class of error (does not re-throw). Crossing a boundary without logging duplicates entries; not logging at the boundary loses the failure entirely.
 
