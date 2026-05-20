@@ -66,10 +66,11 @@ export function validateAgentOptions(options: AgentOptions): void {
   }
   if (
     options.principal !== undefined &&
-    typeof options.principal !== "boolean"
+    typeof options.principal !== "boolean" &&
+    typeof options.principal !== "function"
   ) {
     throw rcError("RC5003", undefined, {
-      message: `Agent: "principal" must be a boolean when present.`,
+      message: `Agent: "principal" must be a boolean or a function (principal, exchange) => string when present.`,
     });
   }
   if (options.output !== undefined) {

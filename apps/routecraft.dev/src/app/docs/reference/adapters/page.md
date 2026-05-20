@@ -1817,7 +1817,7 @@ Model ID format: `"provider:model-name"` (same as `llm()`). The provider must be
 | `system` | `string` | -- | Yes | System prompt. Load from disk yourself when sourcing from a file |
 | `user` | `(exchange) => string` | body as-is / JSON | No | Override for deriving the user prompt. Defaults to body (string as-is, JSON for objects) |
 | `tools` | `ToolSelection` | -- | No | Tool whitelist built via `tools([...])`. Inherits `defaultOptions.tools` when omitted; an explicit value replaces the default entirely |
-| `principal` | `boolean` | `false` | No | When `true`, append a `## Caller` section to the system prompt describing `exchange.principal` (identity + roles), or stating the request is unauthenticated. See [Telling the agent who the caller is](#telling-the-agent-who-the-caller-is) |
+| `principal` | `boolean \| (principal, exchange) => string` | `false` | No | When `true`, append a built-in `## Caller` section to the system prompt describing `exchange.principal` (identity + roles), or stating the request is unauthenticated. Pass a function to render the section yourself. See [Telling the agent who the caller is](#telling-the-agent-who-the-caller-is) |
 | `output` | `StandardSchemaV1` | -- | No | Schema for structured output. Validated and parsed onto `AgentResult.output` after dispatch (runtime ships in a follow-up release) |
 
 **`AgentRegisteredOptions` (entries in `agentPlugin({ agents: {...} })`, for by-name reuse):** same as `AgentOptions` plus:
@@ -1883,17 +1883,20 @@ available. Do not assume, infer, or invent the caller's name, email, or
 permissions.
 ```
 
-Only the loggable identity fields (`name`, `email`, `subject`) and `roles` are surfaced; fields that are absent on the principal are omitted. Scopes, `claims`, `userinfoClaims`, and the bearer token are never injected. The block is informational context only: authorization is still enforced by [`.authorize()`](/docs/reference/operations) and tool guards, never by the model.
+Only the loggable identity fields (`name`, `email`, `subject`) and `roles` are surfaced; fields that are absent on the principal are omitted, and interpolated values have newlines collapsed so a subject-controlled field (a self-service display name, say) cannot forge prompt structure. Scopes, `claims`, `userinfoClaims`, and the bearer token are never injected. The block is informational context only: authorization is still enforced by [`.authorize()`](/docs/reference/operations) and tool guards, never by the model.
 
-For full control over wording or placement, omit `principal` and use the function form of `system` instead, reading `exchange.principal` yourself:
+To control the wording or which fields are shown, pass a function instead of `true`. It receives the principal (`undefined` when unauthenticated) and the exchange, and returns the markdown to append (return `''` to append nothing). Your renderer owns its own escaping and the same field exclusions apply:
 
 ```typescript
 agent({
   model: 'anthropic:claude-opus-4-7',
-  system: (ex) =>
-    `You assist ${ex.principal?.name ?? 'an anonymous user'}.\n${basePrompt}`,
+  system: 'You are a support assistant.',
+  principal: (p) =>
+    p ? `## Caller\n\nYou are assisting ${p.name ?? p.subject}.` : '',
 });
 ```
+
+To opt every agent in a context into caller-awareness at once, set `principal` on `agentPlugin({ defaultOptions })`; a per-agent `principal` (including `false`) overrides it.
 
 Inside a tool handler, the same principal is available as `ctx.principal` (a deep-frozen, read-only snapshot).
 

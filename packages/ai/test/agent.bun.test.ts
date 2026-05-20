@@ -140,17 +140,24 @@ describe("agent() destination", () => {
   });
 
   /**
-   * @case agent({ principal }) rejects a non-boolean value at construction
-   * @preconditions agent with principal set to a string
-   * @expectedResult Construction throws RC5003 and the message mentions "principal"
+   * @case agent({ principal }) accepts a boolean or a function and rejects other values at construction
+   * @preconditions agent with principal set to true, a function, and a string
+   * @expectedResult The boolean and function forms construct; the string throws RC5003 mentioning "principal"
    */
-  test("agent({ principal }) must be a boolean", () => {
-    const dest = agent({
+  test("agent({ principal }) must be a boolean or a function", () => {
+    const boolForm = agent({
       model: "anthropic:claude-opus-4-7",
       system: "Be helpful.",
       principal: true,
     });
-    expect(dest).toBeInstanceOf(AgentDestinationAdapter);
+    expect(boolForm).toBeInstanceOf(AgentDestinationAdapter);
+
+    const fnForm = agent({
+      model: "anthropic:claude-opus-4-7",
+      system: "Be helpful.",
+      principal: (p) => (p ? `## Caller\n\n${p.subject}` : ""),
+    });
+    expect(fnForm).toBeInstanceOf(AgentDestinationAdapter);
 
     expect(() =>
       agent({

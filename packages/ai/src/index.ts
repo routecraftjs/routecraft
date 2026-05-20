@@ -140,6 +140,7 @@ export type {
   AgentDeltaListener,
   AgentOptions,
   AgentPluginOptions,
+  AgentPrincipalRenderer,
   AgentRegisteredOptions,
   AgentResult,
   AgentToolCallSummary,

@@ -23,6 +23,7 @@ import type { ResolvedTool } from "./tools/selection.ts";
 import type {
   AgentDefaultOptions,
   AgentOptions,
+  AgentPrincipalRenderer,
   AgentRegisteredOptions,
   AgentResult,
 } from "./types.ts";
@@ -117,6 +118,7 @@ export class AgentDestinationAdapter implements Destination<
       withSkills,
       merged.principal,
       exchange.principal,
+      exchange,
     );
 
     const route = getExchangeRoute(exchange);
@@ -242,6 +244,9 @@ function mergeWithDefaults(
   if (out.maxTurns === undefined && defaults.maxTurns !== undefined) {
     out.maxTurns = defaults.maxTurns;
   }
+  if (out.principal === undefined && defaults.principal !== undefined) {
+    out.principal = defaults.principal;
+  }
   return out;
 }
 
@@ -319,9 +324,11 @@ function appendSkillsToSystem(
 }
 
 /**
- * Append a `## Caller` section describing the request's principal when the
- * agent opted in via `principal: true`. Returns the base prompt unchanged
- * when the flag is off, so existing agents are unaffected.
+ * Append a `## Caller` section describing the request's principal. Opt-in:
+ * returns the base prompt unchanged when `principal` is omitted or `false`,
+ * so existing agents are unaffected. When `principal` is a function it
+ * renders the section itself (an empty return appends nothing); otherwise
+ * the built-in {@link formatCallerSection} block is used.
  *
  * The section is informational context for the model (who triggered the
  * request), never an authorization gate; `.authorize()` and guards remain
@@ -331,16 +338,24 @@ function appendSkillsToSystem(
  */
 function appendPrincipalToSystem(
   baseSystem: string,
-  includePrincipal: boolean | undefined,
+  principalOption: boolean | AgentPrincipalRenderer | undefined,
   principal: Principal | undefined,
+  exchange: Exchange<unknown>,
 ): string {
-  if (!includePrincipal) return baseSystem;
-  return `${baseSystem}\n\n${formatCallerSection(principal)}`;
+  if (principalOption === undefined || principalOption === false) {
+    return baseSystem;
+  }
+  const section =
+    typeof principalOption === "function"
+      ? principalOption(principal, exchange)
+      : formatCallerSection(principal);
+  if (section.trim() === "") return baseSystem;
+  return `${baseSystem}\n\n${section}`;
 }
 
 /**
- * Render the `## Caller` block from a principal. Surfaces only the
- * loggable identity fields (`name`, `email`, `subject`) and `roles`
+ * Render the built-in `## Caller` block from a principal. Surfaces only
+ * the loggable identity fields (`name`, `email`, `subject`) and `roles`
  * (see `.standards/security.md` § 3); scopes, `claims`, `userinfoClaims`,
  * and the bearer token are never included. Absent fields are omitted
  * rather than printed as `undefined`. When no principal is present the
@@ -359,11 +374,28 @@ function formatCallerSection(principal: Principal | undefined): string {
     );
   }
   const lines: string[] = [];
-  if (principal.name) lines.push(`- Name: ${principal.name}`);
-  if (principal.email) lines.push(`- Email: ${principal.email}`);
-  lines.push(`- Subject: ${principal.subject}`);
-  if (principal.roles && principal.roles.length > 0) {
-    lines.push(`- Roles: ${principal.roles.join(", ")}`);
+  if (principal.name) lines.push(`- Name: ${oneLine(principal.name)}`);
+  if (principal.email) lines.push(`- Email: ${oneLine(principal.email)}`);
+  lines.push(`- Subject: ${oneLine(principal.subject)}`);
+  const roles = principal.roles
+    ?.map((r) => oneLine(r))
+    .filter((r) => r.length > 0);
+  if (roles && roles.length > 0) {
+    lines.push(`- Roles: ${roles.join(", ")}`);
   }
   return `## Caller\n\nThe current request is authenticated.\n${lines.join("\n")}`;
+}
+
+/**
+ * Collapse newlines (and surrounding whitespace) in an interpolated
+ * identity field. Principal strings like `name` / `email` are
+ * integrity-verified (they reached us unmodified from the IdP) but may be
+ * subject-controlled at self-service IdPs; collapsing newlines pins a
+ * value to its `- Label:` line so it cannot break out of the list item or
+ * forge a `##` heading in the trusted system channel.
+ *
+ * @internal
+ */
+function oneLine(value: string): string {
+  return value.replace(/\s*[\r\n]+\s*/g, " ").trim();
 }

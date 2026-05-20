@@ -1,4 +1,4 @@
-import type { Exchange } from "@routecraft/routecraft";
+import type { Exchange, Principal } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { LlmModelId, LlmPromptSource, LlmUsage } from "../llm/types.ts";
 import type { AgentDeltaListener } from "./events.ts";
@@ -17,6 +17,25 @@ import type { ToolSelection } from "./tools/selection.ts";
  * @experimental
  */
 export type AgentUserPromptSource = LlmPromptSource;
+
+/**
+ * Custom renderer for the agent's `## Caller` section. Receives the
+ * request's principal (`undefined` when the request is unauthenticated)
+ * and the incoming exchange, and returns the markdown to append to the
+ * system prompt. Return an empty string to append nothing.
+ *
+ * Used as the function form of `AgentOptions.principal` when an author
+ * wants full control over the wording or which fields are shown. A custom
+ * renderer owns its own escaping and MUST NOT surface `claims`,
+ * `userinfoClaims`, or anything bearer-derived (see
+ * `.standards/security.md` § 3a).
+ *
+ * @experimental
+ */
+export type AgentPrincipalRenderer = (
+  principal: Principal | undefined,
+  exchange: Exchange<unknown>,
+) => string;
 
 /**
  * Context-level defaults applied to any agent that doesn't override them.
@@ -56,6 +75,15 @@ export interface AgentDefaultOptions {
    * dispatch.
    */
   maxTurns?: number;
+
+  /**
+   * Default caller-awareness setting applied to agents that omit
+   * `principal`. Same shape as {@link AgentOptions.principal} (`true` for
+   * the built-in `## Caller` block, or a `(principal, exchange) => string`
+   * renderer). Lets a context opt every agent into caller-awareness once;
+   * a per-agent `principal` (including `false`) overrides it.
+   */
+  principal?: boolean | AgentPrincipalRenderer;
 }
 
 /**
@@ -132,30 +160,35 @@ export interface AgentOptions {
   skills?: string[];
 
   /**
-   * When `true`, append a `## Caller` section to the system prompt that
-   * tells the model who triggered the request. The section is derived
-   * from `exchange.principal` at dispatch and carries the caller's
-   * identity (`name`, `email`, `subject`) and `roles`. When no principal
-   * is present (the request is unauthenticated), the section says so
-   * explicitly, so the model never has to guess or invent an identity.
+   * Append a `## Caller` section to the system prompt describing who
+   * triggered the request, so the model can address the caller and knows
+   * when no one is authenticated.
    *
-   * Opt-in, defaulting to `false`, so existing agents see no change to
-   * their prompt or token usage. The block is appended after `skills`, so
-   * the author's own `system` prompt and any skill content come first.
+   * - `true` -- append the built-in block: the caller's identity (`name`,
+   *   `email`, `subject`) and `roles` derived from `exchange.principal`,
+   *   or an explicit "not authenticated" note when no principal is
+   *   present.
+   * - a function `(principal, exchange) => string` -- append the markdown
+   *   it returns (return `""` to append nothing), for full control over
+   *   the wording and which fields are shown. See
+   *   {@link AgentPrincipalRenderer}.
+   * - `false` / omitted -- append nothing. Opt-in default, so existing
+   *   agents see no change to their prompt or token usage.
    *
-   * Only loggable identity fields are surfaced (see `.standards/security.md`
-   * § 3). Scopes, `claims`, `userinfoClaims`, and the bearer token are
-   * never injected. Authorization is still enforced by `.authorize()` and
-   * guards; this block is informational context for the model, not an
-   * authorization gate.
+   * The section is appended after `skills`, so the author's own `system`
+   * prompt and any skill content come first.
    *
-   * For full control over placement or formatting, use the function form
-   * of `system` and read `exchange.principal` directly instead of this
-   * flag.
+   * The built-in block surfaces only loggable identity fields (see
+   * `.standards/security.md` § 3); scopes, `claims`, `userinfoClaims`, and
+   * the bearer token are never injected, and interpolated values have
+   * newlines collapsed so a subject-controlled field cannot forge prompt
+   * structure. A custom renderer owns its own escaping. Authorization is
+   * still enforced by `.authorize()` and guards; this block is
+   * informational context for the model, not an authorization gate.
    *
    * @experimental
    */
-  principal?: boolean;
+  principal?: boolean | AgentPrincipalRenderer;
 
   /**
    * Cap on tool-calling turns for the Vercel AI SDK loop. Each turn
