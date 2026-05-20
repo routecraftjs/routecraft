@@ -651,12 +651,14 @@ Any user string is also accepted; the `KnownTag` literals just power autocomplet
 
 #### Context-level `defaultOptions`
 
-Mirrors the `llmPlugin({ defaultOptions })` pattern: a single bag of values applied to any agent that omits the corresponding field. Two fields today, easy to extend.
+Mirrors the `llmPlugin({ defaultOptions })` pattern: a single bag of values applied to any agent that omits the corresponding field.
 
 | Field | Type | Inherited by |
 |---|---|---|
 | `defaultOptions.model` | `LlmModelId` (string) | Agents that omit `model` |
 | `defaultOptions.tools` | `ToolSelection` (from `tools([...])`) | Agents that omit `tools` |
+| `defaultOptions.maxTurns` | `number` | Agents that omit `maxTurns` |
+| `defaultOptions.principal` | `boolean \| (principal, exchange) => string` | Agents that omit `principal` |
 
 Resolution at dispatch is per-key: instance value > plugin default > (for `model`) throw, (for `tools`) `undefined`. Agents that set the field replace the default entirely (override, not extend).
 
