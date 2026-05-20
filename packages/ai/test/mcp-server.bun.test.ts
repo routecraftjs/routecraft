@@ -2809,6 +2809,34 @@ describe("McpServer", () => {
           ).toBe(true);
           expect(rejections.length).toBeGreaterThanOrEqual(1);
         });
+
+        /**
+         * @case A JWKS infrastructure failure on the OAuth verifier path returns 500, not 401
+         * @preconditions McpServer with oauth() whose verify throws a jose error with code ERR_JWKS_TIMEOUT; POST /mcp with a bearer token
+         * @expectedResult 500 with no WWW-Authenticate; the client must retry, not treat its token as invalid
+         */
+        test("returns 500 for a jose JWKS infrastructure failure", async () => {
+          const { oauth } = await import("../src/mcp/oauth.ts");
+          const jwksTimeout = Object.assign(new Error("request timed out"), {
+            code: "ERR_JWKS_TIMEOUT",
+          });
+          const { post } = await startHttpServer([], {
+            auth: oauth({
+              endpoints: oauthEndpoints,
+              verify: async () => {
+                throw jwksTimeout;
+              },
+              client: oauthClient,
+            }),
+            resource: { url: "http://localhost:9999" },
+          });
+
+          const res = await post(initBody, undefined, {
+            Authorization: "Bearer some-token",
+          });
+          expect(res.statusCode).toBe(500);
+          expect(res.headers["www-authenticate"]).toBeUndefined();
+        });
       });
     });
   });

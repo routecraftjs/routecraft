@@ -35,7 +35,7 @@ import {
 } from "./cors.ts";
 import { ROUTECRAFT_DEFAULT_ICONS } from "./default-icon.ts";
 import { buildEnrichedVerifier } from "./userinfo.ts";
-import { isExpiredTokenError } from "./auth-errors.ts";
+import { isExpiredTokenError, isInfrastructureError } from "./auth-errors.ts";
 
 /**
  * MCP SDK `AuthInfo` shape. Imported as a type so nothing is required at
@@ -813,6 +813,7 @@ export class McpServer {
       try {
         principal = await verifyAccessToken(token);
       } catch (err) {
+        const expired = isExpiredTokenError(err);
         const reason = err instanceof Error ? err.message : "invalid_token";
         const detail = {
           reason,
@@ -820,7 +821,7 @@ export class McpServer {
           source: "mcp",
           path: "oauth",
         };
-        if (isExpiredTokenError(err)) {
+        if (expired) {
           this.context.logger.debug(
             { err, ...detail },
             "Auth rejected: token expired",
@@ -832,14 +833,15 @@ export class McpServer {
           );
         }
         this.context.emit("auth:rejected", detail);
-        // A framework error (RC5021 userinfo/discovery fetch, RC5022 sub
-        // mismatch) is a server-side / configuration failure, so it propagates
-        // unchanged and the SDK maps it to 500. Every other throw is the
-        // verifier rejecting the token; surface it as InvalidTokenError so the
-        // client gets 401 invalid_token (and refreshes) instead of 500.
-        if (isRoutecraftError(err)) throw err;
+        // A server-side failure (RC5021 userinfo/discovery fetch, RC5022 sub
+        // mismatch, or a JWKS endpoint that is unreachable, slow, or returns a
+        // bad response) propagates unchanged so the SDK maps it to 500: the
+        // client must retry later, not discard a token that may be valid. Every
+        // other throw is the verifier rejecting the token, so surface it as
+        // InvalidTokenError for 401 invalid_token (which drives the refresh).
+        if (isRoutecraftError(err) || isInfrastructureError(err)) throw err;
         throw new InvalidTokenError(
-          isExpiredTokenError(err) ? "Token has expired" : "Invalid token",
+          expired ? "Token has expired" : "Invalid token",
         );
       }
       // Belt-and-suspenders: the type system already guarantees `expiresAt`,
