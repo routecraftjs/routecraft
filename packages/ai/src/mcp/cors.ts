@@ -301,7 +301,7 @@ export const PROTECTED_RESOURCE_METADATA_PATH =
  *
  * The transport always listens on `/mcp` (and `/mcp/`). RFC 9728 §3 metadata
  * lives at the root path **and** at a path-suffixed variant derived from
- * `resource.url`'s pathname: e.g. for `resource.url = https://api/example/mcp`
+ * `resource.url`'s pathname: e.g. for `resource.url = https://example.com/api/mcp`
  * the canonical client probe is `/.well-known/oauth-protected-resource/api/mcp`.
  * Both metadata URLs serve the identical document.
  *
