@@ -179,8 +179,13 @@ export default config
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `name` | `string` | `'routecraft'` | Server name exposed in MCP metadata |
+| `name` | `string` | `'routecraft'` | Server name exposed in MCP metadata (`serverInfo.name`) |
+| `title` | `string` | -- | Human-readable display title (`serverInfo.title`) |
 | `version` | `string` | `'1.0.0'` | Server version |
+| `description` | `string` | `'Powered by Routecraft.dev'` | `serverInfo.description`; pass `''` to omit |
+| `websiteUrl` | `string` | `'https://routecraft.dev'` | `serverInfo.websiteUrl`; pass `''` to omit |
+| `instructions` | `string` | -- | Server-wide usage guidance on the `initialize` result; pass `''` (or omit) to send none |
+| `icons` | `McpIcon[]` | Routecraft logo | `serverInfo.icons`, inherited by tools that set none of their own; pass `[]` to omit. See [Server identity and branding](/docs/advanced/expose-as-mcp#server-identity-and-branding). |
 | `transport` | `'http' \| 'stdio'` | `'stdio'` | Transport protocol for the MCP server |
 | `port` | `number` | `3001` | HTTP port (http transport only) |
 | `host` | `string` | `'localhost'` | HTTP host (http transport only) |

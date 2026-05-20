@@ -168,6 +168,61 @@ Start the server with `craft run`, then point your AI client at it.
 }
 ```
 
+## Server identity and branding
+
+When a client like Claude adds your server, it renders the server's identity from the MCP `initialize` handshake. Configure it on `mcpPlugin` (or the `mcp` key of `defineConfig`):
+
+```ts
+// craft.config.ts
+import { mcpPlugin } from '@routecraft/ai'
+
+export default {
+  plugins: [
+    mcpPlugin({
+      name: 'acme-bot',                          // serverInfo.name (machine id)
+      title: 'Acme Bot',                         // serverInfo.title (display name)
+      version: '2.1.0',                          // serverInfo.version
+      description: 'Acme operations over MCP.',  // serverInfo.description
+      websiteUrl: 'https://acme.example.com',    // serverInfo.websiteUrl
+      instructions: 'Call orders.search before orders.refund.', // initialize.instructions
+      icons: [
+        { src: 'https://acme.example.com/icon.svg', mimeType: 'image/svg+xml' },
+        { src: 'data:image/png;base64,...', mimeType: 'image/png', sizes: ['48x48'], theme: 'light' },
+      ],
+    }),
+  ],
+}
+```
+
+`instructions` is server-wide guidance the client may add to the model's context (advisory per the spec). It complements each tool's own `.description()`, which is the per-tool equivalent.
+
+### Defaults and how to opt out
+
+When you do not set them, Routecraft fills in a "powered by Routecraft" identity. Each default is overridable with your own value or suppressible with an empty value:
+
+| Field | Default when unset | Suppress with |
+| --- | --- | --- |
+| `icons` | Routecraft logo (light and dark variants) | `icons: []` |
+| `description` | `"Powered by Routecraft.dev"` | `description: ""` |
+| `websiteUrl` | `"https://routecraft.dev"` | `websiteUrl: ""` |
+| `instructions` | none (omitted) | `instructions: ""` |
+
+### Per-tool icons and inheritance
+
+A capability can carry its own icon via the `mcp()` source. The icon shape follows the MCP `Icon` spec (`src`, optional `mimeType`, `sizes` as a string array, and an optional `theme`):
+
+```ts
+craft()
+  .id('orders.search')
+  .description('Search orders')
+  .from(mcp({
+    annotations: { readOnlyHint: true },
+    icons: [{ src: 'https://acme.example.com/search.svg', mimeType: 'image/svg+xml', sizes: ['48x48'] }],
+  }))
+```
+
+Icons resolve with the same rule at both levels: omit `icons` to inherit (a tool with no icon of its own shows the server's icon, including the Routecraft default), set `icons: [...]` for a custom icon, or set `icons: []` to show none.
+
 ## Authentication
 
 When using HTTP transport, secure the endpoint with the `auth` option.

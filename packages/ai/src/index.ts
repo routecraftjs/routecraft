@@ -92,7 +92,7 @@ export {
   type McpToolAnnotations,
   type McpInput,
   type McpOutput,
-  type McpToolIcon,
+  type McpIcon,
   type McpToolRegistryEntry,
   type McpToolResult,
   type OAuthAuthOptions,

@@ -88,7 +88,7 @@ export interface McpLocalToolEntry {
   /** MCP tool annotations (read-only hints, destructive hints, etc.). */
   annotations?: McpToolAnnotations;
   /** Icons forwarded to `tools/list` per the MCP spec. */
-  icons?: McpToolIcon[];
+  icons?: McpIcon[];
   /**
    * Invocation handler. Receives an exchange pre-built by the MCP server
    * (with tool/session/auth headers and the request body) and returns the
@@ -355,6 +355,35 @@ export interface McpPluginOptions {
   /** Server version. Default: "1.0.0" */
   version?: string;
 
+  /**
+   * Human-readable server description, forwarded as MCP `serverInfo.description`.
+   * Defaults to `"Powered by Routecraft.dev"` when unset; pass an empty string
+   * (`""`) to omit it entirely.
+   */
+  description?: string;
+
+  /**
+   * Server website, forwarded as MCP `serverInfo.websiteUrl`. Defaults to
+   * `"https://routecraft.dev"` when unset; pass an empty string (`""`) to omit it.
+   */
+  websiteUrl?: string;
+
+  /**
+   * Server-wide usage guidance, forwarded as the MCP `initialize` result's
+   * `instructions`. Clients may inject it into the model's context as a hint
+   * (advisory per the spec, not guaranteed). Use it for cross-tool guidance the
+   * model cannot infer from individual tool schemas.
+   */
+  instructions?: string;
+
+  /**
+   * Icons identifying this server, forwarded as MCP `serverInfo.icons` and
+   * inherited by tools that do not set their own icons. Defaults to the
+   * Routecraft logo (light and dark variants) when unset; pass an empty array
+   * (`[]`) to serve no icon.
+   */
+  icons?: McpIcon[];
+
   /** Transport mode for MCP server. Default: "stdio" */
   transport?: "stdio" | "http";
 
@@ -477,16 +506,21 @@ export interface McpToolAnnotations {
 }
 
 /**
- * Icon reference for an MCP tool.
- * Mirrors the MCP specification's `Tool.icons[]` entry (web app manifest shape).
+ * Icon reference for an MCP server or tool. Mirrors the MCP specification's
+ * `Icon` shape, which is reused by `serverInfo.icons`, `Tool.icons`, and the
+ * resource/prompt primitives.
+ *
+ * @experimental
  */
-export interface McpToolIcon {
+export interface McpIcon {
   /** URL or data URI of the icon. */
   src: string;
-  /** One or more icon sizes, e.g. `"48x48"` or `"48x48 96x96"`. */
-  sizes?: string;
-  /** MIME type of the icon. */
-  type?: string;
+  /** MIME type of the icon, e.g. `"image/svg+xml"` or `"image/png"`. */
+  mimeType?: string;
+  /** One or more icon sizes, e.g. `["48x48"]` or `["48x48", "96x96"]`. */
+  sizes?: string[];
+  /** The client UI theme this icon is designed for. */
+  theme?: "light" | "dark";
 }
 
 /**
@@ -515,7 +549,7 @@ export interface McpServerOptions {
   annotations?: McpToolAnnotations;
 
   /** Icons forwarded on `tools/list` per the MCP spec. */
-  icons?: McpToolIcon[];
+  icons?: McpIcon[];
 }
 
 export type McpOptions = McpServerOptions;
@@ -582,7 +616,7 @@ export interface McpTool {
   /** MCP tool annotations (behavior hints) reported by the server. */
   annotations?: McpToolAnnotations;
   /** Icons forwarded to clients per the MCP spec. */
-  icons?: McpToolIcon[];
+  icons?: McpIcon[];
 }
 
 /**
