@@ -3,6 +3,7 @@ import { spy, testContext, type TestContext } from "@routecraft/testing";
 import {
   authorize,
   craft,
+  markAuthentic,
   noop,
   simple,
   type EventName,
@@ -16,15 +17,15 @@ type FailedEventDetails = { details: { error: unknown } };
  * Build a tiny test source that emits one body and forwards a principal
  * by writing it onto `headers["routecraft.auth.principal"]` before
  * invoking the handler. Mirrors what real authenticating sources
- * (e.g. `mcp({ auth: jwt(...) })`) do at their boundary, so the route's
- * first exchange already carries the principal and pre-from
- * `.authorize()` can gate it.
+ * (e.g. `mcp({ auth: jwt(...) })`) do at their boundary: the principal is
+ * branded authentic with `markAuthentic` so the route's first exchange
+ * carries a trusted identity and pre-from `.authorize()` can gate it.
  */
 function principalSource<T>(body: T, principal?: Principal): Source<T> {
   return {
     subscribe: async (_ctx, handler) => {
       const headers = principal
-        ? { "routecraft.auth.principal": principal }
+        ? { "routecraft.auth.principal": markAuthentic(principal) }
         : undefined;
       await handler(body, headers);
     },
@@ -56,13 +57,7 @@ describe("authorize() validator", () => {
         craft()
           .id("ok")
           .from(simple("hello"))
-          .process((ex) => ({
-            ...ex,
-            headers: {
-              ...ex.headers,
-              "routecraft.auth.principal": principal,
-            },
-          }))
+          .authenticate(() => principal)
           .validate(authorize())
           .to(s),
       )
@@ -121,13 +116,7 @@ describe("authorize() validator", () => {
         craft()
           .id("rbac")
           .from(simple("hello"))
-          .process((ex) => ({
-            ...ex,
-            headers: {
-              ...ex.headers,
-              "routecraft.auth.principal": principal,
-            },
-          }))
+          .authenticate(() => principal)
           .validate(authorize({ roles: ["admin"] }))
           .to(s),
       )
@@ -168,13 +157,7 @@ describe("authorize() validator", () => {
         craft()
           .id("multi-role")
           .from(simple("hello"))
-          .process((ex) => ({
-            ...ex,
-            headers: {
-              ...ex.headers,
-              "routecraft.auth.principal": principal,
-            },
-          }))
+          .authenticate(() => principal)
           .validate(authorize({ roles: ["admin", "billing"] }))
           .to(s),
       )
@@ -221,13 +204,7 @@ describe("authorize() validator", () => {
         craft()
           .id("scope")
           .from(simple("hello"))
-          .process((ex) => ({
-            ...ex,
-            headers: {
-              ...ex.headers,
-              "routecraft.auth.principal": principal,
-            },
-          }))
+          .authenticate(() => principal)
           .validate(authorize({ scopes: ["read", "write"] }))
           .to(s),
       )
@@ -267,13 +244,7 @@ describe("authorize() validator", () => {
         craft()
           .id("predicate")
           .from(simple("hello"))
-          .process((ex) => ({
-            ...ex,
-            headers: {
-              ...ex.headers,
-              "routecraft.auth.principal": principal,
-            },
-          }))
+          .authenticate(() => principal)
           .validate(
             authorize({
               predicate: (p) => p.claims?.["tenant"] === "globex",
@@ -683,13 +654,7 @@ describe("exchange.principal propagation", () => {
         craft()
           .id("email-attribution")
           .from(simple("hello"))
-          .process((ex) => ({
-            ...ex,
-            headers: {
-              ...ex.headers,
-              "routecraft.auth.principal": principal,
-            },
-          }))
+          .authenticate(() => principal)
           .to(s),
       )
       .build();
@@ -716,13 +681,7 @@ describe("exchange.principal propagation", () => {
         craft()
           .id("transform-keeps-principal")
           .from(simple("hello"))
-          .process((ex) => ({
-            ...ex,
-            headers: {
-              ...ex.headers,
-              "routecraft.auth.principal": principal,
-            },
-          }))
+          .authenticate(() => principal)
           .transform((body) => `${body}!`)
           .to(s),
       )
@@ -778,13 +737,7 @@ describe("exchange.principal propagation", () => {
         craft()
           .id("tap-principal")
           .from(simple("hello"))
-          .process((ex) => ({
-            ...ex,
-            headers: {
-              ...ex.headers,
-              "routecraft.auth.principal": principal,
-            },
-          }))
+          .authenticate(() => principal)
           .tap(tapped)
           .to(main),
       )
@@ -829,13 +782,7 @@ describe("exchange.principal propagation", () => {
         craft()
           .id("tap-principal-shared-ref")
           .from(simple("hello"))
-          .process((ex) => ({
-            ...ex,
-            headers: {
-              ...ex.headers,
-              "routecraft.auth.principal": principal,
-            },
-          }))
+          .authenticate(() => principal)
           .tap(tapped)
           .process((ex) => {
             // Anti-pattern (and the test's whole point): the framework
@@ -885,13 +832,7 @@ describe("authorize() expiresAt enforcement", () => {
         craft()
           .id("exp-future")
           .from(simple("hello"))
-          .process((ex) => ({
-            ...ex,
-            headers: {
-              ...ex.headers,
-              "routecraft.auth.principal": principal,
-            },
-          }))
+          .authenticate(() => principal)
           .validate(authorize())
           .to(s),
       )
@@ -919,13 +860,7 @@ describe("authorize() expiresAt enforcement", () => {
         craft()
           .id("exp-absent")
           .from(simple("hello"))
-          .process((ex) => ({
-            ...ex,
-            headers: {
-              ...ex.headers,
-              "routecraft.auth.principal": principal,
-            },
-          }))
+          .authenticate(() => principal)
           .validate(authorize())
           .to(s),
       )
@@ -954,13 +889,7 @@ describe("authorize() expiresAt enforcement", () => {
         craft()
           .id("exp-past")
           .from(simple("hello"))
-          .process((ex) => ({
-            ...ex,
-            headers: {
-              ...ex.headers,
-              "routecraft.auth.principal": principal,
-            },
-          }))
+          .authenticate(() => principal)
           .validate(authorize())
           .to(s),
       )
@@ -1001,13 +930,7 @@ describe("authorize() expiresAt enforcement", () => {
         craft()
           .id("exp-tolerated")
           .from(simple("hello"))
-          .process((ex) => ({
-            ...ex,
-            headers: {
-              ...ex.headers,
-              "routecraft.auth.principal": principal,
-            },
-          }))
+          .authenticate(() => principal)
           .validate(authorize({ clockToleranceSec: 5 }))
           .to(s),
       )
@@ -1036,13 +959,7 @@ describe("authorize() expiresAt enforcement", () => {
         craft()
           .id("exp-beyond-tolerance")
           .from(simple("hello"))
-          .process((ex) => ({
-            ...ex,
-            headers: {
-              ...ex.headers,
-              "routecraft.auth.principal": principal,
-            },
-          }))
+          .authenticate(() => principal)
           .validate(authorize({ clockToleranceSec: 5 }))
           .to(s),
       )
@@ -1082,13 +999,7 @@ describe("authorize() expiresAt enforcement", () => {
         craft()
           .id("exp-nan")
           .from(simple("hello"))
-          .process((ex) => ({
-            ...ex,
-            headers: {
-              ...ex.headers,
-              "routecraft.auth.principal": principal,
-            },
-          }))
+          .authenticate(() => principal)
           .validate(authorize())
           .to(s),
       )
@@ -1129,13 +1040,7 @@ describe("authorize() expiresAt enforcement", () => {
         craft()
           .id("exp-precedence")
           .from(simple("hello"))
-          .process((ex) => ({
-            ...ex,
-            headers: {
-              ...ex.headers,
-              "routecraft.auth.principal": principal,
-            },
-          }))
+          .authenticate(() => principal)
           .validate(authorize({ roles: ["admin"] }))
           .to(s),
       )

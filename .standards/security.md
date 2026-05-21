@@ -22,7 +22,9 @@ Authoritative rules for authentication, authorization, principal propagation, an
 ## 3. Principal propagation across the exchange
 
 - The verified `Principal` rides on the exchange as a single structured header: `headers["routecraft.auth.principal"]`. The `ex.principal` getter is sugar over this header. Read principal fields off the structured object; never look them up under flat header keys.
-- **Adapters MUST NOT mutate `ex.principal`.** Build a derived exchange via spread or `DefaultExchange.rewrap` if a `.process()` step needs to swap the principal (e.g. service-account exchange). Mutating the principal in place breaks event payload immutability and downstream `.authorize()` checks. See `.standards/exchange-state-model.md`.
+- **Only authentic principals are trusted.** A principal counts as authentic when it was established by a trusted origin and registered by `markAuthentic` (see `packages/routecraft/src/auth/authentic.ts`): a source-side verifier (`jwt()` / `jwks()` / `oauth()`, branded at the MCP attach point), or an explicit `authenticate()` mint. Authenticity is membership in a module-private `WeakSet`, not a property on the object. Set membership cannot be enumerated, read back, copied, or transferred, so even code holding a genuine authentic principal (userland receives them via `ex.principal`, `.process()` callbacks, and event payloads) cannot mark a different object as authentic. A property brand, even a non-enumerable private `Symbol`, would be reflectable via `Object.getOwnPropertySymbols()` and could be copied onto a forged object; the `WeakSet` is what closes that hole, so do not regress it to a property brand. `authorize()` rejects any non-authentic principal with `RC5023`. This makes minting an explicit, greppable act and prevents identity from being forged by an incidental header write or by copying an existing principal with elevated roles.
+- **To establish identity, mint it; do not write the header by hand.** Use the `.authenticate()` operation (or the `authenticate()` helper) to mint a branded principal from claims you have verified yourself (an e-mail sender, a Slack signature, a service account). A plain object assigned to `headers["routecraft.auth.principal"]` is self-asserted and will not pass `authorize()`. Custom source adapters that verify identity themselves brand their resolved principal with `markAuthentic`.
+- **Adapters MUST NOT mutate `ex.principal`.** Principals are frozen at the trusted origin; build a derived exchange via `.authenticate()` or `DefaultExchange.rewrap` if a `.process()` step needs to swap the principal (e.g. service-account exchange). Mutating in place throws (frozen) and would break event payload immutability and downstream `.authorize()` checks. See `.standards/exchange-state-model.md`.
 - **Principal fields are loggable; bearer tokens are not.** `principal.subject`, `principal.clientId`, `principal.email`, `principal.name`, `principal.scopes`, `principal.roles`, `principal.issuer`, `principal.audience` are safe to include in structured logs. Never log the raw bearer or anything derived from it that could be reversed.
 - **`principal.claims` is the verified JWT payload.** When `mcpPlugin({ userinfo })` enrichment runs, the framework writes the raw userinfo response to `principal.userinfoClaims` and leaves `principal.claims` untouched. This invariant is enforced by the protected-fields list in `userinfo.ts`; do not move userinfo data into `claims`.
 
@@ -79,18 +81,20 @@ When you add a new default that affects authentication, authorization, network e
 
 ## 7. `authorize()` is a verification primitive
 
-- **Checks, does not mint.** `authorize()` verifies that the exchange carries a principal that meets the criteria (roles, scopes, predicate, expiry). It does NOT issue, refresh, mint, or attach credentials. Authentication happens at the source boundary (`mcp({ auth: ... })`, future `http({ auth: ... })`) or in a `.process()` step that explicitly attaches a `Principal`.
+- **Checks, does not mint.** `authorize()` verifies that the exchange carries an authentic principal that meets the criteria (roles, scopes, predicate, expiry). It does NOT issue, refresh, mint, or attach credentials. Authentication happens at the source boundary (`mcp({ auth: ... })`, future `http({ auth: ... })`) or via an explicit `.authenticate()` / `authenticate()` mint.
+- **Trusts only authentic principals.** Before checking roles or scopes, `authorize()` rejects a principal that was not established by a trusted origin (see §3): a self-asserted plain object fails with `RC5023`, never with `RC5015`. This keeps "this identity is forged / self-asserted" distinct from "this identity lacks a role."
 - **Error codes are stable and meaningful:**
 
   | Code | Cause | Client expectation |
   |------|-------|--------------------|
   | `RC5012` | No principal on the exchange | Auth flow failed upstream; retry will not help without fresh credentials |
+  | `RC5023` | Principal present but not authentic (self-asserted plain object) | Mint via `.authenticate()` / `authenticate()` or let a source verifier attach it; a hand-written header is not trusted |
   | `RC5015` | Principal failed role / scope / predicate | Permanent denial under current credentials |
   | `RC5020` | `principal.expiresAt` in the past (beyond `clockToleranceSec`) | Refresh and retry |
   | `RC5021` | `userinfo` enrichment failed | Investigate IdP availability; client cannot recover |
   | `RC5022` | `userinfo` sub invariant violated | Investigate IdP / userinfo URL pairing; potential compromise |
 
-  Do not collapse RC5020 into RC5012 or RC5015; the distinction lets clients decide between "refresh" and "give up."
+  Do not collapse RC5023 into RC5012 or RC5015, nor RC5020 into either; each distinction lets clients decide between "forge / mint correctly," "refresh," and "give up."
 
 - **Fail closed on non-finite inputs.** `Number.isFinite(principal.expiresAt) && Number.isFinite(clockToleranceSec)` is checked before comparison. A `NaN` would otherwise silently bypass the guard.
 
