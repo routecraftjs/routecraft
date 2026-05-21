@@ -115,7 +115,7 @@ function validateRegisteredAgent(
  *     },
  *   },
  *   functions: {
- *     currentTime: {
+ *     CurrentTime: {
  *       description: "Current UTC timestamp in ISO 8601",
  *       input: z.object({}),
  *       handler: async () => new Date().toISOString(),

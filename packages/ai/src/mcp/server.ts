@@ -36,6 +36,7 @@ import {
 } from "./cors.ts";
 import { ROUTECRAFT_DEFAULT_ICONS } from "./default-icon.ts";
 import { buildEnrichedVerifier } from "./userinfo.ts";
+import { isExpiredTokenError, isInfrastructureError } from "./auth-errors.ts";
 
 /**
  * MCP SDK `AuthInfo` shape. Imported as a type so nothing is required at
@@ -773,6 +774,20 @@ export class McpServer {
       "ProxyOAuthServerProvider"
     ] as new (options: Record<string, unknown>) => unknown;
 
+    // The SDK's bearer middleware maps a thrown verify error to an HTTP status
+    // by its type: only an `InvalidTokenError` becomes a 401 (with a
+    // `WWW-Authenticate: Bearer error="invalid_token"` header that drives the
+    // client to refresh); anything else falls through to a generic 500. The
+    // wrapped verifier below converts token-validation failures into this error
+    // so an expired or invalid bearer yields 401, not 500.
+    const errorsMod = await loadOptionalPeer(
+      () => import("@modelcontextprotocol/sdk/server/auth/errors.js"),
+      { adapterName: "mcp (oauth)", packageName: "@modelcontextprotocol/sdk" },
+    );
+    const InvalidTokenError = (errorsMod as Record<string, unknown>)[
+      "InvalidTokenError"
+    ] as new (message: string) => Error;
+
     // Apply plugin-level `userinfo` enrichment to the OAuth verifier. The
     // issuer for `userinfo: true` discovery is surfaced on the oauth() result
     // from the verify helper. Built eagerly so a misconfigured `userinfo: true`
@@ -788,15 +803,18 @@ export class McpServer {
 
     // Wrap the user's verifier so the MCP SDK sees a clean AuthInfo while the
     // rich OAuthPrincipal rides through in `extra.principal` for
-    // this.authInfoToPrincipal. Token verification errors are logged and
-    // emitted as `auth:rejected` so operators can observe brute-force
-    // attempts, expired tokens, and mismatched audiences alongside the
-    // validator path's rejections.
+    // this.authInfoToPrincipal. Token verification failures emit `auth:rejected`
+    // so operators can observe brute-force attempts, mismatched audiences, and
+    // expired tokens alongside the validator path's rejections. Expiry is
+    // routine (the client refreshes and retries) so it logs at `debug`; every
+    // other failure logs at `warn`. A token-validation failure is re-thrown as
+    // InvalidTokenError so the SDK answers 401 (the client refreshes), not 500.
     const wrappedVerifier = async (token: string): Promise<SdkAuthInfo> => {
       let principal: OAuthPrincipal;
       try {
         principal = await verifyAccessToken(token);
       } catch (err) {
+        const expired = isExpiredTokenError(err);
         const reason = err instanceof Error ? err.message : "invalid_token";
         const detail = {
           reason,
@@ -804,12 +822,28 @@ export class McpServer {
           source: "mcp",
           path: "oauth",
         };
-        this.context.logger.warn(
-          { err, ...detail },
-          "Auth rejected: token validation failed",
-        );
+        if (expired) {
+          this.context.logger.debug(
+            { err, ...detail },
+            "Auth rejected: token expired",
+          );
+        } else {
+          this.context.logger.warn(
+            { err, ...detail },
+            "Auth rejected: token validation failed",
+          );
+        }
         this.context.emit("auth:rejected", detail);
-        throw err;
+        // A server-side failure (RC5021 userinfo/discovery fetch, RC5022 sub
+        // mismatch, or a JWKS endpoint that is unreachable, slow, or returns a
+        // bad response) propagates unchanged so the SDK maps it to 500: the
+        // client must retry later, not discard a token that may be valid. Every
+        // other throw is the verifier rejecting the token, so surface it as
+        // InvalidTokenError for 401 invalid_token (which drives the refresh).
+        if (isRoutecraftError(err) || isInfrastructureError(err)) throw err;
+        throw new InvalidTokenError(
+          expired ? "Token has expired" : "Invalid token",
+        );
       }
       // Belt-and-suspenders: the type system already guarantees `expiresAt`,
       // but third-party code using `as any` or dynamic plugin wiring could
@@ -1144,7 +1178,11 @@ export class McpServer {
         scheme: "bearer",
         source: "mcp",
       };
-      this.context.logger.warn(
+      // A tokenless request is the spec-defined MCP OAuth discovery probe (the
+      // client fetches without credentials to read the 401 + WWW-Authenticate,
+      // then runs the flow and retries), so it is logged at `debug`. The
+      // `auth:rejected` event still fires so observers can count probes.
+      this.context.logger.debug(
         detail,
         "Auth rejected: missing or malformed Authorization header",
       );
@@ -1159,7 +1197,10 @@ export class McpServer {
         scheme: "bearer",
         source: "mcp",
       };
-      this.context.logger.warn(
+      // Same class as a tokenless probe: the client has not authenticated yet,
+      // so this is routine discovery noise rather than a failed authentication.
+      // Logged at `debug`; the `auth:rejected` event still fires.
+      this.context.logger.debug(
         detail,
         "Auth rejected: unsupported authorization scheme",
       );
@@ -1187,10 +1228,20 @@ export class McpServer {
         scheme: "bearer",
         source: "mcp",
       };
-      this.context.logger.warn(
-        { err, ...detail },
-        "Auth rejected: token validation failed",
-      );
+      // An expired token is routine (the client refreshes and retries), so it
+      // logs at `debug`; any other validation failure stays at `warn` as an
+      // operator signal. The `auth:rejected` event fires for both.
+      if (isExpiredTokenError(err)) {
+        this.context.logger.debug(
+          { err, ...detail },
+          "Auth rejected: token expired",
+        );
+      } else {
+        this.context.logger.warn(
+          { err, ...detail },
+          "Auth rejected: token validation failed",
+        );
+      }
       this.context.emit("auth:rejected", detail);
       return null;
     }

@@ -441,4 +441,83 @@ describe("jwt()", () => {
       expect(result.issuer).toEqual(issuers);
     });
   });
+
+  describe("temporal claims", () => {
+    const PAST = Math.floor(Date.now() / 1000) - 3600;
+    const FAR_FUTURE = Math.floor(Date.now() / 1000) + 7200;
+
+    /**
+     * @case An expired token is rejected with jose's ERR_JWT_EXPIRED code
+     * @preconditions jwt() validator; token whose exp is in the past
+     * @expectedResult Rejects with an error carrying code "ERR_JWT_EXPIRED" so log-level classification matches jwks()
+     */
+    test("rejects an expired token with the ERR_JWT_EXPIRED code", async () => {
+      const { validator } = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+      });
+      const token = signHs256(
+        { sub: "user-1", iss: ISSUER, aud: AUDIENCE, exp: PAST },
+        SECRET,
+      );
+      let caught: unknown;
+      try {
+        await validator(token);
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(Error);
+      expect((caught as { code?: string }).code).toBe("ERR_JWT_EXPIRED");
+    });
+
+    /**
+     * @case A not-yet-valid token is rejected without the expiry code
+     * @preconditions jwt() validator; token whose nbf is in the future and exp is valid
+     * @expectedResult Rejects, but the error does NOT carry ERR_JWT_EXPIRED (nbf is not routine expiry)
+     */
+    test("rejects a not-yet-valid token without the expiry code", async () => {
+      const { validator } = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+      });
+      const token = signHs256(
+        {
+          sub: "user-1",
+          iss: ISSUER,
+          aud: AUDIENCE,
+          exp: FAR_FUTURE,
+          nbf: FAR_FUTURE,
+        },
+        SECRET,
+      );
+      let caught: unknown;
+      try {
+        await validator(token);
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(Error);
+      expect((caught as { code?: string }).code).not.toBe("ERR_JWT_EXPIRED");
+    });
+
+    /**
+     * @case A token missing the exp claim is rejected
+     * @preconditions jwt() validator; token with no exp claim
+     * @expectedResult Rejects (jwt() requires a bearer-token expiry)
+     */
+    test("rejects a token missing the exp claim", async () => {
+      const { validator } = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+      });
+      const token = signHs256(
+        { sub: "user-1", iss: ISSUER, aud: AUDIENCE },
+        SECRET,
+      );
+      await expect(validator(token)).rejects.toThrow(/exp/);
+    });
+  });
 });

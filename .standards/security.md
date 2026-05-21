@@ -28,6 +28,14 @@ Authoritative rules for authentication, authorization, principal propagation, an
 - **Principal fields are loggable; bearer tokens are not.** `principal.subject`, `principal.clientId`, `principal.email`, `principal.name`, `principal.scopes`, `principal.roles`, `principal.issuer`, `principal.audience` are safe to include in structured logs. Never log the raw bearer or anything derived from it that could be reversed.
 - **`principal.claims` is the verified JWT payload.** When `mcpPlugin({ userinfo })` enrichment runs, the framework writes the raw userinfo response to `principal.userinfoClaims` and leaves `principal.claims` untouched. This invariant is enforced by the protected-fields list in `userinfo.ts`; do not move userinfo data into `claims`.
 
+## 3a. Principal in the agent system prompt
+
+- **The agent destination is the only sanctioned path that puts principal data into an LLM prompt.** `agent({ principal })` appends a `## Caller` section to the system prompt (`appendPrincipalToSystem` / `formatCallerSection` in `packages/ai/src/agent/destination.ts`). It is opt-in: the default omits the section so an agent never leaks identity into a prompt by accident. Set `principal: true` for the built-in block, or pass a `(principal, exchange) => string` renderer (`AgentPrincipalRenderer`) for custom wording.
+- **The built-in block surfaces only a deliberate subset: `name`, `email`, `subject`, and `roles`.** `claims`, `userinfoClaims`, and the bearer token are NEVER injected (a prompt is logged, cached by providers, and echoed back in completions, so it must be treated as an exfiltration surface). `scopes` are loggable per § 3 but are deliberately excluded from the prompt as well, to avoid nudging the model to treat itself as the authorization gate; do not add them without product sign-off. A custom renderer may surface other fields but MUST observe the same exclusions: never include `claims`, `userinfoClaims`, or anything bearer-derived.
+- **Identity fields are integrity-verified, not assumed structurally safe.** The block belongs in the system prompt, not the user prompt: the exchange body (user prompt) is attacker-controlled input, and the principal is verified at the source boundary, so keeping identity in the system channel stops it from being mistaken for, or smuggled in via, the body. But verification guarantees only that the claim reached us unmodified from the IdP, not that the *value* is benign: `name` / `email` are often self-service profile fields the subject controls. `formatCallerSection` therefore collapses newlines in every interpolated field (`oneLine`) so a value cannot break out of its `- Label:` line or forge a `##` heading in the trusted channel. A custom `AgentPrincipalRenderer` owns its own escaping and inherits this responsibility.
+- **The block is informational, never an authorization gate.** It states identity facts only and must not instruct the model to enforce roles. Enforcement stays in `.authorize()` and tool guards (§ 7). The model may reason about identity to tailor a response, but a model decision is never a security boundary.
+- **The unauthenticated case is explicit.** When no principal is present the section says the request is not authenticated and instructs the model not to invent an identity, so a missing principal cannot be silently impersonated by a hallucination.
+
 ## 4. Bearer tokens are secrets
 
 - **Never log a bearer token.** Not in pino bindings, not in event payloads, not in error causes. If a token-shaped string is in scope at a log boundary, omit it or replace with a SHA-256 truncated fingerprint.
@@ -104,10 +112,11 @@ When you add a new default that affects authentication, authorization, network e
   3. A docs update describing the user-visible behavior change.
 - Reviewers MUST push back on the easier path of "just delete the check." A working test suite without the original threat-model assertion is not evidence the change is safe.
 
-## 10. Event payloads
+## 10. Event payloads and rejection log levels
 
 - `auth:success` and `auth:rejected` events carry sanitised detail objects: `{ subject, scheme, source }` (success) or `{ reason, source }` (rejected). Do not extend these payloads to include the raw token or any high-cardinality identifier (full JWT, opaque session id) that an aggregator would index and retain.
 - Principal-shaped payloads on other events (e.g. `route:*:exchange:processed`) MAY include the full `Principal` object via `ex.principal` because the principal itself is sanitised; the bearer is not in it.
+- **Rejection log levels.** `auth:rejected` fires for every rejection so observers can count them, but the log level must distinguish routine handshake noise from failures that warrant attention. Log at `debug`: a request with no `Authorization` header (the spec-defined MCP OAuth discovery probe, which fires on essentially every client connect), an unparseable or non-bearer scheme, and an expired token (clients routinely present a stale cached token, then refresh). Reserve `warn` for a presented bearer token that fails validation for any other reason (bad signature, wrong audience or issuer, malformed). This keeps `warn` a usable signal rather than one line per connect. Expiry is detected via `isExpiredTokenError` (`packages/ai/src/mcp/auth-errors.ts`), which keys off `jose`'s stable `ERR_JWT_EXPIRED` code.
 
 ---
 
@@ -116,7 +125,7 @@ When you add a new default that affects authentication, authorization, network e
 - **Source boundary** (`mcp()`, future `http()`): runs `verify` / `validator`; emits `auth:success` or `auth:rejected`; attaches `Principal` to the exchange.
 - **Route boundary** (`.authorize()` / `.validate(authorize(...))`): checks principal against role / scope / predicate / expiry; emits `exchange:failed` on rejection.
 - **Userinfo boundary** (`buildEnrichedVerifier`): runs after `verify` succeeds; merges enrichment with protected fields preserved; raises `RC5021` / `RC5022` on failure.
-- **HTTP transport boundary** (`startHttpWithValidator` / `startHttpWithOAuth`): serves RFC 9728 metadata; emits 401 with `resource_metadata`.
+- **HTTP transport boundary** (`startHttpWithValidator` / `startHttpWithOAuth`): serves RFC 9728 metadata; emits 401 with `resource_metadata`. A failed token validation MUST result in `401 invalid_token` (so the client refreshes), not a generic 500. On the OAuth path the SDK's bearer middleware only maps an `InvalidTokenError` to 401, so `wrappedVerifier` re-throws token-validation failures as `InvalidTokenError`. Server-side failures map to 500 instead, so a backend blip is never reported to the client as an invalid token (which would make every client discard a valid cached token and stampede the IdP with refreshes): framework errors (`RC5021` / `RC5022`) and JWKS infrastructure failures (endpoint unreachable, timed out, or returning a bad response, detected via `isInfrastructureError` in `packages/ai/src/mcp/auth-errors.ts`) propagate unchanged. The default for an unclassified throw is 401, which keeps custom and built-in `jwt()` validators that reject with a plain `Error` mapping to 401.
 
 Each boundary is the *only* place that handles its class of error (does not re-throw). Crossing a boundary without logging duplicates entries; not logging at the boundary loses the failure entirely.
 

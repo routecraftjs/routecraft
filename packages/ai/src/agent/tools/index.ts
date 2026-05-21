@@ -1,6 +1,7 @@
 export {
-  defaultFns,
+  currentTime,
   directTool,
+  randomUuid,
   type ToolBuilderOverrides,
 } from "./builders.ts";
 export {
