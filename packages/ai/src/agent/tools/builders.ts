@@ -298,7 +298,7 @@ async function dispatchDirect<TIn>(
  * });
  * ```
  */
-export function currentTime(): FnOptions<Record<string, never>, string> {
+export function currentTime(): FnOptions {
   return {
     description: "Returns the current UTC timestamp in ISO 8601 format.",
     input: emptyObjectSchema,
@@ -319,7 +319,7 @@ export function currentTime(): FnOptions<Record<string, never>, string> {
  * agentPlugin({ functions: { RandomUuid: randomUuid() } });
  * ```
  */
-export function randomUuid(): FnOptions<Record<string, never>, string> {
+export function randomUuid(): FnOptions {
   return {
     description: "Generates a fresh random UUID v4.",
     input: emptyObjectSchema,
