@@ -1,5 +1,6 @@
 import { rcError } from "@routecraft/routecraft";
 import {
+  optionalBoolean,
   optionalPositiveInt,
   optionalStringArray,
   readMarkdownDir,
@@ -26,6 +27,7 @@ const SUPPORTED_AGENT_KEYS = new Set([
   "maxTurns",
   "tools",
   "skills",
+  "principal",
 ]);
 
 /**
@@ -35,12 +37,18 @@ const SUPPORTED_AGENT_KEYS = new Set([
  * (markdown frontmatter cannot express closures) so set those on the
  * agent at the call site or via `agentPlugin({ defaultOptions })`.
  *
+ * `principal` accepts the full {@link AgentRegisteredOptions.principal}
+ * shape here (`boolean | AgentPrincipalRenderer`). Frontmatter can only
+ * carry the boolean form; reach for the override (or
+ * `agentPlugin({ defaultOptions })`) when an agent needs the
+ * function-renderer form that YAML cannot express.
+ *
  * @experimental
  */
 export interface AgentMarkdownOverride extends Partial<
   Pick<
     AgentRegisteredOptions,
-    "description" | "model" | "maxTurns" | "tools" | "skills"
+    "description" | "model" | "maxTurns" | "tools" | "skills" | "principal"
   >
 > {
   /**
@@ -111,6 +119,14 @@ function toAgent(
     "skills",
     source,
   );
+  // Frontmatter carries only the boolean form; the function-renderer
+  // form is a closure YAML cannot express and is supplied via the
+  // override map or agentPlugin({ defaultOptions }).
+  const principal = optionalBoolean(
+    frontmatter["principal"],
+    "principal",
+    source,
+  );
   const agent: AgentRegisteredOptions = {
     description,
     system: body,
@@ -119,6 +135,7 @@ function toAgent(
   if (maxTurns !== undefined) agent.maxTurns = maxTurns;
   if (toolNames !== undefined) agent.tools = tools(toolNames);
   if (skillNames !== undefined) agent.skills = skillNames;
+  if (principal !== undefined) agent.principal = principal;
   return { name, agent };
 }
 
@@ -142,6 +159,7 @@ function applyOverride(
   if (override.maxTurns !== undefined) out.maxTurns = override.maxTurns;
   if (override.tools !== undefined) out.tools = override.tools;
   if (override.skills !== undefined) out.skills = override.skills;
+  if (override.principal !== undefined) out.principal = override.principal;
   if (override.system !== undefined) out.system = override.system;
   return out;
 }
@@ -167,6 +185,8 @@ function applyOverride(
  * | `maxTurns`    | no       | `AgentRegisteredOptions.maxTurns`      |
  * | `tools`       | no       | `tools(stringArray)`                   |
  * | `skills`      | no       | `AgentRegisteredOptions.skills`        |
+ * | `principal`   | no       | `AgentRegisteredOptions.principal`     |
+ * |               |          | (boolean only; renderer via override)  |
  *
  * Body of the file becomes `system`. Other Claude subagent fields
  * (`disallowedTools`, `permissionMode`, `mcpServers`, `hooks`,

@@ -263,6 +263,28 @@ export function optionalStringArray(
 }
 
 /**
+ * Validate that `value` is a boolean (or undefined) and return it;
+ * otherwise throw RC5003. Use for frontmatter flags that map to a
+ * boolean option; the function-form variant of an option (a closure)
+ * cannot be expressed in YAML and must be set in code instead.
+ *
+ * @internal
+ */
+export function optionalBoolean(
+  value: unknown,
+  field: string,
+  source: string,
+): boolean | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "boolean") {
+    throw rcError("RC5003", undefined, {
+      message: `Markdown file "${source}": frontmatter field "${field}" must be a boolean (true or false).`,
+    });
+  }
+  return value;
+}
+
+/**
  * Validate that `value` is a finite positive integer (or undefined)
  * and return it; otherwise throw RC5003.
  *

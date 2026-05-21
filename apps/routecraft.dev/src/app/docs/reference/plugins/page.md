@@ -470,7 +470,12 @@ craft()
 | `system` | `string \| (exchange) => string` | Yes | System prompt. Static string or a function that derives it from the exchange (mirrors `llm({ system })`) |
 | `user` | `string \| (exchange) => string` | No | User prompt override. Static string or a function that derives it from the exchange. Defaults to `exchange.body` (string as-is, JSON for objects) when omitted |
 | `tools` | `ToolSelection` | No | Tool whitelist built via `tools([...])`. Inherits `defaultOptions.tools` when omitted; an explicit value replaces the default entirely |
+| `maxTurns` | `number` | No | Cap on tool-calling turns. Inherits `defaultOptions.maxTurns` when omitted |
+| `skills` | `string[]` | No | Skill names whose content is appended to the system prompt. Resolved against `agentPlugin({ skills })` |
+| `principal` | `boolean \| (principal, exchange) => string` | No | Append a `## Caller` section describing `exchange.principal`. `true` for the built-in block, a function to render it yourself. Inherits `defaultOptions.principal` when omitted; a per-agent value (including `false`) overrides it. See [Telling the agent who the caller is](/docs/reference/adapters#telling-the-agent-who-the-caller-is) |
 | `output` | `StandardSchemaV1` | No | Schema for structured output. Validated and parsed onto `AgentResult.output` after dispatch (runtime ships in a follow-up release) |
+
+Agents loaded from markdown via [`agents("./dir")`](/docs/reference/adapters#agent) accept the same fields as frontmatter. `principal` is supported there as a boolean (`principal: true`); the function-renderer form is a closure YAML cannot express, so set it via the per-agent override map (`agents("./dir", { zoe: { principal: (p) => ... } })`) or `agentPlugin({ defaultOptions })`.
 
 **Resolution semantics:**
 
