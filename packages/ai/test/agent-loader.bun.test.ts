@@ -61,6 +61,62 @@ describe("agents() markdown loader", () => {
   });
 
   /**
+   * @case principal: true frontmatter passes through as a boolean
+   * @preconditions Agent with principal: true
+   * @expectedResult AgentRegisteredOptions.principal is the boolean true
+   */
+  test("principal: true frontmatter passes through", async () => {
+    const dir = makeDir({
+      "x.md": "---\nname: x\ndescription: d\nprincipal: true\n---\nsystem",
+    });
+    const result = await agents(dir);
+    expect(result["x"]?.principal).toBe(true);
+  });
+
+  /**
+   * @case principal: false frontmatter passes through (opt-out of a default)
+   * @preconditions Agent with principal: false
+   * @expectedResult AgentRegisteredOptions.principal is the boolean false so it
+   *   overrides any agentPlugin({ defaultOptions: { principal } }) at dispatch
+   */
+  test("principal: false frontmatter passes through", async () => {
+    const dir = makeDir({
+      "x.md": "---\nname: x\ndescription: d\nprincipal: false\n---\nsystem",
+    });
+    const result = await agents(dir);
+    expect(result["x"]?.principal).toBe(false);
+  });
+
+  /**
+   * @case Non-boolean principal frontmatter is rejected
+   * @preconditions principal set to a string (a renderer cannot be expressed in YAML)
+   * @expectedResult Throws RC5003 telling the user principal must be a boolean
+   */
+  test("rejects non-boolean principal frontmatter", async () => {
+    const dir = makeDir({
+      "x.md":
+        "---\nname: x\ndescription: d\nprincipal: yes-please\n---\nsystem",
+    });
+    await expect(agents(dir)).rejects.toThrow(
+      /frontmatter field "principal" must be a boolean/,
+    );
+  });
+
+  /**
+   * @case Override supplies the principal renderer that YAML cannot express
+   * @preconditions Markdown omits principal; override sets a renderer function
+   * @expectedResult Loaded agent.principal is the override function
+   */
+  test("override can set the principal renderer", async () => {
+    const dir = makeDir({
+      "x.md": "---\nname: x\ndescription: d\n---\nsystem",
+    });
+    const renderer = (): string => "## Caller\n\ncustom";
+    const result = await agents(dir, { x: { principal: renderer } });
+    expect(result["x"]?.principal).toBe(renderer);
+  });
+
+  /**
    * @case tools string array becomes a tools([...]) selection
    * @preconditions Agent with tools: [fetchOrder, "tagged:read-only"]
    * @expectedResult agent.tools is a ToolSelection (brand check via isToolSelection)
