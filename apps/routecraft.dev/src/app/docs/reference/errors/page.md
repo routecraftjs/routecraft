@@ -34,6 +34,7 @@ The `retryable` property indicates whether the [`retry`](/docs/reference/operati
 | [RC5021](#rc5021) | Adapter | Principal enrichment failed | No |
 | [RC5022](#rc5022) | Adapter | Userinfo sub invariant violated | No |
 | [RC5023](#rc5023) | Adapter | Authorization failed: principal is not authentic | No |
+| [RC5024](#rc5024) | Adapter | authenticate() called without a subject | No |
 | [RC9901](#rc9901) | Runtime | Unknown error | Yes |
 
 ---
@@ -301,7 +302,7 @@ This check applies only to URL and OIDC-discovery `userinfo` modes; the function
 Authorization failed: principal is not authentic
 
 **Why it happens**  
-`authorize()` found a principal on the exchange, but it was not established by a trusted origin. Authenticity is a brand applied only by a source-side verifier (`jwt()` / `jwks()` / `oauth()`) or by an explicit mint (`.authenticate()` / the `authenticate()` helper). A plain object written directly onto `headers["routecraft.auth.principal"]` (for example via `.process()` or `.header()`), or a copy made by spreading an existing principal (`{ ...ex.principal, roles: ['admin'] }`, which does not carry the non-enumerable brand), is treated as self-asserted and rejected. This makes establishing identity an explicit, greppable act and prevents a route from silently forging or escalating identity.
+`authorize()` found a principal on the exchange, but it was not established by a trusted origin. Authenticity is conferred only by a source-side verifier (`jwt()` / `jwks()` / `oauth()`) or by an explicit mint (`.authenticate()` / the `authenticate()` helper), which register the principal in a private set. A plain object written directly onto `headers["routecraft.auth.principal"]` (for example via `.process()` or `.header()`), or a copy made from an existing principal (`{ ...ex.principal, roles: ['admin'] }`, which is a different object and so not in the set), is treated as self-asserted and rejected. This makes establishing identity an explicit, greppable act and prevents a route from silently forging or escalating identity.
 
 The check is distinct from `RC5012` (no principal at all) and `RC5015` (an authentic principal that lacks a required role / scope), so you can tell "forged / self-asserted" apart from "missing a role."
 
@@ -310,6 +311,18 @@ The check is distinct from `RC5012` (no principal at all) and `RC5015` (an authe
 - Let a source verifier attach it: `mcp({ auth: jwt(...) })` / `jwks(...)` / `oauth(...)`.
 - In a custom source adapter that verifies identity itself, brand the resolved principal with `markAuthentic` before attaching it.
 - Do not assign a plain object to the principal header and do not spread an existing principal to change its roles; both produce a non-authentic principal.
+
+## RC5024
+authenticate() called without a subject
+
+**Why it happens**  
+`authenticate()` (or the `.authenticate()` operation) was called with claims that have no `subject`, or an empty-string `subject`. Every minted identity must name the stable identity it represents, so the mint fails fast rather than producing an anonymous "authenticated" principal.
+
+This is a programming error at the mint call site, distinct from `RC5023`, which fires later at `authorize()` when a principal reached the check without being established by a trusted origin.
+
+**Suggestion**  
+- Pass a non-empty `subject`: `authenticate({ subject: sender.address, roles: [...] })`.
+- If the source cannot identify the caller, return `undefined` from the `.authenticate()` resolver to leave the exchange anonymous instead of minting an empty identity.
 
 ## RC9901
 Unknown error

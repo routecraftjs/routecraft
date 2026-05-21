@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, expectTypeOf, test } from "bun:test";
 import { spy, testContext, type TestContext } from "@routecraft/testing";
 import {
   authenticate,
@@ -53,16 +53,34 @@ describe("authenticate() helper and the authenticity brand", () => {
   /**
    * @case authenticate() rejects a missing or empty subject
    * @preconditions Call authenticate() with an empty-string subject
-   * @expectedResult Throws an RC5023-coded error
+   * @expectedResult Throws an RC5024-coded error (distinct from the RC5023
+   *                 not-authentic case raised at authorize())
    */
-  test("throws RC5023 without a subject", () => {
+  test("throws RC5024 without a subject", () => {
     let err: unknown;
     try {
       authenticate({ subject: "" });
     } catch (e) {
       err = e;
     }
-    expect(String(err)).toContain("RC5023");
+    expect(String(err)).toContain("RC5024");
+  });
+
+  /**
+   * @case markAuthentic() does not mutate or freeze the caller's object
+   * @preconditions Pass a plain unfrozen principal to markAuthentic()
+   * @expectedResult A distinct frozen authentic object is returned; the input
+   *                 is left untouched and unfrozen
+   */
+  test("markAuthentic() returns a copy and leaves the input untouched", () => {
+    const input: Principal = { kind: "custom", scheme: "bearer", subject: "x" };
+    const out = markAuthentic(input);
+
+    expect(out).not.toBe(input);
+    expect(isAuthentic(input)).toBe(false);
+    expect(Object.isFrozen(input)).toBe(false);
+    expect(isAuthentic(out)).toBe(true);
+    expect(Object.isFrozen(out)).toBe(true);
   });
 
   /**
@@ -267,5 +285,84 @@ describe(".authenticate() operation and authorize() authenticity gate", () => {
 
     expect(s.received).toHaveLength(0);
     expect(String(failures[0])).toContain("RC5023");
+  });
+
+  /**
+   * @case A principal forged by copying brand symbols off a real one is rejected
+   * @preconditions A .process() reads every own symbol from a genuine authentic
+   *                principal and stamps them onto a forged, pre-frozen object
+   *                with role "admin", then authorize() requires "admin"
+   * @expectedResult exchange:failed fires RC5023. Authenticity is WeakSet
+   *                 membership, not a reflectable property, so the copy is not
+   *                 trusted. Guards against regressing to a property brand.
+   */
+  test("authorize() rejects a principal forged via symbol reflection", async () => {
+    const s = spy<string>();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("reflect-forge")
+          .from(simple("hello"))
+          .authenticate(() => ({ subject: "user-1", roles: ["user"] }))
+          .process((ex) => {
+            const real = ex.principal as object;
+            const forged: Record<string | symbol, unknown> = {
+              kind: "custom",
+              scheme: "x",
+              subject: "attacker",
+              roles: ["admin"],
+            };
+            for (const sym of Object.getOwnPropertySymbols(real)) {
+              Object.defineProperty(forged, sym, {
+                value: (real as Record<symbol, unknown>)[sym],
+              });
+            }
+            Object.freeze(forged);
+            return {
+              ...ex,
+              headers: {
+                ...ex.headers,
+                "routecraft.auth.principal": forged,
+              },
+            };
+          })
+          .validate(authorize({ roles: ["admin"] }))
+          .to(s),
+      )
+      .build();
+
+    const failures: unknown[] = [];
+    t.ctx.on(
+      "route:reflect-forge:exchange:failed" as EventName,
+      ((payload: FailedEventDetails) => {
+        failures.push(payload.details.error);
+      }) as Parameters<typeof t.ctx.on>[1],
+    );
+
+    await t.test();
+
+    expect(s.received).toHaveLength(0);
+    expect(String(failures[0])).toContain("RC5023");
+  });
+
+  /**
+   * @case .authenticate() preserves the exchange body type
+   * @preconditions A typed string-body route adds .authenticate() then inspects
+   *                the body type in a later step
+   * @expectedResult The body type is still `string`; the operation does not
+   *                 widen `Current` (checked at compile time via expectTypeOf)
+   */
+  test("preserves the exchange body type through .authenticate()", () => {
+    const builder = craft()
+      .id("authn-type")
+      .from(simple("hello"))
+      .authenticate(() => ({ subject: "user-1" }))
+      .process((ex) => {
+        expectTypeOf(ex.body).toEqualTypeOf<string>();
+        return ex;
+      });
+
+    expect(builder).toBeDefined();
   });
 });
