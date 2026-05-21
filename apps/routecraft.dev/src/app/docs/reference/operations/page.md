@@ -35,6 +35,7 @@ DSL operators with signatures and examples. {% .lead %}
 | [`map`](#map) | Transform | Sugar for `transform(mapper(...))`: map fields from source to target object |
 | [`process`](#process) | Transform | Process data with full exchange access |
 | [`header`](#header) | Transform | Set or override an exchange header |
+| [`authenticate`](#authenticate) | Transform | Mint and attach an authenticated principal from verified claims |
 | [`enrich`](#enrich) | Transform | Add additional data to current data |
 | [`filter`](#filter) | Flow Control | Filter data based on predicate |
 | [`validate`](#validate) | Flow Control | Validate data against schema |
@@ -263,27 +264,19 @@ craft()
 ```
 
 ```ts
-// Mid-pipeline check: route attaches a custom principal from an
-// inbound email and authorizes it after the .process() step.
-// Exchanges are immutable; return a new one with the principal set
-// on `headers["routecraft.auth.principal"]` (the `ex.principal`
-// getter reads from the same header).
+// Mid-pipeline check: route mints a principal from an inbound email
+// with .authenticate() and authorizes it. authorize() trusts only
+// principals minted this way (or attached by a source verifier); a
+// plain object written to the principal header is rejected (RC5023).
 import { authorize } from '@routecraft/routecraft'
 
 craft()
   .from(mail({ /* ... */ }))
-  .process((ex) => ({
-    ...ex,
-    headers: {
-      ...ex.headers,
-      'routecraft.auth.principal': {
-        kind: 'custom',
-        scheme: 'email',
-        subject: ex.body.from?.address ?? 'anonymous',
-        email: ex.body.from?.address,
-        claims: { tenant: deriveTenant(ex.body.from?.address) },
-      },
-    },
+  .authenticate((ex) => ({
+    scheme: 'email',
+    subject: ex.body.from?.address ?? 'anonymous',
+    email: ex.body.from?.address,
+    claims: { tenant: deriveTenant(ex.body.from?.address) },
   }))
   .validate(authorize({
     predicate: (p) => p.email?.endsWith('@yourcompany.com') === true,
@@ -544,6 +537,35 @@ Set or override a header on the exchange. The body remains unchanged.
 
 // Override an existing header later in the chain
 .header('x-env', 'staging')
+```
+
+### authenticate
+
+```ts
+authenticate(resolver: (exchange: Exchange<Current>) => PrincipalClaims | undefined | Promise<...>): RouteBuilder<Current>
+```
+
+Establish the authenticated principal for the exchange. The resolver returns identity claims you have verified yourself (an e-mail sender, a Slack signature, a webhook HMAC); they are minted into a branded, frozen `Principal` and attached to `headers["routecraft.auth.principal"]`. Return `undefined` to leave the caller anonymous. The body is unchanged.
+
+This is the explicit way to establish identity from a source the framework cannot verify on its own. `authorize()` trusts only principals minted this way (or attached by a source verifier such as `jwt()` / `jwks()` / `oauth()`); a plain object written via `.header('routecraft.auth.principal', ...)` or `.process()` is rejected with [`RC5023`](/docs/reference/errors#rc5023). Sugar over the `authenticate()` helper, which you can call directly in tests, custom source adapters, or a `.choice()` branch.
+
+Only `subject` is required; `kind` defaults to `"custom"` and `scheme` to `"custom"`.
+
+```ts
+// Mint identity from a verified inbound email, then authorize it
+craft()
+  .from(mail('INBOX'))
+  .filter(verifiedSenders)
+  .authenticate((ex) => ({
+    scheme: 'email',
+    subject: ex.body.sender.address,
+    roles: ex.body.sender.address.endsWith('@acme.com') ? ['internal'] : [],
+  }))
+  .authorize({ roles: ['internal'] })
+  .to(dest)
+
+// Return undefined to stay anonymous
+.authenticate((ex) => (ex.body.sender ? { subject: ex.body.sender.address } : undefined))
 ```
 
 ### map

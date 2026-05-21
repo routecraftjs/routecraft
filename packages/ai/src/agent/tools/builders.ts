@@ -3,6 +3,7 @@ import {
   DefaultExchange,
   HeadersKeys,
   getDirectChannel,
+  markAuthentic,
   rcError,
   sanitizeEndpoint,
   type CraftContext,
@@ -26,14 +27,17 @@ import { DEFERRED_FN_BRAND, type DeferredFn } from "./types.ts";
  * `FnHandlerContext`) into a fresh mutable `Principal` so it can be
  * attached to a downstream `DefaultExchange`.
  *
- * Arrays are spread-cloned. `claims` is deep-cloned via
- * `structuredClone` so that nested claim objects in the downstream
- * exchange's principal do not share references with the agent's
- * frozen snapshot: a `.process()` step downstream that mutates a
- * nested claim must not be able to reach back into the snapshot
- * (and conversely, the snapshot's frozen state would otherwise
- * propagate into a downstream pipeline that expects a writable
- * principal).
+ * Arrays are spread-cloned and `claims` is deep-cloned via
+ * `structuredClone` so the downstream principal shares no references
+ * with the agent's frozen snapshot.
+ *
+ * The clone is re-branded with `markAuthentic` before forwarding: the
+ * agent layer only ever forwards the identity it was handed (it cannot
+ * mint or escalate, the snapshot is deeply frozen), so the forwarded
+ * principal is exactly as authentic as the one that triggered the
+ * agent. Without re-branding, the spread would strip the authenticity
+ * brand and the downstream route's `authorize()` would reject the
+ * agent's own caller identity (RC5023).
  */
 function cloneFrozenPrincipal(rp: ReadonlyPrincipal): Principal {
   const out: Principal = { ...rp } as Principal;
@@ -42,7 +46,7 @@ function cloneFrozenPrincipal(rp: ReadonlyPrincipal): Principal {
   if (rp.roles) out.roles = [...rp.roles];
   if (rp.claims)
     out.claims = structuredClone(rp.claims) as Record<string, unknown>;
-  return out;
+  return markAuthentic(out);
 }
 
 /**

@@ -38,6 +38,10 @@ import {
   type CallableValidator,
   ValidateStep,
 } from "./operations/validate.ts";
+import {
+  type CallableAuthenticator,
+  AuthenticateStep,
+} from "./operations/authenticate.ts";
 import { HeaderStep } from "./operations/header.ts";
 import type { ErrorHandler } from "./route.ts";
 import { PUSH_STEP } from "./dsl-symbol.ts";
@@ -301,6 +305,40 @@ export abstract class StepBuilderBase<Current = unknown> {
       | ((exchange: Exchange<Current>) => HeaderValue | Promise<HeaderValue>),
   ): this {
     this.pushStep(new HeaderStep<Current>(key, valueOrFn));
+    return this;
+  }
+
+  /**
+   * Establish the authenticated principal for the exchange. The resolver
+   * returns identity claims you have verified yourself (an e-mail sender, a
+   * Slack signature, a webhook HMAC); they are minted into a branded
+   * principal and attached to the exchange. Return `undefined` to leave the
+   * caller anonymous. Body type is unchanged.
+   *
+   * This is the explicit, greppable way to mint identity. `authorize()`
+   * trusts only principals established this way (or by a source verifier);
+   * a plain object written via `.header("routecraft.auth.principal", ...)`
+   * is rejected. Sugar over the `authenticate()` helper.
+   *
+   * @param resolver - Returns the caller's claims, or `undefined` to skip
+   * @returns This builder (same subclass, same body type)
+   *
+   * @example
+   * ```ts
+   * craft()
+   *   .from(mail("INBOX"))
+   *   .filter(verifiedSenders)
+   *   .authenticate((ex) => ({
+   *     scheme: "email",
+   *     subject: ex.body.sender.address,
+   *     roles: ex.body.sender.address.endsWith("@acme.com") ? ["internal"] : [],
+   *   }))
+   *   .authorize({ roles: ["internal"] })
+   *   .to(dest)
+   * ```
+   */
+  authenticate(resolver: CallableAuthenticator<Current>): this {
+    this.pushStep(new AuthenticateStep<Current>(resolver));
     return this;
   }
 
