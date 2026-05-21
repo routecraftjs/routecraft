@@ -18,7 +18,7 @@ describe("fn registration via agentPlugin", () => {
 
   /**
    * @case agentPlugin populates ADAPTER_FN_REGISTRY from the functions record
-   * @preconditions agentPlugin({ functions: { currentTime: {...} } })
+   * @preconditions agentPlugin({ functions: { CurrentTime: {...} } })
    * @expectedResult ADAPTER_FN_REGISTRY store contains the registered entry keyed by id
    */
   test("agentPlugin populates ADAPTER_FN_REGISTRY from the functions record", async () => {
@@ -27,7 +27,7 @@ describe("fn registration via agentPlugin", () => {
         plugins: [
           agentPlugin({
             functions: {
-              currentTime: {
+              CurrentTime: {
                 description: "Current UTC timestamp in ISO 8601",
                 input: z.object({}),
                 handler: async () => new Date().toISOString(),
@@ -40,8 +40,8 @@ describe("fn registration via agentPlugin", () => {
 
     const registry = t.ctx.getStore(ADAPTER_FN_REGISTRY);
     expect(registry).toBeInstanceOf(Map);
-    expect(registry?.has("currentTime")).toBe(true);
-    expect((registry?.get("currentTime") as FnOptions).description).toBe(
+    expect(registry?.has("CurrentTime")).toBe(true);
+    expect((registry?.get("CurrentTime") as FnOptions).description).toBe(
       "Current UTC timestamp in ISO 8601",
     );
   });
@@ -167,7 +167,7 @@ describe("fn registration via agentPlugin", () => {
         plugins: [
           agentPlugin({
             functions: {
-              currentTime: {
+              CurrentTime: {
                 description: "Current UTC ISO 8601 timestamp.",
                 input: z.object({}),
                 handler: async () => new Date().toISOString(),
@@ -179,7 +179,7 @@ describe("fn registration via agentPlugin", () => {
       })
       .build();
 
-    const entry = t.ctx.getStore(ADAPTER_FN_REGISTRY)?.get("currentTime") as
+    const entry = t.ctx.getStore(ADAPTER_FN_REGISTRY)?.get("CurrentTime") as
       | FnOptions
       | undefined;
     expect(entry?.tags).toEqual(["read-only", "idempotent"]);

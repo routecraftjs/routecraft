@@ -162,14 +162,15 @@ export type {
 
 // Tool builders: wrap registered routes as fn-shaped entries usable
 // from `agentPlugin({ functions: { ... } })`, plus the `tools([...])`
-// selector consumed by the agent runtime. MCP tools are resolved
-// directly via the `mcp_<client>:<tool>` grammar inside `tools(...)`;
-// sub-agent tools land in a follow-up story.
+// selector consumed by the agent runtime. MCP tools are referenced via
+// the `MCP(server:tool)` / `mcp__server__tool` grammar inside
+// `tools(...)`.
 export {
-  defaultFns,
+  currentTime,
   directTool,
   isDeferredFn,
   isToolSelection,
+  randomUuid,
   tools,
   type DeferredFn,
   type DeferredFnKind,
