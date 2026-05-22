@@ -18,6 +18,7 @@ Internal development standards for Routecraft contributors (human and AI). These
 | [CI/CD](./ci-cd.md) | PR gates, hook policy, peer-dependency rules, optional peer dependencies, release flow |
 | [Resilience Wrappers](./resilience-wrappers.md) | Dual-mode wrapper pattern (`.error()` and future `.retry()`/`.timeout()`/`.cache()`/...), authoring contract, stacking + cascade rules |
 | [Security](./security.md) | JWT / JWKS verification rules, principal propagation across the exchange, bearer-token handling, OAuth `userinfo` enrichment, RFC 9728 metadata, `authorize()` semantics |
+| [API Stability](./api-stability.md) | Stability tiers (`@experimental` / `@beta` / `@stable`), the 0.x "nothing is stable" policy, how to tag every public export |
 
 ## Related
 
