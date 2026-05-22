@@ -3,16 +3,12 @@ import type { Exchange } from "@routecraft/routecraft";
 
 /**
  * Message type derived from schema S when present; otherwise unknown.
- *
- * @beta
  */
 export type McpMessage<S extends StandardSchemaV1 | undefined> =
   S extends StandardSchemaV1 ? StandardSchemaV1.InferOutput<S> : unknown;
 
 /**
  * Extracts MCP tool arguments from an exchange. Default implementation uses exchange.body.
- *
- * @beta
  */
 export type McpArgsExtractor = (
   exchange: Exchange<unknown>,

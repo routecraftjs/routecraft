@@ -17,8 +17,6 @@ import { rcError } from "../error.ts";
 /**
  * Returned by a filter predicate to drop an exchange with a reason.
  * The reason is recorded in telemetry and shown in the TUI.
- *
- * @beta
  */
 export interface FilterDropResult {
   reason: string;
@@ -47,7 +45,6 @@ export type CallableFilter<T = unknown> = (
  * Filter adapter: keeps or drops the exchange based on a predicate. Used with `.filter()`.
  *
  * @template T - Body type
- * @beta
  */
 export interface Filter<T = unknown> extends Adapter {
   filter: CallableFilter<T>;

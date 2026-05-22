@@ -16,9 +16,6 @@ import type { AgentDefaultOptions, AgentRegisteredOptions } from "./types.ts";
 import { isDeferredFn, type FnEntry } from "./tools/types.ts";
 import { isToolSelection } from "./tools/selection.ts";
 
-/**
- * @beta
- */
 export interface AgentPluginOptions {
   /**
    * Agents available for by-name lookup via `agent("id")`. Keyed by the
@@ -55,8 +52,6 @@ export interface AgentPluginOptions {
    *
    * Duplicate skill names across multiple `agentPlugin` installs throw
    * at context init.
-   *
-   * @experimental
    */
   skills?: Record<string, Skill>;
 
@@ -101,8 +96,6 @@ function validateRegisteredAgent(
  * directly; there is no public dispatch API). Throws on duplicate id
  * (within agents, within fns, or across multiple plugin installs) at
  * context init.
- *
- * @experimental
  *
  * @example
  * ```typescript

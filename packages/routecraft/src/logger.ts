@@ -150,8 +150,6 @@ function resolveConfig(): {
 const { options, destination } = resolveConfig();
 /**
  * Framework-level pino logger instance. Configured via craft.log.{cjs,js} or environment variables.
- *
- * @beta
  */
 export const logger =
   destination !== undefined ? pino(options, destination) : pino(options);

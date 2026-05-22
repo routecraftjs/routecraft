@@ -13,8 +13,6 @@ import {
  *
  * Intended for use by `@routecraft/testing`'s `testContext().override(...)`
  * API. Production code should not write to this key.
- *
- * @experimental
  */
 export const RC_ADAPTER_OVERRIDES: unique symbol = Symbol.for(
   "routecraft.testing.adapter-overrides",
@@ -22,8 +20,6 @@ export const RC_ADAPTER_OVERRIDES: unique symbol = Symbol.for(
 
 /**
  * Recorded call to an overridden destination adapter (send / enrich).
- *
- * @experimental
  */
 export interface AdapterSendCall {
   /** Args that were passed to the adapter's factory at route definition time. */
@@ -40,8 +36,6 @@ export interface AdapterSendCall {
 
 /**
  * Recorded call to an overridden source adapter (subscribe).
- *
- * @experimental
  */
 export interface AdapterSourceCall {
   /** Args that were passed to the factory at route definition time. */
@@ -54,8 +48,6 @@ export interface AdapterSourceCall {
  * Handler shape for a source-role mock. May be a plain array of fixtures,
  * an async iterable, or a callable that returns either (receiving the
  * construction args so it can vary by call site).
- *
- * @experimental
  */
 export type SourceOverrideBehavior<M = unknown> =
   | readonly M[]
@@ -67,8 +59,6 @@ export type SourceOverrideBehavior<M = unknown> =
  * Handler shape for a destination-role mock. Receives the exchange (as
  * seen by the adapter) and a meta object containing the factory args used
  * at the call site. Returning a value replaces `exchange.body` upstream.
- *
- * @experimental
  */
 export type SendOverrideHandler = (
   exchange: Exchange,
@@ -81,8 +71,6 @@ export type SendOverrideHandler = (
  * set by `tagAdapter`) or the adapter's constructor class (matched by
  * `adapter.constructor === target`). Both routes coexist so any adapter
  * can be mocked without opt-in, while tagged factories keep nicer DX.
- *
- * @experimental
  */
 export interface AdapterOverride {
   /** Factory function or adapter class to match against the adapter instance. */

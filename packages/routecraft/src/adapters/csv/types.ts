@@ -1,9 +1,6 @@
 import type { Exchange } from "../../exchange.ts";
 import type { OnParseError } from "../shared/parse.ts";
 
-/**
- * @beta
- */
 export interface CsvOptions {
   /**
    * File path for source/destination mode.
@@ -73,13 +70,9 @@ export interface CsvOptions {
    * See `OnParseError` for full semantics.
    *
    * @default "fail"
-   * @experimental
    */
   onParseError?: OnParseError;
 }
 
-/**
- * @beta
- */
 export type CsvRow = Record<string, unknown> | string[];
 export type CsvData = CsvRow[];

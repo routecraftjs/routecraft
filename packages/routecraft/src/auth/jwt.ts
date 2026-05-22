@@ -33,8 +33,6 @@ type RsaAlgorithm = keyof typeof RSA_ALGORITHMS;
 /**
  * HMAC (symmetric) JWT options.
  * Uses a shared secret to sign and verify tokens.
- *
- * @experimental
  */
 export interface JwtHmacOptions {
   /** Shared secret used to verify HMAC signatures. */
@@ -68,8 +66,6 @@ export interface JwtHmacOptions {
 /**
  * RSA (asymmetric) JWT options.
  * Uses a public key to verify signatures.
- *
- * @experimental
  */
 export interface JwtRsaOptions {
   /** PEM-encoded public key or certificate used to verify RSA signatures. */
@@ -105,8 +101,6 @@ export interface JwtRsaOptions {
  * Supports HMAC (symmetric) and RSA (asymmetric) signing.
  *
  * Discriminated by key: pass `secret` for HMAC, `publicKey` for RSA.
- *
- * @experimental
  */
 export type JwtAuthOptions = JwtHmacOptions | JwtRsaOptions;
 
@@ -361,8 +355,6 @@ function createRsaValidator(
  *   }),
  * });
  * ```
- *
- * @experimental
  */
 export function jwt(options: JwtAuthOptions): OAuthValidatorAuthOptions {
   assertIssuerAudience("jwt", options.issuer, options.audience);

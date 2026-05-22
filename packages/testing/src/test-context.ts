@@ -35,7 +35,6 @@ function describeOverrideTarget(target: unknown): string {
   return "target";
 }
 
-/** @beta */
 export interface TestContextOptions {
   /** Timeout in ms for waiting for all routes to emit routeStarted. Default 200. */
   routesReadyTimeoutMs?: number;
@@ -43,8 +42,6 @@ export interface TestContextOptions {
 
 /**
  * Options for TestContext.test().
- *
- * @beta
  */
 export interface TestOptions {
   /**
@@ -59,8 +56,6 @@ export interface TestOptions {
  * Test-friendly wrapper around CraftContext. Runs the real context but manages
  * lifecycle (start, wait routes ready, drain, stop) and collects errors.
  * t.logger is a spy logger (vi.fn() methods) for asserting on log calls.
- *
- * @beta
  */
 export class TestContext {
   readonly ctx: CraftContext;
@@ -236,8 +231,6 @@ export class TestContext {
 /**
  * Builder that returns TestContext instead of CraftContext.
  * Same API as ContextBuilder (routes, on, with, store).
- *
- * @beta
  */
 export class TestContextBuilder {
   private builder = new ContextBuilder();
@@ -255,8 +248,6 @@ export class TestContextBuilder {
    * produced by the same factory are routed through the mock's handlers
    * instead of invoking the real adapter. Accepts either the handle returned
    * by `mockAdapter()` or a raw `AdapterOverride`.
-   *
-   * @experimental
    */
   override(mock: AdapterMock | AdapterOverride): this {
     const entry: AdapterOverride = isAdapterMock(mock) ? mock.override : mock;
@@ -345,7 +336,6 @@ export class TestContextBuilder {
 /**
  * Create a test context builder. Use .routes(...).build(), await the result, then await t.test().
  *
- * @beta
  * @example
  * const builder = testContext();
  * const t = await builder.routes(myRoutes).build();

@@ -3,15 +3,11 @@ import type { EventName } from "../../../types";
 /**
  * Event filter options for the event source adapter.
  * Supports single event names, arrays, and wildcard patterns.
- *
- * @beta
  */
 export type EventFilter = EventName | EventName[] | string | string[];
 
 /**
  * Options for the event source adapter.
- *
- * @beta
  */
 export interface EventSourceOptions {
   /**

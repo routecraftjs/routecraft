@@ -3,7 +3,6 @@ import type { Exchange } from "@routecraft/routecraft";
 
 /**
  * Store key for plugin-registered providers (provider id -> LlmModelConfig).
- * @experimental
  */
 export const ADAPTER_LLM_PROVIDERS = Symbol.for(
   "routecraft.adapter.llm.providers",
@@ -11,7 +10,6 @@ export const ADAPTER_LLM_PROVIDERS = Symbol.for(
 
 /**
  * Store key for context-level default LLM options.
- * @experimental
  */
 export const ADAPTER_LLM_OPTIONS = Symbol.for("routecraft.adapter.llm.options");
 
@@ -22,9 +20,6 @@ declare module "@routecraft/routecraft" {
   }
 }
 
-/**
- * @beta
- */
 export type LlmProviderType =
   | "openai"
   | "anthropic"
@@ -32,26 +27,17 @@ export type LlmProviderType =
   | "ollama"
   | "gemini";
 
-/**
- * @beta
- */
 export interface LlmModelConfigOpenAI {
   provider: "openai";
   apiKey: string;
   baseURL?: string;
 }
 
-/**
- * @beta
- */
 export interface LlmModelConfigAnthropic {
   provider: "anthropic";
   apiKey: string;
 }
 
-/**
- * @beta
- */
 export interface LlmModelConfigOpenRouter {
   provider: "openrouter";
   apiKey: string;
@@ -59,9 +45,6 @@ export interface LlmModelConfigOpenRouter {
   modelId?: string;
 }
 
-/**
- * @beta
- */
 export interface LlmModelConfigOllama {
   provider: "ollama";
   /**
@@ -76,17 +59,11 @@ export interface LlmModelConfigOllama {
   modelId?: string;
 }
 
-/**
- * @beta
- */
 export interface LlmModelConfigGemini {
   provider: "gemini";
   apiKey: string;
 }
 
-/**
- * @beta
- */
 export type LlmModelConfig =
   | LlmModelConfigOpenAI
   | LlmModelConfigAnthropic
@@ -96,43 +73,26 @@ export type LlmModelConfig =
 
 /**
  * Provider options for llmPlugin({ providers }). Key is the provider; no need to repeat provider in the value.
- *
- * @beta
  */
 export interface LlmOllamaProviderOptions {
   baseURL?: string;
   modelId?: string;
 }
-/**
- * @beta
- */
 export interface LlmOpenAIProviderOptions {
   apiKey: string;
   baseURL?: string;
 }
-/**
- * @beta
- */
 export interface LlmAnthropicProviderOptions {
   apiKey: string;
 }
-/**
- * @beta
- */
 export interface LlmOpenRouterProviderOptions {
   apiKey: string;
   modelId?: string;
 }
-/**
- * @beta
- */
 export interface LlmGeminiProviderOptions {
   apiKey: string;
 }
 
-/**
- * @beta
- */
 export interface LlmPluginProviders {
   ollama?: LlmOllamaProviderOptions;
   openai?: LlmOpenAIProviderOptions;
@@ -146,16 +106,11 @@ export type LlmProviderOptionsMap = Required<LlmPluginProviders>;
 
 /**
  * Resolve system or user prompt from exchange (string or function).
- *
- * @beta
  */
 export type LlmPromptSource =
   | string
   | ((exchange: Exchange<unknown>) => string);
 
-/**
- * @beta
- */
 export interface LlmOptions {
   system?: LlmPromptSource;
   user?: LlmPromptSource;
@@ -185,8 +140,6 @@ export type LlmOptionsMerged = Required<
 /**
  * Token usage. Matches Vercel AI SDK LanguageModelUsage shape (inputTokens/outputTokens)
  * so result.usage can be used interchangeably with generateText() return value.
- *
- * @beta
  */
 export interface LlmUsage {
   inputTokens?: number;
@@ -197,8 +150,6 @@ export interface LlmUsage {
 /**
  * LLM result shape aligned with Vercel AI SDK generateText() return value.
  * Same property names (text, output, usage) so code and docs transfer directly.
- *
- * @beta
  */
 export interface LlmResult {
   /** Generated text (raw string from the model). */
@@ -255,8 +206,6 @@ export interface LlmResult {
  * shape of `AgentToolCallSummary` so the agent layer can re-export
  * it without re-mapping. Keep `unknown` types loose here; the agent
  * layer is the place to re-narrow if needed.
- *
- * @experimental
  */
 export interface LlmToolCallSummary {
   toolCallId: string;
@@ -282,8 +231,6 @@ export type LlmResultWithOutput<S extends StandardSchemaV1 | undefined> =
  * Recommended LLM model ids for autocomplete (chat/completion use cases).
  * Format: "providerId:modelName". Custom models are allowed via string.
  * Updated for 2026.
- *
- * @beta
  */
 export type LlmModelId =
   // OpenAI (2026: GPT-5.2, Codex, o1)
@@ -328,9 +275,6 @@ export type LlmModelId =
   // Other (custom models)
   | string;
 
-/**
- * @beta
- */
 export interface LlmPluginOptions {
   /**
    * Supported providers keyed by id. Only set options you need (defaults for url etc. apply).

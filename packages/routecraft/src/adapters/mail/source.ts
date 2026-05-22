@@ -69,8 +69,6 @@ const MAIL_RECONNECT_MAX_MS = 60_000;
  *   .filter(matchesCriteria)
  *   .to(mail({ action: 'move', folder: 'Archive' }))
  * ```
- *
- * @experimental
  */
 export class MailSourceAdapter implements Source<MailMessage> {
   readonly adapterId = "routecraft.adapter.mail";

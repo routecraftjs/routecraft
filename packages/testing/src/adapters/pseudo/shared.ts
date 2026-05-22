@@ -1,11 +1,9 @@
 import type { Exchange } from "@routecraft/routecraft";
 
-/** @beta */
 export interface PseudoOptions {
   runtime?: "throw" | "noop";
 }
 
-/** @beta */
 export interface PseudoKeyedOptions extends PseudoOptions {
   args: "keyed";
 }

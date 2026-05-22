@@ -13,8 +13,6 @@ import type { TimerOptions } from "./types";
  * .from(timer({ intervalMs: 5000, repeatCount: 10 }))
  * .from(timer({ exactTime: '09:00:00' }))
  * ```
- *
- * @beta
  */
 export function timer(options?: TimerOptions): Source<undefined> {
   return new TimerSourceAdapter(options);

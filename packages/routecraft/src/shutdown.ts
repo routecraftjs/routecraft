@@ -17,8 +17,6 @@ import type { CraftContext } from "./context.ts";
  * shutdownHandler(context);
  * await context.start();
  * ```
- *
- * @experimental
  */
 export function shutdownHandler(context: CraftContext): () => void {
   let shuttingDown = false;

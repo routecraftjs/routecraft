@@ -11,8 +11,6 @@ type ValidateResult<T = unknown> =
  * Validates MCP plugin options at apply time.
  * For full schema validation (required props, shape), use validateWithSchema() with a
  * StandardSchemaV1 from Zod, Valibot, or ArkType before calling mcpPlugin().
- *
- * @beta
  */
 export function validateMcpPluginOptions(options: McpPluginOptions): void {
   if (options.transport === "http") {
@@ -151,8 +149,6 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
  * const schema = z.object({ transport: z.enum(["stdio", "http"]), port: z.number().optional() });
  * const validated = await validateWithSchema(options, schema);
  * mcpPlugin(validated);
- *
- * @beta
  */
 export async function validateWithSchema(
   options: McpPluginOptions,

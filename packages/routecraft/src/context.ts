@@ -29,8 +29,6 @@ import {
  * Set by `craft run` (or any runner) before `context.start()` so that
  * adapters can read the remaining CLI arguments without coupling to a
  * specific runner package.
- *
- * @experimental
  */
 export const RUNNER_ARGV: unique symbol = Symbol.for("routecraft.runner.argv");
 
@@ -47,8 +45,6 @@ export const RUNNER_ARGV: unique symbol = Symbol.for("routecraft.runner.argv");
  *   }
  * }
  * ```
- *
- * @beta
  */
 export interface StoreRegistry {
   [key: `${string}.${string}.${string}`]: unknown;
@@ -60,8 +56,6 @@ export interface StoreRegistry {
  * Options with merged configuration support.
  * This type is used for adapters that support both direct options and
  * options that can be merged with context configuration.
- *
- * @beta
  */
 export type MergedOptions<T> = {
   /** Direct options for configuration */
@@ -81,8 +75,6 @@ export type MergedOptions<T> = {
  * teardown(ctx) runs when the context stops, after routes have drained.
  * Plugins that only need init can omit teardown; use ctx.registerTeardown()
  * from apply() for one-off cleanup callbacks.
- *
- * @beta
  */
 export interface CraftPlugin {
   apply(ctx: CraftContext): void | Promise<void>;
@@ -105,8 +97,6 @@ export interface CraftPlugin {
  *   }
  * }
  * ```
- *
- * @beta
  */
 export interface CraftConfig {
   /**
@@ -172,8 +162,6 @@ export interface CraftConfig {
  * // Later, stop all routes
  * await context.stop();
  * ```
- *
- * @beta
  */
 export class CraftContext {
   /** Unique identifier for this context instance */

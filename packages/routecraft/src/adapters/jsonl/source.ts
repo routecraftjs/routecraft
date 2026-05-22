@@ -33,8 +33,6 @@ import {
  * | `'drop'`       | `exchange:dropped` (`reason: "parse-failed"`); next line continues |
  *
  * See #187.
- *
- * @beta
  */
 export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
   readonly adapterId = "routecraft.adapter.jsonl";

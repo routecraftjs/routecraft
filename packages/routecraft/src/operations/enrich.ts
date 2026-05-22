@@ -18,7 +18,6 @@ import {
  *
  * @template T - Current body type
  * @template R - Type returned by the enrichment destination
- * @beta
  */
 export type DestinationAggregator<T = unknown, R = unknown> = (
   original: Exchange<T>,
@@ -88,8 +87,6 @@ export const defaultEnrichAggregator = <T = unknown, R = unknown>(
  * .enrich(http({ url: (ex) => `https://api.example.com/users/${ex.body.userId}` }), only((r) => r.body.name, 'userName'))
  * // Body type becomes Current & { userName: string }
  * ```
- *
- * @beta
  */
 export function only<R, V, K extends string>(
   getValue: (enrichmentData: R) => V,
@@ -147,8 +144,6 @@ export function only<T = unknown, R = unknown, V = unknown>(
  * ```typescript
  * .enrich(http({ url: 'https://api.example.com/ping' }), none())
  * ```
- *
- * @beta
  */
 export const none = <T = unknown, R = unknown>(): DestinationAggregator<
   T,
@@ -169,8 +164,6 @@ export const none = <T = unknown, R = unknown>(): DestinationAggregator<
  * .enrich(mail({ folder: 'INBOX', unseen: true }), replace())
  * // body becomes MailMessage[] (the raw enrichment result)
  * ```
- *
- * @experimental
  */
 export const replace = <R>(): DestinationAggregator<unknown, R> => {
   return (

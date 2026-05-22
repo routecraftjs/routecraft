@@ -14,7 +14,7 @@ The checklists below apply to **packages that ship code**: anything under `packa
 - [ ] JSDoc on any public API you touched is accurate and up to date (`@param`, `@returns`, `@example`)
 - [ ] No `@ts-ignore` or `@ts-expect-error` without an explanation comment
 - [ ] No `any` types in production code (test files are exempt)
-- [ ] Every new public API symbol has a TSDoc release tag: `@experimental`, `@beta`, or stable (no tag). Only promote maturity level after the API has proven itself across releases
+- [ ] No per-symbol stability tiers in 0.x (the whole public API is unstable). Mark implementation details `@internal` and scheduled removals `@deprecated`; `@experimental` / `@beta` / `@stable` are introduced at v1
 - [ ] Symbols marked `@internal` are **never** re-exported from a package's public entry point (`index.ts`). Internal helpers must stay internal
 - [ ] Magic strings (header keys, store keys, event prefixes) used by consumers are exported as named constants or enums from the package's public entry point so users get autocomplete and type safety
 - [ ] Any meaningful behavior (lifecycle transition, operation execution, success, failure) emits a typed event via `CraftContext`. See the **Events and Tracing** checklist below

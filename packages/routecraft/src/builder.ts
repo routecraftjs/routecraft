@@ -77,8 +77,6 @@ import { authorize, type AuthorizeOptions } from "./auth/authorize.ts";
  * - Dynamically register additional routes
  * - Subscribe to lifecycle events
  * - Perform other initialization
- *
- * @beta
  */
 export class ContextBuilder {
   protected config?: CraftConfig;
@@ -315,8 +313,6 @@ export class ContextBuilder {
 
 /**
  * Options for configuring a route.
- *
- * @beta
  */
 export type RouteOptions = Partial<Pick<RouteDefinition, "consumer">> & {
   /**
@@ -344,8 +340,6 @@ export type RouteOptions = Partial<Pick<RouteDefinition, "consumer">> & {
  *   .transform(msg => msg.toUpperCase())
  *   .to(log())
  * ```
- *
- * @beta
  */
 export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
   protected currentRoute?: RouteDefinition;
@@ -559,7 +553,6 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    *   .to(database())
    * ```
    *
-   * @experimental Step-scope behaviour ships with the dual-mode
    * wrapper pattern. See `.standards/resilience-wrappers.md`.
    */
   override error(handler: ErrorHandler): this {
@@ -605,7 +598,6 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    * role / scope / predicate check). A route-level `.error()` handler
    * catches both like any other validation failure.
    *
-   * @experimental
    * @param options - Required roles, scopes, or a custom predicate. When
    *   omitted, only existence of an authenticated principal is checked.
    *
@@ -880,7 +872,6 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    *   and `otherwise` branches
    * @returns A RouteBuilder typed at `Out`
    *
-   * @experimental
    * @example
    * ```ts
    * .choice(c => c
@@ -964,8 +955,6 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
  *   .transform(data => data.toUpperCase())
  *   .to(log())
  * ```
- *
- * @beta
  */
 export function craft(): RouteBuilder {
   return new RouteBuilder();

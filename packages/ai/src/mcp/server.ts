@@ -114,8 +114,6 @@ interface ProtectedResourceMetadata {
  *
  * Note: Uses dynamic imports to avoid TypeScript compatibility issues with the MCP SDK.
  * Supports both stdio and streamable-http transports.
- *
- * @experimental
  */
 export class McpServer {
   private context: CraftContext;

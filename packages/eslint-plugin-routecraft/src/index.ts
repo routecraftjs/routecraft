@@ -3,14 +3,12 @@ import requireNamedRouteRule from "./rules/require-named-route.ts";
 import batchBeforeFromRule from "./rules/batch-before-from.ts";
 import singleToPerRouteRule from "./rules/single-to-per-route.ts";
 
-/** @beta */
 export const rules: Record<string, Rule.RuleModule> = {
   "require-named-route": requireNamedRouteRule,
   "batch-before-from": batchBeforeFromRule,
   "single-to-per-route": singleToPerRouteRule,
 };
 
-/** @beta */
 export const configs = {
   all: {
     rules: {
@@ -28,7 +26,6 @@ export const configs = {
   },
 };
 
-/** @experimental */
 export default {
   rules,
   configs,

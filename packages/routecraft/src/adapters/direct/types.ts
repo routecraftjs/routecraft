@@ -10,9 +10,6 @@ import type { RouteSchemas, Tag } from "../../route";
  */
 export type DirectConfig = Pick<DirectBaseOptions, "channelType">;
 
-/**
- * @beta
- */
 export type DirectChannelType<T extends DirectChannel> = new (
   endpoint: string,
 ) => T;
@@ -28,8 +25,6 @@ export type DirectEndpoint<T = unknown> =
  * - Single consumer per endpoint (last subscriber wins)
  * - Synchronous blocking behavior (sender waits for response)
  * - Point-to-point messaging (not pub/sub)
- *
- * @beta
  */
 export interface DirectChannel<T = unknown> {
   send(endpoint: string, message: T): Promise<T>;
@@ -48,8 +43,6 @@ export interface DirectChannel<T = unknown> {
  * direct adapter mirrors the shared tool-shape fields so in-process
  * agents can inspect the available capabilities. MCP adapter keeps its
  * own registry for protocol-specific extras.
- *
- * @beta
  */
 export interface DirectRouteMetadata {
   /** Route name (matches the sanitized endpoint). */
@@ -68,8 +61,6 @@ export interface DirectRouteMetadata {
 
 /**
  * Base options shared between source and destination.
- *
- * @beta
  */
 export interface DirectBaseOptions {
   /** Custom channel implementation */
@@ -83,22 +74,16 @@ export interface DirectBaseOptions {
  * discovery metadata (title, description, input, output) lives on the
  * route via `.title()` / `.description()` / `.input()` / `.output()` and is
  * enforced by the framework regardless of adapter.
- *
- * @beta
  */
 export type DirectServerOptions = DirectBaseOptions;
 
 /**
  * Options when using direct adapter as a Client (`.to()`, `.tap()`).
  * Room for future options (e.g. timeout, retryPolicy).
- *
- * @beta
  */
 export type DirectClientOptions = DirectBaseOptions;
 
 /**
  * Options when using direct as a server or client (union).
- *
- * @beta
  */
 export type DirectOptions = DirectServerOptions | DirectClientOptions;

@@ -177,7 +177,6 @@ function isValidCraftChain(chain: unknown[], expectedEndCall: string): boolean {
   );
 }
 
-/** @beta */
 const rule: Rule.RuleModule = {
   meta: {
     type: "problem",

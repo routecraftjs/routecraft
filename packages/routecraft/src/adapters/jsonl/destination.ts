@@ -6,8 +6,6 @@ import { file } from "../file/index.ts";
  * JsonlDestinationAdapter writes exchanges as JSON Lines.
  * Each body is stringified to a single line. Array bodies write one line per element.
  * Default mode is append.
- *
- * @beta
  */
 export class JsonlDestinationAdapter implements Destination<unknown, void> {
   readonly adapterId = "routecraft.adapter.jsonl";

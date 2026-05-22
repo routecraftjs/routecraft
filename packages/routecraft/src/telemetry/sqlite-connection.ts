@@ -49,8 +49,6 @@ const PRUNE_INTERVAL_MS = 60_000;
  * Node, {@link open} returns `null` and the calling plugin disables the
  * SQLite path with a warn log. Node embedders should configure an OTLP
  * exporter via `telemetry({ tracerProvider })` instead.
- *
- * @beta
  */
 export class SqliteConnection {
   readonly db: BunSqliteDatabase;

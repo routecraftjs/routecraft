@@ -54,8 +54,6 @@ import type { DirectEndpoint, DirectServerOptions } from "./types";
  * .transform((b) => ({ name: b.agent, query: b.text }))
  * .enrich(direct<{ name: string; query: string }, AgentResult>("agent"))
  * ```
- *
- * @experimental
  */
 export function direct(options: DirectServerOptions): Source<unknown>;
 export function direct(): Source<unknown>;
@@ -72,7 +70,6 @@ export function direct<T = unknown>(
  * endpoint (constrained to registered keys when `DirectEndpointRegistry`
  * is populated) or a function endpoint resolved from the exchange.
  *
- * @experimental The framework does not validate that the target route
  *   actually returns a value matching `TOut`. The caller asserts the
  *   output shape. A future release may require a matching
  *   `.output({ body: schema })` on the callee and validate the response

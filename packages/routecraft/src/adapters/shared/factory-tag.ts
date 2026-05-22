@@ -35,8 +35,6 @@ export const RC_ADAPTER_ARGS: unique symbol = Symbol.for(
  * @param factory - Factory function that produced the instance (self-reference)
  * @param args - Args that were passed to the factory
  * @returns The same adapter instance (for chaining)
- *
- * @experimental
  */
 export function tagAdapter<A extends object>(
   adapter: A,
@@ -74,8 +72,6 @@ export function tagAdapter<A extends object>(
  *   return tagAdapter(new McpAdapter(...), mcp, factoryArgs(endpoint, options));
  * }
  * ```
- *
- * @experimental
  */
 export function factoryArgs(...args: unknown[]): unknown[] {
   let end = args.length;

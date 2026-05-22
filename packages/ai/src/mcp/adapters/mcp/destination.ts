@@ -80,8 +80,6 @@ function resolveConnection(
 /**
  * Default args extractor: use exchange body as tool arguments.
  * If body is a non-null object, use it as the args; otherwise use { input: body }.
- *
- * @beta
  */
 export const defaultArgs: McpArgsExtractor = (exchange) =>
   typeof exchange.body === "object" && exchange.body !== null

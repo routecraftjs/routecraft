@@ -50,8 +50,6 @@ function assertValidMcpToolName(endpoint: string): void {
  * Maintains its own registry ({@link MCP_LOCAL_TOOL_REGISTRY}) so MCP and
  * direct routes stay fully isolated: a shared endpoint string does not
  * collide, and direct routes never leak into MCP `tools/list`.
- *
- * @experimental
  */
 export class McpSourceAdapter implements Source<McpMessage<undefined>> {
   readonly adapterId: string = "routecraft.adapter.mcp";

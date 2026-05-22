@@ -1,6 +1,3 @@
-/**
- * @beta
- */
 export interface TimerOptions {
   /**
    * Time between executions in milliseconds

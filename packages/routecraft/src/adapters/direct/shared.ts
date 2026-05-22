@@ -66,8 +66,6 @@ function resolveChannelType(
  * @param endpoint - The sanitized endpoint name
  * @param options - Per-adapter options that may contain a custom channel type
  * @returns The DirectChannel instance for this endpoint
- *
- * @beta
  */
 export function getDirectChannel<T>(
   context: CraftContext,
@@ -147,8 +145,6 @@ export function registerRoute(
  *
  * @param endpoint - Raw endpoint string
  * @returns URL-encoded endpoint string safe for use as Map key
- *
- * @beta
  */
 export function sanitizeEndpoint(endpoint: string): string {
   return encodeURIComponent(endpoint);

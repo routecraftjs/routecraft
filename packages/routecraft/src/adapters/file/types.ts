@@ -1,8 +1,5 @@
 import type { Exchange } from "../../exchange.ts";
 
-/**
- * @beta
- */
 export interface FileOptions {
   /**
    * File path string or function that returns the path.

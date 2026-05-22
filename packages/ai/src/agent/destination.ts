@@ -37,8 +37,6 @@ const AGENT_REGISTRY_STORE_DESCRIPTION =
  * (the SSE / WebSocket / TUI consumer for `onDelta` is not known at
  * registration time). Anything else (model, system, tools, output)
  * stays authoritative on the registered options.
- *
- * @experimental
  */
 export interface AgentByNameOverrides {
   /**
@@ -51,8 +49,6 @@ export interface AgentByNameOverrides {
 
 /**
  * Discriminated state: inline options or a registry name.
- *
- * @beta
  */
 export type AgentBinding =
   | { kind: "inline"; options: AgentOptions }
@@ -73,8 +69,6 @@ export type AgentBinding =
  * constructed by name, resolves the registered agent from the context
  * store (`ADAPTER_AGENT_REGISTRY`) at dispatch time, throwing a clear
  * error if the name is unknown.
- *
- * @experimental
  */
 export class AgentDestinationAdapter implements Destination<
   unknown,

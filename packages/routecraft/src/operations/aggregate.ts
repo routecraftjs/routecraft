@@ -100,7 +100,6 @@ export const defaultAggregate = <T>(
  *
  * @template T - Body type of incoming exchanges
  * @template R - Result body type
- * @beta
  */
 export interface Aggregator<T = unknown, R = unknown> extends Adapter {
   aggregate: CallableAggregator<T, R>;

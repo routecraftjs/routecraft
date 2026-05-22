@@ -12,8 +12,6 @@ import { type OnParseError } from "../adapters/shared/parse.ts";
  * their own registry entries without re-declaring it in adapter options.
  * Optional at the type level so adapters that ignore it remain source-
  * compatible.
- *
- * @beta
  */
 export interface SourceMeta {
   /** ID of the route this source is subscribed to. */
@@ -66,7 +64,6 @@ export type CallableSource<T = unknown> = (
      * runtime cannot statically know the parsed shape; adapters narrow at
      * the call site since they know their own raw and parsed types.
      *
-     * @experimental Marked experimental until more parsing adapters adopt
      * the contract; see #187.
      */
     parse?: (raw: unknown) => unknown | Promise<unknown>,
@@ -81,8 +78,6 @@ export type CallableSource<T = unknown> = (
      *   `.error()`.
      *
      * Adapters set this from their `onParseError` option.
-     *
-     * @experimental
      */
     parseFailureMode?: OnParseError,
   ) => Promise<Exchange>,
@@ -95,7 +90,6 @@ export type CallableSource<T = unknown> = (
  * Source adapter: produces messages for a route. Used with `.from(source)`.
  *
  * @template T - Body type of messages produced
- * @beta
  */
 export interface Source<T = unknown> extends Adapter {
   subscribe: CallableSource<T>;

@@ -24,7 +24,6 @@ type ExampleType = string;
 
 /**
  * Project initialization options
- * @experimental
  */
 export interface InitOptions {
   projectName?: string;
@@ -38,7 +37,6 @@ export interface InitOptions {
 
 /**
  * Get the current version of @routecraft/routecraft from package.json
- * @experimental
  */
 export function getRoutecraftVersion(): string {
   try {
@@ -74,7 +72,6 @@ function getPackageManagerVersion(packageManager: PackageManager): string {
 
 /**
  * Process template content with replacements
- * @experimental
  */
 export function processTemplate(
   content: string,
@@ -89,7 +86,6 @@ export function processTemplate(
 
 /**
  * Check if an example string is a URL
- * @experimental
  */
 export function isUrl(example: string): boolean {
   return example.startsWith("http://") || example.startsWith("https://");
@@ -202,7 +198,6 @@ async function downloadGitHubExample(url: string): Promise<string> {
 /**
  * Main entry point for create-routecraft
  * This is called by npm create routecraft <project-name>
- * @experimental
  */
 export async function main() {
   const args = process.argv.slice(2);
@@ -296,7 +291,6 @@ For more information, visit: https://routecraft.dev
 
 /**
  * Get user input through prompts or use provided options
- * @experimental
  */
 export async function getUserInput(
   projectName?: string,
@@ -406,7 +400,6 @@ async function createProjectDirectory(
 
 /**
  * Generate project structure from template
- * @experimental
  */
 export async function generateProjectStructure(
   projectDir: string,

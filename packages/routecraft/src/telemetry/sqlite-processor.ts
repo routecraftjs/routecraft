@@ -3,8 +3,6 @@ import type { TelemetryLogger } from "./types.ts";
 
 /**
  * Semantic attribute keys used by the telemetry plugin to tag spans.
- *
- * @beta
  */
 export const ATTR = {
   SPAN_KIND: "routecraft.span.kind",
@@ -22,8 +20,6 @@ export const ATTR = {
 
 /**
  * Span kind values used to identify what a span represents.
- *
- * @beta
  */
 export const SPAN_KIND = {
   ROUTE: "route",
@@ -63,8 +59,6 @@ interface OTelSpan {
  * The plugin calls `onStart`/`onEnd` directly from event handlers;
  * it also works when registered with a `BasicTracerProvider` for
  * external export scenarios.
- *
- * @beta
  */
 export class SqliteSpanProcessor {
   private readonly logger: TelemetryLogger | undefined;

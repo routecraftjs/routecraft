@@ -7,8 +7,6 @@ import type { FnEntry } from "../agent/tools/types.ts";
  * Entries are either eagerly authored `FnOptions` or deferred
  * descriptors emitted by `directTool`. The agent runtime resolves
  * deferred entries on first dispatch when all registries are live.
- *
- * @experimental
  */
 export const ADAPTER_FN_REGISTRY = Symbol.for("routecraft.adapter.fn.registry");
 

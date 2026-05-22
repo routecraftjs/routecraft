@@ -28,8 +28,6 @@ import {
  *   .from(direct())
  *   .to(mail({ action: 'append', folder: 'Drafts', flags: ['\\Draft'] }))
  * ```
- *
- * @experimental
  */
 export class MailOperationDestinationAdapter implements Destination<
   unknown,

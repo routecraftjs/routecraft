@@ -4,9 +4,6 @@ import { type ProcessingQueue, type Message, type Consumer } from "../types.ts";
 import { type Exchange, type ExchangeHeaders } from "../exchange.ts";
 import { type OnParseError } from "../adapters/shared/parse.ts";
 
-/**
- * @beta
- */
 export class SimpleConsumer implements Consumer<never> {
   constructor(
     public readonly context: CraftContext,

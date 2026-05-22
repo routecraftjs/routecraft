@@ -42,8 +42,6 @@ const SUPPORTED_AGENT_KEYS = new Set([
  * carry the boolean form; reach for the override (or
  * `agentPlugin({ defaultOptions })`) when an agent needs the
  * function-renderer form that YAML cannot express.
- *
- * @experimental
  */
 export interface AgentMarkdownOverride extends Partial<
   Pick<
@@ -201,8 +199,6 @@ function applyOverride(
  *
  * Returns a `Record<name, AgentRegisteredOptions>` ready to spread
  * into `agentPlugin({ agents: agents("./agents") })`.
- *
- * @experimental
  *
  * @example
  * ```ts

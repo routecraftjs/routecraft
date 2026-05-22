@@ -23,7 +23,6 @@ export type CallableHeaderSetter<T = unknown> = (
  * Used by the builder's `.header(key, valueOrFn)`.
  *
  * @template T - Body type
- * @beta
  */
 export interface HeaderSetter<T = unknown> extends Adapter {
   /** Header key to set (e.g. `x-request-id`, `routecraft.custom`) */

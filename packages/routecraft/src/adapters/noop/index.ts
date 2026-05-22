@@ -8,8 +8,6 @@ import { NoopDestinationAdapter } from "./destination.ts";
  *
  * @template T The type of data this adapter processes
  * @returns A Destination that discards all messages
- *
- * @beta
  */
 export function noop<T = unknown>(): Destination<T> {
   return new NoopDestinationAdapter<T>();

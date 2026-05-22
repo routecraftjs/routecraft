@@ -13,7 +13,6 @@ import { JsonlDestinationAdapter } from "./destination.ts";
  * Creates a JSONL adapter in chunked source mode.
  * Emits one exchange per line with JSONL_LINE and JSONL_PATH headers.
  *
- * @beta
  * @param options - JSONL source options with chunked: true
  * @returns A Source-only adapter
  */
@@ -23,7 +22,6 @@ export function jsonl<T = unknown>(
 /**
  * Creates a JSONL adapter for reading or writing JSON Lines files.
  *
- * @beta
  * As a **source** (.from):
  * - Non-chunked (default): reads and parses all lines, emits a single T[] array
  * - Chunked: emits one exchange per line
@@ -54,7 +52,6 @@ export function jsonl<T = unknown>(
 /**
  * Creates a JSONL destination-only adapter.
  *
- * @beta
  * @param options - JSONL destination options (with dynamic path or destination-only fields)
  * @returns A Destination-only adapter
  */

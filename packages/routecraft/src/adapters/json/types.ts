@@ -3,8 +3,6 @@ import type { OnParseError } from "../shared/parse.ts";
 
 /**
  * Transformer-mode options (current behavior).
- *
- * @beta
  */
 export interface JsonTransformerOptions<T = unknown, R = unknown, V = unknown> {
   /**
@@ -26,8 +24,6 @@ export interface JsonTransformerOptions<T = unknown, R = unknown, V = unknown> {
 
 /**
  * Source/Destination mode options (new behavior).
- *
- * @beta
  */
 export interface JsonFileOptions {
   /**
@@ -91,14 +87,10 @@ export interface JsonFileOptions {
    * See `OnParseError` for full semantics.
    *
    * @default "fail"
-   * @experimental
    */
   onParseError?: OnParseError;
 }
 
-/**
- * @beta
- */
 export type JsonOptions<T = unknown, R = unknown, V = unknown> =
   | JsonTransformerOptions<T, R, V>
   | JsonFileOptions;

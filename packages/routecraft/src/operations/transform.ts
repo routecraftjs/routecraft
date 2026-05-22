@@ -18,7 +18,6 @@ export type CallableTransformer<T = unknown, R = T> = (
  *
  * @template T - Current body type
  * @template R - Result body type
- * @beta
  */
 export interface Transformer<T = unknown, R = T> extends Adapter {
   transform: CallableTransformer<T, R>;
@@ -31,7 +30,6 @@ export interface Transformer<T = unknown, R = T> extends Adapter {
  *
  * Use with `.transform(mapper({...}))` or the `.map()` sugar method.
  *
- * @experimental
  * @template T - Source body type
  * @template R - Result body type
  * @param fieldMappings - Object mapping output field names to extractor functions

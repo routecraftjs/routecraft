@@ -20,8 +20,6 @@
  * blocks on the answer (`await pollUntilReply(...)`); the agent's
  * await chain holds the loop in memory until the tool resolves.
  *
- * @experimental
- *
  * @example
  * ```ts
  * import { SuspendError } from "@routecraft/ai"

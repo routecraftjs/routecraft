@@ -64,8 +64,6 @@ import type {
  * @param folder - IMAP mailbox folder name (e.g. 'INBOX')
  * @param options - Server options for IMAP connection and fetch behavior
  * @returns Source, Fetch Destination, Send Destination, or Operation Destination depending on arguments
- *
- * @experimental
  */
 export function mail(
   folder: string,

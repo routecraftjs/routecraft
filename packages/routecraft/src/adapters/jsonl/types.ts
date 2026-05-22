@@ -1,9 +1,6 @@
 import type { Exchange } from "../../exchange.ts";
 import type { OnParseError } from "../shared/parse.ts";
 
-/**
- * @beta
- */
 export interface JsonlSourceOptions {
   /**
    * File path to the JSONL file.
@@ -41,14 +38,10 @@ export interface JsonlSourceOptions {
    * See `OnParseError` for full semantics.
    *
    * @default "fail"
-   * @experimental
    */
   onParseError?: OnParseError;
 }
 
-/**
- * @beta
- */
 export interface JsonlDestinationOptions {
   /**
    * File path string or function that returns the path.
@@ -86,15 +79,10 @@ export interface JsonlDestinationOptions {
 
 /**
  * Combined options for the source+destination overload (string path only).
- *
- * @beta
  */
 export type JsonlCombinedOptions = JsonlSourceOptions &
   Pick<JsonlDestinationOptions, "mode" | "createDirs" | "replacer">;
 
-/**
- * @beta
- */
 export type JsonlOptions =
   | JsonlSourceOptions
   | JsonlDestinationOptions

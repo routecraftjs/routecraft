@@ -30,8 +30,6 @@ import {
  *   .from(direct())
  *   .to(mail())
  * ```
- *
- * @experimental
  */
 export class MailSendDestinationAdapter implements Destination<
   MailSendPayload,

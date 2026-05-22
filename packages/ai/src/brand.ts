@@ -3,9 +3,6 @@
  * Shared across all copies of @routecraft/ai (and multiple routecraft versions) in a process.
  */
 
-/**
- * @beta
- */
 export const BRAND = {
   McpAdapter: Symbol.for("routecraft.ai.McpAdapter"),
 } as const;
@@ -18,9 +15,6 @@ function isBranded(obj: unknown, key: symbol): boolean {
   );
 }
 
-/**
- * @beta
- */
 export function isMcpAdapter(obj: unknown): boolean {
   return isBranded(obj, BRAND.McpAdapter);
 }

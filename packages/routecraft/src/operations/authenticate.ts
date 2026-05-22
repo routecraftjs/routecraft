@@ -12,7 +12,6 @@ import { authenticate, type PrincipalClaims } from "../auth/authenticate.ts";
  * attach an authenticated principal, or `undefined` to leave the exchange as
  * it is (the caller stays anonymous, or keeps an already-attached identity).
  *
- * @experimental
  * @template T - Body type of the exchange
  */
 export type CallableAuthenticator<T = unknown> = (

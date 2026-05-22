@@ -5,8 +5,6 @@
  * rewrites using already-present headers (`List-Id`, `X-Original-From`,
  * `Authentication-Results`, `ARC-*`). No network, no crypto. For cryptographic
  * verification see `strict-verify.ts`.
- *
- * @experimental
  */
 
 // ---------------------------------------------------------------------------
@@ -15,22 +13,16 @@
 
 /**
  * How a message reached the recipient.
- *
- * @experimental
  */
 export type ForwardType = "direct" | "auto-forward" | "mailing-list";
 
 /**
  * Trust state of the effective sender.
- *
- * @beta
  */
 export type TrustLevel = "verified" | "unverified" | "failed";
 
 /**
  * Parsed email address.
- *
- * @beta
  */
 export interface EmailAddress {
   address: string;
@@ -40,8 +32,6 @@ export interface EmailAddress {
 
 /**
  * One hop in a forward chain.
- *
- * @beta
  */
 export interface ForwardHop {
   via: EmailAddress;
@@ -51,8 +41,6 @@ export interface ForwardHop {
 
 /**
  * Effective sender plus the evidence used to resolve it.
- *
- * @beta
  */
 export interface MailSender extends EmailAddress {
   /** How the message reached us. */
@@ -81,8 +69,6 @@ export interface MailSender extends EmailAddress {
 /**
  * Lowercased header names relevant to sender analysis. Always extracted from
  * a parsed message even when the caller has not requested `includeHeaders`.
- *
- * @beta
  */
 export const ANALYSIS_HEADER_NAMES = [
   "from",
@@ -202,8 +188,6 @@ interface ParsedAuthResults {
  *
  * Format (RFC 8601): `authserv-id; method=result (comment) property=value; ...`
  * We pluck out method verdicts plus a couple of properties we care about.
- *
- * @beta
  */
 export function parseAuthResults(value: string | undefined): ParsedAuthResults {
   const out: ParsedAuthResults = {
@@ -307,8 +291,6 @@ function addressFromDomain(domain: string, marker: string): EmailAddress {
  * message. Pure function, no I/O.
  *
  * @param headers - Lowercased header map, as returned by {@link extractAnalysisHeaders}.
- *
- * @beta
  */
 export function analyzeHeaders(
   headers: Record<string, string | string[]>,

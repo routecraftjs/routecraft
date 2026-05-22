@@ -35,8 +35,6 @@ import { SimpleSourceAdapter } from "./source";
  * // Emit a function as a value
  * .from(simple.value(myCallback))
  * ```
- *
- * @beta
  */
 export function simple<T = unknown>(
   producer: (() => T | Promise<T>) | T,

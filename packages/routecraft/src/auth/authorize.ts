@@ -7,8 +7,6 @@ import { type Principal } from "./types.ts";
 /**
  * Options accepted by {@link authorize}. All criteria are AND-combined: the
  * principal must satisfy every provided constraint to pass the check.
- *
- * @experimental
  */
 export interface AuthorizeOptions {
   /**
@@ -57,8 +55,6 @@ export interface AuthorizeOptions {
  * route-entry guard. Use this function directly with `.validate(...)` only
  * when the check must run mid-pipeline (for example, after an `.authenticate()`
  * step that establishes the principal, or inside a `.choice()` branch).
- *
- * @experimental
  *
  * @example Route-entry guard (preferred)
  * ```ts

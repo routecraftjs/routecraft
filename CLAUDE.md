@@ -41,7 +41,7 @@ Detailed coding standards for contributors live in `.standards/`:
 - [CI/CD](.standards/ci-cd.md) -- PR gates, hook policy, peer-dependency rules, release flow
 - [Resilience Wrappers](.standards/resilience-wrappers.md) -- dual-mode wrapper pattern (`.error()` and future resilience ops), authoring contract
 - [Security](.standards/security.md) -- JWT / JWKS verification, principal propagation, bearer-token handling, `userinfo` enrichment, RFC 9728 metadata, `authorize()` semantics
-- [API Stability](.standards/api-stability.md) -- stability tiers (`@experimental` / `@beta` / `@stable`), the 0.x "nothing is stable" policy, tagging every public export
+- [API Stability](.standards/api-stability.md) -- the v0 policy: the whole public API is unstable, so we tag only `@internal` and `@deprecated`; per-symbol `@experimental` / `@beta` / `@stable` tiers arrive at v1
 
 ## Merge Checklist
 

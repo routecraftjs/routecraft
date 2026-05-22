@@ -5,8 +5,6 @@ import type { ResolveKey } from "@routecraft/routecraft";
  * `agentPlugin({ skills })`. Resolved at agent dispatch time so an
  * agent that lists `skills: ["X"]` gets the corresponding skill
  * content concatenated into its system prompt.
- *
- * @experimental
  */
 export const ADAPTER_SKILL_REGISTRY = Symbol.for(
   "routecraft.adapter.skill.registry",
@@ -23,8 +21,6 @@ export const ADAPTER_SKILL_REGISTRY = Symbol.for(
  * a skill is just text. Provider-specific hosted skills (e.g. the
  * Anthropic hosted-skills feature surfaced through `@ai-sdk/anthropic`)
  * are out of scope for this primitive and will land separately.
- *
- * @experimental
  */
 export interface Skill {
   /** Unique skill name. Matches the registry key and the filename when loaded via `skills(path)`. */
@@ -49,8 +45,6 @@ declare module "@routecraft/routecraft" {
  * narrow `AgentOptions.skills` and `AgentRegisteredOptions.skills`
  * entries to the set of registered skill names.
  *
- * @experimental
- *
  * @example
  * ```typescript
  * declare module "@routecraft/ai" {
@@ -69,7 +63,5 @@ export interface SkillRegistry {}
  * Resolved skill name type. When `SkillRegistry` is populated,
  * constrains to the union of declared names. Falls back to `string`
  * when the registry is empty.
- *
- * @experimental
  */
 export type RegisteredSkillName = ResolveKey<SkillRegistry>;

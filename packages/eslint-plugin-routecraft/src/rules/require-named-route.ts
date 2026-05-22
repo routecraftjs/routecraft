@@ -119,7 +119,6 @@ function hasIdBeforeFrom(node: unknown): boolean {
   return false;
 }
 
-/** @beta */
 const rule: Rule.RuleModule = {
   meta: {
     type: "problem",
