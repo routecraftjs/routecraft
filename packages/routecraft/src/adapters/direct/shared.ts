@@ -11,7 +11,7 @@ import type { Exchange } from "../../exchange";
 
 /**
  * Store key for the direct channel map (endpoint name -> channel instance).
- * @experimental
+ * @internal
  */
 export const ADAPTER_DIRECT_STORE = Symbol.for(
   "routecraft.adapter.direct.store",
@@ -21,7 +21,7 @@ export const ADAPTER_DIRECT_STORE = Symbol.for(
  * Store key for the context-level direct channel type.
  * Set via `CraftConfig.direct` to swap all direct endpoints to a custom
  * channel implementation (e.g. Kafka, Redis) instead of in-memory.
- * @experimental
+ * @internal
  */
 export const ADAPTER_DIRECT_OPTIONS = Symbol.for(
   "routecraft.adapter.direct.options",
@@ -29,7 +29,7 @@ export const ADAPTER_DIRECT_OPTIONS = Symbol.for(
 
 /**
  * Store key for the direct route registry (endpoint -> metadata).
- * @experimental
+ * @internal
  */
 export const ADAPTER_DIRECT_REGISTRY = Symbol.for(
   "routecraft.adapter.direct.registry",

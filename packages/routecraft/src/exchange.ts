@@ -426,7 +426,7 @@ export const EXCHANGE_INTERNALS = new WeakMap<Exchange, ExchangeInternals>();
  *
  * @param exchange The exchange
  * @returns The context or undefined
- * @experimental
+ * @internal
  */
 export function getExchangeContext(
   exchange: Exchange,
@@ -444,7 +444,7 @@ export function getExchangeContext(
  *
  * @param exchange The exchange
  * @returns The route or undefined
- * @experimental
+ * @internal
  */
 export function getExchangeRoute(exchange: Exchange): Route | undefined {
   const internals =

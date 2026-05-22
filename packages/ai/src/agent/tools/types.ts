@@ -70,7 +70,7 @@ export interface DeferredFn {
  * Type guard. Returns true when the value is a deferred fn descriptor
  * emitted by `directTool`.
  *
- * @experimental
+ * @internal
  */
 export function isDeferredFn(value: unknown): value is DeferredFn {
   return (

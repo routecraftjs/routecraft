@@ -13,7 +13,7 @@ import type { CronExpression, CronOptions } from "./types";
  * Store key for merged cron adapter options.
  * Set context-level defaults (e.g., jitterMs) once and share across all
  * cron sources in the same context.
- * @experimental
+ * @internal
  */
 export const ADAPTER_CRON_OPTIONS = Symbol.for(
   "routecraft.adapter.cron.options",
