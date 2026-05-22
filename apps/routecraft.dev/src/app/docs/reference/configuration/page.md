@@ -27,6 +27,7 @@ export const craftConfig = defineConfig({
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
+| `name` | `string` | No | -- | Service / application name. Emitted on every log line as `service.name` ([details](#service-name)) |
 | `store` | `Map<keyof StoreRegistry, StoreRegistry[keyof StoreRegistry]>` | No | -- | Initial values for the context store |
 | `on` | `Partial<Record<EventName, EventHandler \| EventHandler[]>>` | No | -- | Event handlers to register on context creation |
 | `once` | `Partial<Record<EventName, EventHandler \| EventHandler[]>>` | No | -- | One-time event handlers that fire once then auto-unsubscribe |
@@ -130,6 +131,26 @@ export default {
 ```
 
 When using the CLI, pass `--log-level` or `--log-file` to set the corresponding env var before the logger initializes, so CLI flags override any config file.
+
+### Service name
+
+Set `name` on the context to tag every log line with a `service.name` field (the OpenTelemetry semantic convention). This identifies the originating application when shipping logs to an aggregator, and lines up with OTel resource mappings such as BetterStack's `resources.service.name`.
+
+```ts
+import { defineConfig } from "@routecraft/routecraft";
+
+export const craftConfig = defineConfig({
+  name: "eywa",
+});
+```
+
+Every log emitted through the context, its routes, and their exchanges then carries the field:
+
+```json
+{ "level": "info", "service.name": "eywa", "route": "zoe-mail", "msg": "..." }
+```
+
+When `name` is omitted, no `service.name` field is added. The value is a per-context log binding; it does not configure OpenTelemetry trace resources. If you also export traces via `telemetry({ tracerProvider })`, set the matching `service.name` on that provider's `Resource` so logs and spans agree.
 
 ## Environment variables
 

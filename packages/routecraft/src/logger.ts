@@ -173,14 +173,19 @@ export function childBindings(
 ): Record<string, unknown> {
   if (isCraftContext(context)) {
     const ctx = context as CraftContext;
-    return { contextId: ctx.contextId };
+    const bindings: Record<string, unknown> = { contextId: ctx.contextId };
+    if (ctx.name !== undefined) bindings["service.name"] = ctx.name;
+    return bindings;
   }
   if (isRoute(context)) {
     const route = context as Route;
-    return {
+    const bindings: Record<string, unknown> = {
       contextId: route.context.contextId,
       route: route.definition.id,
     };
+    if (route.context.name !== undefined)
+      bindings["service.name"] = route.context.name;
+    return bindings;
   }
   if (isExchange(context)) {
     const ex = context as Exchange;
@@ -192,6 +197,8 @@ export function childBindings(
         correlationId: ex.headers[HeadersKeys.CORRELATION_ID],
         exchangeId: ex.id,
       };
+
+      if (ctx.name !== undefined) bindings["service.name"] = ctx.name;
 
       // Include non-PII auth identifiers from the principal when present.
       // Only subject and issuer are safe for logs; fields like email,
