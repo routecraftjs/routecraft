@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import {
   logger as frameworkLogger,
+  isAuthentic,
+  markAuthentic,
   type CraftContext,
   type EventName,
   type Principal,
@@ -190,12 +192,23 @@ function makeFnHandlerContext(
  * @internal
  */
 function freezePrincipal(principal: Principal): Principal {
+  // Capture the trusted-origin signal before cloning: the spread below
+  // produces a fresh object that is not a member of the authenticity
+  // WeakSet, so authenticity must be re-derived from the live principal.
+  const wasAuthentic = isAuthentic(principal);
   const snapshot: Principal = { ...principal };
   if (snapshot.audience) snapshot.audience = [...snapshot.audience];
   if (snapshot.scopes) snapshot.scopes = [...snapshot.scopes];
   if (snapshot.roles) snapshot.roles = [...snapshot.roles];
   if (snapshot.claims) snapshot.claims = structuredClone(snapshot.claims);
-  return deepFreeze(snapshot);
+  deepFreeze(snapshot);
+  // Preserve authenticity across the snapshot: a snapshot of an authentic
+  // principal is exactly as authentic as its source, and a snapshot of a
+  // self-asserted (plain-object) principal must stay non-authentic so a
+  // downstream authorize() still rejects it with RC5023. markAuthentic
+  // returns a frozen member whose nested claims/arrays are the already
+  // deep-frozen references from above.
+  return wasAuthentic ? markAuthentic(snapshot) : snapshot;
 }
 
 /**
