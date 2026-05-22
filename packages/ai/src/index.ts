@@ -86,12 +86,13 @@ export {
   type McpLocalToolEntry,
   type McpOptions,
   type McpPluginOptions,
+  type McpResourceOptions,
   type McpServerOptions,
   type McpTool,
   type McpToolAnnotations,
   type McpInput,
   type McpOutput,
-  type McpToolIcon,
+  type McpIcon,
   type McpToolRegistryEntry,
   type McpToolResult,
   type OAuthAuthOptions,
@@ -100,6 +101,8 @@ export {
   type OAuthFactoryOptions,
   type OAuthProxyEndpoints,
   type OAuthVerifier,
+  type UserinfoFn,
+  type UserinfoOption,
 } from "./mcp/index.ts";
 export type {
   McpClientAuthOptions,
@@ -137,6 +140,7 @@ export type {
   AgentDeltaListener,
   AgentOptions,
   AgentPluginOptions,
+  AgentPrincipalRenderer,
   AgentRegisteredOptions,
   AgentResult,
   AgentToolCallSummary,
@@ -156,16 +160,17 @@ export type {
   RegisteredFnId,
 } from "./fn/index.ts";
 
-// Tool builders: wrap registered routes / agents / MCP tools as
-// fn-shaped entries usable from `agentPlugin({ functions: { ... } })`,
-// plus the `tools([...])` selector consumed by the agent runtime.
+// Tool builders: wrap registered routes as fn-shaped entries usable
+// from `agentPlugin({ functions: { ... } })`, plus the `tools([...])`
+// selector consumed by the agent runtime. MCP tools are referenced via
+// the `MCP(server:tool)` / `mcp__server__tool` grammar inside
+// `tools(...)`.
 export {
-  agentTool,
-  defaultFns,
+  currentTime,
   directTool,
-  mcpTool,
   isDeferredFn,
   isToolSelection,
+  randomUuid,
   tools,
   type DeferredFn,
   type DeferredFnKind,

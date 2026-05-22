@@ -1,17 +1,16 @@
 import type { Exchange, Destination } from "@routecraft/routecraft";
-import { getExchangeContext, loadOptionalPeer } from "@routecraft/routecraft";
+import { getExchangeContext } from "@routecraft/routecraft";
 import type {
   McpClientOptions,
   McpArgsExtractor,
   McpClientAuthOptions,
   McpClientHttpConfig,
 } from "../../types.ts";
-import { ADAPTER_MCP_CLIENT_SERVERS, MCP_STDIO_MANAGERS } from "../../types.ts";
+import { ADAPTER_MCP_CLIENT_SERVERS } from "../../types.ts";
 import { BRAND_MCP_ADAPTER } from "./shared.ts";
-import { extractContent } from "../../extract-content.ts";
-import { buildAuthHeaders } from "../../build-auth-headers.ts";
+import { callRemoteTool, dispatchMcpCall } from "../../dispatch.ts";
 
-/** Ensure inline url is HTTP(S) only. Stdio clients are resolved via MCP_STDIO_MANAGERS store. */
+/** Ensure inline url is HTTP(S) only. Stdio clients are reached via dispatchMcpCall. */
 function assertHttpUrl(url: string): void {
   const trimmed = url.trim().toLowerCase();
   if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
@@ -31,10 +30,14 @@ function resolveServerConfig(
   context: ReturnType<typeof getExchangeContext>,
 ): McpClientHttpConfig | string | undefined {
   if (!options.serverId || !context) return undefined;
-  const servers = context.getStore(
-    ADAPTER_MCP_CLIENT_SERVERS as keyof import("@routecraft/routecraft").StoreRegistry,
-  ) as Map<string, McpClientHttpConfig | string> | undefined;
-  return servers?.get(options.serverId);
+  const servers = context.getStore(ADAPTER_MCP_CLIENT_SERVERS);
+  const cfg = servers?.get(options.serverId);
+  if (cfg && typeof cfg === "object" && "transport" in cfg) {
+    // stdio configs surface through dispatchMcpCall; resolveConnection only
+    // needs the http variant for the inline-URL or http-serverId fall-through.
+    return undefined;
+  }
+  return cfg as McpClientHttpConfig | string | undefined;
 }
 
 /**
@@ -131,67 +134,47 @@ export class McpDestinationAdapter implements Destination<unknown, unknown> {
     const argsExtractor = this.options.args ?? defaultArgs;
     const args = argsExtractor(exchange);
 
-    // Check for stdio manager first (registered via mcpPlugin)
-    if (this.options.serverId && context) {
-      const stdioManagers = context.getStore(
-        MCP_STDIO_MANAGERS as keyof import("@routecraft/routecraft").StoreRegistry,
-      ) as
-        | Map<
-            string,
-            {
-              callTool(
-                name: string,
-                args: Record<string, unknown>,
-              ): Promise<unknown>;
-            }
-          >
-        | undefined;
-      const manager = stdioManagers?.get(this.options.serverId);
-      if (manager) {
-        const result = await manager.callTool(toolName, args);
-        if (result && typeof result === "object") {
-          (result as Record<string, unknown>)["metadata"] = {
-            toolName,
-            transport: "stdio",
-            serverId: this.options.serverId,
-          };
-        }
-        return result;
-      }
-
-      // Guard: if the registered config is stdio-type but the manager is missing,
-      // throw a clear error instead of falling through to HTTP (which would fail
-      // confusingly since stdio configs have no url property).
-      const servers = context.getStore(
-        ADAPTER_MCP_CLIENT_SERVERS as keyof import("@routecraft/routecraft").StoreRegistry,
-      ) as Map<string, unknown> | undefined;
-      const serverConfig = servers?.get(this.options.serverId);
-      if (
-        serverConfig &&
-        typeof serverConfig === "object" &&
-        "transport" in serverConfig &&
-        (serverConfig as { transport: string }).transport === "stdio"
-      ) {
+    // serverId path -> registered MCP client (stdio or http). Delegates
+    // to `dispatchMcpCall` so transport selection (stdio manager vs
+    // one-shot HTTP client), missing-client diagnostics, and resource
+    // cleanup all live in one place shared with the agent
+    // `tools([...])` resolver.
+    if (this.options.serverId) {
+      if (!context) {
         throw new Error(
-          `MCP client: stdio server "${this.options.serverId}" is not running. Ensure mcpPlugin is applied and the stdio client started successfully.`,
+          `MCP client: serverId "${this.options.serverId}" requires a context to resolve. Ensure the exchange has context (e.g. from a route).`,
         );
       }
+      const transport = resolveServerTransport(context, this.options.serverId);
+      const result = await dispatchMcpCall(
+        context,
+        this.options.serverId,
+        toolName,
+        args,
+      );
+      if (result && typeof result === "object") {
+        (result as Record<string, unknown>)["metadata"] = {
+          toolName,
+          transport,
+          serverId: this.options.serverId,
+        };
+      }
+      return result;
     }
 
-    // Fall through to HTTP
+    // Inline-URL path -> direct HTTP call without going through the
+    // registry. Uses the shared `callRemoteTool` helper so transport
+    // setup, auth-header building, and cleanup stay aligned with
+    // `dispatchMcpCall`.
     const { url, auth } = resolveConnection(this.options, context);
-    const result = await this.callRemoteTool(url, toolName, args, auth);
-
-    // Attach metadata to result for getMetadata() to read (eliminates race condition)
+    const result = await callRemoteTool(url, toolName, args, auth);
     if (result && typeof result === "object") {
       (result as Record<string, unknown>)["metadata"] = {
         toolName,
         url,
         transport: "http",
-        ...(this.options.serverId ? { serverId: this.options.serverId } : {}),
       };
     }
-
     return result;
   }
 
@@ -208,100 +191,28 @@ export class McpDestinationAdapter implements Destination<unknown, unknown> {
       transport: "unknown",
     };
   }
+}
 
-  private async callRemoteTool(
-    serverUrl: string,
-    toolName: string,
-    args: Record<string, unknown>,
-    auth?: McpClientAuthOptions,
-  ): Promise<unknown> {
-    const clientModule = (await loadOptionalPeer(
-      () => import("@modelcontextprotocol/sdk/client/index.js"),
-      {
-        adapterName: "mcp (http client)",
-        packageName: "@modelcontextprotocol/sdk",
-      },
-    )) as unknown as {
-      Client: new (
-        info: { name: string; version: string },
-        options?: { capabilities?: Record<string, unknown> },
-      ) => unknown;
-    };
-    const transportModule = (await loadOptionalPeer(
-      () => import("@modelcontextprotocol/sdk/client/streamableHttp.js"),
-      {
-        adapterName: "mcp (http client)",
-        packageName: "@modelcontextprotocol/sdk",
-      },
-    )) as unknown as {
-      StreamableHTTPClientTransport: new (
-        url: URL,
-        options?: {
-          sessionId?: string;
-          requestInit?: { headers?: Record<string, string> };
-        },
-      ) => unknown;
-    };
-    const Client = clientModule.Client;
-    const StreamableHTTPClientTransport =
-      transportModule.StreamableHTTPClientTransport;
-
-    const url = new URL(serverUrl);
-    const headers = await buildAuthHeaders(auth);
-    const transportOptions = headers ? { requestInit: { headers } } : undefined;
-    const transport = new StreamableHTTPClientTransport(url, transportOptions);
-    const clientInfo = { name: "routecraft-mcp-client", version: "1.0.0" };
-    const client = new (Client as new (
-      info: { name: string; version: string },
-      options?: { capabilities?: Record<string, unknown> },
-    ) => InstanceType<typeof clientModule.Client>)(clientInfo, {
-      capabilities: {},
-    });
-    try {
-      const connect = (
-        client as unknown as { connect(transport: unknown): Promise<void> }
-      ).connect;
-      await connect.call(client, transport);
-
-      const callTool = (
-        client as unknown as {
-          callTool(params: {
-            name: string;
-            arguments?: Record<string, unknown>;
-          }): Promise<{ content?: Array<{ type: string; text?: string }> }>;
-        }
-      ).callTool;
-      const response = await callTool.call(client, {
-        name: toolName,
-        arguments: args,
-      });
-
-      return extractContent(response);
-    } finally {
-      const clientCleanup = client as unknown as {
-        close?: () => void | Promise<void>;
-        disconnect?: () => void | Promise<void>;
-      };
-      const closeOrDisconnect = clientCleanup.close ?? clientCleanup.disconnect;
-      if (typeof closeOrDisconnect === "function") {
-        try {
-          await Promise.resolve(closeOrDisconnect.call(client));
-        } catch {
-          // Ignore cleanup errors so original error propagates
-        }
-      }
-      const transportCleanup = transport as unknown as {
-        close?: () => void | Promise<void>;
-        destroy?: () => void;
-      };
-      const closeOrDestroy = transportCleanup.close ?? transportCleanup.destroy;
-      if (typeof closeOrDestroy === "function") {
-        try {
-          await Promise.resolve(closeOrDestroy.call(transport));
-        } catch {
-          // Ignore cleanup errors so original error propagates
-        }
-      }
-    }
+/**
+ * Look up the transport label for a registered MCP server so the
+ * destination's metadata reflects what `dispatchMcpCall` actually
+ * used. Falls back to `"http"` because that's the default for
+ * registered clients without an explicit transport tag (stdio configs
+ * carry `transport: "stdio"` explicitly).
+ */
+function resolveServerTransport(
+  context: NonNullable<ReturnType<typeof getExchangeContext>>,
+  serverId: string,
+): "stdio" | "http" {
+  const servers = context.getStore(ADAPTER_MCP_CLIENT_SERVERS);
+  const cfg = servers?.get(serverId);
+  if (
+    cfg &&
+    typeof cfg === "object" &&
+    "transport" in cfg &&
+    (cfg as { transport: string }).transport === "stdio"
+  ) {
+    return "stdio";
   }
+  return "http";
 }

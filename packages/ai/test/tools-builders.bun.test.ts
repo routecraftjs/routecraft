@@ -4,11 +4,10 @@ import { craft, direct, isRoutecraftError, log } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
   agentPlugin,
-  agentTool,
-  defaultFns,
+  currentTime,
+  randomUuid,
   directTool,
   isDeferredFn,
-  mcpTool,
   ADAPTER_FN_REGISTRY,
   type FnEntry,
   type FnOptions,
@@ -341,85 +340,33 @@ describe("tool builders - directTool dispatch", () => {
   });
 });
 
-describe("tool builders - agentTool stub", () => {
+describe("tool builders - built-in fn factories", () => {
   /**
-   * @case agentTool returns a deferred descriptor whose resolve throws
-   * @preconditions agentTool("researcher")
-   * @expectedResult deferred kind === "agent"; resolve throws RC5003 mentioning the story
+   * @case currentTime() and randomUuid() factories return eager FnOptions
+   * @preconditions Call the factories directly
+   * @expectedResult Both return objects with description / schema / handler / tags
    */
-  test("agentTool returns a deferred descriptor that resolves to a not-yet-supported error", () => {
-    const desc = agentTool("researcher");
-    expect(desc.kind).toBe("agent");
-    expect(() => desc.resolve(undefined as never, "research")).toThrow(
-      /not yet supported/i,
-    );
-  });
-
-  /**
-   * @case agentTool throws on empty agentId at build time
-   * @preconditions agentTool("")
-   * @expectedResult RC5003 thrown synchronously
-   */
-  test("agentTool throws on empty agentId", () => {
-    expect(() => agentTool("")).toThrow(/agentId/i);
-  });
-});
-
-describe("tool builders - mcpTool stub", () => {
-  /**
-   * @case mcpTool returns a deferred descriptor whose resolve throws
-   * @preconditions mcpTool("brave", "search")
-   * @expectedResult deferred kind === "mcp"; resolve throws RC5003 mentioning the story
-   */
-  test("mcpTool returns a deferred descriptor that resolves to a not-yet-supported error", () => {
-    const desc = mcpTool("brave", "search");
-    expect(desc.kind).toBe("mcp");
-    expect(() => desc.resolve(undefined as never, "searchWeb")).toThrow(
-      /not yet supported/i,
-    );
-  });
-
-  /**
-   * @case mcpTool throws on empty serverId or toolName
-   * @preconditions mcpTool with blank inputs
-   * @expectedResult RC5003 thrown synchronously
-   */
-  test("mcpTool throws on empty serverId / toolName", () => {
-    expect(() => mcpTool("", "search")).toThrow(/serverId/i);
-    expect(() => mcpTool("brave", "")).toThrow(/toolName/i);
-  });
-});
-
-describe("tool builders - defaultFns", () => {
-  /**
-   * @case defaultFns ships currentTime and randomUuid as eager FnOptions
-   * @preconditions Spread defaultFns into agentPlugin.functions
-   * @expectedResult Both registered, both have description / schema / handler / tags
-   */
-  test("defaultFns provides currentTime and randomUuid as eager fns", () => {
-    expect(defaultFns.currentTime).toBeDefined();
-    expect(isDeferredFn(defaultFns.currentTime!)).toBe(false);
-    const ct = defaultFns.currentTime as FnOptions;
+  test("currentTime() and randomUuid() return eager fns", () => {
+    expect(currentTime()).toBeDefined();
+    expect(isDeferredFn(currentTime())).toBe(false);
+    const ct = currentTime() as FnOptions;
     expect(typeof ct.description).toBe("string");
     expect(typeof ct.handler).toBe("function");
     expect(ct.tags).toContain("read-only");
 
-    expect(defaultFns.randomUuid).toBeDefined();
-    const ru = defaultFns.randomUuid as FnOptions;
+    expect(randomUuid()).toBeDefined();
+    const ru = randomUuid() as FnOptions;
     expect(typeof ru.description).toBe("string");
     expect(typeof ru.handler).toBe("function");
   });
 
   /**
-   * @case currentTime handler returns an ISO 8601 timestamp string
-   * @preconditions Call defaultFns.currentTime.handler({}, ctx)
+   * @case CurrentTime handler returns an ISO 8601 timestamp string
+   * @preconditions Call currentTime().handler({}, ctx)
    * @expectedResult Returns a parseable ISO string within a second of now
    */
-  test("currentTime handler returns a fresh ISO timestamp", async () => {
-    const ct = defaultFns.currentTime as FnOptions<
-      Record<string, never>,
-      string
-    >;
+  test("CurrentTime handler returns a fresh ISO timestamp", async () => {
+    const ct = currentTime() as FnOptions<Record<string, never>, string>;
     const before = Date.now();
     const out = await ct.handler(
       {},

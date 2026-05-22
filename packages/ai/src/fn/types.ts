@@ -148,7 +148,7 @@ export interface FnOptions<TIn = unknown, TOut = unknown> {
  * ```typescript
  * declare module "@routecraft/ai" {
  *   interface FnRegistry {
- *     currentTime: true;
+ *     CurrentTime: true;
  *     sendSlackMessage: true;
  *   }
  * }

@@ -1,10 +1,12 @@
-import type { Exchange } from "@routecraft/routecraft";
+import type { Exchange, Tag } from "@routecraft/routecraft";
 import type {
   OAuthPrincipal,
   Principal,
   ValidatorAuthOptions,
 } from "@routecraft/routecraft";
+import type { McpCorsOptions } from "./cors.ts";
 import type { McpToolRegistry } from "./tool-registry.ts";
+import type { UserinfoOption } from "./userinfo.ts";
 
 /**
  * Store key set by mcpPlugin() when applied; routes using .from(mcp(...)) require it.
@@ -87,7 +89,7 @@ export interface McpLocalToolEntry {
   /** MCP tool annotations (read-only hints, destructive hints, etc.). */
   annotations?: McpToolAnnotations;
   /** Icons forwarded to `tools/list` per the MCP spec. */
-  icons?: McpToolIcon[];
+  icons?: McpIcon[];
   /**
    * Invocation handler. Receives an exchange pre-built by the MCP server
    * (with tool/session/auth headers and the request body) and returns the
@@ -213,22 +215,54 @@ export interface OAuthProxyEndpoints {
 }
 
 /**
+ * Protected-resource (RFC 9728) metadata for the MCP server.
+ *
+ * Used by both validator-mode and OAuth-proxy auth to populate
+ * `/.well-known/oauth-protected-resource` and the `resource_metadata`
+ * parameter on 401 responses. Orthogonal to the auth mode: identifies WHAT
+ * is being protected, not HOW it authenticates.
+ *
+ * When omitted entirely, the framework still advertises a baseline metadata
+ * document built from the bound URL and (in validator mode) the IdP issuer
+ * surfaced by `jwks()` / `jwt()`.
+ *
+ * @experimental
+ */
+export interface McpResourceOptions {
+  /**
+   * Identifies this MCP server as an OAuth 2.0 Protected Resource (RFC 9728).
+   * Becomes the `resource` field in the metadata document. Must be HTTPS in
+   * production. Defaults to `http://{host}:{port}/mcp` when unset.
+   */
+  url?: string | URL;
+  /**
+   * OAuth scopes this resource advertises as supported.
+   * Becomes the `scopes_supported` field in the metadata document. An empty
+   * array is treated as unset and the field is omitted entirely (RFC 9728
+   * §2 permits this; most MCP clients treat absence and empty as equivalent).
+   */
+  scopesSupported?: string[];
+  /**
+   * URL to human-readable documentation describing this protected resource.
+   * Becomes the `resource_documentation` field in the metadata document.
+   */
+  documentationUrl?: string | URL;
+}
+
+/**
  * OAuth provider auth: full OAuth 2.1 server flow with proxy to upstream IdP.
  * Mounts discovery, authorization, token, and revocation endpoints alongside `/mcp`.
  * Uses the MCP SDK's `ProxyOAuthServerProvider` and `mcpAuthRouter` internally.
+ *
+ * Protected-resource metadata (`resource`, `scopes_supported`, etc.) lives on
+ * `mcpPlugin({ resource })`, not here -- it is orthogonal to the auth mode.
  *
  * @experimental
  */
 export interface OAuthAuthOptions {
   /** Discriminant for the union. Always `"oauth"`. */
   provider: "oauth";
-  /**
-   * Issuer URL for OAuth metadata discovery (the MCP server's own issuer).
-   * Must be HTTPS in production. Renamed from `issuerUrl` to disambiguate from
-   * the IdP issuer inside the `verify` config.
-   */
-  resourceIssuerUrl: string | URL;
-  /** Base URL for OAuth endpoints (defaults to resourceIssuerUrl). */
+  /** Base URL for OAuth endpoints (defaults to the resolved resource URL). */
   baseUrl?: string | URL;
   /** Upstream OAuth provider endpoints to proxy. */
   endpoints: OAuthProxyEndpoints;
@@ -247,14 +281,15 @@ export interface OAuthAuthOptions {
    * Return `undefined` to reject the client.
    */
   getClient: (clientId: string) => Promise<OAuthClientInfo | undefined>;
-  /** OAuth scopes the server advertises as supported. */
-  scopesSupported?: string[];
-  /** Scopes required on every request to `/mcp`. */
+  /** Scopes required on every request to `/mcp`. Enforcement policy, not metadata. */
   requiredScopes?: string[];
-  /** URL to service documentation (included in OAuth metadata). */
-  serviceDocumentationUrl?: string | URL;
-  /** Human-readable resource name (included in OAuth metadata). */
-  resourceName?: string;
+  /**
+   * IdP issuer surfaced from the `verify` helper (`jwks()` / `jwt()`). Read by
+   * the server to resolve the OIDC Discovery document when plugin-level
+   * `mcpPlugin({ userinfo: true })` is configured. Not user-set; populated by
+   * the `oauth()` factory.
+   */
+  issuer?: string | string[];
 }
 
 /**
@@ -315,11 +350,47 @@ export interface McpClientAuthOptions {
  * One plugin per adapter: this is the single options type for the MCP plugin.
  */
 export interface McpPluginOptions {
-  /** Server name in MCP protocol handshake. Default: "routecraft" */
+  /** Server name in MCP protocol handshake. Default: "routecraft". Machine identifier. */
   name?: string;
+
+  /**
+   * Human-readable display title for this MCP server. Defaults to `name` when unset.
+   * Used for MCP `serverInfo.title` (where the SDK protocol exposes it) and as
+   * the `resource_name` field in RFC 9728 protected-resource metadata.
+   */
+  title?: string;
 
   /** Server version. Default: "1.0.0" */
   version?: string;
+
+  /**
+   * Human-readable server description, forwarded as MCP `serverInfo.description`.
+   * Defaults to `"Powered by Routecraft.dev"` when unset; pass an empty string
+   * (`""`) to omit it entirely.
+   */
+  description?: string;
+
+  /**
+   * Server website, forwarded as MCP `serverInfo.websiteUrl`. Defaults to
+   * `"https://routecraft.dev"` when unset; pass an empty string (`""`) to omit it.
+   */
+  websiteUrl?: string;
+
+  /**
+   * Server-wide usage guidance, forwarded as the MCP `initialize` result's
+   * `instructions`. Clients may inject it into the model's context as a hint
+   * (advisory per the spec, not guaranteed). Use it for cross-tool guidance the
+   * model cannot infer from individual tool schemas.
+   */
+  instructions?: string;
+
+  /**
+   * Icons identifying this server, forwarded as MCP `serverInfo.icons` and
+   * inherited by tools that do not set their own icons. Defaults to the
+   * Routecraft logo (light and dark variants) when unset; pass an empty array
+   * (`[]`) to serve no icon.
+   */
+  icons?: McpIcon[];
 
   /** Transport mode for MCP server. Default: "stdio" */
   transport?: "stdio" | "http";
@@ -329,6 +400,18 @@ export interface McpPluginOptions {
 
   /** Host to bind to. Default: "localhost" (only used with transport: "http") */
   host?: string;
+
+  /**
+   * Protected-resource (RFC 9728) metadata for the HTTP transport. When set,
+   * the server advertises `/.well-known/oauth-protected-resource` and adds
+   * `resource_metadata="..."` to 401 `WWW-Authenticate` headers. Used by both
+   * validator and OAuth-proxy auth modes; ignored for stdio.
+   *
+   * When omitted, baseline metadata is still served (deriving `resource` from
+   * the bound URL and `authorization_servers` from the validator's IdP
+   * issuer when present).
+   */
+  resource?: McpResourceOptions;
 
   /**
    * Authentication for the HTTP transport. When set, every request to `/mcp` must
@@ -341,6 +424,63 @@ export interface McpPluginOptions {
    * ```
    */
   auth?: McpHttpAuthOptions;
+
+  /**
+   * Principal enrichment that runs after `auth` verifies a token, for the
+   * HTTP transport. Orthogonal to the auth mode: works with `jwks()` /
+   * `jwt()` (validator mode), a custom `{ validator }`, and `oauth()`.
+   * Three input shapes:
+   *
+   * - `true`: auto-discover the userinfo endpoint via OIDC Discovery at
+   *   `${issuer}/.well-known/openid-configuration`. Requires the verifier to
+   *   expose a single-string `issuer` (`jwks()` / `jwt()` do).
+   * - `string | URL`: explicit userinfo endpoint URL. The framework fetches
+   *   it with the bearer token and lifts standard OIDC claims (`email`,
+   *   `name`, `roles`) onto the principal.
+   * - `(principal, token) => Promise<Partial<Principal>>`: custom enrichment
+   *   from any backend (WorkOS / Clerk Backend API, internal DB, etc.).
+   *
+   * For URL and discovery modes the userinfo response `sub` MUST equal the
+   * verified token's `sub` (OIDC Core §5.3.2); mismatches reject the
+   * request. Verify wins on `subject`, `issuer`, `audience`, `expiresAt`,
+   * `claims`; other fields are overwritten by the enrichment, and the raw
+   * userinfo response is surfaced on `principal.userinfoClaims`. Results are
+   * cached per token (SHA-256 keyed) and evicted at `expiresAt`; concurrent
+   * requests for the same token share one in-flight fetch. All enrichment
+   * errors are fail-closed (the request is rejected). Defaults to no
+   * enrichment.
+   *
+   * @experimental
+   */
+  userinfo?: UserinfoOption;
+
+  /**
+   * CORS configuration for the HTTP transport. Controls which browser origins
+   * can read responses from `/mcp`, `/.well-known/oauth-protected-resource`,
+   * and the 401 `WWW-Authenticate` hint. Ignored for stdio.
+   *
+   * Default (when omitted): **loopback-only**. Browser MCP clients on
+   * `localhost`, `127.0.0.1`, or `[::1]` (any port, http or https) work out of
+   * the box; non-loopback browser origins must be allowlisted explicitly. This
+   * is production-safe by construction; see `.standards/security.md` ->
+   * "Security defaults policy".
+   *
+   * - `cors: false` -- disable CORS entirely (e.g. fronted by a CDN/proxy that owns CORS).
+   * - `cors: { origin: "https://app.example.com" }` -- exact origin allowlist.
+   * - `cors: { origin: ["https://a.example", "https://b.example"] }` -- multi-origin allowlist.
+   * - `cors: { origin: "*" }` -- permissive opt-in.
+   * - `cors: { origin: (req) => ... }` -- custom resolver.
+   *
+   * Server-to-server callers (curl, `mcp-remote`, the MCP CLI) are unaffected
+   * regardless of this setting because they do not send an `Origin` header.
+   *
+   * Method, allowed-header, exposed-header, credentials, and preflight-cache
+   * values are framework constants and not user-configurable. `WWW-Authenticate`
+   * is always exposed so browser clients can read the RFC 9728 hint on a 401.
+   *
+   * @experimental
+   */
+  cors?: false | McpCorsOptions;
 
   /**
    * Filter which tools to expose. Default: all mcp() routes.
@@ -403,16 +543,21 @@ export interface McpToolAnnotations {
 }
 
 /**
- * Icon reference for an MCP tool.
- * Mirrors the MCP specification's `Tool.icons[]` entry (web app manifest shape).
+ * Icon reference for an MCP server or tool. Mirrors the MCP specification's
+ * `Icon` shape, which is reused by `serverInfo.icons`, `Tool.icons`, and the
+ * resource/prompt primitives.
+ *
+ * @experimental
  */
-export interface McpToolIcon {
+export interface McpIcon {
   /** URL or data URI of the icon. */
   src: string;
-  /** One or more icon sizes, e.g. `"48x48"` or `"48x48 96x96"`. */
-  sizes?: string;
-  /** MIME type of the icon. */
-  type?: string;
+  /** MIME type of the icon, e.g. `"image/svg+xml"` or `"image/png"`. */
+  mimeType?: string;
+  /** One or more icon sizes, e.g. `["48x48"]` or `["48x48", "96x96"]`. */
+  sizes?: string[];
+  /** The client UI theme this icon is designed for. */
+  theme?: "light" | "dark";
 }
 
 /**
@@ -441,7 +586,7 @@ export interface McpServerOptions {
   annotations?: McpToolAnnotations;
 
   /** Icons forwarded on `tools/list` per the MCP spec. */
-  icons?: McpToolIcon[];
+  icons?: McpIcon[];
 }
 
 export type McpOptions = McpServerOptions;
@@ -508,7 +653,7 @@ export interface McpTool {
   /** MCP tool annotations (behavior hints) reported by the server. */
   annotations?: McpToolAnnotations;
   /** Icons forwarded to clients per the MCP spec. */
-  icons?: McpToolIcon[];
+  icons?: McpIcon[];
 }
 
 /**
@@ -531,6 +676,19 @@ export interface McpToolRegistryEntry {
   transport: "stdio" | "http" | "local";
   /** MCP tool annotations (behavior hints). */
   annotations?: McpToolAnnotations;
+  /**
+   * Capability tags derived from the MCP `annotations` field at
+   * registration time. Mirrors the `Tag` namespace fns and direct
+   * routes use, so the agent `tools([{ tagged: "read-only" }])`
+   * selector matches MCP tools alongside fn/route entries.
+   *
+   * Mapping: `readOnlyHint -> "read-only"`,
+   * `destructiveHint -> "destructive"`, `idempotentHint -> "idempotent"`,
+   * `openWorldHint -> "open-world"`.
+   *
+   * @experimental
+   */
+  tags?: readonly Tag[];
 }
 
 /**

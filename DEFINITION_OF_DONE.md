@@ -20,6 +20,8 @@ The checklists below apply to **packages that ship code**: anything under `packa
 - [ ] Any meaningful behavior (lifecycle transition, operation execution, success, failure) emits a typed event via `CraftContext`. See the **Events and Tracing** checklist below
 - [ ] Write commit messages following [Conventional Commits](https://www.conventionalcommits.org/); use the `/git-commit-message` slash command for detailed formatting
 - [ ] Do not use em-dashes in documentation, JSDoc, comments, or written output
+- [ ] Coverage for modified packages does not regress against the base branch. The `test` job uploads a coverage report on every PR; reviewers compare against the `main` baseline. A net decrease for any package touched by the change requires either added tests or an explicit rationale in the PR description (e.g. removing dead code with its tests). New error paths and new public surfaces are covered by tests, not measured only as side-effect coverage of existing tests.
+- [ ] Any new default that affects authentication, network exposure, or trust boundaries is safe in production by construction. Dev or local relaxations must be explicit opt-ins, named or gated (loopback check, `NODE_ENV` guard, dedicated config field). Never invert the polarity (no `secure: true` flag whose absence is insecure). See [`.standards/security.md` §6a "Security defaults policy"](.standards/security.md).
 
 ## Events and Tracing (every change that introduces observable behavior)
 
@@ -100,6 +102,19 @@ The checklists below apply to **packages that ship code**: anything under `packa
 
 - [ ] Add to the reference page with interface, options, and example
 - [ ] Update the conceptual guide if it introduces new plugin patterns
+
+## When you touch authentication, authorization, or token handling
+
+> Auth contract lives in `.standards/security.md`. Code in
+> `packages/routecraft/src/auth/` (`jwt.ts`, `jwks.ts`, `authorize.ts`,
+> `jwt-utils.ts`, `types.ts`) and the OAuth surface in
+> `packages/ai/src/mcp/` (`oauth.ts`, `userinfo.ts`).
+
+- [ ] Changes are reviewed against `.standards/security.md`. Any relaxation (algorithm allowlist, `iss` / `aud` requirement, `exp` requirement, `sub` invariant, HTTPS-in-production guard, fail-closed posture) includes the rationale, a bounding test, and a docs update -- see § 9 of the standard
+- [ ] Bearer tokens are not logged anywhere: not in pino bindings, not in event payloads, not in error causes, not as cache keys (hash with SHA-256 if you need a key)
+- [ ] New in-memory token-keyed caches have a hard upper bound and in-flight coalescing (mirror `UserinfoCache` in `packages/ai/src/mcp/userinfo.ts`)
+- [ ] New cryptographic dependencies load via `loadOptionalPeer`; missing-peer reports as `RC5017` with an install hint
+- [ ] If a new error code is added in the auth surface, it is distinct enough that clients can react meaningfully (refresh vs deny vs investigate); collapse only when the action is identical
 
 ## When you add or modify a CLI command
 

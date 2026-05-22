@@ -3,6 +3,7 @@ import { spy, testContext, type TestContext } from "@routecraft/testing";
 import {
   authorize,
   craft,
+  markAuthentic,
   noop,
   simple,
   type EventName,
@@ -16,15 +17,15 @@ type FailedEventDetails = { details: { error: unknown } };
  * Build a tiny test source that emits one body and forwards a principal
  * by writing it onto `headers["routecraft.auth.principal"]` before
  * invoking the handler. Mirrors what real authenticating sources
- * (e.g. `mcp({ auth: jwt(...) })`) do at their boundary, so the route's
- * first exchange already carries the principal and pre-from
- * `.authorize()` can gate it.
+ * (e.g. `mcp({ auth: jwt(...) })`) do at their boundary: the principal is
+ * branded authentic with `markAuthentic` so the route's first exchange
+ * carries a trusted identity and pre-from `.authorize()` can gate it.
  */
 function principalSource<T>(body: T, principal?: Principal): Source<T> {
   return {
     subscribe: async (_ctx, handler) => {
       const headers = principal
-        ? { "routecraft.auth.principal": principal }
+        ? { "routecraft.auth.principal": markAuthentic(principal) }
         : undefined;
       await handler(body, headers);
     },
@@ -56,13 +57,7 @@ describe("authorize() validator", () => {
         craft()
           .id("ok")
           .from(simple("hello"))
-          .process((ex) => ({
-            ...ex,
-            headers: {
-              ...ex.headers,
-              "routecraft.auth.principal": principal,
-            },
-          }))
+          .authenticate(() => principal)
           .validate(authorize())
           .to(s),
       )
@@ -121,13 +116,7 @@ describe("authorize() validator", () => {
         craft()
           .id("rbac")
           .from(simple("hello"))
-          .process((ex) => ({
-            ...ex,
-            headers: {
-              ...ex.headers,
-              "routecraft.auth.principal": principal,
-            },
-          }))
+          .authenticate(() => principal)
           .validate(authorize({ roles: ["admin"] }))
           .to(s),
       )
@@ -168,13 +157,7 @@ describe("authorize() validator", () => {
         craft()
           .id("multi-role")
           .from(simple("hello"))
-          .process((ex) => ({
-            ...ex,
-            headers: {
-              ...ex.headers,
-              "routecraft.auth.principal": principal,
-            },
-          }))
+          .authenticate(() => principal)
           .validate(authorize({ roles: ["admin", "billing"] }))
           .to(s),
       )
@@ -221,13 +204,7 @@ describe("authorize() validator", () => {
         craft()
           .id("scope")
           .from(simple("hello"))
-          .process((ex) => ({
-            ...ex,
-            headers: {
-              ...ex.headers,
-              "routecraft.auth.principal": principal,
-            },
-          }))
+          .authenticate(() => principal)
           .validate(authorize({ scopes: ["read", "write"] }))
           .to(s),
       )
@@ -267,13 +244,7 @@ describe("authorize() validator", () => {
         craft()
           .id("predicate")
           .from(simple("hello"))
-          .process((ex) => ({
-            ...ex,
-            headers: {
-              ...ex.headers,
-              "routecraft.auth.principal": principal,
-            },
-          }))
+          .authenticate(() => principal)
           .validate(
             authorize({
               predicate: (p) => p.claims?.["tenant"] === "globex",
@@ -683,13 +654,7 @@ describe("exchange.principal propagation", () => {
         craft()
           .id("email-attribution")
           .from(simple("hello"))
-          .process((ex) => ({
-            ...ex,
-            headers: {
-              ...ex.headers,
-              "routecraft.auth.principal": principal,
-            },
-          }))
+          .authenticate(() => principal)
           .to(s),
       )
       .build();
@@ -716,13 +681,7 @@ describe("exchange.principal propagation", () => {
         craft()
           .id("transform-keeps-principal")
           .from(simple("hello"))
-          .process((ex) => ({
-            ...ex,
-            headers: {
-              ...ex.headers,
-              "routecraft.auth.principal": principal,
-            },
-          }))
+          .authenticate(() => principal)
           .transform((body) => `${body}!`)
           .to(s),
       )
@@ -778,13 +737,7 @@ describe("exchange.principal propagation", () => {
         craft()
           .id("tap-principal")
           .from(simple("hello"))
-          .process((ex) => ({
-            ...ex,
-            headers: {
-              ...ex.headers,
-              "routecraft.auth.principal": principal,
-            },
-          }))
+          .authenticate(() => principal)
           .tap(tapped)
           .to(main),
       )
@@ -829,13 +782,7 @@ describe("exchange.principal propagation", () => {
         craft()
           .id("tap-principal-shared-ref")
           .from(simple("hello"))
-          .process((ex) => ({
-            ...ex,
-            headers: {
-              ...ex.headers,
-              "routecraft.auth.principal": principal,
-            },
-          }))
+          .authenticate(() => principal)
           .tap(tapped)
           .process((ex) => {
             // Anti-pattern (and the test's whole point): the framework
@@ -856,6 +803,263 @@ describe("exchange.principal propagation", () => {
     expect(
       (tapped.lastReceived().principal!.claims as { tenant: string }).tenant,
     ).toBe("after");
+  });
+});
+
+describe("authorize() expiresAt enforcement", () => {
+  let t: TestContext;
+
+  afterEach(async () => {
+    if (t) await t.stop();
+  });
+
+  /**
+   * @case Validator passes through when principal.expiresAt is in the future
+   * @preconditions Principal has expiresAt = now + 60s
+   * @expectedResult Spy destination receives the body; no RC5020 fires
+   */
+  test("passes through when expiresAt is in the future", async () => {
+    const s = spy<string>();
+    const principal: Principal = {
+      kind: "custom",
+      scheme: "bearer",
+      subject: "user-1",
+      expiresAt: Math.floor(Date.now() / 1000) + 60,
+    };
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("exp-future")
+          .from(simple("hello"))
+          .authenticate(() => principal)
+          .validate(authorize())
+          .to(s),
+      )
+      .build();
+    await t.test();
+
+    expect(s.receivedBodies()).toEqual(["hello"]);
+  });
+
+  /**
+   * @case Validator passes through when principal carries no expiresAt
+   * @preconditions Principal has no expiresAt field (custom auth, opaque token)
+   * @expectedResult Spy destination receives the body; no RC5020 fires
+   */
+  test("passes through when expiresAt is absent", async () => {
+    const s = spy<string>();
+    const principal: Principal = {
+      kind: "custom",
+      scheme: "bearer",
+      subject: "user-1",
+    };
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("exp-absent")
+          .from(simple("hello"))
+          .authenticate(() => principal)
+          .validate(authorize())
+          .to(s),
+      )
+      .build();
+    await t.test();
+
+    expect(s.receivedBodies()).toEqual(["hello"]);
+  });
+
+  /**
+   * @case Validator throws RC5020 when principal.expiresAt is in the past
+   * @preconditions Principal has expiresAt = now - 60s (mid-pipeline expiry)
+   * @expectedResult exchange:failed fires with RC5020; destination is skipped
+   */
+  test("rejects with RC5020 when expiresAt has passed", async () => {
+    const s = spy<string>();
+    const principal: Principal = {
+      kind: "custom",
+      scheme: "bearer",
+      subject: "user-1",
+      expiresAt: Math.floor(Date.now() / 1000) - 60,
+    };
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("exp-past")
+          .from(simple("hello"))
+          .authenticate(() => principal)
+          .validate(authorize())
+          .to(s),
+      )
+      .build();
+
+    const failures: unknown[] = [];
+    t.ctx.on(
+      "route:exp-past:exchange:failed" as EventName,
+      ((payload: FailedEventDetails) => {
+        failures.push(payload.details.error);
+      }) as Parameters<typeof t.ctx.on>[1],
+    );
+
+    await t.test();
+
+    expect(s.received).toHaveLength(0);
+    expect(failures).toHaveLength(1);
+    expect(String(failures[0])).toContain("RC5020");
+    expect(String(failures[0])).toContain("expired");
+  });
+
+  /**
+   * @case clockToleranceSec admits a token whose expiresAt is within tolerance
+   * @preconditions Principal expiresAt is now - 2s; authorize({ clockToleranceSec: 5 })
+   * @expectedResult Validator passes through; matches the boundary-side clock tolerance
+   */
+  test("clockToleranceSec admits a token within tolerance", async () => {
+    const s = spy<string>();
+    const principal: Principal = {
+      kind: "custom",
+      scheme: "bearer",
+      subject: "user-1",
+      expiresAt: Math.floor(Date.now() / 1000) - 2,
+    };
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("exp-tolerated")
+          .from(simple("hello"))
+          .authenticate(() => principal)
+          .validate(authorize({ clockToleranceSec: 5 }))
+          .to(s),
+      )
+      .build();
+    await t.test();
+
+    expect(s.receivedBodies()).toEqual(["hello"]);
+  });
+
+  /**
+   * @case clockToleranceSec still rejects when expiresAt is past the tolerance window
+   * @preconditions Principal expiresAt is now - 60s; authorize({ clockToleranceSec: 5 })
+   * @expectedResult exchange:failed fires with RC5020
+   */
+  test("clockToleranceSec still rejects past the tolerance window", async () => {
+    const s = spy<string>();
+    const principal: Principal = {
+      kind: "custom",
+      scheme: "bearer",
+      subject: "user-1",
+      expiresAt: Math.floor(Date.now() / 1000) - 60,
+    };
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("exp-beyond-tolerance")
+          .from(simple("hello"))
+          .authenticate(() => principal)
+          .validate(authorize({ clockToleranceSec: 5 }))
+          .to(s),
+      )
+      .build();
+
+    const failures: unknown[] = [];
+    t.ctx.on(
+      "route:exp-beyond-tolerance:exchange:failed" as EventName,
+      ((payload: FailedEventDetails) => {
+        failures.push(payload.details.error);
+      }) as Parameters<typeof t.ctx.on>[1],
+    );
+
+    await t.test();
+
+    expect(s.received).toHaveLength(0);
+    expect(failures).toHaveLength(1);
+    expect(String(failures[0])).toContain("RC5020");
+  });
+
+  /**
+   * @case Non-finite expiresAt fails closed (does not silently bypass the check)
+   * @preconditions Principal expiresAt is NaN (e.g. attached by a buggy .process() step)
+   * @expectedResult RC5020 fires; NaN cannot mask the guard
+   */
+  test("non-finite expiresAt fails closed with RC5020", async () => {
+    const s = spy<string>();
+    const principal: Principal = {
+      kind: "custom",
+      scheme: "bearer",
+      subject: "user-1",
+      expiresAt: Number.NaN,
+    };
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("exp-nan")
+          .from(simple("hello"))
+          .authenticate(() => principal)
+          .validate(authorize())
+          .to(s),
+      )
+      .build();
+
+    const failures: unknown[] = [];
+    t.ctx.on(
+      "route:exp-nan:exchange:failed" as EventName,
+      ((payload: FailedEventDetails) => {
+        failures.push(payload.details.error);
+      }) as Parameters<typeof t.ctx.on>[1],
+    );
+
+    await t.test();
+
+    expect(s.received).toHaveLength(0);
+    expect(failures).toHaveLength(1);
+    expect(String(failures[0])).toContain("RC5020");
+  });
+
+  /**
+   * @case RC5020 is distinct from RC5012 (no principal) and RC5015 (wrong roles)
+   * @preconditions Expired principal also lacks a required role
+   * @expectedResult RC5020 wins (expiry check runs before role check)
+   */
+  test("RC5020 fires before role / scope checks when expired", async () => {
+    const s = spy<string>();
+    const principal: Principal = {
+      kind: "custom",
+      scheme: "bearer",
+      subject: "user-1",
+      roles: ["user"],
+      expiresAt: Math.floor(Date.now() / 1000) - 60,
+    };
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("exp-precedence")
+          .from(simple("hello"))
+          .authenticate(() => principal)
+          .validate(authorize({ roles: ["admin"] }))
+          .to(s),
+      )
+      .build();
+
+    const failures: unknown[] = [];
+    t.ctx.on(
+      "route:exp-precedence:exchange:failed" as EventName,
+      ((payload: FailedEventDetails) => {
+        failures.push(payload.details.error);
+      }) as Parameters<typeof t.ctx.on>[1],
+    );
+
+    await t.test();
+
+    expect(failures).toHaveLength(1);
+    const msg = String(failures[0]);
+    expect(msg).toContain("RC5020");
+    expect(msg).not.toContain("RC5015");
   });
 });
 

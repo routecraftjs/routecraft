@@ -652,6 +652,12 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
         merged[key] = Object.freeze([...value]);
       }
     }
+    // This block is an immutability defence only; it is NOT load-bearing for
+    // authenticity. Trust is conferred solely by membership in the private
+    // WeakSet in `auth/authentic.ts` (added by `markAuthentic`), which a clone
+    // here would not carry. Authentic principals always arrive already frozen
+    // (markAuthentic freezes), so this clone-and-freeze fires only for a
+    // self-asserted plain object, which `authorize()` rejects regardless.
     const principal = merged[HeadersKeys.AUTH_PRINCIPAL];
     if (
       principal !== undefined &&

@@ -348,34 +348,6 @@ describe("jwt()", () => {
       const result = await validator(token);
       expect(result.subject).toBe("azure-oid");
     });
-
-    /**
-     * @case Custom roles mapper overrides the default roles extraction
-     * @preconditions jwt() with claims.roles override; token carries roles under non-standard key
-     * @expectedResult Principal.roles comes from the override callback
-     */
-    test("applies claims.roles override", async () => {
-      const { validator } = jwt({
-        secret: SECRET,
-        issuer: ISSUER,
-        audience: AUDIENCE,
-        claims: {
-          roles: (p) => p["groups"] as string[],
-        },
-      });
-      const token = signHs256(
-        {
-          sub: "u",
-          iss: ISSUER,
-          aud: AUDIENCE,
-          exp: FUTURE,
-          groups: ["admin"],
-        },
-        SECRET,
-      );
-      const result = await validator(token);
-      expect(result.roles).toEqual(["admin"]);
-    });
   });
 
   describe("principal shape", () => {
@@ -436,6 +408,116 @@ describe("jwt()", () => {
       );
       const result = await validator(token);
       expect(result.subject).toBe("svc-account");
+    });
+  });
+
+  describe("issuer propagation", () => {
+    /**
+     * @case jwt() surfaces a string issuer on its returned options
+     * @preconditions jwt({ issuer: "https://idp.example.com", ... })
+     * @expectedResult Returned object carries `issuer` equal to the configured value
+     */
+    test("string issuer is exposed on the returned options", () => {
+      const result = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+      });
+      expect(result.issuer).toBe(ISSUER);
+    });
+
+    /**
+     * @case jwt() preserves an array issuer on its returned options
+     * @preconditions jwt({ issuer: [a, b], ... })
+     * @expectedResult Returned object carries the exact issuer array
+     */
+    test("string[] issuer is exposed on the returned options", () => {
+      const issuers = [ISSUER, "https://alt.example.com"];
+      const result = jwt({
+        secret: SECRET,
+        issuer: issuers,
+        audience: AUDIENCE,
+      });
+      expect(result.issuer).toEqual(issuers);
+    });
+  });
+
+  describe("temporal claims", () => {
+    const PAST = Math.floor(Date.now() / 1000) - 3600;
+    const FAR_FUTURE = Math.floor(Date.now() / 1000) + 7200;
+
+    /**
+     * @case An expired token is rejected with jose's ERR_JWT_EXPIRED code
+     * @preconditions jwt() validator; token whose exp is in the past
+     * @expectedResult Rejects with an error carrying code "ERR_JWT_EXPIRED" so log-level classification matches jwks()
+     */
+    test("rejects an expired token with the ERR_JWT_EXPIRED code", async () => {
+      const { validator } = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+      });
+      const token = signHs256(
+        { sub: "user-1", iss: ISSUER, aud: AUDIENCE, exp: PAST },
+        SECRET,
+      );
+      let caught: unknown;
+      try {
+        await validator(token);
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(Error);
+      expect((caught as { code?: string }).code).toBe("ERR_JWT_EXPIRED");
+    });
+
+    /**
+     * @case A not-yet-valid token is rejected without the expiry code
+     * @preconditions jwt() validator; token whose nbf is in the future and exp is valid
+     * @expectedResult Rejects, but the error does NOT carry ERR_JWT_EXPIRED (nbf is not routine expiry)
+     */
+    test("rejects a not-yet-valid token without the expiry code", async () => {
+      const { validator } = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+      });
+      const token = signHs256(
+        {
+          sub: "user-1",
+          iss: ISSUER,
+          aud: AUDIENCE,
+          exp: FAR_FUTURE,
+          nbf: FAR_FUTURE,
+        },
+        SECRET,
+      );
+      let caught: unknown;
+      try {
+        await validator(token);
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(Error);
+      expect((caught as { code?: string }).code).not.toBe("ERR_JWT_EXPIRED");
+    });
+
+    /**
+     * @case A token missing the exp claim is rejected
+     * @preconditions jwt() validator; token with no exp claim
+     * @expectedResult Rejects (jwt() requires a bearer-token expiry)
+     */
+    test("rejects a token missing the exp claim", async () => {
+      const { validator } = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+      });
+      const token = signHs256(
+        { sub: "user-1", iss: ISSUER, aud: AUDIENCE },
+        SECRET,
+      );
+      await expect(validator(token)).rejects.toThrow(/exp/);
     });
   });
 });

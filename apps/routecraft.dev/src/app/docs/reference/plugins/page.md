@@ -179,12 +179,18 @@ export default config
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `name` | `string` | `'routecraft'` | Server name exposed in MCP metadata |
+| `name` | `string` | `'routecraft'` | Server name exposed in MCP metadata (`serverInfo.name`) |
+| `title` | `string` | -- | Human-readable display title (`serverInfo.title`) |
 | `version` | `string` | `'1.0.0'` | Server version |
+| `description` | `string` | `'Powered by Routecraft.dev'` | `serverInfo.description`; pass `''` to omit |
+| `websiteUrl` | `string` | `'https://routecraft.dev'` | `serverInfo.websiteUrl`; pass `''` to omit |
+| `instructions` | `string` | -- | Server-wide usage guidance on the `initialize` result; pass `''` (or omit) to send none |
+| `icons` | `McpIcon[]` | Routecraft logo | `serverInfo.icons`, inherited by tools that set none of their own; pass `[]` to omit. See [Server identity and branding](/docs/advanced/expose-as-mcp#server-identity-and-branding). |
 | `transport` | `'http' \| 'stdio'` | `'stdio'` | Transport protocol for the MCP server |
 | `port` | `number` | `3001` | HTTP port (http transport only) |
 | `host` | `string` | `'localhost'` | HTTP host (http transport only) |
 | `auth` | `McpHttpAuthOptions` | -- | Auth for the HTTP endpoint (http transport only; see below) |
+| `cors` | `false \| McpCorsOptions` | loopback-only | CORS for the HTTP transport. Default reflects loopback `Origin` headers; set to `false` to disable or `{ origin }` to allowlist production browser clients. See [Expose as MCP -> CORS](/docs/advanced/expose-as-mcp#cors). |
 | `tools` | `string[] \| (meta) => boolean` | -- | Allowlist of tool names to expose, or a filter function |
 | `clients` | `Record<string, McpClientHttpConfig \| McpClientStdioConfig>` | -- | Named remote MCP servers (see below) |
 | `maxRestarts` | `number` | `5` | Max automatic restarts for stdio clients before giving up |
@@ -321,12 +327,11 @@ auth: oauth({
 
 | Field | Default when omitted |
 |-------|----------------------|
-| `subject` | `payload.sub` |
-| `clientId` | `payload.client_id` |
-| `email` | `payload.email` |
-| `name` | `payload.name` |
+| `subject` | `payload.sub`, then `payload.client_id`, then `payload.azp` |
+| `clientId` | `payload.client_id`, then `payload.azp` |
 | `scopes` | space-split `payload.scope` |
-| `roles` | `payload.roles` when it is `string[]` |
+
+`email`, `name`, and `roles` are not mappable here. They are read from the standard claim names (`email`, `name`, `roles`) when present in the token. For identity fields that do not live in the bearer (most IdPs do not put them there), use the [`userinfo` option on `mcpPlugin({})`](/docs/advanced/expose-as-mcp#principal-enrichment-via-userinfo) — function variant for custom mappings, OIDC Discovery or an explicit URL for the standard `/userinfo` endpoint.
 
 **Claim overrides for non-standard IdPs:**
 
@@ -337,7 +342,6 @@ jwt: {
   audience: '<app-id>',
   claims: {
     subject: (p) => p.oid as string,
-    roles: (p) => p['roles'] as string[] | undefined,
   },
 }
 ```
@@ -466,7 +470,12 @@ craft()
 | `system` | `string \| (exchange) => string` | Yes | System prompt. Static string or a function that derives it from the exchange (mirrors `llm({ system })`) |
 | `user` | `string \| (exchange) => string` | No | User prompt override. Static string or a function that derives it from the exchange. Defaults to `exchange.body` (string as-is, JSON for objects) when omitted |
 | `tools` | `ToolSelection` | No | Tool whitelist built via `tools([...])`. Inherits `defaultOptions.tools` when omitted; an explicit value replaces the default entirely |
+| `maxTurns` | `number` | No | Cap on tool-calling turns. Inherits `defaultOptions.maxTurns` when omitted |
+| `skills` | `string[]` | No | Skill names whose content is appended to the system prompt. Resolved against `agentPlugin({ skills })` |
+| `principal` | `boolean \| (principal, exchange) => string` | No | Append a `## Caller` section describing `exchange.principal`. `true` for the built-in block, a function to render it yourself. Inherits `defaultOptions.principal` when omitted; a per-agent value (including `false`) overrides it. See [Telling the agent who the caller is](/docs/reference/adapters#telling-the-agent-who-the-caller-is) |
 | `output` | `StandardSchemaV1` | No | Schema for structured output. Validated and parsed onto `AgentResult.output` after dispatch (runtime ships in a follow-up release) |
+
+Agents loaded from markdown via [`agents("./dir")`](/docs/reference/adapters#agent) accept the same fields as frontmatter. `principal` is supported there as a boolean (`principal: true`); the function-renderer form is a closure YAML cannot express, so set it via the per-agent override map (`agents("./dir", { zoe: { principal: (p) => ... } })`) or `agentPlugin({ defaultOptions })`.
 
 **Resolution semantics:**
 
@@ -552,14 +561,16 @@ Tags, the `tools([...])` selector, the builder helpers, and the context-level `d
 import {
   agentPlugin,
   agent,
-  defaultFns,
+  currentTime,
   directTool,
+  randomUuid,
   tools,
 } from '@routecraft/ai'
 
 agentPlugin({
   functions: {
-    ...defaultFns,                                  // currentTime, randomUuid (read-only, idempotent)
+    CurrentTime: currentTime(),                     // built-in (read-only, idempotent)
+    RandomUuid: randomUuid(),                        // built-in (read-only)
     sendSlack: { description, input, handler, tags: ['destructive', 'messaging'] },
     fetchOrder: directTool('fetch-order'),          // wraps a direct route as a fn
   },
@@ -567,9 +578,9 @@ agentPlugin({
     researcher: {
       description, system,                          // model + tools inherit from defaultOptions
       tools: tools([
-        'currentTime',                              // bare ref
+        'CurrentTime',                              // bare ref
         'fetchOrder',
-        'direct_cancel-order',                      // prefix convention
+        'Direct(cancel-order)',                     // direct route
         { name: 'sendSlack', guard: requireApproval },
         { tagged: 'read-only' },                    // single tag
         { tagged: ['read-only', 'idempotent'] },    // OR-of-tags
@@ -578,7 +589,7 @@ agentPlugin({
   },
   defaultOptions: {
     model: 'anthropic:claude-opus-4-7',             // applies to agents that omit `model`
-    tools: tools(['currentTime', { tagged: 'read-only' }]),
+    tools: tools(['CurrentTime', { tagged: 'read-only' }]),
   },
 })
 ```
@@ -587,25 +598,51 @@ agentPlugin({
 
 Flat array of items. Each item is one of:
 
-- **Bare string**: name lookup. Plain ids resolve against the fn registry; `direct_*` falls back to the direct registry via `directTool`. `agent_*` and `mcp_*` are reserved for future stories and currently throw a clear "not yet supported" error.
-- **`{ name, guard?, description? }`**: same name lookup, with optional per-binding overrides. The guard runs after schema validation and before the handler; throwing surfaces back to the LLM as a tool error so the model can self-correct. The `description` override applies only to this binding (the registry entry stays the source of truth, so other agents binding the same fn still see the canonical description). Use it when an agent's calling context calls for a different framing of the tool than the registered description provides; descriptions affect LLM tool-selection accuracy noticeably.
-- **`{ tagged, guard? }`**: selects every fn / route whose tags overlap the requested set (single tag or array). Optional guard applies to every match. Tag-zero-match contributes nothing without throwing. No description override on the tagged form: applying a single description to N matched tools is almost always wrong.
+- **Bare string**: name lookup. Plain ids resolve against the fn registry; `Direct(<routeId>)` wraps a direct route via `directTool` (the LLM-facing tool name stays `direct_<routeId>`); `MCP(server:tool)` resolves against `MCP_TOOL_REGISTRY` (populated by `defineConfig.mcp` / `mcpPlugin({ clients })`), and `MCP(server)` (or the raw `mcp__server__tool` / `mcp__server` / `mcp__server__*` forms) expands at dispatch time to every tool the named server exposed. The raw `mcp__server__tool` form is the string Claude Code agent files carry, so they resolve unchanged.
+- **`{ name, guard?, description? }`**: same name lookup, with optional per-binding overrides. The guard runs after schema validation and before the handler; throwing surfaces back to the LLM as a tool error so the model can self-correct. The `description` override applies only to this binding for fn-style names. MCP references reject `description` (the MCP server is the source of truth for description and schema; do not override).
+- **`{ tagged, from?, guard? }`**: selects every fn / route / MCP tool whose tags overlap the requested set (single tag or array; OR semantics across the array). `from?: string` scopes the walk to a single source; today `from: "mcp__<server>"` restricts the selection to one MCP server. Optional guard applies to every match. Tag-zero-match throws RC5003 so a misconfigured selector cannot silently strip every tool from an agent.
+
+MCP tools are auto-tagged at registration from each tool's MCP annotations: `readOnlyHint → "read-only"`, `destructiveHint → "destructive"`, `idempotentHint → "idempotent"`, `openWorldHint → "open-world"`. That means `{ tagged: "read-only" }` matches fns, routes, AND MCP tools out of the box.
+
+Examples:
+
+```ts
+agent({
+  tools: tools([
+    'CurrentTime',                                  // fn
+    'Direct(orders/fetch)',                         // direct route
+    'MCP(Nuclino:list_teams)',                      // one MCP tool
+    'MCP(Stripe)',                                  // all tools from one MCP server
+    { tagged: 'read-only' },                        // cross-cutting tag filter
+    { tagged: 'destructive', from: 'mcp__Nuclino' }, // tag filter scoped to one MCP server
+    {
+      name: 'MCP(Nuclino:get_item)',
+      guard: (input, ctx) => {
+        if (!ctx.principal?.scopes?.includes('nuclino.read')) {
+          throw new Error('missing nuclino.read scope');
+        }
+      },
+    },
+  ]),
+});
+```
 
 Resolution rules:
 
 - Final list deduplicated by tool name.
 - Explicit refs always win over tag-selector matches, regardless of position in the list.
 - A `directTool(routeId)` fn-registry wrapper supersedes the same direct route surfaced via the prefix convention.
-- `description` is the only override permitted at the use site, and only on the explicit `{ name }` form. Input schema, tags, and any other registration-time fields are not overridable here. Register a separate fn with `directTool(routeId, { input, tags })` if you need a fundamentally different view.
+- `description` is the only override permitted at the use site, and only on the explicit `{ name }` form for fn-style names. Input schema, tags, and any other registration-time fields are not overridable here. Register a separate fn with `directTool(routeId, { input, tags })` if you need a fundamentally different view. MCP refs reject `description` outright.
+- The agent does NOT forward `FnHandlerContext.principal` to the MCP server. Principal authenticates the caller into Routecraft; MCP `auth` (configured on the client) authenticates the Routecraft → MCP hop. To thread user-specific data into an MCP call, put it in the tool's input as a regular argument and let the MCP server enforce its own policy. See `.standards/security.md` §11.
 
 #### Builders
 
 | Builder | Use |
 |---|---|
 | `directTool(routeId, overrides?)` | Adapt a registered direct route as a fn. Pulls description, input schema, and tags from the route's discovery bundle by default; `overrides` can replace any of those. |
-| `agentTool(agentId)` | Reserved for sub-agent tools (follow-up story). Currently a stub that throws a clear "not yet supported" error. |
-| `mcpTool(server, tool)` | Reserved for MCP tools (follow-up story). Currently a stub. |
-| `defaultFns` | A small starter set (`currentTime`, `randomUuid`) tagged `read-only`/`idempotent`. Spread into your `functions:` config. |
+| `currentTime()` / `randomUuid()` | Built-in fn factories (read-only / idempotent). Assign each a tool name in your `functions:` config, the same way as `directTool`. |
+
+MCP tools are NOT exposed via a builder. Use the `MCP(server:tool)` / `MCP(server)` grammar (or the raw `mcp__server__tool` form) inside `tools([...])` instead; the registry populated by `defineConfig.mcp` is the source of truth.
 
 #### Tags
 
@@ -621,12 +658,14 @@ Any user string is also accepted; the `KnownTag` literals just power autocomplet
 
 #### Context-level `defaultOptions`
 
-Mirrors the `llmPlugin({ defaultOptions })` pattern: a single bag of values applied to any agent that omits the corresponding field. Two fields today, easy to extend.
+Mirrors the `llmPlugin({ defaultOptions })` pattern: a single bag of values applied to any agent that omits the corresponding field.
 
 | Field | Type | Inherited by |
 |---|---|---|
 | `defaultOptions.model` | `LlmModelId` (string) | Agents that omit `model` |
 | `defaultOptions.tools` | `ToolSelection` (from `tools([...])`) | Agents that omit `tools` |
+| `defaultOptions.maxTurns` | `number` | Agents that omit `maxTurns` |
+| `defaultOptions.principal` | `boolean \| (principal, exchange) => string` | Agents that omit `principal` |
 
 Resolution at dispatch is per-key: instance value > plugin default > (for `model`) throw, (for `tools`) `undefined`. Agents that set the field replace the default entirely (override, not extend).
 
@@ -636,7 +675,7 @@ Two `agentPlugin` installs that each set the same field throw at context init. T
 agentPlugin({
   defaultOptions: {
     model: 'anthropic:claude-opus-4-7',
-    tools: tools(['currentTime', { tagged: 'read-only' }]),
+    tools: tools(['CurrentTime', { tagged: 'read-only' }]),
   },
   agents: {
     researcher: { description, system },                            // inherits both

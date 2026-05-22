@@ -140,23 +140,33 @@ function decodeToken(token: string): {
 }
 
 /**
- * Check `exp` and `nbf` temporal claims. Tokens without an `exp` claim are
- * rejected unconditionally: every token verified by `jwt()` feeds into flows
- * that require a bearer-token expiry (see {@link OAuthPrincipal}).
+ * Assert the `exp` and `nbf` temporal claims, throwing on failure. The expired
+ * case carries jose's stable `ERR_JWT_EXPIRED` code so downstream log-level
+ * classification treats a `jwt()` expiry the same as a `jwks()` / jose expiry
+ * (a routine refresh, logged at `debug`, not `warn`). Tokens without an `exp`
+ * claim are rejected unconditionally: every token verified by `jwt()` feeds into
+ * flows that require a bearer-token expiry (see {@link OAuthPrincipal}).
  */
-function checkTemporalClaims(
+function assertTemporalClaims(
   payload: Record<string, unknown>,
   clockToleranceSec: number,
-): boolean {
+): void {
   const now = Math.floor(Date.now() / 1000);
 
-  if (typeof payload["exp"] !== "number") return false;
-  if (now > payload["exp"] + clockToleranceSec) return false;
-
-  if (typeof payload["nbf"] === "number") {
-    if (now < payload["nbf"] - clockToleranceSec) return false;
+  if (typeof payload["exp"] !== "number") {
+    throw new Error("jwt: token is missing the required exp claim");
   }
-  return true;
+  if (now > payload["exp"] + clockToleranceSec) {
+    throw Object.assign(new Error("jwt: token has expired"), {
+      code: "ERR_JWT_EXPIRED",
+    });
+  }
+  if (
+    typeof payload["nbf"] === "number" &&
+    now < payload["nbf"] - clockToleranceSec
+  ) {
+    throw new Error("jwt: token is not yet valid (nbf)");
+  }
 }
 
 /**
@@ -243,8 +253,7 @@ function createHmacValidator(
       throw new Error("jwt: invalid signature");
     }
 
-    if (!checkTemporalClaims(payload, clockToleranceSec))
-      throw new Error("jwt: token expired or not yet valid");
+    assertTemporalClaims(payload, clockToleranceSec);
     if (!validateIssuerAudience(payload, issuer, audience))
       throw new Error("jwt: invalid issuer or audience");
 
@@ -297,8 +306,7 @@ function createRsaValidator(
       throw new Error("jwt: invalid signature");
     }
 
-    if (!checkTemporalClaims(payload, clockToleranceSec))
-      throw new Error("jwt: token expired or not yet valid");
+    assertTemporalClaims(payload, clockToleranceSec);
     if (!validateIssuerAudience(payload, issuer, audience))
       throw new Error("jwt: invalid issuer or audience");
 
@@ -362,5 +370,5 @@ export function jwt(options: JwtAuthOptions): OAuthValidatorAuthOptions {
     ? createHmacValidator(options)
     : createRsaValidator(options);
 
-  return { validator };
+  return { validator, issuer: options.issuer };
 }

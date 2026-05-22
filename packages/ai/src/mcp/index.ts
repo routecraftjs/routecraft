@@ -10,6 +10,8 @@ export type {
   OAuthClientSupplier,
   OAuthVerifier,
 } from "./oauth.ts";
+export type { UserinfoFn, UserinfoOption } from "./userinfo.ts";
+export type { McpCorsOptions, McpCorsOriginResolver } from "./cors.ts";
 export { mcpPlugin } from "./plugin.ts";
 export { McpServer } from "./server.ts";
 export { McpToolRegistry } from "./tool-registry.ts";
@@ -24,12 +26,13 @@ export {
   type McpLocalToolEntry,
   type McpOptions,
   type McpPluginOptions,
+  type McpResourceOptions,
   type McpServerOptions,
   type McpTool,
   type McpToolAnnotations,
   type McpInput,
   type McpOutput,
-  type McpToolIcon,
+  type McpIcon,
   type McpToolRegistryEntry,
   type McpToolResult,
   type OAuthAuthOptions,

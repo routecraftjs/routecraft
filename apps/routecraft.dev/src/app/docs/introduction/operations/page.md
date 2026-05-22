@@ -31,7 +31,7 @@ Capability(Route)-level operations configure the capability itself. They go **be
 
 Transform operations reshape the data as it flows through the pipeline. They receive the current exchange and return a new version of it.
 
-The distinction between them is how much of the exchange they expose. `.transform()` receives the body only and returns the new body -- the right choice for most data reshaping. `.process()` receives the full exchange, giving access to headers and context. `.map()` projects fields into a new typed shape. `.enrich()` calls an adapter and **merges** the result into the body rather than replacing it. `.header()` sets metadata without touching the body at all.
+The distinction between them is how much of the exchange they expose. `.transform()` receives the body only and returns the new body -- the right choice for most data reshaping. `.process()` receives the full exchange, giving access to headers and context. `.map()` projects fields into a new typed shape. `.enrich()` calls an adapter and **merges** the result into the body rather than replacing it. `.header()` sets metadata without touching the body at all. `.authenticate()` establishes the caller's identity: it mints a trusted `Principal` from claims you have verified (an e-mail sender, a webhook signature) so a later `.authorize()` can gate on it.
 
 ### Flow control
 

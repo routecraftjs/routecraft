@@ -1,0 +1,33 @@
+import type { McpIcon } from "./types.ts";
+
+/**
+ * The Routecraft logo as an inline SVG, parameterised by fill colour so we can
+ * emit a light-theme (dark logo) and dark-theme (light logo) variant from one
+ * source. Geometry is taken from `routecraft.svg` at the repo root.
+ */
+const logoSvg = (fill: string): string =>
+  `<svg width="162" height="153" viewBox="0 0 162 153" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M141.881 62.9617C141.881 44.2319 126.65 29.0002 107.92 29.0002H30.1636L52.4304 52.2797L71.8879 52.3014L62.5672 42.4107H107.92C119.252 42.4107 128.471 51.6298 128.471 62.9617C128.471 74.293 119.252 83.5128 107.92 83.5128H101.193H88.5983H54.5814C50.8822 83.5128 47.8762 86.5187 47.8762 90.2173C47.8762 93.9278 50.8822 96.9225 54.5814 96.9225H95.4038L120.815 123.997H139.227L113.374 96.4753C129.522 93.8717 141.881 79.8359 141.881 62.9617Z" fill="${fill}"/><path d="M54.8718 110.59C43.5966 110.59 34.4105 101.403 34.4105 90.1282C34.4105 78.8411 43.5966 69.6662 54.8718 69.6662H107.115C110.814 69.6662 113.82 66.6714 113.82 62.9617C113.82 59.2624 110.814 56.2564 107.115 56.2564H54.8718C36.1988 56.2564 21 71.4545 21 90.1282C21 108.802 36.1988 124 54.8718 124H113.597L101.014 110.59H54.8718Z" fill="${fill}"/></svg>`;
+
+const toDataUri = (svg: string): string =>
+  `data:image/svg+xml;base64,${Buffer.from(svg, "utf8").toString("base64")}`;
+
+/**
+ * Default Routecraft branding for `serverInfo.icons` when a consumer does not
+ * set their own. Two variants so the mark stays legible on either client theme:
+ * a white logo for dark UIs and a black logo for light UIs.
+ */
+// Frozen because this single array is handed out by reference to every server's
+// serverInfo and every inheriting tool; freezing prevents an accidental in-place
+// mutation from leaking process-wide into the shared default.
+export const ROUTECRAFT_DEFAULT_ICONS: McpIcon[] = Object.freeze([
+  Object.freeze({
+    src: toDataUri(logoSvg("#ffffff")),
+    mimeType: "image/svg+xml",
+    theme: "dark",
+  }),
+  Object.freeze({
+    src: toDataUri(logoSvg("#000000")),
+    mimeType: "image/svg+xml",
+    theme: "light",
+  }),
+]) as McpIcon[];

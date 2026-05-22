@@ -140,6 +140,35 @@ describe("agent() destination", () => {
   });
 
   /**
+   * @case agent({ principal }) accepts a boolean or a function and rejects other values at construction
+   * @preconditions agent with principal set to true, a function, and a string
+   * @expectedResult The boolean and function forms construct; the string throws RC5003 mentioning "principal"
+   */
+  test("agent({ principal }) must be a boolean or a function", () => {
+    const boolForm = agent({
+      model: "anthropic:claude-opus-4-7",
+      system: "Be helpful.",
+      principal: true,
+    });
+    expect(boolForm).toBeInstanceOf(AgentDestinationAdapter);
+
+    const fnForm = agent({
+      model: "anthropic:claude-opus-4-7",
+      system: "Be helpful.",
+      principal: (p) => (p ? `## Caller\n\n${p.subject}` : ""),
+    });
+    expect(fnForm).toBeInstanceOf(AgentDestinationAdapter);
+
+    expect(() =>
+      agent({
+        model: "anthropic:claude-opus-4-7",
+        system: "Be helpful.",
+        principal: "yes" as never,
+      }),
+    ).toThrow(/principal/i);
+  });
+
+  /**
    * @case end-to-end: route with agent calls callLlm with system + body-derived user prompt
    * @preconditions Route from simple body, .to(agent({...})), .to(spy)
    * @expectedResult callLlm is called once with the configured system and the body as user prompt; downstream body is AgentResult

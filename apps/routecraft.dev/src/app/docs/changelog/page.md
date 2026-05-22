@@ -18,23 +18,38 @@ Several breaking changes across the core, AI, mail, telemetry, logger, and CLI s
 
 - **Dual-mode wrapper pattern** -- `.error()` is the first wrapper in a new dual-mode design; route-level error handling is now a wrapper rather than a top-level method. Source-level parse errors now flow through the same handler.
 - **Immutable Exchange** -- the `Exchange` is frozen and mutation is replaced with explicit copy-on-write. State is unified on `{ body, headers }`, with `principal`, `id`, and `logger` exposed as getters.
-- **`.authorize()` route-entry guard** -- new principal accessor on `Exchange` and a route-only authorization validator. Replaces the previous `requirePrincipal` validator.
+- **`.authorize()` route-entry guard** -- new principal accessor on `Exchange` and a route-only authorization validator. Replaces the previous `requirePrincipal` validator. The validator now also checks `principal.expiresAt` and raises `RC5020` when a long-running step has outlived the credential; pass `clockToleranceSec` to match the boundary-side verifier's tolerance.
 - **Choice operation** -- new conditional routing primitive with `transform()` and `enrich()` available on branch builders. Core operations are shared between routes and branches via a `StepBuilderBase`.
 - **Discovery metadata on the route builder** -- route id, description, and validation move from source options to the route builder itself.
 
-### AI & MCP
+### AI & MCP {% badge color="red" %}Breaking{% /badge %}
 
 - **Agent runtime** -- tool-calling loop, streaming via `onEvent` and `onDelta`, agent destination, and per-binding tool description overrides.
 - **`tools()` DSL** -- declarative tool registration, selection, and resolution.
 - **Agent configuration overhaul** -- `agentPlugin.agents` is a record (no `defineAgent`), `defaultOptions` set context-level defaults, `system`/`user` accept string or function, and agent enhancements (`toolCalls`, `validate`, skills + agents loaders) narrow `FnHandlerContext`.
 - **Config applier system** -- first-class AI plugin keys via a config applier hook.
 - **MCP OAuth 2.1 server** -- OAuth 2.1 authentication provider with principal hierarchy, plus a general MCP HTTP auth surface and tool annotations.
+- **MCP HTTP server identity and protected-resource metadata** -- new `mcpPlugin({ title, resource: { url, scopesSupported, documentationUrl } })` shape. Resource identity is now first-class on the plugin, orthogonal to the auth mode. Both validator-mode (`jwks()` / `jwt()`) and OAuth-proxy mode (`oauth()`) auto-mount `GET /.well-known/oauth-protected-resource` (RFC 9728) with the same JSON shape (including `bearer_methods_supported`) and append an absolute `resource_metadata="..."` URL to 401 `WWW-Authenticate` headers, so auto-discovering clients (Claude.ai connectors, MCP Inspector, `mcp-remote`) can locate the authorization server. `OAuthAuthOptions` is reduced to pure proxy mechanics. Field migration:
+  - `oauth({ resourceIssuerUrl })` -> `mcpPlugin({ resource: { url } })`
+  - `oauth({ scopesSupported })` -> `mcpPlugin({ resource: { scopesSupported } })`
+  - `oauth({ serviceDocumentationUrl })` -> `mcpPlugin({ resource: { documentationUrl } })`
+  - `oauth({ resourceName })` -> `mcpPlugin({ title })` (with `name` as the final fallback)
+- **Plugin-level `userinfo` enrichment** -- post-verify principal enrichment on `mcpPlugin({ userinfo })`, orthogonal to the auth mode: works with `jwks()` / `jwt()` (validator mode), a custom `{ validator }`, and `oauth()`. Accepts `true` (auto-discover via OIDC Discovery), `string | URL` (explicit endpoint), or a custom function. The framework enforces the OIDC Core §5.3.2 `sub` invariant on URL / discovery modes, fails closed on any fetch / parse error, and memoises enrichment per token (SHA-256 hashed) with insertion-order eviction, in-flight coalescing, and TTL bound to `principal.expiresAt`. The raw userinfo response is surfaced on a separate `principal.userinfoClaims` field so `principal.claims` continues to mean "verified JWT payload." This enables the WorkOS AuthKit pattern (validator mode + identity hydration) that OAuth proxy mode could not serve. `oauth({})` no longer carries its own `userinfo`; it lives on the plugin, mirroring how `resource` was promoted off `oauth()`.
+- **`OAuthValidatorAuthOptions.issuer`** -- `jwks()` and `jwt()` now surface the expected issuer on the returned options so `userinfo: true` discovery and RFC 9728 `authorization_servers` work without re-declaring the IdP.
+- **`ClaimMappers.{email,name,roles}` removed** -- superseded by the `userinfo` enrichment slot. `ClaimMappers.{subject,clientId,scopes}` remain for token-level claim mapping.
+- **Three new error codes** -- `RC5020` (token expired during processing), `RC5021` (principal enrichment failed), `RC5022` (userinfo `sub` invariant violated).
 - **Isolated local tool registry** -- MCP local tools live in a dedicated registry separate from direct routes.
 
 ### Adapters
 
 - **Adapter mocking** -- `mockAdapter` swaps any tagged adapter in tests; `file`, `csv`, `json`, `jsonl`, and `html` factories are tagged out of the box.
+- **Direct adapter distinct input/output types** -- `direct<TIn, TOut>()` lets a route accept one body shape and emit a different one when the registered consumer's transformer changes the type.
 - **Mail (IMAP)** -- the IMAP source is reliable across poll and re-evaluation workloads, with reconnect on transient fetch failures. `MailMessage` body is reshaped and a verify-sender option is available.
+- **Optional peer loader everywhere** -- every dynamic optional-peer import goes through `loadOptionalPeer` and emits `RC5017` with a copy-pasteable install hint. The remaining bespoke `try/catch` sites (mail, jose, telemetry sqlite, several `@routecraft/ai` modules) have all been migrated.
+
+### Telemetry {% badge color="red" %}Breaking{% /badge %}
+
+- **Bun-only SQLite sink** -- the embedded telemetry SQLite sink now uses Bun's built-in `bun:sqlite`. `better-sqlite3` has been removed from the runtime, including from peer dependencies. Deployments must run under Bun (`engines.bun >= 1.1.0`); Node deployments that previously relied on `better-sqlite3` need to bring their own sink.
 
 ### Telemetry
 
@@ -49,6 +64,7 @@ Several breaking changes across the core, AI, mail, telemetry, logger, and CLI s
 - **Bun-only `craft` CLI** -- the published `craft` binary now requires Bun >= 1.1.0.
 - **Bun monorepo** -- the monorepo migrates from pnpm to Bun for installs, scripts, and lockfile.
 - **`create-routecraft` refactor** -- scaffolder library extracted with expanded test coverage.
+- **`bun:test` everywhere** -- the internal test suite has fully migrated from vitest to `bun:test`. Vitest is retained only for the cross-runtime suite (where Node-only test seams still apply).
 
 ### Docs
 

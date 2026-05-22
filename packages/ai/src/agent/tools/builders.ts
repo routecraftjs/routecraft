@@ -3,6 +3,7 @@ import {
   DefaultExchange,
   HeadersKeys,
   getDirectChannel,
+  markAuthentic,
   rcError,
   sanitizeEndpoint,
   type CraftContext,
@@ -26,14 +27,17 @@ import { DEFERRED_FN_BRAND, type DeferredFn } from "./types.ts";
  * `FnHandlerContext`) into a fresh mutable `Principal` so it can be
  * attached to a downstream `DefaultExchange`.
  *
- * Arrays are spread-cloned. `claims` is deep-cloned via
- * `structuredClone` so that nested claim objects in the downstream
- * exchange's principal do not share references with the agent's
- * frozen snapshot: a `.process()` step downstream that mutates a
- * nested claim must not be able to reach back into the snapshot
- * (and conversely, the snapshot's frozen state would otherwise
- * propagate into a downstream pipeline that expects a writable
- * principal).
+ * Arrays are spread-cloned and `claims` is deep-cloned via
+ * `structuredClone` so the downstream principal shares no references
+ * with the agent's frozen snapshot.
+ *
+ * The clone is re-branded with `markAuthentic` before forwarding: the
+ * agent layer only ever forwards the identity it was handed (it cannot
+ * mint or escalate, the snapshot is deeply frozen), so the forwarded
+ * principal is exactly as authentic as the one that triggered the
+ * agent. Without re-branding, the spread would strip the authenticity
+ * brand and the downstream route's `authorize()` would reject the
+ * agent's own caller identity (RC5023).
  */
 function cloneFrozenPrincipal(rp: ReadonlyPrincipal): Principal {
   const out: Principal = { ...rp } as Principal;
@@ -42,7 +46,7 @@ function cloneFrozenPrincipal(rp: ReadonlyPrincipal): Principal {
   if (rp.roles) out.roles = [...rp.roles];
   if (rp.claims)
     out.claims = structuredClone(rp.claims) as Record<string, unknown>;
-  return out;
+  return markAuthentic(out);
 }
 
 /**
@@ -57,7 +61,7 @@ const EMPTY_OBJECT_JSON_SCHEMA = {
 
 /**
  * Standard Schema implementation of an empty input object. Used by the
- * `defaultFns` so this module stays free of a Zod runtime dependency
+ * built-in fn factories so this module stays free of a Zod runtime dependency
  * (per CLAUDE.md "Use Standard Schema, not Zod/Valibot directly in
  * shared code").
  *
@@ -281,75 +285,10 @@ async function dispatchDirect<TIn>(
 }
 
 /**
- * Wrap a registered agent as a fn-shaped tool. Lands in story F (sub-
- * agents). Available now as a builder so the prefix auto-resolution
- * path in `tools(...)` can recognise `agent_*` and emit a clear "not
- * supported yet" error rather than treating the name as an unknown fn.
- *
- * @experimental
- */
-export function agentTool(
-  agentId: string,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- shape mirrors the future story F signature
-  _overrides?: never,
-): DeferredFn {
-  if (typeof agentId !== "string" || agentId.trim() === "") {
-    throw rcError("RC5003", undefined, {
-      message: `agentTool: agentId must be a non-empty string.`,
-    });
-  }
-  return {
-    [DEFERRED_FN_BRAND]: true,
-    kind: "agent",
-    targetId: agentId,
-    resolve(_ctx, fnId): FnOptions {
-      throw rcError("RC5003", undefined, {
-        message: `agentTool("${agentId}") (referenced as fn "${fnId}") is not yet supported. Sub-agent tools land in a follow-up story.`,
-      });
-    },
-  };
-}
-
-/**
- * Wrap an MCP tool as a fn-shaped tool. Lands in story E (MCP tools).
- * Available now as a builder so the prefix auto-resolution path in
- * `tools(...)` can recognise `mcp_*` and emit a clear "not supported
- * yet" error.
- *
- * @experimental
- */
-export function mcpTool(
-  serverId: string,
-  toolName: string,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- shape mirrors the future story E signature
-  _overrides?: never,
-): DeferredFn {
-  if (typeof serverId !== "string" || serverId.trim() === "") {
-    throw rcError("RC5003", undefined, {
-      message: `mcpTool: serverId must be a non-empty string.`,
-    });
-  }
-  if (typeof toolName !== "string" || toolName.trim() === "") {
-    throw rcError("RC5003", undefined, {
-      message: `mcpTool: toolName must be a non-empty string.`,
-    });
-  }
-  return {
-    [DEFERRED_FN_BRAND]: true,
-    kind: "mcp",
-    targetId: `${serverId}:${toolName}`,
-    resolve(_ctx, fnId): FnOptions {
-      throw rcError("RC5003", undefined, {
-        message: `mcpTool("${serverId}", "${toolName}") (referenced as fn "${fnId}") is not yet supported. MCP tools land in a follow-up story.`,
-      });
-    },
-  };
-}
-
-/**
- * Small starter set of generic, broadly useful fns. Spread into your
- * `agentPlugin({ functions: { ... } })` config to give every agent in
- * the context the basics for free.
+ * Built-in fn factory: returns the current UTC timestamp in ISO 8601
+ * format. Takes no configuration. Assign it a tool name in your
+ * `agentPlugin({ functions: { ... } })` config, the same way you use
+ * `directTool(...)`.
  *
  * @experimental
  *
@@ -357,23 +296,38 @@ export function mcpTool(
  * ```ts
  * agentPlugin({
  *   functions: {
- *     ...defaultFns,
+ *     CurrentTime: currentTime(),
  *     fetchOrder: directTool("fetch-order"),
  *   },
  * });
  * ```
  */
-export const defaultFns = {
-  currentTime: {
+export function currentTime(): FnOptions {
+  return {
     description: "Returns the current UTC timestamp in ISO 8601 format.",
     input: emptyObjectSchema,
     handler: () => new Date().toISOString(),
     tags: ["read-only", "idempotent"] satisfies KnownTag[],
-  } satisfies FnOptions<Record<string, never>, string>,
-  randomUuid: {
+  };
+}
+
+/**
+ * Built-in fn factory: generates a fresh random UUID v4. Takes no
+ * configuration. Assign it a tool name in your
+ * `agentPlugin({ functions: { ... } })` config.
+ *
+ * @experimental
+ *
+ * @example
+ * ```ts
+ * agentPlugin({ functions: { RandomUuid: randomUuid() } });
+ * ```
+ */
+export function randomUuid(): FnOptions {
+  return {
     description: "Generates a fresh random UUID v4.",
     input: emptyObjectSchema,
     handler: () => randomUUID(),
     tags: ["read-only"] satisfies KnownTag[],
-  } satisfies FnOptions<Record<string, never>, string>,
-};
+  };
+}

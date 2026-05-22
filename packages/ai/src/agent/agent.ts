@@ -64,6 +64,15 @@ export function validateAgentOptions(options: AgentOptions): void {
       message: `Agent: "tools" must be the result of tools([...]).`,
     });
   }
+  if (
+    options.principal !== undefined &&
+    typeof options.principal !== "boolean" &&
+    typeof options.principal !== "function"
+  ) {
+    throw rcError("RC5003", undefined, {
+      message: `Agent: "principal" must be a boolean or a function (principal, exchange) => string when present.`,
+    });
+  }
   if (options.output !== undefined) {
     if (options.output === null || typeof options.output !== "object") {
       throw rcError("RC5003", undefined, {

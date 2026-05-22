@@ -19,6 +19,11 @@ export type RCCode =
   | "RC5015"
   | "RC5016"
   | "RC5017"
+  | "RC5020"
+  | "RC5021"
+  | "RC5022"
+  | "RC5023"
+  | "RC5024"
   | "RC9901";
 
 export type RCMeta = {
@@ -168,6 +173,46 @@ export const RC: Record<RCCode, RCMeta> = {
     suggestion:
       "Install the optional peer the adapter requires (the error message names the package).",
     docs: `${DOCS_BASE}#rc-5017`,
+    retryable: false,
+  },
+  RC5020: {
+    category: "Adapter",
+    message: "Authorization failed: token expired during processing",
+    suggestion:
+      "The verified principal carried an `expiresAt` that is now in the past; a long-running step (LLM call, slow downstream) outlived the credential. The client should refresh and retry. Distinct from RC5012 (no principal) and RC5015 (wrong roles/scopes) so callers can react accordingly.",
+    docs: `${DOCS_BASE}#rc-5020`,
+    retryable: false,
+  },
+  RC5021: {
+    category: "Adapter",
+    message: "Principal enrichment failed",
+    suggestion:
+      "The `userinfo` option on `mcpPlugin({})` could not enrich the verified principal. The cause names the underlying problem (HTTP status, network error, malformed JSON, missing `userinfo_endpoint` in the OIDC Discovery document). Verify the userinfo endpoint URL, IdP availability, and the bearer token's scope grants. Fail-closed: the request is rejected to prevent silent identity gaps.",
+    docs: `${DOCS_BASE}#rc-5021`,
+    retryable: false,
+  },
+  RC5022: {
+    category: "Adapter",
+    message: "Userinfo sub invariant violated",
+    suggestion:
+      "Per OIDC Core §5.3.2, the userinfo response MUST carry a `sub` matching the verified token's `sub`. A mismatch (or missing `sub`) indicates a compromised userinfo endpoint or a configuration error mapping the wrong userinfo URL to the bearer's issuer. The request is rejected to prevent identity confusion.",
+    docs: `${DOCS_BASE}#rc-5022`,
+    retryable: false,
+  },
+  RC5023: {
+    category: "Adapter",
+    message: "Authorization failed: principal is not authentic",
+    suggestion:
+      'A principal was present but was not established by a trusted origin (a plain object written onto headers["routecraft.auth.principal"] is self-asserted). Mint identity with the .authenticate() operation or the authenticate() helper, or let a source verifier (jwt/jwks/oauth) attach it. Distinct from RC5012 (no principal) and RC5015 (wrong roles/scopes).',
+    docs: `${DOCS_BASE}#rc-5023`,
+    retryable: false,
+  },
+  RC5024: {
+    category: "Adapter",
+    message: "authenticate() called without a subject",
+    suggestion:
+      "authenticate() (and the .authenticate() operation) require a non-empty `subject` naming the verified identity, e.g. authenticate({ subject: sender.address, roles: [...] }). This is a programming error at the mint call, distinct from RC5023 (a principal that reached authorize() without being established by a trusted origin).",
+    docs: `${DOCS_BASE}#rc-5024`,
     retryable: false,
   },
   RC9901: {

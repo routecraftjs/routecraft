@@ -30,7 +30,7 @@ export interface AgentPluginOptions {
    * in follow-up stories). Keyed by the fn id; each entry is either an
    * eagerly-authored `FnOptions` (description, input, handler) or a
    * deferred descriptor emitted by a builder helper such as
-   * `directTool(routeId)` / `agentTool(agentId)` / `mcpTool(server, tool)`.
+   * `directTool(routeId)`.
    * Deferred descriptors resolve at agent dispatch time when all
    * registries are populated.
    *
@@ -115,7 +115,7 @@ function validateRegisteredAgent(
  *     },
  *   },
  *   functions: {
- *     currentTime: {
+ *     CurrentTime: {
  *       description: "Current UTC timestamp in ISO 8601",
  *       input: z.object({}),
  *       handler: async () => new Date().toISOString(),

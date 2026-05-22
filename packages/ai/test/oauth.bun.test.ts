@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { jwks } from "@routecraft/routecraft";
 import { oauth } from "../src/mcp/oauth.ts";
+import { buildEnrichedVerifier } from "../src/mcp/userinfo.ts";
 import type { OAuthPrincipal } from "@routecraft/routecraft";
 
 /** Serve a static JWK set at a local URL. Returns the URL and a close fn. */
@@ -30,7 +31,6 @@ async function serveJwks(jwkSet: {
 
 /** Handy stub for required factory options used across tests. */
 const BASE_OPTIONS = {
-  resourceIssuerUrl: "http://localhost:9999",
   endpoints: {
     authorizationUrl: "http://localhost:9999/authorize",
     tokenUrl: "http://localhost:9999/token",
@@ -159,11 +159,11 @@ describe("oauth() factory", () => {
   });
 
   /**
-   * @case resourceIssuerUrl is surfaced on the returned OAuthAuthOptions
-   * @preconditions Options with a valid resourceIssuerUrl
-   * @expectedResult Returned config.resourceIssuerUrl matches input
+   * @case oauth() carries only proxy-mechanics fields on the returned options (no protected-resource metadata)
+   * @preconditions Options include verify and client; no resource metadata is accepted by the factory
+   * @expectedResult Returned config has provider/endpoints/verify/client but no resourceIssuerUrl / scopesSupported / serviceDocumentationUrl / resourceName fields
    */
-  test("exposes resourceIssuerUrl on returned config", () => {
+  test("returns proxy-mechanics fields only (no resource metadata)", () => {
     const verify = async (): Promise<OAuthPrincipal> => ({
       kind: "custom",
       scheme: "bearer",
@@ -171,7 +171,16 @@ describe("oauth() factory", () => {
       expiresAt: 9999999999,
     });
     const result = oauth({ ...BASE_OPTIONS, verify });
-    expect(result.resourceIssuerUrl.toString()).toBe("http://localhost:9999");
+    expect(result.provider).toBe("oauth");
+    expect(result.endpoints.authorizationUrl).toBe(
+      BASE_OPTIONS.endpoints.authorizationUrl,
+    );
+    expect(typeof result.verifyAccessToken).toBe("function");
+    expect(typeof result.getClient).toBe("function");
+    expect(result).not.toHaveProperty("resourceIssuerUrl");
+    expect(result).not.toHaveProperty("scopesSupported");
+    expect(result).not.toHaveProperty("serviceDocumentationUrl");
+    expect(result).not.toHaveProperty("resourceName");
   });
 });
 
@@ -261,6 +270,436 @@ describe("oauth({ verify: jwks(...) }) end-to-end", () => {
         .sign(privateKey);
 
       await expect(config.verifyAccessToken(token)).rejects.toThrow();
+    } finally {
+      await close();
+    }
+  });
+});
+
+/** Serve a configurable JSON response at a local URL. Handler receives each request. */
+async function serveJson(
+  handler: (req: {
+    url: string;
+    headers: Record<string, string | string[] | undefined>;
+  }) =>
+    | { status?: number; body: unknown }
+    | Promise<{ status?: number; body: unknown }>,
+): Promise<{ baseUrl: string; close: () => Promise<void> }> {
+  const server = createServer(async (req, res) => {
+    const url = req.url ?? "/";
+    const headers = req.headers as Record<
+      string,
+      string | string[] | undefined
+    >;
+    const result = await handler({ url, headers });
+    res.statusCode = result.status ?? 200;
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify(result.body));
+  });
+  await new Promise<void>((resolve) =>
+    server.listen(0, "127.0.0.1", () => resolve()),
+  );
+  const port = (server.address() as AddressInfo).port;
+  return {
+    baseUrl: `http://127.0.0.1:${port}`,
+    close: () =>
+      new Promise<void>((resolve, reject) =>
+        server.close((err) => (err ? reject(err) : resolve())),
+      ),
+  };
+}
+
+describe("buildEnrichedVerifier (plugin-level userinfo)", () => {
+  function makeVerify(subject: string, expiresIn = 60) {
+    // Snapshot expiresAt at helper-creation time. Recomputing per call would
+    // make deep-equality assertions (and the cache-hit tests) flaky if the
+    // calls straddle a second boundary.
+    const expiresAt = Math.floor(Date.now() / 1000) + expiresIn;
+    return async (): Promise<OAuthPrincipal> => ({
+      kind: "custom",
+      scheme: "bearer",
+      subject,
+      expiresAt,
+    });
+  }
+
+  /**
+   * @case Function userinfo enriches the verified principal
+   * @preconditions Base verifier resolves a thin principal; userinfo function returns email and roles
+   * @expectedResult Returned principal carries the enrichment, verify fields preserved
+   */
+  test("function userinfo merges onto the verified principal", async () => {
+    const verifier = buildEnrichedVerifier(
+      makeVerify("user-42"),
+      async (principal) => {
+        expect(principal.subject).toBe("user-42");
+        return { email: "ada@example.com", roles: ["admin"] };
+      },
+      undefined,
+    );
+
+    const principal = await verifier("token");
+    expect(principal.subject).toBe("user-42");
+    expect(principal.email).toBe("ada@example.com");
+    expect(principal.roles).toEqual(["admin"]);
+  });
+
+  /**
+   * @case Verify-wins merge rule: enrichment cannot overwrite subject / issuer / audience / expiresAt
+   * @preconditions Function userinfo tries to overwrite all protected fields
+   * @expectedResult Protected fields remain the verify values; only non-protected fields are merged
+   */
+  test("protected fields cannot be overwritten by userinfo", async () => {
+    const base = makeVerify("verified-sub", 120);
+    const verifiedExp = (await base()).expiresAt;
+    const verifier = buildEnrichedVerifier(
+      base,
+      async () =>
+        ({
+          subject: "evil-sub",
+          issuer: "https://evil.example.com",
+          audience: ["https://evil.example.com"],
+          expiresAt: 0,
+          email: "good@example.com",
+        }) as unknown as Partial<OAuthPrincipal>,
+      undefined,
+    );
+
+    const principal = await verifier("token");
+    expect(principal.subject).toBe("verified-sub");
+    expect(principal.issuer).toBeUndefined();
+    expect(principal.audience).toBeUndefined();
+    expect(principal.expiresAt).toBe(verifiedExp);
+    expect(principal.email).toBe("good@example.com");
+  });
+
+  /**
+   * @case Explicit URL userinfo fetches the endpoint and lifts OIDC claims
+   * @preconditions Base verifier resolves sub "user-99"; local /userinfo returns sub + email
+   * @expectedResult Principal.email is populated; sub invariant passes
+   */
+  test("string-URL userinfo lifts OIDC claims from the response", async () => {
+    const { baseUrl, close } = await serveJson(({ url }) => {
+      if (url === "/userinfo") {
+        return {
+          body: { sub: "user-99", email: "ada@example.com", name: "Ada" },
+        };
+      }
+      return { status: 404, body: {} };
+    });
+    try {
+      const verifier = buildEnrichedVerifier(
+        makeVerify("user-99"),
+        `${baseUrl}/userinfo`,
+        undefined,
+      );
+      const principal = await verifier("token");
+      expect(principal.email).toBe("ada@example.com");
+      expect(principal.name).toBe("Ada");
+    } finally {
+      await close();
+    }
+  });
+
+  /**
+   * @case Sub mismatch between verified token and userinfo response rejects the request
+   * @preconditions Base verifier resolves sub "user-A"; userinfo response carries sub "user-B"
+   * @expectedResult Verifier throws and message mentions sub mismatch
+   */
+  test("rejects when userinfo sub does not match token sub", async () => {
+    const { baseUrl, close } = await serveJson(() => ({
+      body: { sub: "user-B", email: "evil@example.com" },
+    }));
+    try {
+      const verifier = buildEnrichedVerifier(
+        makeVerify("user-A"),
+        `${baseUrl}/userinfo`,
+        undefined,
+      );
+      await expect(verifier("token")).rejects.toThrow(/sub/i);
+    } finally {
+      await close();
+    }
+  });
+
+  /**
+   * @case Missing sub in userinfo response rejects per OIDC Core §5.3.2
+   * @preconditions Userinfo response omits sub entirely
+   * @expectedResult Verifier throws with a sub-related error
+   */
+  test("rejects when userinfo response is missing sub", async () => {
+    const { baseUrl, close } = await serveJson(() => ({
+      body: { email: "x@example.com" },
+    }));
+    try {
+      const verifier = buildEnrichedVerifier(
+        makeVerify("user-A"),
+        `${baseUrl}/userinfo`,
+        undefined,
+      );
+      await expect(verifier("token")).rejects.toThrow(/sub/i);
+    } finally {
+      await close();
+    }
+  });
+
+  /**
+   * @case Userinfo fetch failure rejects the request (fail-closed)
+   * @preconditions Userinfo URL returns 500
+   * @expectedResult Verifier throws; no principal returned
+   */
+  test("rejects when the userinfo endpoint returns a non-2xx response", async () => {
+    const { baseUrl, close } = await serveJson(() => ({
+      status: 500,
+      body: { error: "boom" },
+    }));
+    try {
+      const verifier = buildEnrichedVerifier(
+        makeVerify("user-A"),
+        `${baseUrl}/userinfo`,
+        undefined,
+      );
+      await expect(verifier("token")).rejects.toThrow();
+    } finally {
+      await close();
+    }
+  });
+
+  /**
+   * @case Token-bound cache: identical tokens skip the userinfo call on subsequent verifies
+   * @preconditions Function userinfo increments a counter on each call
+   * @expectedResult Counter is 1 after two verifies with the same token
+   */
+  test("caches the enrichment per token", async () => {
+    let calls = 0;
+    const verifier = buildEnrichedVerifier(
+      makeVerify("user-42"),
+      async () => {
+        calls += 1;
+        return { email: "ada@example.com" };
+      },
+      undefined,
+    );
+
+    const a = await verifier("token");
+    const b = await verifier("token");
+    expect(calls).toBe(1);
+    expect(a.email).toBe("ada@example.com");
+    expect(b.email).toBe("ada@example.com");
+
+    await verifier("other-token");
+    expect(calls).toBe(2);
+  });
+
+  /**
+   * @case Base verifier runs on every request, even on cache hits
+   * @preconditions Custom verify increments a counter; userinfo is cheap
+   * @expectedResult verify is called once per request; dynamic checks (introspection, revocation) keep firing
+   */
+  test("base verifier runs on every request (cache hits do not bypass verify)", async () => {
+    let verifyCalls = 0;
+    const base = async (): Promise<OAuthPrincipal> => {
+      verifyCalls += 1;
+      return {
+        kind: "custom",
+        scheme: "bearer",
+        subject: "user-42",
+        expiresAt: Math.floor(Date.now() / 1000) + 60,
+      };
+    };
+    const verifier = buildEnrichedVerifier(
+      base,
+      async () => ({ email: "ada@example.com" }),
+      undefined,
+    );
+
+    await verifier("token");
+    await verifier("token");
+    await verifier("token");
+
+    expect(verifyCalls).toBe(3);
+  });
+
+  /**
+   * @case userinfo: true auto-discovers the userinfo endpoint via OIDC Discovery
+   * @preconditions Local server serves /.well-known/openid-configuration and /userinfo; issuer passed in
+   * @expectedResult Principal is enriched from the discovered endpoint
+   */
+  test("userinfo: true resolves the endpoint via OIDC Discovery", async () => {
+    const { baseUrl, close } = await serveJson(({ url }) => {
+      if (url === "/.well-known/openid-configuration") {
+        return { body: { userinfo_endpoint: `${baseUrl}/userinfo` } };
+      }
+      if (url === "/userinfo") {
+        return { body: { sub: "user-42", email: "ada@example.com" } };
+      }
+      return { status: 404, body: {} };
+    });
+    try {
+      const verifier = buildEnrichedVerifier(
+        makeVerify("user-42"),
+        true,
+        baseUrl,
+      );
+      const principal = await verifier("token");
+      expect(principal.email).toBe("ada@example.com");
+    } finally {
+      await close();
+    }
+  });
+
+  /**
+   * @case userinfo: true rejects when the discovery document does not advertise userinfo_endpoint
+   * @preconditions Discovery doc returns {} (no userinfo_endpoint field)
+   * @expectedResult Verifier throws on first use mentioning userinfo_endpoint
+   */
+  test("userinfo: true rejects when the discovery doc lacks userinfo_endpoint", async () => {
+    const { baseUrl, close } = await serveJson(({ url }) => {
+      if (url === "/.well-known/openid-configuration") {
+        return { body: {} };
+      }
+      return { status: 404, body: {} };
+    });
+    try {
+      const verifier = buildEnrichedVerifier(
+        makeVerify("user-42"),
+        true,
+        baseUrl,
+      );
+      await expect(verifier("token")).rejects.toThrow(/userinfo_endpoint/);
+    } finally {
+      await close();
+    }
+  });
+
+  /**
+   * @case userinfo: true throws at construction time when no issuer is available
+   * @preconditions issuer argument is undefined
+   * @expectedResult buildEnrichedVerifier throws TypeError mentioning issuer
+   */
+  test("userinfo: true requires an issuer", () => {
+    expect(() =>
+      buildEnrichedVerifier(makeVerify("user-42"), true, undefined),
+    ).toThrow(/issuer/i);
+  });
+
+  /**
+   * @case userinfo: true with an array issuer is rejected at construction time
+   * @preconditions issuer argument is a string[]
+   * @expectedResult buildEnrichedVerifier throws TypeError mentioning array
+   */
+  test("userinfo: true rejects an array issuer", () => {
+    expect(() =>
+      buildEnrichedVerifier(makeVerify("user-42"), true, [
+        "https://a",
+        "https://b",
+      ]),
+    ).toThrow(/array|single/i);
+  });
+
+  /**
+   * @case URL-mode enrichment preserves the verified JWT payload on principal.claims
+   * @preconditions Base verifier returns claims = {iat, custom}; userinfo response carries different fields
+   * @expectedResult principal.claims is unchanged; userinfo response lives on principal.userinfoClaims
+   */
+  test("URL-mode enrichment preserves principal.claims and stashes userinfo on userinfoClaims", async () => {
+    const jwtClaims = { iat: 1700000000, custom: "v" };
+    const base = async (): Promise<OAuthPrincipal> => ({
+      kind: "jwks",
+      scheme: "bearer",
+      subject: "user-42",
+      expiresAt: Math.floor(Date.now() / 1000) + 60,
+      claims: jwtClaims,
+    });
+    const { baseUrl, close } = await serveJson(({ url }) => {
+      if (url === "/userinfo") {
+        return {
+          body: {
+            sub: "user-42",
+            email: "ada@example.com",
+            picture: "https://example.com/p.png",
+          },
+        };
+      }
+      return { status: 404, body: {} };
+    });
+    try {
+      const verifier = buildEnrichedVerifier(
+        base,
+        `${baseUrl}/userinfo`,
+        undefined,
+      );
+      const principal = await verifier("token");
+      expect(principal.claims).toEqual(jwtClaims);
+      expect(principal.userinfoClaims).toEqual({
+        sub: "user-42",
+        email: "ada@example.com",
+        picture: "https://example.com/p.png",
+      });
+      expect(principal.email).toBe("ada@example.com");
+    } finally {
+      await close();
+    }
+  });
+
+  /**
+   * @case OIDC discovery retries on transient failure rather than caching the rejection
+   * @preconditions Discovery endpoint returns 500 on first call and 200 on second
+   * @expectedResult First verify rejects with RC5021; second succeeds
+   */
+  test("OIDC discovery retries after a transient failure", async () => {
+    let calls = 0;
+    const { baseUrl, close } = await serveJson(({ url }) => {
+      if (url === "/.well-known/openid-configuration") {
+        calls += 1;
+        if (calls === 1) return { status: 500, body: { error: "boom" } };
+        return { body: { userinfo_endpoint: `${baseUrl}/userinfo` } };
+      }
+      if (url === "/userinfo") {
+        return { body: { sub: "user-42", email: "ada@example.com" } };
+      }
+      return { status: 404, body: {} };
+    });
+    try {
+      const verifier = buildEnrichedVerifier(
+        makeVerify("user-42"),
+        true,
+        baseUrl,
+      );
+      await expect(verifier("token-a")).rejects.toThrow(/RC5021|Discovery/);
+      const principal = await verifier("token-b");
+      expect(principal.email).toBe("ada@example.com");
+      expect(calls).toBe(2);
+    } finally {
+      await close();
+    }
+  });
+
+  /**
+   * @case OIDC discovery preserves the issuer's path component (Keycloak realm, Azure tenant)
+   * @preconditions issuer ends with "/realms/test"; discovery doc served under that prefix
+   * @expectedResult Discovery resolves at "/realms/test/.well-known/openid-configuration" and enrichment succeeds
+   */
+  test("OIDC discovery preserves issuer path component", async () => {
+    const { baseUrl, close } = await serveJson(({ url }) => {
+      if (url === "/realms/test/.well-known/openid-configuration") {
+        return {
+          body: { userinfo_endpoint: `${baseUrl}/realms/test/userinfo` },
+        };
+      }
+      if (url === "/realms/test/userinfo") {
+        return { body: { sub: "user-42", email: "ada@example.com" } };
+      }
+      return { status: 404, body: {} };
+    });
+    try {
+      const verifier = buildEnrichedVerifier(
+        makeVerify("user-42"),
+        true,
+        `${baseUrl}/realms/test`,
+      );
+      const principal = await verifier("token");
+      expect(principal.email).toBe("ada@example.com");
     } finally {
       await close();
     }
