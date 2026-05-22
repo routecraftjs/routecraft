@@ -142,7 +142,8 @@ Operations that change the exchange return a new one by copy-on-write (spread) r
   headers: { ...exchange.headers, 'x-stage': 'processed' },
 }))
 
-// Wrong: mutating a frozen exchange is a compile error (readonly) and throws at runtime
+// Wrong: body is not deep-frozen, so this compiles and runs without throwing, but mutating
+// in place bypasses copy-on-write, so the framework never re-wraps or tracks the change
 .process((exchange) => {
   exchange.body.stage = 'processed'
   return exchange
