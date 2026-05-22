@@ -34,7 +34,7 @@ import {
  *
  * See #187.
  *
- * @experimental
+ * @beta
  */
 export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
   readonly adapterId = "routecraft.adapter.jsonl";

@@ -11,7 +11,7 @@ import {
  * a reverse dependency. Real `FnOptions` values are structurally
  * assignable here -- the extra `description` field is ignored.
  *
- * @experimental
+ * @beta
  */
 export interface TestFnSpec<TIn, TOut> {
   /** Schema whose validated/coerced output is passed to `handler`. */
@@ -26,7 +26,7 @@ export interface TestFnSpec<TIn, TOut> {
  * read at runtime can be added here in follow-ups without breaking the
  * structural contract.
  *
- * @experimental
+ * @beta
  */
 export interface TestFnHandlerContext {
   logger: ReturnType<typeof defaultLogger.child>;
@@ -36,7 +36,7 @@ export interface TestFnHandlerContext {
 /**
  * Options for {@link testFn}.
  *
- * @experimental
+ * @beta
  */
 export interface TestFnOptions {
   /** Caller-supplied abort signal. Defaults to a never-firing signal. */
@@ -55,7 +55,7 @@ export interface TestFnOptions {
  * Throws `RC5002` (Validation failed) if the input does not pass the
  * schema. Errors thrown from the handler propagate as-is.
  *
- * @experimental
+ * @beta
  *
  * @example
  * ```typescript

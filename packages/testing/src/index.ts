@@ -50,7 +50,7 @@ export {
 /**
  * Load a JSON fixture file and return the parsed value.
  *
- * @experimental
+ * @beta
  * @param path Absolute or relative path to the JSON file
  * @returns Parsed JSON as T
  */
@@ -71,7 +71,7 @@ export interface FixtureWithName {
 /**
  * Load a JSON array fixture and run one vitest test per entry. Each entry must have a `name` field (used as the test name).
  *
- * @experimental
+ * @beta
  * @param path Path to a JSON file that parses to an array
  * @param run Callback invoked per entry; use for assertions. Receives the fixture entry.
  */

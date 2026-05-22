@@ -13,7 +13,7 @@ export type FileAdapter = Source<string> &
  * Creates a file adapter in chunked source mode.
  * Emits one exchange per line with FILE_LINE and FILE_PATH headers.
  *
- * @experimental
+ * @beta
  * @param options - File options with chunked: true
  * @returns A Source-only adapter
  */

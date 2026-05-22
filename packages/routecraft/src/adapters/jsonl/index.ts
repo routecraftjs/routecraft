@@ -13,7 +13,7 @@ import { JsonlDestinationAdapter } from "./destination.ts";
  * Creates a JSONL adapter in chunked source mode.
  * Emits one exchange per line with JSONL_LINE and JSONL_PATH headers.
  *
- * @experimental
+ * @beta
  * @param options - JSONL source options with chunked: true
  * @returns A Source-only adapter
  */
