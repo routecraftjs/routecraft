@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { craft, direct, isRoutecraftError, log } from "@routecraft/routecraft";
+import {
+  craft,
+  direct,
+  isAuthentic,
+  isRoutecraftError,
+  markAuthentic,
+  log,
+} from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
   agentPlugin,
@@ -337,6 +344,132 @@ describe("tool builders - directTool dispatch", () => {
       },
     );
     expect(downstreamPrincipal).toEqual(principal);
+  });
+
+  /**
+   * @case directTool forwards authenticity only when the calling principal is authentic
+   * @preconditions Downstream route records isAuthentic(ex.principal); handler invoked once with an authentic principal and once with a self-asserted plain object carrying the same fields
+   * @expectedResult Authentic in -> authentic downstream; self-asserted in -> non-authentic downstream (no laundering across the agent -> tool boundary)
+   */
+  test("dispatchDirect forwards authenticity only for authentic principals", async () => {
+    let downstreamAuthentic: boolean | undefined;
+    t = await testContext()
+      .routes([
+        craft()
+          .id("guarded/echo")
+          .description("Echo with auth capture.")
+          .input(z.object({}))
+          .from(direct())
+          .process((ex) => {
+            downstreamAuthentic = isAuthentic(ex.principal);
+            return { ...ex, body: { ok: true } };
+          })
+          .to(log()),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const desc = directTool("guarded/echo");
+    const fn = desc.resolve(t.ctx, "guardedEcho");
+    const base = {
+      logger: undefined as unknown as Parameters<
+        typeof fn.handler
+      >[1]["logger"],
+      abortSignal: new AbortController().signal,
+    };
+
+    await fn.handler(
+      {},
+      {
+        ...base,
+        principal: markAuthentic({
+          kind: "jwt" as const,
+          scheme: "bearer" as const,
+          subject: "verified",
+          roles: ["admin"],
+        }),
+      },
+    );
+    expect(downstreamAuthentic).toBe(true);
+
+    downstreamAuthentic = undefined;
+    await fn.handler(
+      {},
+      {
+        ...base,
+        principal: {
+          kind: "jwt" as const,
+          scheme: "bearer" as const,
+          subject: "forged",
+          roles: ["admin"],
+        },
+      },
+    );
+    expect(downstreamAuthentic).toBe(false);
+  });
+
+  /**
+   * @case A self-asserted principal reaching a guarded route through directTool is rejected with RC5023
+   * @preconditions Route guarded by .authorize({ roles: ["admin"] }); directTool invoked once with an authentic admin principal and once with a self-asserted (plain-object) admin principal
+   * @expectedResult Authentic admin passes; self-asserted admin is rejected with RC5023 instead of being laundered into a trusted identity
+   */
+  test("guarded route reached through directTool rejects a self-asserted principal (RC5023)", async () => {
+    t = await testContext()
+      .routes([
+        craft()
+          .id("guarded-admin")
+          .description("Admin-only guarded tool.")
+          .input(z.object({}))
+          .authorize({ roles: ["admin"] })
+          .from(direct())
+          .process((ex) => ({ ...ex, body: { ok: true } }))
+          .to(log()),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const desc = directTool("guarded-admin");
+    const fn = desc.resolve(t.ctx, "guardedAdmin");
+    const base = {
+      logger: undefined as unknown as Parameters<
+        typeof fn.handler
+      >[1]["logger"],
+      abortSignal: new AbortController().signal,
+    };
+
+    const authResult = await fn.handler(
+      {},
+      {
+        ...base,
+        principal: markAuthentic({
+          kind: "jwt" as const,
+          scheme: "bearer" as const,
+          subject: "verified-admin",
+          roles: ["admin"],
+        }),
+      },
+    );
+    expect(authResult).toMatchObject({ ok: true });
+
+    let caught: unknown;
+    try {
+      await fn.handler(
+        {},
+        {
+          ...base,
+          principal: {
+            kind: "jwt" as const,
+            scheme: "bearer" as const,
+            subject: "forged-admin",
+            roles: ["admin"],
+          },
+        },
+      );
+    } catch (err) {
+      caught = err;
+    }
+    expect(isRoutecraftError(caught)).toBe(true);
+    expect((caught as { rc?: string }).rc).toBe("RC5023");
   });
 });
 

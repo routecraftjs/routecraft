@@ -53,7 +53,7 @@ DSL operators with signatures and examples. {% .lead %}
 
 ## Route operations
 
-Route operations configure the capability itself. `id`, `batch`, and route-scope `error` go before `from()`; if called after an existing route, they are staged for the next `from()`. `from()` defines the source and creates the capability. `error` is dual-mode: when chained AFTER `from()` it becomes a step-scope wrapper around the next step (see the [`error`](#error) section below).
+Route operations configure the capability itself. `id`, `title`, `description`, `input`, `output`, `tag`, `batch`, and route-scope `error` go before `from()`; if called after an existing route, they are staged for the next `from()`. `from()` defines the source and creates the capability. `error` is dual-mode: when chained AFTER `from()` it becomes a step-scope wrapper around the next step (see the [`error`](#error) section below).
 
 ### id
 
@@ -79,6 +79,109 @@ craft()
 ```
 
 If no ID is specified, a random UUID will be generated automatically.
+
+### title
+
+```ts
+title(value: string): RouteBuilder<Current>
+```
+
+Set a human-readable title for the next route. Mirrored into the `direct` / `mcp` registries so discovery consumers (agents, MCP clients, docs) can display it alongside the id. Place before `from()`.
+
+```ts
+craft()
+  .id('ingest')
+  .title('Ingest orders')
+  .from(direct())
+  .to(saveOrder)
+```
+
+### description
+
+```ts
+description(value: string): RouteBuilder<Current>
+```
+
+Set a human-readable description for the next route. Used by discovery-aware adapters when exposing the route to external consumers such as agents and MCP clients.
+
+```ts
+craft()
+  .id('ingest')
+  .description('Validate and persist an inbound order')
+  .from(direct())
+  .to(saveOrder)
+```
+
+### input
+
+```ts
+input(
+  schema: StandardSchemaV1 | { body?: StandardSchemaV1; headers?: StandardSchemaV1 },
+): RouteBuilder<Current>
+```
+
+Declare input validation for the next route. The engine validates the incoming body and headers against these schemas **before any pipeline step runs**; a validation failure emits `exchange:dropped` and the pipeline never sees the message. Accepts either a bundle (`{ body, headers }`) or a bare Standard Schema as a body-only shorthand.
+
+To flow the validated body type through the chain, pass it as a generic on `.from<T>(source)` after the `.input()` call.
+
+```ts
+craft()
+  .id('ingest')
+  .input({ body: OrderSchema, headers: AuthHeaders })
+  .from(direct())
+  .to(saveOrder)
+
+// Body-only shorthand
+craft()
+  .id('ingest')
+  .input(OrderSchema)
+  .from(direct())
+  .to(saveOrder)
+```
+
+### output
+
+```ts
+output(
+  schema: StandardSchemaV1 | { body?: StandardSchemaV1; headers?: StandardSchemaV1 },
+): RouteBuilder<Current>
+```
+
+Declare output validation for the next route. The engine validates the final exchange against these schemas **before the primary destination fires**; a validation failure is routed to the route's error handler (or emits `exchange:failed` when no handler is set). Accepts a bundle (`{ body, headers }`) or a bare Standard Schema as a body-only shorthand.
+
+```ts
+craft()
+  .id('ingest')
+  .input(OrderSchema)
+  .output(SavedOrderSchema)
+  .from(direct())
+  .to(saveOrder)
+```
+
+### tag
+
+```ts
+tag(value: Tag | Tag[]): RouteBuilder<Current>
+```
+
+Tag the next route. Accepts a single tag or an array; multiple `.tag()` calls before `from()` accumulate (deduplicated, insertion order preserved). Empty strings are rejected with `RC2001`.
+
+Tags drive selectors like `tools({ tagged: "read-only" })` in `@routecraft/ai`. The `KnownTag` literals `"read-only"`, `"destructive"`, and `"idempotent"` autocomplete; any other string is also accepted.
+
+```ts
+craft()
+  .id('list-orders')
+  .tag('read-only')
+  .from(direct())
+  .to(listOrders)
+
+// Multiple tags
+craft()
+  .id('delete-order')
+  .tag(['destructive', 'orders'])
+  .from(direct())
+  .to(deleteOrder)
+```
 
 ### batch
 
@@ -675,7 +778,20 @@ Enrich the exchange with additional data from a destination adapter. Uses the sa
 .enrich(http({ url: 'https://api.example.com/user' }), only((r) => r.body?.name, "userName"))
 ```
 
-**`only(getValue, into?)`**: Returns an aggregator that merges one value from the enrichment result. Omit `into` to spread a plain object onto the body, or use fallbacks: string → `body.text`, array → `body.array`. Provide `into` to set `body[into]`. Values that are `null` or `undefined` are never merged (exchange unchanged).
+**`only(getValue, into?)`**: Returns an aggregator that merges one value from the enrichment result. Omit `into` to spread a plain object onto the body, or use fallbacks: primitive → `body.stdout`, array → `body.array`. Provide `into` to set `body[into]`. Values that are `null` or `undefined` are never merged (exchange unchanged).
+
+**`none()`**: Returns a no-op aggregator that leaves the exchange unchanged, so the enrichment result is ignored. Use it when you only need the destination's side effect (logging, firing an API call) and do not want to merge its return value.
+
+```ts
+.enrich(http({ url: "https://api.example.com/ping" }), none())
+```
+
+**`replace()`** (experimental): Returns an aggregator that replaces the body with the enrichment result instead of merging it. Use it when the enrichment returns the value you want as the new body.
+
+```ts
+.enrich(mail({ folder: "INBOX", unseen: true }), replace())
+// body becomes MailMessage[] (the raw enrichment result)
+```
 
 **Key difference from `.to()`:**
 
