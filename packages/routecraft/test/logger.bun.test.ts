@@ -75,4 +75,39 @@ describe("logger", () => {
     expect(bindings).toHaveProperty("exchangeId", exchange.id);
     expect(bindings).toHaveProperty("correlationId");
   });
+
+  /**
+   * @case childBindings omits service.name when no context name is configured
+   * @preconditions testContext built without a `name`
+   * @expectedResult bindings do not contain a service.name key
+   */
+  test("childBindings omits service.name when context has no name", async () => {
+    const t = await testContext()
+      .routes(craft().id("r").from(simple("x")))
+      .build();
+    // Array path form so the literal dotted key is not treated as a nested path.
+    expect(childBindings(t.ctx)).not.toHaveProperty(["service.name"]);
+  });
+
+  /**
+   * @case childBindings emits service.name for CraftContext, Route, and Exchange when a name is configured
+   * @preconditions testContext built with `name: "eywa"` and a named route
+   * @expectedResult context, route, and exchange bindings all contain service.name === "eywa"
+   */
+  test("childBindings emits configured name as service.name across context, route, and exchange", async () => {
+    const t = await testContext()
+      .with({ name: "eywa" })
+      .routes(craft().id("zoe-mail").from(simple("x")))
+      .build();
+    const ctx = t.ctx;
+
+    // Array path form so the literal dotted key is not treated as a nested path.
+    expect(childBindings(ctx)).toHaveProperty(["service.name"], "eywa");
+
+    const route = ctx.getRoutes()[0]!;
+    expect(childBindings(route)).toHaveProperty(["service.name"], "eywa");
+
+    const exchange = new DefaultExchange(ctx, { body: "test" });
+    expect(childBindings(exchange)).toHaveProperty(["service.name"], "eywa");
+  });
 });

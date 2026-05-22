@@ -101,6 +101,14 @@ export interface CraftPlugin {
  * ```
  */
 export interface CraftConfig {
+  /**
+   * Service / application name for this context. Emitted on every log line as
+   * `service.name` (the OpenTelemetry semantic convention), so log aggregators
+   * that map OTel resource attributes (e.g. BetterStack `resources.service.name`)
+   * can identify the originating app. When omitted, no `service.name` field is
+   * added to logs.
+   */
+  name?: string;
   /** Initial values for the context store */
   store?: Map<keyof StoreRegistry, StoreRegistry[keyof StoreRegistry]>;
   /** Event handlers to register on context creation */
@@ -161,6 +169,9 @@ export class CraftContext {
   /** Unique identifier for this context instance */
   public readonly contextId: string = randomUUID();
 
+  /** Service / application name, surfaced on logs as `service.name`. */
+  public readonly name?: string;
+
   /** Routes registered with this context */
   private routes: Route[] = [];
 
@@ -200,6 +211,7 @@ export class CraftContext {
    */
   constructor(config?: CraftConfig) {
     setBrand(this, BRAND.CraftContext);
+    if (config?.name !== undefined) this.name = config.name;
     this.logger = logger.child(childBindings(this));
     if (config) {
       // Initialize store from config
