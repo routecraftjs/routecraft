@@ -10,11 +10,7 @@ import type { TelemetryOptions, TelemetryEvent } from "./types.ts";
 import { SqliteConnection } from "./sqlite-connection.ts";
 import { SqliteSpanProcessor, ATTR, SPAN_KIND } from "./sqlite-processor.ts";
 import { SqliteEventWriter } from "./sqlite-event-writer.ts";
-
-/**
- * Tracer instrumentation version. Update when releasing a new version.
- */
-const TRACER_VERSION = "0.4.0";
+import { version as TRACER_VERSION } from "../../package.json";
 
 /**
  * Default batch size for the event writer.

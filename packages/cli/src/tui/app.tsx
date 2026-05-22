@@ -22,6 +22,7 @@ import { EventsView } from "./components/events-view.js";
 import { EventDetail } from "./components/event-detail.js";
 import { ExchangeDeepView } from "./components/exchange-deep-view.js";
 import { CapabilityList } from "./components/capability-list.js";
+import { version } from "../../package.json";
 
 /**
  * Focus tracks which panel owns the cursor.
@@ -461,7 +462,7 @@ function App({ db }: { db: TelemetryDb }) {
           ROUTECRAFT TUI
         </Text>
         <Text> </Text>
-        <Text dimColor>v0.4.0</Text>
+        <Text dimColor>v{version}</Text>
       </Box>
 
       {/* 3-column body */}
