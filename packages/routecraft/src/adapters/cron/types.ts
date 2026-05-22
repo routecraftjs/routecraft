@@ -2,7 +2,7 @@
  * Cron expression with autocomplete for nicknames and common patterns.
  * Accepts any valid cron string (5-field or 6-field) as well.
  *
- * @experimental
+ * @beta
  */
 export type CronExpression =
   | "@yearly" // Once a year (Jan 1 at midnight)
@@ -26,7 +26,7 @@ export type CronExpression =
 /**
  * Configuration options for the cron source adapter.
  *
- * @experimental
+ * @beta
  */
 export interface CronOptions {
   /**

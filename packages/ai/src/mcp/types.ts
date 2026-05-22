@@ -310,7 +310,7 @@ export type McpHttpAuthOptions = ValidatorAuthOptions | OAuthAuthOptions;
 /**
  * Type guard: returns `true` when auth is configured for OAuth provider mode.
  *
- * @experimental
+ * @beta
  */
 export function isOAuthAuth(
   auth: McpHttpAuthOptions,
@@ -323,7 +323,7 @@ export function isOAuthAuth(
  * Called on every request; may be synchronous or asynchronous.
  * Useful for dynamic tokens (JWT refresh, rotating API keys, etc.).
  *
- * @beta
+ * @experimental
  */
 export type McpClientTokenProvider = () => string | Promise<string>;
 
@@ -331,7 +331,7 @@ export type McpClientTokenProvider = () => string | Promise<string>;
  * Auth config for an outbound MCP HTTP client connection.
  * Passed as request headers on every connection to the remote server.
  *
- * @beta
+ * @experimental
  */
 export interface McpClientAuthOptions {
   /**
@@ -354,7 +354,7 @@ export interface McpClientAuthOptions {
  * Options for the MCP plugin (mcpPlugin).
  * One plugin per adapter: this is the single options type for the MCP plugin.
  *
- * @experimental
+ * @beta
  */
 export interface McpPluginOptions {
   /** Server name in MCP protocol handshake. Default: "routecraft". Machine identifier. */
@@ -555,7 +555,7 @@ export interface McpToolAnnotations {
  * `Icon` shape, which is reused by `serverInfo.icons`, `Tool.icons`, and the
  * resource/prompt primitives.
  *
- * @beta
+ * @experimental
  */
 export interface McpIcon {
   /** URL or data URI of the icon. */
@@ -598,7 +598,7 @@ export interface McpServerOptions {
 }
 
 /**
- * @experimental
+ * @beta
  */
 export type McpOptions = McpServerOptions;
 
@@ -675,7 +675,7 @@ export interface McpTool {
  * A tool entry in the unified MCP tool registry.
  * Combines local mcp() route tools and remote client tools (stdio and HTTP).
  *
- * @experimental
+ * @beta
  */
 export interface McpToolRegistryEntry {
   /** Tool name (unique within a source, may collide across sources). */

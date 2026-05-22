@@ -6,7 +6,7 @@ import { GroupTransformerAdapter } from "./transformer.ts";
  * Creates a transformer that groups an array into clusters using a comparator (e.g. cosine similarity).
  * By default uses body as the array and replaces the body with the array of clusters. Use `from`/`to` to read/write sub-fields; use `map` to shape each cluster.
  *
- * @beta
+ * @experimental
  * @param options - `comparator` (e.g. from `cosine()`), optional `from(body)`, `map(cluster)`, `to(body, result)`
  * @returns A Transformer usable with `.transform(group(options))`
  *

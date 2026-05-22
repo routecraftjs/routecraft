@@ -12,7 +12,7 @@ type ValidateResult<T = unknown> =
  * For full schema validation (required props, shape), use validateWithSchema() with a
  * StandardSchemaV1 from Zod, Valibot, or ArkType before calling mcpPlugin().
  *
- * @experimental
+ * @beta
  */
 export function validateMcpPluginOptions(options: McpPluginOptions): void {
   if (options.transport === "http") {

@@ -7,7 +7,7 @@ import { file } from "../file/index.ts";
  * Each body is stringified to a single line. Array bodies write one line per element.
  * Default mode is append.
  *
- * @beta
+ * @experimental
  */
 export class JsonlDestinationAdapter implements Destination<unknown, void> {
   readonly adapterId = "routecraft.adapter.jsonl";

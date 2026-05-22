@@ -23,14 +23,14 @@ export type ForwardType = "direct" | "auto-forward" | "mailing-list";
 /**
  * Trust state of the effective sender.
  *
- * @experimental
+ * @beta
  */
 export type TrustLevel = "verified" | "unverified" | "failed";
 
 /**
  * Parsed email address.
  *
- * @experimental
+ * @beta
  */
 export interface EmailAddress {
   address: string;
@@ -41,7 +41,7 @@ export interface EmailAddress {
 /**
  * One hop in a forward chain.
  *
- * @experimental
+ * @beta
  */
 export interface ForwardHop {
   via: EmailAddress;
@@ -52,7 +52,7 @@ export interface ForwardHop {
 /**
  * Effective sender plus the evidence used to resolve it.
  *
- * @experimental
+ * @beta
  */
 export interface MailSender extends EmailAddress {
   /** How the message reached us. */
@@ -82,7 +82,7 @@ export interface MailSender extends EmailAddress {
  * Lowercased header names relevant to sender analysis. Always extracted from
  * a parsed message even when the caller has not requested `includeHeaders`.
  *
- * @experimental
+ * @beta
  */
 export const ANALYSIS_HEADER_NAMES = [
   "from",
@@ -203,7 +203,7 @@ interface ParsedAuthResults {
  * Format (RFC 8601): `authserv-id; method=result (comment) property=value; ...`
  * We pluck out method verdicts plus a couple of properties we care about.
  *
- * @experimental
+ * @beta
  */
 export function parseAuthResults(value: string | undefined): ParsedAuthResults {
   const out: ParsedAuthResults = {
@@ -308,7 +308,7 @@ function addressFromDomain(domain: string, marker: string): EmailAddress {
  *
  * @param headers - Lowercased header map, as returned by {@link extractAnalysisHeaders}.
  *
- * @experimental
+ * @beta
  */
 export function analyzeHeaders(
   headers: Record<string, string | string[]>,

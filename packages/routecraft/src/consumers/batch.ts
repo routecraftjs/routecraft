@@ -16,7 +16,7 @@ import {
 import { type OnParseError } from "../adapters/shared/parse.ts";
 
 /**
- * @experimental
+ * @beta
  */
 export type BatchOptions = {
   /**
@@ -37,7 +37,7 @@ export type BatchOptions = {
 };
 
 /**
- * @experimental
+ * @beta
  */
 export class BatchConsumer implements Consumer<BatchOptions> {
   public readonly options: BatchOptions;

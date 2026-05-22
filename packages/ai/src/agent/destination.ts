@@ -52,7 +52,7 @@ export interface AgentByNameOverrides {
 /**
  * Discriminated state: inline options or a registry name.
  *
- * @experimental
+ * @beta
  */
 export type AgentBinding =
   | { kind: "inline"; options: AgentOptions }

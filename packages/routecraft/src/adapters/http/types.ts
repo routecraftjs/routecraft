@@ -4,7 +4,7 @@ import type { Exchange } from "../../exchange";
  * Reserved config for HTTP (future: inbound server port, host).
  * No-op today; used by built-in HTTP server when implemented.
  *
- * @experimental
+ * @beta
  */
 export type HttpConfig = Record<string, unknown>;
 

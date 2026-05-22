@@ -10,7 +10,7 @@ import type { Principal } from "./auth/types.ts";
  * Types of operations that can be performed on an exchange.
  * These values are used in exchange headers to track the current operation.
  *
- * @experimental
+ * @beta
  */
 export enum OperationType {
   /** The exchange was created from a source */
@@ -298,7 +298,7 @@ export type ExchangeHeaders = Readonly<
  * will not mutate it and authors should treat it the same way.
  *
  * @template T The type of data in the body
- * @experimental
+ * @beta
  */
 export type Exchange<T = unknown> = {
   /**
@@ -585,7 +585,7 @@ type RewrapState = {
  * console.log(exchange.headers);   // Headers object with standard fields
  * ```
  *
- * @experimental
+ * @beta
  */
 export class DefaultExchange<T = unknown> implements Exchange<T> {
   /** Headers containing metadata, including the exchange id and (when set) the authenticated principal. */

@@ -10,7 +10,7 @@ export const rules: Record<string, Rule.RuleModule> = {
   "single-to-per-route": singleToPerRouteRule,
 };
 
-/** @experimental */
+/** @beta */
 export const configs = {
   all: {
     rules: {

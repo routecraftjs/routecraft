@@ -10,7 +10,7 @@ import type { RegisteredLlmModelId } from "../registry.ts";
  * registered via llmPlugin({ providers: { ollama: { provider: "ollama" }, ... } }).
  * When options.output is provided, the result type narrows so body.output is typed downstream.
  *
- * @beta
+ * @experimental
  * @param modelId - "providerId:modelName"; the provider is resolved from the plugin, the model name is sent to the provider.
  * @param options - Optional overrides (system, user, temperature, maxTokens, output, etc.). User prompt defaults to exchange.body.
  */

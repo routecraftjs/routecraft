@@ -50,7 +50,7 @@ const PRUNE_INTERVAL_MS = 60_000;
  * SQLite path with a warn log. Node embedders should configure an OTLP
  * exporter via `telemetry({ tracerProvider })` instead.
  *
- * @experimental
+ * @beta
  */
 export class SqliteConnection {
   readonly db: BunSqliteDatabase;

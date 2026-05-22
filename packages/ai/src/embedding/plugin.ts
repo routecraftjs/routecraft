@@ -23,7 +23,7 @@ function toModelConfig(
  * Use embedding("providerId:modelName", { using: ... }),
  * e.g. embedding("huggingface:all-MiniLM-L6-v2", { using: (e) => e.body.title }).
  *
- * @beta
+ * @experimental
  */
 export function embeddingPlugin(
   options: EmbeddingPluginOptions = { providers: {} },

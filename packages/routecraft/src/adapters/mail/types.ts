@@ -15,7 +15,7 @@ import type { OnParseError } from "../shared/parse.ts";
  * Authentication credentials for mail servers.
  * Supports app passwords and standard user/pass authentication.
  *
- * @experimental
+ * @beta
  */
 export interface MailAuth {
   user: string;
@@ -29,7 +29,7 @@ export interface MailAuth {
 /**
  * IMAP connection settings for a named account.
  *
- * @experimental
+ * @beta
  */
 export interface MailAccountImapConfig {
   /** IMAP host (e.g. 'imap.gmail.com') */
@@ -47,7 +47,7 @@ export interface MailAccountImapConfig {
 /**
  * SMTP connection settings for a named account.
  *
- * @experimental
+ * @beta
  */
 export interface MailAccountSmtpConfig {
   /** SMTP host (e.g. 'smtp.gmail.com') */
@@ -125,7 +125,7 @@ export interface MailContextConfig {
  * Options when using the mail adapter as a Server (IMAP read).
  * Used with `.enrich(mail({...}))` or `.from(mail(folder, {...}))`.
  *
- * @experimental
+ * @beta
  */
 export interface MailServerOptions {
   /** IMAP host (e.g. 'imap.gmail.com') */
@@ -237,7 +237,7 @@ export interface MailServerOptions {
  * Options when using the mail adapter as a Client (SMTP send).
  * Used with `.to(mail())` or `.to(mail({...}))`.
  *
- * @experimental
+ * @beta
  */
 export interface MailClientOptions {
   /** SMTP host (e.g. 'smtp.gmail.com') */
@@ -263,7 +263,7 @@ export interface MailClientOptions {
 /**
  * Options when using mail as a server or client (union).
  *
- * @experimental
+ * @beta
  */
 export type MailOptions = MailServerOptions | MailClientOptions;
 
@@ -296,7 +296,7 @@ interface MailActionBase {
 /**
  * Move message(s) to another IMAP folder.
  *
- * @experimental
+ * @beta
  */
 export type MailMoveAction = MailActionBase & {
   action: "move";
@@ -306,7 +306,7 @@ export type MailMoveAction = MailActionBase & {
 /**
  * Copy message(s) to another IMAP folder.
  *
- * @experimental
+ * @beta
  */
 export type MailCopyAction = MailActionBase & {
   action: "copy";
@@ -316,14 +316,14 @@ export type MailCopyAction = MailActionBase & {
 /**
  * Delete message(s) permanently.
  *
- * @experimental
+ * @beta
  */
 export type MailDeleteAction = MailActionBase & { action: "delete" };
 
 /**
  * Add IMAP flags to message(s).
  *
- * @experimental
+ * @beta
  */
 export type MailFlagAction = MailActionBase & {
   action: "flag";
@@ -333,7 +333,7 @@ export type MailFlagAction = MailActionBase & {
 /**
  * Remove IMAP flags from message(s).
  *
- * @experimental
+ * @beta
  */
 export type MailUnflagAction = MailActionBase & {
   action: "unflag";
@@ -343,7 +343,7 @@ export type MailUnflagAction = MailActionBase & {
 /**
  * Append a composed message to an IMAP folder (drafts, imports).
  *
- * @experimental
+ * @beta
  */
 export type MailAppendAction = MailActionBase & {
   action: "append";

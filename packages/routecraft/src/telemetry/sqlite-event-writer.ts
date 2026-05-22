@@ -17,7 +17,7 @@ const MAX_BUFFERED_EVENTS = 10_000;
  * This is a SQLite-specific materialized view of the raw event stream.
  * External backends derive the same view from trace data.
  *
- * @experimental
+ * @beta
  */
 export class SqliteEventWriter {
   private readonly logger: TelemetryLogger | undefined;

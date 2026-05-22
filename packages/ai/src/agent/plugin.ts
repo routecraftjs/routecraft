@@ -17,7 +17,7 @@ import { isDeferredFn, type FnEntry } from "./tools/types.ts";
 import { isToolSelection } from "./tools/selection.ts";
 
 /**
- * @experimental
+ * @beta
  */
 export interface AgentPluginOptions {
   /**

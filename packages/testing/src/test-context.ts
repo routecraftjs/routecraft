@@ -60,7 +60,7 @@ export interface TestOptions {
  * lifecycle (start, wait routes ready, drain, stop) and collects errors.
  * t.logger is a spy logger (vi.fn() methods) for asserting on log calls.
  *
- * @beta
+ * @experimental
  */
 export class TestContext {
   readonly ctx: CraftContext;
@@ -237,7 +237,7 @@ export class TestContext {
  * Builder that returns TestContext instead of CraftContext.
  * Same API as ContextBuilder (routes, on, with, store).
  *
- * @beta
+ * @experimental
  */
 export class TestContextBuilder {
   private builder = new ContextBuilder();
@@ -345,7 +345,7 @@ export class TestContextBuilder {
 /**
  * Create a test context builder. Use .routes(...).build(), await the result, then await t.test().
  *
- * @beta
+ * @experimental
  * @example
  * const builder = testContext();
  * const t = await builder.routes(myRoutes).build();

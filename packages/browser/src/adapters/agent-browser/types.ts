@@ -6,7 +6,7 @@ export type Resolvable<T, V> = V | ((exchange: Exchange<T>) => V);
 /**
  * Shared options available on every command.
  *
- * @experimental
+ * @beta
  */
 export interface AgentBrowserBaseOptions<T = unknown> {
   /** Override auto-session derived from exchange.id */
@@ -22,7 +22,7 @@ export interface AgentBrowserBaseOptions<T = unknown> {
 /**
  * Command-specific options for autocomplete.
  *
- * @experimental
+ * @beta
  */
 export interface AgentBrowserCommandMap<T = unknown> {
   open: { url: Resolvable<T, string> };
@@ -78,10 +78,10 @@ export interface AgentBrowserCommandMap<T = unknown> {
   };
 }
 
-/** @experimental */
+/** @beta */
 export type AgentBrowserCommand = keyof AgentBrowserCommandMap;
 
-/** @experimental */
+/** @beta */
 export interface AgentBrowserResult {
   stdout: string;
   parsed?: unknown;
