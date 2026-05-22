@@ -128,6 +128,30 @@ Most operations give you a choice: work with just the body, or the full exchange
 
 Use `.transform()` when you only need the data. Use `.process()` or `.filter()` when you need headers, correlation IDs, or the context.
 
+## Immutability
+
+The exchange is immutable. `DefaultExchange` shallow-freezes the wrapper, its headers, and (when present) the principal at construction, and every field on `Exchange<T>` is `readonly`. The body is intentionally not deep-frozen so adapters can attach arbitrary payloads, but the framework never mutates it and your code should not either.
+
+Operations that change the exchange return a new one by copy-on-write (spread) rather than mutating in place. The framework re-wraps the returned plain object back into a proper instance, preserving the context binding, route binding, and `id`.
+
+```ts
+// Correct: copy-on-write
+.process((exchange) => ({
+  ...exchange,
+  body: { ...exchange.body, stage: 'processed' },
+  headers: { ...exchange.headers, 'x-stage': 'processed' },
+}))
+
+// Wrong: body is not deep-frozen, so this compiles and runs without throwing, but mutating
+// in place bypasses copy-on-write, so the framework never re-wraps or tracks the change
+.process((exchange) => {
+  exchange.body.stage = 'processed'
+  return exchange
+})
+```
+
+Returning the same `exchange` unchanged is still a valid no-op pass-through. For the full rationale and the drop-signalling helpers that moved off headers (`markDropped` / `isDropped`), see the [0.4 to 0.5 migration guide](/docs/migrating/0.4-to-0.5).
+
 ## Exchange in taps
 
 When you `.tap()`, the tap receives a **deep copy** of the exchange with a new ID. The correlation ID is preserved so you can trace the tap back to its parent exchange. The main pipeline continues immediately without waiting for the tap.
