@@ -12,7 +12,7 @@ Routecraft is in active development -- APIs may change between minor versions.
 
 *May 2026*
 
-Several breaking changes across the core, AI, mail, logger, and CLI surfaces. See the [0.4.x to 0.5.0 migration guide](/docs/migrating/0.4-to-0.5) for the full public-API diff and step-by-step upgrade notes.
+Several breaking changes across the core, AI, mail, telemetry, logger, and CLI surfaces. See the [0.4.x to 0.5.0 migration guide](/docs/migrating/0.4-to-0.5) for the full public-API diff and step-by-step upgrade notes.
 
 ### Core
 
@@ -36,7 +36,7 @@ Several breaking changes across the core, AI, mail, logger, and CLI surfaces. Se
 - **Adapter mocking** -- `mockAdapter` swaps any tagged adapter in tests; `file`, `csv`, `json`, `jsonl`, and `html` factories are tagged out of the box.
 - **Mail (IMAP)** -- the IMAP source is reliable across poll and re-evaluation workloads, with reconnect on transient fetch failures. `MailMessage` body is reshaped and a verify-sender option is available.
 
-### Telemetry {% badge color="red" %}Breaking{% /badge %}
+### Telemetry
 
 - **Bun-only SQLite sink** -- the embedded telemetry SQLite sink now uses Bun's built-in `bun:sqlite`. `better-sqlite3` has been removed from the runtime, including from peer dependencies. Deployments that use the built-in sink must run under Bun (`engines.bun >= 1.1.0`); Node deployments that previously relied on `better-sqlite3` need to bring their own sink.
 
