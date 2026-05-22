@@ -12,6 +12,8 @@ import {
   telemetry,
   SqliteConnection,
 } from "@routecraft/routecraft";
+import { SqliteEventWriter } from "../src/telemetry/sqlite-event-writer.ts";
+import type { TelemetryEvent } from "../src/telemetry/types.ts";
 
 /**
  * Helper: create a telemetry() plugin wired to a specific SQLite database.
@@ -346,5 +348,115 @@ describe("TelemetryPlugin", () => {
     } finally {
       SqliteConnection.loadDriver = original;
     }
+  });
+});
+
+describe("SqliteEventWriter flush durability", () => {
+  function makeEvent(i: number): TelemetryEvent {
+    return {
+      timestamp: new Date().toISOString(),
+      contextId: "ctx",
+      eventName: `event-${i}`,
+      details: "{}",
+    };
+  }
+
+  /**
+   * Build a fake SqliteConnection whose transaction fails for the first
+   * `failCount` invocations, then succeeds. `persisted` records every event
+   * that reaches the prepared statement's run() inside a committed transaction.
+   */
+  function fakeConnection(failCount: number) {
+    const persisted: TelemetryEvent[] = [];
+    const warnings: string[] = [];
+    let calls = 0;
+    const connection = {
+      logger: {
+        warn: (_b: Record<string, unknown>, message: string) =>
+          warnings.push(message),
+      },
+      db: {
+        prepare: () => ({
+          run: (...args: unknown[]) => {
+            persisted.push({
+              timestamp: args[0] as string,
+              contextId: args[1] as string,
+              eventName: args[2] as string,
+              details: args[3] as string,
+            });
+          },
+        }),
+        transaction:
+          (fn: (events: TelemetryEvent[]) => void) =>
+          (events: TelemetryEvent[]) => {
+            calls += 1;
+            if (calls <= failCount) {
+              throw new Error("database is locked");
+            }
+            fn(events);
+          },
+      },
+    };
+    return { connection, persisted, warnings };
+  }
+
+  /**
+   * @case A failed flush retains its batch and a later flush persists it
+   * @preconditions Writer over a connection whose first transaction throws, the second succeeds
+   * @expectedResult Nothing persists on the failing flush; the retained batch persists on the next flush with no loss
+   */
+  test("retains events on a failed flush and persists them on retry", () => {
+    const { connection, persisted } = fakeConnection(1);
+    // Large interval so the internal timer never fires during the test.
+    const writer = new SqliteEventWriter(
+      connection as unknown as SqliteConnection,
+      50,
+      60_000,
+    );
+
+    writer.write(makeEvent(1));
+    writer.write(makeEvent(2));
+
+    writer.flush(); // transaction #1 throws -> batch must be retained
+    expect(persisted.length).toBe(0);
+
+    writer.flush(); // transaction #2 succeeds -> retained batch is persisted
+    expect(persisted.map((e) => e.eventName)).toEqual(["event-1", "event-2"]);
+
+    writer.flush(); // nothing left to flush
+    expect(persisted.length).toBe(2);
+
+    writer.close();
+  });
+
+  /**
+   * @case A sustained sink outage bounds the in-memory buffer
+   * @preconditions Writer over a connection whose transaction always throws, fed more than the retention cap
+   * @expectedResult The buffer never exceeds the 10k cap and the oldest events are dropped with a warning
+   */
+  test("bounds the buffer during a sustained outage", () => {
+    const { connection, persisted, warnings } = fakeConnection(
+      Number.POSITIVE_INFINITY,
+    );
+    // batchSize 1 makes every write() trigger a (failing) flush.
+    const writer = new SqliteEventWriter(
+      connection as unknown as SqliteConnection,
+      1,
+      60_000,
+    );
+
+    for (let i = 0; i < 10_050; i++) {
+      writer.write(makeEvent(i));
+    }
+
+    expect(persisted.length).toBe(0);
+    const buffered = (writer as unknown as { buffer: TelemetryEvent[] }).buffer
+      .length;
+    expect(buffered).toBeLessThanOrEqual(10_000);
+    expect(warnings.some((m) => m.includes("dropped oldest events"))).toBe(
+      true,
+    );
+
+    writer.close();
   });
 });
