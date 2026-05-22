@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
+import { isAuthentic, markAuthentic } from "@routecraft/routecraft";
 import { buildVercelTools } from "../src/agent/tool-bridge.ts";
 import type { ResolvedTool } from "../src/agent/tools/selection.ts";
 
@@ -133,6 +134,65 @@ describe("buildVercelTools: execute path", () => {
       ctx: { principal?: typeof principal },
     ];
     expect(callArgs[1].principal).toEqual(principal);
+  });
+
+  /**
+   * @case freezePrincipal preserves the trusted-origin (authentic) signal across the snapshot
+   * @preconditions buildVercelTools called once with an authentic principal and once with a self-asserted plain object
+   * @expectedResult The handler's ctx.principal is authentic only when the dispatching principal was authentic (the spread inside the snapshot must not strip the brand, nor confer it)
+   */
+  test("freezePrincipal preserves authenticity on the handler ctx", async () => {
+    const captured: Array<boolean> = [];
+    const handler = mock(
+      async (_input: unknown, ctx: { principal?: object }) => {
+        captured.push(isAuthentic(ctx.principal));
+        return "done";
+      },
+    );
+    const resolved: ResolvedTool = {
+      name: "auth-probe",
+      description: "Auth probe.",
+      input: z.object({}),
+      handler: handler as ResolvedTool["handler"],
+    };
+
+    const authentic = markAuthentic({
+      kind: "jwt" as const,
+      scheme: "bearer" as const,
+      subject: "verified",
+      roles: ["admin"],
+    });
+    const authenticMap = await buildVercelTools(
+      [resolved],
+      undefined,
+      new AbortController().signal,
+      undefined,
+      authentic,
+    );
+    await (
+      authenticMap["auth-probe"] as {
+        execute: (i: unknown) => Promise<unknown>;
+      }
+    ).execute({});
+
+    const selfAsserted = {
+      kind: "jwt" as const,
+      scheme: "bearer" as const,
+      subject: "forged",
+      roles: ["admin"],
+    };
+    const plainMap = await buildVercelTools(
+      [resolved],
+      undefined,
+      new AbortController().signal,
+      undefined,
+      selfAsserted,
+    );
+    await (
+      plainMap["auth-probe"] as { execute: (i: unknown) => Promise<unknown> }
+    ).execute({});
+
+    expect(captured).toEqual([true, false]);
   });
 
   /**

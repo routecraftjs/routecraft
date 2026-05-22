@@ -3,6 +3,7 @@ import {
   DefaultExchange,
   HeadersKeys,
   getDirectChannel,
+  isAuthentic,
   markAuthentic,
   rcError,
   sanitizeEndpoint,
@@ -31,13 +32,16 @@ import { DEFERRED_FN_BRAND, type DeferredFn } from "./types.ts";
  * `structuredClone` so the downstream principal shares no references
  * with the agent's frozen snapshot.
  *
- * The clone is re-branded with `markAuthentic` before forwarding: the
- * agent layer only ever forwards the identity it was handed (it cannot
- * mint or escalate, the snapshot is deeply frozen), so the forwarded
- * principal is exactly as authentic as the one that triggered the
- * agent. Without re-branding, the spread would strip the authenticity
- * brand and the downstream route's `authorize()` would reject the
- * agent's own caller identity (RC5023).
+ * Authenticity is forwarded only when the principal that triggered the
+ * agent was itself authentic: `isAuthentic(rp)` is true for a JWT /
+ * `authenticate()` identity (the tool-bridge preserves the trusted-origin
+ * signal on the frozen snapshot) and false for a self-asserted plain-object
+ * principal. Re-branding restores the brand the spread strips for the
+ * legitimate case; leaving it unbranded for the self-asserted case lets the
+ * downstream route's `authorize()` correctly reject it with RC5023, instead
+ * of laundering an unverified caller into a trusted one across the
+ * agent -> tool boundary. The agent layer never mints or escalates: it only
+ * forwards the identity it was handed.
  */
 function cloneFrozenPrincipal(rp: ReadonlyPrincipal): Principal {
   const out: Principal = { ...rp } as Principal;
@@ -46,7 +50,7 @@ function cloneFrozenPrincipal(rp: ReadonlyPrincipal): Principal {
   if (rp.roles) out.roles = [...rp.roles];
   if (rp.claims)
     out.claims = structuredClone(rp.claims) as Record<string, unknown>;
-  return markAuthentic(out);
+  return isAuthentic(rp) ? markAuthentic(out) : out;
 }
 
 /**
