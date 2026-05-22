@@ -10,7 +10,7 @@ This guide covers every breaking change extracted from a direct diff of the publ
 2. **Experimental-API changes** that only affect you if you opted into the AI, MCP, mail, or auth surfaces flagged `@experimental` at 0.4.0.
 3. **What is new in 0.5.0** — for context, no migration required.
 
-If you stayed on the stable surface (route DSL, `http()`, `cron()`, `timer()`, `simple()`, `direct()`, `telemetry`, `logger`, `eslint-plugin`), the only changes that touch you are sections 1.1, 1.2, and 1.3.
+If you stayed on the stable surface (route DSL, `http()`, `cron()`, `timer()`, `simple()`, `direct()`, `telemetry`, `logger`, `eslint-plugin`), the only changes that touch you are sections 1.1, 1.2, and 1.3 -- plus section 1.7 if you use the built-in telemetry SQLite sink.
 
 ---
 
@@ -171,6 +171,17 @@ Two related framework signals moved off headers (which would now fail because th
 - `exchange.headers["routecraft.startedAt"]` is gone. Child exchange start timestamps used by `aggregate` for duration emission live on the exchange's internals via framework-internal helpers; survives `rewrap`.
 
 For deeper details, see `.standards/type-safety-and-schemas.md` § Exchange Immutability.
+
+### 1.7 Telemetry SQLite sink is now Bun-only
+
+The built-in telemetry sink behind `telemetry({ sqlite: ... })` now persists through Bun's native `bun:sqlite`. `better-sqlite3` has been removed from the runtime and from the package's peer dependencies.
+
+If you run your context under Bun (`engines.bun >= 1.1.0`), there is nothing to do: the sink uses `bun:sqlite` automatically and you can drop `better-sqlite3` from your own dependencies.
+
+If you run under Node, the built-in SQLite sink no longer works. You have two options:
+
+- **Run the telemetry-emitting context under Bun.** This is the supported path for the embedded sink and matches the CLI, which is already Bun-only.
+- **Bring your own exporter under Node.** Pass `telemetry({ tracerProvider, disableSqlite: true })` with your own OpenTelemetry `TracerProvider`, then export spans wherever you like (OTLP, etc.). With `disableSqlite: true` the `bun:sqlite` backend is never loaded, so this path runs on Node.
 
 ---
 

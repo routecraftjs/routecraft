@@ -12,6 +12,7 @@
  */
 
 import { checkBunRuntime } from "./runtime-gate.js";
+import { version } from "../package.json";
 
 // ── 1. Bun runtime gate ─────────────────────────────────────────────
 const gate = checkBunRuntime();
@@ -28,7 +29,7 @@ const program = new Command();
 program
   .name("craft")
   .description("A modern routing framework for TypeScript")
-  .version("0.5.0")
+  .version(version)
   .enablePositionalOptions()
   .option(
     "--log-level <level>",
