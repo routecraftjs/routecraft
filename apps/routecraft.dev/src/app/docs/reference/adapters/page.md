@@ -237,6 +237,30 @@ Options:
 
 **Headers added:** Cron metadata including expression, fired time, counter, next run, timezone, and name (via `routecraft.cron.*` headers)
 
+### event
+
+```ts
+import { event } from '@routecraft/routecraft'
+```
+
+Produce exchanges from framework events. Use as the source with `.from(event(filter))`; the exchange body is the event payload.
+
+```ts
+// Single event
+craft().from(event('route:started')).to(log())
+
+// Multiple events
+craft().from(event(['route:started', 'route:stopped'])).to(log())
+```
+
+**Filter (`EventFilter`):** an event name, an array of names, or a wildcard pattern.
+
+- `*` (single-level) matches exactly one colon-separated segment: `route:*` matches `route:started` but not `route:pay:exchange:started`.
+- `**` (globstar) matches zero or more segments at any depth: `route:**` matches every route event; `route:*:operation:**` matches operations at any adapter depth.
+- `*` on its own matches all events.
+
+Static subscriptions (`context:started`, `route:started`, ...) expand wildcards at startup against known event names; hierarchical events (`route:<id>:exchange:<phase>`) need explicit patterns or `**` to match runtime route ids. See the [Events reference](/docs/reference/events) for the full taxonomy.
+
 ### direct
 
 ```ts
@@ -1942,6 +1966,59 @@ Model ID format: `"provider:model-name"` (e.g., `"huggingface:all-MiniLM-L6-v2"`
 | `embedding` | `number[]` | Vector representation of the input text |
 
 Provider credentials are configured once in `embeddingPlugin()` and shared across all `embedding()` calls. See [Plugins reference](/docs/reference/plugins).
+
+---
+
+## Clustering adapters
+
+### group
+
+```ts
+import { group } from '@routecraft/routecraft'
+```
+
+Transformer that groups an array into clusters using a comparator. Use with `.transform(group(options))`. By default it reads the body as the array and replaces the body with the array of clusters; use `from` / `to` to read and write sub-fields, and `map` to shape each cluster.
+
+```ts
+.transform(group({
+  comparator: cosine({ field: 'embedding', threshold: 0.82 }),
+  from: (body) => body.items,
+  map: (cluster) => ({ size: cluster.length, first: cluster[0] }),
+}))
+```
+
+**Options (`GroupOptions`):**
+
+| Option | Type | Required | Description |
+|--------|------|----------|-------------|
+| `comparator` | `Comparator<T>` | Yes | Decides whether two items belong in the same cluster (e.g. from `cosine()`) |
+| `from` | `(body) => T[]` | No | Read the array to cluster (default: the body itself) |
+| `map` | `(cluster: T[]) => R` | No | Shape each resulting cluster (default: the raw cluster) |
+| `to` | `(body, result: R[]) => unknown` | No | Write the clusters back (default: replace the body) |
+
+### cosine
+
+```ts
+import { cosine } from '@routecraft/routecraft'
+```
+
+Comparator that groups items by cosine similarity of a numeric vector field. Pass it to `group({ comparator: cosine(options) })`.
+
+```ts
+.transform(group({
+  comparator: cosine({ field: 'embedding', threshold: 0.85 }),
+  from: (body) => body.items,
+}))
+```
+
+**Options (`CosineOptions`):**
+
+| Option | Type | Required | Description |
+|--------|------|----------|-------------|
+| `field` | `string` | Yes | Property on each item holding the embedding vector (`number[]`) |
+| `threshold` | `number` | No | Items cluster when their cosine similarity is strictly greater than this value (default: `0.82`) |
+
+Items whose `field` is not an array never match.
 
 ---
 

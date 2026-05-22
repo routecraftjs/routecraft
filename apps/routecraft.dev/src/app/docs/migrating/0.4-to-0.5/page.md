@@ -26,7 +26,7 @@ If you stayed on the stable surface (route DSL, `http()`, `cron()`, `timer()`, `
 - `.description(value: string)` — discoverable description
 - `.input(schema | { body, headers })` — body and header validation, framework-enforced before the pipeline runs
 - `.output(schema | { body, headers })` — output validation against the primary destination
-- `.tag(value)` / `.tags(values)` — tags drive selectors like `tools({ tagged: "read-only" })` on the agent side; literals `"read-only" | "destructive" | "idempotent"` autocomplete and any string is accepted
+- `.tag(value | values)` — accepts a single tag or an array, and calls before `.from()` accumulate (deduplicated); tags drive selectors like `tools({ tagged: "read-only" })` on the agent side; literals `"read-only" | "destructive" | "idempotent"` autocomplete and any string is accepted
 
 `.input()` failures emit `exchange:dropped`; `.output()` failures route through the route's error handler or emit `exchange:failed`.
 
