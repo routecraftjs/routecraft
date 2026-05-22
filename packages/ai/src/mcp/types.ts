@@ -10,7 +10,7 @@ import type { UserinfoOption } from "./userinfo.ts";
 
 /**
  * Store key set by mcpPlugin() when applied; routes using .from(mcp(...)) require it.
- * @internal
+ * @experimental
  */
 export const MCP_PLUGIN_REGISTERED = Symbol.for(
   "routecraft.mcp.plugin.registered",
@@ -18,7 +18,7 @@ export const MCP_PLUGIN_REGISTERED = Symbol.for(
 
 /**
  * Store key for named remote MCP servers (mcpPlugin({ clients })). Used by McpClient to resolve serverId.
- * @internal
+ * @experimental
  */
 export const ADAPTER_MCP_CLIENT_SERVERS = Symbol.for(
   "routecraft.mcp.client.servers",
@@ -26,13 +26,13 @@ export const ADAPTER_MCP_CLIENT_SERVERS = Symbol.for(
 
 /**
  * Store key for the unified MCP tool registry. Used by agent adapter for tool discovery.
- * @internal
+ * @experimental
  */
 export const MCP_TOOL_REGISTRY = Symbol.for("routecraft.mcp.tool.registry");
 
 /**
  * Store key for stdio client managers. Used by destination adapter to call tools on stdio clients.
- * @internal
+ * @experimental
  */
 export const MCP_STDIO_MANAGERS = Symbol.for("routecraft.mcp.stdio.managers");
 
@@ -49,13 +49,6 @@ export const MCP_LOCAL_TOOL_REGISTRY = Symbol.for(
   "routecraft.mcp.local-tool-registry",
 );
 
-/**
- * Per-direction schema bundle for an MCP tool's request side.
- * Both `body` (MCP `Tool.inputSchema`) and `headers` are validated at runtime
- * before the route handler runs.
- *
- * @experimental
- */
 /**
  * @deprecated Use `RouteSchemas` from `@routecraft/routecraft`. Kept as an
  * alias so existing imports do not break during migration.
@@ -126,6 +119,8 @@ declare module "@routecraft/routecraft" {
 /**
  * HTTP client config for a remote MCP server (Streamable HTTP).
  * Used in mcpPlugin({ clients: { name: config } }).
+ *
+ * @beta
  */
 export interface McpClientHttpConfig {
   transport?: "streamable-http";
@@ -138,6 +133,8 @@ export interface McpClientHttpConfig {
  * Stdio client config for a local MCP server subprocess.
  * Used in mcpPlugin({ clients: { name: config } }).
  * The plugin spawns the process, manages its lifecycle, and auto-restarts on crash.
+ *
+ * @beta
  */
 export interface McpClientStdioConfig {
   transport: "stdio";
@@ -151,7 +148,11 @@ export interface McpClientStdioConfig {
   cwd?: string;
 }
 
-/** Union of client configs accepted by mcpPlugin({ clients }). */
+/**
+ * Union of client configs accepted by mcpPlugin({ clients }).
+ *
+ * @beta
+ */
 export type McpClientServerConfig = McpClientHttpConfig | McpClientStdioConfig;
 
 /**
@@ -170,6 +171,8 @@ export type McpClientServerConfig = McpClientHttpConfig | McpClientStdioConfig;
  *   const tool = ex.headers[McpHeadersKeys.TOOL]
  * })
  * ```
+ *
+ * @beta
  */
 export enum McpHeadersKeys {
   /** The MCP tool name that triggered this exchange. */
@@ -306,6 +309,8 @@ export type McpHttpAuthOptions = ValidatorAuthOptions | OAuthAuthOptions;
 
 /**
  * Type guard: returns `true` when auth is configured for OAuth provider mode.
+ *
+ * @experimental
  */
 export function isOAuthAuth(
   auth: McpHttpAuthOptions,
@@ -318,7 +323,7 @@ export function isOAuthAuth(
  * Called on every request; may be synchronous or asynchronous.
  * Useful for dynamic tokens (JWT refresh, rotating API keys, etc.).
  *
- * @experimental
+ * @beta
  */
 export type McpClientTokenProvider = () => string | Promise<string>;
 
@@ -326,7 +331,7 @@ export type McpClientTokenProvider = () => string | Promise<string>;
  * Auth config for an outbound MCP HTTP client connection.
  * Passed as request headers on every connection to the remote server.
  *
- * @experimental
+ * @beta
  */
 export interface McpClientAuthOptions {
   /**
@@ -348,6 +353,8 @@ export interface McpClientAuthOptions {
 /**
  * Options for the MCP plugin (mcpPlugin).
  * One plugin per adapter: this is the single options type for the MCP plugin.
+ *
+ * @experimental
  */
 export interface McpPluginOptions {
   /** Server name in MCP protocol handshake. Default: "routecraft". Machine identifier. */
@@ -528,6 +535,7 @@ export interface McpPluginOptions {
  * Mirrors the MCP specification (2025-03-26) `ToolAnnotations` shape.
  *
  * @see https://modelcontextprotocol.io/specification/2025-03-26/server/tools#annotations
+ * @beta
  */
 export interface McpToolAnnotations {
   /** Human-readable title for the tool (used for display in UIs). */
@@ -547,7 +555,7 @@ export interface McpToolAnnotations {
  * `Icon` shape, which is reused by `serverInfo.icons`, `Tool.icons`, and the
  * resource/prompt primitives.
  *
- * @experimental
+ * @beta
  */
 export interface McpIcon {
   /** URL or data URI of the icon. */
@@ -589,6 +597,9 @@ export interface McpServerOptions {
   icons?: McpIcon[];
 }
 
+/**
+ * @experimental
+ */
 export type McpOptions = McpServerOptions;
 
 /**
@@ -607,6 +618,8 @@ export type McpArgsExtractor = (
  * - **Stdio:** use `serverId` referencing a stdio client from mcpPlugin({ clients }).
  *   The destination adapter resolves the manager from the context store and calls
  *   tools directly on the subprocess -- no HTTP involved.
+ *
+ * @beta
  */
 export interface McpClientOptions {
   /** URL of the remote MCP server (HTTP/HTTPS only). Omit when using serverId. */
@@ -631,6 +644,8 @@ export interface McpClientOptions {
 
 /**
  * Represents a tool exposed via MCP
+ *
+ * @beta
  */
 export interface McpTool {
   name: string;
@@ -659,6 +674,8 @@ export interface McpTool {
 /**
  * A tool entry in the unified MCP tool registry.
  * Combines local mcp() route tools and remote client tools (stdio and HTTP).
+ *
+ * @experimental
  */
 export interface McpToolRegistryEntry {
   /** Tool name (unique within a source, may collide across sources). */
@@ -693,6 +710,8 @@ export interface McpToolRegistryEntry {
 
 /**
  * MCP tool call result
+ *
+ * @beta
  */
 export interface McpToolResult {
   content: Array<{

@@ -17,6 +17,8 @@ import type { LogOptions } from "./types";
  * .to(log((ex) => ({ id: ex.id, body: ex.body })))
  * .to(log(undefined, { level: 'debug' }))
  * ```
+ *
+ * @beta
  */
 export function log<T = unknown>(
   formatter?: (exchange: Exchange<T>) => unknown,
@@ -32,6 +34,8 @@ export function log<T = unknown>(
  * @param formatter - Optional (exchange) => value to log
  * @param options - Optional config (level is always "debug")
  * @returns A Destination that logs at debug level
+ *
+ * @beta
  */
 export function debug<T = unknown>(
   formatter?: (exchange: Exchange<T>) => unknown,

@@ -1,5 +1,8 @@
 import { BRAND, setBrand } from "./brand.ts";
 
+/**
+ * @beta
+ */
 export type RCCode =
   | "RC1001"
   | "RC1002"
@@ -26,6 +29,9 @@ export type RCCode =
   | "RC5024"
   | "RC9901";
 
+/**
+ * @beta
+ */
 export type RCMeta = {
   category: "Definition" | "DSL" | "Lifecycle" | "Adapter" | "Runtime";
   message: string;
@@ -41,6 +47,9 @@ export type RCMeta = {
 
 export const DOCS_BASE = "https://routecraft.dev/docs/reference/errors";
 
+/**
+ * @beta
+ */
 export const RC: Record<RCCode, RCMeta> = {
   RC1001: {
     category: "Definition",
@@ -224,6 +233,9 @@ export const RC: Record<RCCode, RCMeta> = {
   },
 };
 
+/**
+ * @beta
+ */
 export class RoutecraftError extends Error {
   /**
    * Whether this error should be retried by the retry wrapper.
@@ -310,6 +322,8 @@ interface SchemaIssue {
  * formatSchemaIssues([{ message: "Required", path: ["name"] }])
  * // => '"name": Required'
  * ```
+ *
+ * @beta
  */
 export function formatSchemaIssues(issues: unknown): string {
   if (!Array.isArray(issues) || issues.length === 0) {
@@ -353,6 +367,8 @@ function formatIssuePath(
  * ```typescript
  * throw rcError("RC5002", new Error("Invalid payload"), { message: "Validation failed" });
  * ```
+ *
+ * @beta
  */
 export function rcError(
   rc: RCCode,

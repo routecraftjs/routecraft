@@ -58,7 +58,11 @@ export function fixture<T = unknown>(path: string): T {
   return JSON.parse(readFileSync(path, "utf-8")) as T;
 }
 
-/** Fixture entry must have a `name` field used as the vitest test name. */
+/**
+ * Fixture entry must have a `name` field used as the vitest test name.
+ *
+ * @beta
+ */
 export interface FixtureWithName {
   name: string;
   [key: string]: unknown;

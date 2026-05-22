@@ -1,8 +1,14 @@
 import type { Exchange } from "../../exchange.ts";
 import type { OnParseError } from "../shared/parse.ts";
 
+/**
+ * @beta
+ */
 export type HtmlResult = string | string[];
 
+/**
+ * @beta
+ */
 export interface HtmlOptions<T = unknown, R = unknown> {
   /**
    * CSS selector to match elements.

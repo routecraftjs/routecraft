@@ -8,6 +8,8 @@ import { type OnParseError } from "./adapters/shared/parse.ts";
 /**
  * Base interface for all adapters (sources, destinations, transformers, filters, etc.).
  * Adapters can expose an optional `adapterId` string for logging (e.g. "routecraft.adapter.log").
+ *
+ * @beta
  */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type -- Marker interface for adapter union
 export interface Adapter {}
@@ -30,6 +32,9 @@ export function getAdapterLabel(
   return name === "Object" ? "inline" : name;
 }
 
+/**
+ * @beta
+ */
 export interface Step<T extends Adapter> {
   operation: OperationType;
   adapter: T;
@@ -113,6 +118,9 @@ export type Message = {
   parseFailureMode?: OnParseError;
 };
 
+/**
+ * @beta
+ */
 export interface Consumer<O = unknown> {
   context: CraftContext;
   channel: unknown; // will be narrowed by specific consumer types
@@ -366,6 +374,7 @@ export type AuthEventName = "auth:success" | "auth:rejected";
  * @see PluginEventName - Plugin lifecycle events
  * @see SpecialEventName - Batch, retry, error-handler events
  * @see AuthEventName - Authentication events
+ * @beta
  */
 export type EventName =
   | ContextEventName
@@ -708,6 +717,9 @@ export type EventPayload<K extends EventName> = {
   _event: string;
 };
 
+/**
+ * @beta
+ */
 export type EventHandler<K extends EventName> = (
   payload: EventPayload<K>,
 ) => void | Promise<void>;

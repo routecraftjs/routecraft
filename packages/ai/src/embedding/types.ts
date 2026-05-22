@@ -17,15 +17,24 @@ declare module "@routecraft/routecraft" {
   }
 }
 
+/**
+ * @beta
+ */
 export interface EmbeddingModelConfigHuggingFace {
   provider: "huggingface";
 }
 
+/**
+ * @beta
+ */
 export interface EmbeddingModelConfigOllama {
   provider: "ollama";
   baseURL?: string;
 }
 
+/**
+ * @beta
+ */
 export interface EmbeddingModelConfigOpenAI {
   provider: "openai";
   apiKey: string;
@@ -37,28 +46,44 @@ export interface EmbeddingModelConfigMock {
   provider: "mock";
 }
 
+/**
+ * @beta
+ */
 export type EmbeddingModelConfig =
   | EmbeddingModelConfigHuggingFace
   | EmbeddingModelConfigOllama
   | EmbeddingModelConfigOpenAI
   | EmbeddingModelConfigMock;
 
+/**
+ * @beta
+ */
 export type EmbeddingProviderType =
   | "huggingface"
   | "ollama"
   | "openai"
   | "mock";
 
+/**
+ * @beta
+ */
 export interface EmbeddingOptions<T = unknown> {
   /** Build the string to embed from the exchange (e.g. jobTitle + location). */
   using: (exchange: Exchange<T>) => string | string[];
 }
 
+/**
+ * @beta
+ */
 export interface EmbeddingResult {
   embedding: number[];
 }
 
-/** Provider options for embeddingPlugin({ providers }). Key is the provider id. */
+/**
+ * Provider options for embeddingPlugin({ providers }). Key is the provider id.
+ *
+ * @beta
+ */
 export interface EmbeddingPluginProviders {
   huggingface?: Record<string, never>;
   ollama?: { baseURL?: string };
@@ -67,6 +92,9 @@ export interface EmbeddingPluginProviders {
   mock?: Record<string, never>;
 }
 
+/**
+ * @beta
+ */
 export interface EmbeddingPluginOptions {
   providers: EmbeddingPluginProviders;
   /** Optional context-level default options. */
@@ -77,6 +105,8 @@ export interface EmbeddingPluginOptions {
  * Recommended embedding model ids for autocomplete.
  * Format: "providerId:modelName". Custom models are allowed via string.
  * Updated for 2026.
+ *
+ * @beta
  */
 export type EmbeddingModelId =
   // HuggingFace

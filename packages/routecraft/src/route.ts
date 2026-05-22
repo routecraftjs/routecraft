@@ -45,6 +45,8 @@ import { InMemoryProcessingQueue } from "./queue.ts";
  * @param endpoint - The target route's direct endpoint
  * @param payload - The data to send
  * @returns The result of the target route's pipeline
+ *
+ * @beta
  */
 export type ForwardFn = (
   endpoint: RegisteredDirectEndpoint,
@@ -61,6 +63,8 @@ export type ForwardFn = (
  * @param exchange - The exchange at the point of failure
  * @param forward - Sends a payload to another route via the direct adapter
  * @returns Static fallback value or result of forward()
+ *
+ * @beta
  */
 export type ErrorHandler = (
   error: unknown,
@@ -72,6 +76,8 @@ export type ErrorHandler = (
  * Per-direction schema bundle for discoverable-capability routes. Mirrors the
  * Standard Schema shape used by adapters; the engine enforces `input` before
  * pipeline steps run and `output` before the primary destination fires.
+ *
+ * @beta
  */
 export interface RouteSchemas {
   /** Standard Schema for the body. */
@@ -85,6 +91,8 @@ export interface RouteSchemas {
  * accepting any user-defined string. Use these consistently to enable
  * downstream filtering (e.g. an agent that only whitelists `"read-only"`
  * tools).
+ *
+ * @beta
  */
 export type KnownTag = "read-only" | "destructive" | "idempotent";
 
@@ -92,6 +100,8 @@ export type KnownTag = "read-only" | "destructive" | "idempotent";
  * Tag value: one of the framework's well-known tags or any user string.
  * The `& {}` keeps autocomplete on `KnownTag` while accepting arbitrary
  * strings.
+ *
+ * @beta
  */
 export type Tag = KnownTag | (string & {});
 
@@ -102,6 +112,8 @@ export type Tag = KnownTag | (string & {});
  *
  * Set via the `.title()`, `.description()`, `.input()`, `.output()`,
  * and `.tag()` builder methods. All fields are optional.
+ *
+ * @beta
  */
 export interface RouteDiscovery {
   /** Human-readable display title for discovery consumers (agents, docs). */
@@ -275,6 +287,8 @@ function buildParseStep(
  *   consumer: { type: SimpleConsumer, options: undefined }
  * };
  * ```
+ *
+ * @beta
  */
 export type RouteDefinition<T = unknown> = {
   /** Unique identifier for the route */
@@ -321,6 +335,7 @@ export type RouteDefinition<T = unknown> = {
  * events receive Exchange (body: unknown) unless narrowed.
  *
  * @template T The body type of the route's exchange when known (default unknown)
+ * @beta
  */
 export interface Route<T = unknown> {
   /** The context this route belongs to */
@@ -377,6 +392,8 @@ export interface Route<T = unknown> {
  * Manages message flow from the source through the defined steps and the
  * internal processing queue to the consumer. Handles start, stop, drain, and
  * background task tracking (e.g. for tap).
+ *
+ * @beta
  */
 export class DefaultRoute implements Route {
   /** Controls aborting the route's operations */

@@ -3,6 +3,8 @@
  * Used with `group({ comparator })`.
  *
  * @template T - Item type (e.g. object with an embedding field)
+ *
+ * @beta
  */
 export interface Comparator<T = unknown> {
   compare: (a: T, b: T) => boolean;
@@ -10,6 +12,8 @@ export interface Comparator<T = unknown> {
 
 /**
  * Options for the cosine similarity comparator.
+ *
+ * @beta
  */
 export interface CosineOptions {
   /** Property on each item that holds the embedding vector (number[]). */

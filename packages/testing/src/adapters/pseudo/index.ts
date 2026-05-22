@@ -2,7 +2,7 @@ import type { Source, Destination, Processor } from "@routecraft/routecraft";
 import type { PseudoOptions, PseudoKeyedOptions } from "./shared";
 
 /**
- * @internal
+ * @experimental
  */
 /* eslint-disable @typescript-eslint/no-explicit-any -- input position must accept any exchange for DSL assignability */
 export type PseudoAdapter<R> = {
@@ -12,10 +12,10 @@ export type PseudoAdapter<R> = {
   Processor<any, R>;
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-/** @internal */
+/** @experimental */
 export type PseudoFactory<Opts> = <R = unknown>(opts: Opts) => PseudoAdapter<R>;
 
-/** @internal */
+/** @experimental */
 export type PseudoKeyedFactory<Opts> = <R = unknown>(
   key: string,
   opts?: Opts,
@@ -61,7 +61,7 @@ function createAdapter<R>(
 /**
  * Creates a pseudo (placeholder) adapter for use in tests or as a stub during development.
  *
- * @experimental
+ * @beta
  */
 // Overload: string-first (keyed) factory
 export function pseudo<

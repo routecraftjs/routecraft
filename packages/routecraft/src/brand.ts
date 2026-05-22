@@ -56,32 +56,56 @@ function isBranded(obj: unknown, key: symbol): boolean {
   );
 }
 
-/** Returns true if the value is a CraftContext instance. */
+/**
+ * Returns true if the value is a CraftContext instance.
+ *
+ * @beta
+ */
 export function isCraftContext(obj: unknown): boolean {
   return isBranded(obj, BRAND.CraftContext);
 }
 
-/** Returns true if the value is a Route (DefaultRoute) instance. */
+/**
+ * Returns true if the value is a Route (DefaultRoute) instance.
+ *
+ * @beta
+ */
 export function isRoute(obj: unknown): boolean {
   return isBranded(obj, BRAND.DefaultRoute);
 }
 
-/** Returns true if the value is a RouteBuilder instance (has .build()). */
+/**
+ * Returns true if the value is a RouteBuilder instance (has .build()).
+ *
+ * @beta
+ */
 export function isRouteBuilder(obj: unknown): boolean {
   return isBranded(obj, BRAND.RouteBuilder);
 }
 
-/** Returns true if the value is a RouteDefinition (from craft().from().build()). */
+/**
+ * Returns true if the value is a RouteDefinition (from craft().from().build()).
+ *
+ * @beta
+ */
 export function isRouteDefinition(obj: unknown): boolean {
   return isBranded(obj, BRAND.RouteDefinition);
 }
 
-/** Returns true if the value is a RoutecraftError instance. */
+/**
+ * Returns true if the value is a RoutecraftError instance.
+ *
+ * @beta
+ */
 export function isRoutecraftError(obj: unknown): boolean {
   return isBranded(obj, BRAND.RoutecraftError);
 }
 
-/** Returns true if the value is an Exchange instance. */
+/**
+ * Returns true if the value is an Exchange instance.
+ *
+ * @beta
+ */
 export function isExchange(obj: unknown): boolean {
   return isBranded(obj, BRAND.Exchange);
 }

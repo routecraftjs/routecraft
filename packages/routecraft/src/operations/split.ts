@@ -43,6 +43,7 @@ export type CallableSplitter<T = unknown, R = unknown> = (
  *
  * @template T - Current body type
  * @template R - Item type
+ * @beta
  */
 export interface Splitter<T = unknown, R = unknown> extends Adapter {
   split: CallableSplitter<T, R>;

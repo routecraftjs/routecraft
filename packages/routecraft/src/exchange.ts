@@ -9,6 +9,8 @@ import type { Principal } from "./auth/types.ts";
 /**
  * Types of operations that can be performed on an exchange.
  * These values are used in exchange headers to track the current operation.
+ *
+ * @experimental
  */
 export enum OperationType {
   /** The exchange was created from a source */
@@ -66,6 +68,8 @@ export enum OperationType {
  *   }
  * }
  * ```
+ *
+ * @beta
  */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface HeaderKeysRegistry {}
@@ -76,6 +80,8 @@ export interface HeaderKeysRegistry {}
  *
  * Plugins can register additional keys by augmenting the
  * {@link HeaderKeysRegistry} interface.
+ *
+ * @beta
  */
 export const HeadersKeys = {
   /** Unique identifier for this exchange. Stored in headers so it survives halt/continue alongside body. */
@@ -141,6 +147,8 @@ export const HeadersKeys = {
  *
  * Plugins can extend this via module augmentation alongside
  * {@link HeaderKeysRegistry} to add typed headers.
+ *
+ * @beta
  */
 export interface RoutecraftHeaders {
   /**
@@ -211,6 +219,8 @@ export interface RoutecraftHeaders {
  * the (already `Readonly<>`) `ExchangeHeaders` map. The contract is
  * type-level; the constructor freezes array values defensively so a caller
  * who casts away the readonly cannot mutate a shared reference.
+ *
+ * @beta
  */
 export type HeaderValue = unknown;
 
@@ -224,6 +234,8 @@ export type HeaderValue = unknown;
  * `Readonly<Record<string, unknown>>` so structured values (Principal,
  * future Span, etc.) can be assigned directly when they aren't mediated by
  * a callback.
+ *
+ * @beta
  */
 export type HeaderLiteral =
   | string
@@ -251,6 +263,8 @@ type RegistryHeaders = {
  *
  * Includes standard Routecraft headers, plugin-registered headers, and
  * custom headers.
+ *
+ * @beta
  */
 export type ExchangeHeaders = Readonly<
   Partial<RoutecraftHeaders> & RegistryHeaders & Record<string, HeaderValue>
@@ -284,6 +298,7 @@ export type ExchangeHeaders = Readonly<
  * will not mutate it and authors should treat it the same way.
  *
  * @template T The type of data in the body
+ * @experimental
  */
 export type Exchange<T = unknown> = {
   /**
@@ -411,7 +426,7 @@ export const EXCHANGE_INTERNALS = new WeakMap<Exchange, ExchangeInternals>();
  *
  * @param exchange The exchange
  * @returns The context or undefined
- * @internal
+ * @experimental
  */
 export function getExchangeContext(
   exchange: Exchange,
@@ -429,7 +444,7 @@ export function getExchangeContext(
  *
  * @param exchange The exchange
  * @returns The route or undefined
- * @internal
+ * @experimental
  */
 export function getExchangeRoute(exchange: Exchange): Route | undefined {
   const internals =
@@ -569,6 +584,8 @@ type RewrapState = {
  * console.log(exchange.body);      // "Hello, World!"
  * console.log(exchange.headers);   // Headers object with standard fields
  * ```
+ *
+ * @experimental
  */
 export class DefaultExchange<T = unknown> implements Exchange<T> {
   /** Headers containing metadata, including the exchange id and (when set) the authenticated principal. */

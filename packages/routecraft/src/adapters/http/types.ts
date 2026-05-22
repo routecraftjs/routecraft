@@ -3,9 +3,14 @@ import type { Exchange } from "../../exchange";
 /**
  * Reserved config for HTTP (future: inbound server port, host).
  * No-op today; used by built-in HTTP server when implemented.
+ *
+ * @experimental
  */
 export type HttpConfig = Record<string, unknown>;
 
+/**
+ * @beta
+ */
 export type HttpMethod =
   | "GET"
   | "POST"
@@ -15,8 +20,14 @@ export type HttpMethod =
   | "HEAD"
   | "OPTIONS";
 
+/**
+ * @beta
+ */
 export type QueryParams = Record<string, string | number | boolean>;
 
+/**
+ * @beta
+ */
 export interface HttpOptions<T = unknown> {
   method?: HttpMethod;
   url: string | ((exchange: Exchange<T>) => string);
@@ -29,6 +40,9 @@ export interface HttpOptions<T = unknown> {
   throwOnHttpError?: boolean;
 }
 
+/**
+ * @beta
+ */
 export type HttpResult<T = string | unknown> = {
   status: number;
   headers: Record<string, string>;

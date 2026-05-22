@@ -15,6 +15,9 @@ import {
 } from "../exchange.ts";
 import { type OnParseError } from "../adapters/shared/parse.ts";
 
+/**
+ * @experimental
+ */
 export type BatchOptions = {
   /**
    * The size of the batch.
@@ -33,6 +36,9 @@ export type BatchOptions = {
   };
 };
 
+/**
+ * @experimental
+ */
 export class BatchConsumer implements Consumer<BatchOptions> {
   public readonly options: BatchOptions;
 

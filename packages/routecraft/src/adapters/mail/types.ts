@@ -14,6 +14,8 @@ import type { OnParseError } from "../shared/parse.ts";
 /**
  * Authentication credentials for mail servers.
  * Supports app passwords and standard user/pass authentication.
+ *
+ * @experimental
  */
 export interface MailAuth {
   user: string;
@@ -26,6 +28,8 @@ export interface MailAuth {
 
 /**
  * IMAP connection settings for a named account.
+ *
+ * @experimental
  */
 export interface MailAccountImapConfig {
   /** IMAP host (e.g. 'imap.gmail.com') */
@@ -42,6 +46,8 @@ export interface MailAccountImapConfig {
 
 /**
  * SMTP connection settings for a named account.
+ *
+ * @experimental
  */
 export interface MailAccountSmtpConfig {
   /** SMTP host (e.g. 'smtp.gmail.com') */
@@ -118,6 +124,8 @@ export interface MailContextConfig {
 /**
  * Options when using the mail adapter as a Server (IMAP read).
  * Used with `.enrich(mail({...}))` or `.from(mail(folder, {...}))`.
+ *
+ * @experimental
  */
 export interface MailServerOptions {
   /** IMAP host (e.g. 'imap.gmail.com') */
@@ -228,6 +236,8 @@ export interface MailServerOptions {
 /**
  * Options when using the mail adapter as a Client (SMTP send).
  * Used with `.to(mail())` or `.to(mail({...}))`.
+ *
+ * @experimental
  */
 export interface MailClientOptions {
   /** SMTP host (e.g. 'smtp.gmail.com') */
@@ -250,7 +260,11 @@ export interface MailClientOptions {
   account?: string;
 }
 
-/** Options when using mail as a server or client (union). */
+/**
+ * Options when using mail as a server or client (union).
+ *
+ * @experimental
+ */
 export type MailOptions = MailServerOptions | MailClientOptions;
 
 // ---------------------------------------------------------------------------
@@ -279,34 +293,58 @@ interface MailActionBase {
   target?: MailTargetExtractor;
 }
 
-/** Move message(s) to another IMAP folder. */
+/**
+ * Move message(s) to another IMAP folder.
+ *
+ * @experimental
+ */
 export type MailMoveAction = MailActionBase & {
   action: "move";
   folder: string;
 };
 
-/** Copy message(s) to another IMAP folder. */
+/**
+ * Copy message(s) to another IMAP folder.
+ *
+ * @experimental
+ */
 export type MailCopyAction = MailActionBase & {
   action: "copy";
   folder: string;
 };
 
-/** Delete message(s) permanently. */
+/**
+ * Delete message(s) permanently.
+ *
+ * @experimental
+ */
 export type MailDeleteAction = MailActionBase & { action: "delete" };
 
-/** Add IMAP flags to message(s). */
+/**
+ * Add IMAP flags to message(s).
+ *
+ * @experimental
+ */
 export type MailFlagAction = MailActionBase & {
   action: "flag";
   flags: string | string[];
 };
 
-/** Remove IMAP flags from message(s). */
+/**
+ * Remove IMAP flags from message(s).
+ *
+ * @experimental
+ */
 export type MailUnflagAction = MailActionBase & {
   action: "unflag";
   flags: string | string[];
 };
 
-/** Append a composed message to an IMAP folder (drafts, imports). */
+/**
+ * Append a composed message to an IMAP folder (drafts, imports).
+ *
+ * @experimental
+ */
 export type MailAppendAction = MailActionBase & {
   action: "append";
   folder: string;

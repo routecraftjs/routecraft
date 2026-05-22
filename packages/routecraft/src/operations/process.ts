@@ -34,6 +34,7 @@ export type CallableProcessor<T = unknown, R = T> = (
  *
  * @template T - Current body type
  * @template R - Result body type
+ * @beta
  */
 export interface Processor<T = unknown, R = T> extends Adapter {
   process: CallableProcessor<T, R>;

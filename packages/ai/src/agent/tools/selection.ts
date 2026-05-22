@@ -112,7 +112,7 @@ export interface ResolvedTool {
  * Type guard. Returns true when `value` is a tool selection produced
  * by `tools(...)`.
  *
- * @internal
+ * @experimental
  */
 export function isToolSelection(value: unknown): value is ToolSelection {
   return (

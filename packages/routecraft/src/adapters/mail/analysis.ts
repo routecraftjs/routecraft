@@ -13,27 +13,47 @@
 // Public types
 // ---------------------------------------------------------------------------
 
-/** How a message reached the recipient. */
+/**
+ * How a message reached the recipient.
+ *
+ * @experimental
+ */
 export type ForwardType = "direct" | "auto-forward" | "mailing-list";
 
-/** Trust state of the effective sender. */
+/**
+ * Trust state of the effective sender.
+ *
+ * @experimental
+ */
 export type TrustLevel = "verified" | "unverified" | "failed";
 
-/** Parsed email address. */
+/**
+ * Parsed email address.
+ *
+ * @experimental
+ */
 export interface EmailAddress {
   address: string;
   name?: string;
   domain: string;
 }
 
-/** One hop in a forward chain. */
+/**
+ * One hop in a forward chain.
+ *
+ * @experimental
+ */
 export interface ForwardHop {
   via: EmailAddress;
   type: "auto-forward" | "mailing-list";
   arcInstance?: number;
 }
 
-/** Effective sender plus the evidence used to resolve it. */
+/**
+ * Effective sender plus the evidence used to resolve it.
+ *
+ * @experimental
+ */
 export interface MailSender extends EmailAddress {
   /** How the message reached us. */
   forwardType: ForwardType;
@@ -61,6 +81,8 @@ export interface MailSender extends EmailAddress {
 /**
  * Lowercased header names relevant to sender analysis. Always extracted from
  * a parsed message even when the caller has not requested `includeHeaders`.
+ *
+ * @experimental
  */
 export const ANALYSIS_HEADER_NAMES = [
   "from",
@@ -180,6 +202,8 @@ interface ParsedAuthResults {
  *
  * Format (RFC 8601): `authserv-id; method=result (comment) property=value; ...`
  * We pluck out method verdicts plus a couple of properties we care about.
+ *
+ * @experimental
  */
 export function parseAuthResults(value: string | undefined): ParsedAuthResults {
   const out: ParsedAuthResults = {
@@ -283,6 +307,8 @@ function addressFromDomain(domain: string, marker: string): EmailAddress {
  * message. Pure function, no I/O.
  *
  * @param headers - Lowercased header map, as returned by {@link extractAnalysisHeaders}.
+ *
+ * @experimental
  */
 export function analyzeHeaders(
   headers: Record<string, string | string[]>,

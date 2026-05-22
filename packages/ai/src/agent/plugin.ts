@@ -16,6 +16,9 @@ import type { AgentDefaultOptions, AgentRegisteredOptions } from "./types.ts";
 import { isDeferredFn, type FnEntry } from "./tools/types.ts";
 import { isToolSelection } from "./tools/selection.ts";
 
+/**
+ * @experimental
+ */
 export interface AgentPluginOptions {
   /**
    * Agents available for by-name lookup via `agent("id")`. Keyed by the

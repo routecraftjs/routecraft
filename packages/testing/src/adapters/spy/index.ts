@@ -10,6 +10,8 @@ import { createSpyState } from "./shared.ts";
  * A spy adapter that records all exchanges passing through it.
  * Implements both {@link Destination} and {@link Processor} so it can be used
  * with `.to()`, `.enrich()`, `.tap()`, and `.process()`.
+ *
+ * @beta
  */
 export type SpyAdapter<T = unknown> = {
   /** Stable identifier for this adapter. */
@@ -40,7 +42,7 @@ export type SpyAdapter<T = unknown> = {
  * Use as a destination (`.to()`, `.enrich()`, `.tap()`) or processor (`.process()`)
  * to capture pipeline output without side effects.
  *
- * @experimental
+ * @beta
  *
  * @returns A spy adapter that records exchanges and tracks call counts
  *

@@ -18,6 +18,7 @@ export type CallableTransformer<T = unknown, R = T> = (
  *
  * @template T - Current body type
  * @template R - Result body type
+ * @beta
  */
 export interface Transformer<T = unknown, R = T> extends Adapter {
   transform: CallableTransformer<T, R>;

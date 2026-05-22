@@ -1,5 +1,8 @@
 import type { Comparator } from "../cosine/index.ts";
 
+/**
+ * @beta
+ */
 export interface GroupOptions<T = unknown, R = unknown> {
   comparator: Comparator<T>;
   /** Read the array to group from the body. Default: body is the array. */

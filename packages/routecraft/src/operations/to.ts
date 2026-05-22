@@ -30,6 +30,7 @@ export type CallableDestination<T = unknown, R = void> = (
  *
  * @template T - Current body type
  * @template R - Result body type (void = no body change)
+ * @beta
  */
 export interface Destination<T = unknown, R = void> extends Adapter {
   send: CallableDestination<T, R>;

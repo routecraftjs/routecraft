@@ -16,6 +16,8 @@ import { rcError } from "../../error.ts";
  * @param loader - Thunk that performs the dynamic `import("...")` call.
  * @param ctx - Names used in the error message: the adapter (`cron`,
  *              `html`, ...) and the missing package.
+ *
+ * @beta
  */
 export function loadOptionalPeer<T>(
   loader: () => Promise<T>,

@@ -49,7 +49,11 @@ export interface AgentByNameOverrides {
   onDelta?: AgentDeltaListener;
 }
 
-/** Discriminated state: inline options or a registry name. */
+/**
+ * Discriminated state: inline options or a registry name.
+ *
+ * @experimental
+ */
 export type AgentBinding =
   | { kind: "inline"; options: AgentOptions }
   | {

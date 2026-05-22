@@ -117,6 +117,8 @@ export interface TelemetryLogger {
 
 /**
  * A telemetry event record persisted to the SQLite `events` table.
+ *
+ * @experimental
  */
 export interface TelemetryEvent {
   /** Auto-incremented primary key */

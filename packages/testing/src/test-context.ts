@@ -35,12 +35,17 @@ function describeOverrideTarget(target: unknown): string {
   return "target";
 }
 
+/** @beta */
 export interface TestContextOptions {
   /** Timeout in ms for waiting for all routes to emit routeStarted. Default 200. */
   routesReadyTimeoutMs?: number;
 }
 
-/** Options for TestContext.test(). */
+/**
+ * Options for TestContext.test().
+ *
+ * @beta
+ */
 export interface TestOptions {
   /**
    * Delay in ms after all routes are ready, before draining.

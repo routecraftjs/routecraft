@@ -73,7 +73,7 @@ export class SuspendError extends Error {
  * Type guard for `SuspendError`. Used by the runtime to detect
  * suspension signals without importing the concrete class everywhere.
  *
- * @internal
+ * @experimental
  */
 export function isSuspendError(value: unknown): value is SuspendError {
   return value instanceof SuspendError;

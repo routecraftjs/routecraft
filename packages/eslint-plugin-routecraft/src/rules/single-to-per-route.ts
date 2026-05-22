@@ -138,6 +138,7 @@ function getToIndicesInSegment(
   return indices;
 }
 
+/** @experimental */
 const rule: Rule.RuleModule = {
   meta: {
     type: "suggestion",

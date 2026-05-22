@@ -54,6 +54,8 @@ import type { DirectEndpoint, DirectServerOptions } from "./types";
  * .transform((b) => ({ name: b.agent, query: b.text }))
  * .enrich(direct<{ name: string; query: string }, AgentResult>("agent"))
  * ```
+ *
+ * @experimental
  */
 export function direct(options: DirectServerOptions): Source<unknown>;
 export function direct(): Source<unknown>;
