@@ -49,10 +49,6 @@ Several breaking changes across the core, AI, mail, telemetry, logger, and CLI s
 
 ### Telemetry {% badge color="red" %}Breaking{% /badge %}
 
-- **Bun-only SQLite sink** -- the embedded telemetry SQLite sink now uses Bun's built-in `bun:sqlite`. `better-sqlite3` has been removed from the runtime, including from peer dependencies. Deployments must run under Bun (`engines.bun >= 1.1.0`); Node deployments that previously relied on `better-sqlite3` need to bring their own sink.
-
-### Telemetry
-
 - **Bun-only SQLite sink** -- the embedded telemetry SQLite sink now uses Bun's built-in `bun:sqlite`. `better-sqlite3` has been removed from the runtime, including from peer dependencies. Deployments that use the built-in sink must run under Bun (`engines.bun >= 1.1.0`); Node deployments that previously relied on `better-sqlite3` need to bring their own sink.
 
 ### Logger
