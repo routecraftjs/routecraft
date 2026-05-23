@@ -20,9 +20,6 @@ export {
 // Re-export pseudo adapter
 export {
   pseudo,
-  type PseudoAdapter,
-  type PseudoFactory,
-  type PseudoKeyedFactory,
   type PseudoOptions,
   type PseudoKeyedOptions,
 } from "./adapters/pseudo";

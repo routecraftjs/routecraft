@@ -2,7 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { agents, isToolSelection, tools } from "../src/index.ts";
+import { agents, tools } from "../src/index.ts";
+import { isToolSelection } from "../src/agent/tools/selection.ts";
 
 function tmpDir(): string {
   return mkdtempSync(join(tmpdir(), "rc-agents-"));

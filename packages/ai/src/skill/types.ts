@@ -5,6 +5,7 @@ import type { ResolveKey } from "@routecraft/routecraft";
  * `agentPlugin({ skills })`. Resolved at agent dispatch time so an
  * agent that lists `skills: ["X"]` gets the corresponding skill
  * content concatenated into its system prompt.
+ * @internal
  */
 export const ADAPTER_SKILL_REGISTRY = Symbol.for(
   "routecraft.adapter.skill.registry",

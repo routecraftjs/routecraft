@@ -28,7 +28,9 @@ mock.module("agent-browser/dist/browser.js", () => ({
   BrowserManager: BrowserManagerMock,
 }));
 
-const { agentBrowser, sanitizeSessionId } = await import("@routecraft/browser");
+const { agentBrowser } = await import("@routecraft/browser");
+const { sanitizeSessionId } =
+  await import("../src/adapters/agent-browser/shared.ts");
 
 describe("Browser Adapter", () => {
   let t: TestContext;

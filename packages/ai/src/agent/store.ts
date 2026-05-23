@@ -4,6 +4,7 @@ import type { AgentDefaultOptions, AgentRegisteredOptions } from "./types.ts";
  * Store key for the registry of agents installed by `agentPlugin`. Resolved
  * at destination dispatch time when an agent is referenced by name via
  * `agent("name")`.
+ * @internal
  */
 export const ADAPTER_AGENT_REGISTRY = Symbol.for(
   "routecraft.adapter.agent.registry",
@@ -16,6 +17,7 @@ export const ADAPTER_AGENT_REGISTRY = Symbol.for(
  *
  * Mirrors the `llmPlugin({ defaultOptions })` pattern so the same merge
  * model carries across.
+ * @internal
  */
 export const ADAPTER_AGENT_DEFAULT_OPTIONS = Symbol.for(
   "routecraft.adapter.agent.default-options",

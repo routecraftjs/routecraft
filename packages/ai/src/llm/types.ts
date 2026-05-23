@@ -3,6 +3,7 @@ import type { Exchange } from "@routecraft/routecraft";
 
 /**
  * Store key for plugin-registered providers (provider id -> LlmModelConfig).
+ * @internal
  */
 export const ADAPTER_LLM_PROVIDERS = Symbol.for(
   "routecraft.adapter.llm.providers",
@@ -10,6 +11,7 @@ export const ADAPTER_LLM_PROVIDERS = Symbol.for(
 
 /**
  * Store key for context-level default LLM options.
+ * @internal
  */
 export const ADAPTER_LLM_OPTIONS = Symbol.for("routecraft.adapter.llm.options");
 

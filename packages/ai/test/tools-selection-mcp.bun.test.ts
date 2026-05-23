@@ -4,10 +4,10 @@ import {
   agentPlugin,
   currentTime,
   randomUuid,
-  MCP_TOOL_REGISTRY,
   tools,
   type FnHandlerContext,
 } from "../src/index.ts";
+import { MCP_TOOL_REGISTRY } from "../src/mcp/types.ts";
 import { McpToolRegistry } from "../src/mcp/tool-registry.ts";
 
 // Mock the MCP dispatch path so handlers can be exercised without

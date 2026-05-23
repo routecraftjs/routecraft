@@ -4,9 +4,9 @@ import {
   mcp,
   McpHeadersKeys,
   MCP_LOCAL_TOOL_REGISTRY,
-  MCP_PLUGIN_REGISTERED,
   type McpLocalToolEntry,
 } from "../src/index.ts";
+import { MCP_PLUGIN_REGISTERED } from "../src/mcp/types.ts";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
   craft,
@@ -489,7 +489,7 @@ describe("dispatchMcpCall: RC5003 error wrapping", () => {
    */
   test("wraps stdio dispatch errors as RC5003 with cause", async () => {
     const { dispatchMcpCall } = await import("../src/mcp/dispatch.ts");
-    const { MCP_STDIO_MANAGERS } = await import("../src/index.ts");
+    const { MCP_STDIO_MANAGERS } = await import("../src/mcp/types.ts");
     const { isRoutecraftError } = await import("@routecraft/routecraft");
     const original = new TypeError("simulated SDK fault");
     const t = await testContext()
@@ -540,7 +540,7 @@ describe("dispatchMcpCall: RC5003 error wrapping", () => {
    */
   test("does not double-wrap an inner RoutecraftError", async () => {
     const { dispatchMcpCall } = await import("../src/mcp/dispatch.ts");
-    const { MCP_STDIO_MANAGERS } = await import("../src/index.ts");
+    const { MCP_STDIO_MANAGERS } = await import("../src/mcp/types.ts");
     const { rcError } = await import("@routecraft/routecraft");
     const original = rcError("RC5021", undefined, {
       message: "userinfo enrichment failed",
@@ -590,7 +590,7 @@ describe("dispatchMcpCall: RC5003 error wrapping", () => {
    */
   test("malformed serverUrl throws RC5003 (URL construction is inside the try)", async () => {
     const { dispatchMcpCall } = await import("../src/mcp/dispatch.ts");
-    const { ADAPTER_MCP_CLIENT_SERVERS } = await import("../src/index.ts");
+    const { ADAPTER_MCP_CLIENT_SERVERS } = await import("../src/mcp/types.ts");
     const { isRoutecraftError } = await import("@routecraft/routecraft");
     const t = await testContext()
       .with({

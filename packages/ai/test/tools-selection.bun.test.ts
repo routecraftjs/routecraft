@@ -7,9 +7,9 @@ import {
   currentTime,
   randomUuid,
   directTool,
-  isToolSelection,
   tools,
 } from "../src/index.ts";
+import { isToolSelection } from "../src/agent/tools/selection.ts";
 
 async function buildCtx(opts: {
   functions?: NonNullable<Parameters<typeof agentPlugin>[0]>["functions"];
