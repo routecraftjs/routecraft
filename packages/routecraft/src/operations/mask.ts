@@ -7,16 +7,12 @@ import { getPath, hasPath, setPath } from "./field-paths.ts";
  * place. Pure with respect to identity: `mask` never looks at the principal.
  * `value` stays `unknown` because the value at an arbitrary dot path is not
  * statically known.
- *
- * @experimental
  */
 export type MaskFn<R = unknown> = (value: unknown, record: R) => unknown;
 
 /**
  * Map of dot-path -> obfuscation function. Only the listed fields are
  * rewritten; every other field is left as-is.
- *
- * @experimental
  */
 export type MaskRules<R = unknown> = Record<string, MaskFn<R>>;
 
@@ -36,15 +32,11 @@ function maskRecord<R>(record: R, rules: MaskRules<R>): R {
  * an authorised caller, for example masking an e-mail on a public HTTP
  * response. To remove fields a caller is not allowed to see at all, compose
  * `keep` before `mask`.
- *
  * Returns a {@link FieldTransform}, so drop it straight into
  * `.transform(mask({ ... }))`. Applies to the body when it is a single
  * record, and element-wise when the body is an array of records. For a
  * wrapped collection, mask the inner array:
  * `.transform((b, ex) => ({ ...b, items: mask(rules)(b.items, ex) }))`.
- *
- * @experimental
- *
  * @example
  * ```ts
  * craft()

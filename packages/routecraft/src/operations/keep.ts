@@ -9,8 +9,6 @@ import { deletePath, hasPath, pickPaths } from "./field-paths.ts";
  * against `principal.roles`, or a predicate evaluated against the record and
  * the caller's principal. `self` and relationships like "manages" are written
  * as predicates; there is no magic string, `admin` is just a role name.
- *
- * @experimental
  */
 export type Grant<T = unknown> =
   | string
@@ -19,22 +17,16 @@ export type Grant<T = unknown> =
 /**
  * Rule for one field: `true` keeps it for everyone who reaches this step, or a
  * list of grants any one of which keeps it.
- *
- * @experimental
  */
 export type KeepRule<T = unknown> = true | Grant<T>[];
 
 /**
  * Map of dot-path -> {@link KeepRule}.
- *
- * @experimental
  */
 export type KeepRules<T = unknown> = Record<string, KeepRule<T>>;
 
 /**
  * Options for {@link keep}.
- *
- * @experimental
  */
 export interface KeepOptions {
   /**
@@ -97,19 +89,14 @@ function keepRecord<R>(
  * established by a source verifier or `authenticate()`) is trusted; a
  * self-asserted principal header is treated as missing, so role and predicate
  * grants do not pass, matching `authorize()`.
- *
  * Strict by default: only listed fields survive (use `true` to keep a field
  * for any caller). Pass `{ strict: false }` to instead gate only the listed
  * fields and pass everything else through.
- *
  * Returns a {@link FieldTransform}, so use `.transform(keep({ ... }))`. `T` is
  * the record (element) type: applies to the body when it is a single record,
  * element-wise when it is an array of records, preserving the precise type
  * either way. For a wrapped collection, keep the inner array:
  * `.transform((b, ex) => ({ ...b, items: keep(rules)(b.items, ex) }))`.
- *
- * @experimental
- *
  * @example
  * ```ts
  * const self = (e: Employee, p) => e.email === p?.email;

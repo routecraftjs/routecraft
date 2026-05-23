@@ -4,14 +4,12 @@ import { type Exchange, OperationType, DefaultExchange } from "../exchange.ts";
 /**
  * Function form of a transformer: maps the body to a new value. Headers are unchanged.
  * Use with `.transform(transformer)`. Prefer over `.process()` when only the body changes.
- *
  * The current exchange is passed as a second, read-only argument so a
  * transformer can derive the new body from context (the principal, headers,
  * correlation id) without dropping to `.process()`. A transformer still
  * returns only the body; to rewrite headers or the principal use `.process()`.
  * Adding the parameter is backwards compatible: a one-argument
  * `(message) => ...` is still a valid transformer.
- *
  * @template T - Current body type
  * @template R - Result body type (default T)
  */
@@ -27,8 +25,6 @@ export type CallableTransformer<T = unknown, R = T> = (
  * (element) type in both cases, so grant predicates and mask functions always
  * see one record. Assignable to {@link CallableTransformer}, so it drops
  * straight into `.transform(...)`.
- *
- * @experimental
  */
 export type FieldTransform<T> = <B extends T | T[]>(
   body: B,
@@ -38,7 +34,6 @@ export type FieldTransform<T> = <B extends T | T[]>(
 /**
  * Transformer adapter: body-only conversion. Used with `.transform()`.
  * Headers and exchange metadata are preserved. Use `.process()` to change headers or the full exchange.
- *
  * @template T - Current body type
  * @template R - Result body type
  */
@@ -50,14 +45,11 @@ export interface Transformer<T = unknown, R = T> extends Adapter {
  * Creates a transformer from declarative field mappings. Each key in the
  * mapping corresponds to a field in the output type, with a function that
  * extracts the value from the source body.
- *
  * Use with `.transform(mapper({...}))` or the `.map()` sugar method.
- *
  * @template T - Source body type
  * @template R - Result body type
  * @param fieldMappings - Object mapping output field names to extractor functions
  * @returns A callable transformer that maps each field via the provided functions
- *
  * @example
  * ```ts
  * craft()
