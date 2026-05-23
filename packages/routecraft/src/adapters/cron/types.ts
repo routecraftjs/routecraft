@@ -21,7 +21,9 @@ export type CronExpression =
   | "0 0 1 1 *" // Yearly on Jan 1 at midnight
   | (string & {}); // Any valid 5-field or 6-field cron expression
 
-/** Configuration options for the cron source adapter. */
+/**
+ * Configuration options for the cron source adapter.
+ */
 export interface CronOptions {
   /**
    * IANA timezone for the cron schedule (e.g., "America/New_York")

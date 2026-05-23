@@ -8,8 +8,6 @@ import { type Principal } from "./types.ts";
  * (they default), every other `Principal` field is carried through, and
  * `subject` stays required because every minted identity must name who it
  * represents.
- *
- * @experimental
  */
 export type PrincipalClaims = Partial<Pick<Principal, "kind" | "scheme">> &
   Omit<Principal, "kind" | "scheme">;
@@ -32,8 +30,6 @@ export type PrincipalClaims = Partial<Pick<Principal, "kind" | "scheme">> &
  * builder step does not fit.
  *
  * @throws RC5024 when `subject` is missing or empty.
- *
- * @experimental
  *
  * @example Mid-pipeline / custom source
  * ```ts

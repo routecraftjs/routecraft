@@ -25,8 +25,6 @@ import {
  *   .enrich(mail('INBOX'))
  *   .to(processMessages())
  * ```
- *
- * @experimental
  */
 export class MailFetchDestinationAdapter implements Destination<
   unknown,

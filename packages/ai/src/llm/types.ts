@@ -3,7 +3,7 @@ import type { Exchange } from "@routecraft/routecraft";
 
 /**
  * Store key for plugin-registered providers (provider id -> LlmModelConfig).
- * @experimental
+ * @internal
  */
 export const ADAPTER_LLM_PROVIDERS = Symbol.for(
   "routecraft.adapter.llm.providers",
@@ -11,7 +11,7 @@ export const ADAPTER_LLM_PROVIDERS = Symbol.for(
 
 /**
  * Store key for context-level default LLM options.
- * @experimental
+ * @internal
  */
 export const ADAPTER_LLM_OPTIONS = Symbol.for("routecraft.adapter.llm.options");
 
@@ -73,7 +73,9 @@ export type LlmModelConfig =
   | LlmModelConfigOllama
   | LlmModelConfigGemini;
 
-/** Provider options for llmPlugin({ providers }). Key is the provider; no need to repeat provider in the value. */
+/**
+ * Provider options for llmPlugin({ providers }). Key is the provider; no need to repeat provider in the value.
+ */
 export interface LlmOllamaProviderOptions {
   baseURL?: string;
   modelId?: string;
@@ -104,7 +106,9 @@ export interface LlmPluginProviders {
 /** Map provider id → provider-specific options (for type-safe toModelConfig). */
 export type LlmProviderOptionsMap = Required<LlmPluginProviders>;
 
-/** Resolve system or user prompt from exchange (string or function). */
+/**
+ * Resolve system or user prompt from exchange (string or function).
+ */
 export type LlmPromptSource =
   | string
   | ((exchange: Exchange<unknown>) => string);
@@ -204,8 +208,6 @@ export interface LlmResult {
  * shape of `AgentToolCallSummary` so the agent layer can re-export
  * it without re-mapping. Keep `unknown` types loose here; the agent
  * layer is the place to re-narrow if needed.
- *
- * @experimental
  */
 export interface LlmToolCallSummary {
   toolCallId: string;

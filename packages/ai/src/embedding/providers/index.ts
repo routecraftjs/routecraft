@@ -25,8 +25,6 @@ const pipelineCache = new Map<string, CachedPipeline>();
  * Callers must avoid process.exit() after this -- let the event loop drain
  * naturally so ONNX Runtime's C++ statics aren't torn down prematurely
  * (onnxruntime#25038: "mutex lock failed: Invalid argument").
- *
- * @experimental
  */
 export async function disposeEmbeddingPipelineCache(): Promise<void> {
   const entries = [...pipelineCache.entries()];

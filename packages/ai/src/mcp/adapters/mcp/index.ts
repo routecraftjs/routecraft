@@ -29,8 +29,6 @@ import type { McpMessage } from "./types.ts";
  *   - `mcp({ serverId, tool })` - Server ID registered via mcpPlugin({ clients })
  *   - `mcp('server:tool', { args? })` - Shorthand for serverId:tool with optional args extractor
  *
- * @experimental
- *
  * @example
  * ```ts
  * // Source route (tool name = route id)

@@ -27,8 +27,6 @@
  * Keys are endpoint strings (e.g. 'payments'), values are the body type
  * for that endpoint. Populate via declaration merging to constrain
  * `direct()`, `ForwardFn`, and related APIs.
- *
- * @experimental
  */
 // biome-ignore lint/suspicious/noEmptyInterface: marker interface populated via declaration merging
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type -- Marker interface, populated via declaration merging
@@ -39,7 +37,6 @@ export interface DirectEndpointRegistry {}
  * or falls back to `string` when the registry is empty.
  *
  * @template Registry - The registry interface to resolve
- * @experimental
  */
 export type ResolveKey<Registry> = keyof Registry extends never
   ? string
@@ -53,7 +50,6 @@ export type ResolveKey<Registry> = keyof Registry extends never
  * @template Registry - The registry interface to look up
  * @template K - The endpoint key to resolve
  * @template Fallback - Fallback type when key is not found (default `unknown`)
- * @experimental
  */
 export type ResolveBody<
   Registry,
@@ -69,7 +65,5 @@ export type ResolveBody<
  * Resolved direct endpoint type.
  * Constrained to registered endpoints when `DirectEndpointRegistry` is populated,
  * falls back to `string` when empty.
- *
- * @experimental
  */
 export type RegisteredDirectEndpoint = ResolveKey<DirectEndpointRegistry>;

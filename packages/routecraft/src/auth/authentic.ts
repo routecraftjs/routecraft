@@ -45,8 +45,6 @@ const authentic = new WeakSet<object>();
  * This is a trusted primitive, exported for adapter and source authors who
  * verify identity themselves (for example a custom Slack or e-mail source).
  * Application route code should mint identities with `authenticate()` instead.
- *
- * @experimental
  */
 export function markAuthentic<P extends Principal>(principal: P): P {
   if (isAuthentic(principal)) return principal;
@@ -59,8 +57,6 @@ export function markAuthentic<P extends Principal>(principal: P): P {
  * Whether a value is a principal that was established by a trusted origin
  * (see {@link markAuthentic}). Returns `false` for plain objects, `null`,
  * `undefined`, and non-objects.
- *
- * @experimental
  */
 export function isAuthentic(principal: unknown): principal is Principal {
   return (

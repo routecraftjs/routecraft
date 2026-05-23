@@ -70,7 +70,6 @@ export interface CsvOptions {
    * See `OnParseError` for full semantics.
    *
    * @default "fail"
-   * @experimental
    */
   onParseError?: OnParseError;
 }

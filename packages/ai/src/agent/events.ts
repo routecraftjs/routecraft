@@ -10,8 +10,6 @@
  * tool-result, step-finished, finished) live on the context bus
  * (`route:<id>:agent:*`) where they're broadcast to every subscriber
  * without per-call wiring.
- *
- * @experimental
  */
 export type AgentDelta =
   /** Incremental text from the model. Concatenate to render tokens live. */
@@ -30,8 +28,6 @@ export type AgentDelta =
  *
  * Throws inside the listener are caught and logged; they do not abort
  * the agent dispatch.
- *
- * @experimental
  */
 export type AgentDeltaListener = (delta: AgentDelta) => void | Promise<void>;
 

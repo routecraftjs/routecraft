@@ -2,11 +2,8 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
 import { ContextBuilder, isRoutecraftError } from "@routecraft/routecraft";
 import { testContext, testFn, type TestContext } from "@routecraft/testing";
-import {
-  ADAPTER_FN_REGISTRY,
-  agentPlugin,
-  type FnOptions,
-} from "../src/index.ts";
+import { agentPlugin, type FnOptions } from "../src/index.ts";
+import { ADAPTER_FN_REGISTRY } from "../src/fn/store.ts";
 
 describe("fn registration via agentPlugin", () => {
   let t: TestContext | undefined;

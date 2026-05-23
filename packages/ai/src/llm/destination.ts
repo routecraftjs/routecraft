@@ -70,7 +70,6 @@ const DEFAULT_MAX_TOKENS = 1024;
  * resolves the provider from the plugin store, merges options, and calls the provider with the model name.
  * Use with .enrich(llm("providerId:modelName", options)) or .to(llm(...)).
  *
- * @experimental
  * @template S - Output schema type when an `output` schema is provided; narrows result.output for downstream typing.
  */
 export class LlmDestinationAdapter<

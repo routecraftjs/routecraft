@@ -103,7 +103,6 @@ export type ConsumerType<T extends Consumer, O = unknown> = new (
  *   `onParseError` option; the source loop additionally rethrows for
  *   `"abort"` so the source dies. See #187.
  *
- * @experimental The `parse`/`parseFailureMode` fields are part of the
  * parse-error-handling work in #187. Their shape may evolve.
  */
 export type Message = {

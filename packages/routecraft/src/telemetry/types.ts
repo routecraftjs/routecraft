@@ -4,8 +4,6 @@ import type { TracerProvider } from "@opentelemetry/api";
  * SQLite-specific options for the telemetry plugin.
  *
  * These settings only apply when the SQLite backend is active.
- *
- * @experimental
  */
 export interface TelemetrySqliteOptions {
   /**
@@ -64,8 +62,6 @@ export interface TelemetrySqliteOptions {
 
 /**
  * Configuration options for the telemetry plugin.
- *
- * @experimental
  */
 export interface TelemetryOptions {
   /**

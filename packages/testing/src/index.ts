@@ -20,9 +20,6 @@ export {
 // Re-export pseudo adapter
 export {
   pseudo,
-  type PseudoAdapter,
-  type PseudoFactory,
-  type PseudoKeyedFactory,
   type PseudoOptions,
   type PseudoKeyedOptions,
 } from "./adapters/pseudo";
@@ -50,7 +47,6 @@ export {
 /**
  * Load a JSON fixture file and return the parsed value.
  *
- * @beta
  * @param path Absolute or relative path to the JSON file
  * @returns Parsed JSON as T
  */
@@ -58,7 +54,9 @@ export function fixture<T = unknown>(path: string): T {
   return JSON.parse(readFileSync(path, "utf-8")) as T;
 }
 
-/** Fixture entry must have a `name` field used as the vitest test name. */
+/**
+ * Fixture entry must have a `name` field used as the vitest test name.
+ */
 export interface FixtureWithName {
   name: string;
   [key: string]: unknown;
@@ -67,7 +65,6 @@ export interface FixtureWithName {
 /**
  * Load a JSON array fixture and run one vitest test per entry. Each entry must have a `name` field (used as the test name).
  *
- * @beta
  * @param path Path to a JSON file that parses to an array
  * @param run Callback invoked per entry; use for assertions. Receives the fixture entry.
  */

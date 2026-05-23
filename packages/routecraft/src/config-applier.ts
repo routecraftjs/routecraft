@@ -13,8 +13,6 @@ import type { CraftConfig } from "@routecraft/routecraft";
  * standard plugin lifecycle.
  *
  * @template K - Key on `CraftConfig` this applier handles
- *
- * @experimental
  */
 export type ConfigApplier<K extends keyof CraftConfig> = (
   options: NonNullable<CraftConfig[K]>,
@@ -76,8 +74,6 @@ function getRegistry(): Map<string, AnyConfigApplier> {
  * @template K - Key on `CraftConfig` this applier handles
  * @param key - The `CraftConfig` key
  * @param applier - Factory that builds a plugin from the value at `config[key]`
- *
- * @experimental
  *
  * @example
  * ```typescript

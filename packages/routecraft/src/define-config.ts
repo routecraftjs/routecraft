@@ -15,8 +15,6 @@ import type { CraftConfig } from "@routecraft/routecraft";
  * @param config - Config object
  * @returns The same config object
  *
- * @experimental
- *
  * @example
  * ```typescript
  * import { defineConfig } from "@routecraft/routecraft";

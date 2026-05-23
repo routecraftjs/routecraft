@@ -38,7 +38,6 @@ export interface JsonlSourceOptions {
    * See `OnParseError` for full semantics.
    *
    * @default "fail"
-   * @experimental
    */
   onParseError?: OnParseError;
 }
@@ -78,7 +77,9 @@ export interface JsonlDestinationOptions {
     | null;
 }
 
-/** Combined options for the source+destination overload (string path only). */
+/**
+ * Combined options for the source+destination overload (string path only).
+ */
 export type JsonlCombinedOptions = JsonlSourceOptions &
   Pick<JsonlDestinationOptions, "mode" | "createDirs" | "replacer">;
 

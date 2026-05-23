@@ -3,8 +3,6 @@
  *
  * Created by the ContextBuilder when `mail` config is present.
  * Adapters access it via the context store to acquire/release connections.
- *
- * @experimental
  */
 
 import { rcError } from "../../error.ts";
@@ -176,8 +174,6 @@ export class ImapPool {
 /**
  * Manages per-account IMAP connection pools and SMTP transporters.
  * Created by the ContextBuilder when `mail` config is present.
- *
- * @experimental
  */
 export class MailClientManager {
   private readonly pools = new Map<string, ImapPool>();

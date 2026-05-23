@@ -175,7 +175,6 @@ export abstract class StepBuilderBase<Current = unknown> {
    * `h1` outermost wrapping `h2` wrapping `dest`. `h2` runs first; if
    * it rethrows, `h1` gets a chance.
    *
-   * @experimental Step-scope behaviour ships with the dual-mode
    * wrapper pattern (see `.standards/resilience-wrappers.md`).
    */
   error(handler: ErrorHandler): this {

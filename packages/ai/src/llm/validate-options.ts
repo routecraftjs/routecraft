@@ -15,6 +15,7 @@ function isProvider(s: string): s is LlmProviderType {
 /**
  * Validates LLM plugin options at apply time.
  * Key is the provider; value is options for that provider (no provider field).
+ * @internal
  */
 export function validateLlmPluginOptions(options: LlmPluginOptions): void {
   if (!options || typeof options !== "object") {

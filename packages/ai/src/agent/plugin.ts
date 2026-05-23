@@ -52,8 +52,6 @@ export interface AgentPluginOptions {
    *
    * Duplicate skill names across multiple `agentPlugin` installs throw
    * at context init.
-   *
-   * @experimental
    */
   skills?: Record<string, Skill>;
 
@@ -98,8 +96,6 @@ function validateRegisteredAgent(
  * directly; there is no public dispatch API). Throws on duplicate id
  * (within agents, within fns, or across multiple plugin installs) at
  * context init.
- *
- * @experimental
  *
  * @example
  * ```typescript

@@ -19,7 +19,6 @@ import { StepBuilderBase } from "../step-builder-base.ts";
  * API would add an `asyncWhen` or widen `predicate` to return a Promise.
  *
  * @template T - Body type of the exchange at the point of the choice
- * @experimental
  */
 export type ChoicePredicate<T = unknown> = (exchange: Exchange<T>) => boolean;
 
@@ -98,7 +97,6 @@ export class HaltStep implements Step<HaltAdapter> {
  * converging branch.
  *
  * @template Current - Body type entering this branch
- * @experimental
  */
 export class BranchBuilder<Current = unknown> extends StepBuilderBase<Current> {
   private readonly steps: Step<Adapter>[] = [];
@@ -146,7 +144,6 @@ export class BranchBuilder<Current = unknown> extends StepBuilderBase<Current> {
  *
  * @template In  - Body type entering the choice (from the main pipeline)
  * @template Out - Body type leaving the choice (all branches must converge)
- * @experimental
  */
 export class ChoiceSubBuilder<In = unknown, Out = In> {
   private readonly whenBranches: ChoiceBranch[] = [];

@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { craft, direct, noop } from "@routecraft/routecraft";
-import { mcp, mcpPlugin, MCP_TOOL_REGISTRY } from "@routecraft/ai";
+import { mcp, mcpPlugin } from "@routecraft/ai";
+import { MCP_TOOL_REGISTRY } from "../src/mcp/types.ts";
 import type { McpToolRegistry } from "@routecraft/ai";
 import { z } from "zod";
 

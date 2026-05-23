@@ -102,8 +102,6 @@ export function validateAgentOptions(options: AgentOptions): void {
  *   against agents registered via `agentPlugin({ agents: { name: {...} } })`.
  *   Registered agents carry their own description.
  *
- * @experimental
- *
  * @example Inline (identity on the route)
  * ```typescript
  * craft()

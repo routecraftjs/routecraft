@@ -3,8 +3,6 @@
  *
  * Server options configure IMAP (read/receive).
  * Client options configure SMTP (send).
- *
- * @experimental
  */
 
 import type { Exchange } from "../../exchange.ts";
@@ -73,8 +71,6 @@ export interface MailAccountSmtpConfig {
  *   smtp: { host: 'smtp.gmail.com', auth: { user: 'me@co.com', pass: 'xxx' }, from: 'me@co.com' },
  * }
  * ```
- *
- * @experimental
  */
 export interface MailAccountConfig {
   /** IMAP connection settings */
@@ -99,8 +95,6 @@ export interface MailAccountConfig {
  *   },
  * })
  * ```
- *
- * @experimental
  */
 export interface MailContextConfig {
   /** Named mail accounts */
@@ -220,7 +214,6 @@ export interface MailServerOptions {
    * lossy-ingest semantics with proper observability.
    *
    * @default "fail"
-   * @experimental
    */
   onParseError?: OnParseError;
 }
@@ -250,7 +243,9 @@ export interface MailClientOptions {
   account?: string;
 }
 
-/** Options when using mail as a server or client (union). */
+/**
+ * Options when using mail as a server or client (union).
+ */
 export type MailOptions = MailServerOptions | MailClientOptions;
 
 // ---------------------------------------------------------------------------
@@ -260,8 +255,6 @@ export type MailOptions = MailServerOptions | MailClientOptions;
 /**
  * Custom extractor for resolving message identity from an exchange.
  * Returns the UIDs and source folder needed to operate on messages.
- *
- * @experimental
  */
 export type MailTargetExtractor = (exchange: Exchange<unknown>) => {
   uids: number[];
@@ -279,34 +272,46 @@ interface MailActionBase {
   target?: MailTargetExtractor;
 }
 
-/** Move message(s) to another IMAP folder. */
+/**
+ * Move message(s) to another IMAP folder.
+ */
 export type MailMoveAction = MailActionBase & {
   action: "move";
   folder: string;
 };
 
-/** Copy message(s) to another IMAP folder. */
+/**
+ * Copy message(s) to another IMAP folder.
+ */
 export type MailCopyAction = MailActionBase & {
   action: "copy";
   folder: string;
 };
 
-/** Delete message(s) permanently. */
+/**
+ * Delete message(s) permanently.
+ */
 export type MailDeleteAction = MailActionBase & { action: "delete" };
 
-/** Add IMAP flags to message(s). */
+/**
+ * Add IMAP flags to message(s).
+ */
 export type MailFlagAction = MailActionBase & {
   action: "flag";
   flags: string | string[];
 };
 
-/** Remove IMAP flags from message(s). */
+/**
+ * Remove IMAP flags from message(s).
+ */
 export type MailUnflagAction = MailActionBase & {
   action: "unflag";
   flags: string | string[];
 };
 
-/** Append a composed message to an IMAP folder (drafts, imports). */
+/**
+ * Append a composed message to an IMAP folder (drafts, imports).
+ */
 export type MailAppendAction = MailActionBase & {
   action: "append";
   folder: string;
@@ -317,8 +322,6 @@ export type MailAppendAction = MailActionBase & {
 /**
  * Discriminated union for IMAP operations on mail messages.
  * The `action` field narrows available options via TypeScript.
- *
- * @experimental
  */
 export type MailAction =
   | MailMoveAction
@@ -334,7 +337,6 @@ export type MailAction =
 
 /**
  * A parsed email message returned by the mail adapter source/fetch.
- * @experimental
  */
 export interface MailMessage {
   /** IMAP UID */
@@ -397,7 +399,6 @@ export interface MailMessage {
 
 /**
  * A file attachment on a mail message.
- * @experimental
  */
 export interface MailAttachment {
   /** Filename if available */
@@ -412,7 +413,6 @@ export interface MailAttachment {
 
 /**
  * Payload expected in exchange.body when sending email via `.to(mail())`.
- * @experimental
  */
 export interface MailSendPayload {
   /** Recipient address(es) */
@@ -441,7 +441,6 @@ export interface MailSendPayload {
 
 /**
  * Result returned after sending an email.
- * @experimental
  */
 export interface MailSendResult {
   /** Message-ID of the sent email */
@@ -456,6 +455,5 @@ export interface MailSendResult {
 
 /**
  * Result returned by the fetch destination (array of messages).
- * @experimental
  */
 export type MailFetchResult = MailMessage[];

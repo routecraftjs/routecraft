@@ -5,35 +5,43 @@
  * rewrites using already-present headers (`List-Id`, `X-Original-From`,
  * `Authentication-Results`, `ARC-*`). No network, no crypto. For cryptographic
  * verification see `strict-verify.ts`.
- *
- * @experimental
  */
 
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
 
-/** How a message reached the recipient. */
+/**
+ * How a message reached the recipient.
+ */
 export type ForwardType = "direct" | "auto-forward" | "mailing-list";
 
-/** Trust state of the effective sender. */
+/**
+ * Trust state of the effective sender.
+ */
 export type TrustLevel = "verified" | "unverified" | "failed";
 
-/** Parsed email address. */
+/**
+ * Parsed email address.
+ */
 export interface EmailAddress {
   address: string;
   name?: string;
   domain: string;
 }
 
-/** One hop in a forward chain. */
+/**
+ * One hop in a forward chain.
+ */
 export interface ForwardHop {
   via: EmailAddress;
   type: "auto-forward" | "mailing-list";
   arcInstance?: number;
 }
 
-/** Effective sender plus the evidence used to resolve it. */
+/**
+ * Effective sender plus the evidence used to resolve it.
+ */
 export interface MailSender extends EmailAddress {
   /** How the message reached us. */
   forwardType: ForwardType;

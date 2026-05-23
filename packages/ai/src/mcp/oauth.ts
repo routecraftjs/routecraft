@@ -19,8 +19,6 @@ import type {
  *
  * Avoid blocking I/O on the hot path when possible. Cache database reads or
  * load the registry at boot.
- *
- * @experimental
  */
 export type OAuthClientSupplier = (
   clientId: string,
@@ -38,15 +36,11 @@ export type OAuthClientSupplier = (
  * MCP SDK's bearer middleware requires. The type system rejects verifiers
  * that do not uphold that contract -- no more runtime surprises from a
  * well-typed verifier that forgot to populate `expiresAt`.
- *
- * @experimental
  */
 export type OAuthVerifier = OAuthValidatorAuthOptions | OAuthTokenVerifier;
 
 /**
  * Options for the `oauth()` factory.
- *
- * @experimental
  */
 export interface OAuthFactoryOptions {
   /** Base URL for OAuth endpoints (defaults to the resolved resource URL). */
@@ -179,8 +173,6 @@ function buildVerifier(
  *   client: { ... },
  * });
  * ```
- *
- * @experimental
  */
 export function oauth(options: OAuthFactoryOptions): OAuthAuthOptions {
   if (!options.verify) {

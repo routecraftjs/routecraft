@@ -10,8 +10,6 @@ import {
  * `FnOptions` from `@routecraft/ai` so this package stays free of
  * a reverse dependency. Real `FnOptions` values are structurally
  * assignable here -- the extra `description` field is ignored.
- *
- * @beta
  */
 export interface TestFnSpec<TIn, TOut> {
   /** Schema whose validated/coerced output is passed to `handler`. */
@@ -25,8 +23,6 @@ export interface TestFnSpec<TIn, TOut> {
  * (without coupling to that implementation). Extra fields a handler may
  * read at runtime can be added here in follow-ups without breaking the
  * structural contract.
- *
- * @beta
  */
 export interface TestFnHandlerContext {
   logger: ReturnType<typeof defaultLogger.child>;
@@ -35,8 +31,6 @@ export interface TestFnHandlerContext {
 
 /**
  * Options for {@link testFn}.
- *
- * @beta
  */
 export interface TestFnOptions {
   /** Caller-supplied abort signal. Defaults to a never-firing signal. */
@@ -54,8 +48,6 @@ export interface TestFnOptions {
  *
  * Throws `RC5002` (Validation failed) if the input does not pass the
  * schema. Errors thrown from the handler propagate as-is.
- *
- * @beta
  *
  * @example
  * ```typescript

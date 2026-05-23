@@ -24,8 +24,6 @@ import { log, debug, type LogOptions } from "./adapters/log/index.ts";
  * Primitive step kinds. Used as documentation in DslRegistration to
  * indicate which core step the sugar delegates to. Not enforced at
  * runtime since the factory creates the step directly.
- *
- * @experimental
  */
 export type PrimitiveKind =
   | "process"
@@ -36,8 +34,6 @@ export type PrimitiveKind =
 
 /**
  * Registration descriptor for a DSL sugar method.
- *
- * @experimental
  */
 export interface DslRegistration {
   /** The core primitive step kind this DSL method delegates to. */
@@ -63,7 +59,6 @@ export interface DslRegistration {
  * chain. `StepBuilderBase` and `Retyped` are exposed as type-only
  * re-exports from the package entry for exactly this purpose.
  *
- * @experimental
  * @param name - Method name to add to the shared base prototype
  * @param registration - Kind, label, and factory for the sugar method
  * @throws If a method with the given name already exists on the base

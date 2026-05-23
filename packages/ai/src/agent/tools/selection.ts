@@ -22,8 +22,6 @@ import { isDeferredFn, type FnEntry } from "./types.ts";
  * Synchronous or async guard run after schema validation, before the
  * underlying handler. Throwing surfaces back to the LLM as a tool error
  * so the model can self-correct.
- *
- * @experimental
  */
 export type ToolGuard = (
   input: unknown,
@@ -52,8 +50,6 @@ export type ToolGuard = (
  *   `from?: string` restricts the selection to a single source:
  *   `from: "mcp__<server>"` matches only that server's MCP tools.
  *   Optional guard applies to every match.
- *
- * @experimental
  */
 export type ToolsItem =
   | string
@@ -72,8 +68,6 @@ export const TOOL_SELECTION_BRAND = Symbol.for("routecraft.ai.tools.selection");
  * Opaque deferred descriptor returned by `tools(...)`. Resolves at
  * agent dispatch time, when both the fn registry and the direct route
  * registry are populated.
- *
- * @experimental
  */
 export interface ToolSelection {
   readonly [TOOL_SELECTION_BRAND]: true;
@@ -90,8 +84,6 @@ export interface ToolSelection {
 /**
  * A tool ready to be wired into the LLM tool list. Produced by
  * `ToolSelection.resolve()`.
- *
- * @experimental
  */
 export interface ResolvedTool {
   /** Tool name presented to the LLM: the registered fn id, `direct_<routeId>` for routes, or `mcp__<server>__<tool>` for MCP tools. */
@@ -143,8 +135,6 @@ export function isToolSelection(value: unknown): value is ToolSelection {
  *   server.
  * - Final list is deduplicated by tool name. Explicit references win
  *   over tag-selector matches regardless of position in the list.
- *
- * @experimental
  *
  * @example
  * ```ts

@@ -42,8 +42,6 @@ function deriveTagsFromAnnotations(
  * there by the MCP server when responding to `tools/list`. The "local" transport
  * label remains a valid value for callers that want to manually register tools
  * with that provenance.
- *
- * @experimental
  */
 export class McpToolRegistry {
   /** Nested Map: source -> toolName -> McpToolRegistryEntry */

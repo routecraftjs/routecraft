@@ -2,8 +2,6 @@
  * Accepted audience values for `jwt()` and `jwks()`.
  * Pass `"*"` to skip audience validation explicitly (opts out of cross-audience
  * replay protection; use only when the IdP does not emit `aud`).
- *
- * @experimental
  */
 export type JwtAudience = string | string[] | "*";
 
@@ -14,8 +12,6 @@ export type JwtAudience = string | string[] | "*";
  * Use when the IdP places identity claims under non-standard names
  * (e.g. Azure AD uses `oid` instead of `sub`, Keycloak nests roles under
  * `realm_access.roles`).
- *
- * @experimental
  */
 export interface ClaimMappers {
   /** Map to `Principal.subject`. Default: `payload.sub` then `client_id` then `azp`. */
@@ -32,8 +28,6 @@ export interface ClaimMappers {
  * The `kind` field records how the principal was authenticated (useful for
  * logs and analytics). All variants share the same flat shape -- callers
  * never need to type-narrow on `kind` to access identity fields.
- *
- * @experimental
  */
 export interface Principal {
   /** How the principal was authenticated. */
@@ -81,8 +75,6 @@ export interface Principal {
  * bearer-token lifecycle contract must be expressed at the type level
  * (most notably the OAuth flow: the MCP SDK's bearer middleware requires
  * `expiresAt`).
- *
- * @experimental
  */
 export type OAuthPrincipal = Principal & { expiresAt: number };
 
@@ -90,8 +82,6 @@ export type OAuthPrincipal = Principal & { expiresAt: number };
  * Verifies a bearer token and resolves the authenticated principal.
  * Throw to reject access; return a {@link Principal} to allow it.
  * May be synchronous or asynchronous.
- *
- * @experimental
  */
 export type TokenVerifier = (token: string) => Principal | Promise<Principal>;
 
@@ -100,8 +90,6 @@ export type TokenVerifier = (token: string) => Principal | Promise<Principal>;
  * carries a known `expiresAt`, which the MCP SDK's bearer middleware
  * requires. Any verifier composed into `oauth({ verify })` must satisfy
  * this shape.
- *
- * @experimental
  */
 export type OAuthTokenVerifier = (
   token: string,
@@ -126,8 +114,6 @@ export type OAuthTokenVerifier = (
  *   }
  * }
  * ```
- *
- * @experimental
  */
 export interface ValidatorAuthOptions {
   /** Verifier called with the raw bearer token on every request. Throw to reject. */
@@ -141,8 +127,6 @@ export interface ValidatorAuthOptions {
  *
  * Structurally a subtype of `ValidatorAuthOptions`, so the same value is
  * also usable in non-OAuth contexts.
- *
- * @experimental
  */
 export interface OAuthValidatorAuthOptions {
   /** Verifier called with the raw bearer token on every request. Throw to reject. */

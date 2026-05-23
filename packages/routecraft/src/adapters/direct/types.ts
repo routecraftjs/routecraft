@@ -59,7 +59,9 @@ export interface DirectRouteMetadata {
   tags?: Tag[];
 }
 
-/** Base options shared between source and destination. */
+/**
+ * Base options shared between source and destination.
+ */
 export interface DirectBaseOptions {
   /** Custom channel implementation */
   channelType?: DirectChannelType<DirectChannel>;
@@ -81,5 +83,7 @@ export type DirectServerOptions = DirectBaseOptions;
  */
 export type DirectClientOptions = DirectBaseOptions;
 
-/** Options when using direct as a server or client (union). */
+/**
+ * Options when using direct as a server or client (union).
+ */
 export type DirectOptions = DirectServerOptions | DirectClientOptions;

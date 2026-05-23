@@ -17,8 +17,6 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
  * Runtime protection lives alongside this in tool-bridge, where the
  * principal is `Object.freeze`'d (recursively across the arrays and
  * the claims map) before being stored on the handler context.
- *
- * @experimental
  */
 export type ReadonlyPrincipal = Readonly<
   Omit<Principal, "audience" | "scopes" | "roles" | "claims">
@@ -39,8 +37,6 @@ export type ReadonlyPrincipal = Readonly<
  * channel directly. Built-in tool builders that need to forward to a
  * route (e.g. `directTool`) capture the context at resolve time and
  * thread it through their own closure rather than via this interface.
- *
- * @experimental
  */
 export interface FnHandlerContext {
   /** Pino child logger bound to the fn id. */
@@ -80,8 +76,6 @@ export interface FnHandlerContext {
    *
    * Exposed now so handlers written today can be forward-compat with
    * the durable epic without changing signature.
-   *
-   * @experimental
    */
   readonly checkpointId?: string;
 }
@@ -97,7 +91,6 @@ export interface FnHandlerContext {
  * the handler receives. For schemas with `.transform()`, this differs
  * from the raw input type the schema accepts.
  *
- * @experimental
  * @template TIn - Schema's validated output type (handler input type)
  * @template TOut - Handler return type
  */
@@ -142,8 +135,6 @@ export interface FnOptions<TIn = unknown, TOut = unknown> {
  * Populate via declaration merging to narrow `agent({ tools: [...] })`
  * entries to the set of registered fn ids in follow-up stories.
  *
- * @experimental
- *
  * @example
  * ```typescript
  * declare module "@routecraft/ai" {
@@ -161,7 +152,5 @@ export interface FnRegistry {}
 /**
  * Resolved fn id type. When `FnRegistry` is populated, constrains to the
  * union of declared ids. Falls back to `string` when the registry is empty.
- *
- * @experimental
  */
 export type RegisteredFnId = ResolveKey<FnRegistry>;

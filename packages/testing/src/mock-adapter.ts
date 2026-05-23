@@ -43,8 +43,6 @@ type InferAdapterMessage<T> = T extends new (...args: never[]) => infer I
  * Behaviour description for a mock adapter. A mock may stub the source side,
  * the destination side, or both. The framework picks the matching behaviour
  * based on the call site's role in the route.
- *
- * @experimental
  */
 export interface MockAdapterBehavior<M = unknown> {
   /**
@@ -65,8 +63,6 @@ export interface MockAdapterBehavior<M = unknown> {
  * Handle returned by `mockAdapter(factory, behaviour)`. Carries the resolved
  * override the framework should install on the context, plus `calls` for
  * assertions.
- *
- * @experimental
  */
 export interface AdapterMock {
   /** Brand used by `testContext().override()` to discriminate handles from raw overrides. */
@@ -112,7 +108,6 @@ export function isAdapterMock(
  * under test as-is; the framework invokes the mock's `source` / `send`
  * handlers in place of the real adapter at every matching call site.
  *
- * @experimental
  * @param target - The adapter factory or adapter class to intercept
  * @param behavior - Source and/or destination-role handlers
  * @returns A handle with `calls` for assertions and an internal `override`

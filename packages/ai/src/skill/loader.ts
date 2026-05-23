@@ -8,8 +8,6 @@ import type { Skill } from "./types.ts";
 
 /**
  * Per-skill override applied on top of the markdown frontmatter.
- *
- * @experimental
  */
 export interface SkillOverride {
   description?: string;
@@ -91,8 +89,6 @@ function toSkill(
  *
  * Returns a `Record<name, Skill>` ready to spread into
  * `agentPlugin({ skills: skills("./skills") })`.
- *
- * @experimental
  *
  * @example
  * ```ts

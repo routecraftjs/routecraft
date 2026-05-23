@@ -65,8 +65,6 @@ const DEFAULT_JWKS_ALGORITHMS = [
 
 /**
  * Options for the JWKS-backed JWT auth helper.
- *
- * @experimental
  */
 export interface JwksOptions {
   /**
@@ -135,8 +133,6 @@ export interface JwksOptions {
  *   }),
  * });
  * ```
- *
- * @experimental
  */
 export function jwks(options: JwksOptions): OAuthValidatorAuthOptions {
   assertIssuerAudience("jwks", options.issuer, options.audience);

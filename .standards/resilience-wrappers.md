@@ -200,8 +200,8 @@ accordingly.
       `docs/advanced/error-handling` (or equivalent),
       `docs/reference/operations`, `docs/reference/events`.
 - [ ] No em-dashes in docs, JSDoc, comments, or written output.
-- [ ] `@experimental` on the new exports until a second wrapper has
-      shipped.
+- [ ] `@internal` on any helper exports that are not meant to be public
+      (0.x uses no `@experimental` / `@beta` tiers).
 - [ ] Conventional Commits.
 
 ## 9. Cross-references

@@ -1,10 +1,9 @@
 import { describe, expect, expectTypeOf, mock, test } from "bun:test";
-import {
-  testContext,
-  pseudo,
-  type PseudoFactory,
-  type PseudoKeyedFactory,
-} from "@routecraft/testing";
+import { testContext, pseudo } from "@routecraft/testing";
+import type {
+  PseudoFactory,
+  PseudoKeyedFactory,
+} from "../../testing/src/adapters/pseudo/index.ts";
 import {
   craft,
   simple,
