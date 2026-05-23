@@ -35,7 +35,7 @@
     },
     "apps/routecraft.dev": {
       "name": "routecraft.dev",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "dependencies": {
         "@algolia/autocomplete-core": "^1.19.8",
         "@headlessui/react": "^2.2.10",
@@ -73,7 +73,7 @@
     },
     "examples": {
       "name": "examples",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "dependencies": {
         "@routecraft/ai": "workspace:^0.5.0",
         "@routecraft/routecraft": "workspace:^0.5.0",
@@ -91,9 +91,9 @@
     },
     "packages/ai": {
       "name": "@routecraft/ai",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "dependencies": {
-        "@routecraft/routecraft": "workspace:^0.5.0",
+        "@routecraft/routecraft": "workspace:^0.6.0",
         "@standard-schema/spec": "^1.1.0",
         "ai": "^6.0.174",
       },
@@ -139,7 +139,7 @@
     },
     "packages/browser": {
       "name": "@routecraft/browser",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "dependencies": {
         "@routecraft/routecraft": "workspace:^0.5.0",
       },
@@ -157,7 +157,7 @@
     },
     "packages/cli": {
       "name": "@routecraft/cli",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "bin": {
         "craft": "./dist/index.js",
       },
@@ -187,7 +187,7 @@
     },
     "packages/create-routecraft": {
       "name": "create-routecraft",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "bin": {
         "create-routecraft": "./dist/index.js",
       },
@@ -200,7 +200,7 @@
     },
     "packages/eslint-plugin-routecraft": {
       "name": "@routecraft/eslint-plugin-routecraft",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "devDependencies": {
         "@types/eslint": "^9.6.1",
         "tsup": "^8.5.1",
@@ -213,9 +213,9 @@
     },
     "packages/os": {
       "name": "@routecraft/os",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "dependencies": {
-        "@routecraft/routecraft": "workspace:^0.5.0",
+        "@routecraft/routecraft": "workspace:^0.6.0",
       },
       "devDependencies": {
         "vitest": "^4.1.5",
@@ -227,7 +227,7 @@
     },
     "packages/routecraft": {
       "name": "@routecraft/routecraft",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "dependencies": {
         "@opentelemetry/api": "^1.9.1",
         "@standard-schema/spec": "^1.1.0",
@@ -235,7 +235,7 @@
       },
       "devDependencies": {
         "@opentelemetry/sdk-trace-base": "^2.7.1",
-        "@routecraft/testing": "workspace:^0.5.0",
+        "@routecraft/testing": "workspace:^0.6.0",
         "@sinonjs/fake-timers": "^11.3.1",
         "@types/better-sqlite3": "^7.6.13",
         "@types/mailparser": "^3.4.6",
@@ -284,9 +284,9 @@
     },
     "packages/testing": {
       "name": "@routecraft/testing",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "dependencies": {
-        "@routecraft/routecraft": "workspace:^0.5.0",
+        "@routecraft/routecraft": "workspace:^0.6.0",
         "@standard-schema/spec": "^1.1.0",
       },
       "devDependencies": {
