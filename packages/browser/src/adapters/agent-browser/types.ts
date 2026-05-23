@@ -3,7 +3,9 @@ import type { Exchange } from "@routecraft/routecraft";
 /** Option value that can be static or resolved from the exchange. */
 export type Resolvable<T, V> = V | ((exchange: Exchange<T>) => V);
 
-/** Shared options available on every command. */
+/**
+ * Shared options available on every command.
+ */
 export interface AgentBrowserBaseOptions<T = unknown> {
   /** Override auto-session derived from exchange.id */
   session?: Resolvable<T, string>;
@@ -15,7 +17,9 @@ export interface AgentBrowserBaseOptions<T = unknown> {
   args?: string[];
 }
 
-/** Command-specific options for autocomplete. */
+/**
+ * Command-specific options for autocomplete.
+ */
 export interface AgentBrowserCommandMap<T = unknown> {
   open: { url: Resolvable<T, string> };
   click: { selector: Resolvable<T, string>; newTab?: boolean };

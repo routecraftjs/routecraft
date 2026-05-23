@@ -21,8 +21,6 @@
  * values are framework-controlled constants -- chosen to satisfy the RFC 9728
  * discovery contract and the MCP JSON-RPC handshake -- and can be expanded
  * later if a real use case demands it.
- *
- * @experimental
  */
 
 import type { ServerResponse } from "node:http";
@@ -39,8 +37,6 @@ import type { ServerResponse } from "node:http";
  *
  * Keeping this transport-agnostic (no `IncomingMessage`) lets the helper run
  * on Bun, Node, and in tests without coupling to `node:http`.
- *
- * @experimental
  */
 export type McpCorsOriginResolver = (
   requestOrigin: string | undefined,
@@ -53,8 +49,6 @@ export type McpCorsOriginResolver = (
  * Omitting `cors` entirely applies the loopback-only default. Pass
  * `cors: false` on `McpPluginOptions` to disable CORS handling completely
  * (useful when a reverse proxy or CDN owns CORS).
- *
- * @experimental
  */
 export interface McpCorsOptions {
   /**

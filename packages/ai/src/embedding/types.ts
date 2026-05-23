@@ -58,7 +58,9 @@ export interface EmbeddingResult {
   embedding: number[];
 }
 
-/** Provider options for embeddingPlugin({ providers }). Key is the provider id. */
+/**
+ * Provider options for embeddingPlugin({ providers }). Key is the provider id.
+ */
 export interface EmbeddingPluginProviders {
   huggingface?: Record<string, never>;
   ollama?: { baseURL?: string };

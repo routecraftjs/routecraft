@@ -29,8 +29,6 @@ import {
  * Set by `craft run` (or any runner) before `context.start()` so that
  * adapters can read the remaining CLI arguments without coupling to a
  * specific runner package.
- *
- * @experimental
  */
 export const RUNNER_ARGV: unique symbol = Symbol.for("routecraft.runner.argv");
 

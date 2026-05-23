@@ -1,7 +1,9 @@
 import type { Exchange } from "../../exchange.ts";
 import type { OnParseError } from "../shared/parse.ts";
 
-// Transformer-mode options (current behavior)
+/**
+ * Transformer-mode options (current behavior).
+ */
 export interface JsonTransformerOptions<T = unknown, R = unknown, V = unknown> {
   /**
    * Dot-notation path to extract from the parsed JSON, e.g. "data.items[0].name".
@@ -20,7 +22,9 @@ export interface JsonTransformerOptions<T = unknown, R = unknown, V = unknown> {
   to?: (body: T, result: V) => R;
 }
 
-// Source/Destination mode options (new behavior)
+/**
+ * Source/Destination mode options (new behavior).
+ */
 export interface JsonFileOptions {
   /**
    * File path string or function that returns the path.
@@ -83,7 +87,6 @@ export interface JsonFileOptions {
    * See `OnParseError` for full semantics.
    *
    * @default "fail"
-   * @experimental
    */
   onParseError?: OnParseError;
 }

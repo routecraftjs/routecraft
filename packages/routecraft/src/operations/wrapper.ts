@@ -65,7 +65,6 @@ export type WrapperOutcome = "ok" | "recovered";
  * `exchange` to the rest of the pipeline by pushing
  * `{ exchange, steps: remainingSteps }` onto the queue.
  *
- * @experimental Public surface is the dual-mode `.error()` builder
  * method (see {@link RouteBuilder.error}); the `WrapperStep` class is
  * exposed for forward-compat as wrapper authors land additional
  * operations (retry, cache, timeout, circuit breaker, etc.).

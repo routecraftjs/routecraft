@@ -17,8 +17,6 @@ import { rcError, type Principal } from "@routecraft/routecraft";
  * works in both validator and OAuth-proxy modes. When the verifier is
  * `jwks()` / `jwt()` / `oauth()`, the principal carries `expiresAt` at
  * runtime (it is an `OAuthPrincipal`); a custom `{ validator }` may not.
- *
- * @experimental
  */
 export type UserinfoFn = (
   principal: Principal,
@@ -34,8 +32,6 @@ export type UserinfoFn = (
  * - `string | URL`: explicit userinfo endpoint URL.
  * - `UserinfoFn`: custom enrichment function for non-OIDC sources (Clerk
  *   Backend API, internal DB, etc.).
- *
- * @experimental
  */
 export type UserinfoOption = true | string | URL | UserinfoFn;
 

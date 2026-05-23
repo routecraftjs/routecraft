@@ -13,8 +13,6 @@ import type { ToolSelection } from "./tools/selection.ts";
  * applies to both the `agent` and `llm` destinations: pass a static
  * string for fixed prompts, or a function that derives the prompt from
  * the incoming exchange.
- *
- * @experimental
  */
 export type AgentUserPromptSource = LlmPromptSource;
 
@@ -29,8 +27,6 @@ export type AgentUserPromptSource = LlmPromptSource;
  * renderer owns its own escaping and MUST NOT surface `claims`,
  * `userinfoClaims`, or anything bearer-derived (see
  * `.standards/security.md` § 3a).
- *
- * @experimental
  */
 export type AgentPrincipalRenderer = (
   principal: Principal | undefined,
@@ -44,8 +40,6 @@ export type AgentPrincipalRenderer = (
  *
  * Mirrors the `llmPlugin({ defaultOptions })` shape so the same mental
  * model carries across.
- *
- * @experimental
  */
 export interface AgentDefaultOptions {
   /**
@@ -93,8 +87,6 @@ export interface AgentDefaultOptions {
  * `.id()` is the agent's callable identity and `.description()` is its
  * human-readable description. `AgentOptions` only carries LLM-specific
  * config.
- *
- * @experimental
  */
 export interface AgentOptions {
   /**
@@ -154,8 +146,6 @@ export interface AgentOptions {
    * not exposed as a tool the agent can choose to invoke.
    *
    * Unknown skill names throw `RC5003` at dispatch.
-   *
-   * @experimental
    */
   skills?: string[];
 
@@ -185,8 +175,6 @@ export interface AgentOptions {
    * structure. A custom renderer owns its own escaping. Authorization is
    * still enforced by `.authorize()` and guards; this block is
    * informational context for the model, not an authorization gate.
-   *
-   * @experimental
    */
   principal?: boolean | AgentPrincipalRenderer;
 
@@ -268,8 +256,6 @@ export interface AgentOptions {
  * Options for an agent registered via `agentPlugin({ agents: { ... } })` for
  * by-name reuse. Registered agents carry their own description because they
  * are not backed by a route. The id is the record key in the plugin config.
- *
- * @experimental
  */
 export interface AgentRegisteredOptions extends AgentOptions {
   /**
@@ -290,8 +276,6 @@ export interface AgentRegisteredOptions extends AgentOptions {
  * For real-time observability use the context-bus events
  * (`route:<id>:agent:tool:invoked` / `result` / `error`) instead;
  * this summary is for synchronous post-hoc checks.
- *
- * @experimental
  */
 export interface AgentToolCallSummary {
   /** Stable id assigned by the SDK to correlate invoked → result. */
@@ -309,8 +293,6 @@ export interface AgentToolCallSummary {
 /**
  * Result produced by an agent destination. Body of the exchange is replaced
  * with this shape after the agent runs.
- *
- * @experimental
  */
 export interface AgentResult {
   /**

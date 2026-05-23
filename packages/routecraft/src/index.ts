@@ -97,7 +97,7 @@ export {
   replace,
 } from "./operations/enrich.ts";
 
-export { WrapperStep, type WrapperOutcome } from "./operations/wrapper.ts";
+export { WrapperStep } from "./operations/wrapper.ts";
 export { ErrorWrapperStep } from "./operations/error-wrapper.ts";
 
 export {
@@ -219,8 +219,6 @@ export {
   type DirectOptions,
   type DirectRouteMetadata,
   type DirectServerOptions,
-  ADAPTER_DIRECT_STORE,
-  ADAPTER_DIRECT_OPTIONS,
   ADAPTER_DIRECT_REGISTRY,
   getDirectChannel,
   sanitizeEndpoint,
@@ -229,7 +227,6 @@ export { type TimerOptions } from "./adapters/timer/index.ts";
 export {
   type CronExpression,
   type CronOptions,
-  ADAPTER_CRON_OPTIONS,
 } from "./adapters/cron/index.ts";
 export { type FileOptions } from "./adapters/file/index.ts";
 export { type HtmlOptions, type HtmlResult } from "./adapters/html/index.ts";
@@ -299,6 +296,5 @@ export {
   analyzeHeaders,
   parseAuthResults,
   ANALYSIS_HEADER_NAMES,
-  MAIL_CLIENT_MANAGER,
   MailClientManager,
 } from "./adapters/mail/index.ts";

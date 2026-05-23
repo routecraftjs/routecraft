@@ -2,16 +2,18 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { ContextBuilder } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
-  ADAPTER_AGENT_DEFAULT_OPTIONS,
-  ADAPTER_AGENT_REGISTRY,
   agent,
   agentPlugin,
   currentTime,
   randomUuid,
-  isToolSelection,
   tools,
   type AgentRegisteredOptions,
 } from "../src/index.ts";
+import {
+  ADAPTER_AGENT_DEFAULT_OPTIONS,
+  ADAPTER_AGENT_REGISTRY,
+} from "../src/agent/store.ts";
+import { isToolSelection } from "../src/agent/tools/selection.ts";
 
 describe("agentPlugin defaultOptions storage", () => {
   let t: TestContext | undefined;

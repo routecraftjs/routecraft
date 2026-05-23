@@ -13,7 +13,6 @@ export type CsvAdapter = Source<CsvData> &
  * Creates a CSV adapter in chunked source mode.
  * Emits one exchange per row with CSV_ROW and CSV_PATH headers.
  *
- * @beta
  * Requires `papaparse` to be installed as a peer dependency.
  *
  * @param options - CSV options with chunked: true
@@ -25,7 +24,6 @@ export function csv(
 /**
  * Creates a CSV adapter for reading or writing CSV files.
  *
- * @beta
  * As a **source** (.from):
  * - Reads CSV file and parses to array of objects
  *

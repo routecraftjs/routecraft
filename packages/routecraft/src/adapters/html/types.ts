@@ -72,7 +72,6 @@ export interface HtmlOptions<T = unknown, R = unknown> {
    * See `OnParseError` for full semantics.
    *
    * @default "fail"
-   * @experimental
    */
   onParseError?: OnParseError;
 }

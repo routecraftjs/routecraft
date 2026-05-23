@@ -14,7 +14,6 @@
  * | `abort` | `exchange:started` -> `exchange:failed`, then `context:error` and the source dies |
  * | `drop`  | `exchange:started` -> `exchange:dropped` (`reason: "parse-failed"`) |
  *
- * @experimental The shape of this option may evolve as more parsing adapters
  * adopt the contract.
  */
 export type OnParseError =
@@ -52,8 +51,6 @@ export type OnParseError =
 /**
  * Default `OnParseError` value applied when a parsing adapter does not set
  * one explicitly.
- *
- * @experimental Tracks `OnParseError`'s maturity (#187).
  */
 export const DEFAULT_ON_PARSE_ERROR: OnParseError = "fail";
 
@@ -66,8 +63,6 @@ export const DEFAULT_ON_PARSE_ERROR: OnParseError = "fail";
  *   if (details.reason === PARSE_DROPPED_REASON) metrics.increment('parse.dropped');
  * });
  * ```
- *
- * @experimental
  */
 export const PARSE_DROPPED_REASON = "parse-failed";
 
@@ -79,8 +74,6 @@ export const PARSE_DROPPED_REASON = "parse-failed";
  * `'abort'` is documented as parse-specific behaviour.
  *
  * Mirrors the `isMailParseError` helper in the mail adapter.
- *
- * @experimental
  */
 export function isParseError(err: unknown): boolean {
   return (

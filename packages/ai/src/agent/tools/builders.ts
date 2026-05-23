@@ -115,8 +115,6 @@ const emptyObjectSchema: StandardSchemaV1<unknown, Record<string, never>> = {
  * Only the LLM-facing contract (description, input, tags) can be
  * overridden here. Guards are policy and live at the consumer:
  * attach them in `tools([{ name, guard }])` at the agent's call site.
- *
- * @experimental
  */
 export interface ToolBuilderOverrides<TIn = unknown> {
   /** Replace the underlying description shown to the LLM. */
@@ -142,8 +140,6 @@ export interface ToolBuilderOverrides<TIn = unknown> {
  * Resolution is deferred to agent dispatch time, when the direct
  * registry is populated. Errors at resolution (unknown route id,
  * missing description, missing input schema) throw `RC5003`.
- *
- * @experimental
  *
  * @example
  * ```ts
@@ -294,8 +290,6 @@ async function dispatchDirect<TIn>(
  * `agentPlugin({ functions: { ... } })` config, the same way you use
  * `directTool(...)`.
  *
- * @experimental
- *
  * @example
  * ```ts
  * agentPlugin({
@@ -319,8 +313,6 @@ export function currentTime(): FnOptions {
  * Built-in fn factory: generates a fresh random UUID v4. Takes no
  * configuration. Assign it a tool name in your
  * `agentPlugin({ functions: { ... } })` config.
- *
- * @experimental
  *
  * @example
  * ```ts

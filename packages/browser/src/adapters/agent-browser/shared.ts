@@ -30,7 +30,10 @@ async function loadAgentBrowser(): Promise<AgentBrowserLib> {
   }
 }
 
-/** Sanitize exchange id to agent-browser session name: alphanumeric, hyphen, underscore only. */
+/**
+ * Sanitize exchange id to agent-browser session name: alphanumeric, hyphen, underscore only.
+ * @internal
+ */
 export function sanitizeSessionId(id: string): string {
   return id.replace(/[^a-zA-Z0-9_-]/g, "_");
 }

@@ -42,8 +42,6 @@ const DEFAULT_MAX_EVENTS = 100_000;
  *
  * Both paths receive identical data.
  *
- * @experimental
- *
  * @example
  * ```typescript
  * import { telemetry } from "@routecraft/routecraft";
@@ -509,7 +507,6 @@ class TelemetryPlugin implements CraftPlugin {
  * When no `tracerProvider` is given and `disableSqlite` is false (default),
  * events are persisted to a local SQLite database for the TUI to read.
  *
- * @experimental
  * @param options - TracerProvider, SQLite path, and buffer configuration
  * @returns A CraftPlugin instance
  *

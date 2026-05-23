@@ -33,8 +33,6 @@ import type { ResolveKey } from "@routecraft/routecraft";
  * Keys are provider names (e.g. 'openai', 'anthropic', 'ollama'),
  * values should be `true`. Populate via declaration merging to constrain
  * the `llm()` adapter's model ID prefix.
- *
- * @experimental
  */
 // biome-ignore lint/suspicious/noEmptyInterface: marker interface populated via declaration merging
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type -- Marker interface, populated via declaration merging
@@ -46,8 +44,6 @@ export interface LlmProviderRegistry {}
  * Keys are server names (e.g. 'github', 'local-postgres'),
  * values should be `true`. Populate via declaration merging to constrain
  * the `mcp()` adapter's shorthand syntax.
- *
- * @experimental
  */
 // biome-ignore lint/suspicious/noEmptyInterface: marker interface populated via declaration merging
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type -- Marker interface, populated via declaration merging
@@ -57,8 +53,6 @@ export interface McpServerRegistry {}
  * Resolved LLM model ID type.
  * When `LlmProviderRegistry` is populated, constrains to `'provider:modelName'`
  * where provider must be a registered key. Falls back to `string` when empty.
- *
- * @experimental
  */
 export type RegisteredLlmModelId = keyof LlmProviderRegistry extends never
   ? string
@@ -71,8 +65,6 @@ export type RegisteredLlmModelId = keyof LlmProviderRegistry extends never
  * Falls back to `string` when empty.
  *
  * For the `'server:tool'` shorthand format, see `RegisteredMcpShorthand`.
- *
- * @experimental
  */
 export type RegisteredMcpServer = ResolveKey<McpServerRegistry>;
 
@@ -80,8 +72,6 @@ export type RegisteredMcpServer = ResolveKey<McpServerRegistry>;
  * Resolved MCP shorthand type for 'server:tool' syntax.
  * When `McpServerRegistry` is populated, constrains the server prefix.
  * Falls back to `` `${string}:${string}` `` when empty.
- *
- * @experimental
  */
 export type RegisteredMcpShorthand = keyof McpServerRegistry extends never
   ? `${string}:${string}`

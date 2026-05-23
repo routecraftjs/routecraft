@@ -37,8 +37,6 @@ import { WrapperStep, type WrapperOutcome } from "./wrapper.ts";
  * - `route:<id>:error-handler:invoked`  ({ scope: "step", stepLabel })
  * - `route:<id>:error-handler:recovered` on handler success
  * - `route:<id>:error-handler:failed`    on handler throw (rethrown)
- *
- * @experimental Surfaced via the dual-mode `.error()` builder method.
  */
 export class ErrorWrapperStep<
   T extends Adapter = Adapter,

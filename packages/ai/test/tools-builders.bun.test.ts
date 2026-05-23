@@ -14,11 +14,11 @@ import {
   currentTime,
   randomUuid,
   directTool,
-  isDeferredFn,
-  ADAPTER_FN_REGISTRY,
   type FnEntry,
   type FnOptions,
 } from "../src/index.ts";
+import { isDeferredFn } from "../src/agent/tools/types.ts";
+import { ADAPTER_FN_REGISTRY } from "../src/fn/store.ts";
 
 describe("tool builders - directTool", () => {
   let t: TestContext | undefined;

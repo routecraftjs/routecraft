@@ -3,8 +3,6 @@
  *
  * Only loaded when the mail adapter is configured with `verify: "strict"`.
  * `mailauth` is an optional peer; users who enable strict mode must install it.
- *
- * @experimental
  */
 
 import { rcError } from "../../error.ts";

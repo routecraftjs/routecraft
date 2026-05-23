@@ -9,7 +9,8 @@ import {
   rcError,
   type Principal,
 } from "@routecraft/routecraft";
-import { mcp, MCP_PLUGIN_REGISTERED } from "../src/index.ts";
+import { mcp } from "../src/index.ts";
+import { MCP_PLUGIN_REGISTERED } from "../src/mcp/types.ts";
 import { ROUTECRAFT_DEFAULT_ICONS } from "../src/mcp/default-icon.ts";
 import { buildAuthHeaders } from "../src/mcp/build-auth-headers.ts";
 import { z } from "zod";

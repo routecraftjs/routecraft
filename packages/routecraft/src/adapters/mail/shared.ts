@@ -22,7 +22,7 @@ import {
 /**
  * Store key for the mail client manager.
  * Set by the ContextBuilder when `mail` config is present.
- * @experimental
+ * @internal
  */
 export const MAIL_CLIENT_MANAGER = Symbol.for(
   "routecraft.adapter.mail.client-manager",

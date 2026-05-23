@@ -17,8 +17,6 @@ export const DEFERRED_FN_BRAND = Symbol.for("routecraft.ai.fn.deferred");
  * selection time, and sub-agent tools are not yet supported. The
  * kind is purely informational at runtime (used for error messages
  * and the prefix-auto-resolution path in `tools()`).
- *
- * @experimental
  */
 export type DeferredFnKind = "direct";
 
@@ -31,8 +29,6 @@ export type DeferredFnKind = "direct";
  * Created by the builder helpers; the `agentPlugin` stores deferred
  * entries unmodified, and the agent runtime calls `.resolve(ctx, id)`
  * just before building the LLM tool list, when all registries are live.
- *
- * @experimental
  */
 export interface DeferredFn {
   readonly [DEFERRED_FN_BRAND]: true;
@@ -85,7 +81,5 @@ export function isDeferredFn(value: unknown): value is DeferredFn {
  * What the fn registry actually holds. Eagerly authored fns are stored
  * as `FnOptions`; entries from `directTool` are stored as `DeferredFn`
  * and resolved on first agent dispatch.
- *
- * @experimental
  */
 export type FnEntry = FnOptions | DeferredFn;

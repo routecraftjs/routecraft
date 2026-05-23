@@ -16,14 +16,7 @@ export type {
 } from "./registry.ts";
 
 // LLM adapter and plugin
-export {
-  ADAPTER_LLM_PROVIDERS,
-  ADAPTER_LLM_OPTIONS,
-  llm,
-  LlmDestinationAdapter,
-  llmPlugin,
-  validateLlmPluginOptions,
-} from "./llm/index.ts";
+export { llm, LlmDestinationAdapter, llmPlugin } from "./llm/index.ts";
 export type {
   LlmAnthropicProviderOptions,
   LlmGeminiProviderOptions,
@@ -68,8 +61,6 @@ export {
 
 // MCP DSL, adapter, and types
 export {
-  ADAPTER_MCP_CLIENT_SERVERS,
-  BRAND_MCP_ADAPTER,
   defaultArgs,
   isOAuthAuth,
   mcp,
@@ -79,9 +70,6 @@ export {
   McpServer,
   McpToolRegistry,
   MCP_LOCAL_TOOL_REGISTRY,
-  MCP_PLUGIN_REGISTERED,
-  MCP_STDIO_MANAGERS,
-  MCP_TOOL_REGISTRY,
   validateWithSchema,
   type McpLocalToolEntry,
   type McpOptions,
@@ -126,13 +114,9 @@ export {
   AgentDestinationAdapter,
   agentPlugin,
   agents,
-  ADAPTER_AGENT_DEFAULT_OPTIONS,
-  ADAPTER_AGENT_REGISTRY,
   SuspendError,
-  isSuspendError,
 } from "./agent/index.ts";
 export type {
-  AgentBinding,
   AgentDefaultOptions,
   AgentByNameOverrides,
   AgentDelta,
@@ -151,7 +135,6 @@ export type {
 // `agentPlugin({ functions: { id: {...} } })`. Consumed exclusively by
 // the agent tool loop (follow-up story); not directly invocable from
 // user code. For tests, use `testFn` from `@routecraft/testing`.
-export { ADAPTER_FN_REGISTRY } from "./fn/index.ts";
 export type {
   FnHandlerContext,
   FnOptions,
@@ -168,8 +151,6 @@ export type {
 export {
   currentTime,
   directTool,
-  isDeferredFn,
-  isToolSelection,
   randomUuid,
   tools,
   type DeferredFn,
@@ -184,7 +165,6 @@ export {
 
 // Skills (portable instruction-set primitive) and skills() markdown loader
 export {
-  ADAPTER_SKILL_REGISTRY,
   skills,
   type RegisteredSkillName,
   type Skill,

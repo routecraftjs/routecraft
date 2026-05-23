@@ -40,8 +40,6 @@ export type SpyAdapter<T = unknown> = {
  * Use as a destination (`.to()`, `.enrich()`, `.tap()`) or processor (`.process()`)
  * to capture pipeline output without side effects.
  *
- * @experimental
- *
  * @returns A spy adapter that records exchanges and tracks call counts
  *
  * @example

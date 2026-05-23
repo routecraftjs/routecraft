@@ -42,20 +42,11 @@ export const MCP_STDIO_MANAGERS = Symbol.for("routecraft.mcp.stdio.managers");
  *
  * Kept separate from {@link MCP_TOOL_REGISTRY}, which holds tools discovered from
  * external (stdio/HTTP) client servers and is consumed by the agent adapter.
- *
- * @experimental
  */
 export const MCP_LOCAL_TOOL_REGISTRY = Symbol.for(
   "routecraft.mcp.local-tool-registry",
 );
 
-/**
- * Per-direction schema bundle for an MCP tool's request side.
- * Both `body` (MCP `Tool.inputSchema`) and `headers` are validated at runtime
- * before the route handler runs.
- *
- * @experimental
- */
 /**
  * @deprecated Use `RouteSchemas` from `@routecraft/routecraft`. Kept as an
  * alias so existing imports do not break during migration.
@@ -72,8 +63,6 @@ export type McpOutput = import("@routecraft/routecraft").RouteSchemas;
  * Entry in the {@link MCP_LOCAL_TOOL_REGISTRY}. One per `.from(mcp(endpoint, options))`
  * route. Holds the discovery metadata needed for `tools/list` and the invocation
  * handler used by `tools/call`.
- *
- * @experimental
  */
 export interface McpLocalToolEntry {
   /** Tool name (matches the route id). Used as `tool.name` in MCP `tools/list`. */
@@ -151,7 +140,9 @@ export interface McpClientStdioConfig {
   cwd?: string;
 }
 
-/** Union of client configs accepted by mcpPlugin({ clients }). */
+/**
+ * Union of client configs accepted by mcpPlugin({ clients }).
+ */
 export type McpClientServerConfig = McpClientHttpConfig | McpClientStdioConfig;
 
 /**
@@ -184,8 +175,6 @@ export enum McpHeadersKeys {
  *
  * Field names use snake_case to match the OAuth 2.0 Dynamic Client Registration
  * specification (RFC 7591) and the MCP SDK's `OAuthClientInformationFull`.
- *
- * @experimental
  */
 export interface OAuthClientInfo {
   /** The client identifier. */
@@ -200,8 +189,6 @@ export interface OAuthClientInfo {
 
 /**
  * Endpoint URLs for the upstream OAuth provider (used by the proxy).
- *
- * @experimental
  */
 export interface OAuthProxyEndpoints {
   /** Authorization endpoint URL. */
@@ -225,8 +212,6 @@ export interface OAuthProxyEndpoints {
  * When omitted entirely, the framework still advertises a baseline metadata
  * document built from the bound URL and (in validator mode) the IdP issuer
  * surfaced by `jwks()` / `jwt()`.
- *
- * @experimental
  */
 export interface McpResourceOptions {
   /**
@@ -256,8 +241,6 @@ export interface McpResourceOptions {
  *
  * Protected-resource metadata (`resource`, `scopes_supported`, etc.) lives on
  * `mcpPlugin({ resource })`, not here -- it is orthogonal to the auth mode.
- *
- * @experimental
  */
 export interface OAuthAuthOptions {
   /** Discriminant for the union. Always `"oauth"`. */
@@ -299,8 +282,6 @@ export interface OAuthAuthOptions {
  * Two strategies are supported:
  * - `Validator`: simple bearer token check via `jwt()` / `jwks()` / or custom function.
  * - `OAuth`: full OAuth 2.1 server flow via `oauth()`, proxying to an upstream IdP.
- *
- * @experimental
  */
 export type McpHttpAuthOptions = ValidatorAuthOptions | OAuthAuthOptions;
 
@@ -317,16 +298,12 @@ export function isOAuthAuth(
  * A function that provides a bearer token for outbound requests.
  * Called on every request; may be synchronous or asynchronous.
  * Useful for dynamic tokens (JWT refresh, rotating API keys, etc.).
- *
- * @experimental
  */
 export type McpClientTokenProvider = () => string | Promise<string>;
 
 /**
  * Auth config for an outbound MCP HTTP client connection.
  * Passed as request headers on every connection to the remote server.
- *
- * @experimental
  */
 export interface McpClientAuthOptions {
   /**
@@ -449,8 +426,6 @@ export interface McpPluginOptions {
    * requests for the same token share one in-flight fetch. All enrichment
    * errors are fail-closed (the request is rejected). Defaults to no
    * enrichment.
-   *
-   * @experimental
    */
   userinfo?: UserinfoOption;
 
@@ -477,8 +452,6 @@ export interface McpPluginOptions {
    * Method, allowed-header, exposed-header, credentials, and preflight-cache
    * values are framework constants and not user-configurable. `WWW-Authenticate`
    * is always exposed so browser clients can read the RFC 9728 hint on a 401.
-   *
-   * @experimental
    */
   cors?: false | McpCorsOptions;
 
@@ -546,8 +519,6 @@ export interface McpToolAnnotations {
  * Icon reference for an MCP server or tool. Mirrors the MCP specification's
  * `Icon` shape, which is reused by `serverInfo.icons`, `Tool.icons`, and the
  * resource/prompt primitives.
- *
- * @experimental
  */
 export interface McpIcon {
   /** URL or data URI of the icon. */
@@ -568,8 +539,6 @@ export interface McpIcon {
  * `.description()` / `.input()` / `.output()` and are enforced by the
  * framework; `description` is required for MCP tools and the source will
  * reject a subscribe call whose route has no description set.
- *
- * @experimental
  */
 export interface McpServerOptions {
   /**
@@ -685,8 +654,6 @@ export interface McpToolRegistryEntry {
    * Mapping: `readOnlyHint -> "read-only"`,
    * `destructiveHint -> "destructive"`, `idempotentHint -> "idempotent"`,
    * `openWorldHint -> "open-world"`.
-   *
-   * @experimental
    */
   tags?: readonly Tag[];
 }

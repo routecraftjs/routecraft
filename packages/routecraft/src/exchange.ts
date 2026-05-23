@@ -19,8 +19,6 @@ export enum OperationType {
    * `DefaultExchange.rewrap(exchange, { body: await parse(exchange.body) })`
    * before any user steps so parse failures flow through the route's normal
    * error handling instead of aborting the source. See #187.
-   *
-   * @experimental Tracks `OnParseError`'s maturity.
    */
   PARSE = "parse",
   /** The exchange was processed by a processor */
@@ -312,8 +310,6 @@ export type Exchange<T = unknown> = {
    * Propagates naturally because it lives in `headers`: any operation that
    * spreads `prev.headers` keeps the principal sticky-set automatically,
    * with no special-case plumbing.
-   *
-   * @experimental
    */
   readonly principal?: Principal | undefined;
 

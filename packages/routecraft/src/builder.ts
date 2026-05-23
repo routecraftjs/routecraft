@@ -553,7 +553,6 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    *   .to(database())
    * ```
    *
-   * @experimental Step-scope behaviour ships with the dual-mode
    * wrapper pattern. See `.standards/resilience-wrappers.md`.
    */
   override error(handler: ErrorHandler): this {
@@ -599,7 +598,6 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    * role / scope / predicate check). A route-level `.error()` handler
    * catches both like any other validation failure.
    *
-   * @experimental
    * @param options - Required roles, scopes, or a custom predicate. When
    *   omitted, only existence of an authenticated principal is checked.
    *
@@ -874,7 +872,6 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    *   and `otherwise` branches
    * @returns A RouteBuilder typed at `Out`
    *
-   * @experimental
    * @example
    * ```ts
    * .choice(c => c
