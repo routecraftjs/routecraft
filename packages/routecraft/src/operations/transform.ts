@@ -5,11 +5,19 @@ import { type Exchange, OperationType, DefaultExchange } from "../exchange.ts";
  * Function form of a transformer: maps the body to a new value. Headers are unchanged.
  * Use with `.transform(transformer)`. Prefer over `.process()` when only the body changes.
  *
+ * The current exchange is passed as a second, read-only argument so a
+ * transformer can derive the new body from context (the principal, headers,
+ * correlation id) without dropping to `.process()`. A transformer still
+ * returns only the body; to rewrite headers or the principal use `.process()`.
+ * Adding the parameter is backwards compatible: a one-argument
+ * `(message) => ...` is still a valid transformer.
+ *
  * @template T - Current body type
  * @template R - Result body type (default T)
  */
 export type CallableTransformer<T = unknown, R = T> = (
   message: T,
+  exchange: Exchange<T>,
 ) => Promise<R> | R;
 
 /**
@@ -82,7 +90,7 @@ export class TransformStep<T = unknown, R = T> implements Step<
     queue: { exchange: Exchange<R>; steps: Step<Adapter>[] }[],
   ): Promise<void> {
     const newBody = await Promise.resolve(
-      this.adapter.transform(exchange.body),
+      this.adapter.transform(exchange.body, exchange),
     );
     queue.push({
       exchange: DefaultExchange.rewrap<R>(exchange, { body: newBody }),

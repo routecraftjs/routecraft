@@ -70,7 +70,21 @@ export { type Splitter } from "./operations/split.ts";
 
 export { type Aggregator } from "./operations/aggregate.ts";
 
-export { type Transformer, mapper } from "./operations/transform.ts";
+export {
+  type Transformer,
+  type CallableTransformer,
+  mapper,
+} from "./operations/transform.ts";
+
+export { mask, type MaskFn, type MaskRules } from "./operations/mask.ts";
+
+export {
+  keep,
+  type Grant,
+  type KeepRule,
+  type KeepRules,
+  type KeepOptions,
+} from "./operations/keep.ts";
 
 export {
   type Validator,
