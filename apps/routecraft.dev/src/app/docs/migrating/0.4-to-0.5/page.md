@@ -457,7 +457,7 @@ ESLint rules continue to enforce route-only positioning. Wrapper positioning is 
 - `fn()` primitive for ad-hoc in-process functions registered via `agentPlugin({ functions })`.
 - Streaming agents: opt in via `stream: true` to receive an `AgentStream` body. The HTTP server bridges to SSE automatically.
 - Built-in fn factories: `currentTime()`, `randomUuid()` (read-only).
-- Forward-compat hooks landed for durable agents (0.6.0): `SuspendError` (`@experimental`), `FnHandlerContext.checkpointId`, `AgentSession`.
+- Forward-compat hooks landed for durable agents (0.6.0): `SuspendError`, `FnHandlerContext.checkpointId`, `AgentSession`. These are forward-compat surfaces; the whole 0.x API is unstable (see the API stability policy).
 
 ### Choice operation
 
