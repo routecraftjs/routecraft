@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import {
+  afterAll,
+  beforeAll,
+  describe,
+  expect,
+  expectTypeOf,
+  test,
+} from "bun:test";
 import { spy, testContext, type TestContext } from "@routecraft/testing";
 import {
   craft,
@@ -6,6 +13,7 @@ import {
   HeadersKeys,
   keep,
   mask,
+  type CallableTransformer,
   type Exchange,
   type Principal,
   type Source,
@@ -116,8 +124,8 @@ describe("mask helper", () => {
    * @expectedResult Each element's listed field is obfuscated
    */
   test("applies to each element of an array body", () => {
-    const arr = [record(), { ...record(), email: "b@x.com" }];
-    const out = mask<Rec[]>({ email: () => "***" })(arr, mk(arr));
+    const arr: Rec[] = [record(), { ...record(), email: "b@x.com" }];
+    const out = mask<Rec>({ email: () => "***" })(arr, mk(arr));
     expect(out.map((r) => r.email)).toEqual(["***", "***"]);
   });
 
@@ -219,11 +227,11 @@ describe("keep helper (strict by default)", () => {
    * @expectedResult Each element is reduced to the allowed fields
    */
   test("applies to each element of an array body", () => {
-    const arr = [record(), { ...record(), id: "2" }];
+    const arr: Rec[] = [record(), { ...record(), id: "2" }];
     const out = keep<Rec>({ id: true, yearlyWage: ["hr"] })(
-      arr as unknown as Rec,
+      arr,
       mk(arr, who(["member"])),
-    ) as unknown as Rec[];
+    );
     expect(out).toEqual([{ id: "1" }, { id: "2" }]);
   });
 });
@@ -257,5 +265,72 @@ describe("compose keep then mask", () => {
     );
     const masked = mask<Rec>({ email: () => "***" })(kept, ex);
     expect(masked).toEqual({ id: "1", email: "***" });
+  });
+});
+
+describe("keep rule-order independence", () => {
+  interface Tiered {
+    tier: string;
+    secret: string;
+    other: string;
+  }
+  const isGold = (r: Tiered) => r.tier === "gold";
+  const rec = (): Tiered => ({ tier: "gold", secret: "s", other: "o" });
+
+  /**
+   * @case A predicate grant reading a field that another rule drops is order-independent
+   * @preconditions Non-strict; `tier` gated by hr (member fails, so it is dropped),
+   *                `secret` gated by a predicate that reads `tier`; member caller
+   * @expectedResult Both rule orders keep `secret` (the predicate sees the original
+   *                 `tier`) and drop `tier`; the two orderings produce equal output
+   */
+  test("non-strict grants evaluate against the original record", () => {
+    const ex = mk(rec(), who(["member"]));
+    const tierFirst = keep<Tiered>(
+      { tier: ["hr"], secret: [isGold] },
+      { strict: false },
+    )(rec(), ex);
+    const secretFirst = keep<Tiered>(
+      { secret: [isGold], tier: ["hr"] },
+      { strict: false },
+    )(rec(), ex);
+
+    expect(tierFirst).toEqual(secretFirst);
+    expect("secret" in tierFirst).toBe(true);
+    expect("tier" in tierFirst).toBe(false);
+  });
+});
+
+describe("type-level contracts", () => {
+  /**
+   * @case A one-argument transformer is still assignable to CallableTransformer
+   * @preconditions Assign a `(body) => body` function to the two-arg type
+   * @expectedResult Compiles (backwards compatible) and runs when called with two args
+   */
+  test("transform second argument is backwards compatible", () => {
+    const oneArg: CallableTransformer<string, string> = (b) => b.toUpperCase();
+    expectTypeOf<(b: string) => string>().toMatchTypeOf<
+      CallableTransformer<string, string>
+    >();
+    expect(oneArg("a", mk("a"))).toBe("A");
+  });
+
+  /**
+   * @case keep and mask preserve the precise body type for record and array bodies
+   * @preconditions Apply each helper to a single record and to an array, no casts
+   * @expectedResult The single-record call is typed `Rec`, the array call `Rec[]`
+   */
+  test("keep and mask preserve the body type", () => {
+    const single = keep<Rec>({ id: true })(record(), mk(record()));
+    expectTypeOf(single).toEqualTypeOf<Rec>();
+
+    const arr: Rec[] = [record()];
+    const many = keep<Rec>({ id: true })(arr, mk(arr));
+    expectTypeOf(many).toEqualTypeOf<Rec[]>();
+
+    const masked = mask<Rec>({ email: () => "x" })(record(), mk(record()));
+    expectTypeOf(masked).toEqualTypeOf<Rec>();
+
+    expect(single.id).toBe("1");
   });
 });

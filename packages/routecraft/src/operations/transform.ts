@@ -21,6 +21,21 @@ export type CallableTransformer<T = unknown, R = T> = (
 ) => Promise<R> | R;
 
 /**
+ * Result of the field-shaping helpers (`keep`, `mask`). Generic over the
+ * actual body so it preserves the precise type whether applied to a single
+ * record or, element-wise, to an array of records. `T` is the record
+ * (element) type in both cases, so grant predicates and mask functions always
+ * see one record. Assignable to {@link CallableTransformer}, so it drops
+ * straight into `.transform(...)`.
+ *
+ * @experimental
+ */
+export type FieldTransform<T> = <B extends T | T[]>(
+  body: B,
+  exchange?: Exchange<B>,
+) => B;
+
+/**
  * Transformer adapter: body-only conversion. Used with `.transform()`.
  * Headers and exchange metadata are preserved. Use `.process()` to change headers or the full exchange.
  *

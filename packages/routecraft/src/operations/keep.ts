@@ -1,5 +1,6 @@
+import { type Exchange } from "../exchange.ts";
 import { type Principal } from "../auth/types.ts";
-import { type CallableTransformer } from "./transform.ts";
+import { type FieldTransform } from "./transform.ts";
 import { deletePath, hasPath, pickPaths } from "./field-paths.ts";
 
 /**
@@ -74,9 +75,12 @@ function keepRecord<R>(
     }
     return pickPaths(record, allowed);
   }
+  // Evaluate every rule against the ORIGINAL record (not the progressively
+  // deleted copy) so a predicate grant that reads another field is not
+  // affected by an earlier deletion, and so non-strict agrees with strict.
   let out = record;
   for (const path of Object.keys(rules)) {
-    if (hasPath(out, path) && !holds(rules[path], out, principal)) {
+    if (hasPath(record, path) && !holds(rules[path], record, principal)) {
       out = deletePath(out, path);
     }
   }
@@ -94,9 +98,10 @@ function keepRecord<R>(
  * for any caller). Pass `{ strict: false }` to instead gate only the listed
  * fields and pass everything else through.
  *
- * Returns a {@link CallableTransformer}, so use `.transform(keep({ ... }))`.
- * Applies to the body when it is a single record, element-wise when it is an
- * array of records. For a wrapped collection, keep the inner array:
+ * Returns a {@link FieldTransform}, so use `.transform(keep({ ... }))`. `T` is
+ * the record (element) type: applies to the body when it is a single record,
+ * element-wise when it is an array of records, preserving the precise type
+ * either way. For a wrapped collection, keep the inner array:
  * `.transform((b, ex) => ({ ...b, items: keep(rules)(b.items, ex) }))`.
  *
  * @experimental
@@ -118,21 +123,20 @@ function keepRecord<R>(
 export function keep<T>(
   rules: KeepRules<T>,
   options: KeepOptions = {},
-): CallableTransformer<T, T> {
+): FieldTransform<T> {
   const strict = options.strict ?? true;
-  return (body, exchange) => {
+  const fn = (body: unknown, exchange?: Exchange<unknown>): unknown => {
     const principal = exchange?.principal;
     if (Array.isArray(body)) {
       return body.map((item) =>
         item !== null && typeof item === "object"
           ? keepRecord(item, rules as KeepRules<unknown>, principal, strict)
           : item,
-      ) as T;
+      );
     }
-    return (
-      body !== null && typeof body === "object"
-        ? keepRecord(body, rules as KeepRules<T>, principal, strict)
-        : body
-    ) as T;
+    return body !== null && typeof body === "object"
+      ? keepRecord(body, rules as KeepRules<unknown>, principal, strict)
+      : body;
   };
+  return fn as unknown as FieldTransform<T>;
 }

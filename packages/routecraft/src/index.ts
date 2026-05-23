@@ -73,6 +73,7 @@ export { type Aggregator } from "./operations/aggregate.ts";
 export {
   type Transformer,
   type CallableTransformer,
+  type FieldTransform,
   mapper,
 } from "./operations/transform.ts";
 

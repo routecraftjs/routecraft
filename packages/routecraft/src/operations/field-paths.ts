@@ -4,18 +4,32 @@
  * immutable: they clone along the touched path and leave the input untouched,
  * matching the framework's exchange-immutability contract.
  *
+ * Reads and writes use own-property semantics and reject the prototype-
+ * pollution segments (`__proto__`, `prototype`, `constructor`), so an
+ * inherited member like `toString` never counts as a present field and a
+ * crafted rule key cannot reach the prototype chain.
+ *
  * @internal
  */
 
+const FORBIDDEN_SEGMENTS = new Set(["__proto__", "prototype", "constructor"]);
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function ownKey(obj: Record<string, unknown>, key: string): boolean {
+  return (
+    !FORBIDDEN_SEGMENTS.has(key) &&
+    Object.prototype.hasOwnProperty.call(obj, key)
+  );
 }
 
 /** Read the value at a dot path, or `undefined` if any segment is missing. */
 export function getPath(obj: unknown, path: string): unknown {
   let cur: unknown = obj;
   for (const seg of path.split(".")) {
-    if (!isRecord(cur)) return undefined;
+    if (!isRecord(cur) || !ownKey(cur, seg)) return undefined;
     cur = cur[seg];
   }
   return cur;
@@ -25,7 +39,7 @@ export function getPath(obj: unknown, path: string): unknown {
 export function hasPath(obj: unknown, path: string): boolean {
   let cur: unknown = obj;
   for (const seg of path.split(".")) {
-    if (!isRecord(cur) || !(seg in cur)) return false;
+    if (!isRecord(cur) || !ownKey(cur, seg)) return false;
     cur = cur[seg];
   }
   return true;
@@ -34,6 +48,7 @@ export function hasPath(obj: unknown, path: string): boolean {
 /** Return a copy of `obj` with the value at the dot path replaced. */
 export function setPath<T>(obj: T, path: string, value: unknown): T {
   const [head, ...rest] = path.split(".");
+  if (FORBIDDEN_SEGMENTS.has(head)) return obj;
   const base: Record<string, unknown> = isRecord(obj) ? obj : {};
   if (rest.length === 0) {
     return { ...base, [head]: value } as T;
@@ -44,7 +59,7 @@ export function setPath<T>(obj: T, path: string, value: unknown): T {
 /** Return a copy of `obj` with the value at the dot path removed. */
 export function deletePath<T>(obj: T, path: string): T {
   const [head, ...rest] = path.split(".");
-  if (!isRecord(obj) || !(head in obj)) return obj;
+  if (!isRecord(obj) || !ownKey(obj, head)) return obj;
   const clone: Record<string, unknown> = { ...obj };
   if (rest.length === 0) {
     delete clone[head];

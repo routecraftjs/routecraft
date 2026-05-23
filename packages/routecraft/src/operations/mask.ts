@@ -1,14 +1,16 @@
-import { type CallableTransformer } from "./transform.ts";
+import { type FieldTransform } from "./transform.ts";
 import { getPath, hasPath, setPath } from "./field-paths.ts";
 
 /**
  * Obfuscates a single field value. Receives the current value and the whole
- * record it belongs to (for context), and returns the value to show in its
+ * record it belongs to (typed `R`), and returns the value to show in its
  * place. Pure with respect to identity: `mask` never looks at the principal.
+ * `value` stays `unknown` because the value at an arbitrary dot path is not
+ * statically known.
  *
  * @experimental
  */
-export type MaskFn = (value: unknown, record: unknown) => unknown;
+export type MaskFn<R = unknown> = (value: unknown, record: R) => unknown;
 
 /**
  * Map of dot-path -> obfuscation function. Only the listed fields are
@@ -16,9 +18,9 @@ export type MaskFn = (value: unknown, record: unknown) => unknown;
  *
  * @experimental
  */
-export type MaskRules = Record<string, MaskFn>;
+export type MaskRules<R = unknown> = Record<string, MaskFn<R>>;
 
-function maskRecord<R>(record: R, rules: MaskRules): R {
+function maskRecord<R>(record: R, rules: MaskRules<R>): R {
   let out = record;
   for (const path of Object.keys(rules)) {
     if (hasPath(out, path)) {
@@ -35,7 +37,7 @@ function maskRecord<R>(record: R, rules: MaskRules): R {
  * response. To remove fields a caller is not allowed to see at all, compose
  * `keep` before `mask`.
  *
- * Returns a {@link CallableTransformer}, so drop it straight into
+ * Returns a {@link FieldTransform}, so drop it straight into
  * `.transform(mask({ ... }))`. Applies to the body when it is a single
  * record, and element-wise when the body is an array of records. For a
  * wrapped collection, mask the inner array:
@@ -54,17 +56,18 @@ function maskRecord<R>(record: R, rules: MaskRules): R {
  *   .to(dest)
  * ```
  */
-export function mask<T>(rules: MaskRules): CallableTransformer<T, T> {
-  return (body) => {
+export function mask<T>(rules: MaskRules<T>): FieldTransform<T> {
+  const fn = (body: unknown): unknown => {
     if (Array.isArray(body)) {
       return body.map((item) =>
         item !== null && typeof item === "object"
-          ? maskRecord(item, rules)
+          ? maskRecord(item as T, rules)
           : item,
-      ) as T;
+      );
     }
-    return (
-      body !== null && typeof body === "object" ? maskRecord(body, rules) : body
-    ) as T;
+    return body !== null && typeof body === "object"
+      ? maskRecord(body as T, rules)
+      : body;
   };
+  return fn as unknown as FieldTransform<T>;
 }
