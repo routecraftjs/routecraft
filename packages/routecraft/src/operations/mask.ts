@@ -60,12 +60,12 @@ export function mask<T>(rules: MaskRules<T>): FieldTransform<T> {
   const fn = (body: unknown): unknown => {
     if (Array.isArray(body)) {
       return body.map((item) =>
-        item !== null && typeof item === "object"
+        item !== null && typeof item === "object" && !Array.isArray(item)
           ? maskRecord(item as T, rules)
           : item,
       );
     }
-    return body !== null && typeof body === "object"
+    return body !== null && typeof body === "object" && !Array.isArray(body)
       ? maskRecord(body as T, rules)
       : body;
   };

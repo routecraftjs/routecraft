@@ -12,6 +12,7 @@ import {
   DefaultExchange,
   HeadersKeys,
   keep,
+  markAuthentic,
   mask,
   type CallableTransformer,
   type Exchange,
@@ -56,8 +57,16 @@ function mk<T>(body: T, principal?: Principal): Exchange<T> {
   });
 }
 
+// keep trusts only authentic principals, so brand the test principal the way a
+// source verifier or authenticate() would.
 function who(roles: string[], email = "a@x.com"): Principal {
-  return { kind: "custom", scheme: "bearer", subject: "u", email, roles };
+  return markAuthentic({
+    kind: "custom",
+    scheme: "bearer",
+    subject: "u",
+    email,
+    roles,
+  });
 }
 
 function record(): Rec {
@@ -135,7 +144,7 @@ describe("mask helper", () => {
    * @expectedResult Only the nested value changes, siblings preserved
    */
   test("masks a nested field by dot path", () => {
-    const rec: Rec = { ...record(), card: { number: "4111111111111234" } };
+    const rec: Rec = { ...record(), card: { number: "card_token_ends_1234" } };
     const out = mask<Rec>({
       "card.number": (v) => "**** " + String(v).slice(-4),
     })(rec, mk(rec));
@@ -203,6 +212,43 @@ describe("keep helper (strict by default)", () => {
       mk(record()),
     );
     expect(out).toEqual({ id: "1" });
+  });
+
+  /**
+   * @case A self-asserted (non-authentic) principal does not unlock gated fields
+   * @preconditions A raw, unbranded principal carrying roles ["hr"] is on the exchange
+   * @expectedResult keep ignores it (treats it as missing), so the hr-gated field is dropped
+   */
+  test("ignores a self-asserted, non-authentic principal", () => {
+    const rawHr: Principal = {
+      kind: "custom",
+      scheme: "bearer",
+      subject: "x",
+      email: "a@x.com",
+      roles: ["hr"],
+    };
+    const out = keep<Rec>({ id: true, yearlyWage: ["hr"] })(
+      record(),
+      mk(record(), rawHr),
+    );
+    expect(out).toEqual({ id: "1" });
+  });
+
+  /**
+   * @case Non-record elements of an array body pass through unchanged
+   * @preconditions An array body whose elements include a nested array
+   * @expectedResult Record elements are shaped; the nested array is returned as-is, not {}
+   */
+  test("passes non-record array elements through unchanged", () => {
+    const inner = ["a", "b"];
+    const arr: unknown[] = [record(), inner];
+    const run = keep<Rec>({ id: true }) as unknown as (
+      body: unknown[],
+      ex: Exchange<unknown>,
+    ) => unknown[];
+    const out = run(arr, mk(arr, who(["member"])) as Exchange<unknown>);
+    expect(out[0]).toEqual({ id: "1" });
+    expect(out[1]).toBe(inner);
   });
 
   /**

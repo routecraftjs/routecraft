@@ -1,5 +1,6 @@
 import { type Exchange } from "../exchange.ts";
 import { type Principal } from "../auth/types.ts";
+import { isAuthentic } from "../auth/authentic.ts";
 import { type FieldTransform } from "./transform.ts";
 import { deletePath, hasPath, pickPaths } from "./field-paths.ts";
 
@@ -92,7 +93,10 @@ function keepRecord<R>(
  * the rest. This is the access-control half of field shaping: a field the
  * caller has no grant for is dropped entirely (compose `mask` after `keep` to
  * obfuscate what remains). Reads the caller from the exchange the transform
- * step now provides, so it must run on an exchange that carries a principal.
+ * step now provides. It fails closed: only an authentic principal (one
+ * established by a source verifier or `authenticate()`) is trusted; a
+ * self-asserted principal header is treated as missing, so role and predicate
+ * grants do not pass, matching `authorize()`.
  *
  * Strict by default: only listed fields survive (use `true` to keep a field
  * for any caller). Pass `{ strict: false }` to instead gate only the listed
@@ -126,15 +130,19 @@ export function keep<T>(
 ): FieldTransform<T> {
   const strict = options.strict ?? true;
   const fn = (body: unknown, exchange?: Exchange<unknown>): unknown => {
-    const principal = exchange?.principal;
+    // Trust only an authentic principal (one established by a source verifier
+    // or authenticate()). A self-asserted principal header is treated as
+    // missing, so role and predicate grants fail closed, matching authorize().
+    const raw = exchange?.principal;
+    const principal = isAuthentic(raw) ? raw : undefined;
     if (Array.isArray(body)) {
       return body.map((item) =>
-        item !== null && typeof item === "object"
+        item !== null && typeof item === "object" && !Array.isArray(item)
           ? keepRecord(item, rules as KeepRules<unknown>, principal, strict)
           : item,
       );
     }
-    return body !== null && typeof body === "object"
+    return body !== null && typeof body === "object" && !Array.isArray(body)
       ? keepRecord(body, rules as KeepRules<unknown>, principal, strict)
       : body;
   };
