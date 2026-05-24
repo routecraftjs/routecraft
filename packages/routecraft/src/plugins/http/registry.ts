@@ -24,8 +24,6 @@ export interface HttpRouteEntry {
     body: unknown,
     headers: ExchangeHeaders,
   ) => Promise<Exchange>;
-  /** Mutable. The dispatcher reads this for /ready; sources flip it via `markReady`. */
-  ready: boolean;
 }
 
 /**

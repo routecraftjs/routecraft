@@ -1,8 +1,7 @@
 import { type CraftContext, type CraftPlugin } from "../../context";
-import { type EventName } from "../../types";
 import { rcError } from "../../error";
 import type { HttpPluginOptions } from "../../adapters/http/types";
-import { createAuthMiddleware } from "./auth";
+import { createAuthMiddleware, type HttpAuthMiddleware } from "./auth";
 import { createBuiltins } from "./builtins";
 import { createDispatcher, type RequestCompletedHandler } from "./dispatcher";
 import {
@@ -58,34 +57,27 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
 
       const onRequestCompleted: RequestCompletedHandler | undefined =
         perRequestEnabled
-          ? (event) =>
-              ctx.emit(
-                "plugin:http:request:completed" as EventName,
-                event as Record<string, unknown>,
-              )
+          ? (event) => ctx.emit("plugin:http:request:completed", { ...event })
           : undefined;
 
       // Wrap the auth middleware so admit/reject also pipes through the
-      // existing auth:* events that MCP already emits, keeping observability
-      // surfaces consistent across plugins.
-      const wrappedAuth = authMiddleware
+      // framework's existing auth:* events (same payload shape MCP uses),
+      // keeping observability surfaces consistent across plugins.
+      const wrappedAuth: HttpAuthMiddleware | undefined = authMiddleware
         ? async (req: Request) => {
             const result = await authMiddleware(req);
             if (result.kind === "admit") {
-              ctx.emit(
-                "auth:success" as EventName,
-                {
-                  principal: result.principal,
-                } as Record<string, unknown>,
-              );
+              ctx.emit("auth:success", {
+                subject: result.principal?.subject ?? "anonymous",
+                scheme: result.principal?.scheme ?? "unknown",
+                source: "http",
+              });
             } else {
-              ctx.emit(
-                "auth:rejected" as EventName,
-                {
-                  reason: "auth-failed",
-                  statusCode: result.response.status,
-                } as Record<string, unknown>,
-              );
+              ctx.emit("auth:rejected", {
+                reason: result.reason,
+                scheme: result.scheme,
+                source: "http",
+              });
             }
             return result;
           }
@@ -100,19 +92,30 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
         logger: ctx.logger,
       });
 
-      server = await startServer({
-        port: options.port,
-        host,
-        fetch: dispatcher,
-      });
-
-      ctx.emit(
-        "plugin:http:server:listening" as EventName,
-        {
-          port: server.port,
+      try {
+        server = await startServer({
+          port: options.port,
           host,
-        } as Record<string, unknown>,
-      );
+          fetch: dispatcher,
+        });
+      } catch (err) {
+        // Bind failed (e.g. RC5019 port in use). apply() rejects before a
+        // teardown is registered, so undo the store mutations here to keep
+        // the invariant "registered implies a live server" -- otherwise a
+        // retried apply() (test reuse) or a source subscribe would see a
+        // stale `registered === true` against a server that never started.
+        registry.clear();
+        ctx.setStore(
+          HTTP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry,
+          false,
+        );
+        throw err;
+      }
+
+      ctx.emit("plugin:http:server:listening", {
+        port: server.port,
+        host,
+      });
 
       ctx.registerTeardown(async () => {
         if (!server) return;
@@ -126,10 +129,7 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
             "http plugin: failed to close server cleanly",
           );
         }
-        ctx.emit(
-          "plugin:http:server:closed" as EventName,
-          {} as Record<string, unknown>,
-        );
+        ctx.emit("plugin:http:server:closed", {});
         registry.clear();
         ctx.setStore(
           HTTP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry,

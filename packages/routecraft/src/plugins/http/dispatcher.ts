@@ -1,6 +1,5 @@
 import { logger as defaultLogger } from "../../logger";
 import { type ExchangeHeaders, HeadersKeys } from "../../exchange";
-import { isRoutecraftError } from "../../brand";
 import type { Principal } from "../../auth/types";
 import type { HttpMethod, HttpResponseHint } from "../../adapters/http/types";
 import type { HttpAuthMiddleware } from "./auth";
@@ -130,9 +129,7 @@ export function createDispatcher(
       });
       parsedBody = parsed.body;
     } catch (err) {
-      const status = isRoutecraftError(err)
-        ? bodyParseStatus(err as { rc?: string })
-        : 400;
+      const status = (err as { httpStatus?: number }).httpStatus ?? 400;
       const message =
         err instanceof Error ? err.message : "request body could not be parsed";
       const response = jsonResponse(
@@ -222,16 +219,6 @@ function emitCompleted(
 
 function ms(started: number): number {
   return Math.round(performance.now() - started);
-}
-
-function bodyParseStatus(err: { rc?: string; message?: string }): number {
-  if (err.rc !== "RC5018") return 400;
-  // RC5018 covers both "too large" and "malformed"; distinguish by message
-  // shape so the client gets the right status code.
-  if (typeof err.message === "string" && err.message.includes("maxBodySize")) {
-    return 413;
-  }
-  return 400;
 }
 
 function jsonResponse(

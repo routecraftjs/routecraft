@@ -33,6 +33,7 @@ export const craftConfig = defineConfig({
 | `once` | `Partial<Record<EventName, EventHandler \| EventHandler[]>>` | No | -- | One-time event handlers that fire once then auto-unsubscribe |
 | `cron` | `Partial<CronOptions>` | No | -- | Default options for all `cron()` sources ([details](#cron)) |
 | `direct` | `{ channelType?: DirectChannelType }` | No | -- | Custom channel implementation for all `direct()` endpoints ([details](#direct)) |
+| `http` | `HttpPluginOptions` | No | -- | Serve routes over HTTP for the `http()` source ([details](#http)) |
 | `mail` | `MailContextConfig` | No | -- | Mail adapter accounts (IMAP/SMTP) keyed by name |
 | `telemetry` | `TelemetryOptions` | No | -- | Telemetry plugin configuration (SQLite, OpenTelemetry) |
 | `plugins` | `CraftPlugin[]` | No | -- | Custom plugins to initialize before routes are registered |
@@ -108,6 +109,30 @@ const config: CraftConfig = {
 | `channelType` | `DirectChannelType` | Channel constructor used for all direct endpoints |
 
 When omitted, direct endpoints use the built-in in-memory channel (single-consumer, blocking send).
+
+### http
+
+Configures the HTTP server that backs the [`http()` source](/docs/reference/adapters#http). Setting this key starts a listener when the context starts (Bun.serve on Bun, `node:http` on Node 22+). See [httpPlugin](/docs/reference/plugins#httpplugin) for the full behaviour.
+
+```ts
+import { defineConfig, jwt } from '@routecraft/routecraft'
+
+export const craftConfig = defineConfig({
+  http: {
+    port: 8080,
+    host: '0.0.0.0',
+    auth: jwt({ secret: process.env.JWT_SECRET!, issuer: '...', audience: '...' }),
+  },
+})
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `port` | `number` | -- (required) | Port to bind. Use `0` to let the OS choose. |
+| `host` | `string` | `127.0.0.1` | Host to bind. Use `0.0.0.0` to expose externally. |
+| `auth` | `ValidatorAuthOptions \| ApiKeyAuthOptions` | -- | Global auth: `jwt(...)` / `jwks(...)` (bearer) or `apiKey({...})`. Omit for fully public routes. |
+| `maxBodySize` | `number` | `10485760` (10 MB) | Maximum request body in bytes; larger requests return `413`. |
+| `events` | `{ perRequest?: boolean }` | `{ perRequest: true }` | Toggle the per-request `plugin:http:request:completed` event. |
 
 ## Logging configuration
 

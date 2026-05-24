@@ -518,4 +518,111 @@ describe("HTTP Source Adapter", () => {
     expect(ev!.status).toBe(200);
     expect(ev!.routeId).toBe("ev");
   });
+
+  /**
+   * @case auth:success / auth:rejected fire with the framework's documented payload shape
+   * @preconditions Global jwt auth; one valid request and one unauthenticated request
+   * @expectedResult auth:success carries { subject, scheme, source }; auth:rejected carries { reason, scheme, source }
+   */
+  test("auth events use the documented { subject|reason, scheme, source } shape", async () => {
+    const success: Array<Record<string, unknown>> = [];
+    const rejected: Array<Record<string, unknown>> = [];
+    const bound = await bootHttp({
+      routes: craft()
+        .id("ev-auth")
+        .from(http({ path: "/ev-auth", method: "GET" }))
+        .transform(() => ({ ok: true }))
+        .to(noop()),
+      http: {
+        port: 0,
+        auth: jwt({
+          secret: JWT_SECRET,
+          issuer: JWT_ISSUER,
+          audience: JWT_AUDIENCE,
+        }),
+      },
+      events: {
+        "auth:success": (ev) =>
+          success.push(ev.details as Record<string, unknown>),
+        "auth:rejected": (ev) =>
+          rejected.push(ev.details as Record<string, unknown>),
+      },
+    });
+    t = bound.ctx;
+
+    await fetch(`http://127.0.0.1:${bound.port}/ev-auth`, {
+      headers: { authorization: `Bearer ${makeJwt({ sub: "user-7" })}` },
+    });
+    await fetch(`http://127.0.0.1:${bound.port}/ev-auth`); // no token -> rejected
+    await new Promise((r) => setTimeout(r, 5));
+
+    expect(success[0]).toEqual({
+      subject: "user-7",
+      scheme: "bearer",
+      source: "http",
+    });
+    expect(rejected[0]).toEqual({
+      reason: "missing bearer token",
+      scheme: "bearer",
+      source: "http",
+    });
+  });
+
+  /**
+   * @case apiKey auth can read the key from a query parameter
+   * @preconditions http.auth = apiKey({ in: "query", name: "api_key", keys: [...] })
+   * @expectedResult Matching query key admits (200); wrong/missing key rejects (401)
+   */
+  test("apiKey query-mode admits matching key only", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("kq")
+        .from(http({ path: "/kq", method: "GET" }))
+        .transform(() => ({ ok: true }))
+        .to(noop()),
+      http: {
+        port: 0,
+        auth: apiKey({ in: "query", name: "api_key", keys: ["secret"] }),
+      },
+    });
+    t = bound.ctx;
+
+    const ok = await fetch(`http://127.0.0.1:${bound.port}/kq?api_key=secret`);
+    expect(ok.status).toBe(200);
+    const wrong = await fetch(`http://127.0.0.1:${bound.port}/kq?api_key=nope`);
+    expect(wrong.status).toBe(401);
+    const missing = await fetch(`http://127.0.0.1:${bound.port}/kq`);
+    expect(missing.status).toBe(401);
+  });
+
+  /**
+   * @case Binding a second server to an in-use port fails to start
+   * @preconditions One server already bound to a port; a second context targets the same port
+   * @expectedResult The second context's start rejects (RC5019 bind failure) rather than silently running
+   */
+  test("port already in use surfaces a bind failure", async () => {
+    const first = await bootHttp({
+      routes: craft()
+        .id("first")
+        .from(http({ path: "/first", method: "GET" }))
+        .transform(() => ({ ok: true }))
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = first.ctx;
+
+    const second = await testContext()
+      .routes(
+        craft()
+          .id("second")
+          .from(http({ path: "/second", method: "GET" }))
+          .transform(() => ({ ok: true }))
+          .to(noop()),
+      )
+      .with({ http: { port: first.port } } as CraftConfig);
+
+    await expect(second.build()).rejects.toThrow(
+      /bind failed|RC5019|EADDRINUSE/i,
+    );
+  });
 });

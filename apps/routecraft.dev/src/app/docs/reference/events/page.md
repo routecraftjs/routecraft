@@ -229,6 +229,18 @@ Events emitted by the MCP plugin during server and tool lifecycle. Subscribe wit
 | `plugin:mcp:tool:completed` | Tool invocation succeeded | `{ tool }` |
 | `plugin:mcp:tool:failed` | Tool invocation failed | `{ tool, error }` |
 
+## HTTP plugin events
+
+Events emitted by the HTTP plugin (configured via `defineConfig({ http })`). The plugin also emits the framework's [authentication events](#authentication-events) (`auth:success` / `auth:rejected`) with `source: "http"` when an `auth` strategy is configured.
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `plugin:http:server:listening` | The HTTP server has bound its port | `{ port, host }` |
+| `plugin:http:server:closed` | The HTTP server has shut down (on context stop) | `{}` |
+| `plugin:http:request:completed` | A request finished (after the response is built) | `{ method, path, status, durationMs, routeId?, principal? }` |
+
+`plugin:http:request:completed` fires for every request by default; disable it with `http: { events: { perRequest: false } }`. Built-in endpoints (`/health`, `/ready`, `/openapi.json`) do not emit it.
+
 ---
 
 ## Related

@@ -41,6 +41,14 @@ const plugins: Plugin[] = [
     description:
       'Register named agents, the tools they can call, and shared defaults like system prompt and principal context.',
   },
+  {
+    number: '05',
+    name: 'httpPlugin',
+    module: '@routecraft/routecraft',
+    hint: 'HTTP server runtime.',
+    description:
+      'Expose routes over HTTP via the http() source. Bun.serve native on Bun, node:http shim on Node; JWT, JWKS, or API-key auth at the plugin boundary.',
+  },
 ]
 
 export function PluginIndex() {

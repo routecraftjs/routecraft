@@ -67,7 +67,6 @@ export class HttpSourceAdapter implements Source<HttpRequestBody> {
       isPublic: this.options.public === true,
       discovery: meta?.discovery,
       handler: (body, headers) => handler(body as HttpRequestBody, headers),
-      ready: true,
     };
 
     if (registry.has(routeId)) {

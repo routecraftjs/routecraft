@@ -1,10 +1,28 @@
-import { rcError } from "../../error";
+import { rcError, type RoutecraftError } from "../../error";
 
 export interface ParsedRequestBody {
   /** The parsed body in its post-parse shape. `undefined` for methods without a body. */
   body: unknown;
   /** Raw byte length read off the wire. Useful for telemetry and quota tracking. */
   bytes: number;
+}
+
+/** RC5018 carrying the HTTP status the dispatcher should return. */
+export type HttpBodyError = RoutecraftError & { httpStatus: number };
+
+/**
+ * Build an RC5018 error tagged with the response status the dispatcher should
+ * use. Carrying the status explicitly avoids the dispatcher having to infer
+ * 413-vs-400 from the message text.
+ */
+function bodyError(
+  httpStatus: number,
+  message: string,
+  cause?: unknown,
+): HttpBodyError {
+  const err = rcError("RC5018", cause, { message }) as HttpBodyError;
+  err.httpStatus = httpStatus;
+  return err;
 }
 
 interface ParseOptions {
@@ -23,8 +41,8 @@ const METHODS_WITHOUT_BODY = new Set(["GET", "HEAD", "DELETE", "OPTIONS"]);
  * without touching the request stream, matching what fetch clients usually
  * send for those verbs.
  *
- * @throws RoutecraftError RC5018 when the body exceeds `maxBodySize` (the
- * caller converts this to a 413 response).
+ * @throws HttpBodyError RC5018 tagged with `httpStatus` 413 when the body
+ * exceeds `maxBodySize`, or 400 when a typed body cannot be parsed.
  */
 export async function parseRequestBody(
   req: Request,
@@ -39,9 +57,10 @@ export async function parseRequestBody(
   // expose a "max" cap up-front; we count after the fact and reject.
   const buffer = await req.arrayBuffer();
   if (buffer.byteLength > opts.maxBodySize) {
-    throw rcError("RC5018", undefined, {
-      message: `request body of ${buffer.byteLength} bytes exceeds maxBodySize ${opts.maxBodySize}`,
-    });
+    throw bodyError(
+      413,
+      `request body of ${buffer.byteLength} bytes exceeds maxBodySize ${opts.maxBodySize}`,
+    );
   }
 
   if (buffer.byteLength === 0) {
@@ -56,9 +75,7 @@ export async function parseRequestBody(
     try {
       return { body: JSON.parse(text), bytes: buffer.byteLength };
     } catch (err) {
-      throw rcError("RC5018", err, {
-        message: "request body is not valid JSON",
-      });
+      throw bodyError(400, "request body is not valid JSON", err);
     }
   }
 
@@ -83,9 +100,7 @@ export async function parseRequestBody(
       const formData = await replay.formData();
       return { body: formData, bytes: buffer.byteLength };
     } catch (err) {
-      throw rcError("RC5018", err, {
-        message: "multipart/form-data body could not be parsed",
-      });
+      throw bodyError(400, "multipart/form-data body could not be parsed", err);
     }
   }
 

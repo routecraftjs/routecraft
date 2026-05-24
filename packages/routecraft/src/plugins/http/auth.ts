@@ -11,11 +11,12 @@ import type {
  *
  * `admit` carries an optional principal (the global `none` strategy admits
  * without one). `reject` carries the canonical 401/403 response the
- * dispatcher should return without invoking a route.
+ * dispatcher should return without invoking a route, plus the `reason` and
+ * `scheme` that drive the `auth:rejected` event payload.
  */
 export type AuthResult =
   | { kind: "admit"; principal: Principal | undefined }
-  | { kind: "reject"; response: Response };
+  | { kind: "reject"; response: Response; reason: string; scheme: string };
 
 /** Request-level middleware produced by {@link createAuthMiddleware}. */
 export type HttpAuthMiddleware = (req: Request) => Promise<AuthResult>;
@@ -61,14 +62,18 @@ export function apiKey(
   return { kind: "apiKey", ...opts };
 }
 
-function unauthorized(reason: string): Response {
-  return new Response(JSON.stringify({ error: "unauthorized", reason }), {
-    status: 401,
-    headers: {
-      "content-type": "application/json",
-      "www-authenticate": 'Bearer realm="routecraft"',
+function reject(reason: string, scheme: string): AuthResult {
+  const response = new Response(
+    JSON.stringify({ error: "unauthorized", reason }),
+    {
+      status: 401,
+      headers: {
+        "content-type": "application/json",
+        "www-authenticate": 'Bearer realm="routecraft"',
+      },
     },
-  });
+  );
+  return { kind: "reject", response, reason, scheme };
 }
 
 function isApiKeyAuth(auth: HttpAuth): auth is ApiKeyAuthOptions {
@@ -87,6 +92,12 @@ function isValidatorAuth(auth: HttpAuth): auth is { validator: TokenVerifier } {
   );
 }
 
+// Default key name differs per location to match each convention: `x-api-key`
+// for headers, `api_key` for query strings. Lookups also differ on casing:
+// header names are case-insensitive (HTTP), so the header path lowercases;
+// query parameter names are case-sensitive (URL spec), so the query path
+// matches verbatim. Both behaviours are documented on the adapters reference
+// page.
 function defaultApiKeyName(where: "header" | "query"): string {
   return where === "header" ? "x-api-key" : "api_key";
 }
@@ -142,11 +153,11 @@ export function createAuthMiddleware(
         }
       }
       if (!raw) {
-        return { kind: "reject", response: unauthorized("missing api key") };
+        return reject("missing api key", "apiKey");
       }
       if (allowedSet) {
         if (!allowedSet.has(raw)) {
-          return { kind: "reject", response: unauthorized("invalid api key") };
+          return reject("invalid api key", "apiKey");
         }
         return { kind: "admit", principal: syntheticApiKeyPrincipal(raw) };
       }
@@ -154,11 +165,11 @@ export function createAuthMiddleware(
       try {
         const principal = await verify!(raw);
         if (!principal) {
-          return { kind: "reject", response: unauthorized("invalid api key") };
+          return reject("invalid api key", "apiKey");
         }
         return { kind: "admit", principal };
       } catch {
-        return { kind: "reject", response: unauthorized("invalid api key") };
+        return reject("invalid api key", "apiKey");
       }
     };
   }
@@ -168,23 +179,17 @@ export function createAuthMiddleware(
     return async (req: Request): Promise<AuthResult> => {
       const header = req.headers.get("authorization");
       if (!header || !header.toLowerCase().startsWith("bearer ")) {
-        return {
-          kind: "reject",
-          response: unauthorized("missing bearer token"),
-        };
+        return reject("missing bearer token", "bearer");
       }
       const token = header.slice(7).trim();
       if (!token) {
-        return {
-          kind: "reject",
-          response: unauthorized("missing bearer token"),
-        };
+        return reject("missing bearer token", "bearer");
       }
       try {
         const principal = await validator(token);
         return { kind: "admit", principal };
       } catch {
-        return { kind: "reject", response: unauthorized("invalid token") };
+        return reject("invalid token", "bearer");
       }
     };
   }

@@ -183,13 +183,16 @@ export interface HttpSourceOptions {
  *
  * The route is free to swap the body in a `.transform(...)` step; the
  * dispatcher only reads the post-pipeline body for the response.
+ *
+ * Typed as `unknown` on purpose: the concrete runtime shape is only known
+ * from the request's `Content-Type` (parsed object for JSON, `string` for
+ * text, plain object for url-encoded form, `FormData` for multipart, or
+ * `Uint8Array` for anything else). Route steps narrow it, typically via an
+ * `.input()` schema. A union including `unknown` would collapse to `unknown`
+ * anyway, so the alias states the honest contract and keeps the per-type
+ * mapping in this doc comment.
  */
-export type HttpRequestBody =
-  | unknown // application/json
-  | string
-  | URLSearchParams
-  | FormData
-  | Uint8Array;
+export type HttpRequestBody = unknown;
 
 /**
  * Hint shape for influencing the response. Populated by writing the matching
