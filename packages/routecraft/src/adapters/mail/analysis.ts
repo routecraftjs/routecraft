@@ -319,7 +319,16 @@ export function analyzeHeaders(
     (sender !== null &&
       headerFrom !== null &&
       sender.domain !== headerFrom.domain);
-  const hasArc = arcResults.length > 0 || arcChain.cv !== "none";
+  // The delivering MX adds a single first-hop ARC set (i=1, cv=none) to direct
+  // mail (Gmail/Workspace seals everything it accepts), so the presence of ARC
+  // headers is not by itself evidence of forwarding. Real forwarding shows
+  // either a validated chain (cv=pass/fail) or more than one ARC instance.
+  const maxArcInstance = Math.max(
+    0,
+    ...arcResults.map((r) => r.instance),
+    ...arcChain.domainsByInstance.keys(),
+  );
+  const hasArc = arcChain.cv !== "none" || maxArcInstance >= 2;
 
   let forwardType: ForwardType = "direct";
   let effective: EmailAddress | null = headerFrom;

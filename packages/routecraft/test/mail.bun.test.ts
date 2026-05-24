@@ -2084,6 +2084,75 @@ describe("Mail Adapter", () => {
     });
 
     /**
+     * @case A first-hop ARC seal added by the delivering MX does not make direct mail look forwarded
+     * @preconditions No List-Id; a single ARC set (i=1, cv=none) such as Gmail/Workspace stamps on
+     *                everything it accepts; boundary Authentication-Results dmarc=pass
+     * @expectedResult forwardType "direct", trust "verified", empty forwardChain, reason
+     *                 "direct-dmarc-aligned" (not "auto-forward-arc-unverified")
+     */
+    test("direct mail with a delivering-MX ARC seal stays direct and verified", () => {
+      const headers = extractAnalysisHeaders(
+        headerLines([
+          "From: Jane <jane@example.com>",
+          "ARC-Seal: i=1; cv=none; d=google.com",
+          "ARC-Authentication-Results: i=1; mx.google.com; dkim=pass; spf=pass; dmarc=pass header.from=example.com",
+          "Authentication-Results: mx.google.com; dkim=pass header.i=@example.com; spf=pass; dmarc=pass header.from=example.com",
+        ]),
+      );
+      const sender = analyzeHeaders(headers);
+      expect(sender.forwardType).toBe("direct");
+      expect(sender.trust).toBe("verified");
+      expect(sender.address).toBe("jane@example.com");
+      expect(sender.forwardChain).toEqual([]);
+      expect(sender.reason).toBe("direct-dmarc-aligned");
+      // The ARC seal is still surfaced as cv=none, it just no longer drives routing.
+      expect(sender.authentication.arc).toBe("none");
+    });
+
+    /**
+     * @case A subdomain From: with org-level DMARC alignment and an MX ARC seal stays direct
+     * @preconditions From: uses a sending subdomain, DMARC reports the organisational domain,
+     *                single ARC set (i=1, cv=none), no List-Id
+     * @expectedResult forwardType "direct", trust "verified", effective sender is the From: address
+     */
+    test("subdomain sender with MX ARC seal is direct and verified", () => {
+      const headers = extractAnalysisHeaders(
+        headerLines([
+          'From: "monday.com" <team@learn.mail.monday.com>',
+          "ARC-Seal: i=1; cv=none; d=google.com",
+          "ARC-Authentication-Results: i=1; mx.google.com; dkim=pass header.i=@learn.mail.monday.com; spf=pass; dmarc=pass header.from=monday.com",
+          "Authentication-Results: mx.google.com; dkim=pass header.i=@learn.mail.monday.com; spf=pass; dmarc=pass header.from=monday.com",
+        ]),
+      );
+      const sender = analyzeHeaders(headers);
+      expect(sender.forwardType).toBe("direct");
+      expect(sender.trust).toBe("verified");
+      expect(sender.address).toBe("team@learn.mail.monday.com");
+      expect(sender.forwardChain).toEqual([]);
+    });
+
+    /**
+     * @case A multi-instance ARC chain is still recognised as a forward
+     * @preconditions No List-Id; two ARC instances present (i=1 and i=2), chain not validated
+     * @expectedResult forwardType "auto-forward" with a hop per instance; cv=none keeps it unverified
+     */
+    test("multi-instance ARC chain is still treated as auto-forward", () => {
+      const headers = extractAnalysisHeaders(
+        headerLines([
+          "From: Jane <jane@example.com>",
+          "ARC-Seal: i=1; cv=none; d=relay-one.com",
+          "ARC-Seal: i=2; cv=none; d=relay-two.com",
+          "ARC-Authentication-Results: i=1; mx.relay-one.com; dkim=pass; spf=pass; dmarc=pass header.from=example.com",
+          "ARC-Authentication-Results: i=2; mx.relay-two.com; dkim=pass; spf=pass; dmarc=pass header.from=example.com",
+        ]),
+      );
+      const sender = analyzeHeaders(headers);
+      expect(sender.forwardType).toBe("auto-forward");
+      expect(sender.forwardChain).toHaveLength(2);
+      expect(sender.trust).toBe("unverified");
+    });
+
+    /**
      * @case Google Groups forward exposes the original sender via X-Original-From
      * @preconditions List-Id present, X-Original-From points to the real sender, ARC cv=pass
      * @expectedResult forwardType "mailing-list", effective sender is the X-Original-From address,
