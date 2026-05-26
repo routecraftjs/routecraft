@@ -83,9 +83,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const isHomePage = pathname === '/'
   const isBlogSection = pathname?.startsWith('/blog') ?? false
+  const isBlogLanding = pathname === '/blog' || pathname === '/blog/'
   const isCheatSheet = pathname?.startsWith('/cheat-sheet') ?? false
   const showDocsSidebar = !isHomePage && !isBlogSection && !isCheatSheet
   const useFullWidth = isHomePage || isCheatSheet
+  // Footer only on marketing-style pages. Docs and blog detail pages have
+  // their own scroll behavior (docs sidebar scrolls separately, blog posts
+  // have a per-post footer) and a global footer there overflows weirdly.
+  const showFooter = isHomePage || isCheatSheet || isBlogLanding
 
   return (
     <div className="flex min-h-full w-full flex-col">
@@ -111,7 +116,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         {children}
       </div>
 
-      <Footer />
+      {showFooter && <Footer />}
     </div>
   )
 }

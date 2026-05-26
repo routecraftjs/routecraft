@@ -415,24 +415,6 @@ craft tui --db ./app/telemetry.db`}</CheatCode>
         </CheatSection>
       </div>
 
-        <footer className="mt-10 flex flex-col items-center gap-2 border-t border-gray-200 pt-6 text-xs text-gray-500 print:mt-6 print:border-gray-300 print:pt-3 dark:border-gray-800 dark:text-gray-400">
-          <p>
-            Routecraft &middot; AI automation as code &middot;{' '}
-            <a
-              href="https://routecraft.dev"
-              className="font-medium text-sky-600 dark:text-sky-400"
-            >
-              routecraft.dev
-            </a>{' '}
-            &middot;{' '}
-            <a
-              href="https://github.com/routecraftjs/routecraft"
-              className="font-medium text-sky-600 dark:text-sky-400"
-            >
-              GitHub
-            </a>
-          </p>
-        </footer>
       </div>
     </main>
   )

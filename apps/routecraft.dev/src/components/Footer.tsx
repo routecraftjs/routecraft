@@ -131,19 +131,12 @@ export function Footer() {
             &copy; {year} Routecraft. Released under the Apache 2.0 License.
           </p>
           <p>
-            Built with{' '}
+            Built by{' '}
             <a
-              href="https://nextjs.org"
+              href="https://devoptix.nl"
               className="text-gray-600 hover:text-sky-600 dark:text-gray-300 dark:hover:text-sky-400"
             >
-              Next.js
-            </a>{' '}
-            and{' '}
-            <a
-              href="https://tailwindcss.com"
-              className="text-gray-600 hover:text-sky-600 dark:text-gray-300 dark:hover:text-sky-400"
-            >
-              Tailwind CSS
+              DevOptix
             </a>
             .
           </p>
