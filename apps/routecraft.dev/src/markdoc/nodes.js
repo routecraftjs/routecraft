@@ -3,7 +3,7 @@ import { slugifyWithCounter } from '@sindresorhus/slugify'
 import yaml from 'js-yaml'
 import Markdoc from '@markdoc/markdoc'
 
-import { DocsLayout } from '@/components/DocsLayout'
+import { PageLayout } from '@/components/PageLayout'
 import { Fence } from '@/components/Fence'
 import { InlineCode } from '@/components/InlineCode'
 
@@ -66,7 +66,7 @@ function normalizeBadges(maybeArrayOrItem) {
 const nodes = {
   document: {
     ...defaultNodes.document,
-    render: DocsLayout,
+    render: PageLayout,
     transform(node, config) {
       documentSlugifyMap.set(config, slugifyWithCounter())
 

@@ -90,6 +90,31 @@ export default function sitemap(): MetadataRoute.Sitemap {
     })
   }
 
+  // Add the blog landing page and individual posts
+  const blogBaseDir = path.join(process.cwd(), 'src', 'app', 'blog')
+  if (fs.existsSync(blogBaseDir)) {
+    routes.push({
+      url: `${baseUrl}/blog/`,
+      lastModified: new Date(),
+      changeFrequency: 'weekly',
+      priority: 0.9,
+    })
+
+    const entries = fs.readdirSync(blogBaseDir, { withFileTypes: true })
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      const pagePath = path.join(blogBaseDir, entry.name, 'page.md')
+      if (!fs.existsSync(pagePath)) continue
+      const stat = fs.statSync(pagePath)
+      routes.push({
+        url: `${baseUrl}/blog/${entry.name}/`,
+        lastModified: stat.mtime,
+        changeFrequency: 'monthly',
+        priority: 0.7,
+      })
+    }
+  }
+
   // Add raw markdown files for AI crawlers and direct access
   const rawDir = path.join(process.cwd(), 'public', 'raw')
   const rawPages = collectRawMarkdown(rawDir, '/raw')

@@ -11,6 +11,7 @@ import { MobileNavigation } from '@/components/MobileNavigation'
 import { Navigation } from '@/components/Navigation'
 import { Search } from '@/components/Search'
 import { ThemeSelector } from '@/components/ThemeSelector'
+import { TopNav } from '@/components/TopNav'
 import { VersionSelector } from '@/components/VersionSelector'
 
 function GitHubIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
@@ -47,7 +48,7 @@ function Header() {
       <div className="mr-6 flex lg:hidden">
         <MobileNavigation />
       </div>
-      <div className="relative flex grow basis-0 items-center">
+      <div className="relative flex grow basis-0 items-center gap-8">
         <Link
           href="/"
           aria-label="Home page"
@@ -58,6 +59,7 @@ function Header() {
             Routecraft
           </h1>
         </Link>
+        <TopNav />
       </div>
       <div className="-my-5 mr-6 sm:mr-8 md:mr-0">
         <Search />
@@ -80,6 +82,8 @@ function Header() {
 export function Layout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const isHomePage = pathname === '/'
+  const isBlogSection = pathname?.startsWith('/blog') ?? false
+  const showDocsSidebar = !isHomePage && !isBlogSection
 
   return (
     <div className="flex w-full flex-col">
@@ -88,14 +92,16 @@ export function Layout({ children }: { children: React.ReactNode }) {
       {isHomePage && <Hero />}
 
       <div className="relative mx-auto flex w-full max-w-8xl flex-auto justify-center sm:px-2 lg:px-8 xl:px-12">
-        <div className="hidden lg:relative lg:block lg:flex-none">
-          <div className="absolute inset-y-0 right-0 w-[50vw] bg-gray-50 dark:hidden" />
-          <div className="absolute top-16 right-0 bottom-0 hidden h-12 w-px bg-linear-to-t from-gray-800 dark:block" />
-          <div className="absolute top-28 right-0 bottom-0 hidden w-px bg-gray-800 dark:block" />
-          <div className="sticky top-19 -ml-0.5 h-[calc(100vh-4.75rem)] w-64 overflow-x-hidden overflow-y-auto py-16 pr-8 pl-0.5 xl:w-72 xl:pr-16">
-            <Navigation />
+        {showDocsSidebar && (
+          <div className="hidden lg:relative lg:block lg:flex-none">
+            <div className="absolute inset-y-0 right-0 w-[50vw] bg-gray-50 dark:hidden" />
+            <div className="absolute top-16 right-0 bottom-0 hidden h-12 w-px bg-linear-to-t from-gray-800 dark:block" />
+            <div className="absolute top-28 right-0 bottom-0 hidden w-px bg-gray-800 dark:block" />
+            <div className="sticky top-19 -ml-0.5 h-[calc(100vh-4.75rem)] w-64 overflow-x-hidden overflow-y-auto py-16 pr-8 pl-0.5 xl:w-72 xl:pr-16">
+              <Navigation />
+            </div>
           </div>
-        </div>
+        )}
         {children}
       </div>
     </div>
