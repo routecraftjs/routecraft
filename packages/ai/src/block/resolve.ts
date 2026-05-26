@@ -115,19 +115,22 @@ export async function resolveBlocks(
 /**
  * Per-context, per-block resolution cache. Keyed by `CraftContext`
  * identity at the outer layer and by `Block` object identity at the
- * inner layer. WeakMap on the outer key so a disposed context does
+ * inner layer. Stores the in-flight promise rather than the resolved
+ * string so concurrent dispatches against the same `context`-lifetime
+ * block share one resolution instead of racing into N parallel
+ * invocations. WeakMap on the outer key so a disposed context does
  * not pin block content in memory.
  *
  * @internal
  */
-const LIFETIME_CACHE = new WeakMap<CraftContext, Map<Block, string>>();
+const LIFETIME_CACHE = new WeakMap<CraftContext, Map<Block, Promise<string>>>();
 
 /**
  * Run a block's resolver, honouring `lifetime`. For
  * `lifetime: "dispatch"` (default) the resolver runs every call. For
  * `lifetime: "context"` the resolver runs once per `CraftContext`
- * and the cached value is reused for subsequent calls in that
- * context.
+ * and the cached value (or in-flight promise) is reused for
+ * subsequent calls in that context.
  *
  * @internal
  */
@@ -140,14 +143,17 @@ async function resolveOnce(
   const lifetime = block.lifetime ?? "dispatch";
   if (lifetime === "context" && context) {
     let cache = LIFETIME_CACHE.get(context);
-    if (cache?.has(block)) return cache.get(block) as string;
-    const value = await invokeResolver(block, exchange, context, client);
+    if (cache?.has(block)) return cache.get(block) as Promise<string>;
     if (!cache) {
-      cache = new Map<Block, string>();
+      cache = new Map<Block, Promise<string>>();
       LIFETIME_CACHE.set(context, cache);
     }
-    cache.set(block, value);
-    return value;
+    const pending = invokeResolver(block, exchange, context, client);
+    cache.set(block, pending);
+    // On rejection, evict so a subsequent dispatch can retry rather
+    // than being permanently stuck on the cached failure.
+    pending.catch(() => cache!.delete(block));
+    return pending;
   }
   return invokeResolver(block, exchange, context, client);
 }
