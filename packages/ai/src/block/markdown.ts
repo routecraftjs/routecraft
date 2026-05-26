@@ -11,7 +11,7 @@ import { rcError } from "@routecraft/routecraft";
 export interface ParsedMarkdown {
   /** Path the document was read from. */
   path: string;
-  /** Filename without extension. Matches the agent / skill `name` after validation. */
+  /** Filename without extension. Matches the agent or block `name` after validation. */
   filename: string;
   /** Parsed YAML front matter. Empty object when no front matter is present. */
   frontmatter: Record<string, unknown>;
@@ -22,8 +22,8 @@ export interface ParsedMarkdown {
 /**
  * YAML parser shape we depend on. Lazy-loaded the first time a
  * markdown loader runs so the `yaml` package can be an optional peer
- * dependency: callers that never invoke `agents()` / `skills()` do
- * not need to install it, and it stays out of `@routecraft/ai`'s
+ * dependency: callers that never invoke `agents()` or `skillsBlock()`
+ * do not need to install it, and it stays out of `@routecraft/ai`'s
  * static import graph (size-limit is enforced on the entry bundle).
  *
  * @internal
@@ -46,7 +46,7 @@ async function loadYamlParse(): Promise<YamlParse> {
       err.message.includes("yaml")
     ) {
       throw new Error(
-        `The markdown loaders (agents()/skills()) require the "yaml" package. Install it with: bun add yaml`,
+        `The markdown loaders (agents() / skillsBlock()) require the "yaml" package. Install it with: bun add yaml`,
       );
     }
     throw err;

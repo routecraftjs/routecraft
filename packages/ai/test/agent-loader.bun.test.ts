@@ -47,18 +47,31 @@ describe("agents() markdown loader", () => {
   });
 
   /**
-   * @case maxTurns and skills frontmatter pass through
-   * @preconditions Agent with maxTurns: 30 and skills: [a, b]
-   * @expectedResult AgentRegisteredOptions has both fields
+   * @case maxTurns frontmatter passes through
+   * @preconditions Agent with maxTurns: 30
+   * @expectedResult AgentRegisteredOptions has maxTurns set
    */
-  test("maxTurns and skills frontmatter pass through", async () => {
+  test("maxTurns frontmatter passes through", async () => {
     const dir = makeDir({
-      "x.md":
-        "---\nname: x\ndescription: d\nmaxTurns: 30\nskills:\n  - one\n  - two\n---\nsystem prompt",
+      "x.md": "---\nname: x\ndescription: d\nmaxTurns: 30\n---\nsystem prompt",
     });
     const result = await agents(dir);
     expect(result["x"]?.maxTurns).toBe(30);
-    expect(result["x"]?.skills).toEqual(["one", "two"]);
+  });
+
+  /**
+   * @case `skills` frontmatter is rejected (replaced by code-side `blocks`)
+   * @preconditions Agent frontmatter contains the now-removed `skills:` field
+   * @expectedResult Throws RC5003 listing the supported keys (skills not among them)
+   */
+  test("skills frontmatter is rejected after the 0.6 block rework", async () => {
+    const dir = makeDir({
+      "x.md":
+        "---\nname: x\ndescription: d\nskills:\n  - one\n  - two\n---\nsystem",
+    });
+    await expect(agents(dir)).rejects.toThrow(
+      /frontmatter field "skills" is not yet supported/,
+    );
   });
 
   /**

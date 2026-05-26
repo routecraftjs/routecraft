@@ -7,6 +7,8 @@ import {
   type Exchange,
   type Principal,
 } from "@routecraft/routecraft";
+import { BLOCK_LOADER_PREFIX, resolveBlocks } from "../block/resolve.ts";
+import type { Block } from "../block/types.ts";
 import { resolveModel, resolvePrompt } from "../llm/shared.ts";
 import {
   AgentSession,
@@ -17,7 +19,6 @@ import {
   ADAPTER_AGENT_DEFAULT_OPTIONS,
   ADAPTER_AGENT_REGISTRY,
 } from "./store.ts";
-import { ADAPTER_SKILL_REGISTRY, type Skill } from "../skill/types.ts";
 import type { AgentDeltaListener } from "./events.ts";
 import type { ResolvedTool } from "./tools/selection.ts";
 import type {
@@ -93,7 +94,7 @@ export class AgentDestinationAdapter implements Destination<
     }
 
     const { config, modelName } = resolveModel(merged.model, context);
-    const tools = resolveAgentTools(merged, context);
+    const userTools = resolveAgentTools(merged, context);
     const user = buildUserPrompt(merged, exchange);
     // System accepts the same string-or-function shape as `llm({ system })`,
     // so resolve it against the exchange here. The session then receives a
@@ -109,12 +110,18 @@ export class AgentDestinationAdapter implements Destination<
           `When "system" is a function, it must return a non-empty string for the incoming exchange.`,
       });
     }
-    const withSkills = appendSkillsToSystem(baseSystem, merged.skills, context);
-    // Caller identity is appended last (after skills) so the author's own
-    // prompt and any skill content frame the model first, with the
+    const { systemAppend, loaderTools } = await resolveBlocks(
+      merged.blocks,
+      exchange,
+      context,
+    );
+    const tools = mergeUserAndLoaderTools(userTools, loaderTools);
+    const withBlocks = `${baseSystem}${systemAppend}`;
+    // Caller identity is appended last (after blocks) so the author's own
+    // prompt and any block content frame the model first, with the
     // request-scoped "who am I serving" footer closest to the user turn.
     const system = appendPrincipalToSystem(
-      withSkills,
+      withBlocks,
       merged.principal,
       exchange.principal,
       exchange,
@@ -246,7 +253,71 @@ function mergeWithDefaults(
   if (out.principal === undefined && defaults.principal !== undefined) {
     out.principal = defaults.principal;
   }
+  if (defaults.blocks !== undefined && defaults.blocks.length > 0) {
+    out.blocks = mergeBlocksByName(defaults.blocks, base.blocks);
+  }
   return out;
+}
+
+/**
+ * Merge a defaults-supplied block list with the agent's own. Per-name
+ * override semantics: a per-agent block whose `name` matches a default
+ * replaces only that entry; non-colliding default blocks still apply,
+ * and per-agent blocks with unique names extend the list.
+ *
+ * Declaration order is preserved: defaults first (in their declared
+ * order, with overridden entries replaced in place), then any
+ * per-agent blocks that don't override anything, in their declared
+ * order. Inject blocks appear in the system prompt in this final
+ * order.
+ *
+ * @internal
+ */
+function mergeBlocksByName(
+  defaults: Block[],
+  agent: Block[] | undefined,
+): Block[] {
+  if (!agent || agent.length === 0) return [...defaults];
+  const overrides = new Map<string, Block>();
+  for (const b of agent) overrides.set(b.name, b);
+  const out: Block[] = [];
+  const consumed = new Set<string>();
+  for (const def of defaults) {
+    const override = overrides.get(def.name);
+    if (override) {
+      out.push(override);
+      consumed.add(def.name);
+    } else {
+      out.push(def);
+    }
+  }
+  for (const b of agent) {
+    if (!consumed.has(b.name)) out.push(b);
+  }
+  return out;
+}
+
+/**
+ * Merge user tools (from `tools([...])`) with synthetic block-loader
+ * tools produced by {@link resolveBlocks}. Rejects (RC5026) any user
+ * tool name that starts with the reserved `_block_` prefix used by
+ * loaders, so a misconfigured registry cannot shadow the framework's
+ * surface.
+ *
+ * @internal
+ */
+function mergeUserAndLoaderTools(
+  userTools: ResolvedTool[],
+  loaderTools: ResolvedTool[],
+): ResolvedTool[] {
+  for (const tool of userTools) {
+    if (tool.name.startsWith(BLOCK_LOADER_PREFIX)) {
+      throw rcError("RC5026", undefined, {
+        message: `Agent tool "${tool.name}": names starting with "${BLOCK_LOADER_PREFIX}" are reserved for synthetic block loaders. Rename the fn or route.`,
+      });
+    }
+  }
+  return [...userTools, ...loaderTools];
 }
 
 /**
@@ -271,55 +342,6 @@ function resolveAgentTools(
     });
   }
   return options.tools.resolve(context);
-}
-
-/**
- * Build the final system prompt by concatenating the resolved skill
- * content (when the agent declared `skills: ["name", ...]`) onto the
- * agent's own system prompt. Each skill is wrapped in a heading so the
- * model can see the skill name and its boundary in context.
- *
- * Throws `RC5003` when a referenced skill name is not registered,
- * when an agent declares `skills` but no skills are registered at all,
- * or when the agent has no live context to look up skills against.
- *
- * @internal
- */
-function appendSkillsToSystem(
-  baseSystem: string,
-  skills: string[] | undefined,
-  context: CraftContext | undefined,
-): string {
-  if (!skills || skills.length === 0) return baseSystem;
-  if (!context) {
-    throw rcError("RC5003", undefined, {
-      message: `Agent: cannot resolve "skills" without a CraftContext.`,
-    });
-  }
-  const registry = context.getStore(
-    ADAPTER_SKILL_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry,
-  ) as Map<string, Skill> | undefined;
-  if (!registry || registry.size === 0) {
-    throw rcError("RC5003", undefined, {
-      message: `Agent: declared "skills" (${skills.map((s) => `"${s}"`).join(", ")}) but no skills are registered in this context. Install agentPlugin({ skills }) with the relevant entries.`,
-    });
-  }
-  const parts: string[] = [baseSystem];
-  for (const name of skills) {
-    const skill = registry.get(name);
-    if (!skill) {
-      const known = [...registry.keys()].sort();
-      throw rcError("RC5003", undefined, {
-        message:
-          `Agent: unknown skill "${name}". ` +
-          (known.length > 0
-            ? `Known skill names: ${known.map((k) => `"${k}"`).join(", ")}.`
-            : `No skills are registered in this context.`),
-      });
-    }
-    parts.push(`\n\n## Skill: ${skill.name}\n\n${skill.content}`);
-  }
-  return parts.join("");
 }
 
 /**

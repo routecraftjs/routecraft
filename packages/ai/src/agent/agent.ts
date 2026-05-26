@@ -4,6 +4,8 @@ import {
   rcError,
   tagAdapter,
 } from "@routecraft/routecraft";
+import { BLOCK_LOADER_PREFIX } from "../block/resolve.ts";
+import type { Block } from "../block/types.ts";
 import { parseProviderModel } from "../llm/shared.ts";
 import {
   AgentDestinationAdapter,
@@ -85,6 +87,76 @@ export function validateAgentOptions(options: AgentOptions): void {
     if (typeof standard?.validate !== "function") {
       throw rcError("RC5003", undefined, {
         message: `Agent: "output" must be a Standard Schema (Zod/Valibot/ArkType/etc.).`,
+      });
+    }
+  }
+  if (options.blocks !== undefined) {
+    validateBlocks(options.blocks);
+  }
+}
+
+/**
+ * Validate the shape of every block on an agent's `blocks` list.
+ * Throws RC5027 on individual block misconfiguration and RC5026 on
+ * duplicate names or reserved-prefix collisions. Runs at construction
+ * so misconfigured blocks surface immediately, not at first dispatch.
+ *
+ * @internal
+ */
+function validateBlocks(blocks: unknown): void {
+  if (!Array.isArray(blocks)) {
+    throw rcError("RC5027", undefined, {
+      message: `Agent: "blocks" must be an array of Block objects.`,
+    });
+  }
+  const seen = new Set<string>();
+  for (const block of blocks as Block[]) {
+    if (block === null || typeof block !== "object") {
+      throw rcError("RC5027", undefined, {
+        message: `Agent block: each entry must be an object with name, mode, and value.`,
+      });
+    }
+    if (typeof block.name !== "string" || block.name.trim() === "") {
+      throw rcError("RC5027", undefined, {
+        message: `Agent block: "name" must be a non-empty string.`,
+      });
+    }
+    if (block.name.startsWith(BLOCK_LOADER_PREFIX)) {
+      throw rcError("RC5026", undefined, {
+        message: `Agent block "${block.name}": names starting with "${BLOCK_LOADER_PREFIX}" are reserved for synthetic loader tools. Rename the block.`,
+      });
+    }
+    if (seen.has(block.name)) {
+      throw rcError("RC5026", undefined, {
+        message: `Agent block "${block.name}": duplicate name. Each block in a single agent must have a unique name.`,
+      });
+    }
+    seen.add(block.name);
+    if (block.mode !== "inject" && block.mode !== "progressive") {
+      throw rcError("RC5027", undefined, {
+        message: `Agent block "${block.name}": "mode" must be "inject" or "progressive" (got ${JSON.stringify(block.mode)}).`,
+      });
+    }
+    if (
+      block.mode === "progressive" &&
+      (typeof block.description !== "string" || block.description.trim() === "")
+    ) {
+      throw rcError("RC5027", undefined, {
+        message: `Agent block "${block.name}": progressive-mode blocks require a non-empty "description" so the model can decide whether to load.`,
+      });
+    }
+    if (
+      block.lifetime !== undefined &&
+      block.lifetime !== "dispatch" &&
+      block.lifetime !== "context"
+    ) {
+      throw rcError("RC5027", undefined, {
+        message: `Agent block "${block.name}": "lifetime" must be "dispatch" or "context" when present (got ${JSON.stringify(block.lifetime)}).`,
+      });
+    }
+    if (typeof block.value !== "string" && typeof block.value !== "function") {
+      throw rcError("RC5027", undefined, {
+        message: `Agent block "${block.name}": "value" must be a string or a function returning a string.`,
       });
     }
   }

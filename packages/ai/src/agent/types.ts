@@ -1,5 +1,6 @@
 import type { Exchange, Principal } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type { AgentBlockLoadSummary, Block } from "../block/types.ts";
 import type { LlmModelId, LlmPromptSource, LlmUsage } from "../llm/types.ts";
 import type { AgentDeltaListener } from "./events.ts";
 import type { ToolSelection } from "./tools/selection.ts";
@@ -78,6 +79,20 @@ export interface AgentDefaultOptions {
    * a per-agent `principal` (including `false`) overrides it.
    */
   principal?: boolean | AgentPrincipalRenderer;
+
+  /**
+   * Default list of system-context blocks applied to any agent that
+   * doesn't supply its own. See {@link AgentOptions.blocks} for the
+   * primitive's semantics.
+   *
+   * Merge semantics with the per-agent `blocks` field differ from how
+   * `tools` merges: defaults are not replaced wholesale. A per-agent
+   * block whose `name` matches a default block overrides only that
+   * entry; non-colliding default blocks still apply. This lets a
+   * context install shared blocks once (e.g. identity, memory) and
+   * have individual agents add or replace specific entries.
+   */
+  blocks?: Block[];
 }
 
 /**
@@ -139,15 +154,28 @@ export interface AgentOptions {
   output?: StandardSchemaV1;
 
   /**
-   * Names of skills (registered via `agentPlugin({ skills })` or the
-   * `skills(path)` markdown loader) whose content is concatenated into
-   * this agent's system prompt at dispatch. The full skill content is
-   * injected verbatim (mirrors Claude's subagent skills semantic),
-   * not exposed as a tool the agent can choose to invoke.
+   * Contributions to the agent's system context. Each block is either
+   * always injected (`mode: "inject"`) or progressively disclosed
+   * (`mode: "progressive"`), and may carry a static string or a
+   * function that resolves the content at dispatch time.
    *
-   * Unknown skill names throw `RC5003` at dispatch.
+   * Inject blocks are concatenated onto the agent's `system` prompt
+   * as `## <name>\n\n<content>` in declared order. Progressive blocks
+   * are exposed as synthetic `_block_load_<name>` tools the model can
+   * invoke on demand, matching Claude Code's default progressive
+   * disclosure behaviour.
+   *
+   * Use `skillsBlock({ source })` from `@routecraft/ai` to load
+   * markdown skills as blocks; or define inline blocks for identity,
+   * memory, tenant config, or any other system-prompt contribution.
+   * See {@link Block}.
+   *
+   * When `agentPlugin({ defaultOptions: { blocks } })` is set,
+   * defaults are merged into this list: a per-agent block whose
+   * `name` matches a default overrides only that entry; non-colliding
+   * default blocks still apply.
    */
-  skills?: string[];
+  blocks?: Block[];
 
   /**
    * Append a `## Caller` section to the system prompt describing who
@@ -165,8 +193,8 @@ export interface AgentOptions {
    * - `false` / omitted -- append nothing. Opt-in default, so existing
    *   agents see no change to their prompt or token usage.
    *
-   * The section is appended after `skills`, so the author's own `system`
-   * prompt and any skill content come first.
+   * The section is appended after `blocks`, so the author's own `system`
+   * prompt and any block content come first.
    *
    * The built-in block surfaces only loggable identity fields (see
    * `.standards/security.md` § 3); scopes, `claims`, `userinfoClaims`, and
@@ -348,6 +376,22 @@ export interface AgentResult {
    * For real-time observability subscribe to the context-bus events
    * `route:<id>:agent:tool:invoked` / `:result` / `:error`. This
    * summary is the synchronous post-hoc view of the same calls.
+   *
+   * Synthetic block-loader calls (`_block_load_<name>`) are excluded
+   * from this list and surface separately on {@link AgentResult.blocksLoaded}
+   * so post-dispatch assertions on the agent's user-tool usage are
+   * not polluted by framework bookkeeping.
    */
   toolCalls?: AgentToolCallSummary[];
+
+  /**
+   * Summary of every progressive-mode block the model loaded during
+   * the dispatch, in invocation order. Empty (or absent) when no
+   * progressive blocks were loaded.
+   *
+   * Inject-mode blocks are never represented here because they are
+   * always concatenated into the system prompt; only on-demand loads
+   * appear in this list.
+   */
+  blocksLoaded?: AgentBlockLoadSummary[];
 }

@@ -24,6 +24,9 @@ export type RCCode =
   | "RC5022"
   | "RC5023"
   | "RC5024"
+  | "RC5025"
+  | "RC5026"
+  | "RC5027"
   | "RC9901";
 
 export type RCMeta = {
@@ -213,6 +216,30 @@ export const RC: Record<RCCode, RCMeta> = {
     suggestion:
       "authenticate() (and the .authenticate() operation) require a non-empty `subject` naming the verified identity, e.g. authenticate({ subject: sender.address, roles: [...] }). This is a programming error at the mint call, distinct from RC5023 (a principal that reached authorize() without being established by a trusted origin).",
     docs: `${DOCS_BASE}#rc-5024`,
+    retryable: false,
+  },
+  RC5025: {
+    category: "Adapter",
+    message: "Agent block resolution failed",
+    suggestion:
+      "A block resolver threw or returned a non-string. Check the resolver function for the named block; inject-mode failures abort the dispatch, progressive-mode failures surface back to the model as a loader-tool error.",
+    docs: `${DOCS_BASE}#rc-5025`,
+    retryable: false,
+  },
+  RC5026: {
+    category: "Adapter",
+    message: "Agent block name collision",
+    suggestion:
+      "A block name duplicates another block, collides with a user tool, or starts with the reserved `_block_` prefix used by synthetic loader tools. Rename the block (or the tool) so every name in the agent's surface is unique.",
+    docs: `${DOCS_BASE}#rc-5026`,
+    retryable: false,
+  },
+  RC5027: {
+    category: "Adapter",
+    message: "Agent block misconfigured",
+    suggestion:
+      "A block is missing required fields or has an invalid shape: every block needs a non-empty `name`, a `mode` of `inject` or `progressive`, and a string-or-function `value`. Progressive blocks additionally require a non-empty `description` so the model can decide whether to load them.",
+    docs: `${DOCS_BASE}#rc-5027`,
     retryable: false,
   },
   RC9901: {

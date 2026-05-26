@@ -6,7 +6,7 @@ import {
   readMarkdownDir,
   readMarkdownFile,
   requireString,
-} from "../skill/markdown.ts";
+} from "../block/markdown.ts";
 import { tools } from "./tools/index.ts";
 import type { LlmModelId } from "../llm/types.ts";
 import type { AgentRegisteredOptions } from "./types.ts";
@@ -26,7 +26,6 @@ const SUPPORTED_AGENT_KEYS = new Set([
   "model",
   "maxTurns",
   "tools",
-  "skills",
   "principal",
 ]);
 
@@ -46,7 +45,7 @@ const SUPPORTED_AGENT_KEYS = new Set([
 export interface AgentMarkdownOverride extends Partial<
   Pick<
     AgentRegisteredOptions,
-    "description" | "model" | "maxTurns" | "tools" | "skills" | "principal"
+    "description" | "model" | "maxTurns" | "tools" | "principal" | "blocks"
   >
 > {
   /**
@@ -112,11 +111,6 @@ function toAgent(
     source,
   );
   const toolNames = optionalStringArray(frontmatter["tools"], "tools", source);
-  const skillNames = optionalStringArray(
-    frontmatter["skills"],
-    "skills",
-    source,
-  );
   // Frontmatter carries only the boolean form; the function-renderer
   // form is a closure YAML cannot express and is supplied via the
   // override map or agentPlugin({ defaultOptions }).
@@ -132,7 +126,6 @@ function toAgent(
   if (modelRaw) agent.model = modelRaw as LlmModelId;
   if (maxTurns !== undefined) agent.maxTurns = maxTurns;
   if (toolNames !== undefined) agent.tools = tools(toolNames);
-  if (skillNames !== undefined) agent.skills = skillNames;
   if (principal !== undefined) agent.principal = principal;
   return { name, agent };
 }
@@ -156,8 +149,8 @@ function applyOverride(
   if (override.model !== undefined) out.model = override.model;
   if (override.maxTurns !== undefined) out.maxTurns = override.maxTurns;
   if (override.tools !== undefined) out.tools = override.tools;
-  if (override.skills !== undefined) out.skills = override.skills;
   if (override.principal !== undefined) out.principal = override.principal;
+  if (override.blocks !== undefined) out.blocks = override.blocks;
   if (override.system !== undefined) out.system = override.system;
   return out;
 }
@@ -182,7 +175,6 @@ function applyOverride(
  * |               |          | `provider:model` form only)            |
  * | `maxTurns`    | no       | `AgentRegisteredOptions.maxTurns`      |
  * | `tools`       | no       | `tools(stringArray)`                   |
- * | `skills`      | no       | `AgentRegisteredOptions.skills`        |
  * | `principal`   | no       | `AgentRegisteredOptions.principal`     |
  * |               |          | (boolean only; renderer via override)  |
  *
@@ -194,8 +186,10 @@ function applyOverride(
  * underlying features.
  *
  * Pass `overrides` keyed by agent name to replace any of
- * `description` / `model` / `maxTurns` / `tools` / `skills` /
- * `system` per agent without editing the markdown source.
+ * `description` / `model` / `maxTurns` / `tools` / `blocks` /
+ * `principal` / `system` per agent without editing the markdown
+ * source. `blocks` is override-only because YAML cannot express the
+ * function-form resolvers a block may carry.
  *
  * Returns a `Record<name, AgentRegisteredOptions>` ready to spread
  * into `agentPlugin({ agents: agents("./agents") })`.
