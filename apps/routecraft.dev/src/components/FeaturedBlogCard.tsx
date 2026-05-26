@@ -21,7 +21,7 @@ export function FeaturedBlogCard({ post }: { post: BlogPostMeta }) {
           ) : (
             <FeaturedPlaceholder title={post.title} />
           )}
-          <span className="absolute top-4 left-4 inline-flex items-center gap-1.5 rounded-full bg-white/95 px-3 py-1 text-xs font-semibold tracking-wide text-sky-700 uppercase shadow-sm dark:bg-gray-950/80 dark:text-sky-300">
+          <span className="absolute top-4 left-4 inline-flex items-center gap-1.5 rounded-full bg-white/95 px-3 py-1 text-xs font-semibold text-sky-700 shadow-sm dark:bg-gray-950/80 dark:text-sky-300">
             <span className="h-1.5 w-1.5 rounded-full bg-sky-500" />
             Featured
           </span>

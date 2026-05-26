@@ -24,7 +24,7 @@ export default function BlogIndexPage() {
   return (
     <main className="mx-auto w-full max-w-6xl px-4 py-16 sm:px-6 lg:px-8">
       <section className="mx-auto max-w-3xl text-center">
-        <p className="font-display text-sm font-semibold tracking-wide text-sky-500 uppercase">
+        <p className="font-display text-sm font-medium text-sky-500">
           The Routecraft Blog
         </p>
         <h1 className="mt-3 font-display text-4xl font-medium tracking-tight text-gray-900 sm:text-5xl dark:text-white">
@@ -86,7 +86,7 @@ function SectionHeading({
 }) {
   return (
     <div className="flex flex-col gap-2">
-      <p className="font-display text-xs font-semibold tracking-wide text-sky-500 uppercase">
+      <p className="font-display text-xs font-medium text-sky-500">
         {eyebrow}
       </p>
       <h2 className="font-display text-2xl font-medium tracking-tight text-gray-900 dark:text-white">

@@ -22,7 +22,7 @@ export function CheatSection({
       )}
     >
       {eyebrow && (
-        <p className="font-display text-[0.65rem] font-semibold tracking-wider text-sky-500 uppercase">
+        <p className="font-display text-xs font-medium text-sky-500">
           {eyebrow}
         </p>
       )}
@@ -44,7 +44,7 @@ export function CheatNote({ children }: { children: React.ReactNode }) {
 
 export function CheatLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="font-display text-[0.65rem] font-semibold tracking-wider text-gray-500 uppercase dark:text-gray-400">
+    <p className="font-display text-xs font-medium text-gray-500 dark:text-gray-400">
       {children}
     </p>
   )

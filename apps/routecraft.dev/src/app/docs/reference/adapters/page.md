@@ -975,7 +975,7 @@ csv(options: CsvOptions): CsvAdapter   // Source<CsvData> & Destination<unknown,
 Read and write CSV files with automatic parsing/formatting. **Requires `papaparse` as a peer dependency.**
 
 ```bash
-npm install papaparse
+bun add papaparse
 ```
 
 **Source mode** (read CSV files):

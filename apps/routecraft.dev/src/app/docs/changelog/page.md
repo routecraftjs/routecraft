@@ -8,6 +8,21 @@ Routecraft is in active development -- APIs may change between minor versions.
 
 ---
 
+## v0.6.0 {% badge color="gray" %}In development{% /badge %}
+
+This section tracks changes landing on `main` since the v0.5.0 release. Release notes will be finalised when v0.6.0 is tagged.
+
+### Mail
+
+- **Direct mail no longer misclassified as auto-forwarded** -- the delivering MX (Gmail / Google Workspace) stamps a single first-hop ARC set (`i=1`, `cv=none`) onto direct mail, so the presence of ARC headers is not evidence of forwarding. `analyzeHeaders` treated any ARC set as a forward, which downgraded DMARC-aligned direct mail to `unverified`. ARC is now only treated as forwarding evidence when the chain is validated (`cv=pass`/`cv=fail`) or spans more than one instance. Direct mail resolves to `direct` / `verified` via boundary DMARC. The mailing-list path (`List-Id`) and validated auto-forwards are unchanged.
+
+### Docs site
+
+- **Blog section at [/blog](/blog)** with four published posts (basics, DSL cheat sheet, Clerk MCP auth, WorkOS MCP auth) and a featured + latest grid layout. Markdoc-backed, theme-aware, with structured frontmatter for date, author, tags, and draft status.
+- **Cheat sheet reference at [/cheat-sheet](/cheat-sheet)** -- searchable, theme-aware HTML page covering the full builder DSL, sources, destinations, operations, validation, error handling, events, MCP integration, CLI, and TUI. Print stylesheet produces a clean A4 PDF via `Cmd/Ctrl + P`.
+
+---
+
 ## [v0.5.0](https://github.com/routecraftjs/routecraft/releases/tag/v0.5.0) {% badge color="yellow" %}Pre-release{% /badge %}
 
 *May 2026*

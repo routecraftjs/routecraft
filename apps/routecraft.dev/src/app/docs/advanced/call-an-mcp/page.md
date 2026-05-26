@@ -11,7 +11,7 @@ The `mcpPlugin` connects your Routecraft context to one or more remote MCP serve
 ## Install
 
 ```bash
-npm install @routecraft/ai
+bun add @routecraft/ai
 ```
 
 ## Register remote servers

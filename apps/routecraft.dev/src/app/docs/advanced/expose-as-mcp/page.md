@@ -11,7 +11,7 @@ Routecraft uses the Model Context Protocol (MCP) to expose capabilities as typed
 ## Install
 
 ```bash
-npm install @routecraft/ai zod
+bun add @routecraft/ai zod
 ```
 
 ## Define a capability

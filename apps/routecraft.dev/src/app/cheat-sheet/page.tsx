@@ -6,6 +6,7 @@ import {
   CheatNote,
   CheatSection,
 } from '@/components/CheatSection'
+import { PrintButton } from '@/components/PrintButton'
 
 export const metadata: Metadata = {
   title: 'Routecraft Cheat Sheet',
@@ -21,46 +22,59 @@ export const metadata: Metadata = {
 
 export default function CheatSheetPage() {
   return (
-    <main className="mx-auto w-full max-w-7xl px-4 py-12 sm:px-6 lg:px-8 print:px-0 print:py-0">
-      <header className="mb-8 flex flex-col gap-3 print:mb-4">
-        <div className="flex flex-wrap items-baseline justify-between gap-3">
-          <div>
-            <p className="font-display text-xs font-semibold tracking-wider text-sky-500 uppercase">
-              Reference
-            </p>
-            <h1 className="font-display text-3xl font-medium tracking-tight text-gray-900 sm:text-4xl dark:text-white">
-              Routecraft Cheat Sheet
-            </h1>
-          </div>
-          <div className="flex flex-wrap gap-2 text-xs">
-            <span className="rounded-full bg-sky-50 px-2.5 py-1 font-medium text-sky-700 ring-1 ring-sky-200 dark:bg-sky-500/10 dark:text-sky-300 dark:ring-sky-500/30">
-              v0.5.0
-            </span>
-            <span className="rounded-full bg-gray-100 px-2.5 py-1 font-medium text-gray-700 ring-1 ring-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:ring-gray-700">
-              TypeScript
-            </span>
+    <main className="w-full pb-16 print:pb-0">
+      <section className="border-b border-gray-200 bg-linear-to-br from-sky-50 via-white to-white print:border-0 print:bg-transparent dark:border-gray-800 dark:from-sky-950/40 dark:via-gray-950 dark:to-gray-950">
+        <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8 print:px-0 print:py-2">
+          <div className="flex flex-wrap items-start justify-between gap-6">
+            <div className="flex-1">
+              <p className="font-display text-xs font-medium text-sky-500">
+                Reference
+              </p>
+              <h1 className="mt-1 font-display text-3xl font-medium tracking-tight text-gray-900 sm:text-4xl dark:text-white">
+                Routecraft Cheat Sheet
+              </h1>
+              <p className="mt-3 max-w-3xl text-sm text-gray-600 sm:text-base dark:text-gray-400">
+                AI automation as code. The whole fluent API on one page.
+                Searchable, copyable, and print-to-PDF ready.
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2 text-xs">
+                <span className="rounded-full bg-sky-50 px-2.5 py-1 font-medium text-sky-700 ring-1 ring-sky-200 dark:bg-sky-500/10 dark:text-sky-300 dark:ring-sky-500/30">
+                  v0.5.0
+                </span>
+                <span className="rounded-full bg-gray-100 px-2.5 py-1 font-medium text-gray-700 ring-1 ring-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:ring-gray-700">
+                  TypeScript
+                </span>
+              </div>
+            </div>
+            <div className="flex flex-col items-start gap-2 print:hidden">
+              <PrintButton />
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Or press{' '}
+                <kbd className="rounded border border-gray-300 bg-gray-100 px-1.5 py-0.5 font-mono text-[0.7rem] dark:border-gray-700 dark:bg-gray-800">
+                  Cmd/Ctrl + P
+                </kbd>
+              </p>
+            </div>
           </div>
         </div>
-        <p className="max-w-3xl text-sm text-gray-600 dark:text-gray-400">
-          AI automation as code. Type-safe integration framework for TypeScript.
-          The whole fluent API on one page. Use Cmd or Ctrl + P to save as PDF.
-        </p>
-      </header>
+      </section>
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 xl:grid-cols-3 print:grid-cols-2 print:gap-3">
-        <CheatSection eyebrow="Setup" title="Installation">
-          <CheatCode language="bash">{`# Core library
-npm add @routecraft/routecraft
+      <div className="mx-auto w-full max-w-7xl px-4 pt-8 sm:px-6 lg:px-8 print:px-0 print:pt-2">
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 xl:grid-cols-3 print:grid-cols-2 print:gap-3">
+          <CheatSection eyebrow="Setup" title="Installation">
+            <CheatCode language="bash">{`# Core library
+bun add @routecraft/routecraft
 
 # AI / MCP integration
-npm add @routecraft/ai
+bun add @routecraft/ai
 
 # CLI (run routes from the terminal)
-npm add -g @routecraft/cli`}</CheatCode>
-          <CheatNote>
-            CLI runs TypeScript directly via Bun (Bun &gt;= 1.1.0). Node 22+ also works.
-          </CheatNote>
-        </CheatSection>
+bun add -g @routecraft/cli`}</CheatCode>
+            <CheatNote>
+              CLI runs TypeScript directly via Bun (Bun &gt;= 1.1.0). Node 22+
+              also works.
+            </CheatNote>
+          </CheatSection>
 
         <CheatSection eyebrow="Concept" title="Route + Context">
           <CheatCode>{`import { craft, ContextBuilder } from '@routecraft/routecraft'
@@ -314,7 +328,7 @@ craft()
           <CheatCode language="json">{`{
   "mcpServers": {
     "routecraft": {
-      "command": "npx",
+      "command": "bunx",
       "args": ["@routecraft/cli", "run",
         "./capabilities/index.ts"]
     }
@@ -401,31 +415,25 @@ craft tui --db ./app/telemetry.db`}</CheatCode>
         </CheatSection>
       </div>
 
-      <footer className="mt-10 flex flex-col items-center gap-2 border-t border-gray-200 pt-6 text-xs text-gray-500 print:mt-6 print:border-gray-300 print:pt-3 dark:border-gray-800 dark:text-gray-400">
-        <p>
-          Routecraft &middot; AI automation as code &middot;{' '}
-          <a
-            href="https://routecraft.dev"
-            className="font-medium text-sky-600 dark:text-sky-400"
-          >
-            routecraft.dev
-          </a>{' '}
-          &middot;{' '}
-          <a
-            href="https://github.com/routecraftjs/routecraft"
-            className="font-medium text-sky-600 dark:text-sky-400"
-          >
-            GitHub
-          </a>
-        </p>
-        <p className="print:hidden">
-          Press{' '}
-          <kbd className="rounded border border-gray-300 bg-gray-100 px-1.5 py-0.5 font-mono text-[0.7rem] dark:border-gray-700 dark:bg-gray-800">
-            Cmd/Ctrl + P
-          </kbd>{' '}
-          to save this page as a PDF.
-        </p>
-      </footer>
+        <footer className="mt-10 flex flex-col items-center gap-2 border-t border-gray-200 pt-6 text-xs text-gray-500 print:mt-6 print:border-gray-300 print:pt-3 dark:border-gray-800 dark:text-gray-400">
+          <p>
+            Routecraft &middot; AI automation as code &middot;{' '}
+            <a
+              href="https://routecraft.dev"
+              className="font-medium text-sky-600 dark:text-sky-400"
+            >
+              routecraft.dev
+            </a>{' '}
+            &middot;{' '}
+            <a
+              href="https://github.com/routecraftjs/routecraft"
+              className="font-medium text-sky-600 dark:text-sky-400"
+            >
+              GitHub
+            </a>
+          </p>
+        </footer>
+      </div>
     </main>
   )
 }

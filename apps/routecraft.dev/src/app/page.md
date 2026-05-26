@@ -65,15 +65,15 @@ Try Routecraft in your browser or a cloud environment:
 Scaffold a complete Routecraft project with all configuration:
 
 {% code-tabs %}
-{% code-tab label="npm" language="bash" %}
+{% code-tab label="bun" language="bash" %}
 ```bash
-npm create routecraft@latest my-app
+bunx create-routecraft my-app
 ```
 {% /code-tab %}
 
-{% code-tab label="yarn" language="bash" %}
+{% code-tab label="npm" language="bash" %}
 ```bash
-yarn create routecraft my-app
+npm create routecraft@latest my-app
 ```
 {% /code-tab %}
 
@@ -83,9 +83,9 @@ pnpm create routecraft@latest my-app
 ```
 {% /code-tab %}
 
-{% code-tab label="bun" language="bash" %}
+{% code-tab label="yarn" language="bash" %}
 ```bash
-bunx create-routecraft my-app
+yarn create routecraft my-app
 ```
 {% /code-tab %}
 
@@ -94,17 +94,17 @@ bunx create-routecraft my-app
 Start the development server:
 
 {% code-tabs %}
+{% code-tab label="bun" language="bash" %}
+```bash
+cd my-app
+bun run dev
+```
+{% /code-tab %}
+
 {% code-tab label="npm" language="bash" %}
 ```bash
 cd my-app
 npm run dev
-```
-{% /code-tab %}
-
-{% code-tab label="yarn" language="bash" %}
-```bash
-cd my-app
-yarn dev
 ```
 {% /code-tab %}
 
@@ -115,10 +115,10 @@ pnpm run dev
 ```
 {% /code-tab %}
 
-{% code-tab label="bun" language="bash" %}
+{% code-tab label="yarn" language="bash" %}
 ```bash
 cd my-app
-bun run dev
+yarn dev
 ```
 {% /code-tab %}
 
