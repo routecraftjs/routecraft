@@ -4,8 +4,6 @@ export const navigation = [
     href: '/',
     links: [
       { title: 'Quick start', href: '/docs/introduction/installation' },
-      { title: 'Cheat sheet', href: '/cheat-sheet' },
-      { title: 'Blog', href: '/blog' },
       { title: 'Changelog', href: '/docs/changelog' },
     ],
   },

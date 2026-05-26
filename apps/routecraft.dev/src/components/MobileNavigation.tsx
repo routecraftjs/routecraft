@@ -7,6 +7,7 @@ import { Dialog, DialogPanel } from '@headlessui/react'
 
 import { Logo } from '@/components/Logo'
 import { Navigation } from '@/components/Navigation'
+import { topNavLinks } from '@/components/TopNav'
 
 function MenuIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
   return (
@@ -95,7 +96,22 @@ export function MobileNavigation() {
               <Logo className="h-9 w-9" />
             </Link>
           </div>
-          <Navigation className="mt-5 px-1" onLinkClick={onLinkClick} />
+          <nav className="mt-6 px-1">
+            <ul role="list" className="space-y-3">
+              {topNavLinks.map((link) => (
+                <li key={link.href}>
+                  <Link
+                    href={link.href}
+                    onClick={onLinkClick}
+                    className="font-display text-base font-medium text-gray-900 hover:text-sky-600 dark:text-white dark:hover:text-sky-300"
+                  >
+                    {link.title}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </nav>
+          <Navigation className="mt-8 px-1" onLinkClick={onLinkClick} />
         </DialogPanel>
       </Dialog>
     </>

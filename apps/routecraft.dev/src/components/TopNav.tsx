@@ -4,9 +4,18 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import clsx from 'clsx'
 
-const topNavLinks: Array<{ title: string; href: string; match: RegExp }> = [
+export const topNavLinks: Array<{
+  title: string
+  href: string
+  match: RegExp
+}> = [
   { title: 'Docs', href: '/docs/introduction', match: /^\/docs(\/|$)/ },
   { title: 'Blog', href: '/blog', match: /^\/blog(\/|$)/ },
+  {
+    title: 'Cheat sheet',
+    href: '/cheat-sheet',
+    match: /^\/cheat-sheet(\/|$)/,
+  },
   { title: 'Changelog', href: '/docs/changelog', match: /^\/docs\/changelog/ },
 ]
 
