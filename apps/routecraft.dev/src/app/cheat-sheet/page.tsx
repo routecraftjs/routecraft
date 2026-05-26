@@ -308,11 +308,7 @@ craft tui
 craft tui --db ./app/telemetry.db`}</CheatCode>
         </CheatSection>
 
-        <CheatSection
-          eyebrow="AI"
-          title="MCP integration"
-          span="wide"
-        >
+        <CheatSection eyebrow="AI" title="MCP integration">
           <CheatLabel>Expose a route as an MCP tool</CheatLabel>
           <CheatCode>{`import { mcp } from '@routecraft/ai'
 
@@ -346,29 +342,6 @@ craft()
     }
   }
 }`}</CheatCode>
-        </CheatSection>
-
-        <CheatSection eyebrow="Terminal" title="CLI">
-          <CheatCode language="bash">{`# Run a route file
-craft run ./my-route.ts
-
-# With debug logging
-craft run ./my-route.ts \\
-  --log-level debug \\
-  --log-file ./craft.log`}</CheatCode>
-          <CheatLabel>Common patterns</CheatLabel>
-          <CheatCode>{`// Scheduled fetch and notify
-craft()
-  .from(cron('0 9 * * *'))
-  .enrich(http({ url: '/api/...' }))
-  .to(smtp({ to: 'team@example.com' }))
-
-// Webhook fan-out
-craft()
-  .from(channel('webhook'))
-  .split()
-  .enrich(http({ url: ex => \`/\${ex.body.id}\` }))
-  .to(smtp({ to: ex => ex.body.email }))`}</CheatCode>
         </CheatSection>
 
         <CheatSection
@@ -412,6 +385,29 @@ craft()
               </tbody>
             </table>
           </div>
+        </CheatSection>
+
+        <CheatSection eyebrow="Terminal" title="CLI">
+          <CheatCode language="bash">{`# Run a route file
+craft run ./my-route.ts
+
+# With debug logging
+craft run ./my-route.ts \\
+  --log-level debug \\
+  --log-file ./craft.log`}</CheatCode>
+          <CheatLabel>Common patterns</CheatLabel>
+          <CheatCode>{`// Scheduled fetch and notify
+craft()
+  .from(cron('0 9 * * *'))
+  .enrich(http({ url: '/api/...' }))
+  .to(smtp({ to: 'team@example.com' }))
+
+// Webhook fan-out
+craft()
+  .from(channel('webhook'))
+  .split()
+  .enrich(http({ url: ex => \`/\${ex.body.id}\` }))
+  .to(smtp({ to: ex => ex.body.email }))`}</CheatCode>
         </CheatSection>
       </div>
 
