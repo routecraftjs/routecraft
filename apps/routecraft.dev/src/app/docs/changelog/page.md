@@ -38,7 +38,7 @@ Several breaking changes across the core, AI, mail, telemetry, logger, and CLI s
 - **Choice operation** -- new conditional routing primitive with `transform()` and `enrich()` available on branch builders. Core operations are shared between routes and branches via a `StepBuilderBase`.
 - **Discovery metadata on the route builder** -- route id, description, and validation move from source options to the route builder itself.
 
-### AI & MCP {% badge color="red" %}Breaking{% /badge %}
+### AI & MCP 
 
 - **Agent runtime** -- tool-calling loop, streaming via `onEvent` and `onDelta`, agent destination, and per-binding tool description overrides.
 - **`tools()` DSL** -- declarative tool registration, selection, and resolution.
@@ -63,7 +63,7 @@ Several breaking changes across the core, AI, mail, telemetry, logger, and CLI s
 - **Mail (IMAP)** -- the IMAP source is reliable across poll and re-evaluation workloads, with reconnect on transient fetch failures. `MailMessage` body is reshaped and a verify-sender option is available.
 - **Optional peer loader everywhere** -- every dynamic optional-peer import goes through `loadOptionalPeer` and emits `RC5017` with a copy-pasteable install hint. The remaining bespoke `try/catch` sites (mail, jose, telemetry sqlite, several `@routecraft/ai` modules) have all been migrated.
 
-### Telemetry {% badge color="red" %}Breaking{% /badge %}
+### Telemetry 
 
 - **Bun-only SQLite sink** -- the embedded telemetry SQLite sink now uses Bun's built-in `bun:sqlite`. `better-sqlite3` has been removed from the runtime, including from peer dependencies. Deployments that use the built-in sink must run under Bun (`engines.bun >= 1.1.0`); Node deployments that previously relied on `better-sqlite3` need to bring their own sink.
 
