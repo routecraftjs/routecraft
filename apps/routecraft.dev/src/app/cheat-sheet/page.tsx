@@ -296,6 +296,18 @@ const myPlugin: CraftPlugin = {
 }`}</CheatCode>
         </CheatSection>
 
+        <CheatSection eyebrow="Debug" title="Terminal UI (TUI)">
+          <p>
+            Inspect routes, exchanges, and live events. Requires the telemetry
+            plugin enabled on the context.
+          </p>
+          <CheatCode language="bash">{`# Launch the TUI (reads the telemetry DB)
+craft tui
+
+# Or point it at a specific DB
+craft tui --db ./app/telemetry.db`}</CheatCode>
+        </CheatSection>
+
         <CheatSection
           eyebrow="AI"
           title="MCP integration"
@@ -357,18 +369,6 @@ craft()
   .split()
   .enrich(http({ url: ex => \`/\${ex.body.id}\` }))
   .to(smtp({ to: ex => ex.body.email }))`}</CheatCode>
-        </CheatSection>
-
-        <CheatSection eyebrow="Debug" title="Terminal UI (TUI)">
-          <p>
-            Inspect routes, exchanges, and live events. Requires the telemetry
-            plugin enabled on the context.
-          </p>
-          <CheatCode language="bash">{`# Launch the TUI (reads the telemetry DB)
-craft tui
-
-# Or point it at a specific DB
-craft tui --db ./app/telemetry.db`}</CheatCode>
         </CheatSection>
 
         <CheatSection
