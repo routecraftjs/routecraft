@@ -60,7 +60,7 @@ export default function CheatSheetPage() {
       </section>
 
       <div className="mx-auto w-full max-w-7xl px-4 pt-8 sm:px-6 lg:px-8 print:px-0 print:pt-2">
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 xl:grid-cols-3 print:grid-cols-2 print:gap-3">
+        <div className="grid auto-rows-min grid-flow-row-dense grid-cols-1 gap-5 lg:grid-cols-2 xl:grid-cols-3 print:grid-cols-2 print:gap-3">
           <CheatSection eyebrow="Setup" title="Installation">
             <CheatCode language="bash">{`# Core library
 bun add @routecraft/routecraft

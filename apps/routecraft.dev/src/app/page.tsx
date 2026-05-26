@@ -11,38 +11,134 @@ export const metadata: Metadata = {
     'Type-safe TypeScript framework for connecting AI agents to your real systems. Write capabilities once, expose them over MCP, cron, or webhook.',
 }
 
-const resourceCards = [
+interface ResourceCard {
+  title: string
+  description: string
+  href: string
+  icon: React.ReactNode
+}
+
+const iconClass = 'h-5 w-5'
+
+const resourceCards: ResourceCard[] = [
   {
     title: 'Documentation',
-    description: 'Concepts, adapters, operations, and the full API reference.',
+    description:
+      'Concepts, adapters, operations, and the full API reference. The source of truth for everything Routecraft.',
     href: '/docs/introduction',
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={iconClass}
+        aria-hidden="true"
+      >
+        <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
+        <path d="M14 3v6h6" />
+        <path d="M8 13h8M8 17h6" />
+      </svg>
+    ),
   },
   {
     title: 'Cheat sheet',
-    description: 'The whole DSL on one printable page.',
+    description:
+      'The whole fluent DSL on one printable page. Sources, destinations, validation, errors, MCP, CLI.',
     href: '/cheat-sheet',
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={iconClass}
+        aria-hidden="true"
+      >
+        <path d="m9 18 6-6-6-6" />
+        <path d="m15 6-6 6 6 6" />
+      </svg>
+    ),
   },
   {
     title: 'Blog',
-    description: 'Patterns, tutorials, and field notes.',
+    description:
+      'Tutorials and field notes. Build your first MCP server, secure it with Clerk or WorkOS, compose capabilities.',
     href: '/blog',
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={iconClass}
+        aria-hidden="true"
+      >
+        <path d="M4 4h12a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2z" />
+        <path d="M18 8h2a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2" />
+        <path d="M8 8h6M8 12h6M8 16h4" />
+      </svg>
+    ),
   },
   {
     title: 'Examples',
-    description: 'Working capabilities you can fork and extend.',
+    description:
+      'Working capabilities you can fork and extend. File-to-HTTP, scheduled fetchers, MCP tools.',
     href: '/docs/examples',
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={iconClass}
+        aria-hidden="true"
+      >
+        <path d="M4.5 14a2.5 2.5 0 0 0 0 5h2v2h4v-7H4.5z" />
+        <path d="M11 14h2.5a2.5 2.5 0 0 1 0 5H11" />
+        <path d="M19.5 10a2.5 2.5 0 0 0 0-5h-2V3h-4v7h6.5z" />
+      </svg>
+    ),
   },
   {
     title: 'Adapters',
-    description: 'Every source, destination, and transformer in one list.',
+    description:
+      'Every source, destination, and transformer in one list. Cron, HTTP, IMAP, SMTP, MCP, file, channel, direct.',
     href: '/docs/reference/adapters',
-  },
-  {
-    title: 'Changelog',
-    description: 'What landed in each release and what is coming next.',
-    href: '/docs/changelog',
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={iconClass}
+        aria-hidden="true"
+      >
+        <path d="M9 2v6M15 2v6" />
+        <path d="M7 8h10v4a5 5 0 0 1-10 0z" />
+        <path d="M12 17v4" />
+      </svg>
+    ),
   },
 ]
+
+const changelogHighlight = {
+  version: 'v0.6.0',
+  title: 'In development',
+  description:
+    'Mail classification fixes, the new docs blog and cheat-sheet. Tag pending.',
+  href: '/docs/changelog',
+}
 
 const features = [
   {
@@ -92,6 +188,8 @@ const features = [
   },
 ]
 
+// Placeholder customer names. Replace with real customers and unhide
+// the TrustedBy section when ready (set hidden=false on the section).
 const trustedLogos = [
   'Acme Corp',
   'Globex',
@@ -99,6 +197,10 @@ const trustedLogos = [
   'Umbrella',
   'Stark Industries',
   'Wayne Enterprises',
+  'Hooli',
+  'Pied Piper',
+  'Cyberdyne',
+  'Tyrell Corp',
 ]
 
 export default function LandingPage() {
@@ -118,7 +220,7 @@ export default function LandingPage() {
 
 function LandingHero() {
   return (
-    <section className="relative overflow-hidden border-b border-gray-200 dark:border-gray-800">
+    <section className="relative overflow-hidden">
       <div className="absolute inset-0 bg-linear-to-br from-sky-50 via-white to-white dark:from-sky-950/30 dark:via-gray-950 dark:to-gray-950" />
       <div className="absolute inset-x-0 top-0 h-px bg-linear-to-r from-transparent via-sky-300/40 to-transparent dark:via-sky-500/30" />
 
@@ -190,36 +292,58 @@ function LandingHero() {
 
 function ResourceGrid() {
   return (
-    <section className="border-b border-gray-200 dark:border-gray-800">
-      <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
-        <div className="flex flex-col gap-2">
-          <p className="font-display text-sm font-medium text-sky-500">
-            Get into it
-          </p>
-          <h2 className="font-display text-3xl font-medium tracking-tight text-gray-900 dark:text-white">
-            Everything you need, one click away
+    <section>
+      <div className="mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-2xl text-center">
+          <h2 className="font-display text-3xl font-medium tracking-tight text-gray-900 sm:text-4xl dark:text-white">
+            What&apos;s in Routecraft?
           </h2>
+          <p className="mt-3 text-base text-gray-600 dark:text-gray-400">
+            Browse the resources you need to build with Routecraft. From the
+            API reference and adapters to step-by-step guides and the
+            changelog.
+          </p>
         </div>
-        <div className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {resourceCards.map((card) => (
+        <div className="mt-12 overflow-hidden rounded-3xl border border-gray-200 dark:border-gray-800">
+          <div className="grid grid-cols-1 gap-px bg-gray-200 sm:grid-cols-2 lg:grid-cols-3 dark:bg-gray-800">
+            {resourceCards.map((card) => (
+              <Link
+                key={card.href}
+                href={card.href}
+                className="group relative flex flex-col gap-3 bg-white p-8 transition hover:bg-gray-50 dark:bg-gray-900 dark:hover:bg-gray-900/60"
+              >
+                <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-gray-100 text-gray-700 transition group-hover:bg-sky-100 group-hover:text-sky-600 dark:bg-gray-800 dark:text-gray-300 dark:group-hover:bg-sky-500/10 dark:group-hover:text-sky-400">
+                  {card.icon}
+                </span>
+                <h3 className="mt-6 font-display text-xl font-medium text-gray-900 group-hover:text-sky-600 dark:text-white dark:group-hover:text-sky-300">
+                  {card.title}
+                </h3>
+                <p className="text-sm leading-relaxed text-gray-600 dark:text-gray-400">
+                  {card.description}
+                </p>
+              </Link>
+            ))}
             <Link
-              key={card.href}
-              href={card.href}
-              className="group relative flex flex-col gap-2 rounded-2xl border border-gray-200 bg-white p-6 transition hover:border-sky-300 hover:shadow-md dark:border-gray-800 dark:bg-gray-900/40 dark:hover:border-sky-500/40"
+              href={changelogHighlight.href}
+              className="group relative flex flex-col justify-between gap-4 bg-sky-50/60 p-8 transition hover:bg-sky-50 dark:bg-sky-500/5 dark:hover:bg-sky-500/10"
             >
-              <h3 className="font-display text-lg font-medium text-gray-900 group-hover:text-sky-600 dark:text-white dark:group-hover:text-sky-300">
-                {card.title}
-              </h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                {card.description}
-              </p>
-              <span className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-sky-600 group-hover:text-sky-500 dark:text-sky-400">
-                Open
+              <div>
+                <p className="font-display text-xs font-medium text-sky-500">
+                  {changelogHighlight.version}
+                </p>
+                <h3 className="mt-2 font-display text-xl font-medium text-gray-900 group-hover:text-sky-600 dark:text-white dark:group-hover:text-sky-300">
+                  {changelogHighlight.title}
+                </h3>
+                <p className="mt-3 text-sm leading-relaxed text-gray-600 dark:text-gray-400">
+                  {changelogHighlight.description}
+                </p>
+              </div>
+              <span className="inline-flex h-10 w-10 items-center justify-center self-end rounded-full border border-gray-200 bg-white text-gray-700 transition group-hover:border-sky-300 group-hover:bg-sky-100 group-hover:text-sky-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:group-hover:border-sky-500/40 dark:group-hover:bg-sky-500/10 dark:group-hover:text-sky-300">
                 <svg
-                  aria-hidden="true"
                   viewBox="0 0 20 20"
                   fill="currentColor"
                   className="h-4 w-4 transition group-hover:translate-x-0.5"
+                  aria-hidden="true"
                 >
                   <path
                     fillRule="evenodd"
@@ -229,7 +353,7 @@ function ResourceGrid() {
                 </svg>
               </span>
             </Link>
-          ))}
+          </div>
         </div>
       </div>
     </section>
@@ -238,7 +362,7 @@ function ResourceGrid() {
 
 function Features() {
   return (
-    <section className="border-b border-gray-200 bg-gray-50/60 dark:border-gray-800 dark:bg-gray-900/30">
+    <section className="bg-gray-50/60 dark:bg-gray-900/30">
       <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
         <div className="flex flex-col gap-2">
           <p className="font-display text-sm font-medium text-sky-500">
@@ -287,7 +411,7 @@ function Features() {
 
 function FeaturedBlogTeaser({ post }: { post: BlogPostMeta }) {
   return (
-    <section className="border-b border-gray-200 dark:border-gray-800">
+    <section>
       <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
         <div className="flex flex-col gap-2">
           <p className="font-display text-sm font-medium text-sky-500">
@@ -389,25 +513,34 @@ function FeaturedBlogTeaser({ post }: { post: BlogPostMeta }) {
 }
 
 function TrustedBy({ logos }: { logos: string[] }) {
+  // Duplicate the list so the marquee can loop seamlessly with translateX(-50%).
+  const looped = [...logos, ...logos]
   return (
-    <section
-      className="hidden border-b border-gray-200 dark:border-gray-800"
-      aria-label="Trusted by"
-      data-trusted-by="placeholder"
-    >
-      <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
+    <section aria-label="Trusted by" data-trusted-by="placeholder">
+      <div className="py-16">
         <p className="text-center font-display text-sm font-medium text-gray-500 dark:text-gray-400">
           Trusted by teams building with AI
         </p>
-        <div className="mt-8 grid grid-cols-2 items-center gap-x-8 gap-y-6 sm:grid-cols-3 lg:grid-cols-6">
-          {logos.map((name) => (
-            <div
-              key={name}
-              className="flex h-12 items-center justify-center text-base font-semibold tracking-tight text-gray-400 dark:text-gray-500"
-            >
-              {name}
-            </div>
-          ))}
+        <div
+          className="group relative mt-8 overflow-hidden"
+          style={{
+            maskImage:
+              'linear-gradient(to right, transparent, black 8%, black 92%, transparent)',
+            WebkitMaskImage:
+              'linear-gradient(to right, transparent, black 8%, black 92%, transparent)',
+          }}
+        >
+          <div className="animate-marquee flex w-max gap-16 px-8 group-hover:[animation-play-state:paused]">
+            {looped.map((name, i) => (
+              <div
+                key={`${name}-${i}`}
+                aria-hidden={i >= logos.length ? 'true' : undefined}
+                className="flex h-12 shrink-0 items-center text-xl font-semibold tracking-tight text-gray-400 transition hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
+              >
+                {name}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </section>

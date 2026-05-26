@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import clsx from 'clsx'
 
+import { Footer } from '@/components/Footer'
 import { Logo } from '@/components/Logo'
 import { MobileNavigation } from '@/components/MobileNavigation'
 import { Navigation } from '@/components/Navigation'
@@ -84,10 +85,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const isBlogSection = pathname?.startsWith('/blog') ?? false
   const isCheatSheet = pathname?.startsWith('/cheat-sheet') ?? false
   const showDocsSidebar = !isHomePage && !isBlogSection && !isCheatSheet
-  const useFullWidth = isHomePage
+  const useFullWidth = isHomePage || isCheatSheet
 
   return (
-    <div className="flex w-full flex-col">
+    <div className="flex min-h-full w-full flex-col">
       <Header />
 
       <div
@@ -109,6 +110,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
         )}
         {children}
       </div>
+
+      <Footer />
     </div>
   )
 }
