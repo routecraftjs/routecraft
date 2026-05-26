@@ -23,7 +23,7 @@ export const metadata: Metadata = {
 export default function CheatSheetPage() {
   return (
     <main className="w-full pb-16 print:pb-0">
-      <section className="border-b border-gray-200 bg-linear-to-br from-sky-50 via-white to-white print:border-0 print:bg-transparent dark:border-gray-800 dark:from-sky-950/40 dark:via-gray-950 dark:to-gray-950">
+      <section className="bg-linear-to-br from-sky-50 via-white to-white print:bg-transparent dark:from-sky-950/40 dark:via-gray-950 dark:to-gray-950">
         <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8 print:px-0 print:py-2">
           <div className="flex flex-wrap items-start justify-between gap-6">
             <div className="flex-1">
