@@ -210,9 +210,9 @@ export default function LandingPage() {
     <div className="w-full">
       <LandingHero />
       <ResourceGrid />
+      <TrustedBy logos={trustedLogos} />
       <Features />
       {featuredPost && <FeaturedBlogTeaser post={featuredPost} />}
-      <TrustedBy logos={trustedLogos} />
       <FinalCTA />
     </div>
   )
@@ -293,7 +293,7 @@ function LandingHero() {
 function ResourceGrid() {
   return (
     <section>
-      <div className="mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl px-4 py-24 sm:px-6 lg:px-8 lg:py-28">
         <div className="mx-auto max-w-2xl text-center">
           <h2 className="font-display text-3xl font-medium tracking-tight text-gray-900 sm:text-4xl dark:text-white">
             What&apos;s in Routecraft?
@@ -363,7 +363,7 @@ function ResourceGrid() {
 function Features() {
   return (
     <section className="bg-gray-50/60 dark:bg-gray-900/30">
-      <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl px-4 py-24 sm:px-6 lg:px-8 lg:py-28">
         <div className="flex flex-col gap-2">
           <p className="font-display text-sm font-medium text-sky-500">
             Why Routecraft
@@ -412,7 +412,7 @@ function Features() {
 function FeaturedBlogTeaser({ post }: { post: BlogPostMeta }) {
   return (
     <section>
-      <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl px-4 py-24 sm:px-6 lg:px-8 lg:py-28">
         <div className="flex flex-col gap-2">
           <p className="font-display text-sm font-medium text-sky-500">
             From the blog
@@ -517,7 +517,7 @@ function TrustedBy({ logos }: { logos: string[] }) {
   const looped = [...logos, ...logos]
   return (
     <section aria-label="Trusted by" data-trusted-by="placeholder">
-      <div className="py-16">
+      <div className="py-20">
         <p className="text-center font-display text-sm font-medium text-gray-500 dark:text-gray-400">
           Trusted by teams building with AI
         </p>
@@ -550,7 +550,7 @@ function TrustedBy({ logos }: { logos: string[] }) {
 function FinalCTA() {
   return (
     <section className="bg-gray-50 dark:bg-gray-950">
-      <div className="mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl px-4 py-24 sm:px-6 lg:px-8 lg:py-28">
         <div className="overflow-hidden rounded-3xl border border-gray-200 bg-linear-to-br from-sky-50 via-white to-white p-8 sm:p-12 dark:border-gray-800 dark:from-sky-950/40 dark:via-gray-900 dark:to-gray-900">
           <div className="mx-auto max-w-2xl text-center">
             <h2 className="font-display text-3xl font-medium tracking-tight text-gray-900 sm:text-4xl dark:text-white">
