@@ -16,11 +16,13 @@ imageAlt: Diagram showing an MCP client exchanging an OAuth token with a Clerk-p
 layout: blog-post
 ---
 
-The Model Context Protocol gives AI agents a typed, structured way to call your tools. The moment your MCP server is reachable over the network, the next question is unavoidable: who is allowed to call it?
+If you have Googled how to put Clerk in front of an MCP server, you have probably hit the same wall I did: the MCP spec wants OAuth 2.1 with Dynamic Client Registration, Clerk speaks both, but wiring the two together is more than a copy-paste from either set of docs. There is a discovery document to expose, a token verifier to set up, a Dynamic Client Registration lookup to handle, and a question about where the proxy endpoints live.
 
-This post walks through building a small MCP server with [Routecraft](/docs/introduction), then putting [Clerk](https://clerk.com) in front of it so that only authenticated users can invoke its tools. We will follow the exact wiring pattern I shipped in production on DevOptix's internal MCP server, simplified to a generic example you can copy.
+This post shows the working integration in about sixty lines of TypeScript using [Routecraft](/docs/introduction), a code-first automation framework that handles the MCP transport, the JWKS verification, and the auth plumbing for you. The same code is in production on DevOptix's internal MCP server, simplified here to a generic notes example you can copy and modify.
 
-A second post in this series will cover migrating the same server from Clerk to [WorkOS AuthKit](https://workos.com/docs/authkit). For now, Clerk gives us the friendlier on-ramp.
+If you already have an MCP server and just need the Clerk auth bit, you can skip to [Wiring Clerk into the MCP plugin](#wiring-clerk-into-the-mcp-plugin). If MCP is new to you, [Build your first MCP server](/blog/your-first-mcp-server-in-typescript) is the prequel.
+
+A follow-up post covers migrating the same server from Clerk to [WorkOS AuthKit](https://workos.com/docs/authkit). For now, Clerk gives us the friendlier on-ramp.
 
 ## A short primer on MCP
 
@@ -365,6 +367,60 @@ A few things worth calling out:
 - **`audience: '*'`** is permissive on purpose. Clerk tokens are issued for a specific Clerk instance, not our MCP server, so we accept any audience as long as the issuer and signature match. If you want stricter checks, set `audience` to a value you mint into a Clerk JWT template.
 - **`client` is the bridge to Dynamic Client Registration.** When Claude registers itself, Routecraft needs to validate the resulting `client_id`. We look it up via Clerk's REST API. This is the one spot where Clerk's OAuth applications feature does the heavy lifting for us.
 
+### What Routecraft just did for you
+
+It is worth pausing here, because the snippet above is short for a reason. Without a framework, the same integration looks roughly like this in raw Node:
+
+```ts
+// The equivalent in Express, abbreviated for length
+import express from 'express'
+import { createRemoteJWKSet, jwtVerify } from 'jose'
+
+const app = express()
+const jwks = createRemoteJWKSet(new URL(`${CLERK_BASE}/.well-known/jwks.json`))
+
+// 1. Hand-write the OAuth 2.0 Protected Resource metadata endpoint
+app.get('/.well-known/oauth-protected-resource', (_req, res) => {
+  res.json({
+    resource: env.MCP_ISSUER_URL,
+    authorization_servers: [env.MCP_ISSUER_URL],
+    scopes_supported: ['openid'],
+    bearer_methods_supported: ['header'],
+  })
+})
+
+// 2. Hand-write the OAuth proxy endpoints
+app.get('/authorize', (req, res) => res.redirect(`${CLERK_BASE}/oauth/authorize?${new URLSearchParams(req.query as Record<string, string>)}`))
+app.post('/token', proxyTo(`${CLERK_BASE}/oauth/token`))
+app.post('/register', proxyTo(`${CLERK_BASE}/oauth/register`))
+
+// 3. Hand-write the bearer token middleware
+async function verify(req, res, next) {
+  const auth = req.headers.authorization
+  if (!auth?.startsWith('Bearer ')) return res.status(401).json({ error: 'no token' })
+  try {
+    const { payload } = await jwtVerify(auth.slice(7), jwks, {
+      issuer: CLERK_BASE,
+    })
+    req.principal = { subject: payload.sub, claims: payload }
+    next()
+  } catch (err) {
+    res.status(401).json({ error: 'invalid token' })
+  }
+}
+
+// 4. Hand-write the MCP JSON-RPC handler
+app.post('/mcp', verify, async (req, res) => {
+  // parse JSON-RPC envelope, dispatch to the right tool,
+  // validate input against the schema, format errors as
+  // MCP error frames, handle session management ...
+})
+```
+
+That is around 80 lines before you have actually written your first tool, and it is missing the input validation, the structured logging, the per-tool authorization gate, and the Dynamic Client Registration validation that Routecraft handles for you. The cost is not the lines, it is keeping all four of those things correct as the MCP spec evolves and your tool surface grows.
+
+The Routecraft version is what you write. Everything else is what you do not.
+
 Restart the server. Then hit the discovery endpoint:
 
 ```bash
@@ -498,6 +554,14 @@ This wires Clerk in as the authorization server, with Routecraft acting as a thi
 
 In the next post in this series I will walk through migrating the same server to [WorkOS AuthKit](https://workos.com/docs/authkit). WorkOS pushes the OAuth flow back to its own hosted endpoints, so Routecraft drops the proxy and runs in pure validator mode. We get cleaner separation, better organization handling, and richer role data. We also lose the friendliest part of Clerk's offering, which is worth talking about honestly.
 
-If you want to follow along, the full Routecraft documentation is at [routecraft.dev/docs](/docs/introduction). The Clerk MCP integration lives in [`@routecraft/ai`](/docs/advanced/expose-as-mcp).
+## Try it without leaving your browser
 
-Pull requests, questions, and "you got this wrong" notes are welcome on [GitHub](https://github.com/routecraftjs/routecraft/issues).
+The fastest way to see this working is the [Routecraft playground in GitHub Codespaces](https://codespaces.new/routecraftjs/craft-playground). Full terminal, ready in about thirty seconds, no install. Add a `.env` file with your Clerk keys and `bun run craft run` is one command away.
+
+Or scaffold a project locally:
+
+```bash
+bunx create-routecraft my-mcp-server
+```
+
+Full docs at [routecraft.dev/docs](/docs/introduction). The MCP and auth primitives live in [`@routecraft/ai`](/docs/advanced/expose-as-mcp) and the [security reference](/docs/reference/configuration). Questions and corrections welcome on [GitHub](https://github.com/routecraftjs/routecraft/issues).

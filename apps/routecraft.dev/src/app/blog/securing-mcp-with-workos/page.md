@@ -15,9 +15,11 @@ imageAlt: "Side-by-side architecture diagram of the Clerk OAuth proxy flow and t
 layout: blog-post
 ---
 
-This is part two of a short series on securing Routecraft MCP servers. [Part one](/blog/securing-mcp-with-clerk) wired Clerk in as the authorization server, with Routecraft acting as a thin OAuth proxy plus a JWKS verifier. This post replaces all of that with [WorkOS AuthKit](https://workos.com/docs/authkit) running in validator mode.
+If you have Googled "WorkOS AuthKit MCP server" or "validator-mode OAuth MCP", you have probably found two camps: people running their own OAuth proxy in front of MCP, and people using WorkOS AuthKit's hosted endpoints directly. The second is cleaner. Less of your code in the auth path, richer role data, stateless verification. The catch: getting there from a working Clerk proxy setup is a focused refactor, not a swap.
 
-If you have not read part one, you can still follow along, but the two posts cover the same code base. Skim the Clerk version first to see the starting point.
+This post is that refactor, in about fifty lines of TypeScript using [Routecraft](/docs/introduction). It assumes you already have an MCP server (the [Clerk post](/blog/securing-mcp-with-clerk) builds the starting point) and walks through swapping the auth out. Same capability code, completely different auth model.
+
+If you are landing here cold and want the building-an-MCP-server-from-scratch story, the [first post in the series](/blog/your-first-mcp-server-in-typescript) is your starting point.
 
 ## Why migrate
 
@@ -276,6 +278,60 @@ auth: jwks({
 
 If somebody pastes in a token issued by your AuthKit for a different application in the same WorkOS account, it bounces. That is the correct behavior.
 
+## What Routecraft just did for you
+
+The fifty-line version above is short for a reason. Without a framework, the equivalent in raw Node looks roughly like:
+
+```ts
+// The equivalent in Express, abbreviated for length
+import express from 'express'
+import { createRemoteJWKSet, jwtVerify } from 'jose'
+
+const app = express()
+const jwks = createRemoteJWKSet(
+  new URL(`https://api.workos.com/sso/jwks/${env.WORKOS_CLIENT_ID}`),
+)
+
+// 1. The verifier middleware
+async function verify(req, res, next) {
+  const auth = req.headers.authorization
+  if (!auth?.startsWith('Bearer ')) return res.status(401).end()
+  try {
+    const { payload } = await jwtVerify(auth.slice(7), jwks, {
+      issuer: env.WORKOS_AUTHKIT_URL,
+      audience: env.MCP_ISSUER_URL,
+    })
+    req.principal = { subject: payload.sub, claims: payload }
+    next()
+  } catch {
+    res.status(401).end()
+  }
+}
+
+// 2. The userinfo hydration (with a cache you have to maintain)
+const cache = new Map<string, { value: Principal; exp: number }>()
+async function hydrate(req, _res, next) {
+  const key = `${req.principal.subject}:${req.principal.claims.org_id}`
+  const hit = cache.get(key)
+  if (hit && hit.exp > Date.now()) {
+    Object.assign(req.principal, hit.value)
+    return next()
+  }
+  const res = await fetch(
+    `https://api.workos.com/user_management/organization_memberships?...`,
+    { headers: { Authorization: `Bearer ${env.WORKOS_API_KEY}` } },
+  )
+  // ...parse, extract roles, attach to principal, set cache TTL, handle errors
+  next()
+}
+
+// 3. The MCP JSON-RPC handler, the input validation, the per-tool
+//    authorization gate, and the discovery document at
+//    /.well-known/oauth-protected-resource ...
+```
+
+That is roughly 100 lines and one cache-correctness problem before you have written your first tool. The Routecraft version is the `mcp:` config above. The cache, the discovery endpoint, the JSON-RPC framing, the authorize gate, and the input validation are all handled by the framework. You write the `userinfo` callback and your tools.
+
 ## Side-by-side: what got smaller
 
 The Clerk version of `craft.config.ts` was around 60 lines once you counted the OAuth proxy, the Clerk Base derivation, and the Dynamic Client Registration lookup function. The WorkOS version above is around 50 lines, and a third of those are TypeScript types for the membership response.
@@ -322,4 +378,14 @@ If you are picking one for a new project, my recommendation is:
 
 The Routecraft docs cover both in [`@routecraft/ai`'s MCP guide](/docs/advanced/expose-as-mcp). The full Eywa source is internal, but the patterns here mirror what we run.
 
-As ever, questions and corrections welcome on [GitHub](https://github.com/routecraftjs/routecraft/issues).
+## Try it without leaving your browser
+
+Open the [Routecraft playground in GitHub Codespaces](https://codespaces.new/routecraftjs/craft-playground). Drop a `.env` file with your WorkOS values in and `bun run craft run` is one command away.
+
+Or scaffold a project locally:
+
+```bash
+bunx create-routecraft my-mcp-server
+```
+
+Full docs at [routecraft.dev/docs](/docs/introduction). Questions and corrections welcome on [GitHub](https://github.com/routecraftjs/routecraft/issues).
