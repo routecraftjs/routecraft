@@ -46,3 +46,41 @@
     display: none;
   }
 }
+
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+
+  html,
+  body {
+    background: white !important;
+    color: black !important;
+  }
+
+  /* Hide site chrome when printing */
+  header[class*='sticky'],
+  nav[aria-label],
+  footer.print\:hidden,
+  .print\:hidden {
+    display: none !important;
+  }
+
+  /* Prevent dark mode classes from inverting colours on paper */
+  .dark\:bg-gray-950,
+  .dark\:bg-gray-900\/40,
+  .dark\:bg-gray-900,
+  .dark\:bg-gray-800,
+  .dark\:text-white,
+  .dark\:text-gray-300,
+  .dark\:text-gray-400 {
+    background: transparent !important;
+    color: inherit !important;
+  }
+
+  a {
+    color: inherit !important;
+    text-decoration: none !important;
+  }
+}

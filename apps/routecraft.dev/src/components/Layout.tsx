@@ -83,7 +83,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const isHomePage = pathname === '/'
   const isBlogSection = pathname?.startsWith('/blog') ?? false
-  const showDocsSidebar = !isHomePage && !isBlogSection
+  const isCheatSheet = pathname?.startsWith('/cheat-sheet') ?? false
+  const showDocsSidebar = !isHomePage && !isBlogSection && !isCheatSheet
 
   return (
     <div className="flex w-full flex-col">

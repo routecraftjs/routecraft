@@ -115,6 +115,14 @@ export default function sitemap(): MetadataRoute.Sitemap {
     }
   }
 
+  // Add the cheat sheet reference page
+  routes.push({
+    url: `${baseUrl}/cheat-sheet/`,
+    lastModified: new Date(),
+    changeFrequency: 'monthly',
+    priority: 0.8,
+  })
+
   // Add raw markdown files for AI crawlers and direct access
   const rawDir = path.join(process.cwd(), 'public', 'raw')
   const rawPages = collectRawMarkdown(rawDir, '/raw')

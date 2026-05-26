@@ -1,6 +1,6 @@
 ---
 title: The Routecraft DSL cheat sheet
-description: One graphic that fits the entire Routecraft fluent API onto a single page. Filter, validate, transform, enrich, split, aggregate, error handling, MCP integration, the events system, the CLI, and a quick-reference table. Plus a per-section narrative and notes on what changed in v0.5.0.
+description: "One page that fits the entire Routecraft fluent API: sources, destinations, operations, validation, error handling, MCP integration, the events system, CLI, and a quick-reference table. Live at /cheat-sheet, print-to-PDF ready."
 date: 2026-05-22
 author: Jaco Botha
 authorRole: Founder, DevOptix
@@ -10,14 +10,14 @@ tags:
   - dsl
   - typescript
   - reference
-image: /images/blog/routecraft-dsl-cheat-sheet/cheat-sheet.png
-imageAlt: "One-page Routecraft cheat sheet covering installation, builder DSL, sources, destinations, exchanges, split and aggregate, enrich, validation, events, error handling, context and plugins, AI and MCP integration, CLI, and TUI"
 layout: blog-post
 ---
 
-If you write Routecraft routes more than once a week, you stop needing the docs for the common cases and start needing a single page you can keep open in a second tab. This is that page. The cheat sheet above fits the entire fluent API onto one graphic. The walkthrough below is the narrative version, useful for new readers and as a refresher when you forget which side of `.enrich()` the destination goes.
+If you write Routecraft routes more than once a week, you stop needing the docs for the common cases and start needing a single page you can keep open in a second tab. I built that page.
 
-Save the image. Print it. Pin it to your monitor. Whatever works for you.
+**Live at [routecraft.dev/cheat-sheet](/cheat-sheet).** Print it (Cmd/Ctrl + P -> Save as PDF) for offline reference. Bookmark it for the keyboard-shortcut moments. Pin the PDF to your monitor if that is your style.
+
+The rest of this post is the narrative version: the same content, explained section by section. Useful for new readers and as a refresher when you forget which side of `.enrich()` the destination goes. If you just want the reference, go to the [page itself](/cheat-sheet).
 
 > Note on versions: the cheat sheet was drawn for Routecraft v0.4.0. The shape is unchanged in v0.5.0, but a few names moved. Notes inline below where it matters, plus a [v0.5.0 changes](#whats-changed-in-v050) section at the bottom.
 
@@ -420,6 +420,7 @@ I will keep this section updated as v0.5 stabilises. If you spot a stale entry, 
 
 ## Where to go next
 
+- [The cheat sheet page](/cheat-sheet) for the printable reference.
 - [Build your first MCP server in TypeScript](/blog/your-first-mcp-server-in-typescript) if you have not written a Routecraft capability yet.
 - [Securing an MCP server with Clerk](/blog/securing-mcp-with-clerk) once you are ready for HTTP and auth.
 - [The full Routecraft docs](/docs/introduction) for the deeper reference.
