@@ -10,6 +10,9 @@ interface Node {
 const RADIUS = 200
 const CENTER_X = 320
 const CENTER_Y = 260
+const CENTER_LOGO_RADIUS = 54
+const NODE_RADIUS = 34
+const ANIM_GAP = 4
 
 const nodes: Node[] = [
   {
@@ -180,27 +183,44 @@ export function DataFlowAnimation({ className }: { className?: string }) {
         {/* Connection lines + traveling dots */}
         {nodes.map((node, i) => {
           const pos = nodePosition(node.angle)
-          const pathId = `path-${node.id}`
-          const reverseId = `path-${node.id}-reverse`
+          const ux = (pos.x - CENTER_X) / RADIUS
+          const uy = (pos.y - CENTER_Y) / RADIUS
+          const animStartX = CENTER_X + (CENTER_LOGO_RADIUS + ANIM_GAP) * ux
+          const animStartY = CENTER_Y + (CENTER_LOGO_RADIUS + ANIM_GAP) * uy
+          const animEndX = pos.x - (NODE_RADIUS + ANIM_GAP) * ux
+          const animEndY = pos.y - (NODE_RADIUS + ANIM_GAP) * uy
+          const outboundId = `out-${node.id}`
+          const inboundId = `in-${node.id}`
           const delay = (i * 0.5).toFixed(2)
+          const inboundBegin = (parseFloat(delay) + 1.6).toFixed(2)
           return (
             <g key={node.id}>
-              <path
-                id={pathId}
-                d={`M ${CENTER_X} ${CENTER_Y} L ${pos.x} ${pos.y}`}
+              {/* Visible connection line (full length, center to node) */}
+              <line
+                x1={CENTER_X}
+                y1={CENTER_Y}
+                x2={pos.x}
+                y2={pos.y}
                 className="stroke-sky-400/40 dark:stroke-sky-500/30"
                 strokeWidth="1.5"
+              />
+              {/* Invisible motion paths that stop short of the circles */}
+              <path
+                id={outboundId}
+                d={`M ${animStartX} ${animStartY} L ${animEndX} ${animEndY}`}
+                className="invisible"
                 fill="none"
               />
               <path
-                id={reverseId}
-                d={`M ${pos.x} ${pos.y} L ${CENTER_X} ${CENTER_Y}`}
+                id={inboundId}
+                d={`M ${animEndX} ${animEndY} L ${animStartX} ${animStartY}`}
                 className="invisible"
                 fill="none"
               />
               {/* Outbound dot (center -> node) */}
               <circle
                 r="4"
+                opacity="0"
                 className="fill-sky-500 dark:fill-sky-400"
               >
                 <animateMotion
@@ -208,12 +228,12 @@ export function DataFlowAnimation({ className }: { className?: string }) {
                   repeatCount="indefinite"
                   begin={`${delay}s`}
                 >
-                  <mpath href={`#${pathId}`} />
+                  <mpath href={`#${outboundId}`} />
                 </animateMotion>
                 <animate
                   attributeName="opacity"
                   values="0;1;1;0"
-                  keyTimes="0;0.1;0.85;1"
+                  keyTimes="0;0.08;0.9;1"
                   dur="3.2s"
                   repeatCount="indefinite"
                   begin={`${delay}s`}
@@ -222,22 +242,23 @@ export function DataFlowAnimation({ className }: { className?: string }) {
               {/* Inbound dot (node -> center) */}
               <circle
                 r="3"
+                opacity="0"
                 className="fill-indigo-400 dark:fill-indigo-300"
               >
                 <animateMotion
                   dur="3.2s"
                   repeatCount="indefinite"
-                  begin={`${(parseFloat(delay) + 1.6).toFixed(2)}s`}
+                  begin={`${inboundBegin}s`}
                 >
-                  <mpath href={`#${reverseId}`} />
+                  <mpath href={`#${inboundId}`} />
                 </animateMotion>
                 <animate
                   attributeName="opacity"
                   values="0;1;1;0"
-                  keyTimes="0;0.1;0.85;1"
+                  keyTimes="0;0.08;0.9;1"
                   dur="3.2s"
                   repeatCount="indefinite"
-                  begin={`${(parseFloat(delay) + 1.6).toFixed(2)}s`}
+                  begin={`${inboundBegin}s`}
                 />
               </circle>
             </g>
