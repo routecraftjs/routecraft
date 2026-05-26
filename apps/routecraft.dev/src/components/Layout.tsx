@@ -12,7 +12,6 @@ import { Navigation } from '@/components/Navigation'
 import { Search } from '@/components/Search'
 import { ThemeSelector } from '@/components/ThemeSelector'
 import { TopNav } from '@/components/TopNav'
-import { VersionSelector } from '@/components/VersionSelector'
 
 function GitHubIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
   return (
@@ -61,12 +60,11 @@ function Header() {
         </Link>
         <TopNav />
       </div>
-      <div className="-my-5 mr-6 sm:mr-8 md:mr-0">
-        <Search />
-      </div>
-      <div className="relative flex basis-0 justify-end gap-6 sm:gap-8 md:grow">
+      <div className="flex items-center gap-4 sm:gap-5">
+        <div className="-my-5">
+          <Search />
+        </div>
         <ThemeSelector className="relative z-10" />
-        <VersionSelector className="relative z-10" />
         <Link
           href="https://github.com/routecraftjs/routecraft"
           className="group"
