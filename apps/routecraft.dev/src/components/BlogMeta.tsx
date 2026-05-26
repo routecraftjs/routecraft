@@ -8,62 +8,53 @@ export function BlogMeta({
   author,
   authorRole,
   className,
-  divider = '•',
 }: {
   date: string
   readingTime?: number
   author?: string
   authorRole?: string
   className?: string
-  divider?: string
 }) {
-  const parts: React.ReactNode[] = []
-  if (date) {
-    parts.push(
-      <time key="date" dateTime={date}>
-        {formatBlogDate(date)}
-      </time>,
-    )
-  }
-  if (typeof readingTime === 'number') {
-    parts.push(<span key="rt">{readingTime} min read</span>)
-  }
-  if (author) {
-    parts.push(
-      <span key="author">
-        by{' '}
-        <span className="font-medium text-gray-700 dark:text-gray-300">
-          {author}
-        </span>
-        {authorRole ? (
-          <span className="text-gray-500 dark:text-gray-500">
-            , {authorRole}
-          </span>
-        ) : null}
-      </span>,
-    )
-  }
-
   return (
     <div
-      className={clsx(
-        'flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-500 dark:text-gray-400',
-        className,
-      )}
+      className={clsx('flex flex-wrap items-center gap-x-4 gap-y-2', className)}
     >
-      {parts.map((part, index) => (
-        <span key={index} className="flex items-center gap-x-3">
-          {part}
-          {index < parts.length - 1 && (
-            <span
-              aria-hidden="true"
-              className="text-gray-300 dark:text-gray-600"
-            >
-              {divider}
+      {date && (
+        <time
+          dateTime={date}
+          className="font-mono text-[0.65rem] tracking-[0.2em] text-ink/55 uppercase dark:text-paper/55"
+        >
+          {formatBlogDate(date)}
+        </time>
+      )}
+      {typeof readingTime === 'number' && (
+        <>
+          <span aria-hidden="true" className="text-ink/25 dark:text-paper/25">
+            /
+          </span>
+          <span className="font-mono text-[0.65rem] tracking-[0.2em] text-ink/55 uppercase dark:text-paper/55">
+            {readingTime} min read
+          </span>
+        </>
+      )}
+      {author && (
+        <>
+          <span aria-hidden="true" className="text-ink/25 dark:text-paper/25">
+            /
+          </span>
+          <span className="font-editorial text-[1rem] text-ink/65 italic dark:text-paper/65">
+            by{' '}
+            <span className="text-ink not-italic dark:text-paper">
+              {author}
             </span>
-          )}
-        </span>
-      ))}
+            {authorRole ? (
+              <span className="text-ink/55 dark:text-paper/55">
+                , {authorRole}
+              </span>
+            ) : null}
+          </span>
+        </>
+      )}
     </div>
   )
 }

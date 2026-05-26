@@ -1,5 +1,5 @@
 import { type Metadata } from 'next'
-import { Inter } from 'next/font/google'
+import { Inter, Fraunces, JetBrains_Mono } from 'next/font/google'
 import localFont from 'next/font/local'
 import clsx from 'clsx'
 
@@ -19,6 +19,19 @@ const lexend = localFont({
   src: '../fonts/lexend.woff2',
   display: 'swap',
   variable: '--font-lexend',
+})
+
+const fraunces = Fraunces({
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-fraunces',
+  axes: ['opsz', 'SOFT'],
+})
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-jetbrains-mono',
 })
 
 export const metadata: Metadata = {
@@ -63,10 +76,16 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={clsx('h-full antialiased', inter.variable, lexend.variable)}
+      className={clsx(
+        'h-full antialiased',
+        inter.variable,
+        lexend.variable,
+        fraunces.variable,
+        jetbrainsMono.variable,
+      )}
       suppressHydrationWarning
     >
-      <body className="flex min-h-full bg-gray-50 dark:bg-gray-950">
+      <body className="flex min-h-full bg-paper text-ink dark:bg-ink dark:text-paper">
         <Providers>
           <Layout>{children}</Layout>
         </Providers>

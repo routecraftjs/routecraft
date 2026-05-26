@@ -59,59 +59,57 @@ export function ThemeSelector(
   const mounted = useClientValue(() => true, false)
 
   if (!mounted) {
-    return <div className="h-6 w-6" />
+    return <div className="h-5 w-5" />
   }
 
   return (
     <Listbox as="div" value={theme} onChange={setTheme} {...props}>
       <Label className="sr-only">Theme</Label>
       <ListboxButton
-        className="flex h-6 w-6 items-center justify-center rounded-lg shadow-md ring-1 shadow-black/5 ring-black/5 dark:bg-gray-700 dark:ring-white/5 dark:ring-inset"
+        className="group flex h-5 w-5 items-center justify-center"
         aria-label="Theme"
       >
         <LightIcon
           className={clsx(
-            'h-4 w-4 dark:hidden',
-            theme === 'system' ? 'fill-gray-400' : 'fill-sky-400',
+            'h-4 w-4 transition group-hover:fill-cobalt-500 dark:hidden',
+            theme === 'system' ? 'fill-ink/45' : 'fill-ink/70',
           )}
         />
         <DarkIcon
           className={clsx(
-            'hidden h-4 w-4 dark:block',
-            theme === 'system' ? 'fill-gray-400' : 'fill-sky-400',
+            'hidden h-4 w-4 transition group-hover:fill-cobalt-300 dark:block',
+            theme === 'system' ? 'fill-paper/45' : 'fill-paper/70',
           )}
         />
       </ListboxButton>
-      <ListboxOptions className="absolute top-full left-1/2 mt-3 w-36 -translate-x-1/2 space-y-1 rounded-xl bg-white p-3 text-sm font-medium shadow-md ring-1 shadow-black/5 ring-black/5 dark:bg-gray-800 dark:ring-white/5">
-        {themes.map((theme) => (
+      <ListboxOptions className="absolute top-full right-0 z-10 mt-3 w-40 border border-ink/15 bg-paper p-1 font-mono text-[0.7rem] tracking-[0.18em] uppercase shadow-[0_20px_60px_-30px_rgba(12,12,16,0.4)] dark:border-paper/15 dark:bg-ink-soft">
+        {themes.map((themeItem) => (
           <ListboxOption
-            key={theme.value}
-            value={theme.value}
+            key={themeItem.value}
+            value={themeItem.value}
             className={({ focus, selected }) =>
               clsx(
-                'flex cursor-pointer items-center rounded-[0.625rem] p-1 select-none',
+                'flex cursor-pointer items-center gap-3 px-3 py-2 transition select-none',
                 {
-                  'text-sky-500': selected,
-                  'text-gray-900 dark:text-white': focus && !selected,
-                  'text-gray-700 dark:text-gray-400': !focus && !selected,
-                  'bg-gray-100 dark:bg-gray-900/40': focus,
+                  'text-cobalt-500': selected,
+                  'bg-paper-deep text-ink dark:bg-ink dark:text-paper':
+                    focus && !selected,
+                  'text-ink/70 dark:text-paper/70': !focus && !selected,
                 },
               )
             }
           >
             {({ selected }) => (
               <>
-                <div className="rounded-md bg-white p-1 shadow-sm ring-1 ring-gray-900/5 dark:bg-gray-700 dark:ring-white/5 dark:ring-inset">
-                  <theme.icon
-                    className={clsx(
-                      'h-4 w-4',
-                      selected
-                        ? 'fill-sky-400 dark:fill-sky-400'
-                        : 'fill-gray-400',
-                    )}
-                  />
-                </div>
-                <div className="ml-3">{theme.name}</div>
+                <themeItem.icon
+                  className={clsx(
+                    'h-3.5 w-3.5 transition',
+                    selected
+                      ? 'fill-cobalt-500'
+                      : 'fill-ink/55 dark:fill-paper/55',
+                  )}
+                />
+                <span>{themeItem.name}</span>
               </>
             )}
           </ListboxOption>

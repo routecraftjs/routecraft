@@ -37,6 +37,27 @@
   --font-sans: var(--font-inter);
   --font-display: var(--font-lexend);
   --font-display--font-feature-settings: 'ss01';
+  --font-editorial: var(--font-fraunces);
+  --font-editorial--font-feature-settings: 'ss01', 'ss02';
+  --font-mono: var(--font-jetbrains-mono);
+
+  --color-cobalt-50: #eef0ff;
+  --color-cobalt-100: #d8defd;
+  --color-cobalt-200: #b6bffb;
+  --color-cobalt-300: #8a96f8;
+  --color-cobalt-400: #5867f5;
+  --color-cobalt-500: #1247ff;
+  --color-cobalt-600: #0c39d6;
+  --color-cobalt-700: #082aa3;
+  --color-cobalt-800: #061f78;
+  --color-cobalt-900: #04154f;
+
+  --color-paper: #f5f1e8;
+  --color-paper-edge: #e8e0cb;
+  --color-paper-deep: #ece5d2;
+  --color-ink: #0c0c10;
+  --color-ink-soft: #1a1a20;
+  --color-ink-deep: #07070a;
 
   --container-8xl: 88rem;
 }
@@ -60,9 +81,47 @@
   animation: marquee 40s linear infinite;
 }
 
+@keyframes paper-rise {
+  from {
+    opacity: 0;
+    transform: translateY(0.6rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.paper-rise {
+  opacity: 0;
+  animation: paper-rise 0.85s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@keyframes ink-bleed {
+  from {
+    opacity: 0;
+    filter: blur(6px);
+    transform: translateY(0.25rem);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
+  }
+}
+
+.ink-bleed {
+  animation: ink-bleed 0.45s ease-out both;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .animate-marquee {
+  .animate-marquee,
+  .paper-rise,
+  .ink-bleed {
     animation: none;
+  }
+  .paper-rise {
+    opacity: 1;
   }
 }
 

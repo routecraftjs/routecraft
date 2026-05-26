@@ -76,32 +76,45 @@ export function VersionSelector(props: { className?: string }) {
       <div className="relative">
         <ListboxButton
           className={clsx(
-            'inline-flex h-7 items-center gap-2 rounded-full px-3 text-sm font-semibold transition-colors',
-            'bg-slate-100 text-slate-900 hover:bg-slate-200',
-            'dark:bg-slate-900/80 dark:text-slate-100 dark:hover:bg-slate-900/90',
-            'focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-100',
-            'dark:focus-visible:ring-offset-slate-950',
+            'group inline-flex items-center gap-2 border border-ink/15 bg-paper-deep/40 px-2.5 py-1.5 font-mono text-[0.7rem] tracking-[0.18em] uppercase transition focus:outline-none',
+            'text-ink/70 hover:border-cobalt-500/40 hover:text-ink',
+            'dark:border-paper/15 dark:bg-ink-soft/40 dark:text-paper/70 dark:hover:border-cobalt-400/40 dark:hover:text-paper',
           )}
           aria-label="Documentation version"
         >
+          <span aria-hidden="true" className="h-1 w-1 bg-cobalt-500" />
           <span>{current.label}</span>
-          <ChevronDownIcon className="h-4 w-4 text-slate-400 dark:text-slate-300" />
+          <ChevronDownIcon className="h-3 w-3 text-ink/45 transition group-hover:text-cobalt-500 dark:text-paper/45 dark:group-hover:text-cobalt-300" />
         </ListboxButton>
-        <ListboxOptions className="absolute top-[calc(100%+0.5rem)] right-0 z-50 w-36 space-y-1 rounded-xl bg-white p-2 text-sm font-medium text-slate-700 shadow-sm dark:bg-slate-900 dark:text-slate-100">
+        <ListboxOptions className="absolute top-[calc(100%+0.5rem)] right-0 z-50 w-40 border border-ink/15 bg-paper p-1 font-mono text-[0.7rem] tracking-[0.18em] uppercase shadow-[0_20px_60px_-30px_rgba(12,12,16,0.4)] dark:border-paper/15 dark:bg-ink-soft">
           {versions.map((version) => (
             <ListboxOption
               key={version.label}
               value={version}
-              className={({ active, selected }) =>
+              className={({ focus, selected }) =>
                 clsx(
-                  'flex cursor-pointer items-center rounded-lg px-3 py-2 transition-colors select-none',
-                  (active || selected) &&
-                    'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white',
-                  !active && !selected && 'text-slate-400 dark:text-slate-500',
+                  'flex cursor-pointer items-center gap-3 px-3 py-2 transition select-none',
+                  {
+                    'text-cobalt-500': selected,
+                    'bg-paper-deep text-ink dark:bg-ink dark:text-paper':
+                      focus && !selected,
+                    'text-ink/70 dark:text-paper/70': !focus && !selected,
+                  },
                 )
               }
             >
-              {version.label}
+              {({ selected }) => (
+                <>
+                  <span
+                    aria-hidden="true"
+                    className={clsx(
+                      'h-1 w-1 transition',
+                      selected ? 'bg-cobalt-500' : 'bg-ink/25 dark:bg-paper/25',
+                    )}
+                  />
+                  <span>{version.label}</span>
+                </>
+              )}
             </ListboxOption>
           ))}
         </ListboxOptions>

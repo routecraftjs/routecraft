@@ -6,12 +6,12 @@ import { usePathname } from 'next/navigation'
 import clsx from 'clsx'
 
 import { Footer } from '@/components/Footer'
-import { Logo } from '@/components/Logo'
 import { MobileNavigation } from '@/components/MobileNavigation'
 import { Navigation } from '@/components/Navigation'
 import { Search } from '@/components/Search'
 import { ThemeSelector } from '@/components/ThemeSelector'
 import { TopNav } from '@/components/TopNav'
+import { VersionSelector } from '@/components/VersionSelector'
 
 function GitHubIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
   return (
@@ -38,26 +38,32 @@ function Header() {
   return (
     <header
       className={clsx(
-        'sticky top-0 z-50 flex flex-none flex-wrap items-center justify-between bg-gray-50 px-4 py-5 shadow-md shadow-gray-950/5 transition duration-500 sm:px-6 lg:px-8 dark:shadow-none',
-        isScrolled
-          ? 'dark:bg-gray-950/95 dark:backdrop-blur-sm dark:[@supports(backdrop-filter:blur(0))]:bg-gray-950/75'
-          : 'dark:bg-transparent',
+        'sticky top-0 z-50 flex flex-none flex-wrap items-center justify-between border-b border-ink/15 bg-paper px-4 py-4 transition duration-500 sm:px-6 lg:px-8 dark:border-paper/15 dark:bg-ink',
+        isScrolled &&
+          'bg-paper/85 backdrop-blur-sm dark:bg-ink/85 [@supports(backdrop-filter:blur(0))]:bg-paper/70 dark:[@supports(backdrop-filter:blur(0))]:bg-ink/70',
       )}
     >
       <div className="mr-6 flex lg:hidden">
         <MobileNavigation />
       </div>
-      <div className="relative flex grow basis-0 items-center gap-8">
+      <div className="relative flex grow basis-0 items-center gap-10">
         <Link
           href="/"
           aria-label="Home page"
-          className="flex items-center gap-2"
+          className="group flex items-baseline gap-2.5"
         >
-          <Logo className="h-9 w-9 lg:block" />
-          <h1 className="hidden h-9 w-auto font-display text-2xl font-bold lg:block dark:fill-sky-100">
+          <span
+            aria-hidden="true"
+            className="inline-block h-2 w-2 shrink-0 translate-y-[-0.15em] bg-cobalt-500 transition group-hover:scale-110"
+          />
+          <span
+            className="font-editorial text-[1.35rem] leading-none tracking-[-0.02em] text-ink dark:text-paper"
+            style={{ fontVariationSettings: '"opsz" 48, "SOFT" 30' }}
+          >
             Routecraft
-          </h1>
+          </span>
         </Link>
+        <VersionSelector className="hidden lg:block" />
         <TopNav />
       </div>
       <div className="flex items-center gap-4 sm:gap-5">
@@ -70,7 +76,7 @@ function Header() {
           className="group"
           aria-label="GitHub"
         >
-          <GitHubIcon className="h-6 w-6 fill-gray-400 group-hover:fill-gray-500 dark:group-hover:fill-gray-300" />
+          <GitHubIcon className="h-5 w-5 fill-ink/55 transition group-hover:fill-cobalt-500 dark:fill-paper/55 dark:group-hover:fill-cobalt-300" />
         </Link>
       </div>
     </header>
