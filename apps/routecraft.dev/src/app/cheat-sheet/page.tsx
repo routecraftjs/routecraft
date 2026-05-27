@@ -45,7 +45,7 @@ export default function CheatSheetPage() {
                 </span>
               </div>
             </div>
-            <div className="flex flex-col items-start gap-3 print:hidden">
+            <div className="flex flex-col items-end gap-3 text-right print:hidden">
               <PrintButton />
               <p className="font-mono text-[0.65rem] tracking-[0.18em] text-ink/55 uppercase dark:text-paper/55">
                 Or press{' '}
