@@ -55,9 +55,9 @@
   --color-paper: #f5f1e8;
   --color-paper-edge: #e8e0cb;
   --color-paper-deep: #ece5d2;
-  --color-ink: #2a2b34;
-  --color-ink-soft: #393a44;
-  --color-ink-deep: #1c1d23;
+  --color-ink: #22232c;
+  --color-ink-soft: #30313c;
+  --color-ink-deep: #16171c;
 
   --container-8xl: 88rem;
 }

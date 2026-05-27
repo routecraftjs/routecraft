@@ -106,7 +106,7 @@ export function TriggerCycler() {
       onMouseLeave={() => setPaused(false)}
     >
       {/* Drawing sheet title block */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border border-b-0 border-ink/20 bg-paper-deep/70 px-4 py-2.5 font-mono text-[0.65rem] tracking-[0.2em] text-ink/55 uppercase shadow-[0_20px_40px_-24px_rgba(12,12,16,0.18)] dark:border-paper/20 dark:bg-ink-soft/70 dark:text-paper/55 dark:shadow-[0_20px_40px_-24px_rgba(0,0,0,0.6)]">
+      <div className="flex flex-wrap items-center justify-between gap-3 border border-b-0 border-ink/20 bg-paper-deep/70 px-4 py-2.5 font-mono text-[0.65rem] tracking-[0.2em] text-ink/55 uppercase shadow-[0_20px_40px_-24px_rgba(12,12,16,0.18)] dark:border-paper/20 dark:bg-ink-deep/85 dark:text-paper/65 dark:shadow-[0_20px_40px_-24px_rgba(0,0,0,0.6)]">
         <span>
           <span className="text-cobalt-500">Fig. 01</span> — Trigger topology
         </span>
@@ -118,7 +118,7 @@ export function TriggerCycler() {
         </span>
       </div>
 
-      <div className="border border-t-0 border-ink/20 bg-paper-deep/55 shadow-[0_20px_40px_-24px_rgba(12,12,16,0.18)] backdrop-blur-sm dark:border-paper/20 dark:bg-ink-soft/55 dark:shadow-[0_20px_40px_-24px_rgba(0,0,0,0.6)]">
+      <div className="border border-t-0 border-ink/20 bg-paper-deep/55 shadow-[0_20px_40px_-24px_rgba(12,12,16,0.18)] backdrop-blur-sm dark:border-paper/20 dark:bg-ink-deep/85 dark:shadow-[0_20px_40px_-24px_rgba(0,0,0,0.6)]">
         <svg
           viewBox={`0 0 ${W} ${H}`}
           className="block h-auto w-full"
@@ -224,7 +224,7 @@ export function TriggerCycler() {
                   className={
                     isActive
                       ? 'fill-cobalt-500 font-mono text-[11px] font-semibold'
-                      : 'fill-ink/70 font-mono text-[11px] dark:fill-paper/70'
+                      : 'fill-ink/70 font-mono text-[11px] dark:fill-paper/75'
                   }
                 >
                   {t.label}
@@ -234,8 +234,8 @@ export function TriggerCycler() {
                   y={cy + 10}
                   className={
                     isActive
-                      ? 'fill-cobalt-500/80 font-mono text-[9px]'
-                      : 'fill-ink/40 font-mono text-[9px] dark:fill-paper/40'
+                      ? 'fill-cobalt-500/85 font-mono text-[9px]'
+                      : 'fill-ink/45 font-mono text-[9px] dark:fill-paper/55'
                   }
                 >
                   {t.call}
@@ -286,7 +286,7 @@ export function TriggerCycler() {
                   className={
                     isActive
                       ? 'fill-cobalt-500 font-mono text-[11px] font-semibold'
-                      : 'fill-ink/70 font-mono text-[11px] dark:fill-paper/70'
+                      : 'fill-ink/70 font-mono text-[11px] dark:fill-paper/75'
                   }
                 >
                   {d.label}
@@ -297,8 +297,8 @@ export function TriggerCycler() {
                   textAnchor="end"
                   className={
                     isActive
-                      ? 'fill-cobalt-500/80 font-mono text-[9px]'
-                      : 'fill-ink/40 font-mono text-[9px] dark:fill-paper/40'
+                      ? 'fill-cobalt-500/85 font-mono text-[9px]'
+                      : 'fill-ink/45 font-mono text-[9px] dark:fill-paper/55'
                   }
                 >
                   {d.call}
@@ -457,7 +457,7 @@ export function TriggerCycler() {
       </div>
 
       {/* Drawing sheet footer with trigger picker */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-x border-b border-ink/20 bg-paper-deep/70 px-4 py-2.5 font-mono text-[0.7rem] tracking-[0.16em] uppercase shadow-[0_20px_40px_-24px_rgba(12,12,16,0.18)] dark:border-paper/20 dark:bg-ink-soft/70 dark:shadow-[0_20px_40px_-24px_rgba(0,0,0,0.6)]">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-x border-b border-ink/20 bg-paper-deep/70 px-4 py-2.5 font-mono text-[0.7rem] tracking-[0.16em] uppercase shadow-[0_20px_40px_-24px_rgba(12,12,16,0.18)] dark:border-paper/20 dark:bg-ink-deep/85 dark:shadow-[0_20px_40px_-24px_rgba(0,0,0,0.6)]">
         <span className="text-ink/55 dark:text-paper/55">trigger:</span>
         <div className="flex flex-wrap items-center gap-2">
           {sources.map((t, i) => (
