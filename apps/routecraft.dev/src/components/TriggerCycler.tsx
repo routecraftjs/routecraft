@@ -106,7 +106,7 @@ export function TriggerCycler() {
       onMouseLeave={() => setPaused(false)}
     >
       {/* Drawing sheet title block */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink/30 px-1 pb-2 font-mono text-[0.65rem] tracking-[0.2em] text-ink/55 uppercase dark:border-paper/30 dark:text-paper/55">
+      <div className="flex flex-wrap items-center justify-between gap-3 border border-b-0 border-ink/20 bg-paper-deep/70 px-4 py-2.5 font-mono text-[0.65rem] tracking-[0.2em] text-ink/55 uppercase shadow-[0_20px_40px_-24px_rgba(12,12,16,0.18)] dark:border-paper/20 dark:bg-ink-soft/70 dark:text-paper/55 dark:shadow-[0_20px_40px_-24px_rgba(0,0,0,0.6)]">
         <span>
           <span className="text-cobalt-500">Fig. 01</span> — Trigger topology
         </span>
@@ -118,7 +118,7 @@ export function TriggerCycler() {
         </span>
       </div>
 
-      <div className="border border-t-0 border-ink/20 bg-paper/40 backdrop-blur-sm dark:border-paper/20 dark:bg-ink-soft/30">
+      <div className="border border-t-0 border-ink/20 bg-paper-deep/55 shadow-[0_20px_40px_-24px_rgba(12,12,16,0.18)] backdrop-blur-sm dark:border-paper/20 dark:bg-ink-soft/55 dark:shadow-[0_20px_40px_-24px_rgba(0,0,0,0.6)]">
         <svg
           viewBox={`0 0 ${W} ${H}`}
           className="block h-auto w-full"
@@ -457,7 +457,7 @@ export function TriggerCycler() {
       </div>
 
       {/* Drawing sheet footer with trigger picker */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-x border-b border-ink/20 px-3 py-2 font-mono text-[0.7rem] tracking-[0.16em] uppercase dark:border-paper/20">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-x border-b border-ink/20 bg-paper-deep/70 px-4 py-2.5 font-mono text-[0.7rem] tracking-[0.16em] uppercase shadow-[0_20px_40px_-24px_rgba(12,12,16,0.18)] dark:border-paper/20 dark:bg-ink-soft/70 dark:shadow-[0_20px_40px_-24px_rgba(0,0,0,0.6)]">
         <span className="text-ink/55 dark:text-paper/55">trigger:</span>
         <div className="flex flex-wrap items-center gap-2">
           {sources.map((t, i) => (
