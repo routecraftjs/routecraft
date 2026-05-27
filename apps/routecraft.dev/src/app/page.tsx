@@ -429,28 +429,23 @@ function Thesis() {
           <p className="font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase">
             Thesis
           </p>
-          <blockquote
+          <h2
             className="mt-6 font-editorial text-[clamp(2rem,4.2vw,3.25rem)] leading-[1.08] tracking-[-0.02em] text-ink dark:text-paper"
             style={{ fontVariationSettings: '"opsz" 144, "SOFT" 30' }}
           >
-            <span className="text-cobalt-500/35" aria-hidden="true">
-              &ldquo;
-            </span>
-            The shape of a capability does{' '}
+            Every primitive an{' '}
             <span
               className="text-cobalt-500 italic"
               style={{ fontVariationSettings: '"opsz" 144, "SOFT" 100' }}
             >
-              not change
+              agent app
             </span>{' '}
-            when you change how it is triggered.
-            <span className="text-cobalt-500/35" aria-hidden="true">
-              &rdquo;
-            </span>
-          </blockquote>
-          <p className="mx-auto mt-5 max-w-xl text-[1.05rem] leading-[1.75] text-ink/65 dark:text-paper/65">
-            Nine reasons that holds. Pull out any one and the code still
-            compiles. Pull them all together and you have Routecraft.
+            needs.
+          </h2>
+          <p className="mx-auto mt-5 max-w-2xl text-[1.05rem] leading-[1.75] text-ink/65 dark:text-paper/65">
+            Type-safety, validation, auth, MCP, composability, structured
+            logging. Production-grade plumbing so you spend your time on the
+            agent, not the boilerplate around it.
           </p>
         </header>
 
