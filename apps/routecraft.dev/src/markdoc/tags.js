@@ -7,6 +7,7 @@ import { AdapterGrid } from '@/components/AdapterGrid'
 import { OperationsIndex } from '@/components/OperationsIndex'
 import { PluginIndex } from '@/components/PluginIndex'
 import { ErrorTable } from '@/components/ErrorTable'
+import { EventNamespaces } from '@/components/EventNamespaces'
 
 const tags = {
   callout: {
@@ -126,6 +127,10 @@ const tags = {
   'error-table': {
     selfClosing: true,
     render: ErrorTable,
+  },
+  'event-namespaces': {
+    selfClosing: true,
+    render: EventNamespaces,
   },
 }
 
