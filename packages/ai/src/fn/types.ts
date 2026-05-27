@@ -115,10 +115,10 @@ export interface FnOptions<TIn = unknown, TOut = unknown> {
   handler: (input: TIn, ctx: FnHandlerContext) => Promise<TOut> | TOut;
 
   /**
-   * Tags used by selectors (e.g. agents whitelisting
-   * `{ tagged: "read-only" }`). Use the `KnownTag` literals where they
-   * fit ("read-only", "destructive", "idempotent") and any string
-   * otherwise.
+   * Tags surfaced on `ToolsCatalog.fns[].tags` for the builder form
+   * of `tools((catalog) => catalog.fns.filter(f => f.tags?.includes("read-only")).map(f => f.name))`.
+   * Use the `KnownTag` literals where they fit ("read-only",
+   * "destructive", "idempotent") and any string otherwise.
    *
    * Must be an array (or omitted). Non-array values, non-string
    * entries, and empty-string entries all throw RC5003 at context

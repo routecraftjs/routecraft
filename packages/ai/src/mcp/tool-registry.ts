@@ -7,8 +7,10 @@ import type {
 
 /**
  * Derive capability tags from MCP `annotations` hints so MCP tools
- * surface alongside fns and direct routes under the same `Tag`
- * selectors (`tools([{ tagged: "read-only" }])`).
+ * surface alongside fns and direct routes under the same `Tag` shape
+ * (visible on `ToolsCatalog.mcp[].tags` for the builder form of
+ * `tools()`, and on the resolved tool's `tags` for downstream
+ * inspection).
  *
  * Mapping: `readOnlyHint -> "read-only"`,
  * `destructiveHint -> "destructive"`, `idempotentHint -> "idempotent"`,

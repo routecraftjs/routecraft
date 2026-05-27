@@ -26,10 +26,24 @@ import type {
 export const BLOCK_LOADER_TOOL = Symbol.for("routecraft.ai.block.loader-tool");
 
 /**
- * Reserved prefix used for synthetic block-loader tool names. User
- * tools (fns, direct routes, MCP tools) that happen to start with
- * this prefix collide with the framework's surface and are rejected
- * with RC5026 at dispatch.
+ * Reserved name prefix for the block surface. User tools (fns, direct
+ * routes, MCP tools) and block names that start with this prefix
+ * collide with the framework's synthetic surface and are rejected at
+ * construction (block names via `validateBlocks`) or dispatch
+ * (resolved tool names via `mergeUserAndLoaderTools`) with RC5026.
+ *
+ * The framework reserves the broader `_block_` namespace (not just
+ * `_block_load_`) so future synthetic-tool kinds (e.g. unloaders or
+ * state probes) can land without a separate breaking reservation.
+ *
+ * @internal
+ */
+export const BLOCK_RESERVED_PREFIX = "_block_";
+
+/**
+ * Concrete prefix used to generate synthetic loader-tool names today.
+ * Always starts with {@link BLOCK_RESERVED_PREFIX}; user names are
+ * validated against the broader reservation, not this specific kind.
  *
  * @internal
  */

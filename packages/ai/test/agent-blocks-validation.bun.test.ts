@@ -37,7 +37,22 @@ describe("agent blocks: construction-time validation", () => {
         model: "anthropic:claude-opus-4-7",
         blocks: { _block_load_x: { mode: "inject", value: "y" } },
       }),
-    ).toThrow(/reserved for synthetic loader tools/);
+    ).toThrow(/reserved for synthetic block tools/);
+  });
+
+  /**
+   * @case Reservation covers the whole `_block_` namespace, not just `_block_load_`
+   * @preconditions Agent declares a block named `_block_state_x` (no current loader uses this kind, but the namespace is reserved)
+   * @expectedResult agent() construction throws so future synthetic-tool kinds (e.g. unloaders, state probes) can land without a separate breaking reservation
+   */
+  test("reserves the entire `_block_` namespace, not just `_block_load_`", () => {
+    expect(() =>
+      agent({
+        system: "x",
+        model: "anthropic:claude-opus-4-7",
+        blocks: { _block_state_x: { mode: "inject", value: "y" } },
+      }),
+    ).toThrow(/reserved for synthetic block tools/);
   });
 
   /**
@@ -212,7 +227,7 @@ describe("agent blocks: construction-time validation", () => {
     await t.test();
     expect(errors.length).toBeGreaterThan(0);
     expect((errors[0] as Error).message).toMatch(
-      /reserved for synthetic block loaders/,
+      /reserved for synthetic block tools/,
     );
   });
 });

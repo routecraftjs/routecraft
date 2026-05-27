@@ -1,6 +1,10 @@
 import type { Exchange, Principal } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import type { AgentBlockLoadSummary, Blocks } from "../block/types.ts";
+import type {
+  AgentBlockLoadSummary,
+  BlockBody,
+  Blocks,
+} from "../block/types.ts";
 import type { LlmModelId, LlmPromptSource, LlmUsage } from "../llm/types.ts";
 import type { AgentDeltaListener } from "./events.ts";
 import type { ToolSelection } from "./tools/selection.ts";
@@ -97,8 +101,14 @@ export interface AgentDefaultOptions {
    * the records are merged additively by name. A name set in both
    * installs throws `RC5003` so the framework never silently picks
    * one over the other.
+   *
+   * Unlike the per-agent {@link AgentOptions.blocks} field, defaults
+   * cannot carry the `false` removal sentinel: defaults cannot
+   * sensibly remove themselves, so the type is `Record<string,
+   * BlockBody>` (not `Blocks`) and `false` is rejected at plugin
+   * construction with RC5003.
    */
-  blocks?: Blocks;
+  blocks?: Record<string, BlockBody>;
 }
 
 /**

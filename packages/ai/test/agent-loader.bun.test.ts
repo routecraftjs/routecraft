@@ -2,7 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { agents, tools } from "../src/index.ts";
+import { testContext } from "@routecraft/testing";
+import { agentPlugin, agents, tools } from "../src/index.ts";
 import { isToolSelection } from "../src/agent/tools/selection.ts";
 
 function tmpDir(): string {
@@ -131,17 +132,31 @@ describe("agents() markdown loader", () => {
   });
 
   /**
-   * @case tools string array becomes a tools([...]) selection
-   * @preconditions Agent with tools: [fetchOrder, "tagged:read-only"]
-   * @expectedResult agent.tools is a ToolSelection (brand check via isToolSelection)
+   * @case tools string array in frontmatter is parsed into a tools([...]) selection
+   * @preconditions Agent with tools: ["fetchOrder", "Direct(cancel-order)"]
+   * @expectedResult agent.tools is a ToolSelection (brand check via isToolSelection) and each entry was forwarded verbatim
    */
   test("tools frontmatter becomes a tools([...]) selection", async () => {
     const dir = makeDir({
       "x.md":
-        '---\nname: x\ndescription: d\ntools:\n  - fetchOrder\n  - "tagged:read-only"\n---\nsystem',
+        '---\nname: x\ndescription: d\ntools:\n  - fetchOrder\n  - "Direct(cancel-order)"\n---\nsystem',
     });
     const result = await agents(dir);
-    expect(isToolSelection(result["x"]?.tools)).toBe(true);
+    const sel = result["x"]?.tools;
+    expect(isToolSelection(sel)).toBe(true);
+    // Resolve against an empty context so an unresolvable name throws
+    // RC5003 with the offending ref in the message. That confirms the
+    // frontmatter entries reached the resolver verbatim rather than
+    // being silently mangled at parse time.
+    const t = await testContext()
+      .with({ plugins: [agentPlugin({})] })
+      .build();
+    await t.startAndWaitReady();
+    try {
+      expect(() => sel!.resolve(t.ctx)).toThrow(/unknown tool "fetchOrder"/);
+    } finally {
+      await t.stop();
+    }
   });
 
   /**

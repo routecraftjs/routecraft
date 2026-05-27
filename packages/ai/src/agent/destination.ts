@@ -7,7 +7,7 @@ import {
   type Exchange,
   type Principal,
 } from "@routecraft/routecraft";
-import { BLOCK_LOADER_PREFIX, resolveBlocks } from "../block/resolve.ts";
+import { BLOCK_RESERVED_PREFIX, resolveBlocks } from "../block/resolve.ts";
 import type { BlockBody, Blocks } from "../block/types.ts";
 import { resolveModel, resolvePrompt } from "../llm/shared.ts";
 import {
@@ -275,23 +275,19 @@ function mergeWithDefaults(
  *
  * @internal
  */
-function mergeBlocks(defaults: Blocks, agent: Blocks | undefined): Blocks {
-  if (!agent) {
-    // Strip any `false` entries that managed to land in defaults
-    // (defaults can't sensibly remove from themselves; ignore them).
-    const cleaned: Blocks = {};
-    for (const [name, body] of Object.entries(defaults)) {
-      if (body !== false) cleaned[name] = body;
-    }
-    return cleaned;
-  }
+function mergeBlocks(
+  defaults: Record<string, BlockBody>,
+  agent: Blocks | undefined,
+): Blocks {
+  if (!agent) return { ...defaults };
   const out: Blocks = {};
   for (const [name, body] of Object.entries(defaults)) {
-    if (body === false) continue;
     if (Object.prototype.hasOwnProperty.call(agent, name)) {
       const override = agent[name];
-      if (override === false) continue;
-      if (override !== undefined) out[name] = override;
+      // `false` removes the default for this agent; an undefined value
+      // shouldn't reach here under the Blocks type, but guard anyway.
+      if (override === false || override === undefined) continue;
+      out[name] = override;
     } else {
       out[name] = body;
     }
@@ -299,7 +295,7 @@ function mergeBlocks(defaults: Blocks, agent: Blocks | undefined): Blocks {
   for (const [name, body] of Object.entries(agent)) {
     if (Object.prototype.hasOwnProperty.call(out, name)) continue;
     if (body === false) continue;
-    out[name] = body as BlockBody;
+    out[name] = body;
   }
   return out;
 }
@@ -307,9 +303,8 @@ function mergeBlocks(defaults: Blocks, agent: Blocks | undefined): Blocks {
 /**
  * Merge user tools (from `tools([...])`) with synthetic block-loader
  * tools produced by {@link resolveBlocks}. Rejects (RC5026) any user
- * tool name that starts with the reserved `_block_` prefix used by
- * loaders, so a misconfigured registry cannot shadow the framework's
- * surface.
+ * tool whose resolved name starts with the reserved `_block_` prefix,
+ * so a misconfigured registry cannot shadow the framework's surface.
  *
  * @internal
  */
@@ -318,9 +313,9 @@ function mergeUserAndLoaderTools(
   loaderTools: ResolvedTool[],
 ): ResolvedTool[] {
   for (const tool of userTools) {
-    if (tool.name.startsWith(BLOCK_LOADER_PREFIX)) {
+    if (tool.name.startsWith(BLOCK_RESERVED_PREFIX)) {
       throw rcError("RC5026", undefined, {
-        message: `Agent tool "${tool.name}": names starting with "${BLOCK_LOADER_PREFIX}" are reserved for synthetic block loaders. Rename the fn or route.`,
+        message: `Agent tool "${tool.name}": names starting with "${BLOCK_RESERVED_PREFIX}" are reserved for synthetic block tools. Rename the fn or route.`,
       });
     }
   }

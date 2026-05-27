@@ -231,15 +231,34 @@ function validatePluginDefaults(
       message: `agentPlugin: "defaultOptions.tools" must be the result of tools([...]).`,
     });
   }
-  if (
-    raw.blocks !== undefined &&
-    (raw.blocks === null ||
+  if (raw.blocks !== undefined) {
+    if (
+      raw.blocks === null ||
       typeof raw.blocks !== "object" ||
-      Array.isArray(raw.blocks))
-  ) {
-    throw rcError("RC5003", undefined, {
-      message: `agentPlugin: "defaultOptions.blocks" must be a Record<string, BlockBody | false>.`,
-    });
+      Array.isArray(raw.blocks)
+    ) {
+      throw rcError("RC5003", undefined, {
+        message: `agentPlugin: "defaultOptions.blocks" must be a Record<string, BlockBody>.`,
+      });
+    }
+    // `false` is the removal sentinel on per-agent blocks; in defaults
+    // it would silently no-op (defaults cannot remove themselves), so
+    // reject at construction with a clear message rather than discard
+    // the entry at merge time.
+    for (const [name, body] of Object.entries(raw.blocks)) {
+      // The type narrows `body` to BlockBody, but `validatePluginDefaults`
+      // runs against raw user input that may have bypassed the typed
+      // surface (e.g. config loaded from JSON). Cast to unknown so the
+      // runtime check is not stripped as dead code by TS narrowing.
+      if ((body as unknown) === false) {
+        throw rcError("RC5003", undefined, {
+          message:
+            `agentPlugin: "defaultOptions.blocks.${name}" cannot be false. ` +
+            `"false" is the per-agent removal sentinel; defaults cannot remove themselves. ` +
+            `Drop the entry or replace it with a BlockBody.`,
+        });
+      }
+    }
   }
   return raw;
 }

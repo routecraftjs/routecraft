@@ -143,13 +143,15 @@ Function-form resolvers receive the live exchange, context, a reserved events li
 This is the pattern memory adapters will use; it is illustrative, not a shipped builder in 0.6.0.
 
 ```ts
-import { route, direct, agent } from "@routecraft/routecraft";
+import { craft, direct } from "@routecraft/routecraft";
+import { agent } from "@routecraft/ai";
 
-route("memory:get")
+craft()
+  .id("memory:get")
   .from(direct())
   .process(async (ex) => {
-    const principal = (ex.body as { principal: string }).principal;
-    ex.body = await loadMemoryFor(principal);
+    const { subject } = ex.body as { subject: string };
+    ex.body = await loadMemoryFor(subject);
   });
 
 agent({
@@ -161,8 +163,13 @@ agent({
       mode: "progressive",
       lifetime: "context",
       value: async (exchange, _context, _events, client) => {
-        const principal = exchange.headers["x-principal"] as string;
-        const result = await client.forward("memory:get", { principal });
+        // Read identity from the typed principal, not from a header.
+        // `exchange.principal` is the verified, framework-tracked
+        // identity (authenticity, expiry, claims); a string header
+        // would bypass those guarantees.
+        const subject = exchange.principal?.subject;
+        if (!subject) return ""; // anonymous: no memory to inject
+        const result = await client.forward("memory:get", { subject });
         return result as string;
       },
     },
@@ -243,7 +250,9 @@ Two `agentPlugin` installs that each set `defaultOptions.blocks` now merge addit
 
 ## 2. Tools: tag selectors removed, function-form added
 
-The `{ tagged }` and `{ tagged, from }` selector variants on `tools()` are gone, along with the `tags` override on `directTool({ tags })`. The reasoning: implicit extension of an agent's tool surface when a future fn is tagged with a matched value is a security footgun. An agent's tool list is the boundary between the model and your system; that boundary should be explicit.
+The `{ tagged }` and `{ tagged, from }` selector variants on `tools()` are gone, along with the `tags` override on `directTool({ tags })`.
+
+**The implicit-extension risk is identical between the deleted tag selector and the new builder form.** In both, a future fn registered with a matching tag silently extends the agent's surface. The deletion does not eliminate the risk; it relocates it. The reason this is still worth doing: a declarative selector embedded in framework config (`{ tagged: "read-only" }`) reads as a static piece of configuration to a reviewer, while a `.filter()` in user code reads as obviously dynamic. The risk surfaces at the call site where a code review can spot it, instead of being implicit in the framework's interpretation of a tag.
 
 For the cases where enumeration is impractical, `tools()` now accepts a builder function that receives a `ToolsCatalog` snapshot:
 
@@ -275,9 +284,7 @@ agent({
 });
 ```
 
-The builder receives `{ fns, routes, mcp }`, each a readonly array of `{ name | id | server+tool, description?, tags? }`. It must return the same `ToolsItem[]` the array form accepts (strings or `{ name, guard?, description? }` objects). Builder errors are wrapped in `RC5003` with the original chained.
-
-The implicit-extension risk is the same as the deleted tag selector, but now lives in your code where it's reviewable: a `.filter()` in user code is a visible signal that the set is dynamic, not a declarative selector tucked into framework config.
+The builder receives `{ fns, routes, mcp }`, each a readonly frozen array of `{ name | id | server+tool, description?, tags? }` (entries are deep-frozen so a builder cannot mutate the snapshot). It must return the same `ToolsItem[]` the array form accepts (strings or `{ name, guard?, description? }` objects). Builder errors are wrapped in `RC5003` with the original chained.
 
 ### 2.1 `directTool({ tags })` override removed
 

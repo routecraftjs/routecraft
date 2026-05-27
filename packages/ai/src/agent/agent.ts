@@ -4,7 +4,7 @@ import {
   rcError,
   tagAdapter,
 } from "@routecraft/routecraft";
-import { BLOCK_LOADER_PREFIX } from "../block/resolve.ts";
+import { BLOCK_RESERVED_PREFIX } from "../block/resolve.ts";
 import type { BlockBody, Blocks } from "../block/types.ts";
 import { parseProviderModel } from "../llm/shared.ts";
 import {
@@ -121,9 +121,9 @@ function validateBlocks(blocks: unknown): void {
         message: `Agent block: block name must be a non-empty string.`,
       });
     }
-    if (name.startsWith(BLOCK_LOADER_PREFIX)) {
+    if (name.startsWith(BLOCK_RESERVED_PREFIX)) {
       throw rcError("RC5026", undefined, {
-        message: `Agent block "${name}": names starting with "${BLOCK_LOADER_PREFIX}" are reserved for synthetic loader tools. Rename the block.`,
+        message: `Agent block "${name}": names starting with "${BLOCK_RESERVED_PREFIX}" are reserved for synthetic block tools. Rename the block.`,
       });
     }
     if (body === false) continue;

@@ -22,7 +22,7 @@ export interface ParsedMarkdown {
 /**
  * YAML parser shape we depend on. Lazy-loaded the first time a
  * markdown loader runs so the `yaml` package can be an optional peer
- * dependency: callers that never invoke `agents()` or `skillsBlock()`
+ * dependency: callers that never invoke `agents()` or `skills()`
  * do not need to install it, and it stays out of `@routecraft/ai`'s
  * static import graph (size-limit is enforced on the entry bundle).
  *
@@ -46,7 +46,7 @@ async function loadYamlParse(): Promise<YamlParse> {
       err.message.includes("yaml")
     ) {
       throw new Error(
-        `The markdown loaders (agents() / skillsBlock()) require the "yaml" package. Install it with: bun add yaml`,
+        `The markdown loaders (agents() / skills()) require the "yaml" package. Install it with: bun add yaml`,
       );
     }
     throw err;

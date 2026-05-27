@@ -22,10 +22,10 @@ import type { ResolvedTool } from "./tools/selection.ts";
  * 1. Emit `route:<routeId>:agent:tool:invoked` on the context bus so
  *    cross-cutting observability (telemetry, dashboards, audit) sees
  *    the call before the handler runs.
- * 2. The optional guard (registered via `tools([{ name, guard }])` or
- *    `tools([{ tagged, guard }])`). Throwing inside the guard surfaces
- *    back to the model as a tool error so the model can self-correct;
- *    the wrapper emits `agent:tool:error` before rethrowing.
+ * 2. The optional guard (registered via `tools([{ name, guard }])`).
+ *    Throwing inside the guard surfaces back to the model as a tool
+ *    error so the model can self-correct; the wrapper emits
+ *    `agent:tool:error` before rethrowing.
  * 3. The underlying handler with `(input, fnHandlerContext)`. On
  *    success the wrapper emits `agent:tool:result`; on throw it
  *    emits `agent:tool:error` and rethrows.

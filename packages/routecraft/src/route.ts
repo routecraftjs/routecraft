@@ -113,8 +113,10 @@ export interface RouteDiscovery {
   /** Output schemas runtime-enforced before the primary destination. */
   output?: RouteSchemas;
   /**
-   * Tags used by tag-based selectors (e.g. agents whitelisting
-   * `{ tagged: "read-only" }`). Empty/missing means no tags.
+   * Tags surfaced on `ToolsCatalog` entries for the builder form of
+   * `tools((catalog) => ...)` in `@routecraft/ai`, and on resolved
+   * tool entries for downstream inspection. Empty/missing means no
+   * tags.
    */
   tags?: Tag[];
 }

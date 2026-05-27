@@ -290,20 +290,16 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
 
 /**
  * Build a {@link ToolsCatalog} snapshot from the live context's
- * registries. Each entry is a plain readonly object; `Object.freeze`
- * is not applied because the catalog is single-use per dispatch and
- * the cost of freezing every entry would dominate the function-form
- * fast path for no real safety gain (the caller can mutate at will,
- * but mutations don't persist into the registries).
+ * registries. Each entry and its `tags` array are frozen so the
+ * interface's `readonly` modifiers match runtime behaviour: a builder
+ * cannot mutate an entry's name / description / tags in place and have
+ * it silently affect the rest of resolution. Freeze cost is negligible
+ * for a per-dispatch snapshot of a handful of registry entries.
  *
  * @internal
  */
 function buildCatalog(ctx: CraftContext): ToolsCatalog {
-  const fns: Array<{
-    name: string;
-    description?: string;
-    tags?: readonly Tag[];
-  }> = [];
+  const fns: ToolsCatalog["fns"][number][] = [];
   const fnRegistry = ctx.getStore(ADAPTER_FN_REGISTRY) as
     | Map<string, FnEntry>
     | undefined;
@@ -314,67 +310,67 @@ function buildCatalog(ctx: CraftContext): ToolsCatalog {
         // the registry; users who want to filter on those should walk
         // catalog.routes for the underlying route, then reference it
         // as `Direct(<routeId>)` in the returned items list.
-        fns.push({ name });
+        fns.push(Object.freeze({ name }));
       } else {
-        const item: {
-          name: string;
-          description?: string;
-          tags?: readonly Tag[];
-        } = {
-          name,
-          description: entry.description,
-        };
-        if (entry.tags && entry.tags.length > 0) item.tags = entry.tags;
-        fns.push(item);
+        const tags =
+          entry.tags && entry.tags.length > 0
+            ? Object.freeze([...entry.tags])
+            : undefined;
+        fns.push(
+          Object.freeze({
+            name,
+            description: entry.description,
+            ...(tags !== undefined ? { tags } : {}),
+          }),
+        );
       }
     }
   }
 
-  const routes: Array<{
-    id: string;
-    description?: string;
-    tags?: readonly Tag[];
-  }> = [];
+  const routes: ToolsCatalog["routes"][number][] = [];
   const directRegistry = ctx.getStore(ADAPTER_DIRECT_REGISTRY) as
     | Map<string, DirectRouteMetadata>
     | undefined;
   if (directRegistry) {
     for (const [routeId, meta] of directRegistry) {
-      const item: { id: string; description?: string; tags?: readonly Tag[] } =
-        {
+      const tags =
+        meta.tags && meta.tags.length > 0
+          ? Object.freeze([...meta.tags])
+          : undefined;
+      routes.push(
+        Object.freeze({
           id: routeId,
-        };
-      if (meta.description) item.description = meta.description;
-      if (meta.tags && meta.tags.length > 0) item.tags = meta.tags;
-      routes.push(item);
+          ...(meta.description ? { description: meta.description } : {}),
+          ...(tags !== undefined ? { tags } : {}),
+        }),
+      );
     }
   }
 
-  const mcp: Array<{
-    server: string;
-    tool: string;
-    description?: string;
-    tags?: readonly Tag[];
-  }> = [];
+  const mcp: ToolsCatalog["mcp"][number][] = [];
   const mcpRegistry = ctx.getStore(MCP_TOOL_REGISTRY);
   if (mcpRegistry) {
     for (const entry of mcpRegistry.getTools()) {
-      const item: {
-        server: string;
-        tool: string;
-        description?: string;
-        tags?: readonly Tag[];
-      } = {
-        server: entry.source,
-        tool: entry.name,
-      };
-      if (entry.description) item.description = entry.description;
-      if (entry.tags && entry.tags.length > 0) item.tags = entry.tags;
-      mcp.push(item);
+      const tags =
+        entry.tags && entry.tags.length > 0
+          ? Object.freeze([...entry.tags])
+          : undefined;
+      mcp.push(
+        Object.freeze({
+          server: entry.source,
+          tool: entry.name,
+          ...(entry.description ? { description: entry.description } : {}),
+          ...(tags !== undefined ? { tags } : {}),
+        }),
+      );
     }
   }
 
-  return { fns, routes, mcp };
+  return Object.freeze({
+    fns: Object.freeze(fns),
+    routes: Object.freeze(routes),
+    mcp: Object.freeze(mcp),
+  });
 }
 
 /**
