@@ -30,13 +30,11 @@ export default function BlogIndexPage() {
           <span>The Routecraft Blog</span>
         </p>
         <h1 className="mt-8 font-editorial text-[clamp(2.5rem,5vw,4rem)] leading-[1.05] font-medium tracking-[-0.025em] text-ink dark:text-paper">
-          Patterns, tutorials, and{' '}
-          <span className="text-cobalt-500 italic">field notes.</span>
+          From the <span className="text-cobalt-500 italic">field.</span>
         </h1>
         <p className="mt-6 max-w-2xl font-editorial text-[1.15rem] leading-[1.55] text-ink/70 italic dark:text-paper/70">
-          Deep dives on building TypeScript automations, exposing them as MCP
-          tools for AI agents, and the architectural decisions behind
-          Routecraft.
+          Tutorials, postmortems, and small notes from building Routecraft in
+          production.
         </p>
       </section>
 

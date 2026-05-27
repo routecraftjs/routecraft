@@ -9,7 +9,11 @@ export const topNavLinks: Array<{
   href: string
   match: RegExp
 }> = [
-  { title: 'Docs', href: '/docs/introduction', match: /^\/docs(\/|$)/ },
+  {
+    title: 'Docs',
+    href: '/docs/introduction',
+    match: /^\/docs(\/|$)/,
+  },
   { title: 'Blog', href: '/blog', match: /^\/blog(\/|$)/ },
   {
     title: 'Cheat sheet',

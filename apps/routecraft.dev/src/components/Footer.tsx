@@ -16,6 +16,8 @@ const productLinks: FooterLink[] = [
 const referenceLinks: FooterLink[] = [
   { title: 'Adapters', href: '/docs/reference/adapters' },
   { title: 'Operations', href: '/docs/reference/operations' },
+  { title: 'Plugins', href: '/docs/reference/plugins' },
+  { title: 'Events', href: '/docs/reference/events' },
   { title: 'Configuration', href: '/docs/reference/configuration' },
   { title: 'CLI', href: '/docs/reference/cli' },
   { title: 'Errors', href: '/docs/reference/errors' },
