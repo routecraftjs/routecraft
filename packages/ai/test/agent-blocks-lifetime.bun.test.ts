@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { craft, simple } from "@routecraft/routecraft";
 import { spy, testContext, type TestContext } from "@routecraft/testing";
-import { agent, llmPlugin, type Block } from "../src/index.ts";
+import { agent, llmPlugin, type BlockBody } from "../src/index.ts";
 import type { LlmResult } from "../src/llm/types.ts";
 
 mock.module("../src/llm/providers/index.ts", () => ({
@@ -47,16 +47,15 @@ describe("agent blocks: lifetime semantics", () => {
             agent({
               system: "x",
               model: "anthropic:claude-opus-4-7",
-              blocks: [
-                {
-                  name: "fresh",
+              blocks: {
+                fresh: {
                   mode: "inject",
                   value: () => {
                     calls += 1;
                     return `call ${calls}`;
                   },
                 },
-              ],
+              },
             }),
           )
           .to(sink),
@@ -74,10 +73,10 @@ describe("agent blocks: lifetime semantics", () => {
   test('lifetime "context" caches the resolved value across dispatches', async () => {
     const sink = spy();
     let calls = 0;
-    // Define the block *outside* the agent options so the same Block
-    // reference is used across dispatches (cache key is block identity).
-    const cached: Block = {
-      name: "tenant",
+    // Define the block body *outside* the agent options so the same
+    // BlockBody reference is used across dispatches (cache key is the
+    // body's object identity).
+    const cached: BlockBody = {
       mode: "inject",
       lifetime: "context",
       value: () => {
@@ -99,7 +98,7 @@ describe("agent blocks: lifetime semantics", () => {
             agent({
               system: "x",
               model: "anthropic:claude-opus-4-7",
-              blocks: [cached],
+              blocks: { tenant: cached },
             }),
           )
           .to(sink),

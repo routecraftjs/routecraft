@@ -1,4 +1,4 @@
-import type { CraftContext, Tag } from "@routecraft/routecraft";
+import type { CraftContext } from "@routecraft/routecraft";
 import type { FnOptions } from "../../fn/types.ts";
 
 /**
@@ -36,21 +36,10 @@ export interface DeferredFn {
   readonly kind: DeferredFnKind;
   /**
    * The underlying registered id this wrapper targets (route id for
-   * `direct`, agent id for `agent`, `<server>:<tool>` for `mcp`). Used
-   * by the `tools()` resolver for tag-selector dedup so a fn-registry
-   * wrapper supersedes the same route surfaced via the prefix
-   * convention.
+   * `direct`). Surfaced in error messages so authors can find the
+   * offending registration when resolution fails.
    */
   readonly targetId: string;
-  /**
-   * Tags supplied as an explicit override at builder time (e.g.
-   * `directTool(routeId, { tags: [...] })`). When present these take
-   * precedence over the underlying registry's tags for tag-selector
-   * matching, so the user's override actually drives selection.
-   * Undefined when no override was supplied; the resolver then peeks
-   * the underlying registry's tags for the match decision.
-   */
-  readonly overrideTags?: readonly Tag[];
   /**
    * Resolve to a concrete `FnOptions`. Throws `RC5003` with a clear
    * message if the underlying registry entry is missing or incomplete.

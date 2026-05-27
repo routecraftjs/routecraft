@@ -224,13 +224,12 @@ describe("agent principal: ## Caller injection at dispatch", () => {
             agent({
               system: "You are an analyst.",
               model: "anthropic:claude-opus-4-7",
-              blocks: [
-                {
-                  name: "web-search",
+              blocks: {
+                "web-search": {
                   mode: "inject",
                   value: "Always search before answering.",
                 },
-              ],
+              },
               principal: true,
             }),
           )

@@ -61,9 +61,9 @@ export type BlockResolver =
     ) => string | Promise<string>);
 
 /**
- * Single contribution to an agent's system context. Blocks unify
- * skills, memory, identity, instructions, and any future "stuff
- * injected into the system prompt" into one primitive.
+ * Body of a single block. Stored as the value side of an
+ * {@link Blocks} record; the block's name is the record key, not a
+ * field on this object.
  *
  * - `mode: "inject"` blocks are concatenated into the system prompt
  *   on every dispatch as `## <name>\n\n<content>`.
@@ -71,13 +71,7 @@ export type BlockResolver =
  *   `_block_load_<name>`; the description is shown to the model,
  *   and the body is fetched only when the model invokes the loader.
  */
-export interface Block {
-  /**
-   * Identifier for the block. Unique within an agent's blocks list.
-   * Must not start with the reserved `_block_` prefix that synthetic
-   * loader tools use.
-   */
-  name: string;
+export interface BlockBody {
   /**
    * Human-readable description. Required when `mode === "progressive"`
    * so the model can decide whether to load the block. Ignored for
@@ -100,6 +94,17 @@ export interface Block {
    */
   value: BlockResolver;
 }
+
+/**
+ * Record of block contributions to an agent's system context. Keys
+ * are block names (must not start with the reserved `_block_` prefix
+ * used by synthetic loader tools). Setting a name to `false` removes
+ * the block from defaults inherited via `agentPlugin({ defaultOptions
+ * { blocks } })`; a `false` for a name that isn't in defaults is a
+ * no-op (no validation error so adding/removing defaults later cannot
+ * silently break agents).
+ */
+export type Blocks = Record<string, BlockBody | false>;
 
 /**
  * Summary of one progressive-mode block that the model loaded during

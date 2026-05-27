@@ -1,9 +1,10 @@
 export type {
   AgentBlockLoadSummary,
-  Block,
+  BlockBody,
   BlockClient,
   BlockLifetime,
   BlockMode,
   BlockResolver,
+  Blocks,
 } from "./types.ts";
-export { fromFile, skillsBlock, type SkillsBlockOptions } from "./builders.ts";
+export { fromFile, skills, type SkillsOptions } from "./builders.ts";

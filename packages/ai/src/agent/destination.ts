@@ -8,7 +8,7 @@ import {
   type Principal,
 } from "@routecraft/routecraft";
 import { BLOCK_LOADER_PREFIX, resolveBlocks } from "../block/resolve.ts";
-import type { Block } from "../block/types.ts";
+import type { BlockBody, Blocks } from "../block/types.ts";
 import { resolveModel, resolvePrompt } from "../llm/shared.ts";
 import {
   AgentSession,
@@ -253,46 +253,53 @@ function mergeWithDefaults(
   if (out.principal === undefined && defaults.principal !== undefined) {
     out.principal = defaults.principal;
   }
-  if (defaults.blocks !== undefined && defaults.blocks.length > 0) {
-    out.blocks = mergeBlocksByName(defaults.blocks, base.blocks);
+  if (defaults.blocks !== undefined) {
+    out.blocks = mergeBlocks(defaults.blocks, base.blocks);
   }
   return out;
 }
 
 /**
- * Merge a defaults-supplied block list with the agent's own. Per-name
- * override semantics: a per-agent block whose `name` matches a default
- * replaces only that entry; non-colliding default blocks still apply,
- * and per-agent blocks with unique names extend the list.
+ * Merge default blocks with the agent's own. The per-agent record is
+ * applied on top of the defaults by name: a key in both records picks
+ * the per-agent body (overrides only that entry); non-colliding
+ * defaults still apply; per-agent keys with new names extend the
+ * record. A per-agent value of `false` removes the matching default;
+ * a `false` for a name absent from defaults is a no-op so adding or
+ * removing defaults later cannot break the agent definition.
  *
- * Declaration order is preserved: defaults first (in their declared
- * order, with overridden entries replaced in place), then any
- * per-agent blocks that don't override anything, in their declared
- * order. Inject blocks appear in the system prompt in this final
- * order.
+ * Insertion order is preserved by walking defaults first, then any
+ * per-agent keys that didn't override a default. Inject blocks appear
+ * in the system prompt in this order, which matters because the model
+ * is sensitive to earlier system-prompt content.
  *
  * @internal
  */
-function mergeBlocksByName(
-  defaults: Block[],
-  agent: Block[] | undefined,
-): Block[] {
-  if (!agent || agent.length === 0) return [...defaults];
-  const overrides = new Map<string, Block>();
-  for (const b of agent) overrides.set(b.name, b);
-  const out: Block[] = [];
-  const consumed = new Set<string>();
-  for (const def of defaults) {
-    const override = overrides.get(def.name);
-    if (override) {
-      out.push(override);
-      consumed.add(def.name);
+function mergeBlocks(defaults: Blocks, agent: Blocks | undefined): Blocks {
+  if (!agent) {
+    // Strip any `false` entries that managed to land in defaults
+    // (defaults can't sensibly remove from themselves; ignore them).
+    const cleaned: Blocks = {};
+    for (const [name, body] of Object.entries(defaults)) {
+      if (body !== false) cleaned[name] = body;
+    }
+    return cleaned;
+  }
+  const out: Blocks = {};
+  for (const [name, body] of Object.entries(defaults)) {
+    if (body === false) continue;
+    if (Object.prototype.hasOwnProperty.call(agent, name)) {
+      const override = agent[name];
+      if (override === false) continue;
+      if (override !== undefined) out[name] = override;
     } else {
-      out.push(def);
+      out[name] = body;
     }
   }
-  for (const b of agent) {
-    if (!consumed.has(b.name)) out.push(b);
+  for (const [name, body] of Object.entries(agent)) {
+    if (Object.prototype.hasOwnProperty.call(out, name)) continue;
+    if (body === false) continue;
+    out[name] = body as BlockBody;
   }
   return out;
 }

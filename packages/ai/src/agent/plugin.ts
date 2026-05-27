@@ -231,9 +231,14 @@ function validatePluginDefaults(
       message: `agentPlugin: "defaultOptions.tools" must be the result of tools([...]).`,
     });
   }
-  if (raw.blocks !== undefined && !Array.isArray(raw.blocks)) {
+  if (
+    raw.blocks !== undefined &&
+    (raw.blocks === null ||
+      typeof raw.blocks !== "object" ||
+      Array.isArray(raw.blocks))
+  ) {
     throw rcError("RC5003", undefined, {
-      message: `agentPlugin: "defaultOptions.blocks" must be an array of Block objects.`,
+      message: `agentPlugin: "defaultOptions.blocks" must be a Record<string, BlockBody | false>.`,
     });
   }
   return raw;
@@ -262,15 +267,29 @@ function mergePluginDefaults(
       message: `agentPlugin: "defaultOptions.tools" is already set on this context. Combine selectors into a single tools([...]) call.`,
     });
   }
-  if (next.blocks !== undefined && existing.blocks !== undefined) {
-    throw rcError("RC5003", undefined, {
-      message: `agentPlugin: "defaultOptions.blocks" is already set on this context. Combine block lists into a single defaultOptions.blocks array.`,
-    });
+  // Blocks merge additively across multiple `agentPlugin` installs:
+  // each install contributes named entries, and a name set in two
+  // installs throws so we never silently pick one. This differs from
+  // `model` / `tools` (single-valued) and matches how blocks compose
+  // per-agent: independent named contributions.
+  let mergedBlocks: typeof existing.blocks | undefined;
+  if (existing.blocks !== undefined || next.blocks !== undefined) {
+    mergedBlocks = { ...(existing.blocks ?? {}) };
+    if (next.blocks !== undefined) {
+      for (const [name, body] of Object.entries(next.blocks)) {
+        if (Object.prototype.hasOwnProperty.call(mergedBlocks, name)) {
+          throw rcError("RC5003", undefined, {
+            message: `agentPlugin: "defaultOptions.blocks" already contains "${name}" from a previous install. Each block name may be defined once across all installs.`,
+          });
+        }
+        mergedBlocks[name] = body;
+      }
+    }
   }
   return {
     ...existing,
     ...(next.model !== undefined ? { model: next.model } : {}),
     ...(next.tools !== undefined ? { tools: next.tools } : {}),
-    ...(next.blocks !== undefined ? { blocks: next.blocks } : {}),
+    ...(mergedBlocks !== undefined ? { blocks: mergedBlocks } : {}),
   };
 }

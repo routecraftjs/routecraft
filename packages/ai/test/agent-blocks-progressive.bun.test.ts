@@ -75,14 +75,13 @@ describe('agent blocks: mode: "progressive" surfaces as a loader tool', () => {
             agent({
               system: "x",
               model: "anthropic:claude-opus-4-7",
-              blocks: [
-                {
-                  name: "research",
+              blocks: {
+                research: {
                   description: "Long-form research notes.",
                   mode: "progressive",
                   value: "<resolved research>",
                 },
-              ],
+              },
             }),
           )
           .to(sink),

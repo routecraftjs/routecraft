@@ -471,11 +471,11 @@ craft()
 | `user` | `string \| (exchange) => string` | No | User prompt override. Static string or a function that derives it from the exchange. Defaults to `exchange.body` (string as-is, JSON for objects) when omitted |
 | `tools` | `ToolSelection` | No | Tool whitelist built via `tools([...])`. Inherits `defaultOptions.tools` when omitted; an explicit value replaces the default entirely |
 | `maxTurns` | `number` | No | Cap on tool-calling turns. Inherits `defaultOptions.maxTurns` when omitted |
-| `blocks` | `Block[]` | No | Contributions to the agent's system context. Each block has a `mode` (`"inject"` to concatenate into the system prompt as `## <name>\n\n<content>`, or `"progressive"` to surface as a synthetic `_block_load_<name>` tool the model invokes on demand) and an optional `lifetime` (`"dispatch"` re-runs the resolver every call, `"context"` caches once per `CraftContext`). Use `skillsBlock({ source })` to load markdown skills. See the [blocks reference](#agent-blocks) |
+| `blocks` | `Blocks` (`Record<string, BlockBody \| false>`) | No | Contributions to the agent's system context, keyed by name. Each block has a `mode` (`"inject"` to concatenate into the system prompt as `## <name>\n\n<content>`, or `"progressive"` to surface as a synthetic `_block_load_<name>` tool the model invokes on demand) and an optional `lifetime` (`"dispatch"` re-runs the resolver every call, `"context"` caches once per `CraftContext`). Set an entry to `false` to remove a default inherited from `agentPlugin({ defaultOptions: { blocks } })`. Use `skills({ source })` to load markdown skills. See the [blocks reference](#agent-blocks) |
 | `principal` | `boolean \| (principal, exchange) => string` | No | Append a `## Caller` section describing `exchange.principal`. `true` for the built-in block, a function to render it yourself. Inherits `defaultOptions.principal` when omitted; a per-agent value (including `false`) overrides it. See [Telling the agent who the caller is](/docs/reference/adapters#telling-the-agent-who-the-caller-is) |
 | `output` | `StandardSchemaV1` | No | Schema for structured output. Validated and parsed onto `AgentResult.output` after dispatch (runtime ships in a follow-up release) |
 
-Agents loaded from markdown via [`agents("./dir")`](/docs/reference/adapters#agent) accept the same fields as frontmatter, except for `blocks`. `principal` is supported in frontmatter as a boolean (`principal: true`); the function-renderer form is a closure YAML cannot express, so set it via the per-agent override map (`agents("./dir", { zoe: { principal: (p) => ... } })`) or `agentPlugin({ defaultOptions })`. `blocks` is override-only because resolvers may carry functions; supply them via the same override map (`agents("./dir", { zoe: { blocks: await skillsBlock({ source: "./skills" }) } })`).
+Agents loaded from markdown via [`agents("./dir")`](/docs/reference/adapters#agent) accept the same fields as frontmatter, except for `blocks`. `principal` is supported in frontmatter as a boolean (`principal: true`); the function-renderer form is a closure YAML cannot express, so set it via the per-agent override map (`agents("./dir", { zoe: { principal: (p) => ... } })`) or `agentPlugin({ defaultOptions })`. `blocks` is override-only because resolvers may carry functions; supply them via the same override map (`agents("./dir", { zoe: { blocks: await skills({ source: "./skills" }) } })`).
 
 **Resolution semantics:**
 
@@ -488,23 +488,21 @@ See the [`agent`](/docs/reference/adapters#agent) adapter for usage patterns.
 
 ### Agent blocks
 
-Blocks are an agent's contribution to its system context. A `Block` is either always injected into the system prompt (`mode: "inject"`) or surfaced as a synthetic loader tool the model invokes on demand (`mode: "progressive"`, the default for `skillsBlock`). They replace the 0.5 `skills` field and unify with memory, identity, instructions, and any future system-prompt contribution.
+Blocks are an agent's contribution to its system context, expressed as a `Blocks` record (`Record<string, BlockBody | false>`) keyed by block name. A block is either always injected into the system prompt (`mode: "inject"`) or surfaced as a synthetic loader tool the model invokes on demand (`mode: "progressive"`, the default for `skills`). They replace the 0.5 `skills` field and unify with memory, identity, instructions, and any future system-prompt contribution.
 
 ```ts
-import { agent, skillsBlock } from '@routecraft/ai'
+import { agent, skills } from '@routecraft/ai'
 
 agent({
   model: 'anthropic:claude-sonnet-4-6',
   system: 'You are an analyst.',
-  blocks: [
-    {
-      name: 'identity',
+  blocks: {
+    identity: {
       mode: 'inject',
       value: 'You are precise and concise.',
     },
-    ...(await skillsBlock({ source: './skills' })),
-    {
-      name: 'tenant-config',
+    ...(await skills({ source: './skills' })),
+    'tenant-config': {
       mode: 'inject',
       lifetime: 'context',
       value: (_exchange, context) => {
@@ -512,23 +510,42 @@ agent({
         return `Tenant: ${config.name}`
       },
     },
-  ],
+  },
 })
 ```
 
-**Block shape:**
+**`BlockBody` shape:**
 
 | Field         | Type                                                                                                     | Required | Description                                                                                                                                       |
 | ------------- | -------------------------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `name`        | `string`                                                                                                 | Yes      | Unique within the agent's blocks list. The `_block_load_` prefix is reserved for synthetic loader tools and rejected with `RC5026`.               |
 | `description` | `string`                                                                                                 | Yes\*    | Required when `mode === "progressive"` so the model can decide whether to load. Ignored for inject blocks.                                        |
 | `mode`        | `"inject" \| "progressive"`                                                                              | Yes      | `"inject"` concatenates into the system prompt as `## <name>\n\n<content>`. `"progressive"` registers a `_block_load_<name>` tool the model invokes on demand. |
-| `lifetime`    | `"dispatch" \| "context"`                                                                                | No       | Defaults to `"dispatch"` (re-run resolver each call). `"context"` runs the resolver once per `CraftContext` and caches the result (cache key is the block's object identity, so concurrent dispatches share one resolution). |
+| `lifetime`    | `"dispatch" \| "context"`                                                                                | No       | Defaults to `"dispatch"` (re-run resolver each call). `"context"` runs the resolver once per `CraftContext` and caches the result (cache key is the body's object identity, so concurrent dispatches share one resolution). |
 | `value`       | `string \| (exchange, context, events, client) => string \| Promise<string>`                             | Yes      | Static string used verbatim, or a function. `client.forward(routeId, payload)` is the same callable route `.error()` handlers receive. `events` is reserved (always `[]`) for a forthcoming exchange-event log. |
+
+The block's name is the record key (not a field on the body). Names starting with the reserved `_block_` prefix are rejected with `RC5026`. An empty-string key is rejected with `RC5026`.
+
+**Removing a default:**
+
+Set a name to `false` to drop a default block from a specific agent:
+
+```ts
+agent({
+  ...,
+  blocks: {
+    // Override the "house-style" default
+    'house-style': { mode: 'inject', value: 'Be terse.' },
+    // Drop the "safety" default for this agent only
+    safety: false,
+  },
+})
+```
+
+A `false` for a name not present in defaults is silently ignored, so adding or removing defaults later cannot break agent definitions.
 
 **Builders:**
 
-- `skillsBlock({ source, mode?, lifetime? })` -- loads markdown skills as `Block[]`. `source` accepts a single `.md` file or a directory (flat `<name>.md` and nested `<name>/SKILL.md` may coexist). Defaults to `mode: "progressive"`.
+- `skills({ source, mode?, lifetime? })` -- loads markdown skills as a `Blocks` record. `source` accepts a single `.md` file or a directory (flat `<name>.md` and nested `<name>/SKILL.md` may coexist). Defaults to `mode: "progressive"`.
 - `fromFile(path)` -- returns a resolver that reads a UTF-8 text file at resolution time.
 
 **Loader tools and observability:**
@@ -537,7 +554,9 @@ Progressive blocks register one synthetic tool per block named `_block_load_<blo
 
 **Defaults merging:**
 
-`agentPlugin({ defaultOptions: { blocks } })` installs shared blocks for every agent in the context. The merge differs from how `tools` merges: a per-agent `blocks` array does **not** replace defaults wholesale. Defaults are merged in by name, and a per-agent block whose name matches a default replaces only that entry. Non-colliding defaults still apply. This lets a context install identity / memory / tenant blocks once and have individual agents add or replace entries.
+`agentPlugin({ defaultOptions: { blocks } })` installs shared blocks for every agent in the context. The merge differs from how `tools` merges: a per-agent `blocks` record does **not** replace defaults wholesale. Defaults are merged in by name, and a per-agent block whose key matches a default replaces only that entry (or removes it when set to `false`). Non-colliding defaults still apply. This lets a context install identity / memory / tenant blocks once and have individual agents add, replace, or remove entries.
+
+Two `agentPlugin` installs that each supply `defaultOptions.blocks` merge additively: each install contributes named entries, but the same name appearing in two installs throws `RC5003` so you never silently inherit one over the other.
 
 **Errors:**
 
@@ -545,7 +564,7 @@ Progressive blocks register one synthetic tool per block named `_block_load_<blo
 | -------- | ------------------------------------------------------------------------------------------------------------- |
 | `RC5025` | Block resolver threw or returned a non-string. Inject mode aborts the dispatch; progressive mode reports back to the model as a tool error so it can self-correct. |
 | `RC5026` | Block name collides with another block, a user tool, or uses the reserved `_block_` prefix.                   |
-| `RC5027` | Block misconfigured: missing `name`, invalid `mode`, missing `description` on a progressive block, etc.       |
+| `RC5027` | Block misconfigured: invalid `mode`, missing `description` on a progressive block, non-string non-function `value`, etc.       |
 
 ### Functions (`functions`)
 
@@ -643,27 +662,22 @@ agentPlugin({
         'fetchOrder',
         'Direct(cancel-order)',                     // direct route
         { name: 'sendSlack', guard: requireApproval },
-        { tagged: 'read-only' },                    // single tag
-        { tagged: ['read-only', 'idempotent'] },    // OR-of-tags
       ]),
     },
   },
   defaultOptions: {
     model: 'anthropic:claude-opus-4-7',             // applies to agents that omit `model`
-    tools: tools(['CurrentTime', { tagged: 'read-only' }]),
+    tools: tools(['CurrentTime', 'fetchOrder']),
   },
 })
 ```
 
-#### `tools(items)`
+#### `tools(items)` -- array form
 
 Flat array of items. Each item is one of:
 
 - **Bare string**: name lookup. Plain ids resolve against the fn registry; `Direct(<routeId>)` wraps a direct route via `directTool` (the LLM-facing tool name stays `direct_<routeId>`); `MCP(server:tool)` resolves against `MCP_TOOL_REGISTRY` (populated by `defineConfig.mcp` / `mcpPlugin({ clients })`), and `MCP(server)` (or the raw `mcp__server__tool` / `mcp__server` / `mcp__server__*` forms) expands at dispatch time to every tool the named server exposed. The raw `mcp__server__tool` form is the string Claude Code agent files carry, so they resolve unchanged.
 - **`{ name, guard?, description? }`**: same name lookup, with optional per-binding overrides. The guard runs after schema validation and before the handler; throwing surfaces back to the LLM as a tool error so the model can self-correct. The `description` override applies only to this binding for fn-style names. MCP references reject `description` (the MCP server is the source of truth for description and schema; do not override).
-- **`{ tagged, from?, guard? }`**: selects every fn / route / MCP tool whose tags overlap the requested set (single tag or array; OR semantics across the array). `from?: string` scopes the walk to a single source; today `from: "mcp__<server>"` restricts the selection to one MCP server. Optional guard applies to every match. Tag-zero-match throws RC5003 so a misconfigured selector cannot silently strip every tool from an agent.
-
-MCP tools are auto-tagged at registration from each tool's MCP annotations: `readOnlyHint → "read-only"`, `destructiveHint → "destructive"`, `idempotentHint → "idempotent"`, `openWorldHint → "open-world"`. That means `{ tagged: "read-only" }` matches fns, routes, AND MCP tools out of the box.
 
 Examples:
 
@@ -674,8 +688,6 @@ agent({
     'Direct(orders/fetch)',                         // direct route
     'MCP(Nuclino:list_teams)',                      // one MCP tool
     'MCP(Stripe)',                                  // all tools from one MCP server
-    { tagged: 'read-only' },                        // cross-cutting tag filter
-    { tagged: 'destructive', from: 'mcp__Nuclino' }, // tag filter scoped to one MCP server
     {
       name: 'MCP(Nuclino:get_item)',
       guard: (input, ctx) => {
@@ -688,26 +700,54 @@ agent({
 });
 ```
 
+#### `tools((catalog) => items)` -- builder form
+
+Programmatic escape hatch when explicit enumeration is impractical. The builder receives a `ToolsCatalog` snapshot of the live registries and returns the same shape the array form accepts.
+
+```ts
+agent({
+  tools: tools((catalog) => [
+    // Explicit, reviewed at call site
+    'fetchOrder',
+    'Direct(escalate)',
+
+    // Dynamic, user-controlled
+    ...catalog.fns
+      .filter((f) => f.tags?.includes('read-only'))
+      .map((f) => f.name),
+  ]),
+});
+```
+
+`ToolsCatalog` shape:
+
+| Field     | Type                                                                          | Description                                                       |
+| --------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `fns`     | `ReadonlyArray<{ name; description?; tags? }>`                                | Fns from `agentPlugin({ functions })`. Deferred wrappers (`directTool`) appear by name only; filter on their underlying routes via `catalog.routes` if you need tag-based selection of routes. |
+| `routes`  | `ReadonlyArray<{ id; description?; tags? }>`                                  | Direct routes from `ADAPTER_DIRECT_REGISTRY`. Reference via `"Direct(<id>)"` in the returned items. |
+| `mcp`     | `ReadonlyArray<{ server; tool; description?; tags? }>`                        | MCP tools populated by `mcpPlugin({ clients })`. Reference via `"MCP(<server>:<tool>)"` or `"mcp__<server>__<tool>"`. |
+
+The builder runs once per agent dispatch (same lifecycle as the array resolver). Builder errors are wrapped in `RC5003` with the original chained. The framework ships no helpers on `ToolsCatalog`: any filter is user code, and `.filter()` at the call site is an obvious signal that the set is dynamic (vs the declarative tag selectors removed in 0.6, which were a security footgun because they implicitly extended an agent's surface when new tagged fns were registered).
+
 Resolution rules:
 
-- Final list deduplicated by tool name.
-- Explicit refs always win over tag-selector matches, regardless of position in the list.
-- A `directTool(routeId)` fn-registry wrapper supersedes the same direct route surfaced via the prefix convention.
-- `description` is the only override permitted at the use site, and only on the explicit `{ name }` form for fn-style names. Input schema, tags, and any other registration-time fields are not overridable here. Register a separate fn with `directTool(routeId, { input, tags })` if you need a fundamentally different view. MCP refs reject `description` outright.
+- Final list deduplicated by tool name (later refs win).
+- A `directTool(routeId)` fn-registry wrapper and the underlying direct route share the same surface; reference via the fn id you registered.
+- `description` is the only override permitted at the use site, and only on the explicit `{ name }` form for fn-style names. Input schema, tags, and any other registration-time fields are not overridable here. Register a separate fn with `directTool(routeId, { description, input })` if you need a fundamentally different view. MCP refs reject `description` outright.
 - The agent does NOT forward `FnHandlerContext.principal` to the MCP server. Principal authenticates the caller into Routecraft; MCP `auth` (configured on the client) authenticates the Routecraft → MCP hop. To thread user-specific data into an MCP call, put it in the tool's input as a regular argument and let the MCP server enforce its own policy. See `.standards/security.md` §11.
 
 #### Builders
 
 | Builder | Use |
 |---|---|
-| `directTool(routeId, overrides?)` | Adapt a registered direct route as a fn. Pulls description, input schema, and tags from the route's discovery bundle by default; `overrides` can replace any of those. |
+| `directTool(routeId, overrides?)` | Adapt a registered direct route as a fn. Pulls description, input schema, and tags from the route's discovery bundle by default; `overrides` accepts `description` and `input` to replace either of those (tags pass through unchanged). |
 | `currentTime()` / `randomUuid()` | Built-in fn factories (read-only / idempotent). Assign each a tool name in your `functions:` config, the same way as `directTool`. |
 
 MCP tools are NOT exposed via a builder. Use the `MCP(server:tool)` / `MCP(server)` grammar (or the raw `mcp__server__tool` form) inside `tools([...])` instead; the registry populated by `defineConfig.mcp` is the source of truth.
 
 #### Tags
 
-Apply with `.tag(value | values[])` on routes and `tags?: Tag[]` on `FnOptions`. Empty strings are rejected; surrounding whitespace is trimmed at storage so exact selectors match.
+Apply with `.tag(value | values[])` on routes and `tags?: Tag[]` on `FnOptions`. Empty strings are rejected; surrounding whitespace is trimmed at storage so exact comparisons match.
 
 `KnownTag` (a literal-suggested type) covers the framework's well-known tags:
 
@@ -716,6 +756,8 @@ type KnownTag = 'read-only' | 'destructive' | 'idempotent';
 ```
 
 Any user string is also accepted; the `KnownTag` literals just power autocomplete.
+
+Tags are exposed on `ToolsCatalog` entries so the builder form of `tools()` can filter on them. They do not drive any framework-level selector (the `{ tagged }` variant on `tools()` was removed in 0.6.0); the security boundary belongs at the agent's call site, not in implicit registry queries.
 
 #### Context-level `defaultOptions`
 
@@ -736,7 +778,7 @@ Two `agentPlugin` installs that each set the same field throw at context init. T
 agentPlugin({
   defaultOptions: {
     model: 'anthropic:claude-opus-4-7',
-    tools: tools(['CurrentTime', { tagged: 'read-only' }]),
+    tools: tools(['CurrentTime', 'fetchOrder']),
   },
   agents: {
     researcher: { description, system },                            // inherits both

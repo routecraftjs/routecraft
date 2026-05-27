@@ -12,7 +12,6 @@ import {
   type Exchange,
   type KnownTag,
   type Principal,
-  type Tag,
 } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { randomUUID } from "node:crypto";
@@ -112,9 +111,11 @@ const emptyObjectSchema: StandardSchemaV1<unknown, Record<string, never>> = {
  * narrow the underlying tool's surface to a specific agent without
  * touching the underlying registration.
  *
- * Only the LLM-facing contract (description, input, tags) can be
- * overridden here. Guards are policy and live at the consumer:
- * attach them in `tools([{ name, guard }])` at the agent's call site.
+ * Only `description` and `input` may be overridden. Guards are policy
+ * and live at the consumer (attach them in `tools([{ name, guard }])`
+ * at the agent's call site). Tags were previously overridable to
+ * influence the removed tag-based selector; without that selector the
+ * override has no effect at runtime, so the field is gone.
  */
 export interface ToolBuilderOverrides<TIn = unknown> {
   /** Replace the underlying description shown to the LLM. */
@@ -124,18 +125,13 @@ export interface ToolBuilderOverrides<TIn = unknown> {
    * the underlying schema.
    */
   input?: StandardSchemaV1<unknown, TIn>;
-  /**
-   * Replace the underlying tags. Replaces, does not merge with, the
-   * underlying tags.
-   */
-  tags?: Tag[];
 }
 
 /**
  * Wrap a registered direct route as a fn-shaped tool. The route's
  * `.description()`, `.input()` schema, and tags become the fn's
  * description, input, and tags by default; pass `overrides` to narrow
- * any of them for the calling agent.
+ * `description` or `input` for the calling agent.
  *
  * Resolution is deferred to agent dispatch time, when the direct
  * registry is populated. Errors at resolution (unknown route id,
@@ -148,7 +144,6 @@ export interface ToolBuilderOverrides<TIn = unknown> {
  *     fetchOrder: directTool("fetch-order"),
  *     safeFetchOrder: directTool("fetch-order", {
  *       description: "Read-only order fetch.",
- *       tags: ["read-only"],
  *     }),
  *   },
  * });
@@ -163,12 +158,10 @@ export function directTool<TIn = unknown>(
       message: `directTool: routeId must be a non-empty string.`,
     });
   }
-  const overrideTags = normalizeOverrideTags(overrides?.tags, routeId);
   return {
     [DEFERRED_FN_BRAND]: true,
     kind: "direct",
     targetId: routeId,
-    ...(overrideTags !== undefined ? { overrideTags } : {}),
     resolve(ctx, fnId): FnOptions {
       const route = readDirectRoute(ctx, routeId, fnId);
       const description = overrides?.description ?? route.description;
@@ -185,7 +178,7 @@ export function directTool<TIn = unknown>(
           message: `directTool: route "${routeId}" has no .input(...) schema and no override was provided (referenced as fn "${fnId}").`,
         });
       }
-      const tags = overrideTags ?? route.tags;
+      const tags = route.tags;
       const handler = ((input, hctx) =>
         dispatchDirect(ctx, hctx, routeId, input)) as FnOptions["handler"];
       return {
@@ -196,35 +189,6 @@ export function directTool<TIn = unknown>(
       } as FnOptions;
     },
   };
-}
-
-/**
- * Trim and validate user-supplied builder override tags so they match
- * exact tag selectors and surface clear errors on misuse. Returns
- * `undefined` when no override was supplied (so the caller can omit
- * the field entirely on the descriptor).
- */
-function normalizeOverrideTags(
-  value: Tag[] | undefined,
-  routeId: string,
-): readonly Tag[] | undefined {
-  if (value === undefined) return undefined;
-  if (!Array.isArray(value)) {
-    throw rcError("RC5003", undefined, {
-      message: `directTool("${routeId}"): override "tags" must be an array of non-empty strings.`,
-    });
-  }
-  const out: Tag[] = [];
-  for (const t of value) {
-    if (typeof t !== "string" || t.trim() === "") {
-      throw rcError("RC5003", undefined, {
-        message: `directTool("${routeId}"): override "tags" must contain only non-empty strings.`,
-      });
-    }
-    const trimmed = t.trim();
-    if (!out.includes(trimmed)) out.push(trimmed);
-  }
-  return out;
 }
 
 function readDirectRoute(

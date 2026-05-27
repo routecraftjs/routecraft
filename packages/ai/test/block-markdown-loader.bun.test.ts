@@ -2,13 +2,13 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { skillsBlock } from "../src/index.ts";
+import { skills } from "../src/index.ts";
 
 function tmpDir(): string {
-  return mkdtempSync(join(tmpdir(), "rc-block-skills-"));
+  return mkdtempSync(join(tmpdir(), "rc-skills-"));
 }
 
-describe("skillsBlock() markdown loader", () => {
+describe("skills() markdown loader", () => {
   let dirs: string[] = [];
   afterEach(() => {
     for (const d of dirs) rmSync(d, { recursive: true, force: true });
@@ -29,7 +29,7 @@ describe("skillsBlock() markdown loader", () => {
   /**
    * @case Loads multiple .md files in a directory as progressive blocks by default
    * @preconditions Two well-formed skill files; default mode (no override)
-   * @expectedResult Returns one Block per file with mode "progressive" and body as the static value
+   * @expectedResult Returns one BlockBody per file with mode "progressive" and body as the static value, keyed by skill name
    */
   test("loads a directory of skill markdown files as progressive blocks", async () => {
     const dir = makeDir({
@@ -38,14 +38,9 @@ describe("skillsBlock() markdown loader", () => {
       "cite-sources.md":
         "---\nname: cite-sources\ndescription: Cite your sources\n---\nAlways include citations.",
     });
-    const result = await skillsBlock({ source: dir });
-    expect(result.map((b) => b.name).sort()).toEqual([
-      "cite-sources",
-      "web-search",
-    ]);
-    const webSearch = result.find((b) => b.name === "web-search")!;
-    expect(webSearch).toEqual({
-      name: "web-search",
+    const result = await skills({ source: dir });
+    expect(Object.keys(result).sort()).toEqual(["cite-sources", "web-search"]);
+    expect(result["web-search"]).toEqual({
       description: "Search the web",
       mode: "progressive",
       value: "Use a search engine first.",
@@ -62,8 +57,10 @@ describe("skillsBlock() markdown loader", () => {
       "rules.md":
         "---\nname: rules\ndescription: The rules\n---\nRule one. Rule two.",
     });
-    const result = await skillsBlock({ source: dir, mode: "inject" });
-    expect(result[0]?.mode).toBe("inject");
+    const result = await skills({ source: dir, mode: "inject" });
+    const body = result["rules"];
+    expect(body).toBeTruthy();
+    if (body && body !== false) expect(body.mode).toBe("inject");
   });
 
   /**
@@ -75,8 +72,9 @@ describe("skillsBlock() markdown loader", () => {
     const dir = makeDir({
       "x.md": "---\nname: x\ndescription: d\n---\nbody",
     });
-    const result = await skillsBlock({ source: dir, lifetime: "context" });
-    expect(result[0]?.lifetime).toBe("context");
+    const result = await skills({ source: dir, lifetime: "context" });
+    const body = result["x"];
+    if (body && body !== false) expect(body.lifetime).toBe("context");
   });
 
   /**
@@ -89,10 +87,9 @@ describe("skillsBlock() markdown loader", () => {
       "rules.md":
         "---\nname: rules\ndescription: The rules\n---\nRule one. Rule two.",
     });
-    const result = await skillsBlock({ source: join(dir, "rules.md") });
-    expect(result).toHaveLength(1);
-    expect(result[0]).toMatchObject({
-      name: "rules",
+    const result = await skills({ source: join(dir, "rules.md") });
+    expect(Object.keys(result)).toEqual(["rules"]);
+    expect(result["rules"]).toMatchObject({
       description: "The rules",
       mode: "progressive",
       value: "Rule one. Rule two.",
@@ -108,7 +105,7 @@ describe("skillsBlock() markdown loader", () => {
     const dir = makeDir({
       "actual.md": "---\nname: claimed\ndescription: ok\n---\nbody",
     });
-    await expect(skillsBlock({ source: dir })).rejects.toThrow(
+    await expect(skills({ source: dir })).rejects.toThrow(
       /must match the filename/,
     );
   });
@@ -116,7 +113,7 @@ describe("skillsBlock() markdown loader", () => {
   /**
    * @case Unknown frontmatter fields are silently accepted and ignored
    * @preconditions File with Claude Code frontmatter fields the runtime does not consume
-   * @expectedResult Loads successfully; only name, description, and body materialise on the Block
+   * @expectedResult Loads successfully; only description and body materialise on the BlockBody
    */
   test("accepts and ignores unknown frontmatter keys", async () => {
     const dir = makeDir({
@@ -135,9 +132,8 @@ describe("skillsBlock() markdown loader", () => {
         "body",
       ].join("\n"),
     });
-    const result = await skillsBlock({ source: dir });
-    expect(result[0]).toMatchObject({
-      name: "devoptix-hq",
+    const result = await skills({ source: dir });
+    expect(result["devoptix-hq"]).toMatchObject({
       description: "ok",
       value: "body",
     });
@@ -152,7 +148,7 @@ describe("skillsBlock() markdown loader", () => {
     const dir = makeDir({
       "x.md": "---\nname: x\ndescription: ok\n---\n",
     });
-    await expect(skillsBlock({ source: dir })).rejects.toThrow(
+    await expect(skills({ source: dir })).rejects.toThrow(
       /skill body is empty/,
     );
   });
@@ -167,15 +163,14 @@ describe("skillsBlock() markdown loader", () => {
       "devoptix-hq/SKILL.md":
         "---\nname: devoptix-hq\ndescription: DevOptix HQ knowledge\n---\nKnow the org.",
     });
-    const result = await skillsBlock({ source: dir });
-    expect(result).toEqual([
-      {
-        name: "devoptix-hq",
+    const result = await skills({ source: dir });
+    expect(result).toEqual({
+      "devoptix-hq": {
         description: "DevOptix HQ knowledge",
         mode: "progressive",
         value: "Know the org.",
       },
-    ]);
+    });
   });
 
   /**
@@ -190,11 +185,8 @@ describe("skillsBlock() markdown loader", () => {
       "devoptix-hq/SKILL.md":
         "---\nname: devoptix-hq\ndescription: Org context\n---\nKnow the org.",
     });
-    const result = await skillsBlock({ source: dir });
-    expect(result.map((b) => b.name).sort()).toEqual([
-      "cite-sources",
-      "devoptix-hq",
-    ]);
+    const result = await skills({ source: dir });
+    expect(Object.keys(result).sort()).toEqual(["cite-sources", "devoptix-hq"]);
   });
 
   /**
@@ -207,23 +199,23 @@ describe("skillsBlock() markdown loader", () => {
       "foo.md": "---\nname: foo\ndescription: flat\n---\nflat body",
       "foo/SKILL.md": "---\nname: foo\ndescription: nested\n---\nnested body",
     });
-    await expect(skillsBlock({ source: dir })).rejects.toThrow(
+    await expect(skills({ source: dir })).rejects.toThrow(
       /duplicate skill name "foo"/,
     );
   });
 
   /**
-   * @case skillsBlock validates its own options surface
+   * @case skills() validates its own options surface
    * @preconditions Missing/empty source string and invalid mode strings
    * @expectedResult Throws RC5027 with a clear authoring-time message
    */
   test("rejects misconfigured options", async () => {
-    await expect(skillsBlock({ source: "" })).rejects.toThrow(
+    await expect(skills({ source: "" })).rejects.toThrow(
       /"source" must be a non-empty path/,
     );
     await expect(
       // @ts-expect-error -- intentionally pass an invalid mode
-      skillsBlock({ source: "./irrelevant.md", mode: "bogus" }),
+      skills({ source: "./irrelevant.md", mode: "bogus" }),
     ).rejects.toThrow(/"mode" must be "inject" or "progressive"/);
   });
 });

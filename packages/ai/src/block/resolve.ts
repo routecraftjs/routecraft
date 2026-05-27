@@ -7,7 +7,12 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { FnOptions } from "../fn/types.ts";
 import type { ResolvedTool } from "../agent/tools/selection.ts";
 import { makeBlockClient } from "./client.ts";
-import type { AgentBlockLoadSummary, Block, BlockClient } from "./types.ts";
+import type {
+  AgentBlockLoadSummary,
+  BlockBody,
+  BlockClient,
+  Blocks,
+} from "./types.ts";
 
 /**
  * Symbol stamped on `ResolvedTool` entries produced by
@@ -91,39 +96,46 @@ export interface ResolvedBlocks {
  * @internal
  */
 export async function resolveBlocks(
-  blocks: Block[] | undefined,
+  blocks: Blocks | undefined,
   exchange: Exchange<unknown>,
   context: CraftContext | undefined,
 ): Promise<ResolvedBlocks> {
-  if (!blocks || blocks.length === 0) {
+  if (!blocks) return { systemAppend: "", loaderTools: [] };
+  const entries = Object.entries(blocks).filter(
+    (entry): entry is [string, BlockBody] => entry[1] !== false,
+  );
+  if (entries.length === 0) {
     return { systemAppend: "", loaderTools: [] };
   }
   const client = makeBlockClient(exchange);
   const parts: string[] = [];
   const loaderTools: BlockLoaderTool[] = [];
-  for (const block of blocks) {
-    if (block.mode === "inject") {
-      const value = await resolveOnce(block, exchange, context, client);
-      parts.push(`\n\n## ${block.name}\n\n${value}`);
+  for (const [name, body] of entries) {
+    if (body.mode === "inject") {
+      const value = await resolveOnce(name, body, exchange, context, client);
+      parts.push(`\n\n## ${name}\n\n${value}`);
       continue;
     }
-    loaderTools.push(buildLoaderTool(block, exchange, context, client));
+    loaderTools.push(buildLoaderTool(name, body, exchange, context, client));
   }
   return { systemAppend: parts.join(""), loaderTools };
 }
 
 /**
  * Per-context, per-block resolution cache. Keyed by `CraftContext`
- * identity at the outer layer and by `Block` object identity at the
- * inner layer. Stores the in-flight promise rather than the resolved
- * string so concurrent dispatches against the same `context`-lifetime
- * block share one resolution instead of racing into N parallel
- * invocations. WeakMap on the outer key so a disposed context does
- * not pin block content in memory.
+ * identity at the outer layer and by `BlockBody` object identity at
+ * the inner layer. Stores the in-flight promise rather than the
+ * resolved string so concurrent dispatches against the same
+ * `context`-lifetime block share one resolution instead of racing
+ * into N parallel invocations. WeakMap on the outer key so a disposed
+ * context does not pin block content in memory.
  *
  * @internal
  */
-const LIFETIME_CACHE = new WeakMap<CraftContext, Map<Block, Promise<string>>>();
+const LIFETIME_CACHE = new WeakMap<
+  CraftContext,
+  Map<BlockBody, Promise<string>>
+>();
 
 /**
  * Run a block's resolver, honouring `lifetime`. For
@@ -135,27 +147,28 @@ const LIFETIME_CACHE = new WeakMap<CraftContext, Map<Block, Promise<string>>>();
  * @internal
  */
 async function resolveOnce(
-  block: Block,
+  name: string,
+  body: BlockBody,
   exchange: Exchange<unknown>,
   context: CraftContext | undefined,
   client: BlockClient,
 ): Promise<string> {
-  const lifetime = block.lifetime ?? "dispatch";
+  const lifetime = body.lifetime ?? "dispatch";
   if (lifetime === "context" && context) {
     let cache = LIFETIME_CACHE.get(context);
-    if (cache?.has(block)) return cache.get(block) as Promise<string>;
+    if (cache?.has(body)) return cache.get(body) as Promise<string>;
     if (!cache) {
-      cache = new Map<Block, Promise<string>>();
+      cache = new Map<BlockBody, Promise<string>>();
       LIFETIME_CACHE.set(context, cache);
     }
-    const pending = invokeResolver(block, exchange, context, client);
-    cache.set(block, pending);
+    const pending = invokeResolver(name, body, exchange, context, client);
+    cache.set(body, pending);
     // On rejection, evict so a subsequent dispatch can retry rather
     // than being permanently stuck on the cached failure.
-    pending.catch(() => cache!.delete(block));
+    pending.catch(() => cache!.delete(body));
     return pending;
   }
-  return invokeResolver(block, exchange, context, client);
+  return invokeResolver(name, body, exchange, context, client);
 }
 
 /**
@@ -167,21 +180,22 @@ async function resolveOnce(
  * @internal
  */
 async function invokeResolver(
-  block: Block,
+  name: string,
+  body: BlockBody,
   exchange: Exchange<unknown>,
   context: CraftContext | undefined,
   client: BlockClient,
 ): Promise<string> {
-  const { value } = block;
+  const { value } = body;
   if (typeof value === "string") return value;
   if (typeof value !== "function") {
     throw rcError("RC5027", undefined, {
-      message: `Agent block "${block.name}": "value" must be a string or a function returning a string.`,
+      message: `Agent block "${name}": "value" must be a string or a function returning a string.`,
     });
   }
   if (!context) {
     throw rcError("RC5025", undefined, {
-      message: `Agent block "${block.name}": resolver function requires a CraftContext but the exchange has no bound context.`,
+      message: `Agent block "${name}": resolver function requires a CraftContext but the exchange has no bound context.`,
     });
   }
   let resolved: unknown;
@@ -189,12 +203,12 @@ async function invokeResolver(
     resolved = await Promise.resolve(value(exchange, context, [], client));
   } catch (cause) {
     throw rcError("RC5025", cause, {
-      message: `Agent block "${block.name}": resolver function threw: ${(cause as Error)?.message ?? String(cause)}`,
+      message: `Agent block "${name}": resolver function threw: ${(cause as Error)?.message ?? String(cause)}`,
     });
   }
   if (typeof resolved !== "string") {
     throw rcError("RC5025", undefined, {
-      message: `Agent block "${block.name}": resolver function must return a string (got ${typeof resolved}).`,
+      message: `Agent block "${name}": resolver function must return a string (got ${typeof resolved}).`,
     });
   }
   return resolved;
@@ -256,24 +270,25 @@ const EMPTY_OBJECT_SCHEMA: StandardSchemaV1<unknown, Record<string, never>> = {
  * @internal
  */
 function buildLoaderTool(
-  block: Block,
+  name: string,
+  body: BlockBody,
   exchange: Exchange<unknown>,
   context: CraftContext | undefined,
   client: BlockClient,
 ): BlockLoaderTool {
   const description =
-    typeof block.description === "string" && block.description.trim() !== ""
-      ? block.description
-      : `Load the "${block.name}" block.`;
+    typeof body.description === "string" && body.description.trim() !== ""
+      ? body.description
+      : `Load the "${name}" block.`;
   const handler: FnOptions["handler"] = async () =>
-    resolveOnce(block, exchange, context, client);
+    resolveOnce(name, body, exchange, context, client);
   return {
-    name: `${BLOCK_LOADER_PREFIX}${block.name}`,
+    name: `${BLOCK_LOADER_PREFIX}${name}`,
     description,
     input: EMPTY_OBJECT_SCHEMA,
     handler,
     [BLOCK_LOADER_TOOL]: true,
-    blockName: block.name,
+    blockName: name,
   };
 }
 

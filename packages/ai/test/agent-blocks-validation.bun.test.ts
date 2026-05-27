@@ -35,27 +35,24 @@ describe("agent blocks: construction-time validation", () => {
       agent({
         system: "x",
         model: "anthropic:claude-opus-4-7",
-        blocks: [{ name: "_block_load_x", mode: "inject", value: "y" }],
+        blocks: { _block_load_x: { mode: "inject", value: "y" } },
       }),
     ).toThrow(/reserved for synthetic loader tools/);
   });
 
   /**
-   * @case Duplicate block names within the same agent are rejected (RC5026)
-   * @preconditions Agent declares two blocks with the same name
+   * @case Empty-string block name rejected (RC5026)
+   * @preconditions Agent declares a block whose key is the empty string
    * @expectedResult agent() construction throws
    */
-  test("rejects duplicate block names within one agent", () => {
+  test("rejects empty-string block name", () => {
     expect(() =>
       agent({
         system: "x",
         model: "anthropic:claude-opus-4-7",
-        blocks: [
-          { name: "dup", mode: "inject", value: "a" },
-          { name: "dup", mode: "inject", value: "b" },
-        ],
+        blocks: { "": { mode: "inject", value: "y" } },
       }),
-    ).toThrow(/duplicate name/);
+    ).toThrow(/block name must be a non-empty string/);
   });
 
   /**
@@ -68,7 +65,7 @@ describe("agent blocks: construction-time validation", () => {
       agent({
         system: "x",
         model: "anthropic:claude-opus-4-7",
-        blocks: [{ name: "research", mode: "progressive", value: "body" }],
+        blocks: { research: { mode: "progressive", value: "body" } },
       }),
     ).toThrow(/progressive-mode blocks require a non-empty "description"/);
   });
@@ -84,7 +81,7 @@ describe("agent blocks: construction-time validation", () => {
         system: "x",
         model: "anthropic:claude-opus-4-7",
         // @ts-expect-error -- testing runtime validation of an invalid mode
-        blocks: [{ name: "x", mode: "bogus", value: "y" }],
+        blocks: { x: { mode: "bogus", value: "y" } },
       }),
     ).toThrow(/"mode" must be "inject" or "progressive"/);
   });
@@ -100,9 +97,24 @@ describe("agent blocks: construction-time validation", () => {
         system: "x",
         model: "anthropic:claude-opus-4-7",
         // @ts-expect-error -- testing runtime validation of an invalid value
-        blocks: [{ name: "x", mode: "inject", value: 42 }],
+        blocks: { x: { mode: "inject", value: 42 } },
       }),
     ).toThrow(/"value" must be a string or a function/);
+  });
+
+  /**
+   * @case Setting a block name to `false` is accepted at construction
+   * @preconditions Agent declares `blocks: { something: false }` to remove a default
+   * @expectedResult agent() construction does NOT throw; the entry is silently ignored if no matching default exists
+   */
+  test('accepts "false" as a value for removing a defaulted block', () => {
+    expect(() =>
+      agent({
+        system: "x",
+        model: "anthropic:claude-opus-4-7",
+        blocks: { safety: false },
+      }),
+    ).not.toThrow();
   });
 
   /**
@@ -128,15 +140,14 @@ describe("agent blocks: construction-time validation", () => {
             agent({
               system: "x",
               model: "anthropic:claude-opus-4-7",
-              blocks: [
-                {
-                  name: "broken",
+              blocks: {
+                broken: {
                   mode: "inject",
                   value: () => {
                     throw new Error("boom");
                   },
                 },
-              ],
+              },
             }),
           )
           .to(sink),

@@ -50,18 +50,16 @@ describe('agent blocks: mode: "inject" concatenates content into the system prom
             agent({
               system: "You are an analyst.",
               model: "anthropic:claude-opus-4-7",
-              blocks: [
-                {
-                  name: "first",
+              blocks: {
+                first: {
                   mode: "inject",
                   value: "First block content.",
                 },
-                {
-                  name: "second",
+                second: {
                   mode: "inject",
                   value: "Second block content.",
                 },
-              ],
+              },
             }),
           )
           .to(sink),
@@ -101,9 +99,8 @@ describe('agent blocks: mode: "inject" concatenates content into the system prom
             agent({
               system: "Base.",
               model: "anthropic:claude-opus-4-7",
-              blocks: [
-                {
-                  name: "computed",
+              blocks: {
+                computed: {
                   mode: "inject",
                   value: async (exchange, _context, events) => {
                     resolverCalls += 1;
@@ -112,7 +109,7 @@ describe('agent blocks: mode: "inject" concatenates content into the system prom
                     return "Derived content.";
                   },
                 },
-              ],
+              },
             }),
           )
           .to(sink),

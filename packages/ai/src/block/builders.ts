@@ -10,14 +10,20 @@ import {
   readMarkdownFile,
   requireString,
 } from "./markdown.ts";
-import type { Block, BlockClient, BlockLifetime, BlockMode } from "./types.ts";
+import type {
+  BlockBody,
+  BlockClient,
+  BlockLifetime,
+  BlockMode,
+  Blocks,
+} from "./types.ts";
 
 /**
- * Options for {@link skillsBlock}. Loads markdown skills from disk and
- * returns one {@link Block} per skill so the agent picks them up via
- * its `blocks: [...]` list.
+ * Options for {@link skills}. Loads markdown skills from disk and
+ * returns one {@link BlockBody} per skill, keyed by skill name, so
+ * the agent picks them up via its `blocks: { ... }` record.
  */
-export interface SkillsBlockOptions {
+export interface SkillsOptions {
   /**
    * Path to a single `.md` file or a directory containing skill
    * markdown files. Directories support the Claude Code convention:
@@ -31,8 +37,7 @@ export interface SkillsBlockOptions {
    * prompt and only loads the body via a tool call when relevant
    * (matches Claude Code's default progressive-disclosure behaviour).
    * Pass `"inject"` to concatenate every skill's full body into the
-   * system prompt on every dispatch (the legacy `skills: [...]`
-   * behaviour).
+   * system prompt on every dispatch.
    */
   mode?: BlockMode;
   /**
@@ -44,8 +49,8 @@ export interface SkillsBlockOptions {
 }
 
 /**
- * Load markdown skills from disk and return them as {@link Block}s
- * ready to spread into an agent's `blocks: [...]` list.
+ * Load markdown skills from disk and return them as a {@link Blocks}
+ * record ready to spread into an agent's `blocks: { ... }` map.
  *
  * Two layouts are supported and may coexist in the same folder:
  *
@@ -64,29 +69,27 @@ export interface SkillsBlockOptions {
  * agent({
  *   model: "anthropic:claude-sonnet-4-6",
  *   system: "You are an analyst.",
- *   blocks: [
- *     ...(await skillsBlock({ source: "./skills" })),
- *   ],
+ *   blocks: {
+ *     ...(await skills({ source: "./skills" })),
+ *   },
  * });
  * ```
  */
-export async function skillsBlock(
-  options: SkillsBlockOptions,
-): Promise<Block[]> {
+export async function skills(options: SkillsOptions): Promise<Blocks> {
   if (!options || typeof options !== "object") {
     throw rcError("RC5027", undefined, {
-      message: `skillsBlock: options must be an object with at least { source }.`,
+      message: `skills: options must be an object with at least { source }.`,
     });
   }
   const { source, mode = "progressive", lifetime } = options;
   if (typeof source !== "string" || source.trim() === "") {
     throw rcError("RC5027", undefined, {
-      message: `skillsBlock: "source" must be a non-empty path to a markdown file or directory.`,
+      message: `skills: "source" must be a non-empty path to a markdown file or directory.`,
     });
   }
   if (mode !== "inject" && mode !== "progressive") {
     throw rcError("RC5027", undefined, {
-      message: `skillsBlock: "mode" must be "inject" or "progressive" (got ${JSON.stringify(mode)}).`,
+      message: `skills: "mode" must be "inject" or "progressive" (got ${JSON.stringify(mode)}).`,
     });
   }
   if (
@@ -95,19 +98,19 @@ export async function skillsBlock(
     lifetime !== "context"
   ) {
     throw rcError("RC5027", undefined, {
-      message: `skillsBlock: "lifetime" must be "dispatch" or "context" when present (got ${JSON.stringify(lifetime)}).`,
+      message: `skills: "lifetime" must be "dispatch" or "context" when present (got ${JSON.stringify(lifetime)}).`,
     });
   }
   const docs = source.endsWith(".md")
     ? [await readMarkdownFile(source)]
     : await readMarkdownDir(source, { sentinelFilename: "SKILL.md" });
   const sources = new Map<string, string>();
-  const blocks: Block[] = [];
+  const out: Record<string, BlockBody> = {};
   for (const doc of docs) {
     const name = requireString(doc.frontmatter["name"], "name", doc.path);
     if (name !== doc.filename) {
       throw rcError("RC5027", undefined, {
-        message: `skillsBlock: markdown file "${doc.path}": frontmatter "name" ("${name}") must match the filename ("${doc.filename}"). Rename one or the other.`,
+        message: `skills: markdown file "${doc.path}": frontmatter "name" ("${name}") must match the filename ("${doc.filename}"). Rename one or the other.`,
       });
     }
     const description = requireString(
@@ -117,26 +120,21 @@ export async function skillsBlock(
     );
     if (doc.body.trim() === "") {
       throw rcError("RC5027", undefined, {
-        message: `skillsBlock: markdown file "${doc.path}": skill body is empty. The body becomes the block's content; an empty body would not change the agent's behaviour.`,
+        message: `skills: markdown file "${doc.path}": skill body is empty. The body becomes the block's content; an empty body would not change the agent's behaviour.`,
       });
     }
     const prior = sources.get(name);
     if (prior) {
       throw rcError("RC5026", undefined, {
-        message: `skillsBlock("${source}"): duplicate skill name "${name}" loaded from both "${prior}" and "${doc.path}". Each skill name must be unique within a source; rename or remove one.`,
+        message: `skills("${source}"): duplicate skill name "${name}" loaded from both "${prior}" and "${doc.path}". Each skill name must be unique within a source; rename or remove one.`,
       });
     }
     sources.set(name, doc.path);
-    const block: Block = {
-      name,
-      description,
-      mode,
-      value: doc.body,
-    };
-    if (lifetime !== undefined) block.lifetime = lifetime;
-    blocks.push(block);
+    const body: BlockBody = { description, mode, value: doc.body };
+    if (lifetime !== undefined) body.lifetime = lifetime;
+    out[name] = body;
   }
-  return blocks;
+  return out;
 }
 
 /**
@@ -153,14 +151,13 @@ export async function skillsBlock(
  * agent({
  *   model: "anthropic:claude-sonnet-4-6",
  *   system: "You are Zoe.",
- *   blocks: [
- *     {
- *       name: "identity",
+ *   blocks: {
+ *     identity: {
  *       mode: "inject",
  *       lifetime: "context",
  *       value: fromFile("./prompts/identity.md"),
  *     },
- *   ],
+ *   },
  * });
  * ```
  */

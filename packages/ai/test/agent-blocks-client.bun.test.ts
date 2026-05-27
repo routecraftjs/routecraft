@@ -59,9 +59,8 @@ describe("agent blocks: resolver client.forward()", () => {
             agent({
               system: "Base.",
               model: "anthropic:claude-opus-4-7",
-              blocks: [
-                {
-                  name: "memory",
+              blocks: {
+                memory: {
                   mode: "inject",
                   value: async (_exchange, _context, _events, client) => {
                     const result = await client.forward("memory-get", {
@@ -70,7 +69,7 @@ describe("agent blocks: resolver client.forward()", () => {
                     return result as string;
                   },
                 },
-              ],
+              },
             }),
           )
           .to(sink),

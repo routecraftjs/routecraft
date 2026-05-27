@@ -4,20 +4,26 @@ title: Migrating from 0.5.x to 0.6.0
 
 What changed between Routecraft 0.5.0 and 0.6.0, and how to update. {% .lead %}
 
-The headline change in 0.6.0 is the agent surface: `skills` is removed and replaced by a single unified `blocks` primitive. Every other consumer-visible part of the public API is unchanged.
+Two coordinated changes to the agent surface:
+
+1. **`skills` is replaced by a unified `blocks` record.** Skills, memory, identity, instructions, and any future system-prompt contribution are now one primitive.
+2. **Tag selectors on `tools()` are removed.** Programmatic `tools((catalog) => [...])` is the new escape hatch for "give me all read-only tools" style selection.
+
+Every other consumer-visible part of the public API is unchanged.
 
 ---
 
 ## 1. Agents: `skills` is replaced by `blocks`
 
-`AgentOptions.skills: string[]` and `agentPlugin({ skills })` are removed. They are replaced by a single primitive that covers what skills used to do and unifies it with memory, identity, instructions, and any other system-context contribution: `AgentOptions.blocks: Block[]`.
+`AgentOptions.skills: string[]` and `agentPlugin({ skills })` are removed. They are replaced by a single primitive that covers what skills used to do and unifies it with memory, identity, instructions, and any other system-context contribution: `AgentOptions.blocks: Blocks` (a `Record<string, BlockBody | false>`).
 
-A block has:
+A block body has:
 
-- `name`: identifier, unique within the agent's blocks list. The reserved `_block_load_` prefix is rejected.
 - `mode`: `"inject"` to always concatenate the resolved content into the system prompt as `## <name>\n\n<content>`, or `"progressive"` to surface the block as a synthetic loader tool the model invokes on demand. Progressive blocks require a `description`.
 - `lifetime` (optional, default `"dispatch"`): `"dispatch"` re-runs the resolver on every dispatch; `"context"` runs it once per `CraftContext` and reuses the result.
 - `value`: a static string used verbatim, or a function `(exchange, context, events, client) => string | Promise<string>`. The `client` carries `forward(routeId, payload)`, the same callable route `.error()` handlers receive, so a resolver can delegate to a registered direct route. `events` is reserved (always `[]` today) for a forthcoming exchange-event log.
+
+The block's `name` is the record key, not a field on the body. Names starting with the reserved `_block_` prefix are rejected (`RC5026`).
 
 The big semantic shift: progressive disclosure is now the default for skills. The model sees each skill's name and description in the tool list and loads the body via a tool call only when relevant. This matches Claude Code's actual default. To preserve the legacy "always inject every skill" behaviour, opt into `mode: "inject"`.
 
@@ -39,26 +45,24 @@ agent({
 agent({
   model: "anthropic:claude-sonnet-4-6",
   system: "You are an analyst.",
-  blocks: [
-    {
-      name: "web-search",
+  blocks: {
+    "web-search": {
       mode: "inject",
       value: "Always search before answering.",
     },
-    {
-      name: "cite-sources",
+    "cite-sources": {
       mode: "inject",
       value: "Always cite your sources.",
     },
-  ],
+  },
 });
 ```
 
-### 1.2 `agentPlugin({ skills })` and `skills(path)` are removed
+### 1.2 `agentPlugin({ skills })` is removed; `skills()` returns blocks
 
-`agentPlugin({ skills: { ... } })`, the `skills(path)` markdown loader, the `Skill` / `SkillRegistry` / `RegisteredSkillName` / `SkillOverride` exports, and the `ADAPTER_SKILL_REGISTRY` symbol are all gone. There is no shim.
+`agentPlugin({ skills: { ... } })`, the `Skill` / `SkillRegistry` / `RegisteredSkillName` / `SkillOverride` exports, and the `ADAPTER_SKILL_REGISTRY` symbol are all gone. There is no shim.
 
-The new `skillsBlock({ source, mode?, lifetime? })` builder reads the same markdown layout (flat `<name>.md` and nested `<name>/SKILL.md`, with the Claude Code frontmatter the old loader accepted) and returns a `Block[]` you spread into an agent's `blocks` list. **The default `mode` is `"progressive"`** so the model picks which skills to load.
+`skills({ source, mode?, lifetime? })` keeps the same name as the 0.5 markdown loader but now returns a `Blocks` record you spread into an agent's `blocks: { ... }` map. It reads the same markdown layout (flat `<name>.md` and nested `<name>/SKILL.md`, with the Claude Code frontmatter the old loader accepted). **The default `mode` is `"progressive"`** so the model picks which skills to load.
 
 **Before (0.5.x):**
 
@@ -79,12 +83,12 @@ agent({
 **After (0.6.0), progressive disclosure (recommended):**
 
 ```ts
-import { agent, skillsBlock } from "@routecraft/ai";
+import { agent, skills } from "@routecraft/ai";
 
 agent({
   model: "anthropic:claude-sonnet-4-6",
   system: "You are an analyst.",
-  blocks: [...(await skillsBlock({ source: "./skills" }))],
+  blocks: { ...(await skills({ source: "./skills" })) },
 });
 ```
 
@@ -94,9 +98,11 @@ agent({
 agent({
   model: "anthropic:claude-sonnet-4-6",
   system: "You are an analyst.",
-  blocks: [...(await skillsBlock({ source: "./skills", mode: "inject" }))],
+  blocks: { ...(await skills({ source: "./skills", mode: "inject" })) },
 });
 ```
+
+The function signature changed from `skills(path)` to `skills({ source })`. The return type changed from `Record<name, Skill>` to `Blocks`. Both are visible at the call site.
 
 ### 1.3 `agents()` markdown loader: `skills:` frontmatter is rejected
 
@@ -119,12 +125,12 @@ You are a researcher.
 **After (0.6.0):** drop `skills:` from frontmatter, supply blocks via the overrides map:
 
 ```ts
-import { skillsBlock } from "@routecraft/ai";
+import { skills } from "@routecraft/ai";
 
 agentPlugin({
   agents: await agents("./agents", {
     researcher: {
-      blocks: await skillsBlock({ source: "./skills" }),
+      blocks: await skills({ source: "./skills" }),
     },
   }),
 });
@@ -149,9 +155,8 @@ route("memory:get")
 agent({
   model: "anthropic:claude-sonnet-4-6",
   system: "You are Zoe.",
-  blocks: [
-    {
-      name: "memory",
+  blocks: {
+    memory: {
       description: "Long-term notes about the operator.",
       mode: "progressive",
       lifetime: "context",
@@ -161,7 +166,7 @@ agent({
         return result as string;
       },
     },
-  ],
+  },
 });
 ```
 
@@ -169,13 +174,16 @@ A resolver that needs nothing more than the `CraftContext` can ignore the client
 
 ```ts
 {
-  name: "tenant-config",
-  mode: "inject",
-  lifetime: "context",
-  value: (_exchange, context) => {
-    const config = context.services.get(TenantConfig);
-    return `Tenant: ${config.name}`;
-  },
+  blocks: {
+    "tenant-config": {
+      mode: "inject",
+      lifetime: "context",
+      value: (_exchange, context) => {
+        const config = context.services.get(TenantConfig);
+        return `Tenant: ${config.name}`;
+      },
+    },
+  }
 }
 ```
 
@@ -189,25 +197,100 @@ Synthetic block-loader invocations no longer appear on `AgentResult.toolCalls`. 
 
 Observability follows the same split: loader calls emit `route:<id>:agent:block:loaded` and `:agent:block:error` instead of the `:agent:tool:*` events.
 
-### 1.7 Defaults merging changes
+### 1.7 Defaults merging and removal via `false`
 
-`agentPlugin({ defaultOptions: { blocks } })` lets a context install shared blocks once. The merge rule differs from how `tools` merges: a per-agent `blocks: [...]` does **not** replace defaults wholesale. Instead, defaults are merged into the final block list by name. A per-agent block whose `name` matches a default replaces only that entry; non-colliding defaults still apply. This matches how identity / memory blocks naturally compose.
+`agentPlugin({ defaultOptions: { blocks } })` lets a context install shared blocks once. The merge rule differs from how `tools` merges: a per-agent `blocks: { ... }` does **not** replace defaults wholesale. Instead, defaults are merged into the final blocks record by name. A per-agent block whose key matches a default replaces only that entry; non-colliding defaults still apply.
 
-### 1.8 New error codes
+To remove a default from a specific agent, set its name to `false`:
+
+```ts
+agentPlugin({
+  defaultOptions: {
+    blocks: {
+      "house-style": { mode: "inject", value: "Be terse." },
+      safety: { mode: "inject", value: "Refuse harmful requests." },
+    },
+  },
+});
+
+agent({
+  model: "anthropic:claude-sonnet-4-6",
+  system: "You are a friendly assistant.",
+  blocks: {
+    // Override "house-style" with a friendlier framing
+    "house-style": { mode: "inject", value: "Be warm and helpful." },
+    // Drop the "safety" default from this specific agent
+    safety: false,
+  },
+});
+```
+
+A `false` for a name absent from defaults is a no-op so adding or removing defaults later cannot silently break an agent's block list.
+
+### 1.8 Multiple `agentPlugin` installs
+
+Two `agentPlugin` installs that each set `defaultOptions.blocks` now merge additively by name (a name set in both installs throws `RC5003`). This matches the per-agent merge semantics and the mental model that blocks are independent contributions. Other `defaultOptions` fields (`model`, `tools`) still throw on any double-set.
+
+### 1.9 New error codes
 
 | Code     | Meaning                                                                                                       |
 | -------- | ------------------------------------------------------------------------------------------------------------- |
 | `RC5025` | Block resolver threw or returned a non-string. Inject mode aborts the dispatch; progressive mode reports back to the model as a tool error.       |
 | `RC5026` | Block name collides with another block, a user tool, or uses the reserved `_block_` prefix.                   |
-| `RC5027` | Block misconfigured: missing `name`, invalid `mode`, missing `description` on a progressive block, etc.       |
+| `RC5027` | Block misconfigured: invalid `mode`, missing `description` on a progressive block, non-string non-function `value`, etc.       |
 
 ---
 
-## 2. What is new in 0.6.0
+## 2. Tools: tag selectors removed, function-form added
+
+The `{ tagged }` and `{ tagged, from }` selector variants on `tools()` are gone, along with the `tags` override on `directTool({ tags })`. The reasoning: implicit extension of an agent's tool surface when a future fn is tagged with a matched value is a security footgun. An agent's tool list is the boundary between the model and your system; that boundary should be explicit.
+
+For the cases where enumeration is impractical, `tools()` now accepts a builder function that receives a `ToolsCatalog` snapshot:
+
+**Before (0.5.x):**
+
+```ts
+agent({
+  tools: tools([{ tagged: "read-only" }]),
+});
+```
+
+**After (0.6.0), explicit (recommended):**
+
+```ts
+agent({
+  tools: tools(["fetchOrder", "getCustomer", "listOrders"]),
+});
+```
+
+**After (0.6.0), programmatic escape hatch:**
+
+```ts
+agent({
+  tools: tools((catalog) =>
+    catalog.fns
+      .filter((f) => f.tags?.includes("read-only"))
+      .map((f) => f.name),
+  ),
+});
+```
+
+The builder receives `{ fns, routes, mcp }`, each a readonly array of `{ name | id | server+tool, description?, tags? }`. It must return the same `ToolsItem[]` the array form accepts (strings or `{ name, guard?, description? }` objects). Builder errors are wrapped in `RC5003` with the original chained.
+
+The implicit-extension risk is the same as the deleted tag selector, but now lives in your code where it's reviewable: a `.filter()` in user code is a visible signal that the set is dynamic, not a declarative selector tucked into framework config.
+
+### 2.1 `directTool({ tags })` override removed
+
+The `tags` option on `ToolBuilderOverrides` was only meaningful for the now-removed tag selectors. `directTool(routeId, { description, input })` still works for per-binding overrides.
+
+---
+
+## 3. What is new in 0.6.0
 
 For context, no migration required:
 
-- `skillsBlock({ source, mode?, lifetime? })` and `fromFile(path)` builders alongside the new `Block` shape.
+- `skills({ source, mode?, lifetime? })` and `fromFile(path)` builders alongside the new `Blocks` shape.
 - `agent:block:loaded` / `agent:block:error` context events.
 - `AgentResult.blocksLoaded`.
-- Three new error codes (RC5025, RC5026, RC5027).
+- `tools((catalog) => [...])` builder form with `ToolsCatalog` shape.
+- Three new error codes (`RC5025`, `RC5026`, `RC5027`).
