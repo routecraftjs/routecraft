@@ -18,43 +18,59 @@ export function Navigation({
       : rawPathname
 
   return (
-    <nav className={clsx('text-base lg:text-sm', className)}>
-      <ul role="list" className="space-y-9">
+    <nav className={clsx('text-sm', className)}>
+      <ul role="list" className="space-y-10">
         {navigation.map((section) => (
           <li key={section.title}>
-            {section.href ? (
-              <Link
-                href={section.href}
-                onClick={onLinkClick}
-                className="font-display font-medium text-gray-900 hover:text-gray-700 dark:text-white dark:hover:text-gray-300"
-              >
-                {section.title}
-              </Link>
-            ) : (
-              <h2 className="font-display font-medium text-gray-900 dark:text-white">
-                {section.title}
-              </h2>
-            )}
+            <div className="flex items-center gap-3">
+              <span
+                aria-hidden="true"
+                className="h-1 w-1 shrink-0 bg-cobalt-500"
+              />
+              {section.href ? (
+                <Link
+                  href={section.href}
+                  onClick={onLinkClick}
+                  className="font-mono text-[0.65rem] tracking-[0.22em] text-ink/70 uppercase transition hover:text-ink dark:text-paper/70 dark:hover:text-paper"
+                >
+                  {section.title}
+                </Link>
+              ) : (
+                <h2 className="font-mono text-[0.65rem] tracking-[0.22em] text-ink/70 uppercase dark:text-paper/70">
+                  {section.title}
+                </h2>
+              )}
+            </div>
             <ul
               role="list"
-              className="mt-2 space-y-2 border-l-2 border-gray-100 lg:mt-4 lg:space-y-4 lg:border-gray-200 dark:border-gray-800"
+              className="mt-4 space-y-2 border-l border-ink/15 dark:border-paper/15"
             >
-              {section.links.map((link) => (
-                <li key={link.href} className="relative">
-                  <Link
-                    href={link.href}
-                    onClick={onLinkClick}
-                    className={clsx(
-                      'block w-full pl-3.5 before:pointer-events-none before:absolute before:top-1/2 before:-left-1 before:h-1.5 before:w-1.5 before:-translate-y-1/2 before:rounded-full',
-                      link.href === pathname
-                        ? 'font-semibold text-sky-500 before:bg-sky-500'
-                        : 'text-gray-500 before:hidden before:bg-gray-300 hover:text-gray-600 hover:before:block dark:text-gray-400 dark:before:bg-gray-700 dark:hover:text-gray-300',
+              {section.links.map((link) => {
+                const isActive = link.href === pathname
+                return (
+                  <li key={link.href} className="relative">
+                    <Link
+                      href={link.href}
+                      onClick={onLinkClick}
+                      aria-current={isActive ? 'page' : undefined}
+                      className={clsx(
+                        'block w-full pl-4 transition',
+                        isActive
+                          ? 'font-medium text-cobalt-500'
+                          : 'text-ink/65 hover:text-ink dark:text-paper/65 dark:hover:text-paper',
+                      )}
+                    >
+                      {link.title}
+                    </Link>
+                    {isActive && (
+                      <span
+                        aria-hidden="true"
+                        className="pointer-events-none absolute top-0 -left-px h-full w-px bg-cobalt-500"
+                      />
                     )}
-                  >
-                    {link.title}
-                  </Link>
-                </li>
-              ))}
+                  </li>
+                )
+              })}
             </ul>
           </li>
         ))}

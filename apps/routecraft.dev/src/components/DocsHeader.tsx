@@ -25,11 +25,12 @@ export function DocsHeader({
   }
 
   return (
-    <header className="mb-9 space-y-1">
-      <div className="flex items-start justify-between">
+    <header className="mb-12 space-y-4">
+      <div className="flex items-start justify-between gap-4">
         {section ? (
-          <p className="font-display text-sm font-medium text-sky-500">
-            {section.title}
+          <p className="flex items-center gap-3 font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase">
+            <span aria-hidden="true" className="h-1 w-1 bg-cobalt-500" />
+            <span>{section.title}</span>
           </p>
         ) : (
           <span />
@@ -37,8 +38,8 @@ export function DocsHeader({
         <CopyDocsButton />
       </div>
       {title && (
-        <h1 className="font-display text-3xl tracking-tight text-gray-900 dark:text-white">
-          <span className="inline-flex items-center gap-2">
+        <h1 className="font-editorial text-[clamp(2rem,4vw,3rem)] leading-[1.05] font-medium tracking-[-0.02em] text-ink dark:text-paper">
+          <span className="inline-flex items-baseline gap-3">
             <span>{title}</span>
             {titleBadges?.map((b, i) => (
               <Badge key={i} color={b.color ?? 'yellow'}>
