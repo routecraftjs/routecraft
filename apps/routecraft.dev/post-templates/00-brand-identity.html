@@ -1,0 +1,1623 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Routecraft Brand Identity</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,200..900;1,9..144,200..900&family=JetBrains+Mono:ital,wght@0,400..700;1,400..700&display=swap"
+    />
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              paper: '#f5f1e8',
+              'paper-edge': '#e8e0cb',
+              'paper-deep': '#ece5d2',
+              ink: '#22232c',
+              'ink-soft': '#30313c',
+              'ink-deep': '#16171c',
+              'cobalt-50': '#eef0ff',
+              'cobalt-100': '#d8defd',
+              'cobalt-200': '#b6bffb',
+              'cobalt-300': '#8a96f8',
+              'cobalt-400': '#5867f5',
+              'cobalt-500': '#1247ff',
+              'cobalt-600': '#0c39d6',
+              'cobalt-700': '#082aa3',
+              'cobalt-800': '#061f78',
+              'cobalt-900': '#04154f',
+            },
+            fontFamily: {
+              editorial: ['Fraunces', 'serif'],
+              mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+            },
+          },
+        },
+      }
+    </script>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        background: #d6d3cf;
+        font-family: 'Fraunces', serif;
+      }
+      .page {
+        width: 1200px;
+        margin: 0 auto;
+      }
+      .grain {
+        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.6 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+        opacity: 0.04;
+        mix-blend-mode: multiply;
+      }
+      .reg {
+        position: absolute;
+        width: 10px;
+        height: 10px;
+        opacity: 0.35;
+      }
+      .reg::before,
+      .reg::after {
+        content: '';
+        position: absolute;
+        background: #22232c;
+      }
+      .reg::before {
+        top: 50%;
+        left: 0;
+        width: 100%;
+        height: 1px;
+        transform: translateY(-50%);
+      }
+      .reg::after {
+        left: 50%;
+        top: 0;
+        height: 100%;
+        width: 1px;
+        transform: translateX(-50%);
+      }
+      /* Token coloring for code samples */
+      .t-fn {
+        color: #22232c;
+        font-weight: 600;
+      }
+      .t-str {
+        color: #0c39d6;
+      }
+      .t-kw {
+        color: rgba(34, 35, 44, 0.55);
+      }
+      .t-com {
+        color: rgba(34, 35, 44, 0.45);
+        font-style: italic;
+      }
+      .t-pun {
+        color: rgba(34, 35, 44, 0.4);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page relative bg-paper text-ink">
+      <div class="grain pointer-events-none absolute inset-0"></div>
+
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <!-- COVER                                                              -->
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <section class="relative border-b border-ink/15 px-20 pt-32 pb-32">
+        <span class="reg" style="top: 24px; left: 24px"></span>
+        <span class="reg" style="top: 24px; right: 24px"></span>
+
+        <div class="flex items-center gap-3">
+          <span class="inline-block h-2.5 w-2.5 bg-cobalt-500"></span>
+          <span
+            class="font-editorial text-[1.6rem] leading-none tracking-[-0.02em] text-ink"
+            style="font-variation-settings: 'opsz' 96"
+            >Routecraft</span
+          >
+        </div>
+
+        <p
+          class="mt-20 font-mono text-[0.85rem] tracking-[0.22em] text-cobalt-500 uppercase"
+        >
+          Brand identity &nbsp;·&nbsp; v0.1 &nbsp;·&nbsp;
+          <!-- EDIT: date -->May 27, 2026
+        </p>
+
+        <h1
+          class="mt-6 font-editorial text-[7.5rem] leading-[0.92] tracking-[-0.03em] text-ink"
+          style="font-variation-settings: 'opsz' 144"
+        >
+          The
+          <span class="italic" style="font-variation-settings: 'opsz' 144"
+            >brand</span
+          >
+          <span
+            class="text-cobalt-500 italic"
+            style="font-variation-settings: 'opsz' 144"
+            >book.</span
+          >
+        </h1>
+
+        <p
+          class="mt-10 max-w-[820px] font-editorial text-[1.5rem] leading-[1.45] text-ink/70 italic"
+          style="font-variation-settings: 'opsz' 96"
+        >
+          The palette, type system, voice, and motifs that make Routecraft look
+          like Routecraft. Built to be opinionated and held to — consistency is
+          what makes a small framework feel inevitable.
+        </p>
+
+        <!-- Table of contents -->
+        <nav
+          class="mt-16 grid grid-cols-3 gap-x-10 gap-y-3 border-t border-ink/15 pt-8"
+        >
+          <a
+            href="#logo"
+            class="font-mono text-[0.75rem] tracking-[0.22em] text-ink/70 uppercase hover:text-cobalt-500"
+            >I &nbsp;·&nbsp; Logo system</a
+          >
+          <a
+            href="#colour"
+            class="font-mono text-[0.75rem] tracking-[0.22em] text-ink/70 uppercase hover:text-cobalt-500"
+            >II &nbsp;·&nbsp; Colour</a
+          >
+          <a
+            href="#type"
+            class="font-mono text-[0.75rem] tracking-[0.22em] text-ink/70 uppercase hover:text-cobalt-500"
+            >III &nbsp;·&nbsp; Typography</a
+          >
+          <a
+            href="#voice"
+            class="font-mono text-[0.75rem] tracking-[0.22em] text-ink/70 uppercase hover:text-cobalt-500"
+            >IV &nbsp;·&nbsp; Voice</a
+          >
+          <a
+            href="#layout"
+            class="font-mono text-[0.75rem] tracking-[0.22em] text-ink/70 uppercase hover:text-cobalt-500"
+            >V &nbsp;·&nbsp; Layout</a
+          >
+          <a
+            href="#primitives"
+            class="font-mono text-[0.75rem] tracking-[0.22em] text-ink/70 uppercase hover:text-cobalt-500"
+            >VI &nbsp;·&nbsp; UI primitives</a
+          >
+          <a
+            href="#motifs"
+            class="font-mono text-[0.75rem] tracking-[0.22em] text-ink/70 uppercase hover:text-cobalt-500"
+            >VII &nbsp;·&nbsp; Motifs</a
+          >
+        </nav>
+      </section>
+
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <!-- I. LOGO SYSTEM                                                     -->
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <section id="logo" class="border-b border-ink/15 px-20 py-24">
+        <header class="flex items-center gap-4">
+          <span class="inline-block h-1.5 w-1.5 bg-cobalt-500"></span>
+          <span
+            class="font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase"
+            >I</span
+          >
+          <span
+            class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+            >Logo system</span
+          >
+          <span class="h-px flex-1 bg-ink/15"></span>
+        </header>
+
+        <h2
+          class="mt-10 font-editorial text-[3.5rem] leading-[1.05] tracking-[-0.02em] text-ink"
+          style="font-variation-settings: 'opsz' 144"
+        >
+          A mark we don't have
+          <span
+            class="text-cobalt-500 italic"
+            style="font-variation-settings: 'opsz' 144"
+            >yet.</span
+          >
+        </h2>
+        <p
+          class="mt-5 max-w-[820px] font-editorial text-[1.2rem] leading-[1.55] text-ink/65 italic"
+          style="font-variation-settings: 'opsz' 96"
+        >
+          Placeholders until the symbol lands. In the meantime, the bullet
+          square + wordmark is the lock-up everywhere the brand appears.
+        </p>
+
+        <!-- Three logo slots -->
+        <div
+          class="mt-12 grid grid-cols-3 gap-px border border-ink/15 bg-ink/15"
+        >
+          <!-- Symbol -->
+          <div class="flex flex-col bg-paper p-10">
+            <span
+              class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+              >Symbol</span
+            >
+            <div
+              class="mt-6 flex min-h-[260px] flex-1 items-center justify-center border border-dashed border-ink/30 bg-paper-deep/40"
+            >
+              <span
+                class="font-mono text-[0.65rem] tracking-[0.18em] text-ink/40 uppercase"
+                >Placeholder</span
+              >
+            </div>
+            <p
+              class="mt-4 font-editorial text-[0.95rem] text-ink/55 italic"
+              style="font-variation-settings: 'opsz' 96"
+            >
+              Standalone mark. Square crop. App icons, favicons, social avatars.
+            </p>
+          </div>
+
+          <!-- Wordmark -->
+          <div class="flex flex-col bg-paper p-10">
+            <span
+              class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+              >Wordmark</span
+            >
+            <div
+              class="mt-6 flex min-h-[260px] flex-1 items-center justify-center"
+            >
+              <span
+                class="font-editorial text-[3rem] leading-none tracking-[-0.025em] text-ink"
+                style="font-variation-settings: 'opsz' 144"
+                >Routecraft</span
+              >
+            </div>
+            <p
+              class="mt-4 font-editorial text-[0.95rem] text-ink/55 italic"
+              style="font-variation-settings: 'opsz' 96"
+            >
+              Fraunces, opsz 144, tracking -0.025em. Use when the name carries
+              the brand alone.
+            </p>
+          </div>
+
+          <!-- Lock-up -->
+          <div class="flex flex-col bg-paper p-10">
+            <span
+              class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+              >Lock-up</span
+            >
+            <div
+              class="mt-6 flex min-h-[260px] flex-1 items-center justify-center"
+            >
+              <div class="flex items-center gap-3">
+                <span class="inline-block h-2.5 w-2.5 bg-cobalt-500"></span>
+                <span
+                  class="font-editorial text-[2rem] leading-none tracking-[-0.02em] text-ink"
+                  style="font-variation-settings: 'opsz' 96"
+                  >Routecraft</span
+                >
+              </div>
+            </div>
+            <p
+              class="mt-4 font-editorial text-[0.95rem] text-ink/55 italic"
+              style="font-variation-settings: 'opsz' 96"
+            >
+              Bullet (2.5px cobalt square) + wordmark. The default in headers,
+              footers, post templates.
+            </p>
+          </div>
+        </div>
+
+        <!-- Lock-up on dark -->
+        <div
+          class="mt-10 grid grid-cols-2 gap-px border border-ink/15 bg-ink/15"
+        >
+          <div
+            class="flex min-h-[140px] items-center justify-center bg-paper p-10"
+          >
+            <div class="flex items-center gap-3">
+              <span class="inline-block h-2.5 w-2.5 bg-cobalt-500"></span>
+              <span
+                class="font-editorial text-[1.6rem] leading-none tracking-[-0.02em] text-ink"
+                style="font-variation-settings: 'opsz' 96"
+                >Routecraft</span
+              >
+            </div>
+          </div>
+          <div
+            class="flex min-h-[140px] items-center justify-center bg-ink p-10"
+          >
+            <div class="flex items-center gap-3">
+              <span class="inline-block h-2.5 w-2.5 bg-cobalt-500"></span>
+              <span
+                class="font-editorial text-[1.6rem] leading-none tracking-[-0.02em] text-paper"
+                style="font-variation-settings: 'opsz' 96"
+                >Routecraft</span
+              >
+            </div>
+          </div>
+        </div>
+
+        <!-- Don't list -->
+        <div class="mt-10 grid grid-cols-2 gap-x-12 gap-y-4">
+          <div>
+            <p
+              class="font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase"
+            >
+              Do
+            </p>
+            <ul class="mt-3 flex flex-col gap-1.5 text-[1rem] text-ink/75">
+              <li class="flex items-baseline gap-3">
+                <span class="text-cobalt-500">▸</span
+                ><span
+                  >Pair the bullet with the wordmark in the standard
+                  lock-up.</span
+                >
+              </li>
+              <li class="flex items-baseline gap-3">
+                <span class="text-cobalt-500">▸</span
+                ><span
+                  >Use the wordmark in Fraunces; never substitute another
+                  typeface.</span
+                >
+              </li>
+              <li class="flex items-baseline gap-3">
+                <span class="text-cobalt-500">▸</span
+                ><span
+                  >Keep clear space ≥ the wordmark's cap height on every
+                  side.</span
+                >
+              </li>
+            </ul>
+          </div>
+          <div>
+            <p
+              class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase line-through decoration-ink/40"
+            >
+              Don't
+            </p>
+            <ul class="mt-3 flex flex-col gap-1.5 text-[1rem] text-ink/65">
+              <li class="flex items-baseline gap-3">
+                <span class="text-ink/40">×</span
+                ><span
+                  >Recolour the bullet outside the cobalt-500 / paper / ink
+                  set.</span
+                >
+              </li>
+              <li class="flex items-baseline gap-3">
+                <span class="text-ink/40">×</span
+                ><span>Italicise or all-caps the wordmark.</span>
+              </li>
+              <li class="flex items-baseline gap-3">
+                <span class="text-ink/40">×</span
+                ><span
+                  >Place the lock-up on busy imagery without a paper/ink
+                  ground.</span
+                >
+              </li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <!-- II. COLOUR                                                         -->
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <section id="colour" class="border-b border-ink/15 px-20 py-24">
+        <header class="flex items-center gap-4">
+          <span class="inline-block h-1.5 w-1.5 bg-cobalt-500"></span>
+          <span
+            class="font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase"
+            >II</span
+          >
+          <span
+            class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+            >Colour</span
+          >
+          <span class="h-px flex-1 bg-ink/15"></span>
+        </header>
+
+        <h2
+          class="mt-10 font-editorial text-[3.5rem] leading-[1.05] tracking-[-0.02em] text-ink"
+          style="font-variation-settings: 'opsz' 144"
+        >
+          Three families.
+          <span
+            class="text-cobalt-500 italic"
+            style="font-variation-settings: 'opsz' 144"
+            >One accent.</span
+          >
+        </h2>
+        <p
+          class="mt-5 max-w-[820px] font-editorial text-[1.2rem] leading-[1.55] text-ink/65 italic"
+          style="font-variation-settings: 'opsz' 96"
+        >
+          Warm paper as the page, cool ink as the type, saturated cobalt as the
+          one accent. Anything else is decoration.
+        </p>
+
+        <!-- Paper family -->
+        <div class="mt-12">
+          <p
+            class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+          >
+            Paper · light surfaces
+          </p>
+          <div
+            class="mt-3 grid grid-cols-3 gap-px border border-ink/15 bg-ink/15"
+          >
+            <div class="flex h-32 flex-col justify-end bg-paper p-6">
+              <span class="font-mono text-[0.75rem] text-ink/65">paper</span>
+              <span class="font-mono text-[0.7rem] text-ink/40">#f5f1e8</span>
+            </div>
+            <div class="flex h-32 flex-col justify-end bg-paper-deep p-6">
+              <span class="font-mono text-[0.75rem] text-ink/65"
+                >paper-deep</span
+              >
+              <span class="font-mono text-[0.7rem] text-ink/40">#ece5d2</span>
+            </div>
+            <div class="flex h-32 flex-col justify-end bg-paper-edge p-6">
+              <span class="font-mono text-[0.75rem] text-ink/65"
+                >paper-edge</span
+              >
+              <span class="font-mono text-[0.7rem] text-ink/40">#e8e0cb</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Ink family -->
+        <div class="mt-8">
+          <p
+            class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+          >
+            Ink · dark surfaces and text
+          </p>
+          <div
+            class="mt-3 grid grid-cols-3 gap-px border border-ink/15 bg-ink/15"
+          >
+            <div class="flex h-32 flex-col justify-end bg-ink p-6 text-paper">
+              <span class="font-mono text-[0.75rem] text-paper/75">ink</span>
+              <span class="font-mono text-[0.7rem] text-paper/40">#22232c</span>
+            </div>
+            <div
+              class="flex h-32 flex-col justify-end bg-ink-soft p-6 text-paper"
+            >
+              <span class="font-mono text-[0.75rem] text-paper/75"
+                >ink-soft</span
+              >
+              <span class="font-mono text-[0.7rem] text-paper/40">#30313c</span>
+            </div>
+            <div
+              class="flex h-32 flex-col justify-end bg-ink-deep p-6 text-paper"
+            >
+              <span class="font-mono text-[0.75rem] text-paper/75"
+                >ink-deep</span
+              >
+              <span class="font-mono text-[0.7rem] text-paper/40">#16171c</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cobalt scale -->
+        <div class="mt-8">
+          <p
+            class="font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase"
+          >
+            Cobalt · the one accent
+          </p>
+          <div
+            class="mt-3 grid grid-cols-9 gap-px border border-ink/15 bg-ink/15"
+          >
+            <div class="flex h-32 flex-col justify-end bg-cobalt-50 p-3">
+              <span class="font-mono text-[0.6rem] text-ink/65">50</span
+              ><span class="font-mono text-[0.55rem] text-ink/40">#eef0ff</span>
+            </div>
+            <div class="flex h-32 flex-col justify-end bg-cobalt-100 p-3">
+              <span class="font-mono text-[0.6rem] text-ink/65">100</span
+              ><span class="font-mono text-[0.55rem] text-ink/40">#d8defd</span>
+            </div>
+            <div class="flex h-32 flex-col justify-end bg-cobalt-200 p-3">
+              <span class="font-mono text-[0.6rem] text-ink/65">200</span
+              ><span class="font-mono text-[0.55rem] text-ink/40">#b6bffb</span>
+            </div>
+            <div
+              class="flex h-32 flex-col justify-end bg-cobalt-300 p-3 text-paper"
+            >
+              <span class="font-mono text-[0.6rem] text-paper/75">300</span
+              ><span class="font-mono text-[0.55rem] text-paper/55"
+                >#8a96f8</span
+              >
+            </div>
+            <div
+              class="flex h-32 flex-col justify-end bg-cobalt-400 p-3 text-paper"
+            >
+              <span class="font-mono text-[0.6rem] text-paper/75">400</span
+              ><span class="font-mono text-[0.55rem] text-paper/55"
+                >#5867f5</span
+              >
+            </div>
+            <div
+              class="relative flex h-32 flex-col justify-end bg-cobalt-500 p-3 text-paper"
+            >
+              <span
+                class="absolute top-2 right-2 font-mono text-[0.55rem] tracking-[0.18em] text-paper/80 uppercase"
+                >brand</span
+              >
+              <span class="font-mono text-[0.6rem] text-paper/85">500</span>
+              <span class="font-mono text-[0.55rem] text-paper/65"
+                >#1247ff</span
+              >
+            </div>
+            <div
+              class="flex h-32 flex-col justify-end bg-cobalt-600 p-3 text-paper"
+            >
+              <span class="font-mono text-[0.6rem] text-paper/75">600</span
+              ><span class="font-mono text-[0.55rem] text-paper/55"
+                >#0c39d6</span
+              >
+            </div>
+            <div
+              class="flex h-32 flex-col justify-end bg-cobalt-700 p-3 text-paper"
+            >
+              <span class="font-mono text-[0.6rem] text-paper/75">700</span
+              ><span class="font-mono text-[0.55rem] text-paper/55"
+                >#082aa3</span
+              >
+            </div>
+            <div
+              class="flex h-32 flex-col justify-end bg-cobalt-800 p-3 text-paper"
+            >
+              <span class="font-mono text-[0.6rem] text-paper/75">800</span
+              ><span class="font-mono text-[0.55rem] text-paper/55"
+                >#061f78</span
+              >
+            </div>
+          </div>
+        </div>
+
+        <!-- Opacity steps for hierarchy -->
+        <div class="mt-12">
+          <p
+            class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+          >
+            Opacity for type hierarchy
+          </p>
+          <div
+            class="mt-4 grid grid-cols-2 gap-px border border-ink/15 bg-ink/15"
+          >
+            <div class="flex flex-col gap-1 bg-paper p-6">
+              <p class="text-ink">
+                ink/100 — primary headings, brand wordmark.
+              </p>
+              <p class="text-ink/75">ink/75 — body copy, paragraph text.</p>
+              <p class="text-ink/65">ink/65 — secondary body, list items.</p>
+              <p class="text-ink/55">
+                ink/55 — captions, mono labels, metadata.
+              </p>
+              <p class="text-ink/40">ink/40 — disabled, parens, dividers.</p>
+              <p class="text-ink/15">ink/15 — hairlines and borders.</p>
+            </div>
+            <div class="flex flex-col gap-1 bg-ink p-6">
+              <p class="text-paper">paper/100 — primary headings on dark.</p>
+              <p class="text-paper/75">paper/75 — body copy on dark.</p>
+              <p class="text-paper/65">
+                paper/65 — secondary body, mono labels.
+              </p>
+              <p class="text-paper/55">paper/55 — captions, metadata.</p>
+              <p class="text-paper/40">paper/40 — disabled, parens.</p>
+              <p class="text-paper/15">paper/15 — hairlines and borders.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <!-- III. TYPOGRAPHY                                                    -->
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <section id="type" class="border-b border-ink/15 px-20 py-24">
+        <header class="flex items-center gap-4">
+          <span class="inline-block h-1.5 w-1.5 bg-cobalt-500"></span>
+          <span
+            class="font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase"
+            >III</span
+          >
+          <span
+            class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+            >Typography</span
+          >
+          <span class="h-px flex-1 bg-ink/15"></span>
+        </header>
+
+        <h2
+          class="mt-10 font-editorial text-[3.5rem] leading-[1.05] tracking-[-0.02em] text-ink"
+          style="font-variation-settings: 'opsz' 144"
+        >
+          Editorial display.
+          <span
+            class="text-cobalt-500 italic"
+            style="font-variation-settings: 'opsz' 144"
+            >Technical voice.</span
+          >
+        </h2>
+        <p
+          class="mt-5 max-w-[820px] font-editorial text-[1.2rem] leading-[1.55] text-ink/65 italic"
+          style="font-variation-settings: 'opsz' 96"
+        >
+          Fraunces variable for everything literary. JetBrains Mono for
+          everything technical. No third typeface.
+        </p>
+
+        <!-- Fraunces sizes -->
+        <div class="mt-12">
+          <div class="flex items-baseline gap-4">
+            <span
+              class="font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase"
+              >Fraunces</span
+            >
+            <span
+              class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/45 uppercase"
+              >variable · opsz 9–144 · weight 200–900 · italic</span
+            >
+          </div>
+
+          <div class="mt-6 flex flex-col gap-6 border-y border-ink/15 py-8">
+            <div class="grid grid-cols-[12rem_1fr] items-baseline gap-6">
+              <span
+                class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+                >Display · opsz 144</span
+              >
+              <span
+                class="font-editorial text-[5rem] leading-[0.95] tracking-[-0.025em] text-ink"
+                style="font-variation-settings: 'opsz' 144"
+              >
+                The shape of a
+                <span
+                  class="text-cobalt-500 italic"
+                  style="font-variation-settings: 'opsz' 144"
+                  >sentence.</span
+                >
+              </span>
+            </div>
+            <div class="grid grid-cols-[12rem_1fr] items-baseline gap-6">
+              <span
+                class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+                >Subhead · opsz 96</span
+              >
+              <span
+                class="font-editorial text-[2.5rem] leading-[1.1] tracking-[-0.02em] text-ink"
+                style="font-variation-settings: 'opsz' 96"
+              >
+                Subheadings carry the rhythm.
+              </span>
+            </div>
+            <div class="grid grid-cols-[12rem_1fr] items-baseline gap-6">
+              <span
+                class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+                >Editorial · opsz 72</span
+              >
+              <span
+                class="font-editorial text-[1.5rem] leading-[1.45] text-ink/75"
+                style="font-variation-settings: 'opsz' 72"
+              >
+                Italic captions, asides, callouts. Reads warm against the page.
+              </span>
+            </div>
+            <div class="grid grid-cols-[12rem_1fr] items-baseline gap-6">
+              <span
+                class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+                >Body · opsz 9</span
+              >
+              <span
+                class="font-editorial text-[1.05rem] leading-[1.65] text-ink/75"
+                style="font-variation-settings: 'opsz' 9"
+              >
+                Long-form body and prose. Fraunces handles small sizes through
+                its lowest optical setting; the strokes thicken to read clean at
+                16–18px.
+              </span>
+            </div>
+          </div>
+
+          <!-- Italic + SOFT axis -->
+          <div
+            class="mt-8 grid grid-cols-2 gap-px border border-ink/15 bg-ink/15"
+          >
+            <div class="bg-paper p-8">
+              <p
+                class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+              >
+                Roman vs italic
+              </p>
+              <p
+                class="mt-5 font-editorial text-[2.5rem] leading-[1.1] text-ink"
+                style="font-variation-settings: 'opsz' 96"
+              >
+                Roman
+              </p>
+              <p
+                class="font-editorial text-[2.5rem] leading-[1.1] text-ink italic"
+                style="font-variation-settings: 'opsz' 96"
+              >
+                Italic
+              </p>
+              <p
+                class="font-editorial text-[2.5rem] leading-[1.1] text-cobalt-500 italic"
+                style="font-variation-settings: 'opsz' 96"
+              >
+                Cobalt italic accent
+              </p>
+              <p
+                class="mt-4 font-editorial text-[0.95rem] text-ink/55 italic"
+                style="font-variation-settings: 'opsz' 96"
+              >
+                The cobalt italic is the most identifying move. Use it on one
+                phrase per heading, never on a whole sentence.
+              </p>
+            </div>
+            <div class="bg-paper p-8">
+              <p
+                class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+              >
+                SOFT axis
+              </p>
+              <p
+                class="mt-5 font-editorial text-[2rem] leading-[1.1] text-ink"
+                style="
+                  font-variation-settings:
+                    'opsz' 96,
+                    'SOFT' 0;
+                "
+              >
+                SOFT 0 — sharp serifs
+              </p>
+              <p
+                class="font-editorial text-[2rem] leading-[1.1] text-ink"
+                style="
+                  font-variation-settings:
+                    'opsz' 96,
+                    'SOFT' 50;
+                "
+              >
+                SOFT 50 — neutral
+              </p>
+              <p
+                class="font-editorial text-[2rem] leading-[1.1] text-ink"
+                style="
+                  font-variation-settings:
+                    'opsz' 96,
+                    'SOFT' 100;
+                "
+              >
+                SOFT 100 — soft, warm
+              </p>
+              <p
+                class="mt-4 font-editorial text-[0.95rem] text-ink/55 italic"
+                style="font-variation-settings: 'opsz' 96"
+              >
+                Bump SOFT to 100 on italic accents. Keep roman at SOFT 30–50 for
+                clarity.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- JetBrains Mono -->
+        <div class="mt-16">
+          <div class="flex items-baseline gap-4">
+            <span
+              class="font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase"
+              >JetBrains Mono</span
+            >
+            <span
+              class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/45 uppercase"
+              >technical · code · small-cap labels</span
+            >
+          </div>
+
+          <div class="mt-6 flex flex-col gap-6 border-y border-ink/15 py-8">
+            <div class="grid grid-cols-[12rem_1fr] items-baseline gap-6">
+              <span
+                class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+                >Section label</span
+              >
+              <span
+                class="font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase"
+                >A typescript framework</span
+              >
+            </div>
+            <div class="grid grid-cols-[12rem_1fr] items-baseline gap-6">
+              <span
+                class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+                >Inline code</span
+              >
+              <span class="font-mono text-[1rem] text-ink">
+                <span class="t-fn">craft</span><span class="t-pun">()</span
+                ><span class="t-pun">.</span><span class="t-fn">from</span
+                ><span class="t-pun">(</span><span class="t-fn">cron</span
+                ><span class="t-pun">(</span
+                ><span class="t-str">'0 9 * * 1-5'</span
+                ><span class="t-pun">))</span>
+              </span>
+            </div>
+            <div class="grid grid-cols-[12rem_1fr] items-baseline gap-6">
+              <span
+                class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+                >Filename</span
+              >
+              <span class="font-mono text-[0.95rem] text-ink/65"
+                >morning-brief.ts</span
+              >
+            </div>
+            <div class="grid grid-cols-[12rem_1fr] items-baseline gap-6">
+              <span
+                class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+                >Code block</span
+              >
+              <div
+                class="max-w-md border border-ink/15 bg-paper-deep/40 px-5 py-4"
+              >
+                <pre
+                  class="m-0 font-mono text-[0.85rem] leading-[1.85] whitespace-pre"
+                ><code><span class="t-fn">craft</span><span class="t-pun">()</span>
+  <span class="t-pun">.</span><span class="t-fn">id</span><span class="t-pun">(</span><span class="t-str">'brief'</span><span class="t-pun">)</span>
+  <span class="t-pun">.</span><span class="t-fn">to</span><span class="t-pun">(</span><span class="t-fn">agent</span><span class="t-pun">(</span><span class="t-str">'eywa'</span><span class="t-pun">))</span></code></pre>
+              </div>
+            </div>
+          </div>
+
+          <p
+            class="mt-6 font-editorial text-[0.95rem] text-ink/55 italic"
+            style="font-variation-settings: 'opsz' 72"
+          >
+            Mono small-caps with 0.22em tracking is the brand's "label voice".
+            Use it for eyebrows, metadata, code identifiers — anywhere the body
+            voice would feel too warm.
+          </p>
+        </div>
+      </section>
+
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <!-- IV. VOICE                                                          -->
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <section id="voice" class="border-b border-ink/15 px-20 py-24">
+        <header class="flex items-center gap-4">
+          <span class="inline-block h-1.5 w-1.5 bg-cobalt-500"></span>
+          <span
+            class="font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase"
+            >IV</span
+          >
+          <span
+            class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+            >Voice</span
+          >
+          <span class="h-px flex-1 bg-ink/15"></span>
+        </header>
+
+        <h2
+          class="mt-10 font-editorial text-[3.5rem] leading-[1.05] tracking-[-0.02em] text-ink"
+          style="font-variation-settings: 'opsz' 144"
+        >
+          Editorial.
+          <span class="italic" style="font-variation-settings: 'opsz' 144"
+            >Blueprint.</span
+          >
+          <span
+            class="text-cobalt-500 italic"
+            style="font-variation-settings: 'opsz' 144"
+            >Concrete.</span
+          >
+        </h2>
+        <p
+          class="mt-5 max-w-[820px] font-editorial text-[1.2rem] leading-[1.55] text-ink/65 italic"
+          style="font-variation-settings: 'opsz' 96"
+        >
+          Routecraft writes like an engineering broadsheet, not a SaaS landing
+          page. Short clauses. Named things. No abstractions where a concrete
+          noun fits.
+        </p>
+
+        <div
+          class="mt-12 grid grid-cols-2 gap-px border border-ink/15 bg-ink/15"
+        >
+          <!-- Do -->
+          <div class="bg-paper p-10">
+            <p
+              class="font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase"
+            >
+              Do
+            </p>
+            <ul class="mt-6 flex flex-col gap-5">
+              <li>
+                <p
+                  class="font-editorial text-[1.4rem] leading-[1.3] text-ink italic"
+                  style="font-variation-settings: 'opsz' 96"
+                >
+                  "Tools for agents. Or the whole agent."
+                </p>
+                <p
+                  class="mt-1 font-mono text-[0.65rem] tracking-[0.22em] text-ink/45 uppercase"
+                >
+                  Declarative · names two real modes
+                </p>
+              </li>
+              <li>
+                <p
+                  class="font-editorial text-[1.4rem] leading-[1.3] text-ink italic"
+                  style="font-variation-settings: 'opsz' 96"
+                >
+                  "Same body. Different trigger. Change one line."
+                </p>
+                <p
+                  class="mt-1 font-mono text-[0.65rem] tracking-[0.22em] text-ink/45 uppercase"
+                >
+                  Rhythmic · technical · provable
+                </p>
+              </li>
+              <li>
+                <p
+                  class="font-editorial text-[1.4rem] leading-[1.3] text-ink italic"
+                  style="font-variation-settings: 'opsz' 96"
+                >
+                  "Hands, not keys."
+                </p>
+                <p
+                  class="mt-1 font-mono text-[0.65rem] tracking-[0.22em] text-ink/45 uppercase"
+                >
+                  Metaphor · stakes implied
+                </p>
+              </li>
+              <li>
+                <p
+                  class="font-editorial text-[1.4rem] leading-[1.3] text-ink italic"
+                  style="font-variation-settings: 'opsz' 96"
+                >
+                  "The boring infrastructure is already shipped."
+                </p>
+                <p
+                  class="mt-1 font-mono text-[0.65rem] tracking-[0.22em] text-ink/45 uppercase"
+                >
+                  Honest about what we did
+                </p>
+              </li>
+            </ul>
+          </div>
+
+          <!-- Don't -->
+          <div class="bg-paper p-10">
+            <p
+              class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase line-through decoration-ink/40"
+            >
+              Don't
+            </p>
+            <ul class="mt-6 flex flex-col gap-5">
+              <li>
+                <p
+                  class="text-[1.2rem] leading-[1.3] text-ink/55 line-through decoration-ink/30"
+                >
+                  "Revolutionise your AI workflow!"
+                </p>
+                <p
+                  class="mt-1 font-mono text-[0.65rem] tracking-[0.22em] text-ink/40 uppercase"
+                >
+                  Salesy · no proof
+                </p>
+              </li>
+              <li>
+                <p
+                  class="text-[1.2rem] leading-[1.3] text-ink/55 line-through decoration-ink/30"
+                >
+                  "The world's best automation framework"
+                </p>
+                <p
+                  class="mt-1 font-mono text-[0.65rem] tracking-[0.22em] text-ink/40 uppercase"
+                >
+                  Empty superlative
+                </p>
+              </li>
+              <li>
+                <p
+                  class="text-[1.2rem] leading-[1.3] text-ink/55 line-through decoration-ink/30"
+                >
+                  "A synergistic enterprise solution for AI orchestration"
+                </p>
+                <p
+                  class="mt-1 font-mono text-[0.65rem] tracking-[0.22em] text-ink/40 uppercase"
+                >
+                  Corporate vocabulary
+                </p>
+              </li>
+              <li>
+                <p
+                  class="text-[1.2rem] leading-[1.3] text-ink/55 line-through decoration-ink/30"
+                >
+                  "Unlock the power of agents — seamlessly."
+                </p>
+                <p
+                  class="mt-1 font-mono text-[0.65rem] tracking-[0.22em] text-ink/40 uppercase"
+                >
+                  Generic landing-page filler
+                </p>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Voice rules -->
+        <div class="mt-12 grid grid-cols-2 gap-x-12 gap-y-3">
+          <div class="border-t border-ink/15 pt-4">
+            <p
+              class="font-editorial text-[1.05rem] text-ink/65 italic"
+              style="font-variation-settings: 'opsz' 96"
+            >
+              No em-dashes. Use ", " or a full stop.
+            </p>
+          </div>
+          <div class="border-t border-ink/15 pt-4">
+            <p
+              class="font-editorial text-[1.05rem] text-ink/65 italic"
+              style="font-variation-settings: 'opsz' 96"
+            >
+              Lowercase verbs in code: <code class="font-mono">craft()</code>,
+              <code class="font-mono">authorize()</code>,
+              <code class="font-mono">guard()</code>.
+            </p>
+          </div>
+          <div class="border-t border-ink/15 pt-4">
+            <p
+              class="font-editorial text-[1.05rem] text-ink/65 italic"
+              style="font-variation-settings: 'opsz' 96"
+            >
+              Capabilities, not "tools" or "agents", as the framework noun.
+            </p>
+          </div>
+          <div class="border-t border-ink/15 pt-4">
+            <p
+              class="font-editorial text-[1.05rem] text-ink/65 italic"
+              style="font-variation-settings: 'opsz' 96"
+            >
+              Stake the claim with a named primitive, not adjectives.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <!-- V. LAYOUT                                                          -->
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <section id="layout" class="border-b border-ink/15 px-20 py-24">
+        <header class="flex items-center gap-4">
+          <span class="inline-block h-1.5 w-1.5 bg-cobalt-500"></span>
+          <span
+            class="font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase"
+            >V</span
+          >
+          <span
+            class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+            >Layout</span
+          >
+          <span class="h-px flex-1 bg-ink/15"></span>
+        </header>
+
+        <h2
+          class="mt-10 font-editorial text-[3.5rem] leading-[1.05] tracking-[-0.02em] text-ink"
+          style="font-variation-settings: 'opsz' 144"
+        >
+          A grid you can
+          <span
+            class="text-cobalt-500 italic"
+            style="font-variation-settings: 'opsz' 144"
+            >feel.</span
+          >
+        </h2>
+        <p
+          class="mt-5 max-w-[820px] font-editorial text-[1.2rem] leading-[1.55] text-ink/65 italic"
+          style="font-variation-settings: 'opsz' 96"
+        >
+          Container is
+          <code class="font-mono not-italic">max-w-7xl</code> (1280px). Sections
+          stack with hairline rules, never with white space alone.
+        </p>
+
+        <div
+          class="mt-12 grid grid-cols-2 gap-px border border-ink/15 bg-ink/15"
+        >
+          <div class="bg-paper p-8">
+            <p
+              class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+            >
+              Container scale
+            </p>
+            <dl class="mt-5 grid grid-cols-2 gap-y-2 font-mono text-[0.9rem]">
+              <dt class="text-ink/65">max-w-3xl</dt>
+              <dd class="text-ink/45">768px · headers</dd>
+              <dt class="text-ink/65">max-w-4xl</dt>
+              <dd class="text-ink/45">896px · centered editorial</dd>
+              <dt class="text-ink/65">max-w-7xl</dt>
+              <dd class="text-ink/45">1280px · main grid</dd>
+              <dt class="text-ink/65">max-w-8xl</dt>
+              <dd class="text-ink/45">1408px · full-bleed sections</dd>
+            </dl>
+          </div>
+          <div class="bg-paper p-8">
+            <p
+              class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+            >
+              Section padding
+            </p>
+            <dl class="mt-5 grid grid-cols-2 gap-y-2 font-mono text-[0.9rem]">
+              <dt class="text-ink/65">pt-12 pb-20</dt>
+              <dd class="text-ink/45">small · content section</dd>
+              <dt class="text-ink/65">pt-14 pb-24</dt>
+              <dd class="text-ink/45">default · lg</dd>
+              <dt class="text-ink/65">pt-16 pb-28</dt>
+              <dd class="text-ink/45">hero · top of page</dd>
+              <dt class="text-ink/65">px-4 sm:px-6 lg:px-8</dt>
+              <dd class="text-ink/45">horizontal · responsive</dd>
+            </dl>
+          </div>
+        </div>
+
+        <!-- Section rule preview -->
+        <div class="mt-10">
+          <p
+            class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+          >
+            Section rule (with roman numeral)
+          </p>
+          <div class="mt-4 border border-ink/15 bg-paper p-8">
+            <div class="flex items-center gap-4">
+              <span class="inline-block h-1.5 w-1.5 bg-cobalt-500"></span>
+              <span
+                class="font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase"
+                >I</span
+              >
+              <span
+                class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+                >Section label here</span
+              >
+              <span class="h-px flex-1 bg-ink/15"></span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <!-- VI. UI PRIMITIVES                                                  -->
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <section id="primitives" class="border-b border-ink/15 px-20 py-24">
+        <header class="flex items-center gap-4">
+          <span class="inline-block h-1.5 w-1.5 bg-cobalt-500"></span>
+          <span
+            class="font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase"
+            >VI</span
+          >
+          <span
+            class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+            >UI primitives</span
+          >
+          <span class="h-px flex-1 bg-ink/15"></span>
+        </header>
+
+        <h2
+          class="mt-10 font-editorial text-[3.5rem] leading-[1.05] tracking-[-0.02em] text-ink"
+          style="font-variation-settings: 'opsz' 144"
+        >
+          The everyday
+          <span
+            class="text-cobalt-500 italic"
+            style="font-variation-settings: 'opsz' 144"
+            >furniture.</span
+          >
+        </h2>
+
+        <!-- Buttons -->
+        <div class="mt-12">
+          <p
+            class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+          >
+            Buttons
+          </p>
+          <div
+            class="mt-4 flex flex-wrap items-center gap-4 border border-ink/15 bg-paper p-8"
+          >
+            <span
+              class="inline-flex items-center gap-3 bg-cobalt-500 px-6 py-3 text-paper"
+            >
+              <span class="font-mono text-[0.7rem] tracking-[0.22em] uppercase"
+                >Primary</span
+              >
+              <span aria-hidden="true">→</span>
+            </span>
+            <span
+              class="inline-flex items-center gap-3 border-b border-ink pb-px font-editorial text-[1.05rem] text-ink italic"
+            >
+              Secondary editorial link
+            </span>
+            <span
+              class="inline-flex items-center gap-2 font-mono text-[0.7rem] tracking-[0.22em] text-cobalt-500 uppercase"
+            >
+              Tertiary mono link <span>→</span>
+            </span>
+          </div>
+        </div>
+
+        <!-- Badges -->
+        <div class="mt-10">
+          <p
+            class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+          >
+            Badges and pills
+          </p>
+          <div
+            class="mt-4 flex flex-wrap items-center gap-3 border border-ink/15 bg-paper p-8"
+          >
+            <span
+              class="inline-flex items-center gap-2 border border-cobalt-500/60 px-2.5 py-1 font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase"
+            >
+              <span class="inline-block h-1.5 w-1.5 bg-cobalt-500"></span>
+              Active
+            </span>
+            <span
+              class="inline-flex items-center gap-2 border border-ink/25 px-2.5 py-1 font-mono text-[0.65rem] tracking-[0.22em] text-ink/65 uppercase"
+            >
+              Neutral
+            </span>
+            <span
+              class="inline-flex items-center gap-2 border border-cobalt-500 bg-cobalt-500 px-2.5 py-1 font-mono text-[0.65rem] tracking-[0.22em] text-paper uppercase"
+            >
+              Filled
+            </span>
+            <span
+              class="inline-flex items-center gap-2 border border-ink/25 px-2.5 py-1 font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase line-through decoration-ink/40"
+            >
+              Removed
+            </span>
+            <span
+              class="inline-flex items-center gap-2 border border-cobalt-500/40 px-1.5 py-0.5 font-mono text-[0.55rem] tracking-[0.18em] text-cobalt-600 uppercase"
+            >
+              Planned
+            </span>
+          </div>
+        </div>
+
+        <!-- Drawing-sheet code chrome -->
+        <div class="mt-10">
+          <p
+            class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+          >
+            Drawing-sheet code block
+          </p>
+          <div class="mt-4 max-w-3xl">
+            <div
+              class="flex items-center justify-between border border-b-0 border-ink/20 bg-paper-deep/55 px-5 py-2.5 font-mono text-[0.7rem] tracking-[0.2em] uppercase"
+            >
+              <span class="text-ink/60">filename.ts</span>
+              <span class="text-cobalt-500">cron trigger</span>
+            </div>
+            <div
+              class="border border-t-0 border-ink/20 bg-paper-deep/40 px-5 py-5"
+            >
+              <pre
+                class="m-0 font-mono text-[0.9rem] leading-[1.85] whitespace-pre"
+              ><code><span class="t-fn">craft</span><span class="t-pun">()</span>
+  <span class="t-pun">.</span><span class="t-fn">id</span><span class="t-pun">(</span><span class="t-str">'morning-brief'</span><span class="t-pun">)</span>
+  <span class="t-pun">.</span><span class="t-fn">from</span><span class="t-pun">(</span><span class="text-cobalt-500"><span class="t-fn">cron</span><span class="t-pun">(</span><span class="t-str">'0 9 * * 1-5'</span><span class="t-pun">)</span></span><span class="t-pun">)</span>
+  <span class="t-pun">.</span><span class="t-fn">to</span><span class="t-pun">(</span><span class="text-cobalt-500"><span class="t-fn">agent</span><span class="t-pun">(</span><span class="t-str">'eywa'</span><span class="t-pun">)</span></span><span class="t-pun">)</span></code></pre>
+            </div>
+            <div
+              class="flex items-center justify-between border-x border-b border-ink/20 bg-paper-deep/55 px-5 py-3 font-mono text-[0.7rem] tracking-[0.2em] uppercase"
+            >
+              <span
+                class="font-editorial text-ink/65 normal-case italic"
+                style="font-variation-settings: 'opsz' 96"
+                >Caption goes here.</span
+              >
+              <span class="text-cobalt-500">trigger ▸</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Numbered editorial row (for indices) -->
+        <div class="mt-10">
+          <p
+            class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+          >
+            Numbered editorial row
+          </p>
+          <ol class="mt-4 max-w-3xl border border-ink/15 bg-paper">
+            <li
+              class="grid grid-cols-[auto_1fr_auto] items-baseline gap-x-6 border-b border-ink/15 px-6 py-6"
+            >
+              <span
+                class="font-editorial text-[1.5rem] text-cobalt-500/55 italic tabular-nums"
+                style="font-variation-settings: 'opsz' 96"
+                >01</span
+              >
+              <div>
+                <h3
+                  class="font-editorial text-[1.4rem] leading-tight text-ink"
+                  style="font-variation-settings: 'opsz' 96"
+                >
+                  Editorial heading.
+                </h3>
+                <p class="mt-1 text-[0.95rem] text-ink/65">
+                  Short note explaining what this item is.
+                </p>
+              </div>
+              <span class="text-ink/30">→</span>
+            </li>
+            <li
+              class="grid grid-cols-[auto_1fr_auto] items-baseline gap-x-6 px-6 py-6"
+            >
+              <span
+                class="font-editorial text-[1.5rem] text-cobalt-500/55 italic tabular-nums"
+                style="font-variation-settings: 'opsz' 96"
+                >02</span
+              >
+              <div>
+                <h3
+                  class="font-editorial text-[1.4rem] leading-tight text-ink"
+                  style="font-variation-settings: 'opsz' 96"
+                >
+                  Second item.
+                </h3>
+                <p class="mt-1 text-[0.95rem] text-ink/65">
+                  The 01/02/03 italic numerals are a recurring brand motif.
+                </p>
+              </div>
+              <span class="text-ink/30">→</span>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <!-- VII. MOTIFS                                                        -->
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <section id="motifs" class="border-b border-ink/15 px-20 py-24">
+        <header class="flex items-center gap-4">
+          <span class="inline-block h-1.5 w-1.5 bg-cobalt-500"></span>
+          <span
+            class="font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase"
+            >VII</span
+          >
+          <span
+            class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+            >Motifs</span
+          >
+          <span class="h-px flex-1 bg-ink/15"></span>
+        </header>
+
+        <h2
+          class="mt-10 font-editorial text-[3.5rem] leading-[1.05] tracking-[-0.02em] text-ink"
+          style="font-variation-settings: 'opsz' 144"
+        >
+          Engineering-blueprint
+          <span
+            class="text-cobalt-500 italic"
+            style="font-variation-settings: 'opsz' 144"
+            >vocabulary.</span
+          >
+        </h2>
+        <p
+          class="mt-5 max-w-[820px] font-editorial text-[1.2rem] leading-[1.55] text-ink/65 italic"
+          style="font-variation-settings: 'opsz' 96"
+        >
+          Small visual decisions that, repeated, signal "this was made by a
+          serious team." Use them deliberately, not decoratively.
+        </p>
+
+        <div
+          class="mt-12 grid grid-cols-3 gap-px border border-ink/15 bg-ink/15"
+        >
+          <!-- Cobalt bullet -->
+          <div class="flex flex-col gap-3 bg-paper p-8">
+            <p
+              class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+            >
+              Cobalt bullet
+            </p>
+            <div class="flex min-h-[160px] flex-1 items-center justify-center">
+              <div class="flex items-center gap-3">
+                <span class="inline-block h-2.5 w-2.5 bg-cobalt-500"></span>
+                <span
+                  class="font-editorial text-[1.6rem] leading-none tracking-[-0.02em] text-ink"
+                  style="font-variation-settings: 'opsz' 96"
+                  >Headline</span
+                >
+              </div>
+            </div>
+            <p
+              class="font-editorial text-[0.9rem] text-ink/55 italic"
+              style="font-variation-settings: 'opsz' 72"
+            >
+              The 2.5px square mark next to the wordmark. Echoes as 1px in
+              sidebar items and 1.5px in section rules.
+            </p>
+          </div>
+
+          <!-- Registration cross -->
+          <div class="flex flex-col gap-3 bg-paper p-8">
+            <p
+              class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+            >
+              Registration cross
+            </p>
+            <div
+              class="relative flex min-h-[160px] flex-1 items-center justify-center border border-ink/15"
+            >
+              <span class="reg" style="top: 12px; left: 12px"></span>
+              <span class="reg" style="top: 12px; right: 12px"></span>
+              <span class="reg" style="bottom: 12px; left: 12px"></span>
+              <span class="reg" style="bottom: 12px; right: 12px"></span>
+              <span
+                class="font-mono text-[0.65rem] tracking-[0.18em] text-ink/45 uppercase"
+                >Drawing area</span
+              >
+            </div>
+            <p
+              class="font-editorial text-[0.9rem] text-ink/55 italic"
+              style="font-variation-settings: 'opsz' 72"
+            >
+              Borrowed from technical drawings. Appears on diagrams, code
+              blocks, post templates.
+            </p>
+          </div>
+
+          <!-- Fig. label -->
+          <div class="flex flex-col gap-3 bg-paper p-8">
+            <p
+              class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+            >
+              Fig. NN label
+            </p>
+            <div class="flex min-h-[160px] flex-1 items-center justify-center">
+              <span
+                class="font-mono text-[0.85rem] tracking-[0.22em] uppercase"
+              >
+                <span class="text-cobalt-500">Fig. 01</span>
+                <span class="text-ink/55"> — Trigger topology</span>
+              </span>
+            </div>
+            <p
+              class="font-editorial text-[0.9rem] text-ink/55 italic"
+              style="font-variation-settings: 'opsz' 72"
+            >
+              Numbered figure captions for any diagram or schematic. Cobalt for
+              the number, ink for the title.
+            </p>
+          </div>
+
+          <!-- ▸ marker -->
+          <div class="flex flex-col gap-3 bg-paper p-8">
+            <p
+              class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+            >
+              ▸ marker
+            </p>
+            <div class="flex min-h-[160px] flex-1 items-center">
+              <ul class="flex flex-col gap-2 text-[1rem] text-ink/75">
+                <li class="flex items-baseline gap-3">
+                  <span class="text-cobalt-500">▸</span
+                  ><span>Bulleted item</span>
+                </li>
+                <li class="flex items-baseline gap-3">
+                  <span class="text-cobalt-500">▸</span
+                  ><span>Used in feature lists</span>
+                </li>
+                <li class="flex items-baseline gap-3">
+                  <span class="text-cobalt-500">▸</span
+                  ><span>Always cobalt</span>
+                </li>
+              </ul>
+            </div>
+            <p
+              class="font-editorial text-[0.9rem] text-ink/55 italic"
+              style="font-variation-settings: 'opsz' 72"
+            >
+              Pointer triangle for bulleted lists. Cobalt only, never gray.
+            </p>
+          </div>
+
+          <!-- Paper grain -->
+          <div class="flex flex-col gap-3 bg-paper p-8">
+            <p
+              class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+            >
+              Paper grain overlay
+            </p>
+            <div
+              class="relative flex min-h-[160px] flex-1 items-center justify-center border border-ink/15"
+            >
+              <div
+                class="grain pointer-events-none absolute inset-0"
+                style="opacity: 0.2"
+              ></div>
+              <span
+                class="font-editorial text-[1rem] text-ink/55 italic"
+                style="font-variation-settings: 'opsz' 72"
+                >subtle texture overlay</span
+              >
+            </div>
+            <p
+              class="font-editorial text-[0.9rem] text-ink/55 italic"
+              style="font-variation-settings: 'opsz' 72"
+            >
+              SVG fractal noise at 4% opacity, multiply blend. Ships on every
+              brand surface.
+            </p>
+          </div>
+
+          <!-- Section rule with numeral -->
+          <div class="flex flex-col gap-3 bg-paper p-8">
+            <p
+              class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+            >
+              Numbered section rule
+            </p>
+            <div class="flex min-h-[160px] flex-1 items-center">
+              <div class="flex w-full items-center gap-4">
+                <span class="inline-block h-1.5 w-1.5 bg-cobalt-500"></span>
+                <span
+                  class="font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase"
+                  >I</span
+                >
+                <span
+                  class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+                  >Section label</span
+                >
+                <span class="h-px flex-1 bg-ink/15"></span>
+              </div>
+            </div>
+            <p
+              class="font-editorial text-[0.9rem] text-ink/55 italic"
+              style="font-variation-settings: 'opsz' 72"
+            >
+              I / II / III roman numerals tie multi-section pages together.
+              Bullet + numeral + label + hairline.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <!-- COLOPHON                                                           -->
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <section class="relative bg-paper-deep/40 px-20 py-20">
+        <div class="grid grid-cols-2 items-end gap-x-12">
+          <div>
+            <div class="flex items-center gap-3">
+              <span class="inline-block h-2.5 w-2.5 bg-cobalt-500"></span>
+              <span
+                class="font-editorial text-[1.4rem] leading-none tracking-[-0.02em] text-ink"
+                style="font-variation-settings: 'opsz' 96"
+                >Routecraft</span
+              >
+            </div>
+            <p
+              class="mt-6 max-w-md font-editorial text-[1.1rem] leading-[1.55] text-ink/65 italic"
+              style="font-variation-settings: 'opsz' 96"
+            >
+              The brand book is a living document. When the framework changes,
+              this changes. When the look-and-feel evolves, this is the
+              canonical source.
+            </p>
+          </div>
+          <div class="text-right">
+            <p
+              class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+            >
+              Brand identity &nbsp;·&nbsp; v0.1
+            </p>
+            <p
+              class="mt-2 font-mono text-[0.65rem] tracking-[0.22em] text-ink/45 uppercase"
+            >
+              routecraft.dev
+            </p>
+          </div>
+        </div>
+      </section>
+    </div>
+  </body>
+</html>

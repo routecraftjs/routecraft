@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Routecraft post · version released · 1080×1350</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,200..900;1,9..144,200..900&family=JetBrains+Mono:ital,wght@0,400..700;1,400..700&display=swap"
+    />
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              paper: '#f5f1e8',
+              'paper-edge': '#e8e0cb',
+              'paper-deep': '#ece5d2',
+              ink: '#22232c',
+              'ink-soft': '#30313c',
+              'ink-deep': '#16171c',
+              'cobalt-300': '#8a96f8',
+              'cobalt-400': '#5867f5',
+              'cobalt-500': '#1247ff',
+              'cobalt-600': '#0c39d6',
+            },
+            fontFamily: {
+              editorial: ['Fraunces', 'serif'],
+              mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+            },
+          },
+        },
+      }
+    </script>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        background: #d6d3cf;
+        font-family: 'Fraunces', serif;
+      }
+      .frame {
+        width: 1080px;
+        height: 1350px;
+      }
+      .grain {
+        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.6 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+        opacity: 0.04;
+        mix-blend-mode: multiply;
+      }
+      .reg {
+        position: absolute;
+        width: 10px;
+        height: 10px;
+        opacity: 0.35;
+      }
+      .reg::before,
+      .reg::after {
+        content: '';
+        position: absolute;
+        background: #22232c;
+      }
+      .reg::before {
+        top: 50%;
+        left: 0;
+        width: 100%;
+        height: 1px;
+        transform: translateY(-50%);
+      }
+      .reg::after {
+        left: 50%;
+        top: 0;
+        height: 100%;
+        width: 1px;
+        transform: translateX(-50%);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="frame relative overflow-hidden bg-paper text-ink">
+      <div class="grain pointer-events-none absolute inset-0"></div>
+
+      <span class="reg" style="top: 20px; left: 20px"></span>
+      <span class="reg" style="top: 20px; right: 20px"></span>
+      <span class="reg" style="bottom: 20px; left: 20px"></span>
+      <span class="reg" style="bottom: 20px; right: 20px"></span>
+
+      <div class="absolute inset-0 flex flex-col px-20 py-24">
+        <!-- Brand -->
+        <div class="flex items-center gap-3">
+          <span class="inline-block h-2.5 w-2.5 bg-cobalt-500"></span>
+          <span
+            class="font-editorial text-[1.6rem] leading-none tracking-[-0.02em] text-ink"
+            style="font-variation-settings: 'opsz' 96"
+            >Routecraft</span
+          >
+        </div>
+
+        <!-- Eyebrow -->
+        <p
+          class="mt-20 font-mono text-[0.85rem] tracking-[0.22em] text-cobalt-500 uppercase"
+        >
+          Shipped &nbsp;·&nbsp;
+          <!-- EDIT: date -->
+          May 27, 2026
+        </p>
+
+        <!-- Huge version number -->
+        <div class="mt-4 flex items-baseline gap-4 border-b border-ink/15 pb-4">
+          <span
+            class="font-editorial text-[3rem] text-cobalt-500/55 italic"
+            style="font-variation-settings: 'opsz' 96"
+            >v</span
+          >
+          <!-- EDIT: version number -->
+          <h1
+            class="font-mono text-[10rem] leading-none font-medium text-ink tabular-nums"
+          >
+            0.6.0
+          </h1>
+        </div>
+
+        <!-- Codename / tagline -->
+        <p
+          class="mt-6 max-w-[820px] font-editorial text-[1.6rem] leading-[1.3] text-ink/70 italic"
+          style="font-variation-settings: 'opsz' 96"
+        >
+          <!-- EDIT: tagline -->
+          The reference reshuffle. Per-adapter pages, a filterable error table,
+          and an event namespace map.
+        </p>
+
+        <!-- Changelog highlights -->
+        <ul class="mt-12 flex flex-col gap-0">
+          <!-- EDIT: 3-5 highlight items. Use the same `→ Title — short note` shape. -->
+          <li class="flex items-baseline gap-5 border-t border-ink/15 py-5">
+            <span class="font-mono text-[0.95rem] text-cobalt-500">→</span>
+            <div>
+              <h3
+                class="font-editorial text-[1.5rem] leading-tight text-ink"
+                style="font-variation-settings: 'opsz' 96"
+              >
+                Adapters reference split into per-adapter pages.
+              </h3>
+              <p class="mt-1 text-[1.05rem] text-ink/60">
+                A card grid overview; 24 adapters each with their own URL.
+              </p>
+            </div>
+          </li>
+          <li class="flex items-baseline gap-5 border-t border-ink/15 py-5">
+            <span class="font-mono text-[0.95rem] text-cobalt-500">→</span>
+            <div>
+              <h3
+                class="font-editorial text-[1.5rem] leading-tight text-ink"
+                style="font-variation-settings: 'opsz' 96"
+              >
+                New <code class="font-mono">slack()</code> adapter.
+              </h3>
+              <p class="mt-1 text-[1.05rem] text-ink/60">
+                Read channel messages or post to a webhook with full typing.
+              </p>
+            </div>
+          </li>
+          <li class="flex items-baseline gap-5 border-t border-ink/15 py-5">
+            <span class="font-mono text-[0.95rem] text-cobalt-500">→</span>
+            <div>
+              <h3
+                class="font-editorial text-[1.5rem] leading-tight text-ink"
+                style="font-variation-settings: 'opsz' 96"
+              >
+                Errors are filterable by category.
+              </h3>
+              <p class="mt-1 text-[1.05rem] text-ink/60">
+                Search by code or message, filter by Adapter / DSL / Lifecycle.
+              </p>
+            </div>
+          </li>
+          <li class="flex items-baseline gap-5 border-y border-ink/15 py-5">
+            <span class="font-mono text-[0.95rem] text-cobalt-500">→</span>
+            <div>
+              <h3
+                class="font-editorial text-[1.5rem] leading-tight text-ink"
+                style="font-variation-settings: 'opsz' 96"
+              >
+                Bounded by design.
+              </h3>
+              <p class="mt-1 text-[1.05rem] text-ink/60">
+                <code class="font-mono">authorize()</code> +
+                <code class="font-mono">guard()</code> are first-class.
+              </p>
+            </div>
+          </li>
+        </ul>
+
+        <!-- Footer -->
+        <div class="mt-auto flex items-end justify-between">
+          <span
+            class="font-mono text-[0.8rem] tracking-[0.22em] text-ink/55 uppercase"
+            >routecraft.dev/docs/changelog</span
+          >
+          <span
+            class="font-mono text-[0.7rem] tracking-[0.22em] text-ink/35 uppercase"
+            >Fig. 08</span
+          >
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

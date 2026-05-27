@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Routecraft post · new blog post · 1080×1350</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,200..900;1,9..144,200..900&family=JetBrains+Mono:ital,wght@0,400..700;1,400..700&display=swap"
+    />
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              paper: '#f5f1e8',
+              'paper-edge': '#e8e0cb',
+              'paper-deep': '#ece5d2',
+              ink: '#22232c',
+              'ink-soft': '#30313c',
+              'ink-deep': '#16171c',
+              'cobalt-300': '#8a96f8',
+              'cobalt-400': '#5867f5',
+              'cobalt-500': '#1247ff',
+              'cobalt-600': '#0c39d6',
+            },
+            fontFamily: {
+              editorial: ['Fraunces', 'serif'],
+              mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+            },
+          },
+        },
+      }
+    </script>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        background: #d6d3cf;
+        font-family: 'Fraunces', serif;
+      }
+      .frame {
+        width: 1080px;
+        height: 1350px;
+      }
+      .grain {
+        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.6 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+        opacity: 0.04;
+        mix-blend-mode: multiply;
+      }
+      .reg {
+        position: absolute;
+        width: 10px;
+        height: 10px;
+        opacity: 0.35;
+      }
+      .reg::before,
+      .reg::after {
+        content: '';
+        position: absolute;
+        background: #22232c;
+      }
+      .reg::before {
+        top: 50%;
+        left: 0;
+        width: 100%;
+        height: 1px;
+        transform: translateY(-50%);
+      }
+      .reg::after {
+        left: 50%;
+        top: 0;
+        height: 100%;
+        width: 1px;
+        transform: translateX(-50%);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="frame relative overflow-hidden bg-paper text-ink">
+      <div class="grain pointer-events-none absolute inset-0"></div>
+
+      <span class="reg" style="top: 20px; left: 20px"></span>
+      <span class="reg" style="top: 20px; right: 20px"></span>
+      <span class="reg" style="bottom: 20px; left: 20px"></span>
+      <span class="reg" style="bottom: 20px; right: 20px"></span>
+
+      <div class="absolute inset-0 flex flex-col px-20 py-24">
+        <!-- Brand -->
+        <div class="flex items-center gap-3">
+          <span class="inline-block h-2.5 w-2.5 bg-cobalt-500"></span>
+          <span
+            class="font-editorial text-[1.6rem] leading-none tracking-[-0.02em] text-ink"
+            style="font-variation-settings: 'opsz' 96"
+            >Routecraft</span
+          >
+        </div>
+
+        <!-- Eyebrow -->
+        <p
+          class="mt-20 font-mono text-[0.85rem] tracking-[0.22em] text-cobalt-500 uppercase"
+        >
+          New post &nbsp;·&nbsp; From the field
+        </p>
+
+        <!-- EDIT: post title. The thing people would read. -->
+        <h1
+          class="mt-6 font-editorial text-[5.5rem] leading-[0.98] tracking-[-0.025em] text-ink"
+          style="font-variation-settings: 'opsz' 144"
+        >
+          Building an
+          <span class="italic" style="font-variation-settings: 'opsz' 144"
+            >authenticated</span
+          >
+          MCP server with
+          <span
+            class="text-cobalt-500 italic"
+            style="font-variation-settings: 'opsz' 144"
+            >Clerk.</span
+          >
+        </h1>
+
+        <!-- EDIT: short excerpt -->
+        <p
+          class="mt-10 max-w-[860px] font-editorial text-[1.45rem] leading-[1.5] text-ink/70 italic"
+          style="font-variation-settings: 'opsz' 96"
+        >
+          A step-by-step guide to writing TypeScript capabilities, exposing them
+          over MCP, and putting Clerk in front with OAuth 2.1 and JWKS
+          verification.
+        </p>
+
+        <!-- Tags + meta -->
+        <div
+          class="mt-12 flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-ink/15 pt-6"
+        >
+          <!-- EDIT: tags (mono small caps) -->
+          <div
+            class="flex flex-wrap items-center gap-2 font-mono text-[0.7rem] tracking-[0.22em] text-ink/55 uppercase"
+          >
+            <span>MCP</span>
+            <span class="text-ink/25">·</span>
+            <span>Clerk</span>
+            <span class="text-ink/25">·</span>
+            <span>Authentication</span>
+            <span class="text-ink/25">·</span>
+            <span>Routecraft</span>
+          </div>
+          <span
+            class="ml-auto font-mono text-[0.7rem] tracking-[0.22em] text-ink/55 uppercase"
+          >
+            <!-- EDIT: date · read time -->
+            May 26, 2026 &nbsp;·&nbsp; 11 min read
+          </span>
+        </div>
+
+        <!-- Author -->
+        <p
+          class="mt-10 font-editorial text-[1.15rem] text-ink/70"
+          style="font-variation-settings: 'opsz' 96"
+        >
+          <!-- EDIT: author -->
+          By <span class="italic">Jaco Botha</span>, Founder, DevOptix
+        </p>
+
+        <!-- Read it CTA -->
+        <a
+          class="mt-auto inline-flex items-center gap-3 self-start bg-cobalt-500 px-6 py-3 text-paper"
+        >
+          <span class="font-mono text-[0.75rem] tracking-[0.22em] uppercase"
+            >Read the post</span
+          >
+          <span aria-hidden="true">→</span>
+        </a>
+
+        <!-- Footer -->
+        <div class="mt-10 flex items-end justify-between">
+          <!-- EDIT: post slug -->
+          <span
+            class="font-mono text-[0.8rem] tracking-[0.22em] text-ink/55 uppercase"
+          >
+            routecraft.dev/blog/securing-mcp-with-clerk
+          </span>
+          <span
+            class="font-mono text-[0.7rem] tracking-[0.22em] text-ink/35 uppercase"
+            >Fig. 12</span
+          >
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

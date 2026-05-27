@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Routecraft post · new adapter · 1200×1200</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,200..900;1,9..144,200..900&family=JetBrains+Mono:ital,wght@0,400..700;1,400..700&display=swap"
+    />
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              paper: '#f5f1e8',
+              'paper-edge': '#e8e0cb',
+              'paper-deep': '#ece5d2',
+              ink: '#22232c',
+              'ink-soft': '#30313c',
+              'ink-deep': '#16171c',
+              'cobalt-300': '#8a96f8',
+              'cobalt-400': '#5867f5',
+              'cobalt-500': '#1247ff',
+              'cobalt-600': '#0c39d6',
+            },
+            fontFamily: {
+              editorial: ['Fraunces', 'serif'],
+              mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+            },
+          },
+        },
+      }
+    </script>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        background: #d6d3cf;
+        font-family: 'Fraunces', serif;
+      }
+      .frame {
+        width: 1200px;
+        height: 1200px;
+      }
+      .grain {
+        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.6 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+        opacity: 0.04;
+        mix-blend-mode: multiply;
+      }
+      .reg {
+        position: absolute;
+        width: 10px;
+        height: 10px;
+        opacity: 0.35;
+      }
+      .reg::before,
+      .reg::after {
+        content: '';
+        position: absolute;
+        background: #22232c;
+      }
+      .reg::before {
+        top: 50%;
+        left: 0;
+        width: 100%;
+        height: 1px;
+        transform: translateY(-50%);
+      }
+      .reg::after {
+        left: 50%;
+        top: 0;
+        height: 100%;
+        width: 1px;
+        transform: translateX(-50%);
+      }
+      .t-fn {
+        color: #22232c;
+        font-weight: 600;
+      }
+      .t-str {
+        color: #0c39d6;
+      }
+      .t-kw {
+        color: rgba(34, 35, 44, 0.55);
+      }
+      .t-com {
+        color: rgba(34, 35, 44, 0.45);
+        font-style: italic;
+      }
+      .t-pun {
+        color: rgba(34, 35, 44, 0.4);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="frame relative overflow-hidden bg-paper text-ink">
+      <div class="grain pointer-events-none absolute inset-0"></div>
+
+      <span class="reg" style="top: 24px; left: 24px"></span>
+      <span class="reg" style="top: 24px; right: 24px"></span>
+      <span class="reg" style="bottom: 24px; left: 24px"></span>
+      <span class="reg" style="bottom: 24px; right: 24px"></span>
+
+      <div class="absolute inset-0 flex flex-col px-20 py-24">
+        <!-- Top bar -->
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <span class="inline-block h-2.5 w-2.5 bg-cobalt-500"></span>
+            <span
+              class="font-editorial text-[1.6rem] leading-none tracking-[-0.02em] text-ink"
+              style="font-variation-settings: 'opsz' 96"
+              >Routecraft</span
+            >
+          </div>
+          <!-- EDIT: badge / version -->
+          <span
+            class="inline-flex items-center gap-2 border border-cobalt-500/60 px-2.5 py-1 font-mono text-[0.7rem] tracking-[0.22em] text-cobalt-500 uppercase"
+          >
+            <span class="inline-block h-1.5 w-1.5 bg-cobalt-500"></span>
+            New in v0.6.0
+          </span>
+        </div>
+
+        <!-- EDIT: eyebrow + role -->
+        <p
+          class="mt-14 font-mono text-[0.8rem] tracking-[0.22em] text-ink/55 uppercase"
+        >
+          A new adapter &nbsp;·&nbsp;
+          <span class="text-cobalt-500">Source · Destination</span>
+        </p>
+
+        <!-- EDIT: adapter name as the visual focal point. Mono, large, with () in light tone. -->
+        <h1
+          class="mt-4 font-mono text-[10rem] leading-[1] font-medium text-ink tabular-nums"
+        >
+          slack<span class="text-ink/30">()</span>
+        </h1>
+
+        <!-- EDIT: one-line tagline -->
+        <p
+          class="mt-4 max-w-[820px] font-editorial text-[1.6rem] leading-[1.3] text-ink/70 italic"
+          style="font-variation-settings: 'opsz' 96"
+        >
+          Read channel messages or post to a webhook — typed, authorized, and
+          observable like every other Routecraft adapter.
+        </p>
+
+        <!-- Code example -->
+        <div class="mt-10">
+          <div
+            class="flex items-center justify-between border border-b-0 border-ink/20 bg-paper-deep/55 px-4 py-2.5 font-mono text-[0.7rem] tracking-[0.2em] uppercase"
+          >
+            <!-- EDIT: filename -->
+            <span class="text-ink/60">standup-digest.ts</span>
+            <span class="text-cobalt-500">example</span>
+          </div>
+          <div
+            class="border border-t-0 border-ink/20 bg-paper-deep/40 px-6 py-6"
+          >
+            <pre
+              class="m-0 font-mono text-[0.95rem] leading-[1.85] whitespace-pre"
+            ><code><!-- EDIT: code -->
+<span class="t-fn">craft</span><span class="t-pun">()</span>
+  <span class="t-pun">.</span><span class="t-fn">id</span><span class="t-pun">(</span><span class="t-str">'standup-digest'</span><span class="t-pun">)</span>
+  <span class="t-pun">.</span><span class="t-fn">from</span><span class="t-pun">(</span><span class="text-cobalt-500"><span class="t-fn">slack</span><span class="t-pun">(</span><span class="t-str">'#standup'</span><span class="t-pun">)</span></span><span class="t-pun">)</span>
+  <span class="t-pun">.</span><span class="t-fn">transform</span><span class="t-pun">(</span>summarise<span class="t-pun">)</span>
+  <span class="t-pun">.</span><span class="t-fn">to</span><span class="t-pun">(</span><span class="t-fn">mail</span><span class="t-pun">())</span></code></pre>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="mt-auto flex items-end justify-between">
+          <span
+            class="font-mono text-[0.8rem] tracking-[0.22em] text-ink/55 uppercase"
+            >routecraft.dev/docs/reference/adapters/slack</span
+          >
+          <span
+            class="font-mono text-[0.7rem] tracking-[0.22em] text-ink/35 uppercase"
+            >Fig. 07</span
+          >
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
