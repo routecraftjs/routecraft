@@ -3,7 +3,9 @@ import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
 
 import { BlogMeta } from '@/components/BlogMeta'
+import { BuiltWithRoutecraft } from '@/components/BuiltWithRoutecraft'
 import { CodeMorph } from '@/components/CodeMorph'
+import { Guardrails } from '@/components/Guardrails'
 import { HomeAdapters } from '@/components/HomeAdapters'
 import { type BlogPostMeta, getAllBlogPosts, getFeaturedPost } from '@/lib/blog'
 
@@ -91,20 +93,23 @@ export default function LandingPage() {
     <div className="relative w-full bg-paper text-ink dark:bg-ink dark:text-paper">
       <PaperGrain />
       <Hero />
-      <SectionRule numeral="I" label="Two ways to ship agents" />
+      <SectionRule numeral="I" label="Bounded by design" />
+      <Guardrails />
+      <SectionRule numeral="II" label="Two ways to ship agents" />
       <TwoModes />
-      <SectionRule numeral="II" label="What you can wire up" />
+      <SectionRule numeral="III" label="What you can wire up" />
       <HomeAdapters />
-      <SectionRule numeral="III" label="Why Routecraft" />
+      <SectionRule numeral="IV" label="Why Routecraft" />
       <Thesis />
       {featuredPost && (
         <>
-          <SectionRule numeral="IV" label="From the blog" />
+          <SectionRule numeral="V" label="From the blog" />
           <Reading post={featuredPost} />
         </>
       )}
-      <SectionRule numeral="V" label="Try it" />
+      <SectionRule numeral="VI" label="Try it" />
       <Finale />
+      <BuiltWithRoutecraft />
     </div>
   )
 }
