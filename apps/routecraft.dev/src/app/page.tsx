@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 
 import { BlogMeta } from '@/components/BlogMeta'
 import { CodeMorph } from '@/components/CodeMorph'
+import { HomeAdapters } from '@/components/HomeAdapters'
 import { type BlogPostMeta, getAllBlogPosts, getFeaturedPost } from '@/lib/blog'
 
 export const metadata: Metadata = {
@@ -11,56 +12,6 @@ export const metadata: Metadata = {
   description:
     'Type-safe framework for AI automation. Build the tools an agent uses, or the agent itself, with the same fluent DSL.',
 }
-
-interface Resource {
-  number: string
-  title: string
-  description: string
-  href: string
-  hint: string
-}
-
-const resources: Resource[] = [
-  {
-    number: '01',
-    title: 'Documentation',
-    description: 'Concepts, adapters, operations, and the full API reference.',
-    href: '/docs/introduction',
-    hint: 'The source of truth.',
-  },
-  {
-    number: '02',
-    title: 'Cheat sheet',
-    description:
-      'The whole fluent DSL on one printable page. Sources, destinations, validation, errors, MCP, CLI.',
-    href: '/cheat-sheet',
-    hint: 'Print it. Pin it.',
-  },
-  {
-    number: '03',
-    title: 'Blog',
-    description:
-      'Tutorials and field notes. First MCP server, securing it with Clerk or WorkOS, composing capabilities.',
-    href: '/blog',
-    hint: 'Field notes.',
-  },
-  {
-    number: '04',
-    title: 'Examples',
-    description:
-      'Working capabilities you can fork. File-to-HTTP, scheduled fetchers, MCP tools.',
-    href: '/docs/examples',
-    hint: 'Fork and run.',
-  },
-  {
-    number: '05',
-    title: 'Adapters',
-    description:
-      'Every source, destination, and transformer in one list. Cron, HTTP, IMAP, SMTP, MCP, file, channel, direct.',
-    href: '/docs/reference/adapters',
-    hint: 'The full index.',
-  },
-]
 
 const changelogHighlight = {
   version: 'v0.6.0',
@@ -142,8 +93,8 @@ export default function LandingPage() {
       <Hero />
       <SectionRule label="Two ways to ship agents" />
       <TwoModes />
-      <SectionRule label="Where to start" />
-      <Toolkit />
+      <SectionRule label="What you can wire up" />
+      <HomeAdapters />
       <SectionRule label="Why Routecraft" />
       <Thesis />
       {featuredPost && (
@@ -465,89 +416,21 @@ function InlineMono({ children }: { children: ReactNode }) {
   )
 }
 
-function Toolkit() {
-  return (
-    <section>
-      <div className="mx-auto max-w-7xl px-4 pt-12 pb-20 sm:px-6 lg:px-8 lg:pt-14 lg:pb-24">
-        <div className="grid grid-cols-1 gap-x-12 gap-y-8 lg:grid-cols-12">
-          <header className="lg:sticky lg:top-28 lg:col-span-4 lg:self-start">
-            <h2
-              className="font-editorial text-[2.5rem] leading-[1.05] tracking-[-0.02em] text-ink dark:text-paper"
-              style={{ fontVariationSettings: '"opsz" 144, "SOFT" 30' }}
-            >
-              Find your way{' '}
-              <span
-                className="text-cobalt-500 italic"
-                style={{ fontVariationSettings: '"opsz" 144, "SOFT" 100' }}
-              >
-                in.
-              </span>
-            </h2>
-            <p className="mt-4 max-w-sm text-[1rem] leading-[1.7] text-ink/65 dark:text-paper/65">
-              Five entry points to the docs, the cheat sheet, and everything
-              else.
-            </p>
-          </header>
-          <ol className="lg:col-span-8">
-            {resources.map((r, i) => (
-              <li
-                key={r.href}
-                className={
-                  i === 0
-                    ? 'border-y border-ink/15 dark:border-paper/15'
-                    : 'border-b border-ink/15 dark:border-paper/15'
-                }
-              >
-                <Link
-                  href={r.href}
-                  className="group grid grid-cols-[auto_1fr_auto] items-baseline gap-x-6 py-7 transition"
-                >
-                  <span className="font-editorial text-[1.5rem] text-cobalt-500/55 italic tabular-nums transition group-hover:text-cobalt-500">
-                    {r.number}
-                  </span>
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-baseline gap-x-4">
-                      <h3
-                        className="font-editorial text-[1.65rem] leading-tight tracking-[-0.01em] text-ink transition group-hover:text-cobalt-500 dark:text-paper dark:group-hover:text-cobalt-300"
-                        style={{
-                          fontVariationSettings: '"opsz" 96, "SOFT" 50',
-                        }}
-                      >
-                        {r.title}
-                      </h3>
-                      <span className="font-editorial text-[0.95rem] text-ink/45 italic dark:text-paper/45">
-                        {r.hint}
-                      </span>
-                    </div>
-                    <p className="mt-2 max-w-2xl text-[1rem] leading-[1.7] text-ink/70 dark:text-paper/70">
-                      {r.description}
-                    </p>
-                  </div>
-                  <span
-                    aria-hidden="true"
-                    className="self-center font-mono text-[1.1rem] text-ink/30 transition group-hover:translate-x-1 group-hover:text-cobalt-500 dark:text-paper/30"
-                  >
-                    →
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ol>
-        </div>
-      </div>
-    </section>
-  )
-}
-
 function Thesis() {
   return (
     <section>
       <div className="mx-auto max-w-7xl px-4 pt-12 pb-20 sm:px-6 lg:px-8 lg:pt-14 lg:pb-24">
-        <header className="max-w-3xl">
-          <h2
-            className="font-editorial text-[2.5rem] leading-[1.05] tracking-[-0.02em] text-ink dark:text-paper"
+        <header className="mx-auto max-w-4xl text-center">
+          <p className="font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase">
+            Thesis
+          </p>
+          <blockquote
+            className="mt-6 font-editorial text-[clamp(2rem,4.2vw,3.25rem)] leading-[1.08] tracking-[-0.02em] text-ink dark:text-paper"
             style={{ fontVariationSettings: '"opsz" 144, "SOFT" 30' }}
           >
+            <span className="text-cobalt-500/35" aria-hidden="true">
+              &ldquo;
+            </span>
             The shape of a capability does{' '}
             <span
               className="text-cobalt-500 italic"
@@ -556,8 +439,11 @@ function Thesis() {
               not change
             </span>{' '}
             when you change how it is triggered.
-          </h2>
-          <p className="mt-5 max-w-2xl text-[1.05rem] leading-[1.75] text-ink/70 dark:text-paper/70">
+            <span className="text-cobalt-500/35" aria-hidden="true">
+              &rdquo;
+            </span>
+          </blockquote>
+          <p className="mx-auto mt-5 max-w-xl text-[1.05rem] leading-[1.75] text-ink/65 dark:text-paper/65">
             Nine reasons that holds. Pull out any one and the code still
             compiles. Pull them all together and you have Routecraft.
           </p>
