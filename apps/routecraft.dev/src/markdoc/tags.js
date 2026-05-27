@@ -6,6 +6,7 @@ import { TriggerCycler } from '@/components/TriggerCycler'
 import { AdapterGrid } from '@/components/AdapterGrid'
 import { OperationsIndex } from '@/components/OperationsIndex'
 import { PluginIndex } from '@/components/PluginIndex'
+import { ErrorTable } from '@/components/ErrorTable'
 
 const tags = {
   callout: {
@@ -121,6 +122,10 @@ const tags = {
   'plugin-index': {
     selfClosing: true,
     render: PluginIndex,
+  },
+  'error-table': {
+    selfClosing: true,
+    render: ErrorTable,
   },
 }
 
