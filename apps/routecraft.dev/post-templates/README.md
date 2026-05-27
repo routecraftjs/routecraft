@@ -7,6 +7,8 @@ Self-contained HTML templates for in-feed social posts. Two formats:
 - **Square 1200×1200 (1:1)** — versatile across LinkedIn / X / Instagram.
   Best for code-heavy or two-column comparison posts; can be cropped
   down to portrait later if a specific post needs it.
+- **LinkedIn company banner 1128×191** — the cover image on the
+  Routecraft company page. Editorial masthead, not an in-feed post.
 
 Each file renders a frame that matches the Routecraft brand language
 (paper / ink / cobalt palette, Fraunces editorial display, JetBrains
@@ -37,6 +39,7 @@ in the HTML source, screenshot the frame, post.
 | `12-blog-post-portrait.html`          | 1080×1350  | New blog post dropped. Title, excerpt, tags, author, "Read the post" CTA. |
 | `13-video-feature-portrait.html`      | 1080×1350  | Featured on someone's YouTube / podcast. Host name, video title, thumbnail slot, play overlay. |
 | `14-incident-callout-portrait.html`   | 1080×1350  | News-jack a public LLM/agent production incident. Eyebrow + date, incident headline, factual summary, source attribution, hairline, bounded-capability code snippet as the Routecraft alternative. Use carefully (see notes inside). |
+| `15-linkedin-company-banner.html`     | 1128×191   | LinkedIn company page cover image. Editorial masthead: brand lockup top-left, italic cobalt-accented tagline right-aligned (avoids the avatar overlap zone), URL stamp bottom-right. Avatar safe-zone guide built in (toggle in CSS). |
 
 ## Exporting to image
 
@@ -60,6 +63,11 @@ npx playwright screenshot --viewport-size 1080,1350 \
 npx playwright screenshot --viewport-size 1200,1200 \
   file://$PWD/apps/routecraft.dev/post-templates/02-code-feature-square.html \
   ./out/02.png
+
+# LinkedIn company banner
+npx playwright screenshot --viewport-size 1128,191 \
+  file://$PWD/apps/routecraft.dev/post-templates/15-linkedin-company-banner.html \
+  ./out/15-banner.png
 ```
 
 **macOS screenshot tool**

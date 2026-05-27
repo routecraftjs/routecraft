@@ -13,25 +13,26 @@ const railItems = [
   { id: 'destinations', title: 'Destinations' },
   { id: 'exchanges', title: 'Exchanges' },
   { id: 'split-and-aggregate', title: 'Split & aggregate' },
+  { id: 'choice-branching', title: 'Choice & branching' },
   { id: 'enrich-fetch-and-merge', title: 'Enrich' },
   { id: 'validation-standard-schema', title: 'Validation' },
   { id: 'events-system', title: 'Events system' },
   { id: 'error-handling', title: 'Error handling' },
   { id: 'context-and-plugins', title: 'Context & plugins' },
-  { id: 'terminal-ui-tui', title: 'Terminal UI' },
+  { id: 'llm', title: 'LLM destination' },
+  { id: 'agents', title: 'Agents & tools' },
   { id: 'mcp-integration', title: 'MCP integration' },
-  { id: 'quick-reference', title: 'Quick reference' },
-  { id: 'cli', title: 'CLI' },
+  { id: 'cli', title: 'CLI & TUI' },
 ]
 
 export const metadata: Metadata = {
   title: 'Routecraft Cheat Sheet',
   description:
-    'One-page reference for the Routecraft DSL: installation, sources, destinations, operations, validation, error handling, events, MCP integration, CLI, and TUI. Print-to-PDF ready.',
+    'One-page reference for the Routecraft DSL: installation, sources, destinations, operations, validation, error handling, events, LLM, agents, MCP integration, CLI and TUI. Print-to-PDF ready.',
   openGraph: {
     title: 'Routecraft Cheat Sheet',
     description:
-      'One-page reference for the Routecraft DSL. Filter, validate, transform, enrich, split, aggregate, MCP integration, CLI. Print to PDF.',
+      'One-page reference for the Routecraft DSL. Filter, validate, transform, enrich, split, aggregate, LLM, agents, MCP, CLI. Print to PDF.',
     type: 'website',
   },
 }
@@ -132,18 +133,26 @@ await ctx.stop()`}</CheatCode>
             </p>
             <CheatCode>{`craft()
   .id('pipeline')                  // unique route name
+  .title('Pipeline')               // display name (agents, docs)
   .description('...')              // doc string used in errors
-  .input({ size: 100 })            // optional input schema
+  .tag('idempotent')               // route classification
+  .input({ body: schema })         // input validation
+  .output({ body: schema })        // output validation
+  .authorize({ roles: ['admin'] }) // route guard (auth)
   .from(source)                    // source adapter
+  .authenticate(resolver)          // mint trusted principal
   .transform(body => body)         // pure body function
   .process(ex => ex)               // full exchange access
   .filter(ex => ex.body.age > 18)  // drop if false
   .validate(schema(zodSchema))     // any Standard Schema
   .header('key', 'val')            // set a header
   .enrich(other)                   // fetch and merge
+  .tap(log())                      // side effect, non-blocking
   .split()                         // fan-out per array item
   .aggregate()                     // collect back into one
+  .choice(c => c.when(...))        // conditional branching
   .to(destination)                 // destination adapter
+  .error((e, ex, fwd) => ...)      // step-scope handler
   .build()`}</CheatCode>
           </CheatSection>
 
@@ -158,17 +167,24 @@ await ctx.stop()`}</CheatCode>
 // Cron schedule
 .from(cron('0 9 * * *'))
 .from(cron('0 9 * * *',
-  { timezone: 'UTC' }))
+  { timezone: 'America/New_York' }))
 
-// In-process channel
-.from(channel('name', { schema }))
+// In-process direct endpoint
+.from(direct('my-endpoint'))
 
 // IMAP mail (push via IDLE)
-.from(imap({ folder: 'INBOX',
-  unseen: true }))
+.from(mail('INBOX',
+  { unseen: true, markSeen: true }))
 
-// File source
-.from(file({ path: './data.json' }))`}</CheatCode>
+// In-process EventEmitter
+.from(event({ eventName: 'order' }))
+
+// File and file-format sources
+.from(file({ path: './data.txt' }))
+.from(json({ file: './data.json' }))
+.from(jsonl({ file: './events.jsonl' }))
+.from(csv({ file: './rows.csv' }))
+.from(html({ html: '<table>...</table>' }))`}</CheatCode>
           </CheatSection>
 
           <CheatSection
@@ -180,6 +196,9 @@ await ctx.stop()`}</CheatCode>
 .to(log())
 .to(debug(ex => ex.body))
 
+// Discard the exchange
+.to(noop())
+
 // HTTP request
 .to(http({
   method: 'POST',
@@ -190,17 +209,20 @@ await ctx.stop()`}</CheatCode>
 // Dynamic URL
 .to(http({ url: ex => \`/\${ex.body.id}\` }))
 
-// In-process channel
-.to(channel('my-channel'))
+// In-process direct endpoint
+.to(direct('my-endpoint'))
 
-// Write file (mode: 'append' or 'write')
-.to(file({ path: './out.txt',
-  mode: 'append' }))
+// Write file or file format
+.to(file({ path: './out.txt' }))
+.to(json({ file: './out.json' }))
+.to(jsonl({ file: './out.jsonl' }))
+.to(csv({ file: './out.csv' }))
 
 // Send email via SMTP
-.to(smtp({
+.to(mail({
   to: ex => ex.body.email,
   subject: 'Hello',
+  text: ex => ex.body.text,
 }))`}</CheatCode>
           </CheatSection>
 
@@ -240,6 +262,27 @@ await ctx.stop()`}</CheatCode>
           </CheatSection>
 
           <CheatSection
+            id="choice-branching"
+            eyebrow="Flow"
+            title="Choice &amp; branching"
+          >
+            <p>
+              First matching <code>when</code> wins. <code>halt()</code>{' '}
+              short-circuits the branch.
+            </p>
+            <CheatCode>{`craft()
+  .from(source)
+  .choice(c => c
+    .when(ex => ex.body.priority === 'urgent',
+      b => b.to(urgentQueue))
+    .when(ex => ex.body.amount > 1000,
+      b => b.to(reviewQueue))
+    .otherwise(
+      b => b.to(errorSink).halt()))
+  .to(defaultDestination)`}</CheatCode>
+          </CheatSection>
+
+          <CheatSection
             id="enrich-fetch-and-merge"
             eyebrow="Lookup"
             title="Enrich (fetch &amp; merge)"
@@ -270,7 +313,7 @@ await ctx.stop()`}</CheatCode>
 import { schema } from '@routecraft/routecraft'
 
 craft()
-  .from(channel('input'))
+  .from(direct('input'))
   .validate(schema(z.object({
     email: z.string().email(),
     age: z.number().min(18),
@@ -284,26 +327,30 @@ craft()
             eyebrow="Observability"
             title="Events system"
           >
-            <CheatCode>{`// Lifecycle
+            <CheatCode>{`// Context lifecycle
 ctx.on('context:started', () => {})
-ctx.on('context:error', (err) => {})
+ctx.on('context:error', ({ details }) => {
+  // { error, route?, exchange? }
+})
 
-// Route lifecycle
-ctx.on('route:started', () => {})
+// Route lifecycle (route id required)
+ctx.on('route:my-route:started', () => {})
 
-// Exchange tracking
-ctx.on('route:exchange:completed',
+// Exchange tracking (use * for all routes)
+ctx.on('route:*:exchange:completed',
   ({ details }) => {
     // { exchange, duration }
   })
 
 // Step-level tracing
-ctx.on('step:completed', ({ details }) => {
-  // { operation, adapter, duration }
-})
+ctx.on('route:*:step:completed',
+  ({ details }) => {
+    // { operation, adapter, duration }
+  })
 
-// Wildcards (glob)
-ctx.on('route:**', () => {})`}</CheatCode>
+// Wildcards
+ctx.on('route:*:exchange:*', () => {})
+ctx.on('plugin:*:started', () => {})`}</CheatCode>
           </CheatSection>
 
           <CheatSection
@@ -326,9 +373,9 @@ ctx.on('route:**', () => {})`}</CheatCode>
             <CheatLabel>Error code ranges</CheatLabel>
             <CheatCode language="text">{`RC1xxx  Definition
 RC2xxx  DSL
-RC3xxx  Runtime
-RC4xxx  Lifecycle
-RC5xxx  Adapter`}</CheatCode>
+RC3xxx  Lifecycle
+RC5xxx  Adapter (incl. auth)
+RC9xxx  Testing`}</CheatCode>
           </CheatSection>
 
           <CheatSection
@@ -356,20 +403,65 @@ const myPlugin: CraftPlugin = {
 }`}</CheatCode>
           </CheatSection>
 
-          <CheatSection
-            id="terminal-ui-tui"
-            eyebrow="Debug"
-            title="Terminal UI (TUI)"
-          >
+          <CheatSection id="llm" eyebrow="AI" title="LLM destination">
             <p>
-              Inspect routes, exchanges, and live events. Requires the telemetry
-              plugin enabled on the context.
+              Model id is <code>provider:model</code>. Providers (Anthropic,
+              OpenAI, Ollama, Gemini, OpenRouter) are registered via{' '}
+              <code>llmPlugin</code>.
             </p>
-            <CheatCode language="bash">{`# Launch the TUI (reads the telemetry DB)
-craft tui
+            <CheatCode>{`import { llm } from '@routecraft/ai'
 
-# Or point it at a specific DB
-craft tui --db ./app/telemetry.db`}</CheatCode>
+// Basic call (user prompt defaults to body)
+craft()
+  .from(direct('text-in'))
+  .to(llm('anthropic:claude-sonnet-4-6', {
+    system: 'Summarize concisely',
+    user: ex => ex.body.text,
+    temperature: 0.2,
+  }))
+  .to(log())
+
+// Structured output (body.output is typed)
+.to(llm('openai:gpt-4o', {
+  system: 'Extract contact info',
+  output: z.object({
+    email: z.string().email(),
+    name: z.string(),
+  }),
+}))`}</CheatCode>
+          </CheatSection>
+
+          <CheatSection id="agents" eyebrow="AI" title="Agents &amp; tools">
+            <p>
+              <code>agent()</code> runs a multi-turn tool-calling loop.{' '}
+              <code>tools()</code> selects from MCP tools, registered functions,
+              and direct routes.
+            </p>
+            <CheatCode>{`import { agent, tools } from '@routecraft/ai'
+
+craft()
+  .id('assistant')
+  .from(direct('chat-in'))
+  .to(agent({
+    model: 'anthropic:claude-sonnet-4-6',
+    system: 'You are a helpful assistant.',
+    user: ex => ex.body.message,
+    tools: tools([
+      'CurrentTime',              // registered fn
+      'Direct(greet-user)',       // direct route as tool
+      'MCP(github:create_issue)', // single MCP tool
+      { tagged: 'read-only' },    // by tag
+    ]),
+  }))
+  .to(log())`}</CheatCode>
+            <CheatNote>
+              Register functions and direct-route tools once via{' '}
+              <code>
+                agentPlugin({'{'} functions: {'{'} CurrentTime: currentTime(),
+                greetUser: directTool('greet-user') {'}'} {'}'})
+              </code>
+              .
+            </CheatNote>
           </CheatSection>
 
           <CheatSection
@@ -382,24 +474,29 @@ craft tui --db ./app/telemetry.db`}</CheatCode>
 
 craft()
   .id('fetch-page')
-  .from(mcp({
-    name: 'fetch-page',
-    description: 'Fetch webpage content',
-    schema: z.object({ url: z.string().url() }),
-  }))
+  .title('Fetch page')
+  .description('Fetch webpage content')
+  .tag('read-only')
+  .input({ body: z.object({
+    url: z.string().url(),
+  }) })
+  .from(mcp())
   .enrich(http({ url: ex => ex.body.url }))
   .to(log())`}</CheatCode>
-            <CheatLabel>Call an LLM inside a route</CheatLabel>
-            <CheatCode>{`import { llm } from '@routecraft/ai'
+            <CheatLabel>Call an MCP server</CheatLabel>
+            <CheatCode>{`// As a destination (invoke a remote tool)
+.to(mcp('github', 'search'))`}</CheatCode>
+            <CheatLabel>Protect with auth</CheatLabel>
+            <CheatCode>{`import { jwt } from '@routecraft/routecraft'
 
 craft()
-  .id('summarize')
-  .from(channel('text-in'))
-  .to(llm({
-    systemPrompt: 'Summarize concisely',
-    userPrompt: ex => ex.body.text,
+  .id('private-tool')
+  .authorize({ scopes: ['tools:read'] })
+  .from(mcp({
+    auth: jwt({ jwksUri: '...' }),
   }))
-  .to(log())`}</CheatCode>
+  .to(log())
+// Use WorkOS / Clerk presets via mcpPlugin`}</CheatCode>
             <CheatLabel>Claude Desktop config</CheatLabel>
             <CheatCode language="json">{`{
   "mcpServers": {
@@ -412,54 +509,8 @@ craft()
 }`}</CheatCode>
           </CheatSection>
 
-          <CheatSection
-            id="quick-reference"
-            eyebrow="Snippets"
-            title="Quick reference"
-            span="wide"
-          >
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse text-[0.78rem]">
-                <thead>
-                  <tr className="border-b border-gray-200 text-left text-gray-500 dark:border-gray-800 dark:text-gray-400">
-                    <th className="py-1.5 pr-3 font-medium">Task</th>
-                    <th className="py-1.5 font-medium">Code</th>
-                  </tr>
-                </thead>
-                <tbody className="font-mono">
-                  {[
-                    ['Every minute', `cron('* * * * *')`],
-                    ['Daily at 9 AM', `cron('0 9 * * *', { timezone: 'UTC' })`],
-                    ['Filter', `.filter(ex => ex.body.age > 18)`],
-                    ['Split an array', `.split()`],
-                    ['Collect results', `.aggregate()`],
-                    ['Validate body', `.validate(schema(z.object({ ... })))`],
-                    [
-                      'Dynamic URL',
-                      `http({ url: ex => \`/users/\${ex.body.id}\` })`,
-                    ],
-                    ['Set header', `.header('key', ex => ex.body.id)`],
-                    ['Side effect', `.tap(destination)`],
-                    ['Forward error', `.error((e, ex, fwd) => fwd('dlq'))`],
-                  ].map(([task, code]) => (
-                    <tr
-                      key={task}
-                      className="border-b border-gray-100 last:border-0 dark:border-gray-800/60"
-                    >
-                      <td className="py-1.5 pr-3 font-sans text-gray-600 dark:text-gray-300">
-                        {task}
-                      </td>
-                      <td className="py-1.5 text-gray-800 dark:text-gray-200">
-                        {code}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CheatSection>
-
-          <CheatSection id="cli" eyebrow="Terminal" title="CLI">
+          <CheatSection id="cli" eyebrow="Terminal" title="CLI &amp; TUI">
+            <CheatLabel>Run routes</CheatLabel>
             <CheatCode language="bash">{`# Run a route file
 craft run ./my-route.ts
 
@@ -467,19 +518,16 @@ craft run ./my-route.ts
 craft run ./my-route.ts \\
   --log-level debug \\
   --log-file ./craft.log`}</CheatCode>
-            <CheatLabel>Common patterns</CheatLabel>
-            <CheatCode>{`// Scheduled fetch and notify
-craft()
-  .from(cron('0 9 * * *'))
-  .enrich(http({ url: '/api/...' }))
-  .to(smtp({ to: 'team@example.com' }))
+            <CheatLabel>Inspect with the TUI</CheatLabel>
+            <p>
+              Live event and exchange inspector. Requires the telemetry plugin
+              enabled on the context.
+            </p>
+            <CheatCode language="bash">{`# Launch the TUI (reads the telemetry DB)
+craft tui
 
-// Webhook fan-out
-craft()
-  .from(channel('webhook'))
-  .split()
-  .enrich(http({ url: ex => \`/\${ex.body.id}\` }))
-  .to(smtp({ to: ex => ex.body.email }))`}</CheatCode>
+# Or point it at a specific DB
+craft tui --db ./app/telemetry.db`}</CheatCode>
           </CheatSection>
         </div>
       </div>
