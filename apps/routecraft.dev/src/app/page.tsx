@@ -91,19 +91,19 @@ export default function LandingPage() {
     <div className="relative w-full bg-paper text-ink dark:bg-ink dark:text-paper">
       <PaperGrain />
       <Hero />
-      <SectionRule label="Two ways to ship agents" />
+      <SectionRule numeral="I" label="Two ways to ship agents" />
       <TwoModes />
-      <SectionRule label="What you can wire up" />
+      <SectionRule numeral="II" label="What you can wire up" />
       <HomeAdapters />
-      <SectionRule label="Why Routecraft" />
+      <SectionRule numeral="III" label="Why Routecraft" />
       <Thesis />
       {featuredPost && (
         <>
-          <SectionRule label="From the blog" />
+          <SectionRule numeral="IV" label="From the blog" />
           <Reading post={featuredPost} />
         </>
       )}
-      <SectionRule label="Try it" />
+      <SectionRule numeral="V" label="Try it" />
       <Finale />
     </div>
   )
@@ -219,12 +219,17 @@ function Hero() {
   )
 }
 
-function SectionRule({ label }: { label: string }) {
+function SectionRule({ numeral, label }: { numeral?: string; label: string }) {
   return (
     <div className="relative">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex items-center gap-4">
           <span aria-hidden="true" className="h-1.5 w-1.5 bg-cobalt-500" />
+          {numeral && (
+            <span className="font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase tabular-nums">
+              {numeral}
+            </span>
+          )}
           <span className="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase dark:text-paper/55">
             {label}
           </span>

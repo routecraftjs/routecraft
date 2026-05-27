@@ -42,7 +42,7 @@ export function TopNav({ className }: { className?: string }) {
             <span
               aria-hidden="true"
               className={clsx(
-                'absolute inset-x-0 -bottom-1.5 h-px origin-left transition-transform duration-300',
+                'absolute inset-x-0 -bottom-1.5 h-0.5 origin-left transition-transform duration-300',
                 isActive
                   ? 'scale-x-100 bg-cobalt-500'
                   : 'scale-x-0 bg-ink/40 group-hover:scale-x-100 dark:bg-paper/40',
