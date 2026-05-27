@@ -50,7 +50,7 @@ export function Badge({
   return (
     <span
       className={clsx(
-        'inline-flex items-center border px-2 py-0.5 font-mono text-[0.65rem] tracking-[0.18em] uppercase',
+        'inline-flex items-center border px-1.5 py-[1px] font-mono text-[0.58rem] leading-[1.4] tracking-[0.14em] uppercase',
         colorMap[color] ?? colorMap['yellow'],
         className,
       )}
