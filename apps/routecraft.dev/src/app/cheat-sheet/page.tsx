@@ -2,7 +2,27 @@ import type { Metadata } from 'next'
 
 import { CheatCode } from '@/components/CheatCode'
 import { CheatLabel, CheatNote, CheatSection } from '@/components/CheatSection'
+import { CheatSheetRail } from '@/components/CheatSheetRail'
 import { PrintButton } from '@/components/PrintButton'
+
+const railItems = [
+  { id: 'installation', title: 'Installation' },
+  { id: 'route-context', title: 'Route + Context' },
+  { id: 'builder-dsl-fluent-api', title: 'Builder DSL' },
+  { id: 'sources', title: 'Sources' },
+  { id: 'destinations', title: 'Destinations' },
+  { id: 'exchanges', title: 'Exchanges' },
+  { id: 'split-and-aggregate', title: 'Split & aggregate' },
+  { id: 'enrich-fetch-and-merge', title: 'Enrich' },
+  { id: 'validation-standard-schema', title: 'Validation' },
+  { id: 'events-system', title: 'Events system' },
+  { id: 'error-handling', title: 'Error handling' },
+  { id: 'context-and-plugins', title: 'Context & plugins' },
+  { id: 'terminal-ui-tui', title: 'Terminal UI' },
+  { id: 'mcp-integration', title: 'MCP integration' },
+  { id: 'quick-reference', title: 'Quick reference' },
+  { id: 'cli', title: 'CLI' },
+]
 
 export const metadata: Metadata = {
   title: 'Routecraft Cheat Sheet',
@@ -58,9 +78,12 @@ export default function CheatSheetPage() {
         </div>
       </section>
 
-      <div className="mx-auto w-full max-w-7xl px-4 pt-8 sm:px-6 lg:px-8 print:px-0 print:pt-2">
-        <div className="grid grid-flow-row-dense auto-rows-min grid-cols-1 gap-5 lg:grid-cols-2 xl:grid-cols-3 print:grid-cols-2 print:gap-3">
-          <CheatSection eyebrow="Setup" title="Installation">
+      <div className="mx-auto w-full max-w-7xl px-4 pt-8 sm:px-6 lg:flex lg:gap-10 lg:px-8 print:block print:px-0 print:pt-2">
+        <aside className="hidden lg:block lg:w-44 lg:shrink-0 print:hidden">
+          <CheatSheetRail items={railItems} />
+        </aside>
+        <div className="grid min-w-0 flex-1 grid-flow-row-dense auto-rows-min grid-cols-1 gap-5 lg:grid-cols-2 xl:grid-cols-2 print:grid-cols-2 print:gap-3">
+          <CheatSection id="installation" eyebrow="Setup" title="Installation">
             <CheatCode language="bash">{`# Core library
 bun add @routecraft/routecraft
 
@@ -75,7 +98,11 @@ bun add -g @routecraft/cli`}</CheatCode>
             </CheatNote>
           </CheatSection>
 
-          <CheatSection eyebrow="Concept" title="Route + Context">
+          <CheatSection
+            id="route-context"
+            eyebrow="Concept"
+            title="Route + Context"
+          >
             <CheatCode>{`import { craft, ContextBuilder } from '@routecraft/routecraft'
 
 const route = craft()
@@ -94,6 +121,7 @@ await ctx.stop()`}</CheatCode>
           </CheatSection>
 
           <CheatSection
+            id="builder-dsl-fluent-api"
             eyebrow="DSL"
             title="Builder DSL (fluent API)"
             span="wide"
@@ -119,7 +147,7 @@ await ctx.stop()`}</CheatCode>
   .build()`}</CheatCode>
           </CheatSection>
 
-          <CheatSection eyebrow="Inputs" title="Sources">
+          <CheatSection id="sources" eyebrow="Inputs" title="Sources">
             <CheatCode>{`// Static value or async function
 .from(simple({ hello: 'world' }))
 .from(simple(() => fetch('/api')))
@@ -143,7 +171,11 @@ await ctx.stop()`}</CheatCode>
 .from(file({ path: './data.json' }))`}</CheatCode>
           </CheatSection>
 
-          <CheatSection eyebrow="Outputs" title="Destinations">
+          <CheatSection
+            id="destinations"
+            eyebrow="Outputs"
+            title="Destinations"
+          >
             <CheatCode>{`// Log to console
 .to(log())
 .to(debug(ex => ex.body))
@@ -172,7 +204,7 @@ await ctx.stop()`}</CheatCode>
 }))`}</CheatCode>
           </CheatSection>
 
-          <CheatSection eyebrow="Envelope" title="Exchanges">
+          <CheatSection id="exchanges" eyebrow="Envelope" title="Exchanges">
             <CheatCode>{`type Exchange<T> = {
   id: string
   body: T
@@ -193,7 +225,11 @@ await ctx.stop()`}</CheatCode>
 .filter(ex => ex.body.age > 18)`}</CheatCode>
           </CheatSection>
 
-          <CheatSection eyebrow="Flow" title="Split &amp; aggregate">
+          <CheatSection
+            id="split-and-aggregate"
+            eyebrow="Flow"
+            title="Split &amp; aggregate"
+          >
             <p>Fan out an array, process each item, collect back.</p>
             <CheatCode>{`craft()
   .from(simple([1, 2, 3]))
@@ -203,7 +239,11 @@ await ctx.stop()`}</CheatCode>
   .to(log())`}</CheatCode>
           </CheatSection>
 
-          <CheatSection eyebrow="Lookup" title="Enrich (fetch &amp; merge)">
+          <CheatSection
+            id="enrich-fetch-and-merge"
+            eyebrow="Lookup"
+            title="Enrich (fetch &amp; merge)"
+          >
             <CheatCode>{`// Default: deep merge
 .enrich(http({ url: '/api/user' }))
 
@@ -218,7 +258,11 @@ await ctx.stop()`}</CheatCode>
 .enrich(dest, replace())`}</CheatCode>
           </CheatSection>
 
-          <CheatSection eyebrow="Safety" title="Validation (Standard Schema)">
+          <CheatSection
+            id="validation-standard-schema"
+            eyebrow="Safety"
+            title="Validation (Standard Schema)"
+          >
             <p>
               Works with Zod, Valibot, ArkType, or any Standard Schema library.
             </p>
@@ -235,7 +279,11 @@ craft()
 // body type is inferred from the schema`}</CheatCode>
           </CheatSection>
 
-          <CheatSection eyebrow="Observability" title="Events system">
+          <CheatSection
+            id="events-system"
+            eyebrow="Observability"
+            title="Events system"
+          >
             <CheatCode>{`// Lifecycle
 ctx.on('context:started', () => {})
 ctx.on('context:error', (err) => {})
@@ -258,7 +306,11 @@ ctx.on('step:completed', ({ details }) => {
 ctx.on('route:**', () => {})`}</CheatCode>
           </CheatSection>
 
-          <CheatSection eyebrow="Recovery" title="Error handling">
+          <CheatSection
+            id="error-handling"
+            eyebrow="Recovery"
+            title="Error handling"
+          >
             <CheatCode>{`craft()
   .error((error, exchange, forward) => {
     // Return a recovery value
@@ -279,7 +331,11 @@ RC4xxx  Lifecycle
 RC5xxx  Adapter`}</CheatCode>
           </CheatSection>
 
-          <CheatSection eyebrow="Runtime" title="Context &amp; plugins">
+          <CheatSection
+            id="context-and-plugins"
+            eyebrow="Runtime"
+            title="Context &amp; plugins"
+          >
             <CheatCode>{`const ctx = await new ContextBuilder()
   .add({
     crm: { timezone: 'UTC' },
@@ -300,7 +356,11 @@ const myPlugin: CraftPlugin = {
 }`}</CheatCode>
           </CheatSection>
 
-          <CheatSection eyebrow="Debug" title="Terminal UI (TUI)">
+          <CheatSection
+            id="terminal-ui-tui"
+            eyebrow="Debug"
+            title="Terminal UI (TUI)"
+          >
             <p>
               Inspect routes, exchanges, and live events. Requires the telemetry
               plugin enabled on the context.
@@ -312,7 +372,11 @@ craft tui
 craft tui --db ./app/telemetry.db`}</CheatCode>
           </CheatSection>
 
-          <CheatSection eyebrow="AI" title="MCP integration">
+          <CheatSection
+            id="mcp-integration"
+            eyebrow="AI"
+            title="MCP integration"
+          >
             <CheatLabel>Expose a route as an MCP tool</CheatLabel>
             <CheatCode>{`import { mcp } from '@routecraft/ai'
 
@@ -348,7 +412,12 @@ craft()
 }`}</CheatCode>
           </CheatSection>
 
-          <CheatSection eyebrow="Snippets" title="Quick reference" span="wide">
+          <CheatSection
+            id="quick-reference"
+            eyebrow="Snippets"
+            title="Quick reference"
+            span="wide"
+          >
             <div className="overflow-x-auto">
               <table className="w-full border-collapse text-[0.78rem]">
                 <thead>
@@ -390,7 +459,7 @@ craft()
             </div>
           </CheatSection>
 
-          <CheatSection eyebrow="Terminal" title="CLI">
+          <CheatSection id="cli" eyebrow="Terminal" title="CLI">
             <CheatCode language="bash">{`# Run a route file
 craft run ./my-route.ts
 

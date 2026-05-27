@@ -6,17 +6,20 @@ export function CheatSection({
   children,
   className,
   span,
+  id,
 }: {
   title: string
   eyebrow?: string
   children: React.ReactNode
   className?: string
   span?: 'normal' | 'wide'
+  id?: string
 }) {
   return (
     <section
+      id={id}
       className={clsx(
-        'flex break-inside-avoid flex-col gap-3 border border-ink/15 bg-paper p-5 dark:border-paper/15 dark:bg-ink-soft/30 print:break-inside-avoid',
+        'flex scroll-mt-24 break-inside-avoid flex-col gap-3 border border-ink/15 bg-paper p-5 dark:border-paper/15 dark:bg-ink-soft/30 print:break-inside-avoid',
         span === 'wide' && 'lg:col-span-2',
         className,
       )}
