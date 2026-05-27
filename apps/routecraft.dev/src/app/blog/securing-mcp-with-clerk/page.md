@@ -11,8 +11,6 @@ tags:
   - routecraft
   - typescript
 featured: true
-image: /images/blog/securing-mcp-with-clerk/hero.png
-imageAlt: Diagram showing an MCP client exchanging an OAuth token with a Clerk-protected Routecraft server
 layout: blog-post
 ---
 

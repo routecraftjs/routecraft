@@ -9,7 +9,6 @@ tags:
   - patterns
   - architecture
 draft: true
-imageAlt: A graph diagram of Routecraft capabilities chained together via direct adapters
 layout: blog-post
 ---
 

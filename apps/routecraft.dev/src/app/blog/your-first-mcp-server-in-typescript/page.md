@@ -10,8 +10,6 @@ tags:
   - typescript
   - claude-desktop
   - cursor
-image: /images/blog/your-first-mcp-server-in-typescript/hero.png
-imageAlt: "Claude Desktop with a custom MCP tool icon lit up, showing a Routecraft-defined capability called notes.list"
 layout: blog-post
 ---
 

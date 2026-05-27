@@ -10,8 +10,6 @@ tags:
   - authentication
   - routecraft
   - typescript
-image: /images/blog/securing-mcp-with-workos/hero.png
-imageAlt: "Side-by-side architecture diagram of the Clerk OAuth proxy flow and the WorkOS AuthKit validator-mode flow"
 layout: blog-post
 ---
 

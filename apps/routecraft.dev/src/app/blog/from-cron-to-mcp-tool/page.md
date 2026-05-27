@@ -9,7 +9,6 @@ tags:
   - mcp
   - automation
 draft: true
-imageAlt: "A schematic showing one capability with three swappable source adapters: cron, webhook, MCP"
 layout: blog-post
 ---
 
