@@ -9,66 +9,39 @@ interface Node {
 }
 
 const sources: Node[] = [
-  {
-    key: 'cron',
-    label: 'cron',
-    call: "cron('0 9 * * 1-5')",
-  },
-  {
-    key: 'mcp',
-    label: 'mcp',
-    call: 'mcp()',
-  },
-  {
-    key: 'http',
-    label: 'http',
-    call: "http({ path: '/brief' })",
-  },
-  {
-    key: 'mail',
-    label: 'mail',
-    call: "mail('INBOX')",
-  },
+  { key: 'cron', label: 'cron', call: "cron('0 9 * * 1-5')" },
+  { key: 'mcp', label: 'mcp', call: 'mcp()' },
+  { key: 'http', label: 'http', call: "http({ path: '/brief' })" },
+  { key: 'mail', label: 'mail', call: "mail('INBOX')" },
+  { key: 'file', label: 'file', call: "file('./inbox/**/*.csv')" },
+  { key: 'timer', label: 'timer', call: 'timer({ every: 60_000 })' },
 ]
 
-// Destinations are deliberately distinct from sources (no http→http
-// or mail→mail) and displayed in a permuted order so every pair
-// crosses rows. Pair semantics:
-//   cron  → slack   (row 0 → row 1, ↘ 1)
-//   mcp   → agent   (row 1 → row 3, ↘ 2)
-//   http  → file    (row 2 → row 0, ↗ 2)
-//   mail  → direct  (row 3 → row 2, ↗ 1)
+// Destinations are real adapters and displayed in a permuted order so
+// every pair crosses rows. Pair semantics:
+//   cron   → agent   (row 0 → row 4, ↘ 4)
+//   mcp    → file    (row 1 → row 0, ↗ 1)
+//   http   → direct  (row 2 → row 3, ↘ 1)
+//   mail   → log     (row 3 → row 1, ↗ 2)
+//   file   → http    (row 4 → row 5, ↘ 1)
+//   timer  → mail    (row 5 → row 2, ↗ 3)
 const destinations: Node[] = [
-  {
-    key: 'file',
-    label: 'file',
-    call: "file('./brief.md')",
-  },
-  {
-    key: 'slack',
-    label: 'slack',
-    call: "slack('#standup')",
-  },
-  {
-    key: 'direct',
-    label: 'direct',
-    call: "direct('publish-brief')",
-  },
-  {
-    key: 'agent',
-    label: 'agent',
-    call: "agent('myagent')",
-  },
+  { key: 'file', label: 'file', call: "file('./brief.md')" },
+  { key: 'log', label: 'log', call: 'log()' },
+  { key: 'mail', label: 'mail', call: 'mail()' },
+  { key: 'direct', label: 'direct', call: "direct('publish-brief')" },
+  { key: 'agent', label: 'agent', call: "agent('eywa')" },
+  { key: 'http', label: 'http', call: 'http({ url })' },
 ]
 
 // For source[i], its semantic destination lives at destinations[sourceToDestRow[i]].
-const sourceToDestRow = [1, 3, 0, 2]
+const sourceToDestRow = [4, 0, 3, 1, 5, 2]
 
 const CYCLE_MS = 3400
 
 // Layout constants for the SVG schematic.
 const W = 720
-const H = 320
+const H = 400
 const BOX_W = 140
 const SOURCE_X = 30
 const HUB_LEFT_X = 220
@@ -106,7 +79,7 @@ export function TriggerCycler() {
       onMouseLeave={() => setPaused(false)}
     >
       {/* Drawing sheet title block */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border border-b-0 border-ink/20 bg-paper-deep/70 px-4 py-2.5 font-mono text-[0.65rem] tracking-[0.2em] text-ink/55 uppercase shadow-[0_20px_40px_-24px_rgba(12,12,16,0.18)] dark:border-paper/20 dark:bg-ink-deep/85 dark:text-paper/65 dark:shadow-[0_20px_40px_-24px_rgba(0,0,0,0.6)]">
+      <div className="flex flex-wrap items-center justify-between gap-3 border border-b-0 border-ink/20 bg-paper-deep/55 px-4 py-2.5 font-mono text-[0.65rem] tracking-[0.2em] text-ink/55 uppercase shadow-[0_20px_40px_-24px_rgba(12,12,16,0.18)] dark:border-paper/20 dark:bg-ink-soft/55 dark:text-paper/65 dark:shadow-[0_20px_40px_-24px_rgba(0,0,0,0.6)]">
         <span>
           <span className="text-cobalt-500">Fig. 01</span> — Trigger topology
         </span>
@@ -118,7 +91,7 @@ export function TriggerCycler() {
         </span>
       </div>
 
-      <div className="border border-t-0 border-ink/20 bg-paper-deep/55 shadow-[0_20px_40px_-24px_rgba(12,12,16,0.18)] backdrop-blur-sm dark:border-paper/20 dark:bg-ink-deep/85 dark:shadow-[0_20px_40px_-24px_rgba(0,0,0,0.6)]">
+      <div className="border border-t-0 border-ink/20 bg-paper-deep/40 shadow-[0_20px_40px_-24px_rgba(12,12,16,0.18)] backdrop-blur-sm dark:border-paper/20 dark:bg-ink-soft/40 dark:shadow-[0_20px_40px_-24px_rgba(0,0,0,0.6)]">
         <svg
           viewBox={`0 0 ${W} ${H}`}
           className="block h-auto w-full"
@@ -457,7 +430,7 @@ export function TriggerCycler() {
       </div>
 
       {/* Drawing sheet footer with trigger picker */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-x border-b border-ink/20 bg-paper-deep/70 px-4 py-2.5 font-mono text-[0.7rem] tracking-[0.16em] uppercase shadow-[0_20px_40px_-24px_rgba(12,12,16,0.18)] dark:border-paper/20 dark:bg-ink-deep/85 dark:shadow-[0_20px_40px_-24px_rgba(0,0,0,0.6)]">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-x border-b border-ink/20 bg-paper-deep/55 px-4 py-2.5 font-mono text-[0.7rem] tracking-[0.16em] uppercase shadow-[0_20px_40px_-24px_rgba(12,12,16,0.18)] dark:border-paper/20 dark:bg-ink-soft/55 dark:shadow-[0_20px_40px_-24px_rgba(0,0,0,0.6)]">
         <span className="text-ink/55 dark:text-paper/55">trigger:</span>
         <div className="flex flex-wrap items-center gap-2">
           {sources.map((t, i) => (

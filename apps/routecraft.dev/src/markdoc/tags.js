@@ -2,6 +2,7 @@ import { Callout } from '@/components/Callout'
 import { Badge } from '@/components/Badge'
 import { QuickLink, QuickLinks } from '@/components/QuickLinks'
 import { CodeTabs, CodeTab } from '@/components/CodeTabs'
+import { TriggerCycler } from '@/components/TriggerCycler'
 
 const tags = {
   callout: {
@@ -101,6 +102,10 @@ const tags = {
       color: { type: String, default: 'yellow' },
     },
     render: Badge,
+  },
+  'topology-diagram': {
+    selfClosing: true,
+    render: TriggerCycler,
   },
 }
 

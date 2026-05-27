@@ -65,7 +65,7 @@ export function Navigation({
                     {isActive && (
                       <span
                         aria-hidden="true"
-                        className="pointer-events-none absolute top-0 -left-px h-full w-px bg-cobalt-500"
+                        className="pointer-events-none absolute top-0 -left-0.5 h-full w-0.5 bg-cobalt-500"
                       />
                     )}
                   </li>
