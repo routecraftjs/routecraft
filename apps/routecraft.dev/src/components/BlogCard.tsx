@@ -14,7 +14,7 @@ export function BlogCard({
   return (
     <article
       className={clsx(
-        'group relative flex flex-col border border-ink/15 transition hover:border-cobalt-500/50 dark:border-paper/15 dark:hover:border-cobalt-400/50',
+        'group relative flex flex-col border border-ink/15 bg-paper-deep/30 transition hover:border-cobalt-500/50 dark:border-paper/15 dark:bg-ink-soft/30 dark:hover:border-cobalt-400/50',
         className,
       )}
     >

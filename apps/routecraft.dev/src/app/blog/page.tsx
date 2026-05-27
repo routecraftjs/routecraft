@@ -56,9 +56,9 @@ export default function BlogIndexPage() {
           {rest.length > 0 && (
             <section className="mt-24">
               <SectionLabel label="Recent posts" />
-              <div className="mt-8 grid grid-cols-1 gap-px bg-ink/15 sm:grid-cols-2 lg:grid-cols-3 dark:bg-paper/15">
+              <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
                 {rest.map((post) => (
-                  <BlogCard key={post.slug} post={post} className="border-0" />
+                  <BlogCard key={post.slug} post={post} />
                 ))}
               </div>
             </section>
