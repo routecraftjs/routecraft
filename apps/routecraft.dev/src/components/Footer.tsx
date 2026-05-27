@@ -113,8 +113,8 @@ export function Footer() {
               <span className="text-cobalt-500 italic">
                 AI automation as code.
               </span>{' '}
-              A type-safe TypeScript framework for connecting AI agents to your
-              real systems.
+              A type-safe framework for connecting AI agents to your real
+              systems.
             </p>
           </div>
           <FooterColumn heading="Product" links={productLinks} />

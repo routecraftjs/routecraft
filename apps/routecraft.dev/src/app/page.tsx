@@ -1,14 +1,15 @@
 import Link from 'next/link'
 import type { Metadata } from 'next'
+import type { ReactNode } from 'react'
 
 import { BlogMeta } from '@/components/BlogMeta'
-import { TriggerCycler } from '@/components/TriggerCycler'
+import { CodeMorph } from '@/components/CodeMorph'
 import { type BlogPostMeta, getAllBlogPosts, getFeaturedPost } from '@/lib/blog'
 
 export const metadata: Metadata = {
   title: 'Routecraft - AI automation as code',
   description:
-    'Type-safe TypeScript framework for connecting AI agents to your real systems. Write capabilities once, expose them over MCP, cron, or webhook.',
+    'Type-safe framework for AI automation. Build the tools an agent uses, or the agent itself, with the same fluent DSL.',
 }
 
 interface Resource {
@@ -139,7 +140,9 @@ export default function LandingPage() {
     <div className="relative w-full bg-paper text-ink dark:bg-ink dark:text-paper">
       <PaperGrain />
       <Hero />
-      <SectionRule label="What's in Routecraft" />
+      <SectionRule label="Two ways to ship agents" />
+      <TwoModes />
+      <SectionRule label="Where to start" />
       <Toolkit />
       <SectionRule label="Why Routecraft" />
       <Thesis />
@@ -192,19 +195,25 @@ function Hero() {
               fontVariationSettings: '"opsz" 144, "SOFT" 30',
             }}
           >
-            One capability.
+            Tools for agents.
             <br />
             <span
-              className="font-editorial text-cobalt-500 italic"
+              className="font-editorial italic"
               style={{ fontVariationSettings: '"opsz" 144, "SOFT" 100' }}
             >
-              Every
+              Or
             </span>{' '}
             <span
               className="font-editorial italic"
               style={{ fontVariationSettings: '"opsz" 144, "SOFT" 100' }}
             >
-              trigger.
+              the whole
+            </span>{' '}
+            <span
+              className="font-editorial text-cobalt-500 italic"
+              style={{ fontVariationSettings: '"opsz" 144, "SOFT" 100' }}
+            >
+              agent.
             </span>
           </h1>
 
@@ -212,10 +221,8 @@ function Hero() {
             className="paper-rise mt-8 max-w-xl text-[1.1rem] leading-[1.75] text-ink/75 dark:text-paper/75"
             style={{ animationDelay: '260ms' }}
           >
-            Routecraft is a TypeScript framework for the boring, high-stakes
-            plumbing between AI agents and the rest of your stack. Write a
-            capability once. Schedule it. Expose it over MCP. Wire it to a
-            webhook. Same code, every shape.
+            Type-safe framework for AI automation. Build the tools an agent
+            uses, or the agent itself, with the same fluent DSL.
           </p>
 
           <div
@@ -254,7 +261,7 @@ function Hero() {
         </div>
 
         <div className="lg:col-span-6">
-          <TriggerCycler />
+          <CodeMorph />
         </div>
       </div>
     </section>
@@ -277,6 +284,187 @@ function SectionRule({ label }: { label: string }) {
   )
 }
 
+function TwoModes() {
+  return (
+    <section>
+      <div className="mx-auto max-w-7xl px-4 pt-12 pb-20 sm:px-6 lg:px-8 lg:pt-14 lg:pb-24">
+        <header className="max-w-3xl">
+          <h2
+            className="font-editorial text-[2.5rem] leading-[1.05] tracking-[-0.02em] text-ink dark:text-paper"
+            style={{ fontVariationSettings: '"opsz" 144, "SOFT" 30' }}
+          >
+            Use Routecraft on{' '}
+            <span
+              className="text-cobalt-500 italic"
+              style={{ fontVariationSettings: '"opsz" 144, "SOFT" 100' }}
+            >
+              either side
+            </span>{' '}
+            of the agent.
+          </h2>
+          <p className="mt-5 max-w-2xl text-[1.05rem] leading-[1.75] text-ink/70 dark:text-paper/70">
+            The same fluent DSL builds the tools an agent calls, and the harness
+            that runs an agent. You pick which side you are on. Sometimes both,
+            in the same project.
+          </p>
+        </header>
+
+        <div className="mt-12 grid grid-cols-1 gap-px border border-ink/15 bg-ink/15 lg:grid-cols-2 dark:border-paper/15 dark:bg-paper/15">
+          <article className="relative flex flex-col gap-5 bg-paper p-7 lg:p-10 dark:bg-ink">
+            <header className="flex items-baseline gap-4">
+              <span className="font-editorial text-[1.5rem] text-cobalt-500 italic tabular-nums">
+                01
+              </span>
+              <p className="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase dark:text-paper/55">
+                Tools for an agent
+              </p>
+            </header>
+            <h3
+              className="font-editorial text-[1.85rem] leading-[1.1] tracking-[-0.015em] text-ink dark:text-paper"
+              style={{ fontVariationSettings: '"opsz" 96, "SOFT" 50' }}
+            >
+              Expose capabilities,{' '}
+              <span
+                className="text-cobalt-500 italic"
+                style={{ fontVariationSettings: '"opsz" 96, "SOFT" 100' }}
+              >
+                let agents call them.
+              </span>
+            </h3>
+            <p className="text-[1rem] leading-[1.7] text-ink/70 dark:text-paper/70">
+              Set the source to <InlineMono>mcp()</InlineMono> and your
+              capability becomes an MCP tool. Claude Desktop, Cursor, ChatGPT,
+              OpenClaw, Hermes, or any MCP-speaking client can pick it up. Auth,
+              validation, and structured output are part of the primitive.
+            </p>
+            <ul className="mt-2 flex flex-col gap-2 font-mono text-[0.8rem] text-ink/75 dark:text-paper/75">
+              <li className="flex items-baseline gap-3">
+                <span className="text-cobalt-500" aria-hidden="true">
+                  ▸
+                </span>
+                <span>
+                  <span className="text-cobalt-600 dark:text-cobalt-300">
+                    .from(mcp())
+                  </span>{' '}
+                  exposes a typed tool
+                </span>
+              </li>
+              <li className="flex items-baseline gap-3">
+                <span className="text-cobalt-500" aria-hidden="true">
+                  ▸
+                </span>
+                <span>
+                  <span className="text-cobalt-600 dark:text-cobalt-300">
+                    .input(schema)
+                  </span>{' '}
+                  validates before your code runs
+                </span>
+              </li>
+              <li className="flex items-baseline gap-3">
+                <span className="text-cobalt-500" aria-hidden="true">
+                  ▸
+                </span>
+                <span>
+                  <span className="text-cobalt-600 dark:text-cobalt-300">
+                    .authorize(&#123; roles &#125;)
+                  </span>{' '}
+                  gates per-agent
+                </span>
+              </li>
+            </ul>
+            <Link
+              href="/docs/advanced/expose-as-mcp"
+              className="mt-3 inline-flex items-center gap-2 font-mono text-[0.7rem] tracking-[0.22em] text-cobalt-500 uppercase hover:text-cobalt-600 dark:hover:text-cobalt-300"
+            >
+              <span>Expose a capability over MCP</span>
+              <span aria-hidden="true">→</span>
+            </Link>
+          </article>
+
+          <article className="relative flex flex-col gap-5 bg-paper p-7 lg:p-10 dark:bg-ink">
+            <header className="flex items-baseline gap-4">
+              <span className="font-editorial text-[1.5rem] text-cobalt-500 italic tabular-nums">
+                02
+              </span>
+              <p className="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase dark:text-paper/55">
+                The whole agent
+              </p>
+            </header>
+            <h3
+              className="font-editorial text-[1.85rem] leading-[1.1] tracking-[-0.015em] text-ink dark:text-paper"
+              style={{ fontVariationSettings: '"opsz" 96, "SOFT" 50' }}
+            >
+              Build the harness.{' '}
+              <span
+                className="text-cobalt-500 italic"
+                style={{ fontVariationSettings: '"opsz" 96, "SOFT" 100' }}
+              >
+                Own the loop.
+              </span>
+            </h3>
+            <p className="text-[1rem] leading-[1.7] text-ink/70 dark:text-paper/70">
+              Set the destination to <InlineMono>agent()</InlineMono> and the
+              capability becomes the brain. You choose the model, the system
+              prompt, the tools the agent can reach for, and what happens to the
+              result. The DSL is the harness.
+            </p>
+            <ul className="mt-2 flex flex-col gap-2 font-mono text-[0.8rem] text-ink/75 dark:text-paper/75">
+              <li className="flex items-baseline gap-3">
+                <span className="text-cobalt-500" aria-hidden="true">
+                  ▸
+                </span>
+                <span>
+                  <span className="text-cobalt-600 dark:text-cobalt-300">
+                    .to(agent(&#123; model, system &#125;))
+                  </span>{' '}
+                  picks the model
+                </span>
+              </li>
+              <li className="flex items-baseline gap-3">
+                <span className="text-cobalt-500" aria-hidden="true">
+                  ▸
+                </span>
+                <span>
+                  <span className="text-cobalt-600 dark:text-cobalt-300">
+                    tools([...])
+                  </span>{' '}
+                  scopes what the agent can do
+                </span>
+              </li>
+              <li className="flex items-baseline gap-3">
+                <span className="text-cobalt-500" aria-hidden="true">
+                  ▸
+                </span>
+                <span>
+                  <span className="text-cobalt-600 dark:text-cobalt-300">
+                    .to(direct(&apos;next&apos;))
+                  </span>{' '}
+                  composes into longer flows
+                </span>
+              </li>
+            </ul>
+            <Link
+              href="/docs/advanced/composing-capabilities"
+              className="mt-3 inline-flex items-center gap-2 font-mono text-[0.7rem] tracking-[0.22em] text-cobalt-500 uppercase hover:text-cobalt-600 dark:hover:text-cobalt-300"
+            >
+              <span>Build an agent capability</span>
+              <span aria-hidden="true">→</span>
+            </Link>
+          </article>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function InlineMono({ children }: { children: ReactNode }) {
+  return (
+    <code className="border border-ink/15 bg-paper-deep/60 px-1.5 py-0.5 font-mono text-[0.9em] text-cobalt-600 dark:border-paper/15 dark:bg-ink-soft/60 dark:text-cobalt-300">
+      {children}
+    </code>
+  )
+}
+
 function Toolkit() {
   return (
     <section>
@@ -287,16 +475,17 @@ function Toolkit() {
               className="font-editorial text-[2.5rem] leading-[1.05] tracking-[-0.02em] text-ink dark:text-paper"
               style={{ fontVariationSettings: '"opsz" 144, "SOFT" 30' }}
             >
-              What is{' '}
+              Find your way{' '}
               <span
                 className="text-cobalt-500 italic"
                 style={{ fontVariationSettings: '"opsz" 144, "SOFT" 100' }}
               >
-                in the box.
+                in.
               </span>
             </h2>
             <p className="mt-4 max-w-sm text-[1rem] leading-[1.7] text-ink/65 dark:text-paper/65">
-              Five doors into Routecraft. Start where your hands are.
+              Five entry points to the docs, the cheat sheet, and everything
+              else.
             </p>
           </header>
           <ol className="lg:col-span-8">
