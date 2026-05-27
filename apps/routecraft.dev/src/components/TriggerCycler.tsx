@@ -1,42 +1,88 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 
-interface Trigger {
+interface Node {
   key: string
   label: string
   call: string
 }
 
-const triggers: Trigger[] = [
+const sources: Node[] = [
   {
     key: 'cron',
-    label: 'Cron',
+    label: 'cron',
     call: "cron('0 9 * * 1-5')",
   },
   {
     key: 'mcp',
-    label: 'MCP',
+    label: 'mcp',
     call: 'mcp()',
   },
   {
-    key: 'webhook',
-    label: 'Webhook',
+    key: 'http',
+    label: 'http',
     call: "http({ path: '/brief' })",
   },
   {
     key: 'mail',
-    label: 'Mail',
+    label: 'mail',
     call: "mail('INBOX')",
   },
 ]
 
+// Destinations are deliberately distinct from sources (no http→http
+// or mail→mail) and displayed in a permuted order so every pair
+// crosses rows. Pair semantics:
+//   cron  → slack   (row 0 → row 1, ↘ 1)
+//   mcp   → agent   (row 1 → row 3, ↘ 2)
+//   http  → file    (row 2 → row 0, ↗ 2)
+//   mail  → direct  (row 3 → row 2, ↗ 1)
+const destinations: Node[] = [
+  {
+    key: 'file',
+    label: 'file',
+    call: "file('./brief.md')",
+  },
+  {
+    key: 'slack',
+    label: 'slack',
+    call: "slack('#standup')",
+  },
+  {
+    key: 'direct',
+    label: 'direct',
+    call: "direct('publish-brief')",
+  },
+  {
+    key: 'agent',
+    label: 'agent',
+    call: "agent('myagent')",
+  },
+]
+
+// For source[i], its semantic destination lives at destinations[sourceToDestRow[i]].
+const sourceToDestRow = [1, 3, 0, 2]
+
 const CYCLE_MS = 3400
+
+// Layout constants for the SVG schematic.
+const W = 720
+const H = 320
+const BOX_W = 140
+const SOURCE_X = 30
+const HUB_LEFT_X = 220
+const CAP_X = 280
+const CAP_W = 160
+const HUB_RIGHT_X = 490
+const DEST_X = 550
+const ROW_GAP = 50
+const SOURCES_TOP = 55
+const CAP_CY = SOURCES_TOP + (sources.length - 1) * (ROW_GAP / 2)
 
 export function TriggerCycler() {
   const [index, setIndex] = useState(0)
   const [paused, setPaused] = useState(false)
-  const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const prefersReducedMotion =
@@ -44,12 +90,13 @@ export function TriggerCycler() {
       window.matchMedia('(prefers-reduced-motion: reduce)').matches
     if (prefersReducedMotion || paused) return
     const interval = window.setInterval(() => {
-      setIndex((i) => (i + 1) % triggers.length)
+      setIndex((i) => (i + 1) % sources.length)
     }, CYCLE_MS)
     return () => window.clearInterval(interval)
   }, [paused])
 
-  const active = triggers[index]
+  const activeSource = sources[index]
+  const activeDestIndex = sourceToDestRow[index]
 
   return (
     <figure
@@ -58,117 +105,386 @@ export function TriggerCycler() {
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
     >
-      <div
-        ref={containerRef}
-        className="relative border border-ink/15 bg-paper-deep/40 shadow-[0_30px_80px_-40px_rgba(12,12,16,0.4)] dark:border-paper/15 dark:bg-ink-soft/60 dark:shadow-[0_30px_80px_-30px_rgba(0,0,0,0.7)]"
-      >
-        <header className="flex items-center justify-between border-b border-ink/10 px-5 py-3 dark:border-paper/10">
-          <span className="font-mono text-[0.65rem] tracking-[0.18em] text-ink/55 uppercase dark:text-paper/55">
-            morning-brief.ts
+      {/* Drawing sheet title block */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink/30 px-1 pb-2 font-mono text-[0.65rem] tracking-[0.2em] text-ink/55 uppercase dark:border-paper/30 dark:text-paper/55">
+        <span>
+          <span className="text-cobalt-500">Fig. 01</span> — Trigger topology
+        </span>
+        <span>
+          Active:{' '}
+          <span className="text-cobalt-500">
+            {activeSource.label} → {destinations[activeDestIndex].label}
           </span>
-          <span className="font-mono text-[0.65rem] tracking-[0.18em] text-cobalt-500 uppercase">
-            {active.label} trigger
-          </span>
-        </header>
-
-        <pre className="overflow-x-auto px-5 py-6 font-mono text-[0.82rem] leading-7 text-ink dark:text-paper">
-          <code>
-            <Line n={1}>
-              <span className="text-ink/45 dark:text-paper/45">import</span>
-              {' { craft } '}
-              <span className="text-ink/45 dark:text-paper/45">from</span>{' '}
-              <span className="text-cobalt-600 dark:text-cobalt-300">
-                {"'routecraft'"}
-              </span>
-            </Line>
-            <Line n={2}> </Line>
-            <Line n={3}>{'craft()'}</Line>
-            <Line n={4}>
-              {'  .id('}
-              <span className="text-cobalt-600 dark:text-cobalt-300">
-                {"'morning-brief'"}
-              </span>
-              {')'}
-            </Line>
-            <Line n={5}>
-              {'  .from('}
-              <span
-                key={`call-${active.key}`}
-                className="ink-bleed inline-block font-medium text-cobalt-500"
-              >
-                {active.call}
-              </span>
-              {')'}
-            </Line>
-            <Line n={6}>{'  .transform(summarise)'}</Line>
-            <Line n={7}>
-              {'  .to(slack('}
-              <span className="text-cobalt-600 dark:text-cobalt-300">
-                {"'#standup'"}
-              </span>
-              {'))'}
-            </Line>
-          </code>
-        </pre>
-
-        <footer className="flex items-center justify-between gap-4 border-t border-ink/10 px-5 py-3 dark:border-paper/10">
-          <span className="font-mono text-[0.65rem] tracking-[0.18em] text-ink/55 uppercase dark:text-paper/55">
-            Trigger
-          </span>
-          <ol className="flex items-center gap-4">
-            {triggers.map((t, i) => (
-              <li key={t.key}>
-                <button
-                  type="button"
-                  onClick={() => setIndex(i)}
-                  aria-pressed={i === index}
-                  aria-label={`Show ${t.label} trigger`}
-                  className="group flex items-center gap-2 font-mono text-[0.7rem] tracking-[0.12em] uppercase"
-                >
-                  <span
-                    aria-hidden="true"
-                    className={
-                      i === index
-                        ? 'h-1.5 w-1.5 bg-cobalt-500'
-                        : 'h-1.5 w-1.5 bg-ink/20 transition group-hover:bg-ink/40 dark:bg-paper/20 dark:group-hover:bg-paper/40'
-                    }
-                  />
-                  <span
-                    className={
-                      i === index
-                        ? 'text-cobalt-500'
-                        : 'text-ink/55 transition group-hover:text-ink dark:text-paper/55 dark:group-hover:text-paper'
-                    }
-                  >
-                    {t.label}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ol>
-        </footer>
+        </span>
       </div>
 
-      <figcaption
-        className="paper-rise mt-6 pl-1 font-editorial text-[0.95rem] text-ink/65 italic dark:text-paper/65"
-        style={{ animationDelay: '620ms' }}
-      >
-        Same body. Different trigger. Change one line.
-      </figcaption>
-    </figure>
-  )
-}
+      <div className="border border-t-0 border-ink/20 bg-paper/40 backdrop-blur-sm dark:border-paper/20 dark:bg-ink-soft/30">
+        <svg
+          viewBox={`0 0 ${W} ${H}`}
+          className="block h-auto w-full"
+          aria-label="Trigger topology diagram"
+        >
+          <defs>
+            <marker
+              id="arrow"
+              viewBox="0 0 10 10"
+              refX="9"
+              refY="5"
+              markerWidth="8"
+              markerHeight="8"
+              orient="auto-start-reverse"
+            >
+              <path
+                d="M 0 0 L 10 5 L 0 10 z"
+                className="fill-ink dark:fill-paper"
+              />
+            </marker>
+            <marker
+              id="arrow-active"
+              viewBox="0 0 10 10"
+              refX="9"
+              refY="5"
+              markerWidth="8"
+              markerHeight="8"
+              orient="auto-start-reverse"
+            >
+              <path d="M 0 0 L 10 5 L 0 10 z" className="fill-cobalt-500" />
+            </marker>
+          </defs>
 
-function Line({ n, children }: { n: number; children: React.ReactNode }) {
-  return (
-    <div className="flex">
-      <span
-        aria-hidden="true"
-        className="mr-5 w-4 shrink-0 text-right font-mono text-[0.7rem] text-ink/30 tabular-nums select-none dark:text-paper/30"
-      >
-        {n}
-      </span>
-      <span className="min-w-0 flex-1 whitespace-pre">{children}</span>
-    </div>
+          {/* Corner registration crosses */}
+          {[
+            [8, 8],
+            [W - 8, 8],
+            [8, H - 8],
+            [W - 8, H - 8],
+          ].map(([cx, cy], i) => (
+            <g
+              key={i}
+              className="stroke-ink/40 dark:stroke-paper/40"
+              strokeWidth="0.6"
+            >
+              <line x1={cx - 4} y1={cy} x2={cx + 4} y2={cy} />
+              <line x1={cx} y1={cy - 4} x2={cx} y2={cy + 4} />
+            </g>
+          ))}
+
+          {/* Column labels */}
+          <text
+            x={SOURCE_X}
+            y={36}
+            className="fill-ink/55 font-mono text-[10px] tracking-[0.2em] uppercase dark:fill-paper/55"
+          >
+            sources
+          </text>
+          <text
+            x={DEST_X + BOX_W}
+            y={36}
+            textAnchor="end"
+            className="fill-ink/55 font-mono text-[10px] tracking-[0.2em] uppercase dark:fill-paper/55"
+          >
+            destinations
+          </text>
+
+          {/* Source boxes */}
+          {sources.map((t, i) => {
+            const cy = SOURCES_TOP + i * ROW_GAP
+            const isActive = i === index
+            return (
+              <g
+                key={`src-${t.key}`}
+                className="cursor-pointer"
+                onClick={() => setIndex(i)}
+              >
+                <rect
+                  x={SOURCE_X}
+                  y={cy - 16}
+                  width={BOX_W}
+                  height={32}
+                  fill="none"
+                  className={
+                    isActive
+                      ? 'stroke-cobalt-500'
+                      : 'stroke-ink/30 dark:stroke-paper/30'
+                  }
+                  strokeWidth={isActive ? 1.5 : 1}
+                />
+                {isActive && (
+                  <rect
+                    x={SOURCE_X}
+                    y={cy - 16}
+                    width={BOX_W}
+                    height={32}
+                    className="fill-cobalt-500/8 dark:fill-cobalt-400/8"
+                  />
+                )}
+                <text
+                  x={SOURCE_X + 10}
+                  y={cy - 3}
+                  className={
+                    isActive
+                      ? 'fill-cobalt-500 font-mono text-[11px] font-semibold'
+                      : 'fill-ink/70 font-mono text-[11px] dark:fill-paper/70'
+                  }
+                >
+                  {t.label}
+                </text>
+                <text
+                  x={SOURCE_X + 10}
+                  y={cy + 10}
+                  className={
+                    isActive
+                      ? 'fill-cobalt-500/80 font-mono text-[9px]'
+                      : 'fill-ink/40 font-mono text-[9px] dark:fill-paper/40'
+                  }
+                >
+                  {t.call}
+                </text>
+              </g>
+            )
+          })}
+
+          {/* Destination boxes */}
+          {destinations.map((d, i) => {
+            const cy = SOURCES_TOP + i * ROW_GAP
+            const isActive = i === activeDestIndex
+            // Find which source pairs with this destination so clicking it
+            // selects the corresponding pair.
+            const sourceIndex = sourceToDestRow.indexOf(i)
+            return (
+              <g
+                key={`dst-${d.key}`}
+                className="cursor-pointer"
+                onClick={() => sourceIndex !== -1 && setIndex(sourceIndex)}
+              >
+                <rect
+                  x={DEST_X}
+                  y={cy - 16}
+                  width={BOX_W}
+                  height={32}
+                  fill="none"
+                  className={
+                    isActive
+                      ? 'stroke-cobalt-500'
+                      : 'stroke-ink/30 dark:stroke-paper/30'
+                  }
+                  strokeWidth={isActive ? 1.5 : 1}
+                />
+                {isActive && (
+                  <rect
+                    x={DEST_X}
+                    y={cy - 16}
+                    width={BOX_W}
+                    height={32}
+                    className="fill-cobalt-500/8 dark:fill-cobalt-400/8"
+                  />
+                )}
+                <text
+                  x={DEST_X + BOX_W - 10}
+                  y={cy - 3}
+                  textAnchor="end"
+                  className={
+                    isActive
+                      ? 'fill-cobalt-500 font-mono text-[11px] font-semibold'
+                      : 'fill-ink/70 font-mono text-[11px] dark:fill-paper/70'
+                  }
+                >
+                  {d.label}
+                </text>
+                <text
+                  x={DEST_X + BOX_W - 10}
+                  y={cy + 10}
+                  textAnchor="end"
+                  className={
+                    isActive
+                      ? 'fill-cobalt-500/80 font-mono text-[9px]'
+                      : 'fill-ink/40 font-mono text-[9px] dark:fill-paper/40'
+                  }
+                >
+                  {d.call}
+                </text>
+              </g>
+            )
+          })}
+
+          {/* Connection lines from each source into the left hub */}
+          {sources.map((t, i) => {
+            const cy = SOURCES_TOP + i * ROW_GAP
+            const isActive = i === index
+            return (
+              <line
+                key={`src-conn-${t.key}`}
+                x1={SOURCE_X + BOX_W}
+                y1={cy}
+                x2={HUB_LEFT_X}
+                y2={CAP_CY}
+                className={
+                  isActive
+                    ? 'stroke-cobalt-500'
+                    : 'stroke-ink/15 dark:stroke-paper/15'
+                }
+                strokeWidth={isActive ? 1.5 : 0.75}
+                strokeDasharray={isActive ? '0' : '3 3'}
+              />
+            )
+          })}
+
+          {/* Connection lines from the right hub out to each destination */}
+          {destinations.map((d, i) => {
+            const cy = SOURCES_TOP + i * ROW_GAP
+            const isActive = i === activeDestIndex
+            return (
+              <line
+                key={`dst-conn-${d.key}`}
+                x1={HUB_RIGHT_X}
+                y1={CAP_CY}
+                x2={DEST_X}
+                y2={cy}
+                className={
+                  isActive
+                    ? 'stroke-cobalt-500'
+                    : 'stroke-ink/15 dark:stroke-paper/15'
+                }
+                strokeWidth={isActive ? 1.5 : 0.75}
+                strokeDasharray={isActive ? '0' : '3 3'}
+              />
+            )
+          })}
+
+          {/* Left hub junction */}
+          <circle
+            cx={HUB_LEFT_X}
+            cy={CAP_CY}
+            r={3.5}
+            className="fill-cobalt-500"
+          />
+
+          {/* Left hub → capability arrow */}
+          <line
+            x1={HUB_LEFT_X + 4}
+            y1={CAP_CY}
+            x2={CAP_X - 4}
+            y2={CAP_CY}
+            className="stroke-cobalt-500"
+            strokeWidth="1.5"
+            markerEnd="url(#arrow-active)"
+          />
+
+          {/* Capability box */}
+          <g>
+            <rect
+              x={CAP_X}
+              y={CAP_CY - 28}
+              width={CAP_W}
+              height={56}
+              fill="none"
+              strokeWidth="1.25"
+              className="stroke-ink dark:stroke-paper"
+            />
+            <line
+              x1={CAP_X}
+              y1={CAP_CY - 12}
+              x2={CAP_X + CAP_W}
+              y2={CAP_CY - 12}
+              strokeWidth="0.75"
+              className="stroke-ink/30 dark:stroke-paper/30"
+            />
+            <text
+              x={CAP_X + CAP_W / 2}
+              y={CAP_CY - 18}
+              textAnchor="middle"
+              className="fill-ink/55 font-mono text-[9px] tracking-[0.2em] uppercase dark:fill-paper/55"
+            >
+              capability
+            </text>
+            <text
+              x={CAP_X + CAP_W / 2}
+              y={CAP_CY + 3}
+              textAnchor="middle"
+              className="fill-ink font-mono text-[12px] font-semibold dark:fill-paper"
+            >
+              morning-brief
+            </text>
+            <text
+              x={CAP_X + CAP_W / 2}
+              y={CAP_CY + 18}
+              textAnchor="middle"
+              className="fill-ink/55 font-mono text-[9px] dark:fill-paper/55"
+            >
+              .transform(summarise)
+            </text>
+          </g>
+
+          {/* Capability → right hub arrow */}
+          <line
+            x1={CAP_X + CAP_W + 4}
+            y1={CAP_CY}
+            x2={HUB_RIGHT_X - 4}
+            y2={CAP_CY}
+            className="stroke-cobalt-500"
+            strokeWidth="1.5"
+            markerEnd="url(#arrow-active)"
+          />
+
+          {/* Right hub junction */}
+          <circle
+            cx={HUB_RIGHT_X}
+            cy={CAP_CY}
+            r={3.5}
+            className="fill-cobalt-500"
+          />
+
+          {/* Dimension line at bottom */}
+          <g className="stroke-ink/40 dark:stroke-paper/40" strokeWidth="0.6">
+            <line x1={SOURCE_X} y1={H - 30} x2={DEST_X + BOX_W} y2={H - 30} />
+            <line x1={SOURCE_X} y1={H - 34} x2={SOURCE_X} y2={H - 26} />
+            <line
+              x1={DEST_X + BOX_W}
+              y1={H - 34}
+              x2={DEST_X + BOX_W}
+              y2={H - 26}
+            />
+          </g>
+          <text
+            x={(SOURCE_X + DEST_X + BOX_W) / 2}
+            y={H - 18}
+            textAnchor="middle"
+            className="fill-ink/55 font-mono text-[9px] tracking-[0.2em] uppercase dark:fill-paper/55"
+          >
+            one capability · every trigger
+          </text>
+        </svg>
+      </div>
+
+      {/* Drawing sheet footer with trigger picker */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-x border-b border-ink/20 px-3 py-2 font-mono text-[0.7rem] tracking-[0.16em] uppercase dark:border-paper/20">
+        <span className="text-ink/55 dark:text-paper/55">trigger:</span>
+        <div className="flex flex-wrap items-center gap-2">
+          {sources.map((t, i) => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setIndex(i)}
+              aria-pressed={i === index}
+              className={
+                i === index
+                  ? 'flex items-center gap-1.5 text-cobalt-500'
+                  : 'flex items-center gap-1.5 text-ink/55 transition hover:text-ink dark:text-paper/55 dark:hover:text-paper'
+              }
+            >
+              <span
+                aria-hidden="true"
+                className={
+                  i === index
+                    ? 'h-1.5 w-1.5 bg-cobalt-500'
+                    : 'h-1.5 w-1.5 border border-ink/40 dark:border-paper/40'
+                }
+              />
+              <span>{t.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </figure>
   )
 }
