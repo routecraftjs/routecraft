@@ -16,20 +16,21 @@ export function CheatSection({
   return (
     <section
       className={clsx(
-        'flex break-inside-avoid flex-col gap-3 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm print:break-inside-avoid print:rounded-md print:border-gray-300 print:shadow-none dark:border-gray-800 dark:bg-gray-900/40',
+        'flex break-inside-avoid flex-col gap-3 border border-ink/15 bg-paper p-5 dark:border-paper/15 dark:bg-ink-soft/30 print:break-inside-avoid',
         span === 'wide' && 'lg:col-span-2',
         className,
       )}
     >
       {eyebrow && (
-        <p className="font-display text-xs font-medium text-sky-500">
-          {eyebrow}
+        <p className="flex items-center gap-2.5 font-mono text-[0.6rem] tracking-[0.22em] text-cobalt-500 uppercase">
+          <span aria-hidden="true" className="h-1 w-1 bg-cobalt-500" />
+          <span>{eyebrow}</span>
         </p>
       )}
-      <h2 className="font-display text-base font-medium text-gray-900 dark:text-white">
+      <h2 className="font-editorial text-[1.15rem] font-medium tracking-[-0.005em] text-ink dark:text-paper">
         {title}
       </h2>
-      <div className="flex flex-col gap-2.5 text-[0.82rem] text-gray-600 dark:text-gray-400">
+      <div className="flex flex-col gap-2.5 text-[0.82rem] leading-[1.6] text-ink/70 dark:text-paper/70">
         {children}
       </div>
     </section>
@@ -38,13 +39,15 @@ export function CheatSection({
 
 export function CheatNote({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-xs text-gray-500 italic dark:text-gray-500">{children}</p>
+    <p className="font-editorial text-[0.85rem] leading-[1.5] text-ink/55 italic dark:text-paper/55">
+      {children}
+    </p>
   )
 }
 
 export function CheatLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="font-display text-xs font-medium text-gray-500 dark:text-gray-400">
+    <p className="font-mono text-[0.65rem] tracking-[0.18em] text-ink/55 uppercase dark:text-paper/55">
       {children}
     </p>
   )

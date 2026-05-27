@@ -1,11 +1,7 @@
 import type { Metadata } from 'next'
 
 import { CheatCode } from '@/components/CheatCode'
-import {
-  CheatLabel,
-  CheatNote,
-  CheatSection,
-} from '@/components/CheatSection'
+import { CheatLabel, CheatNote, CheatSection } from '@/components/CheatSection'
 import { PrintButton } from '@/components/PrintButton'
 
 export const metadata: Metadata = {
@@ -23,34 +19,37 @@ export const metadata: Metadata = {
 export default function CheatSheetPage() {
   return (
     <main className="w-full pb-16 print:pb-0">
-      <section className="bg-linear-to-br from-sky-50 via-white to-white print:bg-transparent dark:from-sky-950/40 dark:via-gray-950 dark:to-gray-950">
-        <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8 print:px-0 print:py-2">
+      <section className="border-b border-ink/15 dark:border-paper/15 print:border-none">
+        <div className="mx-auto w-full max-w-7xl px-4 py-12 sm:px-6 sm:py-14 lg:px-8 print:px-0 print:py-2">
           <div className="flex flex-wrap items-start justify-between gap-6">
             <div className="flex-1">
-              <p className="font-display text-xs font-medium text-sky-500">
-                Reference
+              <p className="flex items-center gap-3 font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase">
+                <span aria-hidden="true" className="h-1 w-1 bg-cobalt-500" />
+                <span>Reference</span>
               </p>
-              <h1 className="mt-1 font-display text-3xl font-medium tracking-tight text-gray-900 sm:text-4xl dark:text-white">
-                Routecraft Cheat Sheet
+              <h1 className="mt-6 font-editorial text-[clamp(2rem,4vw,3rem)] leading-[1.05] font-medium tracking-[-0.02em] text-ink dark:text-paper">
+                Routecraft{' '}
+                <span className="text-cobalt-500 italic">cheat sheet.</span>
               </h1>
-              <p className="mt-3 max-w-3xl text-sm text-gray-600 sm:text-base dark:text-gray-400">
-                AI automation as code. The whole fluent API on one page.
-                Searchable, copyable, and print-to-PDF ready.
+              <p className="mt-5 max-w-2xl font-editorial text-[1.05rem] leading-[1.55] text-ink/70 italic dark:text-paper/70">
+                The whole fluent API on one page. Searchable, copyable, and
+                print-to-PDF ready.
               </p>
-              <div className="mt-4 flex flex-wrap gap-2 text-xs">
-                <span className="rounded-full bg-sky-50 px-2.5 py-1 font-medium text-sky-700 ring-1 ring-sky-200 dark:bg-sky-500/10 dark:text-sky-300 dark:ring-sky-500/30">
-                  v0.5.0
+              <div className="mt-6 flex flex-wrap gap-2">
+                <span className="inline-flex items-center gap-2 border border-cobalt-500/50 px-2.5 py-1 font-mono text-[0.65rem] tracking-[0.18em] text-cobalt-500 uppercase">
+                  <span aria-hidden="true" className="h-1 w-1 bg-cobalt-500" />
+                  v0.6.0
                 </span>
-                <span className="rounded-full bg-gray-100 px-2.5 py-1 font-medium text-gray-700 ring-1 ring-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:ring-gray-700">
+                <span className="inline-flex items-center border border-ink/25 px-2.5 py-1 font-mono text-[0.65rem] tracking-[0.18em] text-ink/65 uppercase dark:border-paper/25 dark:text-paper/65">
                   TypeScript
                 </span>
               </div>
             </div>
-            <div className="flex flex-col items-start gap-2 print:hidden">
+            <div className="flex flex-col items-start gap-3 print:hidden">
               <PrintButton />
-              <p className="text-xs text-gray-500 dark:text-gray-400">
+              <p className="font-mono text-[0.65rem] tracking-[0.18em] text-ink/55 uppercase dark:text-paper/55">
                 Or press{' '}
-                <kbd className="rounded border border-gray-300 bg-gray-100 px-1.5 py-0.5 font-mono text-[0.7rem] dark:border-gray-700 dark:bg-gray-800">
+                <kbd className="ml-1 inline-flex items-center border border-ink/25 px-1.5 py-0.5 font-mono text-[0.65rem] dark:border-paper/25">
                   Cmd/Ctrl + P
                 </kbd>
               </p>
@@ -60,7 +59,7 @@ export default function CheatSheetPage() {
       </section>
 
       <div className="mx-auto w-full max-w-7xl px-4 pt-8 sm:px-6 lg:px-8 print:px-0 print:pt-2">
-        <div className="grid auto-rows-min grid-flow-row-dense grid-cols-1 gap-5 lg:grid-cols-2 xl:grid-cols-3 print:grid-cols-2 print:gap-3">
+        <div className="grid grid-flow-row-dense auto-rows-min grid-cols-1 gap-5 lg:grid-cols-2 xl:grid-cols-3 print:grid-cols-2 print:gap-3">
           <CheatSection eyebrow="Setup" title="Installation">
             <CheatCode language="bash">{`# Core library
 bun add @routecraft/routecraft
@@ -76,8 +75,8 @@ bun add -g @routecraft/cli`}</CheatCode>
             </CheatNote>
           </CheatSection>
 
-        <CheatSection eyebrow="Concept" title="Route + Context">
-          <CheatCode>{`import { craft, ContextBuilder } from '@routecraft/routecraft'
+          <CheatSection eyebrow="Concept" title="Route + Context">
+            <CheatCode>{`import { craft, ContextBuilder } from '@routecraft/routecraft'
 
 const route = craft()
   .id('my-route')
@@ -92,15 +91,18 @@ const ctx = await new ContextBuilder()
 
 await ctx.start()
 await ctx.stop()`}</CheatCode>
-        </CheatSection>
+          </CheatSection>
 
-        <CheatSection
-          eyebrow="DSL"
-          title="Builder DSL (fluent API)"
-          span="wide"
-        >
-          <p>Chain operations to build a type-safe pipeline. Types flow through each step.</p>
-          <CheatCode>{`craft()
+          <CheatSection
+            eyebrow="DSL"
+            title="Builder DSL (fluent API)"
+            span="wide"
+          >
+            <p>
+              Chain operations to build a type-safe pipeline. Types flow through
+              each step.
+            </p>
+            <CheatCode>{`craft()
   .id('pipeline')                  // unique route name
   .description('...')              // doc string used in errors
   .input({ size: 100 })            // optional input schema
@@ -115,10 +117,10 @@ await ctx.stop()`}</CheatCode>
   .aggregate()                     // collect back into one
   .to(destination)                 // destination adapter
   .build()`}</CheatCode>
-        </CheatSection>
+          </CheatSection>
 
-        <CheatSection eyebrow="Inputs" title="Sources">
-          <CheatCode>{`// Static value or async function
+          <CheatSection eyebrow="Inputs" title="Sources">
+            <CheatCode>{`// Static value or async function
 .from(simple({ hello: 'world' }))
 .from(simple(() => fetch('/api')))
 
@@ -139,10 +141,10 @@ await ctx.stop()`}</CheatCode>
 
 // File source
 .from(file({ path: './data.json' }))`}</CheatCode>
-        </CheatSection>
+          </CheatSection>
 
-        <CheatSection eyebrow="Outputs" title="Destinations">
-          <CheatCode>{`// Log to console
+          <CheatSection eyebrow="Outputs" title="Destinations">
+            <CheatCode>{`// Log to console
 .to(log())
 .to(debug(ex => ex.body))
 
@@ -168,17 +170,17 @@ await ctx.stop()`}</CheatCode>
   to: ex => ex.body.email,
   subject: 'Hello',
 }))`}</CheatCode>
-        </CheatSection>
+          </CheatSection>
 
-        <CheatSection eyebrow="Envelope" title="Exchanges">
-          <CheatCode>{`type Exchange<T> = {
+          <CheatSection eyebrow="Envelope" title="Exchanges">
+            <CheatCode>{`type Exchange<T> = {
   id: string
   body: T
   headers: ExchangeHeaders
   logger: Logger
 }`}</CheatCode>
-          <CheatLabel>Access patterns</CheatLabel>
-          <CheatCode>{`// .transform() gets the body
+            <CheatLabel>Access patterns</CheatLabel>
+            <CheatCode>{`// .transform() gets the body
 .transform(body => body.toUpperCase())
 
 // .process() gets the full exchange
@@ -189,20 +191,20 @@ await ctx.stop()`}</CheatCode>
 
 // .filter() gets the full exchange
 .filter(ex => ex.body.age > 18)`}</CheatCode>
-        </CheatSection>
+          </CheatSection>
 
-        <CheatSection eyebrow="Flow" title="Split &amp; aggregate">
-          <p>Fan out an array, process each item, collect back.</p>
-          <CheatCode>{`craft()
+          <CheatSection eyebrow="Flow" title="Split &amp; aggregate">
+            <p>Fan out an array, process each item, collect back.</p>
+            <CheatCode>{`craft()
   .from(simple([1, 2, 3]))
   .split()                  // 3 exchanges
   .transform(n => n * 2)    // each runs once
   .aggregate()              // [2, 4, 6]
   .to(log())`}</CheatCode>
-        </CheatSection>
+          </CheatSection>
 
-        <CheatSection eyebrow="Lookup" title="Enrich (fetch &amp; merge)">
-          <CheatCode>{`// Default: deep merge
+          <CheatSection eyebrow="Lookup" title="Enrich (fetch &amp; merge)">
+            <CheatCode>{`// Default: deep merge
 .enrich(http({ url: '/api/user' }))
 
 // Custom merge strategy
@@ -214,11 +216,13 @@ await ctx.stop()`}</CheatCode>
 // Merge helpers
 .enrich(dest, only('meta'))
 .enrich(dest, replace())`}</CheatCode>
-        </CheatSection>
+          </CheatSection>
 
-        <CheatSection eyebrow="Safety" title="Validation (Standard Schema)">
-          <p>Works with Zod, Valibot, ArkType, or any Standard Schema library.</p>
-          <CheatCode>{`import { z } from 'zod'
+          <CheatSection eyebrow="Safety" title="Validation (Standard Schema)">
+            <p>
+              Works with Zod, Valibot, ArkType, or any Standard Schema library.
+            </p>
+            <CheatCode>{`import { z } from 'zod'
 import { schema } from '@routecraft/routecraft'
 
 craft()
@@ -229,10 +233,10 @@ craft()
   })))
   .to(log())
 // body type is inferred from the schema`}</CheatCode>
-        </CheatSection>
+          </CheatSection>
 
-        <CheatSection eyebrow="Observability" title="Events system">
-          <CheatCode>{`// Lifecycle
+          <CheatSection eyebrow="Observability" title="Events system">
+            <CheatCode>{`// Lifecycle
 ctx.on('context:started', () => {})
 ctx.on('context:error', (err) => {})
 
@@ -252,10 +256,10 @@ ctx.on('step:completed', ({ details }) => {
 
 // Wildcards (glob)
 ctx.on('route:**', () => {})`}</CheatCode>
-        </CheatSection>
+          </CheatSection>
 
-        <CheatSection eyebrow="Recovery" title="Error handling">
-          <CheatCode>{`craft()
+          <CheatSection eyebrow="Recovery" title="Error handling">
+            <CheatCode>{`craft()
   .error((error, exchange, forward) => {
     // Return a recovery value
     return { recovered: true }
@@ -267,16 +271,16 @@ ctx.on('route:**', () => {})`}</CheatCode>
   })
   .from(source)
   .to(destination)`}</CheatCode>
-          <CheatLabel>Error code ranges</CheatLabel>
-          <CheatCode language="text">{`RC1xxx  Definition
+            <CheatLabel>Error code ranges</CheatLabel>
+            <CheatCode language="text">{`RC1xxx  Definition
 RC2xxx  DSL
 RC3xxx  Runtime
 RC4xxx  Lifecycle
 RC5xxx  Adapter`}</CheatCode>
-        </CheatSection>
+          </CheatSection>
 
-        <CheatSection eyebrow="Runtime" title="Context &amp; plugins">
-          <CheatCode>{`const ctx = await new ContextBuilder()
+          <CheatSection eyebrow="Runtime" title="Context &amp; plugins">
+            <CheatCode>{`const ctx = await new ContextBuilder()
   .add({
     crm: { timezone: 'UTC' },
     direct: { channelType: 'memory' },
@@ -294,23 +298,23 @@ const myPlugin: CraftPlugin = {
   },
   async teardown(ctx) { /* cleanup */ },
 }`}</CheatCode>
-        </CheatSection>
+          </CheatSection>
 
-        <CheatSection eyebrow="Debug" title="Terminal UI (TUI)">
-          <p>
-            Inspect routes, exchanges, and live events. Requires the telemetry
-            plugin enabled on the context.
-          </p>
-          <CheatCode language="bash">{`# Launch the TUI (reads the telemetry DB)
+          <CheatSection eyebrow="Debug" title="Terminal UI (TUI)">
+            <p>
+              Inspect routes, exchanges, and live events. Requires the telemetry
+              plugin enabled on the context.
+            </p>
+            <CheatCode language="bash">{`# Launch the TUI (reads the telemetry DB)
 craft tui
 
 # Or point it at a specific DB
 craft tui --db ./app/telemetry.db`}</CheatCode>
-        </CheatSection>
+          </CheatSection>
 
-        <CheatSection eyebrow="AI" title="MCP integration">
-          <CheatLabel>Expose a route as an MCP tool</CheatLabel>
-          <CheatCode>{`import { mcp } from '@routecraft/ai'
+          <CheatSection eyebrow="AI" title="MCP integration">
+            <CheatLabel>Expose a route as an MCP tool</CheatLabel>
+            <CheatCode>{`import { mcp } from '@routecraft/ai'
 
 craft()
   .id('fetch-page')
@@ -321,8 +325,8 @@ craft()
   }))
   .enrich(http({ url: ex => ex.body.url }))
   .to(log())`}</CheatCode>
-          <CheatLabel>Call an LLM inside a route</CheatLabel>
-          <CheatCode>{`import { llm } from '@routecraft/ai'
+            <CheatLabel>Call an LLM inside a route</CheatLabel>
+            <CheatCode>{`import { llm } from '@routecraft/ai'
 
 craft()
   .id('summarize')
@@ -332,8 +336,8 @@ craft()
     userPrompt: ex => ex.body.text,
   }))
   .to(log())`}</CheatCode>
-          <CheatLabel>Claude Desktop config</CheatLabel>
-          <CheatCode language="json">{`{
+            <CheatLabel>Claude Desktop config</CheatLabel>
+            <CheatCode language="json">{`{
   "mcpServers": {
     "routecraft": {
       "command": "bunx",
@@ -342,61 +346,60 @@ craft()
     }
   }
 }`}</CheatCode>
-        </CheatSection>
+          </CheatSection>
 
-        <CheatSection
-          eyebrow="Snippets"
-          title="Quick reference"
-          span="wide"
-        >
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-[0.78rem]">
-              <thead>
-                <tr className="border-b border-gray-200 text-left text-gray-500 dark:border-gray-800 dark:text-gray-400">
-                  <th className="py-1.5 pr-3 font-medium">Task</th>
-                  <th className="py-1.5 font-medium">Code</th>
-                </tr>
-              </thead>
-              <tbody className="font-mono">
-                {[
-                  ['Every minute', `cron('* * * * *')`],
-                  ['Daily at 9 AM', `cron('0 9 * * *', { timezone: 'UTC' })`],
-                  ['Filter', `.filter(ex => ex.body.age > 18)`],
-                  ['Split an array', `.split()`],
-                  ['Collect results', `.aggregate()`],
-                  ['Validate body', `.validate(schema(z.object({ ... })))`],
-                  ['Dynamic URL', `http({ url: ex => \`/users/\${ex.body.id}\` })`],
-                  ['Set header', `.header('key', ex => ex.body.id)`],
-                  ['Side effect', `.tap(destination)`],
-                  ['Forward error', `.error((e, ex, fwd) => fwd('dlq'))`],
-                ].map(([task, code]) => (
-                  <tr
-                    key={task}
-                    className="border-b border-gray-100 last:border-0 dark:border-gray-800/60"
-                  >
-                    <td className="py-1.5 pr-3 font-sans text-gray-600 dark:text-gray-300">
-                      {task}
-                    </td>
-                    <td className="py-1.5 text-gray-800 dark:text-gray-200">
-                      {code}
-                    </td>
+          <CheatSection eyebrow="Snippets" title="Quick reference" span="wide">
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-[0.78rem]">
+                <thead>
+                  <tr className="border-b border-gray-200 text-left text-gray-500 dark:border-gray-800 dark:text-gray-400">
+                    <th className="py-1.5 pr-3 font-medium">Task</th>
+                    <th className="py-1.5 font-medium">Code</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CheatSection>
+                </thead>
+                <tbody className="font-mono">
+                  {[
+                    ['Every minute', `cron('* * * * *')`],
+                    ['Daily at 9 AM', `cron('0 9 * * *', { timezone: 'UTC' })`],
+                    ['Filter', `.filter(ex => ex.body.age > 18)`],
+                    ['Split an array', `.split()`],
+                    ['Collect results', `.aggregate()`],
+                    ['Validate body', `.validate(schema(z.object({ ... })))`],
+                    [
+                      'Dynamic URL',
+                      `http({ url: ex => \`/users/\${ex.body.id}\` })`,
+                    ],
+                    ['Set header', `.header('key', ex => ex.body.id)`],
+                    ['Side effect', `.tap(destination)`],
+                    ['Forward error', `.error((e, ex, fwd) => fwd('dlq'))`],
+                  ].map(([task, code]) => (
+                    <tr
+                      key={task}
+                      className="border-b border-gray-100 last:border-0 dark:border-gray-800/60"
+                    >
+                      <td className="py-1.5 pr-3 font-sans text-gray-600 dark:text-gray-300">
+                        {task}
+                      </td>
+                      <td className="py-1.5 text-gray-800 dark:text-gray-200">
+                        {code}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CheatSection>
 
-        <CheatSection eyebrow="Terminal" title="CLI">
-          <CheatCode language="bash">{`# Run a route file
+          <CheatSection eyebrow="Terminal" title="CLI">
+            <CheatCode language="bash">{`# Run a route file
 craft run ./my-route.ts
 
 # With debug logging
 craft run ./my-route.ts \\
   --log-level debug \\
   --log-file ./craft.log`}</CheatCode>
-          <CheatLabel>Common patterns</CheatLabel>
-          <CheatCode>{`// Scheduled fetch and notify
+            <CheatLabel>Common patterns</CheatLabel>
+            <CheatCode>{`// Scheduled fetch and notify
 craft()
   .from(cron('0 9 * * *'))
   .enrich(http({ url: '/api/...' }))
@@ -408,9 +411,8 @@ craft()
   .split()
   .enrich(http({ url: ex => \`/\${ex.body.id}\` }))
   .to(smtp({ to: ex => ex.body.email }))`}</CheatCode>
-        </CheatSection>
-      </div>
-
+          </CheatSection>
+        </div>
       </div>
     </main>
   )
