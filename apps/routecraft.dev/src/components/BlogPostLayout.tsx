@@ -35,45 +35,44 @@ export function BlogPostLayout({
 
   return (
     <>
-      <div className="max-w-3xl min-w-0 flex-auto px-4 py-12 lg:max-w-none lg:pr-0 lg:pl-8 xl:px-16">
+      <div className="max-w-3xl min-w-0 flex-auto px-4 py-16 lg:max-w-none lg:pr-0 lg:pl-8 xl:px-16">
         <article className="mx-auto max-w-3xl">
           <Link
             href="/blog"
-            className="inline-flex items-center gap-1 text-sm font-medium text-sky-600 hover:text-sky-500 dark:text-sky-400"
+            className="group inline-flex items-center gap-2 font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase transition hover:text-cobalt-600 dark:hover:text-cobalt-300"
           >
-            <svg
+            <span
               aria-hidden="true"
-              viewBox="0 0 20 20"
-              fill="currentColor"
-              className="h-4 w-4"
+              className="transition group-hover:-translate-x-1"
             >
-              <path
-                fillRule="evenodd"
-                d="M17 10a.75.75 0 01-.75.75H5.612l4.158 3.96a.75.75 0 11-1.04 1.08l-5.5-5.25a.75.75 0 010-1.08l5.5-5.25a.75.75 0 111.04 1.08L5.612 9.25H16.25A.75.75 0 0117 10z"
-                clipRule="evenodd"
-              />
-            </svg>
-            All posts
+              ←
+            </span>
+            <span>All posts</span>
           </Link>
 
-          <header className="mt-6 space-y-5">
+          <header className="mt-8 space-y-6">
             {frontmatter.tags && frontmatter.tags.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {frontmatter.tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="rounded-full bg-sky-50 px-2.5 py-0.5 text-xs font-medium text-sky-700 dark:bg-sky-500/10 dark:text-sky-300"
-                  >
+              <div className="flex flex-wrap items-center gap-2 font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase dark:text-paper/55">
+                {frontmatter.tags.map((tag, i) => (
+                  <span key={tag} className="inline-flex items-center gap-2">
+                    {i > 0 && (
+                      <span
+                        aria-hidden="true"
+                        className="text-ink/25 dark:text-paper/25"
+                      >
+                        ·
+                      </span>
+                    )}
                     {tag}
                   </span>
                 ))}
               </div>
             )}
-            <h1 className="font-display text-4xl font-medium tracking-tight text-gray-900 lg:text-5xl dark:text-white">
+            <h1 className="font-editorial text-[clamp(2.25rem,5vw,3.5rem)] leading-[1.05] font-medium tracking-[-0.02em] text-ink dark:text-paper">
               {frontmatter.title}
             </h1>
             {frontmatter.description && (
-              <p className="text-lg text-gray-600 dark:text-gray-400">
+              <p className="font-editorial text-[1.2rem] leading-[1.5] text-ink/70 italic dark:text-paper/70">
                 {frontmatter.description}
               </p>
             )}
@@ -84,14 +83,19 @@ export function BlogPostLayout({
               authorRole={frontmatter.authorRole}
             />
             {frontmatter.draft && (
-              <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
-                This post is a draft. Content may change before publication.
+              <div className="flex items-baseline gap-3 border border-l-4 border-amber-500/40 border-l-amber-500 p-4">
+                <span className="font-mono text-[0.65rem] tracking-[0.22em] text-amber-600 uppercase dark:text-amber-400">
+                  Draft
+                </span>
+                <span className="text-sm text-ink/75 dark:text-paper/75">
+                  Content may change before publication.
+                </span>
               </div>
             )}
           </header>
 
           {frontmatter.image && (
-            <figure className="mt-10 overflow-hidden rounded-2xl border border-gray-200 dark:border-gray-800">
+            <figure className="mt-12 border border-ink/15 dark:border-paper/15">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={frontmatter.image}
@@ -101,39 +105,33 @@ export function BlogPostLayout({
             </figure>
           )}
 
-          <div className="mt-10">
+          <div className="mt-12">
             <Prose>{children}</Prose>
           </div>
 
-          <footer className="mt-16 border-t border-gray-200 pt-8 dark:border-gray-800">
-            <p className="text-sm text-gray-500 dark:text-gray-400">
+          <footer className="mt-20 border-t border-ink/15 pt-8 dark:border-paper/15">
+            <p className="font-editorial text-[1rem] text-ink/70 italic dark:text-paper/70">
               Have feedback on this post? Open an issue on{' '}
               <a
                 href="https://github.com/routecraftjs/routecraft/issues"
-                className="font-medium text-sky-600 hover:text-sky-500 dark:text-sky-400"
+                className="text-cobalt-500 not-italic transition hover:text-cobalt-600 dark:hover:text-cobalt-300"
               >
                 GitHub
               </a>
               .
             </p>
-            <p className="mt-4">
+            <p className="mt-6">
               <Link
                 href="/blog"
-                className="inline-flex items-center gap-1 text-sm font-semibold text-sky-600 hover:text-sky-500 dark:text-sky-400"
+                className="group inline-flex items-center gap-2 font-mono text-[0.7rem] tracking-[0.22em] text-cobalt-500 uppercase transition hover:text-cobalt-600 dark:hover:text-cobalt-300"
               >
-                Back to all posts
-                <svg
+                <span>Back to all posts</span>
+                <span
                   aria-hidden="true"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                  className="h-4 w-4"
+                  className="transition group-hover:translate-x-1"
                 >
-                  <path
-                    fillRule="evenodd"
-                    d="M3 10a.75.75 0 01.75-.75h10.638L10.23 5.29a.75.75 0 111.04-1.08l5.5 5.25a.75.75 0 010 1.08l-5.5 5.25a.75.75 0 11-1.04-1.08l4.158-3.96H3.75A.75.75 0 013 10z"
-                    clipRule="evenodd"
-                  />
-                </svg>
+                  →
+                </span>
               </Link>
             </p>
           </footer>
