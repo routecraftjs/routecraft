@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation'
 import clsx from 'clsx'
 
 import { Footer } from '@/components/Footer'
+import { Logo } from '@/components/Logo'
 import { MobileNavigation } from '@/components/MobileNavigation'
 import { Navigation } from '@/components/Navigation'
 import { Search } from '@/components/Search'
@@ -50,12 +51,9 @@ function Header() {
         <Link
           href="/"
           aria-label="Home page"
-          className="group flex items-baseline gap-2.5"
+          className="group flex items-center gap-2.5"
         >
-          <span
-            aria-hidden="true"
-            className="inline-block h-2 w-2 shrink-0 translate-y-[-0.15em] bg-cobalt-500 transition group-hover:scale-110"
-          />
+          <Logo className="h-6 w-6 shrink-0 text-ink transition group-hover:text-cobalt-500 dark:text-paper dark:group-hover:text-cobalt-300" />
           <span
             className="font-editorial text-[1.35rem] leading-none tracking-[-0.02em] text-ink dark:text-paper"
             style={{ fontVariationSettings: '"opsz" 48, "SOFT" 30' }}

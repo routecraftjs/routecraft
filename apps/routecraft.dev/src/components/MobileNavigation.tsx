@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { Dialog, DialogPanel } from '@headlessui/react'
 
+import { Logo } from '@/components/Logo'
 import { Navigation } from '@/components/Navigation'
 import { topNavLinks } from '@/components/TopNav'
 
@@ -89,10 +90,7 @@ export function MobileNavigation() {
               className="group flex items-baseline gap-2.5"
               aria-label="Home page"
             >
-              <span
-                aria-hidden="true"
-                className="inline-block h-2 w-2 shrink-0 translate-y-[-0.15em] bg-cobalt-500"
-              />
+              <Logo className="h-6 w-6 shrink-0 text-ink dark:text-paper" />
               <span
                 className="font-editorial text-[1.35rem] leading-none tracking-[-0.02em] text-ink dark:text-paper"
                 style={{ fontVariationSettings: '"opsz" 48, "SOFT" 30' }}

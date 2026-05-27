@@ -1,5 +1,7 @@
 import Link from 'next/link'
 
+import { Logo } from '@/components/Logo'
+
 interface FooterLink {
   title: string
   href: string
@@ -99,11 +101,8 @@ export function Footer() {
       <div className="mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 gap-x-12 gap-y-14 lg:grid-cols-[1.5fr_1fr_1fr_1fr]">
           <div className="flex flex-col gap-6">
-            <div className="flex items-baseline gap-2.5">
-              <span
-                aria-hidden="true"
-                className="inline-block h-2 w-2 shrink-0 translate-y-[-0.15em] bg-cobalt-500"
-              />
+            <div className="flex items-center gap-3">
+              <Logo className="h-8 w-8 shrink-0 text-ink dark:text-paper" />
               <span
                 className="font-editorial text-[1.75rem] leading-none tracking-[-0.02em] text-ink dark:text-paper"
                 style={{ fontVariationSettings: '"opsz" 96, "SOFT" 30' }}

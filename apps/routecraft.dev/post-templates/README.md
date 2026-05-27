@@ -18,7 +18,6 @@ in the HTML source, screenshot the frame, post.
 | File                                  | Size       | Use for |
 | ------------------------------------- | ---------- | ------- |
 | `00-brand-identity.html`              | 1200×auto  | The brand book. Logo system, colour palette, typography, voice, layout, UI primitives, motifs. Open in a browser, print to PDF if you want a deliverable. Read this before designing anything else. |
-| `00b-logo-options.html`               | 1200×auto  | Eight logo concept marks (pipeline, capability cell, italic R, chevron, crosshair, stamped RC, R(), square+arrow). Each shown light, dark, favicon-size, and as a lock-up with the wordmark. Right-click any SVG to copy the markup. |
 
 ## Templates
 

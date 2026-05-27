@@ -1,6 +1,6 @@
 <div align="center">
 
-  <img src="./routecraft-sticker.svg" alt="Routecraft" width="300" />
+  <img src="./routecraft.svg" alt="Routecraft" width="120" />
 
   <p><strong>AI automation as code</strong></p>
 
