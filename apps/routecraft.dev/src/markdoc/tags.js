@@ -3,6 +3,7 @@ import { Badge } from '@/components/Badge'
 import { QuickLink, QuickLinks } from '@/components/QuickLinks'
 import { CodeTabs, CodeTab } from '@/components/CodeTabs'
 import { TriggerCycler } from '@/components/TriggerCycler'
+import { AdapterGrid } from '@/components/AdapterGrid'
 
 const tags = {
   callout: {
@@ -106,6 +107,10 @@ const tags = {
   'topology-diagram': {
     selfClosing: true,
     render: TriggerCycler,
+  },
+  'adapter-grid': {
+    selfClosing: true,
+    render: AdapterGrid,
   },
 }
 

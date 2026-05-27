@@ -1,0 +1,262 @@
+import Link from 'next/link'
+
+type Role = 'Source' | 'Destination' | 'Transformer' | 'Processor'
+
+interface Adapter {
+  name: string
+  category: string
+  roles: Role[]
+  description: string
+}
+
+const adapters: Adapter[] = [
+  // Core
+  {
+    name: 'simple',
+    category: 'Core',
+    roles: ['Source'],
+    description: 'Static or dynamic data source from a value or function.',
+  },
+  {
+    name: 'log',
+    category: 'Core',
+    roles: ['Destination'],
+    description: 'Console logging for debugging and inspection.',
+  },
+  {
+    name: 'debug',
+    category: 'Core',
+    roles: ['Destination'],
+    description: 'Verbose dump of the full exchange for development.',
+  },
+  {
+    name: 'timer',
+    category: 'Core',
+    roles: ['Source'],
+    description: 'Recurring source on a fixed interval.',
+  },
+  {
+    name: 'cron',
+    category: 'Core',
+    roles: ['Source'],
+    description: 'Cron-scheduled source with timezone support.',
+  },
+  {
+    name: 'event',
+    category: 'Core',
+    roles: ['Source'],
+    description: 'Internal event bus source for cross-route signalling.',
+  },
+  {
+    name: 'direct',
+    category: 'Core',
+    roles: ['Source', 'Destination'],
+    description: 'Synchronous route-to-route plumbing with type safety.',
+  },
+  {
+    name: 'http',
+    category: 'Core',
+    roles: ['Destination'],
+    description: 'Outbound HTTP requests with typed response.',
+  },
+
+  // Test
+  {
+    name: 'noop',
+    category: 'Test',
+    roles: ['Destination'],
+    description: 'Discards the exchange. Useful for benchmarks and stubs.',
+  },
+  {
+    name: 'pseudo',
+    category: 'Test',
+    roles: ['Source', 'Destination', 'Processor'],
+    description: 'Typed placeholder for docs, examples, and test wiring.',
+  },
+  {
+    name: 'spy',
+    category: 'Test',
+    roles: ['Destination', 'Processor'],
+    description: 'Records exchanges and exposes them for test assertions.',
+  },
+
+  // File
+  {
+    name: 'file',
+    category: 'File',
+    roles: ['Source', 'Destination'],
+    description: 'Read or write text files, with glob support.',
+  },
+  {
+    name: 'json',
+    category: 'File',
+    roles: ['Source', 'Destination', 'Transformer'],
+    description: 'Parse, write, or transform JSON files.',
+  },
+  {
+    name: 'csv',
+    category: 'File',
+    roles: ['Source', 'Destination'],
+    description: 'Stream rows from a CSV file or write rows out.',
+  },
+  {
+    name: 'jsonl',
+    category: 'File',
+    roles: ['Source', 'Destination'],
+    description: 'Stream JSON Lines records or append to a JSONL file.',
+  },
+  {
+    name: 'html',
+    category: 'File',
+    roles: ['Source', 'Destination', 'Transformer'],
+    description: 'Parse or write HTML, with DOM-style selection helpers.',
+  },
+
+  // Messaging
+  {
+    name: 'mail',
+    category: 'Messaging',
+    roles: ['Source', 'Destination'],
+    description: 'Receive email via IMAP or send via SMTP.',
+  },
+
+  // Browser
+  {
+    name: 'agentBrowser',
+    category: 'Browser',
+    roles: ['Destination'],
+    description: 'Drive a real browser session: navigate, click, snapshot.',
+  },
+
+  // AI
+  {
+    name: 'mcp',
+    category: 'AI',
+    roles: ['Source', 'Destination'],
+    description: 'Expose capabilities as MCP tools or call remote MCP servers.',
+  },
+  {
+    name: 'llm',
+    category: 'AI',
+    roles: ['Destination'],
+    description: 'Call a language model for text or structured output.',
+  },
+  {
+    name: 'agent',
+    category: 'AI',
+    roles: ['Destination'],
+    description: 'Run an LLM with a fixed system prompt and tool set.',
+  },
+  {
+    name: 'embedding',
+    category: 'AI',
+    roles: ['Destination'],
+    description: 'Generate vector embeddings from text.',
+  },
+
+  // Clustering
+  {
+    name: 'group',
+    category: 'Clustering',
+    roles: ['Transformer'],
+    description: 'Group exchanges into batches by key, count, or time.',
+  },
+  {
+    name: 'cosine',
+    category: 'Clustering',
+    roles: ['Transformer'],
+    description: 'Cluster items by cosine similarity of embeddings.',
+  },
+]
+
+const categories = [
+  'Core',
+  'Test',
+  'File',
+  'Messaging',
+  'Browser',
+  'AI',
+  'Clustering',
+] as const
+
+const roleClassname: Record<Role, string> = {
+  Source:
+    'border-cobalt-500/40 text-cobalt-600 dark:border-cobalt-400/40 dark:text-cobalt-300',
+  Destination:
+    'border-ink/25 text-ink/65 dark:border-paper/25 dark:text-paper/65',
+  Transformer:
+    'border-ink/25 text-ink/65 dark:border-paper/25 dark:text-paper/65',
+  Processor:
+    'border-ink/25 text-ink/65 dark:border-paper/25 dark:text-paper/65',
+}
+
+export function AdapterGrid() {
+  return (
+    <div className="not-prose mt-8 flex flex-col gap-14">
+      {categories.map((category) => {
+        const items = adapters.filter((a) => a.category === category)
+        if (items.length === 0) return null
+        return (
+          <section key={category} aria-labelledby={`adapters-${category}`}>
+            <header className="flex items-center gap-3 border-b border-ink/15 pb-3 dark:border-paper/15">
+              <span aria-hidden="true" className="h-1 w-1 bg-cobalt-500" />
+              <h3
+                id={`adapters-${category}`}
+                className="font-mono text-[0.65rem] tracking-[0.22em] text-ink/65 uppercase dark:text-paper/65"
+              >
+                {category}
+              </h3>
+              <span className="ml-auto font-mono text-[0.65rem] tracking-[0.22em] text-ink/45 tabular-nums dark:text-paper/45">
+                {String(items.length).padStart(2, '0')}
+              </span>
+            </header>
+            <ul
+              role="list"
+              className="mt-5 grid grid-cols-1 gap-px border border-ink/15 bg-ink/15 sm:grid-cols-2 lg:grid-cols-3 dark:border-paper/15 dark:bg-paper/15"
+            >
+              {items.map((item) => (
+                <li key={item.name} className="bg-paper dark:bg-ink">
+                  <Link
+                    href={`/docs/reference/adapters/${item.name.toLowerCase()}`}
+                    className="group flex h-full flex-col gap-3 p-5 transition hover:bg-paper-deep/40 dark:hover:bg-ink-soft/40"
+                  >
+                    <div className="flex items-baseline justify-between gap-3">
+                      <code className="font-mono text-[0.95rem] font-medium text-ink transition group-hover:text-cobalt-500 dark:text-paper dark:group-hover:text-cobalt-300">
+                        {item.name}
+                        <span className="text-ink/40 dark:text-paper/40">
+                          ()
+                        </span>
+                      </code>
+                      <span
+                        aria-hidden="true"
+                        className="font-mono text-[0.9rem] text-ink/30 transition group-hover:translate-x-0.5 group-hover:text-cobalt-500 dark:text-paper/30"
+                      >
+                        →
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {item.roles.map((role) => (
+                        <span
+                          key={role}
+                          className={
+                            'inline-flex items-center border px-1.5 py-0.5 font-mono text-[0.6rem] tracking-[0.16em] uppercase ' +
+                            roleClassname[role]
+                          }
+                        >
+                          {role}
+                        </span>
+                      ))}
+                    </div>
+                    <p className="text-[0.9rem] leading-[1.55] text-ink/70 dark:text-paper/70">
+                      {item.description}
+                    </p>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )
+      })}
+    </div>
+  )
+}
