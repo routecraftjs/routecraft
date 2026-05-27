@@ -4,6 +4,8 @@ import { QuickLink, QuickLinks } from '@/components/QuickLinks'
 import { CodeTabs, CodeTab } from '@/components/CodeTabs'
 import { TriggerCycler } from '@/components/TriggerCycler'
 import { AdapterGrid } from '@/components/AdapterGrid'
+import { OperationsIndex } from '@/components/OperationsIndex'
+import { PluginIndex } from '@/components/PluginIndex'
 
 const tags = {
   callout: {
@@ -111,6 +113,14 @@ const tags = {
   'adapter-grid': {
     selfClosing: true,
     render: AdapterGrid,
+  },
+  'operations-index': {
+    selfClosing: true,
+    render: OperationsIndex,
+  },
+  'plugin-index': {
+    selfClosing: true,
+    render: PluginIndex,
   },
 }
 
