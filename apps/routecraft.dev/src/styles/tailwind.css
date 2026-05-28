@@ -66,6 +66,53 @@
   [inert] ::-webkit-scrollbar {
     display: none;
   }
+
+  /* Blog cover palette. Consumed by BlogCover via COVER_PALETTE_THEMED so the
+     in-page cover follows the site theme. The OG image uses literal colours. */
+  :root {
+    --cover-bg: #ece5d2;
+    --cover-fg: #22232c;
+    --cover-fg-rgb: 34 35 44;
+    --cover-accent: #1247ff;
+  }
+
+  .dark {
+    --cover-bg: #16171c;
+    --cover-fg: #f5f1e8;
+    --cover-fg-rgb: 245 241 232;
+    --cover-accent: #5867f5;
+  }
+
+  /* Smooth the colour flip on theme change and hover-invert. */
+  .blog-cover :where(div, span, path, line, rect, circle) {
+    transition:
+      color 0.35s ease,
+      background-color 0.35s ease,
+      fill 0.35s ease,
+      stroke 0.35s ease;
+  }
+
+  /* Hover-invert: when a card (.group) is hovered, flip the cover's palette to
+     the opposite theme. Light cards go dark; dark cards go light. */
+  .group:hover .blog-cover {
+    --cover-bg: #16171c;
+    --cover-fg: #f5f1e8;
+    --cover-fg-rgb: 245 241 232;
+    --cover-accent: #5867f5;
+  }
+
+  .dark .group:hover .blog-cover {
+    --cover-bg: #ece5d2;
+    --cover-fg: #22232c;
+    --cover-fg-rgb: 34 35 44;
+    --cover-accent: #1247ff;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .blog-cover :where(div, span, path, line, rect, circle) {
+      transition: none;
+    }
+  }
 }
 
 @keyframes marquee {

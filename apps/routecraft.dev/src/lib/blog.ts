@@ -15,6 +15,8 @@ export interface BlogPostMeta {
   draft?: boolean
   image?: string
   imageAlt?: string
+  /** Override the auto-picked cover glyph. First character only. */
+  coverGlyph?: string
   readingTime: number
   href: string
 }
@@ -71,6 +73,8 @@ function readPost(blogDir: string, slug: string): BlogPostMeta | undefined {
     draft: Boolean(data.draft),
     image: typeof data.image === 'string' ? data.image : undefined,
     imageAlt: typeof data.imageAlt === 'string' ? data.imageAlt : undefined,
+    coverGlyph:
+      typeof data.coverGlyph === 'string' ? data.coverGlyph : undefined,
     readingTime:
       typeof data.readingTime === 'number'
         ? data.readingTime

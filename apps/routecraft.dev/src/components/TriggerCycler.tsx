@@ -78,6 +78,13 @@ export function TriggerCycler() {
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
     >
+      {/* Backing card: same footprint as the block, offset down-right.
+          One shade off the bg, reads like layered paper. */}
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 -z-10 translate-x-2.5 translate-y-2.5 bg-paper-deep dark:bg-ink-soft"
+      />
+
       {/* Drawing sheet title block */}
       <div className="flex flex-wrap items-center justify-between gap-3 border border-b-0 border-ink/20 bg-paper-deep/55 px-4 py-2.5 font-mono text-[0.65rem] tracking-[0.2em] text-ink/55 uppercase shadow-[0_20px_40px_-24px_rgba(12,12,16,0.18)] dark:border-paper/20 dark:bg-ink-soft/55 dark:text-paper/65 dark:shadow-[0_20px_40px_-24px_rgba(0,0,0,0.6)]">
         <span>

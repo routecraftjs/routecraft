@@ -4,8 +4,9 @@ import { type Node } from '@markdoc/markdoc'
 import { Prose } from '@/components/Prose'
 import { TableOfContents } from '@/components/TableOfContents'
 import { BlogMeta } from '@/components/BlogMeta'
+import { BlogCoverInline } from '@/components/BlogCover'
 import { collectSections } from '@/lib/sections'
-import { formatBlogDate } from '@/lib/blog'
+import { formatBlogDate, getAllBlogPosts } from '@/lib/blog'
 
 interface BlogPostFrontmatter {
   title?: string
@@ -17,8 +18,27 @@ interface BlogPostFrontmatter {
   tags?: string[]
   image?: string
   imageAlt?: string
+  coverGlyph?: string
   readingTime?: number
   draft?: boolean
+  slug?: string
+}
+
+function resolveSlugAndFigure(frontmatter: BlogPostFrontmatter): {
+  slug: string
+  figureNumber: number
+} {
+  const all = getAllBlogPosts()
+    .filter((post) => !post.draft)
+    .sort((a, b) => (a.date || '').localeCompare(b.date || ''))
+  const explicit = frontmatter.slug
+  const match = explicit
+    ? all.find((post) => post.slug === explicit)
+    : all.find((post) => post.title === frontmatter.title)
+  const slug = match?.slug ?? frontmatter.title ?? 'post'
+  const index = match ? all.indexOf(match) : -1
+  const figureNumber = index >= 0 ? index + 1 : all.length + 1
+  return { slug, figureNumber }
 }
 
 export function BlogPostLayout({
@@ -32,6 +52,7 @@ export function BlogPostLayout({
 }) {
   const tableOfContents = collectSections(nodes)
   const date = typeof frontmatter.date === 'string' ? frontmatter.date : ''
+  const { slug, figureNumber } = resolveSlugAndFigure(frontmatter)
 
   return (
     <>
@@ -94,13 +115,24 @@ export function BlogPostLayout({
             )}
           </header>
 
-          {frontmatter.image && (
+          {frontmatter.image ? (
             <figure className="mt-12 border border-ink/15 dark:border-paper/15">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={frontmatter.image}
                 alt={frontmatter.imageAlt ?? ''}
                 className="w-full"
+              />
+            </figure>
+          ) : (
+            <figure className="mt-12 border border-ink/15 dark:border-paper/15">
+              <BlogCoverInline
+                title={frontmatter.title ?? ''}
+                slug={slug}
+                tags={frontmatter.tags}
+                subtitle={frontmatter.description}
+                glyph={frontmatter.coverGlyph}
+                figureNumber={figureNumber}
               />
             </figure>
           )}

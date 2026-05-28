@@ -3,7 +3,7 @@ import type { Metadata } from 'next'
 
 import { BlogCard } from '@/components/BlogCard'
 import { FeaturedBlogCard } from '@/components/FeaturedBlogCard'
-import { getAllBlogPosts, getFeaturedPost } from '@/lib/blog'
+import { getAllBlogPosts } from '@/lib/blog'
 
 export const metadata: Metadata = {
   title: 'Blog',
@@ -19,8 +19,17 @@ export const metadata: Metadata = {
 
 export default function BlogIndexPage() {
   const posts = getAllBlogPosts()
-  const featured = getFeaturedPost(posts)
-  const rest = posts.filter((post) => post.slug !== featured?.slug)
+  // Lead with up to two posts (featured non-drafts first, then most recent),
+  // then show the remaining posts in the grid below.
+  const featured = [
+    ...posts.filter((p) => p.featured && !p.draft),
+    ...posts.filter((p) => !p.featured && !p.draft),
+    ...posts.filter((p) => p.draft),
+  ]
+    .slice(0, 2)
+    .reverse()
+  const featuredSlugs = new Set(featured.map((p) => p.slug))
+  const rest = posts.filter((post) => !featuredSlugs.has(post.slug))
 
   return (
     <main className="mx-auto w-full max-w-6xl px-4 py-20 sm:px-6 lg:px-8">
@@ -42,11 +51,13 @@ export default function BlogIndexPage() {
         <EmptyState />
       ) : (
         <>
-          {featured && (
+          {featured.length > 0 && (
             <section className="mt-20">
               <SectionLabel label="Featured" />
-              <div className="mt-8">
-                <FeaturedBlogCard post={featured} />
+              <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
+                {featured.map((post) => (
+                  <FeaturedBlogCard key={post.slug} post={post} />
+                ))}
               </div>
             </section>
           )}

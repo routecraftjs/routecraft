@@ -2,6 +2,7 @@ import Link from 'next/link'
 import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
 
+import { BlogMark } from '@/components/BlogMark'
 import { BlogMeta } from '@/components/BlogMeta'
 import { BuiltWithRoutecraft } from '@/components/BuiltWithRoutecraft'
 import { CodeMorph } from '@/components/CodeMorph'
@@ -569,7 +570,7 @@ function Reading({ post }: { post: BlogPostMeta }) {
                 </span>
               </span>
             </div>
-            <figure className="relative my-0 hidden border-l border-ink/15 lg:flex lg:items-center lg:justify-center dark:border-paper/15">
+            <figure className="relative my-0 hidden overflow-hidden border-l border-ink/15 lg:block dark:border-paper/15">
               {post.image ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
@@ -578,13 +579,7 @@ function Reading({ post }: { post: BlogPostMeta }) {
                   className="h-full w-full object-cover grayscale transition duration-700 group-hover:grayscale-0"
                 />
               ) : (
-                <span
-                  aria-hidden="true"
-                  className="font-editorial text-[10rem] leading-none text-cobalt-500/15 dark:text-cobalt-400/20"
-                  style={{ fontVariationSettings: '"opsz" 144, "SOFT" 100' }}
-                >
-                  {post.title.charAt(0)}
-                </span>
+                <BlogMark slug={post.slug} tags={post.tags} />
               )}
             </figure>
           </Link>

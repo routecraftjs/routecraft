@@ -3,6 +3,7 @@ import clsx from 'clsx'
 
 import type { BlogPostMeta } from '@/lib/blog'
 import { BlogMeta } from '@/components/BlogMeta'
+import { BlogCoverInline } from '@/components/BlogCover'
 
 export function BlogCard({
   post,
@@ -22,7 +23,10 @@ export function BlogCard({
         href={post.href}
         className="flex h-full flex-col focus:outline-none"
       >
-        <div className="relative aspect-[16/9] w-full overflow-hidden border-b border-ink/15 dark:border-paper/15">
+        <div
+          className="relative w-full overflow-hidden border-b border-ink/15 dark:border-paper/15"
+          style={{ aspectRatio: '1200 / 630' }}
+        >
           {post.image ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -31,7 +35,11 @@ export function BlogCard({
               className="h-full w-full object-cover grayscale transition duration-500 group-hover:scale-105 group-hover:grayscale-0"
             />
           ) : (
-            <BlogCardPlaceholder title={post.title} />
+            <BlogCoverInline
+              title={post.title}
+              slug={post.slug}
+              tags={post.tags}
+            />
           )}
           {post.draft && (
             <span className="absolute top-3 left-3 border border-amber-500/40 bg-paper/90 px-2 py-0.5 font-mono text-[0.65rem] tracking-[0.18em] text-amber-700 uppercase dark:bg-ink/90 dark:text-amber-400">
@@ -71,20 +79,5 @@ export function BlogCard({
         </div>
       </Link>
     </article>
-  )
-}
-
-function BlogCardPlaceholder({ title }: { title: string }) {
-  const initial = title.charAt(0).toUpperCase()
-  return (
-    <div className="flex h-full w-full items-center justify-center bg-paper-deep/30 dark:bg-ink-soft/30">
-      <span
-        aria-hidden="true"
-        className="font-editorial text-[5rem] leading-none text-cobalt-500/25"
-        style={{ fontVariationSettings: '"opsz" 144, "SOFT" 100' }}
-      >
-        {initial}
-      </span>
-    </div>
   )
 }
