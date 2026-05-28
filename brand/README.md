@@ -1,9 +1,9 @@
 # Routecraft brand
 
 The Routecraft brand book. The single reference for the logo system, colour
-palette, typography, voice, layout grammar, UI primitives, and motifs. Read it
-before designing anything that carries the brand: site, docs, social posts,
-slides, stickers.
+palette (light and dark), typography, voice, layout grammar, UI primitives,
+motifs, and motion. Read it before designing anything that carries the brand:
+site, docs, social posts, slides, stickers.
 
 - [`index.html`](./index.html) — the brand book. Open in a browser, or print to
   PDF (Cmd+P → Save as PDF) if you want a shareable deliverable.

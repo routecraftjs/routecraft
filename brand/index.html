@@ -8,44 +8,128 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,200..900;1,9..144,200..900&family=JetBrains+Mono:ital,wght@0,400..700;1,400..700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,200..900;1,9..144,200..900&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:ital,wght@0,400..700;1,400..700&display=swap"
     />
     <script>
+      // Colours are CSS variables (RGB channels) so the whole book flips
+      // light/dark from one class. Palette specimens stay fixed via
+      // .fixed-light, which re-asserts the light values on its subtree.
       tailwind.config = {
+        darkMode: "class",
         theme: {
           extend: {
             colors: {
-              paper: "#f5f1e8",
-              "paper-edge": "#e8e0cb",
-              "paper-deep": "#ece5d2",
-              ink: "#22232c",
-              "ink-soft": "#30313c",
-              "ink-deep": "#16171c",
-              "cobalt-50": "#eef0ff",
-              "cobalt-100": "#d8defd",
-              "cobalt-200": "#b6bffb",
-              "cobalt-300": "#8a96f8",
-              "cobalt-400": "#5867f5",
-              "cobalt-500": "#1247ff",
-              "cobalt-600": "#0c39d6",
-              "cobalt-700": "#082aa3",
-              "cobalt-800": "#061f78",
-              "cobalt-900": "#04154f",
+              backdrop: "rgb(var(--backdrop) / <alpha-value>)",
+              paper: "rgb(var(--paper) / <alpha-value>)",
+              "paper-edge": "rgb(var(--paper-edge) / <alpha-value>)",
+              "paper-deep": "rgb(var(--paper-deep) / <alpha-value>)",
+              ink: "rgb(var(--ink) / <alpha-value>)",
+              "ink-soft": "rgb(var(--ink-soft) / <alpha-value>)",
+              "ink-deep": "rgb(var(--ink-deep) / <alpha-value>)",
+              "cobalt-50": "rgb(var(--cobalt-50) / <alpha-value>)",
+              "cobalt-100": "rgb(var(--cobalt-100) / <alpha-value>)",
+              "cobalt-200": "rgb(var(--cobalt-200) / <alpha-value>)",
+              "cobalt-300": "rgb(var(--cobalt-300) / <alpha-value>)",
+              "cobalt-400": "rgb(var(--cobalt-400) / <alpha-value>)",
+              "cobalt-500": "rgb(var(--cobalt-500) / <alpha-value>)",
+              "cobalt-600": "rgb(var(--cobalt-600) / <alpha-value>)",
+              "cobalt-700": "rgb(var(--cobalt-700) / <alpha-value>)",
+              "cobalt-800": "rgb(var(--cobalt-800) / <alpha-value>)",
+              "cobalt-900": "rgb(var(--cobalt-900) / <alpha-value>)",
             },
             fontFamily: {
               editorial: ["Fraunces", "serif"],
+              ui: ['"IBM Plex Sans"', "system-ui", "sans-serif"],
               mono: ['"JetBrains Mono"', "ui-monospace", "monospace"],
             },
           },
         },
       };
     </script>
+    <script>
+      // Theme switch. Default is light. ?theme=dark renders dark on load; the
+      // floating toggle (bottom-right) flips it and keeps the URL in sync.
+      (() => {
+        const t = new URLSearchParams(location.search).get("theme");
+        if (t === "dark") document.documentElement.classList.add("dark");
+      })();
+    </script>
     <style>
+      /* Light is the default; .dark on <html> re-tones the whole book. */
+      :root {
+        --backdrop: 214 211 207;
+        --paper: 245 241 232;
+        --paper-edge: 232 224 203;
+        --paper-deep: 236 229 210;
+        --ink: 34 35 44;
+        --ink-soft: 48 49 60;
+        --ink-deep: 22 23 28;
+        --cobalt-50: 238 240 255;
+        --cobalt-100: 216 222 253;
+        --cobalt-200: 182 191 251;
+        --cobalt-300: 138 150 248;
+        --cobalt-400: 88 103 245;
+        --cobalt-500: 18 71 255;
+        --cobalt-600: 12 57 214;
+        --cobalt-700: 8 42 163;
+        --cobalt-800: 6 31 120;
+        --cobalt-900: 4 21 79;
+      }
+      .dark {
+        --backdrop: 12 13 17;
+        --paper: 22 23 29;
+        --paper-edge: 38 40 50;
+        --paper-deep: 32 34 43;
+        --ink: 240 236 225;
+        --ink-soft: 206 201 188;
+        --ink-deep: 250 247 240;
+        --cobalt-50: 238 240 255;
+        --cobalt-100: 216 222 253;
+        --cobalt-200: 182 191 251;
+        --cobalt-300: 176 185 255;
+        --cobalt-400: 140 152 252;
+        --cobalt-500: 116 130 255;
+        --cobalt-600: 158 168 253;
+        --cobalt-700: 8 42 163;
+        --cobalt-800: 6 31 120;
+        --cobalt-900: 4 21 79;
+      }
+      /* Palette specimens must show their true colour in any theme. This
+         re-asserts the light values so swatches stay fixed under .dark. */
+      .fixed-light {
+        --backdrop: 214 211 207;
+        --paper: 245 241 232;
+        --paper-edge: 232 224 203;
+        --paper-deep: 236 229 210;
+        --ink: 34 35 44;
+        --ink-soft: 48 49 60;
+        --ink-deep: 22 23 28;
+        --cobalt-50: 238 240 255;
+        --cobalt-100: 216 222 253;
+        --cobalt-200: 182 191 251;
+        --cobalt-300: 138 150 248;
+        --cobalt-400: 88 103 245;
+        --cobalt-500: 18 71 255;
+        --cobalt-600: 12 57 214;
+        --cobalt-700: 8 42 163;
+        --cobalt-800: 6 31 120;
+        --cobalt-900: 4 21 79;
+      }
       body {
         margin: 0;
         padding: 0;
-        background: #d6d3cf;
+        background: rgb(var(--backdrop));
         font-family: "Fraunces", serif;
+      }
+      /* The light/dark flip glides rather than snaps (see Motion). */
+      .page *,
+      .page {
+        transition:
+          background-color 0.35s ease,
+          border-color 0.35s ease,
+          color 0.35s ease,
+          fill 0.35s ease,
+          stroke 0.35s ease;
       }
       .page {
         width: 1200px;
@@ -55,6 +139,11 @@
         background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.6 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
         opacity: 0.04;
         mix-blend-mode: multiply;
+      }
+      .dark .grain {
+        opacity: 0.06;
+        mix-blend-mode: screen;
+        filter: invert(1);
       }
       .reg {
         position: absolute;
@@ -66,7 +155,7 @@
       .reg::after {
         content: "";
         position: absolute;
-        background: #22232c;
+        background: rgb(var(--ink));
       }
       .reg::before {
         top: 50%;
@@ -84,21 +173,71 @@
       }
       /* Token coloring for code samples */
       .t-fn {
-        color: #22232c;
+        color: rgb(var(--ink));
         font-weight: 600;
       }
       .t-str {
-        color: #0c39d6;
+        color: rgb(var(--cobalt-600));
       }
       .t-kw {
-        color: rgba(34, 35, 44, 0.55);
+        color: rgb(var(--ink) / 0.55);
       }
       .t-com {
-        color: rgba(34, 35, 44, 0.45);
+        color: rgb(var(--ink) / 0.45);
         font-style: italic;
       }
       .t-pun {
-        color: rgba(34, 35, 44, 0.4);
+        color: rgb(var(--ink) / 0.4);
+      }
+      /* Motion: the two signature entrances and the theme cross-fade. */
+      @keyframes paper-rise {
+        from {
+          opacity: 0;
+          transform: translateY(0.6rem);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+      @keyframes ink-bleed {
+        from {
+          opacity: 0;
+          filter: blur(6px);
+          transform: translateY(0.25rem);
+        }
+        to {
+          opacity: 1;
+          filter: blur(0);
+          transform: none;
+        }
+      }
+      .demo-rise {
+        animation: paper-rise 0.85s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+      }
+      .demo-bleed {
+        animation: ink-bleed 0.45s ease-out both;
+      }
+      .stagger > *:nth-child(1) {
+        animation-delay: 60ms;
+      }
+      .stagger > *:nth-child(2) {
+        animation-delay: 140ms;
+      }
+      .stagger > *:nth-child(3) {
+        animation-delay: 260ms;
+      }
+      .stagger > *:nth-child(4) {
+        animation-delay: 360ms;
+      }
+      .stagger > *:nth-child(5) {
+        animation-delay: 420ms;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .demo-rise,
+        .demo-bleed {
+          animation: none;
+        }
       }
     </style>
   </head>
@@ -129,8 +268,8 @@
         <p
           class="mt-20 font-mono text-[0.85rem] tracking-[0.22em] text-cobalt-500 uppercase"
         >
-          Brand identity &nbsp;·&nbsp; v0.1 &nbsp;·&nbsp;
-          <!-- EDIT: date -->May 27, 2026
+          Brand identity &nbsp;·&nbsp; v0.2 &nbsp;·&nbsp;
+          <!-- EDIT: date -->May 28, 2026
         </p>
 
         <h1
@@ -197,6 +336,11 @@
             href="#motifs"
             class="font-mono text-[0.75rem] tracking-[0.22em] text-ink/70 uppercase hover:text-cobalt-500"
             >VII &nbsp;·&nbsp; Motifs</a
+          >
+          <a
+            href="#motion"
+            class="font-mono text-[0.75rem] tracking-[0.22em] text-ink/70 uppercase hover:text-cobalt-500"
+            >VIII &nbsp;·&nbsp; Motion</a
           >
         </nav>
       </section>
@@ -323,7 +467,7 @@
 
         <!-- Lock-up on dark -->
         <div
-          class="mt-10 grid grid-cols-2 gap-px border border-ink/15 bg-ink/15"
+          class="fixed-light mt-10 grid grid-cols-2 gap-px border border-ink/15 bg-ink/15"
         >
           <div
             class="flex min-h-[140px] items-center justify-center bg-paper p-10"
@@ -465,7 +609,7 @@
             Paper · light surfaces
           </p>
           <div
-            class="mt-3 grid grid-cols-3 gap-px border border-ink/15 bg-ink/15"
+            class="fixed-light mt-3 grid grid-cols-3 gap-px border border-ink/15 bg-ink/15"
           >
             <div class="flex h-32 flex-col justify-end bg-paper p-6">
               <span class="font-mono text-[0.75rem] text-ink/65">paper</span>
@@ -494,7 +638,7 @@
             Ink · dark surfaces and text
           </p>
           <div
-            class="mt-3 grid grid-cols-3 gap-px border border-ink/15 bg-ink/15"
+            class="fixed-light mt-3 grid grid-cols-3 gap-px border border-ink/15 bg-ink/15"
           >
             <div class="flex h-32 flex-col justify-end bg-ink p-6 text-paper">
               <span class="font-mono text-[0.75rem] text-paper/75">ink</span>
@@ -527,7 +671,7 @@
             Cobalt · the one accent
           </p>
           <div
-            class="mt-3 grid grid-cols-9 gap-px border border-ink/15 bg-ink/15"
+            class="fixed-light mt-3 grid grid-cols-10 gap-px border border-ink/15 bg-ink/15"
           >
             <div class="flex h-32 flex-col justify-end bg-cobalt-50 p-3">
               <span class="font-mono text-[0.6rem] text-ink/65">50</span
@@ -593,6 +737,14 @@
                 >#061f78</span
               >
             </div>
+            <div
+              class="flex h-32 flex-col justify-end bg-cobalt-900 p-3 text-paper"
+            >
+              <span class="font-mono text-[0.6rem] text-paper/75">900</span
+              ><span class="font-mono text-[0.55rem] text-paper/55"
+                >#04154f</span
+              >
+            </div>
           </div>
         </div>
 
@@ -604,7 +756,7 @@
             Opacity for type hierarchy
           </p>
           <div
-            class="mt-4 grid grid-cols-2 gap-px border border-ink/15 bg-ink/15"
+            class="fixed-light mt-4 grid grid-cols-2 gap-px border border-ink/15 bg-ink/15"
           >
             <div class="flex flex-col gap-1 bg-paper p-6">
               <p class="text-ink">
@@ -630,6 +782,223 @@
             </div>
           </div>
         </div>
+
+        <!-- Dark mode -->
+        <div class="mt-12">
+          <p
+            class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+          >
+            Dark mode · the re-tone
+          </p>
+          <p
+            class="mt-3 max-w-[820px] font-editorial text-[1.1rem] leading-[1.55] text-ink/65 italic"
+            style="font-variation-settings: &quot;opsz&quot; 96"
+          >
+            Dark is a deliberate re-tone, not an inversion. Paper surfaces drop
+            to near-black, ink lifts to a warm off-white, and cobalt brightens
+            one step so the accent still carries on the dark ground. The same
+            token names carry across; only their values flip.
+          </p>
+
+          <!-- Dark surfaces -->
+          <div
+            class="mt-6 grid grid-cols-4 gap-px"
+            style="border: 1px solid #262832; background: #262832"
+          >
+            <div
+              class="flex h-32 flex-col justify-end p-6"
+              style="background: #0c0d11"
+            >
+              <span
+                class="font-mono text-[0.75rem]"
+                style="color: rgba(240, 236, 225, 0.85)"
+                >backdrop</span
+              >
+              <span
+                class="font-mono text-[0.7rem]"
+                style="color: rgba(240, 236, 225, 0.45)"
+                >#0c0d11</span
+              >
+            </div>
+            <div
+              class="flex h-32 flex-col justify-end p-6"
+              style="background: #16171d"
+            >
+              <span
+                class="font-mono text-[0.75rem]"
+                style="color: rgba(240, 236, 225, 0.85)"
+                >paper</span
+              >
+              <span
+                class="font-mono text-[0.7rem]"
+                style="color: rgba(240, 236, 225, 0.45)"
+                >#16171d</span
+              >
+            </div>
+            <div
+              class="flex h-32 flex-col justify-end p-6"
+              style="background: #20222b"
+            >
+              <span
+                class="font-mono text-[0.75rem]"
+                style="color: rgba(240, 236, 225, 0.85)"
+                >paper-deep</span
+              >
+              <span
+                class="font-mono text-[0.7rem]"
+                style="color: rgba(240, 236, 225, 0.45)"
+                >#20222b</span
+              >
+            </div>
+            <div
+              class="flex h-32 flex-col justify-end p-6"
+              style="background: #262832"
+            >
+              <span
+                class="font-mono text-[0.75rem]"
+                style="color: rgba(240, 236, 225, 0.85)"
+                >paper-edge</span
+              >
+              <span
+                class="font-mono text-[0.7rem]"
+                style="color: rgba(240, 236, 225, 0.45)"
+                >#262832</span
+              >
+            </div>
+          </div>
+
+          <!-- Dark ink (lifts to warm off-white) + cobalt on dark -->
+          <div class="mt-px grid grid-cols-7 gap-px">
+            <div
+              class="col-span-3 grid grid-cols-3 gap-px"
+              style="border: 1px solid #262832; background: #262832"
+            >
+              <div
+                class="flex h-32 flex-col justify-end p-6"
+                style="background: #f0ece1"
+              >
+                <span
+                  class="font-mono text-[0.75rem]"
+                  style="color: rgba(34, 35, 44, 0.75)"
+                  >ink</span
+                >
+                <span
+                  class="font-mono text-[0.7rem]"
+                  style="color: rgba(34, 35, 44, 0.45)"
+                  >#f0ece1</span
+                >
+              </div>
+              <div
+                class="flex h-32 flex-col justify-end p-6"
+                style="background: #cec9bc"
+              >
+                <span
+                  class="font-mono text-[0.75rem]"
+                  style="color: rgba(34, 35, 44, 0.75)"
+                  >ink-soft</span
+                >
+                <span
+                  class="font-mono text-[0.7rem]"
+                  style="color: rgba(34, 35, 44, 0.45)"
+                  >#cec9bc</span
+                >
+              </div>
+              <div
+                class="flex h-32 flex-col justify-end p-6"
+                style="background: #faf7f0"
+              >
+                <span
+                  class="font-mono text-[0.75rem]"
+                  style="color: rgba(34, 35, 44, 0.75)"
+                  >ink-deep</span
+                >
+                <span
+                  class="font-mono text-[0.7rem]"
+                  style="color: rgba(34, 35, 44, 0.45)"
+                  >#faf7f0</span
+                >
+              </div>
+            </div>
+            <div
+              class="col-span-4 grid grid-cols-4 gap-px"
+              style="border: 1px solid #262832; background: #262832"
+            >
+              <div
+                class="flex h-32 flex-col justify-end p-3"
+                style="background: #b0b9ff"
+              >
+                <span
+                  class="font-mono text-[0.6rem]"
+                  style="color: rgba(34, 35, 44, 0.75)"
+                  >300</span
+                ><span
+                  class="font-mono text-[0.55rem]"
+                  style="color: rgba(34, 35, 44, 0.5)"
+                  >#b0b9ff</span
+                >
+              </div>
+              <div
+                class="flex h-32 flex-col justify-end p-3"
+                style="background: #8c98fc"
+              >
+                <span
+                  class="font-mono text-[0.6rem]"
+                  style="color: rgba(34, 35, 44, 0.75)"
+                  >400</span
+                ><span
+                  class="font-mono text-[0.55rem]"
+                  style="color: rgba(34, 35, 44, 0.5)"
+                  >#8c98fc</span
+                >
+              </div>
+              <div
+                class="relative flex h-32 flex-col justify-end p-3"
+                style="background: #7482ff"
+              >
+                <span
+                  class="absolute top-2 right-2 font-mono text-[0.55rem] tracking-[0.18em] uppercase"
+                  style="color: rgba(255, 255, 255, 0.85)"
+                  >on dark</span
+                >
+                <span
+                  class="font-mono text-[0.6rem]"
+                  style="color: rgba(255, 255, 255, 0.9)"
+                  >500</span
+                ><span
+                  class="font-mono text-[0.55rem]"
+                  style="color: rgba(255, 255, 255, 0.7)"
+                  >#7482ff</span
+                >
+              </div>
+              <div
+                class="flex h-32 flex-col justify-end p-3"
+                style="background: #9ea8fd"
+              >
+                <span
+                  class="font-mono text-[0.6rem]"
+                  style="color: rgba(34, 35, 44, 0.75)"
+                  >600</span
+                ><span
+                  class="font-mono text-[0.55rem]"
+                  style="color: rgba(34, 35, 44, 0.5)"
+                  >#9ea8fd</span
+                >
+              </div>
+            </div>
+          </div>
+
+          <p
+            class="mt-4 max-w-[820px] font-editorial text-[0.95rem] leading-[1.5] text-ink/55 italic"
+            style="font-variation-settings: &quot;opsz&quot; 72"
+          >
+            On dark, cobalt-400 (#8c98fc) is the working accent; cobalt-500
+            stays the link/active tone. Opacity steps (ink/75, ink/55,
+            paper/15…) are unchanged across themes. Known drift: the docs site
+            currently approximates dark by reusing the light tokens (paper text
+            on an ink-deep ground) rather than this full re-tone. Reconcile in
+            the page audit.
+          </p>
+        </div>
       </section>
 
       <!-- ═══════════════════════════════════════════════════════════════ -->
@@ -653,19 +1022,20 @@
           class="mt-10 font-editorial text-[3.5rem] leading-[1.05] tracking-[-0.02em] text-ink"
           style="font-variation-settings: &quot;opsz&quot; 144"
         >
-          Editorial display.
+          Three faces,
           <span
             class="text-cobalt-500 italic"
             style="font-variation-settings: &quot;opsz&quot; 144"
-            >Technical voice.</span
+            >one accent.</span
           >
         </h2>
         <p
           class="mt-5 max-w-[820px] font-editorial text-[1.2rem] leading-[1.55] text-ink/65 italic"
           style="font-variation-settings: &quot;opsz&quot; 96"
         >
-          Fraunces variable for everything literary. JetBrains Mono for
-          everything technical. No third typeface.
+          Fraunces for editorial display, IBM Plex Sans for body and interface,
+          JetBrains Mono for everything technical. Fraunces sets the voice; Plex
+          carries the reading; mono marks the machine.
         </p>
 
         <!-- Fraunces sizes -->
@@ -726,15 +1096,16 @@
             <div class="grid grid-cols-[12rem_1fr] items-baseline gap-6">
               <span
                 class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
-                >Body · opsz 9</span
+                >Fine · opsz 9</span
               >
               <span
                 class="font-editorial text-[1.05rem] leading-[1.65] text-ink/75"
                 style="font-variation-settings: &quot;opsz&quot; 9"
               >
-                Long-form body and prose. Fraunces handles small sizes through
-                its lowest optical setting; the strokes thicken to read clean at
-                16–18px.
+                Editorial fine print: captions, pull quotes, asides. Fraunces at
+                its lowest optical size. Long-form docs and interface body are
+                set in IBM Plex Sans, not here; Fraunces below ~18px is for
+                accent, never running text.
               </span>
             </div>
           </div>
@@ -822,6 +1193,64 @@
           </div>
         </div>
 
+        <!-- IBM Plex Sans — body & interface -->
+        <div class="mt-16">
+          <div class="flex items-baseline gap-4">
+            <span
+              class="font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase"
+              >IBM Plex Sans</span
+            >
+            <span
+              class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/45 uppercase"
+              >body · interface · long-form</span
+            >
+          </div>
+
+          <div class="mt-6 flex flex-col gap-6 border-y border-ink/15 py-8">
+            <div class="grid grid-cols-[12rem_1fr] items-baseline gap-6">
+              <span
+                class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+                >Lead · 1.25rem</span
+              >
+              <span class="font-ui text-[1.25rem] leading-[1.5] text-ink/75">
+                The reading face. IBM Plex Sans carries docs prose, UI labels,
+                and any running text longer than a caption.
+              </span>
+            </div>
+            <div class="grid grid-cols-[12rem_1fr] items-baseline gap-6">
+              <span
+                class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+                >Body · 1rem</span
+              >
+              <span class="font-ui text-[1rem] leading-[1.7] text-ink/75">
+                Set body at 16px and up, weights 400 and 500, with comfortable
+                leading. Neutral on purpose so Fraunces and the cobalt accent do
+                the talking. Sphinx of black quartz, judge my vow — 0123456789.
+              </span>
+            </div>
+            <div class="grid grid-cols-[12rem_1fr] items-baseline gap-6">
+              <span
+                class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+                >Small · 0.875rem</span
+              >
+              <span class="font-ui text-[0.875rem] leading-[1.6] text-ink/65">
+                Secondary UI text, meta rows, table cells, helper copy. () [] {}
+                → #1247ff
+              </span>
+            </div>
+          </div>
+
+          <p
+            class="mt-5 max-w-[820px] font-editorial text-[0.95rem] leading-[1.5] text-ink/55 italic"
+            style="font-variation-settings: &quot;opsz&quot; 96"
+          >
+            The body face. A dedicated sans carries docs prose, interface, and
+            long-form reading. IBM Plex Sans shares the engineering lineage of
+            the blueprint motifs and pairs cleanly with JetBrains Mono, staying
+            neutral so it never competes with the Fraunces display voice.
+          </p>
+        </div>
+
         <!-- JetBrains Mono -->
         <div class="mt-16">
           <div class="flex items-baseline gap-4">
@@ -843,7 +1272,7 @@
               >
               <span
                 class="font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase"
-                >A typescript framework</span
+                >Documentation</span
               >
             </div>
             <div class="grid grid-cols-[12rem_1fr] items-baseline gap-6">
@@ -1482,7 +1911,9 @@
               class="font-editorial text-[0.9rem] text-ink/55 italic"
               style="font-variation-settings: &quot;opsz&quot; 72"
             >
-              Borrowed from technical drawings. Appears on diagrams, code
+              Borrowed from technical drawings. 10px square, 1px strokes, ink at
+              30-40%, inset 12px inside the drawing area. Scale proportionally
+              on larger canvases (about 12px on a post template). Diagrams, code
               blocks, post templates.
             </p>
           </div>
@@ -1600,6 +2031,318 @@
               Bullet + numeral + label + hairline.
             </p>
           </div>
+
+          <!-- Layered paper / backing card -->
+          <div class="flex flex-col gap-3 bg-paper p-8">
+            <p
+              class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+            >
+              Layered paper
+            </p>
+            <div class="flex min-h-[160px] flex-1 items-center justify-center">
+              <div class="relative h-24 w-44">
+                <span
+                  class="absolute inset-0 translate-x-2.5 translate-y-2.5 bg-paper-deep"
+                ></span>
+                <span
+                  class="absolute inset-0 flex items-center justify-center border border-ink/20 bg-paper font-mono text-[0.6rem] tracking-[0.22em] text-ink/45 uppercase"
+                  >card</span
+                >
+              </div>
+            </div>
+            <p
+              class="font-editorial text-[0.9rem] text-ink/55 italic"
+              style="font-variation-settings: &quot;opsz&quot; 72"
+            >
+              A backing panel one shade off the page, offset 10px down-right.
+              Lifts code blocks and figures off the surface like stacked sheets.
+            </p>
+          </div>
+
+          <!-- Schematic lines -->
+          <div class="flex flex-col gap-3 bg-paper p-8">
+            <p
+              class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+            >
+              Schematic lines
+            </p>
+            <div class="flex min-h-[160px] flex-1 items-center justify-center">
+              <svg viewBox="0 0 240 120" class="w-full">
+                <defs>
+                  <marker
+                    id="bm-arrow"
+                    viewBox="0 0 10 10"
+                    refX="9"
+                    refY="5"
+                    markerWidth="7"
+                    markerHeight="7"
+                    orient="auto-start-reverse"
+                  >
+                    <path d="M 0 0 L 10 5 L 0 10 z" class="fill-cobalt-500" />
+                  </marker>
+                </defs>
+                <!-- dimension line -->
+                <g class="stroke-ink/40" stroke-width="1">
+                  <line x1="20" y1="28" x2="220" y2="28" />
+                  <line x1="20" y1="23" x2="20" y2="33" />
+                  <line x1="220" y1="23" x2="220" y2="33" />
+                </g>
+                <!-- dotted connector -->
+                <line
+                  x1="20"
+                  y1="64"
+                  x2="220"
+                  y2="64"
+                  class="stroke-ink/30"
+                  stroke-width="1"
+                  stroke-dasharray="3 3"
+                />
+                <!-- active path: hub + solid cobalt + arrowhead -->
+                <circle cx="20" cy="100" r="3.5" class="fill-cobalt-500" />
+                <line
+                  x1="24"
+                  y1="100"
+                  x2="208"
+                  y2="100"
+                  class="stroke-cobalt-500"
+                  stroke-width="1.5"
+                  marker-end="url(#bm-arrow)"
+                />
+              </svg>
+            </div>
+            <p
+              class="font-editorial text-[0.9rem] text-ink/55 italic"
+              style="font-variation-settings: &quot;opsz&quot; 72"
+            >
+              Dimension lines, dotted connectors, hub dots, thin arrowheads.
+              Solid cobalt for the active path; dotted ink for everything else.
+            </p>
+          </div>
+
+          <!-- Hairline grid -->
+          <div class="flex flex-col gap-3 bg-paper p-8">
+            <p
+              class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+            >
+              Hairline grid
+            </p>
+            <div
+              class="grid min-h-[160px] flex-1 grid-cols-2 grid-rows-2 gap-px border border-ink/15 bg-ink/15"
+            >
+              <div class="bg-paper"></div>
+              <div class="bg-paper"></div>
+              <div class="bg-paper"></div>
+              <div class="bg-paper"></div>
+            </div>
+            <p
+              class="font-editorial text-[0.9rem] text-ink/55 italic"
+              style="font-variation-settings: &quot;opsz&quot; 72"
+            >
+              Cells split by 1px gaps over an ink/15 ground. The system is built
+              from hairlines, not boxes. Borders stay 1px at 15%, never heavier.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <!-- VIII. MOTION                                                       -->
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <section id="motion" class="border-b border-ink/15 px-20 py-24">
+        <header class="flex items-center gap-4">
+          <span class="inline-block h-1.5 w-1.5 bg-cobalt-500"></span>
+          <span
+            class="font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase"
+            >VIII</span
+          >
+          <span
+            class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+            >Motion</span
+          >
+          <span class="h-px flex-1 bg-ink/15"></span>
+        </header>
+
+        <h2
+          class="mt-10 font-editorial text-[3.5rem] leading-[1.05] tracking-[-0.02em] text-ink"
+          style="font-variation-settings: &quot;opsz&quot; 144"
+        >
+          Nothing snaps.
+          <span
+            class="text-cobalt-500 italic"
+            style="font-variation-settings: &quot;opsz&quot; 144"
+            >It settles.</span
+          >
+        </h2>
+        <p
+          class="mt-5 max-w-[820px] font-editorial text-[1.2rem] leading-[1.55] text-ink/65 italic"
+          style="font-variation-settings: &quot;opsz&quot; 96"
+        >
+          Two entrances and one cross-fade, used sparingly. Content arrives like
+          ink meeting paper, then holds still. If it would distract from
+          reading, it is too much.
+        </p>
+
+        <div
+          class="mt-12 grid grid-cols-3 gap-px border border-ink/15 bg-ink/15"
+        >
+          <!-- paper-rise -->
+          <div class="flex flex-col gap-3 bg-paper p-8">
+            <div class="flex items-baseline justify-between">
+              <p
+                class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+              >
+                paper-rise
+              </p>
+              <button
+                type="button"
+                onclick="replay('m-rise')"
+                class="font-mono text-[0.6rem] tracking-[0.18em] text-cobalt-500 uppercase hover:text-cobalt-600"
+              >
+                ↻ replay
+              </button>
+            </div>
+            <div
+              id="m-rise"
+              class="flex min-h-[160px] flex-1 items-center justify-center"
+            >
+              <span
+                class="anim demo-rise font-editorial text-[4rem] leading-none text-ink"
+                data-anim="demo-rise"
+                style="font-variation-settings: &quot;opsz&quot; 144"
+                >Aa</span
+              >
+            </div>
+            <p
+              class="font-editorial text-[0.9rem] text-ink/55 italic"
+              style="font-variation-settings: &quot;opsz&quot; 72"
+            >
+              0.85s · rise 0.6rem + fade · cubic-bezier(0.2, 0.7, 0.2, 1). The
+              page entrance for blocks and figures.
+            </p>
+          </div>
+
+          <!-- ink-bleed -->
+          <div class="flex flex-col gap-3 bg-paper p-8">
+            <div class="flex items-baseline justify-between">
+              <p
+                class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+              >
+                ink-bleed
+              </p>
+              <button
+                type="button"
+                onclick="replay('m-bleed')"
+                class="font-mono text-[0.6rem] tracking-[0.18em] text-cobalt-500 uppercase hover:text-cobalt-600"
+              >
+                ↻ replay
+              </button>
+            </div>
+            <div
+              id="m-bleed"
+              class="flex min-h-[160px] flex-1 items-center justify-center"
+            >
+              <span
+                class="anim demo-bleed font-mono text-[1.4rem] text-cobalt-600"
+                data-anim="demo-bleed"
+                >agent('eywa')</span
+              >
+            </div>
+            <p
+              class="font-editorial text-[0.9rem] text-ink/55 italic"
+              style="font-variation-settings: &quot;opsz&quot; 72"
+            >
+              0.45s · blur 6px to 0 + fade · ease-out. For text that swaps in
+              place, like the cycling code tokens.
+            </p>
+          </div>
+
+          <!-- stagger -->
+          <div class="flex flex-col gap-3 bg-paper p-8">
+            <div class="flex items-baseline justify-between">
+              <p
+                class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+              >
+                Stagger
+              </p>
+              <button
+                type="button"
+                onclick="replay('m-stagger')"
+                class="font-mono text-[0.6rem] tracking-[0.18em] text-cobalt-500 uppercase hover:text-cobalt-600"
+              >
+                ↻ replay
+              </button>
+            </div>
+            <div id="m-stagger" class="flex min-h-[160px] flex-1 items-center">
+              <div class="stagger flex w-full flex-col gap-3">
+                <span
+                  class="anim demo-rise h-2.5 bg-cobalt-500"
+                  data-anim="demo-rise"
+                  style="width: 70%"
+                ></span>
+                <span
+                  class="anim demo-rise h-2.5 bg-ink/20"
+                  data-anim="demo-rise"
+                  style="width: 90%"
+                ></span>
+                <span
+                  class="anim demo-rise h-2.5 bg-ink/20"
+                  data-anim="demo-rise"
+                  style="width: 50%"
+                ></span>
+                <span
+                  class="anim demo-rise h-2.5 bg-ink/20"
+                  data-anim="demo-rise"
+                  style="width: 80%"
+                ></span>
+                <span
+                  class="anim demo-rise h-2.5 bg-ink/20"
+                  data-anim="demo-rise"
+                  style="width: 35%"
+                ></span>
+              </div>
+            </div>
+            <p
+              class="font-editorial text-[0.9rem] text-ink/55 italic"
+              style="font-variation-settings: &quot;opsz&quot; 72"
+            >
+              60 / 140 / 260 / 360 / 420ms. Hero elements enter in sequence, a
+              wave rather than a jump.
+            </p>
+          </div>
+        </div>
+
+        <!-- Motion rules -->
+        <div
+          class="mt-px grid grid-cols-2 gap-px border border-ink/15 bg-ink/15"
+        >
+          <div class="flex flex-col gap-2 bg-paper p-8">
+            <p
+              class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+            >
+              Theme cross-fade
+            </p>
+            <p
+              class="font-editorial text-[1rem] leading-[1.5] text-ink/70 italic"
+              style="font-variation-settings: &quot;opsz&quot; 72"
+            >
+              0.35s ease on color, background-color, fill, and stroke. The
+              light/dark flip glides; it never snaps.
+            </p>
+          </div>
+          <div class="flex flex-col gap-2 bg-paper p-8">
+            <p
+              class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
+            >
+              Reduced motion
+            </p>
+            <p
+              class="font-editorial text-[1rem] leading-[1.5] text-ink/70 italic"
+              style="font-variation-settings: &quot;opsz&quot; 72"
+            >
+              Honour prefers-reduced-motion. Everything resolves to its final
+              state at once: nothing rises, blurs, or staggers.
+            </p>
+          </div>
         </div>
       </section>
 
@@ -1634,7 +2377,7 @@
             <p
               class="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase"
             >
-              Brand identity &nbsp;·&nbsp; v0.1
+              Brand identity &nbsp;·&nbsp; v0.2
             </p>
             <p
               class="mt-2 font-mono text-[0.65rem] tracking-[0.22em] text-ink/45 uppercase"
@@ -1645,5 +2388,53 @@
         </div>
       </section>
     </div>
+
+    <!-- Theme toggle. Mirrors ?theme=dark; flips the whole book. -->
+    <button
+      id="theme-toggle"
+      type="button"
+      aria-label="Toggle dark mode"
+      class="fixed right-6 bottom-6 z-50 border border-ink/20 bg-paper/90 px-4 py-2 font-mono text-[0.62rem] tracking-[0.2em] text-ink/70 uppercase backdrop-blur hover:text-cobalt-500"
+    >
+      <span id="theme-toggle-label">Dark</span>
+    </button>
+
+    <script>
+      // Theme toggle: flip .dark, keep the label and ?theme in sync.
+      (() => {
+        const root = document.documentElement;
+        const btn = document.getElementById("theme-toggle");
+        const label = document.getElementById("theme-toggle-label");
+        const sync = () => {
+          label.textContent = root.classList.contains("dark")
+            ? "Light"
+            : "Dark";
+        };
+        sync();
+        btn.addEventListener("click", () => {
+          root.classList.toggle("dark");
+          const url = new URL(location.href);
+          url.searchParams.set(
+            "theme",
+            root.classList.contains("dark") ? "dark" : "light",
+          );
+          history.replaceState(null, "", url);
+          sync();
+        });
+      })();
+
+      // Re-trigger the motion demos. Remove the animation class, force a
+      // reflow, then re-add it so the keyframes run again from the start.
+      function replay(id) {
+        const root = document.getElementById(id);
+        if (!root) return;
+        root.querySelectorAll("[data-anim]").forEach((el) => {
+          const cls = el.dataset.anim;
+          el.classList.remove(cls);
+          void el.offsetWidth;
+          el.classList.add(cls);
+        });
+      }
+    </script>
   </body>
 </html>
