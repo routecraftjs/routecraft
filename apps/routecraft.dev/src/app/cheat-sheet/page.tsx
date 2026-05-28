@@ -59,7 +59,7 @@ export default function CheatSheetPage() {
               <div className="mt-6 flex flex-wrap gap-2">
                 <span className="inline-flex items-center gap-2 border border-cobalt-500/50 px-2.5 py-1 font-mono text-[0.65rem] tracking-[0.18em] text-cobalt-500 uppercase">
                   <span aria-hidden="true" className="h-1 w-1 bg-cobalt-500" />
-                  v0.6.0
+                  {process.env.NEXT_PUBLIC_DOC_VERSION ?? 'dev'}
                 </span>
                 <span className="inline-flex items-center border border-ink/25 px-2.5 py-1 font-mono text-[0.65rem] tracking-[0.18em] text-ink/65 uppercase dark:border-paper/25 dark:text-paper/65">
                   TypeScript
@@ -458,7 +458,7 @@ craft()
               Register functions and direct-route tools once via{' '}
               <code>
                 agentPlugin({'{'} functions: {'{'} CurrentTime: currentTime(),
-                greetUser: directTool('greet-user') {'}'} {'}'})
+                greetUser: directTool({"'"}greet-user{"'"}) {'}'} {'}'})
               </code>
               .
             </CheatNote>
