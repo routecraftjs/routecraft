@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Routecraft post · text + code · 1200×1200</title>
+    <title>Routecraft post · event · 1080×1350</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -15,10 +15,6 @@
         darkMode: 'class',
         theme: {
           extend: {
-            // Colours resolve through CSS variables (see :root / .dark in the
-            // <style> block) so every token follows the light/dark theme. The
-            // `rgb(var(--x) / <alpha-value>)` form keeps Tailwind opacity
-            // modifiers (text-ink/70, bg-paper-deep/40) working.
             colors: {
               backdrop: 'rgb(var(--backdrop) / <alpha-value>)',
               paper: 'rgb(var(--paper) / <alpha-value>)',
@@ -36,10 +32,6 @@
               editorial: ['Fraunces', 'serif'],
               mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
             },
-            // Social-legibility scale. Names map to ROLE, not size, so the
-            // whole system retunes in one place. On a phone the LinkedIn feed
-            // renders a 1080px-wide portrait at ~360px, so on-screen px is
-            // roughly canvas px × 0.33. Every value below clears ~10px there.
             fontSize: {
               fine: ['1.3rem', { lineHeight: '1.35', letterSpacing: '0.16em' }],
               eyebrow: [
@@ -70,9 +62,6 @@
       })()
     </script>
     <style>
-      /* Paper / ink / cobalt palette as RGB channels so both the base colour
-         and Tailwind opacity modifiers work, and so .dark can flip the whole
-         system in one place. */
       :root {
         --backdrop: 214 211 207;
         --paper: 245 241 232;
@@ -106,16 +95,14 @@
         font-family: 'Fraunces', serif;
       }
       .frame {
-        width: 1200px;
-        height: 1200px;
+        width: 1080px;
+        height: 1350px;
       }
       .grain {
         background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.6 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
         opacity: 0.04;
         mix-blend-mode: multiply;
       }
-      /* On dark paper the dark grain would vanish under multiply, so invert it
-         to light specks and screen it back in. */
       .dark .grain {
         opacity: 0.06;
         mix-blend-mode: screen;
@@ -147,23 +134,6 @@
         width: 1px;
         transform: translateX(-50%);
       }
-      .t-fn {
-        color: rgb(var(--ink));
-        font-weight: 600;
-      }
-      .t-str {
-        color: rgb(var(--cobalt-600));
-      }
-      .t-kw {
-        color: rgb(var(--ink) / 0.55);
-      }
-      .t-com {
-        color: rgb(var(--ink) / 0.45);
-        font-style: italic;
-      }
-      .t-pun {
-        color: rgb(var(--ink) / 0.4);
-      }
     </style>
   </head>
   <body>
@@ -176,7 +146,7 @@
       <span class="reg" style="bottom: 28px; right: 28px"></span>
 
       <div class="absolute inset-0 flex flex-col px-20 py-24">
-        <!-- Top bar -->
+        <!-- Brand mark -->
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-4">
             <svg viewBox="0 0 200 200" class="h-11 w-11 fill-ink">
@@ -190,74 +160,83 @@
               >Routecraft</span
             >
           </div>
-          <!-- EDIT: category eyebrow -->
-          <span class="text-eyebrow font-mono text-cobalt-500 uppercase">
-            A feature
+          <!-- EDIT: eyebrow / status -->
+          <span
+            class="text-eyebrow inline-flex items-center gap-3 font-mono text-cobalt-500 uppercase"
+          >
+            <span class="inline-block h-3 w-3 bg-cobalt-500"></span>
+            Live talk
           </span>
         </div>
 
-        <!-- Body: 2 columns -->
-        <div class="mt-16 grid flex-1 grid-cols-2 gap-14">
-          <!-- Left: text -->
-          <div class="flex flex-col gap-6">
-            <!-- EDIT: headline (3 lines max) -->
-            <h2
-              class="text-title font-editorial tracking-[-0.02em] text-ink"
-              style="font-variation-settings: 'opsz' 144"
-            >
-              Filter at the
-              <span
-                class="text-cobalt-500 italic"
-                style="font-variation-settings: 'opsz' 144"
-                >source.</span
-              >
-            </h2>
+        <!-- EDIT: kicker -->
+        <p class="text-eyebrow mt-16 font-mono text-ink/55 uppercase">
+          Catch us at
+        </p>
 
-            <!-- EDIT: short body -->
-            <p class="text-body text-ink/70">
-              One pipeline step. The whole inbox, narrowed to what matters.
-            </p>
+        <!-- EDIT: event name (1-2 lines) -->
+        <h1
+          class="text-display mt-5 font-editorial tracking-[-0.025em] text-ink"
+          style="font-variation-settings: 'opsz' 144"
+        >
+          AI Engineers
+          <span
+            class="text-cobalt-500 italic"
+            style="font-variation-settings: 'opsz' 144"
+            >Amsterdam</span
+          >
+        </h1>
 
-            <p
-              class="text-lead mt-auto font-editorial text-ink/60 italic"
-              style="font-variation-settings: 'opsz' 96"
+        <!-- EDIT: talk title / what gets covered -->
+        <p class="text-body-lg mt-8 max-w-[860px] text-ink/70">
+          A live build: agent tools and the whole agent, in type-safe TypeScript
+          with Routecraft.
+        </p>
+
+        <!-- Detail rows -->
+        <div class="mt-12 flex flex-col gap-5 border-t border-ink/15 pt-9">
+          <!-- EDIT: date -->
+          <div class="flex items-baseline gap-6">
+            <span
+              class="text-fine w-40 shrink-0 font-mono text-ink/45 uppercase"
+              >When</span
             >
-              Every primitive an agent app needs.
-            </p>
+            <span class="text-lead font-editorial text-ink"
+              >June 18, 2026 · 18:30</span
+            >
           </div>
+          <!-- EDIT: venue -->
+          <div class="flex items-baseline gap-6">
+            <span
+              class="text-fine w-40 shrink-0 font-mono text-ink/45 uppercase"
+              >Where</span
+            >
+            <span class="text-lead font-editorial text-ink"
+              >TQ, Singel · Amsterdam</span
+            >
+          </div>
+          <!-- EDIT: speaker -->
+          <div class="flex items-baseline gap-6">
+            <span
+              class="text-fine w-40 shrink-0 font-mono text-ink/45 uppercase"
+              >Speaker</span
+            >
+            <span class="text-lead font-editorial text-ink">Jaco Botha</span>
+          </div>
+        </div>
 
-          <!-- Right: code -->
+        <!-- CTA + footer -->
+        <div class="mt-auto flex items-end justify-between">
+          <!-- EDIT: registration link -->
           <div>
-            <div
-              class="text-fine flex items-center justify-between border border-b-0 border-ink/20 bg-paper-deep/55 px-4 py-2.5 font-mono uppercase"
-            >
-              <span class="text-ink/60">triage.ts</span>
-              <span class="text-cobalt-500">filter</span>
-            </div>
-            <div
-              class="border border-t-0 border-ink/20 bg-paper-deep/40 px-5 py-6"
-            >
-              <pre
-                class="text-code m-0 font-mono whitespace-pre"
-              ><code><!-- EDIT: code snippet -->
-<span class="t-fn">craft</span><span class="t-pun">()</span>
-  <span class="t-pun">.</span><span class="t-fn">id</span><span class="t-pun">(</span><span class="t-str">'triage'</span><span class="t-pun">)</span>
-  <span class="t-pun">.</span><span class="t-fn">from</span><span class="t-pun">(</span><span class="t-fn">mail</span><span class="t-pun">(</span><span class="t-str">'INBOX'</span><span class="t-pun">))</span>
-  <span class="t-pun">.</span><span class="t-fn">filter</span><span class="t-pun">((</span><span class="t-kw">{ from }</span><span class="t-pun">) =&gt;</span>
-    <span class="text-cobalt-500">internal<span class="t-pun">.</span></span><span class="t-fn">has</span><span class="t-pun">(</span>from<span class="t-pun">))</span>
-  <span class="t-pun">.</span><span class="t-fn">to</span><span class="t-pun">(</span><span class="t-fn">agent</span><span class="t-pun">(</span><span class="t-str">'triage'</span><span class="t-pun">))</span></code></pre>
-            </div>
+            <p class="text-eyebrow font-mono text-cobalt-500 uppercase">
+              Save your seat ↗
+            </p>
+            <p class="text-fine mt-2 font-mono text-ink/55 uppercase">
+              routecraft.dev/events
+            </p>
           </div>
-        </div>
-
-        <!-- Footer -->
-        <div class="mt-12 flex items-end justify-between">
-          <span class="text-fine font-mono text-ink/55 uppercase">
-            routecraft.dev
-          </span>
-          <span class="text-fine font-mono text-ink/35 uppercase">
-            Fig. 03
-          </span>
+          <span class="text-fine font-mono text-ink/35 uppercase">Fig. 17</span>
         </div>
       </div>
     </div>

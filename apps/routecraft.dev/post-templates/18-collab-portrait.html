@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Routecraft post · text + code · 1200×1200</title>
+    <title>Routecraft post · collaboration · 1080×1350</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -15,10 +15,6 @@
         darkMode: 'class',
         theme: {
           extend: {
-            // Colours resolve through CSS variables (see :root / .dark in the
-            // <style> block) so every token follows the light/dark theme. The
-            // `rgb(var(--x) / <alpha-value>)` form keeps Tailwind opacity
-            // modifiers (text-ink/70, bg-paper-deep/40) working.
             colors: {
               backdrop: 'rgb(var(--backdrop) / <alpha-value>)',
               paper: 'rgb(var(--paper) / <alpha-value>)',
@@ -36,10 +32,6 @@
               editorial: ['Fraunces', 'serif'],
               mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
             },
-            // Social-legibility scale. Names map to ROLE, not size, so the
-            // whole system retunes in one place. On a phone the LinkedIn feed
-            // renders a 1080px-wide portrait at ~360px, so on-screen px is
-            // roughly canvas px × 0.33. Every value below clears ~10px there.
             fontSize: {
               fine: ['1.3rem', { lineHeight: '1.35', letterSpacing: '0.16em' }],
               eyebrow: [
@@ -70,9 +62,6 @@
       })()
     </script>
     <style>
-      /* Paper / ink / cobalt palette as RGB channels so both the base colour
-         and Tailwind opacity modifiers work, and so .dark can flip the whole
-         system in one place. */
       :root {
         --backdrop: 214 211 207;
         --paper: 245 241 232;
@@ -106,16 +95,14 @@
         font-family: 'Fraunces', serif;
       }
       .frame {
-        width: 1200px;
-        height: 1200px;
+        width: 1080px;
+        height: 1350px;
       }
       .grain {
         background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.6 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
         opacity: 0.04;
         mix-blend-mode: multiply;
       }
-      /* On dark paper the dark grain would vanish under multiply, so invert it
-         to light specks and screen it back in. */
       .dark .grain {
         opacity: 0.06;
         mix-blend-mode: screen;
@@ -147,23 +134,6 @@
         width: 1px;
         transform: translateX(-50%);
       }
-      .t-fn {
-        color: rgb(var(--ink));
-        font-weight: 600;
-      }
-      .t-str {
-        color: rgb(var(--cobalt-600));
-      }
-      .t-kw {
-        color: rgb(var(--ink) / 0.55);
-      }
-      .t-com {
-        color: rgb(var(--ink) / 0.45);
-        font-style: italic;
-      }
-      .t-pun {
-        color: rgb(var(--ink) / 0.4);
-      }
     </style>
   </head>
   <body>
@@ -176,88 +146,84 @@
       <span class="reg" style="bottom: 28px; right: 28px"></span>
 
       <div class="absolute inset-0 flex flex-col px-20 py-24">
-        <!-- Top bar -->
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-4">
-            <svg viewBox="0 0 200 200" class="h-11 w-11 fill-ink">
+        <!-- Brand mark -->
+        <div class="flex items-center gap-4">
+          <svg viewBox="0 0 200 200" class="h-11 w-11 fill-ink">
+            <path
+              d="M125 175H75V125L125 175ZM175 175H125V125L175 175ZM125 25C152.614 25 175 47.3858 175 75C175 102.614 152.614 125 125 125V75H75L125 125H75L25 75V25H125Z"
+            />
+          </svg>
+          <span
+            class="font-editorial text-[2.4rem] leading-none tracking-[-0.02em] text-ink"
+            style="font-variation-settings: 'opsz' 96"
+            >Routecraft</span
+          >
+        </div>
+
+        <!-- EDIT: eyebrow -->
+        <p class="text-eyebrow mt-12 font-mono text-cobalt-500 uppercase">
+          Better together
+        </p>
+
+        <!-- Lockup: Routecraft + Partner, joined by a connector -->
+        <div class="mt-auto flex items-center justify-center gap-12">
+          <!-- Routecraft mark -->
+          <div
+            class="flex h-56 w-56 items-center justify-center border border-ink/20 bg-paper-deep/40"
+          >
+            <svg viewBox="0 0 200 200" class="h-28 w-28 fill-ink">
               <path
                 d="M125 175H75V125L125 175ZM175 175H125V125L175 175ZM125 25C152.614 25 175 47.3858 175 75C175 102.614 152.614 125 125 125V75H75L125 125H75L25 75V25H125Z"
               />
             </svg>
-            <span
-              class="font-editorial text-[2.4rem] leading-none tracking-[-0.02em] text-ink"
-              style="font-variation-settings: 'opsz' 96"
-              >Routecraft</span
-            >
           </div>
-          <!-- EDIT: category eyebrow -->
-          <span class="text-eyebrow font-mono text-cobalt-500 uppercase">
-            A feature
-          </span>
+
+          <!-- EDIT: connector. Swap "+" for "×" or "♥" to change the tone. -->
+          <span
+            class="text-mega font-editorial text-cobalt-500"
+            style="font-variation-settings: 'opsz' 144"
+            >+</span
+          >
+
+          <!-- EDIT: partner logo slot -->
+          <div
+            class="text-fine flex h-56 w-56 items-center justify-center border border-ink/25 bg-paper-deep/50 font-mono text-ink/45 uppercase"
+          >
+            partner logo
+          </div>
         </div>
 
-        <!-- Body: 2 columns -->
-        <div class="mt-16 grid flex-1 grid-cols-2 gap-14">
-          <!-- Left: text -->
-          <div class="flex flex-col gap-6">
-            <!-- EDIT: headline (3 lines max) -->
-            <h2
-              class="text-title font-editorial tracking-[-0.02em] text-ink"
-              style="font-variation-settings: 'opsz' 144"
-            >
-              Filter at the
-              <span
-                class="text-cobalt-500 italic"
-                style="font-variation-settings: 'opsz' 144"
-                >source.</span
-              >
-            </h2>
+        <!-- EDIT: headline -->
+        <h1
+          class="text-title mt-14 font-editorial tracking-[-0.025em] text-ink"
+          style="font-variation-settings: 'opsz' 144"
+        >
+          Routecraft now works with
+          <span
+            class="text-cobalt-500 italic"
+            style="font-variation-settings: 'opsz' 144"
+            >Partner</span
+          >.
+        </h1>
 
-            <!-- EDIT: short body -->
-            <p class="text-body text-ink/70">
-              One pipeline step. The whole inbox, narrowed to what matters.
-            </p>
+        <!-- EDIT: one-line description -->
+        <p class="text-body-lg mt-7 max-w-[880px] text-ink/70">
+          Type-safe pipelines into Partner, authorized and observable out of the
+          box.
+        </p>
 
-            <p
-              class="text-lead mt-auto font-editorial text-ink/60 italic"
-              style="font-variation-settings: 'opsz' 96"
-            >
-              Every primitive an agent app needs.
-            </p>
-          </div>
-
-          <!-- Right: code -->
+        <!-- CTA + footer -->
+        <div class="mt-auto flex items-end justify-between">
+          <!-- EDIT: blog / link -->
           <div>
-            <div
-              class="text-fine flex items-center justify-between border border-b-0 border-ink/20 bg-paper-deep/55 px-4 py-2.5 font-mono uppercase"
-            >
-              <span class="text-ink/60">triage.ts</span>
-              <span class="text-cobalt-500">filter</span>
-            </div>
-            <div
-              class="border border-t-0 border-ink/20 bg-paper-deep/40 px-5 py-6"
-            >
-              <pre
-                class="text-code m-0 font-mono whitespace-pre"
-              ><code><!-- EDIT: code snippet -->
-<span class="t-fn">craft</span><span class="t-pun">()</span>
-  <span class="t-pun">.</span><span class="t-fn">id</span><span class="t-pun">(</span><span class="t-str">'triage'</span><span class="t-pun">)</span>
-  <span class="t-pun">.</span><span class="t-fn">from</span><span class="t-pun">(</span><span class="t-fn">mail</span><span class="t-pun">(</span><span class="t-str">'INBOX'</span><span class="t-pun">))</span>
-  <span class="t-pun">.</span><span class="t-fn">filter</span><span class="t-pun">((</span><span class="t-kw">{ from }</span><span class="t-pun">) =&gt;</span>
-    <span class="text-cobalt-500">internal<span class="t-pun">.</span></span><span class="t-fn">has</span><span class="t-pun">(</span>from<span class="t-pun">))</span>
-  <span class="t-pun">.</span><span class="t-fn">to</span><span class="t-pun">(</span><span class="t-fn">agent</span><span class="t-pun">(</span><span class="t-str">'triage'</span><span class="t-pun">))</span></code></pre>
-            </div>
+            <p class="text-eyebrow font-mono text-cobalt-500 uppercase">
+              Read how it works ↗
+            </p>
+            <p class="text-fine mt-2 font-mono text-ink/55 uppercase">
+              routecraft.dev/blog/partner
+            </p>
           </div>
-        </div>
-
-        <!-- Footer -->
-        <div class="mt-12 flex items-end justify-between">
-          <span class="text-fine font-mono text-ink/55 uppercase">
-            routecraft.dev
-          </span>
-          <span class="text-fine font-mono text-ink/35 uppercase">
-            Fig. 03
-          </span>
+          <span class="text-fine font-mono text-ink/35 uppercase">Fig. 18</span>
         </div>
       </div>
     </div>

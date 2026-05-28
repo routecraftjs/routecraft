@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Routecraft post templates · gallery</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,200..900;1,9..144,200..900&family=JetBrains+Mono:ital,wght@0,400..700&display=swap"
+    />
+    <style>
+      /* Same palette as the templates, so the gallery flips with the toggle. */
+      :root {
+        --backdrop: 214 211 207;
+        --paper: 245 241 232;
+        --paper-deep: 236 229 210;
+        --ink: 34 35 44;
+        --cobalt: 18 71 255;
+        --line: 34 35 44;
+      }
+      html.dark {
+        --backdrop: 12 13 17;
+        --paper: 22 23 29;
+        --paper-deep: 32 34 43;
+        --ink: 240 236 225;
+        --cobalt: 116 130 255;
+        --line: 240 236 225;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: 'Fraunces', serif;
+        background: rgb(var(--backdrop));
+        color: rgb(var(--ink));
+        -webkit-font-smoothing: antialiased;
+      }
+      .mono {
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+      }
+
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 24px;
+        padding: 32px clamp(24px, 5vw, 72px) 24px;
+        background: rgb(var(--backdrop) / 0.86);
+        backdrop-filter: blur(10px);
+        border-bottom: 1px solid rgb(var(--line) / 0.14);
+      }
+      .lede h1 {
+        margin: 0;
+        font-size: 2.6rem;
+        line-height: 1;
+        letter-spacing: -0.025em;
+        font-variation-settings: 'opsz' 144;
+      }
+      .lede h1 em {
+        color: rgb(var(--cobalt));
+      }
+      .lede p {
+        margin: 10px 0 0;
+        max-width: 60ch;
+        font-size: 0.98rem;
+        line-height: 1.5;
+        color: rgb(var(--ink) / 0.65);
+      }
+      .controls {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .seg {
+        display: inline-flex;
+        border: 1px solid rgb(var(--line) / 0.25);
+      }
+      .seg button {
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 0.62rem;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        padding: 9px 14px;
+        background: transparent;
+        color: rgb(var(--ink) / 0.6);
+        border: 0;
+        cursor: pointer;
+        transition:
+          background 0.15s,
+          color 0.15s;
+      }
+      .seg button + button {
+        border-left: 1px solid rgb(var(--line) / 0.25);
+      }
+      .seg button[aria-pressed='true'] {
+        background: rgb(var(--ink));
+        color: rgb(var(--paper));
+      }
+
+      main {
+        padding: 40px clamp(24px, 5vw, 72px) 96px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(var(--card), 1fr));
+        gap: 56px 40px;
+        align-items: start;
+      }
+      .grid.banner-row {
+        margin-top: 56px;
+        grid-template-columns: 1fr;
+      }
+
+      .card {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .stage {
+        position: relative;
+        align-self: flex-start;
+        overflow: hidden;
+        background: rgb(var(--paper));
+        border: 1px solid rgb(var(--line) / 0.16);
+        box-shadow: 0 30px 60px -40px rgb(0 0 0 / 0.5);
+      }
+      .stage iframe {
+        border: 0;
+        transform-origin: top left;
+        pointer-events: none;
+      }
+      .meta {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 16px;
+      }
+      .meta .name {
+        font-size: 1.35rem;
+        letter-spacing: -0.01em;
+      }
+      .meta .num {
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 0.62rem;
+        letter-spacing: 0.2em;
+        color: rgb(var(--cobalt));
+        text-transform: uppercase;
+      }
+      .sub {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 0.6rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: rgb(var(--ink) / 0.5);
+      }
+      .sub a {
+        color: rgb(var(--cobalt));
+        text-decoration: none;
+      }
+      .sub a:hover {
+        text-decoration: underline;
+      }
+      .dot {
+        width: 4px;
+        height: 4px;
+        background: rgb(var(--ink) / 0.3);
+        border-radius: 50%;
+      }
+      footer {
+        padding: 0 clamp(24px, 5vw, 72px) 80px;
+        max-width: 70ch;
+        font-size: 0.9rem;
+        line-height: 1.6;
+        color: rgb(var(--ink) / 0.6);
+      }
+      footer code {
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 0.82em;
+        background: rgb(var(--paper-deep));
+        padding: 1px 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="lede">
+        <h1>Post templates <em>gallery</em></h1>
+        <p>
+          Every in-feed template, previewed at the width LinkedIn renders on a
+          phone, so you can judge legibility before posting. Toggle the theme to
+          preview the light or dark export.
+        </p>
+      </div>
+      <div class="controls">
+        <div class="seg" role="group" aria-label="Preview width">
+          <button data-size="360" aria-pressed="true">
+            Feed&nbsp;·&nbsp;360
+          </button>
+          <button data-size="480" aria-pressed="false">
+            Large&nbsp;·&nbsp;480
+          </button>
+        </div>
+        <div class="seg" role="group" aria-label="Theme">
+          <button data-theme="light" aria-pressed="true">Light</button>
+          <button data-theme="dark" aria-pressed="false">Dark</button>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <div class="grid" id="grid"></div>
+      <div class="banner-row grid" id="banner"></div>
+    </main>
+
+    <footer>
+      <p>
+        Previews are live iframes of the actual template files. To export a
+        post: open a template with its <em>Open&nbsp;↗</em> link, then capture
+        the <code>.frame</code> element. In Chrome devtools, right-click the
+        <code>.frame</code> node and choose <em>Capture node screenshot</em> for
+        a pixel-exact PNG at full size. Append <code>?theme=dark</code> to the
+        URL for the dark variant.
+      </p>
+    </footer>
+
+    <script>
+      // Native canvas size per template. Title + blurb mirror the README.
+      const TEMPLATES = [
+        [
+          '01-text-image-portrait',
+          'Text + image',
+          'Announcement / hero',
+          1080,
+          1350,
+        ],
+        [
+          '02-code-feature-square',
+          'Code feature',
+          'One capability showcase',
+          1200,
+          1200,
+        ],
+        ['03-text-code-square', 'Text + code', 'Explain a feature', 1200, 1200],
+        ['04-quote-portrait', 'Quote', 'Pull quote / thesis', 1080, 1350],
+        [
+          '05-numbered-list-portrait',
+          'Numbered list',
+          'Reasons / principles',
+          1080,
+          1350,
+        ],
+        ['06-comparison-square', 'Comparison', 'This vs that', 1200, 1200],
+        [
+          '07-adapter-announce-square',
+          'Adapter announce',
+          'A new adapter shipped',
+          1200,
+          1200,
+        ],
+        [
+          '08-version-announce-portrait',
+          'Version announce',
+          'A new version shipped',
+          1080,
+          1350,
+        ],
+        [
+          '09-github-stars-portrait',
+          'GitHub stars',
+          'A star milestone',
+          1080,
+          1350,
+        ],
+        ['10-customer-portrait', 'Customer', 'In production at', 1080, 1350],
+        ['11-sponsor-portrait', 'Sponsor', 'Sponsor / backer', 1080, 1350],
+        ['12-blog-post-portrait', 'Blog post', 'New post dropped', 1080, 1350],
+        [
+          '13-video-feature-portrait',
+          'Video feature',
+          'Featured on a channel',
+          1080,
+          1350,
+        ],
+        [
+          '14-incident-callout-portrait',
+          'Incident callout',
+          'News-jack an incident',
+          1080,
+          1350,
+        ],
+        [
+          '16-versus-portrait',
+          'Versus',
+          'Competitor vs Routecraft',
+          1080,
+          1350,
+        ],
+        ['17-event-portrait', 'Event', 'Meetup / conference', 1080, 1350],
+        [
+          '18-collab-portrait',
+          'Collaboration',
+          'Routecraft + partner',
+          1080,
+          1350,
+        ],
+        [
+          '19-scaffold-square',
+          'Scaffold',
+          'create-routecraft one-liner',
+          1200,
+          1200,
+        ],
+      ]
+      const BANNER = [
+        '15-linkedin-company-banner',
+        'LinkedIn banner',
+        'Company page cover',
+        1128,
+        191,
+      ]
+
+      const state = { size: 360, theme: 'light' }
+
+      function card(t, fullWidth) {
+        const [file, name, blurb, w, h] = t
+        const num = file.slice(0, 2)
+        const wrap = document.createElement('article')
+        wrap.className = 'card'
+
+        const target = fullWidth
+          ? Math.min(960, window.innerWidth - 160)
+          : state.size
+        const scale = target / w
+        const stage = document.createElement('div')
+        stage.className = 'stage'
+        stage.style.width = target + 'px'
+        stage.style.height = Math.round(h * scale) + 'px'
+
+        const iframe = document.createElement('iframe')
+        iframe.width = w
+        iframe.height = h
+        iframe.loading = 'lazy'
+        iframe.style.transform = `scale(${scale})`
+        iframe.src = `./${file}.html?theme=${state.theme}`
+        stage.appendChild(iframe)
+
+        wrap.innerHTML = `
+          <div class="meta"><span class="name">${name}</span><span class="num">${num}</span></div>
+          <div class="sub"><span>${w}×${h}</span><span class="dot"></span><span>${blurb}</span><span class="dot"></span><a href="./${file}.html?theme=${state.theme}" target="_blank" rel="noopener">Open ↗</a></div>`
+        wrap.prepend(stage)
+        return wrap
+      }
+
+      function render() {
+        const grid = document.getElementById('grid')
+        const banner = document.getElementById('banner')
+        grid.innerHTML = ''
+        banner.innerHTML = ''
+        grid.style.setProperty('--card', state.size + 'px')
+        TEMPLATES.forEach((t) => grid.appendChild(card(t, false)))
+        banner.appendChild(card(BANNER, true))
+      }
+
+      function wireSeg(attr, key, after) {
+        document
+          .querySelectorAll(`.seg button[data-${attr}]`)
+          .forEach((btn) => {
+            btn.addEventListener('click', () => {
+              const group = btn.parentElement
+              group
+                .querySelectorAll('button')
+                .forEach((b) => b.setAttribute('aria-pressed', 'false'))
+              btn.setAttribute('aria-pressed', 'true')
+              const v = btn.dataset[attr]
+              state[key] = attr === 'size' ? Number(v) : v
+              after && after(state[key])
+              render()
+            })
+          })
+      }
+
+      wireSeg('size', 'size')
+      wireSeg('theme', 'theme', (v) =>
+        document.documentElement.classList.toggle('dark', v === 'dark'),
+      )
+
+      render()
+    </script>
+  </body>
+</html>

@@ -24,7 +24,7 @@ Type-safe integration and automation framework. Monorepo with Bun workspaces (>=
 - Source/Destination for interfaces; Server/Client for option type names only (two-sided adapters)
 - Every test must have JSDoc with `@case`, `@preconditions`, and `@expectedResult`
 - The published `craft` CLI binary uses `#!/usr/bin/env bun` and `engines.bun >= 1.1.0`; the core library targets both Node 22.0+ and Bun. The root `bun run craft` workspace shortcut invokes the built `dist/index.js` via `node` for development convenience -- this is intentional and does not loosen the binary's runtime requirement.
-- Every optional-peer dynamic import MUST go through `loadOptionalPeer` (`packages/routecraft/src/adapters/shared/optional-peer.ts`) and emit `RC5017` with an install hint. The migration of legacy bespoke try/catch sites is complete (see [`.standards/ci-cd.md` § 6](.standards/ci-cd.md)); no bespoke shape remains. New code is reviewed against this contract.
+- Every optional-peer dynamic import MUST go through `loadOptionalPeer` (`packages/routecraft/src/adapters/shared/optional-peer.ts`) and emit `RC5017` with an install hint. The migration of legacy bespoke try/catch sites is complete (see [`.standards/ci-cd.md`](.standards/ci-cd.md)); no bespoke shape remains. New code is reviewed against this contract.
 - Use `bun run <script>` for `package.json` scripts and `bunx <bin>` for one-shot binary execution (e.g. `bunx madge`, `bunx create-routecraft`)
 
 ## Internal Standards

@@ -12,33 +12,97 @@
     />
     <script>
       tailwind.config = {
+        darkMode: 'class',
         theme: {
           extend: {
+            // Colours resolve through CSS variables (see :root / .dark in the
+            // <style> block) so every token follows the light/dark theme. The
+            // `rgb(var(--x) / <alpha-value>)` form keeps Tailwind opacity
+            // modifiers (text-ink/70, bg-paper-deep/40) working.
             colors: {
-              paper: '#f5f1e8',
-              'paper-edge': '#e8e0cb',
-              'paper-deep': '#ece5d2',
-              ink: '#22232c',
-              'ink-soft': '#30313c',
-              'ink-deep': '#16171c',
-              'cobalt-300': '#8a96f8',
-              'cobalt-400': '#5867f5',
-              'cobalt-500': '#1247ff',
-              'cobalt-600': '#0c39d6',
+              backdrop: 'rgb(var(--backdrop) / <alpha-value>)',
+              paper: 'rgb(var(--paper) / <alpha-value>)',
+              'paper-edge': 'rgb(var(--paper-edge) / <alpha-value>)',
+              'paper-deep': 'rgb(var(--paper-deep) / <alpha-value>)',
+              ink: 'rgb(var(--ink) / <alpha-value>)',
+              'ink-soft': 'rgb(var(--ink-soft) / <alpha-value>)',
+              'ink-deep': 'rgb(var(--ink-deep) / <alpha-value>)',
+              'cobalt-300': 'rgb(var(--cobalt-300) / <alpha-value>)',
+              'cobalt-400': 'rgb(var(--cobalt-400) / <alpha-value>)',
+              'cobalt-500': 'rgb(var(--cobalt-500) / <alpha-value>)',
+              'cobalt-600': 'rgb(var(--cobalt-600) / <alpha-value>)',
             },
             fontFamily: {
               editorial: ['Fraunces', 'serif'],
               mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
             },
+            // Social-legibility scale. Names map to ROLE, not size, so the
+            // whole system retunes in one place. On a phone the LinkedIn feed
+            // renders a 1080px-wide portrait at ~360px, so on-screen px is
+            // roughly canvas px × 0.33. Every value below clears ~10px there.
+            fontSize: {
+              fine: ['1.3rem', { lineHeight: '1.35', letterSpacing: '0.16em' }],
+              eyebrow: [
+                '1.65rem',
+                { lineHeight: '1.3', letterSpacing: '0.16em' },
+              ],
+              body: ['2.25rem', { lineHeight: '1.5' }],
+              'body-lg': ['2.65rem', { lineHeight: '1.45' }],
+              lead: ['3.1rem', { lineHeight: '1.3' }],
+              code: ['1.95rem', { lineHeight: '1.7' }],
+              'code-lg': ['2.3rem', { lineHeight: '1.6' }],
+              title: ['4.5rem', { lineHeight: '1.02' }],
+              display: ['6.5rem', { lineHeight: '0.95' }],
+              mega: ['10rem', { lineHeight: '0.9' }],
+            },
           },
         },
       }
     </script>
+    <script>
+      // Theme switch. Default is light. Add ?theme=dark to the URL (the gallery
+      // does this), or set class="dark" on <html> by hand, to render dark.
+      ;(() => {
+        const t = new URLSearchParams(location.search).get('theme')
+        if (t === 'dark') document.documentElement.classList.add('dark')
+        else if (t === 'light')
+          document.documentElement.classList.remove('dark')
+      })()
+    </script>
     <style>
+      /* Paper / ink / cobalt palette as RGB channels so both the base colour
+         and Tailwind opacity modifiers work, and so .dark can flip the whole
+         system in one place. */
+      :root {
+        --backdrop: 214 211 207;
+        --paper: 245 241 232;
+        --paper-edge: 232 224 203;
+        --paper-deep: 236 229 210;
+        --ink: 34 35 44;
+        --ink-soft: 48 49 60;
+        --ink-deep: 22 23 28;
+        --cobalt-300: 138 150 248;
+        --cobalt-400: 88 103 245;
+        --cobalt-500: 18 71 255;
+        --cobalt-600: 12 57 214;
+      }
+      .dark {
+        --backdrop: 12 13 17;
+        --paper: 22 23 29;
+        --paper-edge: 38 40 50;
+        --paper-deep: 32 34 43;
+        --ink: 240 236 225;
+        --ink-soft: 206 201 188;
+        --ink-deep: 250 247 240;
+        --cobalt-300: 176 185 255;
+        --cobalt-400: 140 152 252;
+        --cobalt-500: 116 130 255;
+        --cobalt-600: 158 168 253;
+      }
       body {
         margin: 0;
         padding: 0;
-        background: #d6d3cf;
+        background: rgb(var(--backdrop));
         font-family: 'Fraunces', serif;
       }
       .frame {
@@ -50,17 +114,24 @@
         opacity: 0.04;
         mix-blend-mode: multiply;
       }
+      /* On dark paper the dark grain would vanish under multiply, so invert it
+         to light specks and screen it back in. */
+      .dark .grain {
+        opacity: 0.06;
+        mix-blend-mode: screen;
+        filter: invert(1);
+      }
       .reg {
         position: absolute;
-        width: 10px;
-        height: 10px;
+        width: 12px;
+        height: 12px;
         opacity: 0.35;
       }
       .reg::before,
       .reg::after {
         content: '';
         position: absolute;
-        background: #22232c;
+        background: rgb(var(--ink));
       }
       .reg::before {
         top: 50%;
@@ -77,21 +148,21 @@
         transform: translateX(-50%);
       }
       .t-fn {
-        color: #22232c;
+        color: rgb(var(--ink));
         font-weight: 600;
       }
       .t-str {
-        color: #0c39d6;
+        color: rgb(var(--cobalt-600));
       }
       .t-kw {
-        color: rgba(34, 35, 44, 0.55);
+        color: rgb(var(--ink) / 0.55);
       }
       .t-com {
-        color: rgba(34, 35, 44, 0.45);
+        color: rgb(var(--ink) / 0.45);
         font-style: italic;
       }
       .t-pun {
-        color: rgba(34, 35, 44, 0.4);
+        color: rgb(var(--ink) / 0.4);
       }
     </style>
   </head>
@@ -99,37 +170,35 @@
     <div class="frame relative overflow-hidden bg-paper text-ink">
       <div class="grain pointer-events-none absolute inset-0"></div>
 
-      <span class="reg" style="top: 24px; left: 24px"></span>
-      <span class="reg" style="top: 24px; right: 24px"></span>
-      <span class="reg" style="bottom: 24px; left: 24px"></span>
-      <span class="reg" style="bottom: 24px; right: 24px"></span>
+      <span class="reg" style="top: 28px; left: 28px"></span>
+      <span class="reg" style="top: 28px; right: 28px"></span>
+      <span class="reg" style="bottom: 28px; left: 28px"></span>
+      <span class="reg" style="bottom: 28px; right: 28px"></span>
 
       <div class="absolute inset-0 flex flex-col px-20 py-24">
         <!-- Top bar -->
         <div class="flex items-center justify-between">
-          <div class="flex items-center gap-3">
-            <svg viewBox="0 0 200 200" class="h-7 w-7 fill-ink">
+          <div class="flex items-center gap-4">
+            <svg viewBox="0 0 200 200" class="h-11 w-11 fill-ink">
               <path
                 d="M125 175H75V125L125 175ZM175 175H125V125L175 175ZM125 25C152.614 25 175 47.3858 175 75C175 102.614 152.614 125 125 125V75H75L125 125H75L25 75V25H125Z"
               />
             </svg>
             <span
-              class="font-editorial text-[1.6rem] leading-none tracking-[-0.02em] text-ink"
+              class="font-editorial text-[2.4rem] leading-none tracking-[-0.02em] text-ink"
               style="font-variation-settings: 'opsz' 96"
               >Routecraft</span
             >
           </div>
           <!-- EDIT: eyebrow -->
-          <span
-            class="font-mono text-[0.8rem] tracking-[0.22em] text-cobalt-500 uppercase"
-          >
+          <span class="text-eyebrow font-mono text-cobalt-500 uppercase">
             Bounded by design
           </span>
         </div>
 
         <!-- EDIT: headline -->
         <h2
-          class="mt-10 font-editorial text-[4rem] leading-[0.98] tracking-[-0.025em] text-ink"
+          class="text-title mt-10 font-editorial tracking-[-0.025em] text-ink"
           style="font-variation-settings: 'opsz' 144"
         >
           Hands,
@@ -147,31 +216,27 @@
           <!-- Left: bad pattern -->
           <article class="flex flex-col gap-4 bg-paper p-8 opacity-80">
             <header class="flex items-baseline gap-3">
-              <span class="font-mono text-[0.9rem] text-ink/40">01</span>
+              <span class="text-eyebrow font-mono text-ink/40">01</span>
               <p
-                class="font-mono text-[0.7rem] tracking-[0.22em] text-ink/55 uppercase line-through decoration-ink/40"
+                class="text-fine font-mono text-ink/55 uppercase line-through decoration-ink/40"
               >
                 The keyring
               </p>
             </header>
             <h3
-              class="font-editorial text-[1.5rem] leading-[1.15] tracking-[-0.01em] text-ink/75"
+              class="text-lead font-editorial leading-[1.15] tracking-[-0.01em] text-ink/75"
               style="font-variation-settings: 'opsz' 96"
             >
               Hand the agent raw tools and hope.
             </h3>
             <pre
-              class="m-0 border border-ink/15 bg-paper-deep/40 p-4 font-mono text-[0.85rem] leading-[1.7] whitespace-pre"
-            ><code><span class="t-com">// Typical agent SDK</span>
-<span class="t-fn">agent</span><span class="t-pun">({</span>
-  <span class="t-kw">tools:</span> <span class="t-pun">[</span>
-    <span class="t-fn">bashTool</span><span class="t-pun">(),</span>
-    <span class="t-fn">httpTool</span><span class="t-pun">({</span> <span class="t-kw">allowAll:</span> <span class="text-cobalt-500">true</span> <span class="t-pun">}),</span>
-    <span class="t-fn">dbQueryTool</span><span class="t-pun">(</span>conn<span class="t-pun">),</span>
-  <span class="t-pun">],</span>
+              class="text-code m-0 border border-ink/15 bg-paper-deep/40 p-4 font-mono whitespace-pre"
+            ><code><span class="t-fn">agent</span><span class="t-pun">({</span>
+  <span class="t-kw">tools:</span> <span class="t-pun">[...</span><span class="t-fn">all</span><span class="t-pun">],</span>
+  <span class="t-kw">allowAll:</span> <span class="text-cobalt-500">true</span><span class="t-pun">,</span>
 <span class="t-pun">})</span></code></pre>
             <p
-              class="mt-auto font-editorial text-[0.95rem] text-ink/60 italic"
+              class="text-body mt-auto font-editorial text-ink/60 italic"
               style="font-variation-settings: 'opsz' 96"
             >
               One bad prompt away from an incident.
@@ -181,30 +246,27 @@
           <!-- Right: good pattern -->
           <article class="flex flex-col gap-4 bg-paper p-8">
             <header class="flex items-baseline gap-3">
-              <span class="font-mono text-[0.9rem] text-cobalt-500">02</span>
-              <p
-                class="font-mono text-[0.7rem] tracking-[0.22em] text-cobalt-500 uppercase"
-              >
+              <span class="text-eyebrow font-mono text-cobalt-500">02</span>
+              <p class="text-fine font-mono text-cobalt-500 uppercase">
                 The hands you authored
               </p>
             </header>
             <h3
-              class="font-editorial text-[1.5rem] leading-[1.15] tracking-[-0.01em] text-ink"
+              class="text-lead font-editorial leading-[1.15] tracking-[-0.01em] text-ink"
               style="font-variation-settings: 'opsz' 96"
             >
               Named capabilities. Nothing else.
             </h3>
             <pre
-              class="m-0 border border-ink/15 bg-paper-deep/40 p-4 font-mono text-[0.85rem] leading-[1.7] whitespace-pre"
-            ><code><span class="t-com">// A capability that drives the agent</span>
-<span class="t-fn">craft</span><span class="t-pun">()</span>
+              class="text-code m-0 border border-ink/15 bg-paper-deep/40 p-4 font-mono whitespace-pre"
+            ><code><span class="t-fn">craft</span><span class="t-pun">()</span>
   <span class="t-pun">.</span><span class="t-fn">id</span><span class="t-pun">(</span><span class="t-str">'triage'</span><span class="t-pun">)</span>
-  <span class="t-pun">.</span><span class="t-fn">from</span><span class="t-pun">(</span><span class="t-fn">mail</span><span class="t-pun">(</span><span class="t-str">'INBOX'</span><span class="t-pun">))</span>
+  <span class="t-pun">.</span><span class="t-fn">from</span><span class="t-pun">(</span><span class="t-fn">mail</span><span class="t-pun">())</span>
   <span class="t-pun">.</span><span class="t-fn">to</span><span class="t-pun">(</span><span class="t-fn">agent</span><span class="t-pun">({</span>
-    <span class="t-kw">tools:</span> <span class="t-fn">tools</span><span class="t-pun">([</span><span class="t-str">'publishBrief'</span><span class="t-pun">]),</span>
+    <span class="t-kw">tools:</span> <span class="t-pun">[</span><span class="t-fn">brief</span><span class="t-pun">],</span>
   <span class="t-pun">}))</span></code></pre>
             <p
-              class="mt-auto font-editorial text-[0.95rem] text-ink/60 italic"
+              class="text-body mt-auto font-editorial text-ink/60 italic"
               style="font-variation-settings: 'opsz' 96"
             >
               The capability is the boundary.
@@ -214,14 +276,10 @@
 
         <!-- Footer -->
         <div class="mt-12 flex items-end justify-between">
-          <span
-            class="font-mono text-[0.8rem] tracking-[0.22em] text-ink/55 uppercase"
-          >
+          <span class="text-fine font-mono text-ink/55 uppercase">
             routecraft.dev
           </span>
-          <span
-            class="font-mono text-[0.7rem] tracking-[0.22em] text-ink/35 uppercase"
-          >
+          <span class="text-fine font-mono text-ink/35 uppercase">
             Fig. 06
           </span>
         </div>

@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Routecraft post · text + code · 1200×1200</title>
+    <title>Routecraft post · scaffold · 1200×1200</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -15,10 +15,6 @@
         darkMode: 'class',
         theme: {
           extend: {
-            // Colours resolve through CSS variables (see :root / .dark in the
-            // <style> block) so every token follows the light/dark theme. The
-            // `rgb(var(--x) / <alpha-value>)` form keeps Tailwind opacity
-            // modifiers (text-ink/70, bg-paper-deep/40) working.
             colors: {
               backdrop: 'rgb(var(--backdrop) / <alpha-value>)',
               paper: 'rgb(var(--paper) / <alpha-value>)',
@@ -36,10 +32,6 @@
               editorial: ['Fraunces', 'serif'],
               mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
             },
-            // Social-legibility scale. Names map to ROLE, not size, so the
-            // whole system retunes in one place. On a phone the LinkedIn feed
-            // renders a 1080px-wide portrait at ~360px, so on-screen px is
-            // roughly canvas px × 0.33. Every value below clears ~10px there.
             fontSize: {
               fine: ['1.3rem', { lineHeight: '1.35', letterSpacing: '0.16em' }],
               eyebrow: [
@@ -70,9 +62,6 @@
       })()
     </script>
     <style>
-      /* Paper / ink / cobalt palette as RGB channels so both the base colour
-         and Tailwind opacity modifiers work, and so .dark can flip the whole
-         system in one place. */
       :root {
         --backdrop: 214 211 207;
         --paper: 245 241 232;
@@ -114,8 +103,6 @@
         opacity: 0.04;
         mix-blend-mode: multiply;
       }
-      /* On dark paper the dark grain would vanish under multiply, so invert it
-         to light specks and screen it back in. */
       .dark .grain {
         opacity: 0.06;
         mix-blend-mode: screen;
@@ -157,10 +144,6 @@
       .t-kw {
         color: rgb(var(--ink) / 0.55);
       }
-      .t-com {
-        color: rgb(var(--ink) / 0.45);
-        font-style: italic;
-      }
       .t-pun {
         color: rgb(var(--ink) / 0.4);
       }
@@ -190,74 +173,65 @@
               >Routecraft</span
             >
           </div>
-          <!-- EDIT: category eyebrow -->
-          <span class="text-eyebrow font-mono text-cobalt-500 uppercase">
-            A feature
-          </span>
+          <!-- EDIT: eyebrow -->
+          <span class="text-eyebrow font-mono text-cobalt-500 uppercase"
+            >One command</span
+          >
         </div>
 
-        <!-- Body: 2 columns -->
-        <div class="mt-16 grid flex-1 grid-cols-2 gap-14">
-          <!-- Left: text -->
-          <div class="flex flex-col gap-6">
-            <!-- EDIT: headline (3 lines max) -->
-            <h2
-              class="text-title font-editorial tracking-[-0.02em] text-ink"
-              style="font-variation-settings: 'opsz' 144"
-            >
-              Filter at the
-              <span
-                class="text-cobalt-500 italic"
-                style="font-variation-settings: 'opsz' 144"
-                >source.</span
-              >
-            </h2>
+        <!-- EDIT: headline -->
+        <h1
+          class="text-title mt-12 font-editorial tracking-[-0.025em] text-ink"
+          style="font-variation-settings: 'opsz' 144"
+        >
+          Scaffold an
+          <span
+            class="text-cobalt-500 italic"
+            style="font-variation-settings: 'opsz' 144"
+            >agent harness</span
+          >.
+        </h1>
 
-            <!-- EDIT: short body -->
-            <p class="text-body text-ink/70">
-              One pipeline step. The whole inbox, narrowed to what matters.
-            </p>
-
-            <p
-              class="text-lead mt-auto font-editorial text-ink/60 italic"
-              style="font-variation-settings: 'opsz' 96"
-            >
-              Every primitive an agent app needs.
-            </p>
+        <!-- Command block -->
+        <div class="mt-10">
+          <div
+            class="text-fine flex items-center justify-between border border-b-0 border-ink/20 bg-paper-deep/55 px-6 py-3 font-mono text-ink/55 uppercase"
+          >
+            <span>terminal</span>
+            <span class="text-cobalt-500">bun &gt;= 1.1</span>
           </div>
-
-          <!-- Right: code -->
-          <div>
-            <div
-              class="text-fine flex items-center justify-between border border-b-0 border-ink/20 bg-paper-deep/55 px-4 py-2.5 font-mono uppercase"
-            >
-              <span class="text-ink/60">triage.ts</span>
-              <span class="text-cobalt-500">filter</span>
-            </div>
-            <div
-              class="border border-t-0 border-ink/20 bg-paper-deep/40 px-5 py-6"
-            >
-              <pre
-                class="text-code m-0 font-mono whitespace-pre"
-              ><code><!-- EDIT: code snippet -->
-<span class="t-fn">craft</span><span class="t-pun">()</span>
-  <span class="t-pun">.</span><span class="t-fn">id</span><span class="t-pun">(</span><span class="t-str">'triage'</span><span class="t-pun">)</span>
-  <span class="t-pun">.</span><span class="t-fn">from</span><span class="t-pun">(</span><span class="t-fn">mail</span><span class="t-pun">(</span><span class="t-str">'INBOX'</span><span class="t-pun">))</span>
-  <span class="t-pun">.</span><span class="t-fn">filter</span><span class="t-pun">((</span><span class="t-kw">{ from }</span><span class="t-pun">) =&gt;</span>
-    <span class="text-cobalt-500">internal<span class="t-pun">.</span></span><span class="t-fn">has</span><span class="t-pun">(</span>from<span class="t-pun">))</span>
-  <span class="t-pun">.</span><span class="t-fn">to</span><span class="t-pun">(</span><span class="t-fn">agent</span><span class="t-pun">(</span><span class="t-str">'triage'</span><span class="t-pun">))</span></code></pre>
-            </div>
+          <div
+            class="border border-t-0 border-ink/20 bg-paper-deep/40 px-7 py-8"
+          >
+            <!-- EDIT: the one-liner. -e selects a starter template. -->
+            <pre
+              class="text-code-lg m-0 font-mono whitespace-pre"
+            ><code><span class="t-pun">$</span> <span class="t-kw">bunx</span> <span class="t-fn">create-routecraft</span> <span class="t-str">my-app</span> <span class="t-kw">-e</span> <span class="text-cobalt-500">harness</span></code></pre>
           </div>
         </div>
+
+        <!-- EDIT: what the template gives you -->
+        <ul class="mt-11 flex flex-col gap-5">
+          <li class="text-body flex items-baseline gap-4 text-ink/80">
+            <span class="text-cobalt-500">→</span>
+            <span>Typed agent and tools, wired and runnable</span>
+          </li>
+          <li class="text-body flex items-baseline gap-4 text-ink/80">
+            <span class="text-cobalt-500">→</span>
+            <span>MCP server exposed out of the box</span>
+          </li>
+          <li class="text-body flex items-baseline gap-4 text-ink/80">
+            <span class="text-cobalt-500">→</span>
+            <span>Auth, guards, and structured events on by default</span>
+          </li>
+        </ul>
 
         <!-- Footer -->
-        <div class="mt-12 flex items-end justify-between">
-          <span class="text-fine font-mono text-ink/55 uppercase">
-            routecraft.dev
-          </span>
-          <span class="text-fine font-mono text-ink/35 uppercase">
-            Fig. 03
-          </span>
+        <div class="mt-auto flex items-end justify-between">
+          <span class="text-fine font-mono text-ink/55 uppercase"
+            >routecraft.dev/docs/cli</span
+          >
+          <span class="text-fine font-mono text-ink/35 uppercase">Fig. 19</span>
         </div>
       </div>
     </div>

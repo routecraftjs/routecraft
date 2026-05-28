@@ -132,23 +132,6 @@ export function TriggerCycler() {
             </marker>
           </defs>
 
-          {/* Corner registration crosses */}
-          {[
-            [8, 8],
-            [W - 8, 8],
-            [8, H - 8],
-            [W - 8, H - 8],
-          ].map(([cx, cy], i) => (
-            <g
-              key={i}
-              className="stroke-ink/40 dark:stroke-paper/40"
-              strokeWidth="0.6"
-            >
-              <line x1={cx - 4} y1={cy} x2={cx + 4} y2={cy} />
-              <line x1={cx} y1={cy - 4} x2={cx} y2={cy + 4} />
-            </g>
-          ))}
-
           {/* Column labels */}
           <text
             x={SOURCE_X}
