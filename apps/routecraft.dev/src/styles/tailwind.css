@@ -35,8 +35,6 @@
   --text-9xl--line-height: 1;
 
   --font-sans: var(--font-ibm-plex-sans);
-  --font-display: var(--font-lexend);
-  --font-display--font-feature-settings: 'ss01';
   --font-editorial: var(--font-fraunces);
   --font-editorial--font-feature-settings: 'ss01', 'ss02';
   --font-mono: var(--font-jetbrains-mono);

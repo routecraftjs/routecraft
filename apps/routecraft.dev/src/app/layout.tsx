@@ -1,6 +1,5 @@
 import { type Metadata } from 'next'
 import { IBM_Plex_Sans, Fraunces, JetBrains_Mono } from 'next/font/google'
-import localFont from 'next/font/local'
 import clsx from 'clsx'
 
 import { Providers } from '@/app/providers'
@@ -13,13 +12,6 @@ const ibmPlexSans = IBM_Plex_Sans({
   weight: ['400', '500', '600', '700'],
   display: 'swap',
   variable: '--font-ibm-plex-sans',
-})
-
-// Use local version of Lexend so that we can use OpenType features
-const lexend = localFont({
-  src: '../fonts/lexend.woff2',
-  display: 'swap',
-  variable: '--font-lexend',
 })
 
 const fraunces = Fraunces({
@@ -80,7 +72,6 @@ export default function RootLayout({
       className={clsx(
         'h-full antialiased',
         ibmPlexSans.variable,
-        lexend.variable,
         fraunces.variable,
         jetbrainsMono.variable,
       )}
