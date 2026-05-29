@@ -20,7 +20,7 @@ export interface CoverPalette {
 // Literal palette used for the OG image: Satori resolves real color values,
 // not CSS variables. This is the light/paper-deep look.
 export const COVER_PALETTE_LIGHT: CoverPalette = {
-  bg: '#ece5d2',
+  bg: '#ebe5da',
   fg: '#22232c',
   accent: '#1247ff',
   muted25: 'rgba(34,35,44,0.25)',

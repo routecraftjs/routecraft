@@ -70,7 +70,7 @@
   /* Blog cover palette. Consumed by BlogCover via COVER_PALETTE_THEMED so the
      in-page cover follows the site theme. The OG image uses literal colours. */
   :root {
-    --cover-bg: #ece5d2;
+    --cover-bg: #ebe5da;
     --cover-fg: #22232c;
     --cover-fg-rgb: 34 35 44;
     --cover-accent: #1247ff;
@@ -102,7 +102,7 @@
   }
 
   .dark .group:hover .blog-cover {
-    --cover-bg: #ece5d2;
+    --cover-bg: #ebe5da;
     --cover-fg: #22232c;
     --cover-fg-rgb: 34 35 44;
     --cover-accent: #1247ff;
