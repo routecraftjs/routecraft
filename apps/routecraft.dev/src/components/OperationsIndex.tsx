@@ -273,43 +273,40 @@ export function OperationsIndex() {
         if (items.length === 0) return null
         return (
           <section key={category} aria-labelledby={`ops-${category}`}>
-            <header className="flex items-center gap-3 border-b border-ink/15 pb-3 dark:border-paper/15">
+            <header className="flex items-center gap-3 border-b border-ink/15 pb-3">
               <span aria-hidden="true" className="h-1 w-1 bg-cobalt-500" />
               <h3
                 id={`ops-${category}`}
-                className="font-mono text-[0.65rem] tracking-[0.22em] text-ink/65 uppercase dark:text-paper/65"
+                className="font-mono text-[0.65rem] tracking-[0.22em] text-ink/65 uppercase"
               >
                 {category}
               </h3>
-              <span className="ml-auto font-mono text-[0.65rem] tracking-[0.22em] text-ink/45 tabular-nums dark:text-paper/45">
+              <span className="ml-auto font-mono text-[0.65rem] tracking-[0.22em] text-ink/45 tabular-nums">
                 {String(items.length).padStart(2, '0')}
               </span>
             </header>
-            <ul
-              role="list"
-              className="divide-y divide-ink/10 dark:divide-paper/10"
-            >
+            <ul role="list" className="divide-y divide-ink/10">
               {items.map((op) => (
                 <li key={op.name}>
                   <Link
                     href={`/docs/reference/operations/${op.name.toLowerCase()}`}
-                    className="group grid grid-cols-[minmax(0,16rem)_1fr_auto] items-baseline gap-x-6 gap-y-1 py-3.5 transition hover:bg-paper-deep/30 dark:hover:bg-ink-soft/30"
+                    className="group grid grid-cols-[minmax(0,16rem)_1fr_auto] items-baseline gap-x-6 gap-y-1 py-3.5 transition hover:bg-paper-deep/30"
                   >
-                    <code className="font-mono text-[0.92rem] text-ink transition group-hover:text-cobalt-500 dark:text-paper dark:group-hover:text-cobalt-300">
+                    <code className="font-mono text-[0.92rem] text-ink transition group-hover:text-cobalt-500">
                       {op.signature}
                     </code>
-                    <p className="text-[0.92rem] leading-[1.55] text-ink/65 dark:text-paper/65">
+                    <p className="text-[0.92rem] leading-[1.55] text-ink/65">
                       {op.description}
                     </p>
                     <span className="flex items-center gap-3">
                       {op.planned && (
-                        <span className="inline-flex items-center border border-cobalt-500/40 px-1.5 py-0.5 font-mono text-[0.55rem] tracking-[0.18em] text-cobalt-600 uppercase dark:border-cobalt-400/40 dark:text-cobalt-300">
+                        <span className="inline-flex items-center border border-cobalt-500/40 px-1.5 py-0.5 font-mono text-[0.55rem] tracking-[0.18em] text-cobalt-600 uppercase">
                           Planned
                         </span>
                       )}
                       <span
                         aria-hidden="true"
-                        className="font-mono text-[0.9rem] text-ink/30 transition group-hover:translate-x-0.5 group-hover:text-cobalt-500 dark:text-paper/30"
+                        className="font-mono text-[0.9rem] text-ink/30 transition group-hover:translate-x-0.5 group-hover:text-cobalt-500"
                       >
                         →
                       </span>

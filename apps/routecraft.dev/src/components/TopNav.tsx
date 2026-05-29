@@ -37,9 +37,7 @@ export function TopNav({ className }: { className?: string }) {
             aria-current={isActive ? 'page' : undefined}
             className={clsx(
               'group relative font-mono text-[0.7rem] tracking-[0.22em] uppercase transition',
-              isActive
-                ? 'text-cobalt-500'
-                : 'text-ink/65 hover:text-ink dark:text-paper/65 dark:hover:text-paper',
+              isActive ? 'text-cobalt-500' : 'text-ink/65 hover:text-ink',
             )}
           >
             <span>{link.title}</span>
@@ -49,7 +47,7 @@ export function TopNav({ className }: { className?: string }) {
                 'absolute inset-x-0 -bottom-1.5 h-0.5 origin-left transition-transform duration-300',
                 isActive
                   ? 'scale-x-100 bg-cobalt-500'
-                  : 'scale-x-0 bg-ink/40 group-hover:scale-x-100 dark:bg-paper/40',
+                  : 'scale-x-0 bg-ink/40 group-hover:scale-x-100',
               )}
             />
           </Link>

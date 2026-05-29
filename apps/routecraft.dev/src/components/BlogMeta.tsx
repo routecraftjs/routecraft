@@ -22,35 +22,30 @@ export function BlogMeta({
       {date && (
         <time
           dateTime={date}
-          className="font-mono text-[0.65rem] tracking-[0.2em] text-ink/55 uppercase dark:text-paper/55"
+          className="font-mono text-[0.65rem] tracking-[0.2em] text-ink/55 uppercase"
         >
           {formatBlogDate(date)}
         </time>
       )}
       {typeof readingTime === 'number' && (
         <>
-          <span aria-hidden="true" className="text-ink/25 dark:text-paper/25">
+          <span aria-hidden="true" className="text-ink/25">
             /
           </span>
-          <span className="font-mono text-[0.65rem] tracking-[0.2em] text-ink/55 uppercase dark:text-paper/55">
+          <span className="font-mono text-[0.65rem] tracking-[0.2em] text-ink/55 uppercase">
             {readingTime} min read
           </span>
         </>
       )}
       {author && (
         <>
-          <span aria-hidden="true" className="text-ink/25 dark:text-paper/25">
+          <span aria-hidden="true" className="text-ink/25">
             /
           </span>
-          <span className="font-editorial text-[1rem] text-ink/65 italic dark:text-paper/65">
-            by{' '}
-            <span className="text-ink not-italic dark:text-paper">
-              {author}
-            </span>
+          <span className="font-editorial text-[1rem] text-ink/65 italic">
+            by <span className="text-ink not-italic">{author}</span>
             {authorRole ? (
-              <span className="text-ink/55 dark:text-paper/55">
-                , {authorRole}
-              </span>
+              <span className="text-ink/55">, {authorRole}</span>
             ) : null}
           </span>
         </>

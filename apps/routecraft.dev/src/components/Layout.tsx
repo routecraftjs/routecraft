@@ -38,9 +38,9 @@ function Header() {
   return (
     <header
       className={clsx(
-        'sticky top-0 z-50 flex flex-none flex-wrap items-center justify-between border-b border-ink/15 bg-paper px-4 py-4 transition duration-500 sm:px-6 lg:px-8 dark:border-paper/15 dark:bg-ink',
+        'sticky top-0 z-50 flex flex-none flex-wrap items-center justify-between border-b border-ink/15 bg-paper px-4 py-4 transition duration-500 sm:px-6 lg:px-8',
         isScrolled &&
-          'bg-paper/85 backdrop-blur-sm dark:bg-ink/85 [@supports(backdrop-filter:blur(0))]:bg-paper/70 dark:[@supports(backdrop-filter:blur(0))]:bg-ink/70',
+          'bg-paper/85 backdrop-blur-sm [@supports(backdrop-filter:blur(0))]:bg-paper/70',
       )}
     >
       <div className="mr-6 flex lg:hidden">
@@ -52,9 +52,9 @@ function Header() {
           aria-label="Home page"
           className="group flex items-center gap-2.5"
         >
-          <Logo className="h-6 w-6 shrink-0 text-ink transition group-hover:text-cobalt-500 dark:text-paper dark:group-hover:text-cobalt-300" />
+          <Logo className="h-6 w-6 shrink-0 text-ink transition group-hover:text-cobalt-500" />
           <span
-            className="font-editorial text-[1.35rem] leading-none tracking-[-0.02em] text-ink dark:text-paper"
+            className="font-editorial text-[1.35rem] leading-none tracking-[-0.02em] text-ink"
             style={{ fontVariationSettings: '"opsz" 48, "SOFT" 30' }}
           >
             Routecraft
@@ -72,7 +72,7 @@ function Header() {
           className="group"
           aria-label="GitHub"
         >
-          <GitHubIcon className="h-5 w-5 fill-ink/55 transition group-hover:fill-cobalt-500 dark:fill-paper/55 dark:group-hover:fill-cobalt-300" />
+          <GitHubIcon className="h-5 w-5 fill-ink/55 transition group-hover:fill-cobalt-500" />
         </Link>
       </div>
     </header>
@@ -105,7 +105,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       >
         {showDocsSidebar && (
           <div className="hidden lg:relative lg:block lg:flex-none">
-            <div className="absolute inset-y-0 right-0 hidden w-px bg-ink/15 lg:block dark:bg-paper/15" />
+            <div className="absolute inset-y-0 right-0 hidden w-px bg-ink/15 lg:block" />
             <div className="sticky top-19 -ml-0.5 h-[calc(100vh-4.75rem)] w-64 overflow-x-hidden overflow-y-auto py-16 pr-8 pl-0.5 xl:w-72 xl:pr-16">
               <Navigation />
             </div>

@@ -13,7 +13,7 @@ export function CodeTabs({ children }: { children: React.ReactNode }) {
   return (
     <Tab.Group>
       <div className="relative">
-        <Tab.List className="absolute top-2.5 left-3 z-10 flex gap-px bg-ink/15 dark:bg-paper/15">
+        <Tab.List className="absolute top-2.5 left-3 z-10 flex gap-px bg-ink/15">
           {tabs.map((tab, index) => (
             <Tab
               key={tab.props.label ?? index}
@@ -22,7 +22,7 @@ export function CodeTabs({ children }: { children: React.ReactNode }) {
                   'px-3 py-1 font-mono text-[0.65rem] tracking-[0.18em] uppercase transition focus:outline-none',
                   selected
                     ? 'bg-cobalt-500 text-paper'
-                    : 'bg-paper-deep text-ink/55 hover:text-cobalt-500 dark:bg-ink-soft dark:text-paper/55 dark:hover:text-cobalt-300',
+                    : 'bg-paper-deep text-ink/55 hover:text-cobalt-500',
                 )
               }
             >

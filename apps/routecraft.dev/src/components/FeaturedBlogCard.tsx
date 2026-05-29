@@ -7,7 +7,7 @@ import { BlogMeta } from '@/components/BlogMeta'
 // (page metadata) and the grid below, so the featured slot leads with the words.
 export function FeaturedBlogCard({ post }: { post: BlogPostMeta }) {
   return (
-    <article className="group relative flex flex-col border border-ink/15 transition hover:border-cobalt-500/50 dark:border-paper/15 dark:hover:border-cobalt-400/50">
+    <article className="group relative flex flex-col border border-ink/15 transition hover:border-cobalt-500/50">
       <Link
         href={post.href}
         className="flex h-full flex-col p-8 focus:outline-none lg:p-10"
@@ -25,14 +25,11 @@ export function FeaturedBlogCard({ post }: { post: BlogPostMeta }) {
         </div>
 
         {post.tags && post.tags.length > 0 && (
-          <div className="mt-6 flex flex-wrap items-center gap-2 font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase dark:text-paper/55">
+          <div className="mt-6 flex flex-wrap items-center gap-2 font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase">
             {post.tags.slice(0, 4).map((tag, i) => (
               <span key={tag} className="inline-flex items-center gap-2">
                 {i > 0 && (
-                  <span
-                    aria-hidden="true"
-                    className="text-ink/25 dark:text-paper/25"
-                  >
+                  <span aria-hidden="true" className="text-ink/25">
                     ·
                   </span>
                 )}
@@ -42,12 +39,12 @@ export function FeaturedBlogCard({ post }: { post: BlogPostMeta }) {
           </div>
         )}
 
-        <h2 className="mt-5 font-editorial text-[1.9rem] leading-[1.1] tracking-[-0.02em] text-ink transition group-hover:text-cobalt-500 lg:text-[2.25rem] dark:text-paper dark:group-hover:text-cobalt-300">
+        <h2 className="mt-5 font-editorial text-[1.9rem] leading-[1.1] tracking-[-0.02em] text-ink transition group-hover:text-cobalt-500 lg:text-[2.25rem]">
           {post.title}
         </h2>
 
         {post.description && (
-          <p className="mt-5 text-[1rem] leading-[1.65] text-ink/70 dark:text-paper/70">
+          <p className="mt-5 text-[1rem] leading-[1.65] text-ink/70">
             {post.description}
           </p>
         )}

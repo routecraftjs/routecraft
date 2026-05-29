@@ -67,6 +67,23 @@
     display: none;
   }
 
+  /* Dark mode is a re-tone, not an inversion (see brand book). Redefining the
+     brand tokens here flips bg-paper / text-ink / text-cobalt-* automatically;
+     components must NOT carry dark: token-swap variants for these. Tailwind v4
+     composes the /alpha suffixes on these hex values via color-mix. */
+  .dark {
+    --color-paper: #1d1e26;
+    --color-paper-edge: #30323d;
+    --color-paper-deep: #262832;
+    --color-ink: #f0ece1;
+    --color-ink-soft: #cec9bc;
+    --color-ink-deep: #faf7f0;
+    --color-cobalt-300: #b0b9ff;
+    --color-cobalt-400: #8c98fc;
+    --color-cobalt-500: #7482ff;
+    --color-cobalt-600: #9ea8fd;
+  }
+
   /* Blog cover palette. Consumed by BlogCover via COVER_PALETTE_THEMED so the
      in-page cover follows the site theme. The OG image uses literal colours. */
   :root {
@@ -77,10 +94,10 @@
   }
 
   .dark {
-    --cover-bg: #16171c;
-    --cover-fg: #f5f1e8;
-    --cover-fg-rgb: 245 241 232;
-    --cover-accent: #5867f5;
+    --cover-bg: #16171d;
+    --cover-fg: #f0ece1;
+    --cover-fg-rgb: 240 236 225;
+    --cover-accent: #8c98fc;
   }
 
   /* Smooth the colour flip on theme change and hover-invert. */
@@ -95,10 +112,10 @@
   /* Hover-invert: when a card (.group) is hovered, flip the cover's palette to
      the opposite theme. Light cards go dark; dark cards go light. */
   .group:hover .blog-cover {
-    --cover-bg: #16171c;
-    --cover-fg: #f5f1e8;
-    --cover-fg-rgb: 245 241 232;
-    --cover-accent: #5867f5;
+    --cover-bg: #16171d;
+    --cover-fg: #f0ece1;
+    --cover-fg-rgb: 240 236 225;
+    --cover-accent: #8c98fc;
   }
 
   .dark .group:hover .blog-cover {

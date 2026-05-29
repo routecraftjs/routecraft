@@ -77,12 +77,12 @@ export function ThemeSelector(
         />
         <DarkIcon
           className={clsx(
-            'hidden h-4 w-4 transition group-hover:fill-cobalt-300 dark:block',
-            theme === 'system' ? 'fill-paper/45' : 'fill-paper/70',
+            'hidden h-4 w-4 transition group-hover:fill-cobalt-500 dark:block',
+            theme === 'system' ? 'fill-ink/45' : 'fill-ink/70',
           )}
         />
       </ListboxButton>
-      <ListboxOptions className="absolute top-full right-0 z-10 mt-3 w-40 border border-ink/15 bg-paper p-1 font-mono text-[0.7rem] tracking-[0.18em] uppercase shadow-[0_20px_60px_-30px_rgba(12,12,16,0.4)] dark:border-paper/15 dark:bg-ink-soft">
+      <ListboxOptions className="absolute top-full right-0 z-10 mt-3 w-40 border border-ink/15 bg-paper p-1 font-mono text-[0.7rem] tracking-[0.18em] uppercase shadow-[0_20px_60px_-30px_rgba(12,12,16,0.4)]">
         {themes.map((themeItem) => (
           <ListboxOption
             key={themeItem.value}
@@ -92,9 +92,8 @@ export function ThemeSelector(
                 'flex cursor-pointer items-center gap-3 px-3 py-2 transition select-none',
                 {
                   'text-cobalt-500': selected,
-                  'bg-paper-deep text-ink dark:bg-ink dark:text-paper':
-                    focus && !selected,
-                  'text-ink/70 dark:text-paper/70': !focus && !selected,
+                  'bg-paper-deep text-ink': focus && !selected,
+                  'text-ink/70': !focus && !selected,
                 },
               )
             }
@@ -104,9 +103,7 @@ export function ThemeSelector(
                 <themeItem.icon
                   className={clsx(
                     'h-3.5 w-3.5 transition',
-                    selected
-                      ? 'fill-cobalt-500'
-                      : 'fill-ink/55 dark:fill-paper/55',
+                    selected ? 'fill-cobalt-500' : 'fill-ink/55',
                   )}
                 />
                 <span>{themeItem.name}</span>

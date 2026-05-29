@@ -38,7 +38,7 @@ export function DocsHeader({
         <CopyDocsButton />
       </div>
       {title && (
-        <h1 className="font-editorial text-[clamp(2rem,4vw,3rem)] leading-[1.05] font-medium tracking-[-0.02em] text-ink dark:text-paper">
+        <h1 className="font-editorial text-[clamp(2rem,4vw,3rem)] leading-[1.05] font-medium tracking-[-0.02em] text-ink">
           <span className="inline-flex items-baseline gap-3">
             <span>{title}</span>
             {titleBadges?.map((b, i) => (

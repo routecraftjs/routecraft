@@ -40,7 +40,7 @@ export const metadata: Metadata = {
 export default function CheatSheetPage() {
   return (
     <main className="w-full pb-16 print:pb-0">
-      <section className="border-b border-ink/15 dark:border-paper/15 print:border-none">
+      <section className="border-b border-ink/15 print:border-none">
         <div className="mx-auto w-full max-w-7xl px-4 py-12 sm:px-6 sm:py-14 lg:px-8 print:px-0 print:py-2">
           <div className="flex flex-wrap items-start justify-between gap-6">
             <div className="flex-1">
@@ -48,11 +48,11 @@ export default function CheatSheetPage() {
                 <span aria-hidden="true" className="h-1 w-1 bg-cobalt-500" />
                 <span>Reference</span>
               </p>
-              <h1 className="mt-6 font-editorial text-[clamp(2rem,4vw,3rem)] leading-[1.05] font-medium tracking-[-0.02em] text-ink dark:text-paper">
+              <h1 className="mt-6 font-editorial text-[clamp(2rem,4vw,3rem)] leading-[1.05] font-medium tracking-[-0.02em] text-ink">
                 Routecraft{' '}
                 <span className="text-cobalt-500 italic">cheat sheet.</span>
               </h1>
-              <p className="mt-5 max-w-2xl font-editorial text-[1.05rem] leading-[1.55] text-ink/70 italic dark:text-paper/70">
+              <p className="mt-5 max-w-2xl font-editorial text-[1.05rem] leading-[1.55] text-ink/70 italic">
                 The whole fluent API on one page. Searchable, copyable, and
                 print-to-PDF ready.
               </p>
@@ -61,16 +61,16 @@ export default function CheatSheetPage() {
                   <span aria-hidden="true" className="h-1 w-1 bg-cobalt-500" />
                   {process.env.NEXT_PUBLIC_DOC_VERSION ?? 'dev'}
                 </span>
-                <span className="inline-flex items-center border border-ink/25 px-2.5 py-1 font-mono text-[0.65rem] tracking-[0.18em] text-ink/65 uppercase dark:border-paper/25 dark:text-paper/65">
+                <span className="inline-flex items-center border border-ink/25 px-2.5 py-1 font-mono text-[0.65rem] tracking-[0.18em] text-ink/65 uppercase">
                   TypeScript
                 </span>
               </div>
             </div>
             <div className="flex flex-col items-end gap-3 text-right print:hidden">
               <PrintButton />
-              <p className="font-mono text-[0.65rem] tracking-[0.18em] text-ink/55 uppercase dark:text-paper/55">
+              <p className="font-mono text-[0.65rem] tracking-[0.18em] text-ink/55 uppercase">
                 Or press{' '}
-                <kbd className="ml-1 inline-flex items-center border border-ink/25 px-1.5 py-0.5 font-mono text-[0.65rem] dark:border-paper/25">
+                <kbd className="ml-1 inline-flex items-center border border-ink/25 px-1.5 py-0.5 font-mono text-[0.65rem]">
                   Cmd/Ctrl + P
                 </kbd>
               </p>

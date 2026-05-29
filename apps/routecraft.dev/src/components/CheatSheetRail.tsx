@@ -46,13 +46,13 @@ export function CheatSheetRail({ items }: { items: RailItem[] }) {
       aria-label="Cheat sheet sections"
       className="sticky top-24 print:hidden"
     >
-      <p className="flex items-center gap-2 font-mono text-[0.6rem] tracking-[0.22em] text-ink/55 uppercase dark:text-paper/55">
+      <p className="flex items-center gap-2 font-mono text-[0.6rem] tracking-[0.22em] text-ink/55 uppercase">
         <span aria-hidden="true" className="h-1 w-1 bg-cobalt-500" />
         On this sheet
       </p>
       <ul
         role="list"
-        className="mt-4 flex flex-col gap-0.5 border-l border-ink/15 dark:border-paper/15"
+        className="mt-4 flex flex-col gap-0.5 border-l border-ink/15"
       >
         {items.map((item) => {
           const isActive = item.id === active
@@ -65,7 +65,7 @@ export function CheatSheetRail({ items }: { items: RailItem[] }) {
                   'block py-1.5 pl-4 text-[0.82rem] leading-snug transition',
                   isActive
                     ? 'font-medium text-cobalt-500'
-                    : 'text-ink/60 hover:text-ink dark:text-paper/60 dark:hover:text-paper',
+                    : 'text-ink/60 hover:text-ink',
                 )}
               >
                 {item.title}

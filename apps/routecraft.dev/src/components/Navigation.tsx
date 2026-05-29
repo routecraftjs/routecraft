@@ -31,20 +31,17 @@ export function Navigation({
                 <Link
                   href={section.href}
                   onClick={onLinkClick}
-                  className="font-mono text-[0.65rem] tracking-[0.22em] text-ink/70 uppercase transition hover:text-ink dark:text-paper/70 dark:hover:text-paper"
+                  className="font-mono text-[0.65rem] tracking-[0.22em] text-ink/70 uppercase transition hover:text-ink"
                 >
                   {section.title}
                 </Link>
               ) : (
-                <h2 className="font-mono text-[0.65rem] tracking-[0.22em] text-ink/70 uppercase dark:text-paper/70">
+                <h2 className="font-mono text-[0.65rem] tracking-[0.22em] text-ink/70 uppercase">
                   {section.title}
                 </h2>
               )}
             </div>
-            <ul
-              role="list"
-              className="mt-4 space-y-2 border-l border-ink/15 dark:border-paper/15"
-            >
+            <ul role="list" className="mt-4 space-y-2 border-l border-ink/15">
               {section.links.map((link) => {
                 const isActive = link.href === pathname
                 return (
@@ -57,7 +54,7 @@ export function Navigation({
                         'block w-full pl-4 transition',
                         isActive
                           ? 'font-medium text-cobalt-500'
-                          : 'text-ink/65 hover:text-ink dark:text-paper/65 dark:hover:text-paper',
+                          : 'text-ink/65 hover:text-ink',
                       )}
                     >
                       {link.title}

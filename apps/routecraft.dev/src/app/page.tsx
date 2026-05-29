@@ -91,7 +91,7 @@ export default function LandingPage() {
   const featuredPost = getFeaturedPost(getAllBlogPosts())
 
   return (
-    <div className="relative w-full bg-paper text-ink dark:bg-ink dark:text-paper">
+    <div className="relative w-full bg-paper text-ink">
       <PaperGrain />
       <Hero />
       <SectionRule numeral="I" label="Bounded by design" />
@@ -140,13 +140,13 @@ function Hero() {
             A TypeScript framework &nbsp;·&nbsp;{' '}
             <Link
               href={changelogHighlight.href}
-              className="hover:text-cobalt-600 dark:hover:text-cobalt-300"
+              className="hover:text-cobalt-600"
             >
               {changelogHighlight.version} in dev
             </Link>
           </p>
           <h1
-            className="paper-rise mt-6 font-editorial text-[clamp(3rem,7vw,5.75rem)] leading-[0.98] tracking-[-0.025em] text-ink dark:text-paper"
+            className="paper-rise mt-6 font-editorial text-[clamp(3rem,7vw,5.75rem)] leading-[0.98] tracking-[-0.025em] text-ink"
             style={{
               animationDelay: '140ms',
               fontVariationSettings: '"opsz" 144, "SOFT" 30',
@@ -175,7 +175,7 @@ function Hero() {
           </h1>
 
           <p
-            className="paper-rise mt-8 max-w-xl text-[1.1rem] leading-[1.75] text-ink/75 dark:text-paper/75"
+            className="paper-rise mt-8 max-w-xl text-[1.1rem] leading-[1.75] text-ink/75"
             style={{ animationDelay: '260ms' }}
           >
             Type-safe framework for AI automation. Build the tools an agent
@@ -202,15 +202,15 @@ function Hero() {
             </Link>
             <Link
               href="/cheat-sheet"
-              className="group relative font-editorial text-[1.05rem] text-ink italic hover:text-cobalt-500 dark:text-paper dark:hover:text-cobalt-300"
+              className="group relative font-editorial text-[1.05rem] text-ink italic hover:text-cobalt-500"
             >
-              <span className="border-b border-current pb-px transition group-hover:border-cobalt-500 dark:group-hover:border-cobalt-300">
+              <span className="border-b border-current pb-px transition group-hover:border-cobalt-500">
                 Read the cheat sheet
               </span>
             </Link>
             <a
               href="https://github.com/routecraftjs/routecraft"
-              className="group font-mono text-[0.75rem] tracking-[0.18em] text-ink/65 uppercase hover:text-ink dark:text-paper/65 dark:hover:text-paper"
+              className="group font-mono text-[0.75rem] tracking-[0.18em] text-ink/65 uppercase hover:text-ink"
             >
               GitHub <span aria-hidden="true">↗</span>
             </a>
@@ -236,10 +236,10 @@ function SectionRule({ numeral, label }: { numeral?: string; label: string }) {
               {numeral}
             </span>
           )}
-          <span className="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase dark:text-paper/55">
+          <span className="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase">
             {label}
           </span>
-          <span className="h-px flex-1 bg-ink/15 dark:bg-paper/15" />
+          <span className="h-px flex-1 bg-ink/15" />
         </div>
       </div>
     </div>
@@ -252,7 +252,7 @@ function TwoModes() {
       <div className="mx-auto max-w-7xl px-4 pt-12 pb-20 sm:px-6 lg:px-8 lg:pt-14 lg:pb-24">
         <header className="max-w-3xl">
           <h2
-            className="font-editorial text-[2.5rem] leading-[1.05] tracking-[-0.02em] text-ink dark:text-paper"
+            className="font-editorial text-[2.5rem] leading-[1.05] tracking-[-0.02em] text-ink"
             style={{ fontVariationSettings: '"opsz" 144, "SOFT" 30' }}
           >
             Use Routecraft on{' '}
@@ -264,25 +264,25 @@ function TwoModes() {
             </span>{' '}
             of the agent.
           </h2>
-          <p className="mt-5 max-w-2xl text-[1.05rem] leading-[1.75] text-ink/70 dark:text-paper/70">
+          <p className="mt-5 max-w-2xl text-[1.05rem] leading-[1.75] text-ink/70">
             The same fluent DSL builds the tools an agent calls, and the harness
             that runs an agent. You pick which side you are on. Sometimes both,
             in the same project.
           </p>
         </header>
 
-        <div className="mt-12 grid grid-cols-1 gap-px border border-ink/15 bg-ink/15 lg:grid-cols-2 dark:border-paper/15 dark:bg-paper/15">
-          <article className="relative flex flex-col gap-5 bg-paper p-7 lg:p-10 dark:bg-ink">
+        <div className="mt-12 grid grid-cols-1 gap-px border border-ink/15 bg-ink/15 lg:grid-cols-2">
+          <article className="relative flex flex-col gap-5 bg-paper p-7 lg:p-10">
             <header className="flex items-baseline gap-4">
               <span className="font-editorial text-[1.5rem] text-cobalt-500 italic tabular-nums">
                 01
               </span>
-              <p className="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase dark:text-paper/55">
+              <p className="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase">
                 Tools for an agent
               </p>
             </header>
             <h3
-              className="font-editorial text-[1.85rem] leading-[1.1] tracking-[-0.015em] text-ink dark:text-paper"
+              className="font-editorial text-[1.85rem] leading-[1.1] tracking-[-0.015em] text-ink"
               style={{ fontVariationSettings: '"opsz" 96, "SOFT" 50' }}
             >
               Expose capabilities,{' '}
@@ -293,22 +293,20 @@ function TwoModes() {
                 let agents call them.
               </span>
             </h3>
-            <p className="text-[1rem] leading-[1.7] text-ink/70 dark:text-paper/70">
+            <p className="text-[1rem] leading-[1.7] text-ink/70">
               Set the source to <InlineMono>mcp()</InlineMono> and your
               capability becomes an MCP tool. Claude Desktop, Cursor, ChatGPT,
               OpenClaw, Hermes, or any MCP-speaking client can pick it up. Auth,
               validation, and structured output are part of the primitive.
             </p>
-            <ul className="mt-2 flex flex-col gap-2 font-mono text-[0.8rem] text-ink/75 dark:text-paper/75">
+            <ul className="mt-2 flex flex-col gap-2 font-mono text-[0.8rem] text-ink/75">
               <li className="flex items-baseline gap-3">
                 <span className="text-cobalt-500" aria-hidden="true">
                   ▸
                 </span>
                 <span>
-                  <span className="text-cobalt-600 dark:text-cobalt-300">
-                    .from(mcp())
-                  </span>{' '}
-                  exposes a typed tool
+                  <span className="text-cobalt-600">.from(mcp())</span> exposes
+                  a typed tool
                 </span>
               </li>
               <li className="flex items-baseline gap-3">
@@ -316,9 +314,7 @@ function TwoModes() {
                   ▸
                 </span>
                 <span>
-                  <span className="text-cobalt-600 dark:text-cobalt-300">
-                    .input(schema)
-                  </span>{' '}
+                  <span className="text-cobalt-600">.input(schema)</span>{' '}
                   validates before your code runs
                 </span>
               </li>
@@ -327,7 +323,7 @@ function TwoModes() {
                   ▸
                 </span>
                 <span>
-                  <span className="text-cobalt-600 dark:text-cobalt-300">
+                  <span className="text-cobalt-600">
                     .authorize(&#123; roles &#125;)
                   </span>{' '}
                   gates per-agent
@@ -336,24 +332,24 @@ function TwoModes() {
             </ul>
             <Link
               href="/docs/advanced/expose-as-mcp"
-              className="mt-3 inline-flex items-center gap-2 font-mono text-[0.7rem] tracking-[0.22em] text-cobalt-500 uppercase hover:text-cobalt-600 dark:hover:text-cobalt-300"
+              className="mt-3 inline-flex items-center gap-2 font-mono text-[0.7rem] tracking-[0.22em] text-cobalt-500 uppercase hover:text-cobalt-600"
             >
               <span>Expose a capability over MCP</span>
               <span aria-hidden="true">→</span>
             </Link>
           </article>
 
-          <article className="relative flex flex-col gap-5 bg-paper p-7 lg:p-10 dark:bg-ink">
+          <article className="relative flex flex-col gap-5 bg-paper p-7 lg:p-10">
             <header className="flex items-baseline gap-4">
               <span className="font-editorial text-[1.5rem] text-cobalt-500 italic tabular-nums">
                 02
               </span>
-              <p className="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase dark:text-paper/55">
+              <p className="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase">
                 The whole agent
               </p>
             </header>
             <h3
-              className="font-editorial text-[1.85rem] leading-[1.1] tracking-[-0.015em] text-ink dark:text-paper"
+              className="font-editorial text-[1.85rem] leading-[1.1] tracking-[-0.015em] text-ink"
               style={{ fontVariationSettings: '"opsz" 96, "SOFT" 50' }}
             >
               Build the harness.{' '}
@@ -364,19 +360,19 @@ function TwoModes() {
                 Own the loop.
               </span>
             </h3>
-            <p className="text-[1rem] leading-[1.7] text-ink/70 dark:text-paper/70">
+            <p className="text-[1rem] leading-[1.7] text-ink/70">
               Set the destination to <InlineMono>agent()</InlineMono> and the
               capability becomes the brain. You choose the model, the system
               prompt, the tools the agent can reach for, and what happens to the
               result. The DSL is the harness.
             </p>
-            <ul className="mt-2 flex flex-col gap-2 font-mono text-[0.8rem] text-ink/75 dark:text-paper/75">
+            <ul className="mt-2 flex flex-col gap-2 font-mono text-[0.8rem] text-ink/75">
               <li className="flex items-baseline gap-3">
                 <span className="text-cobalt-500" aria-hidden="true">
                   ▸
                 </span>
                 <span>
-                  <span className="text-cobalt-600 dark:text-cobalt-300">
+                  <span className="text-cobalt-600">
                     .to(agent(&#123; model, system &#125;))
                   </span>{' '}
                   picks the model
@@ -387,10 +383,8 @@ function TwoModes() {
                   ▸
                 </span>
                 <span>
-                  <span className="text-cobalt-600 dark:text-cobalt-300">
-                    tools([...])
-                  </span>{' '}
-                  scopes what the agent can do
+                  <span className="text-cobalt-600">tools([...])</span> scopes
+                  what the agent can do
                 </span>
               </li>
               <li className="flex items-baseline gap-3">
@@ -398,7 +392,7 @@ function TwoModes() {
                   ▸
                 </span>
                 <span>
-                  <span className="text-cobalt-600 dark:text-cobalt-300">
+                  <span className="text-cobalt-600">
                     .to(direct(&apos;next&apos;))
                   </span>{' '}
                   composes into longer flows
@@ -407,7 +401,7 @@ function TwoModes() {
             </ul>
             <Link
               href="/docs/advanced/composing-capabilities"
-              className="mt-3 inline-flex items-center gap-2 font-mono text-[0.7rem] tracking-[0.22em] text-cobalt-500 uppercase hover:text-cobalt-600 dark:hover:text-cobalt-300"
+              className="mt-3 inline-flex items-center gap-2 font-mono text-[0.7rem] tracking-[0.22em] text-cobalt-500 uppercase hover:text-cobalt-600"
             >
               <span>Build an agent capability</span>
               <span aria-hidden="true">→</span>
@@ -421,7 +415,7 @@ function TwoModes() {
 
 function InlineMono({ children }: { children: ReactNode }) {
   return (
-    <code className="border border-ink/15 bg-paper-deep/60 px-1.5 py-0.5 font-mono text-[0.9em] text-cobalt-600 dark:border-paper/15 dark:bg-ink-soft/60 dark:text-cobalt-300">
+    <code className="border border-ink/15 bg-paper-deep/60 px-1.5 py-0.5 font-mono text-[0.9em] text-cobalt-600">
       {children}
     </code>
   )
@@ -436,7 +430,7 @@ function Thesis() {
             Thesis
           </p>
           <h2
-            className="mt-6 font-editorial text-[clamp(2rem,4.2vw,3.25rem)] leading-[1.08] tracking-[-0.02em] text-ink dark:text-paper"
+            className="mt-6 font-editorial text-[clamp(2rem,4.2vw,3.25rem)] leading-[1.08] tracking-[-0.02em] text-ink"
             style={{ fontVariationSettings: '"opsz" 144, "SOFT" 30' }}
           >
             Every primitive an{' '}
@@ -448,31 +442,31 @@ function Thesis() {
             </span>{' '}
             needs.
           </h2>
-          <p className="mx-auto mt-5 max-w-2xl text-[1.05rem] leading-[1.75] text-ink/65 dark:text-paper/65">
+          <p className="mx-auto mt-5 max-w-2xl text-[1.05rem] leading-[1.75] text-ink/65">
             Type-safety, validation, auth, MCP, composability, structured
             logging. Production-grade plumbing so you spend your time on the
             agent, not the boilerplate around it.
           </p>
         </header>
 
-        <div className="mt-14 grid grid-cols-1 gap-px border border-ink/15 bg-ink/15 sm:grid-cols-2 lg:grid-cols-3 dark:border-paper/15 dark:bg-paper/15">
+        <div className="mt-14 grid grid-cols-1 gap-px border border-ink/15 bg-ink/15 sm:grid-cols-2 lg:grid-cols-3">
           {features.map((f) => (
             <article
               key={f.number}
-              className="group relative flex flex-col gap-3 bg-paper px-6 py-8 transition hover:bg-paper-deep/40 dark:bg-ink dark:hover:bg-ink-soft/40"
+              className="group relative flex flex-col gap-3 bg-paper px-6 py-8 transition hover:bg-paper-deep/40"
             >
               <header className="flex items-baseline gap-4">
                 <span className="font-editorial text-[1.5rem] text-cobalt-500 italic tabular-nums">
                   {f.number}
                 </span>
                 <h3
-                  className="font-editorial text-[1.25rem] leading-tight tracking-[-0.005em] text-ink dark:text-paper"
+                  className="font-editorial text-[1.25rem] leading-tight tracking-[-0.005em] text-ink"
                   style={{ fontVariationSettings: '"opsz" 72, "SOFT" 50' }}
                 >
                   {f.title}
                 </h3>
               </header>
-              <p className="text-[0.95rem] leading-[1.7] text-ink/70 dark:text-paper/70">
+              <p className="text-[0.95rem] leading-[1.7] text-ink/70">
                 {f.description}
               </p>
             </article>
@@ -490,7 +484,7 @@ function Reading({ post }: { post: BlogPostMeta }) {
         <div className="grid grid-cols-1 gap-12 lg:grid-cols-12">
           <header className="lg:col-span-4">
             <h2
-              className="font-editorial text-[2.5rem] leading-[1.05] tracking-[-0.02em] text-ink dark:text-paper"
+              className="font-editorial text-[2.5rem] leading-[1.05] tracking-[-0.02em] text-ink"
               style={{ fontVariationSettings: '"opsz" 144, "SOFT" 30' }}
             >
               From the{' '}
@@ -501,13 +495,13 @@ function Reading({ post }: { post: BlogPostMeta }) {
                 field.
               </span>
             </h2>
-            <p className="mt-4 max-w-sm text-[1rem] leading-[1.7] text-ink/65 dark:text-paper/65">
+            <p className="mt-4 max-w-sm text-[1rem] leading-[1.7] text-ink/65">
               Tutorials, postmortems, and small notes from building Routecraft
               in production.
             </p>
             <Link
               href="/blog"
-              className="group mt-6 inline-flex items-center gap-2 font-mono text-[0.7rem] tracking-[0.22em] text-cobalt-500 uppercase hover:text-cobalt-600 dark:hover:text-cobalt-300"
+              className="group mt-6 inline-flex items-center gap-2 font-mono text-[0.7rem] tracking-[0.22em] text-cobalt-500 uppercase hover:text-cobalt-600"
             >
               <span>The full archive</span>
               <span
@@ -521,18 +515,15 @@ function Reading({ post }: { post: BlogPostMeta }) {
 
           <Link
             href={post.href}
-            className="group relative col-span-1 grid grid-cols-1 border-t border-ink/15 lg:col-span-8 lg:grid-cols-[1fr_minmax(0,18rem)] dark:border-paper/15"
+            className="group relative col-span-1 grid grid-cols-1 border-t border-ink/15 lg:col-span-8 lg:grid-cols-[1fr_minmax(0,18rem)]"
           >
             <div className="flex flex-col justify-between py-8 pr-0 lg:pr-10">
               {post.tags && post.tags.length > 0 && (
-                <div className="flex flex-wrap items-center gap-2 font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase dark:text-paper/55">
+                <div className="flex flex-wrap items-center gap-2 font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase">
                   {post.tags.slice(0, 3).map((tag, i) => (
                     <span key={tag} className="inline-flex items-center gap-2">
                       {i > 0 && (
-                        <span
-                          aria-hidden="true"
-                          className="text-ink/25 dark:text-paper/25"
-                        >
+                        <span aria-hidden="true" className="text-ink/25">
                           /
                         </span>
                       )}
@@ -542,13 +533,13 @@ function Reading({ post }: { post: BlogPostMeta }) {
                 </div>
               )}
               <h3
-                className="mt-6 font-editorial text-[2rem] leading-[1.08] tracking-[-0.015em] text-ink transition group-hover:text-cobalt-500 lg:text-[2.3rem] dark:text-paper dark:group-hover:text-cobalt-300"
+                className="mt-6 font-editorial text-[2rem] leading-[1.08] tracking-[-0.015em] text-ink transition group-hover:text-cobalt-500 lg:text-[2.3rem]"
                 style={{ fontVariationSettings: '"opsz" 144, "SOFT" 40' }}
               >
                 {post.title}
               </h3>
               {post.description && (
-                <p className="mt-4 max-w-2xl text-[1rem] leading-[1.7] text-ink/70 dark:text-paper/70">
+                <p className="mt-4 max-w-2xl text-[1rem] leading-[1.7] text-ink/70">
                   {post.description}
                 </p>
               )}
@@ -570,7 +561,7 @@ function Reading({ post }: { post: BlogPostMeta }) {
                 </span>
               </span>
             </div>
-            <figure className="relative my-0 hidden overflow-hidden border-l border-ink/15 lg:block dark:border-paper/15">
+            <figure className="relative my-0 hidden overflow-hidden border-l border-ink/15 lg:block">
               {post.image ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
@@ -596,7 +587,7 @@ function Finale() {
         <div className="grid grid-cols-1 gap-12 lg:grid-cols-12">
           <div className="lg:col-span-8">
             <h2
-              className="font-editorial text-[clamp(2.5rem,5.5vw,4.5rem)] leading-[1.02] tracking-[-0.025em] text-ink dark:text-paper"
+              className="font-editorial text-[clamp(2.5rem,5.5vw,4.5rem)] leading-[1.02] tracking-[-0.025em] text-ink"
               style={{ fontVariationSettings: '"opsz" 144, "SOFT" 30' }}
             >
               Open the playground.{' '}
@@ -607,7 +598,7 @@ function Finale() {
                 Have an MCP server in thirty seconds.
               </span>
             </h2>
-            <p className="mt-6 max-w-2xl text-[1.05rem] leading-[1.75] text-ink/70 dark:text-paper/70">
+            <p className="mt-6 max-w-2xl text-[1.05rem] leading-[1.75] text-ink/70">
               Run it in GitHub Codespaces without leaving your browser. Or
               scaffold locally and have it humming on your laptop in the same
               minute.
@@ -630,7 +621,7 @@ function Finale() {
             </a>
             <Link
               href="/docs/introduction/installation"
-              className="group inline-flex items-center gap-2 self-start font-editorial text-[1.05rem] text-ink italic hover:text-cobalt-500 lg:self-end dark:text-paper dark:hover:text-cobalt-300"
+              className="group inline-flex items-center gap-2 self-start font-editorial text-[1.05rem] text-ink italic hover:text-cobalt-500 lg:self-end"
             >
               <span>or install locally</span>
               <span
@@ -640,11 +631,11 @@ function Finale() {
                 →
               </span>
             </Link>
-            <div className="inline-flex items-center gap-3 self-start border border-ink/15 bg-paper-deep/40 px-4 py-3 lg:self-end dark:border-paper/15 dark:bg-ink-soft/40">
+            <div className="inline-flex items-center gap-3 self-start border border-ink/15 bg-paper-deep/40 px-4 py-3 lg:self-end">
               <span className="text-cobalt-500" aria-hidden="true">
                 $
               </span>
-              <code className="font-mono text-[0.8rem] text-ink dark:text-paper">
+              <code className="font-mono text-[0.8rem] text-ink">
                 bunx create-routecraft my-app
               </code>
             </div>

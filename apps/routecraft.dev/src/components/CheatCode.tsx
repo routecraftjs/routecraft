@@ -24,7 +24,7 @@ export function CheatCode({
         <pre
           className={clsx(
             prismClassName,
-            'overflow-x-auto border border-ink/15 bg-paper-deep/40 px-3 py-2.5 text-[0.78rem] leading-relaxed dark:border-paper/15 dark:bg-ink/60 print:bg-white',
+            'overflow-x-auto border border-ink/15 bg-paper-deep/40 px-3 py-2.5 text-[0.78rem] leading-relaxed print:bg-white',
             className,
           )}
           style={style}

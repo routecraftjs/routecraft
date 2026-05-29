@@ -27,13 +27,13 @@ export function Badge({
   // Hairline + faint tint chips. Borders use the semantic color at low
   // alpha; text uses the same color at higher contrast.
   const colorMap: Record<string, string> = {
-    gray: 'border-ink/30 text-ink/70 dark:border-paper/30 dark:text-paper/70',
+    gray: 'border-ink/30 text-ink/70',
     red: 'border-red-500/40 text-red-700 dark:border-red-400/40 dark:text-red-400',
     yellow:
       'border-yellow-600/40 text-yellow-800 dark:border-yellow-400/40 dark:text-yellow-400',
     green:
       'border-green-600/40 text-green-700 dark:border-green-400/40 dark:text-green-400',
-    blue: 'border-cobalt-500/50 text-cobalt-600 dark:border-cobalt-400/50 dark:text-cobalt-300',
+    blue: 'border-cobalt-500/50 text-cobalt-600',
     indigo:
       'border-indigo-500/40 text-indigo-700 dark:border-indigo-400/40 dark:text-indigo-400',
     purple:
@@ -42,8 +42,8 @@ export function Badge({
     // Back-compat aliases
     amber:
       'border-amber-500/40 text-amber-700 dark:border-amber-400/40 dark:text-amber-400',
-    sky: 'border-cobalt-500/50 text-cobalt-600 dark:border-cobalt-400/50 dark:text-cobalt-300',
-    slate: 'border-ink/30 text-ink/70 dark:border-paper/30 dark:text-paper/70',
+    sky: 'border-cobalt-500/50 text-cobalt-600',
+    slate: 'border-ink/30 text-ink/70',
     rose: 'border-rose-500/40 text-rose-700 dark:border-rose-400/40 dark:text-rose-400',
   }
 

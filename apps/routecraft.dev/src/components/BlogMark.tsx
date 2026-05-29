@@ -23,7 +23,7 @@ export function BlogMark({
   return (
     <div
       className={clsx(
-        'relative flex h-full w-full items-center justify-center overflow-hidden bg-paper-deep/50 dark:bg-ink-soft/40',
+        'relative flex h-full w-full items-center justify-center overflow-hidden bg-paper-deep/50',
         className,
       )}
     >
@@ -38,7 +38,7 @@ export function BlogMark({
         {char}
       </span>
 
-      <div className="absolute bottom-4 left-4 flex items-center gap-2 whitespace-nowrap text-ink dark:text-paper">
+      <div className="absolute bottom-4 left-4 flex items-center gap-2 whitespace-nowrap text-ink">
         <Logo className="h-5 w-5" />
         <span
           className="font-editorial text-[0.95rem] leading-none tracking-[-0.02em]"
@@ -56,7 +56,7 @@ function RegCross({ className }: { className: string }) {
     <span
       aria-hidden="true"
       className={clsx(
-        'pointer-events-none absolute h-2.5 w-2.5 text-ink/30 dark:text-paper/30',
+        'pointer-events-none absolute h-2.5 w-2.5 text-ink/30',
         className,
       )}
     >

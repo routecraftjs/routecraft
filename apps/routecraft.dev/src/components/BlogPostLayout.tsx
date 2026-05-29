@@ -60,7 +60,7 @@ export function BlogPostLayout({
         <article className="mx-auto max-w-3xl">
           <Link
             href="/blog"
-            className="group inline-flex items-center gap-2 font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase transition hover:text-cobalt-600 dark:hover:text-cobalt-300"
+            className="group inline-flex items-center gap-2 font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase transition hover:text-cobalt-600"
           >
             <span
               aria-hidden="true"
@@ -73,14 +73,11 @@ export function BlogPostLayout({
 
           <header className="mt-8 space-y-6">
             {frontmatter.tags && frontmatter.tags.length > 0 && (
-              <div className="flex flex-wrap items-center gap-2 font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase dark:text-paper/55">
+              <div className="flex flex-wrap items-center gap-2 font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase">
                 {frontmatter.tags.map((tag, i) => (
                   <span key={tag} className="inline-flex items-center gap-2">
                     {i > 0 && (
-                      <span
-                        aria-hidden="true"
-                        className="text-ink/25 dark:text-paper/25"
-                      >
+                      <span aria-hidden="true" className="text-ink/25">
                         ·
                       </span>
                     )}
@@ -89,11 +86,11 @@ export function BlogPostLayout({
                 ))}
               </div>
             )}
-            <h1 className="font-editorial text-[clamp(2.25rem,5vw,3.5rem)] leading-[1.05] font-medium tracking-[-0.02em] text-ink dark:text-paper">
+            <h1 className="font-editorial text-[clamp(2.25rem,5vw,3.5rem)] leading-[1.05] font-medium tracking-[-0.02em] text-ink">
               {frontmatter.title}
             </h1>
             {frontmatter.description && (
-              <p className="font-editorial text-[1.2rem] leading-[1.5] text-ink/70 italic dark:text-paper/70">
+              <p className="font-editorial text-[1.2rem] leading-[1.5] text-ink/70 italic">
                 {frontmatter.description}
               </p>
             )}
@@ -108,7 +105,7 @@ export function BlogPostLayout({
                 <span className="font-mono text-[0.65rem] tracking-[0.22em] text-amber-600 uppercase dark:text-amber-400">
                   Draft
                 </span>
-                <span className="text-sm text-ink/75 dark:text-paper/75">
+                <span className="text-sm text-ink/75">
                   Content may change before publication.
                 </span>
               </div>
@@ -116,7 +113,7 @@ export function BlogPostLayout({
           </header>
 
           {frontmatter.image ? (
-            <figure className="mt-12 border border-ink/15 dark:border-paper/15">
+            <figure className="mt-12 border border-ink/15">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={frontmatter.image}
@@ -125,7 +122,7 @@ export function BlogPostLayout({
               />
             </figure>
           ) : (
-            <figure className="mt-12 border border-ink/15 dark:border-paper/15">
+            <figure className="mt-12 border border-ink/15">
               <BlogCoverInline
                 title={frontmatter.title ?? ''}
                 slug={slug}
@@ -141,12 +138,12 @@ export function BlogPostLayout({
             <Prose>{children}</Prose>
           </div>
 
-          <footer className="mt-20 border-t border-ink/15 pt-8 dark:border-paper/15">
-            <p className="font-editorial text-[1rem] text-ink/70 italic dark:text-paper/70">
+          <footer className="mt-20 border-t border-ink/15 pt-8">
+            <p className="font-editorial text-[1rem] text-ink/70 italic">
               Have feedback on this post? Open an issue on{' '}
               <a
                 href="https://github.com/routecraftjs/routecraft/issues"
-                className="text-cobalt-500 not-italic transition hover:text-cobalt-600 dark:hover:text-cobalt-300"
+                className="text-cobalt-500 not-italic transition hover:text-cobalt-600"
               >
                 GitHub
               </a>
@@ -155,7 +152,7 @@ export function BlogPostLayout({
             <p className="mt-6">
               <Link
                 href="/blog"
-                className="group inline-flex items-center gap-2 font-mono text-[0.7rem] tracking-[0.22em] text-cobalt-500 uppercase transition hover:text-cobalt-600 dark:hover:text-cobalt-300"
+                className="group inline-flex items-center gap-2 font-mono text-[0.7rem] tracking-[0.22em] text-cobalt-500 uppercase transition hover:text-cobalt-600"
               >
                 <span>Back to all posts</span>
                 <span

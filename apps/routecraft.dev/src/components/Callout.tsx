@@ -5,18 +5,18 @@ import { Icon } from '@/components/Icon'
 const styles = {
   note: {
     container:
-      'border border-ink/15 border-l-4 border-l-cobalt-500 bg-paper-deep/30 dark:border-paper/15 dark:border-l-cobalt-400 dark:bg-ink-soft/30',
+      'border border-ink/15 border-l-4 border-l-cobalt-500 bg-paper-deep/30',
     label: 'text-cobalt-500',
-    title: 'text-ink dark:text-paper',
-    body: 'text-ink/80 prose-code:text-ink prose-a:text-cobalt-500 dark:text-paper/80 dark:prose-code:text-paper dark:prose-a:text-cobalt-300',
-    icon: 'text-cobalt-500 dark:text-cobalt-300',
+    title: 'text-ink',
+    body: 'text-ink/80 prose-code:text-ink prose-a:text-cobalt-500',
+    icon: 'text-cobalt-500',
   },
   warning: {
     container:
-      'border border-ink/15 border-l-4 border-l-amber-500 bg-paper-deep/30 dark:border-paper/15 dark:border-l-amber-400 dark:bg-ink-soft/30',
+      'border border-ink/15 border-l-4 border-l-amber-500 bg-paper-deep/30 dark:border-l-amber-400',
     label: 'text-amber-600 dark:text-amber-400',
-    title: 'text-ink dark:text-paper',
-    body: 'text-ink/80 prose-code:text-ink prose-a:text-amber-600 dark:text-paper/80 dark:prose-code:text-paper dark:prose-a:text-amber-400',
+    title: 'text-ink',
+    body: 'text-ink/80 prose-code:text-ink prose-a:text-amber-600 dark:prose-a:text-amber-400',
     icon: 'text-amber-500 dark:text-amber-400',
   },
 }

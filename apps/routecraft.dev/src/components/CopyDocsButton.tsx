@@ -137,7 +137,6 @@ export function CopyDocsButton() {
   const buttonBaseClass = clsx(
     'inline-flex items-center gap-2 font-mono text-[0.65rem] uppercase tracking-[0.22em] transition',
     'text-ink/65 hover:text-ink',
-    'dark:text-paper/65 dark:hover:text-paper',
   )
 
   return (
@@ -146,7 +145,6 @@ export function CopyDocsButton() {
         className={clsx(
           'inline-flex items-center border transition',
           'border-ink/15 bg-paper-deep/40 hover:border-cobalt-500/40',
-          'dark:border-paper/15 dark:bg-ink-soft/40 dark:hover:border-cobalt-400/40',
         )}
       >
         {/* Primary button: Chat with docs in Claude */}
@@ -163,9 +161,7 @@ export function CopyDocsButton() {
         <MenuButton
           className={clsx(
             'border-l border-ink/15 px-1.5 py-2 transition',
-            'dark:border-paper/15',
             'text-ink/45 hover:text-cobalt-500',
-            'dark:text-paper/45 dark:hover:text-cobalt-300',
           )}
           aria-label="More options"
         >
@@ -176,7 +172,7 @@ export function CopyDocsButton() {
       <MenuItems
         className={clsx(
           'absolute top-[calc(100%+0.5rem)] right-0 z-50 w-56 border bg-paper p-1 shadow-[0_20px_60px_-30px_rgba(12,12,16,0.4)]',
-          'border-ink/15 dark:border-paper/15 dark:bg-ink-soft',
+          'border-ink/15',
         )}
       >
         <MenuItem>
@@ -186,18 +182,16 @@ export function CopyDocsButton() {
               onClick={handleOpenInChatGPT}
               className={clsx(
                 'flex w-full items-center gap-3 px-3 py-2 font-mono text-[0.7rem] tracking-[0.18em] uppercase transition',
-                focus
-                  ? 'bg-paper-deep text-ink dark:bg-ink dark:text-paper'
-                  : 'text-ink/70 dark:text-paper/70',
+                focus ? 'bg-paper-deep text-ink' : 'text-ink/70',
               )}
             >
-              <OpenAIIcon className="h-3.5 w-3.5 shrink-0 text-ink/55 dark:text-paper/55" />
+              <OpenAIIcon className="h-3.5 w-3.5 shrink-0 text-ink/55" />
               <span>Ask ChatGPT</span>
             </button>
           )}
         </MenuItem>
 
-        <div className="my-1 border-t border-ink/10 dark:border-paper/10" />
+        <div className="my-1 border-t border-ink/10" />
 
         <MenuItem>
           {({ focus }) => (
@@ -206,12 +200,10 @@ export function CopyDocsButton() {
               onClick={handleCopyPage}
               className={clsx(
                 'flex w-full items-center gap-3 px-3 py-2 font-mono text-[0.7rem] tracking-[0.18em] uppercase transition',
-                focus
-                  ? 'bg-paper-deep text-ink dark:bg-ink dark:text-paper'
-                  : 'text-ink/70 dark:text-paper/70',
+                focus ? 'bg-paper-deep text-ink' : 'text-ink/70',
               )}
             >
-              <CopyIcon className="h-3.5 w-3.5 shrink-0 text-ink/55 dark:text-paper/55" />
+              <CopyIcon className="h-3.5 w-3.5 shrink-0 text-ink/55" />
               <span>{copied === 'page' ? 'Copied' : 'Copy page'}</span>
             </button>
           )}
@@ -224,12 +216,10 @@ export function CopyDocsButton() {
               onClick={handleCopyAllDocsUrl}
               className={clsx(
                 'flex w-full items-center gap-3 px-3 py-2 font-mono text-[0.7rem] tracking-[0.18em] uppercase transition',
-                focus
-                  ? 'bg-paper-deep text-ink dark:bg-ink dark:text-paper'
-                  : 'text-ink/70 dark:text-paper/70',
+                focus ? 'bg-paper-deep text-ink' : 'text-ink/70',
               )}
             >
-              <LinkIcon className="h-3.5 w-3.5 shrink-0 text-ink/55 dark:text-paper/55" />
+              <LinkIcon className="h-3.5 w-3.5 shrink-0 text-ink/55" />
               <span>
                 {copied === 'allDocsUrl' ? 'Copied' : 'Copy raw docs URL'}
               </span>

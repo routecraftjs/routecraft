@@ -180,14 +180,10 @@ const categories = [
 ] as const
 
 const roleClassname: Record<Role, string> = {
-  Source:
-    'border-cobalt-500/40 text-cobalt-600 dark:border-cobalt-400/40 dark:text-cobalt-300',
-  Destination:
-    'border-ink/25 text-ink/65 dark:border-paper/25 dark:text-paper/65',
-  Transformer:
-    'border-ink/25 text-ink/65 dark:border-paper/25 dark:text-paper/65',
-  Processor:
-    'border-ink/25 text-ink/65 dark:border-paper/25 dark:text-paper/65',
+  Source: 'border-cobalt-500/40 text-cobalt-600',
+  Destination: 'border-ink/25 text-ink/65',
+  Transformer: 'border-ink/25 text-ink/65',
+  Processor: 'border-ink/25 text-ink/65',
 }
 
 export function AdapterGrid() {
@@ -198,38 +194,36 @@ export function AdapterGrid() {
         if (items.length === 0) return null
         return (
           <section key={category} aria-labelledby={`adapters-${category}`}>
-            <header className="flex items-center gap-3 border-b border-ink/15 pb-3 dark:border-paper/15">
+            <header className="flex items-center gap-3 border-b border-ink/15 pb-3">
               <span aria-hidden="true" className="h-1 w-1 bg-cobalt-500" />
               <h3
                 id={`adapters-${category}`}
-                className="font-mono text-[0.65rem] tracking-[0.22em] text-ink/65 uppercase dark:text-paper/65"
+                className="font-mono text-[0.65rem] tracking-[0.22em] text-ink/65 uppercase"
               >
                 {category}
               </h3>
-              <span className="ml-auto font-mono text-[0.65rem] tracking-[0.22em] text-ink/45 tabular-nums dark:text-paper/45">
+              <span className="ml-auto font-mono text-[0.65rem] tracking-[0.22em] text-ink/45 tabular-nums">
                 {String(items.length).padStart(2, '0')}
               </span>
             </header>
             <ul
               role="list"
-              className="mt-5 grid grid-cols-1 gap-px border border-ink/15 bg-ink/15 sm:grid-cols-2 lg:grid-cols-3 dark:border-paper/15 dark:bg-paper/15"
+              className="mt-5 grid grid-cols-1 gap-px border border-ink/15 bg-ink/15 sm:grid-cols-2 lg:grid-cols-3"
             >
               {items.map((item) => (
-                <li key={item.name} className="bg-paper dark:bg-ink">
+                <li key={item.name} className="bg-paper">
                   <Link
                     href={`/docs/reference/adapters/${item.name.toLowerCase()}`}
-                    className="group flex h-full flex-col gap-3 p-5 transition hover:bg-paper-deep/40 dark:hover:bg-ink-soft/40"
+                    className="group flex h-full flex-col gap-3 p-5 transition hover:bg-paper-deep/40"
                   >
                     <div className="flex items-baseline justify-between gap-3">
-                      <code className="font-mono text-[0.95rem] font-medium text-ink transition group-hover:text-cobalt-500 dark:text-paper dark:group-hover:text-cobalt-300">
+                      <code className="font-mono text-[0.95rem] font-medium text-ink transition group-hover:text-cobalt-500">
                         {item.name}
-                        <span className="text-ink/40 dark:text-paper/40">
-                          ()
-                        </span>
+                        <span className="text-ink/40">()</span>
                       </code>
                       <span
                         aria-hidden="true"
-                        className="font-mono text-[0.9rem] text-ink/30 transition group-hover:translate-x-0.5 group-hover:text-cobalt-500 dark:text-paper/30"
+                        className="font-mono text-[0.9rem] text-ink/30 transition group-hover:translate-x-0.5 group-hover:text-cobalt-500"
                       >
                         →
                       </span>
@@ -247,7 +241,7 @@ export function AdapterGrid() {
                         </span>
                       ))}
                     </div>
-                    <p className="text-[0.9rem] leading-[1.55] text-ink/70 dark:text-paper/70">
+                    <p className="text-[0.9rem] leading-[1.55] text-ink/70">
                       {item.description}
                     </p>
                   </Link>

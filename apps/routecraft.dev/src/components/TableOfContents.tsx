@@ -69,7 +69,7 @@ export function TableOfContents({
           <>
             <h2
               id="on-this-page-title"
-              className="flex items-center gap-3 font-mono text-[0.65rem] tracking-[0.22em] text-ink/70 uppercase dark:text-paper/70"
+              className="flex items-center gap-3 font-mono text-[0.65rem] tracking-[0.22em] text-ink/70 uppercase"
             >
               <span aria-hidden="true" className="h-1 w-1 bg-cobalt-500" />
               <span>On this page</span>
@@ -84,7 +84,7 @@ export function TableOfContents({
                         'transition',
                         isActive(section)
                           ? 'font-medium text-cobalt-500'
-                          : 'text-ink/65 hover:text-ink dark:text-paper/65 dark:hover:text-paper',
+                          : 'text-ink/65 hover:text-ink',
                       )}
                     >
                       {section.title}
@@ -98,7 +98,7 @@ export function TableOfContents({
                   {section.children.length > 0 && (
                     <ol
                       role="list"
-                      className="mt-2 space-y-2 border-l border-ink/15 pl-4 text-sm dark:border-paper/15"
+                      className="mt-2 space-y-2 border-l border-ink/15 pl-4 text-sm"
                     >
                       {section.children.map((subSection) => (
                         <li key={subSection.id}>
@@ -109,7 +109,7 @@ export function TableOfContents({
                                 'transition',
                                 isActive(subSection)
                                   ? 'font-medium text-cobalt-500'
-                                  : 'text-ink/55 hover:text-ink dark:text-paper/55 dark:hover:text-paper',
+                                  : 'text-ink/55 hover:text-ink',
                               )}
                             >
                               {subSection.title}

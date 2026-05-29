@@ -72,7 +72,7 @@ export function MobileNavigation() {
         className="relative"
         aria-label="Open navigation"
       >
-        <MenuIcon className="h-6 w-6 stroke-ink/70 transition hover:stroke-cobalt-500 dark:stroke-paper/70 dark:hover:stroke-cobalt-300" />
+        <MenuIcon className="h-6 w-6 stroke-ink/70 transition hover:stroke-cobalt-500" />
       </button>
       <Suspense fallback={null}>
         <CloseOnNavigation close={close} />
@@ -80,19 +80,19 @@ export function MobileNavigation() {
       <Dialog
         open={isOpen}
         onClose={() => close()}
-        className="fixed inset-0 z-50 flex items-start overflow-y-auto bg-ink/40 pr-10 backdrop-blur-sm lg:hidden dark:bg-ink-deep/60"
+        className="fixed inset-0 z-50 flex items-start overflow-y-auto bg-ink/40 pr-10 backdrop-blur-sm lg:hidden"
         aria-label="Navigation"
       >
-        <DialogPanel className="min-h-full w-full max-w-xs border-r border-ink/15 bg-paper px-5 pt-5 pb-12 sm:px-6 dark:border-paper/15 dark:bg-ink">
+        <DialogPanel className="min-h-full w-full max-w-xs border-r border-ink/15 bg-paper px-5 pt-5 pb-12 sm:px-6">
           <div className="flex items-center justify-between">
             <Link
               href="/"
               className="group flex items-baseline gap-2.5"
               aria-label="Home page"
             >
-              <Logo className="h-6 w-6 shrink-0 text-ink dark:text-paper" />
+              <Logo className="h-6 w-6 shrink-0 text-ink" />
               <span
-                className="font-editorial text-[1.35rem] leading-none tracking-[-0.02em] text-ink dark:text-paper"
+                className="font-editorial text-[1.35rem] leading-none tracking-[-0.02em] text-ink"
                 style={{ fontVariationSettings: '"opsz" 48, "SOFT" 30' }}
               >
                 Routecraft
@@ -104,7 +104,7 @@ export function MobileNavigation() {
               aria-label="Close navigation"
               className="group"
             >
-              <CloseIcon className="h-5 w-5 stroke-ink/70 transition group-hover:stroke-cobalt-500 dark:stroke-paper/70 dark:group-hover:stroke-cobalt-300" />
+              <CloseIcon className="h-5 w-5 stroke-ink/70 transition group-hover:stroke-cobalt-500" />
             </button>
           </div>
           <nav className="mt-10">
@@ -114,7 +114,7 @@ export function MobileNavigation() {
                   <Link
                     href={link.href}
                     onClick={onLinkClick}
-                    className="font-mono text-[0.75rem] tracking-[0.22em] text-ink/70 uppercase transition hover:text-cobalt-500 dark:text-paper/70 dark:hover:text-cobalt-300"
+                    className="font-mono text-[0.75rem] tracking-[0.22em] text-ink/70 uppercase transition hover:text-cobalt-500"
                   >
                     {link.title}
                   </Link>

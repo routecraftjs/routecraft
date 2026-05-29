@@ -82,11 +82,11 @@ export function TriggerCycler() {
           One shade off the bg, reads like layered paper. */}
       <span
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 -z-10 translate-x-2.5 translate-y-2.5 bg-paper-deep dark:bg-ink-soft"
+        className="pointer-events-none absolute inset-0 -z-10 translate-x-2.5 translate-y-2.5 bg-paper-deep"
       />
 
       {/* Drawing sheet title block */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border border-b-0 border-ink/20 bg-paper-deep/55 px-4 py-2.5 font-mono text-[0.65rem] tracking-[0.2em] text-ink/55 uppercase shadow-[0_20px_40px_-24px_rgba(12,12,16,0.18)] dark:border-paper/20 dark:bg-ink-soft/55 dark:text-paper/65 dark:shadow-[0_20px_40px_-24px_rgba(0,0,0,0.6)]">
+      <div className="flex flex-wrap items-center justify-between gap-3 border border-b-0 border-ink/20 bg-paper-deep/55 px-4 py-2.5 font-mono text-[0.65rem] tracking-[0.2em] text-ink/55 uppercase shadow-[0_20px_40px_-24px_rgba(12,12,16,0.18)] dark:shadow-[0_20px_40px_-24px_rgba(0,0,0,0.6)]">
         <span>
           <span className="text-cobalt-500">Fig. 01</span> — Trigger topology
         </span>
@@ -98,7 +98,7 @@ export function TriggerCycler() {
         </span>
       </div>
 
-      <div className="border border-t-0 border-ink/20 bg-paper-deep/40 shadow-[0_20px_40px_-24px_rgba(12,12,16,0.18)] backdrop-blur-sm dark:border-paper/20 dark:bg-ink-soft/40 dark:shadow-[0_20px_40px_-24px_rgba(0,0,0,0.6)]">
+      <div className="border border-t-0 border-ink/20 bg-paper-deep/40 shadow-[0_20px_40px_-24px_rgba(12,12,16,0.18)] backdrop-blur-sm dark:shadow-[0_20px_40px_-24px_rgba(0,0,0,0.6)]">
         <svg
           viewBox={`0 0 ${W} ${H}`}
           className="block h-auto w-full"
@@ -114,10 +114,7 @@ export function TriggerCycler() {
               markerHeight="8"
               orient="auto-start-reverse"
             >
-              <path
-                d="M 0 0 L 10 5 L 0 10 z"
-                className="fill-ink dark:fill-paper"
-              />
+              <path d="M 0 0 L 10 5 L 0 10 z" className="fill-ink" />
             </marker>
             <marker
               id="arrow-active"
@@ -136,7 +133,7 @@ export function TriggerCycler() {
           <text
             x={SOURCE_X}
             y={36}
-            className="fill-ink/55 font-mono text-[10px] tracking-[0.2em] uppercase dark:fill-paper/55"
+            className="fill-ink/55 font-mono text-[10px] tracking-[0.2em] uppercase"
           >
             sources
           </text>
@@ -144,7 +141,7 @@ export function TriggerCycler() {
             x={DEST_X + BOX_W}
             y={36}
             textAnchor="end"
-            className="fill-ink/55 font-mono text-[10px] tracking-[0.2em] uppercase dark:fill-paper/55"
+            className="fill-ink/55 font-mono text-[10px] tracking-[0.2em] uppercase"
           >
             destinations
           </text>
@@ -165,11 +162,7 @@ export function TriggerCycler() {
                   width={BOX_W}
                   height={32}
                   fill="none"
-                  className={
-                    isActive
-                      ? 'stroke-cobalt-500'
-                      : 'stroke-ink/30 dark:stroke-paper/30'
-                  }
+                  className={isActive ? 'stroke-cobalt-500' : 'stroke-ink/30'}
                   strokeWidth={isActive ? 1.5 : 1}
                 />
                 {isActive && (
@@ -178,7 +171,7 @@ export function TriggerCycler() {
                     y={cy - 16}
                     width={BOX_W}
                     height={32}
-                    className="fill-cobalt-500/8 dark:fill-cobalt-400/8"
+                    className="fill-cobalt-500/8"
                   />
                 )}
                 <text
@@ -187,7 +180,7 @@ export function TriggerCycler() {
                   className={
                     isActive
                       ? 'fill-cobalt-500 font-mono text-[11px] font-semibold'
-                      : 'fill-ink/70 font-mono text-[11px] dark:fill-paper/75'
+                      : 'fill-ink/70 font-mono text-[11px]'
                   }
                 >
                   {t.label}
@@ -198,7 +191,7 @@ export function TriggerCycler() {
                   className={
                     isActive
                       ? 'fill-cobalt-500/85 font-mono text-[9px]'
-                      : 'fill-ink/45 font-mono text-[9px] dark:fill-paper/55'
+                      : 'fill-ink/45 font-mono text-[9px]'
                   }
                 >
                   {t.call}
@@ -226,11 +219,7 @@ export function TriggerCycler() {
                   width={BOX_W}
                   height={32}
                   fill="none"
-                  className={
-                    isActive
-                      ? 'stroke-cobalt-500'
-                      : 'stroke-ink/30 dark:stroke-paper/30'
-                  }
+                  className={isActive ? 'stroke-cobalt-500' : 'stroke-ink/30'}
                   strokeWidth={isActive ? 1.5 : 1}
                 />
                 {isActive && (
@@ -239,7 +228,7 @@ export function TriggerCycler() {
                     y={cy - 16}
                     width={BOX_W}
                     height={32}
-                    className="fill-cobalt-500/8 dark:fill-cobalt-400/8"
+                    className="fill-cobalt-500/8"
                   />
                 )}
                 <text
@@ -249,7 +238,7 @@ export function TriggerCycler() {
                   className={
                     isActive
                       ? 'fill-cobalt-500 font-mono text-[11px] font-semibold'
-                      : 'fill-ink/70 font-mono text-[11px] dark:fill-paper/75'
+                      : 'fill-ink/70 font-mono text-[11px]'
                   }
                 >
                   {d.label}
@@ -261,7 +250,7 @@ export function TriggerCycler() {
                   className={
                     isActive
                       ? 'fill-cobalt-500/85 font-mono text-[9px]'
-                      : 'fill-ink/45 font-mono text-[9px] dark:fill-paper/55'
+                      : 'fill-ink/45 font-mono text-[9px]'
                   }
                 >
                   {d.call}
@@ -281,11 +270,7 @@ export function TriggerCycler() {
                 y1={cy}
                 x2={HUB_LEFT_X}
                 y2={CAP_CY}
-                className={
-                  isActive
-                    ? 'stroke-cobalt-500'
-                    : 'stroke-ink/15 dark:stroke-paper/15'
-                }
+                className={isActive ? 'stroke-cobalt-500' : 'stroke-ink/15'}
                 strokeWidth={isActive ? 1.5 : 0.75}
                 strokeDasharray={isActive ? '0' : '3 3'}
               />
@@ -303,11 +288,7 @@ export function TriggerCycler() {
                 y1={CAP_CY}
                 x2={DEST_X}
                 y2={cy}
-                className={
-                  isActive
-                    ? 'stroke-cobalt-500'
-                    : 'stroke-ink/15 dark:stroke-paper/15'
-                }
+                className={isActive ? 'stroke-cobalt-500' : 'stroke-ink/15'}
                 strokeWidth={isActive ? 1.5 : 0.75}
                 strokeDasharray={isActive ? '0' : '3 3'}
               />
@@ -342,7 +323,7 @@ export function TriggerCycler() {
               height={56}
               fill="none"
               strokeWidth="1.25"
-              className="stroke-ink dark:stroke-paper"
+              className="stroke-ink"
             />
             <line
               x1={CAP_X}
@@ -350,13 +331,13 @@ export function TriggerCycler() {
               x2={CAP_X + CAP_W}
               y2={CAP_CY - 12}
               strokeWidth="0.75"
-              className="stroke-ink/30 dark:stroke-paper/30"
+              className="stroke-ink/30"
             />
             <text
               x={CAP_X + CAP_W / 2}
               y={CAP_CY - 18}
               textAnchor="middle"
-              className="fill-ink/55 font-mono text-[9px] tracking-[0.2em] uppercase dark:fill-paper/55"
+              className="fill-ink/55 font-mono text-[9px] tracking-[0.2em] uppercase"
             >
               capability
             </text>
@@ -364,7 +345,7 @@ export function TriggerCycler() {
               x={CAP_X + CAP_W / 2}
               y={CAP_CY + 3}
               textAnchor="middle"
-              className="fill-ink font-mono text-[12px] font-semibold dark:fill-paper"
+              className="fill-ink font-mono text-[12px] font-semibold"
             >
               morning-brief
             </text>
@@ -372,7 +353,7 @@ export function TriggerCycler() {
               x={CAP_X + CAP_W / 2}
               y={CAP_CY + 18}
               textAnchor="middle"
-              className="fill-ink/55 font-mono text-[9px] dark:fill-paper/55"
+              className="fill-ink/55 font-mono text-[9px]"
             >
               .transform(summarise)
             </text>
@@ -398,7 +379,7 @@ export function TriggerCycler() {
           />
 
           {/* Dimension line at bottom */}
-          <g className="stroke-ink/40 dark:stroke-paper/40" strokeWidth="0.6">
+          <g className="stroke-ink/40" strokeWidth="0.6">
             <line x1={SOURCE_X} y1={H - 30} x2={DEST_X + BOX_W} y2={H - 30} />
             <line x1={SOURCE_X} y1={H - 34} x2={SOURCE_X} y2={H - 26} />
             <line
@@ -412,7 +393,7 @@ export function TriggerCycler() {
             x={(SOURCE_X + DEST_X + BOX_W) / 2}
             y={H - 18}
             textAnchor="middle"
-            className="fill-ink/55 font-mono text-[9px] tracking-[0.2em] uppercase dark:fill-paper/55"
+            className="fill-ink/55 font-mono text-[9px] tracking-[0.2em] uppercase"
           >
             one capability · every trigger
           </text>
@@ -420,8 +401,8 @@ export function TriggerCycler() {
       </div>
 
       {/* Drawing sheet footer with trigger picker */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-x border-b border-ink/20 bg-paper-deep/55 px-4 py-2.5 font-mono text-[0.7rem] tracking-[0.16em] uppercase shadow-[0_20px_40px_-24px_rgba(12,12,16,0.18)] dark:border-paper/20 dark:bg-ink-soft/55 dark:shadow-[0_20px_40px_-24px_rgba(0,0,0,0.6)]">
-        <span className="text-ink/55 dark:text-paper/55">trigger:</span>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-x border-b border-ink/20 bg-paper-deep/55 px-4 py-2.5 font-mono text-[0.7rem] tracking-[0.16em] uppercase shadow-[0_20px_40px_-24px_rgba(12,12,16,0.18)] dark:shadow-[0_20px_40px_-24px_rgba(0,0,0,0.6)]">
+        <span className="text-ink/55">trigger:</span>
         <div className="flex flex-wrap items-center gap-2">
           {sources.map((t, i) => (
             <button
@@ -432,7 +413,7 @@ export function TriggerCycler() {
               className={
                 i === index
                   ? 'flex items-center gap-1.5 text-cobalt-500'
-                  : 'flex items-center gap-1.5 text-ink/55 transition hover:text-ink dark:text-paper/55 dark:hover:text-paper'
+                  : 'flex items-center gap-1.5 text-ink/55 transition hover:text-ink'
               }
             >
               <span
@@ -440,7 +421,7 @@ export function TriggerCycler() {
                 className={
                   i === index
                     ? 'h-1.5 w-1.5 bg-cobalt-500'
-                    : 'h-1.5 w-1.5 border border-ink/40 dark:border-paper/40'
+                    : 'h-1.5 w-1.5 border border-ink/40'
                 }
               />
               <span>{t.label}</span>

@@ -50,9 +50,7 @@ export function PluginIndex() {
         <li
           key={p.name}
           className={
-            i === 0
-              ? 'border-y border-ink/15 dark:border-paper/15'
-              : 'border-b border-ink/15 dark:border-paper/15'
+            i === 0 ? 'border-y border-ink/15' : 'border-b border-ink/15'
           }
         >
           <Link
@@ -64,23 +62,23 @@ export function PluginIndex() {
             </span>
             <div className="min-w-0">
               <div className="flex flex-wrap items-baseline gap-x-4">
-                <code className="font-mono text-[1.05rem] text-ink transition group-hover:text-cobalt-500 dark:text-paper dark:group-hover:text-cobalt-300">
+                <code className="font-mono text-[1.05rem] text-ink transition group-hover:text-cobalt-500">
                   {p.name}
                 </code>
-                <span className="font-editorial text-[0.95rem] text-ink/45 italic dark:text-paper/45">
+                <span className="font-editorial text-[0.95rem] text-ink/45 italic">
                   {p.hint}
                 </span>
-                <span className="font-mono text-[0.65rem] tracking-[0.2em] text-ink/40 uppercase dark:text-paper/40">
+                <span className="font-mono text-[0.65rem] tracking-[0.2em] text-ink/40 uppercase">
                   {p.module}
                 </span>
               </div>
-              <p className="mt-2 max-w-2xl text-[1rem] leading-[1.7] text-ink/70 dark:text-paper/70">
+              <p className="mt-2 max-w-2xl text-[1rem] leading-[1.7] text-ink/70">
                 {p.description}
               </p>
             </div>
             <span
               aria-hidden="true"
-              className="self-center font-mono text-[1.1rem] text-ink/30 transition group-hover:translate-x-1 group-hover:text-cobalt-500 dark:text-paper/30"
+              className="self-center font-mono text-[1.1rem] text-ink/30 transition group-hover:translate-x-1 group-hover:text-cobalt-500"
             >
               →
             </span>

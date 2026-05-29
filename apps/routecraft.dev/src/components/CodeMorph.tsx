@@ -81,26 +81,26 @@ export function CodeMorph() {
           One shade off the bg, reads like layered paper. */}
       <span
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 -z-10 translate-x-2.5 translate-y-2.5 bg-paper-deep dark:bg-ink-soft"
+        className="pointer-events-none absolute inset-0 -z-10 translate-x-2.5 translate-y-2.5 bg-paper-deep"
       />
 
       {/* Filename header */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border border-b-0 border-ink/20 bg-paper-deep/55 px-5 py-2.5 font-mono text-[0.65rem] tracking-[0.2em] uppercase shadow-[0_20px_40px_-24px_rgba(12,12,16,0.18)] dark:border-paper/20 dark:bg-ink-soft/55 dark:shadow-[0_20px_40px_-24px_rgba(0,0,0,0.6)]">
-        <span className="text-ink/60 dark:text-paper/60">morning-brief.ts</span>
+      <div className="flex flex-wrap items-center justify-between gap-3 border border-b-0 border-ink/20 bg-paper-deep/55 px-5 py-2.5 font-mono text-[0.65rem] tracking-[0.2em] uppercase shadow-[0_20px_40px_-24px_rgba(12,12,16,0.18)] dark:shadow-[0_20px_40px_-24px_rgba(0,0,0,0.6)]">
+        <span className="text-ink/60">morning-brief.ts</span>
         <span key={`hdr-${active.key}`} className="ink-bleed text-cobalt-500">
           {active.triggerLabel} trigger
         </span>
       </div>
 
       {/* Body */}
-      <div className="relative overflow-hidden border border-t-0 border-ink/20 bg-paper-deep/40 px-5 py-6 shadow-[0_20px_40px_-24px_rgba(12,12,16,0.18)] backdrop-blur-sm sm:px-6 sm:py-7 dark:border-paper/20 dark:bg-ink-soft/40 dark:shadow-[0_20px_40px_-24px_rgba(0,0,0,0.6)]">
+      <div className="relative overflow-hidden border border-t-0 border-ink/20 bg-paper-deep/40 px-5 py-6 shadow-[0_20px_40px_-24px_rgba(12,12,16,0.18)] backdrop-blur-sm sm:px-6 sm:py-7 dark:shadow-[0_20px_40px_-24px_rgba(0,0,0,0.6)]">
         <CodeView pair={active} index={index} />
       </div>
 
       {/* Caption + trigger picker footer */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-x border-b border-ink/20 bg-paper-deep/55 px-5 py-3 shadow-[0_20px_40px_-24px_rgba(12,12,16,0.18)] dark:border-paper/20 dark:bg-ink-soft/55 dark:shadow-[0_20px_40px_-24px_rgba(0,0,0,0.6)]">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-x border-b border-ink/20 bg-paper-deep/55 px-5 py-3 shadow-[0_20px_40px_-24px_rgba(12,12,16,0.18)] dark:shadow-[0_20px_40px_-24px_rgba(0,0,0,0.6)]">
         <span
-          className="font-editorial text-[0.95rem] text-ink/65 italic dark:text-paper/65"
+          className="font-editorial text-[0.95rem] text-ink/65 italic"
           style={{ fontVariationSettings: '"opsz" 96, "SOFT" 100' }}
         >
           Same body. Different trigger. Change one line.
@@ -115,7 +115,7 @@ export function CodeMorph() {
               className={
                 i === index
                   ? 'inline-flex items-center gap-1.5 text-cobalt-500'
-                  : 'inline-flex items-center gap-1.5 text-ink/50 transition hover:text-ink dark:text-paper/50 dark:hover:text-paper'
+                  : 'inline-flex items-center gap-1.5 text-ink/50 transition hover:text-ink'
               }
             >
               <span
@@ -123,7 +123,7 @@ export function CodeMorph() {
                 className={
                   i === index
                     ? 'h-2 w-2 bg-cobalt-500'
-                    : 'h-2 w-2 border border-ink/40 dark:border-paper/40'
+                    : 'h-2 w-2 border border-ink/40'
                 }
               />
               <span>{p.triggerLabel}</span>
@@ -160,7 +160,7 @@ function CodeView({ pair, index }: { pair: Pair; index: number }) {
             <Fragment key={lineIndex}>
               <span
                 aria-hidden="true"
-                className="text-right font-mono text-[0.7rem] text-ink/30 tabular-nums select-none dark:text-paper/25"
+                className="text-right font-mono text-[0.7rem] text-ink/30 tabular-nums select-none"
               >
                 {lineIndex + 1}
               </span>
@@ -194,7 +194,7 @@ function CodeView({ pair, index }: { pair: Pair; index: number }) {
 
 function AnimatedToken({ text }: { text: string }) {
   return (
-    <span className="ink-bleed inline-block font-mono text-cobalt-500 dark:text-cobalt-300">
+    <span className="ink-bleed inline-block font-mono text-cobalt-500">
       {text}
     </span>
   )

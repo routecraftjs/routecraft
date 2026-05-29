@@ -194,7 +194,7 @@ export function ErrorTable() {
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search by code, message, or category"
             aria-label="Search errors"
-            className="w-full border border-ink/20 bg-paper-deep/40 px-4 py-2.5 font-mono text-[0.85rem] text-ink placeholder:text-ink/45 focus:border-cobalt-500 focus:outline-none dark:border-paper/20 dark:bg-ink-soft/40 dark:text-paper dark:placeholder:text-paper/45 dark:focus:border-cobalt-400"
+            className="w-full border border-ink/20 bg-paper-deep/40 px-4 py-2.5 font-mono text-[0.85rem] text-ink placeholder:text-ink/45 focus:border-cobalt-500 focus:outline-none"
           />
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -210,7 +210,7 @@ export function ErrorTable() {
                   'inline-flex items-center border px-2.5 py-1 font-mono text-[0.65rem] tracking-[0.18em] uppercase transition ' +
                   (active
                     ? 'border-cobalt-500 bg-cobalt-500 text-paper'
-                    : 'border-ink/25 text-ink/65 hover:border-ink/45 hover:text-ink dark:border-paper/25 dark:text-paper/65 dark:hover:border-paper/45 dark:hover:text-paper')
+                    : 'border-ink/25 text-ink/65 hover:border-ink/45 hover:text-ink')
                 }
               >
                 {cat}
@@ -220,10 +220,10 @@ export function ErrorTable() {
         </div>
       </div>
 
-      <div className="overflow-hidden border border-ink/15 dark:border-paper/15">
+      <div className="overflow-hidden border border-ink/15">
         <table className="w-full border-collapse">
           <thead>
-            <tr className="border-b border-ink/15 bg-paper-deep/40 font-mono text-[0.6rem] tracking-[0.22em] text-ink/55 uppercase dark:border-paper/15 dark:bg-ink-soft/40 dark:text-paper/55">
+            <tr className="border-b border-ink/15 bg-paper-deep/40 font-mono text-[0.6rem] tracking-[0.22em] text-ink/55 uppercase">
               <th className="px-4 py-2 text-left">Code</th>
               <th className="px-4 py-2 text-left">Category</th>
               <th className="px-4 py-2 text-left">Message</th>
@@ -235,7 +235,7 @@ export function ErrorTable() {
               <tr>
                 <td
                   colSpan={4}
-                  className="px-4 py-10 text-center font-editorial text-[1rem] text-ink/55 italic dark:text-paper/55"
+                  className="px-4 py-10 text-center font-editorial text-[1rem] text-ink/55 italic"
                 >
                   No errors match this filter.
                 </td>
@@ -245,22 +245,22 @@ export function ErrorTable() {
                 <tr
                   key={e.code}
                   className={
-                    'border-b border-ink/10 transition last:border-b-0 hover:bg-paper-deep/30 dark:border-paper/10 dark:hover:bg-ink-soft/30 ' +
-                    (i % 2 === 1 ? 'bg-paper-deep/15 dark:bg-ink-soft/10' : '')
+                    'border-b border-ink/10 transition last:border-b-0 hover:bg-paper-deep/30 ' +
+                    (i % 2 === 1 ? 'bg-paper-deep/15' : '')
                   }
                 >
                   <td className="px-4 py-2.5">
                     <a
                       href={`#${e.code.toLowerCase()}`}
-                      className="font-mono text-[0.85rem] font-semibold text-cobalt-500 hover:text-cobalt-600 dark:hover:text-cobalt-300"
+                      className="font-mono text-[0.85rem] font-semibold text-cobalt-500 hover:text-cobalt-600"
                     >
                       {e.code}
                     </a>
                   </td>
-                  <td className="px-4 py-2.5 font-mono text-[0.7rem] tracking-[0.16em] text-ink/65 uppercase dark:text-paper/65">
+                  <td className="px-4 py-2.5 font-mono text-[0.7rem] tracking-[0.16em] text-ink/65 uppercase">
                     {e.category}
                   </td>
-                  <td className="px-4 py-2.5 text-[0.9rem] text-ink dark:text-paper">
+                  <td className="px-4 py-2.5 text-[0.9rem] text-ink">
                     {e.message}
                   </td>
                   <td
@@ -274,7 +274,7 @@ export function ErrorTable() {
                     {e.retryable ? (
                       <span className="text-cobalt-500">Yes</span>
                     ) : (
-                      <span className="text-ink/40 dark:text-paper/40">No</span>
+                      <span className="text-ink/40">No</span>
                     )}
                   </td>
                 </tr>
@@ -284,7 +284,7 @@ export function ErrorTable() {
         </table>
       </div>
 
-      <p className="font-mono text-[0.65rem] tracking-[0.18em] text-ink/45 uppercase dark:text-paper/45">
+      <p className="font-mono text-[0.65rem] tracking-[0.18em] text-ink/45 uppercase">
         Showing {filtered.length} of {errors.length} codes
       </p>
     </div>
