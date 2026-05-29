@@ -34,7 +34,7 @@
   --text-9xl: 8rem;
   --text-9xl--line-height: 1;
 
-  --font-sans: var(--font-inter);
+  --font-sans: var(--font-ibm-plex-sans);
   --font-display: var(--font-lexend);
   --font-display--font-feature-settings: 'ss01';
   --font-editorial: var(--font-fraunces);
@@ -53,8 +53,8 @@
   --color-cobalt-900: #04154f;
 
   --color-paper: #f5f1e8;
-  --color-paper-edge: #e8e0cb;
-  --color-paper-deep: #ece5d2;
+  --color-paper-edge: #dad2c4;
+  --color-paper-deep: #ebe5da;
   --color-ink: #22232c;
   --color-ink-soft: #30313c;
   --color-ink-deep: #16171c;

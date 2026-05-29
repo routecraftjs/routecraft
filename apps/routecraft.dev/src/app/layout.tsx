@@ -1,5 +1,5 @@
 import { type Metadata } from 'next'
-import { Inter, Fraunces, JetBrains_Mono } from 'next/font/google'
+import { IBM_Plex_Sans, Fraunces, JetBrains_Mono } from 'next/font/google'
 import localFont from 'next/font/local'
 import clsx from 'clsx'
 
@@ -8,10 +8,11 @@ import { Layout } from '@/components/Layout'
 
 import '@/styles/tailwind.css'
 
-const inter = Inter({
+const ibmPlexSans = IBM_Plex_Sans({
   subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
   display: 'swap',
-  variable: '--font-inter',
+  variable: '--font-ibm-plex-sans',
 })
 
 // Use local version of Lexend so that we can use OpenType features
@@ -78,7 +79,7 @@ export default function RootLayout({
       lang="en"
       className={clsx(
         'h-full antialiased',
-        inter.variable,
+        ibmPlexSans.variable,
         lexend.variable,
         fraunces.variable,
         jetbrainsMono.variable,
