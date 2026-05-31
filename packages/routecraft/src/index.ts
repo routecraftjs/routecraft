@@ -225,6 +225,7 @@ export { jsonl } from "./adapters/jsonl/index.ts";
 export { group } from "./adapters/group/index.ts";
 export { event } from "./adapters/sources/event/index.ts";
 export { mail } from "./adapters/mail/index.ts";
+export { carddav } from "./adapters/carddav/index.ts";
 
 export { type LogOptions, type LogLevel } from "./adapters/log/index.ts";
 export {
@@ -330,3 +331,42 @@ export {
   ANALYSIS_HEADER_NAMES,
   MailClientManager,
 } from "./adapters/mail/index.ts";
+export {
+  CardDAVAdapter,
+  CardDAVClientManager,
+  CARDDAV_CLIENT_MANAGER,
+  DEFAULT_CARDDAV_SERVER_URL,
+  DEFAULT_VCARD_VERSION,
+  HEADER_CARDDAV_UID,
+  HEADER_CARDDAV_URL,
+  HEADER_CARDDAV_ETAG,
+  HEADER_CARDDAV_ACCOUNT,
+  loadVCardConstructor,
+  parseVCard,
+  serializeContact,
+  patchVCard,
+  type CardDAVOptions,
+  type CardDAVReadOptions,
+  type CardDAVWriteOptions,
+  type CardDAVDeleteOptions,
+  type CardDAVContextConfig,
+  type CardDAVAccountConfig,
+  type CardDAVAction,
+  type CardDAVTargetExtractor,
+  type CardDAVWriteResult,
+  type CardDAVDeleteResult,
+  type CardDAVDriverClient,
+  type DAVAddressBookLike,
+  type DAVVCardLike,
+  type ResolvedCardDAVConnection,
+  type Contact,
+  type ContactPhone,
+  type ContactEmail,
+  type ContactAddress,
+  type ContactPhoto,
+  type ContactDate,
+  type ContactField,
+  type ContactInstantMessage,
+  type ContactSocialProfile,
+  type ContactRelatedName,
+} from "./adapters/carddav/index.ts";
