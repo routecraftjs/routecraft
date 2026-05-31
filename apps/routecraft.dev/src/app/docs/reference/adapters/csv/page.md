@@ -78,7 +78,7 @@ bun add papaparse
 | `mode` | `'write' \| 'append'` | `'write'` | File operation mode (destination only) |
 | `createDirs` | `boolean` | `false` | Create parent directories (destination only) |
 | `chunked` | `boolean` | `false` | Emit one exchange per row instead of entire array (source only) |
-| `onParseError` | `'fail' \| 'abort' \| 'drop'` | `'fail'` | How to handle a row parse failure (source only). See [parse error handling](#parse-error-handling). |
+| `onParseError` | `'fail' \| 'abort' \| 'drop'` | `'fail'` | How to handle a row parse failure (source only). See [parse error handling](/docs/reference/adapters#parse-error-handling). |
 
 **Behavior:**
 - **Source** (default): Emits entire CSV as array of records (objects if `header: true`, arrays if `header: false`)

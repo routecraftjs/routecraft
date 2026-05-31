@@ -38,20 +38,20 @@ const groups: NamespaceGroup[] = [
     note: 'Each operation emits its own started / completed / failed.',
   },
   {
-    pattern: 'route:{routeId}:plugin:*',
-    events: ['added', 'removed', 'enabled', 'disabled'],
+    pattern: 'plugin:{pluginId}:*',
+    events: ['registered', 'starting', 'started', 'stopping', 'stopped'],
     anchor: 'plugin-events',
   },
   {
-    pattern: 'route:{routeId}:auth:*',
-    events: ['authenticated', 'authorized', 'denied'],
+    pattern: 'auth:*',
+    events: ['success', 'rejected'],
     anchor: 'authentication-events',
   },
   {
-    pattern: 'mcp:*',
-    events: ['server', 'session', 'tool-call'],
+    pattern: 'plugin:mcp:*',
+    events: ['server', 'session', 'tool'],
     anchor: 'mcp-plugin-events',
-    note: 'Each emits its own started / closed / error.',
+    note: 'server (listening, tools:exposed), session (created, closed), tool (called, completed, failed).',
   },
 ]
 

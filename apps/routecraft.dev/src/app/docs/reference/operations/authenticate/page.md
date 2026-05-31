@@ -5,7 +5,7 @@ title: authenticate
 [← All operations](/docs/reference/operations) {% .lead %}
 
 ```ts
-authenticate(resolver: (exchange: Exchange<Current>) => PrincipalClaims | undefined | Promise<...>): RouteBuilder<Current>
+authenticate(resolver: (exchange: Exchange<Current>) => PrincipalClaims | undefined | Promise<PrincipalClaims | undefined>): RouteBuilder<Current>
 ```
 
 Establish the authenticated principal for the exchange. The resolver returns identity claims you have verified yourself (an e-mail sender, a Slack signature, a webhook HMAC); they are minted into a branded, frozen `Principal` and attached to `headers["routecraft.auth.principal"]`. Return `undefined` to leave the caller anonymous. The body is unchanged.

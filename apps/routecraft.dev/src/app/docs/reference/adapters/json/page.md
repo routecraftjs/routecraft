@@ -89,6 +89,6 @@ Parse and format JSON data, or read/write JSON files.
 | `indent` / `space` | `number` | `0` | JSON formatting spaces (destination only) |
 | `reviver` | `(key, value) => unknown` | -- | JSON.parse reviver (source only) |
 | `replacer` | `(key, value) => unknown` | -- | JSON.stringify replacer (destination only) |
-| `onParseError` | `'fail' \| 'abort' \| 'drop'` | `'fail'` | How to handle a parse failure (source only). See [parse error handling](#parse-error-handling). |
+| `onParseError` | `'fail' \| 'abort' \| 'drop'` | `'fail'` | How to handle a parse failure (source only). See [parse error handling](/docs/reference/adapters#parse-error-handling). |
 
 **Exported types:** `JsonAdapter`, `JsonFileAdapter`, `JsonOptions`, `JsonTransformerOptions`, `JsonFileOptions`

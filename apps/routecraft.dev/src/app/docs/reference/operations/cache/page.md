@@ -50,6 +50,6 @@ craft()
 ```
 
 **Options:**
-- `key` (optional) - Function to derive the cache key from the exchange. If omitted, a key is derived by hashing the exchange body. See [default key derivation](#default-key-derivation).
+- `key` (optional) - Function to derive the cache key from the exchange. If omitted, a key is derived by hashing the exchange body.
 - `ttl` - Time to live in milliseconds. After expiry, the next execution recomputes the value
 - `scope` - What to cache: `'body'` (default) or `'exchange'` (body plus selected headers)
