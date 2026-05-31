@@ -96,7 +96,7 @@ Provider credentials are configured once in `llmPlugin()` and shared across all 
 
 By default the only part of the exchange that reaches the model is the body (as the user prompt). The authenticated caller (`exchange.principal`) is **not** in the prompt, so the model does not know who it is serving unless you put that there yourself.
 
-Set `principal: true` to append a `## Caller` section to the system prompt. It is appended after your own prompt and any `skills`, and it covers the unauthenticated case explicitly so the model never invents an identity:
+Set `principal: true` to append a `## Caller` section to the system prompt. It is appended after your own prompt and any `blocks`, and it covers the unauthenticated case explicitly so the model never invents an identity:
 
 ```typescript
 agent({

@@ -10,7 +10,7 @@ tag(value: Tag | Tag[]): RouteBuilder<Current>
 
 Tag the next route. Accepts a single tag or an array; multiple `.tag()` calls before `from()` accumulate (deduplicated, insertion order preserved). Empty strings are rejected with `RC2001`.
 
-Tags drive selectors like `tools({ tagged: "read-only" })` in `@routecraft/ai`. The `KnownTag` literals `"read-only"`, `"destructive"`, and `"idempotent"` autocomplete; any other string is also accepted.
+Tags surface on the `ToolsCatalog` snapshot handed to the builder form of `tools()` in `@routecraft/ai`, so an agent can filter its tool surface programmatically (`tools((catalog) => catalog.routes.filter((r) => r.tags?.includes("read-only")).map((r) => `Direct(${r.id})`))`). The `KnownTag` literals `"read-only"`, `"destructive"`, and `"idempotent"` autocomplete; any other string is also accepted.
 
 ```ts
 craft()

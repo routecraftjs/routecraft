@@ -8,11 +8,9 @@ Routecraft is in active development -- APIs may change between minor versions.
 
 ---
 
-## [v0.6.0](https://github.com/routecraftjs/routecraft/releases/tag/v0.6.0) {% badge color="yellow" %}Pre-release{% /badge %}
+## v0.6.0 {% badge color="gray" %}In development{% /badge %}
 
-*Unreleased*
-
-Two coordinated breaking changes to the agent surface, plus the deletion of an under-considered selection feature on `tools()`. See the [0.5.x to 0.6.0 migration guide](/docs/migrating/0.5-to-0.6) for upgrade steps.
+This section tracks changes landing on `main` since the v0.5.0 release. Release notes will be finalised when v0.6.0 is tagged. See the [0.5.x to 0.6.0 migration guide](/docs/migrating/0.5-to-0.6) for upgrade steps on the breaking AI surface changes below.
 
 ### AI & MCP {% badge color="red" %}Breaking{% /badge %}
 
@@ -24,9 +22,15 @@ Two coordinated breaking changes to the agent surface, plus the deletion of an u
 - **Markdown agent loader: `skills:` frontmatter rejected** -- `agents("./agents")` no longer accepts a `skills:` field; YAML cannot express the function-form resolvers blocks may carry. Supply `blocks` via the per-agent overrides map handed to `agents()` instead.
 - **Three new error codes** -- `RC5025` (block resolution failed), `RC5026` (block name collision / reserved prefix), `RC5027` (block misconfigured: invalid mode, missing description on a progressive block, etc).
 
-### Docs
+### Mail
 
-- **Migration guide** -- new [0.5.x to 0.6.0 migration guide](/docs/migrating/0.5-to-0.6).
+- **Direct mail no longer misclassified as auto-forwarded** -- the delivering MX (Gmail / Google Workspace) stamps a single first-hop ARC set (`i=1`, `cv=none`) onto direct mail, so the presence of ARC headers is not evidence of forwarding. `analyzeHeaders` treated any ARC set as a forward, which downgraded DMARC-aligned direct mail to `unverified`. ARC is now only treated as forwarding evidence when the chain is validated (`cv=pass`/`cv=fail`) or spans more than one instance. Direct mail resolves to `direct` / `verified` via boundary DMARC. The mailing-list path (`List-Id`) and validated auto-forwards are unchanged.
+
+### Docs site
+
+- **Blog section at [/blog](/blog)** with four published posts (basics, DSL cheat sheet, Clerk MCP auth, WorkOS MCP auth) and a featured + latest grid layout. Markdoc-backed, theme-aware, with structured frontmatter for date, author, tags, and draft status.
+- **Cheat sheet reference at [/cheat-sheet](/cheat-sheet)** -- searchable, theme-aware HTML page covering the full builder DSL, sources, destinations, operations, validation, error handling, events, MCP integration, CLI, and TUI. Print stylesheet produces a clean A4 PDF via `Cmd/Ctrl + P`.
+- **Migration guide** -- new [0.5.x to 0.6.0 migration guide](/docs/migrating/0.5-to-0.6) covering the agent block primitive and tools function-form builder.
 
 ---
 

@@ -297,6 +297,47 @@ This is a programming error at the mint call site, distinct from `RC5023`, which
 - Pass a non-empty `subject`: `authenticate({ subject: sender.address, roles: [...] })`.
 - If the source cannot identify the caller, return `undefined` from the `.authenticate()` resolver to leave the exchange anonymous instead of minting an empty identity.
 
+## RC5025
+Agent block resolver failed
+
+**Why it happens**  
+A block's `value` resolver function threw, returned a non-string, or could not be invoked (no `CraftContext` available on the exchange). For `mode: "inject"` blocks this aborts the dispatch with `RC5025`; for `mode: "progressive"` blocks the same `RC5025` is reported back to the model as a tool error so it can self-correct.
+
+This also fires when `client.forward()` is invoked from a resolver running on an exchange with no bound route (typically synthetic exchanges in tests).
+
+**Suggestion**  
+- Return a string (or `Promise<string>`) from the resolver. Throwing inside an `inject` resolver hard-fails the agent dispatch, so handle expected errors and return a sensible fallback string.
+- For `progressive` resolvers, the model will see the error message and may retry; a descriptive message helps the model self-correct.
+- When using `client.forward()` in tests, dispatch the agent through a real route so the exchange has a route binding, or construct the exchange via `DefaultExchange` with a populated route context.
+
+## RC5026
+Agent block / tool name collision with the reserved `_block_` prefix
+
+**Why it happens**  
+A block name or a user tool (fn id, direct route id, MCP tool name) starts with the framework-reserved `_block_` prefix used by synthetic block-loader tools. The reservation covers the whole `_block_` namespace, not just `_block_load_`, so future synthetic-tool kinds can land without another breaking reservation.
+
+Also fires on duplicate block keys, empty-string block keys, or any other block-name collision detected at construction or dispatch.
+
+**Suggestion**  
+- Rename the offending block, fn, or route. The `_block_` prefix is for framework use only.
+- For block keys, the `Blocks` record key is the block name; ensure it is a non-empty string and unique within the agent (defaults are merged in by name, with `false` removing).
+
+## RC5027
+Agent block misconfigured
+
+**Why it happens**  
+A block's shape is invalid at construction:
+- `mode` is not `"inject"` or `"progressive"`.
+- A `progressive`-mode block is missing the required `description`.
+- `value` is neither a string nor a function.
+- `lifetime` is set to a value other than `"dispatch"` or `"context"`.
+- The `skills({ source })` builder was called with a missing or empty `source`, an invalid `mode`, or an invalid `lifetime`.
+
+**Suggestion**  
+- Inject-mode blocks: `{ mode: "inject", value: <string | function> }`.
+- Progressive-mode blocks: `{ mode: "progressive", description: "...", value: <string | function> }`.
+- Use the `BlockMode` and `BlockLifetime` types exported from `@routecraft/ai` to catch typos at the type level.
+
 ## RC9901
 Unknown error
 
