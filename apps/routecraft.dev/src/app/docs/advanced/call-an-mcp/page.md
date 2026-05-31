@@ -90,7 +90,7 @@ If you only need to call a single external tool and do not want to register it g
 {% quick-links %}
 
 {% quick-link title="Running an MCP server" icon="plugins" href="/docs/advanced/expose-as-mcp" description="Run your own capabilities as MCP tools for AI clients." /%}
-{% quick-link title="MCP example" icon="installation" href="/docs/examples/mcp" description="A copyable capability exposed as an MCP tool." /%}
+{% quick-link title="MCP tool" icon="installation" href="/docs/examples/mcp" description="A copyable capability exposed as an MCP tool." /%}
 {% quick-link title="mcp() adapter reference" icon="presets" href="/docs/reference/adapters/mcp" description="Full MCP adapter API and options." /%}
 
 {% /quick-links %}

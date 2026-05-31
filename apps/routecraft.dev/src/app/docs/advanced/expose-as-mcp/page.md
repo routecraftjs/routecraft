@@ -228,7 +228,7 @@ Use absolute paths in production to avoid working-directory ambiguity.
 {% quick-links %}
 
 {% quick-link title="Securing capabilities" icon="plugins" href="/docs/advanced/securing-capabilities" description="Authenticate HTTP endpoints, enrich identity, RFC 9728, CORS." /%}
-{% quick-link title="MCP example" icon="installation" href="/docs/examples/mcp" description="A copyable capability exposed as an MCP tool." /%}
+{% quick-link title="MCP tool" icon="installation" href="/docs/examples/mcp" description="A copyable capability exposed as an MCP tool." /%}
 {% quick-link title="Calling an MCP" icon="plugins" href="/docs/advanced/call-an-mcp" description="Call external MCP servers from within a capability." /%}
 {% quick-link title="mcp() adapter reference" icon="presets" href="/docs/reference/adapters/mcp" description="Full MCP adapter API and options." /%}
 

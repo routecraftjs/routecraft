@@ -330,7 +330,7 @@ The OAuth-proxy mode's SDK-owned endpoints (`/register`, `/token`, `/revoke`, th
 {% quick-links %}
 
 {% quick-link title="Running an MCP server" icon="plugins" href="/docs/advanced/expose-as-mcp" description="Transports, client wiring, and server identity." /%}
-{% quick-link title="MCP example" icon="installation" href="/docs/examples/mcp" description="A copyable capability exposed as an MCP tool." /%}
+{% quick-link title="MCP tool" icon="installation" href="/docs/examples/mcp" description="A copyable capability exposed as an MCP tool." /%}
 {% quick-link title="mcpPlugin reference" icon="presets" href="/docs/reference/plugins/mcpplugin" description="Full plugin options and the Principal field list." /%}
 
 {% /quick-links %}
