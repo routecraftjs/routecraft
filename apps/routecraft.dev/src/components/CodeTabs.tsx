@@ -13,16 +13,16 @@ export function CodeTabs({ children }: { children: React.ReactNode }) {
   return (
     <Tab.Group>
       <div className="relative">
-        <Tab.List className="absolute top-2 left-3 z-10 flex gap-2">
+        <Tab.List className="absolute top-2.5 left-3 z-10 flex gap-px bg-ink/15">
           {tabs.map((tab, index) => (
             <Tab
               key={tab.props.label ?? index}
               className={({ selected }) =>
                 clsx(
-                  'rounded-md px-3 py-1 text-xs font-medium backdrop-blur-sm',
+                  'px-3 py-1 font-mono text-[0.65rem] tracking-[0.18em] uppercase transition focus:outline-none',
                   selected
-                    ? 'bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-white'
-                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200/70 dark:bg-gray-800/40 dark:text-gray-300 dark:hover:bg-gray-700/70',
+                    ? 'bg-cobalt-500 text-paper'
+                    : 'bg-paper-deep text-ink/55 hover:text-cobalt-500',
                 )
               }
             >

@@ -3,7 +3,7 @@ export const navigation = [
     title: 'Getting Started',
     href: '/',
     links: [
-      { title: 'Quick start', href: '/' },
+      { title: 'Installation', href: '/docs/introduction/installation' },
       { title: 'Changelog', href: '/docs/changelog' },
     ],
   },
@@ -12,7 +12,6 @@ export const navigation = [
     href: '/docs/introduction',
     links: [
       { title: 'What is Routecraft', href: '/docs/introduction' },
-      { title: 'Installation', href: '/docs/introduction/installation' },
       {
         title: 'Project structure',
         href: '/docs/introduction/project-structure',

@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
-    "prebuild": "node --experimental-strip-types scripts/generate-raw-docs.mjs",
+    "prebuild": "node --experimental-strip-types scripts/generate-raw-docs.mjs && node --experimental-strip-types scripts/generate-route-shims.mjs",
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint ."
@@ -35,6 +35,7 @@
     "typescript": "^5.9.3"
   },
   "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^25.6.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

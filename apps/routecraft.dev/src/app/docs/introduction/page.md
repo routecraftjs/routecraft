@@ -20,7 +20,7 @@ TypeScript all the way. Full IDE support, version controlled, and testable.
 **Secure by Design**
 Nothing is accessible until you explicitly write a capability for it. Write a **deterministic** capability for predictable, code-controlled actions. Write a **non-deterministic** one and the agent reasons within the boundary you defined. You define what AI can do, and the code enforces it.
 
-![Routecraft as mission control: AI agents on the left connect via MCP, Routecraft capabilities in the center, Software 1.0 systems on the right via Adapters, and outbound MCP clients below](/diagrams/architecture.png)
+{% topology-diagram /%}
 
 ---
 

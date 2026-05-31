@@ -135,29 +135,23 @@ export function CopyDocsButton() {
   }
 
   const buttonBaseClass = clsx(
-    'inline-flex items-center gap-1.5 text-sm font-medium transition-colors',
-    'text-gray-500 hover:text-gray-700',
-    'dark:text-gray-400 dark:hover:text-gray-200',
+    'inline-flex items-center gap-2 font-mono text-[0.65rem] uppercase tracking-[0.22em] transition',
+    'text-ink/65 hover:text-ink',
   )
 
   return (
     <Menu as="div" className="relative inline-flex">
       <div
         className={clsx(
-          'inline-flex items-center rounded-lg border transition-colors',
-          'border-gray-200 bg-white',
-          'dark:border-gray-700 dark:bg-gray-800/50',
+          'inline-flex items-center border transition',
+          'border-ink/15 bg-paper-deep/40 hover:border-cobalt-500/40',
         )}
       >
         {/* Primary button: Chat with docs in Claude */}
         <button
           type="button"
           onClick={handleOpenInClaude}
-          className={clsx(
-            buttonBaseClass,
-            'rounded-l-lg py-1.5 pr-2 pl-2.5',
-            'hover:bg-gray-50 dark:hover:bg-gray-800',
-          )}
+          className={clsx(buttonBaseClass, 'py-2 pr-2.5 pl-3')}
         >
           <ClaudeIcon className="h-3.5 w-3.5" />
           <span>Ask Claude</span>
@@ -166,11 +160,8 @@ export function CopyDocsButton() {
         {/* Dropdown trigger */}
         <MenuButton
           className={clsx(
-            'rounded-r-lg border-l px-1.5 py-1.5 transition-colors',
-            'border-gray-200 hover:bg-gray-50',
-            'dark:border-gray-700 dark:hover:bg-gray-800',
-            'text-gray-400 hover:text-gray-600',
-            'dark:text-gray-500 dark:hover:text-gray-300',
+            'border-l border-ink/15 px-1.5 py-2 transition',
+            'text-ink/45 hover:text-cobalt-500',
           )}
           aria-label="More options"
         >
@@ -180,8 +171,8 @@ export function CopyDocsButton() {
 
       <MenuItems
         className={clsx(
-          'absolute top-[calc(100%+0.5rem)] right-0 z-50 w-56 rounded-xl p-1.5 shadow-lg ring-1 ring-black/5',
-          'bg-white dark:bg-gray-800 dark:ring-white/10',
+          'absolute top-[calc(100%+0.5rem)] right-0 z-50 w-56 border bg-paper p-1 shadow-[0_20px_60px_-30px_rgba(12,12,16,0.4)]',
+          'border-ink/15',
         )}
       >
         <MenuItem>
@@ -190,19 +181,17 @@ export function CopyDocsButton() {
               type="button"
               onClick={handleOpenInChatGPT}
               className={clsx(
-                'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors',
-                focus
-                  ? 'bg-gray-100 text-gray-900 dark:bg-gray-700 dark:text-white'
-                  : 'text-gray-600 dark:text-gray-300',
+                'flex w-full items-center gap-3 px-3 py-2 font-mono text-[0.7rem] tracking-[0.18em] uppercase transition',
+                focus ? 'bg-paper-deep text-ink' : 'text-ink/70',
               )}
             >
-              <OpenAIIcon className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+              <OpenAIIcon className="h-3.5 w-3.5 shrink-0 text-ink/55" />
               <span>Ask ChatGPT</span>
             </button>
           )}
         </MenuItem>
 
-        <div className="mx-3 my-1 border-t border-gray-100 dark:border-gray-700" />
+        <div className="my-1 border-t border-ink/10" />
 
         <MenuItem>
           {({ focus }) => (
@@ -210,14 +199,12 @@ export function CopyDocsButton() {
               type="button"
               onClick={handleCopyPage}
               className={clsx(
-                'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors',
-                focus
-                  ? 'bg-gray-100 text-gray-900 dark:bg-gray-700 dark:text-white'
-                  : 'text-gray-600 dark:text-gray-300',
+                'flex w-full items-center gap-3 px-3 py-2 font-mono text-[0.7rem] tracking-[0.18em] uppercase transition',
+                focus ? 'bg-paper-deep text-ink' : 'text-ink/70',
               )}
             >
-              <CopyIcon className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
-              <span>{copied === 'page' ? 'Copied!' : 'Copy page'}</span>
+              <CopyIcon className="h-3.5 w-3.5 shrink-0 text-ink/55" />
+              <span>{copied === 'page' ? 'Copied' : 'Copy page'}</span>
             </button>
           )}
         </MenuItem>
@@ -228,15 +215,13 @@ export function CopyDocsButton() {
               type="button"
               onClick={handleCopyAllDocsUrl}
               className={clsx(
-                'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors',
-                focus
-                  ? 'bg-gray-100 text-gray-900 dark:bg-gray-700 dark:text-white'
-                  : 'text-gray-600 dark:text-gray-300',
+                'flex w-full items-center gap-3 px-3 py-2 font-mono text-[0.7rem] tracking-[0.18em] uppercase transition',
+                focus ? 'bg-paper-deep text-ink' : 'text-ink/70',
               )}
             >
-              <LinkIcon className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+              <LinkIcon className="h-3.5 w-3.5 shrink-0 text-ink/55" />
               <span>
-                {copied === 'allDocsUrl' ? 'Copied!' : 'Copy raw docs URL'}
+                {copied === 'allDocsUrl' ? 'Copied' : 'Copy raw docs URL'}
               </span>
             </button>
           )}

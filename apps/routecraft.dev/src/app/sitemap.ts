@@ -2,10 +2,12 @@ import fs from 'fs'
 import path from 'path'
 import type { MetadataRoute } from 'next'
 
+import { getAllBlogPosts } from '@/lib/blog'
+import { siteUrl } from '@/lib/site'
+
 export const dynamic = 'force-static'
 
-export const baseUrl =
-  process.env.NEXT_PUBLIC_BASE_URL || 'https://routecraft.dev'
+export const baseUrl = siteUrl
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const routes: MetadataRoute.Sitemap = []
@@ -89,6 +91,39 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 0.8,
     })
   }
+
+  // Add the blog landing page and individual posts. Use the blog library so
+  // unpublished (published: false) and draft posts are excluded.
+  const blogBaseDir = path.join(process.cwd(), 'src', 'app', 'blog')
+  if (fs.existsSync(blogBaseDir)) {
+    routes.push({
+      url: `${baseUrl}/blog/`,
+      lastModified: new Date(),
+      changeFrequency: 'weekly',
+      priority: 0.9,
+    })
+
+    for (const post of getAllBlogPosts().filter((p) => !p.draft)) {
+      const pagePath = path.join(blogBaseDir, post.slug, 'page.md')
+      const lastModified = fs.existsSync(pagePath)
+        ? fs.statSync(pagePath).mtime
+        : new Date(post.date)
+      routes.push({
+        url: `${baseUrl}/blog/${post.slug}/`,
+        lastModified,
+        changeFrequency: 'monthly',
+        priority: 0.7,
+      })
+    }
+  }
+
+  // Add the cheat sheet reference page
+  routes.push({
+    url: `${baseUrl}/cheat-sheet/`,
+    lastModified: new Date(),
+    changeFrequency: 'monthly',
+    priority: 0.8,
+  })
 
   // Add raw markdown files for AI crawlers and direct access
   const rawDir = path.join(process.cwd(), 'public', 'raw')

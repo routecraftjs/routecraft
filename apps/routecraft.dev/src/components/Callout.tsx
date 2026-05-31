@@ -5,15 +5,19 @@ import { Icon } from '@/components/Icon'
 const styles = {
   note: {
     container:
-      'bg-sky-50 dark:bg-gray-800/60 dark:ring-1 dark:ring-gray-300/10',
-    title: 'text-sky-900 dark:text-sky-400',
-    body: 'text-sky-800 [--tw-prose-background:var(--color-sky-50)] prose-a:text-sky-900 prose-code:text-sky-900 dark:text-gray-300 dark:prose-code:text-gray-300',
+      'border border-ink/15 border-l-4 border-l-cobalt-500 bg-paper-deep/30',
+    label: 'text-cobalt-500',
+    title: 'text-ink',
+    body: 'text-ink/80 prose-code:text-ink prose-a:text-cobalt-500',
+    icon: 'text-cobalt-500',
   },
   warning: {
     container:
-      'bg-amber-50 dark:bg-gray-800/60 dark:ring-1 dark:ring-gray-300/10',
-    title: 'text-amber-900 dark:text-amber-500',
-    body: 'text-amber-800 [--tw-prose-underline:var(--color-amber-400)] [--tw-prose-background:var(--color-amber-50)] prose-a:text-amber-900 prose-code:text-amber-900 dark:text-gray-300 dark:[--tw-prose-underline:var(--color-sky-700)] dark:prose-code:text-gray-300',
+      'border border-ink/15 border-l-4 border-l-amber-500 bg-paper-deep/30 dark:border-l-amber-400',
+    label: 'text-amber-600 dark:text-amber-400',
+    title: 'text-ink',
+    body: 'text-ink/80 prose-code:text-ink prose-a:text-amber-600 dark:prose-a:text-amber-400',
+    icon: 'text-amber-500 dark:text-amber-400',
   },
 }
 
@@ -22,6 +26,11 @@ const icons = {
   warning: (props: { className?: string }) => (
     <Icon icon="warning" color="amber" {...props} />
   ),
+}
+
+const labels = {
+  note: 'Note',
+  warning: 'Warning',
 }
 
 export function Callout({
@@ -34,19 +43,32 @@ export function Callout({
   type?: keyof typeof styles
 }) {
   const IconComponent = icons[type]
+  const style = styles[type]
 
   return (
-    <div className={clsx('my-8 flex rounded-3xl p-6', styles[type].container)}>
-      <IconComponent className="h-8 w-8 flex-none" />
-      <div className="ml-4 flex-auto">
+    <div className={clsx('my-8 flex gap-4 p-5', style.container)}>
+      <div className={clsx('mt-0.5 flex-none', style.icon)}>
+        <IconComponent className="h-5 w-5" />
+      </div>
+      <div className="flex-auto">
+        <div
+          className={clsx(
+            'not-prose flex items-baseline gap-3 font-mono text-[0.65rem] tracking-[0.22em] uppercase',
+            style.label,
+          )}
+        >
+          <span>{labels[type]}</span>
+          <span className="h-px flex-1 bg-current opacity-30" />
+        </div>
         <p
-          className={clsx('not-prose font-display text-xl', styles[type].title)}
+          className={clsx(
+            'not-prose mt-2 font-editorial text-[1.2rem] tracking-[-0.01em]',
+            style.title,
+          )}
         >
           {title}
         </p>
-        <div className={clsx('prose mt-2.5', styles[type].body)}>
-          {children}
-        </div>
+        <div className={clsx('prose mt-3', style.body)}>{children}</div>
       </div>
     </div>
   )

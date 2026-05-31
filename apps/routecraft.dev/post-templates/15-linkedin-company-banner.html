@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Routecraft · LinkedIn company banner · 1128×191</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,200..900;1,9..144,200..900&family=JetBrains+Mono:ital,wght@0,400..700;1,400..700&display=swap"
+    />
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            // Colours resolve through CSS variables (see :root / .dark in the
+            // <style> block) so every token follows the light/dark theme. The
+            // `rgb(var(--x) / <alpha-value>)` form keeps Tailwind opacity
+            // modifiers (text-ink/70, bg-paper-deep/40) working.
+            colors: {
+              backdrop: 'rgb(var(--backdrop) / <alpha-value>)',
+              paper: 'rgb(var(--paper) / <alpha-value>)',
+              'paper-edge': 'rgb(var(--paper-edge) / <alpha-value>)',
+              'paper-deep': 'rgb(var(--paper-deep) / <alpha-value>)',
+              ink: 'rgb(var(--ink) / <alpha-value>)',
+              'ink-soft': 'rgb(var(--ink-soft) / <alpha-value>)',
+              'ink-deep': 'rgb(var(--ink-deep) / <alpha-value>)',
+              'cobalt-300': 'rgb(var(--cobalt-300) / <alpha-value>)',
+              'cobalt-400': 'rgb(var(--cobalt-400) / <alpha-value>)',
+              'cobalt-500': 'rgb(var(--cobalt-500) / <alpha-value>)',
+              'cobalt-600': 'rgb(var(--cobalt-600) / <alpha-value>)',
+            },
+            fontFamily: {
+              editorial: ['Fraunces', 'serif'],
+              mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+            },
+          },
+        },
+      }
+    </script>
+    <script>
+      // Theme switch. Default is light. Add ?theme=dark to the URL (the gallery
+      // does this), or set class="dark" on <html> by hand, to render dark.
+      ;(() => {
+        const t = new URLSearchParams(location.search).get('theme')
+        if (t === 'dark') document.documentElement.classList.add('dark')
+        else if (t === 'light')
+          document.documentElement.classList.remove('dark')
+      })()
+    </script>
+    <style>
+      /* Paper / ink / cobalt palette as RGB channels so both the base colour
+         and Tailwind opacity modifiers work, and so .dark can flip the whole
+         system in one place. */
+      :root {
+        --backdrop: 213 206 193;
+        --paper: 245 241 232;
+        --paper-edge: 218 210 196;
+        --paper-deep: 235 229 218;
+        --ink: 34 35 44;
+        --ink-soft: 48 49 60;
+        --ink-deep: 22 23 28;
+        --cobalt-300: 138 150 248;
+        --cobalt-400: 88 103 245;
+        --cobalt-500: 18 71 255;
+        --cobalt-600: 12 57 214;
+      }
+      .dark {
+        --backdrop: 12 13 17;
+        --paper: 29 30 38;
+        --paper-edge: 48 50 61;
+        --paper-deep: 38 40 50;
+        --ink: 240 236 225;
+        --ink-soft: 206 201 188;
+        --ink-deep: 250 247 240;
+        --cobalt-300: 176 185 255;
+        --cobalt-400: 140 152 252;
+        --cobalt-500: 116 130 255;
+        --cobalt-600: 158 168 253;
+      }
+      body {
+        margin: 0;
+        padding: 0;
+        background: rgb(var(--backdrop));
+        font-family: 'Fraunces', serif;
+        display: grid;
+        place-items: center;
+        min-height: 100vh;
+      }
+      .frame {
+        width: 1128px;
+        height: 191px;
+      }
+      .grain {
+        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.6 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+        opacity: 0.04;
+        mix-blend-mode: multiply;
+      }
+      /* On dark paper the dark grain would vanish under multiply, so invert it
+         to light specks and screen it back in. */
+      .dark .grain {
+        opacity: 0.06;
+        mix-blend-mode: screen;
+        filter: invert(1);
+      }
+      .reg {
+        position: absolute;
+        width: 8px;
+        height: 8px;
+        opacity: 0.35;
+      }
+      .reg::before,
+      .reg::after {
+        content: '';
+        position: absolute;
+        background: rgb(var(--ink));
+      }
+      .reg::before {
+        top: 50%;
+        left: 0;
+        width: 100%;
+        height: 1px;
+        transform: translateY(-50%);
+      }
+      .reg::after {
+        left: 50%;
+        top: 0;
+        height: 100%;
+        width: 1px;
+        transform: translateX(-50%);
+      }
+      /* Layout debug aid: visualises where the LinkedIn company avatar overlaps the
+         banner. Avatar is ~144px circle, ~24px from left, ~30% above the banner's
+         bottom edge. Toggle to `display:block` if you need to reposition content. */
+      .avatar-guide {
+        position: absolute;
+        left: 24px;
+        bottom: -44px;
+        width: 144px;
+        height: 144px;
+        border-radius: 9999px;
+        border: 1px dashed rgba(34, 35, 44, 0.35);
+        pointer-events: none;
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="frame relative overflow-hidden bg-paper text-ink">
+      <div class="grain pointer-events-none absolute inset-0"></div>
+
+      <!-- Registration marks (matches the rest of the template library) -->
+      <span class="reg" style="top: 10px; left: 10px"></span>
+      <span class="reg" style="top: 10px; right: 10px"></span>
+      <span class="reg" style="bottom: 10px; left: 10px"></span>
+      <span class="reg" style="bottom: 10px; right: 10px"></span>
+
+      <!-- Top hairline -->
+      <div class="absolute top-[40px] right-10 left-10 h-px bg-ink/10"></div>
+      <!-- Bottom hairline -->
+      <div class="absolute right-10 bottom-[40px] left-10 h-px bg-ink/10"></div>
+
+      <!-- Top row: brand lockup (left) + meta strip (right) -->
+      <div
+        class="absolute top-[14px] right-10 left-10 flex items-center justify-between"
+      >
+        <!-- EDIT: brand lockup -->
+        <div class="flex items-center gap-2.5">
+          <svg viewBox="0 0 200 200" class="h-[22px] w-[22px] fill-ink">
+            <path
+              d="M125 175H75V125L125 175ZM175 175H125V125L175 175ZM125 25C152.614 25 175 47.3858 175 75C175 102.614 152.614 125 125 125V75H75L125 125H75L25 75V25H125Z"
+            />
+          </svg>
+          <span
+            class="font-editorial text-[1.15rem] leading-none tracking-[-0.02em]"
+            style="font-variation-settings: 'opsz' 96"
+            >Routecraft</span
+          >
+        </div>
+
+        <!-- EDIT: top-right meta strip -->
+        <span
+          class="inline-flex items-center gap-2 font-mono text-[0.62rem] tracking-[0.22em] text-ink/55 uppercase"
+        >
+          <span class="inline-block h-[5px] w-[5px] bg-cobalt-500"></span>
+          Open source · TypeScript · Apache 2.0
+        </span>
+      </div>
+
+      <!-- Hero line. Right-aligned with a left inset of 220px so the LinkedIn
+           avatar (~24+144=168px from left, plus padding) never crashes into the
+           text on desktop. -->
+      <div
+        class="absolute inset-0 flex items-center justify-end pr-12 pl-[220px]"
+      >
+        <!-- EDIT: the line. Italic cobalt rings ONE phrase only. -->
+        <p
+          class="text-right font-editorial text-[40px] leading-[1.04] tracking-[-0.025em]"
+          style="font-variation-settings: 'opsz' 144"
+        >
+          Tools for agents. Or the
+          <em
+            class="text-cobalt-500"
+            style="font-variation-settings: 'opsz' 144"
+            >harness</em
+          >
+          itself.
+        </p>
+      </div>
+
+      <!-- Bottom row: tagline (left) + URL stamp (right). The tagline is inset
+           past the avatar so LinkedIn's company logo (a ~144px rounded square
+           anchored ~24px from the left and overhanging the banner's bottom edge,
+           reaching ~250px in) never sits in front of it. -->
+      <div
+        class="absolute right-10 bottom-[14px] left-10 flex items-center justify-between"
+      >
+        <!-- EDIT: positioning subline -->
+        <span
+          class="pl-[280px] font-mono text-[0.62rem] tracking-[0.22em] text-ink/45 uppercase"
+        >
+          Type-safe framework for AI automation
+        </span>
+
+        <!-- EDIT: URL stamp -->
+        <span
+          class="inline-flex items-center gap-2 font-mono text-[0.62rem] tracking-[0.22em] text-ink/65 uppercase"
+        >
+          routecraft.dev
+          <span aria-hidden="true">→</span>
+        </span>
+      </div>
+
+      <!-- Avatar overlap guide (toggle .avatar-guide display:block to inspect) -->
+      <div class="avatar-guide"></div>
+    </div>
+  </body>
+</html>

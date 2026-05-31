@@ -11,7 +11,7 @@ Routecraft uses the Model Context Protocol (MCP) to expose capabilities as typed
 ## Install
 
 ```bash
-npm install @routecraft/ai zod
+bun add @routecraft/ai zod
 ```
 
 ## Define a capability
@@ -24,19 +24,20 @@ import { mcp } from '@routecraft/ai'
 import { craft, http } from '@routecraft/routecraft'
 import { z } from 'zod'
 
+const SearchOrdersInput = z.object({
+  customerId: z.string().optional(),
+  from: z.string().date().optional(),
+  to: z.string().date().optional(),
+})
+type SearchOrdersInput = z.infer<typeof SearchOrdersInput>
+
 export default craft()
-  .id('orders.search')
+  .id('orders_search')
   .description('Search orders by customer ID or date range')
-  .input({
-    body: z.object({
-      customerId: z.string().optional(),
-      from: z.string().date().optional(),
-      to: z.string().date().optional(),
-    }),
-  })
-  .from(mcp())
+  .input({ body: SearchOrdersInput })
+  .from<SearchOrdersInput>(mcp())
   .transform(({ customerId, from, to }) => buildQuery(customerId, from, to))
-  .to(http({ method: 'GET', path: '/orders' }))
+  .to(http({ method: 'GET', url: 'https://api.example.com/orders' }))
 ```
 
 ## Stdio transport (default)
@@ -184,7 +185,7 @@ export default {
       version: '2.1.0',                          // serverInfo.version
       description: 'Acme operations over MCP.',  // serverInfo.description
       websiteUrl: 'https://acme.example.com',    // serverInfo.websiteUrl
-      instructions: 'Call orders.search before orders.refund.', // initialize.instructions
+      instructions: 'Call orders_search before orders_refund.', // initialize.instructions
       icons: [
         { src: 'https://acme.example.com/icon.svg', mimeType: 'image/svg+xml' },
         { src: 'data:image/png;base64,...', mimeType: 'image/png', sizes: ['48x48'], theme: 'light' },
@@ -213,7 +214,7 @@ A capability can carry its own icon via the `mcp()` source. The icon shape follo
 
 ```ts
 craft()
-  .id('orders.search')
+  .id('orders_search')
   .description('Search orders')
   .from(mcp({
     annotations: { readOnlyHint: true },

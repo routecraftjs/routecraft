@@ -4,38 +4,11 @@ title: Errors
 
 Short, actionable RC error codes used across Routecraft. {% .lead %}
 
-Each error includes a code, message, a brief suggestion, and underlying error. Codes follow RCcnnn where c is category and nnn is the number. All codes are framework-owned; adapters use them with specific message/suggestion overrides via `rcError(rc, cause, { message, suggestion })`. When the framework logs an error, structured meta (`rc`, `message`, `suggestion`, `causeMessage`, `causeStack`) is included so you can search and alert in your log aggregator.
+Each error includes a code, message, a brief suggestion, and underlying error. Codes follow `RCcnnn` where `c` is category and `nnn` is the number. All codes are framework-owned; adapters use them with specific message and suggestion overrides via `rcError(rc, cause, { message, suggestion })`. When the framework logs an error, structured meta (`rc`, `message`, `suggestion`, `causeMessage`, `causeStack`) is included so you can search and alert in your log aggregator.
 
-## Retryable errors
+The `Retry` column shows whether the [`retry`](/docs/reference/operations/retry) wrapper will retry this error by default. Codes marked `No` typically represent permanent failures (bad input, configuration errors) that won't succeed on retry.
 
-The `retryable` property indicates whether the [`retry`](/docs/reference/operations#retry) wrapper will retry this error by default. Errors marked as non-retryable typically represent permanent failures (bad input, configuration errors) that won't succeed on retry.
-
-| Code | Category | Message | Retryable |
-| --- | --- | --- | :---: |
-| [RC1001](#rc1001) | Definition | Route definition failed validation | No |
-| [RC1002](#rc1002) | Definition | Duplicate route id | No |
-| [RC2001](#rc2001) | DSL | Invalid operation type | No |
-| [RC2002](#rc2002) | DSL | Missing from step | No |
-| [RC3001](#rc3001) | Lifecycle | Route failed to start | No |
-| [RC3002](#rc3002) | Lifecycle | Context failed to start | No |
-| [RC5001](#rc5001) | Adapter | Step execution failed | Yes |
-| [RC5002](#rc5002) | Adapter | Validation failed | No |
-| [RC5003](#rc5003) | Adapter | Adapter misconfigured | No |
-| [RC5004](#rc5004) | Adapter | No handler available | No |
-| [RC5010](#rc5010) | Adapter | Connection failed | Yes |
-| [RC5011](#rc5011) | Adapter | Request timeout | Yes |
-| [RC5012](#rc5012) | Adapter | Authentication failed | No |
-| [RC5013](#rc5013) | Adapter | Rate limited | Yes |
-| [RC5014](#rc5014) | Adapter | Resource not found | No |
-| [RC5015](#rc5015) | Adapter | Permission denied | No |
-| [RC5016](#rc5016) | Adapter | Source payload parse failed | No |
-| [RC5017](#rc5017) | Adapter | Optional peer dependency missing | No |
-| [RC5020](#rc5020) | Adapter | Authorization failed: token expired during processing | No |
-| [RC5021](#rc5021) | Adapter | Principal enrichment failed | No |
-| [RC5022](#rc5022) | Adapter | Userinfo sub invariant violated | No |
-| [RC5023](#rc5023) | Adapter | Authorization failed: principal is not authentic | No |
-| [RC5024](#rc5024) | Adapter | authenticate() called without a subject | No |
-| [RC9901](#rc9901) | Runtime | Unknown error | Yes |
+{% error-table /%}
 
 ---
 

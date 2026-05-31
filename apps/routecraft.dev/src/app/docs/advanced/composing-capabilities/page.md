@@ -33,7 +33,7 @@ export default craft()
 export default craft()
   .id('orders.notify')
   .from(direct())
-  .to(http({ method: 'POST', path: '/notifications' }))
+  .to(http({ method: 'POST', url: 'https://api.example.com/notifications' }))
 ```
 
 The route's `.id()` is the direct endpoint name. Destinations reference the consumer by that id. Use a namespaced convention (e.g. `domain.stage`) to keep them readable as the project grows.
@@ -66,7 +66,7 @@ export default craft()
   .id('events.metrics')
   .from(direct())
   .transform(({ type }) => ({ counter: type }))
-  .to(http({ method: 'POST', path: '/metrics' }))
+  .to(http({ method: 'POST', url: 'https://api.example.com/metrics' }))
 ```
 
 ## Dynamic routing

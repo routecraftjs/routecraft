@@ -4,6 +4,8 @@ title: Events
 
 Full catalog of lifecycle and runtime events emitted by the Routecraft context. {% .lead %}
 
+{% event-namespaces /%}
+
 ## Event payload
 
 All events share the same envelope:

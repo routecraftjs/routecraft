@@ -2,6 +2,12 @@ import { Callout } from '@/components/Callout'
 import { Badge } from '@/components/Badge'
 import { QuickLink, QuickLinks } from '@/components/QuickLinks'
 import { CodeTabs, CodeTab } from '@/components/CodeTabs'
+import { TriggerCycler } from '@/components/TriggerCycler'
+import { AdapterGrid } from '@/components/AdapterGrid'
+import { OperationsIndex } from '@/components/OperationsIndex'
+import { PluginIndex } from '@/components/PluginIndex'
+import { ErrorTable } from '@/components/ErrorTable'
+import { EventNamespaces } from '@/components/EventNamespaces'
 
 const tags = {
   callout: {
@@ -101,6 +107,30 @@ const tags = {
       color: { type: String, default: 'yellow' },
     },
     render: Badge,
+  },
+  'topology-diagram': {
+    selfClosing: true,
+    render: TriggerCycler,
+  },
+  'adapter-grid': {
+    selfClosing: true,
+    render: AdapterGrid,
+  },
+  'operations-index': {
+    selfClosing: true,
+    render: OperationsIndex,
+  },
+  'plugin-index': {
+    selfClosing: true,
+    render: PluginIndex,
+  },
+  'error-table': {
+    selfClosing: true,
+    render: ErrorTable,
+  },
+  'event-namespaces': {
+    selfClosing: true,
+    render: EventNamespaces,
   },
 }
 

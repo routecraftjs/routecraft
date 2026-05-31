@@ -34,9 +34,28 @@
   --text-9xl: 8rem;
   --text-9xl--line-height: 1;
 
-  --font-sans: var(--font-inter);
-  --font-display: var(--font-lexend);
-  --font-display--font-feature-settings: 'ss01';
+  --font-sans: var(--font-ibm-plex-sans);
+  --font-editorial: var(--font-fraunces);
+  --font-editorial--font-feature-settings: 'ss01', 'ss02';
+  --font-mono: var(--font-jetbrains-mono);
+
+  --color-cobalt-50: #eef0ff;
+  --color-cobalt-100: #d8defd;
+  --color-cobalt-200: #b6bffb;
+  --color-cobalt-300: #8a96f8;
+  --color-cobalt-400: #5867f5;
+  --color-cobalt-500: #1247ff;
+  --color-cobalt-600: #0c39d6;
+  --color-cobalt-700: #082aa3;
+  --color-cobalt-800: #061f78;
+  --color-cobalt-900: #04154f;
+
+  --color-paper: #f5f1e8;
+  --color-paper-edge: #dad2c4;
+  --color-paper-deep: #ebe5da;
+  --color-ink: #22232c;
+  --color-ink-soft: #30313c;
+  --color-ink-deep: #16171c;
 
   --container-8xl: 88rem;
 }
@@ -44,5 +63,164 @@
 @layer base {
   [inert] ::-webkit-scrollbar {
     display: none;
+  }
+
+  /* Dark mode is a re-tone, not an inversion (see brand book). Redefining the
+     brand tokens here flips bg-paper / text-ink / text-cobalt-* automatically;
+     components must NOT carry dark: token-swap variants for these. Tailwind v4
+     composes the /alpha suffixes on these hex values via color-mix. */
+  .dark {
+    --color-paper: #1d1e26;
+    --color-paper-edge: #30323d;
+    --color-paper-deep: #262832;
+    --color-ink: #f0ece1;
+    --color-ink-soft: #cec9bc;
+    --color-ink-deep: #faf7f0;
+    --color-cobalt-300: #b0b9ff;
+    --color-cobalt-400: #8c98fc;
+    --color-cobalt-500: #7482ff;
+    --color-cobalt-600: #9ea8fd;
+  }
+
+  /* Blog cover palette. Consumed by BlogCover via COVER_PALETTE_THEMED so the
+     in-page cover follows the site theme. The OG image uses literal colours. */
+  :root {
+    --cover-bg: #ebe5da;
+    --cover-fg: #22232c;
+    --cover-fg-rgb: 34 35 44;
+    --cover-accent: #1247ff;
+  }
+
+  .dark {
+    --cover-bg: #16171d;
+    --cover-fg: #f0ece1;
+    --cover-fg-rgb: 240 236 225;
+    --cover-accent: #8c98fc;
+  }
+
+  /* Smooth the colour flip on theme change and hover-invert. */
+  .blog-cover :where(div, span, path, line, rect, circle) {
+    transition:
+      color 0.35s ease,
+      background-color 0.35s ease,
+      fill 0.35s ease,
+      stroke 0.35s ease;
+  }
+
+  /* Hover-invert: when a card (.group) is hovered, flip the cover's palette to
+     the opposite theme. Light cards go dark; dark cards go light. */
+  .group:hover .blog-cover {
+    --cover-bg: #16171d;
+    --cover-fg: #f0ece1;
+    --cover-fg-rgb: 240 236 225;
+    --cover-accent: #8c98fc;
+  }
+
+  .dark .group:hover .blog-cover {
+    --cover-bg: #ebe5da;
+    --cover-fg: #22232c;
+    --cover-fg-rgb: 34 35 44;
+    --cover-accent: #1247ff;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .blog-cover :where(div, span, path, line, rect, circle) {
+      transition: none;
+    }
+  }
+}
+
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.animate-marquee {
+  animation: marquee 40s linear infinite;
+}
+
+@keyframes paper-rise {
+  from {
+    opacity: 0;
+    transform: translateY(0.6rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.paper-rise {
+  opacity: 0;
+  animation: paper-rise 0.85s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@keyframes ink-bleed {
+  from {
+    opacity: 0;
+    filter: blur(6px);
+    transform: translateY(0.25rem);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
+  }
+}
+
+.ink-bleed {
+  animation: ink-bleed 0.45s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-marquee,
+  .paper-rise,
+  .ink-bleed {
+    animation: none;
+  }
+  .paper-rise {
+    opacity: 1;
+  }
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+
+  html,
+  body {
+    background: white !important;
+    color: black !important;
+  }
+
+  /* Hide site chrome when printing */
+  header[class*='sticky'],
+  nav[aria-label],
+  footer.print\:hidden,
+  .print\:hidden {
+    display: none !important;
+  }
+
+  /* Prevent dark mode classes from inverting colours on paper */
+  .dark\:bg-gray-950,
+  .dark\:bg-gray-900\/40,
+  .dark\:bg-gray-900,
+  .dark\:bg-gray-800,
+  .dark\:text-white,
+  .dark\:text-gray-300,
+  .dark\:text-gray-400 {
+    background: transparent !important;
+    color: inherit !important;
+  }
+
+  a {
+    color: inherit !important;
+    text-decoration: none !important;
   }
 }

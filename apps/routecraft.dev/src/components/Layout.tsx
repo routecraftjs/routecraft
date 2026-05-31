@@ -5,13 +5,13 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import clsx from 'clsx'
 
-import { Hero } from '@/components/Hero'
+import { Footer } from '@/components/Footer'
 import { Logo } from '@/components/Logo'
 import { MobileNavigation } from '@/components/MobileNavigation'
 import { Navigation } from '@/components/Navigation'
 import { Search } from '@/components/Search'
 import { ThemeSelector } from '@/components/ThemeSelector'
-import { VersionSelector } from '@/components/VersionSelector'
+import { TopNav } from '@/components/TopNav'
 
 function GitHubIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
   return (
@@ -38,39 +38,41 @@ function Header() {
   return (
     <header
       className={clsx(
-        'sticky top-0 z-50 flex flex-none flex-wrap items-center justify-between bg-gray-50 px-4 py-5 shadow-md shadow-gray-950/5 transition duration-500 sm:px-6 lg:px-8 dark:shadow-none',
-        isScrolled
-          ? 'dark:bg-gray-950/95 dark:backdrop-blur-sm dark:[@supports(backdrop-filter:blur(0))]:bg-gray-950/75'
-          : 'dark:bg-transparent',
+        'sticky top-0 z-50 flex flex-none flex-wrap items-center justify-between border-b border-ink/15 bg-paper px-4 py-4 transition duration-500 sm:px-6 lg:px-8',
+        isScrolled &&
+          'bg-paper/85 backdrop-blur-sm [@supports(backdrop-filter:blur(0))]:bg-paper/70',
       )}
     >
       <div className="mr-6 flex lg:hidden">
         <MobileNavigation />
       </div>
-      <div className="relative flex grow basis-0 items-center">
+      <div className="relative flex grow basis-0 items-center gap-10">
         <Link
           href="/"
           aria-label="Home page"
-          className="flex items-center gap-2"
+          className="group flex items-center gap-2.5"
         >
-          <Logo className="h-9 w-9 lg:block" />
-          <h1 className="hidden h-9 w-auto font-display text-2xl font-bold lg:block dark:fill-sky-100">
+          <Logo className="h-6 w-6 shrink-0 text-ink transition group-hover:text-cobalt-500" />
+          <span
+            className="font-editorial text-[1.35rem] leading-none tracking-[-0.02em] text-ink"
+            style={{ fontVariationSettings: '"opsz" 48, "SOFT" 30' }}
+          >
             Routecraft
-          </h1>
+          </span>
         </Link>
+        <TopNav />
       </div>
-      <div className="-my-5 mr-6 sm:mr-8 md:mr-0">
-        <Search />
-      </div>
-      <div className="relative flex basis-0 justify-end gap-6 sm:gap-8 md:grow">
+      <div className="flex items-center gap-4 sm:gap-5">
+        <div className="-my-5">
+          <Search />
+        </div>
         <ThemeSelector className="relative z-10" />
-        <VersionSelector className="relative z-10" />
         <Link
           href="https://github.com/routecraftjs/routecraft"
           className="group"
           aria-label="GitHub"
         >
-          <GitHubIcon className="h-6 w-6 fill-gray-400 group-hover:fill-gray-500 dark:group-hover:fill-gray-300" />
+          <GitHubIcon className="h-5 w-5 fill-ink/55 transition group-hover:fill-cobalt-500" />
         </Link>
       </div>
     </header>
@@ -80,24 +82,39 @@ function Header() {
 export function Layout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const isHomePage = pathname === '/'
+  const isBlogSection = pathname?.startsWith('/blog') ?? false
+  const isBlogLanding = pathname === '/blog' || pathname === '/blog/'
+  const isCheatSheet = pathname?.startsWith('/cheat-sheet') ?? false
+  const showDocsSidebar = !isHomePage && !isBlogSection && !isCheatSheet
+  const useFullWidth = isHomePage || isCheatSheet
+  // Footer only on marketing-style pages. Docs and blog detail pages have
+  // their own scroll behavior (docs sidebar scrolls separately, blog posts
+  // have a per-post footer) and a global footer there overflows weirdly.
+  const showFooter = isHomePage || isCheatSheet || isBlogLanding
 
   return (
-    <div className="flex w-full flex-col">
+    <div className="flex min-h-full w-full flex-col">
       <Header />
 
-      {isHomePage && <Hero />}
-
-      <div className="relative mx-auto flex w-full max-w-8xl flex-auto justify-center sm:px-2 lg:px-8 xl:px-12">
-        <div className="hidden lg:relative lg:block lg:flex-none">
-          <div className="absolute inset-y-0 right-0 w-[50vw] bg-gray-50 dark:hidden" />
-          <div className="absolute top-16 right-0 bottom-0 hidden h-12 w-px bg-linear-to-t from-gray-800 dark:block" />
-          <div className="absolute top-28 right-0 bottom-0 hidden w-px bg-gray-800 dark:block" />
-          <div className="sticky top-19 -ml-0.5 h-[calc(100vh-4.75rem)] w-64 overflow-x-hidden overflow-y-auto py-16 pr-8 pl-0.5 xl:w-72 xl:pr-16">
-            <Navigation />
+      <div
+        className={
+          useFullWidth
+            ? 'relative flex w-full flex-auto flex-col'
+            : 'relative mx-auto flex w-full max-w-8xl flex-auto justify-center sm:px-2 lg:px-8 xl:px-12'
+        }
+      >
+        {showDocsSidebar && (
+          <div className="hidden lg:relative lg:block lg:flex-none">
+            <div className="absolute inset-y-0 right-0 hidden w-px bg-ink/15 lg:block" />
+            <div className="sticky top-19 -ml-0.5 h-[calc(100vh-4.75rem)] w-64 overflow-x-hidden overflow-y-auto py-16 pr-8 pl-0.5 xl:w-72 xl:pr-16">
+              <Navigation />
+            </div>
           </div>
-        </div>
+        )}
         {children}
       </div>
+
+      {showFooter && <Footer />}
     </div>
   )
 }

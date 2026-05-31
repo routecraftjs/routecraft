@@ -63,26 +63,28 @@ export function TableOfContents({
   }
 
   return (
-    <div className="hidden xl:sticky xl:top-19 xl:-mr-6 xl:block xl:h-[calc(100vh-4.75rem)] xl:flex-none xl:overflow-y-auto xl:py-16 xl:pr-6">
+    <div className="hidden xl:-mr-6 xl:block xl:flex-none xl:py-16 xl:pr-6">
       <nav aria-labelledby="on-this-page-title" className="w-56">
         {tableOfContents.length > 0 && (
           <>
             <h2
               id="on-this-page-title"
-              className="font-display text-sm font-medium text-gray-900 dark:text-white"
+              className="flex items-center gap-3 font-mono text-[0.65rem] tracking-[0.22em] text-ink/70 uppercase"
             >
-              On this page
+              <span aria-hidden="true" className="h-1 w-1 bg-cobalt-500" />
+              <span>On this page</span>
             </h2>
-            <ol role="list" className="mt-4 space-y-3 text-sm">
+            <ol role="list" className="mt-5 space-y-3 text-sm">
               {tableOfContents.map((section) => (
                 <li key={section.id}>
-                  <h3 className="flex items-center gap-2">
+                  <h3 className="flex items-baseline gap-2">
                     <Link
                       href={`#${section.id}`}
                       className={clsx(
+                        'transition',
                         isActive(section)
-                          ? 'text-sky-500'
-                          : 'font-normal text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300',
+                          ? 'font-medium text-cobalt-500'
+                          : 'text-ink/65 hover:text-ink',
                       )}
                     >
                       {section.title}
@@ -96,18 +98,19 @@ export function TableOfContents({
                   {section.children.length > 0 && (
                     <ol
                       role="list"
-                      className="mt-2 space-y-3 pl-5 text-gray-500 dark:text-gray-400"
+                      className="mt-2 space-y-2 border-l border-ink/15 pl-4 text-sm"
                     >
                       {section.children.map((subSection) => (
                         <li key={subSection.id}>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-baseline gap-2">
                             <Link
                               href={`#${subSection.id}`}
-                              className={
+                              className={clsx(
+                                'transition',
                                 isActive(subSection)
-                                  ? 'text-sky-500'
-                                  : 'hover:text-gray-600 dark:hover:text-gray-300'
-                              }
+                                  ? 'font-medium text-cobalt-500'
+                                  : 'text-ink/55 hover:text-ink',
+                              )}
                             >
                               {subSection.title}
                             </Link>
