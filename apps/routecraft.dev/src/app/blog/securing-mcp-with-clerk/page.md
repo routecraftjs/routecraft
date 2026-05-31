@@ -4,6 +4,7 @@ description: A step-by-step guide to writing TypeScript capabilities, exposing t
 date: 2026-05-26
 author: Jaco Botha
 authorRole: Founder, DevOptix
+version: '0.6.0'
 tags:
   - mcp
   - clerk
@@ -186,9 +187,9 @@ Wire the MCP transport in `craft.config.ts`:
 
 ```ts
 import { mcpPlugin } from '@routecraft/ai'
-import type { CraftConfig } from '@routecraft/routecraft'
+import { defineConfig } from '@routecraft/routecraft'
 
-export const craftConfig: CraftConfig = {
+export const craftConfig = defineConfig({
   plugins: [
     mcpPlugin({
       name: 'notebook',
@@ -197,7 +198,7 @@ export const craftConfig: CraftConfig = {
       host: 'localhost',
     }),
   ],
-}
+})
 ```
 
 Start it:
@@ -278,7 +279,7 @@ Update `craft.config.ts`:
 
 ```ts
 import { jwks, mcpPlugin, oauth } from '@routecraft/ai'
-import type { CraftConfig } from '@routecraft/routecraft'
+import { defineConfig } from '@routecraft/routecraft'
 
 import { env } from './env'
 
@@ -290,7 +291,7 @@ const CLERK_BASE = `https://${Buffer.from(
   .toString('utf8')
   .replace(/\$$/, '')}`
 
-export const craftConfig: CraftConfig = {
+export const craftConfig = defineConfig({
   plugins: [
     mcpPlugin({
       name: 'notebook',
@@ -338,7 +339,7 @@ export const craftConfig: CraftConfig = {
       }),
     }),
   ],
-}
+})
 ```
 
 And a typed `env.ts` so we fail fast on missing config:
@@ -365,55 +366,14 @@ A few things worth calling out:
 
 ### What Routecraft just did for you
 
-It is worth pausing here, because the snippet above is short for a reason. Without a framework, the same integration looks roughly like this in raw Node:
+It is worth pausing here, because that config is short for a reason. Under the hood, those few lines stand in for everything you would otherwise hand-write against a raw Node server. Routecraft is:
 
-```ts
-// The equivalent in Express, abbreviated for length
-import express from 'express'
-import { createRemoteJWKSet, jwtVerify } from 'jose'
+- Serving the OAuth 2.0 Protected Resource metadata at `/.well-known/oauth-protected-resource`.
+- Proxying the `authorize`, `token`, and `register` endpoints through to Clerk.
+- Verifying every bearer token against Clerk's JWKS and attaching the resolved principal to the exchange.
+- Running the MCP JSON-RPC handler: envelope parsing, tool dispatch, input validation, MCP-shaped error frames, and session management.
 
-const app = express()
-const jwks = createRemoteJWKSet(new URL(`${CLERK_BASE}/.well-known/jwks.json`))
-
-// 1. Hand-write the OAuth 2.0 Protected Resource metadata endpoint
-app.get('/.well-known/oauth-protected-resource', (_req, res) => {
-  res.json({
-    resource: env.MCP_ISSUER_URL,
-    authorization_servers: [env.MCP_ISSUER_URL],
-    scopes_supported: ['openid'],
-    bearer_methods_supported: ['header'],
-  })
-})
-
-// 2. Hand-write the OAuth proxy endpoints
-app.get('/authorize', (req, res) => res.redirect(`${CLERK_BASE}/oauth/authorize?${new URLSearchParams(req.query as Record<string, string>)}`))
-app.post('/token', proxyTo(`${CLERK_BASE}/oauth/token`))
-app.post('/register', proxyTo(`${CLERK_BASE}/oauth/register`))
-
-// 3. Hand-write the bearer token middleware
-async function verify(req, res, next) {
-  const auth = req.headers.authorization
-  if (!auth?.startsWith('Bearer ')) return res.status(401).json({ error: 'no token' })
-  try {
-    const { payload } = await jwtVerify(auth.slice(7), jwks, {
-      issuer: CLERK_BASE,
-    })
-    req.principal = { subject: payload.sub, claims: payload }
-    next()
-  } catch (err) {
-    res.status(401).json({ error: 'invalid token' })
-  }
-}
-
-// 4. Hand-write the MCP JSON-RPC handler
-app.post('/mcp', verify, async (req, res) => {
-  // parse JSON-RPC envelope, dispatch to the right tool,
-  // validate input against the schema, format errors as
-  // MCP error frames, handle session management ...
-})
-```
-
-That is around 80 lines before you have actually written your first tool, and it is missing the input validation, the structured logging, the per-tool authorization gate, and the Dynamic Client Registration validation that Routecraft handles for you. The cost is not the lines, it is keeping all four of those things correct as the MCP spec evolves and your tool surface grows.
+Hand-rolled with Express and `jose`, that is roughly 80 lines of boilerplate before your first tool, and it still does not include the structured logging, per-tool authorization gate, and Dynamic Client Registration validation you get here. The cost was never the lines; it is keeping all of it correct as the MCP spec and your tool surface evolve.
 
 The Routecraft version is what you write. Everything else is what you do not.
 
@@ -548,7 +508,7 @@ A few traps I have walked into:
 
 This wires Clerk in as the authorization server, with Routecraft acting as a thin OAuth proxy plus a JWKS verifier. It is a clean fit for small teams and side projects: one dashboard, one set of keys, no custom auth code.
 
-In a next post in this series I will walk through migrating the same server to [WorkOS AuthKit](https://workos.com/docs/authkit). WorkOS pushes the OAuth flow back to its own hosted endpoints, so Routecraft drops the proxy and runs in pure validator mode. We get cleaner separation, better organization handling, and richer role data. We also lose the friendliest part of Clerk's offering, which is worth talking about honestly.
+Next in this series, we will secure the same server with [WorkOS AuthKit](https://workos.com/docs/authkit), where WorkOS hosts the OAuth flow and Routecraft drops the proxy to run as a pure validator. That post is still in the works.
 
 ## Try it without leaving your browser
 
