@@ -24,19 +24,20 @@ import { mcp } from '@routecraft/ai'
 import { craft, http } from '@routecraft/routecraft'
 import { z } from 'zod'
 
+const SearchOrdersInput = z.object({
+  customerId: z.string().optional(),
+  from: z.string().date().optional(),
+  to: z.string().date().optional(),
+})
+type SearchOrdersInput = z.infer<typeof SearchOrdersInput>
+
 export default craft()
   .id('orders.search')
   .description('Search orders by customer ID or date range')
-  .input({
-    body: z.object({
-      customerId: z.string().optional(),
-      from: z.string().date().optional(),
-      to: z.string().date().optional(),
-    }),
-  })
-  .from(mcp())
+  .input({ body: SearchOrdersInput })
+  .from<SearchOrdersInput>(mcp())
   .transform(({ customerId, from, to }) => buildQuery(customerId, from, to))
-  .to(http({ method: 'GET', path: '/orders' }))
+  .to(http({ method: 'GET', url: 'https://api.example.com/orders' }))
 ```
 
 ## Stdio transport (default)

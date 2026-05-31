@@ -4,7 +4,7 @@ description: A step-by-step guide to writing TypeScript capabilities, exposing t
 date: 2026-05-26
 author: Jaco Botha
 authorRole: Founder, DevOptix
-version: '0.5.0+'
+version: '0.6.0+'
 draft: false
 tags:
   - mcp
@@ -137,18 +137,19 @@ import { z } from 'zod'
 
 import { store } from '../_lib/store'
 
+const ListNotesInput = z.object({
+  query: z.string().optional(),
+})
+type ListNotesInput = z.infer<typeof ListNotesInput>
+
 export default craft()
   .id('notes.list')
   .description('List notes belonging to the calling user, optionally filtered by query.')
-  .input({
-    body: z.object({
-      query: z.string().optional(),
-    }),
-  })
-  .from(mcp())
-  .transform(({ body }) => {
+  .input({ body: ListNotesInput })
+  .from<ListNotesInput>(mcp())
+  .transform((input) => {
     // No auth yet: everyone shares the same bucket
-    return store.listByOwner('anonymous', body.query)
+    return store.listByOwner('anonymous', input.query)
   })
 ```
 
@@ -162,17 +163,18 @@ import { z } from 'zod'
 
 import { store } from '../_lib/store'
 
+const CreateNoteInput = z.object({
+  title: z.string().min(1).max(120),
+  body: z.string().min(1).max(10_000),
+})
+type CreateNoteInput = z.infer<typeof CreateNoteInput>
+
 export default craft()
   .id('notes.create')
   .description('Create a new note for the calling user.')
-  .input({
-    body: z.object({
-      title: z.string().min(1).max(120),
-      body: z.string().min(1).max(10_000),
-    }),
-  })
-  .from(mcp())
-  .transform(({ body }) => store.create('anonymous', body.title, body.body))
+  .input({ body: CreateNoteInput })
+  .from<CreateNoteInput>(mcp())
+  .transform((input) => store.create('anonymous', input.title, input.body))
 ```
 
 Register both in `capabilities/index.ts`:
@@ -418,21 +420,22 @@ import { z } from 'zod'
 
 import { store } from '../_lib/store'
 
+const ListNotesInput = z.object({
+  query: z.string().optional(),
+})
+type ListNotesInput = z.infer<typeof ListNotesInput>
+
 export default craft()
   .id('notes.list')
   .description('List notes belonging to the calling user, optionally filtered by query.')
-  .input({
-    body: z.object({
-      query: z.string().optional(),
-    }),
-  })
-  .from(mcp())
-  .transform(({ body }, exchange) => {
+  .input({ body: ListNotesInput })
+  .from<ListNotesInput>(mcp())
+  .transform((input, exchange) => {
     const userId = exchange.principal?.subject
     if (!userId) {
       throw new Error('Unauthenticated')
     }
-    return store.listByOwner(userId, body.query)
+    return store.listByOwner(userId, input.query)
   })
 ```
 
@@ -443,20 +446,21 @@ export default craft()
 Authentication says "this token is valid". Authorization says "this user is allowed to call this tool". For that, Routecraft has `.authorize()`:
 
 ```ts
+const CreateNoteInput = z.object({
+  title: z.string().min(1).max(120),
+  body: z.string().min(1).max(10_000),
+})
+type CreateNoteInput = z.infer<typeof CreateNoteInput>
+
 export default craft()
   .id('notes.create')
   .description('Create a new note for the calling user.')
-  .input({
-    body: z.object({
-      title: z.string().min(1).max(120),
-      body: z.string().min(1).max(10_000),
-    }),
-  })
-  .from(mcp())
+  .input({ body: CreateNoteInput })
+  .from<CreateNoteInput>(mcp())
   .authorize({ roles: ['member'] })
-  .transform(({ body }, exchange) => {
+  .transform((input, exchange) => {
     const userId = exchange.principal!.subject
-    return store.create(userId, body.title, body.body)
+    return store.create(userId, input.title, input.body)
   })
 ```
 

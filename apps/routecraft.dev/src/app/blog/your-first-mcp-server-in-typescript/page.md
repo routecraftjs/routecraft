@@ -4,7 +4,7 @@ description: A ten-minute walkthrough from `bunx create-routecraft` to a working
 date: 2026-05-18
 author: Jaco Botha
 authorRole: Founder, DevOptix
-version: '0.5.0+'
+version: '0.6.0+'
 draft: false
 tags:
   - mcp
@@ -132,16 +132,17 @@ import { z } from 'zod'
 
 import { store } from '../_lib/store'
 
+const ListNotesInput = z.object({
+  query: z.string().optional(),
+})
+type ListNotesInput = z.infer<typeof ListNotesInput>
+
 export default craft()
   .id('notes.list')
   .description('List notes, optionally filtered by a search query.')
-  .input({
-    body: z.object({
-      query: z.string().optional(),
-    }),
-  })
-  .from(mcp())
-  .transform(({ body }) => store.list(body.query))
+  .input({ body: ListNotesInput })
+  .from<ListNotesInput>(mcp())
+  .transform((input) => store.list(input.query))
 ```
 
 This is the entire tool. Let us read it line by line, because if you understand this you understand Routecraft:
@@ -149,9 +150,9 @@ This is the entire tool. Let us read it line by line, because if you understand 
 - `craft()` starts a capability builder.
 - `.id('notes.list')` is the tool name the AI sees. Pick something descriptive.
 - `.description()` is what the AI reads to decide when to call this tool. Treat it as prompt engineering, not docs.
-- `.input({ body: z.object(...) })` is the Zod schema for the input. Routecraft validates against this schema before your code runs, so invalid calls are rejected with a structured error.
-- `.from(mcp())` says "this capability's source is an MCP call". That is what turns the capability into an MCP tool.
-- `.transform(({ body }) => ...)` is your business logic. The `body` argument is the validated input, already typed.
+- `.input({ body: ListNotesInput })` is the Zod schema for the input. Routecraft validates against it before your code runs, so invalid calls are rejected with a structured error.
+- `.from<ListNotesInput>(mcp())` says "this capability's source is an MCP call". That is what turns the capability into an MCP tool. The generic flows the input type through the chain so the transform is fully typed.
+- `.transform((input) => ...)` is your business logic. The `input` argument is the validated body, already typed. (The transform also receives the full exchange as a second argument, which we use later for auth.)
 
 That's the whole pattern: input schema in, transform out. Adapters on either end.
 
@@ -167,17 +168,18 @@ import { z } from 'zod'
 
 import { store } from '../_lib/store'
 
+const CreateNoteInput = z.object({
+  title: z.string().min(1).max(120),
+  body: z.string().min(1).max(10_000),
+})
+type CreateNoteInput = z.infer<typeof CreateNoteInput>
+
 export default craft()
   .id('notes.create')
   .description('Create a new note with a title and body.')
-  .input({
-    body: z.object({
-      title: z.string().min(1).max(120),
-      body: z.string().min(1).max(10_000),
-    }),
-  })
-  .from(mcp())
-  .transform(({ body }) => store.create(body.title, body.body))
+  .input({ body: CreateNoteInput })
+  .from<CreateNoteInput>(mcp())
+  .transform((input) => store.create(input.title, input.body))
 ```
 
 Register both in `capabilities/index.ts`:
