@@ -618,7 +618,6 @@ type RouteEventDetails<S extends string> =
                                                     exchangeId: string;
                                                     correlationId: string;
                                                     toolCallId: string;
-                                                    toolName: string;
                                                     blockName: string;
                                                     output: unknown;
                                                     duration: number;
@@ -629,7 +628,6 @@ type RouteEventDetails<S extends string> =
                                                       exchangeId: string;
                                                       correlationId: string;
                                                       toolCallId: string;
-                                                      toolName: string;
                                                       blockName: string;
                                                       error: unknown;
                                                       duration: number;

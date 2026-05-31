@@ -170,7 +170,7 @@ Two cases share this code:
 
 **Suggestion**  
 - For upstream-API failures: verify API keys, tokens, audience/issuer, and credential rotation. Check that the auth header is reaching the destination.
-- For in-route failures: configure `auth:` on the source (e.g. `mcp({ auth: jwt(...) })`) so the source emits a principal, or attach a custom principal in a `.process()` step before the `authorize()` validator runs. See [`.authorize()`](/docs/reference/operations#authorize).
+- For in-route failures: configure `auth:` on the source (e.g. `mcp({ auth: jwt(...) })`) so the source emits a principal, or attach a custom principal in a `.process()` step before the `authorize()` validator runs. See [`.authorize()`](/docs/reference/operations/authorize).
 
 ## RC5013
 Rate limited
@@ -200,7 +200,7 @@ Two cases share this code:
 
 **Suggestion**  
 - For upstream denials: check IAM, ACLs, and scopes granted to the credential.
-- For in-route denials: grant the principal the missing role(s) or scope(s) at your IdP, or relax the `.authorize()` requirement. The error message lists the missing roles/scopes. See [`.authorize()`](/docs/reference/operations#authorize).
+- For in-route denials: grant the principal the missing role(s) or scope(s) at your IdP, or relax the `.authorize()` requirement. The error message lists the missing roles/scopes. See [`.authorize()`](/docs/reference/operations/authorize).
 
 ## RC5016
 Source payload parse failed

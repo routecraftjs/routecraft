@@ -212,7 +212,7 @@ app.listen(3000);
 
 {% quick-links %}
 
-{% quick-link title="direct adapter" icon="presets" href="/docs/reference/adapters#direct" description="The direct() adapter that powers programmatic dispatch." /%}
+{% quick-link title="direct adapter" icon="presets" href="/docs/reference/adapters/direct" description="The direct() adapter that powers programmatic dispatch." /%}
 {% quick-link title="CLI reference" icon="installation" href="/docs/reference/cli" description="craft run and other CLI commands." /%}
 {% quick-link title="Configuration" icon="plugins" href="/docs/reference/configuration" description="ContextBuilder options and craftConfig." /%}
 

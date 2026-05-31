@@ -43,4 +43,4 @@ export default config
 | `openai` | `{ apiKey: string, baseURL?: string }` | OpenAI embeddings API |
 | `mock` | `{}` | Deterministic test vectors, for use in tests |
 
-See [`embedding` adapter](/docs/reference/adapters#embedding) for usage.
+See [`embedding` adapter](/docs/reference/adapters/embedding) for usage.

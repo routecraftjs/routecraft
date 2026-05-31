@@ -45,4 +45,4 @@ export default config
 | `ollama` | `{ baseURL?: string, modelId?: string }` | Local Ollama instance |
 | `gemini` | `{ apiKey: string }` | Google Gemini API |
 
-See [`llm` adapter](/docs/reference/adapters#llm) for usage.
+See [`llm` adapter](/docs/reference/adapters/llm) for usage.
