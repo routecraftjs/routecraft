@@ -18,5 +18,7 @@ export {
   type ResolvedTool,
   type ToolGuard,
   type ToolSelection,
+  type ToolsBuilder,
+  type ToolsCatalog,
   type ToolsItem,
 } from "./selection.ts";

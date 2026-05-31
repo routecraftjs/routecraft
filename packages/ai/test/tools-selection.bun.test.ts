@@ -2,13 +2,7 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
 import { craft, direct, isRoutecraftError, log } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
-import {
-  agentPlugin,
-  currentTime,
-  randomUuid,
-  directTool,
-  tools,
-} from "../src/index.ts";
+import { agentPlugin, currentTime, randomUuid, tools } from "../src/index.ts";
 import { isToolSelection } from "../src/agent/tools/selection.ts";
 
 async function buildCtx(opts: {
@@ -261,7 +255,7 @@ describe("tools() resolver - { name, guard }", () => {
   });
 });
 
-describe("tools() resolver - tag selectors", () => {
+describe("tools() resolver - misc", () => {
   let t: TestContext | undefined;
   afterEach(async () => {
     if (t) await t.stop();
@@ -269,278 +263,7 @@ describe("tools() resolver - tag selectors", () => {
   });
 
   /**
-   * @case Single-tag selector matches eager fn registry entries
-   * @preconditions currentTime() + randomUuid() registered (both tagged "read-only")
-   * @expectedResult { tagged: "read-only" } resolves to both fns
-   */
-  test("{ tagged } matches eager fn registry entries", async () => {
-    t = await buildCtx({
-      functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
-    });
-    const resolved = tools([{ tagged: "read-only" }]).resolve(t.ctx);
-    const names = resolved.map((r) => r.name).sort();
-    expect(names).toEqual(["CurrentTime", "RandomUuid"]);
-  });
-
-  /**
-   * @case Tag selector matches direct routes via the direct registry
-   * @preconditions Two direct routes; one tagged "read-only", one untagged
-   * @expectedResult Selector resolves to one ResolvedTool named "direct_<id>"
-   */
-  test("{ tagged } matches direct routes via the direct registry", async () => {
-    t = await testContext()
-      .routes([
-        craft()
-          .id("read-thing")
-          .description("Read a thing.")
-          .input(z.object({}))
-          .tag("read-only")
-          .from(direct())
-          .to(log()),
-        craft()
-          .id("untagged")
-          .description("Other thing.")
-          .input(z.object({}))
-          .from(direct())
-          .to(log()),
-      ])
-      .build();
-    await t.startAndWaitReady();
-
-    const resolved = tools([{ tagged: "read-only" }]).resolve(t.ctx);
-    expect(resolved.map((r) => r.name)).toEqual(["direct_read-thing"]);
-  });
-
-  /**
-   * @case OR-of-tags: matches entries with ANY of the requested tags
-   * @preconditions currentTime() (read-only, idempotent) + randomUuid() (read-only) + a fn tagged only "destructive"
-   * @expectedResult { tagged: ["idempotent", "destructive"] } returns CurrentTime and the destructive fn but not RandomUuid
-   */
-  test("{ tagged: [...] } is an OR over the listed tags", async () => {
-    t = await buildCtx({
-      functions: {
-        CurrentTime: currentTime(),
-        RandomUuid: randomUuid(),
-        wipe: {
-          description: "Wipe data.",
-          input: z.object({}),
-          handler: () => "ok",
-          tags: ["destructive"],
-        },
-      },
-    });
-    const resolved = tools([{ tagged: ["idempotent", "destructive"] }]).resolve(
-      t.ctx,
-    );
-    const names = resolved.map((r) => r.name).sort();
-    expect(names).toEqual(["CurrentTime", "wipe"]);
-  });
-
-  /**
-   * @case Tag-zero-match throws RC5003 so a misconfigured tag never silently no-ops
-   * @preconditions No registered entry has tag "ghost"
-   * @expectedResult tools([{ tagged: "ghost" }]).resolve() throws RC5003 naming the tag
-   */
-  test("tag-zero-match throws RC5003", async () => {
-    t = await buildCtx({
-      functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
-    });
-    expect(() => tools([{ tagged: "ghost" }]).resolve(t!.ctx)).toThrow(
-      /matched no tools/,
-    );
-  });
-
-  /**
-   * @case Tag selector applies its guard to every matched tool
-   * @preconditions tools([{ tagged: "read-only", guard: g }]); 2 fns matched
-   * @expectedResult Both ResolvedTools have ResolvedTool.guard === g
-   */
-  test("tag selector guard applies to every matched tool", async () => {
-    t = await buildCtx({
-      functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
-    });
-    const guard = mock();
-    const resolved = tools([{ tagged: "read-only", guard }]).resolve(t.ctx);
-    expect(resolved.length).toBeGreaterThanOrEqual(1);
-    for (const tool of resolved) expect(tool.guard).toBe(guard);
-  });
-
-  /**
-   * @case Explicit refs win over tag-selector matches regardless of order
-   * @preconditions Tag selector matches "CurrentTime"; later (or earlier) explicit ref overrides with a different guard
-   * @expectedResult Final list contains "CurrentTime" with the explicit guard
-   */
-  test("explicit refs win over tag-selector matches", async () => {
-    t = await buildCtx({
-      functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
-    });
-    const explicitGuard = mock();
-    const tagGuard = mock();
-    const resolved = tools([
-      { tagged: "read-only", guard: tagGuard },
-      { name: "CurrentTime", guard: explicitGuard },
-    ]).resolve(t.ctx);
-    const ct = resolved.find((r) => r.name === "CurrentTime");
-    expect(ct?.guard).toBe(explicitGuard);
-  });
-});
-
-describe("tools() resolver - regression", () => {
-  let t: TestContext | undefined;
-  afterEach(async () => {
-    if (t) await t.stop();
-    t = undefined;
-  });
-
-  /**
-   * @case Tag selectors must NOT throw when a misconfigured directTool wrapper is in the registry; only explicit refs throw
-   * @preconditions functions: { broken: directTool("does-not-exist") }; tag selector that matches eager fns
-   * @expectedResult Selector returns the eager match; broken wrapper is silently skipped because its underlying route has no matching tag
-   */
-  test("tag walk silently skips a directTool wrapper when its target route is missing", async () => {
-    t = await testContext()
-      .with({
-        plugins: [
-          agentPlugin({
-            functions: {
-              CurrentTime: currentTime(),
-              RandomUuid: randomUuid(),
-              broken: directTool("does-not-exist"),
-            },
-          }),
-        ],
-      })
-      .build();
-
-    const resolved = tools([{ tagged: "read-only" }]).resolve(t.ctx);
-    const names = resolved.map((r) => r.name).sort();
-    expect(names).toEqual(["CurrentTime", "RandomUuid"]);
-  });
-
-  /**
-   * @case Tools item that is an object lacking both name and tagged is rejected
-   * @preconditions tools([{ guard: () => {} } as never])
-   * @expectedResult RC5003 thrown when resolve() runs
-   */
-  test("tools() throws on object items lacking both name and tagged", async () => {
-    t = await testContext()
-      .with({
-        plugins: [
-          agentPlugin({
-            functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
-          }),
-        ],
-      })
-      .build();
-
-    expect(() =>
-      tools([{ guard: () => undefined } as never]).resolve(t!.ctx),
-    ).toThrow(/name.*tagged|tagged.*name/i);
-  });
-
-  /**
-   * @case directTool override tags drive tag selection
-   * @preconditions Route tagged "read-only"; functions: { safeFetch: directTool("fetch-source", { tags: ["safe"] }) }; selector { tagged: "safe" }
-   * @expectedResult Wrapper "safeFetch" is included via the override tag, even though the underlying route doesn't carry "safe"
-   */
-  test("tag walk respects directTool override tags", async () => {
-    t = await testContext()
-      .with({
-        plugins: [
-          agentPlugin({
-            functions: {
-              safeFetch: directTool("fetch-source", { tags: ["safe"] }),
-            },
-          }),
-        ],
-      })
-      .routes([
-        craft()
-          .id("fetch-source")
-          .description("Fetch a source.")
-          .input(z.object({}))
-          .tag("read-only")
-          .from(direct())
-          .to(log()),
-      ])
-      .build();
-    await t.startAndWaitReady();
-
-    const resolved = tools([{ tagged: "safe" }]).resolve(t.ctx);
-    expect(resolved.map((r) => r.name)).toContain("safeFetch");
-  });
-
-  /**
-   * @case directTool with override tags hides itself from selectors that match the underlying route's tags
-   * @preconditions Route tagged "read-only"; wrapper directTool with tags: ["safe"] (read-only NOT included); selector { tagged: "read-only" }
-   * @expectedResult Wrapper not included (its overrides don't carry read-only); underlying route surfaces under direct_<id>
-   */
-  test("directTool override tags replace the route's tags for matching", async () => {
-    t = await testContext()
-      .with({
-        plugins: [
-          agentPlugin({
-            functions: {
-              safeFetch: directTool("fetch-source", { tags: ["safe"] }),
-            },
-          }),
-        ],
-      })
-      .routes([
-        craft()
-          .id("fetch-source")
-          .description("Fetch a source.")
-          .input(z.object({}))
-          .tag("read-only")
-          .from(direct())
-          .to(log()),
-      ])
-      .build();
-    await t.startAndWaitReady();
-
-    const resolved = tools([{ tagged: "read-only" }]).resolve(t.ctx);
-    const names = resolved.map((r) => r.name);
-    expect(names).not.toContain("safeFetch");
-    expect(names).toContain("direct_fetch-source");
-  });
-
-  /**
-   * @case Whitespace-surrounded fn tag is trimmed at storage so exact selectors match
-   * @preconditions Fn registered with tags: [" read-only "]
-   * @expectedResult { tagged: "read-only" } matches the fn
-   */
-  test("fn tags are trimmed at storage", async () => {
-    t = await testContext()
-      .with({
-        plugins: [
-          agentPlugin({
-            functions: {
-              padded: {
-                description: "x",
-                input: currentTime().input,
-                handler: () => "ok",
-                tags: ["  read-only  "],
-              },
-            },
-          }),
-        ],
-      })
-      .build();
-
-    const resolved = tools([{ tagged: "read-only" }]).resolve(t.ctx);
-    expect(resolved.map((r) => r.name)).toContain("padded");
-  });
-});
-
-describe("tools() resolver - dedup and direct-route surfacing coverage", () => {
-  let t: TestContext | undefined;
-  afterEach(async () => {
-    if (t) await t.stop();
-    t = undefined;
-  });
-
-  /**
-   * @case Same tool referenced twice surfaces only once
+   * @case Same tool referenced twice surfaces only once (later ref wins)
    * @preconditions tools(["CurrentTime", "CurrentTime"])
    * @expectedResult Single ResolvedTool
    */
@@ -553,71 +276,140 @@ describe("tools() resolver - dedup and direct-route surfacing coverage", () => {
   });
 
   /**
-   * @case A directTool wrapper in functions and a direct route under the same name surface once
-   * @preconditions Route "fetch-order" + functions: { fetchOrder: directTool("fetch-order") }; tag "read-only" on both
-   * @expectedResult { tagged: "read-only" } returns one entry per tool name (no double include)
+   * @case Object item missing the "name" field is rejected
+   * @preconditions tools([{ guard: () => {} } as never])
+   * @expectedResult RC5003 thrown when resolve() runs, prompting the author to use a name
    */
-  test("directTool fn registry wrapper supersedes the same direct route at tag matching", async () => {
-    t = await testContext()
-      .with({
-        plugins: [
-          agentPlugin({
-            functions: {
-              fetchOrder: directTool("fetch-order"),
-            },
-          }),
-        ],
-      })
-      .routes([
-        craft()
-          .id("fetch-order")
-          .description("Fetch an order.")
-          .input(z.object({ orderId: z.string() }))
-          .tag("read-only")
-          .from(direct())
-          .to(log()),
-      ])
-      .build();
-    await t.startAndWaitReady();
+  test("tools() throws on object items lacking name", async () => {
+    t = await buildCtx({
+      functions: { CurrentTime: currentTime() },
+    });
+    expect(() =>
+      tools([{ guard: () => undefined } as never]).resolve(t!.ctx),
+    ).toThrow(/string or \{ name/);
+  });
+});
 
-    const resolved = tools([{ tagged: "read-only" }]).resolve(t.ctx);
-    const names = resolved.map((r) => r.name);
-    expect(names).toContain("fetchOrder");
-    expect(names).not.toContain("direct_fetch-order");
+describe("tools() resolver - builder form", () => {
+  let t: TestContext | undefined;
+  afterEach(async () => {
+    if (t) await t.stop();
+    t = undefined;
   });
 
   /**
-   * @case Same dedup holds for route ids that include URL-special characters (the direct registry stores them sanitised, but the wrapper carries the raw id)
-   * @preconditions Route "orders/fetch" tagged "read-only"; functions: { ordersFetch: directTool("orders/fetch") }; tag selector { tagged: "read-only" }
-   * @expectedResult Only the fn-registry wrapper "ordersFetch" surfaces; the sanitised `direct_orders%2Ffetch` form is suppressed (dedup compares sanitised on both sides)
+   * @case Builder receives a catalog and returns the same shape the array form accepts
+   * @preconditions Two fns registered; builder filters by tag
+   * @expectedResult The filtered fns end up in the resolved list
    */
-  test("directTool fn registry wrapper supersedes the same direct route even when the route id contains URL-special characters", async () => {
+  test("builder can filter fns by tag from the catalog", async () => {
+    t = await buildCtx({
+      functions: {
+        CurrentTime: currentTime(),
+        RandomUuid: randomUuid(),
+        wipe: {
+          description: "Wipe data.",
+          input: z.object({}),
+          handler: () => "ok",
+          tags: ["destructive"],
+        },
+      },
+    });
+    const resolved = tools((catalog) =>
+      catalog.fns
+        .filter((f) => f.tags?.includes("read-only"))
+        .map((f) => f.name),
+    ).resolve(t.ctx);
+    expect(resolved.map((r) => r.name).sort()).toEqual([
+      "CurrentTime",
+      "RandomUuid",
+    ]);
+  });
+
+  /**
+   * @case Builder can mix explicit refs with predicate-derived names
+   * @preconditions Three fns; builder lists one explicitly and predicate-derives the rest
+   * @expectedResult All explicit and matched fns surface; the union is deduplicated
+   */
+  test("builder mixes explicit refs with catalog-derived names", async () => {
+    t = await buildCtx({
+      functions: {
+        CurrentTime: currentTime(),
+        RandomUuid: randomUuid(),
+        wipe: {
+          description: "Wipe data.",
+          input: z.object({}),
+          handler: () => "ok",
+          tags: ["destructive"],
+        },
+      },
+    });
+    const resolved = tools((catalog) => [
+      "wipe",
+      ...catalog.fns
+        .filter((f) => f.tags?.includes("read-only"))
+        .map((f) => f.name),
+    ]).resolve(t.ctx);
+    expect(resolved.map((r) => r.name).sort()).toEqual([
+      "CurrentTime",
+      "RandomUuid",
+      "wipe",
+    ]);
+  });
+
+  /**
+   * @case Builder can walk catalog.routes and reference them via Direct(<id>)
+   * @preconditions One direct route tagged "read-only"
+   * @expectedResult The route surfaces as `direct_<id>` in the resolved list
+   */
+  test("builder maps catalog.routes to Direct(...) references", async () => {
     t = await testContext()
-      .with({
-        plugins: [
-          agentPlugin({
-            functions: {
-              ordersFetch: directTool("orders/fetch"),
-            },
-          }),
-        ],
-      })
       .routes([
         craft()
-          .id("orders/fetch")
-          .description("Fetch an order.")
-          .input(z.object({ orderId: z.string() }))
+          .id("read-thing")
+          .description("Read a thing.")
+          .input(z.object({}))
           .tag("read-only")
           .from(direct())
           .to(log()),
       ])
       .build();
     await t.startAndWaitReady();
+    const resolved = tools((catalog) =>
+      catalog.routes
+        .filter((r) => r.tags?.includes("read-only"))
+        .map((r) => `Direct(${r.id})`),
+    ).resolve(t.ctx);
+    expect(resolved.map((r) => r.name)).toEqual(["direct_read-thing"]);
+  });
 
-    const resolved = tools([{ tagged: "read-only" }]).resolve(t.ctx);
-    const names = resolved.map((r) => r.name);
-    expect(names).toContain("ordersFetch");
-    expect(names).not.toContain("direct_orders/fetch");
-    expect(names).not.toContain("direct_orders%2Ffetch");
+  /**
+   * @case Builder that throws is wrapped in RC5003 with the original error chained
+   * @preconditions Builder synchronously throws
+   * @expectedResult resolve() throws with a message including the builder's error
+   */
+  test("builder errors are wrapped in RC5003", async () => {
+    t = await buildCtx({
+      functions: { CurrentTime: currentTime() },
+    });
+    expect(() =>
+      tools(() => {
+        throw new Error("boom");
+      }).resolve(t!.ctx),
+    ).toThrow(/builder threw: boom/);
+  });
+
+  /**
+   * @case Builder that returns a non-array is rejected
+   * @preconditions Builder returns an object
+   * @expectedResult resolve() throws clearly explaining the expected shape
+   */
+  test("builder must return an array", async () => {
+    t = await buildCtx({
+      functions: { CurrentTime: currentTime() },
+    });
+    expect(() => tools((() => ({})) as never).resolve(t!.ctx)).toThrow(
+      /builder must return an array/,
+    );
   });
 });

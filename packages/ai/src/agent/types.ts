@@ -1,5 +1,10 @@
 import type { Exchange, Principal } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type {
+  AgentBlockLoadSummary,
+  BlockBody,
+  Blocks,
+} from "../block/types.ts";
 import type { LlmModelId, LlmPromptSource, LlmUsage } from "../llm/types.ts";
 import type { AgentDeltaListener } from "./events.ts";
 import type { ToolSelection } from "./tools/selection.ts";
@@ -78,6 +83,32 @@ export interface AgentDefaultOptions {
    * a per-agent `principal` (including `false`) overrides it.
    */
   principal?: boolean | AgentPrincipalRenderer;
+
+  /**
+   * Default record of system-context blocks applied to every agent.
+   * See {@link AgentOptions.blocks} for the primitive's semantics.
+   *
+   * Merge semantics with the per-agent `blocks` field differ from how
+   * `tools` merges: defaults are not replaced wholesale. The per-agent
+   * record is merged on top by name, so a per-agent block whose key
+   * matches a default replaces only that entry; non-colliding default
+   * blocks still apply. Setting a per-agent block to `false` removes
+   * the matching default for that agent. This lets a context install
+   * shared blocks once (identity, tenant config, memory) and have
+   * individual agents add, replace, or remove specific entries.
+   *
+   * When two `agentPlugin` installs each supply `defaultOptions.blocks`,
+   * the records are merged additively by name. A name set in both
+   * installs throws `RC5003` so the framework never silently picks
+   * one over the other.
+   *
+   * Unlike the per-agent {@link AgentOptions.blocks} field, defaults
+   * cannot carry the `false` removal sentinel: defaults cannot
+   * sensibly remove themselves, so the type is `Record<string,
+   * BlockBody>` (not `Blocks`) and `false` is rejected at plugin
+   * construction with RC5003.
+   */
+  blocks?: Record<string, BlockBody>;
 }
 
 /**
@@ -139,15 +170,27 @@ export interface AgentOptions {
   output?: StandardSchemaV1;
 
   /**
-   * Names of skills (registered via `agentPlugin({ skills })` or the
-   * `skills(path)` markdown loader) whose content is concatenated into
-   * this agent's system prompt at dispatch. The full skill content is
-   * injected verbatim (mirrors Claude's subagent skills semantic),
-   * not exposed as a tool the agent can choose to invoke.
+   * Record of contributions to the agent's system context, keyed by
+   * block name. Each block is either always injected
+   * (`mode: "inject"`) or progressively disclosed
+   * (`mode: "progressive"`), and may carry a static string or a
+   * function that resolves the content at dispatch time. See
+   * {@link Blocks}.
    *
-   * Unknown skill names throw `RC5003` at dispatch.
+   * Inject blocks are concatenated onto the agent's `system` prompt
+   * as `## <name>\n\n<content>` in insertion order (defaults first,
+   * then per-agent entries). Progressive blocks are exposed as
+   * synthetic `_block_load_<name>` tools the model can invoke on
+   * demand, matching Claude Code's default progressive-disclosure
+   * behaviour.
+   *
+   * Use `skills({ source })` from `@routecraft/ai` to load markdown
+   * skills as blocks; or define inline blocks for identity, memory,
+   * tenant config, or any other system-prompt contribution. Set a
+   * block to `false` to remove a matching entry inherited from
+   * `agentPlugin({ defaultOptions: { blocks } })`.
    */
-  skills?: string[];
+  blocks?: Blocks;
 
   /**
    * Append a `## Caller` section to the system prompt describing who
@@ -165,8 +208,8 @@ export interface AgentOptions {
    * - `false` / omitted -- append nothing. Opt-in default, so existing
    *   agents see no change to their prompt or token usage.
    *
-   * The section is appended after `skills`, so the author's own `system`
-   * prompt and any skill content come first.
+   * The section is appended after `blocks`, so the author's own `system`
+   * prompt and any block content come first.
    *
    * The built-in block surfaces only loggable identity fields (see
    * `.standards/security.md` § 3); scopes, `claims`, `userinfoClaims`, and
@@ -348,6 +391,22 @@ export interface AgentResult {
    * For real-time observability subscribe to the context-bus events
    * `route:<id>:agent:tool:invoked` / `:result` / `:error`. This
    * summary is the synchronous post-hoc view of the same calls.
+   *
+   * Synthetic block-loader calls (`_block_load_<name>`) are excluded
+   * from this list and surface separately on {@link AgentResult.blocksLoaded}
+   * so post-dispatch assertions on the agent's user-tool usage are
+   * not polluted by framework bookkeeping.
    */
   toolCalls?: AgentToolCallSummary[];
+
+  /**
+   * Summary of every progressive-mode block the model loaded during
+   * the dispatch, in invocation order. Empty (or absent) when no
+   * progressive blocks were loaded.
+   *
+   * Inject-mode blocks are never represented here because they are
+   * always concatenated into the system prompt; only on-demand loads
+   * appear in this list.
+   */
+  blocksLoaded?: AgentBlockLoadSummary[];
 }

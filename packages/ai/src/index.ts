@@ -160,17 +160,27 @@ export {
   type ToolBuilderOverrides,
   type ToolGuard,
   type ToolSelection,
+  type ToolsBuilder,
+  type ToolsCatalog,
   type ToolsItem,
 } from "./agent/tools/index.ts";
 
-// Skills (portable instruction-set primitive) and skills() markdown loader
+// Block primitive: unified system-context contribution (skills, memory,
+// identity, instructions). Inject mode concatenates content into the
+// system prompt; progressive mode surfaces blocks as on-demand loader
+// tools. `skills` loads markdown skills as blocks.
 export {
+  fromFile,
   skills,
-  type RegisteredSkillName,
-  type Skill,
-  type SkillOverride,
-  type SkillRegistry,
-} from "./skill/index.ts";
+  type AgentBlockLoadSummary,
+  type BlockBody,
+  type BlockClient,
+  type BlockLifetime,
+  type BlockMode,
+  type BlockResolver,
+  type Blocks,
+  type SkillsOptions,
+} from "./block/index.ts";
 
 // Embedding adapter and plugin
 export {

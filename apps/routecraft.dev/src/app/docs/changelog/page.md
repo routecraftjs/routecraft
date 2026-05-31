@@ -10,7 +10,17 @@ Routecraft is in active development -- APIs may change between minor versions.
 
 ## v0.6.0 {% badge color="gray" %}In development{% /badge %}
 
-This section tracks changes landing on `main` since the v0.5.0 release. Release notes will be finalised when v0.6.0 is tagged.
+This section tracks changes landing on `main` since the v0.5.0 release. Release notes will be finalised when v0.6.0 is tagged. See the [0.5.x to 0.6.0 migration guide](/docs/migrating/0.5-to-0.6) for upgrade steps on the breaking AI surface changes below.
+
+### AI & MCP {% badge color="red" %}Breaking{% /badge %}
+
+- **Agent blocks replace skills** -- `AgentOptions.skills: string[]` and `agentPlugin({ skills })` are removed and replaced by a single `blocks: Blocks` record (`Record<string, BlockBody | false>`) that unifies skills, memory, identity, instructions, and any other system-context contribution. Each block has a `mode` (`"inject"` to always concatenate into the system prompt, `"progressive"` to surface as a synthetic loader tool the model invokes on demand) and a `lifetime` (`"dispatch"` to re-run the resolver every dispatch, `"context"` to evaluate once per `CraftContext` and cache). Resolvers receive `(exchange, context, events, client)`, where `client.forward(routeId, payload)` is the same callable route `.error()` handlers receive, so a block can derive content from another route without bespoke plumbing. The big semantic shift: progressive disclosure is now the default for `skills`, matching what Claude Code actually does -- the model picks which skills to load instead of paying full token cost for every skill on every dispatch. Use `mode: "inject"` to keep the legacy "concatenate every skill verbatim" behaviour. Set a block to `false` to remove a default inherited from `agentPlugin({ defaultOptions: { blocks } })`.
+- **`skills({ source, mode?, lifetime? })` and `fromFile(path)` builders** -- `skills` keeps the 0.5 name but now returns a `Blocks` record you spread into `blocks: { ... }`. Reads the same markdown layout the deleted `skills(path)` loader did (flat `<name>.md` and nested `<name>/SKILL.md`, Claude Code frontmatter accepted) and defaults to progressive disclosure. `fromFile` returns a resolver that reads a UTF-8 file at resolution time.
+- **Tag selectors on `tools()` removed** -- the `{ tagged }` and `{ tagged, from }` variants are gone, along with the `tags` override on `directTool`. Implicit extension of an agent's tool surface when a future fn is tagged with a matched value was a security footgun: an agent's tool list is a security boundary, and that boundary should be explicit. For the cases where enumeration is impractical, `tools()` now accepts a builder: `tools((catalog) => [...])` receives a `ToolsCatalog` snapshot (`{ fns, routes, mcp }`) and returns the same shape the array form accepts, putting any filter predicate in user code where it's visible. The implicit-extension behaviour is the same, but a `.filter()` at the call site is an obvious signal that the set is dynamic, not a declarative selector tucked into framework config.
+- **Tool-call partitioning** -- synthetic block-loader invocations no longer appear on `AgentResult.toolCalls`. They surface on a new `AgentResult.blocksLoaded?: AgentBlockLoadSummary[]` so post-dispatch user-tool assertions stay clean. Loader calls also emit `route:<id>:agent:block:loaded` / `:agent:block:error` events instead of the `:agent:tool:*` family.
+- **Loader tool naming reservation** -- the `_block_load_<name>` prefix is reserved. User tools (fn ids, direct route ids, block names) that start with `_block_` are rejected at construction or dispatch with `RC5026`.
+- **Markdown agent loader: `skills:` frontmatter rejected** -- `agents("./agents")` no longer accepts a `skills:` field; YAML cannot express the function-form resolvers blocks may carry. Supply `blocks` via the per-agent overrides map handed to `agents()` instead.
+- **Three new error codes** -- `RC5025` (block resolution failed), `RC5026` (block name collision / reserved prefix), `RC5027` (block misconfigured: invalid mode, missing description on a progressive block, etc).
 
 ### Mail
 
@@ -20,6 +30,7 @@ This section tracks changes landing on `main` since the v0.5.0 release. Release 
 
 - **Blog section at [/blog](/blog)** with four published posts (basics, DSL cheat sheet, Clerk MCP auth, WorkOS MCP auth) and a featured + latest grid layout. Markdoc-backed, theme-aware, with structured frontmatter for date, author, tags, and draft status.
 - **Cheat sheet reference at [/cheat-sheet](/cheat-sheet)** -- searchable, theme-aware HTML page covering the full builder DSL, sources, destinations, operations, validation, error handling, events, MCP integration, CLI, and TUI. Print stylesheet produces a clean A4 PDF via `Cmd/Ctrl + P`.
+- **Migration guide** -- new [0.5.x to 0.6.0 migration guide](/docs/migrating/0.5-to-0.6) covering the agent block primitive and tools function-form builder.
 
 ---
 
@@ -38,7 +49,7 @@ Several breaking changes across the core, AI, mail, telemetry, logger, and CLI s
 - **Choice operation** -- new conditional routing primitive with `transform()` and `enrich()` available on branch builders. Core operations are shared between routes and branches via a `StepBuilderBase`.
 - **Discovery metadata on the route builder** -- route id, description, and validation move from source options to the route builder itself.
 
-### AI & MCP 
+### AI & MCP {% badge color="red" %}Breaking{% /badge %}
 
 - **Agent runtime** -- tool-calling loop, streaming via `onEvent` and `onDelta`, agent destination, and per-binding tool description overrides.
 - **`tools()` DSL** -- declarative tool registration, selection, and resolution.
@@ -63,7 +74,7 @@ Several breaking changes across the core, AI, mail, telemetry, logger, and CLI s
 - **Mail (IMAP)** -- the IMAP source is reliable across poll and re-evaluation workloads, with reconnect on transient fetch failures. `MailMessage` body is reshaped and a verify-sender option is available.
 - **Optional peer loader everywhere** -- every dynamic optional-peer import goes through `loadOptionalPeer` and emits `RC5017` with a copy-pasteable install hint. The remaining bespoke `try/catch` sites (mail, jose, telemetry sqlite, several `@routecraft/ai` modules) have all been migrated.
 
-### Telemetry 
+### Telemetry {% badge color="red" %}Breaking{% /badge %}
 
 - **Bun-only SQLite sink** -- the embedded telemetry SQLite sink now uses Bun's built-in `bun:sqlite`. `better-sqlite3` has been removed from the runtime, including from peer dependencies. Deployments that use the built-in sink must run under Bun (`engines.bun >= 1.1.0`); Node deployments that previously relied on `better-sqlite3` need to bring their own sink.
 

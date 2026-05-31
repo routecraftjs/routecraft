@@ -4,6 +4,8 @@ import {
   rcError,
   tagAdapter,
 } from "@routecraft/routecraft";
+import { BLOCK_RESERVED_PREFIX } from "../block/resolve.ts";
+import type { BlockBody, Blocks } from "../block/types.ts";
 import { parseProviderModel } from "../llm/shared.ts";
 import {
   AgentDestinationAdapter,
@@ -85,6 +87,82 @@ export function validateAgentOptions(options: AgentOptions): void {
     if (typeof standard?.validate !== "function") {
       throw rcError("RC5003", undefined, {
         message: `Agent: "output" must be a Standard Schema (Zod/Valibot/ArkType/etc.).`,
+      });
+    }
+  }
+  if (options.blocks !== undefined) {
+    validateBlocks(options.blocks);
+  }
+}
+
+/**
+ * Validate the shape of every entry on an agent's `blocks` record.
+ * Throws RC5027 on individual block misconfiguration and RC5026 on
+ * reserved-prefix collisions or empty names. Runs at construction so
+ * misconfigured blocks surface immediately, not at first dispatch.
+ *
+ * Duplicate keys are impossible by construction (object literal); a
+ * value of `false` is permitted and means "remove this block from
+ * defaults" -- the validator only checks the body shape for non-`false`
+ * entries. Empty-string keys are rejected because they round-trip as
+ * an unloadable block name.
+ *
+ * Exported (`@internal`) so `agentPlugin({ defaultOptions: { blocks } })`
+ * can reuse the same per-entry checks. The defaults path layers its
+ * own "no `false`" rule on top because defaults cannot sensibly remove
+ * themselves.
+ *
+ * @internal
+ */
+export function validateBlocks(blocks: unknown): void {
+  if (blocks === null || typeof blocks !== "object" || Array.isArray(blocks)) {
+    throw rcError("RC5027", undefined, {
+      message: `Agent: "blocks" must be a Record<string, BlockBody | false>.`,
+    });
+  }
+  for (const [name, body] of Object.entries(blocks as Blocks)) {
+    if (name.trim() === "") {
+      throw rcError("RC5026", undefined, {
+        message: `Agent block: block name must be a non-empty string.`,
+      });
+    }
+    if (name.startsWith(BLOCK_RESERVED_PREFIX)) {
+      throw rcError("RC5026", undefined, {
+        message: `Agent block "${name}": names starting with "${BLOCK_RESERVED_PREFIX}" are reserved for synthetic block tools. Rename the block.`,
+      });
+    }
+    if (body === false) continue;
+    if (body === null || typeof body !== "object") {
+      throw rcError("RC5027", undefined, {
+        message: `Agent block "${name}": value must be a BlockBody object (with mode and value) or "false" to remove a default.`,
+      });
+    }
+    const b = body as BlockBody;
+    if (b.mode !== "inject" && b.mode !== "progressive") {
+      throw rcError("RC5027", undefined, {
+        message: `Agent block "${name}": "mode" must be "inject" or "progressive" (got ${JSON.stringify(b.mode)}).`,
+      });
+    }
+    if (
+      b.mode === "progressive" &&
+      (typeof b.description !== "string" || b.description.trim() === "")
+    ) {
+      throw rcError("RC5027", undefined, {
+        message: `Agent block "${name}": progressive-mode blocks require a non-empty "description" so the model can decide whether to load.`,
+      });
+    }
+    if (
+      b.lifetime !== undefined &&
+      b.lifetime !== "dispatch" &&
+      b.lifetime !== "context"
+    ) {
+      throw rcError("RC5027", undefined, {
+        message: `Agent block "${name}": "lifetime" must be "dispatch" or "context" when present (got ${JSON.stringify(b.lifetime)}).`,
+      });
+    }
+    if (typeof b.value !== "string" && typeof b.value !== "function") {
+      throw rcError("RC5027", undefined, {
+        message: `Agent block "${name}": "value" must be a string or a function returning a string.`,
       });
     }
   }

@@ -425,7 +425,7 @@ If `authorize()` runs mid-pipeline after a slow step, set `authorize({ clockTole
 
 Use `userinfo` when the bearer alone does not carry the identity fields you need. Skip it when the token already contains everything (e.g. a Clerk JWT with `email` and `roles` claims).
 
-See the [plugins reference](/docs/reference/plugins#mcpplugin) for the full `Principal` field list.
+See the [`mcpPlugin` reference](/docs/reference/plugins/mcpplugin) for the full `Principal` field list.
 
 ### Protected-resource metadata (RFC 9728)
 

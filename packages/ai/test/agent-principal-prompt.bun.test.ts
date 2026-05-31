@@ -202,39 +202,34 @@ describe("agent principal: ## Caller injection at dispatch", () => {
   });
 
   /**
-   * @case the ## Caller section is appended after skill content
-   * @preconditions Agent declares a skill and principal: true with an authenticated caller
-   * @expectedResult Order in the prompt is base prompt, then ## Skill, then ## Caller
+   * @case the ## Caller section is appended after block content
+   * @preconditions Agent declares an inject block and principal: true with an authenticated caller
+   * @expectedResult Order in the prompt is base prompt, then ## <block>, then ## Caller
    */
-  test("caller section is appended after skills", async () => {
+  test("caller section is appended after blocks", async () => {
     const sink = spy();
-    const { agentPlugin } = await import("../src/index.ts");
     const principal = principalOf({ name: "Jane Doe" });
     t = await testContext()
       .with({
         plugins: [
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
-          agentPlugin({
-            skills: {
-              "web-search": {
-                name: "web-search",
-                description: "Search the web",
-                content: "Always search before answering.",
-              },
-            },
-          }),
         ],
       })
       .routes(
         craft()
-          .id("skills-then-caller")
+          .id("blocks-then-caller")
           .from(simple("hi"))
           .header(HeadersKeys.AUTH_PRINCIPAL, () => principal)
           .to(
             agent({
               system: "You are an analyst.",
               model: "anthropic:claude-opus-4-7",
-              skills: ["web-search"],
+              blocks: {
+                "web-search": {
+                  mode: "inject",
+                  value: "Always search before answering.",
+                },
+              },
               principal: true,
             }),
           )
@@ -243,11 +238,11 @@ describe("agent principal: ## Caller injection at dispatch", () => {
       .build();
     await t.test();
     const baseIdx = capturedSystem!.indexOf("You are an analyst.");
-    const skillIdx = capturedSystem!.indexOf("## Skill: web-search");
+    const blockIdx = capturedSystem!.indexOf("## web-search");
     const callerIdx = capturedSystem!.indexOf("## Caller");
     expect(baseIdx).toBe(0);
-    expect(skillIdx).toBeGreaterThan(baseIdx);
-    expect(callerIdx).toBeGreaterThan(skillIdx);
+    expect(blockIdx).toBeGreaterThan(baseIdx);
+    expect(callerIdx).toBeGreaterThan(blockIdx);
   });
 
   /**

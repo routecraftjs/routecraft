@@ -5,6 +5,7 @@ import {
   type EventName,
   type Exchange,
 } from "@routecraft/routecraft";
+import { isBlockLoaderCall, summariseBlockLoads } from "../block/resolve.ts";
 import { callLlm, streamLlm } from "../llm/providers/index.ts";
 import { resolvePrompt, resolveUserPromptDefault } from "../llm/shared.ts";
 import type {
@@ -437,10 +438,20 @@ function toAgentResult(
   if (result.usage) out.usage = result.usage;
   // Cumulative across all validate retries so post-dispatch assertions
   // like "must have called X" see the agent's full tool history rather
-  // than only the last call's.
-  if (accumulatedToolCalls.length > 0) {
-    out.toolCalls = accumulatedToolCalls;
+  // than only the last call's. Synthetic block-loader invocations are
+  // partitioned out into `blocksLoaded` so user-tool assertions stay
+  // clean.
+  const userCalls: LlmToolCallSummary[] = [];
+  const blockCalls: LlmToolCallSummary[] = [];
+  for (const call of accumulatedToolCalls) {
+    if (isBlockLoaderCall(call.toolName)) {
+      blockCalls.push(call);
+    } else {
+      userCalls.push(call);
+    }
   }
+  if (userCalls.length > 0) out.toolCalls = userCalls;
+  if (blockCalls.length > 0) out.blocksLoaded = summariseBlockLoads(blockCalls);
   return out;
 }
 

@@ -2,7 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { agents, tools } from "../src/index.ts";
+import { testContext } from "@routecraft/testing";
+import { agentPlugin, agents, tools } from "../src/index.ts";
 import { isToolSelection } from "../src/agent/tools/selection.ts";
 
 function tmpDir(): string {
@@ -47,18 +48,31 @@ describe("agents() markdown loader", () => {
   });
 
   /**
-   * @case maxTurns and skills frontmatter pass through
-   * @preconditions Agent with maxTurns: 30 and skills: [a, b]
-   * @expectedResult AgentRegisteredOptions has both fields
+   * @case maxTurns frontmatter passes through
+   * @preconditions Agent with maxTurns: 30
+   * @expectedResult AgentRegisteredOptions has maxTurns set
    */
-  test("maxTurns and skills frontmatter pass through", async () => {
+  test("maxTurns frontmatter passes through", async () => {
     const dir = makeDir({
-      "x.md":
-        "---\nname: x\ndescription: d\nmaxTurns: 30\nskills:\n  - one\n  - two\n---\nsystem prompt",
+      "x.md": "---\nname: x\ndescription: d\nmaxTurns: 30\n---\nsystem prompt",
     });
     const result = await agents(dir);
     expect(result["x"]?.maxTurns).toBe(30);
-    expect(result["x"]?.skills).toEqual(["one", "two"]);
+  });
+
+  /**
+   * @case `skills` frontmatter is rejected (replaced by code-side `blocks`)
+   * @preconditions Agent frontmatter contains the now-removed `skills:` field
+   * @expectedResult Throws RC5003 listing the supported keys (skills not among them)
+   */
+  test("skills frontmatter is rejected after the 0.6 block rework", async () => {
+    const dir = makeDir({
+      "x.md":
+        "---\nname: x\ndescription: d\nskills:\n  - one\n  - two\n---\nsystem",
+    });
+    await expect(agents(dir)).rejects.toThrow(
+      /frontmatter field "skills" is not yet supported/,
+    );
   });
 
   /**
@@ -118,17 +132,31 @@ describe("agents() markdown loader", () => {
   });
 
   /**
-   * @case tools string array becomes a tools([...]) selection
-   * @preconditions Agent with tools: [fetchOrder, "tagged:read-only"]
-   * @expectedResult agent.tools is a ToolSelection (brand check via isToolSelection)
+   * @case tools string array in frontmatter is parsed into a tools([...]) selection
+   * @preconditions Agent with tools: ["fetchOrder", "Direct(cancel-order)"]
+   * @expectedResult agent.tools is a ToolSelection (brand check via isToolSelection) and each entry was forwarded verbatim
    */
   test("tools frontmatter becomes a tools([...]) selection", async () => {
     const dir = makeDir({
       "x.md":
-        '---\nname: x\ndescription: d\ntools:\n  - fetchOrder\n  - "tagged:read-only"\n---\nsystem',
+        '---\nname: x\ndescription: d\ntools:\n  - fetchOrder\n  - "Direct(cancel-order)"\n---\nsystem',
     });
     const result = await agents(dir);
-    expect(isToolSelection(result["x"]?.tools)).toBe(true);
+    const sel = result["x"]?.tools;
+    expect(isToolSelection(sel)).toBe(true);
+    // Resolve against an empty context so an unresolvable name throws
+    // RC5003 with the offending ref in the message. That confirms the
+    // frontmatter entries reached the resolver verbatim rather than
+    // being silently mangled at parse time.
+    const t = await testContext()
+      .with({ plugins: [agentPlugin({})] })
+      .build();
+    await t.startAndWaitReady();
+    try {
+      expect(() => sel!.resolve(t.ctx)).toThrow(/unknown tool "fetchOrder"/);
+    } finally {
+      await t.stop();
+    }
   });
 
   /**

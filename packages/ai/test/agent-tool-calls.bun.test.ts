@@ -238,4 +238,54 @@ describe("AgentResult.toolCalls: post-dispatch tool-call summary", () => {
     expect(successSink.received[0]?.body).toEqual({ escalated: true });
     expect(fallbackSink.received).toHaveLength(1);
   });
+
+  /**
+   * @case Block-loader tool invocations are partitioned out of AgentResult.toolCalls
+   * @preconditions Mocked LLM returns a mix of a user-tool call and a `_block_load_<name>` call
+   * @expectedResult AgentResult.toolCalls only contains the user-tool entry; the loader call surfaces on AgentResult.blocksLoaded
+   */
+  test("block-loader calls are excluded from toolCalls and listed in blocksLoaded", async () => {
+    const sink = spy();
+    const { callLlm } = await import("../src/llm/providers/index.ts");
+    (callLlm as unknown as ReturnType<typeof mock>).mockResolvedValueOnce({
+      text: "done",
+      finishReason: "stop",
+      toolCalls: [
+        {
+          toolCallId: "user-1",
+          toolName: "fetchOrder",
+          input: { id: "abc" },
+          output: { status: "shipped" },
+        },
+        {
+          toolCallId: "loader-1",
+          toolName: "_block_load_memory",
+          input: {},
+          output: "remembered text",
+        },
+      ],
+    });
+
+    t = await testContext()
+      .with({
+        plugins: [
+          llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
+        ],
+      })
+      .routes(
+        craft()
+          .id("partition-loader-calls")
+          .from(simple("hi"))
+          .to(agent({ system: "x", model: "anthropic:claude-opus-4-7" }))
+          .to(sink),
+      )
+      .build();
+
+    await t.test();
+    const r = sink.received[0]!.body as AgentResult;
+    expect(r.toolCalls?.map((c) => c.toolName)).toEqual(["fetchOrder"]);
+    expect(r.blocksLoaded?.map((b) => b.blockName)).toEqual(["memory"]);
+    expect(r.blocksLoaded?.[0]?.toolName).toBe("_block_load_memory");
+    expect(r.blocksLoaded?.[0]?.output).toBe("remembered text");
+  });
 });

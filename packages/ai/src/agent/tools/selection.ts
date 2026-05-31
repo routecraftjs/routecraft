@@ -1,7 +1,6 @@
 import {
   ADAPTER_DIRECT_REGISTRY,
   rcError,
-  sanitizeEndpoint,
   type CraftContext,
   type DirectRouteMetadata,
   type Tag,
@@ -45,16 +44,64 @@ export type ToolGuard = (
  *   framing of the tool than the registered description provides.
  *   For an MCP whole-server ref (`{ name: "MCP(server)", guard }`) the
  *   guard is attached to every expanded tool.
- * - `{ tagged, from?, guard? }`: select every fn / route / MCP tool
- *   whose tags include any of the requested tag(s) (OR semantics).
- *   `from?: string` restricts the selection to a single source:
- *   `from: "mcp__<server>"` matches only that server's MCP tools.
- *   Optional guard applies to every match.
  */
 export type ToolsItem =
   | string
-  | { name: string; guard?: ToolGuard; description?: string }
-  | { tagged: Tag | Tag[]; from?: string; guard?: ToolGuard };
+  | { name: string; guard?: ToolGuard; description?: string };
+
+/**
+ * Read-only snapshot of every tool registered in the live context,
+ * handed to the function form of `tools()`. Lets a builder filter or
+ * compose a list without baking selector languages into the framework
+ * (a "give me all read-only fns" predicate is the user's `.filter()`
+ * call, not a framework-blessed primitive).
+ *
+ * Walking the snapshot is the explicit, code-visible way to extend an
+ * agent's tool surface across registrations: a future fn whose tags
+ * match the predicate will silently extend the surface the next time
+ * `resolve()` runs. The function form makes that visible at the call
+ * site, where a `.filter()` is the obvious signal that the set is
+ * dynamic.
+ */
+export interface ToolsCatalog {
+  /**
+   * Plain fn entries from `agentPlugin({ functions })`. Deferred
+   * wrappers (e.g. `directTool(routeId)`) appear here too with their
+   * canonical name and the override tags supplied at builder time.
+   */
+  readonly fns: ReadonlyArray<{
+    readonly name: string;
+    readonly description?: string;
+    readonly tags?: readonly Tag[];
+  }>;
+  /**
+   * Direct routes registered in `ADAPTER_DIRECT_REGISTRY`. Reference
+   * them in a `ToolsItem` as `"Direct(<id>)"`.
+   */
+  readonly routes: ReadonlyArray<{
+    readonly id: string;
+    readonly description?: string;
+    readonly tags?: readonly Tag[];
+  }>;
+  /**
+   * MCP tools populated by `mcpPlugin({ clients })`. Reference them in
+   * a `ToolsItem` as `"MCP(<server>:<tool>)"` or
+   * `"mcp__<server>__<tool>"`.
+   */
+  readonly mcp: ReadonlyArray<{
+    readonly server: string;
+    readonly tool: string;
+    readonly description?: string;
+    readonly tags?: readonly Tag[];
+  }>;
+}
+
+/**
+ * Builder form of `tools()`. Receives a snapshot of the registered
+ * tools and returns the list of references to expose. Same return
+ * shape as the array form, so the rest of resolution is identical.
+ */
+export type ToolsBuilder = (catalog: ToolsCatalog) => ToolsItem[];
 
 /**
  * Brand for {@link ToolSelection}. Lets the agent runtime detect a
@@ -74,9 +121,7 @@ export interface ToolSelection {
   /**
    * Resolve the selection against the live context. Throws RC5003 on
    * any unresolvable explicit reference (unknown name, deferred
-   * resolution failure) AND on tag selectors that match zero tools,
-   * so a misconfigured selector cannot silently strip every tool from
-   * an agent.
+   * resolution failure).
    */
   readonly resolve: (ctx: CraftContext) => ResolvedTool[];
 }
@@ -117,138 +162,247 @@ export function isToolSelection(value: unknown): value is ToolSelection {
 }
 
 /**
- * Build a tool selection for an agent from a flat list of references.
+ * Build a tool selection for an agent.
  *
- * Items can be bare strings, `{ name, guard? }`, or `{ tagged, guard? }`.
- * Resolution happens lazily at agent dispatch time.
+ * Two forms:
+ *
+ * - **Array**: `tools([...])` -- explicit enumeration of references.
+ *   Resolution happens lazily at agent dispatch time. Items are bare
+ *   strings or `{ name, guard?, description? }` objects.
+ * - **Builder**: `tools((catalog) => [...])` -- programmatic selection.
+ *   Receives a snapshot of the live fn / route / MCP registries and
+ *   returns the same shape the array form accepts. Use this as the
+ *   escape hatch when explicit enumeration is impractical (e.g. "give
+ *   me every read-only fn"); the predicate lives in your code so the
+ *   implicit-extension behaviour is visible at the call site.
  *
  * Resolution rules:
+ *
  * - Bare names look up exact matches in the fn registry first.
  *   `Direct(<routeId>)` wraps a direct route via `directTool` (the
  *   LLM-facing tool name stays `direct_<routeId>`). `MCP(server:tool)`
  *   / `MCP(server)` and the raw `mcp__server__tool` / `mcp__server` /
  *   `mcp__server__*` forms resolve against `MCP_TOOL_REGISTRY`.
- * - Tag selectors walk the fn registry, the direct route registry,
- *   and the MCP tool registry, including any entry whose tags overlap
- *   with the requested set. `from?: string` narrows the walk: pass
- *   `from: "mcp__<server>"` to scope a tag selection to a single MCP
- *   server.
- * - Final list is deduplicated by tool name. Explicit references win
- *   over tag-selector matches regardless of position in the list.
+ * - Final list is deduplicated by tool name; later refs to the same
+ *   name win (so a user's builder can override a tag-derived entry
+ *   simply by listing it explicitly).
  *
- * @example
+ * @example Array form
  * ```ts
  * agent({
  *   tools: tools([
- *     "CurrentTime",
+ *     "currentTime",
  *     "fetchOrder",
  *     "Direct(cancel-order)",
  *     "MCP(github:create_issue)",
  *     { name: "sendSlack", guard: confirmGuard },
- *     { tagged: "read-only" },
+ *   ]),
+ * });
+ * ```
+ *
+ * @example Builder form
+ * ```ts
+ * agent({
+ *   tools: tools((catalog) => [
+ *     "fetchOrder",
+ *     ...catalog.fns
+ *       .filter((f) => f.tags?.includes("read-only"))
+ *       .map((f) => f.name),
  *   ]),
  * });
  * ```
  */
-export function tools(items: ToolsItem[]): ToolSelection {
-  if (!Array.isArray(items)) {
+export function tools(items: ToolsItem[]): ToolSelection;
+export function tools(builder: ToolsBuilder): ToolSelection;
+export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
+  if (typeof arg !== "function" && !Array.isArray(arg)) {
     throw rcError("RC5003", undefined, {
-      message: `tools(items): items must be an array.`,
+      message: `tools(): argument must be an array of ToolsItem or a (catalog) => ToolsItem[] builder.`,
     });
   }
   return {
     [TOOL_SELECTION_BRAND]: true,
     resolve(ctx) {
-      const explicit = new Map<string, ResolvedTool>();
-
-      // Phase 1: explicit refs (bare strings + { name, guard }).
+      const items =
+        typeof arg === "function" ? runBuilder(arg, buildCatalog(ctx)) : arg;
+      const out = new Map<string, ResolvedTool>();
       for (const item of items) {
         if (typeof item === "string") {
           // An exact fn id always wins over the MCP-ref grammar, so a fn
           // whose id happens to start with `mcp__` stays reachable.
           if (isMcpRefName(item) && !fnRegistryHas(ctx, item)) {
             for (const tool of resolveMcpRefs(ctx, item, undefined)) {
-              explicit.set(tool.name, tool);
+              out.set(tool.name, tool);
             }
             continue;
           }
           const tool = resolveByName(ctx, item, undefined);
-          explicit.set(tool.name, tool);
+          out.set(tool.name, tool);
           continue;
         }
-        if (item === null || typeof item !== "object") {
+        if (item === null || typeof item !== "object" || !("name" in item)) {
           throw rcError("RC5003", undefined, {
-            message: `tools(): each item must be a string, { name, guard?, description? }, or { tagged, from?, guard? }.`,
+            message: `tools(): each item must be a string or { name, guard?, description? }.`,
           });
         }
-        if ("name" in item) {
-          if (typeof item.name !== "string" || item.name.trim() === "") {
-            throw rcError("RC5003", undefined, {
-              message: `tools(): { name } must be a non-empty string.`,
-            });
-          }
-          // MCP refs reject any description override (empty or not) so
-          // users see the precise "MCP server is the source of truth"
-          // message instead of the generic empty-string error.
-          if (isMcpRefName(item.name) && !fnRegistryHas(ctx, item.name)) {
-            if (item.description !== undefined) {
-              throw rcError("RC5003", undefined, {
-                message: `tools(): { name: "${item.name}", description } is not supported for MCP tools. The MCP server is the source of truth for description and schema; do not override.`,
-              });
-            }
-            for (const tool of resolveMcpRefs(ctx, item.name, item.guard)) {
-              explicit.set(tool.name, tool);
-            }
-            continue;
-          }
-          if (
-            item.description !== undefined &&
-            (typeof item.description !== "string" ||
-              item.description.trim() === "")
-          ) {
-            throw rcError("RC5003", undefined, {
-              message: `tools(): { name: "${item.name}", description } must be a non-empty string when present.`,
-            });
-          }
-          const base = resolveByName(ctx, item.name, item.guard);
-          // Per-binding description override. The registry entry is
-          // never mutated, so other agents binding the same fn still
-          // see the canonical description.
-          const tool: ResolvedTool =
-            item.description !== undefined
-              ? { ...base, description: item.description }
-              : base;
-          explicit.set(tool.name, tool);
-        } else if (!("tagged" in item)) {
+        if (typeof item.name !== "string" || item.name.trim() === "") {
           throw rcError("RC5003", undefined, {
-            message: `tools(): each object item must include "name" or "tagged".`,
+            message: `tools(): { name } must be a non-empty string.`,
           });
         }
-      }
-
-      // Phase 2: tag selectors. Explicit names already in the map win.
-      const out = new Map<string, ResolvedTool>(explicit);
-      for (const item of items) {
-        if (typeof item === "object" && item !== null && "tagged" in item) {
-          const wanted = normalizeTags(item.tagged);
-          if (wanted.length === 0) continue;
-          const matches = resolveByTags(ctx, wanted, item.guard, item.from);
-          if (matches.length === 0) {
+        // MCP refs reject any description override (empty or not) so
+        // users see the precise "MCP server is the source of truth"
+        // message instead of the generic empty-string error.
+        if (isMcpRefName(item.name) && !fnRegistryHas(ctx, item.name)) {
+          if (item.description !== undefined) {
             throw rcError("RC5003", undefined, {
-              message: item.from
-                ? `tools(): tagged selector matched no tools (tagged: ${formatTags(wanted)}, from: "${item.from}").`
-                : `tools(): tagged selector matched no tools (tagged: ${formatTags(wanted)}).`,
+              message: `tools(): { name: "${item.name}", description } is not supported for MCP tools. The MCP server is the source of truth for description and schema; do not override.`,
             });
           }
-          for (const match of matches) {
-            if (!out.has(match.name)) out.set(match.name, match);
+          for (const tool of resolveMcpRefs(ctx, item.name, item.guard)) {
+            out.set(tool.name, tool);
           }
+          continue;
         }
+        if (
+          item.description !== undefined &&
+          (typeof item.description !== "string" ||
+            item.description.trim() === "")
+        ) {
+          throw rcError("RC5003", undefined, {
+            message: `tools(): { name: "${item.name}", description } must be a non-empty string when present.`,
+          });
+        }
+        const base = resolveByName(ctx, item.name, item.guard);
+        // Per-binding description override. The registry entry is
+        // never mutated, so other agents binding the same fn still
+        // see the canonical description.
+        const tool: ResolvedTool =
+          item.description !== undefined
+            ? { ...base, description: item.description }
+            : base;
+        out.set(tool.name, tool);
       }
-
       return [...out.values()];
     },
   };
+}
+
+/**
+ * Build a {@link ToolsCatalog} snapshot from the live context's
+ * registries. Each entry and its `tags` array are frozen so the
+ * interface's `readonly` modifiers match runtime behaviour: a builder
+ * cannot mutate an entry's name / description / tags in place and have
+ * it silently affect the rest of resolution. Freeze cost is negligible
+ * for a per-dispatch snapshot of a handful of registry entries.
+ *
+ * @internal
+ */
+function buildCatalog(ctx: CraftContext): ToolsCatalog {
+  const fns: ToolsCatalog["fns"][number][] = [];
+  const fnRegistry = ctx.getStore(ADAPTER_FN_REGISTRY) as
+    | Map<string, FnEntry>
+    | undefined;
+  if (fnRegistry) {
+    for (const [name, entry] of fnRegistry) {
+      if (isDeferredFn(entry)) {
+        // Deferred wrappers don't carry their own description/tags in
+        // the registry; users who want to filter on those should walk
+        // catalog.routes for the underlying route, then reference it
+        // as `Direct(<routeId>)` in the returned items list.
+        fns.push(Object.freeze({ name }));
+      } else {
+        const tags =
+          entry.tags && entry.tags.length > 0
+            ? Object.freeze([...entry.tags])
+            : undefined;
+        fns.push(
+          Object.freeze({
+            name,
+            description: entry.description,
+            ...(tags !== undefined ? { tags } : {}),
+          }),
+        );
+      }
+    }
+  }
+
+  const routes: ToolsCatalog["routes"][number][] = [];
+  const directRegistry = ctx.getStore(ADAPTER_DIRECT_REGISTRY) as
+    | Map<string, DirectRouteMetadata>
+    | undefined;
+  if (directRegistry) {
+    for (const [routeId, meta] of directRegistry) {
+      const tags =
+        meta.tags && meta.tags.length > 0
+          ? Object.freeze([...meta.tags])
+          : undefined;
+      // The direct registry is keyed by the sanitised (URL-encoded)
+      // endpoint, but `Direct(<routeId>)` consumers want the raw id
+      // they passed to `.id(...)`. Round-trip through
+      // `decodeURIComponent` so a builder that does
+      // `Direct(${r.id})` resolves cleanly for ids containing `/`,
+      // `:`, etc. (without the decode, the resolver would
+      // double-encode at lookup time).
+      const rawId = decodeURIComponent(routeId);
+      routes.push(
+        Object.freeze({
+          id: rawId,
+          ...(meta.description ? { description: meta.description } : {}),
+          ...(tags !== undefined ? { tags } : {}),
+        }),
+      );
+    }
+  }
+
+  const mcp: ToolsCatalog["mcp"][number][] = [];
+  const mcpRegistry = ctx.getStore(MCP_TOOL_REGISTRY);
+  if (mcpRegistry) {
+    for (const entry of mcpRegistry.getTools()) {
+      const tags =
+        entry.tags && entry.tags.length > 0
+          ? Object.freeze([...entry.tags])
+          : undefined;
+      mcp.push(
+        Object.freeze({
+          server: entry.source,
+          tool: entry.name,
+          ...(entry.description ? { description: entry.description } : {}),
+          ...(tags !== undefined ? { tags } : {}),
+        }),
+      );
+    }
+  }
+
+  return Object.freeze({
+    fns: Object.freeze(fns),
+    routes: Object.freeze(routes),
+    mcp: Object.freeze(mcp),
+  });
+}
+
+/**
+ * Invoke a user-supplied tools builder safely and surface failures as
+ * RC5003 with the original error chained. Validates that the return
+ * is an array so a confused builder doesn't silently produce nothing.
+ *
+ * @internal
+ */
+function runBuilder(builder: ToolsBuilder, catalog: ToolsCatalog): ToolsItem[] {
+  let items: unknown;
+  try {
+    items = builder(catalog);
+  } catch (cause) {
+    throw rcError("RC5003", cause, {
+      message: `tools(builder): builder threw: ${(cause as Error)?.message ?? String(cause)}`,
+    });
+  }
+  if (!Array.isArray(items)) {
+    throw rcError("RC5003", undefined, {
+      message: `tools(builder): builder must return an array of ToolsItem (got ${typeof items}).`,
+    });
+  }
+  return items as ToolsItem[];
 }
 
 /**
@@ -556,192 +710,6 @@ function listKnownMcpClients(registry: McpToolRegistry): string[] {
   const set = new Set<string>();
   for (const entry of registry.getTools()) set.add(entry.source);
   return [...set].sort();
-}
-
-/**
- * Parsed `from` scope filter. `kind: "all"` means walk every source
- * (default when `from` is unset). `kind: "mcp"` narrows to a single
- * MCP client.
- *
- * @internal
- */
-interface FromScope {
-  kind: "all" | "mcp";
-  mcpClient?: string;
-}
-
-function parseFromScope(from: string | undefined): FromScope {
-  if (from === undefined) return { kind: "all" };
-  if (typeof from !== "string" || from.trim() === "") {
-    throw rcError("RC5003", undefined, {
-      message: `tools(): "from" must be a non-empty string when present.`,
-    });
-  }
-  if (from.startsWith("mcp__")) {
-    const client = from.slice("mcp__".length);
-    if (client.trim() === "") {
-      throw rcError("RC5003", undefined, {
-        message: `tools(): from "${from}" has an empty server name; use "mcp__<server>".`,
-      });
-    }
-    return { kind: "mcp", mcpClient: client };
-  }
-  throw rcError("RC5003", undefined, {
-    message: `tools(): from "${from}" is not a supported source filter. Use "mcp__<server>".`,
-  });
-}
-
-function resolveByTags(
-  ctx: CraftContext,
-  wanted: Tag[],
-  guard: ToolGuard | undefined,
-  from: string | undefined,
-): ResolvedTool[] {
-  const wantedSet = new Set(wanted);
-  const scope = parseFromScope(from);
-  const out: ResolvedTool[] = [];
-  const seenNames = new Set<string>();
-  // Track route ids already surfaced via a fn-registry directTool wrapper
-  // **that actually contributed** so the direct-registry walk doesn't
-  // double-include them. Wrappers that didn't match the wanted tag set
-  // are NOT added here -- the underlying route may still match by its
-  // own tags and is allowed to surface under its direct_<routeId> name.
-  // MCP entries are walked separately at the end of this function via
-  // MCP_TOOL_REGISTRY (not the fn-registry deferred path), so they
-  // sit outside this dedup set.
-  const coveredRouteIds = new Set<string>();
-
-  // fn registry and direct registry walks only run when scope is
-  // unrestricted ("all"). A scoped selector like
-  // `{ tagged: "read-only", from: "mcp__Nuclino" }` deliberately
-  // excludes fns and routes.
-  if (scope.kind === "all") {
-    // Walk the fn registry first so explicit fn-side tags (incl. directTool
-    // wrappers) take precedence over a parallel direct-registry walk.
-    // Skip non-direct deferred entries entirely (none exist today now that
-    // `agentTool` is gone, but the guard is kept so future deferred kinds
-    // do not silently surface here without an explicit by-name ref).
-    const fnRegistry = ctx.getStore(ADAPTER_FN_REGISTRY) as
-      | Map<string, FnEntry>
-      | undefined;
-    if (fnRegistry) {
-      for (const [name, entry] of fnRegistry) {
-        if (isDeferredFn(entry)) {
-          if (entry.kind !== "direct") continue;
-          // Use the wrapper's explicit `overrides.tags` when present so a
-          // `directTool(routeId, { tags: [...] })` wrapper actually drives
-          // selection. Fall back to peeking the underlying route's tags
-          // when no override was supplied.
-          const candidateTags =
-            entry.overrideTags ?? peekDirectTags(ctx, entry.targetId);
-          if (!candidateTags.some((t) => wantedSet.has(t))) continue;
-          const fn = entry.resolve(ctx, name);
-          out.push(toResolvedTool(name, fn, guard));
-          seenNames.add(name);
-          // Direct routes register under their sanitised endpoint, but
-          // `directTool` wrappers carry the user-supplied raw id. Store the
-          // sanitised form so the direct-registry walk below (which
-          // iterates the registry by its sanitised key) dedups correctly
-          // even when the route id contains URL-special chars like "/".
-          coveredRouteIds.add(sanitizeEndpoint(entry.targetId));
-          continue;
-        }
-        const tags = entry.tags ?? [];
-        if (tags.some((t) => wantedSet.has(t))) {
-          out.push(toResolvedTool(name, entry, guard));
-          seenNames.add(name);
-        }
-      }
-    }
-
-    // Walk the direct registry for routes not already surfaced via a
-    // fn-registry wrapper. Registry keys are the sanitised endpoint;
-    // `coveredRouteIds` is also keyed by the sanitised form so the
-    // dedup works for raw ids containing URL-special characters.
-    const directRegistry = ctx.getStore(ADAPTER_DIRECT_REGISTRY) as
-      | Map<string, DirectRouteMetadata>
-      | undefined;
-    if (directRegistry) {
-      for (const [routeId, meta] of directRegistry) {
-        if (coveredRouteIds.has(routeId)) continue;
-        const tags = meta.tags ?? [];
-        if (!tags.some((t) => wantedSet.has(t))) continue;
-        const conventionName = `direct_${routeId}`;
-        if (seenNames.has(conventionName)) continue;
-        // Only include if the route is fully tool-shaped (has description
-        // and input schema). Routes that are missing those silently skip
-        // tag-selector inclusion -- explicit refs would still throw.
-        if (
-          typeof meta.description !== "string" ||
-          meta.description.trim() === ""
-        ) {
-          continue;
-        }
-        if (!meta.input?.body) continue;
-        const wrapper = directTool(routeId);
-        const fn = wrapper.resolve(ctx, conventionName);
-        out.push(toResolvedTool(conventionName, fn, guard));
-        seenNames.add(conventionName);
-      }
-    }
-  }
-
-  // Walk the MCP registry. Under "all" scope every client is in
-  // scope; under "mcp" scope only the named client contributes.
-  const mcpRegistry = ctx.getStore(MCP_TOOL_REGISTRY);
-  if (mcpRegistry) {
-    let entries: McpToolRegistryEntry[];
-    if (scope.kind === "mcp") {
-      entries = mcpRegistry.getToolsByServer(scope.mcpClient as string);
-      if (entries.length === 0) {
-        const known = listKnownMcpClients(mcpRegistry);
-        throw rcError("RC5003", undefined, {
-          message:
-            `tools(): from "mcp__${scope.mcpClient}" has no registered tools. ` +
-            (known.length > 0
-              ? `Known MCP clients: ${known.map((k) => `"${k}"`).join(", ")}.`
-              : `No MCP clients are registered in this context.`),
-        });
-      }
-    } else {
-      entries = mcpRegistry.getTools();
-    }
-    for (const entry of entries) {
-      const tags = entry.tags ?? [];
-      if (!tags.some((t) => wantedSet.has(t))) continue;
-      const tool = mcpEntryToResolvedTool(ctx, entry, guard);
-      if (seenNames.has(tool.name)) continue;
-      out.push(tool);
-      seenNames.add(tool.name);
-    }
-  } else if (scope.kind === "mcp") {
-    // Asked for a specific MCP client but the registry isn't installed.
-    throw rcError("RC5003", undefined, {
-      message: `tools(): from "mcp__${scope.mcpClient}" but no MCP_TOOL_REGISTRY is present. Install mcpPlugin (defineConfig.mcp).`,
-    });
-  }
-
-  return out;
-}
-
-function formatTags(tags: Tag[]): string {
-  return tags.length === 1
-    ? `"${tags[0]}"`
-    : `[${tags.map((t) => `"${t}"`).join(", ")}]`;
-}
-
-function peekDirectTags(ctx: CraftContext, routeId: string): Tag[] {
-  const directRegistry = ctx.getStore(ADAPTER_DIRECT_REGISTRY) as
-    | Map<string, DirectRouteMetadata>
-    | undefined;
-  // Routes register under the sanitised endpoint; look up the same way.
-  return directRegistry?.get(sanitizeEndpoint(routeId))?.tags ?? [];
-}
-
-function normalizeTags(value: Tag | Tag[]): Tag[] {
-  return (Array.isArray(value) ? value : [value]).filter(
-    (t): t is Tag => typeof t === "string" && t.trim() !== "",
-  );
 }
 
 function listKnownNames(ctx: CraftContext): string[] {

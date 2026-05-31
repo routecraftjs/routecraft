@@ -131,10 +131,14 @@ Emitted by `agent()` destinations. These are the **coarse decision events**: bro
 | `route:{routeId}:agent:tool:invoked` | Agent decided to call a tool (input validated, before guard) | `{ routeId, exchangeId, correlationId, toolCallId, toolName, input }` |
 | `route:{routeId}:agent:tool:result` | Tool handler returned a value | `{ routeId, exchangeId, correlationId, toolCallId, toolName, output, duration }` |
 | `route:{routeId}:agent:tool:error` | Tool handler / guard / input validation threw | `{ routeId, exchangeId, correlationId, toolCallId, toolName, error, duration }` |
+| `route:{routeId}:agent:block:loaded` | Progressive block loader returned a value to the model | `{ routeId, exchangeId, correlationId, toolCallId, blockName, output, duration }` |
+| `route:{routeId}:agent:block:error` | Progressive block resolver threw during load | `{ routeId, exchangeId, correlationId, toolCallId, blockName, error, duration }` |
 | `route:{routeId}:agent:finished` | Agent dispatch returned a consolidated result | `{ routeId, exchangeId, correlationId, finishReason, inputTokens?, outputTokens?, totalTokens? }` |
 | `route:{routeId}:agent:error` | Provider / transport error during dispatch | `{ routeId, exchangeId, correlationId, error }` |
 
-Wildcard subscriptions (`route:*:agent:tool:*`, `route:*:agent:finished`) work for cross-cutting telemetry, dashboards, and TUIs.
+Synthetic block-loader invocations (`_block_load_<blockName>` tools) emit on the `:agent:block:*` channel, not `:agent:tool:*`. Subscribe to the right family for what you care about: `:agent:tool:*` covers user-declared tools only, `:agent:block:*` covers framework-synthesised block loads. This split keeps post-dispatch user-tool assertions (`AgentResult.toolCalls`) clean.
+
+Wildcard subscriptions (`route:*:agent:tool:*`, `route:*:agent:block:*`, `route:*:agent:finished`) work for cross-cutting telemetry, dashboards, and TUIs.
 
 ```ts
 ctx.on('route:*:agent:tool:invoked', ({ details }) => {

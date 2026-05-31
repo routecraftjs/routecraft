@@ -7,6 +7,7 @@ import {
   type EventName,
   type Principal,
 } from "@routecraft/routecraft";
+import { isBlockLoaderTool } from "../block/resolve.ts";
 import { toAiInputSchema } from "../llm/structured-output.ts";
 import type { FnHandlerContext } from "../fn/types.ts";
 import type { AgentDispatchIdentity } from "./session.ts";
@@ -21,10 +22,10 @@ import type { ResolvedTool } from "./tools/selection.ts";
  * 1. Emit `route:<routeId>:agent:tool:invoked` on the context bus so
  *    cross-cutting observability (telemetry, dashboards, audit) sees
  *    the call before the handler runs.
- * 2. The optional guard (registered via `tools([{ name, guard }])` or
- *    `tools([{ tagged, guard }])`). Throwing inside the guard surfaces
- *    back to the model as a tool error so the model can self-correct;
- *    the wrapper emits `agent:tool:error` before rethrowing.
+ * 2. The optional guard (registered via `tools([{ name, guard }])`).
+ *    Throwing inside the guard surfaces back to the model as a tool
+ *    error so the model can self-correct; the wrapper emits
+ *    `agent:tool:error` before rethrowing.
  * 3. The underlying handler with `(input, fnHandlerContext)`. On
  *    success the wrapper emits `agent:tool:result`; on throw it
  *    emits `agent:tool:error` and rethrows.
@@ -60,6 +61,14 @@ export async function buildVercelTools(
       abortSignal,
       principal,
     );
+    // Block-loader synthetic tools emit `agent:block:loaded` /
+    // `agent:block:error` events instead of the user-tool family so
+    // observability consumers can wire framework bookkeeping separately
+    // from the agent's user-tool usage.
+    const isLoader = isBlockLoaderTool(r);
+    const blockName = isLoader
+      ? (r as { blockName?: string }).blockName
+      : undefined;
     out[r.name] = tool({
       description: r.description,
       inputSchema: toAiInputSchema(r.input) as Parameters<
@@ -87,7 +96,7 @@ export async function buildVercelTools(
         const toolCallId = callOpts?.toolCallId ?? randomUUID();
         const start = Date.now();
 
-        if (ctx && dispatchIdentity) {
+        if (!isLoader && ctx && dispatchIdentity) {
           ctx.emit(
             `route:${dispatchIdentity.routeId}:agent:tool:invoked` as EventName,
             {
@@ -105,34 +114,64 @@ export async function buildVercelTools(
           if (guard) await guard(input, callCtx);
           const output = await handler(input, callCtx);
           if (ctx && dispatchIdentity) {
-            ctx.emit(
-              `route:${dispatchIdentity.routeId}:agent:tool:result` as EventName,
-              {
-                routeId: dispatchIdentity.routeId,
-                exchangeId: dispatchIdentity.exchangeId,
-                correlationId: dispatchIdentity.correlationId,
-                toolCallId,
-                toolName: r.name,
-                output,
-                duration: Date.now() - start,
-              },
-            );
+            if (isLoader) {
+              ctx.emit(
+                `route:${dispatchIdentity.routeId}:agent:block:loaded` as EventName,
+                {
+                  routeId: dispatchIdentity.routeId,
+                  exchangeId: dispatchIdentity.exchangeId,
+                  correlationId: dispatchIdentity.correlationId,
+                  toolCallId,
+                  blockName,
+                  output,
+                  duration: Date.now() - start,
+                },
+              );
+            } else {
+              ctx.emit(
+                `route:${dispatchIdentity.routeId}:agent:tool:result` as EventName,
+                {
+                  routeId: dispatchIdentity.routeId,
+                  exchangeId: dispatchIdentity.exchangeId,
+                  correlationId: dispatchIdentity.correlationId,
+                  toolCallId,
+                  toolName: r.name,
+                  output,
+                  duration: Date.now() - start,
+                },
+              );
+            }
           }
           return output;
         } catch (err) {
           if (ctx && dispatchIdentity) {
-            ctx.emit(
-              `route:${dispatchIdentity.routeId}:agent:tool:error` as EventName,
-              {
-                routeId: dispatchIdentity.routeId,
-                exchangeId: dispatchIdentity.exchangeId,
-                correlationId: dispatchIdentity.correlationId,
-                toolCallId,
-                toolName: r.name,
-                error: err,
-                duration: Date.now() - start,
-              },
-            );
+            if (isLoader) {
+              ctx.emit(
+                `route:${dispatchIdentity.routeId}:agent:block:error` as EventName,
+                {
+                  routeId: dispatchIdentity.routeId,
+                  exchangeId: dispatchIdentity.exchangeId,
+                  correlationId: dispatchIdentity.correlationId,
+                  toolCallId,
+                  blockName,
+                  error: err,
+                  duration: Date.now() - start,
+                },
+              );
+            } else {
+              ctx.emit(
+                `route:${dispatchIdentity.routeId}:agent:tool:error` as EventName,
+                {
+                  routeId: dispatchIdentity.routeId,
+                  exchangeId: dispatchIdentity.exchangeId,
+                  correlationId: dispatchIdentity.correlationId,
+                  toolCallId,
+                  toolName: r.name,
+                  error: err,
+                  duration: Date.now() - start,
+                },
+              );
+            }
           }
           throw err;
         }

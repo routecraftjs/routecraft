@@ -11,7 +11,7 @@ import { agent } from '@routecraft/ai'
 Run an LLM with a fixed system prompt on each incoming exchange. Replaces the body with `AgentResult { text, usage? }`. Two forms:
 
 - **Inline** (`agent({ model, system, user? })`) -- identity and description come from the enclosing route (`.id()`, `.description()`). Suitable when the route _is_ the agent.
-- **By name** (`agent("summariser")`) -- resolves a registered agent from the context. Register agents via `agentPlugin({ agents: { name: {...} } })` ([Plugins reference](/docs/reference/plugins)).
+- **By name** (`agent("summariser")`) -- resolves a registered agent from the context. Register agents via `agentPlugin({ agents: { name: {...} } })` ([`agentPlugin` reference](/docs/reference/plugins/agentplugin)).
 
 ```ts
 import { agent, agentPlugin } from '@routecraft/ai'
@@ -90,13 +90,13 @@ The id is the record key in `agentPlugin({ agents: { [id]: {...} } })`.
 - Duplicate registered agent ids, missing description, malformed model string when present, or a non-`ToolSelection` `tools` value fail at context init with `RC5003` (Adapter misconfigured).
 - Referencing an unknown registered agent name fails at dispatch with `RC5004` (No handler available).
 
-Provider credentials are configured once in `llmPlugin()` and shared across all `agent()` calls. See [Plugins reference](/docs/reference/plugins).
+Provider credentials are configured once in `llmPlugin()` and shared across all `agent()` calls. See [`llmPlugin` reference](/docs/reference/plugins/llmplugin).
 
 #### Telling the agent who the caller is
 
 By default the only part of the exchange that reaches the model is the body (as the user prompt). The authenticated caller (`exchange.principal`) is **not** in the prompt, so the model does not know who it is serving unless you put that there yourself.
 
-Set `principal: true` to append a `## Caller` section to the system prompt. It is appended after your own prompt and any `skills`, and it covers the unauthenticated case explicitly so the model never invents an identity:
+Set `principal: true` to append a `## Caller` section to the system prompt. It is appended after your own prompt and any `blocks`, and it covers the unauthenticated case explicitly so the model never invents an identity:
 
 ```typescript
 agent({
@@ -128,7 +128,7 @@ available. Do not assume, infer, or invent the caller's name, email, or
 permissions.
 ```
 
-Only the loggable identity fields (`name`, `email`, `subject`) and `roles` are surfaced; fields that are absent on the principal are omitted, and interpolated values have newlines collapsed so a subject-controlled field (a self-service display name, say) cannot forge prompt structure. Scopes, `claims`, `userinfoClaims`, and the bearer token are never injected. The block is informational context only: authorization is still enforced by [`.authorize()`](/docs/reference/operations) and tool guards, never by the model.
+Only the loggable identity fields (`name`, `email`, `subject`) and `roles` are surfaced; fields that are absent on the principal are omitted, and interpolated values have newlines collapsed so a subject-controlled field (a self-service display name, say) cannot forge prompt structure. Scopes, `claims`, `userinfoClaims`, and the bearer token are never injected. The block is informational context only: authorization is still enforced by [`.authorize()`](/docs/reference/operations/authorize) and tool guards, never by the model.
 
 To control the wording or which fields are shown, pass a function instead of `true`. It receives the principal (`undefined` when unauthenticated) and the exchange, and returns the markdown to append (return `''` to append nothing). Your renderer owns its own escaping and the same field exclusions apply:
 
