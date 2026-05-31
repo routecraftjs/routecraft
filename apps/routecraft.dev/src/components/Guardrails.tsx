@@ -6,8 +6,8 @@ const DANGEROUS = `// Typical agent SDK setup
 const agent = new Agent({
   tools: [
     bashTool(),
-    httpTool({ allowAll: true }),
-    dbQueryTool(connectionString),
+    browserUse({ allowAll: true }),
+    computerUse({ allowAll: true })
   ],
 })
 

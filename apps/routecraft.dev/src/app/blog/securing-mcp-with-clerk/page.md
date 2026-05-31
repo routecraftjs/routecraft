@@ -20,8 +20,6 @@ This post shows the working integration in about sixty lines of TypeScript using
 
 If you already have an MCP server and just need the Clerk auth bit, you can skip to [Wiring Clerk into the MCP plugin](#wiring-clerk-into-the-mcp-plugin). If MCP is new to you, [Build your first MCP server](/blog/your-first-mcp-server-in-typescript) is the prequel.
 
-A follow-up post covers migrating the same server from Clerk to [WorkOS AuthKit](https://workos.com/docs/authkit). For now, Clerk gives us the friendlier on-ramp.
-
 ## A short primer on MCP
 
 The [Model Context Protocol](https://modelcontextprotocol.io) is an open spec from Anthropic for connecting AI agents to tools, data, and prompts. A capable client like Claude Desktop, Cursor, or VS Code can connect to any MCP server and call its tools with validated JSON inputs.
@@ -550,7 +548,7 @@ A few traps I have walked into:
 
 This wires Clerk in as the authorization server, with Routecraft acting as a thin OAuth proxy plus a JWKS verifier. It is a clean fit for small teams and side projects: one dashboard, one set of keys, no custom auth code.
 
-In the next post in this series I will walk through migrating the same server to [WorkOS AuthKit](https://workos.com/docs/authkit). WorkOS pushes the OAuth flow back to its own hosted endpoints, so Routecraft drops the proxy and runs in pure validator mode. We get cleaner separation, better organization handling, and richer role data. We also lose the friendliest part of Clerk's offering, which is worth talking about honestly.
+In a next post in this series I will walk through migrating the same server to [WorkOS AuthKit](https://workos.com/docs/authkit). WorkOS pushes the OAuth flow back to its own hosted endpoints, so Routecraft drops the proxy and runs in pure validator mode. We get cleaner separation, better organization handling, and richer role data. We also lose the friendliest part of Clerk's offering, which is worth talking about honestly.
 
 ## Try it without leaving your browser
 
@@ -562,4 +560,4 @@ Or scaffold a project locally:
 bunx create-routecraft my-mcp-server
 ```
 
-Full docs at [routecraft.dev/docs](/docs/introduction). The MCP and auth primitives live in [`@routecraft/ai`](/docs/advanced/expose-as-mcp) and the [security reference](/docs/reference/configuration). Questions and corrections welcome on [GitHub](https://github.com/routecraftjs/routecraft/issues).
+Full docs at [routecraft.dev/docs](/docs/introduction). The MCP and auth primitives live in [`@routecraft/ai`](/docs/advanced/expose-as-mcp) and the [security reference](/docs/reference/configuration).

@@ -308,5 +308,3 @@ If you want to play with the framework before installing anything, open the [Rou
 # Or scaffold a new project locally
 bunx create-routecraft my-app
 ```
-
-Pull requests and "I followed this and X broke" reports are welcome on [GitHub](https://github.com/routecraftjs/routecraft/issues).
