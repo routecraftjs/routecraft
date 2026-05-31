@@ -62,7 +62,7 @@ export default craft()
   .id('orders.enrich')
   .from(http({ path: '/orders/:id', method: 'GET' }))
   .enrich(mcp('search:lookup_customer'))
-  .to(http({ method: 'POST', path: '/crm/orders' }))
+  .to(http({ method: 'POST', url: 'https://crm.example.com/orders' }))
 ```
 
 ## Custom argument mapping
