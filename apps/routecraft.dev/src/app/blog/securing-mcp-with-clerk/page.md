@@ -1,7 +1,7 @@
 ---
 title: Building an authenticated MCP server with Routecraft and Clerk
 description: A step-by-step guide to writing TypeScript capabilities, exposing them over the Model Context Protocol, and putting Clerk in front of them with OAuth 2.1 and JWKS verification.
-date: 2026-05-26
+date: 2026-05-29
 author: Jaco Botha
 authorRole: Founder, DevOptix
 version: '0.6.0+'
@@ -49,8 +49,8 @@ If you have not seen Routecraft before, the [introduction](/docs/introduction) i
 
 A tiny **notebook MCP server** with two tools:
 
-- `notes.list` returns notes belonging to the calling user.
-- `notes.create` creates a new note for the calling user.
+- `notes_list` returns notes belonging to the calling user.
+- `notes_create` creates a new note for the calling user.
 
 The point is the auth wiring, not the notes. The same pattern works for any tools you bolt onto Routecraft.
 
@@ -59,7 +59,7 @@ The flow we want at the end:
 1. Claude Desktop connects to `https://notebook.example.com/mcp`.
 2. The server returns an OAuth 2.0 Protected Resource metadata document pointing at Clerk.
 3. Claude opens a browser, the user signs in to Clerk, Clerk issues a token.
-4. Claude calls `notes.list` with the bearer token attached.
+4. Claude calls `notes_list` with the bearer token attached.
 5. Routecraft verifies the token against Clerk's JWKS, hydrates a `principal` from the claims, then runs the capability.
 
 ![Diagram of the OAuth flow from Claude Desktop to Routecraft via Clerk](/images/blog/securing-mcp-with-clerk/flow.png)
@@ -127,7 +127,7 @@ export const store = {
 }
 ```
 
-Now the `notes.list` capability:
+Now the `notes_list` capability:
 
 ```ts
 // capabilities/notes/list-notes/route.ts
@@ -143,7 +143,7 @@ const ListNotesInput = z.object({
 type ListNotesInput = z.infer<typeof ListNotesInput>
 
 export default craft()
-  .id('notes.list')
+  .id('notes_list')
   .description('List notes belonging to the calling user, optionally filtered by query.')
   .input({ body: ListNotesInput })
   .from<ListNotesInput>(mcp())
@@ -153,7 +153,7 @@ export default craft()
   })
 ```
 
-And `notes.create`:
+And `notes_create`:
 
 ```ts
 // capabilities/notes/create-note/route.ts
@@ -170,7 +170,7 @@ const CreateNoteInput = z.object({
 type CreateNoteInput = z.infer<typeof CreateNoteInput>
 
 export default craft()
-  .id('notes.create')
+  .id('notes_create')
   .description('Create a new note for the calling user.')
   .input({ body: CreateNoteInput })
   .from<CreateNoteInput>(mcp())
@@ -204,10 +204,20 @@ export const craftConfig = defineConfig({
 })
 ```
 
+Then point the entry point at your routes. `craft run` executes `index.ts`, which re-exports the config and the capabilities:
+
+```ts
+// index.ts
+export { craftConfig } from "./craft.config.js";
+import capabilities from "./capabilities/index.js";
+
+export default capabilities;
+```
+
 Start it:
 
 ```bash
-bun run craft run
+bun run start
 ```
 
 You now have an unauthenticated MCP server listening on `http://localhost:3001/mcp`. That is fine for a five second smoke test, but it is also exactly what we do not want to ship.
@@ -217,8 +227,8 @@ You now have an unauthenticated MCP server listening on `http://localhost:3001/m
 Three reasons in increasing order of seriousness:
 
 1. Every tool we add gets the access of the process. Database creds, OAuth tokens, GitHub PATs, anything the server holds is a tool away.
-2. MCP tools are not just queries. `notes.create` writes. Future tools will send emails, hit production APIs, move money.
-3. We want **per-user** behavior. `notes.list` should return the calling user's notes, not a shared bag.
+2. MCP tools are not just queries. `notes_create` writes. Future tools will send emails, hit production APIs, move money.
+3. We want **per-user** behavior. `notes_list` should return the calling user's notes, not a shared bag.
 
 The MCP spec settles on OAuth 2.1 bearer tokens. The client asks an authorization server (Clerk, in our case) for a token, then attaches it to every JSON-RPC call with an `Authorization: Bearer ...` header. The server's only job is to:
 
@@ -426,7 +436,7 @@ const ListNotesInput = z.object({
 type ListNotesInput = z.infer<typeof ListNotesInput>
 
 export default craft()
-  .id('notes.list')
+  .id('notes_list')
   .description('List notes belonging to the calling user, optionally filtered by query.')
   .input({ body: ListNotesInput })
   .from<ListNotesInput>(mcp())
@@ -453,7 +463,7 @@ const CreateNoteInput = z.object({
 type CreateNoteInput = z.infer<typeof CreateNoteInput>
 
 export default craft()
-  .id('notes.create')
+  .id('notes_create')
   .description('Create a new note for the calling user.')
   .input({ body: CreateNoteInput })
   .from<CreateNoteInput>(mcp())

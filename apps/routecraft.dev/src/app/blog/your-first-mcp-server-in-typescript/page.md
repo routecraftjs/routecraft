@@ -1,7 +1,7 @@
 ---
 title: Your first MCP server in TypeScript with Routecraft
 description: A ten-minute walkthrough from `bunx create-routecraft` to a working MCP server that Claude Desktop and Cursor can call. No auth, no infrastructure, no boilerplate. Just a TypeScript function exposed to your AI agent.
-date: 2026-05-18
+date: 2026-05-22
 author: Jaco Botha
 authorRole: Founder, DevOptix
 version: '0.6.0+'
@@ -47,14 +47,14 @@ For comparison, a hand-rolled MCP tool that does input validation, structured lo
 
 A tiny **notebook** MCP server with two tools:
 
-- `notes.list` returns a list of notes, optionally filtered by query.
-- `notes.create` adds a new note to an in-memory store.
+- `notes_list` returns a list of notes, optionally filtered by query.
+- `notes_create` adds a new note to an in-memory store.
 
 The point is the shape, not the notes. Once you understand how a capability becomes a tool, the same pattern works for "list orders in Stripe", "search a Postgres table", "send a Slack message", or anything else you can call from a function.
 
 End state:
 
-![Claude Desktop with the notebook MCP server connected, showing the notes.list tool ready to call](/images/blog/your-first-mcp-server-in-typescript/claude-desktop-tools.png)
+![Claude Desktop with the notebook MCP server connected, showing the notes_list tool ready to call](/images/blog/your-first-mcp-server-in-typescript/claude-desktop-tools.png)
 
 ## Prerequisites
 
@@ -122,7 +122,7 @@ export const store = {
 }
 ```
 
-Now the `notes.list` capability. Create `capabilities/notes/list-notes/route.ts`:
+Now the `notes_list` capability. Create `capabilities/notes/list-notes/route.ts`:
 
 ```ts
 // capabilities/notes/list-notes/route.ts
@@ -138,7 +138,7 @@ const ListNotesInput = z.object({
 type ListNotesInput = z.infer<typeof ListNotesInput>
 
 export default craft()
-  .id('notes.list')
+  .id('notes_list')
   .description('List notes, optionally filtered by a search query.')
   .input({ body: ListNotesInput })
   .from<ListNotesInput>(mcp())
@@ -148,7 +148,7 @@ export default craft()
 This is the entire tool. Let us read it line by line, because if you understand this you understand Routecraft:
 
 - `craft()` starts a capability builder.
-- `.id('notes.list')` is the tool name the AI sees. Pick something descriptive.
+- `.id('notes_list')` is the tool name the AI sees. Pick something descriptive.
 - `.description()` is what the AI reads to decide when to call this tool. Treat it as prompt engineering, not docs.
 - `.input({ body: ListNotesInput })` is the Zod schema for the input. Routecraft validates against it before your code runs, so invalid calls are rejected with a structured error.
 - `.from<ListNotesInput>(mcp())` says "this capability's source is an MCP call". That is what turns the capability into an MCP tool. The generic flows the input type through the chain so the transform is fully typed.
@@ -175,7 +175,7 @@ const CreateNoteInput = z.object({
 type CreateNoteInput = z.infer<typeof CreateNoteInput>
 
 export default craft()
-  .id('notes.create')
+  .id('notes_create')
   .description('Create a new note with a title and body.')
   .input({ body: CreateNoteInput })
   .from<CreateNoteInput>(mcp())
@@ -215,10 +215,24 @@ export const craftConfig = defineConfig({
 
 `transport: 'stdio'` tells Routecraft to speak MCP over stdin/stdout. That is the format MCP clients like Claude Desktop expect when they spawn a server as a subprocess. No ports, no networking.
 
+## Wire the routes into the entry point
+
+`craft run` executes `index.ts`, and a fresh project starts with an empty route list. Point it at the capabilities you just registered:
+
+```ts
+// index.ts
+export { craftConfig } from "./craft.config.js";
+import capabilities from "./capabilities/index.js";
+
+export default capabilities;
+```
+
+This is the one piece of glue between the files you wrote and the runner: `index.ts` re-exports the config from `craft.config.ts` and the routes from `capabilities/`.
+
 ## Run it
 
 ```bash
-bun run craft run
+bun run start
 ```
 
 You should see Routecraft start, register both tools, and wait for stdio input. It will not print much, because every byte on stdout is reserved for MCP protocol frames. Logs go to stderr.
@@ -243,16 +257,16 @@ If the file does not exist, create it. Add an `mcpServers` entry:
       "args": [
         "@routecraft/cli",
         "run",
-        "/absolute/path/to/notebook/capabilities"
+        "/absolute/path/to/notebook/index.ts"
       ]
     }
   }
 }
 ```
 
-Use the **absolute path** to your `notebook` directory. Claude Desktop will not expand `~` or relative paths.
+Point it at the **absolute path** to your project's `index.ts`. Claude Desktop will not expand `~` or relative paths.
 
-Quit Claude Desktop completely (not just the window, the whole app) and reopen it. In a new conversation, look for the hammer icon in the input area, click it, and you should see `notes.list` and `notes.create` listed.
+Quit Claude Desktop completely (not just the window, the whole app) and reopen it. In a new conversation, look for the hammer icon in the input area, click it, and you should see `notes_list` and `notes_create` listed.
 
 ![Claude Desktop showing the hammer icon expanded with the notebook MCP server's two tools visible](/images/blog/your-first-mcp-server-in-typescript/claude-desktop-tools.png)
 
@@ -260,7 +274,7 @@ Ask Claude something like:
 
 > Create a note titled "Groceries" with body "milk, bread, eggs", then list all notes.
 
-Claude will call `notes.create` first, then `notes.list`, and show you the result. You just wrote an MCP server.
+Claude will call `notes_create` first, then `notes_list`, and show you the result. You just wrote an MCP server.
 
 ## Connect from Cursor
 
@@ -273,7 +287,7 @@ Almost identical. Open **Cursor Settings -> Features -> Model Context Protocol**
     "args": [
       "@routecraft/cli",
       "run",
-      "/absolute/path/to/notebook/capabilities"
+      "/absolute/path/to/notebook/index.ts"
     ]
   }
 }

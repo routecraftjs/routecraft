@@ -32,7 +32,7 @@ const SearchOrdersInput = z.object({
 type SearchOrdersInput = z.infer<typeof SearchOrdersInput>
 
 export default craft()
-  .id('orders.search')
+  .id('orders_search')
   .description('Search orders by customer ID or date range')
   .input({ body: SearchOrdersInput })
   .from<SearchOrdersInput>(mcp())
@@ -185,7 +185,7 @@ export default {
       version: '2.1.0',                          // serverInfo.version
       description: 'Acme operations over MCP.',  // serverInfo.description
       websiteUrl: 'https://acme.example.com',    // serverInfo.websiteUrl
-      instructions: 'Call orders.search before orders.refund.', // initialize.instructions
+      instructions: 'Call orders_search before orders_refund.', // initialize.instructions
       icons: [
         { src: 'https://acme.example.com/icon.svg', mimeType: 'image/svg+xml' },
         { src: 'data:image/png;base64,...', mimeType: 'image/png', sizes: ['48x48'], theme: 'light' },
@@ -214,7 +214,7 @@ A capability can carry its own icon via the `mcp()` source. The icon shape follo
 
 ```ts
 craft()
-  .id('orders.search')
+  .id('orders_search')
   .description('Search orders')
   .from(mcp({
     annotations: { readOnlyHint: true },
