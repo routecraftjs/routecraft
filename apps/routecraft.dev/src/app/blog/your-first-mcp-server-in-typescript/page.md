@@ -1,7 +1,7 @@
 ---
 title: Your first MCP server in TypeScript with Routecraft
 description: A ten-minute walkthrough from `bunx create-routecraft` to a working MCP server that Claude Desktop and Cursor can call. No auth, no infrastructure, no boilerplate. Just a TypeScript function exposed to your AI agent.
-date: 2026-05-22
+date: 2026-05-29
 author: Jaco Botha
 authorRole: Founder, DevOptix
 version: '0.6.0+'
@@ -28,7 +28,7 @@ Two transports are supported:
 - **stdio**: the agent spawns your server as a subprocess and communicates over stdin/stdout. Local only, no network, no auth.
 - **HTTP**: your server runs as a network service. Authentication is required for anything sensitive.
 
-This post sticks to stdio because that is the fastest path to a working setup. Once you are happy with the shape, the [Clerk auth post](/blog/securing-mcp-with-clerk) covers putting auth in front of an HTTP version of the same server.
+This post sticks to stdio because that is the fastest path to a working setup.
 
 ## Why Routecraft for this
 
@@ -285,7 +285,7 @@ A few natural next steps:
 - **Add a real data source.** Swap the in-memory `store` for a SQLite database, a Postgres query, or an HTTP API. Routecraft has [adapters](/docs/introduction/adapters) for all three.
 - **Run it as a cron job too.** Change `.from(mcp())` to `.from(cron('0 9 * * *'))` and the same capability runs every morning at 9. No other code changes.
 - **Compose capabilities.** `direct()` lets one capability call another with type safety. Build a graph, test each node in isolation.
-- **Go to HTTP, with auth.** When you want this reachable from anywhere, not just your laptop, follow the [Clerk MCP auth](/blog/securing-mcp-with-clerk) post.
+- **Go to HTTP, with auth.** When you want this reachable from anywhere, not just your laptop, check our the [http transport](http://localhost:3000/docs/advanced/expose-as-mcp/#http-transport). 
 
 The [Routecraft docs](/docs/introduction) cover all of the above in more depth.
 

@@ -1,18 +1,18 @@
 ---
 title: Building an authenticated MCP server with Routecraft and Clerk
 description: A step-by-step guide to writing TypeScript capabilities, exposing them over the Model Context Protocol, and putting Clerk in front of them with OAuth 2.1 and JWKS verification.
-date: 2026-05-29
+date: 2026-05-26
 author: Jaco Botha
 authorRole: Founder, DevOptix
 version: '0.6.0+'
-draft: false
+draft: true
 tags:
   - mcp
   - clerk
   - authentication
   - routecraft
   - typescript
-featured: true
+featured: false
 layout: blog-post
 ---
 
