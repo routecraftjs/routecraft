@@ -12,6 +12,9 @@ import { type HttpConfig } from "./adapters/http/types.ts";
 import { type MailContextConfig } from "./adapters/mail/types.ts";
 import { MailClientManager } from "./adapters/mail/client-manager.ts";
 import { MAIL_CLIENT_MANAGER } from "./adapters/mail/shared.ts";
+import { type CardDAVContextConfig } from "./adapters/carddav/types.ts";
+import { CardDAVClientManager } from "./adapters/carddav/client-manager.ts";
+import { CARDDAV_CLIENT_MANAGER } from "./adapters/carddav/shared.ts";
 import { type TelemetryOptions } from "./telemetry/types.ts";
 import { telemetry } from "./telemetry/index.ts";
 import { type AdapterOverride, RC_ADAPTER_OVERRIDES } from "./testing-hooks.ts";
@@ -127,6 +130,8 @@ export interface CraftConfig {
   http?: HttpConfig;
   /** Mail adapter configuration with named accounts */
   mail?: MailContextConfig;
+  /** CardDAV adapter configuration with named accounts */
+  carddav?: CardDAVContextConfig;
   /** Telemetry plugin configuration (SQLite, OpenTelemetry) */
   telemetry?: TelemetryOptions;
 }
@@ -258,6 +263,13 @@ export class CraftContext {
       if (config.mail) {
         const manager = new MailClientManager(config.mail);
         this.store.set(MAIL_CLIENT_MANAGER as keyof StoreRegistry, manager);
+        this.teardownCallbacks.push(() => manager.drain());
+      }
+
+      // Set up CardDAV client manager if carddav config is present
+      if (config.carddav) {
+        const manager = new CardDAVClientManager(config.carddav);
+        this.store.set(CARDDAV_CLIENT_MANAGER as keyof StoreRegistry, manager);
         this.teardownCallbacks.push(() => manager.drain());
       }
 
