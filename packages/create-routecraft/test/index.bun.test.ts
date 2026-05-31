@@ -194,9 +194,9 @@ describe("generateProjectStructure", () => {
   // ── Hello-world example ──────────────────────────────────────────────────
 
   /**
-   * @case Hello-world example places capability file at capabilities/hello-world.ts
+   * @case Hello-world example places the capability at capabilities/hello-world/route.ts
    * @preconditions example = "hello-world"
-   * @expectedResult capabilities/hello-world.ts exists with route definition
+   * @expectedResult capabilities/hello-world/route.ts exists with route definition
    */
   test("hello-world example places capability file correctly", async () => {
     await generateProjectStructure(
@@ -204,7 +204,7 @@ describe("generateProjectStructure", () => {
       makeOptions({ example: "hello-world" }),
     );
 
-    const capPath = join(projectDir, "capabilities", "hello-world.ts");
+    const capPath = join(projectDir, "capabilities", "hello-world", "route.ts");
     expect(existsSync(capPath)).toBe(true);
 
     const content = await readFile(capPath, "utf-8");
@@ -212,9 +212,9 @@ describe("generateProjectStructure", () => {
   });
 
   /**
-   * @case Hello-world example places test file alongside capability
+   * @case Hello-world example places the test alongside the capability route
    * @preconditions example = "hello-world"
-   * @expectedResult capabilities/hello-world.bun.test.ts exists
+   * @expectedResult capabilities/hello-world/route.bun.test.ts exists
    */
   test("hello-world example includes test file", async () => {
     await generateProjectStructure(
@@ -223,23 +223,25 @@ describe("generateProjectStructure", () => {
     );
 
     expect(
-      existsSync(join(projectDir, "capabilities", "hello-world.bun.test.ts")),
+      existsSync(
+        join(projectDir, "capabilities", "hello-world", "route.bun.test.ts"),
+      ),
     ).toBe(true);
   });
 
   /**
-   * @case Hello-world index.ts imports from ./capabilities/hello-world.js
+   * @case Hello-world index.ts imports from ./capabilities/hello-world/route.js
    * @preconditions example = "hello-world"
    * @expectedResult index.ts contains correct relative import path
    */
-  test("hello-world index.ts imports from ./capabilities/hello-world.js", async () => {
+  test("hello-world index.ts imports from ./capabilities/hello-world/route.js", async () => {
     await generateProjectStructure(
       projectDir,
       makeOptions({ example: "hello-world" }),
     );
 
     const content = await readFile(join(projectDir, "index.ts"), "utf-8");
-    expect(content).toContain('from "./capabilities/hello-world.js"');
+    expect(content).toContain('from "./capabilities/hello-world/route.js"');
   });
 
   /**
