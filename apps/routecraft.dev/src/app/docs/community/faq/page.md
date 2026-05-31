@@ -63,4 +63,4 @@ See [Creating adapters](/docs/advanced/custom-adapters) for full examples includ
 
 ## How do I expose a capability as an MCP tool?
 
-Use `mcp()` from `@routecraft/ai` as the source adapter and run the file with `craft run`. See [Expose as MCP](/docs/advanced/expose-as-mcp).
+Use `mcp()` from `@routecraft/ai` as the source adapter and run the file with `craft run`. See the [MCP example](/docs/examples/mcp) and [Running an MCP server](/docs/advanced/expose-as-mcp).

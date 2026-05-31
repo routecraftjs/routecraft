@@ -285,7 +285,7 @@ A few natural next steps:
 - **Add a real data source.** Swap the in-memory `store` for a SQLite database, a Postgres query, or an HTTP API. Routecraft has [adapters](/docs/introduction/adapters) for all three.
 - **Run it as a cron job too.** Change `.from(mcp())` to `.from(cron('0 9 * * *'))` and the same capability runs every morning at 9. No other code changes.
 - **Compose capabilities.** `direct()` lets one capability call another with type safety. Build a graph, test each node in isolation.
-- **Go to HTTP, with auth.** When you want this reachable from anywhere, not just your laptop, check out the [HTTP transport](/docs/advanced/expose-as-mcp#http-transport). 
+- **Go to HTTP, with auth.** When you want this reachable from anywhere, not just your laptop, check out the [HTTP transport](/docs/advanced/expose-as-mcp#http-transport) and [Securing capabilities](/docs/advanced/securing-capabilities).
 
 The [Routecraft docs](/docs/introduction) cover all of the above in more depth.
 

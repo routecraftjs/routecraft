@@ -59,7 +59,7 @@ export default config
 | `port` | `number` | `3001` | HTTP port (http transport only) |
 | `host` | `string` | `'localhost'` | HTTP host (http transport only) |
 | `auth` | `McpHttpAuthOptions` | -- | Auth for the HTTP endpoint (http transport only; see below) |
-| `cors` | `false \| McpCorsOptions` | loopback-only | CORS for the HTTP transport. Default reflects loopback `Origin` headers; set to `false` to disable or `{ origin }` to allowlist production browser clients. See [Expose as MCP -> CORS](/docs/advanced/expose-as-mcp#cors). |
+| `cors` | `false \| McpCorsOptions` | loopback-only | CORS for the HTTP transport. Default reflects loopback `Origin` headers; set to `false` to disable or `{ origin }` to allowlist production browser clients. See [Securing capabilities -> CORS](/docs/advanced/securing-capabilities#cors). |
 | `tools` | `string[] \| (meta) => boolean` | -- | Allowlist of tool names to expose, or a filter function |
 | `clients` | `Record<string, McpClientHttpConfig \| McpClientStdioConfig>` | -- | Named remote MCP servers (see below) |
 | `maxRestarts` | `number` | `5` | Max automatic restarts for stdio clients before giving up |
@@ -200,7 +200,7 @@ auth: oauth({
 | `clientId` | `payload.client_id`, then `payload.azp` |
 | `scopes` | space-split `payload.scope` |
 
-`email`, `name`, and `roles` are not mappable here. They are read from the standard claim names (`email`, `name`, `roles`) when present in the token. For identity fields that do not live in the bearer (most IdPs do not put them there), use the [`userinfo` option on `mcpPlugin({})`](/docs/advanced/expose-as-mcp#principal-enrichment-via-userinfo) — function variant for custom mappings, OIDC Discovery or an explicit URL for the standard `/userinfo` endpoint.
+`email`, `name`, and `roles` are not mappable here. They are read from the standard claim names (`email`, `name`, `roles`) when present in the token. For identity fields that do not live in the bearer (most IdPs do not put them there), use the [`userinfo` option on `mcpPlugin({})`](/docs/advanced/securing-capabilities#principal-enrichment-via-userinfo) — function variant for custom mappings, OIDC Discovery or an explicit URL for the standard `/userinfo` endpoint.
 
 **Claim overrides for non-standard IdPs:**
 
@@ -277,4 +277,4 @@ The `client` supplier (when you pass a function rather than a static object) is 
 
 Stdio clients are spawned when the context starts and stopped on teardown. If the subprocess exits unexpectedly, the plugin automatically restarts it with exponential backoff (`restartDelayMs * restartBackoffMultiplier ^ attempt`). The restart counter resets after a successful reconnection.
 
-See [Expose as MCP](/docs/advanced/expose-as-mcp) and [Call an MCP](/docs/advanced/call-an-mcp) for usage guides.
+See [Running an MCP server](/docs/advanced/expose-as-mcp), [Calling an MCP](/docs/advanced/call-an-mcp), and [Securing capabilities](/docs/advanced/securing-capabilities) for usage guides.

@@ -109,4 +109,4 @@ const tools = registry ? Array.from(registry.values()) : []
 
 `mcp()` and `direct()` maintain separate, fully isolated registries. An MCP route with `.id('foo').from(mcp())` and a direct route with `.id('bar').from(direct())` both register by their own ids in their own stores; direct routes never appear in the MCP `tools/list` response.
 
-See [Expose as MCP](/docs/advanced/expose-as-mcp) and [Call an MCP](/docs/advanced/call-an-mcp).
+See [Running an MCP server](/docs/advanced/expose-as-mcp), [Calling an MCP](/docs/advanced/call-an-mcp), and the [MCP example](/docs/examples/mcp).

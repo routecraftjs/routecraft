@@ -20,6 +20,11 @@ export const navigation = [
       { title: 'The Exchange', href: '/docs/introduction/exchange' },
       { title: 'Operations', href: '/docs/introduction/operations' },
       { title: 'Adapters', href: '/docs/introduction/adapters' },
+      { title: 'Events', href: '/docs/introduction/events' },
+      { title: 'Testing', href: '/docs/introduction/testing' },
+      { title: 'Deployment', href: '/docs/introduction/deployment' },
+      { title: 'Monitoring', href: '/docs/introduction/monitoring' },
+      { title: 'Terminal UI', href: '/docs/introduction/tui' },
     ],
   },
   {
@@ -27,7 +32,6 @@ export const navigation = [
     href: '/docs/advanced',
     links: [
       { title: 'Plugins', href: '/docs/advanced/plugins' },
-      { title: 'Events', href: '/docs/introduction/events' },
       {
         title: 'Composing Capabilities',
         href: '/docs/advanced/composing-capabilities',
@@ -39,13 +43,13 @@ export const navigation = [
         title: 'Programmatic Invocation',
         href: '/docs/advanced/programmatic-invocation',
       },
-      { title: 'Expose as MCP', href: '/docs/advanced/expose-as-mcp' },
-      { title: 'Call an MCP', href: '/docs/advanced/call-an-mcp' },
+      { title: 'Running an MCP server', href: '/docs/advanced/expose-as-mcp' },
+      { title: 'Calling an MCP', href: '/docs/advanced/call-an-mcp' },
+      {
+        title: 'Securing capabilities',
+        href: '/docs/advanced/securing-capabilities',
+      },
       { title: 'Linting', href: '/docs/advanced/linting' },
-      { title: 'Testing', href: '/docs/introduction/testing' },
-      { title: 'Deployment', href: '/docs/introduction/deployment' },
-      { title: 'Monitoring', href: '/docs/introduction/monitoring' },
-      { title: 'Terminal UI', href: '/docs/introduction/tui' },
     ],
   },
   {
