@@ -164,14 +164,15 @@ function Hero() {
               className="font-editorial italic"
               style={{ fontVariationSettings: '"opsz" 144, "SOFT" 100' }}
             >
-              the whole
+              the
             </span>{' '}
             <span
               className="font-editorial text-cobalt-500 italic"
               style={{ fontVariationSettings: '"opsz" 144, "SOFT" 100' }}
             >
-              agent.
-            </span>
+              agent
+            </span>{' '}
+            itself.
           </h1>
 
           <p

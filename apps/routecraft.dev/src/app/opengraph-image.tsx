@@ -74,9 +74,9 @@ export default async function Image() {
       >
         <span style={{ display: 'flex' }}>Tools for agents.</span>
         <span style={{ display: 'flex' }}>
-          <span style={{ fontStyle: 'italic' }}>Or the whole</span>
+          <span style={{ fontStyle: 'italic' }}>Or the</span>
           <span style={{ fontStyle: 'italic', color: cobalt, marginLeft: 18 }}>
-            agent.
+            agent itself.
           </span>
         </span>
       </div>
