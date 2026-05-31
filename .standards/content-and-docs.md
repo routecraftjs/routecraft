@@ -17,7 +17,7 @@ split. Both are concept-led; advanced just goes deeper and may also carry guides
 | Foundational concept | `docs/introduction/` | the basics: what it is, how the core works | yes | no |
 | Advanced concept (+ guides) | `docs/advanced/` | deeper concepts and how to apply them; guides welcome | yes | no |
 | Reference | `docs/reference/` | every option, lookup | yes | no |
-| Example | `docs/examples/` | runnable copy-paste; the single source of code | yes | minimal |
+| Example | `docs/examples/` | runnable real-world use case; the single source of code | yes | minimal |
 | Blog | `blog/` | story, named vendor, or comparison; version-pinned | no | yes |
 
 ## Decision tests
@@ -41,6 +41,10 @@ split. Both are concept-led; advanced just goes deeper and may also carry guides
   the `docs/<surface>/` folder each page lives in.
 - **No silent duplication.** When two pages cover one topic (for example a how-to and a
   catalog), each owns its half. Do not copy a table into both; link to the one that owns it.
+- **Examples are real-world use cases.** A `docs/examples/*` page solves a problem a real user
+  has (reconcile payments, chase overdue invoices, sync a CSV). Scratch capabilities, feature
+  demos, and the throwaway capabilities under the repo's `examples/src` are not showcase
+  examples and do not get an examples page just because they exist.
 
 ## Capability project structure (public-surface file)
 
