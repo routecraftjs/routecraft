@@ -54,7 +54,7 @@ The point is the shape, not the notes. Once you understand how a capability beco
 
 End state:
 
-![Claude Desktop with the notebook MCP server connected, showing the notes_list tool ready to call](/images/blog/your-first-mcp-server-in-typescript/claude-desktop-tools.png)
+![The MCP Inspector connected to the notebook server, showing the notes_list and notes_create tools](/images/blog/your-first-mcp-server-in-typescript/mcp-inspector-tools.png)
 
 ## Prerequisites
 
@@ -229,25 +229,23 @@ export default capabilities;
 
 This is the one piece of glue between the files you wrote and the runner: `index.ts` re-exports the config from `craft.config.ts` and the routes from `capabilities/`.
 
-## Run it
+## Inspect it with the MCP Inspector
+
+The fastest way to see your tools is the official [MCP Inspector](https://github.com/modelcontextprotocol/inspector). It spawns your server and gives you a browser UI to list and call tools, with no client setup. From the project root:
 
 ```bash
-bun run start
+npx @modelcontextprotocol/inspector bunx @routecraft/cli --log-level silent run index.ts
 ```
 
-You should see Routecraft start, register both tools, and wait for stdio input. It will not print much, because every byte on stdout is reserved for MCP protocol frames. Logs go to stderr.
+`--log-level silent` keeps stdout clean: a stdio MCP server uses stdout exclusively for protocol frames, so anything else printed there breaks the connection. The Inspector opens in your browser. Click **Connect**, then **List Tools**, and you should see `notes_list` and `notes_create`.
 
-Leave it running for the moment.
+![The MCP Inspector listing the notebook server's notes_list and notes_create tools](/images/blog/your-first-mcp-server-in-typescript/mcp-inspector-tools.png)
 
-## Connect from Claude Desktop
+Open `notes_create`, fill in a title and body, and **Run Tool**. Then run `notes_list` and you will see the note you just created. That round-trip is your MCP server working end to end.
 
-Find your Claude Desktop config file:
+## Use it in a real client
 
-- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
-- **Linux**: `~/.config/Claude/claude_desktop_config.json`
-
-If the file does not exist, create it. Add an `mcpServers` entry:
+Once it works in the Inspector, any MCP client can call the same command. In Claude Desktop or Cursor, add an `mcpServers` entry that runs the server over stdio, pointing at the **absolute path** to your project's `index.ts`:
 
 ```json
 {
@@ -256,6 +254,8 @@ If the file does not exist, create it. Add an `mcpServers` entry:
       "command": "bunx",
       "args": [
         "@routecraft/cli",
+        "--log-level",
+        "silent",
         "run",
         "/absolute/path/to/notebook/index.ts"
       ]
@@ -264,36 +264,7 @@ If the file does not exist, create it. Add an `mcpServers` entry:
 }
 ```
 
-Point it at the **absolute path** to your project's `index.ts`. Claude Desktop will not expand `~` or relative paths.
-
-Quit Claude Desktop completely (not just the window, the whole app) and reopen it. In a new conversation, look for the hammer icon in the input area, click it, and you should see `notes_list` and `notes_create` listed.
-
-![Claude Desktop showing the hammer icon expanded with the notebook MCP server's two tools visible](/images/blog/your-first-mcp-server-in-typescript/claude-desktop-tools.png)
-
-Ask Claude something like:
-
-> Create a note titled "Groceries" with body "milk, bread, eggs", then list all notes.
-
-Claude will call `notes_create` first, then `notes_list`, and show you the result. You just wrote an MCP server.
-
-## Connect from Cursor
-
-Almost identical. Open **Cursor Settings -> Features -> Model Context Protocol** and add:
-
-```json
-{
-  "notebook": {
-    "command": "bunx",
-    "args": [
-      "@routecraft/cli",
-      "run",
-      "/absolute/path/to/notebook/index.ts"
-    ]
-  }
-}
-```
-
-Restart Cursor. The tools show up in chat the same way.
+Clients spawn the server with a minimal environment and do not expand `~`, so use absolute paths. Fully restart the client (quit, not just close the window) and the tools appear. Ask it: _"Create a note titled Groceries with body milk, bread, eggs, then list all notes"_ and it will call `notes_create` then `notes_list`.
 
 ## What you got for the twenty lines
 
