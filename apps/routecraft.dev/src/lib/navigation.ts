@@ -71,16 +71,8 @@ export const navigation = [
     title: 'Examples',
     href: '/docs/examples',
     links: [
-      { title: 'Hello World', href: '/docs/examples/hello-world' },
-      { title: 'MCP tool', href: '/docs/examples/mcp' },
-      { title: 'Agent step', href: '/docs/examples/agent' },
-      { title: 'Split and aggregate', href: '/docs/examples/split' },
-      { title: 'Mail notify', href: '/docs/examples/mail-noreply-notify' },
       { title: 'File to HTTP', href: '/docs/examples/api-sync' },
-      {
-        title: 'Programmatic invocation',
-        href: '/docs/examples/programmatic-invocation',
-      },
+      { title: 'MCP tool', href: '/docs/examples/mcp' },
     ],
   },
   {
