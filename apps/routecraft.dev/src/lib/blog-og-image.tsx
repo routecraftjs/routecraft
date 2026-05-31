@@ -48,6 +48,37 @@ async function loadFonts() {
   return cachedFonts
 }
 
+/** Font set for any OG image (Fraunces roman/bold/italic + JetBrains Mono). */
+export async function ogFonts() {
+  const fonts = await loadFonts()
+  return [
+    {
+      name: 'Fraunces',
+      data: fonts.fraunces,
+      style: 'normal' as const,
+      weight: 400 as const,
+    },
+    {
+      name: 'Fraunces',
+      data: fonts.fraunces700,
+      style: 'normal' as const,
+      weight: 700 as const,
+    },
+    {
+      name: 'Fraunces',
+      data: fonts.fraunces400i,
+      style: 'italic' as const,
+      weight: 400 as const,
+    },
+    {
+      name: 'JetBrains Mono',
+      data: fonts.mono,
+      style: 'normal' as const,
+      weight: 400 as const,
+    },
+  ]
+}
+
 function figureNumberFor(slug: string): number {
   const posts = getAllBlogPosts()
     .filter((post) => !post.draft)

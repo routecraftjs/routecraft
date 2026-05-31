@@ -4,6 +4,14 @@ import clsx from 'clsx'
 
 import { Providers } from '@/app/providers'
 import { Layout } from '@/components/Layout'
+import { StructuredData } from '@/components/StructuredData'
+import {
+  organization,
+  siteDescription,
+  siteName,
+  siteTagline,
+  siteUrl,
+} from '@/lib/site'
 
 import '@/styles/tailwind.css'
 
@@ -28,12 +36,16 @@ const jetbrainsMono = JetBrains_Mono({
 })
 
 export const metadata: Metadata = {
+  metadataBase: new URL(siteUrl),
   title: {
-    template: '%s - Routecraft',
-    default: 'Routecraft - AI Automation as Code',
+    template: `%s - ${siteName}`,
+    default: `${siteName} - ${siteTagline}`,
   },
-  description:
-    'Write TypeScript capabilities that send emails, manage calendars, and automate work. Expose them to any AI agent via MCP. The code-first alternative to Make.com.',
+  description: siteDescription,
+  applicationName: siteName,
+  authors: [{ name: siteName, url: organization.github }],
+  creator: siteName,
+  publisher: siteName,
   keywords: [
     'AI automation',
     'TypeScript automation',
@@ -50,15 +62,56 @@ export const metadata: Metadata = {
     'zapier alternative',
     'workflow automation',
   ],
+  alternates: {
+    canonical: '/',
+  },
   openGraph: {
-    title: 'Routecraft - AI Automation as Code',
-    description:
-      'Write TypeScript capabilities that send emails, manage calendars, and automate work. Expose them to any AI agent via MCP.',
     type: 'website',
+    siteName,
+    title: `${siteName} - ${siteTagline}`,
+    description: siteDescription,
+    url: '/',
+    locale: 'en_US',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: `${siteName} - ${siteTagline}`,
+    description: siteDescription,
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      'max-image-preview': 'large',
+      'max-snippet': -1,
+      'max-video-preview': -1,
+    },
   },
   icons: {
     icon: '/icon.svg',
   },
+}
+
+// Site-level structured data: the organization behind the site and the site
+// itself (the latter enables a sitelinks search box in Google).
+const organizationJsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'Organization',
+  name: organization.name,
+  legalName: organization.legalName,
+  url: siteUrl,
+  logo: `${siteUrl}/icon.svg`,
+  sameAs: [organization.github],
+}
+
+const websiteJsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'WebSite',
+  name: siteName,
+  url: siteUrl,
+  description: siteDescription,
 }
 
 export default function RootLayout({
@@ -78,6 +131,8 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body className="flex min-h-full bg-paper text-ink">
+        <StructuredData data={organizationJsonLd} />
+        <StructuredData data={websiteJsonLd} />
         <Providers>
           <Layout>{children}</Layout>
         </Providers>
