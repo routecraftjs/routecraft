@@ -20,7 +20,7 @@ export const topNavLinks: Array<{
     href: '/cheat-sheet',
     match: /^\/cheat-sheet(\/|$)/,
   },
-  { title: 'Changelog', href: '/docs/changelog', match: /^\/docs\/changelog/ },
+  { title: 'Changelog', href: '/changelog', match: /^\/changelog(\/|$)/ },
 ]
 
 export function TopNav({ className }: { className?: string }) {

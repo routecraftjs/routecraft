@@ -125,6 +125,14 @@ export default function sitemap(): MetadataRoute.Sitemap {
     priority: 0.8,
   })
 
+  // Add the changelog (top-level, outside the versioned docs tree)
+  routes.push({
+    url: `${baseUrl}/changelog/`,
+    lastModified: new Date(),
+    changeFrequency: 'weekly',
+    priority: 0.7,
+  })
+
   // Add raw markdown files for AI crawlers and direct access
   const rawDir = path.join(process.cwd(), 'public', 'raw')
   const rawPages = collectRawMarkdown(rawDir, '/raw')

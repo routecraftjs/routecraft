@@ -2,11 +2,6 @@ name: CI
 
 on:
   workflow_dispatch:
-    inputs:
-      docs_version:
-        description: "Version label for a manual docs deploy. Leave blank to use the dispatched ref's apps/routecraft.dev/package.json version."
-        required: false
-        type: string
   push:
     branches: ["main"]
     paths-ignore:
@@ -498,6 +493,7 @@ jobs:
       && (
         github.event_name == 'workflow_dispatch'
         || github.event_name == 'release'
+        || (github.event_name == 'push' && github.ref == 'refs/heads/main')
       )
     runs-on: ubuntu-latest
     concurrency:
@@ -513,6 +509,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Full history + tags so the freeze step below can read docs content
+          # from the latest release tag.
+          fetch-depth: 0
 
       - name: Use Node.js from .nvmrc
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -527,23 +527,53 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Resolve docs version label
+      # The published docs (/docs and /cheat-sheet) track the last released
+      # version, never the in-development code on main. On a release the checked
+      # out ref already is that version, so nothing to do. On a main push or a
+      # manual run we overlay the docs and cheat-sheet content from the latest
+      # release tag, leaving the rest of the site (home, blog, changelog) on the
+      # main-branch cadence. This is what lets a blog post or a home-page typo
+      # ship without cutting a release, without leaking unreleased docs.
+      - name: Resolve docs release ref
         id: docver
         env:
           EVENT_NAME: ${{ github.event_name }}
           REF_NAME: ${{ github.ref_name }}
-          INPUT_VERSION: ${{ inputs.docs_version }}
         run: |
           set -eo pipefail
+          git fetch --tags --force origin >/dev/null 2>&1 || true
+          LATEST_TAG="$(git tag -l 'v*' | sort -V | tail -n1)"
           if [ "$EVENT_NAME" = "release" ]; then
+            # The whole checkout is the released ref; advertise it, skip freeze.
             LABEL="$REF_NAME"
-          elif [ -n "$INPUT_VERSION" ]; then
-            LABEL="$INPUT_VERSION"
+            FREEZE_TAG=""
+          elif [ -n "$LATEST_TAG" ]; then
+            LABEL="$LATEST_TAG"
+            FREEZE_TAG="$LATEST_TAG"
           else
+            # No release tag yet (pre-1.0 bootstrap): publish the working-tree
+            # docs and label them with the in-development version.
             LABEL="v$(jq -r .version apps/routecraft.dev/package.json)"
+            FREEZE_TAG=""
           fi
           echo "label=$LABEL" >> "$GITHUB_OUTPUT"
+          echo "freeze_tag=$FREEZE_TAG" >> "$GITHUB_OUTPUT"
           echo "Docs version label: $LABEL"
+          echo "Freeze docs to tag: ${FREEZE_TAG:-<none, using working tree>}"
+
+      - name: Freeze docs and cheat-sheet to the released ref
+        if: steps.docver.outputs.freeze_tag != ''
+        env:
+          FREEZE_TAG: ${{ steps.docver.outputs.freeze_tag }}
+        run: |
+          set -eo pipefail
+          app=apps/routecraft.dev/src/app
+          git checkout "$FREEZE_TAG" -- "$app/docs" "$app/cheat-sheet"
+          # The changelog moved to a top-level /changelog on the main cadence.
+          # Older release refs still carry it under docs/changelog, so drop that
+          # copy and restore the main-branch redirect stub at the old URL.
+          rm -rf "$app/docs/changelog"
+          git checkout HEAD -- "$app/docs/changelog"
 
       - name: Build docs
         env:

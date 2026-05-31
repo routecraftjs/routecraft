@@ -18,7 +18,7 @@ export const metadata: Metadata = {
 }
 
 const changelogHighlight = {
-  href: '/docs/changelog',
+  href: '/changelog',
 }
 
 interface Feature {
