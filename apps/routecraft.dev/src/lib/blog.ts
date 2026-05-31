@@ -1,6 +1,7 @@
 import fs from 'fs'
 import path from 'path'
-import yaml from 'js-yaml'
+
+import { parseFrontmatter } from '@/lib/frontmatter'
 
 export interface BlogPostMeta {
   slug: string
@@ -24,16 +25,6 @@ export interface BlogPostMeta {
 }
 
 const WORDS_PER_MINUTE = 220
-
-function parseFrontmatter(md: string): {
-  data: Record<string, unknown>
-  body: string
-} {
-  const match = md.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/)
-  if (!match) return { data: {}, body: md }
-  const data = (yaml.load(match[1]) as Record<string, unknown>) ?? {}
-  return { data, body: match[2] ?? '' }
-}
 
 function estimateReadingTime(body: string): number {
   const text = body
@@ -86,7 +77,14 @@ function readPost(blogDir: string, slug: string): BlogPostMeta | undefined {
   }
 }
 
+let cachedPosts: BlogPostMeta[] | null = null
+
 export function getAllBlogPosts(): BlogPostMeta[] {
+  // Cache the build-time filesystem scan in production (static export), where
+  // content is frozen and this is called repeatedly: sitemap, RSS feed, the
+  // blog index, and once per OG image. In dev we skip the cache so edits to a
+  // post hot-reload without a server restart.
+  if (cachedPosts && process.env.NODE_ENV === 'production') return cachedPosts
   const blogDir = path.join(process.cwd(), 'src', 'app', 'blog')
   if (!fs.existsSync(blogDir)) return []
   const entries = fs.readdirSync(blogDir, { withFileTypes: true })
@@ -97,6 +95,7 @@ export function getAllBlogPosts(): BlogPostMeta[] {
     if (post) posts.push(post)
   }
   posts.sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+  cachedPosts = posts
   return posts
 }
 

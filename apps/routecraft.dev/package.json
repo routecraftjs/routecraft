@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
-    "prebuild": "node --experimental-strip-types scripts/generate-raw-docs.mjs",
+    "prebuild": "node --experimental-strip-types scripts/generate-raw-docs.mjs && node --experimental-strip-types scripts/generate-doc-layouts.mjs",
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint ."

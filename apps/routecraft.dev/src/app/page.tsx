@@ -9,12 +9,12 @@ import { CodeMorph } from '@/components/CodeMorph'
 import { Guardrails } from '@/components/Guardrails'
 import { HomeAdapters } from '@/components/HomeAdapters'
 import { type BlogPostMeta, getAllBlogPosts, getFeaturedPost } from '@/lib/blog'
-import { docVersion } from '@/lib/site'
+import { docVersion, siteTagline } from '@/lib/site'
 
 export const metadata: Metadata = {
   title: 'Routecraft - AI automation as code',
   description:
-    'Type-safe framework for AI automation. Build the tools an agent uses, or the agent itself, with the same fluent DSL.',
+    'Type-safe framework for AI automation. Build the tools an agent uses, or the harness itself, with the same fluent DSL.',
 }
 
 const changelogHighlight = {
@@ -134,7 +134,7 @@ function Hero() {
             className="paper-rise font-mono text-[0.7rem] tracking-[0.22em] text-cobalt-500 uppercase"
             style={{ animationDelay: '60ms' }}
           >
-            A TypeScript framework &nbsp;·&nbsp;{' '}
+            {siteTagline} &nbsp;·&nbsp;{' '}
             <Link
               href={changelogHighlight.href}
               className="hover:text-cobalt-600"
@@ -149,25 +149,19 @@ function Hero() {
               fontVariationSettings: '"opsz" 144, "SOFT" 30',
             }}
           >
-            Tools for agents.
+            Tools for <span className="text-cobalt-500">agents</span>.
             <br />
             <span
               className="font-editorial italic"
               style={{ fontVariationSettings: '"opsz" 144, "SOFT" 100' }}
             >
-              Or
-            </span>{' '}
-            <span
-              className="font-editorial italic"
-              style={{ fontVariationSettings: '"opsz" 144, "SOFT" 100' }}
-            >
-              the
+              Or the
             </span>{' '}
             <span
               className="font-editorial text-cobalt-500 italic"
               style={{ fontVariationSettings: '"opsz" 144, "SOFT" 100' }}
             >
-              agent
+              harness
             </span>{' '}
             itself.
           </h1>
@@ -177,7 +171,7 @@ function Hero() {
             style={{ animationDelay: '260ms' }}
           >
             Type-safe framework for AI automation. Build the tools an agent
-            uses, or the agent itself, with the same fluent DSL.
+            uses, or the harness itself, with the same fluent DSL.
           </p>
 
           <div

@@ -20,13 +20,13 @@ export const metadata: Metadata = {
 }
 
 export default function BlogIndexPage() {
-  const posts = getAllBlogPosts()
-  // Lead with up to two posts (featured non-drafts first, then most recent),
-  // then show the remaining posts in the grid below.
+  // Drafts never appear on the public index, matching the sitemap and RSS feed.
+  const posts = getAllBlogPosts().filter((p) => !p.draft)
+  // Lead with up to two posts (featured first, then most recent), then show the
+  // remaining posts in the grid below.
   const featured = [
-    ...posts.filter((p) => p.featured && !p.draft),
-    ...posts.filter((p) => !p.featured && !p.draft),
-    ...posts.filter((p) => p.draft),
+    ...posts.filter((p) => p.featured),
+    ...posts.filter((p) => !p.featured),
   ]
     .slice(0, 2)
     .reverse()

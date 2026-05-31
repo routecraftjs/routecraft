@@ -72,12 +72,17 @@ export default async function Image() {
           letterSpacing: '-0.025em',
         }}
       >
-        <span style={{ display: 'flex' }}>Tools for agents.</span>
+        <span style={{ display: 'flex' }}>
+          <span>Tools for</span>
+          <span style={{ color: cobalt, marginLeft: 24 }}>agents</span>
+          <span>.</span>
+        </span>
         <span style={{ display: 'flex' }}>
           <span style={{ fontStyle: 'italic' }}>Or the</span>
           <span style={{ fontStyle: 'italic', color: cobalt, marginLeft: 18 }}>
-            agent itself.
+            harness
           </span>
+          <span style={{ marginLeft: 18 }}>itself.</span>
         </span>
       </div>
 

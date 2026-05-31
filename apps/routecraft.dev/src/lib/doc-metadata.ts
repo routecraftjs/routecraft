@@ -1,8 +1,8 @@
 import fs from 'fs'
 import path from 'path'
-import yaml from 'js-yaml'
 import type { Metadata } from 'next'
 
+import { parseFrontmatter } from '@/lib/frontmatter'
 import { siteName } from '@/lib/site'
 
 // Per-doc metadata, read from the page's frontmatter and lead paragraph at
@@ -14,11 +14,7 @@ function readDocFile(route: string): { title: string; description?: string } {
   const file = path.join(process.cwd(), 'src', 'app', 'docs', route, 'page.md')
   try {
     const md = fs.readFileSync(file, 'utf8')
-    const match = md.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/)
-    const data = match
-      ? ((yaml.load(match[1]) as Record<string, unknown>) ?? {})
-      : {}
-    const body = match ? (match[2] ?? '') : md
+    const { data, body } = parseFrontmatter(md)
     const title = typeof data.title === 'string' ? data.title : route
     const description =
       typeof data.description === 'string'

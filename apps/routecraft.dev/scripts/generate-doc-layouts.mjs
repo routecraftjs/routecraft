@@ -3,8 +3,11 @@
 // pages can't export metadata, and a layout is the only per-route hook.
 //
 // The layout only carries the route string; `docMetadata()` reads the live
-// frontmatter and lead at build time, so descriptions never go stale. Re-run
-// this only when doc folders are added or removed:
+// frontmatter and lead at build time, so descriptions never go stale.
+//
+// This runs in `prebuild`, and its output is gitignored (see .gitignore), so
+// the generated layouts always match the current doc tree. No manual re-run and
+// no committed artefacts to drift. To regenerate by hand during local dev:
 //   node --experimental-strip-types scripts/generate-doc-layouts.mjs
 import fs from 'fs'
 import path from 'path'

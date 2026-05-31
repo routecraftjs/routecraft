@@ -38,3 +38,6 @@ next-env.d.ts
 /public/raw/
 /public/llms.txt
 /public/llms-full.txt
+
+# generated per-doc SEO layouts (see scripts/generate-doc-layouts.mjs, run in prebuild)
+/src/app/docs/**/layout.tsx
