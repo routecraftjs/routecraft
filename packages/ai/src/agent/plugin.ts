@@ -3,7 +3,7 @@ import {
   type CraftContext,
   type CraftPlugin,
 } from "@routecraft/routecraft";
-import { validateAgentOptions } from "./agent.ts";
+import { validateAgentOptions, validateBlocks } from "./agent.ts";
 import {
   ADAPTER_AGENT_DEFAULT_OPTIONS,
   ADAPTER_AGENT_REGISTRY,
@@ -232,25 +232,17 @@ function validatePluginDefaults(
     });
   }
   if (raw.blocks !== undefined) {
-    if (
-      raw.blocks === null ||
-      typeof raw.blocks !== "object" ||
-      Array.isArray(raw.blocks)
-    ) {
-      throw rcError("RC5003", undefined, {
-        message: `agentPlugin: "defaultOptions.blocks" must be a Record<string, BlockBody>.`,
-      });
-    }
-    // `false` is the removal sentinel on per-agent blocks; in defaults
-    // it would silently no-op (defaults cannot remove themselves), so
-    // reject at construction with a clear message rather than discard
-    // the entry at merge time.
-    for (const [name, body] of Object.entries(raw.blocks)) {
-      // The type narrows `body` to BlockBody, but `validatePluginDefaults`
-      // runs against raw user input that may have bypassed the typed
-      // surface (e.g. config loaded from JSON). Cast to unknown so the
-      // runtime check is not stripped as dead code by TS narrowing.
-      if ((body as unknown) === false) {
+    // Run the same per-entry validation as AgentOptions.blocks so blank
+    // names, the reserved `_block_` prefix, and malformed BlockBody
+    // values are rejected at plugin construction (not later at agent
+    // dispatch). validateBlocks tolerates `false` (the per-agent removal
+    // sentinel); we layer the "no `false` in defaults" rule on top
+    // because defaults cannot sensibly remove themselves.
+    validateBlocks(raw.blocks);
+    for (const [name, body] of Object.entries(
+      raw.blocks as Record<string, unknown>,
+    )) {
+      if (body === false) {
         throw rcError("RC5003", undefined, {
           message:
             `agentPlugin: "defaultOptions.blocks.${name}" cannot be false. ` +

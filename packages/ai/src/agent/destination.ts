@@ -279,8 +279,16 @@ function mergeBlocks(
   defaults: Record<string, BlockBody>,
   agent: Blocks | undefined,
 ): Blocks {
-  if (!agent) return { ...defaults };
-  const out: Blocks = {};
+  // Null-prototype accumulator so a block name like `__proto__` cannot
+  // mutate Object.prototype via `out[name] = body`. Block-name validation
+  // (validateBlocks / validatePluginDefaults) already rejects the
+  // reserved `_block_` prefix and empty strings, but `__proto__` is
+  // outside both rules, so this is defence-in-depth.
+  const out = Object.create(null) as Blocks;
+  if (!agent) {
+    for (const [name, body] of Object.entries(defaults)) out[name] = body;
+    return out;
+  }
   for (const [name, body] of Object.entries(defaults)) {
     if (Object.prototype.hasOwnProperty.call(agent, name)) {
       const override = agent[name];

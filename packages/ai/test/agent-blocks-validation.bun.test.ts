@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { craft, simple } from "@routecraft/routecraft";
 import { spy, testContext, type TestContext } from "@routecraft/testing";
-import { agent, agentPlugin, llmPlugin } from "../src/index.ts";
+import { z } from "zod";
+import { agent, agentPlugin, llmPlugin, tools } from "../src/index.ts";
 import type { LlmResult } from "../src/llm/types.ts";
 
 mock.module("../src/llm/providers/index.ts", () => ({
@@ -187,8 +188,6 @@ describe("agent blocks: construction-time validation", () => {
   test("user tools cannot use the reserved `_block_` prefix", async () => {
     const sink = spy();
     const errors: unknown[] = [];
-    const { tools } = await import("../src/index.ts");
-    const { z } = await import("zod");
     t = await testContext()
       .with({
         plugins: [

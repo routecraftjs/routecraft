@@ -337,9 +337,17 @@ function buildCatalog(ctx: CraftContext): ToolsCatalog {
         meta.tags && meta.tags.length > 0
           ? Object.freeze([...meta.tags])
           : undefined;
+      // The direct registry is keyed by the sanitised (URL-encoded)
+      // endpoint, but `Direct(<routeId>)` consumers want the raw id
+      // they passed to `.id(...)`. Round-trip through
+      // `decodeURIComponent` so a builder that does
+      // `Direct(${r.id})` resolves cleanly for ids containing `/`,
+      // `:`, etc. (without the decode, the resolver would
+      // double-encode at lookup time).
+      const rawId = decodeURIComponent(routeId);
       routes.push(
         Object.freeze({
-          id: routeId,
+          id: rawId,
           ...(meta.description ? { description: meta.description } : {}),
           ...(tags !== undefined ? { tags } : {}),
         }),

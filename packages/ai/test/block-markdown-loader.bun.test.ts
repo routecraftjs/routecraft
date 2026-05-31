@@ -58,9 +58,7 @@ describe("skills() markdown loader", () => {
         "---\nname: rules\ndescription: The rules\n---\nRule one. Rule two.",
     });
     const result = await skills({ source: dir, mode: "inject" });
-    const body = result["rules"];
-    expect(body).toBeTruthy();
-    if (body && body !== false) expect(body.mode).toBe("inject");
+    expect(result["rules"]).toMatchObject({ mode: "inject" });
   });
 
   /**
@@ -73,8 +71,7 @@ describe("skills() markdown loader", () => {
       "x.md": "---\nname: x\ndescription: d\n---\nbody",
     });
     const result = await skills({ source: dir, lifetime: "context" });
-    const body = result["x"];
-    if (body && body !== false) expect(body.lifetime).toBe("context");
+    expect(result["x"]).toMatchObject({ lifetime: "context" });
   });
 
   /**

@@ -207,7 +207,11 @@ export async function agents(
   path: string,
   overrides: Record<string, AgentMarkdownOverride> = {},
 ): Promise<Record<string, AgentRegisteredOptions>> {
-  const out: Record<string, AgentRegisteredOptions> = {};
+  // Null-prototype map so a frontmatter `name` like `__proto__` or
+  // `toString` cannot collide with Object.prototype (the `in` check
+  // below would otherwise pass for keys that were never loaded, and
+  // an assignment to `__proto__` would mutate the prototype).
+  const out = Object.create(null) as Record<string, AgentRegisteredOptions>;
   const docs = path.endsWith(".md")
     ? [await readMarkdownFile(path)]
     : await readMarkdownDir(path);
@@ -221,7 +225,7 @@ export async function agents(
     out[name] = applyOverride(agent, overrides[name]);
   }
   for (const name of Object.keys(overrides)) {
-    if (!(name in out)) {
+    if (!Object.prototype.hasOwnProperty.call(out, name)) {
       throw rcError("RC5003", undefined, {
         message: `agents("${path}"): override for "${name}" but no agent with that name was loaded from disk.`,
       });

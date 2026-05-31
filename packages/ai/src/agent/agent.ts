@@ -107,9 +107,14 @@ export function validateAgentOptions(options: AgentOptions): void {
  * entries. Empty-string keys are rejected because they round-trip as
  * an unloadable block name.
  *
+ * Exported (`@internal`) so `agentPlugin({ defaultOptions: { blocks } })`
+ * can reuse the same per-entry checks. The defaults path layers its
+ * own "no `false`" rule on top because defaults cannot sensibly remove
+ * themselves.
+ *
  * @internal
  */
-function validateBlocks(blocks: unknown): void {
+export function validateBlocks(blocks: unknown): void {
   if (blocks === null || typeof blocks !== "object" || Array.isArray(blocks)) {
     throw rcError("RC5027", undefined, {
       message: `Agent: "blocks" must be a Record<string, BlockBody | false>.`,

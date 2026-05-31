@@ -125,7 +125,7 @@ You are a researcher.
 **After (0.6.0):** drop `skills:` from frontmatter, supply blocks via the overrides map:
 
 ```ts
-import { skills } from "@routecraft/ai";
+import { agentPlugin, agents, skills } from "@routecraft/ai";
 
 agentPlugin({
   agents: await agents("./agents", {
@@ -149,9 +149,12 @@ import { agent } from "@routecraft/ai";
 craft()
   .id("memory:get")
   .from(direct())
-  .process(async (ex) => {
-    const { subject } = ex.body as { subject: string };
-    ex.body = await loadMemoryFor(subject);
+  // `.transform(body => body)` is body-in / body-out; the exchange
+  // itself is frozen in 0.6 (copy-on-write), so `ex.body = ...` from
+  // a `.process()` step would throw. Return the new body instead.
+  .transform(async (body) => {
+    const { subject } = body as { subject: string };
+    return await loadMemoryFor(subject);
   });
 
 agent({

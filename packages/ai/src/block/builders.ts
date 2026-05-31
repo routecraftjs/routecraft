@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { resolve as resolvePath } from "node:path";
 import {
   rcError,
@@ -177,7 +177,10 @@ export function fromFile(
   return async () => {
     const abs = resolvePath(process.cwd(), path);
     try {
-      return readFileSync(abs, "utf-8");
+      // Async read so the resolver does not block the event loop on
+      // every dispatch (default lifetime is `"dispatch"`, so this can
+      // fire often under concurrent agent traffic).
+      return await readFile(abs, "utf-8");
     } catch (cause) {
       throw rcError("RC5025", cause, {
         message: `fromFile("${path}"): could not read file: ${(cause as Error)?.message ?? String(cause)}`,
