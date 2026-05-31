@@ -31,7 +31,7 @@ export function BlogCard({
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={post.image}
-              alt={post.imageAlt ?? ''}
+              alt={post.imageAlt ?? post.title}
               className="h-full w-full object-cover grayscale transition duration-500 group-hover:scale-105 group-hover:grayscale-0"
             />
           ) : (

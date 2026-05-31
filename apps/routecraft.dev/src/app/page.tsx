@@ -91,7 +91,7 @@ export default function LandingPage() {
   const featuredPost = getFeaturedPost(getAllBlogPosts())
 
   return (
-    <div className="relative w-full bg-paper text-ink">
+    <main className="relative w-full bg-paper text-ink">
       <PaperGrain />
       <Hero />
       <SectionRule numeral="I" label="Bounded by design" />
@@ -111,7 +111,7 @@ export default function LandingPage() {
       <SectionRule numeral="VI" label="Try it" />
       <Finale />
       <BuiltWithRoutecraft />
-    </div>
+    </main>
   )
 }
 
@@ -567,7 +567,7 @@ function Reading({ post }: { post: BlogPostMeta }) {
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={post.image}
-                  alt={post.imageAlt ?? ''}
+                  alt={post.imageAlt ?? post.title}
                   className="h-full w-full object-cover grayscale transition duration-700 group-hover:grayscale-0"
                 />
               ) : (

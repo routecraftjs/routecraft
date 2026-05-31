@@ -28,11 +28,13 @@ const railItems = [
 export const metadata: Metadata = {
   title: 'Routecraft Cheat Sheet',
   description:
-    'One-page reference for the Routecraft DSL: installation, sources, destinations, operations, validation, error handling, events, LLM, agents, MCP integration, CLI and TUI. Print-to-PDF ready.',
+    'One-page reference for the Routecraft DSL: sources, destinations, operations, validation, errors, events, agents, MCP, CLI and TUI. Print-to-PDF ready.',
+  alternates: { canonical: '/cheat-sheet' },
   openGraph: {
     title: 'Routecraft Cheat Sheet',
     description:
       'One-page reference for the Routecraft DSL. Filter, validate, transform, enrich, split, aggregate, LLM, agents, MCP, CLI. Print to PDF.',
+    url: '/cheat-sheet',
     type: 'website',
   },
 }

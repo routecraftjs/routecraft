@@ -117,7 +117,7 @@ export function BlogPostLayout({
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={frontmatter.image}
-                alt={frontmatter.imageAlt ?? ''}
+                alt={frontmatter.imageAlt ?? frontmatter.title}
                 className="w-full"
               />
             </figure>
