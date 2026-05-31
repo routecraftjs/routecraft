@@ -4,7 +4,7 @@ description: A ten-minute walkthrough from `bunx create-routecraft` to a working
 date: 2026-05-18
 author: Jaco Botha
 authorRole: Founder, DevOptix
-version: '0.6.0'
+version: '0.5.0'
 tags:
   - mcp
   - routecraft

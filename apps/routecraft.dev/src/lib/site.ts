@@ -5,9 +5,10 @@
 
 import pkg from '../../package.json'
 
-// The Routecraft version these docs/site describe. CI passes
-// NEXT_PUBLIC_DOC_VERSION on deploy; locally it falls back to package.json, so
-// it is never hardcoded or stale.
+// The Routecraft version the site advertises (the last released version). CI
+// passes NEXT_PUBLIC_DOC_VERSION on deploy (set it to the released tag, e.g.
+// 0.5.0, even while package.json is on the next in-dev version); locally it
+// falls back to package.json. Never hardcoded in the components.
 export const docVersion = process.env.NEXT_PUBLIC_DOC_VERSION || pkg.version
 
 export const siteUrl = (

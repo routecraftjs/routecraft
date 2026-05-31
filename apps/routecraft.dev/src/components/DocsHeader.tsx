@@ -37,12 +37,32 @@ export function DocsHeader({
           <span />
         )}
         <div className="flex shrink-0 items-center gap-3">
-          <span
-            className="font-mono text-[0.6rem] tracking-[0.18em] text-ink/40 uppercase"
-            title={`Documentation for Routecraft v${docVersion}`}
+          {/* Version selector. Only the latest version is published for now, so
+              the dropdown is disabled; the chevron signals it will switch. */}
+          <button
+            type="button"
+            disabled
+            title={`Documentation for Routecraft v${docVersion} (only the latest version is published)`}
+            aria-label={`Documentation version v${docVersion}`}
+            className="inline-flex cursor-default items-center gap-2 self-stretch border border-cobalt-500/50 px-3 py-2 font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase"
           >
-            v{docVersion}
-          </span>
+            <span aria-hidden="true" className="h-1 w-1 bg-cobalt-500" />v
+            {docVersion}
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              className="h-3 w-3 text-cobalt-500/60"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M19 9l-7 7-7-7"
+              />
+            </svg>
+          </button>
           <CopyDocsButton />
         </div>
       </div>

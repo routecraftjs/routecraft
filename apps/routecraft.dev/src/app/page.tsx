@@ -139,7 +139,7 @@ function Hero() {
               href={changelogHighlight.href}
               className="hover:text-cobalt-600"
             >
-              v{docVersion} in dev
+              v{docVersion}
             </Link>
           </p>
           <h1
