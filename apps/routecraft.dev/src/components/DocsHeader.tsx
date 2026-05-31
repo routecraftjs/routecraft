@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 import { navigation } from '@/lib/navigation'
 import { Badge } from '@/components/Badge'
 import { CopyDocsButton } from '@/components/CopyDocsButton'
+import { docVersion } from '@/lib/site'
 
 type BadgeColor = React.ComponentProps<typeof Badge>['color']
 
@@ -35,7 +36,15 @@ export function DocsHeader({
         ) : (
           <span />
         )}
-        <CopyDocsButton />
+        <div className="flex shrink-0 items-center gap-3">
+          <span
+            className="font-mono text-[0.6rem] tracking-[0.18em] text-ink/40 uppercase"
+            title={`Documentation for Routecraft v${docVersion}`}
+          >
+            v{docVersion}
+          </span>
+          <CopyDocsButton />
+        </div>
       </div>
       {title && (
         <h1 className="font-editorial text-[clamp(2rem,4vw,3rem)] leading-[1.05] font-medium tracking-[-0.02em] text-ink">

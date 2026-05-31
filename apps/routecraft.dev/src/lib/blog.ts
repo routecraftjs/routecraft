@@ -11,6 +11,8 @@ export interface BlogPostMeta {
   authorRole?: string
   authorAvatar?: string
   tags?: string[]
+  /** Routecraft version the post was written for / verified against. */
+  version?: string
   featured?: boolean
   draft?: boolean
   image?: string
@@ -69,6 +71,7 @@ function readPost(blogDir: string, slug: string): BlogPostMeta | undefined {
     authorAvatar:
       typeof data.authorAvatar === 'string' ? data.authorAvatar : undefined,
     tags: Array.isArray(data.tags) ? data.tags.map(String) : undefined,
+    version: typeof data.version === 'string' ? data.version : undefined,
     featured: Boolean(data.featured),
     draft: Boolean(data.draft),
     image: typeof data.image === 'string' ? data.image : undefined,

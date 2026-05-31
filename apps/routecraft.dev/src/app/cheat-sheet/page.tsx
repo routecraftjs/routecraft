@@ -4,6 +4,7 @@ import { CheatCode } from '@/components/CheatCode'
 import { CheatLabel, CheatNote, CheatSection } from '@/components/CheatSection'
 import { CheatSheetRail } from '@/components/CheatSheetRail'
 import { PrintButton } from '@/components/PrintButton'
+import { docVersion } from '@/lib/site'
 
 const railItems = [
   { id: 'installation', title: 'Installation' },
@@ -60,8 +61,8 @@ export default function CheatSheetPage() {
               </p>
               <div className="mt-6 flex flex-wrap gap-2">
                 <span className="inline-flex items-center gap-2 border border-cobalt-500/50 px-2.5 py-1 font-mono text-[0.65rem] tracking-[0.18em] text-cobalt-500 uppercase">
-                  <span aria-hidden="true" className="h-1 w-1 bg-cobalt-500" />
-                  {process.env.NEXT_PUBLIC_DOC_VERSION ?? 'dev'}
+                  <span aria-hidden="true" className="h-1 w-1 bg-cobalt-500" />v
+                  {docVersion}
                 </span>
                 <span className="inline-flex items-center border border-ink/25 px-2.5 py-1 font-mono text-[0.65rem] tracking-[0.18em] text-ink/65 uppercase">
                   TypeScript

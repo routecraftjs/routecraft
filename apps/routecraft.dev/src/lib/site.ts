@@ -3,6 +3,13 @@
 // feed, and structured data. Canonicals always point at the production origin,
 // never a preview basePath, so search engines consolidate on one URL.
 
+import pkg from '../../package.json'
+
+// The Routecraft version these docs/site describe. CI passes
+// NEXT_PUBLIC_DOC_VERSION on deploy; locally it falls back to package.json, so
+// it is never hardcoded or stale.
+export const docVersion = process.env.NEXT_PUBLIC_DOC_VERSION || pkg.version
+
 export const siteUrl = (
   process.env.NEXT_PUBLIC_BASE_URL || 'https://routecraft.dev'
 ).replace(/\/+$/, '')

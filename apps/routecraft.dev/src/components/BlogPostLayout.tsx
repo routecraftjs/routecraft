@@ -16,6 +16,7 @@ interface BlogPostFrontmatter {
   authorRole?: string
   authorAvatar?: string
   tags?: string[]
+  version?: string
   image?: string
   imageAlt?: string
   coverGlyph?: string
@@ -99,6 +100,7 @@ export function BlogPostLayout({
               readingTime={frontmatter.readingTime}
               author={frontmatter.author}
               authorRole={frontmatter.authorRole}
+              version={frontmatter.version}
             />
             {frontmatter.draft && (
               <div className="flex items-baseline gap-3 border border-l-4 border-amber-500/40 border-l-amber-500 p-4">

@@ -7,12 +7,14 @@ export function BlogMeta({
   readingTime,
   author,
   authorRole,
+  version,
   className,
 }: {
   date: string
   readingTime?: number
   author?: string
   authorRole?: string
+  version?: string
   className?: string
 }) {
   return (
@@ -47,6 +49,19 @@ export function BlogMeta({
             {authorRole ? (
               <span className="text-ink/55">, {authorRole}</span>
             ) : null}
+          </span>
+        </>
+      )}
+      {version && (
+        <>
+          <span aria-hidden="true" className="text-ink/25">
+            /
+          </span>
+          <span
+            className="font-mono text-[0.65rem] tracking-[0.2em] text-ink/55 uppercase"
+            title={`Written for Routecraft v${version}`}
+          >
+            Routecraft v{version}
           </span>
         </>
       )}

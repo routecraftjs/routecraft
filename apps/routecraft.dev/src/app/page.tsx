@@ -9,6 +9,7 @@ import { CodeMorph } from '@/components/CodeMorph'
 import { Guardrails } from '@/components/Guardrails'
 import { HomeAdapters } from '@/components/HomeAdapters'
 import { type BlogPostMeta, getAllBlogPosts, getFeaturedPost } from '@/lib/blog'
+import { docVersion } from '@/lib/site'
 
 export const metadata: Metadata = {
   title: 'Routecraft - AI automation as code',
@@ -17,10 +18,6 @@ export const metadata: Metadata = {
 }
 
 const changelogHighlight = {
-  version: 'v0.6.0',
-  title: 'In development',
-  description:
-    'Mail classification fixes, the new docs blog and cheat-sheet. Tag pending.',
   href: '/docs/changelog',
 }
 
@@ -142,7 +139,7 @@ function Hero() {
               href={changelogHighlight.href}
               className="hover:text-cobalt-600"
             >
-              {changelogHighlight.version} in dev
+              v{docVersion} in dev
             </Link>
           </p>
           <h1
@@ -401,7 +398,7 @@ function TwoModes() {
               </li>
             </ul>
             <Link
-              href="/docs/advanced/composing-capabilities"
+              href="/docs/reference/adapters/agent/"
               className="mt-3 inline-flex items-center gap-2 font-mono text-[0.7rem] tracking-[0.22em] text-cobalt-500 uppercase hover:text-cobalt-600"
             >
               <span>Build an agent capability</span>
