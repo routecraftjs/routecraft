@@ -73,7 +73,7 @@ function readPost(blogDir: string, slug: string): BlogPostMeta | undefined {
       typeof data.readingTime === 'number'
         ? data.readingTime
         : estimateReadingTime(body),
-    href: `/blog/${slug}`,
+    href: `/blog/${slug}/`,
   }
 }
 

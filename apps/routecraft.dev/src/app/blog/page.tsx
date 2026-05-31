@@ -9,12 +9,12 @@ export const metadata: Metadata = {
   title: 'Blog',
   description:
     'Patterns, tutorials, and field notes from building TypeScript automations and MCP servers with Routecraft.',
-  alternates: { canonical: '/blog' },
+  alternates: { canonical: '/blog/' },
   openGraph: {
     title: 'Routecraft Blog',
     description:
       'Patterns, tutorials, and field notes from building TypeScript automations and MCP servers with Routecraft.',
-    url: '/blog',
+    url: '/blog/',
     type: 'website',
   },
 }

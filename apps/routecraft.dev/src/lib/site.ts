@@ -33,6 +33,17 @@ export const organization = {
   github: 'https://github.com/routecraftjs/routecraft',
 }
 
+/**
+ * Normalise a site-relative path to the trailing-slash form the static export
+ * actually serves (next.config sets `trailingSlash: true`, folder-style export).
+ * Canonicals, og:url, JSON-LD, and feed links must use this so they agree with
+ * the sitemap and the served URL instead of pointing at a 301 redirect.
+ */
+export function canonicalPath(pathname: string): string {
+  if (!pathname.startsWith('/')) pathname = `/${pathname}`
+  return pathname.endsWith('/') ? pathname : `${pathname}/`
+}
+
 /** Absolute production URL for a site-relative path (leading slash required). */
 export function absoluteUrl(pathname: string): string {
   if (!pathname.startsWith('/')) pathname = `/${pathname}`

@@ -30,12 +30,12 @@ export const metadata: Metadata = {
   title: 'Routecraft Cheat Sheet',
   description:
     'One-page reference for the Routecraft DSL: sources, destinations, operations, validation, errors, events, agents, MCP, CLI and TUI. Print-to-PDF ready.',
-  alternates: { canonical: '/cheat-sheet' },
+  alternates: { canonical: '/cheat-sheet/' },
   openGraph: {
     title: 'Routecraft Cheat Sheet',
     description:
       'One-page reference for the Routecraft DSL. Filter, validate, transform, enrich, split, aggregate, LLM, agents, MCP, CLI. Print to PDF.',
-    url: '/cheat-sheet',
+    url: '/cheat-sheet/',
     type: 'website',
   },
 }

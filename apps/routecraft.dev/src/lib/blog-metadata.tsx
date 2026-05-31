@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 
 import { getBlogPostBySlug } from '@/lib/blog'
-import { absoluteUrl, siteName, siteUrl } from '@/lib/site'
+import { absoluteUrl, canonicalPath, siteName, siteUrl } from '@/lib/site'
 import { StructuredData } from '@/components/StructuredData'
 
 function isoDate(date: string): string | undefined {
@@ -18,7 +18,7 @@ function isoDate(date: string): string | undefined {
 export function blogPostMetadata(slug: string): Metadata {
   const post = getBlogPostBySlug(slug)
   if (!post) return {}
-  const url = `/blog/${slug}`
+  const url = canonicalPath(`/blog/${slug}`)
   const published = isoDate(post.date)
 
   return {
@@ -48,7 +48,7 @@ export function blogPostMetadata(slug: string): Metadata {
 export function BlogPostJsonLd({ slug }: { slug: string }) {
   const post = getBlogPostBySlug(slug)
   if (!post) return null
-  const url = absoluteUrl(`/blog/${slug}`)
+  const url = absoluteUrl(canonicalPath(`/blog/${slug}`))
   const published = isoDate(post.date)
 
   const blogPosting = {
@@ -79,7 +79,7 @@ export function BlogPostJsonLd({ slug }: { slug: string }) {
         '@type': 'ListItem',
         position: 2,
         name: 'Blog',
-        item: `${siteUrl}/blog`,
+        item: `${siteUrl}/blog/`,
       },
       { '@type': 'ListItem', position: 3, name: post.title, item: url },
     ],

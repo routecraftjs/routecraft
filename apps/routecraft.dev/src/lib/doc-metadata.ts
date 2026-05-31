@@ -3,7 +3,7 @@ import path from 'path'
 import type { Metadata } from 'next'
 
 import { parseFrontmatter } from '@/lib/frontmatter'
-import { siteName } from '@/lib/site'
+import { canonicalPath, siteName } from '@/lib/site'
 
 // Per-doc metadata, read from the page's frontmatter and lead paragraph at
 // build time. Markdoc `.md` pages can't export metadata, so each doc folder
@@ -47,7 +47,7 @@ function extractLead(body: string): string | undefined {
 
 export function docMetadata(route: string): Metadata {
   const { title, description } = readDocFile(route)
-  const url = route ? `/docs/${route}` : '/docs'
+  const url = canonicalPath(route ? `/docs/${route}` : '/docs')
   // Absolute title: nested doc layouts each set a title, so the root template
   // ('%s - Routecraft') doesn't cascade reliably. Spell it out instead.
   const fullTitle = `${title} · Docs - ${siteName}`
