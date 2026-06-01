@@ -534,6 +534,11 @@ jobs:
       # release tag, leaving the rest of the site (home, blog, changelog) on the
       # main-branch cadence. This is what lets a blog post or a home-page typo
       # ship without cutting a release, without leaking unreleased docs.
+      #
+      # Releases at or before MIN_FREEZE_VERSION predate the current docs styling
+      # and do not render with the present shell, so they are never frozen or
+      # published. Until a newer release exists, /docs publishes from the main
+      # working tree (labelled with the in-development version).
       - name: Resolve docs release ref
         id: docver
         env:
@@ -542,17 +547,28 @@ jobs:
         run: |
           set -eo pipefail
           git fetch --tags --force origin >/dev/null 2>&1 || true
+
+          # Exclusive lower bound: only releases strictly newer than this render
+          # with the current docs shell and are eligible to be frozen/published.
+          MIN_FREEZE_VERSION="v0.5.0"
+
+          # 0 (true) when $1 is strictly greater than $2 under version sort.
+          version_gt() {
+            [ "$1" != "$2" ] &&
+              [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n1)" = "$1" ]
+          }
+
           LATEST_TAG="$(git tag -l 'v*' | sort -V | tail -n1)"
           if [ "$EVENT_NAME" = "release" ]; then
             # The whole checkout is the released ref; advertise it, skip freeze.
             LABEL="$REF_NAME"
             FREEZE_TAG=""
-          elif [ -n "$LATEST_TAG" ]; then
+          elif [ -n "$LATEST_TAG" ] && version_gt "$LATEST_TAG" "$MIN_FREEZE_VERSION"; then
             LABEL="$LATEST_TAG"
             FREEZE_TAG="$LATEST_TAG"
           else
-            # No release tag yet (pre-1.0 bootstrap): publish the working-tree
-            # docs and label them with the in-development version.
+            # No eligible release yet: publish the working-tree docs and label
+            # them with the in-development version.
             LABEL="v$(jq -r .version apps/routecraft.dev/package.json)"
             FREEZE_TAG=""
           fi
