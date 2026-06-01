@@ -80,7 +80,7 @@ export default async function Image() {
         <span style={{ display: 'flex' }}>
           <span style={{ fontStyle: 'italic' }}>Or the</span>
           <span style={{ fontStyle: 'italic', color: cobalt, marginLeft: 18 }}>
-            harness
+            agent harness
           </span>
           <span style={{ marginLeft: 18 }}>itself.</span>
         </span>
