@@ -49,7 +49,9 @@ export default function withDocsMarkdown(nextConfig = {}) {
               }
 
               pageMap[pageUrl] = cleaned
-              if (file.startsWith('docs/')) {
+              // Keep next-channel pages addressable for "copy page", but exclude
+              // them from the combined all-docs bundle (they mirror the latest).
+              if (file.startsWith('docs/') && !file.startsWith('docs/next/')) {
                 allParts.push(cleaned)
               }
             }

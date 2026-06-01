@@ -39,6 +39,9 @@ next-env.d.ts
 /public/llms.txt
 /public/llms-full.txt
 
+# generated in-development docs channel (see scripts/generate-docs-next.mjs, run in prebuild)
+/src/app/docs/next/
+
 # generated per-route SEO shims (see scripts/generate-route-shims.mjs, run in prebuild)
 /src/app/docs/**/layout.tsx
 /src/app/blog/*/layout.tsx

@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
-    "prebuild": "node --experimental-strip-types scripts/generate-raw-docs.mjs && node --experimental-strip-types scripts/generate-route-shims.mjs",
+    "prebuild": "node --experimental-strip-types scripts/generate-docs-next.mjs && node --experimental-strip-types scripts/generate-raw-docs.mjs && node --experimental-strip-types scripts/generate-route-shims.mjs",
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint ."

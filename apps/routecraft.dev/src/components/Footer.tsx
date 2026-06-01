@@ -12,7 +12,7 @@ const productLinks: FooterLink[] = [
   { title: 'Documentation', href: '/docs/introduction' },
   { title: 'Cheat sheet', href: '/cheat-sheet' },
   { title: 'Blog', href: '/blog' },
-  { title: 'Changelog', href: '/docs/changelog' },
+  { title: 'Changelog', href: '/changelog' },
 ]
 
 const referenceLinks: FooterLink[] = [

@@ -5,6 +5,11 @@ import { usePathname } from 'next/navigation'
 import clsx from 'clsx'
 
 import { navigation } from '@/lib/navigation'
+import {
+  docsChannelPrefix,
+  stripDocsChannel,
+  withDocsChannel,
+} from '@/lib/docs-channel'
 
 function PageLink({
   title,
@@ -49,7 +54,11 @@ function PageLink({
 
 export function PrevNextLinks() {
   const rawPathname = usePathname()
-  const pathname = rawPathname === '/' ? '/' : rawPathname.replace(/\/$/, '')
+  const trimmed = rawPathname === '/' ? '/' : rawPathname.replace(/\/$/, '')
+  // Match against the channel-stripped path, then render prev/next within the
+  // active channel so /docs/next pages link to other /docs/next pages.
+  const channelPrefix = docsChannelPrefix(trimmed)
+  const pathname = stripDocsChannel(trimmed)
   const allLinks = navigation.flatMap((section) => section.links)
   const linkIndex = allLinks.findIndex((link) => link.href === pathname)
   const previousPage = linkIndex > -1 ? allLinks[linkIndex - 1] : null
@@ -61,8 +70,20 @@ export function PrevNextLinks() {
 
   return (
     <dl className="mt-16 flex border-t border-ink/15 pt-8">
-      {previousPage && <PageLink dir="previous" {...previousPage} />}
-      {nextPage && <PageLink className="ml-auto text-right" {...nextPage} />}
+      {previousPage && (
+        <PageLink
+          dir="previous"
+          title={previousPage.title}
+          href={withDocsChannel(previousPage.href, channelPrefix)}
+        />
+      )}
+      {nextPage && (
+        <PageLink
+          className="ml-auto text-right"
+          title={nextPage.title}
+          href={withDocsChannel(nextPage.href, channelPrefix)}
+        />
+      )}
     </dl>
   )
 }
