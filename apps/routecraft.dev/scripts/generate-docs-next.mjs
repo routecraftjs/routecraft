@@ -34,12 +34,14 @@ if (process.env.SKIP_DOCS_NEXT && fs.existsSync(NEXT_DIR)) {
 }
 
 // Rewrite absolute /docs/... links to /docs/next/... in markdown and Markdoc
-// tag attributes. Links to /changelog (shared, unversioned) are left untouched.
+// tag attributes. Links already pointing at /docs/next/ are skipped (negative
+// lookahead) so they are not doubled to /docs/next/next/. Links to /changelog
+// (shared, unversioned) are outside /docs and left untouched.
 function rewriteLinks(md) {
   return md
-    .replaceAll('](/docs/', '](/docs/next/')
-    .replaceAll('href="/docs/', 'href="/docs/next/')
-    .replaceAll("href='/docs/", "href='/docs/next/")
+    .replace(/\]\(\/docs\/(?!next\/)/g, '](/docs/next/')
+    .replace(/href="\/docs\/(?!next\/)/g, 'href="/docs/next/')
+    .replace(/href='\/docs\/(?!next\/)/g, "href='/docs/next/")
 }
 
 fs.rmSync(NEXT_DIR, { recursive: true, force: true })
