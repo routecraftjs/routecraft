@@ -47,7 +47,12 @@ function extractLead(body: string): string | undefined {
 
 export function docMetadata(route: string): Metadata {
   const { title, description } = readDocFile(route)
-  const url = canonicalPath(route ? `/docs/${route}` : '/docs')
+  // The in-development /docs/next channel mirrors the latest docs. It is kept
+  // out of search indexes and canonicalises to its latest-channel equivalent so
+  // engines consolidate on the released page rather than the preview.
+  const isNext = route === 'next' || route.startsWith('next/')
+  const latestRoute = isNext ? route.replace(/^next\/?/, '') : route
+  const url = canonicalPath(latestRoute ? `/docs/${latestRoute}` : '/docs')
   // Absolute title: nested doc layouts each set a title, so the root template
   // ('%s - Routecraft') doesn't cascade reliably. Spell it out instead.
   const fullTitle = `${title} · Docs - ${siteName}`
@@ -55,6 +60,7 @@ export function docMetadata(route: string): Metadata {
     title: { absolute: fullTitle },
     description,
     alternates: { canonical: url },
+    ...(isNext ? { robots: { index: false, follow: true } } : {}),
     openGraph: { type: 'article', title: fullTitle, description, url },
     twitter: { card: 'summary_large_image', title: fullTitle, description },
   }

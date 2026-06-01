@@ -30,7 +30,7 @@ const NAV_ORDER = navigation.map((section) => ({
 // section landing pages are just navigation links repeated from child pages).
 // /docs/introduction is kept because it has real content ("What is Routecraft").
 const SKIP_IN_COMBINED = new Set([
-  '/docs/changelog',
+  '/changelog',
   ...navigation
     .map((s) => s.href)
     .filter((href) => href !== '/' && href !== '/docs/introduction'),
@@ -48,7 +48,10 @@ function extractTitle(md) {
 // Build a map of url -> { title, cleaned markdown }
 const pages = new Map()
 
-const files = glob.sync('**/page.md', { cwd: APP_DIR }).sort()
+const files = glob
+  .sync('**/page.md', { cwd: APP_DIR })
+  .filter((file) => !file.startsWith('docs/next/'))
+  .sort()
 for (const file of files) {
   const url = file === 'page.md' ? '/' : `/${file.replace(/\/page\.md$/, '')}`
   const md = fs.readFileSync(path.join(APP_DIR, file), 'utf8')
@@ -185,7 +188,7 @@ const llmsTxt =
     `## Optional`,
     [
       `- [Full Documentation (single file)](${BASE_URL}/llms-full.txt): All documentation concatenated into one markdown file for bulk ingestion`,
-      `- [Changelog](${BASE_URL}/raw/docs/changelog.md)`,
+      `- [Changelog](${BASE_URL}/raw/changelog.md)`,
     ].join('\n'),
   ].join('\n\n') + '\n'
 

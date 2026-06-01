@@ -53,7 +53,12 @@ export default function withSearch(nextConfig = {}) {
             let pagesDir = path.resolve('./src/app')
             this.addContextDependency(pagesDir)
 
-            let files = glob.sync('**/page.md', { cwd: pagesDir })
+            // Exclude the in-development /docs/next channel: it is a noindex
+            // mirror of the latest docs, so indexing it would return duplicate,
+            // unreleased results in site search.
+            let files = glob
+              .sync('**/page.md', { cwd: pagesDir })
+              .filter((file) => !file.startsWith('docs/next/'))
             let data = files.map((file) => {
               let url =
                 file === 'page.md' ? '/' : `/${file.replace(/\/page\.md$/, '')}`
