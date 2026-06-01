@@ -2,7 +2,7 @@
 
   <img src="./routecraft.svg" alt="Routecraft" width="120" />
 
-  <p><strong>AI automation as code</strong></p>
+  <p><strong>Tools for agents. Or the agent harness itself.</strong></p>
 
   <a href="https://github.com/routecraftjs/routecraft/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/routecraftjs/routecraft/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Bun" src="https://img.shields.io/badge/Bun-1.1%2B-fbf0df?logo=bun">
@@ -16,7 +16,7 @@
 
 ## About
 
-Routecraft is a code-first automation platform for TypeScript. Write routes that send emails, manage calendars, and automate work. Expose them to any AI agent via MCP.
+Routecraft is a type-safe framework for AI automation. Build the tools an agent uses, or the agent itself, with the same fluent DSL. Write capabilities that send emails, manage calendars, and automate work, then expose them to any AI agent via MCP.
 
 ## Why Routecraft?
 
@@ -27,14 +27,14 @@ Routecraft is a code-first automation platform for TypeScript. Write routes that
 
 ## Quick Start
 
-### Write a tool
+### Write a capability
 
 ```ts
 import { mcp } from '@routecraft/ai'
 import { craft, mail } from '@routecraft/routecraft'
 import { z } from 'zod'
 
-// Define a tool AI can call
+// Define a capability AI can call
 export default craft()
   .from(mcp('send-team-email', {
     description: 'Send email to team members',
@@ -97,7 +97,7 @@ Claude discovers your tool and uses it automatically. ✨
 
 ## Examples
 
-Browse runnable examples in [`examples/src/`](./examples/src/) — `hello-world.ts`, `mcp-greet.ts`, `agent.ts`, `mail-noreply-notify.ts`, `programmatic-invocation.ts`, `split.ts`. Each demonstrates a different feature combination.
+Browse runnable examples in [`examples/src/`](./examples/src/): `hello-world.ts`, `mcp-greet.ts`, `agent.ts`, `mail-noreply-notify.ts`, `programmatic-invocation.ts`, `split.ts`. Each demonstrates a different feature combination.
 
 Try one:
 
@@ -111,7 +111,7 @@ For end-to-end walkthroughs, see [the docs site](https://routecraft.dev/docs/exa
 
 ## Contributing
 
-Contributions are welcome! Please read our contribution guide at https://routecraft.dev/docs/community/contribution-guide for guidelines on how to propose changes, add adapters, and write routes.
+Contributions are welcome! Please read our contribution guide at https://routecraft.dev/docs/community/contribution-guide for guidelines on how to propose changes, add adapters, and write capabilities.
 
 ## License
 
