@@ -34,14 +34,16 @@ if (process.env.SKIP_DOCS_NEXT && fs.existsSync(NEXT_DIR)) {
 }
 
 // Rewrite absolute /docs/... links to /docs/next/... in markdown and Markdoc
-// tag attributes. Links already pointing at /docs/next/ are skipped (negative
-// lookahead) so they are not doubled to /docs/next/next/. Links to /changelog
-// (shared, unversioned) are outside /docs and left untouched.
+// tag attributes. Links that already target the next channel are skipped via a
+// negative lookahead so they are not doubled to /docs/next/next: "next" followed
+// by a segment or delimiter boundary (slash, closing paren/quote, query, hash)
+// is the channel, whereas a sibling page like /docs/next-steps (next followed by
+// "-") is still rewritten. Links to /changelog are outside /docs and untouched.
 function rewriteLinks(md) {
   return md
-    .replace(/\]\(\/docs\/(?!next\/)/g, '](/docs/next/')
-    .replace(/href="\/docs\/(?!next\/)/g, 'href="/docs/next/')
-    .replace(/href='\/docs\/(?!next\/)/g, "href='/docs/next/")
+    .replace(/\]\(\/docs\/(?!next(?:[/)#?]|$))/g, '](/docs/next/')
+    .replace(/href="\/docs\/(?!next(?:["/#?]|$))/g, 'href="/docs/next/')
+    .replace(/href='\/docs\/(?!next(?:['/#?]|$))/g, "href='/docs/next/")
 }
 
 fs.rmSync(NEXT_DIR, { recursive: true, force: true })
