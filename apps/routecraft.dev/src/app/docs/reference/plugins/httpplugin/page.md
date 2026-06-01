@@ -41,7 +41,7 @@ Per-route authorization uses the existing [`.authorize({ roles, scopes })`](/doc
 
 - `apply(ctx)` validates options, publishes the route registry on the context store, starts the listener, emits `plugin:http:server:listening { port, host }`.
 - On context stop, the plugin closes the listener and emits `plugin:http:server:closed`.
-- A bind failure (`EADDRINUSE` / `EADDRNOTAVAIL`) surfaces as [`RC5019`](/docs/reference/errors#rc5019). The plugin resets its store flags so a retry on the same context starts clean.
+- A bind failure (`EADDRINUSE` / `EADDRNOTAVAIL`) surfaces as [`RC5019`](/docs/reference/errors#rc-5019). The plugin resets its store flags so a retry on the same context starts clean.
 
 ## Events
 
