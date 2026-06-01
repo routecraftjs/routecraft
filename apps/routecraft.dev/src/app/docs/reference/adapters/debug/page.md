@@ -5,7 +5,7 @@ title: debug
 [← All adapters](/docs/reference/adapters) {% .lead %}
 
 ```ts
-debug<T>(formatter?: (exchange: Exchange<T>) => unknown): Destination<T, void>
+debug<T>(formatter?: (exchange: Exchange<T>) => unknown, options?: Omit<LogOptions, "level">): Destination<T, void>
 ```
 
 Convenience helper for debug-level logging. Equivalent to `log(formatter, { level: 'debug' })`.
@@ -19,7 +19,7 @@ Convenience helper for debug-level logging. Equivalent to `log(formatter, { leve
 .tap(debug((ex) => ({ id: ex.id, bodySize: JSON.stringify(ex.body).length })))
 
 // Use throughout development workflow
-craft().from(source).tap(debug((ex) => `Input: ${ex.body}`)).transform(processData).tap(debug((ex) => `Processed: ${ex.body}`)).to(destination)
+craft().from(source).tap(debug((ex) => `Input: ${JSON.stringify(ex.body)}`)).transform(processData).tap(debug((ex) => `Processed: ${JSON.stringify(ex.body)}`)).to(destination)
 ```
 
 **Use cases:** Development debugging, verbose logging during troubleshooting

@@ -58,7 +58,7 @@ Read and write [JSON Lines](https://jsonlines.org/) files (one JSON object per l
 | `encoding` | `BufferEncoding` | `'utf-8'` | Text encoding |
 | `chunked` | `boolean` | `false` | Emit one exchange per line instead of a single array |
 | `reviver` | `(key, value) => unknown` | - | Reviver function passed to `JSON.parse` |
-| `onParseError` | `'fail' \| 'abort' \| 'drop'` | `'fail'` | How to handle a line parse failure. See [parse error handling](#parse-error-handling). |
+| `onParseError` | `'fail' \| 'abort' \| 'drop'` | `'fail'` | How to handle a line parse failure. See [parse error handling](/docs/reference/adapters#parse-error-handling). |
 
 **Destination options (`JsonlDestinationOptions`):**
 

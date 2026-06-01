@@ -41,7 +41,7 @@ function blogLayoutSource(slug) {
   return `${banner}
 import { blogPostMetadata, BlogPostJsonLd } from '@/lib/blog-metadata'
 
-const slug = '${slug}'
+const slug = ${JSON.stringify(slug)}
 
 export const metadata = blogPostMetadata(slug)
 
@@ -74,7 +74,7 @@ export const alt = ${JSON.stringify(alt)}
 export const dynamic = 'force-static'
 
 export default async function Image() {
-  return createBlogOgImage({ slug: '${slug}' })
+  return createBlogOgImage({ slug: ${JSON.stringify(slug)} })
 }
 `
 }

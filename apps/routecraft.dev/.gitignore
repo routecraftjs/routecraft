@@ -41,5 +41,5 @@ next-env.d.ts
 
 # generated per-route SEO shims (see scripts/generate-route-shims.mjs, run in prebuild)
 /src/app/docs/**/layout.tsx
-/src/app/blog/**/layout.tsx
-/src/app/blog/**/opengraph-image.tsx
+/src/app/blog/*/layout.tsx
+/src/app/blog/*/opengraph-image.tsx
