@@ -200,7 +200,7 @@ auth: oauth({
 | `clientId` | `payload.client_id`, then `payload.azp` |
 | `scopes` | space-split `payload.scope` |
 
-`email`, `name`, and `roles` are not mappable here. They are read from the standard claim names (`email`, `name`, `roles`) when present in the token. For identity fields that do not live in the bearer (most IdPs do not put them there), use the [`userinfo` option on `mcpPlugin({})`](/docs/advanced/securing-capabilities#principal-enrichment-via-userinfo) — function variant for custom mappings, OIDC Discovery or an explicit URL for the standard `/userinfo` endpoint.
+`email`, `name`, and `roles` are not mappable here. They are read from the standard claim names (`email`, `name`, `roles`) when present in the token. For identity fields that do not live in the bearer (most IdPs do not put them there), use the [`userinfo` option on `mcpPlugin({})`](/docs/advanced/securing-capabilities#principal-enrichment-via-userinfo): function variant for custom mappings, OIDC Discovery or an explicit URL for the standard `/userinfo` endpoint.
 
 **Claim overrides for non-standard IdPs:**
 

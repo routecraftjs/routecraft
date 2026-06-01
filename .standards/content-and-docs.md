@@ -37,7 +37,7 @@ split. Both are concept-led; advanced just goes deeper and may also carry guides
   it. A topic may legitimately appear as reference + guide + example + blog at once, as long
   as each plays only its own role and links to the others.
 - **Navigation matches folders.** A page's nav group and its URL folder must name the same
-  surface. `src/lib/navigation.ts` is the source of truth for grouping; keep it aligned with
+  surface. `apps/routecraft.dev/src/lib/navigation.ts` is the source of truth for grouping; keep it aligned with
   the `docs/<surface>/` folder each page lives in.
 - **No silent duplication.** When two pages cover one topic (for example a how-to and a
   catalog), each owns its half. Do not copy a table into both; link to the one that owns it.
