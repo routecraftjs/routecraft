@@ -161,7 +161,7 @@ function Hero() {
               className="font-editorial text-cobalt-500 italic"
               style={{ fontVariationSettings: '"opsz" 144, "SOFT" 100' }}
             >
-              harness
+              agent harness
             </span>{' '}
             itself.
           </h1>
