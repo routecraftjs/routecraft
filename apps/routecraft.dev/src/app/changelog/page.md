@@ -14,23 +14,22 @@ This section tracks changes landing on `main` since the v0.5.0 release. Release 
 
 ### AI & MCP {% badge color="red" %}Breaking{% /badge %}
 
-- **Agent blocks replace skills** -- `AgentOptions.skills: string[]` and `agentPlugin({ skills })` are removed and replaced by a single `blocks: Blocks` record (`Record<string, BlockBody | false>`) that unifies skills, memory, identity, instructions, and any other system-context contribution. Each block has a `mode` (`"inject"` to always concatenate into the system prompt, `"progressive"` to surface as a synthetic loader tool the model invokes on demand) and a `lifetime` (`"dispatch"` to re-run the resolver every dispatch, `"context"` to evaluate once per `CraftContext` and cache). Resolvers receive `(exchange, context, events, client)`, where `client.forward(routeId, payload)` is the same callable route `.error()` handlers receive, so a block can derive content from another route without bespoke plumbing. The big semantic shift: progressive disclosure is now the default for `skills`, matching what Claude Code actually does -- the model picks which skills to load instead of paying full token cost for every skill on every dispatch. Use `mode: "inject"` to keep the legacy "concatenate every skill verbatim" behaviour. Set a block to `false` to remove a default inherited from `agentPlugin({ defaultOptions: { blocks } })`.
-- **`skills({ source, mode?, lifetime? })` and `fromFile(path)` builders** -- `skills` keeps the 0.5 name but now returns a `Blocks` record you spread into `blocks: { ... }`. Reads the same markdown layout the deleted `skills(path)` loader did (flat `<name>.md` and nested `<name>/SKILL.md`, Claude Code frontmatter accepted) and defaults to progressive disclosure. `fromFile` returns a resolver that reads a UTF-8 file at resolution time.
-- **Tag selectors on `tools()` removed** -- the `{ tagged }` and `{ tagged, from }` variants are gone, along with the `tags` override on `directTool`. Implicit extension of an agent's tool surface when a future fn is tagged with a matched value was a security footgun: an agent's tool list is a security boundary, and that boundary should be explicit. For the cases where enumeration is impractical, `tools()` now accepts a builder: `tools((catalog) => [...])` receives a `ToolsCatalog` snapshot (`{ fns, routes, mcp }`) and returns the same shape the array form accepts, putting any filter predicate in user code where it's visible. The implicit-extension behaviour is the same, but a `.filter()` at the call site is an obvious signal that the set is dynamic, not a declarative selector tucked into framework config.
-- **Tool-call partitioning** -- synthetic block-loader invocations no longer appear on `AgentResult.toolCalls`. They surface on a new `AgentResult.blocksLoaded?: AgentBlockLoadSummary[]` so post-dispatch user-tool assertions stay clean. Loader calls also emit `route:<id>:agent:block:loaded` / `:agent:block:error` events instead of the `:agent:tool:*` family.
-- **Loader tool naming reservation** -- the `_block_load_<name>` prefix is reserved. User tools (fn ids, direct route ids, block names) that start with `_block_` are rejected at construction or dispatch with `RC5026`.
-- **Markdown agent loader: `skills:` frontmatter rejected** -- `agents("./agents")` no longer accepts a `skills:` field; YAML cannot express the function-form resolvers blocks may carry. Supply `blocks` via the per-agent overrides map handed to `agents()` instead.
-- **Three new error codes** -- `RC5025` (block resolution failed), `RC5026` (block name collision / reserved prefix), `RC5027` (block misconfigured: invalid mode, missing description on a progressive block, etc).
+- **Agent blocks replace skills** -- `AgentOptions.skills` and `agentPlugin({ skills })` are removed in favour of a `blocks` record that unifies skills, memory, identity, and instructions, with progressive disclosure now the default. See the [migration guide](/docs/migrating/0.5-to-0.6).
+- **`skills({ source })` and `fromFile(path)` builders** -- `skills` now returns a `blocks` record to spread into `blocks: { ... }`; `fromFile` reads a UTF-8 file at resolution time.
+- **Tag selectors on `tools()` removed** -- the `{ tagged }` / `{ tagged, from }` variants and the `tags` override on `directTool` are gone. Use the new `tools((catalog) => [...])` builder form for dynamic selection.
+- **Block-loader calls partitioned out of `toolCalls`** -- progressive loads surface on `AgentResult.blocksLoaded` and emit `agent:block:*` events instead of `agent:tool:*`.
+- **`skills:` frontmatter on `agents()` rejected** -- supply `blocks` through the per-agent overrides map instead.
+- **New error codes `RC5025`-`RC5027`** -- block resolution failure, name collision / reserved `_block_` prefix, and block misconfiguration.
 
 ### Mail
 
-- **Direct mail no longer misclassified as auto-forwarded** -- the delivering MX (Gmail / Google Workspace) stamps a single first-hop ARC set (`i=1`, `cv=none`) onto direct mail, so the presence of ARC headers is not evidence of forwarding. `analyzeHeaders` treated any ARC set as a forward, which downgraded DMARC-aligned direct mail to `unverified`. ARC is now only treated as forwarding evidence when the chain is validated (`cv=pass`/`cv=fail`) or spans more than one instance. Direct mail resolves to `direct` / `verified` via boundary DMARC. The mailing-list path (`List-Id`) and validated auto-forwards are unchanged.
+- **Direct mail no longer misclassified as auto-forwarded** -- a single first-hop ARC seal (`i=1`, `cv=none`) added by the delivering MX is no longer read as forwarding, so DMARC-aligned direct mail stays `direct` / `verified` instead of `unverified`. Mailing-list and validated-forward classification are unchanged.
 
 ### Docs site
 
-- **Blog section at [/blog](/blog)** with an initial set of posts and a featured + latest grid layout. Markdoc-backed, theme-aware, with structured frontmatter for date, author, tags, and draft status.
-- **Cheat sheet reference at [/cheat-sheet](/cheat-sheet)** -- searchable, theme-aware HTML page covering the full builder DSL, sources, destinations, operations, validation, error handling, events, MCP integration, CLI, and TUI. Print stylesheet produces a clean A4 PDF via `Cmd/Ctrl + P`.
-- **Migration guide** -- new [0.5.x to 0.6.0 migration guide](/docs/migrating/0.5-to-0.6) covering the agent block primitive and tools function-form builder.
+- **Blog at [/blog](/blog)** -- Markdoc-backed posts with a featured + latest layout.
+- **Cheat sheet at [/cheat-sheet](/cheat-sheet)** -- searchable single-page DSL reference, print-to-PDF friendly.
+- **[0.5.x to 0.6.0 migration guide](/docs/migrating/0.5-to-0.6)** -- upgrade steps for the breaking AI changes above.
 
 ---
 
@@ -42,41 +41,34 @@ Several breaking changes across the core, AI, mail, telemetry, logger, and CLI s
 
 ### Core
 
-- **Dual-mode wrapper pattern** -- `.error()` is the first wrapper in a new dual-mode design; route-level error handling is now a wrapper rather than a top-level method. Source-level parse errors now flow through the same handler.
-- **Immutable Exchange** -- the `Exchange` is frozen and mutation is replaced with explicit copy-on-write. State is unified on `{ body, headers }`, with `principal`, `id`, and `logger` exposed as getters.
-- **`.authorize()` route-entry guard** -- new principal accessor on `Exchange` and a route-only authorization validator. Replaces the previous `requirePrincipal` validator. The validator now also checks `principal.expiresAt` and raises `RC5020` when a long-running step has outlived the credential; pass `clockToleranceSec` to match the boundary-side verifier's tolerance.
-- **Field-shaping helpers (`keep` and `mask`)** -- two transform helpers that shape a record (or array of records) field by field, both dropping into `.transform(...)`. `keep(rules)` is grant-based access control: it keeps fields the caller is granted (by role name or a `(record, principal)` predicate) and drops the rest, strict allowlist by default, and fails closed unless the principal is authentic. `mask(rules)` obfuscates field values regardless of the caller. Compose `keep` then `mask`.
-- **Choice operation** -- new conditional routing primitive with `transform()` and `enrich()` available on branch builders. Core operations are shared between routes and branches via a `StepBuilderBase`.
-- **Discovery metadata on the route builder** -- route id, description, and validation move from source options to the route builder itself.
+- **Dual-mode wrapper pattern** -- `.error()` becomes a route-level wrapper rather than a top-level method, and source-level parse errors flow through the same handler.
+- **Immutable Exchange** -- the `Exchange` is frozen with explicit copy-on-write; state is unified on `{ body, headers }`.
+- **`.authorize()` route-entry guard** -- a route-only authorization validator that replaces `requirePrincipal` and raises `RC5020` when a credential expires mid-run.
+- **Field-shaping helpers `keep` and `mask`** -- two `.transform()` helpers: `keep` is grant-based, fail-closed allowlisting; `mask` obfuscates values regardless of caller.
+- **Choice operation** -- a conditional routing primitive with `transform()` and `enrich()` on branch builders.
+- **Discovery metadata on the route builder** -- route id, description, and validation move from source options to the builder.
 
 ### AI & MCP {% badge color="red" %}Breaking{% /badge %}
 
-- **Agent runtime** -- tool-calling loop, streaming via `onEvent` and `onDelta`, agent destination, and per-binding tool description overrides.
+- **Agent runtime** -- tool-calling loop, streaming via `onEvent` / `onDelta`, agent destination, and per-binding tool description overrides.
 - **`tools()` DSL** -- declarative tool registration, selection, and resolution.
-- **Agent configuration overhaul** -- `agentPlugin.agents` is a record (no `defineAgent`), `defaultOptions` set context-level defaults, `system`/`user` accept string or function, and agent enhancements (`toolCalls`, `validate`, skills + agents loaders) narrow `FnHandlerContext`.
-- **Config applier system** -- first-class AI plugin keys via a config applier hook.
-- **MCP OAuth 2.1 server** -- OAuth 2.1 authentication provider with principal hierarchy, plus a general MCP HTTP auth surface and tool annotations.
-- **MCP HTTP server identity and protected-resource metadata** -- new `mcpPlugin({ title, resource: { url, scopesSupported, documentationUrl } })` shape. Resource identity is now first-class on the plugin, orthogonal to the auth mode. Both validator-mode (`jwks()` / `jwt()`) and OAuth-proxy mode (`oauth()`) auto-mount `GET /.well-known/oauth-protected-resource` (RFC 9728) with the same JSON shape (including `bearer_methods_supported`) and append an absolute `resource_metadata="..."` URL to 401 `WWW-Authenticate` headers, so auto-discovering clients (Claude.ai connectors, MCP Inspector, `mcp-remote`) can locate the authorization server. `OAuthAuthOptions` is reduced to pure proxy mechanics. Field migration:
-  - `oauth({ resourceIssuerUrl })` -> `mcpPlugin({ resource: { url } })`
-  - `oauth({ scopesSupported })` -> `mcpPlugin({ resource: { scopesSupported } })`
-  - `oauth({ serviceDocumentationUrl })` -> `mcpPlugin({ resource: { documentationUrl } })`
-  - `oauth({ resourceName })` -> `mcpPlugin({ title })` (with `name` as the final fallback)
-- **Plugin-level `userinfo` enrichment** -- post-verify principal enrichment on `mcpPlugin({ userinfo })`, orthogonal to the auth mode: works with `jwks()` / `jwt()` (validator mode), a custom `{ validator }`, and `oauth()`. Accepts `true` (auto-discover via OIDC Discovery), `string | URL` (explicit endpoint), or a custom function. The framework enforces the OIDC Core §5.3.2 `sub` invariant on URL / discovery modes, fails closed on any fetch / parse error, and memoises enrichment per token (SHA-256 hashed) with insertion-order eviction, in-flight coalescing, and TTL bound to `principal.expiresAt`. The raw userinfo response is surfaced on a separate `principal.userinfoClaims` field so `principal.claims` continues to mean "verified JWT payload." This enables the WorkOS AuthKit pattern (validator mode + identity hydration) that OAuth proxy mode could not serve. `oauth({})` no longer carries its own `userinfo`; it lives on the plugin, mirroring how `resource` was promoted off `oauth()`.
-- **`OAuthValidatorAuthOptions.issuer`** -- `jwks()` and `jwt()` now surface the expected issuer on the returned options so `userinfo: true` discovery and RFC 9728 `authorization_servers` work without re-declaring the IdP.
-- **`ClaimMappers.{email,name,roles}` removed** -- superseded by the `userinfo` enrichment slot. `ClaimMappers.{subject,clientId,scopes}` remain for token-level claim mapping.
-- **Three new error codes** -- `RC5020` (token expired during processing), `RC5021` (principal enrichment failed), `RC5022` (userinfo `sub` invariant violated).
-- **Isolated local tool registry** -- MCP local tools live in a dedicated registry separate from direct routes.
+- **Agent configuration overhaul** -- `agentPlugin.agents` is a record (no `defineAgent`), and `system` / `user` accept a string or function. See the [migration guide](/docs/migrating/0.4-to-0.5).
+- **MCP OAuth 2.1 server** -- OAuth 2.1 provider with principal hierarchy, plus a general MCP HTTP auth surface and tool annotations.
+- **MCP protected-resource metadata** -- resource identity moves to `mcpPlugin({ title, resource })`; both validator and OAuth-proxy modes auto-mount RFC 9728 metadata. Field-by-field moves are in the [migration guide](/docs/migrating/0.4-to-0.5).
+- **Plugin-level `userinfo` enrichment** -- `mcpPlugin({ userinfo })` hydrates the principal after verification, enabling the WorkOS AuthKit pattern. Lives on the plugin, orthogonal to the auth mode.
+- **`ClaimMappers.{email,name,roles}` removed** -- superseded by `userinfo` enrichment; the token-level mappers remain.
+- **New error codes `RC5020`-`RC5022`** -- token expired during processing, principal enrichment failed, and userinfo `sub` invariant violated.
 
 ### Adapters
 
-- **Adapter mocking** -- `mockAdapter` swaps any tagged adapter in tests; `file`, `csv`, `json`, `jsonl`, and `html` factories are tagged out of the box.
-- **Direct adapter distinct input/output types** -- `direct<TIn, TOut>()` lets a route accept one body shape and emit a different one when the registered consumer's transformer changes the type.
-- **Mail (IMAP)** -- the IMAP source is reliable across poll and re-evaluation workloads, with reconnect on transient fetch failures. `MailMessage` body is reshaped and a verify-sender option is available.
-- **Optional peer loader everywhere** -- every dynamic optional-peer import goes through `loadOptionalPeer` and emits `RC5017` with a copy-pasteable install hint. The remaining bespoke `try/catch` sites (mail, jose, telemetry sqlite, several `@routecraft/ai` modules) have all been migrated.
+- **Adapter mocking** -- `mockAdapter` swaps any tagged adapter in tests; the `file`, `csv`, `json`, `jsonl`, and `html` factories are tagged out of the box.
+- **`direct<TIn, TOut>()` distinct types** -- a route can accept one body shape and emit another.
+- **Mail (IMAP) reliability** -- reconnect on transient fetch failures, a reshaped `MailMessage` body, and a verify-sender option.
+- **Optional peer loader everywhere** -- every optional-peer import now routes through `loadOptionalPeer` and emits `RC5017` with an install hint.
 
 ### Telemetry {% badge color="red" %}Breaking{% /badge %}
 
-- **Bun-only SQLite sink** -- the embedded telemetry SQLite sink now uses Bun's built-in `bun:sqlite`. `better-sqlite3` has been removed from the runtime, including from peer dependencies. Deployments that use the built-in sink must run under Bun (`engines.bun >= 1.1.0`); Node deployments that previously relied on `better-sqlite3` need to bring their own sink.
+- **Bun-only SQLite sink** -- the built-in telemetry sink uses `bun:sqlite`; `better-sqlite3` is removed. Node deployments that relied on it must bring their own sink.
 
 ### Logger
 
@@ -84,17 +76,17 @@ Several breaking changes across the core, AI, mail, telemetry, logger, and CLI s
 
 ### CLI & Tooling
 
-- **Bun-only `craft` CLI** -- the published `craft` binary now requires Bun >= 1.1.0.
-- **Bun monorepo** -- the monorepo migrates from pnpm to Bun for installs, scripts, and lockfile.
-- **`create-routecraft` refactor** -- scaffolder library extracted with expanded test coverage.
-- **`bun:test` everywhere** -- the internal test suite has fully migrated from vitest to `bun:test`. Vitest is retained only for the cross-runtime suite (where Node-only test seams still apply).
+- **Bun-only `craft` CLI** -- the published binary now requires Bun >= 1.1.0.
+- **Bun monorepo** -- installs, scripts, and lockfile migrate from pnpm to Bun.
+- **`create-routecraft` refactor** -- scaffolder extracted into a library with expanded test coverage.
+- **`bun:test` everywhere** -- the internal suite migrates off vitest, retained only for the cross-runtime tests.
 
 ### Docs
 
 - **Migration guide** -- new [0.4.x to 0.5.0 migration guide](/docs/migrating/0.4-to-0.5).
-- **Canary docs at `/next/`** -- canary docs deploy to `/next/` on GitHub Pages alongside the latest stable build at the root.
-- **Operator reference** -- `log` and `debug` operators documented; `map` and `schema` clarified.
-- **Claude Code skills** -- Agent Skills for authoring Routecraft adapters and capabilities are bundled at the repo root.
+- **Canary docs at `/next/`** -- canary builds deploy alongside the stable build at the root.
+- **Operator reference** -- `log` and `debug` documented; `map` and `schema` clarified.
+- **Claude Code skills** -- Agent Skills for authoring adapters and capabilities bundled at the repo root.
 
 ---
 
