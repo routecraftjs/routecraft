@@ -74,7 +74,7 @@ export const alt = ${JSON.stringify(alt)}
 export const dynamic = 'force-static'
 
 export default async function Image() {
-  return createBlogOgImage({ slug: '${slug}' })
+  return createBlogOgImage({ slug: ${JSON.stringify(slug)} })
 }
 `
 }

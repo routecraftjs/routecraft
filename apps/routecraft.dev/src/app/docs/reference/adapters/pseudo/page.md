@@ -66,7 +66,7 @@ craft()
 
 ```ts
 // Before (pseudo)
-import { pseudo } from "@routecraft/routecraft";
+import { pseudo } from "@routecraft/testing";
 const mcp = pseudo<McpCallOptions>("mcp");
 
 // After (real adapter)
