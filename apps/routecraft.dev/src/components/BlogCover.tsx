@@ -481,7 +481,15 @@ export function BlogCoverFrame({
         height: '100%',
         display: 'block',
       }
-    : { display: 'block', width: '100%', height: 'auto' }
+    : {
+        display: 'block',
+        width: '100%',
+        height: 'auto',
+        // Explicit ratio so the height is definite cross-browser. Safari does
+        // not infer an inline SVG's height from its viewBox when height is auto
+        // (the foreignObject cover then collapses on mobile), so pin it here.
+        aspectRatio: `${COVER_WIDTH} / ${COVER_HEIGHT}`,
+      }
   return (
     <svg
       className={className}
