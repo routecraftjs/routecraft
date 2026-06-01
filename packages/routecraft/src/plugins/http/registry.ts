@@ -1,13 +1,14 @@
 import type { Exchange, ExchangeHeaders } from "../../exchange";
 import type { RouteDiscovery } from "../../route";
-import type { HttpMethod } from "../../adapters/http/types";
+import type { HttpMethod, HttpServerOptions } from "../../adapters/http/types";
 import type { PathMatcher } from "./path-matcher";
 
 /**
  * How the dispatcher applies the plugin's global auth middleware to a route.
- * See {@link HttpServerOptions.auth} for the user-facing description.
+ * Derived from {@link HttpServerOptions.auth} so the literal set stays in one
+ * place; see that field for the user-facing description and behaviour matrix.
  */
-export type HttpRouteAuthMode = "required" | "optional" | "skip";
+export type HttpRouteAuthMode = NonNullable<HttpServerOptions["auth"]>;
 
 /**
  * One entry in the http plugin's route registry. Created when a `from(http({...}))`

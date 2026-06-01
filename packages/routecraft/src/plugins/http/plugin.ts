@@ -1,7 +1,11 @@
 import { type CraftContext, type CraftPlugin } from "../../context";
 import { rcError } from "../../error";
 import type { HttpPluginOptions } from "../../adapters/http/types";
-import { createAuthMiddleware, type HttpAuthMiddleware } from "./auth";
+import {
+  createAuthMiddleware,
+  missingCredentialReason,
+  type HttpAuthMiddleware,
+} from "./auth";
 import { createBuiltins, createOpenApiGatedHandler } from "./builtins";
 import {
   createDispatcher,
@@ -120,10 +124,7 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
       const onAuthAbsent = authMiddleware
         ? (scheme: string) => {
             ctx.emit("auth:rejected", {
-              reason:
-                scheme === "apiKey"
-                  ? "missing api key"
-                  : "missing bearer token",
+              reason: missingCredentialReason(scheme),
               scheme,
               source: "http",
             });

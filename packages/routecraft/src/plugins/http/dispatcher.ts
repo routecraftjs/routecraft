@@ -2,7 +2,7 @@ import { logger as defaultLogger } from "../../logger";
 import { type ExchangeHeaders, HeadersKeys } from "../../exchange";
 import type { Principal } from "../../auth/types";
 import type { HttpMethod, HttpResponseHint } from "../../adapters/http/types";
-import type { HttpAuthMiddleware } from "./auth";
+import { missingCredentialReason, type HttpAuthMiddleware } from "./auth";
 import type { HttpRouteEntry, HttpRouteRegistry } from "./registry";
 import { parseRequestBody } from "./body-parser";
 
@@ -304,7 +304,9 @@ function jsonResponse(
  * credential. The auth middleware itself returns `kind: "absent"` so the
  * dispatcher can decide whether to issue a Response (required) or pass
  * through (optional); centralising the shape here keeps the dispatcher the
- * single source of truth for "missing credential" wire format.
+ * single source of truth for "missing credential" wire format. The reason
+ * string is shared with the `auth:rejected` event emitted by the plugin so
+ * the body and the event can never drift -- see `missingCredentialReason`.
  */
 function missingCredentialResponse(scheme: string): Response {
   const headers: Record<string, string> = {
@@ -315,12 +317,13 @@ function missingCredentialResponse(scheme: string): Response {
   if (scheme === "bearer") {
     headers["www-authenticate"] = 'Bearer realm="routecraft"';
   }
-  const reason =
-    scheme === "apiKey" ? "missing api key" : "missing bearer token";
-  return new Response(JSON.stringify({ error: "unauthorized", reason }), {
-    status: 401,
-    headers,
-  });
+  return new Response(
+    JSON.stringify({
+      error: "unauthorized",
+      reason: missingCredentialReason(scheme),
+    }),
+    { status: 401, headers },
+  );
 }
 
 /**

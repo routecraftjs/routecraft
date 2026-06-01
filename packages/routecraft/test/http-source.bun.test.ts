@@ -285,6 +285,32 @@ describe("HTTP Source Adapter", () => {
   });
 
   /**
+   * @case Invalid auth mode fails fast at the http() call site
+   * @preconditions Caller passes an unrecognised auth string (e.g. typo "skp")
+   * @expectedResult `http({...})` throws RC5003 immediately. Catching the
+   *   misconfiguration at construction (not at the first unauthenticated
+   *   request) prevents a fail-open downgrade: a route the dispatcher would
+   *   otherwise treat as "optional" because the value isn't exactly "required"
+   *   or "skip" never gets the chance to register.
+   */
+  test("invalid auth mode throws RC5003 at http() call", () => {
+    let err: unknown;
+    try {
+      http({
+        path: "/bad",
+        method: "GET",
+        // @ts-expect-error -- testing runtime validation for untyped callers
+        auth: "skp",
+      });
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeDefined();
+    expect((err as { rc?: string }).rc).toBe("RC5003");
+    expect((err as Error).message).toContain("invalid auth mode");
+  });
+
+  /**
    * @case auth: "skip" bypasses global auth completely
    * @preconditions Plugin has global jwt auth; route declares auth: "skip"
    * @expectedResult Request without Authorization header is 200 and no

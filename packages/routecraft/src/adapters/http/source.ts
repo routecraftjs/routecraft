@@ -27,7 +27,28 @@ export type { CraftPlugin };
 export class HttpSourceAdapter implements Source<HttpRequestBody> {
   readonly adapterId = "routecraft.adapter.http.source";
 
-  constructor(private readonly options: HttpServerOptions) {}
+  constructor(private readonly options: HttpServerOptions) {
+    // Fail fast on an unrecognised auth mode. TypeScript catches this for
+    // typed callers, but an untyped JS caller (or a typo squeezed through
+    // `as any`) would otherwise silently downgrade the route at request
+    // time: the dispatcher treats anything that isn't exactly "required" or
+    // "skip" as "optional", which means "admit anonymously when no
+    // credential is presented." Surface the misconfiguration at the
+    // `http({...})` call site, not at the first unauthenticated request.
+    const auth = options.auth;
+    if (
+      auth !== undefined &&
+      auth !== "required" &&
+      auth !== "optional" &&
+      auth !== "skip"
+    ) {
+      throw rcError("RC5003", undefined, {
+        message: `http() source: invalid auth mode ${JSON.stringify(
+          auth,
+        )}. Allowed: "required", "optional", "skip".`,
+      });
+    }
+  }
 
   async subscribe(
     context: CraftContext,
@@ -58,6 +79,8 @@ export class HttpSourceAdapter implements Source<HttpRequestBody> {
     const method: HttpMethod = this.options.method ?? "GET";
     const matcher = compilePathMatcher(this.options.path);
     const routeId = meta?.routeId ?? `http:${method}:${matcher.pattern}`;
+    // `auth` was validated in the constructor; here we just normalise the
+    // default so the registry entry always carries a concrete mode.
     const authMode: HttpRouteAuthMode = this.options.auth ?? "required";
     const entry: HttpRouteEntry = {
       routeId,

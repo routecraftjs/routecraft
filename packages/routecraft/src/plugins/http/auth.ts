@@ -97,6 +97,17 @@ export function apiKey(
   return { ...opts, kind: "apiKey" };
 }
 
+/**
+ * Map the auth scheme to the canonical "missing credential" reason string.
+ * Returned to clients in the 401 body and emitted as the `reason` field on
+ * `auth:rejected` events when the dispatcher synthesises a missing-credential
+ * 401 for an `auth: "required"` route. Centralised so the response body and
+ * the event payload cannot drift.
+ */
+export function missingCredentialReason(scheme: string): string {
+  return scheme === "apiKey" ? "missing api key" : "missing bearer token";
+}
+
 function reject(reason: string, scheme: string): AuthResult {
   const headers: Record<string, string> = {
     "content-type": "application/json",
