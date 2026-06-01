@@ -228,11 +228,11 @@ export { mail } from "./adapters/mail/index.ts";
 
 export { type LogOptions, type LogLevel } from "./adapters/log/index.ts";
 export {
-  type HttpOptions,
+  type HttpClientOptions,
   type HttpResult,
   type HttpMethod,
   type QueryParams,
-  type HttpSourceOptions,
+  type HttpServerOptions,
   type HttpPluginOptions,
   type HttpRequestBody,
   type HttpResponseHint,

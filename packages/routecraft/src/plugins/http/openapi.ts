@@ -106,7 +106,9 @@ export function buildOpenApiDocument(
  * as distinct paths.
  */
 function patternToOpenApi(pattern: string): string {
-  return pattern.replace(/:([A-Za-z0-9_]+)/g, "{$1}");
+  // Match any non-empty param name that doesn't contain `/` or `{}`; this
+  // covers all names the path-matcher accepts (including hyphens etc.).
+  return pattern.replace(/:([^/{}]+)/g, "{$1}");
 }
 
 /**

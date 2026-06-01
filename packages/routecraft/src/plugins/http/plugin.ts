@@ -48,10 +48,12 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
 
   return {
     async apply(ctx: CraftContext) {
+      // createAuthMiddleware may throw (RC5003 for reserved OAuth sentinel).
+      // Set the store only after it succeeds so we never leave registered=true
+      // against a server that never started.
+      const authMiddleware = createAuthMiddleware(options.auth);
       ctx.setStore(HTTP_PLUGIN_REGISTERED, true);
       ctx.setStore(HTTP_ROUTE_REGISTRY, registry);
-
-      const authMiddleware = createAuthMiddleware(options.auth);
 
       // The plugin decides where /openapi.json lives based on `expose`:
       //   "public"        -> public built-ins serve it (no auth, no events).

@@ -9,7 +9,7 @@ import {
   type HttpRouteRegistry,
 } from "../../plugins/http/registry";
 import { compilePathMatcher } from "../../plugins/http/path-matcher";
-import type { HttpMethod, HttpRequestBody, HttpSourceOptions } from "./types";
+import type { HttpMethod, HttpRequestBody, HttpServerOptions } from "./types";
 
 // Surface CraftPlugin in the public types of this module so consumers that
 // only import the source adapter still see the symbol (without re-exporting
@@ -26,7 +26,7 @@ export type { CraftPlugin };
 export class HttpSourceAdapter implements Source<HttpRequestBody> {
   readonly adapterId = "routecraft.adapter.http.source";
 
-  constructor(private readonly options: HttpSourceOptions) {}
+  constructor(private readonly options: HttpServerOptions) {}
 
   async subscribe(
     context: CraftContext,
@@ -68,8 +68,18 @@ export class HttpSourceAdapter implements Source<HttpRequestBody> {
 
     if (registry.has(routeId)) {
       throw rcError("RC5003", undefined, {
-        message: `http() source: duplicate route registration "${routeId}" (${method} ${matcher.pattern})`,
+        message: `http() source: duplicate route id "${routeId}"`,
       });
+    }
+    for (const existing of registry.values()) {
+      if (
+        existing.method === method &&
+        existing.matcher.pattern === matcher.pattern
+      ) {
+        throw rcError("RC5003", undefined, {
+          message: `http() source: duplicate route ${method} ${matcher.pattern} (already claimed by "${existing.routeId}")`,
+        });
+      }
     }
     registry.set(routeId, entry);
 

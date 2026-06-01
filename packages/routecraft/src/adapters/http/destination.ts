@@ -1,6 +1,6 @@
 import { type Destination } from "../../operations/to";
 import { type Exchange } from "../../exchange";
-import type { HttpOptions, HttpResult, QueryParams } from "./types";
+import type { HttpClientOptions, HttpResult, QueryParams } from "./types";
 
 /**
  * HttpDestinationAdapter performs HTTP requests and returns the result.
@@ -14,7 +14,7 @@ export class HttpDestinationAdapter<
 > implements Destination<T, HttpResult<R>> {
   readonly adapterId = "routecraft.adapter.http";
 
-  constructor(private readonly options: HttpOptions<T>) {}
+  constructor(private readonly options: HttpClientOptions<T>) {}
 
   async send(exchange: Exchange<T>): Promise<HttpResult<R>> {
     const result = await this.performFetch(exchange);

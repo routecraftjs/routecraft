@@ -53,8 +53,19 @@ export async function parseRequestBody(
     return { body: undefined, bytes: 0 };
   }
 
-  // arrayBuffer() resolves the whole body. The fetch API does not currently
-  // expose a "max" cap up-front; we count after the fact and reject.
+  // Guard against oversized requests before buffering when the client
+  // declares Content-Length. Chunked transfers still require the post-buffer
+  // check below (the fetch API provides no streaming byte-count hook).
+  const declaredLength = parseInt(req.headers.get("content-length") ?? "", 10);
+  if (!isNaN(declaredLength) && declaredLength > opts.maxBodySize) {
+    throw bodyError(
+      413,
+      `request body of ${declaredLength} bytes exceeds maxBodySize ${opts.maxBodySize}`,
+    );
+  }
+
+  // arrayBuffer() buffers the full body. The post-buffer check below catches
+  // chunked transfers whose true size wasn't known from Content-Length.
   const buffer = await req.arrayBuffer();
   if (buffer.byteLength > opts.maxBodySize) {
     throw bodyError(

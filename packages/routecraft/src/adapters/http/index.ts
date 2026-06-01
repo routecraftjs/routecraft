@@ -4,10 +4,10 @@ import { tagAdapter, factoryArgs } from "../shared/factory-tag";
 import { HttpDestinationAdapter } from "./destination";
 import { HttpSourceAdapter } from "./source";
 import type {
-  HttpOptions,
+  HttpClientOptions,
   HttpRequestBody,
   HttpResult,
-  HttpSourceOptions,
+  HttpServerOptions,
 } from "./types";
 
 /**
@@ -16,11 +16,11 @@ import type {
  * through the typed overloads.
  */
 function isSourceOptions(
-  options: HttpSourceOptions | HttpOptions<unknown>,
-): options is HttpSourceOptions {
+  options: HttpServerOptions | HttpClientOptions<unknown>,
+): options is HttpServerOptions {
   return (
-    typeof (options as HttpSourceOptions).path === "string" &&
-    (options as HttpOptions<unknown>).url === undefined
+    typeof (options as HttpServerOptions).path === "string" &&
+    (options as HttpClientOptions<unknown>).url === undefined
   );
 }
 
@@ -37,7 +37,7 @@ function isSourceOptions(
  *
  * @experimental
  */
-export function http(options: HttpSourceOptions): Source<HttpRequestBody>;
+export function http(options: HttpServerOptions): Source<HttpRequestBody>;
 /**
  * Create an HTTP client destination. Use with `.to()`, `.enrich()`, or `.tap()`.
  * Supports dynamic url, headers, query, and body from the exchange.
@@ -52,10 +52,10 @@ export function http(options: HttpSourceOptions): Source<HttpRequestBody>;
  * ```
  */
 export function http<T = unknown, R = unknown>(
-  options: HttpOptions<T>,
+  options: HttpClientOptions<T>,
 ): Destination<T, HttpResult<R>>;
 export function http(
-  options: HttpSourceOptions | HttpOptions<unknown>,
+  options: HttpServerOptions | HttpClientOptions<unknown>,
 ): Source<HttpRequestBody> | Destination<unknown, HttpResult<unknown>> {
   if (isSourceOptions(options)) {
     const adapter = new HttpSourceAdapter(options);
@@ -71,9 +71,9 @@ export { HttpSourceAdapter } from "./source";
 export type {
   HttpMethod,
   QueryParams,
-  HttpOptions,
+  HttpClientOptions,
   HttpResult,
-  HttpSourceOptions,
+  HttpServerOptions,
   HttpPluginOptions,
   HttpRequestBody,
   HttpResponseHint,

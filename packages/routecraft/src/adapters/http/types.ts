@@ -19,12 +19,11 @@ export type HttpMethod =
 export type QueryParams = Record<string, string | number | boolean>;
 
 // --------------------------------------------------------------------------
-// Destination (existing -- unchanged signature). Kept identical so any
-// existing user code typed against `HttpOptions<T>` and `HttpResult<R>`
-// continues to compile.
+// Destination (client side). Option type named per the Server/Client
+// convention for two-sided adapters.
 // --------------------------------------------------------------------------
 
-export interface HttpOptions<T = unknown> {
+export interface HttpClientOptions<T = unknown> {
   method?: HttpMethod;
   url: string | ((exchange: Exchange<T>) => string);
   headers?:
@@ -171,8 +170,8 @@ export interface HttpOpenApiOptions {
  */
 export type HttpConfig = HttpPluginOptions;
 
-/** Source-side options accepted by `http({...})` when used with `.from(...)`. */
-export interface HttpSourceOptions {
+/** Server-side options accepted by `http({...})` when used with `.from(...)`. */
+export interface HttpServerOptions {
   /**
    * Path pattern with `:param` segments. Examples: `"/orders"`,
    * `"/orders/:id"`, `"/tenants/:tenant/users/:user"`. Trailing slashes

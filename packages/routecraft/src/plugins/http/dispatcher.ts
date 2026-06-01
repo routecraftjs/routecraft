@@ -91,12 +91,8 @@ export function createDispatcher(
         if (opts.authMiddleware) {
           const result = await opts.authMiddleware(req);
           if (result.kind === "reject") {
-            emitCompleted(opts, {
-              method,
-              path: pathname,
-              status: result.response.status,
-              durationMs: ms(started),
-            });
+            // Built-ins never produce request:completed events regardless of
+            // auth outcome; only emit for user-registered routes.
             return result.response;
           }
         }

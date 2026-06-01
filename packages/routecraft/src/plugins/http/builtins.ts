@@ -24,7 +24,15 @@ export interface BuiltinsOptions {
  */
 export function createBuiltins(opts: BuiltinsOptions): BuiltinHandler {
   return function builtinHandler(req: Request, pathname: string) {
-    if (req.method !== "GET") return null;
+    const isKnown =
+      pathname === "/health" ||
+      pathname === "/ready" ||
+      (pathname === "/openapi.json" && opts.serveOpenApi);
+    if (!isKnown) return null;
+
+    if (req.method !== "GET") {
+      return new Response(null, { status: 405, headers: { Allow: "GET" } });
+    }
 
     if (pathname === "/health") {
       return jsonResponse({ status: "ok" }, 200);
@@ -34,12 +42,9 @@ export function createBuiltins(opts: BuiltinsOptions): BuiltinHandler {
       return jsonResponse({ status: "ready", routes: opts.registry.size }, 200);
     }
 
-    if (pathname === "/openapi.json" && opts.serveOpenApi) {
-      const doc = buildOpenApiDocument(opts.registry);
-      return jsonResponse(doc, 200);
-    }
-
-    return null;
+    // pathname === "/openapi.json" && opts.serveOpenApi (covered by isKnown above)
+    const doc = buildOpenApiDocument(opts.registry);
+    return jsonResponse(doc, 200);
   };
 }
 
@@ -52,7 +57,10 @@ export function createOpenApiGatedHandler(
   registry: HttpRouteRegistry,
 ): BuiltinHandler {
   return function openApiHandler(req, pathname) {
-    if (req.method !== "GET" || pathname !== "/openapi.json") return null;
+    if (pathname !== "/openapi.json") return null;
+    if (req.method !== "GET") {
+      return new Response(null, { status: 405, headers: { Allow: "GET" } });
+    }
     return jsonResponse(buildOpenApiDocument(registry), 200);
   };
 }

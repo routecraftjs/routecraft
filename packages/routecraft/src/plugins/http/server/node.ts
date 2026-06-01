@@ -81,7 +81,7 @@ async function handle(
     const webReq = toWebRequest(nReq, fallbackHost);
     const webRes = await fetchHandler(webReq);
     await writeNodeResponse(nRes, webRes);
-  } catch (err) {
+  } catch {
     // The dispatcher is responsible for normalising everything to a Response;
     // anything that escapes is a bug we still need to answer for. Emit a 500
     // with a tiny body so the client always gets a closed response.
@@ -90,9 +90,7 @@ async function handle(
       nRes.setHeader("content-type", "text/plain; charset=utf-8");
     }
     try {
-      nRes.end(
-        `internal server error: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      nRes.end("Internal Server Error");
     } catch {
       nRes.destroy();
     }
@@ -137,8 +135,21 @@ async function writeNodeResponse(
   nRes.statusCode = webRes.status;
   if (webRes.statusText) nRes.statusMessage = webRes.statusText;
   webRes.headers.forEach((value, key) => {
+    // Set-Cookie is handled separately below; forEach joins multiple values
+    // with ", " which is wrong for cookie headers (cookie values can contain
+    // ", " themselves and the Vary semantics differ).
+    if (key.toLowerCase() === "set-cookie") return;
     nRes.setHeader(key, value);
   });
+  // getSetCookie() returns each cookie as a separate string, preserving the
+  // boundary between distinct Set-Cookie fields (Node 20+, Bun 1+).
+  const cookies =
+    typeof webRes.headers.getSetCookie === "function"
+      ? webRes.headers.getSetCookie()
+      : [];
+  if (cookies.length > 0) {
+    nRes.setHeader("Set-Cookie", cookies);
+  }
 
   if (!webRes.body) {
     nRes.end();

@@ -63,11 +63,25 @@ export function apiKey(
         "apiKey() accepts either `keys` or `verify`, not both. Pick the static allowlist (`keys`) or the dynamic verifier (`verify`).",
     });
   }
-  if (opts.name !== undefined && opts.name.trim() === "") {
-    throw rcError("RC5003", undefined, {
-      message:
-        "apiKey() received an empty `name`. Provide a non-empty header or query parameter name, or omit `name` for the default.",
-    });
+  if (opts.name !== undefined) {
+    if (opts.name.trim() === "") {
+      throw rcError("RC5003", undefined, {
+        message:
+          "apiKey() received an empty `name`. Provide a non-empty header or query parameter name, or omit `name` for the default.",
+      });
+    }
+    // RFC 7230 §3.2.6: header field names must be valid tokens. Validate only
+    // when the key is sourced from a header; query parameter names are less
+    // restricted and a bad one fails loudly at request time anyway.
+    if (
+      (opts.in ?? "header") === "header" &&
+      !/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(opts.name)
+    ) {
+      throw rcError("RC5003", undefined, {
+        message:
+          "apiKey() received an invalid header `name`. Use a valid HTTP header token (RFC 7230 §3.2.6).",
+      });
+    }
   }
   // Spread first so the `kind` literal always wins over an untyped caller that
   // sneaks a different discriminator through `as any`.
@@ -220,6 +234,9 @@ export function createAuthMiddleware(
       }
       try {
         const principal = await validator(token);
+        if (!principal) {
+          return reject("invalid token", "bearer");
+        }
         return { kind: "admit", principal: markAuthentic(principal) };
       } catch {
         return reject("invalid token", "bearer");
