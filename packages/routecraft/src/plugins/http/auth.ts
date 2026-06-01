@@ -1,4 +1,5 @@
 import { rcError } from "../../error";
+import { markAuthentic } from "../../auth/authentic";
 import type { Principal, TokenVerifier } from "../../auth/types";
 import type {
   ApiKeyAuthOptions,
@@ -159,7 +160,10 @@ export function createAuthMiddleware(
         if (!allowedSet.has(raw)) {
           return reject("invalid api key", "apiKey");
         }
-        return { kind: "admit", principal: syntheticApiKeyPrincipal(raw) };
+        return {
+          kind: "admit",
+          principal: markAuthentic(syntheticApiKeyPrincipal(raw)),
+        };
       }
       // verify branch -- guarded by apiKey() to be defined when keys is absent.
       try {
@@ -167,7 +171,7 @@ export function createAuthMiddleware(
         if (!principal) {
           return reject("invalid api key", "apiKey");
         }
-        return { kind: "admit", principal };
+        return { kind: "admit", principal: markAuthentic(principal) };
       } catch {
         return reject("invalid api key", "apiKey");
       }
@@ -187,7 +191,7 @@ export function createAuthMiddleware(
       }
       try {
         const principal = await validator(token);
-        return { kind: "admit", principal };
+        return { kind: "admit", principal: markAuthentic(principal) };
       } catch {
         return reject("invalid token", "bearer");
       }

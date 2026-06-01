@@ -626,3 +626,688 @@ describe("HTTP Source Adapter", () => {
     );
   });
 });
+
+describe("HTTP Source Adapter -- Auth coverage", () => {
+  let t: TestContext | undefined;
+
+  afterEach(async () => {
+    if (t) {
+      await t.stop();
+      t = undefined;
+    }
+  });
+
+  /**
+   * @case Bearer auth rejects an Authorization header that is not "Bearer ..."
+   * @preconditions Global jwt() auth; client sends `Authorization: Basic ...`
+   * @expectedResult 401 with WWW-Authenticate header
+   */
+  test("bearer auth rejects non-Bearer authorization scheme", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("scheme")
+        .from(http({ path: "/scheme", method: "GET" }))
+        .transform(() => ({ ok: true }))
+        .to(noop()),
+      http: {
+        port: 0,
+        auth: jwt({
+          secret: JWT_SECRET,
+          issuer: JWT_ISSUER,
+          audience: JWT_AUDIENCE,
+        }),
+      },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/scheme`, {
+      headers: { authorization: "Basic dXNlcjpwYXNz" },
+    });
+    expect(res.status).toBe(401);
+    expect(res.headers.get("www-authenticate")).toMatch(/Bearer/);
+  });
+
+  /**
+   * @case Bearer auth rejects a token whose signature is wrong
+   * @preconditions Token signed with a different secret
+   * @expectedResult 401
+   */
+  test("bearer auth rejects token with bad signature", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("sig")
+        .from(http({ path: "/sig", method: "GET" }))
+        .transform(() => ({ ok: true }))
+        .to(noop()),
+      http: {
+        port: 0,
+        auth: jwt({
+          secret: JWT_SECRET,
+          issuer: JWT_ISSUER,
+          audience: JWT_AUDIENCE,
+        }),
+      },
+    });
+    t = bound.ctx;
+
+    // Build a token signed with a different secret, otherwise valid.
+    const header = Buffer.from(
+      JSON.stringify({ alg: "HS256", typ: "JWT" }),
+    ).toString("base64url");
+    const payload = Buffer.from(
+      JSON.stringify({
+        iss: JWT_ISSUER,
+        aud: JWT_AUDIENCE,
+        exp: Math.floor(Date.now() / 1000) + 60,
+        sub: "user-x",
+      }),
+    ).toString("base64url");
+    const badSig = createHmac("sha256", "different-secret")
+      .update(`${header}.${payload}`)
+      .digest("base64url");
+    const badToken = `${header}.${payload}.${badSig}`;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/sig`, {
+      headers: { authorization: `Bearer ${badToken}` },
+    });
+    expect(res.status).toBe(401);
+  });
+
+  /**
+   * @case Bearer auth rejects a JWT with the wrong issuer
+   * @preconditions Token issuer differs from configured issuer
+   * @expectedResult 401
+   */
+  test("bearer auth rejects token with wrong issuer", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("iss")
+        .from(http({ path: "/iss", method: "GET" }))
+        .transform(() => ({ ok: true }))
+        .to(noop()),
+      http: {
+        port: 0,
+        auth: jwt({
+          secret: JWT_SECRET,
+          issuer: JWT_ISSUER,
+          audience: JWT_AUDIENCE,
+        }),
+      },
+    });
+    t = bound.ctx;
+
+    // Manually mint a token with a different `iss`.
+    const header = Buffer.from(
+      JSON.stringify({ alg: "HS256", typ: "JWT" }),
+    ).toString("base64url");
+    const payload = Buffer.from(
+      JSON.stringify({
+        iss: "https://other-idp.test",
+        aud: JWT_AUDIENCE,
+        exp: Math.floor(Date.now() / 1000) + 60,
+        sub: "user-y",
+      }),
+    ).toString("base64url");
+    const sig = createHmac("sha256", JWT_SECRET)
+      .update(`${header}.${payload}`)
+      .digest("base64url");
+    const token = `${header}.${payload}.${sig}`;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/iss`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.status).toBe(401);
+  });
+
+  /**
+   * @case Bearer auth rejects an expired JWT
+   * @preconditions Token exp is in the past
+   * @expectedResult 401
+   */
+  test("bearer auth rejects expired token", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("exp")
+        .from(http({ path: "/exp", method: "GET" }))
+        .transform(() => ({ ok: true }))
+        .to(noop()),
+      http: {
+        port: 0,
+        auth: jwt({
+          secret: JWT_SECRET,
+          issuer: JWT_ISSUER,
+          audience: JWT_AUDIENCE,
+        }),
+      },
+    });
+    t = bound.ctx;
+
+    const header = Buffer.from(
+      JSON.stringify({ alg: "HS256", typ: "JWT" }),
+    ).toString("base64url");
+    const payload = Buffer.from(
+      JSON.stringify({
+        iss: JWT_ISSUER,
+        aud: JWT_AUDIENCE,
+        exp: Math.floor(Date.now() / 1000) - 60, // expired one minute ago
+        sub: "user-z",
+      }),
+    ).toString("base64url");
+    const sig = createHmac("sha256", JWT_SECRET)
+      .update(`${header}.${payload}`)
+      .digest("base64url");
+    const token = `${header}.${payload}.${sig}`;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/exp`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.status).toBe(401);
+  });
+
+  /**
+   * @case Custom { validator } admits the request when verifier returns a Principal
+   * @preconditions Validator returns a synthetic Principal; client sends matching token
+   * @expectedResult 200 and downstream sees the principal
+   */
+  test("custom validator admits and attaches the principal", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("validator-ok")
+        .from(http({ path: "/v", method: "GET" }))
+        .process(async (ex) =>
+          DefaultExchange.rewrap(ex, {
+            body: { subject: ex.principal?.subject },
+          }),
+        )
+        .to(noop()),
+      http: {
+        port: 0,
+        auth: {
+          validator: async (token: string) => {
+            if (token !== "magic") throw new Error("nope");
+            return { kind: "custom", scheme: "bearer", subject: "alice" };
+          },
+        },
+      },
+    });
+    t = bound.ctx;
+
+    const okRes = await fetch(`http://127.0.0.1:${bound.port}/v`, {
+      headers: { authorization: "Bearer magic" },
+    });
+    expect(okRes.status).toBe(200);
+    expect(await okRes.json()).toEqual({ subject: "alice" });
+
+    const denyRes = await fetch(`http://127.0.0.1:${bound.port}/v`, {
+      headers: { authorization: "Bearer wrong" },
+    });
+    expect(denyRes.status).toBe(401);
+  });
+
+  /**
+   * @case apiKey verify() admits when the verifier returns a Principal; rejects when null
+   * @preconditions auth.verify(key) returns Principal for "secret", null otherwise
+   * @expectedResult 200 for matching key, 401 otherwise; principal is the verifier's return value
+   */
+  test("apiKey verify() function admits or rejects per its return", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("kv")
+        .from(http({ path: "/kv", method: "GET" }))
+        .process(async (ex) =>
+          DefaultExchange.rewrap(ex, {
+            body: {
+              subject: ex.principal?.subject,
+              roles: ex.principal?.roles ?? [],
+            },
+          }),
+        )
+        .to(noop()),
+      http: {
+        port: 0,
+        auth: apiKey({
+          verify: (k) =>
+            k === "secret"
+              ? {
+                  kind: "custom",
+                  scheme: "apiKey",
+                  subject: "user-42",
+                  roles: ["reader"],
+                }
+              : null,
+        }),
+      },
+    });
+    t = bound.ctx;
+
+    const ok = await fetch(`http://127.0.0.1:${bound.port}/kv`, {
+      headers: { "x-api-key": "secret" },
+    });
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toEqual({ subject: "user-42", roles: ["reader"] });
+
+    const deny = await fetch(`http://127.0.0.1:${bound.port}/kv`, {
+      headers: { "x-api-key": "nope" },
+    });
+    expect(deny.status).toBe(401);
+  });
+
+  /**
+   * @case apiKey reads from a custom header name (case-insensitive)
+   * @preconditions auth.name = "x-tenant-key"; client sends matching header (with mixed casing)
+   * @expectedResult 200 (header lookup is case-insensitive)
+   */
+  test("apiKey custom header name is matched case-insensitively", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("kn")
+        .from(http({ path: "/kn", method: "GET" }))
+        .transform(() => ({ ok: true }))
+        .to(noop()),
+      http: {
+        port: 0,
+        auth: apiKey({ name: "X-Tenant-Key", keys: ["letmein"] }),
+      },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/kn`, {
+      headers: { "x-tenant-key": "letmein" }, // lower-case
+    });
+    expect(res.status).toBe(200);
+  });
+
+  /**
+   * @case .authorize({ scopes }) admits when the principal has every required scope
+   * @preconditions JWT carries scope claim "orders.write orders.read"
+   * @expectedResult 200 when scopes match; 403-ish (non-200) when missing
+   */
+  test(".authorize({ scopes }) gates on principal scopes", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("scopes")
+        .authorize({ scopes: ["orders.write"] })
+        .from(http({ path: "/scopes", method: "GET" }))
+        .transform(() => ({ ok: true }))
+        .to(noop()),
+      http: {
+        port: 0,
+        auth: jwt({
+          secret: JWT_SECRET,
+          issuer: JWT_ISSUER,
+          audience: JWT_AUDIENCE,
+        }),
+      },
+    });
+    t = bound.ctx;
+
+    const grant = makeJwt({ sub: "u1", scope: "orders.read orders.write" });
+    const ok = await fetch(`http://127.0.0.1:${bound.port}/scopes`, {
+      headers: { authorization: `Bearer ${grant}` },
+    });
+    expect(ok.status).toBe(200);
+
+    const deny = makeJwt({ sub: "u1", scope: "orders.read" });
+    const denyRes = await fetch(`http://127.0.0.1:${bound.port}/scopes`, {
+      headers: { authorization: `Bearer ${deny}` },
+    });
+    expect(denyRes.status).not.toBe(200);
+  });
+
+  /**
+   * @case .authorize({ predicate }) custom check runs against the principal
+   * @preconditions Predicate accepts only principals whose subject starts with "svc-"
+   * @expectedResult 200 for matching subject; non-200 otherwise
+   */
+  test(".authorize({ predicate }) runs the custom check", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("pred")
+        .authorize({ predicate: (p) => p.subject.startsWith("svc-") })
+        .from(http({ path: "/pred", method: "GET" }))
+        .transform(() => ({ ok: true }))
+        .to(noop()),
+      http: {
+        port: 0,
+        auth: jwt({
+          secret: JWT_SECRET,
+          issuer: JWT_ISSUER,
+          audience: JWT_AUDIENCE,
+        }),
+      },
+    });
+    t = bound.ctx;
+
+    const okToken = makeJwt({ sub: "svc-payments" });
+    const ok = await fetch(`http://127.0.0.1:${bound.port}/pred`, {
+      headers: { authorization: `Bearer ${okToken}` },
+    });
+    expect(ok.status).toBe(200);
+
+    const denyToken = makeJwt({ sub: "user-1" });
+    const deny = await fetch(`http://127.0.0.1:${bound.port}/pred`, {
+      headers: { authorization: `Bearer ${denyToken}` },
+    });
+    expect(deny.status).not.toBe(200);
+  });
+});
+
+describe("HTTP Source Adapter -- request/response coverage", () => {
+  let t: TestContext | undefined;
+
+  afterEach(async () => {
+    if (t) {
+      await t.stop();
+      t = undefined;
+    }
+  });
+
+  /**
+   * @case Query parameters land on exchange under routecraft.http.query
+   * @preconditions GET /q?x=1&y=two
+   * @expectedResult routecraft.http.query is { x: "1", y: "two" }
+   */
+  test("query params land on exchange headers", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("q")
+        .from(http({ path: "/q", method: "GET" }))
+        .process(async (ex) =>
+          DefaultExchange.rewrap(ex, {
+            body: ex.headers["routecraft.http.query"] as Record<string, string>,
+          }),
+        )
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/q?x=1&y=two`);
+    expect(await res.json()).toEqual({ x: "1", y: "two" });
+  });
+
+  /**
+   * @case Request headers land on exchange under routecraft.http.headers (lower-cased)
+   * @preconditions Client sends a custom X-Trace header
+   * @expectedResult routecraft.http.headers["x-trace"] === "abc"
+   */
+  test("request headers land on exchange headers (lower-cased)", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("h")
+        .from(http({ path: "/h", method: "GET" }))
+        .process(async (ex) => {
+          const h = ex.headers["routecraft.http.headers"] as Record<
+            string,
+            string
+          >;
+          return DefaultExchange.rewrap(ex, { body: { trace: h["x-trace"] } });
+        })
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/h`, {
+      headers: { "X-Trace": "abc" },
+    });
+    expect(await res.json()).toEqual({ trace: "abc" });
+  });
+
+  /**
+   * @case Form url-encoded body is parsed into an object
+   * @preconditions Content-Type: application/x-www-form-urlencoded
+   * @expectedResult exchange.body is the parsed key/value object
+   */
+  test("application/x-www-form-urlencoded body is parsed", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("form")
+        .from(http({ path: "/form", method: "POST" }))
+        .transform((body) => body)
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/form`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ name: "alice", role: "admin" }).toString(),
+    });
+    expect(await res.json()).toEqual({ name: "alice", role: "admin" });
+  });
+
+  /**
+   * @case multipart/form-data uploads land on exchange as FormData with File entries
+   * @preconditions Client posts a small text file inside a multipart form
+   * @expectedResult The route reads the field name and the file's text content
+   */
+  test("multipart/form-data is parsed into FormData", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("mp")
+        .from(http({ path: "/mp", method: "POST" }))
+        .process(async (ex) => {
+          const fd = ex.body as FormData;
+          const file = fd.get("upload") as File;
+          return DefaultExchange.rewrap(ex, {
+            body: {
+              name: fd.get("name"),
+              fileName: file.name,
+              text: await file.text(),
+            },
+          });
+        })
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const fd = new FormData();
+    fd.set("name", "alice");
+    fd.set(
+      "upload",
+      new File(["hello world"], "greeting.txt", { type: "text/plain" }),
+    );
+    const res = await fetch(`http://127.0.0.1:${bound.port}/mp`, {
+      method: "POST",
+      body: fd,
+    });
+    expect(await res.json()).toEqual({
+      name: "alice",
+      fileName: "greeting.txt",
+      text: "hello world",
+    });
+  });
+
+  /**
+   * @case text/* request body is exposed as a string
+   * @preconditions Content-Type: text/plain
+   * @expectedResult exchange.body is the raw string
+   */
+  test("text/plain body is parsed as a string", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("text")
+        .from(http({ path: "/text", method: "POST" }))
+        .transform((body) => ({ echo: body }))
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/text`, {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: "hello",
+    });
+    expect(await res.json()).toEqual({ echo: "hello" });
+  });
+
+  /**
+   * @case String response body is sent as text/plain
+   * @preconditions Final exchange body is a string
+   * @expectedResult Content-Type starts with text/plain, body is the string
+   */
+  test("string response is served as text/plain", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("ts")
+        .from(http({ path: "/ts", method: "GET" }))
+        .transform(() => "plain text")
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/ts`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toMatch(/text\/plain/);
+    expect(await res.text()).toBe("plain text");
+  });
+
+  /**
+   * @case Uint8Array response body is sent as application/octet-stream
+   * @preconditions Final exchange body is a Uint8Array
+   * @expectedResult Content-Type is application/octet-stream and bytes round-trip
+   */
+  test("Uint8Array response is served as application/octet-stream", async () => {
+    const bytes = new Uint8Array([1, 2, 3, 4, 5]);
+    const bound = await bootHttp({
+      routes: craft()
+        .id("bin")
+        .from(http({ path: "/bin", method: "GET" }))
+        .transform(() => bytes)
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/bin`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toMatch(
+      /application\/octet-stream/,
+    );
+    const got = new Uint8Array(await res.arrayBuffer());
+    expect(Array.from(got)).toEqual(Array.from(bytes));
+  });
+
+  /**
+   * @case Response status, content-type, and extra headers can be overridden via exchange headers
+   * @preconditions Process step sets routecraft.http.response.{status,contentType,headers}
+   * @expectedResult The response uses the overridden status, content-type and includes the extra header
+   */
+  test("response hint headers override status/contentType/extra headers", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("hint")
+        .from(http({ path: "/hint", method: "POST" }))
+        .process(async (ex) =>
+          DefaultExchange.rewrap(ex, {
+            body: { id: "abc" },
+            headers: {
+              ...ex.headers,
+              "routecraft.http.response.status": 201,
+              "routecraft.http.response.contentType":
+                "application/vnd.api+json",
+              "routecraft.http.response.headers": { location: "/things/abc" },
+            },
+          }),
+        )
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/hint`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(res.status).toBe(201);
+    expect(res.headers.get("content-type")).toBe("application/vnd.api+json");
+    expect(res.headers.get("location")).toBe("/things/abc");
+  });
+
+  /**
+   * @case A user route can override a built-in by claiming the same path
+   * @preconditions A user route registered at GET /health
+   * @expectedResult The user route runs, the built-in fallback does not
+   */
+  test("user route at /health overrides the built-in", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("custom-health")
+        .from(http({ path: "/health", method: "GET" }))
+        .transform(() => ({ status: "custom", uptime: 42 }))
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/health`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: "custom", uptime: 42 });
+  });
+
+  /**
+   * @case Built-in /ready responds 200 with a routes count
+   * @preconditions One user route registered
+   * @expectedResult 200, body shape { status: "ready", routes: 1 }
+   */
+  test("built-in /ready responds 200 with route count", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("only-one")
+        .from(http({ path: "/only-one", method: "GET" }))
+        .transform(() => ({ ok: true }))
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/ready`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { status: string; routes: number };
+    expect(body.status).toBe("ready");
+    expect(body.routes).toBeGreaterThanOrEqual(1);
+  });
+
+  /**
+   * @case Multiple routes share one HTTP server and respond independently
+   * @preconditions Two routes on different paths/methods
+   * @expectedResult Each route handles its own requests; cross-path traffic gets 404
+   */
+  test("multiple routes share the same server", async () => {
+    const bound = await bootHttp({
+      routes: [
+        craft()
+          .id("a")
+          .from(http({ path: "/a", method: "GET" }))
+          .transform(() => ({ from: "a" }))
+          .to(noop()),
+        craft()
+          .id("b")
+          .from(http({ path: "/b", method: "POST" }))
+          .transform(() => ({ from: "b" }))
+          .to(noop()),
+      ],
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const a = await fetch(`http://127.0.0.1:${bound.port}/a`);
+    expect(a.status).toBe(200);
+    expect(await a.json()).toEqual({ from: "a" });
+
+    const b = await fetch(`http://127.0.0.1:${bound.port}/b`, {
+      method: "POST",
+    });
+    expect(b.status).toBe(200);
+    expect(await b.json()).toEqual({ from: "b" });
+
+    const missing = await fetch(`http://127.0.0.1:${bound.port}/c`);
+    expect(missing.status).toBe(404);
+  });
+});
