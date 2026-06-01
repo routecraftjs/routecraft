@@ -42,6 +42,7 @@ Detailed coding standards for contributors live in `.standards/`:
 - [Resilience Wrappers](.standards/resilience-wrappers.md) -- dual-mode wrapper pattern (`.error()` and future resilience ops), authoring contract
 - [Security](.standards/security.md) -- JWT / JWKS verification, principal propagation, bearer-token handling, `userinfo` enrichment, RFC 9728 metadata, `authorize()` semantics
 - [API Stability](.standards/api-stability.md) -- the v0 policy: the whole public API is unstable, so we tag only `@internal` and `@deprecated`; per-symbol `@experimental` / `@beta` / `@stable` tiers arrive at v1
+- [Content and Docs](.standards/content-and-docs.md) -- where content belongs across docs and blog (the five surfaces), introduction-vs-advanced depth axis, code-lives-once, nav-matches-folders, the `route.ts` public-surface decision, static-export redirect constraint
 
 ## Merge Checklist
 

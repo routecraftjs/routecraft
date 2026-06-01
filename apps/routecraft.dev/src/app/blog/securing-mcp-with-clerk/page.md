@@ -535,4 +535,4 @@ Or scaffold a project locally:
 bunx create-routecraft my-mcp-server
 ```
 
-Full docs at [routecraft.dev/docs](/docs/introduction). The MCP and auth primitives live in [`@routecraft/ai`](/docs/advanced/expose-as-mcp) and the [security reference](/docs/reference/configuration).
+Full docs at [routecraft.dev/docs](/docs/introduction). The MCP and auth primitives live in [`@routecraft/ai`](/docs/advanced/expose-as-mcp), and the vendor-neutral auth guide is [Securing capabilities](/docs/advanced/securing-capabilities).

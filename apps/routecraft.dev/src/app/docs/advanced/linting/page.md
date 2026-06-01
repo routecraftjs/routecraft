@@ -59,14 +59,7 @@ The `recommended` preset enables all rules at their default levels. See the [Lin
 
 ## Presets
 
-The plugin ships two presets:
-
-| Preset | Description |
-|--------|-------------|
-| `routecraftPlugin.configs.recommended` | Recommended rules at their default levels |
-| `routecraftPlugin.configs.all` | All rules enabled as errors |
-
-Use `recommended` for most projects. Use `all` if you want to enforce every rule strictly from the start.
+The plugin ships two presets: `recommended` (rules at their default levels) and `all` (every rule as an error). Use `recommended` for most projects; use `all` to enforce every rule strictly from the start. See the [Linting reference](/docs/reference/linting#presets) for the full preset and rule catalog.
 
 ## Customizing severity
 

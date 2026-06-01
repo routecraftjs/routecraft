@@ -6,16 +6,25 @@ A conventional folder layout that Routecraft expects out of the box. {% .lead %}
 
 ## Folder layout
 
+Each capability is its own folder, grouped under a domain folder. `route.ts` is the
+capability's public surface; everything else in the folder is private to it.
+
 ```text
 my-app
 ├── craft.config.ts
 ├── capabilities
-│   ├── send-email.ts
-│   ├── sync-users.ts
+│   ├── comms
+│   │   └── send-email
+│   │       ├── route.ts
+│   │       ├── route.test.ts
+│   │       └── README.md
 │   └── reports
-│       └── daily-summary.ts
+│       └── daily-summary
+│           ├── route.ts
+│           ├── route.test.ts
+│           ├── summarise.ts          # internal helper, private to this capability
+│           └── __fixtures__
 ├── adapters
-│   ├── kafka.ts
 │   └── google-sheets.ts
 ├── plugins
 │   └── logger.ts
@@ -24,17 +33,85 @@ my-app
 └── .env
 ```
 
-All application code can live at the project root or inside an optional `src` folder. Routecraft treats both layouts identically.
+All application code can live at the project root or inside an optional `src` folder.
+Routecraft treats both layouts identically.
 
-## Folders
+## The capability folder
+
+A capability is a folder under `capabilities/`, named for its id, grouped beneath a domain
+folder. `bunx create-routecraft` scaffolds this shape for you.
+
+| File | Purpose |
+| --- | --- |
+| `route.ts` | The public surface. Default-exports the capability and re-exports its input/output types. The only file other capabilities may import. |
+| `route.test.ts` | Colocated test, written with `@routecraft/testing`. |
+| `README.md` | Short description of what the capability does. Add a mermaid diagram and an integrations table for non-trivial ones. |
+| internal files | Mappers, helpers, fixtures. Private to the folder; never imported from outside it. |
+
+The file is named `route.ts` because that is what the `craft()` builder returns. The
+user-facing noun for the unit of work is still "capability"; "route" is just the name of the
+public-surface file.
+
+```ts
+// capabilities/comms/send-email/route.ts
+import { craft, http } from '@routecraft/routecraft'
+import { z } from 'zod'
+
+export const SendEmailInput = z.object({ to: z.string().email(), subject: z.string() })
+export type SendEmailInput = z.infer<typeof SendEmailInput>
+
+export default craft()
+  .id('send-email')
+  .input({ body: SendEmailInput })
+  .from<SendEmailInput>(/* source */)
+  .to(http({ method: 'POST', url: 'https://api.example.com/send' }))
+```
+
+### Reuse between capabilities
+
+Capabilities never import each other's internal files. To call one capability from another,
+use [`direct()`](/docs/advanced/composing-capabilities) with the callee's id, and import its
+types from its `route.ts`:
+
+```ts
+// capabilities/reports/daily-summary/route.ts
+import { craft, direct } from '@routecraft/routecraft'
+import { type SendEmailInput } from '../../comms/send-email/route'
+
+export default craft()
+  .id('daily-summary')
+  .from(/* ... */)
+  .to(direct<SendEmailInput>('send-email'))
+```
+
+This keeps the contract (the id plus the exported types) the only coupling between
+capabilities. Internals stay free to change.
+
+### Shared helpers
+
+Pure helpers used by a single capability stay inside its folder. The moment a helper is
+shared by two or more capabilities, move it into a shared workspace package rather than a
+loose `lib/` folder, so the dependency is explicit and the boundary stays clean.
+
+### Single-file shorthand
+
+A trivial capability with no internal files can be a single file, `capabilities/<id>.ts`,
+that default-exports the route. This is fine for small or example-only capabilities. The
+folder shape is the default once a capability grows a test, a README, or any private helper.
+
+Sub-folders inside `capabilities/` are supported to any depth. The capability id set in
+`.id()` is what identifies it at runtime, not the path or filename.
+
+## Other folders
 
 | Folder | Purpose |
 | --- | --- |
-| `capabilities/` | Your capabilities as `.ts` files. Nest them freely in sub-folders. |
 | `adapters/` | Custom adapters that connect to external systems. Each implements one of the adapter interfaces: `subscribe`, `send`, or `process`. |
 | `plugins/` | Runtime plugins that hook into the Routecraft context lifecycle, such as MCP transport or custom telemetry. |
 
-**Adapters vs plugins:** an adapter connects to an external system (a queue, an API, a file system). A plugin extends the runtime itself (exposing MCP, adding metrics, wiring up observability).
+**Adapters vs plugins:** an adapter connects to an external system (a queue, an API, a file
+system). A plugin extends the runtime itself (exposing MCP, adding metrics, wiring up
+observability).
 
 ## Files
 
@@ -58,14 +135,13 @@ const config: CraftConfig = {};
 export default config;
 ```
 
-Sub-folders inside `capabilities/` are supported. `capabilities/reports/daily-summary.ts` is just as valid as a flat file. The capability ID set in `.id()` is what identifies it at runtime, not the filename.
-
 ---
 
 ## Related
 
 {% quick-links %}
 
+{% quick-link title="Composing Capabilities" icon="presets" href="/docs/advanced/composing-capabilities" description="Reuse capabilities with direct() and exported contract types." /%}
 {% quick-link title="Configuration reference" icon="presets" href="/docs/reference/configuration" description="craft.config.ts options and context settings." /%}
 
 {% /quick-links %}

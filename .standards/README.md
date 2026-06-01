@@ -19,6 +19,7 @@ Internal development standards for Routecraft contributors (human and AI). These
 | [Resilience Wrappers](./resilience-wrappers.md) | Dual-mode wrapper pattern (`.error()` and future `.retry()`/`.timeout()`/`.cache()`/...), authoring contract, stacking + cascade rules |
 | [Security](./security.md) | JWT / JWKS verification rules, principal propagation across the exchange, bearer-token handling, OAuth `userinfo` enrichment, RFC 9728 metadata, `authorize()` semantics |
 | [API Stability](./api-stability.md) | The v0 policy: the whole public API is unstable, so we tag only `@internal` (non-public) and `@deprecated`; per-symbol `@experimental` / `@beta` / `@stable` tiers arrive at v1 |
+| [Content and Docs](./content-and-docs.md) | Where content belongs across the docs site and blog (the five surfaces), the depth axis between introduction and advanced, code-lives-once, nav-matches-folders, the `route.ts` public-surface decision, and the static-export redirect constraint |
 
 ## Related
 

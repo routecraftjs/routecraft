@@ -1,6 +1,6 @@
 import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
 import { testContext, type TestContext } from "@routecraft/testing";
-import capabilities from "./hello-world.js";
+import capabilities from "./route.js";
 
 describe("Hello World Routes", () => {
   let t: TestContext;

@@ -79,9 +79,30 @@ Authoring rules to keep in mind:
 - **Resilience wrappers** stack outside-in. `.error(handler)` at route scope catches anything that escapes the pipeline; at step scope, attach it to a single step
 - **Schemas as the contract**: prefer Standard Schema (`@standard-schema/spec`). Zod and Valibot both work because both implement Standard Schema. Use `@routecraft/routecraft`'s helpers in shared code, not Zod directly
 
+## Project structure: one folder per capability
+
+In a Routecraft project, each capability is its own folder under `capabilities/`, grouped by domain:
+
+```text
+capabilities/
+  <domain>/
+    <id>/
+      route.ts        # public surface: default export plus its input/output types
+      route.test.ts   # colocated test (see Step 4)
+      README.md       # short description; mermaid + integrations table for complex ones
+      <internal>.ts   # mappers, helpers; never imported from outside this folder
+```
+
+Rules:
+
+- `route.ts` is the only file other capabilities may import. Re-export the capability's input/output types from it so callers depend on the contract, not the internals.
+- Cross-capability reuse goes through `direct('<id>')` plus the types re-exported from the callee's `route.ts`. Never reach into another capability's internal files.
+- Pure helpers shared by several capabilities graduate to a shared workspace package, not a loose `lib/` folder.
+- A single-file capability (`capabilities/<id>.ts`) is acceptable shorthand for a trivial, internal-free capability, but the folder shape is the default the scaffolder produces.
+
 ## Step 4: write tests
 
-Tests live in the package's `test/` directory (`packages/<pkg>/test/<name>.test.ts` if you are inside this monorepo, or your project's existing `test/` directory otherwise). Do not colocate tests next to source. Every test must have JSDoc with `@case`, `@preconditions`, `@expectedResult`. Use `@routecraft/testing` and follow the canonical lifecycle:
+In a project that follows the folder-per-capability layout, colocate the test as `route.test.ts` next to `route.ts`. When contributing inside this monorepo's packages, tests instead live in the package's `test/` directory (`packages/<pkg>/test/<name>.test.ts`). Every test must have JSDoc with `@case`, `@preconditions`, `@expectedResult`. Use `@routecraft/testing` and follow the canonical lifecycle:
 
 ```ts
 import { describe, it, expect, afterEach } from "vitest";
