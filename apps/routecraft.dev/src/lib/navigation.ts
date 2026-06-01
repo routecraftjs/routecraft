@@ -73,6 +73,7 @@ export const navigation = [
     links: [
       { title: 'File to HTTP', href: '/docs/examples/api-sync' },
       { title: 'MCP tool', href: '/docs/examples/mcp' },
+      { title: 'Support triage agent', href: '/docs/examples/support-triage' },
     ],
   },
   {
