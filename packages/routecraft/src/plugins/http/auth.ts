@@ -11,14 +11,23 @@ import type {
 /**
  * Result of running the auth middleware on a request.
  *
- * `admit` always carries a {@link Principal}: every implemented strategy
- * (apiKey static / verify, validator bearer) produces one on the admit path.
- * `reject` carries the canonical 401/403 response the dispatcher should
- * return without invoking a route, plus the `reason` and `scheme` that drive
- * the `auth:rejected` event payload.
+ * - `admit` always carries a {@link Principal}: every implemented strategy
+ *   (apiKey static / verify, validator bearer) produces one on the admit
+ *   path.
+ * - `absent` is returned when the request carried no credential at all (no
+ *   `Authorization` header for bearer; no header / query parameter for
+ *   apiKey). The dispatcher converts this to 401 on `auth: "required"`
+ *   routes and lets the request through with no principal on
+ *   `auth: "optional"` routes. Carries the `scheme` only; the dispatcher
+ *   decides whether to issue a Response based on the route's auth mode.
+ * - `reject` is returned when a credential was presented but failed
+ *   verification. It carries the canonical 401 response the dispatcher
+ *   should return, plus the `reason` and `scheme` that drive the
+ *   `auth:rejected` event payload.
  */
 export type AuthResult =
   | { kind: "admit"; principal: Principal }
+  | { kind: "absent"; scheme: string }
   | { kind: "reject"; response: Response; reason: string; scheme: string };
 
 /** Request-level middleware produced by {@link createAuthMiddleware}. */
@@ -198,7 +207,7 @@ export function createAuthMiddleware(
         }
       }
       if (!raw) {
-        return reject("missing api key", "apiKey");
+        return { kind: "absent", scheme: "apiKey" };
       }
       if (allowedSet) {
         if (!allowedSet.has(raw)) {
@@ -226,11 +235,11 @@ export function createAuthMiddleware(
     return async (req: Request): Promise<AuthResult> => {
       const header = req.headers.get("authorization");
       if (!header || !header.toLowerCase().startsWith("bearer ")) {
-        return reject("missing bearer token", "bearer");
+        return { kind: "absent", scheme: "bearer" };
       }
       const token = header.slice(7).trim();
       if (!token) {
-        return reject("missing bearer token", "bearer");
+        return { kind: "absent", scheme: "bearer" };
       }
       try {
         const principal = await validator(token);

@@ -40,6 +40,15 @@ export interface DispatcherOptions {
   /** Optional gated built-ins (e.g. /openapi.json under `expose: "authenticated"`). */
   gatedBuiltins?: GatedBuiltins;
   onRequestCompleted?: RequestCompletedHandler;
+  /**
+   * Called when the dispatcher itself synthesises a 401 because a route
+   * with `auth: "required"` saw no credential. The plugin uses this to
+   * emit `auth:rejected` for the missing-credential case (the middleware
+   * cannot, because it returned `absent` rather than a Response). Reject
+   * results returned by the middleware emit their own event via the
+   * wrapper installed in `plugin.ts`.
+   */
+  onAuthAbsent?: (scheme: string) => void;
   /** Optional logger; defaults to the framework logger. */
   logger?: typeof defaultLogger;
 }
@@ -90,10 +99,17 @@ export function createDispatcher(
       if (opts.gatedBuiltins?.paths.has(pathname)) {
         if (opts.authMiddleware) {
           const result = await opts.authMiddleware(req);
-          if (result.kind === "reject") {
-            // Built-ins never produce request:completed events regardless of
-            // auth outcome; only emit for user-registered routes.
-            return result.response;
+          // Built-ins never produce request:completed events regardless of
+          // auth outcome; only emit for user-registered routes. Treat
+          // `absent` like `reject`: gated built-ins are by definition
+          // `openapi.expose: "authenticated"`, so a missing credential is
+          // a 401 just like a bad one. The plugin's wrapper emits
+          // `auth:rejected` for `reject` directly; for `absent` we surface
+          // it through the same `onAuthAbsent` hook the user-route path uses.
+          if (result.kind === "reject") return result.response;
+          if (result.kind === "absent") {
+            opts.onAuthAbsent?.(result.scheme);
+            return missingCredentialResponse(result.scheme);
           }
         }
         const gatedRes = await opts.gatedBuiltins.handler(req, pathname);
@@ -130,9 +146,15 @@ export function createDispatcher(
 
     const { entry, params } = methodMatch;
 
-    // 3. Auth check unless the route opted out.
+    // 3. Auth check per the route's auth mode.
+    //   - "skip"     : never call the middleware; no principal, no auth events.
+    //   - "required" : call the middleware; absent or reject -> 401.
+    //   - "optional" : call the middleware; admit attaches a principal,
+    //                  reject still returns 401 (a presented credential that
+    //                  fails verification is a hard error, not "anonymous"),
+    //                  absent admits anonymously without emitting auth events.
     let principal: Principal | undefined;
-    if (!entry.isPublic && opts.authMiddleware) {
+    if (entry.authMode !== "skip" && opts.authMiddleware) {
       const result = await opts.authMiddleware(req);
       if (result.kind === "reject") {
         emitCompleted(opts, {
@@ -144,7 +166,23 @@ export function createDispatcher(
         });
         return result.response;
       }
-      principal = result.principal;
+      if (result.kind === "absent") {
+        if (entry.authMode === "required") {
+          opts.onAuthAbsent?.(result.scheme);
+          const response = missingCredentialResponse(result.scheme);
+          emitCompleted(opts, {
+            method,
+            path: entry.matcher.pattern,
+            status: response.status,
+            durationMs: ms(started),
+            routeId: entry.routeId,
+          });
+          return response;
+        }
+        // optional + absent -> admit without a principal, no auth events.
+      } else {
+        principal = result.principal;
+      }
     }
 
     // 4. Parse the body. Failures here are user-input errors (malformed JSON,
@@ -258,6 +296,30 @@ function jsonResponse(
       "content-type": "application/json; charset=utf-8",
       ...(init.headers ?? {}),
     },
+  });
+}
+
+/**
+ * Build the canonical 401 for an `auth: "required"` route hit without a
+ * credential. The auth middleware itself returns `kind: "absent"` so the
+ * dispatcher can decide whether to issue a Response (required) or pass
+ * through (optional); centralising the shape here keeps the dispatcher the
+ * single source of truth for "missing credential" wire format.
+ */
+function missingCredentialResponse(scheme: string): Response {
+  const headers: Record<string, string> = {
+    "content-type": "application/json; charset=utf-8",
+  };
+  // WWW-Authenticate per RFC 7235 only when the scheme is bearer. Sending
+  // `Bearer` on an api-key route mis-signals the protocol.
+  if (scheme === "bearer") {
+    headers["www-authenticate"] = 'Bearer realm="routecraft"';
+  }
+  const reason =
+    scheme === "apiKey" ? "missing api key" : "missing bearer token";
+  return new Response(JSON.stringify({ error: "unauthorized", reason }), {
+    status: 401,
+    headers,
   });
 }
 

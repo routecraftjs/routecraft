@@ -5,6 +5,7 @@ import type { Exchange, ExchangeHeaders } from "../../exchange";
 import {
   HTTP_PLUGIN_REGISTERED,
   HTTP_ROUTE_REGISTRY,
+  type HttpRouteAuthMode,
   type HttpRouteEntry,
   type HttpRouteRegistry,
 } from "../../plugins/http/registry";
@@ -57,11 +58,12 @@ export class HttpSourceAdapter implements Source<HttpRequestBody> {
     const method: HttpMethod = this.options.method ?? "GET";
     const matcher = compilePathMatcher(this.options.path);
     const routeId = meta?.routeId ?? `http:${method}:${matcher.pattern}`;
+    const authMode: HttpRouteAuthMode = this.options.auth ?? "required";
     const entry: HttpRouteEntry = {
       routeId,
       method,
       matcher,
-      isPublic: this.options.public === true,
+      authMode,
       discovery: meta?.discovery,
       handler: (body, headers) => handler(body as HttpRequestBody, headers),
     };

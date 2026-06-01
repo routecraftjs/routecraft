@@ -35,7 +35,7 @@ export const craftConfig = defineConfig({
 | `events` | `{ perRequest?: boolean }` | `{ perRequest: true }` | No | Toggle the `plugin:http:request:completed` event. |
 | `openapi` | `{ expose?: "public" \| "authenticated" \| "off" }` | `{ expose: "public" }` | No | Controls how `GET /openapi.json` is served. `"public"` matches the convention of public API providers (Stripe, GitHub, Twilio). `"authenticated"` gates the document behind the global auth middleware. `"off"` returns 404. |
 
-Per-route authorization uses the existing [`.authorize({ roles, scopes })`](/docs/reference/operations/authorize) builder; a route opts out of the global check with `http({ public: true })`. Built-in endpoints `/health`, `/ready`, and `/openapi.json` are served unless a user route claims the same path.
+Per-route authorization uses the existing [`.authorize({ roles, scopes })`](/docs/reference/operations/authorize) builder. A route relaxes the global check with `http({ auth: "optional" })` (admit anonymous, attach principal when a valid token is present) or `http({ auth: "skip" })` (bypass the middleware entirely). See [Auth modes](/docs/reference/adapters/http#auth-modes) on the adapter reference for the full matrix. Built-in endpoints `/health`, `/ready`, and `/openapi.json` are served unless a user route claims the same path.
 
 ## Lifecycle
 

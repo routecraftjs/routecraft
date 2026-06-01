@@ -72,11 +72,20 @@ export const deleteOrder = craft()
   })
   .to(noop())
 
-// Public endpoint (bypasses the global JWT check)
+// Public endpoint, bypasses the global JWT check entirely (no auth events).
 export const health = craft()
   .id('health-extra')
-  .from(http({ path: '/health-extra', method: 'GET', public: true }))
+  .from(http({ path: '/health-extra', method: 'GET', auth: 'skip' }))
   .transform(() => ({ status: 'ok' }))
+  .to(noop())
+
+// Public endpoint that still personalises when a valid token is presented.
+export const home = craft()
+  .id('home')
+  .from(http({ path: '/', method: 'GET', auth: 'optional' }))
+  .process(async (ex) =>
+    DefaultExchange.rewrap(ex, { body: `hello, ${ex.principal?.subject ?? 'guest'}` }),
+  )
   .to(noop())
 ```
 
@@ -86,7 +95,7 @@ export const health = craft()
 | --- | --- | --- | --- | --- |
 | `path` | `string` | -- | Yes | Path pattern with `:param` segments (e.g. `/orders/:id`). |
 | `method` | `HttpMethod` | `GET` | No | HTTP method this route handles. |
-| `public` | `boolean` | `false` | No | Skip the global `auth` check for this route (and skip principal attachment). Combining `public: true` with `.authorize(...)` always rejects, since no principal is present. |
+| `auth` | `"required" \| "optional" \| "skip"` | `"required"` | No | Per-route handling of the plugin's global `auth` middleware. See [Auth modes](#auth-modes) below. No effect when no global `auth` is configured. |
 
 ### Request metadata on the exchange
 
@@ -146,11 +155,29 @@ Configurable via `http: { openapi: { expose } }`:
 - `apiKey({ keys: [...] })` -- static allowlist. Reads from a header (default `x-api-key`) or, with `in: "query"`, a query parameter (default `api_key`).
 - `apiKey({ verify: (key) => Principal | null })` -- custom verifier that resolves to a per-user principal.
 
-The middleware runs once per incoming request. Rejection returns `401` directly (no route runs). Admission attaches the resolved `Principal` to the exchange (`routecraft.auth.principal`), and per-route guards via the existing `.authorize({ roles, scopes, predicate })` builder take it from there. Per-route opt-out via `http({ public: true })` skips both the auth middleware and principal attachment.
+The middleware runs once per incoming request. The route's `auth` option decides what happens with the result (see [Auth modes](#auth-modes) below). When admitted, the resolved `Principal` lands on the exchange (`routecraft.auth.principal`), and per-route guards via the existing `.authorize({ roles, scopes, predicate })` builder take it from there.
 
 API-key name matching follows each location's convention: header names are case-insensitive (per HTTP), so the `name` is matched case-insensitively; query parameter names are case-sensitive (per the URL spec), so the `name` must match exactly. Note the default name differs by location: `x-api-key` for headers, `api_key` for query.
 
 OAuth 2.1 is reserved in the auth union for a future release.
+
+#### Auth modes
+
+The `auth` option on `http({...})` chooses one of three modes per route. It has no effect when the plugin is configured without a global `auth` strategy.
+
+| Mode | Credential present, valid | Credential present, invalid | Credential absent |
+| --- | --- | --- | --- |
+| `"required"` (default) | admit, principal attached, `auth:success` | 401, `auth:rejected` | 401 |
+| `"optional"` | admit, principal attached, `auth:success` | 401, `auth:rejected` | admit, no principal, no auth event |
+| `"skip"` | bypass middleware entirely; no principal, no auth event | bypass middleware entirely; no principal, no auth event | bypass middleware entirely; no principal, no auth event |
+
+Rules of thumb:
+
+- **`"required"`** is the secure-by-default tier. Use it for every endpoint that handles authenticated user data.
+- **`"optional"`** is for public routes that personalise when the caller happens to be signed in: a homepage greeting, a docs page with a "logged in as X" header, an API endpoint that rate-limits anonymous higher than authenticated. The check stays strict when a credential _is_ presented; a malformed or forged token still returns 401 rather than being silently accepted as anonymous.
+- **`"skip"`** is for truly identity-free endpoints: health probes, RSS feeds, OG image generation, redirect handlers. No middleware runs at all, so no verification cost and no `auth:*` event noise.
+
+Combining `auth: "skip"` with `.authorize({...})` is rejected at request time: a `"skip"` route never attaches a principal, so the authorization check has nothing to evaluate. That is intentional. If you need role/scope checks, use `"required"` (or `"optional"`) plus `.authorize({...})`.
 
 ### Route matching and information disclosure
 

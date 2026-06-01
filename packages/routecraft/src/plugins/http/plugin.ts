@@ -84,11 +84,14 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
           ? (event) => ctx.emit("plugin:http:request:completed", { ...event })
           : undefined;
 
-      // Wrap the auth middleware so admit/reject also pipes through the
+      // Wrap the auth middleware so admit / reject pipe through the
       // framework's existing auth:* events (same payload shape MCP uses),
-      // keeping observability surfaces consistent across plugins. AuthResult
-      // narrows admit to a present Principal, so no "anonymous" fallback is
-      // needed (and the emit can never carry a placeholder identity).
+      // keeping observability surfaces consistent across plugins. The
+      // `absent` variant is deliberately silent: no credential was even
+      // attempted, so emitting `auth:rejected` would be misleading. The
+      // dispatcher decides whether absent becomes a 401 (required mode) or
+      // an anonymous admit (optional mode); either way, no auth event
+      // fires for absent.
       const wrappedAuth: HttpAuthMiddleware | undefined = authMiddleware
         ? async (req: Request) => {
             const result = await authMiddleware(req);
@@ -98,7 +101,7 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
                 scheme: result.principal.scheme,
                 source: "http",
               });
-            } else {
+            } else if (result.kind === "reject") {
               ctx.emit("auth:rejected", {
                 reason: result.reason,
                 scheme: result.scheme,
@@ -109,6 +112,24 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
           }
         : undefined;
 
+      // The dispatcher itself synthesises the missing-credential 401 for
+      // `auth: "required"` routes (the middleware returns `absent` instead
+      // of `reject` so optional routes can admit anonymously). We still
+      // want `auth:rejected` to fire for that case, so wire it here in the
+      // same place the middleware wrapper emits the per-result events.
+      const onAuthAbsent = authMiddleware
+        ? (scheme: string) => {
+            ctx.emit("auth:rejected", {
+              reason:
+                scheme === "apiKey"
+                  ? "missing api key"
+                  : "missing bearer token",
+              scheme,
+              source: "http",
+            });
+          }
+        : undefined;
+
       const dispatcher = createDispatcher({
         registry,
         authMiddleware: wrappedAuth,
@@ -116,6 +137,7 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
         builtins,
         ...(gatedBuiltins !== undefined ? { gatedBuiltins } : {}),
         ...(onRequestCompleted !== undefined ? { onRequestCompleted } : {}),
+        ...(onAuthAbsent !== undefined ? { onAuthAbsent } : {}),
         logger: ctx.logger,
       });
 

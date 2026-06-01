@@ -32,7 +32,7 @@ function isSourceOptions(
  * @example
  * ```typescript
  * .from(http({ path: "/orders/:id", method: "GET" }))
- * .from(http({ path: "/health", method: "GET", public: true }))
+ * .from(http({ path: "/health", method: "GET", auth: "skip" }))
  * ```
  *
  * @experimental

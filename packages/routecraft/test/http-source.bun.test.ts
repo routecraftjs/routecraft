@@ -285,15 +285,17 @@ describe("HTTP Source Adapter", () => {
   });
 
   /**
-   * @case public: true bypasses global auth
-   * @preconditions Plugin has global jwt auth; route declares public: true
-   * @expectedResult Request without Authorization header is 200
+   * @case auth: "skip" bypasses global auth completely
+   * @preconditions Plugin has global jwt auth; route declares auth: "skip"
+   * @expectedResult Request without Authorization header is 200 and no
+   *   auth:* events are emitted (skip means no auth was attempted)
    */
-  test("public: true bypasses global auth", async () => {
+  test('auth: "skip" bypasses global auth', async () => {
+    const authEvents: string[] = [];
     const bound = await bootHttp({
       routes: craft()
         .id("public")
-        .from(http({ path: "/public", method: "GET", public: true }))
+        .from(http({ path: "/public", method: "GET", auth: "skip" }))
         .transform(() => ({ ok: true }))
         .to(noop()),
       http: {
@@ -304,11 +306,137 @@ describe("HTTP Source Adapter", () => {
           audience: JWT_AUDIENCE,
         }),
       },
+      events: {
+        "auth:success": () => authEvents.push("success"),
+        "auth:rejected": () => authEvents.push("rejected"),
+      },
     });
     t = bound.ctx;
 
     const res = await fetch(`http://127.0.0.1:${bound.port}/public`);
     expect(res.status).toBe(200);
+    expect(authEvents).toEqual([]);
+  });
+
+  /**
+   * @case auth: "optional" admits anonymously when no credential is present
+   * @preconditions Plugin has global jwt auth; route declares auth: "optional"
+   * @expectedResult Request without Authorization header is 200 with no
+   *   principal on the exchange; no auth:* events fire because no auth was
+   *   attempted
+   */
+  test('auth: "optional" admits anonymous without principal', async () => {
+    const authEvents: string[] = [];
+    let observedSubject: string | undefined = "untouched";
+    const bound = await bootHttp({
+      routes: craft()
+        .id("optional")
+        .from(http({ path: "/me", method: "GET", auth: "optional" }))
+        .process(async (ex) => {
+          observedSubject = ex.principal?.subject;
+          return DefaultExchange.rewrap(ex, {
+            body: { subject: observedSubject ?? null },
+          });
+        })
+        .to(noop()),
+      http: {
+        port: 0,
+        auth: jwt({
+          secret: JWT_SECRET,
+          issuer: JWT_ISSUER,
+          audience: JWT_AUDIENCE,
+        }),
+      },
+      events: {
+        "auth:success": () => authEvents.push("success"),
+        "auth:rejected": () => authEvents.push("rejected"),
+      },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/me`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ subject: null });
+    expect(observedSubject).toBeUndefined();
+    expect(authEvents).toEqual([]);
+  });
+
+  /**
+   * @case auth: "optional" attaches principal when a valid credential is present
+   * @preconditions Plugin has global jwt auth; route declares auth: "optional"
+   * @expectedResult Request with a valid bearer token is 200 and the
+   *   exchange carries the verified principal; auth:success fires
+   */
+  test('auth: "optional" attaches principal when token is valid', async () => {
+    const authEvents: string[] = [];
+    const bound = await bootHttp({
+      routes: craft()
+        .id("optional-valid")
+        .from(http({ path: "/me", method: "GET", auth: "optional" }))
+        .process(async (ex) =>
+          DefaultExchange.rewrap(ex, {
+            body: { subject: ex.principal?.subject ?? null },
+          }),
+        )
+        .to(noop()),
+      http: {
+        port: 0,
+        auth: jwt({
+          secret: JWT_SECRET,
+          issuer: JWT_ISSUER,
+          audience: JWT_AUDIENCE,
+        }),
+      },
+      events: {
+        "auth:success": () => authEvents.push("success"),
+        "auth:rejected": () => authEvents.push("rejected"),
+      },
+    });
+    t = bound.ctx;
+
+    const token = makeJwt({ sub: "user-7" });
+    const res = await fetch(`http://127.0.0.1:${bound.port}/me`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ subject: "user-7" });
+    expect(authEvents).toEqual(["success"]);
+  });
+
+  /**
+   * @case auth: "optional" still rejects an invalid credential
+   * @preconditions Plugin has global jwt auth; route declares auth: "optional";
+   *   client sends a malformed/expired/forged Bearer token
+   * @expectedResult Request is 401 and auth:rejected fires. "Optional" means
+   *   "do not require auth"; it does not mean "accept anything you send".
+   */
+  test('auth: "optional" rejects invalid credential', async () => {
+    const authEvents: string[] = [];
+    const bound = await bootHttp({
+      routes: craft()
+        .id("optional-bad")
+        .from(http({ path: "/me", method: "GET", auth: "optional" }))
+        .transform(() => ({ ok: true }))
+        .to(noop()),
+      http: {
+        port: 0,
+        auth: jwt({
+          secret: JWT_SECRET,
+          issuer: JWT_ISSUER,
+          audience: JWT_AUDIENCE,
+        }),
+      },
+      events: {
+        "auth:rejected": () => authEvents.push("rejected"),
+      },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/me`, {
+      headers: { authorization: "Bearer not-a-real-jwt" },
+    });
+    expect(res.status).toBe(401);
+    expect(authEvents).toEqual(["rejected"]);
   });
 
   /**

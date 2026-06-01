@@ -128,10 +128,11 @@ export interface HttpPluginOptions {
   /** Host to bind. Defaults to `"127.0.0.1"`. Pass `"0.0.0.0"` to expose externally. */
   host?: string;
   /**
-   * Global auth strategy. Every incoming request is verified; rejection
-   * returns 401/403 before any route runs. Per-route routes can opt out
-   * with `http({ public: true })`. Per-route extra constraints come from
-   * the existing `.authorize({...})` builder method.
+   * Global auth strategy. Every incoming request is verified by default
+   * (rejection returns 401 before any route runs). Per-route routes can
+   * relax this with `http({ auth: "optional" | "skip" })`. Per-route
+   * extra constraints (roles, scopes, predicate) come from the existing
+   * `.authorize({...})` builder method.
    */
   auth?: HttpAuth;
   /**
@@ -181,12 +182,29 @@ export interface HttpServerOptions {
   /** HTTP method to accept. Defaults to `"GET"`. */
   method?: HttpMethod;
   /**
-   * Opt the route out of the plugin's global auth check. The dispatcher
-   * skips both the `auth:` middleware AND principal attachment, so a
-   * `public: true` route paired with `.authorize({...})` will always
-   * reject (no principal on the exchange). Default `false`.
+   * Per-route auth handling against the plugin's global `auth` strategy.
+   * Has no effect when no global `auth` is configured.
+   *
+   * - `"required"` (default): verify the credential; reject 401 if missing
+   *   or invalid; attach the resolved {@link Principal} to the exchange.
+   *   This is the secure-by-default tier.
+   * - `"optional"`: if a credential is presented, verify it strictly --
+   *   admit with principal on success, reject 401 on failure. If no
+   *   credential is presented, continue with no principal attached. Use for
+   *   public routes that personalise when the caller is signed in (a
+   *   homepage that greets logged-in users by name, an API endpoint that
+   *   rate-limits anonymous higher than authenticated).
+   * - `"skip"`: bypass the middleware entirely -- no verification, no
+   *   principal attachment, and no `auth:*` events emitted for this route.
+   *   Use for truly anonymous endpoints with no notion of identity (RSS
+   *   feeds, OG images, redirect handlers, public docs).
+   *
+   * Combining `"skip"` with `.authorize({...})` always rejects since no
+   * principal will ever be attached. That is intentional: `"skip"` is the
+   * documented "no identity" signal and stacking an authorization check on
+   * it is a user error.
    */
-  public?: boolean;
+  auth?: "required" | "optional" | "skip";
 }
 
 /**

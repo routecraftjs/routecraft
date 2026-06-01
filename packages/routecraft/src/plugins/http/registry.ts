@@ -4,6 +4,12 @@ import type { HttpMethod } from "../../adapters/http/types";
 import type { PathMatcher } from "./path-matcher";
 
 /**
+ * How the dispatcher applies the plugin's global auth middleware to a route.
+ * See {@link HttpServerOptions.auth} for the user-facing description.
+ */
+export type HttpRouteAuthMode = "required" | "optional" | "skip";
+
+/**
  * One entry in the http plugin's route registry. Created when a `from(http({...}))`
  * source subscribes and removed on abort. The dispatcher matches incoming
  * requests against this registry.
@@ -16,7 +22,7 @@ export interface HttpRouteEntry {
   readonly routeId: string;
   readonly method: HttpMethod;
   readonly matcher: PathMatcher;
-  readonly isPublic: boolean;
+  readonly authMode: HttpRouteAuthMode;
   /** Route-level discovery bundle, used by /openapi.json. */
   readonly discovery: RouteDiscovery | undefined;
   /** Provided by the source on subscribe; the dispatcher calls it once it has a parsed body. */
