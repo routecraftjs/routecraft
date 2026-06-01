@@ -1,6 +1,6 @@
 # @routecraft/routecraft
 
-AI automation as code.
+Tools for agents. Or the agent harness itself.
 
 Routecraft is a TypeScript-first framework for building automation capabilities that agents can invoke. Write deterministic pipelines for Software 1.0. Hand them to an AI agent as tools for Software 3.0. Both, from the same code.
 
