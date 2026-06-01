@@ -41,7 +41,7 @@ function blogLayoutSource(slug) {
   return `${banner}
 import { blogPostMetadata, BlogPostJsonLd } from '@/lib/blog-metadata'
 
-const slug = '${slug}'
+const slug = ${JSON.stringify(slug)}
 
 export const metadata = blogPostMetadata(slug)
 

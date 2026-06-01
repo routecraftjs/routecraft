@@ -41,7 +41,7 @@ craft()
     output: sentimentSchema,
   }))
   .to(log())
-// result.output is typed as { sentiment: string, confidence: number }
+// result.output is typed as { sentiment: 'positive' | 'neutral' | 'negative', confidence: number }
 ```
 
 Model ID format: `"provider:model-name"` (e.g., `"ollama:llama3.2"`, `"anthropic:claude-sonnet-4-6"`).

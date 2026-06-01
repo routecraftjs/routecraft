@@ -11,7 +11,7 @@ spy<T>(): SpyAdapter<T>
 Records all exchanges passing through it. Use as a destination, processor, or enricher to capture and assert on pipeline output.
 
 ```ts
-import { spy } from '@routecraft/routecraft'
+import { spy } from '@routecraft/testing'
 
 const spyAdapter = spy()
 

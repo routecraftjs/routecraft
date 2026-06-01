@@ -28,7 +28,7 @@ This section tracks changes landing on `main` since the v0.5.0 release. Release 
 
 ### Docs site
 
-- **Blog section at [/blog](/blog)** with four published posts (basics, DSL cheat sheet, Clerk MCP auth, WorkOS MCP auth) and a featured + latest grid layout. Markdoc-backed, theme-aware, with structured frontmatter for date, author, tags, and draft status.
+- **Blog section at [/blog](/blog)** with an initial set of posts and a featured + latest grid layout. Markdoc-backed, theme-aware, with structured frontmatter for date, author, tags, and draft status.
 - **Cheat sheet reference at [/cheat-sheet](/cheat-sheet)** -- searchable, theme-aware HTML page covering the full builder DSL, sources, destinations, operations, validation, error handling, events, MCP integration, CLI, and TUI. Print stylesheet produces a clean A4 PDF via `Cmd/Ctrl + P`.
 - **Migration guide** -- new [0.5.x to 0.6.0 migration guide](/docs/migrating/0.5-to-0.6) covering the agent block primitive and tools function-form builder.
 

@@ -14,7 +14,8 @@ Create a **typed placeholder adapter** that satisfies the DSL at compile time bu
 The returned factory can be used in `.from()`, `.to()`, `.enrich()`, `.tap()`, and `.process()`. Specify the **result type** with a generic on the call so the route body type flows correctly:
 
 ```ts
-import { craft, timer, log, pseudo } from "@routecraft/routecraft";
+import { craft, timer, log } from "@routecraft/routecraft";
+import { pseudo } from "@routecraft/testing";
 
 // Option types (move to real adapter package later)
 interface McpCallOptions {

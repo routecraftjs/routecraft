@@ -5,7 +5,7 @@ title: noop
 [← All adapters](/docs/reference/adapters) {% .lead %}
 
 ```ts
-noop<T>(): NoopAdapter<T>
+noop<T>(): Destination<T>
 ```
 
 A no-operation adapter that discards messages. Useful for testing, development, or conditional routing.
