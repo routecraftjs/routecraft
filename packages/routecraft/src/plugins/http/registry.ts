@@ -36,17 +36,22 @@ export type HttpRouteRegistry = Map<string, HttpRouteEntry>;
 /**
  * Symbol key used to share the registry between the http plugin (which
  * creates and owns it) and the http source (which inserts / removes
- * entries on subscribe / abort).
+ * entries on subscribe / abort). `Symbol.for` so the key is shared across
+ * any duplicate package copies in a workspace (matches the convention used
+ * by every other plugin in `.standards/adapter-architecture.md`).
  */
-export const HTTP_ROUTE_REGISTRY = "routecraft.plugin.http.registry" as const;
+export const HTTP_ROUTE_REGISTRY: unique symbol = Symbol.for(
+  "routecraft.plugin.http.registry",
+);
 
 /**
  * Symbol key used by the http source to assert the plugin has been
  * registered. Set to `true` in `httpPlugin.apply(ctx)`. The source throws
  * `RC5003` when it is missing so misconfiguration fails at subscribe time.
  */
-export const HTTP_PLUGIN_REGISTERED =
-  "routecraft.plugin.http.registered" as const;
+export const HTTP_PLUGIN_REGISTERED: unique symbol = Symbol.for(
+  "routecraft.plugin.http.registered",
+);
 
 declare module "@routecraft/routecraft" {
   interface StoreRegistry {

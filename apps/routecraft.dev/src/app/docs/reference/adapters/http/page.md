@@ -130,6 +130,14 @@ Registered alongside user routes; user routes with the same path always win.
 - `GET /ready` -> `200` `{ status: "ready", routes }`. K8s readiness target.
 - `GET /openapi.json` -> OpenAPI 3.1 document built from the route registry. Paths, methods, summaries, descriptions, and path params populate in v1; request/response body schemas are stubs until the Standard-Schema-to-JSON-Schema follow-up lands.
 
+#### `/openapi.json` exposure
+
+Configurable via `http: { openapi: { expose } }`:
+
+- `"public"` (default) -- served without auth, even when `auth` is configured. Matches the convention of Stripe, GitHub, Twilio, and OpenAI, who publish their OpenAPI documents publicly. Security comes from authentication on each endpoint, not from hiding the schema; the schema also unlocks documentation tooling (Swagger UI, Postman, codegen).
+- `"authenticated"` -- gated behind the same auth middleware as user routes. Use when route discovery itself is sensitive (internal-only APIs, pre-release endpoints). With no `auth` configured this collapses to `"public"` because there is nothing to gate against.
+- `"off"` -- not served; the path returns 404.
+
 ### Auth
 
 `http: { auth }` accepts:
@@ -146,7 +154,7 @@ OAuth 2.1 is reserved in the auth union for a future release.
 
 ### Route matching and information disclosure
 
-The dispatcher resolves path/method before running auth, so unmatched paths return `404` and matched paths with a different method return `405` (with an `Allow` header) even to unauthenticated callers. This is standard HTTP behaviour (it mirrors Express/Fastify/Hono and avoids forcing an auth check on nonexistent routes), but it does let an unauthenticated client enumerate which paths and methods exist. It is intentional; if route concealment matters for a specific deployment, terminate it at a gateway in front of the service.
+The dispatcher resolves path/method before running auth, so unmatched paths return `404` and matched paths with a different method return `405` (with an `Allow` header) even to unauthenticated callers. This is standard HTTP behaviour (Express/Fastify/Hono all do the same), and `GET /openapi.json` is served publicly by default (matching the Stripe/GitHub/Twilio convention). Both choices are intentional: protection comes from auth on each endpoint, not from hiding the surface. If a deployment genuinely needs route concealment, gate the OpenAPI spec with `openapi: { expose: "authenticated" | "off" }` and put the service behind a gateway that strips 404/405 differentiation.
 
 ### Events
 

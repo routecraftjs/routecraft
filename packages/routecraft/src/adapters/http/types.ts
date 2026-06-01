@@ -142,6 +142,25 @@ export interface HttpPluginOptions {
   maxBodySize?: number;
   /** Event emission toggles. */
   events?: HttpPluginEventOptions;
+  /** OpenAPI document exposure. Defaults to `"public"`. */
+  openapi?: HttpOpenApiOptions;
+}
+
+/**
+ * How the plugin exposes `GET /openapi.json`.
+ *
+ * - `"public"` (default): served without auth, even when `auth` is configured.
+ *   Matches the convention of Stripe / GitHub / Twilio / OpenAI, where the
+ *   API schema is intentionally discoverable; protection comes from auth on
+ *   each endpoint, not from hiding the schema.
+ * - `"authenticated"`: served only after the global `auth` middleware admits
+ *   the request. If `auth` is not configured this collapses to `"public"`.
+ * - `"off"`: not served at all; the path falls through to 404.
+ *
+ * @experimental
+ */
+export interface HttpOpenApiOptions {
+  expose?: "public" | "authenticated" | "off";
 }
 
 /**

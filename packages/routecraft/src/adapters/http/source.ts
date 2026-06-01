@@ -38,18 +38,15 @@ export class HttpSourceAdapter implements Source<HttpRequestBody> {
     onReady?: () => void,
     meta?: SourceMeta,
   ): Promise<void> {
-    const registered = context.getStore(
-      HTTP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry,
-    );
+    const registered = context.getStore(HTTP_PLUGIN_REGISTERED);
     if (registered !== true) {
       throw rcError("RC5003", undefined, {
         message:
           "http() source requires the http plugin. Add `http: { port, ... }` to defineConfig({...}) so the plugin is wired automatically.",
       });
     }
-    const registry = context.getStore(
-      HTTP_ROUTE_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry,
-    ) as HttpRouteRegistry | undefined;
+    const registry: HttpRouteRegistry | undefined =
+      context.getStore(HTTP_ROUTE_REGISTRY);
     if (!registry) {
       throw rcError("RC5003", undefined, {
         message:

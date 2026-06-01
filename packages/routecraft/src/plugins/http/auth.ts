@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { rcError } from "../../error";
 import { markAuthentic } from "../../auth/authentic";
 import type { Principal, TokenVerifier } from "../../auth/types";
@@ -10,13 +11,14 @@ import type {
 /**
  * Result of running the auth middleware on a request.
  *
- * `admit` carries an optional principal (the global `none` strategy admits
- * without one). `reject` carries the canonical 401/403 response the
- * dispatcher should return without invoking a route, plus the `reason` and
- * `scheme` that drive the `auth:rejected` event payload.
+ * `admit` always carries a {@link Principal}: every implemented strategy
+ * (apiKey static / verify, validator bearer) produces one on the admit path.
+ * `reject` carries the canonical 401/403 response the dispatcher should
+ * return without invoking a route, plus the `reason` and `scheme` that drive
+ * the `auth:rejected` event payload.
  */
 export type AuthResult =
-  | { kind: "admit"; principal: Principal | undefined }
+  | { kind: "admit"; principal: Principal }
   | { kind: "reject"; response: Response; reason: string; scheme: string };
 
 /** Request-level middleware produced by {@link createAuthMiddleware}. */
@@ -48,30 +50,45 @@ export type HttpAuthMiddleware = (req: Request) => Promise<AuthResult>;
 export function apiKey(
   opts: Omit<ApiKeyAuthOptions, "kind">,
 ): ApiKeyAuthOptions {
-  if (!opts.keys && !opts.verify) {
+  const hasKeys = Array.isArray(opts.keys) && opts.keys.length > 0;
+  if (!hasKeys && !opts.verify) {
     throw rcError("RC5003", undefined, {
       message:
-        "apiKey() requires either `keys` (static allowlist) or `verify` (custom function).",
+        "apiKey() requires a non-empty `keys` allowlist or a `verify` function.",
     });
   }
-  if (opts.keys && opts.verify) {
+  if (hasKeys && opts.verify) {
     throw rcError("RC5003", undefined, {
       message:
         "apiKey() accepts either `keys` or `verify`, not both. Pick the static allowlist (`keys`) or the dynamic verifier (`verify`).",
     });
   }
-  return { kind: "apiKey", ...opts };
+  if (opts.name !== undefined && opts.name.trim() === "") {
+    throw rcError("RC5003", undefined, {
+      message:
+        "apiKey() received an empty `name`. Provide a non-empty header or query parameter name, or omit `name` for the default.",
+    });
+  }
+  // Spread first so the `kind` literal always wins over an untyped caller that
+  // sneaks a different discriminator through `as any`.
+  return { ...opts, kind: "apiKey" };
 }
 
 function reject(reason: string, scheme: string): AuthResult {
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+  };
+  // `WWW-Authenticate` advertises a scheme the server actually accepts. Only
+  // emit it for the bearer scheme; sending `Bearer` on an api-key rejection
+  // mis-signals the protocol (RFC 7235) and confuses auto-refreshing clients.
+  if (scheme === "bearer") {
+    headers["www-authenticate"] = 'Bearer realm="routecraft"';
+  }
   const response = new Response(
     JSON.stringify({ error: "unauthorized", reason }),
     {
       status: 401,
-      headers: {
-        "content-type": "application/json",
-        "www-authenticate": 'Bearer realm="routecraft"',
-      },
+      headers,
     },
   );
   return { kind: "reject", response, reason, scheme };
@@ -104,13 +121,16 @@ function defaultApiKeyName(where: "header" | "query"): string {
 }
 
 function syntheticApiKeyPrincipal(key: string): Principal {
-  // Use the first 8 chars as a stable, non-revealing subject. Full keys
-  // never reach a principal so logs/events never echo back the secret.
-  const fingerprint = `${key.slice(0, 4)}...${key.slice(-4)}`;
+  // SHA-256, truncated to 16 hex chars. Stable across processes, collision-safe
+  // at any realistic key count, and reveals nothing about the source string
+  // regardless of its length. The earlier substring approach leaked short keys
+  // verbatim into `subject` (and therefore into logs and `auth:success`
+  // payloads), which is exactly what the security standard forbids.
+  const digest = createHash("sha256").update(key).digest("hex").slice(0, 16);
   return {
     kind: "custom",
     scheme: "apiKey",
-    subject: `apiKey:${fingerprint}`,
+    subject: `apiKey:${digest}`,
   };
 }
 
@@ -142,6 +162,16 @@ export function createAuthMiddleware(
       auth.keys && auth.keys.length > 0 ? new Set(auth.keys) : undefined;
     const verify = auth.verify;
 
+    // The factory guarantees exactly one of `allowedSet` / `verify` is set;
+    // assert here so a future bug in the factory surfaces as RC5003 instead
+    // of a silent 401.
+    if (!allowedSet && !verify) {
+      throw rcError("RC5003", undefined, {
+        message:
+          "apiKey middleware reached construction with neither `keys` nor `verify`. Check the apiKey() factory.",
+      });
+    }
+
     return async (req: Request): Promise<AuthResult> => {
       let raw: string | null = null;
       if (where === "header") {
@@ -165,7 +195,6 @@ export function createAuthMiddleware(
           principal: markAuthentic(syntheticApiKeyPrincipal(raw)),
         };
       }
-      // verify branch -- guarded by apiKey() to be defined when keys is absent.
       try {
         const principal = await verify!(raw);
         if (!principal) {

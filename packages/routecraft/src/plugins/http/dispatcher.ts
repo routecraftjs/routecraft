@@ -22,11 +22,23 @@ export type BuiltinHandler = (
   pathname: string,
 ) => Response | Promise<Response> | null;
 
+/**
+ * Built-ins that require authentication before serving. The dispatcher checks
+ * `paths` first (cheap, no commit to a response) and only invokes `handler`
+ * after the auth middleware admits.
+ */
+export interface GatedBuiltins {
+  paths: ReadonlySet<string>;
+  handler: BuiltinHandler;
+}
+
 export interface DispatcherOptions {
   registry: HttpRouteRegistry;
   authMiddleware: HttpAuthMiddleware | undefined;
   maxBodySize: number;
   builtins: BuiltinHandler;
+  /** Optional gated built-ins (e.g. /openapi.json under `expose: "authenticated"`). */
+  gatedBuiltins?: GatedBuiltins;
   onRequestCompleted?: RequestCompletedHandler;
   /** Optional logger; defaults to the framework logger. */
   logger?: typeof defaultLogger;
@@ -67,11 +79,30 @@ export function createDispatcher(
       }
     }
 
-    // 2. Built-ins answer when no user route matched. They bypass auth and
-    //    per-request events to keep them quiet on probe-heavy deployments.
+    // 2. Built-ins answer when no user route matched. Public built-ins bypass
+    //    auth and per-request events (probe-heavy deployments). Gated
+    //    built-ins (e.g. /openapi.json under `expose: "authenticated"`) run
+    //    the auth middleware first.
     if (!methodMatch && pathMatchMethods.length === 0) {
       const builtinRes = await opts.builtins(req, pathname);
       if (builtinRes) return builtinRes;
+
+      if (opts.gatedBuiltins?.paths.has(pathname)) {
+        if (opts.authMiddleware) {
+          const result = await opts.authMiddleware(req);
+          if (result.kind === "reject") {
+            emitCompleted(opts, {
+              method,
+              path: pathname,
+              status: result.response.status,
+              durationMs: ms(started),
+            });
+            return result.response;
+          }
+        }
+        const gatedRes = await opts.gatedBuiltins.handler(req, pathname);
+        if (gatedRes) return gatedRes;
+      }
     }
 
     if (!methodMatch) {

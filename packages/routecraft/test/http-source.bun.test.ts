@@ -1,4 +1,4 @@
-import { describe, test, expect, afterEach } from "vitest";
+import { describe, test, expect, afterEach } from "bun:test";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
   apiKey,
@@ -509,8 +509,8 @@ describe("HTTP Source Adapter", () => {
     t = bound.ctx;
 
     await fetch(`http://127.0.0.1:${bound.port}/ev`);
-    // Give the event loop a chance to flush the synchronous emit.
-    await new Promise((r) => setTimeout(r, 5));
+    // emit() is synchronous and the dispatcher fires the per-request event
+    // before returning the response, so the fetch's await is enough.
 
     const ev = events.find((e) => e.path === "/ev");
     expect(ev).toBeDefined();
@@ -554,7 +554,7 @@ describe("HTTP Source Adapter", () => {
       headers: { authorization: `Bearer ${makeJwt({ sub: "user-7" })}` },
     });
     await fetch(`http://127.0.0.1:${bound.port}/ev-auth`); // no token -> rejected
-    await new Promise((r) => setTimeout(r, 5));
+    // emit() is synchronous; both fetches resolve after auth:* events fired.
 
     expect(success[0]).toEqual({
       subject: "user-7",
@@ -1309,5 +1309,206 @@ describe("HTTP Source Adapter -- request/response coverage", () => {
 
     const missing = await fetch(`http://127.0.0.1:${bound.port}/c`);
     expect(missing.status).toBe(404);
+  });
+});
+
+describe("HTTP Source Adapter -- /openapi.json exposure", () => {
+  let t: TestContext | undefined;
+
+  afterEach(async () => {
+    if (t) {
+      await t.stop();
+      t = undefined;
+    }
+  });
+
+  /**
+   * @case openapi.expose default ("public") serves /openapi.json without auth even when bearer is configured
+   * @preconditions http.auth = jwt(...); no openapi option
+   * @expectedResult /openapi.json returns 200 without a bearer token
+   */
+  test("openapi.expose default is public, even under bearer auth", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("oapi-public")
+        .from(http({ path: "/oapi-public", method: "GET" }))
+        .transform(() => ({ ok: true }))
+        .to(noop()),
+      http: {
+        port: 0,
+        auth: jwt({
+          secret: JWT_SECRET,
+          issuer: JWT_ISSUER,
+          audience: JWT_AUDIENCE,
+        }),
+      },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/openapi.json`);
+    expect(res.status).toBe(200);
+    const doc = (await res.json()) as { openapi: string };
+    expect(doc.openapi).toBe("3.1.0");
+  });
+
+  /**
+   * @case openapi.expose = "authenticated" gates /openapi.json behind the global auth check
+   * @preconditions http.auth = jwt(...), openapi.expose = "authenticated"
+   * @expectedResult /openapi.json is 401 without a token, 200 with a valid one
+   */
+  test("openapi.expose authenticated gates the spec behind auth", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("oapi-auth")
+        .from(http({ path: "/oapi-auth", method: "GET" }))
+        .transform(() => ({ ok: true }))
+        .to(noop()),
+      http: {
+        port: 0,
+        openapi: { expose: "authenticated" },
+        auth: jwt({
+          secret: JWT_SECRET,
+          issuer: JWT_ISSUER,
+          audience: JWT_AUDIENCE,
+        }),
+      },
+    });
+    t = bound.ctx;
+
+    const deny = await fetch(`http://127.0.0.1:${bound.port}/openapi.json`);
+    expect(deny.status).toBe(401);
+
+    const token = makeJwt({ sub: "u1" });
+    const ok = await fetch(`http://127.0.0.1:${bound.port}/openapi.json`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(ok.status).toBe(200);
+  });
+
+  /**
+   * @case openapi.expose = "off" returns 404 for /openapi.json
+   * @preconditions openapi.expose = "off"
+   * @expectedResult /openapi.json returns 404 (the path falls through to the not-found branch)
+   */
+  test("openapi.expose off returns 404", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("oapi-off")
+        .from(http({ path: "/oapi-off", method: "GET" }))
+        .transform(() => ({ ok: true }))
+        .to(noop()),
+      http: { port: 0, openapi: { expose: "off" } },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/openapi.json`);
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("HTTP Source Adapter -- regression: auth hardening", () => {
+  let t: TestContext | undefined;
+
+  afterEach(async () => {
+    if (t) {
+      await t.stop();
+      t = undefined;
+    }
+  });
+
+  /**
+   * @case apiKey factory rejects an empty allowlist + verifier-less config at construction time
+   * @preconditions apiKey({ keys: [] }) called directly
+   * @expectedResult Throws RC5003 instead of producing a middleware that silently 401s everything
+   */
+  test("apiKey({ keys: [] }) throws RC5003 at construction", () => {
+    expect(() => apiKey({ keys: [] })).toThrow(/non-empty `keys` allowlist/);
+  });
+
+  /**
+   * @case apiKey factory rejects an empty-string `name`
+   * @preconditions apiKey({ name: "", keys: ["x"] })
+   * @expectedResult Throws RC5003
+   */
+  test("apiKey({ name: '' }) throws RC5003", () => {
+    expect(() => apiKey({ name: "", keys: ["x"] })).toThrow(/empty `name`/);
+  });
+
+  /**
+   * @case bearer rejection sends WWW-Authenticate; api-key rejection does not advertise Bearer
+   * @preconditions Two contexts, one with jwt auth, one with apiKey auth
+   * @expectedResult bearer 401 includes `WWW-Authenticate: Bearer ...`; apiKey 401 omits the header
+   */
+  test("WWW-Authenticate is scheme-aware", async () => {
+    // Bearer side
+    const bearer = await bootHttp({
+      routes: craft()
+        .id("bw")
+        .from(http({ path: "/bw", method: "GET" }))
+        .transform(() => ({ ok: true }))
+        .to(noop()),
+      http: {
+        port: 0,
+        auth: jwt({
+          secret: JWT_SECRET,
+          issuer: JWT_ISSUER,
+          audience: JWT_AUDIENCE,
+        }),
+      },
+    });
+    t = bearer.ctx;
+    const bres = await fetch(`http://127.0.0.1:${bearer.port}/bw`);
+    expect(bres.status).toBe(401);
+    expect(bres.headers.get("www-authenticate")).toMatch(/Bearer/);
+    await t.stop();
+    t = undefined;
+
+    // ApiKey side
+    const key = await bootHttp({
+      routes: craft()
+        .id("kw")
+        .from(http({ path: "/kw", method: "GET" }))
+        .transform(() => ({ ok: true }))
+        .to(noop()),
+      http: { port: 0, auth: apiKey({ keys: ["letmein"] }) },
+    });
+    t = key.ctx;
+    const kres = await fetch(`http://127.0.0.1:${key.port}/kw`);
+    expect(kres.status).toBe(401);
+    // Misleading `Bearer` challenge must not be advertised for an api-key boundary.
+    expect(kres.headers.get("www-authenticate")).toBeNull();
+  });
+
+  /**
+   * @case apiKey static-key principal subject is a SHA-256-derived fingerprint, not a substring of the key
+   * @preconditions apiKey({ keys: ["short"] }); make an admitted request and read the principal
+   * @expectedResult principal.subject begins with `apiKey:` and does not contain the raw key
+   */
+  test("apiKey principal subject is a SHA-256 fingerprint", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("fp")
+        .from(http({ path: "/fp", method: "GET" }))
+        .process(async (ex) =>
+          DefaultExchange.rewrap(ex, {
+            body: { subject: ex.principal?.subject },
+          }),
+        )
+        .to(noop()),
+      http: { port: 0, auth: apiKey({ keys: ["short"] }) },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/fp`, {
+      headers: { "x-api-key": "short" },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { subject: string };
+    expect(body.subject.startsWith("apiKey:")).toBe(true);
+    // The raw key must not appear in the subject (the old substring approach
+    // leaked it for keys shorter than 8 chars).
+    expect(body.subject).not.toContain("short");
+    // 16-hex-char digest after the `apiKey:` prefix.
+    expect(body.subject).toMatch(/^apiKey:[0-9a-f]{16}$/);
   });
 });

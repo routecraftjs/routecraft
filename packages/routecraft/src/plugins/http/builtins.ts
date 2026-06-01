@@ -4,7 +4,8 @@ import type { HttpRouteRegistry } from "./registry";
 
 export interface BuiltinsOptions {
   registry: HttpRouteRegistry;
-  info?: { title?: string; version?: string };
+  /** Whether the public built-ins layer should serve `/openapi.json`. */
+  serveOpenApi: boolean;
 }
 
 /**
@@ -15,8 +16,9 @@ export interface BuiltinsOptions {
  * - `GET /health` -> 200 `{ status: "ok" }`.
  * - `GET /ready` -> 200 `{ status: "ready", routes }`.
  * - `GET /openapi.json` -> 200 application/json with an OpenAPI 3.1 document
- *   describing every registered route. Body and response schemas are stubs in
- *   v1 (see openapi.ts for the rationale).
+ *   (only when `serveOpenApi` is true; the plugin flips this off for
+ *   `openapi.expose === "off"` and routes the serving through `gatedBuiltins`
+ *   for `"authenticated"`).
  *
  * Returns `null` for any other request so the dispatcher can answer 404.
  */
@@ -32,12 +34,26 @@ export function createBuiltins(opts: BuiltinsOptions): BuiltinHandler {
       return jsonResponse({ status: "ready", routes: opts.registry.size }, 200);
     }
 
-    if (pathname === "/openapi.json") {
-      const doc = buildOpenApiDocument(opts.registry, opts.info);
+    if (pathname === "/openapi.json" && opts.serveOpenApi) {
+      const doc = buildOpenApiDocument(opts.registry);
       return jsonResponse(doc, 200);
     }
 
     return null;
+  };
+}
+
+/**
+ * The dispatcher hands this handler `/openapi.json` requests after the auth
+ * middleware admits. The plugin wires it in via `gatedBuiltins` when
+ * `openapi.expose === "authenticated"` and an `auth` strategy is configured.
+ */
+export function createOpenApiGatedHandler(
+  registry: HttpRouteRegistry,
+): BuiltinHandler {
+  return function openApiHandler(req, pathname) {
+    if (req.method !== "GET" || pathname !== "/openapi.json") return null;
+    return jsonResponse(buildOpenApiDocument(registry), 200);
   };
 }
 

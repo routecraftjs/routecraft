@@ -2,8 +2,12 @@ import { type CraftContext, type CraftPlugin } from "../../context";
 import { rcError } from "../../error";
 import type { HttpPluginOptions } from "../../adapters/http/types";
 import { createAuthMiddleware, type HttpAuthMiddleware } from "./auth";
-import { createBuiltins } from "./builtins";
-import { createDispatcher, type RequestCompletedHandler } from "./dispatcher";
+import { createBuiltins, createOpenApiGatedHandler } from "./builtins";
+import {
+  createDispatcher,
+  type GatedBuiltins,
+  type RequestCompletedHandler,
+} from "./dispatcher";
 import {
   HTTP_PLUGIN_REGISTERED,
   HTTP_ROUTE_REGISTRY,
@@ -37,23 +41,41 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
   const host = options.host ?? DEFAULT_HOST;
   const maxBodySize = options.maxBodySize ?? DEFAULT_MAX_BODY_SIZE;
   const perRequestEnabled = options.events?.perRequest ?? true;
+  const openapiExpose = options.openapi?.expose ?? "public";
 
   let server: HttpServerHandle | null = null;
   const registry: HttpRouteRegistry = new Map();
 
   return {
     async apply(ctx: CraftContext) {
-      ctx.setStore(
-        HTTP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry,
-        true,
-      );
-      ctx.setStore(
-        HTTP_ROUTE_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry,
-        registry,
-      );
+      ctx.setStore(HTTP_PLUGIN_REGISTERED, true);
+      ctx.setStore(HTTP_ROUTE_REGISTRY, registry);
 
       const authMiddleware = createAuthMiddleware(options.auth);
-      const builtins = createBuiltins({ registry });
+
+      // The plugin decides where /openapi.json lives based on `expose`:
+      //   "public"        -> public built-ins serve it (no auth, no events).
+      //   "authenticated" -> gated built-ins serve it after auth, when auth
+      //                      is configured. With no auth it collapses to
+      //                      "public" (an unconfigurable gate is a no-op).
+      //   "off"           -> neither layer serves it; the path falls to 404.
+      const openapiServedPublic =
+        openapiExpose === "public" ||
+        (openapiExpose === "authenticated" && !authMiddleware);
+      const openapiServedGated =
+        openapiExpose === "authenticated" && !!authMiddleware;
+
+      const builtins = createBuiltins({
+        registry,
+        serveOpenApi: openapiServedPublic,
+      });
+
+      const gatedBuiltins: GatedBuiltins | undefined = openapiServedGated
+        ? {
+            paths: new Set(["/openapi.json"]),
+            handler: createOpenApiGatedHandler(registry),
+          }
+        : undefined;
 
       const onRequestCompleted: RequestCompletedHandler | undefined =
         perRequestEnabled
@@ -62,14 +84,16 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
 
       // Wrap the auth middleware so admit/reject also pipes through the
       // framework's existing auth:* events (same payload shape MCP uses),
-      // keeping observability surfaces consistent across plugins.
+      // keeping observability surfaces consistent across plugins. AuthResult
+      // narrows admit to a present Principal, so no "anonymous" fallback is
+      // needed (and the emit can never carry a placeholder identity).
       const wrappedAuth: HttpAuthMiddleware | undefined = authMiddleware
         ? async (req: Request) => {
             const result = await authMiddleware(req);
             if (result.kind === "admit") {
               ctx.emit("auth:success", {
-                subject: result.principal?.subject ?? "anonymous",
-                scheme: result.principal?.scheme ?? "unknown",
+                subject: result.principal.subject,
+                scheme: result.principal.scheme,
                 source: "http",
               });
             } else {
@@ -88,6 +112,7 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
         authMiddleware: wrappedAuth,
         maxBodySize,
         builtins,
+        ...(gatedBuiltins !== undefined ? { gatedBuiltins } : {}),
         ...(onRequestCompleted !== undefined ? { onRequestCompleted } : {}),
         logger: ctx.logger,
       });
@@ -105,10 +130,7 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
         // retried apply() (test reuse) or a source subscribe would see a
         // stale `registered === true` against a server that never started.
         registry.clear();
-        ctx.setStore(
-          HTTP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry,
-          false,
-        );
+        ctx.setStore(HTTP_PLUGIN_REGISTERED, false);
         throw err;
       }
 
@@ -131,10 +153,7 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
         }
         ctx.emit("plugin:http:server:closed", {});
         registry.clear();
-        ctx.setStore(
-          HTTP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry,
-          false,
-        );
+        ctx.setStore(HTTP_PLUGIN_REGISTERED, false);
       });
     },
   };
@@ -156,6 +175,17 @@ function validate(options: HttpPluginOptions): void {
   ) {
     throw rcError("RC5003", undefined, {
       message: `httpPlugin: invalid maxBodySize ${String(options.maxBodySize)}. Pass a positive integer (bytes).`,
+    });
+  }
+  const expose = options.openapi?.expose;
+  if (
+    expose !== undefined &&
+    expose !== "public" &&
+    expose !== "authenticated" &&
+    expose !== "off"
+  ) {
+    throw rcError("RC5003", undefined, {
+      message: `httpPlugin: invalid openapi.expose ${JSON.stringify(expose)}. Allowed: "public", "authenticated", "off".`,
     });
   }
 }

@@ -52,13 +52,12 @@ interface OpenApiDocument {
  */
 export function buildOpenApiDocument(
   registry: HttpRouteRegistry,
-  info?: { title?: string; version?: string },
 ): OpenApiDocument {
   const doc: OpenApiDocument = {
     openapi: "3.1.0",
     info: {
-      title: info?.title ?? "Routecraft HTTP API",
-      version: info?.version ?? "0.0.0",
+      title: "Routecraft HTTP API",
+      version: "0.0.0",
     },
     paths: {},
   };
