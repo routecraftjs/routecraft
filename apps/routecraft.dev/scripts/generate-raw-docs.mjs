@@ -48,7 +48,10 @@ function extractTitle(md) {
 // Build a map of url -> { title, cleaned markdown }
 const pages = new Map()
 
-const files = glob.sync('**/page.md', { cwd: APP_DIR }).sort()
+const files = glob
+  .sync('**/page.md', { cwd: APP_DIR })
+  .filter((file) => !file.startsWith('docs/next/'))
+  .sort()
 for (const file of files) {
   const url = file === 'page.md' ? '/' : `/${file.replace(/\/page\.md$/, '')}`
   const md = fs.readFileSync(path.join(APP_DIR, file), 'utf8')

@@ -3,6 +3,11 @@ import { usePathname } from 'next/navigation'
 import clsx from 'clsx'
 
 import { navigation } from '@/lib/navigation'
+import {
+  docsChannelPrefix,
+  stripDocsChannel,
+  withDocsChannel,
+} from '@/lib/docs-channel'
 
 export function Navigation({
   className,
@@ -12,10 +17,15 @@ export function Navigation({
   onLinkClick?: React.MouseEventHandler<HTMLAnchorElement>
 }) {
   const rawPathname = usePathname()
-  const pathname =
+  const trimmed =
     rawPathname !== '/' && rawPathname.endsWith('/')
       ? rawPathname.slice(0, -1)
       : rawPathname
+  // Keep navigation inside the active channel (e.g. /docs/next): the config
+  // holds bare /docs hrefs, so prefix links with the current channel and match
+  // the active link against the channel-stripped path.
+  const channelPrefix = docsChannelPrefix(trimmed)
+  const pathname = stripDocsChannel(trimmed)
 
   return (
     <nav className={clsx('text-sm', className)}>
@@ -29,7 +39,7 @@ export function Navigation({
               />
               {section.href ? (
                 <Link
-                  href={section.href}
+                  href={withDocsChannel(section.href, channelPrefix)}
                   onClick={onLinkClick}
                   className="font-mono text-[0.65rem] tracking-[0.22em] text-ink/70 uppercase transition hover:text-ink"
                 >
@@ -47,7 +57,7 @@ export function Navigation({
                 return (
                   <li key={link.href} className="relative">
                     <Link
-                      href={link.href}
+                      href={withDocsChannel(link.href, channelPrefix)}
                       onClick={onLinkClick}
                       aria-current={isActive ? 'page' : undefined}
                       className={clsx(

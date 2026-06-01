@@ -60,9 +60,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
     return pages
   }
 
-  // Collect all documentation pages
+  // Collect all documentation pages. The /docs/next channel is noindex (an
+  // in-development mirror of the latest docs), so it is excluded from the sitemap.
   const docsBaseDir = path.join(process.cwd(), 'src', 'app', 'docs')
-  const docPages = collectDocPages(docsBaseDir, '/docs')
+  const docPages = collectDocPages(docsBaseDir, '/docs').filter(
+    (page) => !page.url.startsWith('/docs/next'),
+  )
 
   // Add docs landing page if it exists
   const docsLandingPage = path.join(

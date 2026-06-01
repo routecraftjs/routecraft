@@ -561,6 +561,13 @@ jobs:
           echo "Docs version label: $LABEL"
           echo "Freeze docs to tag: ${FREEZE_TAG:-<none, using working tree>}"
 
+      # Snapshot the in-development docs (the /docs/next channel) from the
+      # checked out (main) content *before* the freeze below overlays /docs with
+      # the released tag. The build then runs with SKIP_DOCS_NEXT so prebuild
+      # does not regenerate next from the now-frozen /docs.
+      - name: Generate the next docs channel
+        run: node --experimental-strip-types apps/routecraft.dev/scripts/generate-docs-next.mjs
+
       - name: Freeze docs and cheat-sheet to the released ref
         if: steps.docver.outputs.freeze_tag != ''
         env:
@@ -568,6 +575,8 @@ jobs:
         run: |
           set -eo pipefail
           app=apps/routecraft.dev/src/app
+          # The generated next channel is untracked, so checking out the tag's
+          # docs path leaves src/app/docs/next intact.
           git checkout "$FREEZE_TAG" -- "$app/docs" "$app/cheat-sheet"
           # The changelog moved to a top-level /changelog on the main cadence.
           # Older release refs still carry it under docs/changelog, so drop that
@@ -580,6 +589,9 @@ jobs:
           NEXT_PUBLIC_DOC_VERSION: ${{ steps.docver.outputs.label }}
           NEXT_PUBLIC_POSTHOG_KEY: ${{ secrets.NEXT_PUBLIC_POSTHOG_KEY }}
           NEXT_PUBLIC_POSTHOG_HOST: ${{ secrets.NEXT_PUBLIC_POSTHOG_HOST }}
+          # next was snapshotted above from main; do not overwrite it from the
+          # frozen /docs during prebuild.
+          SKIP_DOCS_NEXT: "1"
         run: bun run --filter routecraft.dev build
 
       - name: Upload Pages artifact
