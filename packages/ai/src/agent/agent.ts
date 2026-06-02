@@ -115,12 +115,31 @@ export function validateAgentOptions(options: AgentOptions): void {
  * @internal
  */
 export function validateBlocks(blocks: unknown): void {
+  validateBlocksLevel(blocks, "");
+}
+
+/**
+ * Recursive worker for {@link validateBlocks}. Validates one level of a
+ * {@link Blocks} tree, recursing into nested groups. `prefix` carries
+ * the flattened-name path (joined by `__`) so error messages name the
+ * offending block the way it resolves at dispatch time.
+ *
+ * A record value is a nested group when it is an object without a
+ * string `mode`; otherwise it is a leaf {@link BlockBody}. The
+ * empty-name and reserved-`_block_`-prefix rules apply to every
+ * segment at every level so no nested name can forge a synthetic
+ * loader-tool name.
+ *
+ * @internal
+ */
+function validateBlocksLevel(blocks: unknown, prefix: string): void {
   if (blocks === null || typeof blocks !== "object" || Array.isArray(blocks)) {
     throw rcError("RC5027", undefined, {
-      message: `Agent: "blocks" must be a Record<string, BlockBody | false>.`,
+      message: `Agent: "blocks" must be a Record<string, BlockBody | Blocks | false>.`,
     });
   }
   for (const [name, body] of Object.entries(blocks as Blocks)) {
+    const qualified = prefix ? `${prefix}__${name}` : name;
     if (name.trim() === "") {
       throw rcError("RC5026", undefined, {
         message: `Agent block: block name must be a non-empty string.`,
@@ -128,19 +147,25 @@ export function validateBlocks(blocks: unknown): void {
     }
     if (name.startsWith(BLOCK_RESERVED_PREFIX)) {
       throw rcError("RC5026", undefined, {
-        message: `Agent block "${name}": names starting with "${BLOCK_RESERVED_PREFIX}" are reserved for synthetic block tools. Rename the block.`,
+        message: `Agent block "${qualified}": names starting with "${BLOCK_RESERVED_PREFIX}" are reserved for synthetic block tools. Rename the block.`,
       });
     }
     if (body === false) continue;
     if (body === null || typeof body !== "object") {
       throw rcError("RC5027", undefined, {
-        message: `Agent block "${name}": value must be a BlockBody object (with mode and value) or "false" to remove a default.`,
+        message: `Agent block "${qualified}": value must be a BlockBody object (with mode and value), a nested Blocks group, or "false" to remove a default.`,
       });
+    }
+    // A nested group: an object value without a string `mode`. Recurse
+    // so its leaves are validated under the flattened-name path.
+    if (typeof (body as Partial<BlockBody>).mode !== "string") {
+      validateBlocksLevel(body, qualified);
+      continue;
     }
     const b = body as BlockBody;
     if (b.mode !== "inject" && b.mode !== "progressive") {
       throw rcError("RC5027", undefined, {
-        message: `Agent block "${name}": "mode" must be "inject" or "progressive" (got ${JSON.stringify(b.mode)}).`,
+        message: `Agent block "${qualified}": "mode" must be "inject" or "progressive" (got ${JSON.stringify(b.mode)}).`,
       });
     }
     if (
@@ -148,7 +173,7 @@ export function validateBlocks(blocks: unknown): void {
       (typeof b.description !== "string" || b.description.trim() === "")
     ) {
       throw rcError("RC5027", undefined, {
-        message: `Agent block "${name}": progressive-mode blocks require a non-empty "description" so the model can decide whether to load.`,
+        message: `Agent block "${qualified}": progressive-mode blocks require a non-empty "description" so the model can decide whether to load.`,
       });
     }
     if (
@@ -157,12 +182,12 @@ export function validateBlocks(blocks: unknown): void {
       b.lifetime !== "context"
     ) {
       throw rcError("RC5027", undefined, {
-        message: `Agent block "${name}": "lifetime" must be "dispatch" or "context" when present (got ${JSON.stringify(b.lifetime)}).`,
+        message: `Agent block "${qualified}": "lifetime" must be "dispatch" or "context" when present (got ${JSON.stringify(b.lifetime)}).`,
       });
     }
     if (typeof b.value !== "string" && typeof b.value !== "function") {
       throw rcError("RC5027", undefined, {
-        message: `Agent block "${name}": "value" must be a string or a function returning a string.`,
+        message: `Agent block "${qualified}": "value" must be a string or a function returning a string.`,
       });
     }
   }

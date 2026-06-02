@@ -70,6 +70,10 @@ export type BlockResolver =
  * - `mode: "progressive"` blocks are exposed as a loader tool named
  *   `_block_load_<name>`; the description is shown to the model,
  *   and the body is fetched only when the model invokes the loader.
+ *
+ * A `BlockBody` is the leaf of a {@link Blocks} tree. A record value
+ * is treated as a leaf when it carries a string `mode`; any other
+ * record value is a nested group (see {@link Blocks}).
  */
 export interface BlockBody {
   /**
@@ -103,8 +107,30 @@ export interface BlockBody {
  * { blocks } })`; a `false` for a name that isn't in defaults is a
  * no-op (no validation error so adding/removing defaults later cannot
  * silently break agents).
+ *
+ * A value may be either a single {@link BlockBody} (a leaf) or a
+ * nested `Blocks` record (a group). Groups let a named collection,
+ * such as the skills returned by {@link skills}, stay grouped under
+ * one key instead of dissolving into the top-level namespace:
+ *
+ * ```ts
+ * blocks: {
+ *   skills: await skills({ source: "./skills" }), // a named group
+ *   tone:   { mode: "inject", value: "..." },      // a single block
+ * }
+ * ```
+ *
+ * Groups flatten at resolution time into a single canonical name
+ * joined by `__` (see `BLOCK_NAME_SEPARATOR`): a leaf `onboarding`
+ * under group `skills` resolves to `skills__onboarding` for its system
+ * prompt heading, loader tool name, and `blocksLoaded` summary. `__`
+ * (not `/`) is used because loader tool names reach the provider
+ * unsanitised and must match `^[a-zA-Z0-9_-]{1,64}$`.
+ *
+ * A leaf is distinguished from a group at runtime by the presence of a
+ * string `mode` field; any other object value is a nested group.
  */
-export type Blocks = Record<string, BlockBody | false>;
+export type Blocks = { [name: string]: BlockBody | Blocks | false };
 
 /**
  * Summary of one progressive-mode block that the model loaded during

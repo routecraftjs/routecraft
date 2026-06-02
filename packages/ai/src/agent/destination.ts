@@ -276,7 +276,7 @@ function mergeWithDefaults(
  * @internal
  */
 function mergeBlocks(
-  defaults: Record<string, BlockBody>,
+  defaults: { [name: string]: BlockBody | Blocks },
   agent: Blocks | undefined,
 ): Blocks {
   // Null-prototype accumulator so a block name like `__proto__` cannot

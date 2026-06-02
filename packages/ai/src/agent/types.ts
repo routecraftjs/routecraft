@@ -103,12 +103,12 @@ export interface AgentDefaultOptions {
    * one over the other.
    *
    * Unlike the per-agent {@link AgentOptions.blocks} field, defaults
-   * cannot carry the `false` removal sentinel: defaults cannot
-   * sensibly remove themselves, so the type is `Record<string,
-   * BlockBody>` (not `Blocks`) and `false` is rejected at plugin
-   * construction with RC5003.
+   * cannot carry the top-level `false` removal sentinel: defaults
+   * cannot sensibly remove themselves, so the value type is `BlockBody`
+   * or a nested {@link Blocks} group (not the leaf-or-`false` union) and
+   * a top-level `false` is rejected at plugin construction with RC5003.
    */
-  blocks?: Record<string, BlockBody>;
+  blocks?: { [name: string]: BlockBody | Blocks };
 }
 
 /**

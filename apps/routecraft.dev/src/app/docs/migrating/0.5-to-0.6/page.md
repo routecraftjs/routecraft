@@ -105,6 +105,27 @@ agent({
 
 The function signature changed from `skills(path)` to `skills({ source })`. The return type changed from `Record<name, Skill>` to `Blocks`. Both are visible at the call site.
 
+Spreading flattens every skill into the top-level namespace. To keep them grouped under one addressable key, assign the result to a nested block instead of spreading it (see [1.2b](#1-2b-grouping-skills-under-one-key)).
+
+### 1.2b Grouping skills under one key
+
+A `blocks` value may be a single `BlockBody` (a leaf) or a nested `Blocks` record (a group). Assigning `skills({ source })` to a key, rather than spreading it, keeps every skill under that namespace instead of dissolving them into the top level:
+
+```ts
+agent({
+  model: "anthropic:claude-sonnet-4-6",
+  system: "You are an analyst.",
+  blocks: {
+    skills: await skills({ source: "./skills" }), // a named group
+    tone: { mode: "inject", value: "Be terse." }, // a single block
+  },
+});
+```
+
+Groups flatten depth-first into a single canonical name joined by `__`. A skill `onboarding` under the `skills` group resolves to `skills__onboarding` for its system-prompt heading, its loader tool (`_block_load_skills__onboarding`), and its `AgentResult.blocksLoaded` entry. `__` (not `/`) is used because loader tool names reach the provider unsanitised and must match `^[a-zA-Z0-9_-]{1,64}$`.
+
+Grouping isolates collisions (a skill named `tone` resolves to `skills__tone`, distinct from a top-level `tone` block) and lets you remove or replace the whole collection by its top-level key. Two blocks that flatten to the same name are rejected with `RC5026`. The empty-name and reserved-`_block_`-prefix rules apply at every nesting level. Per-member merge inside a group is not supported in 0.6.0: a per-agent group replaces a default group of the same name wholesale, and `skills: false` removes the whole group.
+
 ### 1.3 `agents()` markdown loader: `skills:` frontmatter is rejected
 
 The agent markdown loader (`agents("./agents")`) used to accept a `skills:` frontmatter field. That field is now rejected with `RC5003` "not yet supported" because blocks accept function-form resolvers that YAML cannot express. Set `blocks` on the registered agent in code instead, either via the per-agent `overrides` map handed to `agents()` or via the agent's call site.
@@ -336,6 +357,7 @@ For context, no migration required:
 
 - **HTTP source adapter.** `http({ path, method? })` exposes a route over HTTP, configured via `defineConfig({ http: { port, host, auth } })`. Bun runtimes bind via `Bun.serve`; Node 22+ uses a `node:http` shim. Global auth (`jwt()` / `jwks()` bearer or `apiKey({...})`), per-route `.authorize()`, built-in `/health`, `/ready`, and `/openapi.json` endpoints. See the [`httpPlugin`](/docs/reference/plugins/httpplugin) reference.
 - `skills({ source, mode?, lifetime? })` and `fromFile(path)` builders alongside the new `Blocks` shape.
+- Nested block groups: a `blocks` value may be a `BlockBody` leaf or a nested `Blocks` group, flattened by `__` (see [1.2b](#1-2b-grouping-skills-under-one-key)).
 - `agent:block:loaded` / `agent:block:error` context events.
 - `AgentResult.blocksLoaded`.
 - `tools((catalog) => [...])` builder form with `ToolsCatalog` shape.
