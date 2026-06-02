@@ -32,13 +32,31 @@ export interface GatedBuiltins {
   handler: BuiltinHandler;
 }
 
+/**
+ * Built-ins that always return a response (200) but vary the body based on
+ * whether the request was authenticated. Used by `/ready` under
+ * `details: "when-authenticated"`: anonymous callers get a minimal body,
+ * authenticated callers get the full one. The endpoint never returns 401
+ * so k8s readiness probes keep working without a credential.
+ */
+export interface AuthAwareBuiltins {
+  paths: ReadonlySet<string>;
+  handler: (
+    req: Request,
+    pathname: string,
+    isAuthenticated: boolean,
+  ) => Response | Promise<Response> | null;
+}
+
 export interface DispatcherOptions {
   registry: HttpRouteRegistry;
   authMiddleware: HttpAuthMiddleware | undefined;
   maxBodySize: number;
   builtins: BuiltinHandler;
-  /** Optional gated built-ins (e.g. /openapi.json under `expose: "authenticated"`). */
+  /** Optional gated built-ins (e.g. /openapi.json under `access: "authenticated"`). */
   gatedBuiltins?: GatedBuiltins;
+  /** Optional auth-aware built-ins (e.g. /ready under `details: "when-authenticated"`). */
+  authAwareBuiltins?: AuthAwareBuiltins;
   onRequestCompleted?: RequestCompletedHandler;
   /**
    * Called when the dispatcher itself synthesises a 401 because a route
@@ -88,13 +106,38 @@ export function createDispatcher(
       }
     }
 
-    // 2. Built-ins answer when no user route matched. Public built-ins bypass
-    //    auth and per-request events (probe-heavy deployments). Gated
-    //    built-ins (e.g. /openapi.json under `expose: "authenticated"`) run
-    //    the auth middleware first.
+    // 2. Built-ins answer when no user route matched. Three layers:
+    //      a) Public: bypass auth and per-request events (probe-heavy
+    //         deployments). Always-200.
+    //      b) Auth-aware: run auth without forcing 401. The handler returns
+    //         a richer response when admitted, a minimal one otherwise.
+    //         Used by /ready under `details: "when-authenticated"` so
+    //         readiness probes keep working without a credential.
+    //      c) Gated: require admission, 401 otherwise. Used by
+    //         /openapi.json under `access: "authenticated"`.
     if (!methodMatch && pathMatchMethods.length === 0) {
       const builtinRes = await opts.builtins(req, pathname);
       if (builtinRes) return builtinRes;
+
+      if (opts.authAwareBuiltins?.paths.has(pathname)) {
+        if (req.method !== "GET") {
+          return new Response(null, {
+            status: 405,
+            headers: { Allow: "GET" },
+          });
+        }
+        let isAuthenticated = false;
+        if (opts.authMiddleware) {
+          const result = await opts.authMiddleware(req);
+          isAuthenticated = result.kind === "admit";
+        }
+        const authAwareRes = await opts.authAwareBuiltins.handler(
+          req,
+          pathname,
+          isAuthenticated,
+        );
+        if (authAwareRes) return authAwareRes;
+      }
 
       if (opts.gatedBuiltins?.paths.has(pathname)) {
         if (opts.authMiddleware) {
@@ -102,7 +145,7 @@ export function createDispatcher(
           // Built-ins never produce request:completed events regardless of
           // auth outcome; only emit for user-registered routes. Treat
           // `absent` like `reject`: gated built-ins are by definition
-          // `openapi.expose: "authenticated"`, so a missing credential is
+          // `openapi.access: "authenticated"`, so a missing credential is
           // a 401 just like a bad one. The plugin's wrapper emits
           // `auth:rejected` for `reject` directly; for `absent` we surface
           // it through the same `onAuthAbsent` hook the user-route path uses.

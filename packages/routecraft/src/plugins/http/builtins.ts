@@ -4,7 +4,20 @@ import type { HttpRouteRegistry } from "./registry";
 
 export interface BuiltinsOptions {
   registry: HttpRouteRegistry;
-  /** Whether the public built-ins layer should serve `/openapi.json`. */
+  /** Whether the always-on built-ins layer should serve `/health`. */
+  serveHealth: boolean;
+  /**
+   * Mode for the always-on built-ins layer's `/ready` handling.
+   *
+   * - `"off"`: do not serve here. The path is either disabled entirely
+   *   (`enabled: false`) or routed through the auth-aware layer
+   *   (`requireAuth: true` with auth configured).
+   * - `"full"`: serve `{ status: "ready", routes }`. This is the layer
+   *   used when `requireAuth: false`, or when `requireAuth: true` but no
+   *   global auth is configured (nothing to authenticate against).
+   */
+  ready: "off" | "full";
+  /** Whether the always-on built-ins layer should serve `/openapi.json`. */
   serveOpenApi: boolean;
 }
 
@@ -13,20 +26,19 @@ export interface BuiltinsOptions {
  * built-ins only after the user registry returns no match, so a user route
  * registered at the same path takes precedence.
  *
- * - `GET /health` -> 200 `{ status: "ok" }`.
- * - `GET /ready` -> 200 `{ status: "ready", routes }`.
- * - `GET /openapi.json` -> 200 application/json with an OpenAPI 3.1 document
- *   (only when `serveOpenApi` is true; the plugin flips this off for
- *   `openapi.expose === "off"` and routes the serving through `gatedBuiltins`
- *   for `"authenticated"`).
+ * The plugin decides which of these to serve based on its `builtins` config;
+ * a path served by the auth-aware layer (e.g. `/ready` with
+ * `details: "when-authenticated"`, `/openapi.json` with
+ * `access: "authenticated"`) is omitted from this handler so the dispatcher
+ * runs the auth middleware first.
  *
  * Returns `null` for any other request so the dispatcher can answer 404.
  */
 export function createBuiltins(opts: BuiltinsOptions): BuiltinHandler {
   return function builtinHandler(req: Request, pathname: string) {
     const isKnown =
-      pathname === "/health" ||
-      pathname === "/ready" ||
+      (pathname === "/health" && opts.serveHealth) ||
+      (pathname === "/ready" && opts.ready !== "off") ||
       (pathname === "/openapi.json" && opts.serveOpenApi);
     if (!isKnown) return null;
 
@@ -49,9 +61,9 @@ export function createBuiltins(opts: BuiltinsOptions): BuiltinHandler {
 }
 
 /**
- * The dispatcher hands this handler `/openapi.json` requests after the auth
- * middleware admits. The plugin wires it in via `gatedBuiltins` when
- * `openapi.expose === "authenticated"` and an `auth` strategy is configured.
+ * The dispatcher invokes this handler after the auth middleware admits the
+ * request. Used by the plugin when `openapi.access === "authenticated"` and
+ * an `auth` strategy is configured.
  */
 export function createOpenApiGatedHandler(
   registry: HttpRouteRegistry,
@@ -63,6 +75,22 @@ export function createOpenApiGatedHandler(
     }
     return jsonResponse(buildOpenApiDocument(registry), 200);
   };
+}
+
+/**
+ * Build the `/ready` response when the path is served by the dispatcher's
+ * auth-aware layer (`details: "when-authenticated"`). Always returns 200 so
+ * k8s readiness probes keep working without a credential; the body varies
+ * with the auth result. Spring Boot Actuator calls this same pattern
+ * `show-details: when-authorized`.
+ */
+export function buildReadyResponse(
+  registry: HttpRouteRegistry,
+  isAuthenticated: boolean,
+): Response {
+  return isAuthenticated
+    ? jsonResponse({ status: "ready", routes: registry.size }, 200)
+    : jsonResponse({ status: "ready" }, 200);
 }
 
 function jsonResponse(payload: unknown, status: number): Response {

@@ -6,9 +6,14 @@ import {
   missingCredentialReason,
   type HttpAuthMiddleware,
 } from "./auth";
-import { createBuiltins, createOpenApiGatedHandler } from "./builtins";
+import {
+  buildReadyResponse,
+  createBuiltins,
+  createOpenApiGatedHandler,
+} from "./builtins";
 import {
   createDispatcher,
+  type AuthAwareBuiltins,
   type GatedBuiltins,
   type RequestCompletedHandler,
 } from "./dispatcher";
@@ -45,7 +50,14 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
   const host = options.host ?? DEFAULT_HOST;
   const maxBodySize = options.maxBodySize ?? DEFAULT_MAX_BODY_SIZE;
   const perRequestEnabled = options.events?.perRequest ?? true;
-  const openapiExpose = options.openapi?.expose ?? "public";
+
+  // Built-ins config: every endpoint takes the same {enabled, requireAuth}
+  // shape. Defaults differ per endpoint (see HttpBuiltinOptions JSDoc).
+  const healthEnabled = options.builtins?.health?.enabled ?? true;
+  const readyEnabled = options.builtins?.ready?.enabled ?? true;
+  const readyRequireAuth = options.builtins?.ready?.requireAuth ?? true;
+  const openapiEnabled = options.builtins?.openapi?.enabled ?? true;
+  const openapiRequireAuth = options.builtins?.openapi?.requireAuth ?? false;
 
   let server: HttpServerHandle | null = null;
   const registry: HttpRouteRegistry = new Map();
@@ -59,22 +71,47 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
       ctx.setStore(HTTP_PLUGIN_REGISTERED, true);
       ctx.setStore(HTTP_ROUTE_REGISTRY, registry);
 
-      // The plugin decides where /openapi.json lives based on `expose`:
-      //   "public"        -> public built-ins serve it (no auth, no events).
-      //   "authenticated" -> gated built-ins serve it after auth, when auth
-      //                      is configured. With no auth it collapses to
-      //                      "public" (an unconfigurable gate is a no-op).
-      //   "off"           -> neither layer serves it; the path falls to 404.
+      // Decide which built-ins layer each path goes through.
+      //
+      // /ready:
+      //   requireAuth=false -> public layer, full body
+      //   requireAuth=true && auth configured -> auth-aware layer (200
+      //     always; anon gets minimal, authed gets full)
+      //   requireAuth=true && no auth configured -> public layer, full
+      //     body (collapses because there is nothing to gate against)
+      //
+      // /openapi.json:
+      //   requireAuth=false -> public layer (anyone)
+      //   requireAuth=true && auth configured -> gated layer (401 to anon)
+      //   requireAuth=true && no auth configured -> public layer (collapses)
+      const readyLayer: "off" | "public-full" | "auth-aware" = !readyEnabled
+        ? "off"
+        : readyRequireAuth && authMiddleware
+          ? "auth-aware"
+          : "public-full";
+
       const openapiServedPublic =
-        openapiExpose === "public" ||
-        (openapiExpose === "authenticated" && !authMiddleware);
+        openapiEnabled && (!openapiRequireAuth || !authMiddleware);
       const openapiServedGated =
-        openapiExpose === "authenticated" && !!authMiddleware;
+        openapiEnabled && openapiRequireAuth && !!authMiddleware;
 
       const builtins = createBuiltins({
         registry,
+        serveHealth: healthEnabled,
+        ready: readyLayer === "public-full" ? "full" : "off",
         serveOpenApi: openapiServedPublic,
       });
+
+      const authAwareBuiltins: AuthAwareBuiltins | undefined =
+        readyLayer === "auth-aware"
+          ? {
+              paths: new Set(["/ready"]),
+              handler: (_req, pathname, isAuthenticated) =>
+                pathname === "/ready"
+                  ? buildReadyResponse(registry, isAuthenticated)
+                  : null,
+            }
+          : undefined;
 
       const gatedBuiltins: GatedBuiltins | undefined = openapiServedGated
         ? {
@@ -136,6 +173,7 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
         authMiddleware: wrappedAuth,
         maxBodySize,
         builtins,
+        ...(authAwareBuiltins !== undefined ? { authAwareBuiltins } : {}),
         ...(gatedBuiltins !== undefined ? { gatedBuiltins } : {}),
         ...(onRequestCompleted !== undefined ? { onRequestCompleted } : {}),
         ...(onAuthAbsent !== undefined ? { onAuthAbsent } : {}),
@@ -202,15 +240,25 @@ function validate(options: HttpPluginOptions): void {
       message: `httpPlugin: invalid maxBodySize ${String(options.maxBodySize)}. Pass a positive integer (bytes).`,
     });
   }
-  const expose = options.openapi?.expose;
-  if (
-    expose !== undefined &&
-    expose !== "public" &&
-    expose !== "authenticated" &&
-    expose !== "off"
-  ) {
-    throw rcError("RC5003", undefined, {
-      message: `httpPlugin: invalid openapi.expose ${JSON.stringify(expose)}. Allowed: "public", "authenticated", "off".`,
-    });
+  for (const name of ["health", "ready", "openapi"] as const) {
+    const entry = options.builtins?.[name];
+    if (entry === undefined) continue;
+    if (entry.enabled !== undefined && typeof entry.enabled !== "boolean") {
+      throw rcError("RC5003", undefined, {
+        message: `httpPlugin: invalid builtins.${name}.enabled ${JSON.stringify(
+          entry.enabled,
+        )}. Pass a boolean.`,
+      });
+    }
+    if (
+      entry.requireAuth !== undefined &&
+      typeof entry.requireAuth !== "boolean"
+    ) {
+      throw rcError("RC5003", undefined, {
+        message: `httpPlugin: invalid builtins.${name}.requireAuth ${JSON.stringify(
+          entry.requireAuth,
+        )}. Pass a boolean.`,
+      });
+    }
   }
 }

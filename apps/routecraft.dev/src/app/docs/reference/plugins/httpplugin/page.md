@@ -33,7 +33,7 @@ export const craftConfig = defineConfig({
 | `auth` | `ValidatorAuthOptions \| ApiKeyAuthOptions` | -- | No | Global auth strategy: `jwt(...)` / `jwks(...)` (bearer) or `apiKey({...})`. No value means every route is public. |
 | `maxBodySize` | `number` | `10485760` (10 MB) | No | Maximum request body in bytes. Larger requests get `413`. |
 | `events` | `{ perRequest?: boolean }` | `{ perRequest: true }` | No | Toggle the `plugin:http:request:completed` event. |
-| `openapi` | `{ expose?: "public" \| "authenticated" \| "off" }` | `{ expose: "public" }` | No | Controls how `GET /openapi.json` is served. `"public"` matches the convention of public API providers (Stripe, GitHub, Twilio). `"authenticated"` gates the document behind the global auth middleware. `"off"` returns 404. |
+| `builtins` | `{ health?, ready?, openapi?: { enabled?: boolean; requireAuth?: boolean } }` | see below | No | Per-endpoint config for `/health`, `/ready`, `/openapi.json`. Each takes the same `{ enabled, requireAuth }` shape. See [Configuring built-ins](/docs/reference/adapters/http#configuring-built-ins) on the adapter reference for defaults and the per-endpoint behaviour table. |
 
 Per-route authorization uses the existing [`.authorize({ roles, scopes })`](/docs/reference/operations/authorize) builder. A route relaxes the global check with `http({ auth: "optional" })` (admit anonymous, attach principal when a valid token is present) or `http({ auth: "skip" })` (bypass the middleware entirely). See [Auth modes](/docs/reference/adapters/http#auth-modes) on the adapter reference for the full matrix. Built-in endpoints `/health`, `/ready`, and `/openapi.json` are served unless a user route claims the same path.
 

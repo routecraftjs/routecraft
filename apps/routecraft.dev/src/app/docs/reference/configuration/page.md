@@ -133,7 +133,7 @@ export const craftConfig = defineConfig({
 | `auth` | `ValidatorAuthOptions \| ApiKeyAuthOptions` | -- | Global auth: `jwt(...)` / `jwks(...)` (bearer) or `apiKey({...})`. Omit for fully public routes. |
 | `maxBodySize` | `number` | `10485760` (10 MB) | Maximum request body in bytes; larger requests return `413`. |
 | `events` | `{ perRequest?: boolean }` | `{ perRequest: true }` | Toggle the per-request `plugin:http:request:completed` event. |
-| `openapi` | `{ expose?: "public" \| "authenticated" \| "off" }` | `{ expose: "public" }` | Controls how `GET /openapi.json` is served (see [adapters reference](/docs/reference/adapters/http#openapijson-exposure) for the rationale). |
+| `builtins` | `{ health?, ready?, openapi?: { enabled?: boolean; requireAuth?: boolean } }` | see [adapter reference](/docs/reference/adapters/http#configuring-built-ins) | Per-endpoint config for `/health`, `/ready`, `/openapi.json`. Uniform `{ enabled, requireAuth }` shape per built-in (inspired by Spring Boot Actuator). |
 
 ## Logging configuration
 

@@ -1477,11 +1477,11 @@ describe("HTTP Source Adapter -- /openapi.json exposure", () => {
   });
 
   /**
-   * @case openapi.expose default ("public") serves /openapi.json without auth even when bearer is configured
-   * @preconditions http.auth = jwt(...); no openapi option
+   * @case openapi default (requireAuth=false) serves /openapi.json without auth even when bearer is configured
+   * @preconditions http.auth = jwt(...); no builtins.openapi override
    * @expectedResult /openapi.json returns 200 without a bearer token
    */
-  test("openapi.expose default is public, even under bearer auth", async () => {
+  test("openapi default is public, even under bearer auth", async () => {
     const bound = await bootHttp({
       routes: craft()
         .id("oapi-public")
@@ -1506,11 +1506,11 @@ describe("HTTP Source Adapter -- /openapi.json exposure", () => {
   });
 
   /**
-   * @case openapi.expose = "authenticated" gates /openapi.json behind the global auth check
-   * @preconditions http.auth = jwt(...), openapi.expose = "authenticated"
+   * @case builtins.openapi.requireAuth = true gates /openapi.json behind the global auth check
+   * @preconditions http.auth = jwt(...), builtins.openapi.requireAuth = true
    * @expectedResult /openapi.json is 401 without a token, 200 with a valid one
    */
-  test("openapi.expose authenticated gates the spec behind auth", async () => {
+  test("openapi requireAuth gates the spec behind auth", async () => {
     const bound = await bootHttp({
       routes: craft()
         .id("oapi-auth")
@@ -1519,7 +1519,7 @@ describe("HTTP Source Adapter -- /openapi.json exposure", () => {
         .to(noop()),
       http: {
         port: 0,
-        openapi: { expose: "authenticated" },
+        builtins: { openapi: { requireAuth: true } },
         auth: jwt({
           secret: JWT_SECRET,
           issuer: JWT_ISSUER,
@@ -1540,22 +1540,108 @@ describe("HTTP Source Adapter -- /openapi.json exposure", () => {
   });
 
   /**
-   * @case openapi.expose = "off" returns 404 for /openapi.json
-   * @preconditions openapi.expose = "off"
-   * @expectedResult /openapi.json returns 404 (the path falls through to the not-found branch)
+   * @case builtins.openapi.enabled = false returns 404 for /openapi.json
+   * @preconditions builtins.openapi.enabled = false
+   * @expectedResult /openapi.json returns 404
    */
-  test("openapi.expose off returns 404", async () => {
+  test("openapi enabled=false returns 404", async () => {
     const bound = await bootHttp({
       routes: craft()
         .id("oapi-off")
         .from(http({ path: "/oapi-off", method: "GET" }))
         .transform(() => ({ ok: true }))
         .to(noop()),
-      http: { port: 0, openapi: { expose: "off" } },
+      http: { port: 0, builtins: { openapi: { enabled: false } } },
     });
     t = bound.ctx;
 
     const res = await fetch(`http://127.0.0.1:${bound.port}/openapi.json`);
+    expect(res.status).toBe(404);
+  });
+
+  /**
+   * @case /ready default redacts the routes count for anonymous callers when auth is configured
+   * @preconditions http.auth = jwt(...); no explicit builtins.ready config
+   * @expectedResult Anonymous GET /ready returns 200 { status: "ready" } (no routes count).
+   *   An authenticated caller additionally sees the routes count. Matches Spring
+   *   Actuator's "show-details: when-authorized" default for /actuator/health.
+   */
+  test("ready default redacts routes count for anonymous callers", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("r1")
+        .from(http({ path: "/r1", method: "GET" }))
+        .transform(() => ({ ok: true }))
+        .to(noop()),
+      http: {
+        port: 0,
+        auth: jwt({
+          secret: JWT_SECRET,
+          issuer: JWT_ISSUER,
+          audience: JWT_AUDIENCE,
+        }),
+      },
+    });
+    t = bound.ctx;
+
+    const anon = await fetch(`http://127.0.0.1:${bound.port}/ready`);
+    expect(anon.status).toBe(200);
+    expect(await anon.json()).toEqual({ status: "ready" });
+
+    const token = makeJwt({ sub: "u1" });
+    const authed = await fetch(`http://127.0.0.1:${bound.port}/ready`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(authed.status).toBe(200);
+    expect(await authed.json()).toEqual({ status: "ready", routes: 1 });
+  });
+
+  /**
+   * @case builtins.ready.requireAuth = false serves the full body to anyone
+   * @preconditions http.auth = jwt(...); builtins.ready.requireAuth = false
+   * @expectedResult Anonymous GET /ready returns 200 { status: "ready", routes: N }
+   */
+  test("ready requireAuth=false serves full body to anyone", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("r1")
+        .from(http({ path: "/r1", method: "GET" }))
+        .transform(() => ({ ok: true }))
+        .to(noop()),
+      http: {
+        port: 0,
+        auth: jwt({
+          secret: JWT_SECRET,
+          issuer: JWT_ISSUER,
+          audience: JWT_AUDIENCE,
+        }),
+        builtins: { ready: { requireAuth: false } },
+      },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/ready`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: "ready", routes: 1 });
+  });
+
+  /**
+   * @case builtins.health.enabled = false returns 404 for /health
+   * @preconditions builtins.health.enabled = false
+   * @expectedResult GET /health returns 404
+   */
+  test("health enabled=false returns 404", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("h1")
+        .from(http({ path: "/h1", method: "GET" }))
+        .transform(() => ({ ok: true }))
+        .to(noop()),
+      http: { port: 0, builtins: { health: { enabled: false } } },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/health`);
     expect(res.status).toBe(404);
   });
 });

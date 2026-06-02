@@ -142,25 +142,57 @@ export interface HttpPluginOptions {
   maxBodySize?: number;
   /** Event emission toggles. */
   events?: HttpPluginEventOptions;
-  /** OpenAPI document exposure. Defaults to `"public"`. */
-  openapi?: HttpOpenApiOptions;
+  /** Built-in endpoint configuration. See {@link HttpBuiltinsOptions}. */
+  builtins?: HttpBuiltinsOptions;
 }
 
 /**
- * How the plugin exposes `GET /openapi.json`.
- *
- * - `"public"` (default): served without auth, even when `auth` is configured.
- *   Matches the convention of Stripe / GitHub / Twilio / OpenAI, where the
- *   API schema is intentionally discoverable; protection comes from auth on
- *   each endpoint, not from hiding the schema.
- * - `"authenticated"`: served only after the global `auth` middleware admits
- *   the request. If `auth` is not configured this collapses to `"public"`.
- * - `"off"`: not served at all; the path falls through to 404.
+ * Configuration for the built-in endpoints (`/health`, `/ready`,
+ * `/openapi.json`). Each entry takes the same {@link HttpBuiltinOptions}
+ * shape; the meaning of each field varies per endpoint as documented on
+ * that interface.
  *
  * @experimental
  */
-export interface HttpOpenApiOptions {
-  expose?: "public" | "authenticated" | "off";
+export interface HttpBuiltinsOptions {
+  health?: HttpBuiltinOptions;
+  ready?: HttpBuiltinOptions;
+  openapi?: HttpBuiltinOptions;
+}
+
+/**
+ * Uniform config shape for every built-in endpoint. Inspired by Spring
+ * Boot Actuator's `management.endpoint.<name>.enabled` plus
+ * `management.endpoint.health.show-details`, but compressed to a single
+ * boolean for the auth gate.
+ *
+ * What `requireAuth` controls, per endpoint:
+ *
+ * | Endpoint | `requireAuth: false` | `requireAuth: true` |
+ * | --- | --- | --- |
+ * | `/health` | n/a (response is `{ status: "ok" }`, nothing to gate) | n/a |
+ * | `/ready` | always `{ status: "ready", routes }` | anon: `{ status: "ready" }`; authed: `{ status: "ready", routes }`. Always 200 (k8s probes keep working). |
+ * | `/openapi.json` | doc to anyone | 401 to anon; doc to authed |
+ *
+ * Defaults differ per endpoint based on security best practice:
+ *
+ * - `health`:  `{ enabled: true }` (k8s liveness must be open; `requireAuth` is a no-op)
+ * - `ready`:   `{ enabled: true, requireAuth: true }` (gates the `routes` count)
+ * - `openapi`: `{ enabled: true, requireAuth: false }` (matches the
+ *   Stripe / GitHub / Twilio / OpenAI convention of publishing the
+ *   schema publicly)
+ *
+ * `requireAuth` has no effect when no global `auth` is configured: there
+ * is nothing to authenticate against, so the response collapses to the
+ * `requireAuth: false` shape.
+ *
+ * @experimental
+ */
+export interface HttpBuiltinOptions {
+  /** Whether the endpoint is reachable. Default: `true`. When `false` the path returns 404. */
+  enabled?: boolean;
+  /** Whether seeing the endpoint's full response requires authentication. See the table above for per-endpoint behaviour. */
+  requireAuth?: boolean;
 }
 
 /**
