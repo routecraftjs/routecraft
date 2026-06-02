@@ -34,9 +34,37 @@ interface OpenApiPathItem {
   options?: OpenApiOperation;
 }
 
+/**
+ * `info` block of an OpenAPI 3.1 document. Mirrors the OpenAPI Info Object
+ * shape (`title`, `version`, optional `description`, `contact`, `license`).
+ *
+ * Defaults are auto-detected from the host project's `package.json` at
+ * plugin apply time:
+ *
+ * - `title`   -> `package.json` `name` (literal, including any `@scope/`).
+ * - `version` -> `package.json` `version`.
+ *
+ * Description / contact / license are **not** auto-pulled even when
+ * present in `package.json`: those fields commonly carry internal
+ * context (TODO notes, author emails, license boilerplate) that should
+ * not leak into a publicly served document by default. Set them
+ * explicitly to publish them.
+ *
+ * Any explicit field passed by the caller wins over the auto-detected
+ * default; missing `package.json` falls back to the hardcoded "Routecraft
+ * HTTP API" / "0.0.0".
+ */
+export interface HttpOpenApiInfo {
+  title?: string;
+  version?: string;
+  description?: string;
+  contact?: { name?: string; url?: string; email?: string };
+  license?: { name: string; identifier?: string; url?: string };
+}
+
 interface OpenApiDocument {
   openapi: "3.1.0";
-  info: { title: string; version: string };
+  info: HttpOpenApiInfo & { title: string; version: string };
   paths: Record<string, OpenApiPathItem>;
 }
 
@@ -52,13 +80,19 @@ interface OpenApiDocument {
  */
 export function buildOpenApiDocument(
   registry: HttpRouteRegistry,
+  info?: HttpOpenApiInfo,
 ): OpenApiDocument {
+  const resolvedInfo: HttpOpenApiInfo & { title: string; version: string } = {
+    title: info?.title ?? "Routecraft HTTP API",
+    version: info?.version ?? "0.0.0",
+  };
+  if (info?.description) resolvedInfo.description = info.description;
+  if (info?.contact) resolvedInfo.contact = info.contact;
+  if (info?.license) resolvedInfo.license = info.license;
+
   const doc: OpenApiDocument = {
     openapi: "3.1.0",
-    info: {
-      title: "Routecraft HTTP API",
-      version: "0.0.0",
-    },
+    info: resolvedInfo,
     paths: {},
   };
 

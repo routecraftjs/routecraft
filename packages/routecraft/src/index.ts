@@ -238,6 +238,10 @@ export {
   type HttpResponseHint,
   type HttpAuth,
   type ApiKeyAuthOptions,
+  type HttpBuiltinsOptions,
+  type HttpBuiltinOptions,
+  type HttpOpenApiBuiltinOptions,
+  type HttpOpenApiInfo,
 } from "./adapters/http/index.ts";
 export {
   type DirectBaseOptions,

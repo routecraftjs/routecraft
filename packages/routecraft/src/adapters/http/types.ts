@@ -4,6 +4,9 @@ import type {
   Principal,
   ValidatorAuthOptions,
 } from "../../auth/types";
+import type { HttpOpenApiInfo } from "../../plugins/http/openapi";
+
+export type { HttpOpenApiInfo };
 
 /** HTTP request methods supported by both the destination and the source. */
 export type HttpMethod =
@@ -148,16 +151,31 @@ export interface HttpPluginOptions {
 
 /**
  * Configuration for the built-in endpoints (`/health`, `/ready`,
- * `/openapi.json`). Each entry takes the same {@link HttpBuiltinOptions}
- * shape; the meaning of each field varies per endpoint as documented on
- * that interface.
+ * `/openapi.json`). Each entry takes the {@link HttpBuiltinOptions}
+ * shape; openapi additionally accepts an `info` block to populate the
+ * OpenAPI document's `info` object. The meaning of `requireAuth` varies
+ * per endpoint as documented on {@link HttpBuiltinOptions}.
  *
  * @experimental
  */
 export interface HttpBuiltinsOptions {
   health?: HttpBuiltinOptions;
   ready?: HttpBuiltinOptions;
-  openapi?: HttpBuiltinOptions;
+  openapi?: HttpOpenApiBuiltinOptions;
+}
+
+/**
+ * Configuration for `/openapi.json` specifically. Extends the uniform
+ * {@link HttpBuiltinOptions} shape with `info`, the OpenAPI `info` block
+ * (`title`, `version`, `description`, `contact`, `license`). When omitted,
+ * `title` and `version` auto-detect from the host project's `package.json`;
+ * see {@link HttpOpenApiInfo} for the security rationale on which fields
+ * are auto-pulled and which are opt-in.
+ *
+ * @experimental
+ */
+export interface HttpOpenApiBuiltinOptions extends HttpBuiltinOptions {
+  info?: HttpOpenApiInfo;
 }
 
 /**

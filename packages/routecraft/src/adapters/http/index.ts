@@ -80,4 +80,8 @@ export type {
   HttpAuth,
   HttpConfig,
   ApiKeyAuthOptions,
+  HttpBuiltinsOptions,
+  HttpBuiltinOptions,
+  HttpOpenApiBuiltinOptions,
+  HttpOpenApiInfo,
 } from "./types";

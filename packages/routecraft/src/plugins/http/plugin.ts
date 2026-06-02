@@ -22,6 +22,8 @@ import {
   HTTP_ROUTE_REGISTRY,
   type HttpRouteRegistry,
 } from "./registry";
+import type { HttpOpenApiInfo } from "./openapi";
+import { findPackageInfo } from "./package-info";
 import { startServer, type HttpServerHandle } from "./server";
 
 const DEFAULT_MAX_BODY_SIZE = 10 * 1024 * 1024;
@@ -58,6 +60,19 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
   const readyRequireAuth = options.builtins?.ready?.requireAuth ?? true;
   const openapiEnabled = options.builtins?.openapi?.enabled ?? true;
   const openapiRequireAuth = options.builtins?.openapi?.requireAuth ?? false;
+
+  // Resolve the OpenAPI `info` block once: auto-detect `title` (name) and
+  // `version` from the nearest package.json, then layer the caller's
+  // explicit overrides on top. Description / contact / license are NOT
+  // auto-pulled (see HttpOpenApiInfo JSDoc for the security rationale).
+  // Skip the fs walk entirely when openapi is disabled.
+  const openapiInfoOverride = options.builtins?.openapi?.info;
+  const pkg = openapiEnabled ? findPackageInfo() : {};
+  const openapiInfo: HttpOpenApiInfo = {
+    ...(pkg.name !== undefined ? { title: pkg.name } : {}),
+    ...(pkg.version !== undefined ? { version: pkg.version } : {}),
+    ...(openapiInfoOverride ?? {}),
+  };
 
   let server: HttpServerHandle | null = null;
   const registry: HttpRouteRegistry = new Map();
@@ -100,6 +115,7 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
         serveHealth: healthEnabled,
         ready: readyLayer === "public-full" ? "full" : "off",
         serveOpenApi: openapiServedPublic,
+        openapiInfo,
       });
 
       const authAwareBuiltins: AuthAwareBuiltins | undefined =
@@ -116,7 +132,7 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
       const gatedBuiltins: GatedBuiltins | undefined = openapiServedGated
         ? {
             paths: new Set(["/openapi.json"]),
-            handler: createOpenApiGatedHandler(registry),
+            handler: createOpenApiGatedHandler(registry, openapiInfo),
           }
         : undefined;
 
@@ -243,6 +259,16 @@ function validate(options: HttpPluginOptions): void {
   for (const name of ["health", "ready", "openapi"] as const) {
     const entry = options.builtins?.[name];
     if (entry === undefined) continue;
+    // Guard against `builtins: { openapi: false as any }` slipping through:
+    // without this check, apply() would silently fall back to the defaults
+    // (and leave /openapi.json publicly exposed).
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      throw rcError("RC5003", undefined, {
+        message: `httpPlugin: invalid builtins.${name} ${JSON.stringify(
+          entry,
+        )}. Pass an object with optional { enabled, requireAuth } fields.`,
+      });
+    }
     if (entry.enabled !== undefined && typeof entry.enabled !== "boolean") {
       throw rcError("RC5003", undefined, {
         message: `httpPlugin: invalid builtins.${name}.enabled ${JSON.stringify(
@@ -258,6 +284,20 @@ function validate(options: HttpPluginOptions): void {
         message: `httpPlugin: invalid builtins.${name}.requireAuth ${JSON.stringify(
           entry.requireAuth,
         )}. Pass a boolean.`,
+      });
+    }
+  }
+  const openapiInfo = options.builtins?.openapi?.info;
+  if (openapiInfo !== undefined) {
+    if (
+      typeof openapiInfo !== "object" ||
+      openapiInfo === null ||
+      Array.isArray(openapiInfo)
+    ) {
+      throw rcError("RC5003", undefined, {
+        message: `httpPlugin: invalid builtins.openapi.info ${JSON.stringify(
+          openapiInfo,
+        )}. Pass an OpenAPI Info Object (e.g. { title, version, description }).`,
       });
     }
   }

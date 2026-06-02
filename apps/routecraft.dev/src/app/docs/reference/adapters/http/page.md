@@ -173,6 +173,26 @@ Defaults match security best practice per endpoint:
 
 `enabled: false` returns 404 for that path. `requireAuth` has no effect when no global `auth` is configured (collapses to `false` because there is nothing to authenticate against).
 
+#### OpenAPI `info` block
+
+`builtins.openapi.info` populates the OpenAPI document's `info` object. When omitted, `title` and `version` auto-detect from the nearest `package.json` (walks up from `process.cwd()`); supply either field explicitly to override.
+
+```ts
+builtins: {
+  openapi: {
+    info: {
+      title: "Orders API",        // overrides package.json `name`
+      version: "1.2.3",            // overrides package.json `version`
+      description: "Customer order management.",
+      contact: { name: "Platform Team", email: "platform@example.com" },
+      license: { name: "MIT", url: "https://opensource.org/license/mit" },
+    },
+  },
+},
+```
+
+Auto-detection is conservative: only `name` and `version` are pulled because both are public by nature once a package is published to npm. `description`, `contact`, and `license` stay opt-in because `package.json` often carries internal context (TODO notes, author emails, license boilerplate) you may not want leaking through a publicly served document. Set them explicitly to publish them. When no `package.json` is reachable (single-file bundled binaries, Docker scratch images), the document falls back to `Routecraft HTTP API` / `0.0.0`.
+
 ### Auth
 
 `http: { auth }` accepts:

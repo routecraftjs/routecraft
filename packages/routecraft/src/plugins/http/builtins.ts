@@ -1,5 +1,5 @@
 import type { BuiltinHandler } from "./dispatcher";
-import { buildOpenApiDocument } from "./openapi";
+import { buildOpenApiDocument, type HttpOpenApiInfo } from "./openapi";
 import type { HttpRouteRegistry } from "./registry";
 
 export interface BuiltinsOptions {
@@ -19,6 +19,12 @@ export interface BuiltinsOptions {
   ready: "off" | "full";
   /** Whether the always-on built-ins layer should serve `/openapi.json`. */
   serveOpenApi: boolean;
+  /**
+   * OpenAPI `info` block used when serving `/openapi.json` (either layer).
+   * Already resolved by the plugin: package.json auto-detected defaults
+   * layered under the caller's explicit overrides.
+   */
+  openapiInfo?: HttpOpenApiInfo;
 }
 
 /**
@@ -55,25 +61,26 @@ export function createBuiltins(opts: BuiltinsOptions): BuiltinHandler {
     }
 
     // pathname === "/openapi.json" && opts.serveOpenApi (covered by isKnown above)
-    const doc = buildOpenApiDocument(opts.registry);
+    const doc = buildOpenApiDocument(opts.registry, opts.openapiInfo);
     return jsonResponse(doc, 200);
   };
 }
 
 /**
  * The dispatcher invokes this handler after the auth middleware admits the
- * request. Used by the plugin when `openapi.access === "authenticated"` and
- * an `auth` strategy is configured.
+ * request. Used by the plugin when `openapi.requireAuth === true` and an
+ * `auth` strategy is configured.
  */
 export function createOpenApiGatedHandler(
   registry: HttpRouteRegistry,
+  info?: HttpOpenApiInfo,
 ): BuiltinHandler {
   return function openApiHandler(req, pathname) {
     if (pathname !== "/openapi.json") return null;
     if (req.method !== "GET") {
       return new Response(null, { status: 405, headers: { Allow: "GET" } });
     }
-    return jsonResponse(buildOpenApiDocument(registry), 200);
+    return jsonResponse(buildOpenApiDocument(registry, info), 200);
   };
 }
 

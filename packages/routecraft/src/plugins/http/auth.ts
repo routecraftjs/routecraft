@@ -217,8 +217,16 @@ export function createAuthMiddleware(
           raw = null;
         }
       }
-      if (!raw) {
+      // `absent` is reserved for "no credential was presented at all" (the
+      // header / query parameter is missing). An empty string or whitespace
+      // is a *presented* credential that fails validation -- treat it as
+      // reject so `auth: "optional"` cannot silently downgrade it to
+      // anonymous access.
+      if (raw === null) {
         return { kind: "absent", scheme: "apiKey" };
+      }
+      if (raw.trim() === "") {
+        return reject("invalid api key", "apiKey");
       }
       if (allowedSet) {
         if (!allowedSet.has(raw)) {
@@ -244,13 +252,21 @@ export function createAuthMiddleware(
   if (isValidatorAuth(auth)) {
     const validator = auth.validator;
     return async (req: Request): Promise<AuthResult> => {
+      // `absent` is reserved for "no Authorization header at all". A header
+      // with a different scheme (Basic, Digest, etc.) or a Bearer scheme
+      // with an empty token is a *presented* credential that fails
+      // verification; route it through `reject` so `auth: "optional"` does
+      // not silently downgrade it to anonymous access.
       const header = req.headers.get("authorization");
-      if (!header || !header.toLowerCase().startsWith("bearer ")) {
+      if (header === null) {
         return { kind: "absent", scheme: "bearer" };
+      }
+      if (!header.toLowerCase().startsWith("bearer ")) {
+        return reject("invalid token", "bearer");
       }
       const token = header.slice(7).trim();
       if (!token) {
-        return { kind: "absent", scheme: "bearer" };
+        return reject("invalid token", "bearer");
       }
       try {
         const principal = await validator(token);

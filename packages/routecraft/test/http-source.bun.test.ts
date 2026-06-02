@@ -1560,6 +1560,101 @@ describe("HTTP Source Adapter -- /openapi.json exposure", () => {
   });
 
   /**
+   * @case openapi.info auto-detects title and version from the nearest package.json
+   * @preconditions No explicit builtins.openapi.info; cwd resides inside the
+   *   routecraft monorepo so package.json walk finds a real name + version.
+   * @expectedResult /openapi.json's `info` block carries the package.json `name`
+   *   as `title` and the package.json `version` as `version`. Confirms the
+   *   conservative auto-fill described on HttpOpenApiInfo (only public-by-nature
+   *   fields; description / contact / license stay opt-in).
+   */
+  test("openapi.info auto-detects title and version from package.json", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("oapi-info")
+        .from(http({ path: "/oapi-info", method: "GET" }))
+        .transform(() => ({ ok: true }))
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/openapi.json`);
+    expect(res.status).toBe(200);
+    const doc = (await res.json()) as {
+      info: {
+        title: string;
+        version: string;
+        description?: string;
+        contact?: unknown;
+        license?: unknown;
+      };
+    };
+    expect(typeof doc.info.title).toBe("string");
+    expect(doc.info.title.length).toBeGreaterThan(0);
+    expect(doc.info.title).not.toBe("Routecraft HTTP API");
+    expect(typeof doc.info.version).toBe("string");
+    expect(doc.info.version.length).toBeGreaterThan(0);
+    expect(doc.info.version).not.toBe("0.0.0");
+    expect(doc.info.description).toBeUndefined();
+    expect(doc.info.contact).toBeUndefined();
+    expect(doc.info.license).toBeUndefined();
+  });
+
+  /**
+   * @case Explicit builtins.openapi.info overrides the package.json auto-detected defaults
+   * @preconditions builtins.openapi.info supplies title, version, description, contact, license
+   * @expectedResult Every supplied field surfaces on the resulting /openapi.json `info` block
+   *   verbatim. Caller-supplied values always win over package.json detection.
+   */
+  test("openapi.info caller overrides win over package.json defaults", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("oapi-info-override")
+        .from(http({ path: "/oapi-info-override", method: "GET" }))
+        .transform(() => ({ ok: true }))
+        .to(noop()),
+      http: {
+        port: 0,
+        builtins: {
+          openapi: {
+            info: {
+              title: "Orders API",
+              version: "1.2.3",
+              description: "Customer order management.",
+              contact: { name: "Platform Team", email: "platform@example.com" },
+              license: {
+                name: "MIT",
+                url: "https://opensource.org/license/mit",
+              },
+            },
+          },
+        },
+      },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/openapi.json`);
+    expect(res.status).toBe(200);
+    const doc = (await res.json()) as {
+      info: {
+        title: string;
+        version: string;
+        description?: string;
+        contact?: { name?: string; email?: string };
+        license?: { name?: string; url?: string };
+      };
+    };
+    expect(doc.info.title).toBe("Orders API");
+    expect(doc.info.version).toBe("1.2.3");
+    expect(doc.info.description).toBe("Customer order management.");
+    expect(doc.info.contact?.name).toBe("Platform Team");
+    expect(doc.info.contact?.email).toBe("platform@example.com");
+    expect(doc.info.license?.name).toBe("MIT");
+    expect(doc.info.license?.url).toBe("https://opensource.org/license/mit");
+  });
+
+  /**
    * @case /ready default redacts the routes count for anonymous callers when auth is configured
    * @preconditions http.auth = jwt(...); no explicit builtins.ready config
    * @expectedResult Anonymous GET /ready returns 200 { status: "ready" } (no routes count).
