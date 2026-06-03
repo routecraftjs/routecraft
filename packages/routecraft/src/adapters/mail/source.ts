@@ -2,7 +2,7 @@ import type { CraftContext } from "../../context.ts";
 import type { Source } from "../../operations/from.ts";
 import type { Exchange, ExchangeHeaders } from "../../exchange.ts";
 import { rcError } from "../../error.ts";
-import type { MailMessage, MailServerOptions } from "./types.ts";
+import type { MailBody, MailMessage, MailServerOptions } from "./types.ts";
 import type { MailClientManager } from "./client-manager.ts";
 import { DEFAULT_ON_PARSE_ERROR, type OnParseError } from "../shared/parse.ts";
 import {
@@ -12,8 +12,7 @@ import {
   markMessagesSeen,
   isMailAuthError,
   throwMailConnectionError,
-  HEADER_MAIL_UID,
-  HEADER_MAIL_FOLDER,
+  splitMailMessage,
   MAIL_PARSE_ERRORS,
   type MailFetchLogger,
 } from "./shared.ts";
@@ -34,9 +33,13 @@ const MAIL_RECONNECT_MAX_MS = 60_000;
  * When a MailClientManager is available (via context mail config), uses pooled
  * connections. Otherwise falls back to standalone connections.
  *
- * Sets `routecraft.mail.uid` and `routecraft.mail.folder` headers on each
- * exchange so downstream operations can resolve the target message even after
- * body transforms.
+ * Splits each message into a {@link MailBody} payload on `exchange.body`
+ * (`text`, `html`, and `attachments`) and the envelope on `routecraft.mail.*`
+ * headers (`uid`, `folder`, `from`, `to`, `cc`, `bcc`, `subject`, `date`,
+ * `messageId`, `replyTo`, `flags`, `sender`, `rawHeaders`). This mirrors the
+ * HTTP source convention so the same `.transform()` / `.filter()` operators
+ * compose across adapters, and downstream IMAP operations can resolve the
+ * target message from headers even after body transforms.
  *
  * ## IDLE vs poll
  *
@@ -70,7 +73,7 @@ const MAIL_RECONNECT_MAX_MS = 60_000;
  *   .to(mail({ action: 'move', folder: 'Archive' }))
  * ```
  */
-export class MailSourceAdapter implements Source<MailMessage> {
+export class MailSourceAdapter implements Source<MailBody> {
   readonly adapterId = "routecraft.adapter.mail";
   private readonly adapterOptions: MailServerOptions;
   private readonly folder: string;
@@ -83,7 +86,7 @@ export class MailSourceAdapter implements Source<MailMessage> {
   async subscribe(
     context: CraftContext,
     handler: (
-      message: MailMessage,
+      message: MailBody,
       headers?: ExchangeHeaders,
       parse?: (raw: unknown) => unknown | Promise<unknown>,
       parseFailureMode?: OnParseError,
@@ -156,10 +159,10 @@ export class MailSourceAdapter implements Source<MailMessage> {
     const parseFailureMode = resolved.onParseError ?? DEFAULT_ON_PARSE_ERROR;
 
     const handlerWithHeaders = (message: MailMessage) => {
-      const headers: ExchangeHeaders = {
-        [HEADER_MAIL_UID]: message.uid,
-        [HEADER_MAIL_FOLDER]: message.folder,
-      };
+      // Split the fetched message into payload (body) and envelope (headers)
+      // so the route sees the same payload-on-body / envelope-on-headers shape
+      // as the HTTP source.
+      const { body, headers } = splitMailMessage(message);
       // When the message had a MIME parse failure during fetch, surface
       // the captured error from the synthetic parse step so the route
       // observes it via the configured failure mode. See #187.
@@ -167,7 +170,7 @@ export class MailSourceAdapter implements Source<MailMessage> {
       if (parseError) {
         MAIL_PARSE_ERRORS.delete(message);
         return handler(
-          message,
+          body,
           headers,
           () => {
             throw parseError;
@@ -175,7 +178,7 @@ export class MailSourceAdapter implements Source<MailMessage> {
           parseFailureMode,
         );
       }
-      return handler(message, headers);
+      return handler(body, headers);
     };
 
     try {

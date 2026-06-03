@@ -78,14 +78,27 @@ Use `mockAdapter()` and `testContext().override()` instead. You import the facto
 
 ```ts
 import { mail } from "@routecraft/routecraft";
-import { mockAdapter, testContext, type TestContext } from "@routecraft/testing";
+import {
+  mockAdapter,
+  sourceMessage,
+  testContext,
+  type TestContext,
+} from "@routecraft/testing";
 import route from "../capabilities/mail-triage";
 
 const mailMock = mockAdapter(mail, {
-  // Source role: feeds the .from(mail(...)) call site
+  // Source role: feeds the .from(mail(...)) call site. The mail source puts the
+  // payload on `body` and the envelope on `routecraft.mail.*` headers, so wrap
+  // each fixture with `sourceMessage(body, headers)` to reproduce that split.
   source: [
-    { uid: 1, from: "friend@co.com", subject: "lunch?", ... },
-    { uid: 2, from: "spam@x.com",    subject: "URGENT BUY NOW", ... },
+    sourceMessage(
+      { text: "lunch?" },
+      { "routecraft.mail.uid": 1, "routecraft.mail.from": "friend@co.com", "routecraft.mail.subject": "lunch?" },
+    ),
+    sourceMessage(
+      { text: "buy now" },
+      { "routecraft.mail.uid": 2, "routecraft.mail.from": "spam@x.com", "routecraft.mail.subject": "URGENT BUY NOW" },
+    ),
   ],
   // Destination role: stands in for every .to(mail(...)) and .enrich(mail(...))
   // call in the route. Use `args` (what was passed to mail()) to discriminate.

@@ -63,13 +63,17 @@ craft()
 import { authorize } from '@routecraft/routecraft'
 
 craft()
-  .from(mail({ /* ... */ }))
-  .authenticate((ex) => ({
-    scheme: 'email',
-    subject: ex.body.from?.address ?? 'anonymous',
-    email: ex.body.from?.address,
-    claims: { tenant: deriveTenant(ex.body.from?.address) },
-  }))
+  .from(mail('INBOX', { /* ... */ }))
+  .authenticate((ex) => {
+    // The mail source puts the sender on a header, not the body.
+    const from = ex.headers['routecraft.mail.from']
+    return {
+      scheme: 'email',
+      subject: from ?? 'anonymous',
+      email: from,
+      claims: { tenant: deriveTenant(from) },
+    }
+  })
   .validate(authorize({
     predicate: (p) => p.email?.endsWith('@yourcompany.com') === true,
   }))

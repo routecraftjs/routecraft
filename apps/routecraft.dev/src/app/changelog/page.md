@@ -28,6 +28,7 @@ This section tracks changes landing on `main` since the v0.5.0 release. Release 
 
 ### Mail
 
+- **Mail source envelope moves to headers** {% badge color="red" %}Breaking{% /badge %} -- `.from(mail(...))` now follows the payload-on-`body`, envelope-on-`headers` convention shared with the HTTP source. The exchange `body` is a `MailBody` (`{ text?, html?, attachments? }`) and the envelope (`from`, `to`, `cc`, `bcc`, `subject`, `date`, `messageId`, `replyTo`, `flags`, `sender`, `rawHeaders`) lands on `routecraft.mail.*` headers, declaration-merged into `RoutecraftHeaders` and exported as `HEADER_MAIL_*` constants. `.input({ body })` now validates against the message content alone. The fetch destination (`.enrich(mail(...))`) still returns `MailMessage[]` unchanged. New exported type `MailBody`. See the [0.5.x to 0.6.0 migration guide](/docs/migrating/0.5-to-0.6#mail-envelope-headers).
 - **Direct mail no longer misclassified as auto-forwarded** -- a single first-hop ARC seal (`i=1`, `cv=none`) added by the delivering MX is no longer read as forwarding, so DMARC-aligned direct mail stays `direct` / `verified` instead of `unverified`. Mailing-list and validated-forward classification are unchanged.
 
 ### Docs site

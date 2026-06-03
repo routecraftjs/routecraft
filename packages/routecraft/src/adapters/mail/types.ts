@@ -336,7 +336,35 @@ export type MailAction =
 // ---------------------------------------------------------------------------
 
 /**
- * A parsed email message returned by the mail adapter source/fetch.
+ * The payload an email message carries, delivered on `exchange.body` by the
+ * mail source. This is the content a route operates on with `.transform()`,
+ * `.filter()`, and friends. Envelope metadata (from, subject, recipients, ...)
+ * travels on `routecraft.mail.*` headers instead. See
+ * {@link MailMessage} for the full object returned by the fetch destination.
+ *
+ * `text` and `html` are two representations of the same content; either, both,
+ * or neither may be populated depending on what the sender composed
+ * (`multipart/alternative` vs a single-part message). Attachments are message
+ * content (not envelope), so they stay on the body alongside `text`/`html`.
+ */
+export interface MailBody {
+  /** Plain text body, when the message included a `text/plain` part. */
+  text?: string;
+  /** HTML body, when the message included a `text/html` part. */
+  html?: string;
+  /** File attachments carried by the message. */
+  attachments?: MailAttachment[];
+}
+
+/**
+ * A parsed email message returned by the mail adapter fetch destination
+ * (`.enrich(mail(...))`), as an array element of {@link MailFetchResult}.
+ *
+ * The streaming source (`.from(mail(...))`) does not deliver this shape; it
+ * splits the message into a {@link MailBody} on `exchange.body` and
+ * `routecraft.mail.*` headers. This object keeps the whole message together
+ * because a batch fetch returns many messages and single-valued headers cannot
+ * hold N envelopes.
  */
 export interface MailMessage {
   /** IMAP UID */
@@ -457,3 +485,56 @@ export interface MailSendResult {
  * Result returned by the fetch destination (array of messages).
  */
 export type MailFetchResult = MailMessage[];
+
+// --------------------------------------------------------------------------
+// Header keys registry augmentation
+// --------------------------------------------------------------------------
+
+// The mail source puts the message payload on `body` and the envelope on
+// `routecraft.mail.*` headers, mirroring the HTTP source convention. These
+// declarations give consumers autocomplete and type-safety when reading those
+// headers. The string constants live in `./shared.ts` (HEADER_MAIL_*).
+//
+// See .standards/type-safety-and-schemas.md#module-augmentation for why this
+// targets the package specifier and not a relative path.
+declare module "@routecraft/routecraft" {
+  interface RoutecraftHeaders {
+    /** IMAP UID of the source message. */
+    "routecraft.mail.uid"?: number;
+    /** IMAP folder the message was fetched from. */
+    "routecraft.mail.folder"?: string;
+    /** `Message-ID` header of the source message. */
+    "routecraft.mail.messageId"?: string;
+    /**
+     * Literal `From:` header. For mailing-list forwards this is the rewritten
+     * list address; use {@link MailSender} on `routecraft.mail.sender` for the
+     * real sender when `verify !== "off"`.
+     */
+    "routecraft.mail.from"?: string;
+    /** Recipient address(es), always normalised to an array. */
+    "routecraft.mail.to"?: string[];
+    /** CC recipient address(es). Absent when the message had none. */
+    "routecraft.mail.cc"?: string[];
+    /** BCC recipient address(es). Absent when the message had none. */
+    "routecraft.mail.bcc"?: string[];
+    /** Subject line. */
+    "routecraft.mail.subject"?: string;
+    /** Date the message was sent. */
+    "routecraft.mail.date"?: Date;
+    /** Reply-To address, when present. */
+    "routecraft.mail.replyTo"?: string;
+    /** IMAP flags (e.g. `\Seen`, `\Flagged`). */
+    "routecraft.mail.flags"?: ReadonlySet<string>;
+    /**
+     * Computed effective sender with forward-chain and authentication
+     * evidence. Absent when the source is configured with `verify: "off"`.
+     */
+    "routecraft.mail.sender"?: MailSender;
+    /**
+     * Raw email headers requested via the `includeHeaders` option. Keys are
+     * lowercased header names; values are strings or arrays for multi-value
+     * headers (e.g. multiple `Received` lines).
+     */
+    "routecraft.mail.rawHeaders"?: Readonly<Record<string, string | string[]>>;
+  }
+}

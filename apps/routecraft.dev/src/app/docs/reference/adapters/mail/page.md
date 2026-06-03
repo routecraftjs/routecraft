@@ -5,7 +5,7 @@ title: mail
 [← All adapters](/docs/reference/adapters) {% .lead %}
 
 ```ts
-mail(folder: string, options: Partial<MailServerOptions>): Source<MailMessage>
+mail(folder: string, options: Partial<MailServerOptions>): Source<MailBody>
 mail(folder: string): Destination<unknown, MailFetchResult>
 mail(options: Partial<MailServerOptions>): Destination<unknown, MailFetchResult>
 mail(action: MailAction): Destination<unknown, void>
@@ -16,10 +16,20 @@ Read email via IMAP, send via SMTP, or perform IMAP operations. The adapter has 
 
 **Source mode (IMAP push):** Pass a folder and options to receive new messages via IMAP IDLE or polling. Each new email becomes a separate exchange.
 
+The source follows the payload-on-`body`, envelope-on-`headers` convention shared with the HTTP source: the parsed message content (`text`, `html`, `attachments`) lands on `exchange.body` (a [`MailBody`](#mailbody-source-exchange-body)), and the envelope (from, to, subject, date, flags, sender, ...) lands on [`routecraft.mail.*` headers](#source-headers). This means `.input({ body })` validates against the message content alone, and the same `.transform()` / `.filter()` operators compose whether the payload arrived over mail or HTTP.
+
 ```ts
 craft()
   .id('inbox-watcher')
   .from(mail('INBOX', { markSeen: true }))
+  .to(log())
+
+// Read the envelope off headers, the content off the body.
+craft()
+  .id('inbox-router')
+  .from(mail('INBOX', { markSeen: true }))
+  .filter((ex) => ex.headers['routecraft.mail.from']?.endsWith('@acme.test') ?? false)
+  .transform((body) => body.text ?? '')
   .to(log())
 ```
 
@@ -68,14 +78,15 @@ craft()
 **Combined read and send:**
 
 ```ts
-// Forward unread mail to a different address
+// Forward unread mail to a different address. The incoming subject is on
+// headers (envelope); the text content is on the body (payload).
 craft()
   .id('mail-forwarder')
   .from(mail('INBOX', { unseen: true, markSeen: true }))
-  .transform((msg) => ({
+  .transform((body, ex) => ({
     to: 'team@example.com',
-    subject: `Fwd: ${msg.subject}`,
-    text: msg.body.text ?? '',
+    subject: `Fwd: ${ex.headers['routecraft.mail.subject']}`,
+    text: body.text ?? '',
   }))
   .to(mail())
 ```
@@ -180,7 +191,41 @@ When multiple accounts are configured, select one per adapter call with the `acc
 | `bcc` | `string \| string[]` | | Default BCC recipients |
 | `account` | `string` | | Named account from context config (uses default if omitted) |
 
-**`MailMessage` (exchange body in source/fetch modes):**
+**`MailBody` (source exchange body):** {% #mailbody-source-exchange-body %}
+
+In source mode (`.from(mail(...))`) the exchange **body** is just the parsed message content. The envelope lives on [headers](#source-headers).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `text` | `string?` | Plain text body, when the message included a `text/plain` part. |
+| `html` | `string?` | HTML body, when the message included a `text/html` part. |
+| `attachments` | `MailAttachment[]?` | File attachments. Attachments are message content (not envelope), so they stay on the body alongside `text`/`html`, mirroring how the HTTP source keeps multipart files on the body. |
+
+**Source headers (`routecraft.mail.*`):** {% #source-headers %}
+
+In source mode the envelope is attached to `exchange.headers` under the `routecraft.mail.*` namespace. The keys are declaration-merged into `RoutecraftHeaders` (so you get autocomplete) and exported as named constants (`HEADER_MAIL_FROM`, `HEADER_MAIL_SUBJECT`, ...).
+
+| Header | Type | Description |
+|--------|------|-------------|
+| `routecraft.mail.uid` | `number` | IMAP UID |
+| `routecraft.mail.folder` | `string` | The IMAP folder this message was fetched from |
+| `routecraft.mail.messageId` | `string` | Message-ID header |
+| `routecraft.mail.from` | `string` | Literal `From:` header. For mailing-list forwards this is the rewritten list address; use `routecraft.mail.sender` for the real sender. |
+| `routecraft.mail.to` | `string[]` | Recipient address(es), always normalised to an array |
+| `routecraft.mail.cc` | `string[]?` | CC recipients (absent when none) |
+| `routecraft.mail.bcc` | `string[]?` | BCC recipients (absent when none) |
+| `routecraft.mail.subject` | `string` | Subject line |
+| `routecraft.mail.date` | `Date` | Date sent |
+| `routecraft.mail.replyTo` | `string?` | Reply-to address |
+| `routecraft.mail.flags` | `ReadonlySet<string>` | IMAP flags (e.g. `\Seen`, `\Flagged`) |
+| `routecraft.mail.sender` | `MailSender?` | Computed effective sender and forward chain (see below). Absent when `verify: 'off'`. |
+| `routecraft.mail.rawHeaders` | `Record<string, string \| string[]>?` | Raw email headers (when `includeHeaders` is set) |
+
+> Migrating from the old envelope-on-body shape? See the [0.5.x to 0.6.0 migration guide](/docs/migrating/0.5-to-0.6#mail-envelope-headers).
+
+**`MailMessage` (fetch destination result):**
+
+In fetch mode (`.enrich(mail(...))`) the result body is a `MailMessage[]`. Because a batch fetch returns many messages, each one keeps its whole envelope together in a single object rather than splitting across single-valued headers.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -200,7 +245,7 @@ When multiple accounts are configured, select one per adapter call with the `acc
 | `folder` | `string` | The IMAP folder this message was fetched from |
 | `sender` | `MailSender?` | Computed effective sender and forward chain (see below). Omitted when `verify: 'off'`. |
 
-**`MailSender` (on `MailMessage.sender`):**
+**`MailSender` (on `routecraft.mail.sender` / `MailMessage.sender`):**
 
 Resolves the *real* sender of mailing-list and auto-forwarded messages, so apps can gate on origin without re-parsing headers. For a Google Groups forward, `sender.address` is the original sender and `from` is the rewritten list address.
 
@@ -222,7 +267,7 @@ Resolves the *real* sender of mailing-list and auto-forwarded messages, so apps 
 craft()
   .from(mail('INBOX'))
   .filter((ex) => {
-    const s = ex.body.sender;
+    const s = ex.headers['routecraft.mail.sender'];
     if (s?.address === 'alice@allowed.com' && s.trust === 'verified') {
       return true;
     }
@@ -254,6 +299,6 @@ craft()
 | `rejected` | `string[]` | Rejected recipient addresses |
 | `response` | `string` | SMTP server response string |
 
-**Exported types:** `MailAuth`, `MailServerOptions`, `MailClientOptions`, `MailOptions`, `MailMessage`, `MailAttachment`, `MailSendPayload`, `MailSendResult`, `MailFetchResult`, `MailContextConfig`, `MailAccountConfig`, `MailAction`, `MailSender`, `EmailAddress`, `ForwardHop`, `ForwardType`, `TrustLevel`, `MailClientManager`, `MAIL_CLIENT_MANAGER`. Helpers: `analyzeHeaders`, `parseAuthResults`.
+**Exported types:** `MailAuth`, `MailServerOptions`, `MailClientOptions`, `MailOptions`, `MailBody`, `MailMessage`, `MailAttachment`, `MailSendPayload`, `MailSendResult`, `MailFetchResult`, `MailContextConfig`, `MailAccountConfig`, `MailAction`, `MailSender`, `EmailAddress`, `ForwardHop`, `ForwardType`, `TrustLevel`, `MailClientManager`, `MAIL_CLIENT_MANAGER`. Header key constants: `HEADER_MAIL_UID`, `HEADER_MAIL_FOLDER`, `HEADER_MAIL_MESSAGE_ID`, `HEADER_MAIL_FROM`, `HEADER_MAIL_TO`, `HEADER_MAIL_CC`, `HEADER_MAIL_BCC`, `HEADER_MAIL_SUBJECT`, `HEADER_MAIL_DATE`, `HEADER_MAIL_REPLY_TO`, `HEADER_MAIL_FLAGS`, `HEADER_MAIL_SENDER`, `HEADER_MAIL_RAW_HEADERS`. Helpers: `analyzeHeaders`, `parseAuthResults`.
 
 ---

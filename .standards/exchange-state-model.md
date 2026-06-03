@@ -144,9 +144,22 @@ Content the route is meant to transform stays on `body` even when it could plaus
 
 The rule of thumb: would a route ever `.transform(body => newBody)` it? If yes, it's payload. If it's just identification, routing identity, or signal-to-the-adapter on the way out (`Content-Type`, status code, response headers), it's envelope.
 
-### Existing tension: mail
+### Mail follows the convention too
 
-Mail's `MailMessage` shape predates this convention and currently packs envelope (`subject`, `from`, `to`, `cc`, `bcc`, `date`, `messageId`, `replyTo`, `flags`, `sender`, `rawHeaders`) *and* payload (`body.text`, `body.html`, `attachments`) onto `body`, while IMAP routing identity (`uid`, `folder`) lives on headers. That's halfway. A follow-up tracking issue covers the breaking change to align mail with this convention pre-v1; until then, mail is the documented exception.
+The mail **source** (`.from(mail(...))`) splits each message the same way: payload (`text`, `html`, `attachments`) on `body` (a `MailBody`), envelope (`from`, `to`, `cc`, `bcc`, `subject`, `date`, `messageId`, `replyTo`, `flags`, `sender`, `rawHeaders`) plus IMAP routing identity (`uid`, `folder`) on `routecraft.mail.*` headers.
+
+```ts
+ex.body.text                              // payload
+ex.headers["routecraft.mail.from"]
+ex.headers["routecraft.mail.subject"]
+ex.headers["routecraft.mail.uid"]         // routing identity
+```
+
+Attachments stay on `body` because they are message content (the same call the "What stays on `body`" section above makes for HTTP multipart files).
+
+The fetch destination (`.enrich(mail(...))`) is the one place the whole `MailMessage` (envelope + payload in one object) still appears: a batch fetch returns many messages and single-valued headers cannot hold N envelopes, so each element keeps its envelope inline. That is a result collection, not a per-message exchange, so the convention does not apply.
+
+> Mail's source shape aligned with this convention in 0.6.0; the historical envelope-on-`body` shape is documented in the [0.5.x to 0.6.0 migration guide](https://routecraft.dev/docs/migrating/0.5-to-0.6#mail-envelope-headers).
 
 ### Why the asymmetry across adapters is OK
 

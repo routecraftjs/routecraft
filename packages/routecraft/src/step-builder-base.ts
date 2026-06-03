@@ -368,11 +368,15 @@ export abstract class StepBuilderBase<Current = unknown> {
    * craft()
    *   .from(mail("INBOX"))
    *   .filter(verifiedSenders)
-   *   .authenticate((ex) => ({
-   *     scheme: "email",
-   *     subject: ex.body.sender.address,
-   *     roles: ex.body.sender.address.endsWith("@acme.com") ? ["internal"] : [],
-   *   }))
+   *   .authenticate((ex) => {
+   *     // The mail source attaches the computed sender to a header.
+   *     const sender = ex.headers["routecraft.mail.sender"];
+   *     return {
+   *       scheme: "email",
+   *       subject: sender.address,
+   *       roles: sender.address.endsWith("@acme.com") ? ["internal"] : [],
+   *     };
+   *   })
    *   .authorize({ roles: ["internal"] })
    *   .to(dest)
    * ```
