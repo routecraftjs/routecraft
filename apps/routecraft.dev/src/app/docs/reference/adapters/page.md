@@ -1607,7 +1607,7 @@ craft()
 
 **Custom fields:** properties outside the mapped set (e.g. arbitrary `X-*` extension properties) read into `custom: { key, value, type?, group? }[]` and write back from it. On `save`/`update` they upsert by key + group; custom fields you do not mention are left untouched. (Mapped iCloud properties such as `IMPP`, `NICKNAME`, `CATEGORIES`, and `X-SOCIALPROFILE` surface on their own typed fields and are excluded from `custom[]`.)
 
-**Data integrity:** updates are applied as a **surgical line-level patch** of the raw vCard — only the properties your `Contact` changes are rewritten, and every other line is copied through byte-for-byte. Properties the model does not manage (mixed-case `X-ABLabel` grouped labels, IMPP, related names, etc.) are never reordered, renamed, or dropped. Replacing a grouped multi-valued field (e.g. `phones`) also removes that field's orphaned `X-ABLabel` so no dangling labels remain.
+**Data integrity:** updates are applied as a **surgical line-level patch** of the raw vCard: only the properties your `Contact` changes are rewritten, and every other line is copied through byte-for-byte. Properties the model does not manage (mixed-case `X-ABLabel` grouped labels, IMPP, related names, etc.) are never reordered, renamed, or dropped. Replacing a grouped multi-valued field (e.g. `phones`) also removes that field's orphaned `X-ABLabel` so no dangling labels remain.
 
 **Exchange headers** on read: `routecraft.carddav.url`, `routecraft.carddav.uid`, `routecraft.carddav.etag`, `routecraft.carddav.account`.
 
