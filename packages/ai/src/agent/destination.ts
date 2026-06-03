@@ -273,6 +273,11 @@ function mergeWithDefaults(
  * in the system prompt in this order, which matters because the model
  * is sensitive to earlier system-prompt content.
  *
+ * Merge is by top-level name only. When a name's value is a nested
+ * group, a per-agent entry replaces the whole group (not a per-member
+ * merge), and `false` removes the whole group. Per-member merge inside
+ * a group is intentionally unsupported; see the agentPlugin reference.
+ *
  * @internal
  */
 function mergeBlocks(

@@ -363,4 +363,107 @@ describe("agent blocks: nested named groups", () => {
       ),
     ).toEqual([]);
   });
+
+  /**
+   * @case A nested name that flattens into the reserved `_block_` namespace is rejected at construction
+   * @preconditions Agent declares a group `_block` with a leaf `x`, flattening to `_block__x`
+   * @expectedResult agent() throws RC5026 even though neither segment alone starts with `_block_`
+   */
+  test("rejects a nested name that forges the reserved prefix when flattened", () => {
+    expect(() =>
+      agent({
+        system: "x",
+        model: "anthropic:claude-opus-4-7",
+        blocks: { _block: { x: { mode: "inject", value: "y" } } },
+      }),
+    ).toThrow(/reserved for synthetic block tools/);
+  });
+
+  /**
+   * @case A leaf that omits `mode` is reported as a missing-mode error, not recursed as a group
+   * @preconditions Agent declares a block whose body has a `value` but no `mode`
+   * @expectedResult agent() throws the precise "mode must be inject/progressive" error naming the block, not a phantom `<name>__value`
+   */
+  test("reports a forgotten mode precisely instead of treating the leaf as a group", () => {
+    expect(() =>
+      agent({
+        system: "x",
+        model: "anthropic:claude-opus-4-7",
+        // @ts-expect-error -- runtime guard against a leaf missing `mode`
+        blocks: { tone: { value: "Be terse." } },
+      }),
+    ).toThrow(/Agent block "tone": "mode" must be "inject" or "progressive"/);
+  });
+
+  /**
+   * @case A flat name colliding with a nested path is rejected at construction, not deferred to dispatch
+   * @preconditions Agent declares a flat `skills__onboarding` and a group `skills` with leaf `onboarding`
+   * @expectedResult agent() throws RC5026 synchronously at construction
+   */
+  test("rejects a flat/nested flatten collision at construction time", () => {
+    expect(() =>
+      agent({
+        system: "x",
+        model: "anthropic:claude-opus-4-7",
+        blocks: {
+          skills__onboarding: { mode: "inject", value: "a" },
+          skills: { onboarding: { mode: "inject", value: "b" } },
+        },
+      }),
+    ).toThrow(/resolve to the same name after flattening/);
+  });
+
+  /**
+   * @case A progressive block whose name breaks the provider tool-name charset is rejected at construction
+   * @preconditions Agent declares a progressive block named "q&a"
+   * @expectedResult agent() throws RC5027 explaining the loader-tool charset, instead of failing at the provider on dispatch
+   */
+  test("rejects a progressive block name that is not provider tool-name safe", () => {
+    expect(() =>
+      agent({
+        system: "x",
+        model: "anthropic:claude-opus-4-7",
+        blocks: {
+          "q&a": { mode: "progressive", description: "d", value: "v" },
+        },
+      }),
+    ).toThrow(/must match/);
+  });
+
+  /**
+   * @case A progressive loader-tool name over 64 characters is rejected at construction
+   * @preconditions A group + leaf whose flattened `_block_load_<name>` exceeds the provider limit
+   * @expectedResult agent() throws RC5027 naming the length, instead of failing at the provider on dispatch
+   */
+  test("rejects a progressive block whose loader tool name exceeds 64 chars", () => {
+    const longLeaf = "a".repeat(60);
+    expect(() =>
+      agent({
+        system: "x",
+        model: "anthropic:claude-opus-4-7",
+        blocks: {
+          group: {
+            [longLeaf]: { mode: "progressive", description: "d", value: "v" },
+          },
+        },
+      }),
+    ).toThrow(/over the provider limit of 64/);
+  });
+
+  /**
+   * @case A cyclic blocks tree is rejected rather than recursed without bound
+   * @preconditions A group object that contains itself
+   * @expectedResult agent() throws RC5026 ("cycle") instead of a RangeError stack overflow
+   */
+  test("rejects a cyclic blocks tree instead of overflowing the stack", () => {
+    const cyclic: Record<string, unknown> = {};
+    cyclic["self"] = cyclic;
+    expect(() =>
+      agent({
+        system: "x",
+        model: "anthropic:claude-opus-4-7",
+        blocks: { x: cyclic as never },
+      }),
+    ).toThrow(/cycle/);
+  });
 });

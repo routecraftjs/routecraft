@@ -150,14 +150,39 @@ export async function resolveBlocks(
 
 /**
  * Discriminate a {@link Blocks} record value: a leaf {@link BlockBody}
- * carries a string `mode`; any other object value is a nested group.
- * `false` removal sentinels are filtered out before this is called.
+ * carries a string `mode` (always `"inject"` or `"progressive"`); any
+ * other object value is a nested group. Keying on `mode` being a
+ * string is unambiguous for well-formed input because a group's
+ * members are always objects (`BlockBody`/`Blocks`) or `false`, never a
+ * bare string, so a group can never accidentally present a string
+ * `mode` at its own level, even when a member happens to be named
+ * `mode`. A malformed leaf that omits `mode` is caught separately by
+ * `validateBlocks` (which reports the missing mode) rather than being
+ * silently treated as a group. `false` removal sentinels are filtered
+ * out before this is called.
  *
  * @internal
  */
-function isBlockGroup(value: BlockBody | Blocks): value is Blocks {
+export function isBlockGroup(value: BlockBody | Blocks): value is Blocks {
   return typeof (value as Partial<BlockBody>).mode !== "string";
 }
+
+/**
+ * Provider tool-name charset. Synthetic loader names are
+ * `_block_load_<flattenedName>` and are sent to the model provider
+ * verbatim, which constrains them to `^[A-Za-z0-9_-]{1,64}$`. The
+ * flattened block name must therefore satisfy {@link
+ * BLOCK_TOOL_NAME_CHARSET} and stay within {@link TOOL_NAME_MAX_LENGTH}
+ * once the loader prefix is added. Validated at construction so an
+ * unsafe name fails at `agent()` rather than at the provider on the
+ * first dispatch.
+ *
+ * @internal
+ */
+export const BLOCK_TOOL_NAME_CHARSET = /^[A-Za-z0-9_-]+$/;
+
+/** Maximum provider tool-name length. @internal */
+export const TOOL_NAME_MAX_LENGTH = 64;
 
 /**
  * Flatten a {@link Blocks} tree depth-first into an ordered map keyed
@@ -166,13 +191,17 @@ function isBlockGroup(value: BlockBody | Blocks): value is Blocks {
  * blocks keep their author-declared system-prompt order. `false`
  * entries are skipped (they are removal sentinels handled at merge
  * time, a no-op here). Two blocks that collapse to the same flattened
- * name throw RC5026 so a silent override cannot happen.
+ * name throw RC5026 so a silent override cannot happen. This runs on
+ * the post-merge record at dispatch, so it is the authoritative guard
+ * for collisions that only arise once defaults and per-agent blocks
+ * are combined; within-record collisions are already caught earlier by
+ * `validateBlocks` at construction.
  *
  * @internal
  */
 export function flattenBlocks(blocks: Blocks): Map<string, BlockBody> {
   const out = new Map<string, BlockBody>();
-  walkBlocks(blocks, "", out);
+  walkBlocks(blocks, "", out, new WeakSet());
   return out;
 }
 
@@ -180,12 +209,24 @@ function walkBlocks(
   blocks: Blocks,
   prefix: string,
   out: Map<string, BlockBody>,
+  // Ancestors on the current recursion path; guards against a group
+  // that (directly or transitively) contains itself, which would
+  // otherwise recurse without bound. Added before descending and
+  // removed after, so a group legitimately reused on two sibling
+  // branches is not mistaken for a cycle.
+  seen: WeakSet<object>,
 ): void {
+  if (seen.has(blocks)) {
+    throw rcError("RC5026", undefined, {
+      message: `Agent block "${prefix}": blocks form a cycle (a group contains itself). Block trees must be finite.`,
+    });
+  }
+  seen.add(blocks);
   for (const [name, body] of Object.entries(blocks)) {
     if (body === false) continue;
     const qualified = prefix ? `${prefix}${BLOCK_NAME_SEPARATOR}${name}` : name;
     if (isBlockGroup(body)) {
-      walkBlocks(body, qualified, out);
+      walkBlocks(body, qualified, out, seen);
       continue;
     }
     if (out.has(qualified)) {
@@ -195,6 +236,7 @@ function walkBlocks(
     }
     out.set(qualified, body);
   }
+  seen.delete(blocks);
 }
 
 /**

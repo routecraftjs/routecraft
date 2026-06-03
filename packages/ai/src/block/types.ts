@@ -139,9 +139,13 @@ export type Blocks = { [name: string]: BlockBody | Blocks | false };
  * always contribute to the system prompt.
  */
 export interface AgentBlockLoadSummary {
-  /** Name of the block. */
+  /**
+   * Flattened canonical block name. For a block declared inside a
+   * nested group this is the `__`-joined path (e.g. `skills__onboarding`),
+   * not the bare leaf name. See {@link Blocks}.
+   */
   blockName: string;
-  /** Loader tool name (`_block_load_<blockName>`). */
+  /** Loader tool name (`_block_load_<blockName>`, using the flattened name). */
   toolName: string;
   /** Stable id assigned by the SDK to correlate invoked → result. */
   toolCallId: string;

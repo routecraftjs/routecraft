@@ -130,7 +130,9 @@ blocks: {
 }
 ```
 
-Groups flatten depth-first into a single canonical name joined by `__`. A leaf `onboarding` under group `skills` resolves to `skills__onboarding` for its system-prompt heading (`## skills__onboarding`), its loader tool (`_block_load_skills__onboarding`), and its `blocksLoaded` summary. `__` (not `/`) is used because loader tool names reach the provider unsanitised and must match `^[a-zA-Z0-9_-]{1,64}$`. Two blocks that flatten to the same name are rejected with `RC5026`. A leaf is distinguished from a group by the presence of a string `mode` field; any other object value is a group.
+Groups flatten depth-first into a single canonical name joined by `__`. A leaf `onboarding` under group `skills` resolves to `skills__onboarding` for its system-prompt heading (`## skills__onboarding`), its loader tool (`_block_load_skills__onboarding`), and its `blocksLoaded` summary. `__` (not `/`) is used because loader tool names reach the provider unsanitised and must match `^[a-zA-Z0-9_-]{1,64}$`. A leaf is distinguished from a group by the presence of a string `mode` field; any other object value is a group.
+
+These rules are enforced at `agent()` / `agentPlugin()` construction, not deferred to dispatch: two blocks that flatten to the same name are rejected with `RC5026`; a flattened name that lands in the reserved `_block_` namespace (including combinations like a group `_block` with a leaf `x` resolving to `_block__x`) is rejected with `RC5026`; and a progressive block whose flattened loader-tool name would break the provider charset or exceed 64 characters is rejected with `RC5027`. A blocks tree that contains a cycle is also rejected rather than recursed without bound.
 
 Grouping also isolates collisions: a skill named `tone` inside the `skills` group resolves to `skills__tone` and no longer clashes with a top-level `tone` block. To remove or replace a whole group, set or override its top-level key (see below); per-member merge inside a group is not supported.
 
