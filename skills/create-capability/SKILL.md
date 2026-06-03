@@ -101,8 +101,8 @@ Rules:
 - **`route.ts` is the readable main flow.** It is both the public surface and the file a human reads to understand what the capability does. Keep it to the DSL chain plus its schemas: a reader should follow the flow top to bottom without paging through transform internals. The heavy logic lives in the sibling internal files and is pulled in by name (see the readability rule in Step 3). If `route.ts` is becoming hard to scan, that is the signal to extract, not to add a comment.
 - `route.ts` is the only file other capabilities may import. Re-export the capability's input/output types from it so callers depend on the contract, not the internals.
 - Internal files (`summarise.ts`, `map-order.ts`, `__fixtures__`, ...) hold the implementation detail of each step. They are private to the folder; never import them from another capability.
-- Cross-capability reuse goes through `direct('<id>')` plus the types re-exported from the callee's `route.ts`. Never reach into another capability's internal files.
-- Pure helpers shared by several capabilities graduate to a shared workspace package, not a loose `lib/` folder.
+- Reuse capability *behavior* through `direct('<id>')` plus the types re-exported from the callee's `route.ts`. Never reach into another capability's internal files.
+- Reuse *pure helpers* (validate an amount, parse a date, a shared domain type) through a top-level `shared/` folder next to `capabilities/`. Any capability may import from `shared/`; keep it pure (validators, parsers, formatters, types), with no side effects and no imports back into a capability's internals. This is the single-project answer, so a one-app repo never needs workspace tooling just to share a date parser. Once the repo grows into multiple apps under `apps/`, shared helpers graduate from `shared/` to a workspace package each app depends on.
 - A single-file capability (`capabilities/<id>.ts`) is acceptable shorthand for a trivial, internal-free capability, but the folder shape is the default the scaffolder produces.
 
 ## Step 4: write tests
