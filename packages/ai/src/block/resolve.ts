@@ -15,6 +15,21 @@ import type {
 } from "./types.ts";
 
 /**
+ * Separator joining nested {@link Blocks} group names into the single
+ * canonical block name used for the system-prompt heading, the
+ * synthetic loader tool name, and the `blocksLoaded` summary. A leaf
+ * `onboarding` under group `skills` flattens to `skills__onboarding`.
+ *
+ * `__` rather than `/` because loader tool names reach the provider
+ * unsanitised and must match `^[a-zA-Z0-9_-]{1,64}$`. Using one
+ * canonical flattened name everywhere keeps the slice-based
+ * {@link summariseBlockLoads} / {@link isBlockLoaderCall} logic intact.
+ *
+ * @internal
+ */
+export const BLOCK_NAME_SEPARATOR = "__";
+
+/**
  * Symbol stamped on `ResolvedTool` entries produced by
  * {@link resolveBlocks} for `mode: "progressive"` blocks. Lets the
  * tool bridge route their telemetry to `agent:block:loaded` events
@@ -115,16 +130,14 @@ export async function resolveBlocks(
   context: CraftContext | undefined,
 ): Promise<ResolvedBlocks> {
   if (!blocks) return { systemAppend: "", loaderTools: [] };
-  const entries = Object.entries(blocks).filter(
-    (entry): entry is [string, BlockBody] => entry[1] !== false,
-  );
-  if (entries.length === 0) {
+  const flat = flattenBlocks(blocks);
+  if (flat.size === 0) {
     return { systemAppend: "", loaderTools: [] };
   }
   const client = makeBlockClient(exchange);
   const parts: string[] = [];
   const loaderTools: BlockLoaderTool[] = [];
-  for (const [name, body] of entries) {
+  for (const [name, body] of flat) {
     if (body.mode === "inject") {
       const value = await resolveOnce(name, body, exchange, context, client);
       parts.push(`\n\n## ${name}\n\n${value}`);
@@ -133,6 +146,119 @@ export async function resolveBlocks(
     loaderTools.push(buildLoaderTool(name, body, exchange, context, client));
   }
   return { systemAppend: parts.join(""), loaderTools };
+}
+
+/**
+ * Discriminate a {@link Blocks} record value: a leaf {@link BlockBody}
+ * carries a string `mode` (always `"inject"` or `"progressive"`); any
+ * other object value is a nested group. Keying on `mode` being a
+ * string is unambiguous for well-formed input because a group's
+ * members are always objects (`BlockBody`/`Blocks`) or `false`, never a
+ * bare string, so a group can never accidentally present a string
+ * `mode` at its own level, even when a member happens to be named
+ * `mode`. A malformed leaf that omits `mode` is caught separately by
+ * `validateBlocks` (which reports the missing mode) rather than being
+ * silently treated as a group. `false` removal sentinels are filtered
+ * out before this is called.
+ *
+ * @internal
+ */
+export function isBlockGroup(value: BlockBody | Blocks): value is Blocks {
+  return typeof (value as Partial<BlockBody>).mode !== "string";
+}
+
+/**
+ * Provider tool-name charset. Synthetic loader names are
+ * `_block_load_<flattenedName>` and are sent to the model provider
+ * verbatim, which constrains them to `^[A-Za-z0-9_-]{1,64}$`. The
+ * flattened block name must therefore satisfy {@link
+ * BLOCK_TOOL_NAME_CHARSET} and stay within {@link TOOL_NAME_MAX_LENGTH}
+ * once the loader prefix is added. Validated at construction so an
+ * unsafe name fails at `agent()` rather than at the provider on the
+ * first dispatch.
+ *
+ * @internal
+ */
+export const BLOCK_TOOL_NAME_CHARSET = /^[A-Za-z0-9_-]+$/;
+
+/** Maximum provider tool-name length. @internal */
+export const TOOL_NAME_MAX_LENGTH = 64;
+
+/**
+ * RC5026 error for two blocks whose names collapse to the same
+ * flattened canonical name. Shared by the construction-time validator
+ * ({@link validateBlocks}) and the dispatch-time flattener ({@link
+ * flattenBlocks}) so the code and message cannot drift between the two
+ * walkers, which must stay behaviourally identical.
+ *
+ * @internal
+ */
+export function blockCollisionError(
+  qualified: string,
+): ReturnType<typeof rcError> {
+  return rcError("RC5026", undefined, {
+    message: `Agent block "${qualified}": two blocks resolve to the same name after flattening nested groups. Rename one of them.`,
+  });
+}
+
+/**
+ * RC5026 error for a blocks tree that contains a cycle (a group that
+ * directly or transitively contains itself). Shared by the validator
+ * and the flattener for the same reason as {@link blockCollisionError}.
+ *
+ * @internal
+ */
+export function blockCycleError(prefix: string): ReturnType<typeof rcError> {
+  return rcError("RC5026", undefined, {
+    message: `Agent block "${prefix}": blocks form a cycle (a group contains itself). Block trees must be finite.`,
+  });
+}
+
+/**
+ * Flatten a {@link Blocks} tree depth-first into an ordered map keyed
+ * by the canonical name (group names joined by {@link
+ * BLOCK_NAME_SEPARATOR}). Insertion order is preserved so inject
+ * blocks keep their author-declared system-prompt order. `false`
+ * entries are skipped (they are removal sentinels handled at merge
+ * time, a no-op here). Two blocks that collapse to the same flattened
+ * name throw RC5026 so a silent override cannot happen. This runs on
+ * the post-merge record at dispatch, so it is the authoritative guard
+ * for collisions that only arise once defaults and per-agent blocks
+ * are combined; within-record collisions are already caught earlier by
+ * `validateBlocks` at construction.
+ *
+ * @internal
+ */
+export function flattenBlocks(blocks: Blocks): Map<string, BlockBody> {
+  const out = new Map<string, BlockBody>();
+  walkBlocks(blocks, "", out, new WeakSet());
+  return out;
+}
+
+function walkBlocks(
+  blocks: Blocks,
+  prefix: string,
+  out: Map<string, BlockBody>,
+  // Ancestors on the current recursion path; guards against a group
+  // that (directly or transitively) contains itself, which would
+  // otherwise recurse without bound. Added before descending and
+  // removed after, so a group legitimately reused on two sibling
+  // branches is not mistaken for a cycle.
+  seen: WeakSet<object>,
+): void {
+  if (seen.has(blocks)) throw blockCycleError(prefix);
+  seen.add(blocks);
+  for (const [name, body] of Object.entries(blocks)) {
+    if (body === false) continue;
+    const qualified = prefix ? `${prefix}${BLOCK_NAME_SEPARATOR}${name}` : name;
+    if (isBlockGroup(body)) {
+      walkBlocks(body, qualified, out, seen);
+      continue;
+    }
+    if (out.has(qualified)) throw blockCollisionError(qualified);
+    out.set(qualified, body);
+  }
+  seen.delete(blocks);
 }
 
 /**

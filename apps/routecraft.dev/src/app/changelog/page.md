@@ -16,6 +16,7 @@ This section tracks changes landing on `main` since the v0.5.0 release. Release 
 
 - **Agent blocks replace skills** -- `AgentOptions.skills` and `agentPlugin({ skills })` are removed in favour of a `blocks` record that unifies skills, memory, identity, and instructions, with progressive disclosure now the default. See the [migration guide](/docs/migrating/0.5-to-0.6).
 - **`skills({ source })` and `fromFile(path)` builders** -- `skills` now returns a `blocks` record to spread into `blocks: { ... }`; `fromFile` reads a UTF-8 file at resolution time.
+- **Nested block groups** -- a `blocks` value can be a single block or a nested `blocks` group, so `skills({ source })` can stay grouped under one key (`blocks: { skills: await skills(...) }`) instead of being spread flat. Groups flatten to `group__leaf` names. See the [migration guide](/docs/migrating/0.5-to-0.6).
 - **Tag selectors on `tools()` removed** -- the `{ tagged }` / `{ tagged, from }` variants and the `tags` override on `directTool` are gone. Use the new `tools((catalog) => [...])` builder form for dynamic selection.
 - **Block-loader calls partitioned out of `toolCalls`** -- progressive loads surface on `AgentResult.blocksLoaded` and emit `agent:block:*` events instead of `agent:tool:*`.
 - **`skills:` frontmatter on `agents()` rejected** -- supply `blocks` through the per-agent overrides map instead.

@@ -80,7 +80,7 @@ See the [`agent`](/docs/reference/adapters/agent) adapter for usage patterns.
 
 ## Agent blocks
 
-Blocks are an agent's contribution to its system context, expressed as a `Blocks` record (`Record<string, BlockBody | false>`) keyed by block name. A block is either always injected into the system prompt (`mode: "inject"`) or surfaced as a synthetic loader tool the model invokes on demand (`mode: "progressive"`, the default for `skills`). They replace the 0.5 `skills` field and unify with memory, identity, instructions, and any future system-prompt contribution.
+Blocks are an agent's contribution to its system context, expressed as a `Blocks` record (`{ [name: string]: BlockBody | Blocks | false }`) keyed by block name. A value is either a single block (a `BlockBody` leaf) or a nested `Blocks` group. A leaf is either always injected into the system prompt (`mode: "inject"`) or surfaced as a synthetic loader tool the model invokes on demand (`mode: "progressive"`, the default for `skills`). They replace the 0.5 `skills` field and unify with memory, identity, instructions, and any future system-prompt contribution.
 
 ```ts
 import { agent, skills } from '@routecraft/ai'
@@ -93,7 +93,9 @@ agent({
       mode: 'inject',
       value: 'You are precise and concise.',
     },
-    ...(await skills({ source: './skills' })),
+    // A named group keeps every skill under the `skills` namespace
+    // instead of dissolving them into the top level.
+    skills: await skills({ source: './skills' }),
     'tenant-config': {
       mode: 'inject',
       lifetime: 'context',
@@ -115,7 +117,24 @@ agent({
 | `lifetime`    | `"dispatch" \| "context"`                                                                                | No       | Defaults to `"dispatch"` (re-run resolver each call). `"context"` runs the resolver once per `CraftContext` and caches the result (cache key is the body's object identity, so concurrent dispatches share one resolution). |
 | `value`       | `string \| (exchange, context, events, client) => string \| Promise<string>`                             | Yes      | Static string used verbatim, or a function. `client.forward(routeId, payload)` is the same callable route `.error()` handlers receive. `events` is reserved (always `[]`) for a forthcoming exchange-event log. |
 
-The block's name is the record key (not a field on the body). Names starting with the reserved `_block_` prefix are rejected with `RC5026`. An empty-string key is rejected with `RC5026`.
+The block's name is the record key (not a field on the body). Names starting with the reserved `_block_` prefix are rejected with `RC5026` at every nesting level. An empty-string key is rejected with `RC5026`.
+
+**Nested groups:**
+
+A block value may be a nested `Blocks` record instead of a single body. This keeps a named collection, such as the skills returned by `skills({ source })`, grouped under one key rather than dissolving into the top-level namespace:
+
+```ts
+blocks: {
+  skills: await skills({ source: './skills' }), // a group of progressive leaves
+  tone: { mode: 'inject', value: 'Be terse.' }, // a single leaf
+}
+```
+
+Groups flatten depth-first into a single canonical name joined by `__`. A leaf `onboarding` under group `skills` resolves to `skills__onboarding` for its system-prompt heading (`## skills__onboarding`), its loader tool (`_block_load_skills__onboarding`), and its `blocksLoaded` summary. `__` (not `/`) is used because loader tool names reach the provider unsanitised and must match `^[a-zA-Z0-9_-]{1,64}$`. A leaf is distinguished from a group by the presence of a string `mode` field; any other object value is a group.
+
+These rules are enforced at `agent()` / `agentPlugin()` construction, not deferred to dispatch: two blocks that flatten to the same name are rejected with `RC5026`; a flattened name that lands in the reserved `_block_` namespace (including combinations like a group `_block` with a leaf `x` resolving to `_block__x`) is rejected with `RC5026`; and a progressive block whose flattened loader-tool name would break the provider charset or exceed 64 characters is rejected with `RC5027`. A blocks tree that contains a cycle is also rejected rather than recursed without bound.
+
+Grouping also isolates collisions: a skill named `tone` inside the `skills` group resolves to `skills__tone` and no longer clashes with a top-level `tone` block. To remove or replace a whole group, set or override its top-level key (see below); per-member merge inside a group is not supported.
 
 **Removing a default:**
 
@@ -361,7 +380,7 @@ Mirrors the `llmPlugin({ defaultOptions })` pattern: a single bag of values appl
 | `defaultOptions.tools` | `ToolSelection` (from `tools([...])`) | Agents that omit `tools` |
 | `defaultOptions.maxTurns` | `number` | Agents that omit `maxTurns` |
 | `defaultOptions.principal` | `boolean \| (principal, exchange) => string` | Agents that omit `principal` |
-| `defaultOptions.blocks` | `Record<string, BlockBody>` | All agents (merged by name into per-agent `blocks`; see [Agent blocks](#agent-blocks)) |
+| `defaultOptions.blocks` | `{ [name: string]: BlockBody \| Blocks }` | All agents (merged by name into per-agent `blocks`; see [Agent blocks](#agent-blocks)). A default may be a nested group; a `false` removal sentinel at any nesting level is rejected with `RC5003` (defaults cannot remove themselves). |
 
 Resolution at dispatch is per-key: instance value > plugin default > (for `model`) throw, (for `tools`) `undefined`. Agents that set `model`, `tools`, `maxTurns`, or `principal` replace the default entirely (override, not extend). Per-agent `blocks` merges into defaults by name (see the [Defaults merging](#agent-blocks) note in the blocks section).
 

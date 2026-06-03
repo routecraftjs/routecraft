@@ -302,4 +302,22 @@ describe("agent blocks: defaults merging and removal", () => {
       }),
     ).toThrow(/cannot be false/);
   });
+
+  /**
+   * @case `false` nested inside a default group is rejected the same as a top-level one
+   * @preconditions agentPlugin default with blocks: { skills: { refunds: false } }
+   * @expectedResult agentPlugin() throws RC5003 naming the flattened entry "skills__refunds"
+   */
+  test("false nested in a default group is rejected (no silent no-op)", () => {
+    expect(() =>
+      agentPlugin({
+        defaultOptions: {
+          // A nested group's value type is `Blocks`, which permits
+          // `false` at the type level; the runtime check is what rejects
+          // it, so no @ts-expect-error is needed here.
+          blocks: { skills: { refunds: false } },
+        },
+      }),
+    ).toThrow(/"defaultOptions\.blocks\.skills__refunds" cannot be false/);
+  });
 });

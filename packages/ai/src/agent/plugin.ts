@@ -232,25 +232,14 @@ function validatePluginDefaults(
     });
   }
   if (raw.blocks !== undefined) {
-    // Run the same per-entry validation as AgentOptions.blocks so blank
-    // names, the reserved `_block_` prefix, and malformed BlockBody
-    // values are rejected at plugin construction (not later at agent
-    // dispatch). validateBlocks tolerates `false` (the per-agent removal
-    // sentinel); we layer the "no `false` in defaults" rule on top
-    // because defaults cannot sensibly remove themselves.
-    validateBlocks(raw.blocks);
-    for (const [name, body] of Object.entries(
-      raw.blocks as Record<string, unknown>,
-    )) {
-      if (body === false) {
-        throw rcError("RC5003", undefined, {
-          message:
-            `agentPlugin: "defaultOptions.blocks.${name}" cannot be false. ` +
-            `"false" is the per-agent removal sentinel; defaults cannot remove themselves. ` +
-            `Drop the entry or replace it with a BlockBody.`,
-        });
-      }
-    }
+    // Run the same validation as AgentOptions.blocks (blank names, the
+    // reserved `_block_` namespace, provider-unsafe / over-long loader
+    // names, flatten collisions, malformed BlockBody values) at plugin
+    // construction rather than at agent dispatch. The `defaultsLabel`
+    // argument additionally rejects `false` at every nesting level,
+    // because defaults are the base layer and cannot remove themselves;
+    // the error names the offending entry by its flattened path.
+    validateBlocks(raw.blocks, "defaultOptions.blocks");
   }
   return raw;
 }
