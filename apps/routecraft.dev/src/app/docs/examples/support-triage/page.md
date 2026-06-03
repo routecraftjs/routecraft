@@ -117,7 +117,7 @@ For standing instructions the agent should always have (tone, escalation policy,
 facts), attach `blocks` instead of stuffing the `system` string. `skills(...)` loads markdown
 files as blocks; by default they are surfaced progressively (the model sees each skill's name
 and description and loads the body via a tool call only when relevant). It is async, so resolve
-it once and spread it into `blocks`:
+it once and assign it to a named group so every skill stays under one key:
 
 ```ts
 import { agent, tools, skills } from '@routecraft/ai'
@@ -127,10 +127,14 @@ const supportKnowledge = await skills({ source: './support-knowledge' })
 agent({
   model: 'anthropic:claude-sonnet-4-6',
   system: 'You are a support triage assistant.',
-  blocks: { ...supportKnowledge },
+  blocks: { knowledge: supportKnowledge },
   tools: tools(['Direct(lookup-customer)', 'Direct(post-brief)']),
 })
 ```
+
+Each skill then resolves to `knowledge__<skill-name>` (its loader tool and `blocksLoaded`
+entry). Spreading `...supportKnowledge` still works if you would rather keep each skill at the
+top level.
 
 ---
 
