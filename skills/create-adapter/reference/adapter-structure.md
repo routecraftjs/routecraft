@@ -50,10 +50,10 @@ Option type names follow a fixed convention so a reader knows the role from the 
 | --- | --- |
 | `{Concept}BaseOptions` | fields shared by every role |
 | `{Concept}ServerOptions extends {Concept}BaseOptions` | options for the source / `.from()` side |
-| `{Concept}ClientOptions` | options for the destination / `.to()` side |
+| `{Concept}ClientOptions extends {Concept}BaseOptions` | options for the destination / `.to()` side |
 | `{Concept}Options` | the exported union `{Concept}ServerOptions \| {Concept}ClientOptions`; the factory's parameter type |
 
-If the two roles share no fields, declare each independently and skip the base. The internal intersection used for stored or merged options (`{Concept}ServerOptions & {Concept}ClientOptions`) stays unexported. A single-role adapter needs only `{Concept}Options`, plus an optional `{Concept}Result`.
+Both role types carry the base, since the base is what both roles share. A role that adds nothing of its own can alias the base directly (`type {Concept}ClientOptions = {Concept}BaseOptions`). If the two roles share no fields at all, declare each independently and skip the base. The internal intersection used for stored or merged options (`{Concept}ServerOptions & {Concept}ClientOptions`) stays unexported. A single-role adapter needs only `{Concept}Options`, plus an optional `{Concept}Result`.
 
 ## Before you submit
 

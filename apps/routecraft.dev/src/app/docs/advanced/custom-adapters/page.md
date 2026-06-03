@@ -166,10 +166,10 @@ When an adapter plays two roles with different options for each, name the option
 | --- | --- |
 | `MyQueueBaseOptions` | fields shared by both roles |
 | `MyQueueServerOptions extends MyQueueBaseOptions` | the source / `.from()` side |
-| `MyQueueClientOptions` | the destination / `.to()` side |
+| `MyQueueClientOptions extends MyQueueBaseOptions` | the destination / `.to()` side |
 | `MyQueueOptions` | the exported union `MyQueueServerOptions \| MyQueueClientOptions`, used as the factory parameter type |
 
-If the roles share no fields, declare each independently and drop the base. A single-role adapter needs only `MyQueueOptions`, plus an optional `MyQueueResult`.
+Both role types carry the base. A role that adds nothing of its own can alias it (`type MyQueueClientOptions = MyQueueBaseOptions`). If the roles share no fields at all, declare each independently and drop the base. A single-role adapter needs only `MyQueueOptions`, plus an optional `MyQueueResult`.
 
 ## Making your adapter mockable
 
