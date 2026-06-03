@@ -8,7 +8,7 @@ title: authorize
 authorize(options?: AuthorizeOptions): RouteBuilder<Current>
 ```
 
-Declare an authorization requirement on the next route. **Route-only**, same staging convention as `.id`, `.title`, `.description`, `.input`, `.output`, `.tag`, and `.batch`: it writes onto the next-route options. Calling a pipeline op (`.to`, `.transform`, `.process`, ...) while authorizers are staged but no `.from()` has opened the next route throws [`RC2001`](/docs/reference/errors#rc2001) with a message that lists `.authorize` alongside the other staging ops. For a mid-pipeline check use `.validate(authorize({ ... }))` directly.
+Declare an authorization requirement on the next route. **Route-only**, same staging convention as `.id`, `.title`, `.description`, `.input`, `.output`, `.tag`, and `.batch`: it writes onto the next-route options. Calling a pipeline op (`.to`, `.transform`, `.process`, ...) while authorizers are staged but no `.from()` has opened the next route throws [`RC2001`](/docs/reference/errors#rc-2001) with a message that lists `.authorize` alongside the other staging ops. For a mid-pipeline check use `.validate(authorize({ ... }))` directly.
 
 The check runs at route entry, before any pipeline step. It verifies that the inbound exchange carries an authenticated principal and (optionally) that the principal has every required role and scope. It does NOT issue, mint, or attach any credential: it asserts an existing identity meets the criteria. Multiple `.authorize()` calls stack and AND-combine in declaration order, so a missing role in the first call short-circuits before later predicates run.
 
@@ -26,9 +26,9 @@ For mid-pipeline checks (rare, for example after a `.process()` swaps the princi
 
 Failure modes:
 
-- **No principal on the exchange:** throws [`RC5012`](/docs/reference/errors#rc5012). The source did not authenticate (no `auth:` configured) and no `.process()` step attached one before the route ran.
-- **Missing role or scope:** throws [`RC5015`](/docs/reference/errors#rc5015). The error message lists the missing entries.
-- **Predicate returned `false`:** throws [`RC5015`](/docs/reference/errors#rc5015).
+- **No principal on the exchange:** throws [`RC5012`](/docs/reference/errors#rc-5012). The source did not authenticate (no `auth:` configured) and no `.process()` step attached one before the route ran.
+- **Missing role or scope:** throws [`RC5015`](/docs/reference/errors#rc-5015). The error message lists the missing entries.
+- **Predicate returned `false`:** throws [`RC5015`](/docs/reference/errors#rc-5015).
 
 Both error codes flow through the route's normal error path: `.error()` handles them like any other validation failure; without `.error()`, `exchange:failed` fires.
 

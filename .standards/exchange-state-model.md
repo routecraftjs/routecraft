@@ -109,6 +109,51 @@ Don't introduce a "wire-mapped header bag" parallel to `headers`. The framework 
 
 Outbound headers come from the adapter's own config (e.g. `http({ headers: { authorization: "..." } })`), not from `ex.headers`. The exchange's headers are in-process metadata, not a transport envelope. (Same as today; this didn't change with the model.)
 
+## Adapter convention: payload on `body`, envelope on `headers`
+
+When a source adapter ingests a protocol message that has both a payload *and* an envelope of metadata around it (HTTP request, mail, gRPC call, AMQP message, MQTT topic + payload), the standard split is:
+
+- **`body`** = the payload (what the route's transforms operate on).
+- **`headers`** = everything else under the adapter's namespace (`routecraft.<adapter>.*`).
+
+This is the rule that makes `.transform(parseInvoice)`, `.filter(predicate)`, and pipeline composition feel natural across adapters: the same operator works whether the payload arrived over HTTP, mail, or a queue, because `body` always means the operand.
+
+The HTTP source follows this convention exactly. Request method, path, params, query, request headers, and **response hints** all live on headers under `routecraft.http.*`:
+
+```ts
+ex.headers["routecraft.http.method"]
+ex.headers["routecraft.http.params"]
+ex.headers["routecraft.http.query"]
+ex.headers["routecraft.http.headers"]            // request headers, lower-cased
+
+// Response hints, read by the dispatcher when building the Response:
+ex.headers["routecraft.http.response.status"]
+ex.headers["routecraft.http.response.contentType"]
+ex.headers["routecraft.http.response.headers"]
+```
+
+Request metadata and response hints mirror each other deliberately — both are envelope around the same `body` payload.
+
+### What stays on `body`
+
+Content the route is meant to transform stays on `body` even when it could plausibly be called "metadata":
+
+- HTTP request body bytes / parsed value -> `body`.
+- HTTP multipart `File` attachments -> `body` (Web `FormData`).
+- Mail attachments -> `body` (when the body is the content of the message).
+
+The rule of thumb: would a route ever `.transform(body => newBody)` it? If yes, it's payload. If it's just identification, routing identity, or signal-to-the-adapter on the way out (`Content-Type`, status code, response headers), it's envelope.
+
+### Existing tension: mail
+
+Mail's `MailMessage` shape predates this convention and currently packs envelope (`subject`, `from`, `to`, `cc`, `bcc`, `date`, `messageId`, `replyTo`, `flags`, `sender`, `rawHeaders`) *and* payload (`body.text`, `body.html`, `attachments`) onto `body`, while IMAP routing identity (`uid`, `folder`) lives on headers. That's halfway. A follow-up tracking issue covers the breaking change to align mail with this convention pre-v1; until then, mail is the documented exception.
+
+### Why the asymmetry across adapters is OK
+
+Adapters that don't have an envelope don't need this split. `simple()`, `timer()`, `cron()`, `direct()`, `noop()` etc. emit `body` and the framework's own metadata (`routecraft.id`, `routecraft.route`, etc.). No adapter-specific envelope to put on headers, no rule violated.
+
+The rule only kicks in when an adapter *does* carry envelope-around-payload.
+
 ## Non-rules (deliberately)
 
 - **No PII enforcement at the framework type level.** PII is a logging-policy concern, not a framework-type concern. log4j doesn't ban strings to prevent PII leaks; the log statement and the aggregator filter handle that.

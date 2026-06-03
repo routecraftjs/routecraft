@@ -231,6 +231,24 @@ bun add croner   # or: npm install croner
 
 The error message names the adapter (`cron`, `html`, ...) and the missing package, so the install line is copyable from the log. If you see this for a feature you do not use, find the route or capability that imports the adapter and remove it.
 
+## RC5018
+HTTP source request rejected
+
+**Why it happens**  
+The HTTP source (`http({ path, method })` via `defineConfig({ http })`) could not service a request at the adapter boundary. It covers: an oversized request body (returned to the client as `413 Payload Too Large`), a body that cannot be parsed for its declared `Content-Type` (`400 Bad Request`, e.g. malformed JSON or multipart), and an unsupported response body shape (`ReadableStream` / `AsyncIterable`, since SSE/streaming is not yet implemented).
+
+**Suggestion**  
+For 413, raise `http: { maxBodySize }` or have the client send a smaller payload. For 400, fix the request body so it matches the `Content-Type`. For streaming response bodies, return a buffered value for now (SSE support is tracked as a follow-up).
+
+## RC5019
+HTTP server bind failed
+
+**Why it happens**  
+The HTTP plugin could not bind the configured port/host. The usual cause is `EADDRINUSE` (another process, or a second `defineConfig({ http })` in the same process, already owns the port) or `EADDRNOTAVAIL` (the host is not one this machine can bind).
+
+**Suggestion**  
+Free the port or choose another via `http: { port }` (use `0` to let the OS assign one). Check that only one HTTP plugin is configured per context, and that `host` is an address this machine can bind.
+
 ## RC5020
 Authorization failed: token expired during processing
 

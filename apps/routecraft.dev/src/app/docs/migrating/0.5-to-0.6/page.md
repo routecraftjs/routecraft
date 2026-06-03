@@ -4,10 +4,11 @@ title: Migrating from 0.5.x to 0.6.0
 
 What changed between Routecraft 0.5.0 and 0.6.0, and how to update. {% .lead %}
 
-Two coordinated changes to the agent surface:
+Three consumer-visible changes:
 
 1. **`skills` is replaced by a unified `blocks` record.** Skills, memory, identity, instructions, and any future system-prompt contribution are now one primitive.
 2. **Tag selectors on `tools()` are removed.** Programmatic `tools((catalog) => [...])` is the new escape hatch for "give me all read-only tools" style selection.
+3. **The `http()` destination option type is renamed.** `HttpOptions<T>` becomes `HttpClientOptions<T>` now that `http()` is a two-sided adapter (the new HTTP source uses `HttpServerOptions`). Type-only change; runtime behaviour and the `http({...})` call sites are unchanged.
 
 Every other consumer-visible part of the public API is unchanged.
 
@@ -295,12 +296,47 @@ The `tags` option on `ToolBuilderOverrides` was only meaningful for the now-remo
 
 ---
 
-## 3. What is new in 0.6.0
+## 3. HTTP: option type renamed for the two-sided adapter
+
+`http()` is now a two-sided adapter: the existing destination (`http({ url })`) plus a new source (`http({ path })`) that exposes a route over HTTP. To follow the Server/Client naming convention for two-sided adapters, the destination's option type is renamed:
+
+- `HttpOptions<T>` -> `HttpClientOptions<T>`
+
+The new source side uses `HttpServerOptions`. This is a type-only change. The `http({...})` factory, its overloads, and runtime behaviour are unchanged, so the only update needed is on explicit type imports.
+
+**Before (0.5.x):**
+
+```ts
+import { http, type HttpOptions } from "@routecraft/routecraft";
+
+const opts: HttpOptions<MyBody> = {
+  method: "POST",
+  url: "https://api.example.com/ingest",
+};
+```
+
+**After (0.6.0):**
+
+```ts
+import { http, type HttpClientOptions } from "@routecraft/routecraft";
+
+const opts: HttpClientOptions<MyBody> = {
+  method: "POST",
+  url: "https://api.example.com/ingest",
+};
+```
+
+If you never imported `HttpOptions` by name (the common case, since `http({...})` infers its argument type), no change is needed. See the [`http()` adapter reference](/docs/reference/adapters/http) for the new source surface.
+
+---
+
+## 4. What is new in 0.6.0
 
 For context, no migration required:
 
+- **HTTP source adapter.** `http({ path, method? })` exposes a route over HTTP, configured via `defineConfig({ http: { port, host, auth } })`. Bun runtimes bind via `Bun.serve`; Node 22+ uses a `node:http` shim. Global auth (`jwt()` / `jwks()` bearer or `apiKey({...})`), per-route `.authorize()`, built-in `/health`, `/ready`, and `/openapi.json` endpoints. See the [`httpPlugin`](/docs/reference/plugins/httpplugin) reference.
 - `skills({ source, mode?, lifetime? })` and `fromFile(path)` builders alongside the new `Blocks` shape.
 - `agent:block:loaded` / `agent:block:error` context events.
 - `AgentResult.blocksLoaded`.
 - `tools((catalog) => [...])` builder form with `ToolsCatalog` shape.
-- Three new error codes (`RC5025`, `RC5026`, `RC5027`).
+- New error codes (`RC5018`, `RC5019` for HTTP; `RC5025`, `RC5026`, `RC5027` for agent blocks).

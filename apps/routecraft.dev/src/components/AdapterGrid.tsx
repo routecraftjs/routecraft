@@ -56,8 +56,9 @@ const adapters: Adapter[] = [
   {
     name: 'http',
     category: 'Core',
-    roles: ['Destination'],
-    description: 'Outbound HTTP requests with typed response.',
+    roles: ['Source', 'Destination'],
+    description:
+      'HTTP client for outbound requests and an HTTP server (via defineConfig({ http })) for exposing routes.',
   },
 
   // Test
