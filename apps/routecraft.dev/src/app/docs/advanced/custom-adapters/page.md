@@ -191,7 +191,7 @@ For a multi-interface factory, tag at every return path:
 
 ```ts
 export function myQueue(
-  options: MyQueueSourceOptions | MyQueueDestinationOptions,
+  options: MyQueueServerOptions | MyQueueClientOptions,
 ) {
   if ('consumerGroup' in options) {
     return tagAdapter(new MyQueueSourceAdapter(options), myQueue, factoryArgs(options))
