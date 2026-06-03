@@ -12,6 +12,7 @@ import { validateFnOptions } from "../fn/fn.ts";
 import { ADAPTER_FN_REGISTRY } from "../fn/store.ts";
 import { parseProviderModel } from "../llm/shared.ts";
 import type { AgentDefaultOptions, AgentRegisteredOptions } from "./types.ts";
+import type { BlockBody, Blocks } from "../block/types.ts";
 import { isDeferredFn, type FnEntry } from "./tools/types.ts";
 import { isToolSelection } from "./tools/selection.ts";
 
@@ -237,22 +238,44 @@ function validatePluginDefaults(
     // values are rejected at plugin construction (not later at agent
     // dispatch). validateBlocks tolerates `false` (the per-agent removal
     // sentinel); we layer the "no `false` in defaults" rule on top
-    // because defaults cannot sensibly remove themselves.
+    // because defaults cannot sensibly remove themselves. The check
+    // recurses into nested groups so a `false` buried in a default group
+    // is rejected the same way as a top-level one.
     validateBlocks(raw.blocks);
-    for (const [name, body] of Object.entries(
-      raw.blocks as Record<string, unknown>,
-    )) {
-      if (body === false) {
-        throw rcError("RC5003", undefined, {
-          message:
-            `agentPlugin: "defaultOptions.blocks.${name}" cannot be false. ` +
-            `"false" is the per-agent removal sentinel; defaults cannot remove themselves. ` +
-            `Drop the entry or replace it with a BlockBody.`,
-        });
-      }
-    }
+    assertNoFalseInDefaultBlocks(raw.blocks as Blocks, "");
   }
   return raw;
+}
+
+/**
+ * Reject any `false` entry in a default block tree, at any nesting
+ * level, with RC5003. `false` is the per-agent removal sentinel; in
+ * `defaultOptions.blocks` there is nothing to remove (defaults are the
+ * base layer), so a `false` there is meaningless and almost always a
+ * mistake. Failing loud at construction surfaces it instead of letting
+ * it slip through as a silent no-op. `prefix` carries the flattened
+ * `__` path so the error names the offending entry the way it would
+ * resolve at dispatch.
+ *
+ * @internal
+ */
+function assertNoFalseInDefaultBlocks(blocks: Blocks, prefix: string): void {
+  for (const [name, body] of Object.entries(blocks)) {
+    const qualified = prefix ? `${prefix}__${name}` : name;
+    if (body === false) {
+      throw rcError("RC5003", undefined, {
+        message:
+          `agentPlugin: "defaultOptions.blocks.${qualified}" cannot be false. ` +
+          `"false" is the per-agent removal sentinel; defaults cannot remove themselves. ` +
+          `Drop the entry or replace it with a BlockBody.`,
+      });
+    }
+    // A nested group is an object value without a string `mode`; recurse
+    // so a `false` inside it is rejected too.
+    if (typeof (body as Partial<BlockBody>).mode !== "string") {
+      assertNoFalseInDefaultBlocks(body as Blocks, qualified);
+    }
+  }
 }
 
 /**

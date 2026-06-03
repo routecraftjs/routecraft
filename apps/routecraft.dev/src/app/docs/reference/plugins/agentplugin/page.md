@@ -378,7 +378,7 @@ Mirrors the `llmPlugin({ defaultOptions })` pattern: a single bag of values appl
 | `defaultOptions.tools` | `ToolSelection` (from `tools([...])`) | Agents that omit `tools` |
 | `defaultOptions.maxTurns` | `number` | Agents that omit `maxTurns` |
 | `defaultOptions.principal` | `boolean \| (principal, exchange) => string` | Agents that omit `principal` |
-| `defaultOptions.blocks` | `{ [name: string]: BlockBody \| Blocks }` | All agents (merged by name into per-agent `blocks`; see [Agent blocks](#agent-blocks)). A default may be a nested group; the top-level `false` removal sentinel is rejected here. |
+| `defaultOptions.blocks` | `{ [name: string]: BlockBody \| Blocks }` | All agents (merged by name into per-agent `blocks`; see [Agent blocks](#agent-blocks)). A default may be a nested group; a `false` removal sentinel at any nesting level is rejected with `RC5003` (defaults cannot remove themselves). |
 
 Resolution at dispatch is per-key: instance value > plugin default > (for `model`) throw, (for `tools`) `undefined`. Agents that set `model`, `tools`, `maxTurns`, or `principal` replace the default entirely (override, not extend). Per-agent `blocks` merges into defaults by name (see the [Defaults merging](#agent-blocks) note in the blocks section).
 
