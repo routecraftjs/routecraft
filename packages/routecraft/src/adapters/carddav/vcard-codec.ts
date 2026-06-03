@@ -13,6 +13,7 @@ import type { VCardConstructor, VCardInstance, VCardProperty } from "vcf";
 import { loadOptionalPeer } from "../shared/optional-peer.ts";
 import {
   extractAddresses,
+  extractCategories,
   extractCustomFields,
   extractDates,
   extractInstantMessages,
@@ -20,6 +21,7 @@ import {
   extractOrg,
   extractRelatedNames,
   extractSocialProfiles,
+  extractTextValue,
   patchRawVCard,
 } from "./vcard-raw.ts";
 import type {
@@ -68,20 +70,28 @@ function firstProp(
   return allProps(card, key)[0];
 }
 
-function firstValue(card: VCardInstance, key: string): string | undefined {
-  const prop = firstProp(card, key);
-  if (!prop) return undefined;
-  const value = String(prop.valueOf()).trim();
+function propValue(prop: VCardProperty): string | undefined {
+  const raw = prop.valueOf();
+  if (raw == null) return undefined;
+  const value = String(raw).trim();
   return value.length > 0 ? value : undefined;
 }
 
-/** Normalize a `TYPE` parameter to a single lowercase label. */
+/**
+ * Normalize a `TYPE` parameter to a single lowercase label. Walks both shapes
+ * (string with comma-separated values, array of strings) and picks the first
+ * non-`pref` entry so callers get a clean label like `home` rather than
+ * `home,pref`.
+ */
 function propType(prop: VCardProperty): string | undefined {
   const type = prop.type;
   if (type == null) return undefined;
-  const label = Array.isArray(type) ? type.join(",") : type;
-  const normalized = String(label).trim().toLowerCase();
-  return normalized.length > 0 ? normalized : undefined;
+  const candidates = Array.isArray(type) ? type : String(type).split(",");
+  for (const candidate of candidates) {
+    const normalized = String(candidate).trim().toLowerCase();
+    if (normalized && normalized !== "pref") return normalized;
+  }
+  return undefined;
 }
 
 /**
@@ -99,10 +109,14 @@ export function parseVCard(Ctor: VCardConstructor, raw: string): Contact {
 
   const contact: Contact = { raw };
 
-  const uid = firstValue(card, "uid");
+  // Top-level text properties are read from the raw layer so RFC 6350 escapes
+  // (`\n`, `\,`, `\;`) decode correctly. `vcf` returns them verbatim, which
+  // turns a `NOTE` containing a real newline into a literal `\n` string after
+  // a round-trip.
+  const uid = extractTextValue(raw, "uid");
   if (uid) contact.uid = uid;
 
-  const fullName = firstValue(card, "fn");
+  const fullName = extractTextValue(raw, "fn");
   if (fullName) contact.fullName = fullName;
 
   // Structured properties (N, ORG, ADR) are read from the raw layer, which
@@ -110,26 +124,22 @@ export function parseVCard(Ctor: VCardConstructor, raw: string): Contact {
   // not mistaken for a component boundary.
   Object.assign(contact, extractName(raw));
 
-  const nickname = firstValue(card, "nickname");
+  const nickname = extractTextValue(raw, "nickname");
   if (nickname) contact.nickname = nickname;
 
   Object.assign(contact, extractOrg(raw));
 
-  const title = firstValue(card, "title");
+  const title = extractTextValue(raw, "title");
   if (title) contact.title = title;
 
-  const categories = firstValue(card, "categories");
-  if (categories) {
-    const list = categories
-      .split(",")
-      .map((c) => c.trim())
-      .filter((c) => c.length > 0);
-    if (list.length) contact.categories = list;
-  }
+  // `CATEGORIES` is read from the raw layer so a category whose literal name
+  // contains a comma (encoded as `\,` on the wire) is not split mid-name.
+  const categories = extractCategories(raw);
+  if (categories.length) contact.categories = categories;
 
   const phones = allProps(card, "tel")
     .map((p): ContactPhone | null => {
-      const value = String(p.valueOf()).trim();
+      const value = propValue(p);
       if (!value) return null;
       const type = propType(p);
       return type ? { value, type } : { value };
@@ -139,7 +149,7 @@ export function parseVCard(Ctor: VCardConstructor, raw: string): Contact {
 
   const emails = allProps(card, "email")
     .map((p): ContactEmail | null => {
-      const value = String(p.valueOf()).trim();
+      const value = propValue(p);
       if (!value) return null;
       const type = propType(p);
       return type ? { value, type } : { value };
@@ -151,19 +161,19 @@ export function parseVCard(Ctor: VCardConstructor, raw: string): Contact {
   if (addresses.length) contact.addresses = addresses;
 
   const urls = allProps(card, "url")
-    .map((p) => String(p.valueOf()).trim())
-    .filter((u) => u.length > 0);
+    .map((p) => propValue(p))
+    .filter((u): u is string => typeof u === "string");
   if (urls.length) contact.urls = urls;
 
-  const birthday = firstValue(card, "bday");
+  const birthday = extractTextValue(raw, "bday");
   if (birthday) contact.birthday = birthday;
 
-  const note = firstValue(card, "note");
+  const note = extractTextValue(raw, "note");
   if (note) contact.note = note;
 
   const photoProp = firstProp(card, "photo");
   if (photoProp) {
-    const data = String(photoProp.valueOf()).trim();
+    const data = propValue(photoProp);
     if (data) {
       const photo: ContactPhoto = { data };
       const type = propType(photoProp);

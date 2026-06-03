@@ -95,6 +95,9 @@ function parseRecords(raw: string): RawRecord[] {
   };
 
   for (const line of physical) {
+    // Blank physical lines between records (some exporters emit them around
+    // BEGIN:VCARD) are not header lines and must not seed phantom records.
+    if (line === "") continue;
     if ((line.startsWith(" ") || line.startsWith("\t")) && current) {
       current.push(line);
     } else {
@@ -168,14 +171,17 @@ function toRecord(lines: string[]): RawRecord {
     const eq = segment.indexOf("=");
     const key = (eq >= 0 ? segment.slice(0, eq) : segment).toLowerCase();
     const paramValue = dequoteParam(eq >= 0 ? segment.slice(eq + 1) : segment);
-    // `TYPE` may repeat (e.g. TYPE=HOME;TYPE=pref); keep the first non-pref one.
-    if (
-      key === "type" &&
-      paramValue &&
-      type === null &&
-      paramValue.toLowerCase() !== "pref"
-    ) {
-      type = paramValue.toLowerCase();
+    // `TYPE` may repeat (e.g. TYPE=HOME;TYPE=pref) or carry comma-separated
+    // values inside one param (e.g. TYPE=HOME,PREF). Walk every candidate
+    // across both shapes and pick the first non-pref one.
+    if (key === "type" && type === null && paramValue) {
+      for (const candidate of paramValue.split(",")) {
+        const lowered = candidate.trim().toLowerCase();
+        if (lowered && lowered !== "pref") {
+          type = lowered;
+          break;
+        }
+      }
     }
     if (params[key] === undefined) params[key] = paramValue;
   }
@@ -194,12 +200,13 @@ function toRecord(lines: string[]): RawRecord {
 }
 
 /**
- * Split a structured value (`N`, `ADR`, `ORG`) into components on unescaped
- * `;`, then unescape each component. Walking with explicit escape tracking
- * handles `\;` (escaped separator) and `\\;` (escaped backslash + separator)
- * correctly, which a naive `split(";")` over the unescaped value does not.
+ * Split a vCard value on `separator` characters that are not preceded by a
+ * backslash, then unescape each segment. Walking with explicit escape tracking
+ * handles `\,`/`\;` (escaped separator) and `\\,`/`\\;` (escaped backslash +
+ * separator) correctly, which a naive `split()` over the unescaped value does
+ * not.
  */
-function splitComponents(rawValue: string): string[] {
+function splitOnUnescaped(rawValue: string, separator: string): string[] {
   const parts: string[] = [];
   let current = "";
   for (let i = 0; i < rawValue.length; i++) {
@@ -207,7 +214,7 @@ function splitComponents(rawValue: string): string[] {
     if (ch === "\\" && i + 1 < rawValue.length) {
       current += ch + rawValue[i + 1];
       i++;
-    } else if (ch === ";") {
+    } else if (ch === separator) {
       parts.push(current);
       current = "";
     } else {
@@ -216,6 +223,42 @@ function splitComponents(rawValue: string): string[] {
   }
   parts.push(current);
   return parts.map(unescapeText);
+}
+
+/** Split a structured value (`N`, `ADR`, `ORG`) into components on `;`. */
+function splitComponents(rawValue: string): string[] {
+  return splitOnUnescaped(rawValue, ";");
+}
+
+/**
+ * Read `CATEGORIES` as a comma-separated list, splitting on unescaped commas
+ * (so a category whose literal name contains `,` survives the round trip).
+ */
+export function extractCategories(raw: string): string[] {
+  const record = parseRecords(raw).find(
+    (r) => r.name === "categories" && !r.group,
+  );
+  if (!record) return [];
+  return splitOnUnescaped(record.rawValue, ",")
+    .map((c) => c.trim())
+    .filter((c) => c.length > 0);
+}
+
+/**
+ * Read the unescaped value of a top-level (ungrouped) text property such as
+ * `FN`, `TITLE`, `NICKNAME`, `NOTE`, `UID`, `BDAY`. The `vcf` library does not
+ * decode RFC 6350 text escapes (`\n`, `\,`, `\;`), so callers that need a
+ * round-trip-correct value go through the raw layer instead.
+ */
+export function extractTextValue(
+  raw: string,
+  name: string,
+): string | undefined {
+  const lower = name.toLowerCase();
+  const record = parseRecords(raw).find((r) => r.name === lower && !r.group);
+  if (!record) return undefined;
+  const value = record.value.trim();
+  return value.length > 0 ? value : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -372,6 +415,7 @@ export function extractCustomFields(raw: string): ContactField[] {
   const records = parseRecords(raw);
   const fields: ContactField[] = [];
   for (const record of records) {
+    if (!record.rawName) continue;
     if (MODELED_NAMES.has(record.name)) continue;
     const field: ContactField = { key: record.rawName, value: record.value };
     if (record.type) field.type = record.type;
@@ -389,11 +433,13 @@ export function extractCustomFields(raw: string): ContactField[] {
  * Escape a value per RFC 6350 (backslash, comma, semicolon, newline). Used for
  * both free-text values and individual components of structured values (`N`,
  * `ADR`), where the literal `;` separators are added afterward by the caller.
+ * `\r`, `\r\n` and `\n` all collapse to the `\n` escape so a stray Windows
+ * line ending in user-supplied text cannot break the on-wire vCard grammar.
  */
 function escapeText(value: string): string {
   return value
     .replace(/\\/g, "\\\\")
-    .replace(/\n/g, "\\n")
+    .replace(/\r\n?|\n/g, "\\n")
     .replace(/,/g, "\\,")
     .replace(/;/g, "\\;");
 }
@@ -444,7 +490,12 @@ function escapeParamValue(value: string): string {
   return /[;:,]/.test(cleaned) ? `"${cleaned}"` : cleaned;
 }
 
-/** Build a property line `[group.]NAME[;TYPE=type]:value` (value pre-escaped). */
+/**
+ * Build a property line `[group.]NAME[;TYPE=type]:value` (value pre-escaped).
+ * The TYPE param is emitted with the caller's casing preserved: iCloud uses
+ * mixed-case Apple labels (`TYPE=iPhone`, `TYPE=iMessage`) that round-trip
+ * lossy if force-uppercased.
+ */
 function emitLine(
   name: string,
   value: string,
@@ -452,7 +503,7 @@ function emitLine(
 ): string {
   const prefix = options?.group ? `${options.group}.` : "";
   const typeParam = options?.type
-    ? `;TYPE=${escapeParamValue(options.type.toUpperCase())}`
+    ? `;TYPE=${escapeParamValue(options.type)}`
     : "";
   return foldLine(`${prefix}${name}${typeParam}:${value}`);
 }
@@ -484,9 +535,13 @@ function addressValue(address: ContactAddress): string {
 }
 
 function structuredName(parts: string[]): string {
-  const padded = [...parts];
-  while (padded.length < 5) padded.push("");
-  return padded.slice(0, 5).map(escapeText).join(";");
+  // Index-by-index access tolerates sparse arrays: when an existing `N` has
+  // fewer than 5 components and the caller writes only a high-index field
+  // (e.g. only `suffix`), spreading would preserve the holes and crash inside
+  // `escapeText(undefined)`.
+  const out: string[] = [];
+  for (let i = 0; i < 5; i++) out.push(escapeText(parts[i] ?? ""));
+  return out.join(";");
 }
 
 // ---------------------------------------------------------------------------
@@ -517,6 +572,17 @@ function existingComponents(records: RawRecord[], name: string): string[] {
  */
 export function patchRawVCard(raw: string, contact: Contact): string {
   const records = parseRecords(raw);
+  // The patcher rewrites a single vCard; refuse vCard collections so two
+  // BEGIN/END blocks cannot be flattened into one structurally invalid card.
+  let beginCount = 0;
+  for (const record of records) {
+    if (record.name === "begin") beginCount++;
+  }
+  if (beginCount > 1) {
+    throw new SyntaxError(
+      "Cannot patch a vCard collection: input contains multiple BEGIN:VCARD records.",
+    );
+  }
   const allocGroup = makeGroupAllocator(records);
 
   // Names whose existing records (and their grouped siblings) get replaced.
@@ -544,12 +610,14 @@ export function patchRawVCard(raw: string, contact: Contact): string {
   mark(contact.dates, "x-abdate");
   mark(contact.photo, "photo");
 
-  // Groups attached to any replaced record are removed wholesale so grouped
-  // labels (item N.X-ABLabel) never outlive the value they annotate.
-  const replaceGroups = new Set<string>();
+  // Groups attached to any replaced record have their `X-ABLabel` sibling
+  // dropped (a label without its labeled value is meaningless). Unrelated
+  // properties that happen to share the same `item N` group, for example an
+  // `item1.X-ABNICKNAME` next to an `item1.X-ABRELATEDNAMES`, are preserved.
+  const replacedItemGroups = new Set<string>();
   for (const record of records) {
     if (replaceNames.has(record.name) && record.group) {
-      replaceGroups.add(record.group);
+      replacedItemGroups.add(record.group);
     }
   }
 
@@ -569,7 +637,13 @@ export function patchRawVCard(raw: string, contact: Contact): string {
       continue;
     }
     if (replaceNames.has(record.name)) continue;
-    if (record.group && replaceGroups.has(record.group)) continue;
+    if (
+      record.name === "x-ablabel" &&
+      record.group &&
+      replacedItemGroups.has(record.group)
+    ) {
+      continue;
+    }
     if (customKeys.has(customKey(record.rawName, record.rawGroup))) continue;
     head.push(...record.physical);
   }
@@ -607,7 +681,10 @@ function buildNewLines(
   }
   if (hasNameParts(contact)) {
     const existing = existingComponents(records, "n");
-    const parts = existing.length > 0 ? existing : ["", "", "", "", ""];
+    const parts: string[] = ["", "", "", "", ""];
+    for (let i = 0; i < Math.min(existing.length, 5); i++) {
+      parts[i] = existing[i] ?? "";
+    }
     const order: Array<keyof Contact> = [
       "lastName",
       "firstName",
@@ -681,9 +758,11 @@ function buildNewLines(
   }
   if (contact.photo !== undefined) {
     const mediaType = (contact.photo.mediaType ?? "JPEG").toUpperCase();
-    lines.push(
-      foldLine(`PHOTO;ENCODING=b;TYPE=${mediaType}:${contact.photo.data}`),
-    );
+    // Strip every whitespace character from the base64 payload before folding:
+    // some encoders chunk base64 with CR/LF, and any embedded line break would
+    // be re-emitted verbatim, splitting the property and corrupting the card.
+    const cleanData = contact.photo.data.replace(/\s+/g, "");
+    lines.push(foldLine(`PHOTO;ENCODING=b;TYPE=${mediaType}:${cleanData}`));
   }
   for (const im of contact.instantMessages ?? []) {
     if (!im.handle) continue;
