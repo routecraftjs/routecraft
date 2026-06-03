@@ -253,7 +253,13 @@ export class CardDAVAdapter
     const { client, Ctor, book } = await this.openRead(
       getExchangeContext(exchange),
     );
-    const contact = (exchange.body ?? {}) as Contact;
+    const body = exchange.body;
+    if (body === null || typeof body !== "object" || Array.isArray(body)) {
+      throw rcError("RC5001", undefined, {
+        message: `CardDAV ${action} requires the exchange body to be a Contact object; received ${body === null ? "null" : Array.isArray(body) ? "array" : typeof body}.`,
+      });
+    }
+    const contact = body as Contact;
 
     const existing =
       action === "create"
@@ -266,7 +272,26 @@ export class CardDAVAdapter
           );
 
     if (existing) {
-      const newData = patchVCard(String(existing.data ?? ""), contact);
+      // Resolve the UID before serializing so it lands inside the patched
+      // vCard (when the existing card has none) and the returned `result.uid`
+      // matches what is actually persisted on the server.
+      const uid =
+        contact.uid ??
+        uidFromVCardData(Ctor, existing.data) ??
+        uidFromUrl(existing.url) ??
+        randomUUID();
+      const contactWithUid: Contact = { ...contact, uid };
+      const existingRaw =
+        typeof existing.data === "string" && existing.data.length > 0
+          ? existing.data
+          : null;
+      // When the driver returns a record without a body, patching against ""
+      // would produce a vCard missing BEGIN:VCARD/VERSION. Fall through to a
+      // fresh serialize so the PUT body is always structurally valid.
+      const newData =
+        existingRaw === null
+          ? serializeContact(contactWithUid)
+          : patchVCard(existingRaw, contactWithUid);
       const vCard: DAVVCardLike = { url: existing.url, data: newData };
       if (existing.etag) vCard.etag = existing.etag;
       let response: Response;
@@ -277,11 +302,7 @@ export class CardDAVAdapter
       }
       assertResponseOk(response, "update contact");
       const result: CardDAVWriteResult = {
-        uid:
-          contact.uid ??
-          uidFromVCardData(Ctor, existing.data) ??
-          uidFromUrl(existing.url) ??
-          randomUUID(),
+        uid,
         url: existing.url,
         created: false,
       };

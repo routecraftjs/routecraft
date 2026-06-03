@@ -113,8 +113,14 @@ export class CardDAVClientManager {
     return pending;
   }
 
-  /** Release cached clients. Called during context teardown. */
+  /**
+   * Release cached clients. Called during context teardown. Awaits any logins
+   * still in flight (via `allSettled`) so a slow login that rejects after the
+   * map has been cleared does not surface as an `unhandledRejection`.
+   */
   async drain(): Promise<void> {
+    const pending = Array.from(this.clients.values());
     this.clients.clear();
+    await Promise.allSettled(pending);
   }
 }

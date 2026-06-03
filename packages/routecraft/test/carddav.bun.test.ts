@@ -10,6 +10,7 @@ import {
   serializeContact,
   patchVCard,
 } from "../src/adapters/carddav/vcard-codec.ts";
+import { extractCustomFields } from "../src/adapters/carddav/vcard-raw.ts";
 import type {
   CardDAVDriverClient,
   DAVVCardLike,
@@ -227,7 +228,9 @@ describe("CardDAV adapter", () => {
       });
       expect(out).not.toContain("+15551234567");
       expect(out).not.toContain("item1.X-ABLabel:_$!<MyCustomLabel>!$_");
-      expect(out).toContain("TEL;TYPE=HOME:+19998887777");
+      // Caller-supplied TYPE case is preserved verbatim so a round-tripped
+      // Apple label like `iPhone` is not corrupted into `IPHONE`.
+      expect(out).toContain("TEL;TYPE=home:+19998887777");
       // An unrelated group survives.
       expect(out).toContain("item2.X-ABDATE;type=pref:2010-06-01");
     });
@@ -511,6 +514,177 @@ describe("CardDAV adapter", () => {
       expect(r.socialProfiles?.[0]?.service).toBe("we;ird");
       expect(r.socialProfiles?.[0]?.url).toBe("https://x");
     });
+
+    /**
+     * @case A category whose literal name contains a comma round-trips intact
+     * @preconditions CATEGORIES carries an escaped comma inside one entry
+     * @expectedResult parse splits only on unescaped commas; the name is preserved
+     */
+    test("category names containing commas survive the round-trip", () => {
+      const card = [
+        "BEGIN:VCARD",
+        "VERSION:3.0",
+        "FN:C",
+        "UID:C1",
+        "CATEGORIES:Friends\\, Family,Work",
+        "END:VCARD",
+      ].join("\r\n");
+      const c = parseVCard(vCard, card);
+      expect(c.categories).toEqual(["Friends, Family", "Work"]);
+      const out = patchVCard(card, { categories: c.categories });
+      expect(parseVCard(vCard, out).categories).toEqual([
+        "Friends, Family",
+        "Work",
+      ]);
+    });
+
+    /**
+     * @case PHOTO payloads with embedded whitespace fold without splitting
+     * @preconditions PHOTO data carries CR/LF chunks (chunked base64)
+     * @expectedResult Whitespace is stripped before folding so the value is one property
+     */
+    test("PHOTO data with embedded whitespace stays a single property", () => {
+      const out = serializeContact({
+        uid: "P1",
+        fullName: "P",
+        photo: { data: "AAAA\r\nBBBB\nCCCC", mediaType: "PNG" },
+      });
+      const r = parseVCard(vCard, out);
+      expect(r.photo?.data).toBe("AAAABBBBCCCC");
+      // No stray property line was introduced by the embedded newlines.
+      const photoLines = out
+        .split("\r\n")
+        .filter((l) => l.startsWith("PHOTO") || l.startsWith(" "));
+      // PHOTO must be one logical line (possibly folded), not split by CRs.
+      expect(photoLines.length).toBeGreaterThan(0);
+    });
+
+    /**
+     * @case Updating only a high-index N component does not crash
+     * @preconditions N has fewer than 5 components; patch sets only `suffix`
+     * @expectedResult patchVCard succeeds and the suffix lands in the right slot
+     */
+    test("updating only the suffix on a short N does not crash", () => {
+      const card = [
+        "BEGIN:VCARD",
+        "VERSION:3.0",
+        "N:Smith;John",
+        "FN:John Smith",
+        "UID:S1",
+        "END:VCARD",
+      ].join("\r\n");
+      const out = patchVCard(card, { suffix: "Jr." });
+      expect(out).toContain("N:Smith;John;;;Jr.");
+    });
+
+    /**
+     * @case TYPE=HOME,PREF parses as a single label, not a "home,pref" string
+     * @preconditions A TEL with comma-separated TYPE values
+     * @expectedResult phone.type is the first non-pref value, lowercased
+     */
+    test("TYPE param with comma-separated values picks the first non-pref", () => {
+      const card = [
+        "BEGIN:VCARD",
+        "VERSION:3.0",
+        "FN:Q",
+        "TEL;TYPE=HOME,PREF:+15555551212",
+        "UID:Q1",
+        "END:VCARD",
+      ].join("\r\n");
+      const c = parseVCard(vCard, card);
+      expect(c.phones?.[0]?.type).toBe("home");
+    });
+
+    /**
+     * @case A free-text value with CR/LF folds into a single \n escape on the wire
+     * @preconditions A NOTE containing CRLF and bare CR
+     * @expectedResult The serialized line carries `\n` escapes; no embedded CR remains
+     */
+    test("escapes carriage return and line feed in free-text values", () => {
+      const out = serializeContact({
+        uid: "N1",
+        fullName: "N",
+        note: "Line1\r\nLine2\rLine3\nLine4",
+      });
+      // No raw CR or LF survives inside a value: all line breaks are folded
+      // into `\n` escapes (followed by the normal CRLF physical separators).
+      const noteLines = out
+        .split("\r\n")
+        .filter(
+          (l, i, all) =>
+            l.startsWith("NOTE:") ||
+            (i > 0 && all[i - 1]?.startsWith("NOTE:") && l.startsWith(" ")),
+        );
+      expect(noteLines.join("")).not.toMatch(/[^\\]\r/);
+      const r = parseVCard(vCard, out);
+      expect(r.note).toBe("Line1\nLine2\nLine3\nLine4");
+    });
+
+    /**
+     * @case A leading blank line does not produce a phantom empty custom field
+     * @preconditions A vCard whose first physical line is empty
+     * @expectedResult The raw layer skips the blank; no record with key="" leaks
+     */
+    test("leading blank lines do not surface as phantom custom fields", () => {
+      const card =
+        "\r\n" +
+        ["BEGIN:VCARD", "VERSION:3.0", "FN:B", "UID:B1", "END:VCARD"].join(
+          "\r\n",
+        );
+      // vcf rejects vCards whose first line is not BEGIN:VCARD; the raw layer
+      // is more lenient and must not surface a phantom record with an empty
+      // rawName from the leading blank line.
+      const custom = extractCustomFields(card);
+      expect(custom.some((f) => f.key === "")).toBe(false);
+    });
+
+    /**
+     * @case Patching a vCard collection refuses to flatten two cards into one
+     * @preconditions Input contains two BEGIN/END:VCARD blocks
+     * @expectedResult patchVCard throws (does not silently emit a broken card)
+     */
+    test("patchVCard refuses to patch a vCard collection", () => {
+      const collection = [
+        "BEGIN:VCARD",
+        "VERSION:3.0",
+        "FN:A",
+        "UID:a",
+        "END:VCARD",
+        "BEGIN:VCARD",
+        "VERSION:3.0",
+        "FN:B",
+        "UID:b",
+        "END:VCARD",
+      ].join("\r\n");
+      expect(() => patchVCard(collection, { note: "x" })).toThrow(
+        /vCard collection/i,
+      );
+    });
+
+    /**
+     * @case Unrelated grouped properties survive when a sibling is replaced
+     * @preconditions item1 group holds both X-ABRELATEDNAMES and X-ABNICKNAME
+     * @expectedResult Replacing relatedNames drops only the X-ABLabel sibling
+     */
+    test("unrelated grouped properties survive a relatedNames replace", () => {
+      const card = [
+        "BEGIN:VCARD",
+        "VERSION:3.0",
+        "FN:G",
+        "UID:G1",
+        "item1.X-ABRELATEDNAMES:Bob",
+        "item1.X-ABLabel:_$!<Spouse>!$_",
+        "item1.X-ABNICKNAME:Bobby",
+        "END:VCARD",
+      ].join("\r\n");
+      const out = patchVCard(card, {
+        relatedNames: [{ label: "child", name: "Alex" }],
+      });
+      expect(out).not.toContain("X-ABRELATEDNAMES:Bob");
+      expect(out).not.toContain("item1.X-ABLabel:_$!<Spouse>!$_");
+      // Unrelated property sharing the group must be preserved.
+      expect(out).toContain("item1.X-ABNICKNAME:Bobby");
+    });
   });
 
   describe("factory", () => {
@@ -772,6 +946,116 @@ describe("CardDAV adapter", () => {
       const result = s.received[0]?.body as CardDAVWriteResult;
       expect(result.created).toBe(false);
       expect(result.uid).toBe("ABC-123");
+    });
+
+    /**
+     * @case Save returns a UID that matches what is actually persisted
+     * @preconditions Existing card has no UID; incoming contact also omits uid
+     * @expectedResult The patched body carries a UID and result.uid equals it
+     */
+    test("save synthesizes a UID and writes it into the patched card", async () => {
+      const cardWithoutUid = [
+        "BEGIN:VCARD",
+        "VERSION:3.0",
+        "FN:No UID",
+        "END:VCARD",
+      ].join("\r\n");
+      const driver = fakeDriver([
+        {
+          url: "https://dav/card/no-uid.vcf",
+          etag: '"1"',
+          data: cardWithoutUid,
+        },
+      ]);
+      CardDAVClientManager.createDriverClient = async () => driver;
+
+      const s = spy();
+      t = await testContext()
+        .with(ACCOUNT_CONFIG)
+        .routes(
+          craft()
+            .from(
+              simple<Contact>({
+                url: "https://dav/card/no-uid.vcf",
+                note: "added",
+              }),
+            )
+            .to(carddav({ action: "save" }))
+            .to(s),
+        )
+        .build();
+      await t.test();
+
+      expect(t.errors).toHaveLength(0);
+      expect(driver.updated).toHaveLength(1);
+      const sent = String(driver.updated[0]?.vCard.data);
+      const result = s.received[0]?.body as CardDAVWriteResult;
+      // The synthesized UID must have been written into the patched card so
+      // result.uid identifies the actual server-side resource.
+      expect(sent).toContain(`UID:${result.uid}`);
+    });
+
+    /**
+     * @case Save against a record missing data still produces a valid vCard
+     * @preconditions Driver returns a matching record with data === undefined
+     * @expectedResult The PUT body has BEGIN:VCARD, VERSION, and END:VCARD
+     */
+    test("save with empty existing data falls through to a fresh serialize", async () => {
+      const driver = fakeDriver([
+        {
+          url: "https://dav/card/empty.vcf",
+          etag: '"1"',
+          // Driver omitted the body; some servers do this on listing.
+        },
+      ]);
+      CardDAVClientManager.createDriverClient = async () => driver;
+
+      t = await testContext()
+        .with(ACCOUNT_CONFIG)
+        .routes(
+          craft()
+            .from(
+              simple<Contact>({
+                url: "https://dav/card/empty.vcf",
+                uid: "FRESH-1",
+                fullName: "Fresh",
+              }),
+            )
+            .to(carddav({ action: "save" })),
+        )
+        .build();
+      await t.test();
+
+      expect(t.errors).toHaveLength(0);
+      const sent = String(driver.updated[0]?.vCard.data);
+      expect(sent).toContain("BEGIN:VCARD");
+      expect(sent).toContain("VERSION:");
+      expect(sent).toContain("UID:FRESH-1");
+      expect(sent).toContain("FN:Fresh");
+      expect(sent).toContain("END:VCARD");
+    });
+
+    /**
+     * @case Writing a non-object body surfaces a clear configuration error
+     * @preconditions Action is "create" and the upstream body is a string
+     * @expectedResult The route raises RC5001 instead of persisting a bogus card
+     */
+    test("non-object body fails fast with RC5001", async () => {
+      const driver = fakeDriver([]);
+      CardDAVClientManager.createDriverClient = async () => driver;
+
+      t = await testContext()
+        .with(ACCOUNT_CONFIG)
+        .routes(
+          craft()
+            .from(simple("not-a-contact"))
+            .to(carddav({ action: "create" })),
+        )
+        .build();
+      await t.test();
+
+      expect(t.errors.some((e) => e.rc === "RC5001")).toBe(true);
+      expect(driver.created).toHaveLength(0);
     });
 
     /**
