@@ -32,7 +32,9 @@ Before writing, confirm answers to these questions. Ask the user only the ones t
 
 ## Step 2: pick the closest example
 
-Read [`reference/examples-index.md`](reference/examples-index.md) and pick the row that best matches the answers above. The index maps intent to the relevant public doc page and the closest existing adapter on GitHub.
+First read [`reference/adapter-structure.md`](reference/adapter-structure.md). It is the file layout, single-factory, class-naming, and options-naming convention every adapter follows; the rest of this skill assumes it.
+
+Then read [`reference/examples-index.md`](reference/examples-index.md) and pick the row that best matches the answers above. The index maps intent to the relevant public doc page and the closest existing adapter on GitHub.
 
 Then, in this order:
 
@@ -45,23 +47,13 @@ Do not write the adapter from memory. The patterns are precise and the examples 
 
 ## Step 3: write the adapter
 
-Create the adapter under `packages/routecraft/src/adapters/<concept>/` if you are inside this monorepo, or under your project's adapters folder otherwise. Mirror the file layout of the example you read. Typical files:
+Create the adapter under `packages/routecraft/src/adapters/<concept>/` if you are inside this monorepo, or under your project's `adapters/<concept>/` folder otherwise. Follow [`reference/adapter-structure.md`](reference/adapter-structure.md) for the file layout, the single per-concept factory and how it dispatches by payload, class naming, and the options-naming convention, and mirror the example you read.
 
-- `index.ts` -- the public factory function. Calls `tagAdapter(instance, factory, factoryArgs(...))`. This is what users import
-- `source.ts` -- the source class (if applicable)
-- `destination.ts` -- the destination class (if applicable)
-- `transformer.ts` -- the transformer class (if applicable)
-- `shared.ts` -- option parsing or helpers shared between the role files
-- `types.ts` -- exported option and result types
+The remaining authoring rules to keep in mind while writing:
 
-Authoring rules to keep in mind while writing:
-
-- **Naming**: classes are `{Concept}{Role}Adapter` (e.g. `HttpDestinationAdapter`, `CronSourceAdapter`). The factory function is the lowercase concept (`http`, `cron`)
-- **Single factory per concept**: one factory, one concept. Use overloads to discriminate roles by `arguments.length` and `typeof`, never by inspecting option values
-- **Tagging**: every factory return value goes through `tagAdapter(instance, factory, factoryArgs(...))`. The eslint plugin and tests rely on this
-- **Two-sided naming**: when an adapter is both server and client, name the option types `{Concept}ServerOptions` and `{Concept}ClientOptions`, and export the union as `{Concept}Options`. If the two roles share fields, factor them into `{Concept}BaseOptions` and have both `Server` and `Client` extend it; if they do not, declare each independently. Source/Destination is for *interface* names; Server/Client is for *option type* names
+- **Tagging**: every factory return value goes through `tagAdapter(instance, factory, factoryArgs(...))`, at every return path. The eslint plugin and tests rely on this
 - **Store keys**: use `Symbol.for("routecraft.adapter.<concept>.<key>")` so keys survive duplicate package copies in the same process
-- **No mutation**: transformers return new objects via spread (`{ ...exchange, body: newBody }`). Do not mutate the incoming exchange
+- **No mutation**: transformers and processors return new objects via spread (`{ ...exchange, body: newBody }`). Do not mutate the incoming exchange
 - **Errors**: throw at adapter boundaries with a stable `rc` error code from `@routecraft/routecraft`. Capabilities catch and surface these via the capability-level error handler
 
 ## Step 4: write tests

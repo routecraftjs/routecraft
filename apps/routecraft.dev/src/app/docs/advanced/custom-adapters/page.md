@@ -138,6 +138,39 @@ export function myQueue(options: MyQueueOptions) {
 .to(myQueue({ queue: 'results' }))
 ```
 
+Discriminate the role structurally -- by `arguments.length`, `typeof`, or the shape of the options (`'consumerGroup' in options`) -- never by inspecting an option's *value*. Class names carry the role, `{Concept}{Role}Adapter` (`MyQueueSourceAdapter`, `MyQueueDestinationAdapter`), even for single-role adapters, so growing a role later stays additive.
+
+## File structure
+
+A non-trivial adapter is a folder named for its concept, with one file per role it plays:
+
+```text
+adapters/
+  my-queue/
+    index.ts          # public factory + exports -- the only file consumers import
+    types.ts          # exported option and result types
+    source.ts         # MyQueueSourceAdapter -- present because it can be a .from() source
+    destination.ts    # MyQueueDestinationAdapter -- present because it can be a .to() destination
+    shared.ts         # option parsing / helpers shared between the role files
+```
+
+The files present are the documentation: a folder with both `source.ts` and `destination.ts` is visibly a two-role adapter, while one with only `source.ts` is source-only. Adding a role later means adding a file, not reshaping the existing ones.
+
+A trivial single-role adapter with no shared helpers can stay a single file (`adapters/my-queue.ts`), the same shorthand the examples above use. Reach for the folder once the adapter grows a second role, shared helpers, or a types module.
+
+## Options naming
+
+When an adapter plays two roles with different options for each, name the option types so the role is readable from the type alone. Interfaces use Source/Destination; option *types* use Server/Client:
+
+| Type | Role |
+| --- | --- |
+| `MyQueueBaseOptions` | fields shared by both roles |
+| `MyQueueServerOptions extends MyQueueBaseOptions` | the source / `.from()` side |
+| `MyQueueClientOptions` | the destination / `.to()` side |
+| `MyQueueOptions` | the exported union `MyQueueServerOptions \| MyQueueClientOptions`, used as the factory parameter type |
+
+If the roles share no fields, declare each independently and drop the base. A single-role adapter needs only `MyQueueOptions`, plus an optional `MyQueueResult`.
+
 ## Making your adapter mockable
 
 Tag every adapter instance your factory returns so consumers can mock it with `mockAdapter(yourFactory, ...)` instead of having to import the internal adapter class. Tagging is a one-line addition per return path:
