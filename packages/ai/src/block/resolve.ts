@@ -185,6 +185,36 @@ export const BLOCK_TOOL_NAME_CHARSET = /^[A-Za-z0-9_-]+$/;
 export const TOOL_NAME_MAX_LENGTH = 64;
 
 /**
+ * RC5026 error for two blocks whose names collapse to the same
+ * flattened canonical name. Shared by the construction-time validator
+ * ({@link validateBlocks}) and the dispatch-time flattener ({@link
+ * flattenBlocks}) so the code and message cannot drift between the two
+ * walkers, which must stay behaviourally identical.
+ *
+ * @internal
+ */
+export function blockCollisionError(
+  qualified: string,
+): ReturnType<typeof rcError> {
+  return rcError("RC5026", undefined, {
+    message: `Agent block "${qualified}": two blocks resolve to the same name after flattening nested groups. Rename one of them.`,
+  });
+}
+
+/**
+ * RC5026 error for a blocks tree that contains a cycle (a group that
+ * directly or transitively contains itself). Shared by the validator
+ * and the flattener for the same reason as {@link blockCollisionError}.
+ *
+ * @internal
+ */
+export function blockCycleError(prefix: string): ReturnType<typeof rcError> {
+  return rcError("RC5026", undefined, {
+    message: `Agent block "${prefix}": blocks form a cycle (a group contains itself). Block trees must be finite.`,
+  });
+}
+
+/**
  * Flatten a {@link Blocks} tree depth-first into an ordered map keyed
  * by the canonical name (group names joined by {@link
  * BLOCK_NAME_SEPARATOR}). Insertion order is preserved so inject
@@ -216,11 +246,7 @@ function walkBlocks(
   // branches is not mistaken for a cycle.
   seen: WeakSet<object>,
 ): void {
-  if (seen.has(blocks)) {
-    throw rcError("RC5026", undefined, {
-      message: `Agent block "${prefix}": blocks form a cycle (a group contains itself). Block trees must be finite.`,
-    });
-  }
+  if (seen.has(blocks)) throw blockCycleError(prefix);
   seen.add(blocks);
   for (const [name, body] of Object.entries(blocks)) {
     if (body === false) continue;
@@ -229,11 +255,7 @@ function walkBlocks(
       walkBlocks(body, qualified, out, seen);
       continue;
     }
-    if (out.has(qualified)) {
-      throw rcError("RC5026", undefined, {
-        message: `Agent block "${qualified}": two blocks resolve to the same name after flattening nested groups. Rename one of them.`,
-      });
-    }
+    if (out.has(qualified)) throw blockCollisionError(qualified);
     out.set(qualified, body);
   }
   seen.delete(blocks);

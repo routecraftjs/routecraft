@@ -103,10 +103,13 @@ export interface AgentDefaultOptions {
    * one over the other.
    *
    * Unlike the per-agent {@link AgentOptions.blocks} field, defaults
-   * cannot carry the top-level `false` removal sentinel: defaults
-   * cannot sensibly remove themselves, so the value type is `BlockBody`
-   * or a nested {@link Blocks} group (not the leaf-or-`false` union) and
-   * a top-level `false` is rejected at plugin construction with RC5003.
+   * cannot carry the `false` removal sentinel: defaults cannot sensibly
+   * remove themselves. The top-level value type therefore excludes
+   * `false` (`BlockBody` or a nested {@link Blocks} group); a nested
+   * group's value type still permits `false` at the type level (it is
+   * the `Blocks` alias), but a `false` at any nesting level is rejected
+   * at plugin construction with RC5003, so the runtime contract is
+   * "no `false` anywhere in defaults".
    */
   blocks?: { [name: string]: BlockBody | Blocks };
 }

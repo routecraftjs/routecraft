@@ -9,6 +9,8 @@ import {
   BLOCK_NAME_SEPARATOR,
   BLOCK_RESERVED_PREFIX,
   BLOCK_TOOL_NAME_CHARSET,
+  blockCollisionError,
+  blockCycleError,
   isBlockGroup,
   TOOL_NAME_MAX_LENGTH,
 } from "../block/resolve.ts";
@@ -163,18 +165,20 @@ function validateBlocksLevel(
   blocks: unknown,
   prefix: string,
   state: BlockValidationState,
-): void {
+): number {
   if (blocks === null || typeof blocks !== "object" || Array.isArray(blocks)) {
     throw rcError("RC5027", undefined, {
       message: `Agent: "blocks" must be a Record<string, BlockBody | Blocks | false>.`,
     });
   }
-  if (state.seenObjects.has(blocks)) {
-    throw rcError("RC5026", undefined, {
-      message: `Agent block "${prefix}": blocks form a cycle (a group contains itself). Block trees must be finite.`,
-    });
-  }
+  if (state.seenObjects.has(blocks)) throw blockCycleError(prefix);
   state.seenObjects.add(blocks);
+  // Count of leaves at this level and below. A nested group that
+  // produces zero leaves (empty `{}` or only `false` members) is an
+  // author mistake the strict-at-construction contract should surface,
+  // so the caller rejects it; the top-level record is allowed to be
+  // empty (an agent with no blocks).
+  let leafCount = 0;
   for (const [name, body] of Object.entries(blocks as Blocks)) {
     const qualified = prefix ? `${prefix}${BLOCK_NAME_SEPARATOR}${name}` : name;
     if (name.trim() === "") {
@@ -223,15 +227,18 @@ function validateBlocksLevel(
           message: `Agent block "${qualified}": "mode" must be "inject" or "progressive" (got ${JSON.stringify((body as Partial<BlockBody>).mode)}).`,
         });
       }
-      validateBlocksLevel(body, qualified, state);
+      const childLeaves = validateBlocksLevel(body, qualified, state);
+      if (childLeaves === 0) {
+        throw rcError("RC5027", undefined, {
+          message: `Agent block "${qualified}": a nested group must contain at least one block (got an empty group or only "false" members).`,
+        });
+      }
+      leafCount += childLeaves;
       continue;
     }
-    if (state.seenNames.has(qualified)) {
-      throw rcError("RC5026", undefined, {
-        message: `Agent block "${qualified}": two blocks resolve to the same name after flattening nested groups. Rename one of them.`,
-      });
-    }
+    if (state.seenNames.has(qualified)) throw blockCollisionError(qualified);
     state.seenNames.add(qualified);
+    leafCount += 1;
     const b = body as BlockBody;
     if (b.mode !== "inject" && b.mode !== "progressive") {
       throw rcError("RC5027", undefined, {
@@ -280,6 +287,7 @@ function validateBlocksLevel(
     }
   }
   state.seenObjects.delete(blocks);
+  return leafCount;
 }
 
 /**

@@ -12,6 +12,7 @@ import {
   type AgentResult,
 } from "../src/index.ts";
 import { flattenBlocks } from "../src/block/resolve.ts";
+import { validateBlocks } from "../src/agent/agent.ts";
 import type { LlmResult, LlmToolCallSummary } from "../src/llm/types.ts";
 
 // Captures what the provider layer received and simulates the model
@@ -465,5 +466,70 @@ describe("agent blocks: nested named groups", () => {
         blocks: { x: cyclic as never },
       }),
     ).toThrow(/cycle/);
+  });
+
+  /**
+   * @case An empty nested group is rejected at construction
+   * @preconditions Agent declares a group `skills` with no members
+   * @expectedResult agent() throws RC5027 explaining a group must contain at least one block
+   */
+  test("rejects an empty nested group", () => {
+    expect(() =>
+      agent({
+        system: "x",
+        model: "anthropic:claude-opus-4-7",
+        blocks: { skills: {} },
+      }),
+    ).toThrow(/must contain at least one block/);
+  });
+
+  /**
+   * @case A nested group whose only members are `false` is rejected at construction
+   * @preconditions Agent declares a group `skills` containing only `{ x: false }`
+   * @expectedResult agent() throws RC5027 (the group resolves to zero blocks)
+   */
+  test("rejects a nested group containing only false members", () => {
+    expect(() =>
+      agent({
+        system: "x",
+        model: "anthropic:claude-opus-4-7",
+        blocks: { skills: { x: false } },
+      }),
+    ).toThrow(/must contain at least one block/);
+  });
+
+  /**
+   * @case A top-level empty blocks record is still allowed (an agent may have no blocks)
+   * @preconditions Agent declares `blocks: {}`
+   * @expectedResult agent() does not throw; the empty-group rule applies only to nested groups
+   */
+  test("allows an empty top-level blocks record", () => {
+    expect(() =>
+      agent({ system: "x", model: "anthropic:claude-opus-4-7", blocks: {} }),
+    ).not.toThrow();
+  });
+
+  /**
+   * @case Construction-time validation and dispatch-time flattening reject the same cycle/collision trees
+   * @preconditions A cyclic tree and a flat/nested collision tree
+   * @expectedResult Both validateBlocks and flattenBlocks throw the same way, so the two walkers cannot drift
+   */
+  test("validateBlocks and flattenBlocks agree on cycle and collision rejection", () => {
+    const cyclic: Record<string, unknown> = {};
+    cyclic["self"] = cyclic;
+    const cyclicTree = { x: cyclic } as never;
+    expect(() => flattenBlocks(cyclicTree)).toThrow(/cycle/);
+    expect(() => validateBlocks(cyclicTree)).toThrow(/cycle/);
+
+    const collisionTree = {
+      skills__onboarding: { mode: "inject", value: "a" },
+      skills: { onboarding: { mode: "inject", value: "b" } },
+    } as never;
+    expect(() => flattenBlocks(collisionTree)).toThrow(
+      /resolve to the same name after flattening/,
+    );
+    expect(() => validateBlocks(collisionTree)).toThrow(
+      /resolve to the same name after flattening/,
+    );
   });
 });
