@@ -10,7 +10,10 @@ import {
   serializeContact,
   patchVCard,
 } from "../src/adapters/carddav/vcard-codec.ts";
-import { extractCustomFields } from "../src/adapters/carddav/vcard-raw.ts";
+import {
+  extractCustomFields,
+  parseRecords,
+} from "../src/adapters/carddav/vcard-raw.ts";
 import type {
   CardDAVDriverClient,
   DAVVCardLike,
@@ -634,7 +637,7 @@ describe("CardDAV adapter", () => {
       // vcf rejects vCards whose first line is not BEGIN:VCARD; the raw layer
       // is more lenient and must not surface a phantom record with an empty
       // rawName from the leading blank line.
-      const custom = extractCustomFields(card);
+      const custom = extractCustomFields(parseRecords(card));
       expect(custom.some((f) => f.key === "")).toBe(false);
     });
 

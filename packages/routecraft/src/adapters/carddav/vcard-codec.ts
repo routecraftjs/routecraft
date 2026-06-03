@@ -22,6 +22,8 @@ import {
   extractRelatedNames,
   extractSocialProfiles,
   extractTextValue,
+  groupLabels,
+  parseRecords,
   patchRawVCard,
 } from "./vcard-raw.ts";
 import type {
@@ -109,32 +111,39 @@ export function parseVCard(Ctor: VCardConstructor, raw: string): Contact {
 
   const contact: Contact = { raw };
 
+  // Parse the raw text into records ONCE and pass the same array to every
+  // extractor. Each `extract*` previously called `parseRecords(raw)` itself,
+  // so reading a contact walked the raw text 15+ times; sharing the record
+  // list and the group-label map drops that to one walk plus one map build.
+  const records = parseRecords(raw);
+  const labels = groupLabels(records);
+
   // Top-level text properties are read from the raw layer so RFC 6350 escapes
   // (`\n`, `\,`, `\;`) decode correctly. `vcf` returns them verbatim, which
   // turns a `NOTE` containing a real newline into a literal `\n` string after
   // a round-trip.
-  const uid = extractTextValue(raw, "uid");
+  const uid = extractTextValue(records, "uid");
   if (uid) contact.uid = uid;
 
-  const fullName = extractTextValue(raw, "fn");
+  const fullName = extractTextValue(records, "fn");
   if (fullName) contact.fullName = fullName;
 
   // Structured properties (N, ORG, ADR) are read from the raw layer, which
   // splits on unescaped separators so an escaped `\;` inside a component is
   // not mistaken for a component boundary.
-  Object.assign(contact, extractName(raw));
+  Object.assign(contact, extractName(records));
 
-  const nickname = extractTextValue(raw, "nickname");
+  const nickname = extractTextValue(records, "nickname");
   if (nickname) contact.nickname = nickname;
 
-  Object.assign(contact, extractOrg(raw));
+  Object.assign(contact, extractOrg(records));
 
-  const title = extractTextValue(raw, "title");
+  const title = extractTextValue(records, "title");
   if (title) contact.title = title;
 
   // `CATEGORIES` is read from the raw layer so a category whose literal name
   // contains a comma (encoded as `\,` on the wire) is not split mid-name.
-  const categories = extractCategories(raw);
+  const categories = extractCategories(records);
   if (categories.length) contact.categories = categories;
 
   const phones = allProps(card, "tel")
@@ -157,7 +166,7 @@ export function parseVCard(Ctor: VCardConstructor, raw: string): Contact {
     .filter((e): e is ContactEmail => e !== null);
   if (emails.length) contact.emails = emails;
 
-  const addresses = extractAddresses(raw);
+  const addresses = extractAddresses(records);
   if (addresses.length) contact.addresses = addresses;
 
   const urls = allProps(card, "url")
@@ -165,10 +174,10 @@ export function parseVCard(Ctor: VCardConstructor, raw: string): Contact {
     .filter((u): u is string => typeof u === "string");
   if (urls.length) contact.urls = urls;
 
-  const birthday = extractTextValue(raw, "bday");
+  const birthday = extractTextValue(records, "bday");
   if (birthday) contact.birthday = birthday;
 
-  const note = extractTextValue(raw, "note");
+  const note = extractTextValue(records, "note");
   if (note) contact.note = note;
 
   const photoProp = firstProp(card, "photo");
@@ -184,15 +193,15 @@ export function parseVCard(Ctor: VCardConstructor, raw: string): Contact {
 
   // iCloud-specific and unmodeled properties are read straight from the raw
   // text (faithful names/params/groups), since `vcf` normalizes casing.
-  const instantMessages = extractInstantMessages(raw);
+  const instantMessages = extractInstantMessages(records);
   if (instantMessages.length) contact.instantMessages = instantMessages;
-  const socialProfiles = extractSocialProfiles(raw);
+  const socialProfiles = extractSocialProfiles(records);
   if (socialProfiles.length) contact.socialProfiles = socialProfiles;
-  const relatedNames = extractRelatedNames(raw);
+  const relatedNames = extractRelatedNames(records, labels);
   if (relatedNames.length) contact.relatedNames = relatedNames;
-  const dates = extractDates(raw);
+  const dates = extractDates(records, labels);
   if (dates.length) contact.dates = dates;
-  const custom = extractCustomFields(raw);
+  const custom = extractCustomFields(records);
   if (custom.length) contact.custom = custom;
 
   return contact;

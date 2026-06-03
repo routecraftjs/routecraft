@@ -54,7 +54,7 @@ const MODELED_NAMES = new Set([
   "x-abrelatednames",
 ]);
 
-interface RawRecord {
+export interface RawRecord {
   /** Lowercased property name without group (e.g. `tel`, `x-socialprofile`). */
   name: string;
   /** Lowercased group prefix (e.g. `item1`), or null. */
@@ -80,7 +80,7 @@ interface RawRecord {
 // ---------------------------------------------------------------------------
 
 /** Split raw vCard text into records, grouping folded continuation lines. */
-function parseRecords(raw: string): RawRecord[] {
+export function parseRecords(raw: string): RawRecord[] {
   const physical = raw.split(/\r\n|\r|\n/);
   while (physical.length > 0 && physical[physical.length - 1] === "") {
     physical.pop();
@@ -234,10 +234,8 @@ function splitComponents(rawValue: string): string[] {
  * Read `CATEGORIES` as a comma-separated list, splitting on unescaped commas
  * (so a category whose literal name contains `,` survives the round trip).
  */
-export function extractCategories(raw: string): string[] {
-  const record = parseRecords(raw).find(
-    (r) => r.name === "categories" && !r.group,
-  );
+export function extractCategories(records: RawRecord[]): string[] {
+  const record = records.find((r) => r.name === "categories" && !r.group);
   if (!record) return [];
   return splitOnUnescaped(record.rawValue, ",")
     .map((c) => c.trim())
@@ -251,11 +249,11 @@ export function extractCategories(raw: string): string[] {
  * round-trip-correct value go through the raw layer instead.
  */
 export function extractTextValue(
-  raw: string,
+  records: RawRecord[],
   name: string,
 ): string | undefined {
   const lower = name.toLowerCase();
-  const record = parseRecords(raw).find((r) => r.name === lower && !r.group);
+  const record = records.find((r) => r.name === lower && !r.group);
   if (!record) return undefined;
   const value = record.value.trim();
   return value.length > 0 ? value : undefined;
@@ -271,10 +269,15 @@ function decodeLabel(label: string): string {
   return match ? (match[1] as string) : label;
 }
 
-/** Extract labeled dates (`X-ABDATE` grouped with `X-ABLabel`). */
-export function extractDates(raw: string): ContactDate[] {
-  const records = parseRecords(raw);
-  const labels = groupLabels(records);
+/**
+ * Extract labeled dates (`X-ABDATE` grouped with `X-ABLabel`). The optional
+ * `labels` parameter lets a caller that already computed the group-label map
+ * (e.g. `parseVCard` reuses it for `extractRelatedNames`) avoid a second walk.
+ */
+export function extractDates(
+  records: RawRecord[],
+  labels: Map<string, string> = groupLabels(records),
+): ContactDate[] {
   const dates: ContactDate[] = [];
   for (const record of records) {
     if (record.name !== "x-abdate") continue;
@@ -285,7 +288,7 @@ export function extractDates(raw: string): ContactDate[] {
 }
 
 /** Build a group -> decoded label map from `X-ABLabel` records. */
-function groupLabels(records: RawRecord[]): Map<string, string> {
+export function groupLabels(records: RawRecord[]): Map<string, string> {
   const labels = new Map<string, string>();
   for (const record of records) {
     if (record.name === "x-ablabel" && record.group) {
@@ -296,9 +299,11 @@ function groupLabels(records: RawRecord[]): Map<string, string> {
 }
 
 /** Extract instant-messaging handles (`IMPP`, iCloud `X-SERVICE-TYPE`). */
-export function extractInstantMessages(raw: string): ContactInstantMessage[] {
+export function extractInstantMessages(
+  records: RawRecord[],
+): ContactInstantMessage[] {
   const out: ContactInstantMessage[] = [];
-  for (const record of parseRecords(raw)) {
+  for (const record of records) {
     if (record.name !== "impp") continue;
     const colon = record.value.indexOf(":");
     const handle = colon >= 0 ? record.value.slice(colon + 1) : record.value;
@@ -311,9 +316,11 @@ export function extractInstantMessages(raw: string): ContactInstantMessage[] {
 }
 
 /** Extract social-media profiles (iCloud `X-SOCIALPROFILE`). */
-export function extractSocialProfiles(raw: string): ContactSocialProfile[] {
+export function extractSocialProfiles(
+  records: RawRecord[],
+): ContactSocialProfile[] {
   const out: ContactSocialProfile[] = [];
-  for (const record of parseRecords(raw)) {
+  for (const record of records) {
     if (record.name !== "x-socialprofile") continue;
     const profile: ContactSocialProfile = { url: record.value };
     if (record.type) profile.service = record.type;
@@ -323,9 +330,10 @@ export function extractSocialProfiles(raw: string): ContactSocialProfile[] {
 }
 
 /** Extract related people (`X-ABRELATEDNAMES` grouped with `X-ABLabel`). */
-export function extractRelatedNames(raw: string): ContactRelatedName[] {
-  const records = parseRecords(raw);
-  const labels = groupLabels(records);
+export function extractRelatedNames(
+  records: RawRecord[],
+  labels: Map<string, string> = groupLabels(records),
+): ContactRelatedName[] {
   const out: ContactRelatedName[] = [];
   for (const record of records) {
     if (record.name !== "x-abrelatednames") continue;
@@ -342,12 +350,12 @@ function component(parts: string[], index: number): string | undefined {
 
 /** Read the structured `N` name parts, splitting on unescaped separators. */
 export function extractName(
-  raw: string,
+  records: RawRecord[],
 ): Pick<
   Contact,
   "firstName" | "lastName" | "middleName" | "prefix" | "suffix"
 > {
-  const record = parseRecords(raw).find((r) => r.name === "n" && !r.group);
+  const record = records.find((r) => r.name === "n" && !r.group);
   if (!record) return {};
   const parts = splitComponents(record.rawValue);
   const out: Pick<
@@ -369,9 +377,9 @@ export function extractName(
 
 /** Read `ORG` company and department, splitting on unescaped separators. */
 export function extractOrg(
-  raw: string,
+  records: RawRecord[],
 ): Pick<Contact, "organization" | "department"> {
-  const record = parseRecords(raw).find((r) => r.name === "org" && !r.group);
+  const record = records.find((r) => r.name === "org" && !r.group);
   if (!record) return {};
   const parts = splitComponents(record.rawValue);
   const out: Pick<Contact, "organization" | "department"> = {};
@@ -383,9 +391,9 @@ export function extractOrg(
 }
 
 /** Read `ADR` records, splitting components on unescaped separators. */
-export function extractAddresses(raw: string): ContactAddress[] {
+export function extractAddresses(records: RawRecord[]): ContactAddress[] {
   const out: ContactAddress[] = [];
-  for (const record of parseRecords(raw)) {
+  for (const record of records) {
     if (record.name !== "adr") continue;
     const parts = splitComponents(record.rawValue);
     const address: ContactAddress = {};
@@ -411,8 +419,7 @@ export function extractAddresses(raw: string): ContactAddress[] {
  * Extract properties outside the managed model (e.g. arbitrary `X-` fields) so
  * callers can read them. Managed and grouped-label properties are excluded.
  */
-export function extractCustomFields(raw: string): ContactField[] {
-  const records = parseRecords(raw);
+export function extractCustomFields(records: RawRecord[]): ContactField[] {
   const fields: ContactField[] = [];
   for (const record of records) {
     if (!record.rawName) continue;
