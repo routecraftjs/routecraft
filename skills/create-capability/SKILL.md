@@ -68,6 +68,7 @@ export default craft()
 
 Authoring rules to keep in mind:
 
+- **Keep the DSL readable -- this is the point of the framework**: `route.ts` exists so a reader can follow the *flow* (where data comes from, what happens to it in order, where it lands) without reading the inner workings of every step. A wall of inline logic defeats that. Never inline a large `transform`, `process`, `enrich`, or `filter` body. Extract anything beyond a couple of trivial lines into a named function in a sibling internal file in the capability folder (e.g. `summarise.ts`, `map-order.ts`) and pass the reference: `.transform(toOrderLine)` instead of `.transform((x) => { /* 30 lines */ })`. The named step then reads like a verb in the pipeline. Inline lambdas are fine only when they are short and self-evident
 - **Metadata first**: `.id()`, `.title()`, `.description()`, `.input()`, `.output()`, `.error()`, `.batch()` come **before** `.from(...)`. Once you call `.from(...)`, you are in the pipeline and metadata methods no longer apply
 - **Typed bodies**: pass the input type to `.from<Input>(...)` so the operations downstream stay typed without casts
 - **No mutation**: pure transforms return new objects via spread. Side effects belong in `.tap(destination)`
@@ -81,23 +82,27 @@ Authoring rules to keep in mind:
 
 ## Project structure: one folder per capability
 
-In a Routecraft project, each capability is its own folder under `capabilities/`, grouped by domain:
+This is a documented Routecraft standard, not a suggestion. `bunx create-routecraft` scaffolds this shape, and the project-structure page is the source of truth: https://routecraft.dev/raw/docs/introduction/project-structure.md (read it if you are setting up a new project or unsure where a file belongs).
+
+Each capability is its own folder under `capabilities/`, grouped by domain:
 
 ```text
 capabilities/
   <domain>/
     <id>/
-      route.ts        # public surface: default export plus its input/output types
+      route.ts        # public surface AND the readable main flow (default export + input/output types)
       route.test.ts   # colocated test (see Step 4)
       README.md       # short description; mermaid + integrations table for complex ones
-      <internal>.ts   # mappers, helpers; never imported from outside this folder
+      <internal>.ts   # mappers, transforms, helpers; never imported from outside this folder
 ```
 
 Rules:
 
+- **`route.ts` is the readable main flow.** It is both the public surface and the file a human reads to understand what the capability does. Keep it to the DSL chain plus its schemas: a reader should follow the flow top to bottom without paging through transform internals. The heavy logic lives in the sibling internal files and is pulled in by name (see the readability rule in Step 3). If `route.ts` is becoming hard to scan, that is the signal to extract, not to add a comment.
 - `route.ts` is the only file other capabilities may import. Re-export the capability's input/output types from it so callers depend on the contract, not the internals.
-- Cross-capability reuse goes through `direct('<id>')` plus the types re-exported from the callee's `route.ts`. Never reach into another capability's internal files.
-- Pure helpers shared by several capabilities graduate to a shared workspace package, not a loose `lib/` folder.
+- Internal files (`summarise.ts`, `map-order.ts`, `__fixtures__`, ...) hold the implementation detail of each step. They are private to the folder; never import them from another capability.
+- Reuse capability *behavior* through `direct('<id>')` plus the types re-exported from the callee's `route.ts`. Never reach into another capability's internal files.
+- Reuse *pure helpers* (validate an amount, parse a date, a shared domain type) through a top-level `shared/` folder next to `capabilities/`. Any capability may import from `shared/`; keep it pure (validators, parsers, formatters, types), with no side effects and no imports back into a capability's internals. This is the single-project answer, so a one-app repo never needs workspace tooling just to share a date parser. Once the repo grows into multiple apps under `apps/`, shared helpers graduate from `shared/` to a workspace package each app depends on.
 - A single-file capability (`capabilities/<id>.ts`) is acceptable shorthand for a trivial, internal-free capability, but the folder shape is the default the scaffolder produces.
 
 ## Step 4: write tests
@@ -146,6 +151,7 @@ Use `bun run <script>` (not `bun <script>`) so Bun invokes the package.json scri
 
 ## Useful URLs
 
+- Project structure (folder-per-capability standard): https://routecraft.dev/raw/docs/introduction/project-structure.md
 - Capabilities introduction: https://routecraft.dev/raw/docs/introduction/capabilities.md
 - Operations introduction: https://routecraft.dev/raw/docs/introduction/operations.md
 - Operations reference: https://routecraft.dev/raw/docs/reference/operations.md

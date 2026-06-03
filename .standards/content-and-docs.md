@@ -62,6 +62,35 @@ not taken. The user-facing noun for the unit of work remains "capability".
 A single-file capability (`capabilities/<id>.ts`) is acceptable shorthand for a trivial,
 internal-free capability (the repo's own `examples/src` deliberately uses the flat form).
 
+## Changelog entries
+
+The changelog (`apps/routecraft.dev/src/app/changelog/page.md`) is for a user scanning to decide
+**whether and how to upgrade**. It is not a design doc, a reference, or a migration guide. It names
+what changed and points to the surface that owns the detail. This follows the
+[Keep a Changelog](https://keepachangelog.com) convention: entries are written for humans, kept
+short, and link out for depth. The v0.1-v0.4 entries are the house style; v0.5/v0.6 drifted and
+were trimmed back to it.
+
+**Shape of an entry.** One bullet per user-visible change, grouped by area (Core, AI & MCP, Mail,
+Adapters, Telemetry, Docs, etc.). Each bullet is a **bold lead phrase** in user terms, then ` -- `
+and one sentence of impact. A second sentence is allowed only when a behaviour change has a precise
+condition a user needs to recognise (for example which messages a trust-classification fix now
+treats differently). Lead a breaking bullet with the removed or renamed symbol so a reader grepping
+their code finds it. Rely on the group-level `{% badge color="red" %}Breaking{% /badge %}` rather
+than repeating "breaking" per bullet.
+
+**What does not go in the changelog** (it lives elsewhere, and the entry links to it):
+
+- Design rationale and the "why" behind a decision -- the migration guide narrative or the PR.
+- Parameter signatures, field lists, option shapes, type definitions -- the reference page.
+- Step-by-step field migrations and before/after tables -- the migration guide.
+- Internal-only changes with no user-visible effect -- omit entirely.
+
+**Length test.** If a bullet runs past two lines, or names more than one parameter or field, it is
+carrying detail that belongs in the migration guide or reference. Cut it to the headline and link
+out. This is the same "no silent duplication" and "code lives once" discipline applied to release
+notes: the changelog owns the one-line announcement, not the explanation.
+
 ## Operational constraint: redirects
 
 The docs site builds with Next.js `output: 'export'` (see `apps/routecraft.dev/next.config.mjs`),

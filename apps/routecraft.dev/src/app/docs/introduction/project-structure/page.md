@@ -24,6 +24,8 @@ my-app
 │           ├── route.test.ts
 │           ├── summarise.ts          # internal helper, private to this capability
 │           └── __fixtures__
+├── shared
+│   └── amount.ts                     # pure helper shared by several capabilities
 ├── adapters
 │   └── google-sheets.ts
 ├── plugins
@@ -89,9 +91,24 @@ capabilities. Internals stay free to change.
 
 ### Shared helpers
 
-Pure helpers used by a single capability stay inside its folder. The moment a helper is
-shared by two or more capabilities, move it into a shared workspace package rather than a
-loose `lib/` folder, so the dependency is explicit and the boundary stays clean.
+A helper used by a single capability stays inside that capability's folder. When two or more
+capabilities need the same pure helper (validate an amount, parse a date, a shared domain
+type), put it in a top-level `shared/` folder next to `capabilities/`:
+
+```text
+shared
+├── amount.ts          # parseAmount, assertPositive
+└── dates.ts           # toIsoDate
+```
+
+Any capability may import from `shared/`. Keep it pure: validators, parsers, formatters, and
+types, with no side effects and no imports back into a capability's internals. `shared/` is the
+single-project answer, so a one-app repo never needs workspace tooling just to share a date
+parser.
+
+When the repo grows into multiple runtimes (several apps under `apps/`), shared code graduates
+from `shared/` to a workspace package that each app depends on as a local dependency, so the
+boundary stays explicit across app lines.
 
 ### Single-file shorthand
 
@@ -106,6 +123,7 @@ Sub-folders inside `capabilities/` are supported to any depth. The capability id
 
 | Folder | Purpose |
 | --- | --- |
+| `shared/` | Pure helpers (validators, parsers, formatters, shared types) used by two or more capabilities in a single-app project. No side effects; never imports a capability's internals. Graduates to a workspace package once the repo goes multi-app. |
 | `adapters/` | Custom adapters that connect to external systems. Each implements one of the adapter interfaces: `subscribe`, `send`, or `process`. |
 | `plugins/` | Runtime plugins that hook into the Routecraft context lifecycle, such as MCP transport or custom telemetry. |
 
