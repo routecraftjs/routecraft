@@ -34,7 +34,11 @@ export interface JsonFileOptions {
 
   /**
    * File operation mode.
-   * - 'read': Read JSON file (source mode)
+   * - 'read': Read + parse the JSON file. Works as a source (`.from`) and,
+   *   because read mode returns the parsed value, mid-route via `.enrich()` /
+   *   `.to()`. As a destination, parse failures throw (the route boundary
+   *   surfaces them as `exchange:failed`); the `onParseError` lifecycle controls
+   *   apply to source mode only.
    * - 'write': Write/overwrite JSON file (destination mode)
    * - 'append': Append to JSON file (destination mode)
    * Default: 'read' for source, 'write' for destination

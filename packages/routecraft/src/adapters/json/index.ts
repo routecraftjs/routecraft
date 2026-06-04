@@ -17,10 +17,25 @@ export type JsonFileAdapterType = Source<unknown> &
   Destination<unknown, void> & { readonly adapterId: string };
 
 /**
+ * Read-mode JSON adapter. As a destination its `send` reads + parses the file
+ * and returns the parsed value, so it works mid-route via `.enrich()` / `.to()`
+ * (like an HTTP GET). It remains usable as a `.from()` source. The parsed value
+ * is typed `T` (default `unknown`); pass it explicitly (`json<Product[]>(...)`)
+ * for a typed merge.
+ */
+export type JsonReadAdapter<T = unknown> = Source<T> &
+  Destination<unknown, T> & { readonly adapterId: string };
+
+/**
  * JsonFileAdapter combines source and destination for JSON file operations.
  * Source is created lazily since dynamic paths are only valid for destinations.
+ * The destination `send` returns the parsed value in read mode and `void` when
+ * writing, so its declared result type is widened to `unknown` here and
+ * narrowed per mode by the `json()` factory's return type.
  */
-class JsonFileAdapter implements JsonFileAdapterType {
+class JsonFileAdapter
+  implements Source<unknown>, Destination<unknown, unknown>
+{
   readonly adapterId = "routecraft.adapter.json.file";
   private _source: JsonSourceAdapter | undefined;
   private readonly destination: JsonDestinationAdapter;
@@ -66,7 +81,10 @@ class JsonFileAdapter implements JsonFileAdapterType {
  * // Source mode
  * .from(json({ path: './data.json' }))
  *
- * // Destination mode
+ * // Read mid-route (destination that returns the parsed value)
+ * .enrich(json<Product[]>({ path: './data.json', mode: 'read' }), only((p) => p, 'catalogue'))
+ *
+ * // Destination mode (write)
  * .to(json({ path: './output.json', space: 2 }))
  * .to(json({ path: (ex) => `./data/${ex.body.id}.json`, createDirs: true }))
  * ```
@@ -80,14 +98,28 @@ export function json<T, R, V>(
 export function json<T = unknown, R = unknown, V = unknown>(
   options?: JsonTransformerOptions<T, R, V>,
 ): Transformer<T, R>;
+export function json<T = unknown>(
+  options: JsonFileOptions & { mode: "read" },
+): JsonReadAdapter<T>;
 export function json(options: JsonFileOptions): JsonFileAdapterType;
 export function json<T = unknown, R = unknown, V = unknown>(
   options: JsonOptions<T, R, V> = {},
-): Transformer<T, R> | Transformer<T, V> | JsonFileAdapterType {
+):
+  | Transformer<T, R>
+  | Transformer<T, V>
+  | JsonFileAdapterType
+  | JsonReadAdapter<T> {
   const args = factoryArgs(options);
   if (isFileMode(options)) {
-    const adapter = new JsonFileAdapter(options as JsonFileOptions);
-    return tagAdapter(adapter, json, args);
+    const adapter = new JsonFileAdapter(options);
+    const tagged = tagAdapter(adapter, json, args);
+    // In read mode `send` resolves to the parsed value; narrow accordingly so
+    // `.enrich()`/`.to()` infer the parsed body. Otherwise `send` is a write
+    // (void). The runtime object is identical; only its declared type differs.
+    if (options.mode === "read") {
+      return tagged as unknown as JsonReadAdapter<T>;
+    }
+    return tagged as unknown as JsonFileAdapterType;
   }
   return new JsonTransformerAdapter<T, R, V>(
     options as JsonTransformerOptions<T, R, V>,

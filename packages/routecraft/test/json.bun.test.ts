@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
-import { craft, simple, json, type Source } from "@routecraft/routecraft";
+import { craft, simple, json, only, type Source } from "@routecraft/routecraft";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -586,6 +586,148 @@ describe("JSON Adapter", () => {
         "adapterId",
         "routecraft.adapter.json.file",
       );
+    });
+  });
+
+  describe("read mode as destination (mid-route read)", () => {
+    let tempDir: string;
+    let testFilePath: string;
+
+    beforeEach(async () => {
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "json-read-dest-"));
+      testFilePath = path.join(tempDir, "catalogue.json");
+    });
+
+    afterEach(async () => {
+      if (tempDir) await fs.rm(tempDir, { recursive: true, force: true });
+    });
+
+    /**
+     * @case json({mode:'read'}) used with .enrich() reads + parses the file and
+     *   merges the parsed array onto the body, preserving the incoming criteria
+     * @preconditions File holds a JSON array; route enriches then filters by id
+     * @expectedResult The matching record is found from the merged array
+     */
+    test("enrich merges the parsed array onto the body", async () => {
+      const rows = [
+        { id: "a", n: 1 },
+        { id: "b", n: 2 },
+      ];
+      await fs.writeFile(testFilePath, JSON.stringify(rows));
+
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("json-read-enrich")
+            .from(simple<{ id: string }>({ id: "b" }))
+            .enrich(
+              json<typeof rows>({ path: testFilePath, mode: "read" }),
+              only((parsed: typeof rows) => parsed, "rows"),
+            )
+            .transform(
+              (body) => body.rows.find((r) => r.id === body.id) ?? null,
+            )
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(s.received).toHaveLength(1);
+      expect(s.received[0].body).toEqual({ id: "b", n: 2 });
+    });
+
+    /**
+     * @case json({mode:'read'}) used with .to() replaces the body with the
+     *   parsed file content
+     * @preconditions File holds a JSON object; route reads it via .to()
+     * @expectedResult The body becomes the parsed object
+     */
+    test("to() replaces the body with the parsed content", async () => {
+      const data = { ok: true, items: [1, 2, 3] };
+      await fs.writeFile(testFilePath, JSON.stringify(data));
+
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("json-read-to")
+            .from(simple("ignored"))
+            .to(json({ path: testFilePath, mode: "read" }))
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(s.received).toHaveLength(1);
+      expect(s.received[0].body).toEqual(data);
+    });
+
+    /**
+     * @case Read-as-destination resolves a dynamic (function) path from the
+     *   exchange, which source mode does not allow
+     * @preconditions Body carries the file name; path is a function of the body
+     * @expectedResult The file selected by the body is read and parsed
+     */
+    test("supports a dynamic (function) path", async () => {
+      const data = { picked: "yes" };
+      await fs.writeFile(testFilePath, JSON.stringify(data));
+
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("json-read-dynamic")
+            .from(simple<{ file: string }>({ file: testFilePath }))
+            .to(
+              json({
+                path: (ex) => (ex.body as { file: string }).file,
+                mode: "read",
+              }),
+            )
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(s.received).toHaveLength(1);
+      expect(s.received[0].body).toEqual(data);
+    });
+
+    /**
+     * @case A malformed JSON file read as a destination throws, surfacing as a
+     *   pipeline failure rather than a silent value
+     * @preconditions File contains invalid JSON; route has no .error() handler
+     * @expectedResult context:error fires and nothing reaches the downstream spy
+     */
+    test("throws on invalid JSON, surfaced through the pipeline", async () => {
+      await fs.writeFile(testFilePath, "{ not valid json");
+
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("json-read-bad")
+            .from(simple("ignored"))
+            .to(json({ path: testFilePath, mode: "read" }))
+            .to(s),
+        )
+        .build();
+
+      const errSpy = mock();
+      t.ctx.on("context:error", errSpy);
+      await t.ctx.start();
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(errSpy).toHaveBeenCalled();
+      expect(s.received).toHaveLength(0);
     });
   });
 });

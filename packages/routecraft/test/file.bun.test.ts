@@ -352,6 +352,71 @@ describe("File Adapter", () => {
     });
   });
 
+  describe("read mode as destination (mid-route read)", () => {
+    /**
+     * @case file({mode:'read'}) used with .to() returns the file content,
+     *   replacing the body, so a file can be read mid-route (not just at .from)
+     * @preconditions File exists with text content
+     * @expectedResult The body becomes the file content
+     */
+    test("to() returns the file content as the new body", async () => {
+      const filePath = path.join(tmpDir, "read-dest.txt");
+      const content = "read me mid-route";
+      await fsp.writeFile(filePath, content, "utf-8");
+
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("file-read-dest")
+            .from(simple("ignored"))
+            .to(file({ path: filePath, mode: "read" }))
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(s.received).toHaveLength(1);
+      expect(s.received[0].body).toBe(content);
+    });
+
+    /**
+     * @case Read-as-destination resolves a dynamic (function) path from the
+     *   exchange, which source mode rejects
+     * @preconditions Body carries the file name; path is a function of the body
+     * @expectedResult The file selected by the body is read
+     */
+    test("supports a dynamic (function) path", async () => {
+      const filePath = path.join(tmpDir, "dynamic-read.txt");
+      const content = "picked by body";
+      await fsp.writeFile(filePath, content, "utf-8");
+
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("file-read-dynamic")
+            .from(simple<{ file: string }>({ file: filePath }))
+            .to(
+              file({
+                path: (ex) => (ex.body as { file: string }).file,
+                mode: "read",
+              }),
+            )
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(s.received).toHaveLength(1);
+      expect(s.received[0].body).toBe(content);
+    });
+  });
+
   describe("adapterId", () => {
     /**
      * @case Adapter has correct adapterId

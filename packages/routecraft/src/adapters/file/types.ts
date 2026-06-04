@@ -8,7 +8,9 @@ export interface FileOptions {
   path: string | ((exchange: Exchange) => string);
   /**
    * File operation mode.
-   * - 'read': Read file (source mode)
+   * - 'read': Read the file. Works as a source (`.from`) and, because read mode
+   *   returns the content, mid-route via `.enrich()` / `.to()`. Read-as-
+   *   destination also supports dynamic (function) paths.
    * - 'write': Write/overwrite file (destination mode)
    * - 'append': Append to file (destination mode)
    * Default: 'read' for source, 'write' for destination

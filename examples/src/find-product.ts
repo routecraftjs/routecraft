@@ -1,5 +1,13 @@
-import { craft, direct, noop, only, log, simple } from "@routecraft/routecraft";
-import { readFile } from "node:fs/promises";
+import {
+  craft,
+  direct,
+  noop,
+  only,
+  log,
+  simple,
+  json,
+} from "@routecraft/routecraft";
+import { fileURLToPath } from "node:url";
 
 // The shape of every object in the JSON file on disk. This is the type we
 // cast the parsed array to so the rest of the pipeline is type-safe.
@@ -19,13 +27,14 @@ export interface FindProduct {
 // the source (examples/src) and the bundled output (examples/dist) both sit
 // one level under examples/, "../data/products.json" resolves to the same file
 // whether the route runs from source (tests) or from dist (the craft CLI).
-const CATALOGUE_URL = new URL("../data/products.json", import.meta.url);
+const CATALOGUE_PATH = fileURLToPath(
+  new URL("../data/products.json", import.meta.url),
+);
 
 // "find-product": a reusable service. It is triggered as a direct() endpoint so
 // any other route (or external caller via client.send) can dispatch into it.
-// When called, it reads the product catalogue from disk, parses and casts it to
-// the typed array via the json() adapter, and returns the single product whose
-// id matches the criteria.
+// When called, it reads + parses the product catalogue from disk via the json()
+// adapter in read mode, and returns the single product whose id matches.
 const findProductRoute = craft()
   .id("find-product")
   .title("Find product by id")
@@ -33,15 +42,13 @@ const findProductRoute = craft()
     "Read the product catalogue from disk and return one product by id",
   )
   .from<FindProduct>(direct())
-  // Read + parse + cast the catalogue, merged onto the body under `catalogue`.
-  // There is no mid-route file-READ adapter (file()/json({path}) are .from()
-  // sources, i.e. route triggers), and json()'s transformer mode only parses a
-  // string you already hold, so wrapping it here adds ceremony with no payoff.
-  // The honest minimal is node fs + JSON.parse; the `as Product[]` is the single
-  // typed cast point. only(..., "catalogue") tells .enrich() to place the array
-  // at body.catalogue, so the builder infers FindProduct & { catalogue: Product[] }.
+  // Read + parse the catalogue mid-route. json({ mode: "read" }) is a
+  // destination that returns the parsed file content (like an HTTP GET returns
+  // a body), so .enrich() can pull it in. The generic types the parsed value;
+  // only(..., "catalogue") places it at body.catalogue, so the builder infers
+  // the merged body as FindProduct & { catalogue: Product[] }.
   .enrich(
-    async () => JSON.parse(await readFile(CATALOGUE_URL, "utf-8")) as Product[],
+    json<Product[]>({ path: CATALOGUE_PATH, mode: "read" }),
     only((catalogue: Product[]) => catalogue, "catalogue"),
   )
   // Now the body is one value holding both the criteria and the array, so you
