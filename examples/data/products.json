@@ -1,0 +1,6 @@
+[
+  { "id": "WIDGET-A", "name": "Widget A", "price": 12.99, "inStock": true },
+  { "id": "GADGET-B", "name": "Gadget B", "price": 8.5, "inStock": false },
+  { "id": "GIZMO-C", "name": "Gizmo C", "price": 3.0, "inStock": true },
+  { "id": "THING-D", "name": "Thing D", "price": 149.99, "inStock": true }
+]
