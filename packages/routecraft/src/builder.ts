@@ -443,8 +443,11 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    *
    * Tags drive selectors like `tools({ tagged: "read-only" })` in
    * `@routecraft/ai`; use the `KnownTag` literals (`"read-only"`,
-   * `"destructive"`, `"idempotent"`) where they fit, and any string
-   * otherwise.
+   * `"destructive"`, `"idempotent"`, `"open-world"`) where they fit, and any
+   * string otherwise. On a route exposed via `.from(mcp())`, these four tags
+   * also derive the MCP tool annotation hints (`readOnlyHint`,
+   * `destructiveHint`, `idempotentHint`, `openWorldHint`), so the same fact is
+   * declared once; explicit `annotations` on `mcp()` still override per-key.
    */
   tag(value: Tag | Tag[]): this {
     const incoming = (Array.isArray(value) ? value : [value]).map((t) => {
@@ -702,11 +705,28 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    * // After `.input({ body: schema })`, pass the inferred body type to
    * // flow it through the chain:
    * // .input({ body: MySchema }).from<z.infer<typeof MySchema>>(direct())
+   *
+   * // Expose one capability on several ingresses (internal + agents +
+   * // integrations) that all feed the same pipeline. Multi-ingress requires
+   * // `.input()` so every channel validates and normalizes to one body type:
+   * // .input(QuerySchema).from(direct(), mcp(), http({ path: '/q', method: 'POST' }))
    */
   from<T>(source: Source<T> | CallableSource<T>): RouteBuilder<T>;
   from<T>(source: Source<unknown> | CallableSource<unknown>): RouteBuilder<T>;
-  from<T>(source: Source<T> | CallableSource<T>): RouteBuilder<T> {
+  from<T>(
+    ...sources: [
+      Source<unknown> | CallableSource<unknown>,
+      Source<unknown> | CallableSource<unknown>,
+      ...Array<Source<unknown> | CallableSource<unknown>>,
+    ]
+  ): RouteBuilder<T>;
+  from<T>(...sources: Array<Source<T> | CallableSource<T>>): RouteBuilder<T> {
     this.assertNoPendingWrappers("from");
+    if (sources.length === 0) {
+      throw rcError("RC2001", undefined, {
+        message: `Route .from() requires at least one source.`,
+      });
+    }
     const id = this.pendingOptions?.id ?? randomUUID();
     const consumer = this.pendingOptions?.consumer ?? {
       type: SimpleConsumer as unknown as ConsumerType<Consumer>,
@@ -717,18 +737,41 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
     const discovery = this.pendingOptions?.discovery;
     const authorizers = this.pendingOptions?.authorizers ?? [];
 
-    logger.trace({ route: id }, "Creating route definition");
+    // Multi-ingress routes feed one shared pipeline, so they need one shared
+    // input contract. Require `.input()` (with a body schema) so every
+    // ingress validates and normalizes its heterogeneous raw body (direct
+    // `unknown`, mcp `McpMessage`, http `HttpRequestBody`) to the same type
+    // before the pipeline runs. Without it the pipeline body would be an
+    // unsound union of the raw source types. A single source keeps the
+    // existing behaviour (type flows from `.from<T>()` or the source).
+    if (sources.length > 1 && !discovery?.input?.body) {
+      throw rcError("RC2001", undefined, {
+        message: `Route "${id}": .from() with multiple sources requires .input({ body }) so every ingress validates to one shared body type. Declare .input() before .from(), or expose each channel as its own single-source route.`,
+      });
+    }
+
+    logger.trace(
+      { route: id, sourceCount: sources.length },
+      "Creating route definition",
+    );
 
     // Staged `.authorize()` calls become the route's first steps so they
-    // run before any pipeline operation. Multiple authorizers stack in
-    // declaration order; the first failure short-circuits the rest.
+    // run before any pipeline operation. They apply uniformly to every
+    // ingress. Multiple authorizers stack in declaration order; the first
+    // failure short-circuits the rest. Per-channel auth (e.g. an unauthored
+    // internal direct ingress alongside a scoped mcp ingress) is expressed
+    // as separate single-source routes, not here.
     const authorizerSteps = authorizers.map(
       (opts) => new ValidateStep(authorize(opts)),
     );
 
+    const normalizedSources: Source<T>[] = sources.map((source) =>
+      typeof source === "function" ? { subscribe: source } : source,
+    );
+
     this.currentRoute = {
       id,
-      source: typeof source === "function" ? { subscribe: source } : source,
+      sources: normalizedSources,
       steps: authorizerSteps,
       consumer: {
         type: consumer.type,

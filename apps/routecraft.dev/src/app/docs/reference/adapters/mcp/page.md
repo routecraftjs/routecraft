@@ -75,6 +75,14 @@ These mirror the [MCP specification (2025-03-26) `ToolAnnotations`](https://mode
 | `idempotentHint` | `boolean` | When `true`, calling the tool repeatedly with the same arguments has no additional effect. Clients assume `false` when omitted. |
 | `openWorldHint` | `boolean` | When `true`, the tool may interact with external systems (network, filesystem, etc.). Clients assume `true` when omitted. |
 
+**Derived from route tags:** the four behavior hints are also derived from the route's `.tag()` values, so you declare the fact once instead of as both a tag and an annotation. `read-only` sets `readOnlyHint`, `destructive` sets `destructiveHint`, `idempotent` sets `idempotentHint`, and `open-world` sets `openWorldHint`. Explicit `annotations` passed to `mcp()` override the derived values per-key.
+
+```ts
+// These two routes expose the same annotations to MCP clients:
+.tag('read-only').tag('open-world').from(mcp())
+.from(mcp({ annotations: { readOnlyHint: true, openWorldHint: true } }))
+```
+
 **Options (McpClientOptions -- destination):**
 
 | Option | Type | Required | Description |

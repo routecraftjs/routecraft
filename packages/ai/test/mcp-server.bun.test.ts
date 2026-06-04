@@ -215,6 +215,84 @@ describe("McpServer", () => {
   });
 
   /**
+   * @case Route tags derive the MCP tool annotation hints
+   * @preconditions Route uses .tag(["read-only", "open-world"]) and .from(mcp()) with no annotations option
+   * @expectedResult getAvailableTools() reports readOnlyHint and openWorldHint derived from the tags
+   */
+  test("derives annotation hints from route tags", async () => {
+    t = await testContext()
+      .routes([
+        craft()
+          .id("tagged")
+          .description("A tagged tool")
+          .tag(["read-only", "open-world"])
+          .from(mcp())
+          .to(noop()),
+      ])
+      .store(MCP_STORE_KEY, true)
+      .build();
+    server = new McpServer(t.ctx);
+    await t.startAndWaitReady();
+    const tools = server.getAvailableTools();
+    expect(tools).toHaveLength(1);
+    expect(tools[0].annotations).toEqual({
+      readOnlyHint: true,
+      openWorldHint: true,
+    });
+  });
+
+  /**
+   * @case All four well-known tags map to their annotation hints
+   * @preconditions Route tagged read-only, destructive, idempotent, open-world with .from(mcp())
+   * @expectedResult getAvailableTools() reports all four hints as true
+   */
+  test("maps all four well-known tags to annotation hints", async () => {
+    t = await testContext()
+      .routes([
+        craft()
+          .id("all-hints")
+          .description("Every hint")
+          .tag(["read-only", "destructive", "idempotent", "open-world"])
+          .from(mcp())
+          .to(noop()),
+      ])
+      .store(MCP_STORE_KEY, true)
+      .build();
+    server = new McpServer(t.ctx);
+    await t.startAndWaitReady();
+    const tools = server.getAvailableTools();
+    expect(tools[0].annotations).toEqual({
+      readOnlyHint: true,
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    });
+  });
+
+  /**
+   * @case Explicit mcp() annotations override the tag-derived hints per-key
+   * @preconditions Route tagged read-only but mcp({ annotations: { readOnlyHint: false } })
+   * @expectedResult The explicit readOnlyHint: false wins over the tag-derived true
+   */
+  test("explicit annotations override tag-derived hints", async () => {
+    t = await testContext()
+      .routes([
+        craft()
+          .id("override")
+          .description("Override hint")
+          .tag("read-only")
+          .from(mcp({ annotations: { readOnlyHint: false } }))
+          .to(noop()),
+      ])
+      .store(MCP_STORE_KEY, true)
+      .build();
+    server = new McpServer(t.ctx);
+    await t.startAndWaitReady();
+    const tools = server.getAvailableTools();
+    expect(tools[0].annotations).toEqual({ readOnlyHint: false });
+  });
+
+  /**
    * @case A tool without its own icons inherits the default Routecraft server icons
    * @preconditions Default server options; route uses mcp() without icons
    * @expectedResult getAvailableTools() reports the tool carrying ROUTECRAFT_DEFAULT_ICONS
