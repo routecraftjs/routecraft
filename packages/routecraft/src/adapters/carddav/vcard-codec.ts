@@ -9,29 +9,28 @@
  * @experimental
  */
 
-import type { VCardConstructor, VCardInstance, VCardProperty } from "vcf";
+import type { VCardConstructor } from "vcf";
 import { loadOptionalPeer } from "../shared/optional-peer.ts";
 import {
   extractAddresses,
   extractCategories,
   extractCustomFields,
   extractDates,
+  extractEmails,
   extractInstantMessages,
   extractName,
   extractOrg,
+  extractPhones,
+  extractPhoto,
   extractRelatedNames,
   extractSocialProfiles,
   extractTextValue,
+  extractUrls,
   groupLabels,
   parseRecords,
   patchRawVCard,
 } from "./vcard-raw.ts";
-import type {
-  Contact,
-  ContactEmail,
-  ContactPhone,
-  ContactPhoto,
-} from "./types.ts";
+import type { Contact } from "./types.ts";
 
 /** Default vCard version written to iCloud and other CardDAV servers. */
 export const DEFAULT_VCARD_VERSION = "3.0";
@@ -55,50 +54,19 @@ export function resetVCardConstructorCache(): void {
   vcfPromise = null;
 }
 
-// ---------------------------------------------------------------------------
-// Reading helpers
-// ---------------------------------------------------------------------------
-
-function allProps(card: VCardInstance, key: string): VCardProperty[] {
-  const value = card.get(key);
-  if (value == null) return [];
-  return Array.isArray(value) ? value : [value];
-}
-
-function firstProp(
-  card: VCardInstance,
-  key: string,
-): VCardProperty | undefined {
-  return allProps(card, key)[0];
-}
-
-function propValue(prop: VCardProperty): string | undefined {
-  const raw = prop.valueOf();
-  if (raw == null) return undefined;
-  const value = String(raw).trim();
-  return value.length > 0 ? value : undefined;
-}
-
-/**
- * Normalize a `TYPE` parameter to a single lowercase label. Walks both shapes
- * (string with comma-separated values, array of strings) and picks the first
- * non-`pref` entry so callers get a clean label like `home` rather than
- * `home,pref`.
- */
-function propType(prop: VCardProperty): string | undefined {
-  const type = prop.type;
-  if (type == null) return undefined;
-  const candidates = Array.isArray(type) ? type : String(type).split(",");
-  for (const candidate of candidates) {
-    const normalized = String(candidate).trim().toLowerCase();
-    if (normalized && normalized !== "pref") return normalized;
-  }
-  return undefined;
-}
-
 /**
  * Parse a vCard string into a normalized {@link Contact}. The original text is
  * preserved on `raw` so updates can keep fields the model does not cover.
+ *
+ * Each array item in the returned contact carries a hidden `RECORD_ORIGIN`
+ * back-ref to its source raw record. The patcher uses these refs to do
+ * per-record diff/merge on update, so any parameter, group prefix, or labeled
+ * sibling the structured model does not surface is preserved on round-trip.
+ *
+ * `vcf` is invoked solely to validate that the input is a parseable vCard
+ * (it throws on malformed input); every field is then read from the raw
+ * layer so RFC 6350 text escapes decode correctly and property casing is
+ * preserved.
  *
  * @throws If the input is not a parseable vCard.
  */
@@ -111,88 +79,39 @@ export function parseVCard(Ctor: VCardConstructor, raw: string): Contact {
 
   const contact: Contact = { raw };
 
-  // Parse the raw text into records ONCE and pass the same array to every
-  // extractor. Each `extract*` previously called `parseRecords(raw)` itself,
-  // so reading a contact walked the raw text 15+ times; sharing the record
-  // list and the group-label map drops that to one walk plus one map build.
+  // Parse records ONCE and pass through every extractor. Each extractor
+  // returns items carrying a hidden `RECORD_ORIGIN` back-ref to its source
+  // record; the patcher uses those refs to rewrite only the bytes the user
+  // changed, preserving every param/group/sibling the model does not surface.
   const records = parseRecords(raw);
   const labels = groupLabels(records);
 
-  // Top-level text properties are read from the raw layer so RFC 6350 escapes
-  // (`\n`, `\,`, `\;`) decode correctly. `vcf` returns them verbatim, which
-  // turns a `NOTE` containing a real newline into a literal `\n` string after
-  // a round-trip.
   const uid = extractTextValue(records, "uid");
   if (uid) contact.uid = uid;
-
   const fullName = extractTextValue(records, "fn");
   if (fullName) contact.fullName = fullName;
-
-  // Structured properties (N, ORG, ADR) are read from the raw layer, which
-  // splits on unescaped separators so an escaped `\;` inside a component is
-  // not mistaken for a component boundary.
   Object.assign(contact, extractName(records));
-
   const nickname = extractTextValue(records, "nickname");
   if (nickname) contact.nickname = nickname;
-
   Object.assign(contact, extractOrg(records));
-
   const title = extractTextValue(records, "title");
   if (title) contact.title = title;
-
-  // `CATEGORIES` is read from the raw layer so a category whose literal name
-  // contains a comma (encoded as `\,` on the wire) is not split mid-name.
   const categories = extractCategories(records);
   if (categories.length) contact.categories = categories;
-
-  const phones = allProps(card, "tel")
-    .map((p): ContactPhone | null => {
-      const value = propValue(p);
-      if (!value) return null;
-      const type = propType(p);
-      return type ? { value, type } : { value };
-    })
-    .filter((p): p is ContactPhone => p !== null);
+  const phones = extractPhones(records);
   if (phones.length) contact.phones = phones;
-
-  const emails = allProps(card, "email")
-    .map((p): ContactEmail | null => {
-      const value = propValue(p);
-      if (!value) return null;
-      const type = propType(p);
-      return type ? { value, type } : { value };
-    })
-    .filter((e): e is ContactEmail => e !== null);
+  const emails = extractEmails(records);
   if (emails.length) contact.emails = emails;
-
   const addresses = extractAddresses(records);
   if (addresses.length) contact.addresses = addresses;
-
-  const urls = allProps(card, "url")
-    .map((p) => propValue(p))
-    .filter((u): u is string => typeof u === "string");
+  const urls = extractUrls(records);
   if (urls.length) contact.urls = urls;
-
   const birthday = extractTextValue(records, "bday");
   if (birthday) contact.birthday = birthday;
-
   const note = extractTextValue(records, "note");
   if (note) contact.note = note;
-
-  const photoProp = firstProp(card, "photo");
-  if (photoProp) {
-    const data = propValue(photoProp);
-    if (data) {
-      const photo: ContactPhoto = { data };
-      const type = propType(photoProp);
-      if (type) photo.mediaType = type.toUpperCase();
-      contact.photo = photo;
-    }
-  }
-
-  // iCloud-specific and unmodeled properties are read straight from the raw
-  // text (faithful names/params/groups), since `vcf` normalizes casing.
+  const photo = extractPhoto(records);
+  if (photo) contact.photo = photo;
   const instantMessages = extractInstantMessages(records);
   if (instantMessages.length) contact.instantMessages = instantMessages;
   const socialProfiles = extractSocialProfiles(records);

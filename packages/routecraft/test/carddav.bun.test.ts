@@ -13,6 +13,7 @@ import {
 import {
   extractCustomFields,
   parseRecords,
+  withChanges,
 } from "../src/adapters/carddav/vcard-raw.ts";
 import type {
   CardDAVDriverClient,
@@ -319,8 +320,10 @@ describe("CardDAV adapter", () => {
       expect(c.organization).toBe("Acme Inc.");
       expect(c.department).toBe("Engineering");
       expect(c.categories).toEqual(["Friends", "VIP"]);
+      // `scheme` is read from the IMPP URI prefix and exposed so a non-Apple
+      // scheme (xmpp, skype, tel, ...) survives a round trip on write-back.
       expect(c.instantMessages).toEqual([
-        { service: "iMessage", handle: "jane@x.com" },
+        { service: "iMessage", scheme: "imessage", handle: "jane@x.com" },
       ]);
       expect(c.socialProfiles).toEqual([
         { service: "twitter", url: "https://twitter.com/jane" },
@@ -355,7 +358,7 @@ describe("CardDAV adapter", () => {
       expect(r.department).toBe("Sales");
       expect(r.categories).toEqual(["work"]);
       expect(r.instantMessages).toEqual([
-        { service: "WhatsApp", handle: "+15551112222" },
+        { service: "WhatsApp", scheme: "whatsapp", handle: "+15551112222" },
       ]);
       expect(r.socialProfiles).toEqual([
         { service: "linkedin", url: "https://linkedin.com/in/sam" },
@@ -386,6 +389,175 @@ describe("CardDAV adapter", () => {
       expect(out).not.toContain("item1.X-ABLabel:_$!<Spouse>!$_");
       expect(out).toContain("X-ABRELATEDNAMES:Alex");
       expect(out).toContain("X-ABLabel:child");
+    });
+  });
+
+  describe("audit-finding regressions (record-level diff/merge)", () => {
+    /**
+     * @case Audit #1 — ADR extended-address component (index 1) survives patch
+     * @preconditions ADR carries `Apt 4B` at index 1; patch leaves addresses untouched
+     * @expectedResult The patched card still contains `Apt 4B`
+     */
+    test("ADR extended-address component is preserved on round-trip", () => {
+      const card = [
+        "BEGIN:VCARD",
+        "VERSION:3.0",
+        "FN:E",
+        "ADR;TYPE=HOME:;Apt 4B;123 Main St;Springfield;IL;62704;USA",
+        "UID:E1",
+        "END:VCARD",
+      ].join("\r\n");
+      // Patch only the note: addresses are not touched at all, so the entire
+      // ADR record (including the extended-address slot) must survive byte-
+      // for-byte.
+      const noteOnly = patchVCard(card, { note: "hi" });
+      expect(noteOnly).toContain(
+        "ADR;TYPE=HOME:;Apt 4B;123 Main St;Springfield;IL;62704;USA",
+      );
+      // And: round-tripping the parsed contact through patch keeps Apt 4B even
+      // though the model does not expose it as a typed field. The patcher
+      // overlays only the components the user explicitly set on top of the
+      // origin record's raw components.
+      const parsed = parseVCard(vCard, card);
+      const out = patchVCard(card, { addresses: parsed.addresses });
+      expect(out).toContain(";Apt 4B;");
+    });
+
+    /**
+     * @case Audit #2 — IMPP URI scheme is preserved when no X-SERVICE-TYPE param exists
+     * @preconditions A standards-compliant `IMPP:xmpp:alice@host`
+     * @expectedResult The xmpp scheme survives a round trip; it is NOT rewritten as `x-apple:`
+     */
+    test("IMPP URI scheme is preserved without X-SERVICE-TYPE", () => {
+      const card = [
+        "BEGIN:VCARD",
+        "VERSION:3.0",
+        "FN:M",
+        "IMPP:xmpp:alice@jabber.example",
+        "UID:M1",
+        "END:VCARD",
+      ].join("\r\n");
+      const parsed = parseVCard(vCard, card);
+      expect(parsed.instantMessages).toEqual([
+        { scheme: "xmpp", handle: "alice@jabber.example" },
+      ]);
+      const out = patchVCard(card, {
+        instantMessages: parsed.instantMessages,
+      });
+      expect(out).toContain("IMPP:xmpp:alice@jabber.example");
+      expect(out).not.toContain("x-apple:alice@jabber.example");
+    });
+
+    /**
+     * @case Audit #3 — vCard 3.0 multi-instance `TYPE=HOME;TYPE=PREF` keeps the PREF flag
+     * @preconditions TEL carries both TYPE=HOME and TYPE=PREF; patch touches an unrelated field
+     * @expectedResult The PREF flag survives the round trip
+     */
+    test("TEL with TYPE=HOME;TYPE=PREF keeps the PREF flag on patch", () => {
+      const card = [
+        "BEGIN:VCARD",
+        "VERSION:3.0",
+        "FN:P",
+        "TEL;TYPE=HOME;TYPE=PREF:+15555551212",
+        "UID:P1",
+        "END:VCARD",
+      ].join("\r\n");
+      // Touch nothing in `phones` — the entire TEL record (incl. the second
+      // TYPE=PREF param) must survive byte-for-byte.
+      const noteOnly = patchVCard(card, { note: "x" });
+      expect(noteOnly).toContain("TEL;TYPE=HOME;TYPE=PREF:+15555551212");
+      // And: round-tripping the read phones through patch also preserves the
+      // PREF flag, because the per-record merger only updates the TYPE param
+      // when the user-supplied type differs from the origin's first non-pref
+      // value (both `home` here).
+      const parsed = parseVCard(vCard, card);
+      const out = patchVCard(card, { phones: parsed.phones });
+      expect(out).toContain("TEL;TYPE=HOME;TYPE=PREF:+15555551212");
+    });
+
+    /**
+     * @case Audit #4 — non-TYPE params on modeled properties survive patch
+     * @preconditions EMAIL with X-ABLABEL and a secondary TYPE=INTERNET; touch only the value
+     * @expectedResult The X-ABLABEL and INTERNET TYPE survive byte-for-byte
+     */
+    test("non-TYPE params on a modeled property are preserved on patch", () => {
+      const card = [
+        "BEGIN:VCARD",
+        "VERSION:3.0",
+        "FN:E",
+        "EMAIL;TYPE=INTERNET;TYPE=HOME;X-ABLABEL=Personal:a@b.com",
+        "UID:E1",
+        "END:VCARD",
+      ].join("\r\n");
+      const parsed = parseVCard(vCard, card);
+      // `withChanges` preserves the origin back-ref through an in-place edit;
+      // a plain `{...e, value: ...}` spread would lose it, and the patcher
+      // would fall back to value-equality matching (which fails when both the
+      // ref AND the value change in the same edit).
+      const newEmails = parsed.emails!.map((e) =>
+        e.value === "a@b.com" ? withChanges(e, { value: "alice@b.com" }) : e,
+      );
+      const out = patchVCard(card, { emails: newEmails });
+      // The new value is written, and the original params (X-ABLABEL,
+      // TYPE=INTERNET) survive because the patcher rewrites only the value
+      // bytes inside the origin record.
+      expect(out).toContain("alice@b.com");
+      expect(out).toContain("X-ABLABEL=Personal");
+      expect(out).toContain("TYPE=INTERNET");
+    });
+
+    /**
+     * @case Audit #5 — group prefix on a modeled property survives patch
+     * @preconditions item1.ADR with an item1.X-ABLabel sibling; touch only the city
+     * @expectedResult item1 prefix and its X-ABLabel both survive
+     */
+    test("group prefix on a modeled property is preserved on value edit", () => {
+      const card = [
+        "BEGIN:VCARD",
+        "VERSION:3.0",
+        "FN:G",
+        "item1.ADR;TYPE=HOME:;;100 Old St;Springfield;IL;62704;USA",
+        "item1.X-ABLabel:_$!<Home Address>!$_",
+        "UID:G1",
+        "END:VCARD",
+      ].join("\r\n");
+      const parsed = parseVCard(vCard, card);
+      const newAddresses = parsed.addresses!.map((a) =>
+        withChanges(a, { city: "Chicago" }),
+      );
+      const out = patchVCard(card, { addresses: newAddresses });
+      // New city written; group prefix on ADR survives; X-ABLabel sibling
+      // (sharing item1 group, NOT in `replaceNames`-style sets) survives.
+      expect(out).toContain("Chicago");
+      expect(out).toContain("item1.ADR");
+      expect(out).toContain("item1.X-ABLabel:_$!<Home Address>!$_");
+    });
+
+    /**
+     * @case Removing one phone keeps the others byte-for-byte
+     * @preconditions Two TELs with rich params; user removes one
+     * @expectedResult The kept phone preserves every param; the removed one is gone
+     */
+    test("removing one phone keeps the other's params byte-for-byte", () => {
+      const card = [
+        "BEGIN:VCARD",
+        "VERSION:3.0",
+        "FN:R",
+        "item1.TEL;TYPE=CELL;TYPE=PREF:+15551111111",
+        "item1.X-ABLabel:_$!<Personal>!$_",
+        "TEL;TYPE=WORK:+15552222222",
+        "UID:R1",
+        "END:VCARD",
+      ].join("\r\n");
+      const parsed = parseVCard(vCard, card);
+      // Keep only the WORK phone.
+      const kept = parsed.phones!.filter((p) => p.value === "+15552222222");
+      const out = patchVCard(card, { phones: kept });
+      // Removed phone and its labeled sibling are both gone.
+      expect(out).not.toContain("+15551111111");
+      expect(out).not.toContain("Personal");
+      // Kept phone preserves its TYPE param exactly.
+      expect(out).toContain("TEL;TYPE=WORK:+15552222222");
     });
   });
 

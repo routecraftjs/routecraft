@@ -100,6 +100,7 @@ export {
   patchVCard,
   DEFAULT_VCARD_VERSION,
 } from "./vcard-codec.ts";
+export { withChanges } from "./vcard-raw.ts";
 export type {
   CardDAVOptions,
   CardDAVReadOptions,

@@ -179,6 +179,13 @@ export interface ContactDate {
 export interface ContactInstantMessage {
   /** Service name (e.g. `"iMessage"`, `"WhatsApp"`, `"Skype"`). */
   service?: string;
+  /**
+   * URI scheme prefixing the handle on the wire (e.g. `"xmpp"`, `"skype"`,
+   * `"imessage"`). When omitted, the adapter preserves the scheme of an existing
+   * record on update and falls back to `service.toLowerCase()` (or `"x-apple"`)
+   * on create.
+   */
+  scheme?: string;
   /** The address/handle (e.g. `"user@example.com"`). */
   handle: string;
 }
