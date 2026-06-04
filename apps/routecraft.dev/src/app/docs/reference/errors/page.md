@@ -45,15 +45,22 @@ craft().from(timer()).id('orders');
 Invalid operation type
 
 **Why it happens**  
-The step received unsupported input.
+Either a step received unsupported input (e.g. `split()` on a non-array), or `from()` was called with no sources, or with multiple sources but without a preceding `input({ body })`. Multi-ingress routes share one pipeline, so they need one shared input schema to validate and normalize every channel to the same body type.
 
 **Suggestion**  
-Use a supported operator and verify the step name.
+Use a supported operator and verify the step name. For a multi-ingress route, declare `input({ body })` before `from()`, or expose each channel as its own single-source route.
 
 **Example**
 ```ts
 // split requires an array
 craft().from(simple(['a','b'])).split()
+
+// multi-ingress requires a shared input schema
+craft()
+  .id('my-route')
+  .input(MyBodySchema) // required with multiple sources
+  .from(direct(), mcp())
+  .to(handler)
 ```
 
 ## RC2002

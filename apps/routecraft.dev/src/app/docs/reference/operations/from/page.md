@@ -6,7 +6,11 @@ title: from
 
 ```ts
 from<T>(src: Source<T> | CallableSource<T>): RouteBuilder<T>
-from<T>(...sources: Source<unknown>[]): RouteBuilder<T>
+from<T>(
+  source1: Source<unknown> | CallableSource<unknown>,
+  source2: Source<unknown> | CallableSource<unknown>,
+  ...moreSources: Array<Source<unknown> | CallableSource<unknown>>
+): RouteBuilder<T>
 ```
 
 Defines the source adapter(s) and creates the capability. Must come after all other route-level operations (`id`, `batch`, `error`).

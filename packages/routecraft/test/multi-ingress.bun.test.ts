@@ -22,12 +22,13 @@ function expectRC2001(thunk: () => unknown): void {
 }
 
 describe("Multi-ingress routes", () => {
-  let t: TestContext;
+  let t: TestContext | undefined;
 
   afterEach(async () => {
     if (t) {
       await t.stop();
     }
+    t = undefined;
   });
 
   /**
@@ -43,6 +44,18 @@ describe("Multi-ingress routes", () => {
         .to(noop())
         .build(),
     );
+  });
+
+  /**
+   * @case A zero-source .from() is rejected at the public boundary
+   * @preconditions craft().from() called with no arguments (only reachable via untyped callers)
+   * @expectedResult Throws RC2001; the runtime guard protects the published API from JS callers the overloads cannot constrain
+   */
+  test("zero-source .from() throws RC2001", () => {
+    const builder = craft().id("empty") as unknown as {
+      from: (...sources: unknown[]) => unknown;
+    };
+    expectRC2001(() => builder.from());
   });
 
   /**

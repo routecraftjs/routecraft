@@ -20,7 +20,7 @@ tools((catalog) =>
 )
 ```
 
-The `KnownTag` literals `"read-only"`, `"destructive"`, and `"idempotent"` autocomplete; any other string is also accepted.
+The `KnownTag` literals `"read-only"`, `"destructive"`, `"idempotent"`, and `"open-world"` autocomplete; any other string is also accepted. On a route exposed via `from(mcp())`, these four tags also derive the corresponding MCP tool annotation hints (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`).
 
 ```ts
 craft()

@@ -17,6 +17,7 @@ import {
 } from "../../types.ts";
 import type { McpMessage } from "./types.ts";
 import { BRAND_MCP_ADAPTER } from "./shared.ts";
+import { deriveAnnotationsFromTags } from "../../annotation-tags.ts";
 
 /**
  * Characters allowed in an MCP tool name. Matches OpenAI's function-calling
@@ -36,25 +37,6 @@ function assertValidMcpToolName(endpoint: string): void {
         "MCP tool names must match /^[A-Za-z0-9_-]{1,64}$/ for client interoperability (OpenAI, Anthropic, etc.). Use alphanumerics, underscore, or hyphen in the route's .id().",
     });
   }
-}
-
-/**
- * Map route tags to the MCP tool annotation hints they describe. Only the
- * four well-known tags carry MCP meaning; any other tag is ignored here (it
- * still drives `tools()` selectors). Returns only the hints present as tags so
- * the result can be merged under explicit `annotations` without clobbering
- * unrelated keys.
- */
-function deriveAnnotationsFromTags(
-  tags: readonly string[] | undefined,
-): McpToolAnnotations {
-  if (!tags || tags.length === 0) return {};
-  const derived: McpToolAnnotations = {};
-  if (tags.includes("read-only")) derived.readOnlyHint = true;
-  if (tags.includes("destructive")) derived.destructiveHint = true;
-  if (tags.includes("idempotent")) derived.idempotentHint = true;
-  if (tags.includes("open-world")) derived.openWorldHint = true;
-  return derived;
 }
 
 /**

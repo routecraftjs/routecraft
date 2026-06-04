@@ -576,19 +576,19 @@ export interface Route<T = unknown> {
   logger: ReturnType<typeof logger.child>;
 
   /**
-   * Start processing: subscribe to the source and begin delivering messages through the steps.
-   * @returns Promise that resolves when the source has been subscribed and the consumer is ready
+   * Start processing: subscribe to every source and begin delivering messages through the steps.
+   * @returns Promise that resolves when all sources have been subscribed and the consumers are ready
    */
   start(): Promise<void>;
 
   /**
-   * Stop the route: abort the source subscription and clear the internal queue.
+   * Stop the route: abort all source subscriptions and clear the internal queues.
    */
   stop(): void;
 
   /**
    * Wait until all in-flight message handlers and tracked tasks (e.g. tap) have completed.
-   * Does not stop the route; use stop() to abort the source.
+   * Does not stop the route; use stop() to abort the sources.
    */
   drain(): Promise<void>;
 
@@ -1025,8 +1025,8 @@ export class DefaultRoute implements Route {
    * Start processing data on this route.
    *
    * This method:
-   * 1. Registers the consumer to process messages
-   * 2. Subscribes to the source to receive data
+   * 1. Registers each per-source consumer to process messages
+   * 2. Subscribes to every source to receive data
    *
    * @returns A promise that resolves when the route has started
    * @throws {RoutecraftError} If the route has been aborted
@@ -1121,7 +1121,34 @@ export class DefaultRoute implements Route {
       },
     );
 
-    await Promise.all(subscriptions);
+    try {
+      await Promise.all(subscriptions);
+    } catch (err) {
+      // One ingress failed to subscribe. Abort the route so any sibling
+      // ingresses that already subscribed are torn down (their registry
+      // entries cleared, their pending subscribe promises resolved) instead of
+      // leaking, then surface the error. `context.start()` already aborts on a
+      // failed route.start(); this makes start() self-cleaning for direct
+      // callers too. Harmless for the single-source case (no siblings).
+      if (!this.abortController.signal.aborted) {
+        this.abortController.abort(err);
+      }
+      throw err;
+    }
+
+    // Every ingress's subscription resolved. For a multi-ingress route whose
+    // sources are all finite this means every ingress has completed: mirror the
+    // single-source contract (where a finite source aborts the route's own
+    // controller on completion) by aborting here so the route's terminal
+    // lifecycle events fire even when an indefinite sibling route keeps the
+    // context alive. A route holding any server ingress never reaches this with
+    // an un-aborted controller (a server's subscribe only resolves once the
+    // controller is aborted), so the guard makes this a no-op there. The
+    // single-source path is left exactly as before: its source drives
+    // completion.
+    if (total > 1 && !this.abortController.signal.aborted) {
+      this.abortController.abort("All ingresses completed");
+    }
   }
 
   /**

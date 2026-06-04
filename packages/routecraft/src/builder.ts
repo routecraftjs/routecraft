@@ -710,6 +710,13 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    * // integrations) that all feed the same pipeline. Multi-ingress requires
    * // `.input()` so every channel validates and normalizes to one body type:
    * // .input(QuerySchema).from(direct(), mcp(), http({ path: '/q', method: 'POST' }))
+   *
+   * The multiple-source `.input()` requirement is a deliberate build-time
+   * precondition, enforced at `.from()` with RC2001 rather than in the type
+   * system: the variadic overload is statically reachable and `T` defaults to
+   * `unknown` unless you pass it explicitly (`.from<Query>(...)`). A type-level
+   * flag threaded through the builder could make it compile-time, but that is a
+   * larger change deferred for the v0 unstable surface.
    */
   from<T>(source: Source<T> | CallableSource<T>): RouteBuilder<T>;
   from<T>(source: Source<unknown> | CallableSource<unknown>): RouteBuilder<T>;
