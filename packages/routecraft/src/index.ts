@@ -345,6 +345,7 @@ export {
   parseVCard,
   serializeContact,
   patchVCard,
+  withChanges,
   type CardDAVOptions,
   type CardDAVReadOptions,
   type CardDAVWriteOptions,
