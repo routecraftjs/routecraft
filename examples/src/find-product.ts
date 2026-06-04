@@ -1,4 +1,12 @@
-import { craft, direct, noop, only, log, simple } from "@routecraft/routecraft";
+import {
+  craft,
+  direct,
+  noop,
+  only,
+  log,
+  simple,
+  json,
+} from "@routecraft/routecraft";
 import { readFile } from "node:fs/promises";
 
 // The shape of every object in the JSON file on disk. This is the type we
@@ -23,8 +31,9 @@ const CATALOGUE_URL = new URL("../data/products.json", import.meta.url);
 
 // "find-product": a reusable service. It is triggered as a direct() endpoint so
 // any other route (or external caller via client.send) can dispatch into it.
-// When called, it reads the product catalogue from disk, casts it to the typed
-// array, and returns the single product whose id matches the criteria.
+// When called, it reads the product catalogue from disk, parses and casts it to
+// the typed array via the json() adapter, and returns the single product whose
+// id matches the criteria.
 const findProductRoute = craft()
   .id("find-product")
   .title("Find product by id")
@@ -32,18 +41,27 @@ const findProductRoute = craft()
     "Read the product catalogue from disk and return one product by id",
   )
   .from<FindProduct>(direct())
-  // Read + parse + cast the file to Product[], merged onto the body under
-  // `catalogue`. The `as Product[]` cast is the single point where the untyped
-  // JSON becomes typed; only(value => value, "catalogue") tells .enrich() to
-  // place it at body.catalogue, so the builder infers the new body shape as
-  // FindProduct & { catalogue: Product[] }.
+  // Read the raw file text and keep it alongside the criteria under `raw`.
+  // There is no mid-route file-READ adapter (file()/json({path}) are .from()
+  // sources, i.e. route triggers), so the byte read itself is node fs.
   .enrich(
-    async () => JSON.parse(await readFile(CATALOGUE_URL, "utf-8")) as Product[],
-    only((catalogue: Product[]) => catalogue, "catalogue"),
+    () => readFile(CATALOGUE_URL, "utf-8"),
+    only((raw: string) => raw, "raw"),
   )
-  // One body in, one body out. A transform is the right tool here: the body is
-  // a single value we map to another single value (the matched product). Were
-  // the body an array we wanted to fan out over, we would .split() instead.
+  // Parse + cast the raw text with the json() adapter (transformer mode):
+  // `from` plucks the JSON string out of the body, `getValue` is the single
+  // typed cast point, and `to` places the result under `catalogue` while
+  // keeping the criteria id.
+  .transform(
+    json({
+      from: (body: FindProduct & { raw: string }) => body.raw,
+      getValue: (parsed): Product[] => parsed as Product[],
+      to: (body, catalogue) => ({ id: body.id, catalogue }),
+    }),
+  )
+  // One body in, one body out. A transform is the right tool: the body is a
+  // single value mapped to another single value (the matched product). Were the
+  // body an array we wanted to fan out over, we would .split() instead.
   .transform((body) => body.catalogue.find((p) => p.id === body.id) ?? null)
   .to(noop());
 
