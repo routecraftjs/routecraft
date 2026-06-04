@@ -1,12 +1,4 @@
-import {
-  craft,
-  direct,
-  noop,
-  only,
-  log,
-  simple,
-  json,
-} from "@routecraft/routecraft";
+import { craft, direct, noop, only, log, simple } from "@routecraft/routecraft";
 import { readFile } from "node:fs/promises";
 
 // The shape of every object in the JSON file on disk. This is the type we
@@ -41,27 +33,20 @@ const findProductRoute = craft()
     "Read the product catalogue from disk and return one product by id",
   )
   .from<FindProduct>(direct())
-  // Read the raw file text and keep it alongside the criteria under `raw`.
+  // Read + parse + cast the catalogue, merged onto the body under `catalogue`.
   // There is no mid-route file-READ adapter (file()/json({path}) are .from()
-  // sources, i.e. route triggers), so the byte read itself is node fs.
+  // sources, i.e. route triggers), and json()'s transformer mode only parses a
+  // string you already hold, so wrapping it here adds ceremony with no payoff.
+  // The honest minimal is node fs + JSON.parse; the `as Product[]` is the single
+  // typed cast point. only(..., "catalogue") tells .enrich() to place the array
+  // at body.catalogue, so the builder infers FindProduct & { catalogue: Product[] }.
   .enrich(
-    () => readFile(CATALOGUE_URL, "utf-8"),
-    only((raw: string) => raw, "raw"),
+    async () => JSON.parse(await readFile(CATALOGUE_URL, "utf-8")) as Product[],
+    only((catalogue: Product[]) => catalogue, "catalogue"),
   )
-  // Parse + cast the raw text with the json() adapter (transformer mode):
-  // `from` plucks the JSON string out of the body, `getValue` is the single
-  // typed cast point, and `to` places the result under `catalogue` while
-  // keeping the criteria id.
-  .transform(
-    json({
-      from: (body: FindProduct & { raw: string }) => body.raw,
-      getValue: (parsed): Product[] => parsed as Product[],
-      to: (body, catalogue) => ({ id: body.id, catalogue }),
-    }),
-  )
-  // One body in, one body out. A transform is the right tool: the body is a
-  // single value mapped to another single value (the matched product). Were the
-  // body an array we wanted to fan out over, we would .split() instead.
+  // Now the body is one value holding both the criteria and the array, so you
+  // pick the operation: here a transform (one item out). Were you fanning out
+  // over the array you would .split(); to reduce it, .filter()/.aggregate().
   .transform((body) => body.catalogue.find((p) => p.id === body.id) ?? null)
   .to(noop());
 
