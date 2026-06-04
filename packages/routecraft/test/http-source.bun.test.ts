@@ -1181,9 +1181,9 @@ describe("HTTP Source Adapter -- request/response coverage", () => {
   });
 
   /**
-   * @case Request headers land on exchange under routecraft.http.headers (lower-cased)
+   * @case Request headers land on exchange under routecraft.http.rawHeaders (lower-cased)
    * @preconditions Client sends a custom X-Trace header
-   * @expectedResult routecraft.http.headers["x-trace"] === "abc"
+   * @expectedResult routecraft.http.rawHeaders["x-trace"] === "abc"
    */
   test("request headers land on exchange headers (lower-cased)", async () => {
     const bound = await bootHttp({
@@ -1191,7 +1191,7 @@ describe("HTTP Source Adapter -- request/response coverage", () => {
         .id("h")
         .from(http({ path: "/h", method: "GET" }))
         .process(async (ex) => {
-          const h = ex.headers["routecraft.http.headers"] as Record<
+          const h = ex.headers["routecraft.http.rawHeaders"] as Record<
             string,
             string
           >;

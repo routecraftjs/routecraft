@@ -309,8 +309,13 @@ declare module "@routecraft/routecraft" {
     "routecraft.http.params"?: Readonly<Record<string, string>>;
     /** Query string parameters as a flat object. Repeated keys keep the last value. */
     "routecraft.http.query"?: Readonly<Record<string, string>>;
-    /** Request headers as a flat lower-cased object. */
-    "routecraft.http.headers"?: Readonly<Record<string, string>>;
+    /**
+     * Raw request headers as a flat lower-cased map. This is the open-ended,
+     * pass-through wire-header remainder (mirrors `routecraft.mail.rawHeaders`);
+     * the parsed request envelope (method, path, query, params) is promoted to
+     * its own keys above.
+     */
+    "routecraft.http.rawHeaders"?: Readonly<Record<string, string>>;
     /** Override the response status code. */
     "routecraft.http.response.status"?: number;
     /** Override the response Content-Type. */
