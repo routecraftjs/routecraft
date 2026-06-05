@@ -1515,7 +1515,7 @@ carddav(options: CardDAVDeleteOptions): Destination<unknown, CardDAVDeleteResult
 
 Read and write contacts over CardDAV. Defaults to Apple iCloud Contacts (`https://contacts.icloud.com`) but works with any CardDAV server (Fastmail, Nextcloud, Google). The role is chosen by an `action` flag, the same way the mail adapter selects its mode: no `action` reads, `action` writes or deletes.
 
-Requires the optional peers `tsdav` (DAV client) and `vcf` (vCard codec): `bun add tsdav vcf`. A missing peer raises `RC5017` with an install hint.
+Requires the optional peer `tsdav` (DAV client): `bun add tsdav`. A missing peer raises `RC5017` with an install hint.
 
 **Credentials** live in context config as named accounts. For iCloud, `username` is your Apple ID and `appPassword` is an [app-specific password](https://support.apple.com/en-us/102654) (not your account password).
 
@@ -1596,7 +1596,7 @@ craft()
 | `description` | `string?` | Human-readable description for route discovery |
 | `keywords` | `string[]?` | Keywords for route discovery |
 
-**`Contact` (mapped fields):** `uid`, `url`, `etag`, `fullName`, `firstName`, `lastName`, `middleName`, `prefix`, `suffix`, `nickname`, `organization`, `department` (ORG 2nd component), `title`, `categories[]`, `phones[]`, `emails[]`, `addresses[]`, `urls[]`, `instantMessages[]` (`IMPP`), `socialProfiles[]` (`X-SOCIALPROFILE`), `relatedNames[]` (`X-ABRELATEDNAMES`, `{ label, name }`), `birthday`, `dates[]` (labeled dates / anniversaries, `{ label, date }`), `note`, `photo` (`{ data, mediaType }`, base64), `custom[]` (anything else), and `raw` (the original vCard text). On read, `url`/`etag` round-trip the DAV object so updates target the right resource.
+**`Contact` (mapped fields):** `uid`, `url`, `etag`, `fullName`, `firstName`, `lastName`, `middleName`, `prefix`, `suffix`, `nickname`, `organization`, `department` (ORG 2nd component), `title`, `categories[]`, `phones[]`, `emails[]`, `addresses[]`, `urls[]`, `instantMessages[]` (`IMPP`, with optional `scheme`), `socialProfiles[]` (`X-SOCIALPROFILE`), `relatedNames[]` (`X-ABRELATEDNAMES`, `{ label, name }`), `birthday`, `dates[]` (labeled dates / anniversaries, `{ label, date }`), `note`, `photo` (`{ data, mediaType }`, base64), `custom[]` (anything else), and `raw` (the original vCard text). On read, `url`/`etag` round-trip the DAV object so updates target the right resource.
 
 **Labeled dates:** beyond `birthday`, iCloud stores anniversaries and custom dates as grouped `X-ABDATE` + `X-ABLabel`. These read into and write from `dates: { label, date }[]`.
 
@@ -1607,11 +1607,11 @@ craft()
 
 **Custom fields:** properties outside the mapped set (e.g. arbitrary `X-*` extension properties) read into `custom: { key, value, type?, group? }[]` and write back from it. On `save`/`update` they upsert by key + group; custom fields you do not mention are left untouched. (Mapped iCloud properties such as `IMPP`, `NICKNAME`, `CATEGORIES`, and `X-SOCIALPROFILE` surface on their own typed fields and are excluded from `custom[]`.)
 
-**Data integrity:** updates are applied as a **surgical line-level patch** of the raw vCard: only the properties your `Contact` changes are rewritten, and every other line is copied through byte-for-byte. Properties the model does not manage (mixed-case `X-ABLabel` grouped labels, IMPP, related names, etc.) are never reordered, renamed, or dropped. Replacing a grouped multi-valued field (e.g. `phones`) also removes that field's orphaned `X-ABLabel` so no dangling labels remain.
+**Data integrity (per-record diff/merge).** Updates are applied as a per-record diff against the existing raw vCard: each item the read path returns carries a hidden back-ref to its source record, so on patch the merger rewrites only the bytes you changed inside that origin record. Every other parameter, the `item N.` group prefix, and any grouped `X-ABLabel` sibling survive byte-for-byte. Unmatched origins are removed (and only their `X-ABLabel` sibling along with them); new items are appended fresh just before `END:VCARD`. Anything the typed model does not surface is preserved by default. Use `withChanges(item, partial)` to edit an item in place while keeping its origin ref (a plain `{...item, value: 'new'}` spread loses the ref).
 
 **Exchange headers** on read: `routecraft.carddav.url`, `routecraft.carddav.uid`, `routecraft.carddav.etag`, `routecraft.carddav.account`.
 
-**Exported types:** `CardDAVOptions`, `CardDAVReadOptions`, `CardDAVWriteOptions`, `CardDAVDeleteOptions`, `CardDAVContextConfig`, `CardDAVAccountConfig`, `CardDAVAction`, `CardDAVTargetExtractor`, `CardDAVWriteResult`, `CardDAVDeleteResult`, `Contact`, `ContactPhone`, `ContactEmail`, `ContactAddress`, `ContactPhoto`, `ContactDate`, `ContactField`, `ContactInstantMessage`, `ContactSocialProfile`, `ContactRelatedName`, `CardDAVClientManager`, `CARDDAV_CLIENT_MANAGER`. Helpers: `parseVCard`, `serializeContact`, `patchVCard`.
+**Exported types:** `CardDAVOptions`, `CardDAVReadOptions`, `CardDAVWriteOptions`, `CardDAVDeleteOptions`, `CardDAVContextConfig`, `CardDAVAccountConfig`, `CardDAVAction`, `CardDAVTargetExtractor`, `CardDAVWriteResult`, `CardDAVDeleteResult`, `Contact`, `ContactPhone`, `ContactEmail`, `ContactAddress`, `ContactPhoto`, `ContactDate`, `ContactField`, `ContactInstantMessage`, `ContactSocialProfile`, `ContactRelatedName`, `CardDAVClientManager`, `CARDDAV_CLIENT_MANAGER`. Helpers: `parseVCard`, `serializeContact`, `patchVCard`, `withChanges`.
 
 ---
 
