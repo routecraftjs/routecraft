@@ -558,6 +558,174 @@ describe("CardDAV adapter", () => {
       // Kept phone preserves its TYPE param exactly.
       expect(out).toContain("TEL;TYPE=WORK:+15552222222");
     });
+
+    /**
+     * @case IMPP value-equality matching pairs the handle, not the URI
+     * @preconditions IMPP origin holds `xmpp:a@b`; the new item carries only the bare handle
+     * @expectedResult The patcher rewrites the origin (preserving the xmpp scheme) instead of appending a fresh record
+     */
+    test("IMPP value-equality matches handle against URI's handle portion", () => {
+      const card = [
+        "BEGIN:VCARD",
+        "VERSION:3.0",
+        "FN:I",
+        "IMPP:xmpp:alice@jabber.example",
+        "UID:I1",
+        "END:VCARD",
+      ].join("\r\n");
+      // Construct a new IM from scratch (no origin ref) with the same handle.
+      // Value-equality must pair it against the existing IMPP record so the
+      // origin's URI scheme is preserved on update.
+      const out = patchVCard(card, {
+        instantMessages: [{ handle: "alice@jabber.example" }],
+      });
+      const imppLines = out
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith("IMPP"));
+      expect(imppLines).toHaveLength(1);
+      expect(imppLines[0]).toBe("IMPP:xmpp:alice@jabber.example");
+    });
+
+    /**
+     * @case parseVCard rejects multi-card payloads
+     * @preconditions Input contains two BEGIN:VCARD / END:VCARD blocks
+     * @expectedResult parseVCard throws SyntaxError instead of silently flattening
+     */
+    test("parseVCard rejects vCard collections", () => {
+      const payload = [
+        "BEGIN:VCARD",
+        "VERSION:3.0",
+        "FN:A",
+        "END:VCARD",
+        "BEGIN:VCARD",
+        "VERSION:3.0",
+        "FN:B",
+        "END:VCARD",
+      ].join("\r\n");
+      expect(() => parseVCard(payload)).toThrow(SyntaxError);
+    });
+
+    /**
+     * @case Empty-string text singletons are a safe no-op (do not wipe iCloud data)
+     * @preconditions Existing card has `FN:Original`; user passes `fullName: ""`
+     * @expectedResult The original FN survives; no `FN:` line is emitted
+     */
+    test("empty-string text singleton is a no-op, not a wipe", () => {
+      const card = [
+        "BEGIN:VCARD",
+        "VERSION:3.0",
+        "FN:Original Name",
+        "UID:W1",
+        "END:VCARD",
+      ].join("\r\n");
+      const out = patchVCard(card, { fullName: "   " });
+      expect(out).toContain("FN:Original Name");
+      // No bare-empty FN/UID lines that iCloud would reject.
+      expect(out).not.toMatch(/^FN:\s*$/m);
+    });
+
+    /**
+     * @case N component slots beyond the standard five survive
+     * @preconditions N has 7 components (non-standard exporter)
+     * @expectedResult Patching an unrelated field keeps every component
+     */
+    test("N components past the standard 5 are preserved on patch", () => {
+      const card = [
+        "BEGIN:VCARD",
+        "VERSION:3.0",
+        "FN:Smith",
+        "N:Smith;John;Q;Mr.;Jr.;extra6;extra7",
+        "UID:N1",
+        "END:VCARD",
+      ].join("\r\n");
+      const out = patchVCard(card, { firstName: "Jonathan" });
+      expect(out).toContain("N:Smith;Jonathan;Q;Mr.;Jr.;extra6;extra7");
+    });
+
+    /**
+     * @case IMPP with empty-string scheme falls through to the origin/default
+     * @preconditions Existing IMPP carries `xmpp:` scheme; new item has `scheme: ""`
+     * @expectedResult The xmpp scheme is preserved (no invalid `:handle` URI emitted)
+     */
+    test("IMPP empty-string scheme is treated as unset", () => {
+      const card = [
+        "BEGIN:VCARD",
+        "VERSION:3.0",
+        "FN:I",
+        "IMPP:xmpp:alice@jabber.example",
+        "UID:I2",
+        "END:VCARD",
+      ].join("\r\n");
+      const out = patchVCard(card, {
+        instantMessages: [{ handle: "alice@jabber.example", scheme: "" }],
+      });
+      expect(out).toContain("IMPP:xmpp:alice@jabber.example");
+      expect(out).not.toContain("IMPP::alice@jabber.example");
+    });
+
+    /**
+     * @case Mixed-case user TYPE does not force unnecessary header rewrite
+     * @preconditions Origin stores `TYPE=HOME` (parsed to lowercase `home`); user supplies `type: "HOME"`
+     * @expectedResult The header survives byte-for-byte (no rewritten TYPE param)
+     */
+    test("mixed-case user TYPE matches lowercased origin without rewriting header", () => {
+      const card = [
+        "BEGIN:VCARD",
+        "VERSION:3.0",
+        "FN:T",
+        "TEL;TYPE=HOME;X-CUSTOM=keep:+15551111111",
+        "UID:T1",
+        "END:VCARD",
+      ].join("\r\n");
+      // User passes uppercase TYPE; the lowercased origin should match without
+      // a header rewrite, preserving the X-CUSTOM param.
+      const out = patchVCard(card, {
+        phones: [{ value: "+15551111111", type: "HOME" }],
+      });
+      expect(out).toContain("TEL;TYPE=HOME;X-CUSTOM=keep:+15551111111");
+    });
+
+    /**
+     * @case ADR with TYPE but no components produces no phantom address
+     * @preconditions Stray `ADR;TYPE=HOME:;;;;;;` line with no components
+     * @expectedResult extractAddresses returns no entry for that record
+     */
+    test("ADR with TYPE but no components is not surfaced as a phantom address", () => {
+      const card = [
+        "BEGIN:VCARD",
+        "VERSION:3.0",
+        "FN:P",
+        "ADR;TYPE=HOME:;;;;;;",
+        "UID:P2",
+        "END:VCARD",
+      ].join("\r\n");
+      const parsed = parseVCard(card);
+      expect(parsed.addresses).toBeUndefined();
+    });
+
+    /**
+     * @case pairItems matches values across whitespace asymmetry
+     * @preconditions Origin stores `+15551111111`; new item has surrounding whitespace
+     * @expectedResult Patcher rewrites the origin (preserves params) instead of appending fresh
+     */
+    test("value-equality matching trims both sides", () => {
+      const card = [
+        "BEGIN:VCARD",
+        "VERSION:3.0",
+        "FN:T",
+        "TEL;TYPE=HOME;X-CUSTOM=keep:+15551111111",
+        "UID:T2",
+        "END:VCARD",
+      ].join("\r\n");
+      const out = patchVCard(card, {
+        phones: [{ value: " +15551111111 ", type: "HOME" }],
+      });
+      const telLines = out
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith("TEL"));
+      expect(telLines).toHaveLength(1);
+      expect(telLines[0]).toContain("X-CUSTOM=keep");
+    });
   });
 
   describe("encoding & robustness", () => {

@@ -518,9 +518,18 @@ export function extractAddresses(records: RawRecord[]): ContactAddress[] {
     // Index 1 is the RFC 6350 "extended address" component (apartment / suite).
     // It is intentionally NOT exposed on the model, but the original raw bytes
     // are preserved by the patcher via the origin back-ref, so a round trip
-    // does not drop "Apt 4B".
-    if (Object.keys(address).length > 0)
-      out.push(attachOrigin(address, record));
+    // does not drop "Apt 4B". Gate inclusion on having at least one component
+    // (or a non-empty extended address) so a stray `ADR;TYPE=HOME:;;;;;;` line
+    // does not surface a phantom `{ type: 'home' }` address.
+    const hasContent =
+      poBox !== undefined ||
+      street !== undefined ||
+      city !== undefined ||
+      region !== undefined ||
+      postalCode !== undefined ||
+      country !== undefined ||
+      component(parts, 1) !== undefined;
+    if (hasContent) out.push(attachOrigin(address, record));
   }
   return out;
 }
@@ -787,13 +796,22 @@ function recordKey(r: RawRecord): string {
  * Pair each item in `newItems` with a candidate origin record by:
  *   1. The `RECORD_ORIGIN` back-ref attached during read, matched by physical
  *      bytes (so refs survive the patcher's internal re-parse).
- *   2. Value equality (`valueOf(item) === record.value`), first unclaimed wins.
+ *   2. Value equality, first unclaimed wins. Both sides are trimmed so
+ *      whitespace differences in user-supplied values (e.g. ` +1234 ` from a
+ *      form field) still match a server-stored `+1234`.
+ *
+ * `recordValueOf` extracts the comparable value from an origin record when the
+ * record's wire-value is not directly comparable to the item's typed value
+ * (e.g. IMPP records hold `scheme:handle` URIs while the typed item holds just
+ * `handle`). Defaults to the record's unescaped value.
+ *
  * Items with no match are appended fresh; origins not claimed are removed.
  */
 function pairItems<T extends object>(
   newItems: T[],
   candidates: RawRecord[],
   valueOf: (item: T) => string,
+  recordValueOf: (record: RawRecord) => string = (r) => r.value,
 ): PairResult<T> {
   const claimed = new Set<RawRecord>();
   const pairs: Array<{ item: T; origin?: RawRecord }> = [];
@@ -810,8 +828,10 @@ function pairItems<T extends object>(
         continue;
       }
     }
-    const v = valueOf(item);
-    const match = candidates.find((r) => !claimed.has(r) && r.value === v);
+    const v = valueOf(item).trim();
+    const match = candidates.find(
+      (r) => !claimed.has(r) && recordValueOf(r).trim() === v,
+    );
     if (match) {
       claimed.add(match);
       pairs.push({ item, origin: match });
@@ -914,6 +934,10 @@ function mergeTextSingleton(
   newValue: string | undefined,
 ): RawRecord[] {
   if (newValue === undefined) return records;
+  // Empty / whitespace-only values would emit a property line with no content
+  // (e.g. `FN:`), which iCloud rejects on update and which would silently wipe
+  // a previously-set value the user did not intend to clear. Treat as no-op.
+  if (newValue.trim() === "") return records;
   const lower = name.toLowerCase();
   const existing = records.find((r) => r.name === lower && !r.group);
   const rawValue = escapeText(newValue);
@@ -952,6 +976,9 @@ function mergeName(records: RawRecord[], contact: Contact): RawRecord[] {
   for (let i = 0; i < 5; i++) {
     parts[i] = baseRaw[i] ?? "";
   }
+  // Preserve any trailing components past the standard 5 (some non-iCloud
+  // exporters emit extra slots); same posture as mergeOrg.
+  for (let i = 5; i < baseRaw.length; i++) parts.push(baseRaw[i] ?? "");
   const order: Array<keyof Contact> = [
     "lastName",
     "firstName",
@@ -1104,7 +1131,10 @@ function mergeSimpleArrayProperty<T extends object>(
       let header = origin.header;
       if (config.typeOf) {
         const newType = config.typeOf(item);
-        if ((newType ?? null) !== (origin.type ?? null)) {
+        // `origin.type` is stored lowercased; lowercase the user value too so
+        // `"HOME"` from the typed model does not force a needless TYPE rewrite
+        // against a stored `home`.
+        if ((newType?.toLowerCase() ?? null) !== (origin.type ?? null)) {
           header = replaceTypeInHeader(origin.header, newType);
         }
       }
@@ -1205,7 +1235,8 @@ function mergeAddresses(
       if (addr.postalCode !== undefined) parts[5] = escapeText(addr.postalCode);
       if (addr.country !== undefined) parts[6] = escapeText(addr.country);
       const rawValue = parts.join(";");
-      const needsTypeUpdate = (addr.type ?? null) !== (origin.type ?? null);
+      const needsTypeUpdate =
+        (addr.type?.toLowerCase() ?? null) !== (origin.type ?? null);
       const header = needsTypeUpdate
         ? replaceTypeInHeader(origin.header, addr.type)
         : origin.header;
@@ -1253,7 +1284,15 @@ function mergeIMPP(
 ): RawRecord[] {
   if (ims === undefined) return records;
   const candidates = records.filter((r) => r.name === "impp");
-  const { pairs, claimed } = pairItems(ims, candidates, (im) => im.handle);
+  // IMPP record values are `scheme:handle` URIs; the typed item only carries
+  // the bare handle. Match handle against the URI's handle portion, otherwise
+  // value-equality always fails and updates fall through to "append fresh".
+  const { pairs, claimed } = pairItems(
+    ims,
+    candidates,
+    (im) => im.handle,
+    (r) => parseImppValue(r.value).handle,
+  );
   return applyArrayMerge(
     records,
     pairs,
@@ -1261,10 +1300,13 @@ function mergeIMPP(
     new Set(candidates),
     (origin, im) => {
       // Preserve the origin's URI scheme by default; only override if the user
-      // supplied a different `scheme` field.
+      // supplied a different `scheme` field. Treat empty strings as unset so a
+      // form-derived `scheme: ""` cannot produce an invalid `":handle"` URI.
       const { scheme: originScheme } = parseImppValue(origin.value);
+      const userScheme =
+        im.scheme && im.scheme.length > 0 ? im.scheme : undefined;
       const scheme =
-        im.scheme ?? originScheme ?? (im.service ?? "x-apple").toLowerCase();
+        userScheme ?? originScheme ?? (im.service ?? "x-apple").toLowerCase();
       const rawValue = `${scheme}:${escapeText(im.handle)}`;
       // X-SERVICE-TYPE: update only if user changed it (origin preserved otherwise).
       const originService = origin.params["x-service-type"];
@@ -1275,7 +1317,9 @@ function mergeIMPP(
       return withRebuiltPhysical(origin, header, rawValue);
     },
     (im) => {
-      const scheme = im.scheme ?? (im.service ?? "x-apple").toLowerCase();
+      const userScheme =
+        im.scheme && im.scheme.length > 0 ? im.scheme : undefined;
+      const scheme = userScheme ?? (im.service ?? "x-apple").toLowerCase();
       const rawValue = `${scheme}:${escapeText(im.handle)}`;
       return [
         buildFreshRecord({
@@ -1481,7 +1525,8 @@ function mergeCustom(
     if (matched !== undefined) {
       // Update value; preserve header (and thus all params/group).
       const newRawValue = escapeText(matched.value);
-      const needsTypeUpdate = (matched.type ?? null) !== (r.type ?? null);
+      const needsTypeUpdate =
+        (matched.type?.toLowerCase() ?? null) !== (r.type ?? null);
       const header = needsTypeUpdate
         ? replaceTypeInHeader(r.header, matched.type)
         : r.header;
