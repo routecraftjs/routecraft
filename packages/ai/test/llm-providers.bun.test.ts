@@ -1,10 +1,7 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { MockLanguageModelV3 } from "ai/test";
-import { craft, noop, simple } from "@routecraft/routecraft";
-import { testContext, type TestContext } from "@routecraft/testing";
-import { llm, llmPlugin } from "../src/index.ts";
+import { llmPlugin } from "../src/index.ts";
 import { resolveLanguageModel } from "../src/llm/providers/resolve.ts";
-import type { LlmResult } from "../src/llm/types.ts";
 
 /** Build a deterministic in-process model that always returns `text`. */
 function mockModel(text: string): MockLanguageModelV3 {
@@ -18,91 +15,49 @@ function mockModel(text: string): MockLanguageModelV3 {
   });
 }
 
+// These tests resolve the provider directly via `resolveLanguageModel` rather
+// than dispatching through `llm()`. The dispatch path goes through the
+// `./providers/index.ts` barrel (`callLlm`) and the `ai` package, both of which
+// sibling test files replace with `mock.module`; bun shares one module registry
+// across the whole `bun test` run, so a route-level assertion here would read
+// another file's stub depending on file order. `resolveLanguageModel` depends on
+// neither mocked module, so it exercises the new `custom`/`lmstudio` logic
+// deterministically.
 describe("custom LLM provider (in-process model)", () => {
-  let t: TestContext | undefined;
-
-  afterEach(async () => {
-    if (t) await t.stop();
-    t = undefined;
-  });
-
   /**
-   * @case llm("custom:...") runs an in-process model end to end with no key or network
-   * @preconditions llmPlugin registers a custom provider carrying a MockLanguageModelV3
-   * @expectedResult Enriched body carries the mock's text and usage
+   * @case A supplied LanguageModel instance is passed straight through (no key, no network)
+   * @preconditions A custom config carrying a MockLanguageModelV3 instance
+   * @expectedResult resolveLanguageModel returns the same model instance
    */
-  test("dispatches a supplied LanguageModel through generateText", async () => {
-    let captured: LlmResult | undefined;
-    t = await testContext()
-      .routes([
-        craft()
-          .id("custom-direct")
-          .from(simple({ body: "Hello" }))
-          .enrich(llm("custom:local"))
-          .process((ex) => {
-            captured = ex.body as LlmResult;
-            return ex.body;
-          })
-          .to(noop()),
-      ])
-      .with({
-        plugins: [
-          llmPlugin({
-            providers: {
-              custom: { model: mockModel("Hello from a local model") },
-            },
-          }),
-        ],
-      })
-      .build();
-
-    await t.test();
-    expect(t.errors).toHaveLength(0);
-    expect(captured?.text).toBe("Hello from a local model");
-    // Proves the value flowed through the AI SDK generateText path.
-    expect(captured?.raw).toBeDefined();
+  test("returns a supplied LanguageModel instance unchanged", async () => {
+    const model = mockModel("Hello from a local model");
+    const resolved = await resolveLanguageModel(
+      { provider: "custom", model },
+      "local",
+    );
+    expect(resolved).toBe(model);
   });
 
   /**
    * @case A custom provider factory receives the model name from "custom:name"
    * @preconditions Provider model is a (modelId) => LanguageModel factory
-   * @expectedResult Factory is invoked with "greeter" and its model is used
+   * @expectedResult Factory is invoked with "greeter" and its model is returned
    */
   test("invokes a factory with the parsed model name", async () => {
     const seen: string[] = [];
-    let captured: LlmResult | undefined;
-    t = await testContext()
-      .routes([
-        craft()
-          .id("custom-factory")
-          .from(simple({ body: "Hi" }))
-          .enrich(llm("custom:greeter"))
-          .process((ex) => {
-            captured = ex.body as LlmResult;
-            return ex.body;
-          })
-          .to(noop()),
-      ])
-      .with({
-        plugins: [
-          llmPlugin({
-            providers: {
-              custom: {
-                model: (modelId: string) => {
-                  seen.push(modelId);
-                  return mockModel(`built ${modelId}`);
-                },
-              },
-            },
-          }),
-        ],
-      })
-      .build();
-
-    await t.test();
-    expect(t.errors).toHaveLength(0);
+    const built = mockModel("built greeter");
+    const resolved = await resolveLanguageModel(
+      {
+        provider: "custom",
+        model: (modelId: string) => {
+          seen.push(modelId);
+          return built;
+        },
+      },
+      "greeter",
+    );
     expect(seen).toEqual(["greeter"]);
-    expect(captured?.text).toBe("built greeter");
+    expect(resolved).toBe(built);
   });
 
   /**
