@@ -341,7 +341,6 @@ export {
   HEADER_CARDDAV_URL,
   HEADER_CARDDAV_ETAG,
   HEADER_CARDDAV_ACCOUNT,
-  loadVCardConstructor,
   parseVCard,
   serializeContact,
   patchVCard,

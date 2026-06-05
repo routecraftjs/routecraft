@@ -29,12 +29,7 @@ import type { Source } from "../../operations/from.ts";
 import type { Destination } from "../../operations/to.ts";
 import type { OnParseError } from "../shared/parse.ts";
 import type { CardDAVClientManager } from "./client-manager.ts";
-import {
-  loadVCardConstructor,
-  parseVCard,
-  patchVCard,
-  serializeContact,
-} from "./vcard-codec.ts";
+import { parseVCard, patchVCard, serializeContact } from "./vcard-codec.ts";
 import {
   assertResponseOk,
   requireClientManager,
@@ -87,13 +82,10 @@ function uidFromUrl(url: string): string | undefined {
  * is not guaranteed to equal the vCard `UID`, so this is preferred over
  * {@link uidFromUrl} wherever the card body is available.
  */
-function uidFromVCardData(
-  Ctor: Awaited<ReturnType<typeof loadVCardConstructor>>,
-  data: unknown,
-): string | undefined {
+function uidFromVCardData(data: unknown): string | undefined {
   if (typeof data !== "string" || data.length === 0) return undefined;
   try {
-    return parseVCard(Ctor, data).uid;
+    return parseVCard(data).uid;
   } catch {
     return undefined;
   }
@@ -133,7 +125,7 @@ export class CardDAVAdapter
     abortController: AbortController,
     onReady?: () => void,
   ): Promise<void> {
-    const { client, Ctor, book, account } = await this.openRead(context);
+    const { client, book, account } = await this.openRead(context);
 
     let cards: DAVVCardLike[];
     try {
@@ -154,7 +146,7 @@ export class CardDAVAdapter
 
       let contact: Contact;
       try {
-        contact = parseVCard(Ctor, raw);
+        contact = parseVCard(raw);
       } catch (error) {
         // Surface a malformed vCard as a per-exchange parse failure (RC5016)
         // via the synthetic parse step, so the route's `.error()` handler can
@@ -216,7 +208,7 @@ export class CardDAVAdapter
   private async fetchAll(
     context: CraftContext | undefined,
   ): Promise<Contact[]> {
-    const { client, Ctor, book } = await this.openRead(context);
+    const { client, book } = await this.openRead(context);
     let cards: DAVVCardLike[];
     try {
       cards = await client.fetchVCards({ addressBook: book });
@@ -230,7 +222,7 @@ export class CardDAVAdapter
       const raw = typeof dav.data === "string" ? dav.data : "";
       if (!raw) continue;
       try {
-        const contact = parseVCard(Ctor, raw);
+        const contact = parseVCard(raw);
         contact.url = dav.url;
         if (dav.etag) contact.etag = dav.etag;
         out.push(contact);
@@ -250,9 +242,7 @@ export class CardDAVAdapter
     exchange: Exchange<unknown>,
     action: "save" | "create" | "update",
   ): Promise<CardDAVWriteResult> {
-    const { client, Ctor, book } = await this.openRead(
-      getExchangeContext(exchange),
-    );
+    const { client, book } = await this.openRead(getExchangeContext(exchange));
     const body = exchange.body;
     if (body === null || typeof body !== "object" || Array.isArray(body)) {
       throw rcError("RC5001", undefined, {
@@ -264,12 +254,7 @@ export class CardDAVAdapter
     const existing =
       action === "create"
         ? undefined
-        : await this.findExisting(
-            client,
-            book,
-            this.resolveTarget(exchange),
-            Ctor,
-          );
+        : await this.findExisting(client, book, this.resolveTarget(exchange));
 
     if (existing) {
       // Resolve the UID before serializing so it lands inside the patched
@@ -277,7 +262,7 @@ export class CardDAVAdapter
       // matches what is actually persisted on the server.
       const uid =
         contact.uid ??
-        uidFromVCardData(Ctor, existing.data) ??
+        uidFromVCardData(existing.data) ??
         uidFromUrl(existing.url) ??
         randomUUID();
       const contactWithUid: Contact = { ...contact, uid };
@@ -349,11 +334,9 @@ export class CardDAVAdapter
   private async remove(
     exchange: Exchange<unknown>,
   ): Promise<CardDAVDeleteResult> {
-    const { client, Ctor, book } = await this.openRead(
-      getExchangeContext(exchange),
-    );
+    const { client, book } = await this.openRead(getExchangeContext(exchange));
     const target = this.resolveTarget(exchange);
-    const existing = await this.findExisting(client, book, target, Ctor);
+    const existing = await this.findExisting(client, book, target);
     if (!existing) {
       throw rcError("RC5014", undefined, {
         message:
@@ -371,9 +354,7 @@ export class CardDAVAdapter
     assertResponseOk(response, "delete contact");
     const result: CardDAVDeleteResult = { url: existing.url, deleted: true };
     const uid =
-      target.uid ??
-      uidFromVCardData(Ctor, existing.data) ??
-      uidFromUrl(existing.url);
+      target.uid ?? uidFromVCardData(existing.data) ?? uidFromUrl(existing.url);
     if (uid) result.uid = uid;
     return result;
   }
@@ -384,16 +365,14 @@ export class CardDAVAdapter
 
   private async openRead(context: CraftContext | undefined): Promise<{
     client: CardDAVDriverClient;
-    Ctor: Awaited<ReturnType<typeof loadVCardConstructor>>;
     book: DAVAddressBookLike;
     account: string | undefined;
   }> {
     const manager = requireClientManager(context);
     const account = this.options.account;
     const client = await manager.getClient(account);
-    const Ctor = await loadVCardConstructor();
     const book = await this.resolveBook(client, manager, account);
-    return { client, Ctor, book, account };
+    return { client, book, account };
   }
 
   private buildHeaders(
@@ -450,7 +429,6 @@ export class CardDAVAdapter
     client: CardDAVDriverClient,
     book: DAVAddressBookLike,
     target: ContactTarget,
-    Ctor: Awaited<ReturnType<typeof loadVCardConstructor>>,
   ): Promise<DAVVCardLike | undefined> {
     if (!target.url && !target.uid) return undefined;
 
@@ -465,7 +443,7 @@ export class CardDAVAdapter
       if (target.url && dav.url === target.url) return dav;
       if (target.uid && typeof dav.data === "string") {
         try {
-          if (parseVCard(Ctor, dav.data).uid === target.uid) return dav;
+          if (parseVCard(dav.data).uid === target.uid) return dav;
         } catch {
           // Skip cards that fail to parse while searching for a match.
         }

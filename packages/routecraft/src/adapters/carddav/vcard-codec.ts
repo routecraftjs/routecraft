@@ -1,16 +1,15 @@
 /**
- * vCard <-> {@link Contact} codec, isolated behind a small surface so the
- * underlying library (`vcf`) can be swapped without touching the adapter.
+ * vCard <-> {@link Contact} codec.
  *
- * `vcf` is used because it round-trips vCard 3.0 (what iCloud emits) as well as
- * 4.0. The parse/serialize functions are pure and take the `vCard` constructor,
- * so they are testable without the optional-peer loader or any network.
+ * Parse, serialize, and patch run through the raw layer in `vcard-raw.ts`. No
+ * external peer is required: the audit-driven refactor moved every field read
+ * onto the raw extractors (so RFC 6350 text escapes decode correctly and
+ * iCloud property casing is preserved), leaving the `vcf` peer with nothing
+ * to do.
  *
  * @experimental
  */
 
-import type { VCardConstructor } from "vcf";
-import { loadOptionalPeer } from "../shared/optional-peer.ts";
 import {
   extractAddresses,
   extractCategories,
@@ -35,55 +34,35 @@ import type { Contact } from "./types.ts";
 /** Default vCard version written to iCloud and other CardDAV servers. */
 export const DEFAULT_VCARD_VERSION = "3.0";
 
-let vcfPromise: Promise<VCardConstructor> | null = null;
-
-/**
- * Lazily load the `vcf` constructor as an optional peer. Cached after the first
- * call. Emits `RC5017` with an install hint when the package is missing.
- */
-export function loadVCardConstructor(): Promise<VCardConstructor> {
-  vcfPromise ??= loadOptionalPeer(() => import("vcf"), {
-    adapterName: "carddav",
-    packageName: "vcf",
-  }).then((m) => m.default);
-  return vcfPromise;
-}
-
-/** Reset the cached `vcf` loader. Test-only seam. */
-export function resetVCardConstructorCache(): void {
-  vcfPromise = null;
-}
-
 /**
  * Parse a vCard string into a normalized {@link Contact}. The original text is
  * preserved on `raw` so updates can keep fields the model does not cover.
  *
- * Each array item in the returned contact carries a hidden `RECORD_ORIGIN`
- * back-ref to its source raw record. The patcher uses these refs to do
+ * Each array item in the returned contact carries a hidden back-ref to its
+ * source raw record (in a `WeakMap`). The patcher uses these refs to do
  * per-record diff/merge on update, so any parameter, group prefix, or labeled
  * sibling the structured model does not surface is preserved on round-trip.
  *
- * `vcf` is invoked solely to validate that the input is a parseable vCard
- * (it throws on malformed input); every field is then read from the raw
- * layer so RFC 6350 text escapes decode correctly and property casing is
- * preserved.
- *
- * @throws If the input is not a parseable vCard.
+ * @throws If the input does not contain a parseable `BEGIN:VCARD ... END:VCARD`.
  */
-export function parseVCard(Ctor: VCardConstructor, raw: string): Contact {
-  const cards = Ctor.parse(raw);
-  const card = cards[0];
-  if (!card) {
-    throw new SyntaxError("vCard payload contained no card");
+export function parseVCard(raw: string): Contact {
+  const records = parseRecords(raw);
+  // Validate the envelope. The raw layer is otherwise tolerant of partial
+  // input; tightening the contract here gives callers a clear `SyntaxError`
+  // for obviously-broken payloads rather than silently empty contacts.
+  const hasBegin = records.some(
+    (r) => r.name === "begin" && r.value.toUpperCase() === "VCARD",
+  );
+  const hasEnd = records.some(
+    (r) => r.name === "end" && r.value.toUpperCase() === "VCARD",
+  );
+  if (!hasBegin || !hasEnd) {
+    throw new SyntaxError(
+      "vCard payload did not contain a BEGIN:VCARD/END:VCARD block",
+    );
   }
 
   const contact: Contact = { raw };
-
-  // Parse records ONCE and pass through every extractor. Each extractor
-  // returns items carrying a hidden `RECORD_ORIGIN` back-ref to its source
-  // record; the patcher uses those refs to rewrite only the bytes the user
-  // changed, preserving every param/group/sibling the model does not surface.
-  const records = parseRecords(raw);
   const labels = groupLabels(records);
 
   const uid = extractTextValue(records, "uid");
@@ -150,7 +129,7 @@ function deriveFullName(contact: Contact): string {
  * Serialize a contact into a fresh vCard string, guaranteeing the mandatory
  * `FN`. Writing goes entirely through the raw emitter (the single writer), so
  * escaping, folding, grouping, and property-name casing are handled in one
- * place; `vcf` is used only for parsing. Create is a patch over an empty card.
+ * place. Create is a patch over an empty card.
  */
 export function serializeContact(
   contact: Contact,

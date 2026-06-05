@@ -1060,38 +1060,81 @@ function mergePhoto(
   ]);
 }
 
-/** Merge TEL records (per-record diff: value, type, header preserved). */
-function mergePhones(
+/**
+ * Config for a "simple" array property (one record per item, value bytes
+ * directly emit-encoded, at most a `TYPE` param the model surfaces). Used by
+ * {@link mergeSimpleArrayProperty} to drive TEL/EMAIL/URL through one code
+ * path. ADR/IMPP/X-SOCIALPROFILE/labeled-pair stay bespoke because each has
+ * structural quirks the model has to encode/decode (component splits, URI
+ * scheme prefix, lowercase `type` param, sibling X-ABLABEL).
+ */
+interface SimpleArrayPropertyConfig<T extends object> {
+  /** Upper-case vCard property name written on emit (e.g. `"TEL"`). */
+  name: string;
+  /** Comparable value used for ref-fallback and value-equality matching. */
+  valueOf: (item: T) => string;
+  /** Escaped raw value bytes to write inside the record. */
+  rawValueOf: (item: T) => string;
+  /** Optional TYPE param extractor. Omit for properties that have no type. */
+  typeOf?: (item: T) => string | undefined;
+}
+
+/**
+ * Per-record diff/merge for a simple array property. Pairs each new item
+ * against an existing record (origin ref first, then value), rewrites only
+ * the bytes the user changed, removes unmatched origins (and their grouped
+ * X-ABLABEL siblings), and appends fresh records for unmatched new items.
+ */
+function mergeSimpleArrayProperty<T extends object>(
   records: RawRecord[],
-  phones: ContactPhone[] | undefined,
+  newItems: T[] | undefined,
+  config: SimpleArrayPropertyConfig<T>,
 ): RawRecord[] {
-  if (phones === undefined) return records;
-  const candidates = records.filter((r) => r.name === "tel");
-  const { pairs, claimed } = pairItems(phones, candidates, (p) => p.value);
+  if (newItems === undefined) return records;
+  const lowerName = config.name.toLowerCase();
+  const candidates = records.filter((r) => r.name === lowerName);
+  const { pairs, claimed } = pairItems(newItems, candidates, config.valueOf);
   return applyArrayMerge(
     records,
     pairs,
     claimed,
     new Set(candidates),
-    (origin, phone) => {
-      const newRawValue = escapeText(phone.value);
-      // If the user-supplied type differs from the origin's, update only the
-      // TYPE param. Otherwise preserve the origin header verbatim (PREF flag,
-      // X-ABLABEL params, etc. all survive).
-      const needsTypeUpdate = (phone.type ?? null) !== (origin.type ?? null);
-      const header = needsTypeUpdate
-        ? replaceTypeInHeader(origin.header, phone.type)
-        : origin.header;
+    (origin, item) => {
+      const newRawValue = config.rawValueOf(item);
+      let header = origin.header;
+      if (config.typeOf) {
+        const newType = config.typeOf(item);
+        if ((newType ?? null) !== (origin.type ?? null)) {
+          header = replaceTypeInHeader(origin.header, newType);
+        }
+      }
       return withRebuiltPhysical(origin, header, newRawValue);
     },
-    (phone) => [
-      buildFreshRecord({
-        name: "TEL",
-        rawValue: escapeText(phone.value),
-        ...(phone.type !== undefined ? { type: phone.type } : {}),
-      }),
-    ],
+    (item) => {
+      const opts: Parameters<typeof buildFreshRecord>[0] = {
+        name: config.name,
+        rawValue: config.rawValueOf(item),
+      };
+      if (config.typeOf) {
+        const t = config.typeOf(item);
+        if (t !== undefined) opts.type = t;
+      }
+      return [buildFreshRecord(opts)];
+    },
   );
+}
+
+/** Merge TEL records (per-record diff: value, type, header preserved). */
+function mergePhones(
+  records: RawRecord[],
+  phones: ContactPhone[] | undefined,
+): RawRecord[] {
+  return mergeSimpleArrayProperty(records, phones, {
+    name: "TEL",
+    valueOf: (p) => p.value,
+    rawValueOf: (p) => escapeText(p.value),
+    typeOf: (p) => p.type,
+  });
 }
 
 /** Merge EMAIL records. */
@@ -1099,60 +1142,33 @@ function mergeEmails(
   records: RawRecord[],
   emails: ContactEmail[] | undefined,
 ): RawRecord[] {
-  if (emails === undefined) return records;
-  const candidates = records.filter((r) => r.name === "email");
-  const { pairs, claimed } = pairItems(emails, candidates, (e) => e.value);
-  return applyArrayMerge(
-    records,
-    pairs,
-    claimed,
-    new Set(candidates),
-    (origin, email) => {
-      const newRawValue = escapeText(email.value);
-      const needsTypeUpdate = (email.type ?? null) !== (origin.type ?? null);
-      const header = needsTypeUpdate
-        ? replaceTypeInHeader(origin.header, email.type)
-        : origin.header;
-      return withRebuiltPhysical(origin, header, newRawValue);
-    },
-    (email) => [
-      buildFreshRecord({
-        name: "EMAIL",
-        rawValue: escapeText(email.value),
-        ...(email.type !== undefined ? { type: email.type } : {}),
-      }),
-    ],
-  );
+  return mergeSimpleArrayProperty(records, emails, {
+    name: "EMAIL",
+    valueOf: (e) => e.value,
+    rawValueOf: (e) => escapeText(e.value),
+    typeOf: (e) => e.type,
+  });
 }
 
-/** Merge URL records (simple strings; no type). */
+/**
+ * Merge URL records. The public API uses bare strings, so we wrap each into a
+ * `{ value }` envelope to fit the shared helper. Wrapped objects never carry
+ * an origin ref so matching falls back to value-equality — which is the only
+ * sensible disambiguation strategy for URLs anyway (no other distinguishing
+ * field).
+ */
 function mergeUrls(
   records: RawRecord[],
   urls: string[] | undefined,
 ): RawRecord[] {
-  if (urls === undefined) return records;
-  const candidates = records.filter((r) => r.name === "url");
-  // URLs are strings; the only way to match against existing is by value.
-  // The new array carries no origin refs, so pair by value only.
-  const claimed = new Set<RawRecord>();
-  const pairs: Array<{ item: string; origin?: RawRecord }> = [];
-  for (const url of urls) {
-    const match = candidates.find((r) => !claimed.has(r) && r.value === url);
-    if (match) {
-      claimed.add(match);
-      pairs.push({ item: url, origin: match });
-    } else {
-      pairs.push({ item: url });
-    }
-  }
-  return applyArrayMerge(
+  return mergeSimpleArrayProperty(
     records,
-    pairs,
-    claimed,
-    new Set(candidates),
-    (origin, url) =>
-      withRebuiltPhysical(origin, origin.header, escapeText(url)),
-    (url) => [buildFreshRecord({ name: "URL", rawValue: escapeText(url) })],
+    urls?.map((value) => ({ value })),
+    {
+      name: "URL",
+      valueOf: (u) => u.value,
+      rawValueOf: (u) => escapeText(u.value),
+    },
   );
 }
 
