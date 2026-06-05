@@ -94,7 +94,6 @@ export type {
   DAVVCardLike,
 } from "./shared.ts";
 export {
-  loadVCardConstructor,
   parseVCard,
   serializeContact,
   patchVCard,

@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
 import { craft, simple, carddav } from "@routecraft/routecraft";
-import vCard from "vcf";
 import { CardDAVAdapter } from "../src/adapters/carddav/index.ts";
 import { CardDAVClientManager } from "../src/adapters/carddav/client-manager.ts";
 import { requireClientManager } from "../src/adapters/carddav/shared.ts";
@@ -111,7 +110,7 @@ describe("CardDAV adapter", () => {
      * @expectedResult Every field maps to the Contact model and raw is preserved
      */
     test("parses all contact fields from an iCloud vCard", () => {
-      const contact = parseVCard(vCard, ICLOUD_VCARD);
+      const contact = parseVCard(ICLOUD_VCARD);
       expect(contact.uid).toBe("ABC-123");
       expect(contact.fullName).toBe("Jane Q Doe");
       expect(contact.lastName).toBe("Doe");
@@ -146,7 +145,7 @@ describe("CardDAV adapter", () => {
         birthday: "1985-01-02",
       });
       expect(out).toContain("VERSION:3.0");
-      const round = parseVCard(vCard, out);
+      const round = parseVCard(out);
       expect(round.uid).toBe("NEW-1");
       expect(round.fullName).toBe("John Smith");
       expect(round.lastName).toBe("Smith");
@@ -164,7 +163,7 @@ describe("CardDAV adapter", () => {
         birthday: "2001-02-03",
       });
       expect(patched).toContain("X-CUSTOM-FIELD:keepme");
-      const round = parseVCard(vCard, patched);
+      const round = parseVCard(patched);
       expect(round.birthday).toBe("2001-02-03");
       expect(round.emails?.[0]?.value).toBe("jane@example.com");
       expect(round.note).toBe("Met at the conference.");
@@ -245,7 +244,7 @@ describe("CardDAV adapter", () => {
      * @expectedResult dates[] holds the date; custom[] holds the X- field
      */
     test("parse exposes labeled dates and unmodeled custom fields", () => {
-      const contact = parseVCard(vCard, RICH);
+      const contact = parseVCard(RICH);
       expect(contact.dates).toContainEqual({
         label: "Anniversary",
         date: "2010-06-01",
@@ -266,7 +265,7 @@ describe("CardDAV adapter", () => {
         custom: [{ key: "X-FOO", value: "bar" }],
         dates: [{ label: "Graduation", date: "2015-06-15" }],
       });
-      const round = parseVCard(vCard, out);
+      const round = parseVCard(out);
       expect(round.dates).toContainEqual({
         label: "Graduation",
         date: "2015-06-15",
@@ -315,7 +314,7 @@ describe("CardDAV adapter", () => {
      * @expectedResult Each maps to its Contact field and is excluded from custom
      */
     test("parses the structured iCloud fields", () => {
-      const c = parseVCard(vCard, FIELDS);
+      const c = parseVCard(FIELDS);
       expect(c.nickname).toBe("Janie");
       expect(c.organization).toBe("Acme Inc.");
       expect(c.department).toBe("Engineering");
@@ -352,7 +351,7 @@ describe("CardDAV adapter", () => {
         ],
         relatedNames: [{ label: "manager", name: "Dana" }],
       });
-      const r = parseVCard(vCard, out);
+      const r = parseVCard(out);
       expect(r.nickname).toBe("Sammy");
       expect(r.organization).toBe("Beta");
       expect(r.department).toBe("Sales");
@@ -418,7 +417,7 @@ describe("CardDAV adapter", () => {
       // though the model does not expose it as a typed field. The patcher
       // overlays only the components the user explicitly set on top of the
       // origin record's raw components.
-      const parsed = parseVCard(vCard, card);
+      const parsed = parseVCard(card);
       const out = patchVCard(card, { addresses: parsed.addresses });
       expect(out).toContain(";Apt 4B;");
     });
@@ -437,7 +436,7 @@ describe("CardDAV adapter", () => {
         "UID:M1",
         "END:VCARD",
       ].join("\r\n");
-      const parsed = parseVCard(vCard, card);
+      const parsed = parseVCard(card);
       expect(parsed.instantMessages).toEqual([
         { scheme: "xmpp", handle: "alice@jabber.example" },
       ]);
@@ -470,7 +469,7 @@ describe("CardDAV adapter", () => {
       // PREF flag, because the per-record merger only updates the TYPE param
       // when the user-supplied type differs from the origin's first non-pref
       // value (both `home` here).
-      const parsed = parseVCard(vCard, card);
+      const parsed = parseVCard(card);
       const out = patchVCard(card, { phones: parsed.phones });
       expect(out).toContain("TEL;TYPE=HOME;TYPE=PREF:+15555551212");
     });
@@ -489,7 +488,7 @@ describe("CardDAV adapter", () => {
         "UID:E1",
         "END:VCARD",
       ].join("\r\n");
-      const parsed = parseVCard(vCard, card);
+      const parsed = parseVCard(card);
       // `withChanges` preserves the origin back-ref through an in-place edit;
       // a plain `{...e, value: ...}` spread would lose it, and the patcher
       // would fall back to value-equality matching (which fails when both the
@@ -521,7 +520,7 @@ describe("CardDAV adapter", () => {
         "UID:G1",
         "END:VCARD",
       ].join("\r\n");
-      const parsed = parseVCard(vCard, card);
+      const parsed = parseVCard(card);
       const newAddresses = parsed.addresses!.map((a) =>
         withChanges(a, { city: "Chicago" }),
       );
@@ -549,7 +548,7 @@ describe("CardDAV adapter", () => {
         "UID:R1",
         "END:VCARD",
       ].join("\r\n");
-      const parsed = parseVCard(vCard, card);
+      const parsed = parseVCard(card);
       // Keep only the WORK phone.
       const kept = parsed.phones!.filter((p) => p.value === "+15552222222");
       const out = patchVCard(card, { phones: kept });
@@ -576,12 +575,12 @@ describe("CardDAV adapter", () => {
         "UID:X",
         "END:VCARD",
       ].join("\r\n");
-      const c = parseVCard(vCard, card);
+      const c = parseVCard(card);
       expect(c.organization).toBe("Acme; Inc.");
       expect(c.department).toBe("Sales");
       // Updating the department must preserve the company component verbatim.
       const out = patchVCard(card, { department: "Research" });
-      const r = parseVCard(vCard, out);
+      const r = parseVCard(out);
       expect(r.organization).toBe("Acme; Inc.");
       expect(r.department).toBe("Research");
     });
@@ -652,7 +651,7 @@ describe("CardDAV adapter", () => {
       for (const line of out.split("\r\n")) {
         expect(Buffer.byteLength(line, "utf8")).toBeLessThanOrEqual(75);
       }
-      expect(parseVCard(vCard, out).note).toBe(long);
+      expect(parseVCard(out).note).toBe(long);
     });
 
     /**
@@ -669,7 +668,7 @@ describe("CardDAV adapter", () => {
         "UID:Q1",
         "END:VCARD",
       ].join("\r\n");
-      const c = parseVCard(vCard, card);
+      const c = parseVCard(card);
       expect(c.socialProfiles?.[0]?.service).toBe("we;ir:d");
       expect(c.socialProfiles?.[0]?.url).toBe("https://x.com/q");
     });
@@ -685,7 +684,7 @@ describe("CardDAV adapter", () => {
         fullName: "X",
         socialProfiles: [{ service: "we;ird", url: "https://x" }],
       });
-      const r = parseVCard(vCard, out);
+      const r = parseVCard(out);
       expect(r.socialProfiles?.[0]?.service).toBe("we;ird");
       expect(r.socialProfiles?.[0]?.url).toBe("https://x");
     });
@@ -704,13 +703,10 @@ describe("CardDAV adapter", () => {
         "CATEGORIES:Friends\\, Family,Work",
         "END:VCARD",
       ].join("\r\n");
-      const c = parseVCard(vCard, card);
+      const c = parseVCard(card);
       expect(c.categories).toEqual(["Friends, Family", "Work"]);
       const out = patchVCard(card, { categories: c.categories });
-      expect(parseVCard(vCard, out).categories).toEqual([
-        "Friends, Family",
-        "Work",
-      ]);
+      expect(parseVCard(out).categories).toEqual(["Friends, Family", "Work"]);
     });
 
     /**
@@ -724,7 +720,7 @@ describe("CardDAV adapter", () => {
         fullName: "P",
         photo: { data: "AAAA\r\nBBBB\nCCCC", mediaType: "PNG" },
       });
-      const r = parseVCard(vCard, out);
+      const r = parseVCard(out);
       expect(r.photo?.data).toBe("AAAABBBBCCCC");
       // No stray property line was introduced by the embedded newlines.
       const photoLines = out
@@ -766,7 +762,7 @@ describe("CardDAV adapter", () => {
         "UID:Q1",
         "END:VCARD",
       ].join("\r\n");
-      const c = parseVCard(vCard, card);
+      const c = parseVCard(card);
       expect(c.phones?.[0]?.type).toBe("home");
     });
 
@@ -791,7 +787,7 @@ describe("CardDAV adapter", () => {
             (i > 0 && all[i - 1]?.startsWith("NOTE:") && l.startsWith(" ")),
         );
       expect(noteLines.join("")).not.toMatch(/[^\\]\r/);
-      const r = parseVCard(vCard, out);
+      const r = parseVCard(out);
       expect(r.note).toBe("Line1\nLine2\nLine3\nLine4");
     });
 
