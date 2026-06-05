@@ -50,18 +50,16 @@ describe("choice operation", () => {
         craft()
           .id("choice-basic")
           .from(items(inputs))
-          .choice((c) =>
-            c
-              .when(
-                (ex) => ex.body.priority === "urgent",
-                (b) => b.to(urgent),
-              )
-              .when(
-                (ex) => ex.body.amount > 1000,
-                (b) => b.to(big),
-              )
-              .otherwise((b) => b.to(fallback)),
-          )
+          .choice((c) => c
+            .when(
+              (ex) => ex.body.priority === "urgent",
+              (b) => b.to(urgent),
+            )
+            .when(
+              (ex) => ex.body.amount > 1000,
+              (b) => b.to(big),
+            )
+            .otherwise((b) => b.to(fallback)))
           .to(shared),
       )
       .build();
@@ -94,12 +92,10 @@ describe("choice operation", () => {
         craft()
           .id("choice-unmatched")
           .from(items<Order>([{ priority: "normal", amount: 10 }]))
-          .choice((c) =>
-            c.when(
-              (ex) => ex.body.priority === "urgent",
-              (b) => b.to(matched),
-            ),
-          )
+          .choice((c) => c.when(
+            (ex) => ex.body.priority === "urgent",
+            (b) => b.to(matched),
+          ))
           .to(shared),
       )
       .build();
@@ -131,14 +127,12 @@ describe("choice operation", () => {
         craft()
           .id("choice-halt")
           .from(items(inputs))
-          .choice((c) =>
-            c
-              .when(
-                (ex) => ex.body.priority === "urgent",
-                (b) => b.to(urgent),
-              )
-              .otherwise((b) => b.to(errorSink).halt()),
-          )
+          .choice((c) => c
+            .when(
+              (ex) => ex.body.priority === "urgent",
+              (b) => b.to(urgent),
+            )
+            .otherwise((b) => b.to(errorSink).halt()))
           .to(shared),
       )
       .build();
@@ -173,12 +167,10 @@ describe("choice operation", () => {
         craft()
           .id("choice-events-match")
           .from(items<Order>([{ priority: "urgent", amount: 10 }]))
-          .choice((c) =>
-            c.when(
-              (ex) => ex.body.priority === "urgent",
-              (b) => b.to(sink),
-            ),
-          ),
+          .choice((c) => c.when(
+            (ex) => ex.body.priority === "urgent",
+            (b) => b.to(sink),
+          )),
       )
       .on(
         "route:operation:choice:matched",
@@ -216,12 +208,10 @@ describe("choice operation", () => {
         craft()
           .id("choice-events-unmatch")
           .from(items<Order>([{ priority: "normal", amount: 10 }]))
-          .choice((c) =>
-            c.when(
-              (ex) => ex.body.priority === "urgent",
-              (b) => b.to(sink),
-            ),
-          ),
+          .choice((c) => c.when(
+            (ex) => ex.body.priority === "urgent",
+            (b) => b.to(sink),
+          )),
       )
       .on(
         "route:operation:choice:unmatched",
@@ -249,9 +239,9 @@ describe("choice operation", () => {
       craft()
         .id("choice-dup-otherwise")
         .from(items<Order>([]))
-        .choice((c) =>
-          c.otherwise((b) => b.to(spy())).otherwise((b) => b.to(spy())),
-        )
+        .choice((c) => c
+          .otherwise((b) => b.to(spy()))
+          .otherwise((b) => b.to(spy())))
         .build(),
     ).toThrow(/otherwise/);
   });
@@ -270,14 +260,12 @@ describe("choice operation", () => {
         craft()
           .id("choice-otherwise-order")
           .from(items<Order>([{ priority: "urgent", amount: 1 }]))
-          .choice((c) =>
-            c
-              .otherwise((b) => b.to(otherwiseSink))
-              .when(
-                (ex) => ex.body.priority === "urgent",
-                (b) => b.to(whenSink),
-              ),
-          ),
+          .choice((c) => c
+            .otherwise((b) => b.to(otherwiseSink))
+            .when(
+              (ex) => ex.body.priority === "urgent",
+              (b) => b.to(whenSink),
+            )),
       )
       .build();
 
@@ -306,16 +294,12 @@ describe("choice operation", () => {
         craft()
           .id("choice-transform-converge")
           .from(items(inputs))
-          .choice((c) =>
-            c
-              .when(
-                (ex) => ex.body.priority === "urgent",
-                (b) => b.transform((body) => ({ ...body, amount: 999 })),
-              )
-              .otherwise((b) =>
-                b.transform((body) => ({ ...body, amount: 0 })),
-              ),
-          )
+          .choice((c) => c
+            .when(
+              (ex) => ex.body.priority === "urgent",
+              (b) => b.transform((body) => ({ ...body, amount: 999 })),
+            )
+            .otherwise((b) => b.transform((body) => ({ ...body, amount: 0 }))))
           .to(shared),
       )
       .build();
@@ -343,14 +327,10 @@ describe("choice operation", () => {
         craft()
           .id("choice-transform-chain")
           .from(items<Order>([{ priority: "normal", amount: 1 }]))
-          .choice((c) =>
-            c.otherwise((b) =>
-              b
-                .transform((body) => ({ ...body, amount: body.amount + 100 }))
-                .to(sink)
-                .halt(),
-            ),
-          )
+          .choice((c) => c.otherwise((b) => b
+            .transform((body) => ({ ...body, amount: body.amount + 100 }))
+            .to(sink)
+            .halt()))
           .to(downstream),
       )
       .build();
@@ -381,14 +361,12 @@ describe("choice operation", () => {
         craft()
           .id("choice-transform-type-change")
           .from(items(inputs))
-          .choice<string>((c) =>
-            c
-              .when(
-                (ex) => ex.body.priority === "urgent",
-                (b) => b.transform((body) => `URGENT:${body.amount}`),
-              )
-              .otherwise((b) => b.transform((body) => `normal:${body.amount}`)),
-          )
+          .choice<string>((c) => c
+            .when(
+              (ex) => ex.body.priority === "urgent",
+              (b) => b.transform((body) => `URGENT:${body.amount}`),
+            )
+            .otherwise((b) => b.transform((body) => `normal:${body.amount}`)))
           .to(downstream),
       )
       .build();
@@ -412,16 +390,12 @@ describe("choice operation", () => {
         craft()
           .id("choice-transform-async")
           .from(items<Order>([{ priority: "normal", amount: 1 }]))
-          .choice((c) =>
-            c.otherwise((b) =>
-              b
-                .transform(async (body) => {
-                  await new Promise((r) => setTimeout(r, 1));
-                  return { ...body, amount: body.amount + 1 };
-                })
-                .to(sink),
-            ),
-          ),
+          .choice((c) => c.otherwise((b) => b
+            .transform(async (body) => {
+              await new Promise((r) => setTimeout(r, 1));
+              return { ...body, amount: body.amount + 1 };
+            })
+            .to(sink))),
       )
       .build();
 
@@ -458,13 +432,9 @@ describe("choice operation", () => {
         craft()
           .id("choice-transform-throws")
           .from(items<Order>([{ priority: "normal", amount: 1 }]))
-          .choice((c) =>
-            c.otherwise((b) =>
-              b.transform(() => {
-                throw new Error("branch transform blew up");
-              }),
-            ),
-          )
+          .choice((c) => c.otherwise((b) => b.transform(() => {
+            throw new Error("branch transform blew up");
+          })))
           .to(downstream),
       )
       .build();
@@ -503,11 +473,9 @@ describe("choice operation", () => {
         craft()
           .id("choice-enrich-merge")
           .from(items<Order>([{ priority: "normal", amount: 5000 }]))
-          .choice((c) =>
-            c.otherwise((b) =>
-              b.enrich(() => ({ reviewReason: "high-value" })),
-            ),
-          )
+          .choice((c) => c.otherwise((b) => b.enrich(() => ({
+            reviewReason: "high-value",
+          }))))
           .to(shared),
       )
       .build();
@@ -536,16 +504,12 @@ describe("choice operation", () => {
         craft()
           .id("choice-enrich-async")
           .from(items<Order>([{ priority: "urgent", amount: 1 }]))
-          .choice((c) =>
-            c.otherwise((b) =>
-              b
-                .enrich(async () => {
-                  await new Promise((r) => setTimeout(r, 1));
-                  return { fetched: 42 };
-                })
-                .to(sink),
-            ),
-          ),
+          .choice((c) => c.otherwise((b) => b
+            .enrich(async () => {
+              await new Promise((r) => setTimeout(r, 1));
+              return { fetched: 42 };
+            })
+            .to(sink))),
       )
       .build();
 
@@ -586,13 +550,9 @@ describe("choice operation", () => {
         craft()
           .id("choice-enrich-throws")
           .from(items<Order>([{ priority: "normal", amount: 1 }]))
-          .choice((c) =>
-            c.otherwise((b) =>
-              b.enrich(() => {
-                throw new Error("enrich fetch blew up");
-              }),
-            ),
-          )
+          .choice((c) => c.otherwise((b) => b.enrich(() => {
+            throw new Error("enrich fetch blew up");
+          })))
           .to(downstream),
       )
       .build();
@@ -637,9 +597,9 @@ describe("choice operation", () => {
         craft()
           .id("choice-filter-branch")
           .from(items(inputs))
-          .choice((c) =>
-            c.otherwise((b) => b.filter((ex) => ex.body.amount >= 100)),
-          )
+          .choice((c) => c.otherwise((b) => b.filter(
+            (ex) => ex.body.amount >= 100,
+          )))
           .to(downstream),
       )
       .build();
@@ -719,14 +679,12 @@ describe("choice operation", () => {
         craft()
           .id("choice-process-branch")
           .from(items<Order>([{ priority: "urgent", amount: 1 }]))
-          .choice<{ tag: string }>((c) =>
-            c.otherwise((b) =>
-              b.process<{ tag: string }>((ex) => ({
-                ...ex,
-                body: { tag: `${ex.body.priority}:${ex.body.amount}` },
-              })),
-            ),
-          )
+          .choice<{ tag: string }>((c) => c.otherwise((b) => b.process<{
+            tag: string;
+          }>((ex) => ({
+            ...ex,
+            body: { tag: `${ex.body.priority}:${ex.body.amount}` },
+          }))))
           .to(downstream),
       )
       .build();
@@ -758,13 +716,9 @@ describe("choice operation", () => {
         craft()
           .id("choice-validate-branch")
           .from(items<Order>([{ priority: "urgent", amount: 1 }]))
-          .choice((c) =>
-            c.otherwise((b) =>
-              b.validate(() => {
-                throw new Error("validation failed");
-              }),
-            ),
-          )
+          .choice((c) => c.otherwise((b) => b.validate(() => {
+            throw new Error("validation failed");
+          })))
           .to(downstream),
       )
       .build();
@@ -790,13 +744,11 @@ describe("choice operation", () => {
         craft()
           .id("choice-sugar-branch")
           .from(items<Order>([{ priority: "normal", amount: 99 }]))
-          .choice<{ label: string }>((c) =>
-            c.otherwise((b) =>
-              b.log().map<{ label: string }>({
-                label: (src) => `${src.priority}-${src.amount}`,
-              }),
-            ),
-          )
+          .choice<{ label: string }>((c) => c.otherwise((b) => b
+            .log()
+            .map<{ label: string }>({
+              label: (src) => `${src.priority}-${src.amount}`,
+            })))
           .to(downstream),
       )
       .build();
@@ -864,9 +816,9 @@ describe("choice operation", () => {
         craft()
           .id("choice-sugar-schema-branch")
           .from(items<Order>([{ priority: "normal", amount: 5 }]))
-          .choice<{ priority: string; amount: number }>((c) =>
-            c.otherwise((b) => b.schema(orderSchema)),
-          )
+          .choice<{ priority: string; amount: number }>((c) => c.otherwise(
+            (b) => b.schema(orderSchema),
+          ))
           .to(downstream),
       )
       .build();

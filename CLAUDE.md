@@ -9,7 +9,7 @@ Type-safe integration and automation framework. Monorepo with Bun workspaces (>=
 - Test: `bun run test`
 - Lint: `bun run lint`
 - Typecheck: `bun run typecheck`
-- Format: `bun run format`
+- Format: `bun run format` (uses `@routecraft/prettier-plugin-routecraft` for compact DSL chains)
 - Run examples: `bun run craft run ./examples/dist/hello-world.js`
 - Run docs site: `bun run docs`
 - All-in-one pre-PR check: `bun run all`
@@ -58,6 +58,7 @@ See [DEFINITION_OF_DONE.md](DEFINITION_OF_DONE.md) for what must be satisfied be
 | `@routecraft/cli` | `packages/cli` | CLI (`craft`) to run routes and contexts |
 | `@routecraft/testing` | `packages/testing` | Test utilities (spy logger, testContext, pseudo, fixtures) |
 | `@routecraft/eslint-plugin-routecraft` | `packages/eslint-plugin-routecraft` | ESLint plugin |
+| `@routecraft/prettier-plugin-routecraft` | `packages/prettier-plugin-routecraft` | Prettier plugin (compact DSL formatting) |
 | `create-routecraft` | `packages/create-routecraft` | Project scaffolder |
 
 ## Agent Skills
