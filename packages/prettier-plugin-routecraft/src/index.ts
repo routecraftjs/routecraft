@@ -40,33 +40,47 @@ function hasComments(node: DslNode): boolean {
 }
 
 /**
- * Walk to the head of a fluent member/call chain and return its identifier
- * name, or `null` when the chain does not bottom out at a bare identifier. Used
- * to tell parameter-threaded builders (`(c) => c.when(...)`, head is the param)
- * from factory-rooted callbacks (`(ex) => direct(...).send(...)`, head is a
- * call), which are laid out differently.
+ * Walk to the head of a fluent member/call chain and return the terminal node
+ * (the first node that is not a chain link). For `c.when(...).otherwise(...)`
+ * this is the identifier `c`; for `direct(...).send(...)` it is the `direct`
+ * identifier reached through the leading call. Callers inspect the result to
+ * distinguish parameter-threaded builders from factory-rooted callbacks and to
+ * detect `craft()`-rooted chains.
  */
-function chainHeadName(node: DslNode): string | null {
-  let cur: DslNode | undefined = node;
-  while (cur) {
+function chainHead(node: DslNode): DslNode {
+  let cur: DslNode = node;
+  while (true) {
+    let next: DslNode | undefined;
     switch (cur.type) {
       case "CallExpression":
       case "OptionalCallExpression":
-        cur = cur.callee;
+        next = cur.callee;
         break;
       case "MemberExpression":
       case "OptionalMemberExpression":
-        cur = cur.object;
+        next = cur.object;
         break;
       case "ChainExpression":
       case "TSNonNullExpression":
-        cur = cur.expression;
+        next = cur.expression;
         break;
       default:
-        return cur.type === "Identifier" ? (cur.name ?? null) : null;
+        return cur;
     }
+    if (!next) return cur;
+    cur = next;
   }
-  return null;
+}
+
+/**
+ * The identifier name at the head of a chain, or `null` when it does not bottom
+ * out at a bare identifier. Used to tell parameter-threaded builders
+ * (`(c) => c.when(...)`, head is the param) from factory-rooted callbacks
+ * (`(ex) => direct(...).send(...)`, head is a call).
+ */
+function chainHeadName(node: DslNode): string | null {
+  const head = chainHead(node);
+  return head.type === "Identifier" ? (head.name ?? null) : null;
 }
 
 /**
@@ -75,26 +89,7 @@ function chainHeadName(node: DslNode): string | null {
  * `arr.map(...)` are left to Prettier's defaults.
  */
 function rootsAtCraft(node: DslNode): boolean {
-  let cur: DslNode | undefined = node;
-  while (cur) {
-    switch (cur.type) {
-      case "CallExpression":
-      case "OptionalCallExpression":
-        cur = cur.callee;
-        break;
-      case "MemberExpression":
-      case "OptionalMemberExpression":
-        cur = cur.object;
-        break;
-      case "ChainExpression":
-      case "TSNonNullExpression":
-        cur = cur.expression;
-        break;
-      default:
-        return cur.type === "Identifier" && cur.name === "craft";
-    }
-  }
-  return false;
+  return chainHeadName(node) === "craft";
 }
 
 /**
