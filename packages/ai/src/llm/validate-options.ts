@@ -1,3 +1,4 @@
+import { assertLanguageModelShape } from "./providers/llm-utils.ts";
 import type { LlmPluginOptions, LlmProviderType } from "./types.ts";
 
 const PROVIDERS: LlmProviderType[] = [
@@ -85,14 +86,16 @@ export function validateLlmPluginOptions(options: LlmPluginOptions): void {
         break;
       case "custom": {
         const model = (opts as { model?: unknown }).model;
-        if (
-          typeof model !== "function" &&
-          (model === null || typeof model !== "object")
-        ) {
+        // A factory is only invoked at dispatch, so its return shape cannot be
+        // checked eagerly; a concrete instance can, so assert it now and fail
+        // at plugin apply rather than at first dispatch.
+        if (typeof model === "function") break;
+        if (model === null || typeof model !== "object") {
           throw new TypeError(
             `llmPlugin: providers["custom"].model must be an AI SDK language model or a factory function`,
           );
         }
+        assertLanguageModelShape(model, "custom", "(custom)");
         break;
       }
     }

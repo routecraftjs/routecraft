@@ -35,15 +35,17 @@ export function resolveModel(
 ): { config: LlmModelConfig; modelName: string } {
   if (typeof model !== "string") {
     const modelName = (model as { modelId?: string }).modelId ?? "";
-    // The custom provider can carry a concrete model instance, for which a
-    // model name is irrelevant (only a factory uses one). Skip the guard.
-    if (modelName.trim() === "" && model.provider !== "custom") {
+    // A custom provider carrying a concrete model instance needs no model name
+    // (only the factory form consumes one), so it is exempt from the guard.
+    const isCustomInstance =
+      model.provider === "custom" &&
+      typeof (model as { model?: unknown }).model !== "function";
+    if (modelName.trim() === "" && !isCustomInstance) {
       throw rcError("RC5003", undefined, {
         message:
           `LLM model: inline LlmModelConfig for provider "${model.provider}" did not resolve to a model name. ` +
           `Either pass the model as a "providerId:modelName" string (e.g. "${model.provider}:<model>") ` +
-          `or set "modelId" on the config. Providers "openai", "anthropic", and "gemini" do not carry ` +
-          `a modelId field, so those must use the string form.`,
+          `or set "modelId" on the config.`,
       });
     }
     return { config: model, modelName };

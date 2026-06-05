@@ -116,6 +116,20 @@ describe("custom LLM provider (in-process model)", () => {
       llmPlugin({ providers: { custom: {} } }),
     ).toThrow(/custom"\]\.model/);
   });
+
+  /**
+   * @case A concrete custom model is shape-checked at plugin apply, not first dispatch
+   * @preconditions providers.custom.model is an object without doGenerate/doStream
+   * @expectedResult llmPlugin throws immediately, naming the invalid model
+   */
+  test("validation asserts a concrete model's shape eagerly", () => {
+    expect(() =>
+      llmPlugin({
+        // @ts-expect-error not a valid LanguageModel (no doGenerate/doStream)
+        providers: { custom: { model: {} } },
+      }),
+    ).toThrow(/Invalid model/i);
+  });
 });
 
 describe("lmstudio LLM provider", () => {
