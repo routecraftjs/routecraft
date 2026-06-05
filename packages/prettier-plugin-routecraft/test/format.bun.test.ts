@@ -109,21 +109,34 @@ describe("prettier-plugin-routecraft", () => {
   /**
    * @case The full mail-routing example from the issue formats to the documented compact shape
    * @preconditions The choice/when/otherwise example with a factory-rooted enrich callback and a log template literal
-   * @expectedResult Every chain-bodied arrow keeps its parameter on the arrow line (including the factory-rooted (ex) => direct(...).send(...)), while the template-literal log callback is left to Prettier
+   * @expectedResult Parameter-threaded builders stay inline, while the factory-rooted (ex) => direct(...).send(...) breaks its body onto a new line
    */
-  test("issue example compacts every chain-bodied arrow", async () => {
+  test("issue example compacts builders and breaks factory-rooted callbacks", async () => {
     const out = await format(
       `export const route = craft().id("mail").from(mail({ action: "watch" })).choice((c) => c.when(senderInAllowlist(env.MAIL_ALLOWED_INBOUND), (b) => b.enrich((ex) => direct<{ name: string; body: MailMessage }, AgentResult>("agent").send(DefaultExchange.rewrap(ex, { body: { name: "zoe", body: ex.body } })), only((r) => r, "agent")).to(mail({ action: "move", folder: "[Gmail]/All Mail" })).log((ex) => \`Processed: \${ex.body.from} [\${ex.body.sender?.address}] - \${ex.body.subject}\`)).otherwise((b) => b));`,
     );
-    // Builder arrows compacted: parameter stays on the arrow line.
+    // Parameter-threaded builders stay inline: parameter on the arrow line.
     expect(out).toContain("(c) => c\n");
     expect(out).toContain("(b) => b\n");
-    // Factory-rooted callback: the parameter and the chain head stay together
-    // on the arrow line instead of `(ex) =>` breaking onto its own line.
-    expect(out).toContain("(ex) => direct<");
-    expect(out).not.toMatch(/\(ex\) =>\s*\n\s*direct</);
+    // Factory-rooted callback: the body breaks onto its own indented line so the
+    // parameter and the factory chain do not crowd together.
+    expect(out).toMatch(/\(ex\) =>\s*\n\s*direct</);
+    expect(out).not.toContain("(ex) => direct<");
     // A non-chain body (template literal) is still left to Prettier.
     expect(out).toMatch(/\(ex\) =>\s*\n\s*`Processed:/);
+    expect(await format(out)).toBe(out);
+  });
+
+  /**
+   * @case A factory-rooted callback that is the sole argument of a DSL call hugs the call line
+   * @preconditions A single-argument .enrich((ex) => direct(...).send(...)) inside a craft() chain
+   * @expectedResult The parameter stays on the enrich line and the factory chain breaks onto the next line
+   */
+  test("single-arg factory-rooted callback hugs the call line", async () => {
+    const out = await format(
+      `export const route = craft().id("m").from(src()).choice((c) => c.when(isA(), (b) => b.enrich((ex) => direct<{ name: string; body: MailMessage }, AgentResult>("agent").send(DefaultExchange.rewrap(ex, { body: { name: "zoe", body: ex.body } })))).otherwise((b) => b));`,
+    );
+    expect(out).toMatch(/\.enrich\(\(ex\) =>\s*\n\s*direct</);
     expect(await format(out)).toBe(out);
   });
 

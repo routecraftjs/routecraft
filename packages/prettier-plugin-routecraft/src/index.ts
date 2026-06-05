@@ -34,26 +34,33 @@ interface DslNode {
 }
 
 /**
- * Whether an arrow body is a fluent chain (or the bare parameter) worth keeping
- * on the arrow line. This covers both parameter-threaded builders such as
- * `(c) => c.when(...)` and callbacks whose chain starts from a factory such as
- * `(ex) => direct(...).send(...)`. Bodies that are not chains (template
- * literals, conditionals, object literals, ...) are left to Prettier.
+ * Walk to the head of a fluent member/call chain and return its identifier
+ * name, or `null` when the chain does not bottom out at a bare identifier. Used
+ * to tell parameter-threaded builders (`(c) => c.when(...)`, head is the param)
+ * from factory-rooted callbacks (`(ex) => direct(...).send(...)`, head is a
+ * call), which are laid out differently.
  */
-function isChainBody(body: DslNode, paramName: string): boolean {
-  switch (body.type) {
-    case "CallExpression":
-    case "OptionalCallExpression":
-    case "MemberExpression":
-    case "OptionalMemberExpression":
-    case "ChainExpression":
-    case "TSNonNullExpression":
-      return true;
-    case "Identifier":
-      return body.name === paramName;
-    default:
-      return false;
+function chainHeadName(node: DslNode): string | null {
+  let cur: DslNode | undefined = node;
+  while (cur) {
+    switch (cur.type) {
+      case "CallExpression":
+      case "OptionalCallExpression":
+        cur = cur.callee;
+        break;
+      case "MemberExpression":
+      case "OptionalMemberExpression":
+        cur = cur.object;
+        break;
+      case "ChainExpression":
+      case "TSNonNullExpression":
+        cur = cur.expression;
+        break;
+      default:
+        return cur.type === "Identifier" ? (cur.name ?? null) : null;
+    }
   }
+  return null;
 }
 
 /**
@@ -111,15 +118,19 @@ function isInsideCraftChain(path: AstPath): boolean {
 }
 
 /**
- * A "DSL arrow" is a single-parameter arrow whose body is a fluent chain, that
- * is passed directly as a call argument inside a `craft()` chain. This covers
- * parameter-threaded builders such as `(c) => c.when(...).otherwise(...)`, the
- * trivial `(b) => b`, and factory-rooted callbacks such as
- * `(ex) => direct(...).send(...)`. These are the closures Prettier breaks
- * across too many lines. Async arrows and arrows with explicit return types or
- * type parameters are left untouched so we never drop a type annotation;
- * non-chain bodies and arrows used as object or array values (such as adapter
- * option callbacks) fall through to Prettier.
+ * A "DSL arrow" is a single-parameter arrow that threads its parameter straight
+ * into a fluent chain (`(c) => c.when(...).otherwise(...)`, or the trivial
+ * `(b) => b`), passed directly as a call argument inside a `craft()` chain.
+ * These are the sub-route builder closures Prettier breaks across too many
+ * lines, so we keep the parameter on the arrow line.
+ *
+ * Everything else falls through to Prettier: factory-rooted callbacks such as
+ * `(ex) => direct(...).send(...)` (whose head is a call, not the parameter) get
+ * Prettier's natural arrow layout, which keeps short bodies inline and breaks
+ * long ones onto the next line. Async arrows and arrows with explicit return
+ * types or type parameters are left untouched so we never drop a type
+ * annotation, as are arrows used as object or array values (adapter option
+ * callbacks) and non-chain bodies (template literals, conditionals, ...).
  */
 function isDslArrow(node: DslNode, path: AstPath): boolean {
   if (node.type !== "ArrowFunctionExpression") return false;
@@ -134,7 +145,7 @@ function isDslArrow(node: DslNode, path: AstPath): boolean {
 
   const body = node.body;
   if (!body || body.type === "BlockStatement") return false;
-  if (!isChainBody(body, param.name)) return false;
+  if (chainHeadName(body) !== param.name) return false;
 
   return isDirectCallArgument(node, path) && isInsideCraftChain(path);
 }
@@ -142,11 +153,12 @@ function isDslArrow(node: DslNode, path: AstPath): boolean {
 const estreePrinter = estreePrinters.estree;
 
 /**
- * Our printer wraps the built-in estree printer. For DSL arrows it keeps the
- * threaded parameter on the same line as the arrow (`(c) => c`) and lets the
- * body's own member-chain layout supply the indentation, which collapses the
- * extra "body on its own line" break and one level of indentation that
- * Prettier would otherwise add. Every other node falls through unchanged.
+ * Our printer wraps the built-in estree printer. For parameter-threaded DSL
+ * builders (`(c) => c.when(...)`) it keeps the parameter on the arrow line and
+ * lets the body's own member-chain layout supply the indentation, collapsing
+ * the extra "body on its own line" break and one level of indentation Prettier
+ * would otherwise add. Every other node falls through to the built-in printer
+ * unchanged.
  */
 const routecraftPrinter: Printer = {
   ...estreePrinter,

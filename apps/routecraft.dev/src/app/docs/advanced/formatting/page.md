@@ -91,16 +91,21 @@ bunx prettier --write .
 ## What the plugin touches
 
 The plugin only changes single-parameter arrow closures whose body is a fluent
-chain and that appear inside a `craft()` chain. This covers builder closures
-such as `(c) => c.when(...).otherwise(...)` and `(b) => b.enrich(...).to(...)`,
-and factory-rooted callbacks such as `(ex) => direct(...).send(...)`. In every
-case the parameter stays on the arrow line. Being inside a `craft()` chain is
-what scopes it to the Routecraft DSL.
+chain and that are passed directly as a call argument inside a `craft()` chain.
+Being a direct argument inside a `craft()` chain is what scopes it to the
+Routecraft DSL. There are two layouts:
+
+- Parameter-threaded builders such as `(c) => c.when(...).otherwise(...)` and
+  `(b) => b.enrich(...).to(...)` keep the parameter on the arrow line.
+- Factory-rooted callbacks such as `(ex) => direct(...).send(...)` keep the
+  parameter on the arrow line but break the body onto the next line.
 
 Everything else is left to Prettier's defaults, including:
 
 - Ordinary fluent chains such as `arr.map((x) => x.foo().bar())` (no `craft()`
   root)
+- Arrows used as object or array values, such as adapter option callbacks
+  (`path: (ex) => path.join(...)`)
 - Non-chain bodies such as template literals or object literals
 - Async arrows and arrows with explicit return types or type parameters, so no
   type information is ever dropped
