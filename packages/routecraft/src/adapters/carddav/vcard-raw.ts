@@ -1277,6 +1277,18 @@ function addressValueFresh(address: ContactAddress): string {
     .join(";");
 }
 
+/**
+ * Normalize a user-supplied IMPP URI scheme: drop empty / whitespace-only
+ * values so the merger falls through to the origin's scheme (or default)
+ * rather than emitting a structurally invalid `   :handle` URI. RFC 3986
+ * scheme grammar forbids whitespace anyway, so a whitespace-only value can
+ * only be a form-data artifact.
+ */
+function normalizeImppScheme(scheme: string | undefined): string | undefined {
+  const trimmed = scheme?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : undefined;
+}
+
 /** Merge IMPP records: preserves URI scheme via origin when handle unchanged. */
 function mergeIMPP(
   records: RawRecord[],
@@ -1300,11 +1312,11 @@ function mergeIMPP(
     new Set(candidates),
     (origin, im) => {
       // Preserve the origin's URI scheme by default; only override if the user
-      // supplied a different `scheme` field. Treat empty strings as unset so a
-      // form-derived `scheme: ""` cannot produce an invalid `":handle"` URI.
+      // supplied a different `scheme` field. Treat empty / whitespace-only
+      // strings as unset so a form-derived `scheme: ""` (or `"   "`) cannot
+      // produce a structurally invalid `":handle"` / `"   :handle"` URI.
       const { scheme: originScheme } = parseImppValue(origin.value);
-      const userScheme =
-        im.scheme && im.scheme.length > 0 ? im.scheme : undefined;
+      const userScheme = normalizeImppScheme(im.scheme);
       const scheme =
         userScheme ?? originScheme ?? (im.service ?? "x-apple").toLowerCase();
       const rawValue = `${scheme}:${escapeText(im.handle)}`;
@@ -1317,8 +1329,7 @@ function mergeIMPP(
       return withRebuiltPhysical(origin, header, rawValue);
     },
     (im) => {
-      const userScheme =
-        im.scheme && im.scheme.length > 0 ? im.scheme : undefined;
+      const userScheme = normalizeImppScheme(im.scheme);
       const scheme = userScheme ?? (im.service ?? "x-apple").toLowerCase();
       const rawValue = `${scheme}:${escapeText(im.handle)}`;
       return [

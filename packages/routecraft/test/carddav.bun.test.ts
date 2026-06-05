@@ -664,6 +664,27 @@ describe("CardDAV adapter", () => {
     });
 
     /**
+     * @case IMPP whitespace-only scheme is treated as unset
+     * @preconditions Existing IMPP carries `xmpp:` scheme; new item has `scheme: "   "`
+     * @expectedResult The xmpp scheme is preserved; no `   :handle` URI emitted (RFC 3986 forbids whitespace in schemes)
+     */
+    test("IMPP whitespace-only scheme is treated as unset", () => {
+      const card = [
+        "BEGIN:VCARD",
+        "VERSION:3.0",
+        "FN:I",
+        "IMPP:xmpp:alice@jabber.example",
+        "UID:I3",
+        "END:VCARD",
+      ].join("\r\n");
+      const out = patchVCard(card, {
+        instantMessages: [{ handle: "alice@jabber.example", scheme: "   " }],
+      });
+      expect(out).toContain("IMPP:xmpp:alice@jabber.example");
+      expect(out).not.toMatch(/IMPP:\s+:alice@jabber\.example/);
+    });
+
+    /**
      * @case Mixed-case user TYPE does not force unnecessary header rewrite
      * @preconditions Origin stores `TYPE=HOME` (parsed to lowercase `home`); user supplies `type: "HOME"`
      * @expectedResult The header survives byte-for-byte (no rewritten TYPE param)
