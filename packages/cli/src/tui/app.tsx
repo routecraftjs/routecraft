@@ -9,6 +9,10 @@ import type {
   EventRecord,
   Metrics,
   RouteActivity,
+  AgentSummary,
+  ToolSummary,
+  AgentRunInfo,
+  ToolCallRow,
 } from "./types.js";
 import { NAV_SECTIONS, ALL_NAV_ITEMS } from "./types.js";
 import { fmtNum, formatDuration } from "./utils.js";
@@ -22,6 +26,11 @@ import { EventsView } from "./components/events-view.js";
 import { EventDetail } from "./components/event-detail.js";
 import { ExchangeDeepView } from "./components/exchange-deep-view.js";
 import { CapabilityList } from "./components/capability-list.js";
+import { AgentList } from "./components/agent-list.js";
+import { ToolList } from "./components/tool-list.js";
+import { AgentRunDetail } from "./components/agent-run-detail.js";
+import { ToolCallList } from "./components/tool-call-list.js";
+import { ToolCallDetail } from "./components/tool-call-detail.js";
 import { version } from "../../package.json";
 
 /**
@@ -77,6 +86,29 @@ function App({ db }: { db: TelemetryDb }) {
   const [deepViewScroll, setDeepViewScroll] = useState(0);
   const [exchangeSnapshot, setExchangeSnapshot] =
     useState<ExchangeSnapshot | null>(null);
+
+  // Agents tab state
+  const [agents, setAgents] = useState<AgentSummary[]>([]);
+  const agentScroll = useScrollList();
+  const [selectedRun, setSelectedRun] = useState<ExchangeRecord | undefined>(
+    undefined,
+  );
+  const [showAgentRun, setShowAgentRun] = useState(false);
+  const [agentRunInfo, setAgentRunInfo] = useState<AgentRunInfo | null>(null);
+  const [agentRunToolCalls, setAgentRunToolCalls] = useState<ToolCallRow[]>([]);
+  const agentRunScroll = useScrollList();
+
+  // Tools tab state
+  const [tools, setTools] = useState<ToolSummary[]>([]);
+  const toolScroll = useScrollList();
+  const [toolCalls, setToolCalls] = useState<ToolCallRow[]>([]);
+  const toolCallScroll = useScrollList();
+  const [selectedToolCall, setSelectedToolCall] = useState<
+    ToolCallRow | undefined
+  >(undefined);
+  const [showToolCallDetail, setShowToolCallDetail] = useState(false);
+  const [toolCallDetailScroll, setToolCallDetailScroll] = useState(0);
+
   const PAGE_SIZE = 50;
   const JUMP = NAV_JUMP;
 
@@ -106,6 +138,18 @@ function App({ db }: { db: TelemetryDb }) {
         );
       }
 
+      // Agent/tool nav lists refresh continuously so newly-registered or
+      // newly-run agents and tools appear without re-entering the tab.
+      let agentsList: AgentSummary[] = [];
+      let toolsList: ToolSummary[] = [];
+      if (activeNav === "agents") {
+        agentsList = db.getAgents();
+        setAgents(agentsList);
+      } else if (activeNav === "tools") {
+        toolsList = db.getTools();
+        setTools(toolsList);
+      }
+
       // Skip list refresh when cursor is active (user is browsing)
       if (focus === "center") return;
 
@@ -113,6 +157,16 @@ function App({ db }: { db: TelemetryDb }) {
         const route = routeSummary[routeScroll.selectedIndex];
         if (route) {
           setExchanges(db.getExchangesByRoute(route.id, PAGE_SIZE));
+        }
+      } else if (activeNav === "agents") {
+        const agent = agentsList[agentScroll.selectedIndex];
+        if (agent) {
+          setExchanges(db.getAgentRuns(agent.key, agent.source, PAGE_SIZE));
+        }
+      } else if (activeNav === "tools") {
+        const tool = toolsList[toolScroll.selectedIndex];
+        if (tool) {
+          setToolCalls(db.getToolCalls(tool.name));
         }
       } else if (activeNav === "exchanges") {
         setExchanges(db.getAllExchanges(PAGE_SIZE));
@@ -128,6 +182,8 @@ function App({ db }: { db: TelemetryDb }) {
     db,
     activeNav,
     routeScroll.selectedIndex,
+    agentScroll.selectedIndex,
+    toolScroll.selectedIndex,
     rightWidth,
     centerWidth,
     focus,
@@ -153,15 +209,58 @@ function App({ db }: { db: TelemetryDb }) {
     [db, routes, routeScroll, exchangeScroll, navListHeight],
   );
 
+  const selectAgent = useCallback(
+    (index: number) => {
+      agentScroll.moveTo(index, agents.length, navListHeight);
+      exchangeScroll.reset();
+      const agent = agents[index];
+      if (agent) {
+        setExchanges(db.getAgentRuns(agent.key, agent.source, PAGE_SIZE));
+      }
+    },
+    [db, agents, agentScroll, exchangeScroll, navListHeight],
+  );
+
+  const selectTool = useCallback(
+    (index: number) => {
+      toolScroll.moveTo(index, tools.length, navListHeight);
+      toolCallScroll.reset();
+      const tool = tools[index];
+      if (tool) {
+        setToolCalls(db.getToolCalls(tool.name));
+      }
+    },
+    [db, tools, toolScroll, toolCallScroll, navListHeight],
+  );
+
   const switchNav = useCallback(
     (nav: NavItem) => {
       setActiveNav(nav);
       setShowDetail(false);
       setShowEventDetail(false);
       setShowDeepView(false);
+      setShowAgentRun(false);
+      setShowToolCallDetail(false);
       setFocus("nav");
       exchangeScroll.reset();
-      if (nav === "exchanges") {
+      if (nav === "agents") {
+        agentScroll.reset();
+        const list = db.getAgents();
+        setAgents(list);
+        const agent = list[0];
+        if (agent) {
+          setExchanges(db.getAgentRuns(agent.key, agent.source, PAGE_SIZE));
+        } else {
+          setExchanges([]);
+        }
+      } else if (nav === "tools") {
+        toolScroll.reset();
+        toolCallScroll.reset();
+        const list = db.getTools();
+        setTools(list);
+        const tool = list[0];
+        setToolCalls(tool ? db.getToolCalls(tool.name) : []);
+      } else if (nav === "exchanges") {
         setExchanges(db.getAllExchanges(PAGE_SIZE));
       } else if (nav === "errors") {
         setExchanges(db.getFailedExchanges(PAGE_SIZE));
@@ -170,10 +269,12 @@ function App({ db }: { db: TelemetryDb }) {
         setEvents(db.getRecentEvents({ limit: 200 }));
       }
     },
-    [db, exchangeScroll, eventScroll],
+    [db, exchangeScroll, eventScroll, agentScroll, toolScroll, toolCallScroll],
   );
 
   const selectedRoute = routes[routeScroll.selectedIndex];
+  const selectedAgent = agents[agentScroll.selectedIndex];
+  const selectedTool = tools[toolScroll.selectedIndex];
 
   // Visible row counts mirror the view components
   // Must match CenterExchangeList: 2 (capability + stats) + graphTermRows + 2 (label + spacer)
@@ -184,6 +285,10 @@ function App({ db }: { db: TelemetryDb }) {
     3,
   );
   const eventsTableRows = Math.max(bodyHeight - PANEL_TABLE_CHROME, 5);
+  // Plain (header-less) center tables: agent runs and tool-call lists.
+  const plainTableRows = Math.max(bodyHeight - PANEL_TABLE_CHROME, 3);
+  // Tool-call timeline inside the agent-run detail (header is 6 rows).
+  const runToolRows = Math.max(bodyHeight - 6 - PANEL_TABLE_CHROME, 3);
 
   useInput((input, key) => {
     if (input === "q") {
@@ -235,6 +340,116 @@ function App({ db }: { db: TelemetryDb }) {
           setFocus("nav");
           eventScroll.reset();
         }
+      }
+      return;
+    }
+
+    // Tool-call detail (from an agent run or the Tools tab): scroll JSON
+    if (showToolCallDetail) {
+      const step = key.ctrl ? JUMP : 1;
+      if (input === "j" || key.downArrow) {
+        setToolCallDetailScroll((i) => i + step);
+      } else if (input === "k" || key.upArrow) {
+        setToolCallDetailScroll((i) => Math.max(i - step, 0));
+      } else if (key.escape || key.backspace || key.delete) {
+        setShowToolCallDetail(false);
+        setToolCallDetailScroll(0);
+      }
+      return;
+    }
+
+    // Agents tab
+    if (activeNav === "agents") {
+      // Agent-run detail: browse the tool-call timeline
+      if (showAgentRun) {
+        const step = key.ctrl ? JUMP : 1;
+        if (input === "j" || key.downArrow) {
+          agentRunScroll.moveBy(step, agentRunToolCalls.length, runToolRows);
+        } else if (input === "k" || key.upArrow) {
+          agentRunScroll.moveBy(-step, agentRunToolCalls.length, runToolRows);
+        } else if (key.return) {
+          const call = agentRunToolCalls[agentRunScroll.selectedIndex];
+          if (call) {
+            setSelectedToolCall(call);
+            setToolCallDetailScroll(0);
+            setShowToolCallDetail(true);
+          }
+        } else if (key.escape || key.backspace || key.delete) {
+          setShowAgentRun(false);
+          agentRunScroll.reset();
+        }
+        return;
+      }
+      if (focus === "nav") {
+        if (input === "j" || key.downArrow) {
+          selectAgent(
+            Math.min(agentScroll.selectedIndex + 1, agents.length - 1),
+          );
+        } else if (input === "k" || key.upArrow) {
+          selectAgent(Math.max(agentScroll.selectedIndex - 1, 0));
+        } else if (key.return) {
+          setFocus("center");
+          const agent = agents[agentScroll.selectedIndex];
+          if (agent) {
+            setExchanges(db.getAgentRuns(agent.key, agent.source));
+          }
+        }
+        return;
+      }
+      // Center focus: browse the agent's runs
+      const step = key.ctrl ? JUMP : 1;
+      if (input === "j" || key.downArrow) {
+        exchangeScroll.moveBy(step, exchanges.length, plainTableRows);
+      } else if (input === "k" || key.upArrow) {
+        exchangeScroll.moveBy(-step, exchanges.length, plainTableRows);
+      } else if (key.return) {
+        const ex = exchanges[exchangeScroll.selectedIndex];
+        if (ex) {
+          setSelectedRun(ex);
+          setAgentRunInfo(db.getAgentRunInfo(ex.id));
+          setAgentRunToolCalls(db.getAgentRunToolCalls(ex.id));
+          agentRunScroll.reset();
+          setShowAgentRun(true);
+        }
+      } else if (key.escape || key.backspace || key.delete) {
+        setFocus("nav");
+        exchangeScroll.reset();
+      }
+      return;
+    }
+
+    // Tools tab
+    if (activeNav === "tools") {
+      if (focus === "nav") {
+        if (input === "j" || key.downArrow) {
+          selectTool(Math.min(toolScroll.selectedIndex + 1, tools.length - 1));
+        } else if (input === "k" || key.upArrow) {
+          selectTool(Math.max(toolScroll.selectedIndex - 1, 0));
+        } else if (key.return) {
+          setFocus("center");
+          const tool = tools[toolScroll.selectedIndex];
+          if (tool) {
+            setToolCalls(db.getToolCalls(tool.name));
+          }
+        }
+        return;
+      }
+      // Center focus: browse the selected tool's calls
+      const step = key.ctrl ? JUMP : 1;
+      if (input === "j" || key.downArrow) {
+        toolCallScroll.moveBy(step, toolCalls.length, plainTableRows);
+      } else if (input === "k" || key.upArrow) {
+        toolCallScroll.moveBy(-step, toolCalls.length, plainTableRows);
+      } else if (key.return) {
+        const call = toolCalls[toolCallScroll.selectedIndex];
+        if (call) {
+          setSelectedToolCall(call);
+          setToolCallDetailScroll(0);
+          setShowToolCallDetail(true);
+        }
+      } else if (key.escape || key.backspace || key.delete) {
+        setFocus("nav");
+        toolCallScroll.reset();
       }
       return;
     }
@@ -419,24 +634,41 @@ function App({ db }: { db: TelemetryDb }) {
 
   // Determine which panel is active for border highlighting
   const navActive =
-    activeNav === "capabilities" && focus === "nav" && !showDetail;
+    (activeNav === "capabilities" ||
+      activeNav === "agents" ||
+      activeNav === "tools") &&
+    focus === "nav" &&
+    !showDetail &&
+    !showAgentRun &&
+    !showToolCallDetail;
   const centerActive = !navActive;
 
   // Keymap items based on context
   const keymapItems: { key: string; action: string }[] = [];
-  if (showDeepView) {
+  const inJsonScroll = showDeepView || showToolCallDetail;
+  if (inJsonScroll) {
     keymapItems.push({ key: "j/k", action: "Scroll" });
     keymapItems.push({ key: "Ctrl+j/k", action: "Jump 10" });
+    keymapItems.push({ key: "Esc", action: "Back" });
+  } else if (showAgentRun) {
+    keymapItems.push({ key: "j/k", action: "Navigate" });
+    keymapItems.push({ key: "Enter", action: "Tool I/O" });
     keymapItems.push({ key: "Esc", action: "Back" });
   } else if (focus === "center") {
     keymapItems.push({ key: "j/k", action: "Navigate" });
     keymapItems.push({ key: "Ctrl+j/k", action: "Jump 10" });
   }
-  if (!showDeepView) {
+  if (!inJsonScroll && !showAgentRun) {
     if (focus === "nav") {
       if (activeNav === "capabilities") {
         keymapItems.push({ key: "j/k", action: "Navigate" });
         keymapItems.push({ key: "Enter", action: "Exchanges" });
+      } else if (activeNav === "agents") {
+        keymapItems.push({ key: "j/k", action: "Navigate" });
+        keymapItems.push({ key: "Enter", action: "Runs" });
+      } else if (activeNav === "tools") {
+        keymapItems.push({ key: "j/k", action: "Navigate" });
+        keymapItems.push({ key: "Enter", action: "Calls" });
       } else {
         keymapItems.push({ key: "Enter", action: "Browse" });
       }
@@ -451,7 +683,7 @@ function App({ db }: { db: TelemetryDb }) {
       keymapItems.push({ key: "Esc", action: "Back" });
     }
   }
-  keymapItems.push({ key: "1..4", action: "Switch view" });
+  keymapItems.push({ key: "1..6", action: "Switch view" });
   keymapItems.push({ key: "q", action: "Quit" });
 
   return (
@@ -505,6 +737,24 @@ function App({ db }: { db: TelemetryDb }) {
                 routes={routes}
                 selectedIndex={routeScroll.selectedIndex}
                 listOffset={routeScroll.scrollOffset}
+                visibleRows={navListHeight}
+                width={leftWidth - 6}
+              />
+            )}
+            {activeNav === "agents" && (
+              <AgentList
+                agents={agents}
+                selectedIndex={agentScroll.selectedIndex}
+                listOffset={agentScroll.scrollOffset}
+                visibleRows={navListHeight}
+                width={leftWidth - 6}
+              />
+            )}
+            {activeNav === "tools" && (
+              <ToolList
+                tools={tools}
+                selectedIndex={toolScroll.selectedIndex}
+                listOffset={toolScroll.scrollOffset}
                 visibleRows={navListHeight}
                 width={leftWidth - 6}
               />
@@ -566,6 +816,71 @@ function App({ db }: { db: TelemetryDb }) {
               color="cyan"
             />
           )}
+        {/* Agents tab */}
+        {activeNav === "agents" && !showAgentRun && !showToolCallDetail && (
+          <CenterExchangeList
+            capabilityId={selectedAgent?.key ?? ""}
+            title={`RUNS: ${selectedAgent?.key ?? "(no agent)"}`}
+            exchanges={exchanges}
+            selectedIndex={
+              focus === "center" ? exchangeScroll.selectedIndex : -1
+            }
+            scrollOffset={focus === "center" ? exchangeScroll.scrollOffset : 0}
+            width={centerWidth}
+            height={bodyHeight}
+            color={focus === "center" ? "cyan" : "gray"}
+          />
+        )}
+        {activeNav === "agents" &&
+          showAgentRun &&
+          !showToolCallDetail &&
+          selectedRun && (
+            <AgentRunDetail
+              agentKey={selectedAgent?.key ?? ""}
+              run={selectedRun}
+              info={agentRunInfo}
+              toolCalls={agentRunToolCalls}
+              selectedIndex={agentRunScroll.selectedIndex}
+              scrollOffset={agentRunScroll.scrollOffset}
+              width={centerWidth}
+              height={bodyHeight}
+              color="cyan"
+            />
+          )}
+        {activeNav === "agents" && showToolCallDetail && selectedToolCall && (
+          <ToolCallDetail
+            call={selectedToolCall}
+            width={centerWidth}
+            height={bodyHeight}
+            scrollOffset={toolCallDetailScroll}
+            color="cyan"
+          />
+        )}
+
+        {/* Tools tab */}
+        {activeNav === "tools" && !showToolCallDetail && (
+          <ToolCallList
+            toolName={selectedTool?.name ?? ""}
+            calls={toolCalls}
+            selectedIndex={
+              focus === "center" ? toolCallScroll.selectedIndex : -1
+            }
+            scrollOffset={focus === "center" ? toolCallScroll.scrollOffset : 0}
+            width={centerWidth}
+            height={bodyHeight}
+            color={focus === "center" ? "cyan" : "gray"}
+          />
+        )}
+        {activeNav === "tools" && showToolCallDetail && selectedToolCall && (
+          <ToolCallDetail
+            call={selectedToolCall}
+            width={centerWidth}
+            height={bodyHeight}
+            scrollOffset={toolCallDetailScroll}
+            color="cyan"
+          />
+        )}
+
         {activeNav === "exchanges" && !showDetail && (
           <CenterExchangeList
             capabilityId="All Capabilities"

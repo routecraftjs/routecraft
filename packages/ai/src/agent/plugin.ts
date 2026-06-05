@@ -2,6 +2,7 @@ import {
   rcError,
   type CraftContext,
   type CraftPlugin,
+  type EventName,
 } from "@routecraft/routecraft";
 import { validateAgentOptions, validateBlocks } from "./agent.ts";
 import {
@@ -192,8 +193,59 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
           merged,
         );
       }
+
+      emitRegistrations(ctx, agents, functions);
     },
   };
+}
+
+/**
+ * Announce the agents and fns this plugin install registered, so that
+ * generic observability (the telemetry plugin / TUI) can list them even
+ * before any of them runs. Inline agents are not announced here: they
+ * only exist at dispatch inside a route and surface via their
+ * `route:<id>:agent:started` event instead.
+ *
+ * The events fire on `context:started` rather than inside `apply()` so
+ * the telemetry plugin has already subscribed regardless of plugin
+ * install order (mirroring how `route:*:registered` fires after plugins
+ * are applied). When the context is never started there is nothing
+ * running to observe, so emitting nothing is correct.
+ *
+ * @internal
+ */
+function emitRegistrations(
+  ctx: CraftContext,
+  agents: Record<string, AgentRegisteredOptions>,
+  functions: Record<string, FnEntry>,
+): void {
+  const agentEntries = Object.entries(agents);
+  const fnEntries = Object.entries(functions);
+  if (agentEntries.length === 0 && fnEntries.length === 0) return;
+
+  ctx.once("context:started", () => {
+    for (const [id, entry] of agentEntries) {
+      ctx.emit("agent:registered" as EventName, {
+        agentId: id,
+        description: entry.description,
+        ...(typeof entry.model === "string" && { model: entry.model }),
+        source: "registered",
+      });
+    }
+    for (const [id, entry] of fnEntries) {
+      // Deferred fns (e.g. directTool) carry no eager description/tags;
+      // they resolve at dispatch and surface via tool-invocation events.
+      const eager = isDeferredFn(entry) ? undefined : entry;
+      ctx.emit("agent:tool:registered" as EventName, {
+        toolName: id,
+        ...(eager && { description: eager.description }),
+        ...(eager &&
+          Array.isArray(eager.tags) &&
+          eager.tags.length > 0 && { tags: eager.tags }),
+        source: "registered",
+      });
+    }
+  });
 }
 
 /**
