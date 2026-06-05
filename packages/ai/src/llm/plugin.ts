@@ -13,6 +13,8 @@ const PROVIDER_IDS = [
   "openrouter",
   "ollama",
   "gemini",
+  "lmstudio",
+  "custom",
 ] as const satisfies readonly LlmModelConfig["provider"][];
 
 /** Normalize provider options to full LlmModelConfig (add provider field from key). */
@@ -20,7 +22,9 @@ function toModelConfig<P extends LlmModelConfig["provider"]>(
   providerId: P,
   opts: LlmProviderOptionsMap[P],
 ): Extract<LlmModelConfig, { provider: P }> {
-  return { provider: providerId, ...opts } as Extract<
+  // Cast via `unknown`: the `custom` provider carries a function-typed
+  // `model`, so a direct assertion is not comparable across the union.
+  return { provider: providerId, ...opts } as unknown as Extract<
     LlmModelConfig,
     { provider: P }
   >;

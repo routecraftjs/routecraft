@@ -1,5 +1,15 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type { LanguageModel } from "ai";
 import type { Exchange } from "@routecraft/routecraft";
+
+/**
+ * A concrete AI SDK language model (V2 or V3). Excludes the bare
+ * `GlobalProviderModelId` string form of `LanguageModel`, because the
+ * `custom` provider is the escape hatch for supplying an actual model
+ * instance, not a string that would route through the global provider
+ * registry (which needs cloud credentials and defeats the purpose).
+ */
+export type CustomLanguageModel = Exclude<LanguageModel, string>;
 
 /**
  * Store key for plugin-registered providers (provider id -> LlmModelConfig).
@@ -27,7 +37,9 @@ export type LlmProviderType =
   | "anthropic"
   | "openrouter"
   | "ollama"
-  | "gemini";
+  | "gemini"
+  | "lmstudio"
+  | "custom";
 
 export interface LlmModelConfigOpenAI {
   provider: "openai";
@@ -66,12 +78,50 @@ export interface LlmModelConfigGemini {
   apiKey: string;
 }
 
+export interface LlmModelConfigLmStudio {
+  provider: "lmstudio";
+  /**
+   * LM Studio server URL. Optional: defaults to http://localhost:1234/v1.
+   * Only set when LM Studio runs on a non-default host or port.
+   */
+  baseURL?: string;
+  /**
+   * API key sent to LM Studio. Optional: LM Studio ignores authentication,
+   * so this defaults to a placeholder. Set it only if you front LM Studio
+   * with a proxy that enforces a key.
+   */
+  apiKey?: string;
+  /**
+   * Override model name sent to LM Studio. Optional: defaults to the model
+   * from the llm("lmstudio:model") call (the part after the colon).
+   */
+  modelId?: string;
+}
+
+export interface LlmModelConfigCustom {
+  provider: "custom";
+  /**
+   * A pre-built AI SDK language model, or a factory that builds one from the
+   * model name (the part after the colon in llm("custom:name")). This is the
+   * escape hatch for running an agent or llm() step against an in-process or
+   * otherwise unsupported model with no API key and no network.
+   */
+  model: CustomLanguageModel | ((modelId: string) => CustomLanguageModel);
+  /**
+   * Optional model name. Only needed when using an inline config object with
+   * a factory; the string form llm("custom:name") supplies it directly.
+   */
+  modelId?: string;
+}
+
 export type LlmModelConfig =
   | LlmModelConfigOpenAI
   | LlmModelConfigAnthropic
   | LlmModelConfigOpenRouter
   | LlmModelConfigOllama
-  | LlmModelConfigGemini;
+  | LlmModelConfigGemini
+  | LlmModelConfigLmStudio
+  | LlmModelConfigCustom;
 
 /**
  * Provider options for llmPlugin({ providers }). Key is the provider; no need to repeat provider in the value.
@@ -94,6 +144,15 @@ export interface LlmOpenRouterProviderOptions {
 export interface LlmGeminiProviderOptions {
   apiKey: string;
 }
+export interface LlmLmStudioProviderOptions {
+  baseURL?: string;
+  apiKey?: string;
+  modelId?: string;
+}
+export interface LlmCustomProviderOptions {
+  model: CustomLanguageModel | ((modelId: string) => CustomLanguageModel);
+  modelId?: string;
+}
 
 export interface LlmPluginProviders {
   ollama?: LlmOllamaProviderOptions;
@@ -101,6 +160,8 @@ export interface LlmPluginProviders {
   anthropic?: LlmAnthropicProviderOptions;
   openrouter?: LlmOpenRouterProviderOptions;
   gemini?: LlmGeminiProviderOptions;
+  lmstudio?: LlmLmStudioProviderOptions;
+  custom?: LlmCustomProviderOptions;
 }
 
 /** Map provider id → provider-specific options (for type-safe toModelConfig). */
@@ -258,6 +319,11 @@ export type LlmModelId =
   | "ollama:gemma2"
   | "ollama:deepseek-r1"
   | "ollama:lfm2.5-thinking"
+  // LM Studio (local; ids are whatever model you have loaded)
+  | "lmstudio:qwen2.5-7b-instruct"
+  | "lmstudio:llama-3.2-3b-instruct"
+  | "lmstudio:phi-4"
+  | "lmstudio:mistral-nemo-instruct-2407"
   // OpenRouter (top open-weight / frontier: GLM, Kimi, Qwen, DeepSeek)
   | "openrouter:z-ai/glm-5"
   | "openrouter:z-ai/glm-4.7"

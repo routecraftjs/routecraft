@@ -35,7 +35,9 @@ export function resolveModel(
 ): { config: LlmModelConfig; modelName: string } {
   if (typeof model !== "string") {
     const modelName = (model as { modelId?: string }).modelId ?? "";
-    if (modelName.trim() === "") {
+    // The custom provider can carry a concrete model instance, for which a
+    // model name is irrelevant (only a factory uses one). Skip the guard.
+    if (modelName.trim() === "" && model.provider !== "custom") {
       throw rcError("RC5003", undefined, {
         message:
           `LLM model: inline LlmModelConfig for provider "${model.provider}" did not resolve to a model name. ` +
