@@ -45,7 +45,7 @@ export default config
 | `ollama` | `{ baseURL?: string, modelId?: string }` | Local Ollama instance |
 | `gemini` | `{ apiKey: string }` | Google Gemini API |
 | `lmstudio` | `{ baseURL?: string, apiKey?: string, modelId?: string }` | Local [LM Studio](https://lmstudio.ai) server (OpenAI-compatible; defaults to `http://localhost:1234/v1`) |
-| `custom` | `{ model: LanguageModel \| (modelId) => LanguageModel, modelId?: string }` | Any AI SDK model you supply (in-process, no key, no network) |
+| `custom` | `{ model: model \| (modelId) => model, modelId?: string }` | Any AI SDK model object you supply, or a factory (in-process, no key, no network). Typed as `unknown` and validated at runtime so no engine type leaks into your code. |
 
 ## LM Studio
 

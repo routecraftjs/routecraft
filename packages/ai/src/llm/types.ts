@@ -1,15 +1,17 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import type { LanguageModel } from "ai";
 import type { Exchange } from "@routecraft/routecraft";
 
 /**
- * A concrete AI SDK language model (V2 or V3). Excludes the bare
- * `GlobalProviderModelId` string form of `LanguageModel`, because the
- * `custom` provider is the escape hatch for supplying an actual model
- * instance, not a string that would route through the global provider
- * registry (which needs cloud credentials and defeats the purpose).
+ * A model object the active LLM engine can drive (today an AI SDK
+ * `LanguageModel`), or anything else a future engine accepts. Deliberately
+ * `unknown` so no engine-specific type reaches the public surface: every other
+ * provider is addressed by a `"provider:model"` string and the framework's own
+ * `LlmOptions`/`LlmResult` types, so swapping the underlying SDK does not break
+ * consumers. The `custom` provider is the one engine-bound escape hatch, and we
+ * keep that binding a runtime contract (validated by `assertLanguageModelShape`)
+ * rather than a compile-time coupling.
  */
-export type CustomLanguageModel = Exclude<LanguageModel, string>;
+export type CustomLanguageModel = unknown;
 
 /**
  * Store key for plugin-registered providers (provider id -> LlmModelConfig).

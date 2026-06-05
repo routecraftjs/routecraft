@@ -160,7 +160,10 @@ function resolveCustom(
   modelId: string,
 ): unknown {
   const { model } = config;
-  const resolved = typeof model === "function" ? model(modelId) : model;
+  const resolved =
+    typeof model === "function"
+      ? (model as (id: string) => unknown)(modelId)
+      : model;
   assertLanguageModelShape(resolved, "Custom", modelId || "(custom)");
   return resolved;
 }
