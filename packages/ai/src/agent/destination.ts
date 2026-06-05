@@ -92,8 +92,9 @@ export class AgentDestinationAdapter implements Destination<
           `Specify "model" on the agent or set a context-level default.`,
       });
     }
+    const model = merged.model;
 
-    const { config, modelName } = resolveModel(merged.model, context);
+    const { config, modelName } = resolveModel(model, context);
     const userTools = resolveAgentTools(merged, context);
     const user = buildUserPrompt(merged, exchange);
     // System accepts the same string-or-function shape as `llm({ system })`,
@@ -133,10 +134,18 @@ export class AgentDestinationAdapter implements Destination<
       route?.definition.id,
     );
 
+    // Registered agents carry their own id (used to attribute runs in
+    // observability); inline agents are identified by their route, so
+    // agentName stays undefined and the consumer falls back to routeId.
+    const agentName =
+      this.binding.kind === "by-name" ? this.binding.name : undefined;
+
     const session = new AgentSession({
       options: merged,
       modelConfig: config,
       modelName,
+      model,
+      ...(agentName !== undefined && { agentName }),
       tools,
       user,
       system,

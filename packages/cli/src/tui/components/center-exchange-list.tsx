@@ -53,6 +53,7 @@ export function CenterExchangeList({
   height,
   color = "gray",
   activity,
+  title: titleOverride,
 }: {
   capabilityId: string;
   route?: RouteSummary;
@@ -63,12 +64,15 @@ export function CenterExchangeList({
   height: number;
   color?: string;
   activity?: RouteActivity | undefined;
+  /** Override the computed panel title (e.g. for agent runs). */
+  title?: string;
 }) {
   const graphTermRows = Math.ceil((DEFAULT_STEPS.length - 1) / 4);
   const headerRows = route ? 2 + graphTermRows + 2 : 0;
   const tableRows = Math.max(height - PANEL_TABLE_CHROME - headerRows, 3);
 
-  const title = route ? "EXCHANGES" : `EXCHANGES: ${capabilityId}`;
+  const title =
+    titleOverride ?? (route ? "EXCHANGES" : `EXCHANGES: ${capabilityId}`);
 
   return (
     <Box flexDirection="column" width={width} flexGrow={1}>

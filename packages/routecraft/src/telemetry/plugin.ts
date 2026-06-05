@@ -193,7 +193,13 @@ class TelemetryPlugin implements CraftPlugin {
           timestamp: payload.ts,
           contextId: payload.contextId,
           eventName: payload._event ?? extractEventName(payload),
-          details: safeStringify(payload.details),
+          // Drop the conventional `_snapshot` envelope from event details
+          // unless snapshot capture is enabled. This is a generic,
+          // domain-agnostic redaction: any event author can stash
+          // potentially-sensitive payloads under `_snapshot` (e.g. the AI
+          // package puts agent tool input/output there) and have them
+          // honour the same switch as exchange-body snapshots.
+          details: safeStringify(payload.details, !this.captureSnapshots),
         };
         if (exchangeId) event.exchangeId = exchangeId;
         if (corrId) event.correlationId = corrId;
@@ -530,11 +536,17 @@ export function telemetry(options?: TelemetryOptions): CraftPlugin {
 
 /**
  * Safely stringify a value to JSON, handling circular references.
+ *
+ * When `dropSnapshot` is true, any property named `_snapshot` is omitted
+ * at every level. Event authors use `_snapshot` to mark sub-payloads that
+ * should only be persisted when telemetry snapshot capture is enabled
+ * (mirroring how exchange bodies/headers are gated by `captureSnapshots`).
  */
-function safeStringify(value: unknown): string {
+function safeStringify(value: unknown, dropSnapshot = false): string {
   const seen = new WeakSet<object>();
   try {
-    return JSON.stringify(value, (_key, val: unknown) => {
+    return JSON.stringify(value, (key, val: unknown) => {
+      if (dropSnapshot && key === "_snapshot") return undefined;
       if (val instanceof Error) {
         return {
           name: val.name,

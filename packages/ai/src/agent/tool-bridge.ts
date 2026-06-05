@@ -105,7 +105,9 @@ export async function buildVercelTools(
               correlationId: dispatchIdentity.correlationId,
               toolCallId,
               toolName: r.name,
-              input,
+              // Sensitive payload: only persisted to telemetry when
+              // snapshot capture is enabled (see telemetry `_snapshot`).
+              _snapshot: { input },
             },
           );
         }
@@ -123,7 +125,8 @@ export async function buildVercelTools(
                   correlationId: dispatchIdentity.correlationId,
                   toolCallId,
                   blockName,
-                  output,
+                  // Sensitive payload: gated by snapshot capture.
+                  _snapshot: { output },
                   duration: Date.now() - start,
                 },
               );
@@ -136,7 +139,9 @@ export async function buildVercelTools(
                   correlationId: dispatchIdentity.correlationId,
                   toolCallId,
                   toolName: r.name,
-                  output,
+                  // Sensitive payload: only persisted to telemetry when
+                  // snapshot capture is enabled (see telemetry `_snapshot`).
+                  _snapshot: { output },
                   duration: Date.now() - start,
                 },
               );

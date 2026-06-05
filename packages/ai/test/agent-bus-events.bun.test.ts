@@ -136,9 +136,18 @@ describe("agent context-bus events", () => {
     expect(invoked["routeId"]).toBe("with-tool");
     expect(invoked["toolName"]).toBe("CurrentTime");
     expect(invoked["toolCallId"]).toBe("call-CurrentTime-1");
+    // Tool input/output ride in the `_snapshot` envelope so the
+    // telemetry layer can drop them when snapshot capture is off.
+    expect(invoked["_snapshot"]).toBeDefined();
+    expect(invoked["_snapshot"] as Record<string, unknown>).toHaveProperty(
+      "input",
+    );
     const result = events[1]!.details as Record<string, unknown>;
     expect(result["toolName"]).toBe("CurrentTime");
     expect(result["duration"]).toBeTypeOf("number");
+    expect(result["_snapshot"] as Record<string, unknown>).toHaveProperty(
+      "output",
+    );
   });
 
   /**
@@ -227,10 +236,121 @@ describe("agent context-bus events", () => {
     expect(finished).toHaveLength(1);
     const d = finished[0] as Record<string, unknown>;
     expect(d["routeId"]).toBe("simple-agent");
+    expect(d["model"]).toBe("anthropic:claude-opus-4-7");
     expect(d["finishReason"]).toBe("stop");
     expect(d["inputTokens"]).toBe(10);
     expect(d["outputTokens"]).toBe(5);
     expect(d["totalTokens"]).toBe(15);
+  });
+
+  /**
+   * @case agent:started fires at dispatch start with model + tool names
+   * @preconditions Inline agent with one tool; mocked callLlm
+   * @expectedResult Subscriber receives one started event carrying the
+   *   resolved model, tool names, and turn budget
+   */
+  test("agent:started emitted with model, toolNames and maxTurns", async () => {
+    t = await testContext()
+      .with({
+        plugins: [
+          llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
+          agentPlugin({ functions: { CurrentTime: currentTime() } }),
+        ],
+      })
+      .routes(
+        craft()
+          .id("started-agent")
+          .from(simple("hi"))
+          .to(
+            agent({
+              system: "x",
+              model: "anthropic:claude-opus-4-7",
+              maxTurns: 7,
+              tools: tools(["CurrentTime"]),
+            }),
+          ),
+      )
+      .build();
+
+    const started: unknown[] = [];
+    t.ctx.on(
+      "route:started-agent:agent:started" as never,
+      ({ details }: { details: unknown }) => {
+        started.push(details);
+      },
+    );
+
+    await t.test();
+
+    expect(started).toHaveLength(1);
+    const d = started[0] as Record<string, unknown>;
+    expect(d["routeId"]).toBe("started-agent");
+    expect(d["model"]).toBe("anthropic:claude-opus-4-7");
+    expect(d["toolNames"]).toEqual(["CurrentTime"]);
+    expect(d["maxTurns"]).toBe(7);
+  });
+
+  /**
+   * @case Registered agents and fns announce themselves on context:started
+   * @preconditions agentPlugin with one registered agent and one fn
+   * @expectedResult agent:registered and agent:tool:registered fire once
+   *   the context starts, carrying ids, description and source
+   */
+  test("agent:registered + agent:tool:registered emitted on context start", async () => {
+    const registrations: Array<{ name: string; details: unknown }> = [];
+    t = await testContext()
+      .with({
+        plugins: [
+          llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
+          agentPlugin({
+            agents: {
+              summariser: {
+                description: "Summarises documents",
+                model: "anthropic:claude-opus-4-7",
+                system: "Be concise.",
+              },
+            },
+            functions: { CurrentTime: currentTime() },
+          }),
+        ],
+      })
+      .routes(
+        craft()
+          .id("noop")
+          .from(simple("hi"))
+          .to(agent({ system: "x", model: "anthropic:claude-opus-4-7" })),
+      )
+      .build();
+
+    t.ctx.on(
+      "agent:registered" as never,
+      ({ details }: { details: unknown }) => {
+        registrations.push({ name: "agent", details });
+      },
+    );
+    t.ctx.on(
+      "agent:tool:registered" as never,
+      ({ details }: { details: unknown }) => {
+        registrations.push({ name: "tool", details });
+      },
+    );
+
+    await t.test();
+
+    const agentReg = registrations.find((r) => r.name === "agent")?.details as
+      | Record<string, unknown>
+      | undefined;
+    expect(agentReg).toBeDefined();
+    expect(agentReg!["agentId"]).toBe("summariser");
+    expect(agentReg!["model"]).toBe("anthropic:claude-opus-4-7");
+    expect(agentReg!["source"]).toBe("registered");
+
+    const toolReg = registrations.find((r) => r.name === "tool")?.details as
+      | Record<string, unknown>
+      | undefined;
+    expect(toolReg).toBeDefined();
+    expect(toolReg!["toolName"]).toBe("CurrentTime");
+    expect(toolReg!["source"]).toBe("registered");
   });
 
   /**

@@ -20,7 +20,11 @@ import type { TelemetryEvent } from "../src/telemetry/types.ts";
  */
 function sqliteTelemetry(
   dbPath: string,
-  sqliteOpts?: { eventBatchSize?: number; eventFlushIntervalMs?: number },
+  sqliteOpts?: {
+    eventBatchSize?: number;
+    eventFlushIntervalMs?: number;
+    captureSnapshots?: boolean;
+  },
 ) {
   return telemetry({ sqlite: { dbPath, ...sqliteOpts } });
 }
@@ -237,6 +241,101 @@ describe("TelemetryPlugin", () => {
     db.close();
 
     expect(eventCount.cnt).toBeGreaterThan(0);
+  });
+
+  /**
+   * @case The `_snapshot` envelope is stripped from event details when
+   *   snapshot capture is off (the default)
+   * @preconditions captureSnapshots not set; an event carrying a
+   *   `_snapshot` sub-payload is emitted while the context runs
+   * @expectedResult The persisted details omit `_snapshot` and its
+   *   contents, but retain the non-sensitive sibling fields
+   */
+  test("drops _snapshot from event details when captureSnapshots is off", async () => {
+    const plugin = sqliteTelemetry(dbPath, { eventFlushIntervalMs: 50 });
+    const route = craft()
+      .id("snap-off")
+      .from(simple([1]))
+      .to(log());
+    t = await testContext()
+      .with({ plugins: [plugin] })
+      .routes(route)
+      .build();
+
+    // Emit the synthetic agent-tool event from inside a live exchange so
+    // the telemetry subscription is still active (a finite source tears
+    // the context down by the time start() resolves).
+    t.ctx.once("route:snap-off:exchange:started" as never, () => {
+      t.ctx.emit(
+        "route:snap-off:agent:tool:result" as never,
+        {
+          routeId: "snap-off",
+          exchangeId: "ex-1",
+          toolName: "secretTool",
+          _snapshot: { output: "TOP_SECRET_OUTPUT" },
+        } as never,
+      );
+    });
+    await t.test();
+
+    const db = new Database(dbPath, { readonly: true });
+    const row = db
+      .prepare("SELECT details FROM events WHERE event_name = ?")
+      .get("route:snap-off:agent:tool:result") as
+      | { details: string }
+      | undefined;
+    db.close();
+
+    expect(row).toBeDefined();
+    expect(row!.details).not.toContain("_snapshot");
+    expect(row!.details).not.toContain("TOP_SECRET_OUTPUT");
+    expect(row!.details).toContain("secretTool");
+  });
+
+  /**
+   * @case The `_snapshot` envelope is persisted when snapshot capture is on
+   * @preconditions captureSnapshots: true; an event carrying a
+   *   `_snapshot` sub-payload is emitted while the context runs
+   * @expectedResult The persisted details retain `_snapshot` and its contents
+   */
+  test("keeps _snapshot in event details when captureSnapshots is on", async () => {
+    const plugin = sqliteTelemetry(dbPath, {
+      eventFlushIntervalMs: 50,
+      captureSnapshots: true,
+    });
+    const route = craft()
+      .id("snap-on")
+      .from(simple([1]))
+      .to(log());
+    t = await testContext()
+      .with({ plugins: [plugin] })
+      .routes(route)
+      .build();
+
+    t.ctx.once("route:snap-on:exchange:started" as never, () => {
+      t.ctx.emit(
+        "route:snap-on:agent:tool:result" as never,
+        {
+          routeId: "snap-on",
+          exchangeId: "ex-1",
+          toolName: "secretTool",
+          _snapshot: { output: "VISIBLE_OUTPUT" },
+        } as never,
+      );
+    });
+    await t.test();
+
+    const db = new Database(dbPath, { readonly: true });
+    const row = db
+      .prepare("SELECT details FROM events WHERE event_name = ?")
+      .get("route:snap-on:agent:tool:result") as
+      | { details: string }
+      | undefined;
+    db.close();
+
+    expect(row).toBeDefined();
+    expect(row!.details).toContain("_snapshot");
+    expect(row!.details).toContain("VISIBLE_OUTPUT");
   });
 
   /**

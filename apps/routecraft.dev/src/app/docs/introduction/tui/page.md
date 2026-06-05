@@ -2,7 +2,7 @@
 title: Terminal UI
 ---
 
-Inspect routes, exchanges, and live events from the terminal. {% .lead %}
+Inspect routes, agents, tools, exchanges, and live events from the terminal. {% .lead %}
 
 ![Routecraft Terminal UI](/screenshots/tui.webp)
 
@@ -40,8 +40,8 @@ The TUI polls the database every 2 seconds. Because SQLite runs in WAL mode, rea
 
 The TUI uses a three-column layout:
 
-- **Left** -- Navigation panel (view switcher + capability list) and keymap
-- **Center** -- Main content (exchange lists, exchange detail, or event stream)
+- **Left** -- Navigation panel (view switcher + capability / agent / tool list) and keymap
+- **Center** -- Main content (exchange lists, agent runs, tool calls, detail views, or event stream)
 - **Right** -- Metrics panel with throughput stats, latency percentiles (p90/p95/p99), and a live traffic sparkline
 
 ## Views
@@ -52,7 +52,17 @@ The default view. The left panel lists all routes (capabilities) seen in the dat
 
 Press `Enter` to drill into a route's exchange list in the center panel. Press `Esc` to return focus to the route list.
 
-### Exchanges (2)
+### Agents (2)
+
+The left panel lists agents seen in the database: agents registered via `agentPlugin` (shown even before they run) and inline agents discovered when they dispatch (keyed by their route). The status dot is red on errors, green once the agent has run, and yellow for registered-but-not-yet-run.
+
+Press `Enter` to browse the agent's runs (the exchanges it dispatched in). Press `Enter` on a run to open its detail: the resolved model, input/output token usage, finish reason, and the ordered tool-call timeline. Press `Enter` on a tool call to inspect its input and output (captured only when `captureSnapshots` is enabled).
+
+### Tools (3)
+
+The left panel lists tools: fns registered via `agentPlugin` and any tools observed being called. Press `Enter` to browse a tool's invocation history across all agents and exchanges, then `Enter` on a call to inspect its input/output.
+
+### Exchanges (4)
 
 A chronological list of all exchanges across all routes, ordered most recent first.
 
@@ -65,11 +75,11 @@ A chronological list of all exchanges across all routes, ordered most recent fir
 
 Press `Enter` on any exchange to see its detail view with related events grouped by parent/child flow.
 
-### Errors (3)
+### Errors (5)
 
 Same layout as Exchanges but filtered to show only failed exchanges. Useful for quickly spotting and investigating failures.
 
-### Events (4)
+### Events (6)
 
 A chronological tail of all framework events with human-readable summaries: context lifecycle, route lifecycle, exchange events, and step events. Useful for debugging unexpected behaviour.
 
@@ -95,10 +105,12 @@ A chronological tail of all framework events with human-readable summaries: cont
 | Key | Action |
 | --- | --- |
 | `1` | Switch to Capabilities view |
-| `2` | Switch to Exchanges view |
-| `3` | Switch to Errors view |
-| `4` | Switch to Events view |
-| `Enter` | Drill into selected item (route exchanges or exchange detail) |
+| `2` | Switch to Agents view |
+| `3` | Switch to Tools view |
+| `4` | Switch to Exchanges view |
+| `5` | Switch to Errors view |
+| `6` | Switch to Events view |
+| `Enter` | Drill into selected item (e.g. route exchanges, agent runs, tool calls) |
 | `Esc` | Go back to the previous panel or view |
 | `q` | Quit |
 
