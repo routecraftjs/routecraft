@@ -28,9 +28,15 @@ interface DslNode {
   body?: DslNode;
   params?: DslNode[];
   arguments?: DslNode[];
+  comments?: unknown[];
   typeAnnotation?: unknown;
   returnType?: unknown;
   typeParameters?: unknown;
+}
+
+/** Whether Prettier attached any comments directly to this node. */
+function hasComments(node: DslNode): boolean {
+  return Array.isArray(node.comments) && node.comments.length > 0;
 }
 
 /**
@@ -146,6 +152,13 @@ function isDslArrow(node: DslNode, path: AstPath): boolean {
   const body = node.body;
   if (!body || body.type === "BlockStatement") return false;
   if (chainHeadName(body) !== param.name) return false;
+
+  // Bail to Prettier's default printer when the arrow or its immediate body
+  // carries comments. Our hand-built doc does not reproduce the default arrow
+  // printer's comment placement, and a comment between `=>` and the body would
+  // otherwise produce non-idempotent output. Comments deeper in the chain
+  // attach to other nodes and are printed correctly via recursion.
+  if (hasComments(node) || hasComments(body)) return false;
 
   return isDirectCallArgument(node, path) && isInsideCraftChain(path);
 }

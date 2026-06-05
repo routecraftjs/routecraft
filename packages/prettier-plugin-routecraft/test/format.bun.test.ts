@@ -151,4 +151,33 @@ describe("prettier-plugin-routecraft", () => {
     expect(await format(shortSrc)).toBe(await formatStock(shortSrc));
     expect(await format(longSrc)).toBe(await formatStock(longSrc));
   });
+
+  /**
+   * @case An arrow whose body carries a leading comment is left to Prettier and stays idempotent
+   * @preconditions A choice arrow with a comment between => and the body: (c) => / comment / c.when(...)
+   * @expectedResult Output is roundtrip stable and matches stock Prettier (the plugin bails to the default printer for comment-bearing arrows)
+   */
+  test("arrow with a comment before its body is stable and left to Prettier", async () => {
+    const src = `export const r = craft().id("x").from(s()).choice((c) =>\n  // pick a branch\n  c.when(isA(), (b) => b.to(a())).otherwise((b) => b));`;
+    const once = await format(src);
+    // Idempotent: formatting the result again is a no-op.
+    expect(await format(once)).toBe(once);
+    // Comment-bearing arrow falls through to stock Prettier's layout.
+    expect(once).toBe(await formatStock(src));
+  });
+
+  /**
+   * @case Comments on branches inside the chain keep the compact layout
+   * @preconditions A choice whose .when()/.otherwise() branches are preceded by line comments
+   * @expectedResult The chain stays compact (parameter on the arrow line) and output is roundtrip stable
+   */
+  test("branch comments keep the compact layout", async () => {
+    const out = await format(
+      `export const r = craft().id("x").from(s()).choice((c) => c\n  // urgent\n  .when(isUrgent, (b) => b.to(urgent))\n  // everything else\n  .otherwise((b) => b));`,
+    );
+    expect(out).toContain("(c) => c\n");
+    expect(out).toContain("// urgent");
+    expect(out).toContain("// everything else");
+    expect(await format(out)).toBe(out);
+  });
 });
