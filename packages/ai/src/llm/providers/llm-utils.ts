@@ -52,7 +52,6 @@ export const PROVIDER_DEFAULTS = {
   },
   lmstudio: {
     baseURL: "http://localhost:1234/v1",
-    apiKey: "lm-studio",
   },
 } as const;
 

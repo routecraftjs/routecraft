@@ -133,24 +133,38 @@ async function resolveLmStudio(
   config: import("../types.ts").LlmModelConfigLmStudio,
   modelId: string,
 ): Promise<unknown> {
-  const mod = (await loadOptionalPeer(() => import("@ai-sdk/openai"), {
-    adapterName: "LM Studio LLM",
-    packageName: "@ai-sdk/openai",
-  })) as {
-    createOpenAI: (s: { apiKey: string; baseURL: string }) => {
-      chat: (id: string) => unknown;
-    };
+  const mod = (await loadOptionalPeer(
+    () => import("@ai-sdk/openai-compatible"),
+    { adapterName: "LM Studio LLM", packageName: "@ai-sdk/openai-compatible" },
+  )) as {
+    createOpenAICompatible: (s: {
+      name: string;
+      baseURL: string;
+      apiKey?: string;
+      includeUsage?: boolean;
+    }) => (id: string) => unknown;
   };
-  // LM Studio exposes an OpenAI-compatible chat-completions endpoint, so we
-  // drive it through @ai-sdk/openai. Use `.chat()` explicitly: the provider's
-  // default model creator targets the Responses API, which LM Studio does not
-  // implement.
-  const lmstudio = mod.createOpenAI({
-    apiKey: config.apiKey ?? PROVIDER_DEFAULTS.lmstudio.apiKey,
+  // LM Studio serves an OpenAI-compatible chat-completions API. We use Vercel's
+  // dedicated openai-compatible provider (not @ai-sdk/openai) so the adapter is
+  // not tied to OpenAI-specific behaviour such as the Responses API. The
+  // provider's default model is the chat-completions model, and `includeUsage`
+  // makes LM Studio report token usage on streaming responses too.
+  const settings: {
+    name: string;
+    baseURL: string;
+    apiKey?: string;
+    includeUsage: boolean;
+  } = {
+    name: "lmstudio",
     baseURL: config.baseURL ?? PROVIDER_DEFAULTS.lmstudio.baseURL,
-  });
+    includeUsage: true,
+  };
+  // Only send an Authorization header when a key is configured; LM Studio
+  // ignores auth, so we do not invent a placeholder bearer token.
+  if (config.apiKey !== undefined) settings.apiKey = config.apiKey;
+  const lmstudio = mod.createOpenAICompatible(settings);
   const name = config.modelId ?? modelId;
-  const rawModel = lmstudio.chat(name);
+  const rawModel = lmstudio(name);
   assertLanguageModelShape(rawModel, "LM Studio", name);
   return rawModel;
 }

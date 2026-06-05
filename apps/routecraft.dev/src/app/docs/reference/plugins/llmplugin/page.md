@@ -56,7 +56,7 @@ llmPlugin({ providers: { lmstudio: {} } })
 // llm("lmstudio:qwen2.5-7b-instruct")
 ```
 
-Requires the `@ai-sdk/openai` peer (`bun add @ai-sdk/openai`); a missing peer raises a clear install error.
+Requires the `@ai-sdk/openai-compatible` peer (`bun add @ai-sdk/openai-compatible`); a missing peer raises a clear install error. Token usage is reported on both buffered and streaming responses.
 
 ## Custom (bring your own model)
 
