@@ -27,37 +27,33 @@ interface DslNode {
   expression?: DslNode;
   body?: DslNode;
   params?: DslNode[];
+  arguments?: DslNode[];
   typeAnnotation?: unknown;
   returnType?: unknown;
   typeParameters?: unknown;
 }
 
 /**
- * Walk to the head of a fluent member/call chain and return its identifier
- * name, or `null` when the chain does not bottom out at a bare identifier
- * (for example `direct(...).send(...)`, whose head is a call, not a name).
+ * Whether an arrow body is a fluent chain (or the bare parameter) worth keeping
+ * on the arrow line. This covers both parameter-threaded builders such as
+ * `(c) => c.when(...)` and callbacks whose chain starts from a factory such as
+ * `(ex) => direct(...).send(...)`. Bodies that are not chains (template
+ * literals, conditionals, object literals, ...) are left to Prettier.
  */
-function chainHeadName(node: DslNode): string | null {
-  let cur: DslNode | undefined = node;
-  while (cur) {
-    switch (cur.type) {
-      case "CallExpression":
-      case "OptionalCallExpression":
-        cur = cur.callee;
-        break;
-      case "MemberExpression":
-      case "OptionalMemberExpression":
-        cur = cur.object;
-        break;
-      case "ChainExpression":
-      case "TSNonNullExpression":
-        cur = cur.expression;
-        break;
-      default:
-        return cur.type === "Identifier" ? (cur.name ?? null) : null;
-    }
+function isChainBody(body: DslNode, paramName: string): boolean {
+  switch (body.type) {
+    case "CallExpression":
+    case "OptionalCallExpression":
+    case "MemberExpression":
+    case "OptionalMemberExpression":
+    case "ChainExpression":
+    case "TSNonNullExpression":
+      return true;
+    case "Identifier":
+      return body.name === paramName;
+    default:
+      return false;
   }
-  return null;
 }
 
 /**
@@ -88,6 +84,18 @@ function rootsAtCraft(node: DslNode): boolean {
   return false;
 }
 
+/**
+ * Whether the node sits directly in a call's argument list, for example the
+ * closure in `.enrich((ex) => ..., only(...))`. This keeps the plugin to DSL
+ * callback arguments and leaves arrows that are object or array values (such as
+ * `path: (ex) => path.join(...)` inside an adapter's options) to Prettier.
+ */
+function isDirectCallArgument(node: DslNode, path: AstPath): boolean {
+  const parent = path.getParentNode(0) as DslNode | null;
+  if (!parent || parent.type !== "CallExpression") return false;
+  return Array.isArray(parent.arguments) && parent.arguments.includes(node);
+}
+
 /** Whether any ancestor call expression is part of a `craft()` chain. */
 function isInsideCraftChain(path: AstPath): boolean {
   let depth = 0;
@@ -103,13 +111,15 @@ function isInsideCraftChain(path: AstPath): boolean {
 }
 
 /**
- * A "DSL arrow" is a single-parameter arrow whose body threads that parameter
- * straight into a fluent chain, for example `(c) => c.when(...).otherwise(...)`
- * or the trivial `(b) => b`. These are the sub-route builder closures that
- * Prettier breaks across too many lines. Async arrows, arrows with explicit
- * return types or type parameters, and closures whose body does not start from
- * the parameter are left untouched so we never drop a type annotation or
- * fight Prettier on shapes we do not own.
+ * A "DSL arrow" is a single-parameter arrow whose body is a fluent chain, that
+ * is passed directly as a call argument inside a `craft()` chain. This covers
+ * parameter-threaded builders such as `(c) => c.when(...).otherwise(...)`, the
+ * trivial `(b) => b`, and factory-rooted callbacks such as
+ * `(ex) => direct(...).send(...)`. These are the closures Prettier breaks
+ * across too many lines. Async arrows and arrows with explicit return types or
+ * type parameters are left untouched so we never drop a type annotation;
+ * non-chain bodies and arrows used as object or array values (such as adapter
+ * option callbacks) fall through to Prettier.
  */
 function isDslArrow(node: DslNode, path: AstPath): boolean {
   if (node.type !== "ArrowFunctionExpression") return false;
@@ -124,9 +134,9 @@ function isDslArrow(node: DslNode, path: AstPath): boolean {
 
   const body = node.body;
   if (!body || body.type === "BlockStatement") return false;
-  if (chainHeadName(body) !== param.name) return false;
+  if (!isChainBody(body, param.name)) return false;
 
-  return isInsideCraftChain(path);
+  return isDirectCallArgument(node, path) && isInsideCraftChain(path);
 }
 
 const estreePrinter = estreePrinters.estree;

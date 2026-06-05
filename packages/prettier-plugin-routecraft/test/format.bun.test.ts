@@ -108,19 +108,22 @@ describe("prettier-plugin-routecraft", () => {
 
   /**
    * @case The full mail-routing example from the issue formats to the documented compact shape
-   * @preconditions The choice/when/otherwise example with a non-threaded enrich callback and a log template literal
-   * @expectedResult The DSL arrows compact while the non-DSL enrich callback (head is direct(...), not the parameter) is left to Prettier
+   * @preconditions The choice/when/otherwise example with a factory-rooted enrich callback and a log template literal
+   * @expectedResult Every chain-bodied arrow keeps its parameter on the arrow line (including the factory-rooted (ex) => direct(...).send(...)), while the template-literal log callback is left to Prettier
    */
-  test("issue example compacts DSL arrows but leaves non-DSL callbacks alone", async () => {
+  test("issue example compacts every chain-bodied arrow", async () => {
     const out = await format(
-      `export const route = craft().id("mail").from(mail({ action: "watch" })).choice((c) => c.when(senderInAllowlist(env.MAIL_ALLOWED_INBOUND), (b) => b.enrich((ex) => direct<{ name: string; body: MailMessage }, AgentResult>("agent").send(DefaultExchange.rewrap(ex, { body: { name: "zoe", body: ex.body } })), only((r) => r, "agent")).to(mail({ action: "move", folder: "[Gmail]/All Mail" })).log((ex) => \`Processed: \${ex.body.from}\`)).otherwise((b) => b));`,
+      `export const route = craft().id("mail").from(mail({ action: "watch" })).choice((c) => c.when(senderInAllowlist(env.MAIL_ALLOWED_INBOUND), (b) => b.enrich((ex) => direct<{ name: string; body: MailMessage }, AgentResult>("agent").send(DefaultExchange.rewrap(ex, { body: { name: "zoe", body: ex.body } })), only((r) => r, "agent")).to(mail({ action: "move", folder: "[Gmail]/All Mail" })).log((ex) => \`Processed: \${ex.body.from} [\${ex.body.sender?.address}] - \${ex.body.subject}\`)).otherwise((b) => b));`,
     );
-    // DSL arrows compacted: parameter stays on the arrow line.
+    // Builder arrows compacted: parameter stays on the arrow line.
     expect(out).toContain("(c) => c\n");
     expect(out).toContain("(b) => b\n");
-    // Non-DSL callback whose chain head is direct(...) keeps Prettier's default
-    // layout: its parameter is not threaded, so the arrow body breaks normally.
-    expect(out).toMatch(/\(ex\) =>\s*\n\s*direct</);
+    // Factory-rooted callback: the parameter and the chain head stay together
+    // on the arrow line instead of `(ex) =>` breaking onto its own line.
+    expect(out).toContain("(ex) => direct<");
+    expect(out).not.toMatch(/\(ex\) =>\s*\n\s*direct</);
+    // A non-chain body (template literal) is still left to Prettier.
+    expect(out).toMatch(/\(ex\) =>\s*\n\s*`Processed:/);
     expect(await format(out)).toBe(out);
   });
 
