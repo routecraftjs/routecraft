@@ -50,15 +50,27 @@ export function parseVCard(raw: string): Contact {
   // Validate the envelope. The raw layer is otherwise tolerant of partial
   // input; tightening the contract here gives callers a clear `SyntaxError`
   // for obviously-broken payloads rather than silently empty contacts.
-  const hasBegin = records.some(
-    (r) => r.name === "begin" && r.value.toUpperCase() === "VCARD",
-  );
-  const hasEnd = records.some(
-    (r) => r.name === "end" && r.value.toUpperCase() === "VCARD",
-  );
-  if (!hasBegin || !hasEnd) {
+  let beginCount = 0;
+  let hasEnd = false;
+  for (const record of records) {
+    if (record.name === "begin" && record.value.toUpperCase() === "VCARD") {
+      beginCount++;
+    }
+    if (record.name === "end" && record.value.toUpperCase() === "VCARD") {
+      hasEnd = true;
+    }
+  }
+  if (beginCount === 0 || !hasEnd) {
     throw new SyntaxError(
       "vCard payload did not contain a BEGIN:VCARD/END:VCARD block",
+    );
+  }
+  // A vCard collection (multiple BEGIN:VCARD blocks) would silently flatten
+  // into one Contact, losing the second card's data. Reject explicitly so the
+  // caller can iterate the payload instead.
+  if (beginCount > 1) {
+    throw new SyntaxError(
+      "vCard payload contains a vCard collection; parseVCard accepts a single card",
     );
   }
 
