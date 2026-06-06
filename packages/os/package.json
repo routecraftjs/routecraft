@@ -27,7 +27,7 @@
     "@routecraft/routecraft": "workspace:^0.6.0"
   },
   "devDependencies": {
-    "vitest": "^4.1.5",
+    "vitest": "^4.1.7",
     "zod": "^4.4.3"
   },
   "peerDependencies": {
