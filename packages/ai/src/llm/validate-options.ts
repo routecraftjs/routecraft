@@ -1,3 +1,4 @@
+import { assertLanguageModelShape } from "./providers/llm-utils.ts";
 import type { LlmPluginOptions, LlmProviderType } from "./types.ts";
 
 const PROVIDERS: LlmProviderType[] = [
@@ -6,6 +7,8 @@ const PROVIDERS: LlmProviderType[] = [
   "openrouter",
   "ollama",
   "gemini",
+  "lmstudio",
+  "custom",
 ];
 
 function isProvider(s: string): s is LlmProviderType {
@@ -53,6 +56,7 @@ export function validateLlmPluginOptions(options: LlmPluginOptions): void {
         }
         break;
       case "ollama":
+      case "lmstudio":
         if (
           (opts as { baseURL?: string }).baseURL !== undefined &&
           typeof (opts as { baseURL?: string }).baseURL !== "string"
@@ -70,7 +74,30 @@ export function validateLlmPluginOptions(options: LlmPluginOptions): void {
             `llmPlugin: providers["${providerId}"].modelId must be a non-empty string when provided`,
           );
         }
+        if (
+          providerId === "lmstudio" &&
+          (opts as { apiKey?: string }).apiKey !== undefined &&
+          typeof (opts as { apiKey?: string }).apiKey !== "string"
+        ) {
+          throw new TypeError(
+            `llmPlugin: providers["lmstudio"].apiKey must be a string when provided`,
+          );
+        }
         break;
+      case "custom": {
+        const model = (opts as { model?: unknown }).model;
+        // A factory is only invoked at dispatch, so its return shape cannot be
+        // checked eagerly; a concrete instance can, so assert it now and fail
+        // at plugin apply rather than at first dispatch.
+        if (typeof model === "function") break;
+        if (model === null || typeof model !== "object") {
+          throw new TypeError(
+            `llmPlugin: providers["custom"].model must be an AI SDK language model or a factory function`,
+          );
+        }
+        assertLanguageModelShape(model, "custom", "(custom)");
+        break;
+      }
     }
   }
   if (

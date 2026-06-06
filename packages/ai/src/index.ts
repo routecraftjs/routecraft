@@ -18,11 +18,16 @@ export type {
 // LLM adapter and plugin
 export { llm, LlmDestinationAdapter, llmPlugin } from "./llm/index.ts";
 export type {
+  CustomLanguageModel,
   LlmAnthropicProviderOptions,
+  LlmCustomProviderOptions,
   LlmGeminiProviderOptions,
+  LlmLmStudioProviderOptions,
   LlmModelConfig,
   LlmModelConfigAnthropic,
+  LlmModelConfigCustom,
   LlmModelConfigGemini,
+  LlmModelConfigLmStudio,
   LlmModelConfigOllama,
   LlmModelConfigOpenAI,
   LlmModelConfigOpenRouter,

@@ -52,7 +52,7 @@ craft()
 
 Model ID format: `"provider:model-name"` (same as `llm()`). The provider must be registered via `llmPlugin({ providers: {...} })`. There is no inline-credentials escape hatch on `agent({...})`; centralised wiring via `llmPlugin` is the only path.
 
-**Supported providers:** `openai`, `anthropic`, `ollama`, `openrouter`, `gemini`
+**Supported providers:** `openai`, `anthropic`, `ollama`, `openrouter`, `gemini`, `lmstudio`, `custom`
 
 **`AgentOptions` (inline form):**
 
