@@ -9,6 +9,9 @@
  */
 
 import type { Exchange } from "../../exchange.ts";
+import type { VCardParam } from "./vcard-raw.ts";
+
+export type { VCardParam } from "./vcard-raw.ts";
 
 // ---------------------------------------------------------------------------
 // Context-level configuration (named accounts)
@@ -71,10 +74,17 @@ export interface CardDAVContextConfig {
  * Absent (read role): `.from(carddav())` reads all contacts as a source and
  * `.enrich(carddav())` fetches all contacts as an array. Present (write role):
  *
- * - `"save"`: update the contact matching `uid`/`url`, else create it (upsert).
+ * - `"save"`: write to the contact at `url`, else create it (upsert).
  * - `"create"`: always create a new contact (generates a `uid` if absent).
- * - `"update"`: update an existing contact, throwing `RC5014` if none matches.
+ * - `"update"`: write to the contact at `url`, throwing `RC5014` if no `url` is
+ *   resolvable. Read the contact first so it carries its `url`/`etag`.
  * - `"delete"`: delete the contact resolved from the body, headers, or `target`.
+ *
+ * A write serializes the whole {@link Contact} and replaces the card; it does
+ * not merge. Reading is lossless (every property round-trips, unmodeled ones via
+ * `custom`), so a read-modify-write keeps data you did not touch. Dropping a
+ * field from the contact you save removes it from the card, exactly like an
+ * `UPDATE` of a row.
  */
 export type CardDAVAction = "save" | "create" | "update" | "delete";
 
@@ -134,27 +144,43 @@ export type CardDAVOptions =
 // Normalized contact model
 // ---------------------------------------------------------------------------
 
-/** A phone number with an optional type label (e.g. `"cell"`, `"home"`, `"work"`). */
+/**
+ * A phone number.
+ *
+ * `type` is the ergonomic primary TYPE (e.g. `"cell"`, `"home"`, `"work"`).
+ * `label` is an Apple custom label (`X-ABLabel`) when the entry has one. `params`
+ * captures every wire parameter verbatim so a read-then-write round-trip keeps
+ * data the model does not name (extra `TYPE`s, the `PREF` flag, `X-` params); it
+ * is authoritative on write, with `type` applied over it when both are set.
+ */
 export interface ContactPhone {
   value: string;
   type?: string;
+  label?: string;
+  params?: VCardParam[];
 }
 
-/** An email address with an optional type label. */
+/** An email address. See {@link ContactPhone} for the `type`/`label`/`params` contract. */
 export interface ContactEmail {
   value: string;
   type?: string;
+  label?: string;
+  params?: VCardParam[];
 }
 
-/** A structured postal address. */
+/** A structured postal address. See {@link ContactPhone} for `type`/`label`/`params`. */
 export interface ContactAddress {
   type?: string;
+  label?: string;
   poBox?: string;
+  /** Extended address (apartment / suite), RFC 6350 ADR component 2. */
+  extended?: string;
   street?: string;
   city?: string;
   region?: string;
   postalCode?: string;
   country?: string;
+  params?: VCardParam[];
 }
 
 /** A contact photo. `data` is base64-encoded image bytes for vCard 3.0. */
@@ -173,6 +199,8 @@ export interface ContactDate {
   label: string;
   /** Date value as written in the vCard (e.g. `"2010-06-01"` or `"--06-01"`). */
   date: string;
+  /** Every wire parameter, verbatim. Authoritative on write. */
+  params?: VCardParam[];
 }
 
 /** An instant-messaging handle (vCard `IMPP`, iCloud `X-SERVICE-TYPE`). */
@@ -188,6 +216,8 @@ export interface ContactInstantMessage {
   scheme?: string;
   /** The address/handle (e.g. `"user@example.com"`). */
   handle: string;
+  /** Every wire parameter, verbatim. Authoritative on write. */
+  params?: VCardParam[];
 }
 
 /** A social-media profile (iCloud `X-SOCIALPROFILE`). */
@@ -196,6 +226,8 @@ export interface ContactSocialProfile {
   service?: string;
   /** Profile URL. */
   url: string;
+  /** Every wire parameter, verbatim. Authoritative on write. */
+  params?: VCardParam[];
 }
 
 /** A related person (iCloud `X-ABRELATEDNAMES` grouped with an `X-ABLabel`). */
@@ -204,6 +236,8 @@ export interface ContactRelatedName {
   label: string;
   /** The related person's name. */
   name: string;
+  /** Every wire parameter, verbatim. Authoritative on write. */
+  params?: VCardParam[];
 }
 
 /**
@@ -216,10 +250,12 @@ export interface ContactField {
   key: string;
   /** Property value. */
   value: string;
-  /** `TYPE` parameter, if any. */
+  /** `TYPE` parameter, if any (ergonomic; `params` is authoritative on write). */
   type?: string;
   /** Grouping prefix (e.g. `"item1"`), preserved on round-trip. */
   group?: string;
+  /** Every wire parameter, verbatim. Authoritative on write. */
+  params?: VCardParam[];
 }
 
 /**
@@ -272,12 +308,13 @@ export interface Contact {
   note?: string;
   photo?: ContactPhoto;
   /**
-   * Properties outside the structured model (e.g. `IMPP`, `NICKNAME`,
-   * `CATEGORIES`, `X-` fields). Populated on read; written back on create and
-   * upserted on update so unmodeled data round-trips.
+   * Properties outside the structured model (arbitrary `X-` fields and any other
+   * unmodeled property). Populated on read so nothing is silently dropped, and
+   * written back verbatim so a round-trip preserves them. Drop an entry to
+   * remove it from the card on the next write.
    */
   custom?: ContactField[];
-  /** Original vCard text (present on read; preserved fields are kept on update). */
+  /** Original vCard text as read (escape-hatch access; not used on write). */
   raw?: string;
 }
 

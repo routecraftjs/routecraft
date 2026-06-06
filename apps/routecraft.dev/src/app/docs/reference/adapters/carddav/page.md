@@ -59,7 +59,7 @@ craft()
   .to(writeCsv('contacts.csv'))
 ```
 
-**Write (`.to()`):** `action: 'save'` upserts the exchange body (a `Contact`) by `uid`/`url`. Updates fetch the existing card and patch only the fields you provide, so untouched properties survive. Optimistic concurrency uses the ETag. `'create'` always inserts (generating a `uid` if absent); `'update'` requires a match (else `RC5014`).
+**Write (`.to()`):** a write serializes the whole `Contact` and replaces the card; it does not merge. Because reading is lossless (see below), a read-modify-write keeps every field you did not touch, and dropping a field from the contact removes it, exactly like an `UPDATE` of a database row. `action: 'save'` upserts: it writes to the contact's `url` when present, otherwise creates. `'create'` always inserts (generating a `uid` if absent). `'update'` writes to the contact's `url` and raises `RC5014` if none is resolvable, so read the contact first (it then carries its `url`/`etag`). Update and delete send the read-time `etag` as an `If-Match` precondition, so a concurrent change on the server surfaces as a conflict (`RC5001`) instead of silently overwriting.
 
 ```ts
 // Set a birthday on an existing contact without touching other fields.
@@ -93,7 +93,7 @@ craft()
 | `description` | `string?` | Human-readable description for route discovery |
 | `keywords` | `string[]?` | Keywords for route discovery |
 
-**`Contact` (mapped fields):** `uid`, `url`, `etag`, `fullName`, `firstName`, `lastName`, `middleName`, `prefix`, `suffix`, `nickname`, `organization`, `department` (ORG 2nd component), `title`, `categories[]`, `phones[]`, `emails[]`, `addresses[]`, `urls[]`, `instantMessages[]` (`IMPP`, with optional `scheme`), `socialProfiles[]` (`X-SOCIALPROFILE`), `relatedNames[]` (`X-ABRELATEDNAMES`, `{ label, name }`), `birthday`, `dates[]` (labeled dates / anniversaries, `{ label, date }`), `note`, `photo` (`{ data, mediaType }`, base64), `custom[]` (anything else), and `raw` (the original vCard text). On read, `url`/`etag` round-trip the DAV object so updates target the right resource.
+**`Contact` (mapped fields):** `uid`, `url`, `etag`, `fullName`, `firstName`, `lastName`, `middleName`, `prefix`, `suffix`, `nickname`, `organization`, `department` (ORG 2nd component), `title`, `categories[]`, `phones[]`, `emails[]` (each `{ value, type?, label?, params? }`), `addresses[]` (with `extended` for the apartment/suite component), `urls[]`, `instantMessages[]` (`IMPP`, with optional `scheme`), `socialProfiles[]` (`X-SOCIALPROFILE`), `relatedNames[]` (`X-ABRELATEDNAMES`, `{ label, name }`), `birthday`, `dates[]` (labeled dates / anniversaries, `{ label, date }`), `note`, `photo` (`{ data, mediaType }`, base64), `custom[]` (anything else), and `raw` (the original vCard text). On read, `url`/`etag` round-trip the DAV object so updates target the right resource.
 
 **Labeled dates:** beyond `birthday`, iCloud stores anniversaries and custom dates as grouped `X-ABDATE` + `X-ABLabel`. These read into and write from `dates: { label, date }[]`.
 
@@ -102,26 +102,12 @@ craft()
 .to(carddav({ action: 'save' }))
 ```
 
-**Custom fields:** properties outside the mapped set (e.g. arbitrary `X-*` extension properties) read into `custom: { key, value, type?, group? }[]` and write back from it. On `save`/`update` they upsert by key + group; custom fields you do not mention are left untouched. (Mapped iCloud properties such as `IMPP`, `NICKNAME`, `CATEGORIES`, and `X-SOCIALPROFILE` surface on their own typed fields and are excluded from `custom[]`.)
+**Custom fields:** properties outside the mapped set (e.g. arbitrary `X-*` extension properties, plus standard-but-unmodeled ones such as `PRODID` and `REV`) read into `custom: { key, value, type?, group?, params? }[]` and write back from it verbatim. Because a write is a full replace, dropping an entry from `custom` removes that property from the card. (Mapped iCloud properties such as `IMPP`, `NICKNAME`, `CATEGORIES`, and `X-SOCIALPROFILE` surface on their own typed fields and are excluded from `custom[]`.)
 
-**Data integrity (per-record diff/merge).** Updates are applied as a per-record diff against the existing raw vCard: each item the read path returns carries a hidden back-ref to its source record (via a `WeakMap`), so on patch the merger rewrites only the bytes you changed inside that origin record. Every other parameter, the `item N.` group prefix, and any grouped `X-ABLabel` sibling survive byte-for-byte. Unmatched origins are removed (and only their `X-ABLabel` sibling along with them); new items are appended fresh just before `END:VCARD`. Anything the typed model does not surface is preserved by default — no model expansion needed when iCloud invents a new property.
+**Data integrity (lossless read, full replace).** The contract is simple: a read never silently drops data, and a write persists exactly the contact you give it. Reading captures every wire parameter on each item verbatim (`params`), the extended-address ADR component (`extended`), Apple custom labels (`label`, the `X-ABLabel` sibling), and any unmodeled property (`custom`), so a parse-then-serialize round-trip preserves the card. Writing serializes the whole contact and replaces the card. There is no per-record diff engine and no hidden back-refs: to change a field you edit it on the contact (`phone.type = 'work'`); to remove one you drop it before saving. Line order and escaping in the output are canonical, not byte-identical to the input, but no data is lost.
 
-**Editing items in route transforms.** Items returned from the read path carry their back-ref in a `WeakMap` keyed by object identity. A naked spread (`{...item, value: 'new'}`) creates a new object that the `WeakMap` does not recognise, so the merger falls back to value-equality matching — which fails when both the value AND the type change in the same edit, dropping the item's params and group. Use `withChanges(item, partial)` to thread the ref through an in-place edit:
-
-```ts
-import { withChanges } from '@routecraft/routecraft'
-
-// Edit one address's city, preserving its `item1.` group, its X-ABLabel
-// sibling, and any extended-address bytes the model does not expose.
-const updated = parsed.addresses!.map((a) =>
-  a.city === 'Springfield' ? withChanges(a, { city: 'Chicago' }) : a,
-)
-
-await craft().from(simple(updated)).to(carddav({ action: 'save' })).run()
-```
-
-Items constructed from scratch (`{ value: '+1...' }`) have no ref to preserve; the patcher falls back to value-equality matching for them.
+`params` is authoritative on write, with the ergonomic `type` applied over the primary `TYPE` when both are set, so editing `type` works without touching `params`. To change other parameters, edit `params` directly.
 
 **Exchange headers** on read: `routecraft.carddav.url`, `routecraft.carddav.uid`, `routecraft.carddav.etag`, `routecraft.carddav.account`.
 
-**Exported types:** `CardDAVOptions`, `CardDAVReadOptions`, `CardDAVWriteOptions`, `CardDAVDeleteOptions`, `CardDAVContextConfig`, `CardDAVAccountConfig`, `CardDAVAction`, `CardDAVTargetExtractor`, `CardDAVWriteResult`, `CardDAVDeleteResult`, `Contact`, `ContactPhone`, `ContactEmail`, `ContactAddress`, `ContactPhoto`, `ContactDate`, `ContactField`, `ContactInstantMessage`, `ContactSocialProfile`, `ContactRelatedName`, `CardDAVClientManager`, `CARDDAV_CLIENT_MANAGER`. Helpers: `parseVCard`, `serializeContact`, `patchVCard`, `withChanges`.
+**Exported types:** `CardDAVOptions`, `CardDAVReadOptions`, `CardDAVWriteOptions`, `CardDAVDeleteOptions`, `CardDAVContextConfig`, `CardDAVAccountConfig`, `CardDAVAction`, `CardDAVTargetExtractor`, `CardDAVWriteResult`, `CardDAVDeleteResult`, `Contact`, `ContactPhone`, `ContactEmail`, `ContactAddress`, `ContactPhoto`, `ContactDate`, `ContactField`, `ContactInstantMessage`, `ContactSocialProfile`, `ContactRelatedName`, `VCardParam`, `CardDAVClientManager`, `CARDDAV_CLIENT_MANAGER`. Helpers: `parseVCard`, `serializeContact`.

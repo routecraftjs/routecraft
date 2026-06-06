@@ -22,9 +22,11 @@ import type {
  * emits one {@link Contact} per address-book entry; `.enrich(carddav())` returns
  * all contacts as a `Contact[]`.
  *
- * **Write (`.to()`):** `action: 'save'` upserts by UID (patching the existing
- * card so unmanaged fields are kept), `'create'` always inserts, `'update'`
- * requires a match (else `RC5014`).
+ * **Write (`.to()`):** `action: 'save'` upserts (writes to the contact's `url`,
+ * else creates), `'create'` always inserts, `'update'` writes to the contact's
+ * `url` (else `RC5014`). A write serializes the whole {@link Contact} and
+ * replaces the card. Reading is lossless, so a read-modify-write keeps fields
+ * you did not touch; dropping a field removes it.
  *
  * **Delete (`.to()`):** `action: 'delete'` removes the contact resolved from the
  * body (`uid`/`url`), the read headers, or a custom `target` extractor.
@@ -96,10 +98,8 @@ export type {
 export {
   parseVCard,
   serializeContact,
-  patchVCard,
   DEFAULT_VCARD_VERSION,
 } from "./vcard-codec.ts";
-export { withChanges } from "./vcard-raw.ts";
 export type {
   CardDAVOptions,
   CardDAVReadOptions,
@@ -121,4 +121,5 @@ export type {
   ContactInstantMessage,
   ContactSocialProfile,
   ContactRelatedName,
+  VCardParam,
 } from "./types.ts";

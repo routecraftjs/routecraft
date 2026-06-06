@@ -391,8 +391,6 @@ export {
   HEADER_CARDDAV_ACCOUNT,
   parseVCard,
   serializeContact,
-  patchVCard,
-  withChanges,
   type CardDAVOptions,
   type CardDAVReadOptions,
   type CardDAVWriteOptions,
@@ -417,4 +415,5 @@ export {
   type ContactInstantMessage,
   type ContactSocialProfile,
   type ContactRelatedName,
+  type VCardParam,
 } from "./adapters/carddav/index.ts";
