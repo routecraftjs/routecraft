@@ -695,22 +695,55 @@ function withRebuiltPhysical(
   };
 }
 
-/** Replace the `TYPE` param in a header, preserving every other param. */
+/**
+ * Replace the "primary" TYPE param in a header, preserving every other param.
+ * vCard 3.0 allows multi-instance TYPE (e.g. `TYPE=HOME;TYPE=PREF`); the model
+ * only surfaces the first non-pref value (see `toRecord`), so only that
+ * segment is rewritten. Secondary TYPE=PREF flags (the iCloud preferred-
+ * number marker) and any other params survive byte-for-byte.
+ */
 function replaceTypeInHeader(
   header: string,
   newType: string | undefined,
 ): string {
   const segments = splitUnquoted(header);
   const nameSeg = segments[0] ?? "";
-  const otherParams = segments
-    .slice(1)
-    .filter((s) => !/^type\s*=/i.test(s.trim()));
-  if (newType !== undefined && newType.length > 0) {
-    return [nameSeg, `TYPE=${escapeParamValue(newType)}`, ...otherParams].join(
-      ";",
-    );
+  const rest = segments.slice(1);
+
+  // Find the first TYPE segment whose value is not just "pref" — that's the
+  // segment that corresponds to the model's `type` field. Comma-separated
+  // values (`TYPE=HOME,PREF`) count as non-pref if any element is not pref.
+  let primaryIdx = -1;
+  for (let i = 0; i < rest.length; i++) {
+    const seg = rest[i] ?? "";
+    const match = /^type\s*=\s*(.*)$/i.exec(seg.trim());
+    if (!match) continue;
+    const stripped = dequoteParam(match[1] ?? "");
+    const isAllPref = stripped
+      .split(",")
+      .every((c) => c.trim().toLowerCase() === "pref");
+    if (!isAllPref) {
+      primaryIdx = i;
+      break;
+    }
   }
-  return [nameSeg, ...otherParams].join(";");
+
+  if (newType !== undefined && newType.length > 0) {
+    const newSeg = `TYPE=${escapeParamValue(newType)}`;
+    if (primaryIdx >= 0) {
+      const next = rest.slice();
+      next[primaryIdx] = newSeg;
+      return [nameSeg, ...next].join(";");
+    }
+    return [nameSeg, newSeg, ...rest].join(";");
+  }
+
+  // newType undefined: remove only the primary TYPE; keep PREF flags.
+  if (primaryIdx >= 0) {
+    const next = [...rest.slice(0, primaryIdx), ...rest.slice(primaryIdx + 1)];
+    return [nameSeg, ...next].join(";");
+  }
+  return [nameSeg, ...rest].join(";");
 }
 
 /** Replace (or add) a named param in a header, preserving every other param. */
@@ -1034,8 +1067,13 @@ function mergeCategories(
   categories: string[] | undefined,
 ): RawRecord[] {
   if (categories === undefined) return records;
+  // Empty / all-whitespace entries would emit a bare `CATEGORIES:` line which
+  // iCloud rejects on PUT (and would silently wipe a previously-set value).
+  // Mirror mergeTextSingleton's no-op contract for that shape.
+  const cleaned = categories.filter((c) => c.trim().length > 0);
+  if (cleaned.length === 0) return records;
   const existing = records.find((r) => r.name === "categories" && !r.group);
-  const rawValue = categories.map(escapeText).join(",");
+  const rawValue = cleaned.map(escapeText).join(",");
   if (existing) {
     return records.map((r) =>
       r === existing
@@ -1068,7 +1106,17 @@ function mergePhoto(
   if (origin && origin.name === "photo") {
     let header = origin.header;
     if (photo.mediaType !== undefined) {
-      header = setParamInHeader(header, "TYPE", photo.mediaType.toUpperCase());
+      // Only rewrite the TYPE param if the user-supplied mediaType differs
+      // from what is on the wire. extractPhoto upper-cases on read, so the
+      // typical round-trip case has `photo.mediaType` already matching
+      // `origin.type` (lowercased) modulo case; comparing case-insensitively
+      // preserves the origin's exact byte layout instead of re-canonicalizing
+      // `TYPE=jpeg` to `TYPE=JPEG`.
+      const newType = photo.mediaType.toUpperCase();
+      const originType = origin.type?.toUpperCase() ?? null;
+      if (newType !== originType) {
+        header = setParamInHeader(header, "TYPE", newType);
+      }
     }
     return records.map((r) =>
       r === origin ? withRebuiltPhysical(origin, header, cleanData) : r,
@@ -1209,9 +1257,17 @@ function mergeAddresses(
 ): RawRecord[] {
   if (addresses === undefined) return records;
   const candidates = records.filter((r) => r.name === "adr");
-  // Match by street (best stable key for an ADR; falls back to ref).
-  const { pairs, claimed } = pairItems(addresses, candidates, (a) =>
-    buildAddressMatchKey(a),
+  // Match by composite street/city/postal key (best stable key for an ADR;
+  // falls back to origin ref). The recordValueOf override is essential — the
+  // record's `value` is a 7-component semicolon-separated string, NOT a
+  // composite key, so the default `r.value` comparison would never match and
+  // every fresh-constructed address would drop its origin (losing the
+  // preserved extended-address bytes).
+  const { pairs, claimed } = pairItems(
+    addresses,
+    candidates,
+    (a) => buildAddressMatchKey(a),
+    (r) => addressRecordMatchKey(r),
   );
   return applyArrayMerge(
     records,
@@ -1250,6 +1306,15 @@ function mergeAddresses(
       }),
     ],
   );
+}
+
+function addressRecordMatchKey(r: RawRecord): string {
+  // Mirror buildAddressMatchKey on the record side: street, city, postal
+  // (components 2, 3, 5 of the 7-component ADR value).
+  const parts = splitComponents(r.rawValue);
+  return [parts[2] ?? "", parts[3] ?? "", parts[5] ?? ""]
+    .map((s) => s.trim())
+    .join("|");
 }
 
 function buildAddressMatchKey(a: ContactAddress): string {
@@ -1315,17 +1380,29 @@ function mergeIMPP(
       // supplied a different `scheme` field. Treat empty / whitespace-only
       // strings as unset so a form-derived `scheme: ""` (or `"   "`) cannot
       // produce a structurally invalid `":handle"` / `"   :handle"` URI.
+      //
+      // If the origin had no colon at all (scheme === undefined), preserve
+      // that shape rather than synthesizing `x-apple:` — a non-Apple client
+      // may have written a bare-handle IMPP and the codec's contract is to
+      // never mutate bytes on a no-op round-trip.
       const { scheme: originScheme } = parseImppValue(origin.value);
       const userScheme = normalizeImppScheme(im.scheme);
-      const scheme =
-        userScheme ?? originScheme ?? (im.service ?? "x-apple").toLowerCase();
-      const rawValue = `${scheme}:${escapeText(im.handle)}`;
-      // X-SERVICE-TYPE: update only if user changed it (origin preserved otherwise).
+      const scheme = userScheme ?? originScheme ?? im.service?.toLowerCase();
+      const rawValue =
+        scheme !== undefined
+          ? `${scheme}:${escapeText(im.handle)}`
+          : escapeText(im.handle);
+      // X-SERVICE-TYPE: update only if user changed it (origin preserved
+      // otherwise). Compare case-insensitively — origin keeps its original
+      // casing (e.g. iCloud's `iMessage`) and a user value like `imessage`
+      // would otherwise force a needless header rewrite.
       const originService = origin.params["x-service-type"];
-      const header =
-        im.service !== undefined && im.service !== originService
-          ? setParamInHeader(origin.header, "X-SERVICE-TYPE", im.service)
-          : origin.header;
+      const serviceChanged =
+        im.service !== undefined &&
+        im.service.toLowerCase() !== originService?.toLowerCase();
+      const header = serviceChanged
+        ? setParamInHeader(origin.header, "X-SERVICE-TYPE", im.service!)
+        : origin.header;
       return withRebuiltPhysical(origin, header, rawValue);
     },
     (im) => {

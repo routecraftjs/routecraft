@@ -747,6 +747,137 @@ describe("CardDAV adapter", () => {
       expect(telLines).toHaveLength(1);
       expect(telLines[0]).toContain("X-CUSTOM=keep");
     });
+
+    /**
+     * @case Changing a TYPE on a TEL with multi-instance `TYPE=HOME;TYPE=PREF` preserves the PREF flag
+     * @preconditions Origin has `TEL;TYPE=HOME;TYPE=PREF:+1`; user supplies `{ value: '+1', type: 'WORK' }`
+     * @expectedResult The PREF flag survives the rewrite (only the primary TYPE segment is replaced)
+     */
+    test("replaceTypeInHeader preserves secondary TYPE=PREF flag on type change", () => {
+      const card = [
+        "BEGIN:VCARD",
+        "VERSION:3.0",
+        "FN:P",
+        "TEL;TYPE=HOME;TYPE=PREF:+15555551212",
+        "UID:P3",
+        "END:VCARD",
+      ].join("\r\n");
+      const out = patchVCard(card, {
+        phones: [{ value: "+15555551212", type: "WORK" }],
+      });
+      // The primary TYPE flips to WORK; the PREF flag must survive.
+      expect(out).toContain("TEL;TYPE=WORK;TYPE=PREF:+15555551212");
+    });
+
+    /**
+     * @case mergeAddresses ref-fallback matches a fresh-constructed address by composite key
+     * @preconditions Origin has a 7-component ADR with `Apt 4B` at index 1; user passes a fresh address object with the same street/city/postal (no origin ref)
+     * @expectedResult The merger pairs the fresh item against the origin and preserves the extended-address bytes
+     */
+    test("mergeAddresses preserves extended-address bytes when matching by composite key", () => {
+      const card = [
+        "BEGIN:VCARD",
+        "VERSION:3.0",
+        "FN:A",
+        "ADR;TYPE=HOME:;Apt 4B;100 Main St;Springfield;IL;62704;USA",
+        "UID:A1",
+        "END:VCARD",
+      ].join("\r\n");
+      // Fresh address object (no WeakMap ref) — same street/city/postal as origin.
+      const out = patchVCard(card, {
+        addresses: [
+          {
+            type: "home",
+            street: "100 Main St",
+            city: "Springfield",
+            region: "IL",
+            postalCode: "62704",
+            country: "USA",
+          },
+        ],
+      });
+      // Apt 4B must survive (preserved via origin pairing on the composite key).
+      expect(out).toContain(";Apt 4B;");
+      const adrLines = out
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith("ADR"));
+      expect(adrLines).toHaveLength(1);
+    });
+
+    /**
+     * @case mergeIMPP no-scheme origin survives a no-op round-trip without synthesized scheme
+     * @preconditions Origin has `IMPP:somehandle` (no colon, no scheme)
+     * @expectedResult Round-trip emits the same bare-handle value; no `x-apple:` injection
+     */
+    test("mergeIMPP preserves bare-handle origin (no scheme injection)", () => {
+      const card = [
+        "BEGIN:VCARD",
+        "VERSION:3.0",
+        "FN:I",
+        "IMPP:somehandle",
+        "UID:I4",
+        "END:VCARD",
+      ].join("\r\n");
+      const parsed = parseVCard(card);
+      const out = patchVCard(card, { instantMessages: parsed.instantMessages });
+      expect(out).toContain("IMPP:somehandle");
+      expect(out).not.toContain("x-apple:somehandle");
+    });
+
+    /**
+     * @case mergePhoto preserves origin TYPE byte-for-byte on a no-op round-trip
+     * @preconditions Origin has `PHOTO;ENCODING=b;TYPE=jpeg:<base64>` (lowercase `jpeg`)
+     * @expectedResult Round-trip keeps `TYPE=jpeg` in original position; no re-canonicalization
+     */
+    test("mergePhoto does not re-canonicalize TYPE casing on no-op round-trip", () => {
+      const card = [
+        "BEGIN:VCARD",
+        "VERSION:3.0",
+        "FN:P",
+        "PHOTO;ENCODING=b;TYPE=jpeg:/9j/4AAQSkZJRgABAQ==",
+        "UID:P4",
+        "END:VCARD",
+      ].join("\r\n");
+      const parsed = parseVCard(card);
+      const out = patchVCard(card, { photo: parsed.photo });
+      // Origin's lowercase `jpeg` and original param order must survive.
+      expect(out).toContain("PHOTO;ENCODING=b;TYPE=jpeg:");
+    });
+
+    /**
+     * @case mergeCategories silently no-ops on empty / all-whitespace categories
+     * @preconditions Card has `CATEGORIES:Friends`; user passes `categories: []`
+     * @expectedResult Existing CATEGORIES line survives (no bare `CATEGORIES:` emitted that iCloud would reject)
+     */
+    test("mergeCategories rejects empty arrays as a no-op (parallels mergeTextSingleton)", () => {
+      const card = [
+        "BEGIN:VCARD",
+        "VERSION:3.0",
+        "FN:C",
+        "CATEGORIES:Friends",
+        "UID:C1",
+        "END:VCARD",
+      ].join("\r\n");
+      const out = patchVCard(card, { categories: [] });
+      expect(out).toContain("CATEGORIES:Friends");
+      expect(out).not.toMatch(/^CATEGORIES:\s*$/m);
+    });
+
+    /**
+     * @case serializeContact with whitespace-only fullName falls through to the derivation chain
+     * @preconditions `serializeContact({ uid: 'X', firstName: 'Jane', lastName: 'Doe', fullName: '   ' })`
+     * @expectedResult FN is `Jane Doe` (derived), not the whitespace value or absent
+     */
+    test("deriveFullName falls through whitespace-only fullName to the firstName/lastName chain", () => {
+      const out = serializeContact({
+        uid: "X",
+        firstName: "Jane",
+        lastName: "Doe",
+        fullName: "   ",
+      });
+      // Card must carry an FN line (vCard 3.0 mandates it).
+      expect(out).toMatch(/^FN:Jane Doe$/m);
+    });
   });
 
   describe("encoding & robustness", () => {
