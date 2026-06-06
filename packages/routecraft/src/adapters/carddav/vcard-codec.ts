@@ -123,7 +123,14 @@ export function parseVCard(raw: string): Contact {
 
 /** Derive a display name (vCard `FN` is mandatory) from a contact's fields. */
 function deriveFullName(contact: Contact): string {
-  if (contact.fullName) return contact.fullName;
+  // Whitespace-only fullName falls through to the derivation chain so the
+  // serialized card always carries a non-empty FN. Without this, a caller
+  // that passes `fullName: '   '` would short-circuit here AND get rejected
+  // by mergeTextSingleton's whitespace guard, leaving the card without the
+  // mandatory FN line entirely.
+  if (contact.fullName && contact.fullName.trim().length > 0) {
+    return contact.fullName;
+  }
   const parts = [contact.firstName, contact.middleName, contact.lastName]
     .filter((p): p is string => typeof p === "string" && p.length > 0)
     .join(" ")
