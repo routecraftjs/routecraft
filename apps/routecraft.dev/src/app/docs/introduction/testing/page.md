@@ -117,8 +117,12 @@ it("moves spam and replies to friends", async () => {
 
   expect(mailMock.calls.source).toHaveLength(1);
   expect(mailMock.calls.send).toHaveLength(2);
-  expect(mailMock.calls.send[0].args[0]).toMatchObject({ action: "move" });
-  expect(mailMock.calls.send[1].exchange.body.to).toBe("friend@co.com");
+  // Fixtures are dispatched concurrently, so assert by content, not by the
+  // order the sends happened to land in.
+  const moved = mailMock.calls.send.find((c) => c.args[0]?.action === "move");
+  const replied = mailMock.calls.send.find((c) => c.args[0]?.action !== "move");
+  expect(moved).toBeDefined(); // spam was archived
+  expect(replied?.exchange.body.to).toBe("friend@co.com"); // friend got a reply
 });
 ```
 
