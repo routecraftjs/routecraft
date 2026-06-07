@@ -161,9 +161,19 @@ For `.error()` the wrapper emits the existing `error-handler:*` set.
 A new wrapper picks its own family (e.g. `retry:*`, `timeout:*`,
 `cache:*`).
 
+The `invoked` / `recovered` / `failed` triple above is the default
+shape, but a wrapper whose domain does not map cleanly onto it MAY
+emit a domain-specific family instead, as long as it keeps the
+`scope` / `stepLabel` bindings. `.cache()` is the first such case: it
+emits `cache:hit` / `cache:miss` / `cache:stored` / `cache:failed`
+(with `cache:failed` carrying a `phase` discriminator) because
+"hit/miss/stored" describes cache behaviour far better than
+"invoked/recovered". When you diverge, document the family in the
+operation's reference page and in `docs/reference/events`.
+
 Wildcard subscribers (`route:*:error-handler:*`,
-`route:*:retry:*`) keep matching; the new `scope` and `stepLabel`
-fields are additive.
+`route:*:retry:*`, `route:*:cache:*`) keep matching; the new `scope`
+and `stepLabel` fields are additive.
 
 ## 7. When a wrapper is not enough
 
@@ -212,8 +222,19 @@ accordingly.
 - `#139` (Circuit Breaker): see "When a wrapper is not enough"; the
   step-scope side is a wrapper, the route-scope side needs consumer
   integration.
-- `#112` (Cache): pure wrapper at both scopes; first wrapper after
-  `.error()` to validate the pattern at scale.
+- `#112` (Cache): dual-mode at both scopes. Step-scope wraps the
+  immediately-next step via `CacheWrapperStep`. Route-scope (called
+  BEFORE `.from()`) caches the route's terminal body keyed by the
+  source-emitted message and skips the whole pipeline on a hit;
+  wired into `RouteDefinition.cacheConfig` and applied in `runSteps`.
+  Routes containing `.split()` reject route-scope cache at build time
+  (`RC5003`) until split-then-aggregate semantics are decided.
+- [Pre-from Filter Chain](./pre-from-filter-chain.md): the
+  route-scope counterpart of this contract. Documents the fixed
+  ordered chain (`error` -> `authorize` -> `parse` -> `input` ->
+  `throttle` -> `circuitBreaker` -> `retry` -> `timeout` ->
+  `cacheCheck` -> pipeline -> `cacheStore`) and reserves slots for
+  the future resilience wrappers listed in section 1.
 - `WrapperStep` source: `packages/routecraft/src/operations/wrapper.ts`.
 - `ErrorWrapperStep` source:
   `packages/routecraft/src/operations/error-wrapper.ts`.

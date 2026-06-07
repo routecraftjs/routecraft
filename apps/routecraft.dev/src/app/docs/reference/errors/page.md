@@ -356,6 +356,30 @@ A block's shape is invalid at construction:
 - Progressive-mode blocks: `{ mode: "progressive", description: "...", value: <string | function> }`.
 - Use the `BlockMode` and `BlockLifetime` types exported from `@routecraft/ai` to catch typos at the type level.
 
+## RC5028
+Cache provider failed
+
+**Why it happens**  
+The `.cache()` wrapper's provider threw while reading a value or while a custom provider executed its backend operations. Typical cause: a remote cache backend (Redis, etc.) is unreachable. Also raised by `MemoryCacheProvider.set` if called with `undefined` (the cache-miss sentinel), which is a contract violation.
+
+**Suggestion**  
+Inspect the underlying backend. Transient connectivity errors are retryable; consider wrapping the step with `.retry()` once that wrapper ships. If you hit the `undefined` set error, use `null` for an intentional empty value.
+
+## RC5029
+Cache key derivation failed
+
+**Why it happens**  
+The default `.cache()` key hashes `JSON.stringify(body)`, which fails on bodies containing functions, symbols, circular references, or `BigInt`. Also raised when a custom `key` function throws.
+
+**Suggestion**  
+Supply an explicit `key` function that returns a stable string identifier:
+
+```ts
+.cache({ key: (e) => String(e.body.id) })
+```
+
+This error is not retryable: the same body fails key derivation the same way every time.
+
 ## RC9901
 Unknown error
 
