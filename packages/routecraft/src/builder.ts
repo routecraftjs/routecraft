@@ -8,6 +8,8 @@ import {
   type RouteDiscovery,
   type RouteSchemas,
   type Tag,
+  buildCacheCheckStep,
+  buildCacheStoreStep,
 } from "./route.ts";
 import {
   CraftContext,
@@ -762,15 +764,36 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
       "Creating route definition",
     );
 
-    // Staged `.authorize()` calls become the route's first steps so they
-    // run before any pipeline operation. They apply uniformly to every
-    // ingress. Multiple authorizers stack in declaration order; the first
-    // failure short-circuits the rest. Per-channel auth (e.g. an unauthored
-    // internal direct ingress alongside a scoped mcp ingress) is expressed
-    // as separate single-source routes, not here.
+    // Assemble the route's pre-from filter chain. Order is fixed by
+    // `.standards/pre-from-filter-chain.md`:
+    //
+    //   preParseFilters   -> .authorize() (#2)
+    //   parse              (#3; dynamic, source-attached, inserted at runtime)
+    //   .input()           (#4; CURRENTLY EAGER -- runs in `Route.buildConsumerHandler()`
+    //                       outside the chain, not in postParseFilters. See
+    //                       `.standards/pre-from-filter-chain.md` for the
+    //                       scoping note: folding it in changes cross-route
+    //                       context:error semantics and is tracked separately.)
+    //   postParseFilters  -> .cache() check (#9); reserved slots for future
+    //                        .throttle() / .circuitBreaker() / .retry() /
+    //                        .timeout() (positions 5-8)
+    //   userSteps         -> declaration order, unchanged
+    //   postFromFilters   -> .cache() store (#10)
+    //
+    // The user does NOT control this order: `.authorize().cache()`
+    // and `.cache().authorize()` produce identical chains.
     const authorizerSteps = authorizers.map(
       (opts) => new ValidateStep(authorize(opts)),
     );
+    const preParseFilters: Step<Adapter>[] = authorizerSteps;
+
+    const postParseFilters: Step<Adapter>[] = cacheConfig
+      ? [buildCacheCheckStep(cacheConfig)]
+      : [];
+
+    const postFromFilters: Step<Adapter>[] = cacheConfig
+      ? [buildCacheStoreStep(cacheConfig)]
+      : [];
 
     const normalizedSources: Source<T>[] = sources.map((source) =>
       typeof source === "function" ? { subscribe: source } : source,
@@ -779,16 +802,15 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
     this.currentRoute = {
       id,
       sources: normalizedSources,
-      steps: authorizerSteps,
+      steps: [],
+      preParseFilters,
+      postParseFilters,
+      postFromFilters,
       consumer: {
         type: consumer.type,
         options: consumer.options ?? undefined,
       },
       ...(errorHandler ? { errorHandler } : {}),
-      ...(cacheConfig ? { cacheConfig } : {}),
-      ...(authorizerSteps.length > 0
-        ? { authorizerCount: authorizerSteps.length }
-        : {}),
       ...(discovery ? { discovery } : {}),
     };
     setBrand(this.currentRoute, BRAND.RouteDefinition);
@@ -842,10 +864,10 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
     // breaks the "one cached value per source message" contract.
     // Reject loud rather than silently mis-cache. Step-scope `.cache()`
     // is still usable around the expensive step inside such a route.
-    if (
-      route.cacheConfig !== undefined &&
-      wrapped.operation === OperationType.SPLIT
-    ) {
+    const hasRouteScopeCache = route.postParseFilters.some(
+      (f) => f.label === "cache-check",
+    );
+    if (hasRouteScopeCache && wrapped.operation === OperationType.SPLIT) {
       throw rcError("RC5003", undefined, {
         message:
           `Route-scope .cache() does not support routes containing .split(). ` +

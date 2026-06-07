@@ -264,19 +264,18 @@ function buildParseStep(
 }
 
 /**
- * Synthetic adapter used as the carrier for the route-scope cache
- * synthetic steps. Has no behaviour; the steps' `execute` does the work.
+ * Synthetic adapter carriers for the route-scope cache filter steps.
+ * Distinct adapter ids per filter so telemetry / event subscribers
+ * correlating by `adapter` can tell read failures (`cache.check`) from
+ * write failures (`cache.store`) without parsing the step label.
+ * Neither carrier has behaviour; the steps' `execute` does the work.
  */
-const CACHE_STEP_ADAPTER: Adapter = { adapterId: "routecraft.cache" };
-
-/**
- * Mutable holder shared between the cache-check and cache-store steps
- * within a single `runSteps` invocation. The check derives the key and
- * stores it here; the store reads it back after the user steps run.
- * Lives only for one `runSteps` call so concurrent exchanges don't
- * cross-contaminate.
- */
-type CacheKeyHolder = { key?: string };
+const CACHE_CHECK_STEP_ADAPTER: Adapter = {
+  adapterId: "routecraft.cache.check",
+};
+const CACHE_STORE_STEP_ADAPTER: Adapter = {
+  adapterId: "routecraft.cache.store",
+};
 
 /**
  * Build the route-scope cache HIT-CHECK synthetic step. Inserted into
@@ -292,15 +291,18 @@ type CacheKeyHolder = { key?: string };
  * `cache:failed` plus `exchange:restored` on a hit. `skipStepEvents:
  * true` keeps `runSteps` from emitting generic `step:started` /
  * `step:completed` for this internal step.
+ *
+ * @internal Exported only so `RouteBuilder.from()` can assemble it into
+ * `RouteDefinition.postParseFilters`. Not part of the public API; the
+ * signature may change without notice.
  */
-function buildCacheCheckStep(
+export function buildCacheCheckStep(
   cacheConfig: import("./operations/cache-wrapper.ts").ResolvedCacheOptions,
-  keyHolder: CacheKeyHolder,
 ): Step<Adapter> {
   return {
     operation: OperationType.PROCESS,
     label: "cache-check",
-    adapter: CACHE_STEP_ADAPTER,
+    adapter: CACHE_CHECK_STEP_ADAPTER,
     skipStepEvents: true,
     async execute(exchange, remainingSteps, queue) {
       const internals = EXCHANGE_INTERNALS.get(exchange);
@@ -332,7 +334,18 @@ function buildCacheCheckStep(
               message: `Route-scope .cache({ key }) for "${routeId}" threw while deriving the cache key`,
             });
       }
-      keyHolder.key = key;
+      // Hand the key off to the matching cache-store filter via
+      // exchange internals. Internals is the framework's per-exchange
+      // state bag set at construction time; absence here means the
+      // caller built an exchange outside `DefaultExchange.rewrap`,
+      // which violates the contract. Fail loudly rather than silently
+      // skip the cache write at the tail of the pipeline.
+      if (!internals) {
+        throw rcError("RC5028", undefined, {
+          message: `Route-scope .cache() for "${routeId}" ran on an exchange without framework internals; cache key cannot be propagated to the store step. This indicates an adapter or step constructed an Exchange outside DefaultExchange.rewrap.`,
+        });
+      }
+      internals.cacheKey = key;
 
       let cached: unknown;
       try {
@@ -409,15 +422,18 @@ function buildCacheCheckStep(
  *
  * `skipStepEvents: true` keeps `runSteps` from emitting generic
  * lifecycle events for this internal step.
+ *
+ * @internal Exported only so `RouteBuilder.from()` can assemble it into
+ * `RouteDefinition.postFromFilters`. Not part of the public API; the
+ * signature may change without notice.
  */
-function buildCacheStoreStep(
+export function buildCacheStoreStep(
   cacheConfig: import("./operations/cache-wrapper.ts").ResolvedCacheOptions,
-  keyHolder: CacheKeyHolder,
 ): Step<Adapter> {
   return {
     operation: OperationType.PROCESS,
     label: "cache-store",
-    adapter: CACHE_STEP_ADAPTER,
+    adapter: CACHE_STORE_STEP_ADAPTER,
     skipStepEvents: true,
     async execute(exchange, remainingSteps, queue) {
       const internals = EXCHANGE_INTERNALS.get(exchange);
@@ -429,7 +445,7 @@ function buildCacheStoreStep(
       const correlationId = exchange.headers[
         HeadersKeys.CORRELATION_ID
       ] as string;
-      const key = keyHolder.key;
+      const key = internals?.cacheKey;
 
       // Only cache successful runs whose terminal body is not
       // `undefined`. `null` is cached (envelope handles it). Dropped
@@ -519,28 +535,36 @@ export type RouteDefinition<T = unknown> = {
   readonly errorHandler?: ErrorHandler;
 
   /**
-   * Optional route-scope `.cache()` configuration. When present, the
-   * route looks up its cache provider before any pipeline step runs;
-   * on a hit, the wrapped step list is skipped entirely and the
-   * cached body is returned to the source. On a miss, the pipeline
-   * runs and the terminal exchange's body is stored for future hits.
-   *
-   * Set by `RouteBuilder.cache()` when called BEFORE `.from()`. See
-   * `.standards/resilience-wrappers.md` for the dual-mode pattern.
-   *
-   * @experimental
-   */
-  readonly cacheConfig?: import("./operations/cache-wrapper.ts").ResolvedCacheOptions;
-
-  /**
-   * Number of leading entries in `steps` that came from `.authorize()`
-   * calls staged before `.from()`. The runtime peels these off and runs
-   * them BEFORE the route-scope cache hit-check so an unauthorized
-   * caller never receives a cached response. Defaults to 0.
+   * Framework-managed filters that run BEFORE the source-attached
+   * parse step (and therefore before everything else). Today: the
+   * `.authorize()` ValidateSteps in declaration order. This is chain
+   * position #2 in `.standards/pre-from-filter-chain.md`.
    *
    * @internal
    */
-  readonly authorizerCount?: number;
+  readonly preParseFilters: Step<Adapter>[];
+
+  /**
+   * Framework-managed filters that run AFTER the source-attached parse
+   * step but BEFORE the user pipeline. Today: the route-scope
+   * `cache-check` filter (chain position #9). Future resilience
+   * wrappers (`throttle`, `circuitBreaker`, `retry`, `timeout` at
+   * positions #5-#8) slot in between input and cacheCheck once they
+   * land.
+   *
+   * @internal
+   */
+  readonly postParseFilters: Step<Adapter>[];
+
+  /**
+   * Framework-managed filters that run AFTER the user pipeline.
+   * Today: the route-scope `cache-store` filter (chain position #10)
+   * when `.cache()` is configured. Reached only on miss-success; the
+   * cache-check filter pushes `steps: []` on a hit to short-circuit.
+   *
+   * @internal
+   */
+  readonly postFromFilters: Step<Adapter>[];
 
   /**
    * Optional route-level discovery bundle: title, description, and input /
@@ -1366,54 +1390,36 @@ export class DefaultRoute implements Route {
       delete internals.applyValidation;
     }
 
-    // Route-scope `.cache()`: wired in as a pair of synthetic steps so
-    // it composes naturally with parse / input validation / authorize.
-    // The check step is inserted AFTER `buildParseStep` (so parse +
-    // `applyValidation` have already produced a validated body) and
-    // BEFORE the user steps. On a hit it pushes the rewrapped exchange
-    // with `steps: []` to short-circuit everything including the
-    // matching store step. The store step runs only on the miss path,
-    // after the user pipeline, and writes the terminal body using the
-    // key captured by the check step.
+    // The route's pre-from filter chain (assembled at builder time in
+    // the framework-fixed order documented at
+    // `.standards/pre-from-filter-chain.md`). Parse is dynamic per
+    // exchange (source-attached) and is interleaved between the two
+    // pre-from arrays:
     //
-    // Stampede protection is NOT applied at route scope in this
-    // release; concurrent callers with the same key all run the
-    // pipeline. Tracked as a follow-up. See `.standards/resilience-wrappers.md`.
+    //   preParseFilters    -> .authorize()
+    //   (parse if present) -> source-attached
+    //   postParseFilters   -> .cache() check, future
+    //                         .throttle() / .circuitBreaker() / .retry() /
+    //                         .timeout() (positions 5-8 in the chain doc)
+    //   userSteps          -> declaration order, unchanged
+    //   postFromFilters    -> .cache() store
     //
-    // Auth note: route-scope `.authorize()` steps live at the head of
-    // `userSteps`, so the cache check (which precedes user steps but
-    // follows parse + input validation) runs BEFORE authorize. If your
-    // route combines `.cache()` with `.authorize()`, the cache key MUST
-    // partition by every fact authorize depends on (subject / roles /
-    // scopes); otherwise a cached response written by an authorized
-    // caller can be served to a caller who would have failed
-    // authorization. The default body-hash key does NOT include the
-    // principal; supply a custom `key` that does, e.g.
-    // `key: e => sha(JSON.stringify({ b: e.body, sub: e.principal?.subject }))`.
-    const cacheConfig = this.definition.cacheConfig;
-    const cacheKeyHolder: CacheKeyHolder = {};
-
-    // `.authorize()` steps were pushed to the front of `steps` by the
-    // builder and tracked via `authorizerCount`. Peel them off here so
-    // they run BEFORE the route-scope cache check: an unauthorized
-    // caller must not receive a cached response.
-    const allSteps = [...this.definition.steps];
-    const authorizerCount = this.definition.authorizerCount ?? 0;
-    const authorizeSteps = allSteps.slice(0, authorizerCount);
-    const businessSteps = allSteps.slice(authorizerCount);
-
+    // The route's `.error()` handler wraps the queue loop (filter
+    // position #1 in the chain doc); it is implemented as a try/catch
+    // around the user pipeline, not a step that calls `next()`.
+    //
+    // The cache key flows from cache-check to cache-store via
+    // `internals.cacheKey` on the exchange -- per-invocation, no
+    // shared closure -- so the filter steps can be constructed once
+    // at builder time.
     const initialSteps: Step<Adapter>[] = [
+      ...this.definition.preParseFilters,
       ...(sourceParse
         ? [buildParseStep(sourceParse, sourceFailureMode, sourceValidate)]
         : []),
-      ...authorizeSteps,
-      ...(cacheConfig
-        ? [buildCacheCheckStep(cacheConfig, cacheKeyHolder)]
-        : []),
-      ...businessSteps,
-      ...(cacheConfig
-        ? [buildCacheStoreStep(cacheConfig, cacheKeyHolder)]
-        : []),
+      ...this.definition.postParseFilters,
+      ...this.definition.steps,
+      ...this.definition.postFromFilters,
     ];
 
     const queue: { exchange: Exchange; steps: Step<Adapter>[] }[] = [

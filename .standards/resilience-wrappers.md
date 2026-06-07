@@ -226,9 +226,13 @@ accordingly.
   immediately-next step via `CacheWrapperStep`. Route-scope (called
   BEFORE `.from()`) caches the route's terminal body keyed by the
   source-emitted message and skips the whole pipeline on a hit;
-  wired into `RouteDefinition.cacheConfig` and applied in `runSteps`.
-  Routes containing `.split()` reject route-scope cache at build time
-  (`RC5003`) until split-then-aggregate semantics are decided.
+  wired into `RouteDefinition.postParseFilters` (the `cache-check`
+  filter at chain position #9) and `RouteDefinition.postFromFilters`
+  (the `cache-store` filter at position #10); see
+  [Pre-from Filter Chain](./pre-from-filter-chain.md) for the full
+  composition contract. Routes containing `.split()` reject
+  route-scope cache at build time (`RC5003`) until split-then-aggregate
+  semantics are decided.
 - [Pre-from Filter Chain](./pre-from-filter-chain.md): the
   route-scope counterpart of this contract. Documents the fixed
   ordered chain (`error` -> `authorize` -> `parse` -> `input` ->
