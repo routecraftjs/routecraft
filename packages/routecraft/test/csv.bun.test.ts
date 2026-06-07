@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
-import { craft, simple, csv } from "@routecraft/routecraft";
+import { craft, simple, csv, only } from "@routecraft/routecraft";
 import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -514,6 +514,214 @@ Alice,30
       expect(dropped.length).toBe(1);
       expect(dropped[0].reason).toBe("parse-failed");
       expect(s.received.length).toBe(0);
+    });
+  });
+
+  describe("transformer mode (decode)", () => {
+    /**
+     * @case csv() with no path parses a CSV string already in the body
+     * @preconditions Body is a CSV string
+     * @expectedResult Body becomes the parsed array of row objects
+     */
+    test("parses a CSV string in the body", async () => {
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("csv-decode")
+            .from(simple("name,age\nAlice,30\nBob,25"))
+            .transform(csv())
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(s.received).toHaveLength(1);
+      expect(s.received[0].body).toEqual([
+        { name: "Alice", age: "30" },
+        { name: "Bob", age: "25" },
+      ]);
+    });
+
+    /**
+     * @case from() plucks the CSV string and to() writes the rows to a sub-field
+     * @preconditions Body is an object carrying the CSV under `raw`
+     * @expectedResult Parsed rows are placed on the chosen field, body preserved
+     */
+    test("honours from() and to()", async () => {
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("csv-decode-from-to")
+            .from(simple({ raw: "a,b\n1,2" }))
+            .transform(
+              csv<{ raw: string }, { raw: string; rows: unknown }>({
+                from: (b) => b.raw,
+                to: (b, rows) => ({ ...b, rows }),
+              }),
+            )
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(s.received).toHaveLength(1);
+      expect(s.received[0].body).toEqual({
+        raw: "a,b\n1,2",
+        rows: [{ a: "1", b: "2" }],
+      });
+    });
+
+    /**
+     * @case Decoding an object body without a string body property throws
+     * @preconditions Body is a plain object with no `body` string and no from()
+     * @expectedResult The exchange fails; nothing reaches the spy
+     */
+    test("throws when the body is not a string", async () => {
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("csv-decode-bad")
+            .from(simple({ not: "a string" }))
+            .transform(csv())
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(s.received).toHaveLength(0);
+    });
+  });
+
+  describe("read mode as destination (mid-route read)", () => {
+    /**
+     * @case csv({mode:'read'}) used with .enrich() reads + parses the file and
+     *   merges the rows onto the body, preserving the incoming fields
+     * @preconditions File holds a CSV with a header row
+     * @expectedResult The matching record is found from the merged rows
+     */
+    test("enrich merges the parsed rows onto the body", async () => {
+      const filePath = path.join(tmpDir, "catalogue.csv");
+      await fsp.writeFile(filePath, "id,n\na,1\nb,2", "utf-8");
+
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("csv-read-enrich")
+            .from(simple<{ id: string }>({ id: "b" }))
+            .enrich(
+              csv({ path: filePath, mode: "read" }),
+              only((rows) => rows as Array<{ id: string; n: string }>, "rows"),
+            )
+            .transform(
+              (body) => body.rows.find((r) => r.id === body.id) ?? null,
+            )
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(s.received).toHaveLength(1);
+      expect(s.received[0].body).toEqual({ id: "b", n: "2" });
+    });
+
+    /**
+     * @case Read-as-destination resolves a dynamic (function) path from the body
+     * @preconditions Body carries the file name; path is a function of the body
+     * @expectedResult The file selected by the body is read and parsed
+     */
+    test("supports a dynamic (function) path", async () => {
+      const filePath = path.join(tmpDir, "picked.csv");
+      await fsp.writeFile(filePath, "k,v\nx,1", "utf-8");
+
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("csv-read-dynamic")
+            .from(simple<{ file: string }>({ file: filePath }))
+            .to(
+              csv({
+                path: (ex) => (ex.body as { file: string }).file,
+                mode: "read",
+              }),
+            )
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(s.received).toHaveLength(1);
+      expect(s.received[0].body).toEqual([{ k: "x", v: "1" }]);
+    });
+  });
+
+  describe("delete mode", () => {
+    /**
+     * @case csv({mode:'delete'}) removes the file without formatting the body
+     * @preconditions File exists
+     * @expectedResult The file is gone and the body passes through unchanged
+     */
+    test("deletes the file and passes the body through", async () => {
+      const filePath = path.join(tmpDir, "to-delete.csv");
+      await fsp.writeFile(filePath, "a,b\n1,2", "utf-8");
+
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("csv-delete")
+            .from(simple({ keep: true }))
+            .to(csv({ path: filePath, mode: "delete" }))
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      await expect(fsp.access(filePath)).rejects.toThrow();
+      expect(s.received).toHaveLength(1);
+      expect(s.received[0].body).toEqual({ keep: true });
+    });
+
+    /**
+     * @case Deleting an already-absent CSV file is a no-op (idempotent)
+     * @preconditions File does not exist
+     * @expectedResult No error; the exchange flows through
+     */
+    test("is idempotent when the file is already absent", async () => {
+      const missing = path.join(tmpDir, "missing.csv");
+
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("csv-delete-missing")
+            .from(simple("x"))
+            .to(csv({ path: missing, mode: "delete" }))
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(s.received).toHaveLength(1);
     });
   });
 });

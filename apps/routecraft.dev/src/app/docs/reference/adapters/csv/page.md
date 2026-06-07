@@ -5,14 +5,28 @@ title: csv
 [← All adapters](/docs/reference/adapters) {% .lead %}
 
 ```ts
-csv(options: CsvOptions & { chunked: true }): Source<CsvRow>
-csv(options: CsvOptions): CsvAdapter   // Source<CsvData> & Destination<unknown, void>
+csv(options?: CsvTransformerOptions): Transformer   // no path: parse a CSV string in the body
+csv(options: CsvFileOptions & { chunked: true }): Source<CsvRow>
+csv(options: CsvFileOptions & { mode: 'read' }): CsvReadAdapter
+csv(options: CsvFileOptions): CsvAdapter   // Source<CsvData> & Destination<unknown, void>
 ```
 
 Read and write CSV files with automatic parsing/formatting. **Requires `papaparse` as a peer dependency.**
 
 ```bash
 bun add papaparse
+```
+
+**Transformer mode** (parse a CSV string already in the body):
+```ts
+// Parse a CSV string (e.g. an http() response body) into rows
+.transform(csv())
+
+// Pluck the string and write the rows to a sub-field
+.transform(csv({
+  from: (b) => b.body,
+  to: (b, rows) => ({ ...b, rows })
+}))
 ```
 
 **Source mode** (read CSV files):
@@ -32,6 +46,19 @@ bun add papaparse
   encoding: 'latin1',
   header: true
 }))
+```
+
+**Read mid-route** (read + parse a CSV file partway through a route): In `read` mode the adapter is also a destination whose `send` reads and parses the file and returns the rows, so `.enrich()` / `.to()` can pull them in, the same way an HTTP `GET` returns a body. Read-as-destination accepts dynamic (function) paths. Parse failures throw and surface through the pipeline (the `onParseError` lifecycle controls apply to source mode only).
+
+```ts
+// Enrich the body with the parsed rows, keeping the existing fields
+.enrich(
+  csv({ path: './catalogue.csv', mode: 'read' }),
+  only((rows) => rows, 'rows'),
+)
+
+// Replace the body with the parsed rows
+.to(csv({ path: './data.csv', mode: 'read' }))
 ```
 
 **Destination mode** (write CSV files):
@@ -63,9 +90,20 @@ bun add papaparse
   mode: 'append',
   header: true
 }))
+
+// Delete a CSV file (idempotent: an already-absent path is a no-op)
+.to(csv({ path: (ex) => ex.body.processedPath, mode: 'delete' }))
 ```
 
-**Options:**
+**Transformer Options** (when no `path` provided):
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `from` | `(body) => string` | Uses `body` or `body.body` | Extract the CSV string from the exchange |
+| `to` | `(body, rows) => R` | Replaces body | Where to put the parsed rows |
+| `header` / `delimiter` / `quoteChar` / `skipEmptyLines` | | | Same parsing options as below |
+
+**File Options** (when `path` is provided):
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
@@ -75,7 +113,7 @@ bun add papaparse
 | `quoteChar` | `string` | `'"'` | Quote character |
 | `skipEmptyLines` | `boolean` | `true` | Skip empty lines during parsing |
 | `encoding` | `BufferEncoding` | `'utf-8'` | Text encoding |
-| `mode` | `'write' \| 'append'` | `'write'` | File operation mode (destination only) |
+| `mode` | `'read' \| 'write' \| 'append' \| 'delete'` | `'read'` for source, `'write'` for destination | File operation mode (`read` returns parsed rows mid-route; `delete` removes the file, idempotently) |
 | `createDirs` | `boolean` | `false` | Create parent directories (destination only) |
 | `chunked` | `boolean` | `false` | Emit one exchange per row instead of entire array (source only) |
 | `onParseError` | `'fail' \| 'abort' \| 'drop'` | `'fail'` | How to handle a row parse failure (source only). See [parse error handling](/docs/reference/adapters#parse-error-handling). |
@@ -92,4 +130,4 @@ bun add papaparse
 
 **Peer dependency:** Requires `papaparse` to be installed separately.
 
-**Exported types:** `CsvAdapter`, `CsvOptions`, `CsvRow`, `CsvData`
+**Exported types:** `CsvAdapter`, `CsvReadAdapter`, `CsvOptions`, `CsvTransformerOptions`, `CsvFileOptions`, `CsvRow`, `CsvData`

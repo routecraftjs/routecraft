@@ -1,5 +1,6 @@
 import type { HtmlResult, HtmlOptions } from "./types.ts";
 import { loadOptionalPeer } from "../shared/optional-peer.ts";
+import { getBodyText } from "../shared/body-text.ts";
 
 // Memoise the loaded cheerio module so high-volume html() calls do not
 // re-pay the dynamic-import lookup or re-allocate the loadOptionalPeer
@@ -24,19 +25,7 @@ export function getHtml<T>(
   body: T,
   from: ((body: T) => string) | undefined,
 ): string {
-  if (from) return from(body);
-  if (typeof body === "string") return body;
-  if (
-    body &&
-    typeof body === "object" &&
-    "body" in body &&
-    typeof (body as { body: unknown }).body === "string"
-  ) {
-    return (body as { body: string }).body;
-  }
-  throw new Error(
-    "html adapter: body must be a string, an object with a string body property (e.g. http() result), or provide a from() option",
-  );
+  return getBodyText(body, from, "html");
 }
 
 /** Strip HTML tags so only plain text remains. Used as a safeguard for text extraction. */
