@@ -417,6 +417,93 @@ describe("File Adapter", () => {
     });
   });
 
+  describe("delete mode", () => {
+    /**
+     * @case file({mode:'delete'}) removes the file and leaves the body unchanged
+     * @preconditions File exists
+     * @expectedResult The file is gone and the body passes through untouched
+     */
+    test("deletes the file and passes the body through", async () => {
+      const filePath = path.join(tmpDir, "to-delete.txt");
+      await fsp.writeFile(filePath, "bye", "utf-8");
+
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("file-delete")
+            .from(simple("keep-me"))
+            .to(file({ path: filePath, mode: "delete" }))
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      await expect(fsp.access(filePath)).rejects.toThrow();
+      expect(s.received).toHaveLength(1);
+      expect(s.received[0].body).toBe("keep-me");
+    });
+
+    /**
+     * @case Deleting an already-absent file is a no-op (idempotent), not an error
+     * @preconditions File does not exist
+     * @expectedResult No error; the exchange flows through to the spy
+     */
+    test("is idempotent when the file is already absent", async () => {
+      const filePath = path.join(tmpDir, "never-existed.txt");
+
+      const s = spy();
+      const errSpy = mock();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("file-delete-missing")
+            .from(simple("x"))
+            .to(file({ path: filePath, mode: "delete" }))
+            .to(s),
+        )
+        .build();
+
+      t.ctx.on("context:error", errSpy);
+      await t.ctx.start();
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(errSpy).not.toHaveBeenCalled();
+      expect(s.received).toHaveLength(1);
+    });
+
+    /**
+     * @case Delete resolves a dynamic (function) path from the exchange
+     * @preconditions Body carries the file name; the file exists
+     * @expectedResult The file selected by the body is deleted
+     */
+    test("supports a dynamic (function) path", async () => {
+      const filePath = path.join(tmpDir, "dynamic-delete.txt");
+      await fsp.writeFile(filePath, "data", "utf-8");
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("file-delete-dynamic")
+            .from(simple<{ file: string }>({ file: filePath }))
+            .to(
+              file({
+                path: (ex) => (ex.body as { file: string }).file,
+                mode: "delete",
+              }),
+            ),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      await expect(fsp.access(filePath)).rejects.toThrow();
+    });
+  });
+
   describe("adapterId", () => {
     /**
      * @case Adapter has correct adapterId

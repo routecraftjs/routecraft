@@ -29,6 +29,9 @@ Read and write plain text files. For structured data, use `json` or `csv` adapte
 // Append to file
 .to(file({ path: './log.txt', mode: 'append' }))
 
+// Delete a file (idempotent: an already-absent path is a no-op)
+.to(file({ path: (ex) => ex.body.processedPath, mode: 'delete' }))
+
 // Dynamic file paths with directory creation
 .to(file({
   path: (exchange) => `./data/${exchange.body.date}.txt`,
@@ -42,7 +45,7 @@ Read and write plain text files. For structured data, use `json` or `csv` adapte
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `path` | `string \| (exchange) => string` | Required | File path (static or dynamic function) |
-| `mode` | `'read' \| 'write' \| 'append'` | `'read'` for source, `'write'` for destination | File operation mode |
+| `mode` | `'read' \| 'write' \| 'append' \| 'delete'` | `'read'` for source, `'write'` for destination | File operation mode (`delete` removes the file, idempotently) |
 | `encoding` | `BufferEncoding` | `'utf-8'` | Text encoding |
 | `createDirs` | `boolean` | `false` | Create parent directories (destination only) |
 | `chunked` | `boolean` | `false` | Emit one exchange per line instead of entire file (source only) |

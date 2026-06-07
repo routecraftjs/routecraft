@@ -63,6 +63,16 @@ export class JsonDestinationAdapter implements Destination<unknown, unknown> {
       }
     }
 
+    // Delete mode: delegate to the file adapter (no stringify). Idempotent.
+    if (this.options.mode === "delete") {
+      const resolvedDeletePath =
+        typeof filePath === "function" ? filePath(exchange) : filePath;
+      const deleteAdapter =
+        this.fileAdapter ??
+        (file({ path: resolvedDeletePath, mode: "delete" }) as FileAdapter);
+      return deleteAdapter.send(exchange);
+    }
+
     const formatting = indent ?? space ?? 0;
 
     const resolvedPath =

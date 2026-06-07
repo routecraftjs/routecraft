@@ -730,4 +730,74 @@ describe("JSON Adapter", () => {
       expect(s.received).toHaveLength(0);
     });
   });
+
+  describe("delete mode", () => {
+    let tempDir: string;
+    let testFilePath: string;
+
+    beforeEach(async () => {
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "json-delete-"));
+      testFilePath = path.join(tempDir, "data.json");
+    });
+
+    afterEach(async () => {
+      if (tempDir) await fs.rm(tempDir, { recursive: true, force: true });
+    });
+
+    /**
+     * @case json({mode:'delete'}) removes the file without stringifying the body
+     * @preconditions File exists
+     * @expectedResult The file is gone and the body passes through unchanged
+     */
+    test("deletes the file and passes the body through", async () => {
+      await fs.writeFile(testFilePath, JSON.stringify({ a: 1 }));
+
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("json-delete")
+            .from(simple({ keep: true }))
+            .to(json({ path: testFilePath, mode: "delete" }))
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      await expect(fs.access(testFilePath)).rejects.toThrow();
+      expect(s.received).toHaveLength(1);
+      expect(s.received[0].body).toEqual({ keep: true });
+    });
+
+    /**
+     * @case Deleting an already-absent JSON file is a no-op (idempotent)
+     * @preconditions File does not exist
+     * @expectedResult No error; the exchange flows through
+     */
+    test("is idempotent when the file is already absent", async () => {
+      const missing = path.join(tempDir, "missing.json");
+
+      const s = spy();
+      const errSpy = mock();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("json-delete-missing")
+            .from(simple("x"))
+            .to(json({ path: missing, mode: "delete" }))
+            .to(s),
+        )
+        .build();
+
+      t.ctx.on("context:error", errSpy);
+      await t.ctx.start();
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(errSpy).not.toHaveBeenCalled();
+      expect(s.received).toHaveLength(1);
+    });
+  });
 });

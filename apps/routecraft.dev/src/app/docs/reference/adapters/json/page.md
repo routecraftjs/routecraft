@@ -80,6 +80,9 @@ Parse and format JSON data, or read/write JSON files.
     return value;
   }
 }))
+
+// Delete a JSON file (idempotent: an already-absent path is a no-op)
+.to(json({ path: (ex) => ex.body.processedPath, mode: 'delete' }))
 ```
 
 **Transformer Options** (when no `path` provided):
@@ -96,7 +99,7 @@ Parse and format JSON data, or read/write JSON files.
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `path` | `string \| (exchange) => string` | Required | File path (static or dynamic) |
-| `mode` | `'read' \| 'write' \| 'append'` | `'read'` for source, `'write'` for destination | File operation mode |
+| `mode` | `'read' \| 'write' \| 'append' \| 'delete'` | `'read'` for source, `'write'` for destination | File operation mode (`delete` removes the file, idempotently) |
 | `encoding` | `BufferEncoding` | `'utf-8'` | Text encoding |
 | `createDirs` | `boolean` | `false` | Create parent directories (destination only) |
 | `indent` / `space` | `number` | `0` | JSON formatting spaces (destination only) |

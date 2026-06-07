@@ -13,9 +13,11 @@ export interface FileOptions {
    *   destination also supports dynamic (function) paths.
    * - 'write': Write/overwrite file (destination mode)
    * - 'append': Append to file (destination mode)
+   * - 'delete': Delete the file (destination mode). Idempotent: an already-
+   *   absent path is a no-op. The body is unchanged. Supports dynamic paths.
    * Default: 'read' for source, 'write' for destination
    */
-  mode?: "read" | "write" | "append";
+  mode?: "read" | "write" | "append" | "delete";
   /**
    * Text encoding. Default: 'utf-8'
    */

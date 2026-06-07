@@ -14,6 +14,9 @@ import { throwFileError } from "../shared/line-reader.ts";
  *   GET is a destination that returns the fetched body. Unlike source mode,
  *   read-as-destination supports dynamic (function) paths, because the
  *   exchange is available when the read runs.
+ * - `delete`: delete the file and return nothing (the body is unchanged). The
+ *   delete is idempotent: a path that is already absent is a no-op, since the
+ *   goal of delete is to ensure the file does not exist.
  */
 export class FileDestinationAdapter implements Destination<
   unknown,
@@ -24,9 +27,9 @@ export class FileDestinationAdapter implements Destination<
   constructor(private readonly options: FileOptions) {}
 
   /**
-   * Destination implementation. Reads (read mode) or writes (write/append
-   * mode) the resolved path. Static and dynamic paths are supported in all
-   * modes.
+   * Destination implementation. Reads (read mode), deletes (delete mode), or
+   * writes (write/append mode) the resolved path. Static and dynamic paths are
+   * supported in all modes.
    */
   send: CallableDestination<unknown, string | void> = async (exchange) => {
     const {
@@ -46,6 +49,23 @@ export class FileDestinationAdapter implements Destination<
         .readFile(resolvedPath, { encoding })
         .catch((err) => throwFileError("file", resolvedPath, err));
       return content;
+    }
+
+    // Delete mode: remove the file. Idempotent (force) so an already-absent
+    // path succeeds; the body is unchanged.
+    if (mode === "delete") {
+      try {
+        await fsp.rm(resolvedPath, { force: true });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if ((err as NodeJS.ErrnoException).code === "EACCES") {
+          throw new Error(
+            `file adapter: permission denied deleting file: ${resolvedPath}`,
+          );
+        }
+        throw new Error(`file adapter: failed to delete file: ${message}`);
+      }
+      return undefined;
     }
 
     // Get content from exchange body
