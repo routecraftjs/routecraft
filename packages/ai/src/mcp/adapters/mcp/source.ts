@@ -13,9 +13,11 @@ import {
   MCP_PLUGIN_REGISTERED,
   type McpLocalToolEntry,
   type McpServerOptions,
+  type McpToolAnnotations,
 } from "../../types.ts";
 import type { McpMessage } from "./types.ts";
 import { BRAND_MCP_ADAPTER } from "./shared.ts";
+import { deriveAnnotationsFromTags } from "../../annotation-tags.ts";
 
 /**
  * Characters allowed in an MCP tool name. Matches OpenAI's function-calling
@@ -35,6 +37,20 @@ function assertValidMcpToolName(endpoint: string): void {
         "MCP tool names must match /^[A-Za-z0-9_-]{1,64}$/ for client interoperability (OpenAI, Anthropic, etc.). Use alphanumerics, underscore, or hyphen in the route's .id().",
     });
   }
+}
+
+/**
+ * Merge tag-derived annotation hints with the explicit hints passed to
+ * `mcp()`. Explicit values win per-key. Returns `undefined` when neither
+ * source contributes anything, so the entry omits `annotations` entirely
+ * rather than carrying an empty object.
+ */
+function mergeAnnotations(
+  derived: McpToolAnnotations,
+  explicit: McpToolAnnotations | undefined,
+): McpToolAnnotations | undefined {
+  const merged: McpToolAnnotations = { ...derived, ...explicit };
+  return Object.keys(merged).length > 0 ? merged : undefined;
 }
 
 /**
@@ -147,9 +163,18 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
     if (discovery?.title !== undefined) entry.title = discovery.title;
     if (discovery?.input !== undefined) entry.input = discovery.input;
     if (discovery?.output !== undefined) entry.output = discovery.output;
-    if (this.options.annotations !== undefined) {
-      entry.annotations = this.options.annotations;
-    }
+
+    // Derive the MCP tool annotation hints from the route's tags so the same
+    // fact (does this tool mutate state? is it idempotent? does it reach
+    // external systems?) is declared once via `.tag()` rather than duplicated
+    // as both a tag and an annotation. Explicit `annotations` passed to
+    // `mcp()` override the derived values per-key, so callers retain full
+    // control when they need it.
+    const annotations = mergeAnnotations(
+      deriveAnnotationsFromTags(discovery?.tags),
+      this.options.annotations,
+    );
+    if (annotations !== undefined) entry.annotations = annotations;
     if (this.options.icons !== undefined) entry.icons = this.options.icons;
 
     // Register the cleanup listener before the insert. Any abort from now on

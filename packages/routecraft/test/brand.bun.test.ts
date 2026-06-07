@@ -82,7 +82,7 @@ describe("Brand type guards (cross-instance identity)", () => {
     expect(isRouteDefinition(def[0])).toBe(true);
     expect(isRouteDefinition(null)).toBe(false);
     expect(
-      isRouteDefinition({ id: "x", source: {}, steps: [], consumer: {} }),
+      isRouteDefinition({ id: "x", sources: [], steps: [], consumer: {} }),
     ).toBe(false);
   });
 
