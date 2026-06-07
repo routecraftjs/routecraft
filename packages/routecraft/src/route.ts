@@ -1077,59 +1077,65 @@ export class DefaultRoute implements Route {
     // http, mcp) hold open until abort, so a multi-ingress route with any
     // server ingress keeps the context alive, while a route whose sources are
     // all finite completes and lets the context auto-stop.
-    const subscriptions = this.definition.sources.map(
-      (definitionSource, index) => {
-        const channel = this.messageChannels[index];
-        const sourceOverride = resolveAdapterOverride(
-          definitionSource,
-          this.context,
-        );
-        const activeSource =
-          sourceOverride && sourceOverride.source
-            ? wrapSourceWithOverride(definitionSource, sourceOverride)
-            : definitionSource;
-        // A single-source route hands the source the route's own controller
-        // so a finite source completing (such sources call abort() when done)
-        // stops the route exactly as before. A multi-ingress route gives each
-        // source a child controller linked to the route's: the route aborts
-        // every child, but one finite ingress completing only aborts its own
-        // child and never tears down a sibling ingress (e.g. a long-lived
-        // http/mcp server holding the route open).
-        const sourceController =
-          total === 1 ? this.abortController : this.linkedChildController();
-        return activeSource.subscribe(
-          this.context,
-          (message, headers, parse, parseFailureMode) => {
-            markReady(index); // fallback: fire before first message if adapter never called onReady
-            return channel.enqueue({
-              message,
-              headers: headers ?? {},
-              ...(parse
-                ? {
-                    parse: parse as (
-                      raw: unknown,
-                    ) => unknown | Promise<unknown>,
-                    parseFailureMode: parseFailureMode ?? "fail",
-                  }
-                : {}),
-            });
-          },
-          sourceController,
-          () => markReady(index),
-          meta,
-        );
-      },
-    );
-
+    // Build AND await every subscription inside the try so both a synchronous
+    // throw while wiring a source (override resolution, a sync callable source)
+    // and an async subscribe rejection hit the same cleanup path. On failure,
+    // abort the route so any sibling ingresses that already subscribed are torn
+    // down (registry entries cleared, pending subscribes resolved) instead of
+    // leaking, then surface the error. `context.start()` already aborts on a
+    // failed route.start(); this makes start() self-cleaning for direct callers
+    // too. Harmless for the single-source case (no siblings).
     try {
+      const subscriptions = this.definition.sources.map(
+        (definitionSource, index) => {
+          const channel = this.messageChannels[index];
+          const sourceOverride = resolveAdapterOverride(
+            definitionSource,
+            this.context,
+          );
+          const activeSource =
+            sourceOverride && sourceOverride.source
+              ? wrapSourceWithOverride(definitionSource, sourceOverride)
+              : definitionSource;
+          // A single-source route hands the source the route's own controller
+          // so a finite source completing (such sources call abort() when done)
+          // stops the route exactly as before. A multi-ingress route gives each
+          // source a child controller linked to the route's: the route aborts
+          // every child, but one finite ingress completing only aborts its own
+          // child and never tears down a sibling ingress (e.g. a long-lived
+          // http/mcp server holding the route open).
+          const sourceController =
+            total === 1 ? this.abortController : this.linkedChildController();
+          // Coerce to a promise so a void return and an async rejection are
+          // handled uniformly by Promise.all; a synchronous throw is caught by
+          // the surrounding try because the map runs inside it.
+          return Promise.resolve(
+            activeSource.subscribe(
+              this.context,
+              (message, headers, parse, parseFailureMode) => {
+                markReady(index); // fallback: fire before first message if adapter never called onReady
+                return channel.enqueue({
+                  message,
+                  headers: headers ?? {},
+                  ...(parse
+                    ? {
+                        parse: parse as (
+                          raw: unknown,
+                        ) => unknown | Promise<unknown>,
+                        parseFailureMode: parseFailureMode ?? "fail",
+                      }
+                    : {}),
+                });
+              },
+              sourceController,
+              () => markReady(index),
+              meta,
+            ),
+          );
+        },
+      );
       await Promise.all(subscriptions);
     } catch (err) {
-      // One ingress failed to subscribe. Abort the route so any sibling
-      // ingresses that already subscribed are torn down (their registry
-      // entries cleared, their pending subscribe promises resolved) instead of
-      // leaking, then surface the error. `context.start()` already aborts on a
-      // failed route.start(); this makes start() self-cleaning for direct
-      // callers too. Harmless for the single-source case (no siblings).
       if (!this.abortController.signal.aborted) {
         this.abortController.abort(err);
       }

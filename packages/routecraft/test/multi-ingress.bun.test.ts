@@ -187,4 +187,41 @@ describe("Multi-ingress routes", () => {
       .sort();
     expect(delivered).toEqual(["1,2", "3,4"]);
   });
+
+  /**
+   * @case A synchronous subscribe failure on one ingress aborts the whole route
+   * @preconditions Multi-ingress route where a sibling source's subscribe() throws synchronously while start() is wiring sources
+   * @expectedResult start() rejects and the route's controller is aborted, so already-subscribed sibling ingresses are torn down rather than leaked
+   */
+  test("synchronous subscribe failure aborts the route and tears down siblings", async () => {
+    const boom = {
+      subscribe: () => {
+        throw new Error("subscribe boom");
+      },
+    };
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("sync-fail")
+          .input(z.object({ id: z.string() }))
+          .from(direct(), boom)
+          .to(noop()),
+      )
+      .build();
+
+    const route = t.ctx.getRouteById("sync-fail");
+    expect(route).toBeDefined();
+
+    let caught: unknown;
+    try {
+      await route!.start();
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toBe("subscribe boom");
+    expect(route!.signal.aborted).toBe(true);
+  });
 });
