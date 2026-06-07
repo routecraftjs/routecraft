@@ -104,7 +104,7 @@ export const home = craft()
 - `routecraft.http.url` -- raw request URL (path + query).
 - `routecraft.http.params` -- `Record<string, string>` of URL-decoded path params.
 - `routecraft.http.query` -- `Record<string, string>` of query params.
-- `routecraft.http.headers` -- `Record<string, string>` of request headers, lower-cased.
+- `routecraft.http.rawHeaders` -- `Record<string, string>` of the raw request headers, lower-cased. This is the open-ended pass-through wire-header remainder (the parsed envelope above is promoted to its own keys); it mirrors `routecraft.mail.rawHeaders`.
 - `routecraft.auth.principal` -- the authenticated `Principal` (when auth is configured). `ex.principal` is sugar over this header.
 
 ### Request body parsing (driven by `Content-Type`)

@@ -71,7 +71,9 @@ export default craft()
       model: 'anthropic:claude-sonnet-4-6',
       system:
         'You are a support triage assistant. Look the sender up, decide a priority (P1 urgent, P2 normal, P3 low), and post one concise internal brief. Do not reply to the customer.',
-      user: (ex) => `From: ${ex.body.from}\nSubject: ${ex.body.subject}\n\n${ex.body.text}`,
+      user: (ex) =>
+        `From: ${ex.headers['routecraft.mail.from']}\n` +
+        `Subject: ${ex.headers['routecraft.mail.subject']}\n\n${ex.body.text}`,
       tools: tools(['Direct(lookup-customer)', 'Direct(post-brief)']),
     }),
   )

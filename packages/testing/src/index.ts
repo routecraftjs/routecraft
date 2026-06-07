@@ -34,6 +34,10 @@ export {
   type MockAdapterBehavior,
 } from "./mock-adapter";
 
+// Source fixture helper: attach headers to a source-role mock fixture so
+// routes that read `routecraft.<adapter>.*` headers can be exercised.
+export { sourceMessage } from "./source-message";
+
 // Test helper for fn-like specs (schema + handler). Used to exercise
 // fns registered in `@routecraft/ai`'s agentPlugin without depending on
 // any non-public dispatcher.

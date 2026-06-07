@@ -118,13 +118,35 @@ When a source adapter ingests a protocol message that has both a payload *and* a
 
 This is the rule that makes `.transform(parseInvoice)`, `.filter(predicate)`, and pipeline composition feel natural across adapters: the same operator works whether the payload arrived over HTTP, mail, or a queue, because `body` always means the operand.
 
-The HTTP source follows this convention exactly. Request method, path, params, query, request headers, and **response hints** all live on headers under `routecraft.http.*`:
+### Promote the parsed envelope, map the remainder
+
+Within the `headers` bag, a source decides where each piece of envelope goes by *what kind of thing it is*, not by whether it happens to be a wire header:
+
+- **Promote to its own typed key** (`routecraft.<adapter>.<field>`) the protocol's pre-parsed, privileged envelope: the small, known, structured set the protocol hands you already parsed. A promoted key's value may be a scalar, a map, or a structured object:
+
+  | Value shape | Examples |
+  | --- | --- |
+  | scalar | `http.method`, `http.path`, `mail.subject`, `mail.uid`, `http.response.status` |
+  | map (a collection parsed out of one transport slot) | `http.params`, `http.query`, `http.cookies` |
+  | structured object / array (a derived concept) | `mail.sender`, `http.response.cookies` |
+
+- **Map the remainder.** The open-ended, homogeneous, stringly-typed wire headers the adapter just passes through go into one map under a single `routecraft.<adapter>.rawHeaders` key. There is no privileged subset and the names are arbitrary, so a map is the right structure: you cannot type N arbitrary keys (you would fall back to an index signature, which is a map with worse ergonomics), and you want `Object.entries` over the whole set.
+
+The litmus for promotion is "did the protocol already parse this into a privileged, typed thing?" HTTP's parsed envelope is the request line (`method`, `path`, `query`, `params`); mail's is the IMAP `ENVELOPE` (`from`, `to`, `subject`, `date`, ...). That those happen to be wire headers in mail and not in HTTP is incidental to the protocols, not a difference in the rule.
+
+A field can legitimately appear in both a promoted key and the raw map (mail `subject` is at `routecraft.mail.subject` and, when raw capture is on, also in `rawHeaders["subject"]`). That is the raw-plus-parsed-view pattern, the same way `routecraft.http.url` contains the query string that `routecraft.http.query` also exposes parsed. Raw form for completeness, parsed view for ergonomics.
+
+**Capture the raw map by default, but size it per protocol.** HTTP request header sets are small and already in memory, so `routecraft.http.rawHeaders` is always populated. A full MIME header block (every `Received` / DKIM / ARC line) is large and per-message, so mail's `routecraft.mail.rawHeaders` is opt-in via `includeHeaders`. That is a payload-size default, not a model difference.
+
+The HTTP source applies this directly:
 
 ```ts
-ex.headers["routecraft.http.method"]
-ex.headers["routecraft.http.params"]
-ex.headers["routecraft.http.query"]
-ex.headers["routecraft.http.headers"]            // request headers, lower-cased
+// Promoted parsed envelope:
+ex.headers["routecraft.http.method"]              // scalar
+ex.headers["routecraft.http.params"]              // map
+ex.headers["routecraft.http.query"]               // map
+// Open-ended pass-through remainder:
+ex.headers["routecraft.http.rawHeaders"]          // map, lower-cased
 
 // Response hints, read by the dispatcher when building the Response:
 ex.headers["routecraft.http.response.status"]
@@ -144,9 +166,29 @@ Content the route is meant to transform stays on `body` even when it could plaus
 
 The rule of thumb: would a route ever `.transform(body => newBody)` it? If yes, it's payload. If it's just identification, routing identity, or signal-to-the-adapter on the way out (`Content-Type`, status code, response headers), it's envelope.
 
-### Existing tension: mail
+### Mail follows the convention too
 
-Mail's `MailMessage` shape predates this convention and currently packs envelope (`subject`, `from`, `to`, `cc`, `bcc`, `date`, `messageId`, `replyTo`, `flags`, `sender`, `rawHeaders`) *and* payload (`body.text`, `body.html`, `attachments`) onto `body`, while IMAP routing identity (`uid`, `folder`) lives on headers. That's halfway. A follow-up tracking issue covers the breaking change to align mail with this convention pre-v1; until then, mail is the documented exception.
+The mail **source** (`.from(mail(...))`) splits each message the same way: payload (`text`, `html`, `attachments`) on `body` (a `MailBody`), envelope (`from`, `to`, `cc`, `bcc`, `subject`, `date`, `messageId`, `replyTo`, `flags`, `sender`, `rawHeaders`) plus IMAP routing identity (`uid`, `folder`) on `routecraft.mail.*` headers.
+
+```ts
+ex.body.text                              // payload
+ex.headers["routecraft.mail.from"]
+ex.headers["routecraft.mail.subject"]
+ex.headers["routecraft.mail.uid"]         // routing identity
+```
+
+Attachments stay on `body` because they are message content (the same call the "What stays on `body`" section above makes for HTTP multipart files).
+
+The fetch destination (`.enrich(mail(...))`) is the one place the whole `MailMessage` (envelope + payload in one object) still appears: a batch fetch returns many messages and single-valued headers cannot hold N envelopes, so each element keeps its envelope inline. That is a result collection, not a per-message exchange, so the convention does not apply.
+
+### Worked example: cookies
+
+Cookies show the rule handling a value that is *both* a wire header and a structured concept, and that direction matters:
+
+- **Inbound (`Cookie` request header).** A collection (`sid=abc; theme=dark`) encoded inside one transport slot, the same animal as the query string inside the URL. It earns a promoted *map* key, `routecraft.http.cookies: Record<string, string>`, exactly like `routecraft.http.query`. The raw form stays in `routecraft.http.rawHeaders["cookie"]`.
+- **Outbound (`Set-Cookie`).** Multi-valued, attribute-bearing (`Path` / `Domain` / `Max-Age` / `HttpOnly` / `Secure` / `SameSite`), and an instruction the adapter must serialise. It is a response hint, `routecraft.http.response.cookies: CookieSpec[]`, alongside `response.status` / `response.contentType`. It needs its own structured slot precisely because the flat `response.headers` map cannot express "two cookies, each with attributes."
+
+Neither is ever `body`: you never `.transform(body => newBody)` a cookie. (The HTTP source does not parse cookies today; `routecraft.http.cookies` and `routecraft.http.response.cookies` are the worked design for when it does.)
 
 ### Why the asymmetry across adapters is OK
 

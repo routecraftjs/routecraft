@@ -8,7 +8,7 @@ import { MailOperationDestinationAdapter } from "./operation-destination.ts";
 import type {
   MailServerOptions,
   MailClientOptions,
-  MailMessage,
+  MailBody,
   MailFetchResult,
   MailSendPayload,
   MailSendResult,
@@ -68,7 +68,7 @@ import type {
 export function mail(
   folder: string,
   options: MailServerOptions,
-): Source<MailMessage>;
+): Source<MailBody>;
 export function mail(folder: string): Destination<unknown, MailFetchResult>;
 export function mail(
   options: MailServerOptions,
@@ -81,7 +81,7 @@ export function mail(
   folderOrOptions?: string | MailServerOptions | MailClientOptions | MailAction,
   options?: MailServerOptions,
 ):
-  | Source<MailMessage>
+  | Source<MailBody>
   | Destination<unknown, MailFetchResult>
   | Destination<MailSendPayload, MailSendResult>
   | Destination<unknown, void> {
@@ -90,7 +90,7 @@ export function mail(
   // 2 args: string + object -> Source (matches direct(endpoint, options) pattern)
   if (typeof folderOrOptions === "string" && options !== undefined) {
     const adapter = new MailSourceAdapter(folderOrOptions, options);
-    return tagAdapter(adapter, mail, args) as Source<MailMessage>;
+    return tagAdapter(adapter, mail, args) as Source<MailBody>;
   }
 
   // 1 arg string -> Fetch Destination (folder shorthand for .enrich())
@@ -159,6 +159,7 @@ export type {
   MailServerOptions,
   MailClientOptions,
   MailOptions,
+  MailBody,
   MailMessage,
   MailAttachment,
   MailSendPayload,
@@ -181,6 +182,25 @@ export type {
 // Re-export store key and client manager
 export { MAIL_CLIENT_MANAGER } from "./shared.ts";
 export { MailClientManager } from "./client-manager.ts";
+
+// Re-export the `routecraft.mail.*` header key constants so consumers reading
+// envelope metadata off the source exchange get named constants and type-safe
+// autocomplete (the keys are also declaration-merged into `RoutecraftHeaders`).
+export {
+  HEADER_MAIL_UID,
+  HEADER_MAIL_FOLDER,
+  HEADER_MAIL_MESSAGE_ID,
+  HEADER_MAIL_FROM,
+  HEADER_MAIL_TO,
+  HEADER_MAIL_CC,
+  HEADER_MAIL_BCC,
+  HEADER_MAIL_SUBJECT,
+  HEADER_MAIL_DATE,
+  HEADER_MAIL_REPLY_TO,
+  HEADER_MAIL_FLAGS,
+  HEADER_MAIL_SENDER,
+  HEADER_MAIL_RAW_HEADERS,
+} from "./shared.ts";
 
 // Sender analysis
 export type {

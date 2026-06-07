@@ -1,7 +1,8 @@
 import { describe, it, expect, afterEach, beforeEach } from "bun:test";
-import { mail, type MailMessage } from "@routecraft/routecraft";
+import { mail, type MailBody } from "@routecraft/routecraft";
 import {
   mockAdapter,
+  sourceMessage,
   testContext,
   type TestContext,
 } from "@routecraft/testing";
@@ -36,17 +37,19 @@ describe("mail-noreply-notify", () => {
    * @expectedResult The send handler is invoked exactly once with the expected subject and a text body that includes the original sender
    */
   it("fans an IMAP fixture through to an SMTP send", async () => {
-    const incoming: MailMessage = {
-      uid: 42,
-      messageId: "<msg42@noreply.test>",
-      from: "noreply@acme.test",
-      to: "me@work.test",
-      subject: "Your order has shipped",
-      date: new Date("2026-04-15T10:00:00Z"),
-      flags: new Set(),
-      folder: "INBOX",
-      body: { text: "Tracking: ABC123" },
-    };
+    // The mail source delivers the payload on `body` and the envelope on
+    // `routecraft.mail.*` headers; `sourceMessage` reproduces that split so
+    // the route (which reads the envelope off headers) can be exercised.
+    const incomingBody: MailBody = { text: "Tracking: ABC123" };
+    const incoming = sourceMessage(incomingBody, {
+      "routecraft.mail.uid": 42,
+      "routecraft.mail.folder": "INBOX",
+      "routecraft.mail.messageId": "<msg42@noreply.test>",
+      "routecraft.mail.from": "noreply@acme.test",
+      "routecraft.mail.to": ["me@work.test"],
+      "routecraft.mail.subject": "Your order has shipped",
+      "routecraft.mail.date": new Date("2026-04-15T10:00:00Z"),
+    });
 
     const mailMock = mockAdapter(mail, {
       // Source role: .from(mail("INBOX", ...)) receives this fixture array.
@@ -99,17 +102,15 @@ describe("mail-noreply-notify", () => {
    * @expectedResult The context records an error via context:error; the send handler was still invoked
    */
   it("surfaces send failures as route errors", async () => {
-    const incoming: MailMessage = {
-      uid: 1,
-      messageId: "<m1@test>",
-      from: "noreply@x.test",
-      to: "me@work.test",
-      subject: "x",
-      date: new Date(),
-      flags: new Set(),
-      folder: "INBOX",
-      body: {},
-    };
+    const incoming = sourceMessage({} as MailBody, {
+      "routecraft.mail.uid": 1,
+      "routecraft.mail.folder": "INBOX",
+      "routecraft.mail.messageId": "<m1@test>",
+      "routecraft.mail.from": "noreply@x.test",
+      "routecraft.mail.to": ["me@work.test"],
+      "routecraft.mail.subject": "x",
+      "routecraft.mail.date": new Date(),
+    });
 
     const mailMock = mockAdapter(mail, {
       source: [incoming],

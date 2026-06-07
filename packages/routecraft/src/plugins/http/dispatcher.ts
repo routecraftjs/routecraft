@@ -254,9 +254,10 @@ export function createDispatcher(
       return response;
     }
 
-    // 5. Build the headers passed to the runtime handler. Standard request
-    //    metadata uses dotted keys (path, method, url, headers) plus typed
-    //    nested objects for params and query.
+    // 5. Build the headers passed to the runtime handler. The parsed request
+    //    envelope (method, path, url) is promoted to its own dotted keys, with
+    //    typed nested maps for params and query; the open-ended pass-through
+    //    wire headers go into the single `routecraft.http.rawHeaders` map.
     const queryObject: Record<string, string> = {};
     for (const [k, v] of url.searchParams) queryObject[k] = v;
     const reqHeaders: Record<string, string> = {};
@@ -270,7 +271,7 @@ export function createDispatcher(
       "routecraft.http.url": req.url,
       "routecraft.http.params": params,
       "routecraft.http.query": Object.freeze(queryObject),
-      "routecraft.http.headers": Object.freeze(reqHeaders),
+      "routecraft.http.rawHeaders": Object.freeze(reqHeaders),
       ...(principal !== undefined
         ? { [HeadersKeys.AUTH_PRINCIPAL]: principal }
         : {}),

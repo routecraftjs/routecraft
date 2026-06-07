@@ -1,7 +1,8 @@
 import type { CraftContext } from "../../context.ts";
-import type { Exchange } from "../../exchange.ts";
+import type { Exchange, ExchangeHeaders } from "../../exchange.ts";
 import { rcError } from "../../error.ts";
 import type {
+  MailBody,
   MailMessage,
   MailServerOptions,
   MailClientOptions,
@@ -43,6 +44,39 @@ export const HEADER_MAIL_UID = "routecraft.mail.uid";
 
 /** Header key for the IMAP folder of the source message. */
 export const HEADER_MAIL_FOLDER = "routecraft.mail.folder";
+
+/** Header key for the `Message-ID` of the source message. */
+export const HEADER_MAIL_MESSAGE_ID = "routecraft.mail.messageId";
+
+/** Header key for the literal `From:` address. */
+export const HEADER_MAIL_FROM = "routecraft.mail.from";
+
+/** Header key for the recipient address(es) (always an array). */
+export const HEADER_MAIL_TO = "routecraft.mail.to";
+
+/** Header key for the CC recipient address(es). */
+export const HEADER_MAIL_CC = "routecraft.mail.cc";
+
+/** Header key for the BCC recipient address(es). */
+export const HEADER_MAIL_BCC = "routecraft.mail.bcc";
+
+/** Header key for the subject line. */
+export const HEADER_MAIL_SUBJECT = "routecraft.mail.subject";
+
+/** Header key for the date the message was sent. */
+export const HEADER_MAIL_DATE = "routecraft.mail.date";
+
+/** Header key for the Reply-To address. */
+export const HEADER_MAIL_REPLY_TO = "routecraft.mail.replyTo";
+
+/** Header key for the IMAP flags. */
+export const HEADER_MAIL_FLAGS = "routecraft.mail.flags";
+
+/** Header key for the computed effective sender (when `verify !== "off"`). */
+export const HEADER_MAIL_SENDER = "routecraft.mail.sender";
+
+/** Header key for the raw email headers (requested via `includeHeaders`). */
+export const HEADER_MAIL_RAW_HEADERS = "routecraft.mail.rawHeaders";
 
 // ---------------------------------------------------------------------------
 // Client manager access
@@ -141,6 +175,61 @@ export function resolveMailTarget(
  */
 export function toArray(value: string | string[]): string[] {
   return Array.isArray(value) ? value : [value];
+}
+
+/**
+ * Split a fetched {@link MailMessage} into the shape the streaming source
+ * delivers: message content on `body` (a {@link MailBody}) and envelope
+ * metadata on `routecraft.mail.*` headers.
+ *
+ * This mirrors the HTTP source convention (payload on `body`, envelope on
+ * `headers`) so the same `.transform()` / `.filter()` operators compose across
+ * adapters. Attachments are message content, not envelope, so they stay on the
+ * body alongside `text`/`html`. IMAP routing identity (`uid`/`folder`) and the
+ * rest of the envelope move to headers.
+ *
+ * @param message - A message produced by {@link fetchMessages}
+ * @returns The `body`/`headers` pair to hand to the source's exchange handler
+ */
+export function splitMailMessage(message: MailMessage): {
+  body: MailBody;
+  headers: ExchangeHeaders;
+} {
+  const body: MailBody = {};
+  if (message.body.text !== undefined) body.text = message.body.text;
+  if (message.body.html !== undefined) body.html = message.body.html;
+  if (message.attachments !== undefined) body.attachments = message.attachments;
+
+  // `ExchangeHeaders` is `Readonly`, so build the map in one literal (with
+  // conditional spreads for the optional envelope fields) rather than
+  // post-assigning. Empty cc/bcc arrays are omitted to keep headers clean.
+  const headers: ExchangeHeaders = {
+    [HEADER_MAIL_UID]: message.uid,
+    [HEADER_MAIL_FOLDER]: message.folder,
+    [HEADER_MAIL_MESSAGE_ID]: message.messageId,
+    [HEADER_MAIL_FROM]: message.from,
+    [HEADER_MAIL_TO]: toArray(message.to),
+    [HEADER_MAIL_SUBJECT]: message.subject,
+    [HEADER_MAIL_DATE]: message.date,
+    [HEADER_MAIL_FLAGS]: message.flags,
+    ...(message.cc !== undefined && message.cc.length > 0
+      ? { [HEADER_MAIL_CC]: message.cc }
+      : {}),
+    ...(message.bcc !== undefined && message.bcc.length > 0
+      ? { [HEADER_MAIL_BCC]: message.bcc }
+      : {}),
+    ...(message.replyTo !== undefined
+      ? { [HEADER_MAIL_REPLY_TO]: message.replyTo }
+      : {}),
+    ...(message.rawHeaders !== undefined
+      ? { [HEADER_MAIL_RAW_HEADERS]: message.rawHeaders }
+      : {}),
+    ...(message.sender !== undefined
+      ? { [HEADER_MAIL_SENDER]: message.sender }
+      : {}),
+  };
+
+  return { body, headers };
 }
 
 /**

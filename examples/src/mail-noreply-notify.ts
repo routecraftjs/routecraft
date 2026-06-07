@@ -18,16 +18,25 @@ export default craft()
       header: { "Reply-To": ["noreply", "no-reply"] },
     }),
   )
-  .tap(log(({ body }) => `No-reply from ${body.from}: "${body.subject}"`))
-  .transform((body) => ({
+  .tap(
+    log(
+      (ex) =>
+        `No-reply from ${ex.headers["routecraft.mail.from"]}: ` +
+        `"${ex.headers["routecraft.mail.subject"]}"`,
+    ),
+  )
+  // The mail source puts the message payload on `body` and the envelope
+  // (from, subject, date, ...) on `routecraft.mail.*` headers, so read the
+  // envelope off the exchange rather than the body.
+  .transform((_body, ex) => ({
     to: process.env["NOTIFY_TO"] ?? process.env["MAIL_USER"] ?? "",
     subject: "Routecraft: processed a no-reply email",
     text: [
       "Hey! Routecraft just found a no-reply email and marked it as read.",
       "",
-      `From: ${body.from}`,
-      `Subject: ${body.subject}`,
-      `Date: ${body.date}`,
+      `From: ${ex.headers["routecraft.mail.from"]}`,
+      `Subject: ${ex.headers["routecraft.mail.subject"]}`,
+      `Date: ${ex.headers["routecraft.mail.date"]?.toISOString()}`,
       "",
       "This message was sent by the mail-noreply-notify example.",
     ].join("\n"),

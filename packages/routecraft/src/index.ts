@@ -192,11 +192,15 @@ export { shutdownHandler } from "./shutdown.ts";
 
 export {
   RC_ADAPTER_OVERRIDES,
+  SOURCE_FIXTURE,
+  isSourceFixture,
   type AdapterOverride,
   type AdapterSendCall,
   type AdapterSourceCall,
   type SendOverrideHandler,
   type SourceOverrideBehavior,
+  type SourceFixture,
+  type SourceMessage,
 } from "./testing-hooks.ts";
 
 export { tagAdapter, factoryArgs } from "./adapters/shared/factory-tag.ts";
@@ -312,6 +316,7 @@ export {
   type MailServerOptions,
   type MailClientOptions,
   type MailOptions,
+  type MailBody,
   type MailMessage,
   type MailAttachment,
   type MailSendPayload,
@@ -338,4 +343,17 @@ export {
   parseAuthResults,
   ANALYSIS_HEADER_NAMES,
   MailClientManager,
+  HEADER_MAIL_UID,
+  HEADER_MAIL_FOLDER,
+  HEADER_MAIL_MESSAGE_ID,
+  HEADER_MAIL_FROM,
+  HEADER_MAIL_TO,
+  HEADER_MAIL_CC,
+  HEADER_MAIL_BCC,
+  HEADER_MAIL_SUBJECT,
+  HEADER_MAIL_DATE,
+  HEADER_MAIL_REPLY_TO,
+  HEADER_MAIL_FLAGS,
+  HEADER_MAIL_SENDER,
+  HEADER_MAIL_RAW_HEADERS,
 } from "./adapters/mail/index.ts";
