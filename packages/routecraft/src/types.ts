@@ -322,6 +322,10 @@ export type SpecialEventName =
   | `route:${string}:error-handler:invoked`
   | `route:${string}:error-handler:recovered`
   | `route:${string}:error-handler:failed`
+  | `route:${string}:cache:hit`
+  | `route:${string}:cache:miss`
+  | `route:${string}:cache:stored`
+  | `route:${string}:cache:failed`
   | `route:${string}:operation:choice:matched`
   | `route:${string}:operation:choice:unmatched`
   | `route:${string}:agent:tool:invoked`
@@ -567,136 +571,196 @@ type RouteEventDetails<S extends string> =
                                         /** Step label when `scope === "step"`. */
                                         stepLabel?: string;
                                       }
-                                    : // Choice operation
-                                      S extends "operation:choice:matched"
+                                    : // Cache wrapper
+                                      S extends "cache:hit"
                                       ? {
                                           routeId: string;
                                           exchangeId: string;
                                           correlationId: string;
-                                          branchIndex: number;
-                                          branchLabel: "when" | "otherwise";
+                                          /** Label of the wrapped step, or `"route"` when `scope === "route"`. */
+                                          stepLabel: string;
+                                          scope: "route" | "step";
+                                          /** The derived cache key. */
+                                          key: string;
                                         }
-                                      : S extends "operation:choice:unmatched"
+                                      : S extends "cache:miss"
                                         ? {
                                             routeId: string;
                                             exchangeId: string;
                                             correlationId: string;
+                                            stepLabel: string;
+                                            scope: "route" | "step";
+                                            key: string;
+                                            /** True when the wrapped step dropped the exchange (filter/halt). */
+                                            dropped?: boolean;
                                           }
-                                        : // Agent events
-                                          S extends "agent:tool:invoked"
+                                        : S extends "cache:stored"
                                           ? {
                                               routeId: string;
                                               exchangeId: string;
                                               correlationId: string;
-                                              toolCallId: string;
-                                              toolName: string;
-                                              input: unknown;
+                                              stepLabel: string;
+                                              scope: "route" | "step";
+                                              key: string;
+                                              /** TTL in ms when one was configured. */
+                                              ttl?: number;
                                             }
-                                          : S extends "agent:tool:result"
+                                          : S extends "cache:failed"
                                             ? {
                                                 routeId: string;
                                                 exchangeId: string;
                                                 correlationId: string;
-                                                toolCallId: string;
-                                                toolName: string;
-                                                output: unknown;
-                                                duration: number;
+                                                stepLabel: string;
+                                                scope: "route" | "step";
+                                                /**
+                                                 * Where the failure occurred:
+                                                 * `"key"` = key derivation threw,
+                                                 * `"get"` = provider read threw,
+                                                 * `"inner"` = the wrapped step threw,
+                                                 * `"set"` = the provider write threw
+                                                 * after the wrapped step succeeded.
+                                                 */
+                                                phase:
+                                                  | "key"
+                                                  | "get"
+                                                  | "inner"
+                                                  | "set";
+                                                error: string;
+                                                /** Present for `"get"` / `"inner"` / `"set"`; absent when key derivation itself failed. */
+                                                key?: string;
                                               }
-                                            : S extends "agent:tool:error"
+                                            : // Choice operation
+                                              S extends "operation:choice:matched"
                                               ? {
                                                   routeId: string;
                                                   exchangeId: string;
                                                   correlationId: string;
-                                                  toolCallId: string;
-                                                  toolName: string;
-                                                  error: unknown;
-                                                  duration: number;
+                                                  branchIndex: number;
+                                                  branchLabel:
+                                                    | "when"
+                                                    | "otherwise";
                                                 }
-                                              : S extends "agent:block:loaded"
+                                              : S extends "operation:choice:unmatched"
                                                 ? {
                                                     routeId: string;
                                                     exchangeId: string;
                                                     correlationId: string;
-                                                    toolCallId: string;
-                                                    blockName: string;
-                                                    output: unknown;
-                                                    duration: number;
                                                   }
-                                                : S extends "agent:block:error"
+                                                : // Agent events
+                                                  S extends "agent:tool:invoked"
                                                   ? {
                                                       routeId: string;
                                                       exchangeId: string;
                                                       correlationId: string;
                                                       toolCallId: string;
-                                                      blockName: string;
-                                                      error: unknown;
-                                                      duration: number;
+                                                      toolName: string;
+                                                      input: unknown;
                                                     }
-                                                  : S extends "agent:finished"
+                                                  : S extends "agent:tool:result"
                                                     ? {
                                                         routeId: string;
                                                         exchangeId: string;
                                                         correlationId: string;
-                                                        finishReason: string;
-                                                        inputTokens?: number;
-                                                        outputTokens?: number;
-                                                        totalTokens?: number;
+                                                        toolCallId: string;
+                                                        toolName: string;
+                                                        output: unknown;
+                                                        duration: number;
                                                       }
-                                                    : S extends "agent:error"
+                                                    : S extends "agent:tool:error"
                                                       ? {
                                                           routeId: string;
                                                           exchangeId: string;
                                                           correlationId: string;
+                                                          toolCallId: string;
+                                                          toolName: string;
                                                           error: unknown;
+                                                          duration: number;
                                                         }
-                                                      : // Step errors (multi-segment suffix)
-                                                        S extends `step:${string}:error:caught`
+                                                      : S extends "agent:block:loaded"
                                                         ? {
-                                                            error: unknown;
-                                                            route?: Route;
-                                                            exchange?: Exchange<unknown>;
-                                                            operation: string;
+                                                            routeId: string;
+                                                            exchangeId: string;
+                                                            correlationId: string;
+                                                            toolCallId: string;
+                                                            blockName: string;
+                                                            output: unknown;
+                                                            duration: number;
                                                           }
-                                                        : S extends `step:${string}:error`
+                                                        : S extends "agent:block:error"
                                                           ? {
+                                                              routeId: string;
+                                                              exchangeId: string;
+                                                              correlationId: string;
+                                                              toolCallId: string;
+                                                              blockName: string;
                                                               error: unknown;
-                                                              route?: Route;
-                                                              exchange?: Exchange<unknown>;
-                                                              operation: string;
+                                                              duration: number;
                                                             }
-                                                          : // Route errors
-                                                            S extends "error:caught"
+                                                          : S extends "agent:finished"
                                                             ? {
-                                                                error: unknown;
-                                                                route?: Route;
-                                                                exchange?: Exchange<unknown>;
+                                                                routeId: string;
+                                                                exchangeId: string;
+                                                                correlationId: string;
+                                                                finishReason: string;
+                                                                inputTokens?: number;
+                                                                outputTokens?: number;
+                                                                totalTokens?: number;
                                                               }
-                                                            : S extends "error"
+                                                            : S extends "agent:error"
                                                               ? {
+                                                                  routeId: string;
+                                                                  exchangeId: string;
+                                                                  correlationId: string;
                                                                   error: unknown;
-                                                                  route?: Route;
-                                                                  exchange?: Exchange<unknown>;
                                                                 }
-                                                              : // Route lifecycle (must be last to avoid matching multi-segment suffixes)
-                                                                S extends
-                                                                    | "registered"
-                                                                    | "starting"
-                                                                    | "started"
+                                                              : // Step errors (multi-segment suffix)
+                                                                S extends `step:${string}:error:caught`
                                                                 ? {
-                                                                    route: Route;
+                                                                    error: unknown;
+                                                                    route?: Route;
+                                                                    exchange?: Exchange<unknown>;
+                                                                    operation: string;
                                                                   }
-                                                                : S extends "stopping"
+                                                                : S extends `step:${string}:error`
                                                                   ? {
-                                                                      route: Route;
-                                                                      reason?: unknown;
+                                                                      error: unknown;
+                                                                      route?: Route;
                                                                       exchange?: Exchange<unknown>;
+                                                                      operation: string;
                                                                     }
-                                                                  : S extends "stopped"
+                                                                  : // Route errors
+                                                                    S extends "error:caught"
                                                                     ? {
-                                                                        route: Route;
+                                                                        error: unknown;
+                                                                        route?: Route;
                                                                         exchange?: Exchange<unknown>;
                                                                       }
-                                                                    : never;
+                                                                    : S extends "error"
+                                                                      ? {
+                                                                          error: unknown;
+                                                                          route?: Route;
+                                                                          exchange?: Exchange<unknown>;
+                                                                        }
+                                                                      : // Route lifecycle (must be last to avoid matching multi-segment suffixes)
+                                                                        S extends
+                                                                            | "registered"
+                                                                            | "starting"
+                                                                            | "started"
+                                                                        ? {
+                                                                            route: Route;
+                                                                          }
+                                                                        : S extends "stopping"
+                                                                          ? {
+                                                                              route: Route;
+                                                                              reason?: unknown;
+                                                                              exchange?: Exchange<unknown>;
+                                                                            }
+                                                                          : S extends "stopped"
+                                                                            ? {
+                                                                                route: Route;
+                                                                                exchange?: Exchange<unknown>;
+                                                                              }
+                                                                            : never;
 
 /** Detail types for `plugin:<pluginId>:<suffix>` events. */
 type PluginEventDetails<S extends string> = S extends

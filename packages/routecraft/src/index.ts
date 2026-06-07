@@ -121,6 +121,15 @@ export {
 
 export { WrapperStep } from "./operations/wrapper.ts";
 export { ErrorWrapperStep } from "./operations/error-wrapper.ts";
+export {
+  CacheWrapperStep,
+  type CacheOptions,
+} from "./operations/cache-wrapper.ts";
+export {
+  type CacheProvider,
+  MemoryCacheProvider,
+  type MemoryCacheProviderOptions,
+} from "./operations/cache-provider.ts";
 
 export {
   ContextBuilder,

@@ -29,6 +29,8 @@ export type RCCode =
   | "RC5025"
   | "RC5026"
   | "RC5027"
+  | "RC5028"
+  | "RC5029"
   | "RC9901";
 
 export type RCMeta = {
@@ -258,6 +260,22 @@ export const RC: Record<RCCode, RCMeta> = {
     suggestion:
       "A block is missing required fields or has an invalid shape: every block needs a non-empty `name`, a `mode` of `inject` or `progressive`, and a string-or-function `value`. Progressive blocks additionally require a non-empty `description` so the model can decide whether to load them.",
     docs: `${DOCS_BASE}#rc-5027`,
+    retryable: false,
+  },
+  RC5028: {
+    category: "Adapter",
+    message: "Cache provider failed",
+    suggestion:
+      "Inspect the underlying cache backend (in-memory, Redis, etc.); transient backend errors may resolve on retry.",
+    docs: `${DOCS_BASE}#rc-5028`,
+    retryable: true,
+  },
+  RC5029: {
+    category: "Adapter",
+    message: "Cache key derivation failed",
+    suggestion:
+      "The default key hashes JSON.stringify(body); it fails on non-serialisable bodies (functions, symbols, circular refs, BigInt). Supply an explicit `key` function in cache({ key: ... }). Retrying will not help: the same body fails the same way.",
+    docs: `${DOCS_BASE}#rc-5029`,
     retryable: false,
   },
   RC9901: {

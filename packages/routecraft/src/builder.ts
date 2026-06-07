@@ -31,6 +31,7 @@ import {
   type Exchange,
   DefaultExchange,
   getExchangeContext,
+  OperationType,
 } from "./exchange.ts";
 import {
   type Splitter,
@@ -47,6 +48,11 @@ import { COLLECT_STEPS } from "./dsl-symbol.ts";
 import { ChoiceStep, ChoiceSubBuilder } from "./operations/choice.ts";
 import { ValidateStep } from "./operations/validate.ts";
 import { authorize, type AuthorizeOptions } from "./auth/authorize.ts";
+import {
+  type CacheOptions,
+  resolveCacheOptions,
+  type ResolvedCacheOptions,
+} from "./operations/cache-wrapper.ts";
 
 /**
  * Builder for creating a Routecraft context with routes and configuration.
@@ -354,6 +360,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
           options?: unknown;
         };
         errorHandler?: ErrorHandler;
+        cacheConfig?: ResolvedCacheOptions;
         discovery?: RouteDiscovery;
         authorizers?: AuthorizeOptions[];
       }
@@ -576,6 +583,42 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
   }
 
   /**
+   * Cache. Dual-mode:
+   *
+   * - **Before `.from()` (route scope):** the route looks up its
+   *   provider before any pipeline step runs. On a hit, the entire
+   *   pipeline is skipped and the cached body is returned to the
+   *   source as the route's final exchange body. On a miss, the
+   *   pipeline runs normally and the terminal body is stored for
+   *   future hits. Side effects (e.g. `.to(destination)` calls) do
+   *   NOT replay on a hit; the whole pipeline is bypassed.
+   *
+   * - **After `.from()` (step scope):** wraps the immediately-next
+   *   step; see {@link StepBuilderBase.cache} for the step-scope
+   *   contract.
+   *
+   * Routes with `.split()` are not supported at route scope (the
+   * pipeline produces N terminals rather than one) and throw
+   * `RC5003` at build time. Use step-scope `.cache()` to wrap the
+   * expensive step inside such a route.
+   *
+   * @experimental
+   */
+  override cache(options: CacheOptions<Current> = {}): this {
+    if (this.currentRoute === undefined || this.pendingOptions !== undefined) {
+      // Route scope: stage the resolved config onto pendingOptions so
+      // the next `.from()` writes it into the new RouteDefinition.
+      this.pendingOptions = {
+        ...(this.pendingOptions ?? {}),
+        cacheConfig: resolveCacheOptions(options as CacheOptions),
+      };
+      logger.trace("Staging route-scope cache config for next route");
+      return this;
+    }
+    return super.cache(options);
+  }
+
+  /**
    * Declare an authorization requirement on the next route. **Route-only**:
    * stages the authorizer onto the next-route options and runs at route
    * entry, before any pipeline step. Same staging convention as `.id`,
@@ -670,6 +713,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
       options: undefined,
     };
     const errorHandler = this.pendingOptions?.errorHandler;
+    const cacheConfig = this.pendingOptions?.cacheConfig;
     const discovery = this.pendingOptions?.discovery;
     const authorizers = this.pendingOptions?.authorizers ?? [];
 
@@ -691,6 +735,10 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
         options: consumer.options ?? undefined,
       },
       ...(errorHandler ? { errorHandler } : {}),
+      ...(cacheConfig ? { cacheConfig } : {}),
+      ...(authorizerSteps.length > 0
+        ? { authorizerCount: authorizerSteps.length }
+        : {}),
       ...(discovery ? { discovery } : {}),
     };
     setBrand(this.currentRoute, BRAND.RouteDefinition);
@@ -738,6 +786,23 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
   protected override pushStep<T extends Adapter>(step: Step<T>): void {
     const route = this.requireSource();
     const wrapped = this.applyPendingWrappers(step);
+    // Route-scope `.cache()` skips the entire pipeline on a hit and
+    // caches a single terminal body on a miss. `split` produces N
+    // terminal exchanges (with no aggregate to fold them back), which
+    // breaks the "one cached value per source message" contract.
+    // Reject loud rather than silently mis-cache. Step-scope `.cache()`
+    // is still usable around the expensive step inside such a route.
+    if (
+      route.cacheConfig !== undefined &&
+      wrapped.operation === OperationType.SPLIT
+    ) {
+      throw rcError("RC5003", undefined, {
+        message:
+          `Route-scope .cache() does not support routes containing .split(). ` +
+          `The pipeline produces multiple terminal exchanges, so there is no single body to cache. ` +
+          `Use step-scope .cache() to wrap the expensive operation, or remove the route-scope .cache().`,
+      });
+    }
     logger.trace(
       { operation: wrapped.operation, route: route.id },
       "Adding step to route",

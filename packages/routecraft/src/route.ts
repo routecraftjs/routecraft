@@ -260,6 +260,208 @@ function buildParseStep(
 }
 
 /**
+ * Synthetic adapter used as the carrier for the route-scope cache
+ * synthetic steps. Has no behaviour; the steps' `execute` does the work.
+ */
+const CACHE_STEP_ADAPTER: Adapter = { adapterId: "routecraft.cache" };
+
+/**
+ * Mutable holder shared between the cache-check and cache-store steps
+ * within a single `runSteps` invocation. The check derives the key and
+ * stores it here; the store reads it back after the user steps run.
+ * Lives only for one `runSteps` call so concurrent exchanges don't
+ * cross-contaminate.
+ */
+type CacheKeyHolder = { key?: string };
+
+/**
+ * Build the route-scope cache HIT-CHECK synthetic step. Inserted into
+ * `initialSteps` AFTER `buildParseStep` (so parse + `applyValidation`
+ * have already run) and BEFORE the user steps. Derives the cache key
+ * from the parsed/validated exchange, looks it up in the provider, and
+ * on a hit pushes a rewrapped exchange with `steps: []` to short-circuit
+ * the rest of the pipeline (including the matching cache-store step).
+ * On a miss pushes the exchange with the unchanged `remainingSteps` so
+ * the user pipeline runs.
+ *
+ * Manages its own observability: emits `cache:hit` / `cache:miss` /
+ * `cache:failed` plus `exchange:restored` on a hit. `skipStepEvents:
+ * true` keeps `runSteps` from emitting generic `step:started` /
+ * `step:completed` for this internal step.
+ */
+function buildCacheCheckStep(
+  cacheConfig: import("./operations/cache-wrapper.ts").ResolvedCacheOptions,
+  keyHolder: CacheKeyHolder,
+): Step<Adapter> {
+  return {
+    operation: OperationType.PROCESS,
+    label: "cache-check",
+    adapter: CACHE_STEP_ADAPTER,
+    skipStepEvents: true,
+    async execute(exchange, remainingSteps, queue) {
+      const internals = EXCHANGE_INTERNALS.get(exchange);
+      const context = internals?.context;
+      const route = internals?.route;
+      const routeId =
+        route?.definition.id ??
+        (exchange.headers[HeadersKeys.ROUTE_ID] as string);
+      const correlationId = exchange.headers[
+        HeadersKeys.CORRELATION_ID
+      ] as string;
+
+      let key: string;
+      try {
+        key = cacheConfig.key(exchange);
+      } catch (err) {
+        context?.emit(`route:${routeId}:cache:failed` as EventName, {
+          routeId,
+          exchangeId: exchange.id,
+          correlationId,
+          stepLabel: "route",
+          scope: "route",
+          phase: "key",
+          error: err instanceof Error ? err.message : String(err),
+        });
+        throw isRoutecraftError(err)
+          ? err
+          : rcError("RC5029", err, {
+              message: `Route-scope .cache({ key }) for "${routeId}" threw while deriving the cache key`,
+            });
+      }
+      keyHolder.key = key;
+
+      let cached: unknown;
+      try {
+        cached = await cacheConfig.provider.get(key);
+      } catch (err) {
+        context?.emit(`route:${routeId}:cache:failed` as EventName, {
+          routeId,
+          exchangeId: exchange.id,
+          correlationId,
+          stepLabel: "route",
+          scope: "route",
+          phase: "get",
+          key,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        throw isRoutecraftError(err)
+          ? err
+          : rcError("RC5028", err, {
+              message: `Route-scope .cache() provider read failed for "${routeId}"`,
+            });
+      }
+
+      if (cached !== undefined) {
+        // HIT: short-circuit the pipeline by pushing the rewrapped
+        // exchange with no remaining steps. The matching cache-store
+        // step (tail of initialSteps) is therefore skipped too.
+        context?.emit(`route:${routeId}:cache:hit` as EventName, {
+          routeId,
+          exchangeId: exchange.id,
+          correlationId,
+          stepLabel: "route",
+          scope: "route",
+          key,
+        });
+        context?.emit(`route:${routeId}:exchange:restored` as EventName, {
+          routeId,
+          exchangeId: exchange.id,
+          correlationId,
+          source: "cache",
+        });
+        queue.push({
+          exchange: DefaultExchange.rewrap(exchange, { body: cached }),
+          steps: [],
+        });
+        return;
+      }
+
+      // MISS: continue the pipeline.
+      context?.emit(`route:${routeId}:cache:miss` as EventName, {
+        routeId,
+        exchangeId: exchange.id,
+        correlationId,
+        stepLabel: "route",
+        scope: "route",
+        key,
+      });
+      queue.push({ exchange, steps: remainingSteps });
+    },
+  };
+}
+
+/**
+ * Build the route-scope cache STORE synthetic step. Inserted as the
+ * tail of `initialSteps` after the user steps. Reached only on the
+ * miss path (the cache-check step pushes `steps: []` on a hit to skip
+ * everything including this step). Writes the terminal body using the
+ * key captured by the matching check step.
+ *
+ * Provider write failures emit `cache:failed phase:"set"` for
+ * observability but do NOT fail the exchange: the result was already
+ * computed by the user pipeline. This diverges from step-scope, where
+ * a write failure throws RC5028; the divergence is intentional and
+ * documented on the operation reference page.
+ *
+ * `skipStepEvents: true` keeps `runSteps` from emitting generic
+ * lifecycle events for this internal step.
+ */
+function buildCacheStoreStep(
+  cacheConfig: import("./operations/cache-wrapper.ts").ResolvedCacheOptions,
+  keyHolder: CacheKeyHolder,
+): Step<Adapter> {
+  return {
+    operation: OperationType.PROCESS,
+    label: "cache-store",
+    adapter: CACHE_STEP_ADAPTER,
+    skipStepEvents: true,
+    async execute(exchange, remainingSteps, queue) {
+      const internals = EXCHANGE_INTERNALS.get(exchange);
+      const context = internals?.context;
+      const route = internals?.route;
+      const routeId =
+        route?.definition.id ??
+        (exchange.headers[HeadersKeys.ROUTE_ID] as string);
+      const correlationId = exchange.headers[
+        HeadersKeys.CORRELATION_ID
+      ] as string;
+      const key = keyHolder.key;
+
+      // Only cache successful runs whose terminal body is not
+      // `undefined`. `null` is cached (envelope handles it). Dropped
+      // exchanges never reach this step because the queue loop stops
+      // pushing on a drop.
+      if (key !== undefined && exchange.body !== undefined) {
+        try {
+          await cacheConfig.provider.set(key, exchange.body, cacheConfig.ttl);
+          context?.emit(`route:${routeId}:cache:stored` as EventName, {
+            routeId,
+            exchangeId: exchange.id,
+            correlationId,
+            stepLabel: "route",
+            scope: "route",
+            key,
+            ...(cacheConfig.ttl !== undefined ? { ttl: cacheConfig.ttl } : {}),
+          });
+        } catch (err) {
+          context?.emit(`route:${routeId}:cache:failed` as EventName, {
+            routeId,
+            exchangeId: exchange.id,
+            correlationId,
+            stepLabel: "route",
+            scope: "route",
+            phase: "set",
+            key,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+      queue.push({ exchange, steps: remainingSteps });
+    },
+  };
+}
+
+/**
  * Configuration for a route: source, steps, and consumer.
  *
  * Describes how data flows from a source through processing steps to destinations.
@@ -303,6 +505,30 @@ export type RouteDefinition<T = unknown> = {
    * If not defined, the error is logged and emitted via the error event (current behavior).
    */
   readonly errorHandler?: ErrorHandler;
+
+  /**
+   * Optional route-scope `.cache()` configuration. When present, the
+   * route looks up its cache provider before any pipeline step runs;
+   * on a hit, the wrapped step list is skipped entirely and the
+   * cached body is returned to the source. On a miss, the pipeline
+   * runs and the terminal exchange's body is stored for future hits.
+   *
+   * Set by `RouteBuilder.cache()` when called BEFORE `.from()`. See
+   * `.standards/resilience-wrappers.md` for the dual-mode pattern.
+   *
+   * @experimental
+   */
+  readonly cacheConfig?: import("./operations/cache-wrapper.ts").ResolvedCacheOptions;
+
+  /**
+   * Number of leading entries in `steps` that came from `.authorize()`
+   * calls staged before `.from()`. The runtime peels these off and runs
+   * them BEFORE the route-scope cache hit-check so an unauthorized
+   * caller never receives a cached response. Defaults to 0.
+   *
+   * @internal
+   */
+  readonly authorizerCount?: number;
 
   /**
    * Optional route-level discovery bundle: title, description, and input /
@@ -1018,13 +1244,55 @@ export class DefaultRoute implements Route {
       delete internals.applyValidation;
     }
 
-    const userSteps = [...this.definition.steps];
-    const initialSteps: Step<Adapter>[] = sourceParse
-      ? [
-          buildParseStep(sourceParse, sourceFailureMode, sourceValidate),
-          ...userSteps,
-        ]
-      : userSteps;
+    // Route-scope `.cache()`: wired in as a pair of synthetic steps so
+    // it composes naturally with parse / input validation / authorize.
+    // The check step is inserted AFTER `buildParseStep` (so parse +
+    // `applyValidation` have already produced a validated body) and
+    // BEFORE the user steps. On a hit it pushes the rewrapped exchange
+    // with `steps: []` to short-circuit everything including the
+    // matching store step. The store step runs only on the miss path,
+    // after the user pipeline, and writes the terminal body using the
+    // key captured by the check step.
+    //
+    // Stampede protection is NOT applied at route scope in this
+    // release; concurrent callers with the same key all run the
+    // pipeline. Tracked as a follow-up. See `.standards/resilience-wrappers.md`.
+    //
+    // Auth note: route-scope `.authorize()` steps live at the head of
+    // `userSteps`, so the cache check (which precedes user steps but
+    // follows parse + input validation) runs BEFORE authorize. If your
+    // route combines `.cache()` with `.authorize()`, the cache key MUST
+    // partition by every fact authorize depends on (subject / roles /
+    // scopes); otherwise a cached response written by an authorized
+    // caller can be served to a caller who would have failed
+    // authorization. The default body-hash key does NOT include the
+    // principal; supply a custom `key` that does, e.g.
+    // `key: e => sha(JSON.stringify({ b: e.body, sub: e.principal?.subject }))`.
+    const cacheConfig = this.definition.cacheConfig;
+    const cacheKeyHolder: CacheKeyHolder = {};
+
+    // `.authorize()` steps were pushed to the front of `steps` by the
+    // builder and tracked via `authorizerCount`. Peel them off here so
+    // they run BEFORE the route-scope cache check: an unauthorized
+    // caller must not receive a cached response.
+    const allSteps = [...this.definition.steps];
+    const authorizerCount = this.definition.authorizerCount ?? 0;
+    const authorizeSteps = allSteps.slice(0, authorizerCount);
+    const businessSteps = allSteps.slice(authorizerCount);
+
+    const initialSteps: Step<Adapter>[] = [
+      ...(sourceParse
+        ? [buildParseStep(sourceParse, sourceFailureMode, sourceValidate)]
+        : []),
+      ...authorizeSteps,
+      ...(cacheConfig
+        ? [buildCacheCheckStep(cacheConfig, cacheKeyHolder)]
+        : []),
+      ...businessSteps,
+      ...(cacheConfig
+        ? [buildCacheStoreStep(cacheConfig, cacheKeyHolder)]
+        : []),
+    ];
 
     const queue: { exchange: Exchange; steps: Step<Adapter>[] }[] = [
       { exchange: exchange, steps: initialSteps },
@@ -1374,6 +1642,10 @@ export class DefaultRoute implements Route {
     if (isDropped(exchange)) {
       dropped = true;
     }
+
+    // Route-scope cache writes (`cacheConfig`) are handled inline by
+    // the `cache-store` synthetic step appended to `initialSteps` at
+    // the top of this function. Nothing to do here.
 
     return {
       exchange: lastProcessedExchange,
