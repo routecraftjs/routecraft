@@ -221,8 +221,6 @@ In source mode the envelope is attached to `exchange.headers` under the `routecr
 | `routecraft.mail.sender` | `MailSender?` | Computed effective sender and forward chain (see below). Absent when `verify: 'off'`. |
 | `routecraft.mail.rawHeaders` | `Record<string, string \| string[]>?` | Raw email headers (when `includeHeaders` is set) |
 
-> Migrating from the old envelope-on-body shape? See the [0.5.x to 0.6.0 migration guide](/docs/migrating/0.5-to-0.6#mail-envelope-headers).
-
 **`MailMessage` (fetch destination result):**
 
 In fetch mode (`.enrich(mail(...))`) the result body is a `MailMessage[]`. Because a batch fetch returns many messages, each one keeps its whole envelope together in a single object rather than splitting across single-valued headers.

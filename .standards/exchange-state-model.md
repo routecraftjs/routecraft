@@ -181,8 +181,6 @@ Attachments stay on `body` because they are message content (the same call the "
 
 The fetch destination (`.enrich(mail(...))`) is the one place the whole `MailMessage` (envelope + payload in one object) still appears: a batch fetch returns many messages and single-valued headers cannot hold N envelopes, so each element keeps its envelope inline. That is a result collection, not a per-message exchange, so the convention does not apply.
 
-> Mail's source shape aligned with this convention in 0.6.0; the historical envelope-on-`body` shape is documented in the [0.5.x to 0.6.0 migration guide](https://routecraft.dev/docs/migrating/0.5-to-0.6#mail-envelope-headers).
-
 ### Worked example: cookies
 
 Cookies show the rule handling a value that is *both* a wire header and a structured concept, and that direction matters:
