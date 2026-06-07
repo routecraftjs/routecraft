@@ -12,11 +12,16 @@
  *    field from the contact removes it from the output, exactly like writing a
  *    row to a database.
  *
- * Known, deliberate limitations (Apple iCloud cards never hit these): structured
+ * Known, deliberate limitations (uncommon for Apple iCloud cards): structured
  * values with more components than the model names (`N` past 5, `ORG` past 2,
- * `ADR` past 7) keep only the named components on round-trip; `PHOTO` is emitted
- * as base64 (`ENCODING=b`). Output line order and escaping are canonical, not
- * byte-identical to the input.
+ * `ADR` past 7) keep only the named components on round-trip. A custom
+ * `X-ABLabel` on a `URL`/`IMPP`/`X-SOCIALPROFILE` round-trips through `custom`
+ * (the label text is preserved, but not re-attached to the typed item, since
+ * those have no `label` field). `PHOTO` is emitted as base64 (`ENCODING=b`); a
+ * second `PHOTO` or a `VALUE=uri` photo is not modeled. Built-in Apple label
+ * re-wrapping (`_$!<Spouse>!$_`) is driven by a known-label table, so a wrapped
+ * label outside that table round-trips unwrapped. Output line order, parameter-
+ * name casing, and escaping are canonical, not byte-identical to the input.
  *
  * @experimental
  */
@@ -80,14 +85,18 @@ const HANDLED_NAMES = new Set([
   "x-ablabel",
 ]);
 
-/** Names of grouped "primary" properties whose `X-ABLabel` sibling is consumed. */
+/**
+ * Names of grouped "primary" properties whose `X-ABLabel` sibling is represented
+ * as the item's `label` and so is consumed (excluded from `custom`). Only
+ * properties whose typed model carries a `label` field belong here. `url`,
+ * `impp`, and `x-socialprofile` deliberately do NOT: they have no `label` slot,
+ * so their `X-ABLabel` must fall through to `custom` and round-trip verbatim
+ * rather than being silently dropped.
+ */
 const GROUPED_PRIMARIES = new Set([
   "tel",
   "email",
   "adr",
-  "url",
-  "impp",
-  "x-socialprofile",
   "x-abdate",
   "x-abrelatednames",
 ]);
@@ -387,6 +396,13 @@ function applyType(params: VCardParam[], type: string): void {
   }
 }
 
+/** Replace the first occurrence of `name` (case-insensitive match), or append. */
+function setParam(params: VCardParam[], name: string, value: string): void {
+  const existing = params.find((p) => p.name === name);
+  if (existing) existing.value = value;
+  else params.push({ name, value });
+}
+
 /**
  * Serialize a contact into a fresh vCard string, guaranteeing the mandatory
  * `FN`. This replaces the card; it does not merge with any existing one.
@@ -498,24 +514,23 @@ export function serializeContact(
 
   for (const im of contact.instantMessages ?? []) {
     const params = im.params ? im.params.map((p) => ({ ...p })) : [];
-    if (
-      im.service !== undefined &&
-      !params.some((p) => p.name === "x-service-type")
-    ) {
-      params.push({ name: "x-service-type", value: im.service });
-    }
+    // The ergonomic `service` field is authoritative over a stored
+    // X-SERVICE-TYPE, so editing it takes effect (a no-op round-trip is
+    // unchanged because the stored value already matches).
+    if (im.service !== undefined)
+      setParam(params, "x-service-type", im.service);
     const scheme = im.scheme ?? (im.service?.toLowerCase() || "x-apple");
     emit("IMPP", `${scheme}:${escapeText(im.handle)}`, params);
   }
 
   for (const profile of contact.socialProfiles ?? []) {
-    const params = profile.params ? profile.params.map((p) => ({ ...p })) : [];
-    if (
-      profile.service !== undefined &&
-      !params.some((p) => p.name === "type")
-    ) {
-      params.push({ name: "type", value: profile.service });
-    }
+    // Apple stores the social service in a `type` param; reuse the same
+    // type-over-params reconciliation as phones/emails so it survives a PREF
+    // flag and an edited `service` both apply correctly.
+    const params = itemParams({
+      ...(profile.service !== undefined ? { type: profile.service } : {}),
+      ...(profile.params ? { params: profile.params } : {}),
+    });
     emit("X-SOCIALPROFILE", escapeText(profile.url), params);
   }
 

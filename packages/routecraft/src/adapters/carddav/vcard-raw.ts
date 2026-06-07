@@ -139,7 +139,19 @@ function toRecord(lines: string[]): RawRecord {
     const eq = segment.indexOf("=");
     const name = (eq >= 0 ? segment.slice(0, eq) : segment).toLowerCase();
     const paramValue = dequoteParam(eq >= 0 ? segment.slice(eq + 1) : "");
-    params.push({ name, value: paramValue });
+    // A comma-combined TYPE list (`TYPE=HOME,VOICE`, the RFC 6350 form some
+    // non-Apple clients emit) is normalized to one entry per value. This keeps
+    // each value comma-free so it round-trips as the unquoted, separate-param
+    // form Apple uses (`TYPE=HOME;TYPE=VOICE`) instead of being re-quoted into a
+    // single literal value, and lets the primary TYPE be edited in place.
+    if (name === "type" && paramValue.includes(",")) {
+      for (const part of paramValue.split(",")) {
+        const trimmed = part.trim();
+        if (trimmed) params.push({ name, value: trimmed });
+      }
+    } else {
+      params.push({ name, value: paramValue });
+    }
   }
 
   return {

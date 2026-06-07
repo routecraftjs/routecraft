@@ -828,4 +828,117 @@ describe("CardDAV destination (delete)", () => {
 
     expect(t.errors.some((e) => e.rc === "RC5014")).toBe(true);
   });
+
+  /**
+   * @case Delete via a custom target extractor still sends If-Match
+   * @preconditions A card exists; a target extractor supplies its url; body carries the etag
+   * @expectedResult deleteVCard receives the read-time etag (concurrency not disabled)
+   */
+  test("delete via target extractor still sends the etag", async () => {
+    const driver = fakeDriver([
+      { url: `${BOOK_URL}abc-123.vcf`, etag: '"1"', data: ICLOUD_VCARD },
+    ]);
+    CardDAVClientManager.createDriverClient = async () => driver;
+
+    t = await testContext()
+      .with(ACCOUNT_CONFIG)
+      .routes(
+        craft()
+          .from(simple<Contact>({ etag: '"1"' }))
+          .to(
+            carddav({
+              action: "delete",
+              target: () => ({ url: `${BOOK_URL}abc-123.vcf` }),
+            }),
+          ),
+      )
+      .build();
+    await t.test();
+
+    expect(t.errors).toHaveLength(0);
+    expect(driver.deleted[0]?.vCard.etag).toBe('"1"');
+  });
+});
+
+describe("CardDAV codec regression fixes", () => {
+  /**
+   * @case A custom X-ABLabel on a URL/IMPP/social profile is not deleted on round-trip
+   * @preconditions A grouped item1.URL paired with item1.X-ABLabel
+   * @expectedResult The label survives in the serialized output (as a custom entry)
+   */
+  test("preserves labels on url/impp/social via custom", () => {
+    const vcard = [
+      "BEGIN:VCARD",
+      "VERSION:3.0",
+      "FN:Labeled",
+      "item1.URL:https://blog.example.com",
+      "item1.X-ABLabel:_$!<HomePage>!$_",
+      "END:VCARD",
+    ].join("\r\n");
+    const out = serializeContact(parseVCard(vcard));
+    expect(out).toContain("https://blog.example.com");
+    expect(out).toContain("X-ABLabel:_$!<HomePage>!$_");
+  });
+
+  /**
+   * @case A comma-combined TYPE list round-trips without loss or quoting
+   * @preconditions A phone with `TYPE=HOME,VOICE` (the RFC comma form)
+   * @expectedResult Both values survive, emitted as separate unquoted params
+   */
+  test("normalizes comma-combined TYPE without dropping or quoting", () => {
+    const vcard = [
+      "BEGIN:VCARD",
+      "VERSION:3.0",
+      "FN:Comma",
+      "TEL;TYPE=HOME,VOICE:+15551112222",
+      "END:VCARD",
+    ].join("\r\n");
+    const out = serializeContact(parseVCard(vcard));
+    expect(out).not.toContain('"'); // no quoted param value
+    const phone = parseVCard(out).phones?.[0];
+    expect(phone?.params).toEqual([
+      { name: "type", value: "HOME" },
+      { name: "type", value: "VOICE" },
+    ]);
+  });
+
+  /**
+   * @case Editing an item's `type` overrides the primary TYPE but keeps PREF
+   * @preconditions A phone read with `TYPE=HOME;TYPE=pref`, type set to "work"
+   * @expectedResult The serialized phone is `TYPE=work;TYPE=pref`
+   */
+  test("editing type keeps PREF and other params", () => {
+    const contact = parseVCard(
+      [
+        "BEGIN:VCARD",
+        "VERSION:3.0",
+        "FN:Edit",
+        "TEL;TYPE=HOME;TYPE=pref:+1",
+        "END:VCARD",
+      ].join("\r\n"),
+    );
+    contact.phones![0]!.type = "work";
+    // Param names are emitted lowercased (RFC 6350 case-insensitive; matches
+    // Apple's own `type=` form).
+    expect(serializeContact(contact)).toContain("TEL;type=work;type=pref:+1");
+  });
+
+  /**
+   * @case Editing an IMPP service retags the handle instead of being ignored
+   * @preconditions An IMPP read with X-SERVICE-TYPE=Skype, service set to "WhatsApp"
+   * @expectedResult The serialized IMPP carries X-SERVICE-TYPE=WhatsApp
+   */
+  test("editing IMPP service takes effect", () => {
+    const contact = parseVCard(
+      [
+        "BEGIN:VCARD",
+        "VERSION:3.0",
+        "FN:IM",
+        "IMPP;X-SERVICE-TYPE=Skype:skype:bob",
+        "END:VCARD",
+      ].join("\r\n"),
+    );
+    contact.instantMessages![0]!.service = "WhatsApp";
+    expect(serializeContact(contact)).toContain("x-service-type=WhatsApp");
+  });
 });

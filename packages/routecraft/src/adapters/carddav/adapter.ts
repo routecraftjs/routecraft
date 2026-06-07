@@ -475,26 +475,34 @@ export class CardDAVAdapter
 
   /** Resolve the target contact from a custom extractor, the body, or headers. */
   private resolveTarget(exchange: Exchange<unknown>): ContactTarget {
-    if (this.options.target) {
-      const extracted = this.options.target(exchange);
-      const target: ContactTarget = {};
-      if (extracted.url) target.url = extracted.url;
-      if (extracted.uid) target.uid = extracted.uid;
-      return target;
-    }
     const body = exchange.body;
     const fromBody =
       body && typeof body === "object" ? (body as Contact) : undefined;
-    const headerUrl = exchange.headers[HEADER_CARDDAV_URL];
-    const headerUid = exchange.headers[HEADER_CARDDAV_UID];
     const headerEtag = exchange.headers[HEADER_CARDDAV_ETAG];
-    const url =
-      fromBody?.url ?? (typeof headerUrl === "string" ? headerUrl : undefined);
-    const uid =
-      fromBody?.uid ?? (typeof headerUid === "string" ? headerUid : undefined);
+    // The ETag (for If-Match) always comes from the read-time body/headers, even
+    // when a custom `target` extractor supplies the url/uid, so optimistic
+    // concurrency is not silently disabled on the extractor path.
     const etag =
       fromBody?.etag ??
       (typeof headerEtag === "string" ? headerEtag : undefined);
+
+    let url: string | undefined;
+    let uid: string | undefined;
+    if (this.options.target) {
+      const extracted = this.options.target(exchange);
+      url = extracted.url;
+      uid = extracted.uid;
+    } else {
+      const headerUrl = exchange.headers[HEADER_CARDDAV_URL];
+      const headerUid = exchange.headers[HEADER_CARDDAV_UID];
+      url =
+        fromBody?.url ??
+        (typeof headerUrl === "string" ? headerUrl : undefined);
+      uid =
+        fromBody?.uid ??
+        (typeof headerUid === "string" ? headerUid : undefined);
+    }
+
     const target: ContactTarget = {};
     if (url) target.url = url;
     if (uid) target.uid = uid;
