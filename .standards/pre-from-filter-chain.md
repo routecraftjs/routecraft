@@ -200,33 +200,48 @@ write.
 
 ## 6. Implementation status
 
-Today (as of #112 / 0.6.0):
+Today (as of #112 / #395 / 0.6.0):
 
 - Filters 1-4 and 9-10 are implemented; the chain runs in the
   order documented above.
-- The chain is implicit in `runSteps` (the cache check / store
-  are inserted into `initialSteps` at known positions; authorize
-  steps are peeled from the head of `userSteps` via
-  `RouteDefinition.authorizerCount`).
+- The chain is **first-class data** on `RouteDefinition`:
+  - `preParseFilters: Step<Adapter>[]` -- authorize steps in
+    declaration order (chain position #2).
+  - `postParseFilters: Step<Adapter>[]` -- route-scope cache-check
+    filter (chain position #9). Future resilience wrappers
+    (`throttle`, `circuitBreaker`, `retry`, `timeout`) slot in
+    here between input and cacheCheck once they land.
+  - `postFromFilters: Step<Adapter>[]` -- route-scope cache-store
+    filter (chain position #10).
+  - `errorHandler?: ErrorHandler` -- the `.error()` route-scope
+    catch (chain position #1; implemented as the queue loop's
+    try/catch boundary rather than a step).
+- Parse (chain position #3) is **dynamic per exchange** (set on
+  exchange internals by the source adapter), so `runSteps`
+  interleaves it at runtime between `preParseFilters` and
+  `postParseFilters`.
+- The cache key flows from `cache-check` to `cache-store` via
+  `internals.cacheKey` on the exchange (per-invocation, no shared
+  closure).
+- The builder assembles all three arrays in the chain order
+  regardless of which `.authorize()` / `.cache()` / `.error()`
+  methods were called first on the builder.
 
-Planned (next refactor PR):
+Eager input validation (chain position #4 conceptually) still
+runs in `Route.buildConsumerHandler()` rather than as a chain
+step. This is **a deliberate scoping choice** for the v1
+refactor: moving it into the chain alters when `context:error`
+fires for cross-route validation failures (the consumer route's
+chain fires `context:error` from the runSteps catch instead of
+the eager throw-and-propagate path). Folding it in is tracked
+as a follow-up; until then, parse-attached sources still stash
+the validator on `internals.applyValidation` and the parse step
+runs it.
 
-- Promote the chain to a first-class data model: `RouteDefinition`
-  gains explicit `preFromFilters: Step<Adapter>[]` and
-  `postFromFilters: Step<Adapter>[]`. `authorizerCount` goes
-  away. `cacheConfig` is folded into the relevant filters'
-  closures.
-- `runSteps` collapses to a single chain loop:
-  `[...preFromFilters, ...steps, ...postFromFilters]` wrapped in
-  the `error` catch boundary.
-- Eager input validation (currently in `start()`, outside
-  `runSteps`) moves into the chain as the `input` filter. One code
-  path for parse and non-parse sources.
-
-Filters 5-8 will be added by their respective issues
-(`.throttle()`, `.circuitBreaker()` (#139), `.retry()`,
-`.timeout()`) into the slots reserved above. Each adds ~one
-filter implementation, not ~100 lines of inlined `runSteps`
+Filters 5-8 (`throttle`, `circuitBreaker`, `retry`, `timeout`)
+will be added by their respective issues into the
+`postParseFilters` slot at the documented positions. Each adds
+~one filter implementation, not ~100 lines of inlined `runSteps`
 logic.
 
 ---

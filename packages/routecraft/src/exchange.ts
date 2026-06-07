@@ -366,6 +366,17 @@ type ExchangeInternals = {
    */
   applyValidation?: (exchange: Exchange) => Promise<Exchange>;
   /**
+   * Route-scope cache key captured by the `cache-check` filter and
+   * read back by the `cache-store` filter at the tail of the chain.
+   * Lives on internals so the filters can be constructed once at
+   * builder time (rather than per-`runSteps` closures); each exchange
+   * carries its own key via this slot. Unset when the route has no
+   * `.cache()` configured. See `.standards/pre-from-filter-chain.md`.
+   *
+   * @internal
+   */
+  cacheKey?: string;
+  /**
    * When the engine first encounters an exchange in the step loop it
    * records the start timestamp here, used later to compute duration
    * for `exchange:completed`. Stored on internals (rather than headers)
