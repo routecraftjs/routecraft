@@ -5,7 +5,7 @@ title: json
 [← All adapters](/docs/reference/adapters) {% .lead %}
 
 ```ts
-json(options?: JsonOptions): JsonAdapter | JsonFileAdapter
+json(options?: JsonOptions): Transformer | JsonFileAdapterType | JsonReadAdapter
 ```
 
 Parse and format JSON data, or read/write JSON files.

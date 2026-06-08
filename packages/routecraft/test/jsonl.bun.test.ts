@@ -760,6 +760,24 @@ describe("JSONL Adapter", () => {
         ),
       ).rejects.toThrow(/file not found/);
     });
+
+    /**
+     * @case A dynamic (function) path read adapter rejects clearly when used as
+     *   a source, rather than throwing an undefined-property TypeError
+     * @preconditions jsonl({ path: fn, mode: 'read' }) used via .subscribe
+     * @expectedResult subscribe rejects with the "static string path" message
+     */
+    test("dynamic-path read adapter throws a clear error when used as a source", async () => {
+      const adapter = jsonl({ path: () => "x.jsonl", mode: "read" });
+
+      await expect(
+        adapter.subscribe(
+          {} as any,
+          async () => ({}) as any,
+          new AbortController(),
+        ),
+      ).rejects.toThrow(/static string path/);
+    });
   });
 
   describe("transformer mode (decode)", () => {

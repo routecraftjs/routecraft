@@ -1,4 +1,4 @@
-import type { Source } from "../../operations/from.ts";
+import type { Source, CallableSource } from "../../operations/from.ts";
 import type { Destination } from "../../operations/to.ts";
 import type { Transformer } from "../../operations/transform.ts";
 import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
@@ -136,9 +136,19 @@ export function jsonl<T = unknown, R = unknown>(
   if (typeof (options as JsonlDestinationOptions).path === "function") {
     const destOptions = options as JsonlDestinationOptions;
     const destination = new JsonlDestinationAdapter(destOptions);
+    // A function path cannot be a source. Read mode returns JsonlReadAdapter
+    // (which includes Source); attach a subscribe that throws the same clear
+    // error lazily, mirroring csv/json/html, so `.from()` misuse fails with a
+    // message instead of an undefined-property TypeError.
+    const subscribe: CallableSource<T> = async () => {
+      throw new Error(
+        "jsonl adapter: source mode requires a static string path (dynamic paths are only supported for destinations)",
+      );
+    };
     const tagged = tagAdapter(
       {
         adapterId: "routecraft.adapter.jsonl",
+        subscribe,
         send: destination.send,
       },
       jsonl,

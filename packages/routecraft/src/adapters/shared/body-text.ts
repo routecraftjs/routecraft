@@ -11,6 +11,7 @@
  * @param from - Optional explicit extractor; when provided it is used verbatim.
  * @param adapter - Adapter name used to prefix the thrown error message.
  * @returns The extracted text payload.
+ * @internal Not exported from the package public API.
  */
 export function getBodyText<T>(
   body: T,
