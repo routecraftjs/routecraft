@@ -138,17 +138,28 @@ function toRecord(lines: string[]): RawRecord {
     if (segment === "") continue;
     const eq = segment.indexOf("=");
     const name = (eq >= 0 ? segment.slice(0, eq) : segment).toLowerCase();
-    const paramValue = dequoteParam(eq >= 0 ? segment.slice(eq + 1) : "");
-    // A comma-combined TYPE list (`TYPE=HOME,VOICE`, the RFC 6350 form some
-    // non-Apple clients emit) is normalized to one entry per value. This keeps
-    // each value comma-free so it round-trips as the unquoted, separate-param
-    // form Apple uses (`TYPE=HOME;TYPE=VOICE`) instead of being re-quoted into a
-    // single literal value, and lets the primary TYPE be edited in place.
-    if (name === "type" && paramValue.includes(",")) {
-      for (const part of paramValue.split(",")) {
-        const trimmed = part.trim();
-        if (trimmed) params.push({ name, value: trimmed });
-      }
+    const rawParamValue = eq >= 0 ? segment.slice(eq + 1) : "";
+    const wasQuoted =
+      rawParamValue.length >= 2 &&
+      rawParamValue.startsWith('"') &&
+      rawParamValue.endsWith('"');
+    const paramValue = dequoteParam(rawParamValue);
+    // An UNQUOTED comma-combined TYPE list (`TYPE=HOME,VOICE`, the RFC 6350 form
+    // some non-Apple clients emit) is normalized to one entry per value. This
+    // keeps each value comma-free so it round-trips as the unquoted,
+    // separate-param form Apple uses (`TYPE=HOME;TYPE=VOICE`) instead of being
+    // re-quoted into one literal value, and lets the primary TYPE be edited in
+    // place. A QUOTED value (`TYPE="a,b"`) is a single literal whose comma is
+    // not a separator, so it is left intact.
+    const parts =
+      name === "type" && !wasQuoted && paramValue.includes(",")
+        ? paramValue
+            .split(",")
+            .map((p) => p.trim())
+            .filter((p) => p.length > 0)
+        : [];
+    if (parts.length > 0) {
+      for (const value of parts) params.push({ name, value });
     } else {
       params.push({ name, value: paramValue });
     }

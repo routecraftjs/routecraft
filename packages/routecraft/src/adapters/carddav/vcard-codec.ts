@@ -386,7 +386,7 @@ function itemParams(item: {
  */
 function applyType(params: VCardParam[], type: string): void {
   const primary = params.find(
-    (p) => p.name === "type" && p.value.toLowerCase() !== "pref",
+    (p) => p.name.toLowerCase() === "type" && p.value.toLowerCase() !== "pref",
   );
   if (primary) {
     if (primary.value.toLowerCase() !== type.toLowerCase())
@@ -396,9 +396,13 @@ function applyType(params: VCardParam[], type: string): void {
   }
 }
 
-/** Replace the first occurrence of `name` (case-insensitive match), or append. */
+/**
+ * Replace the first occurrence of `name` (case-insensitive match), or append.
+ * `name` is given lowercased; the case-insensitive compare matters for a
+ * programmatically-built Contact whose param names are not yet normalized.
+ */
 function setParam(params: VCardParam[], name: string, value: string): void {
-  const existing = params.find((p) => p.name === name);
+  const existing = params.find((p) => p.name.toLowerCase() === name);
   if (existing) existing.value = value;
   else params.push({ name, value });
 }

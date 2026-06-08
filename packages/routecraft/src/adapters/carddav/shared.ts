@@ -204,7 +204,7 @@ export function assertResponseOk(response: Response, operation: string): void {
     });
   }
   if (status === 412) {
-    throw rcError("RC5001", undefined, {
+    throw rcError("RC5030", undefined, {
       message: `CardDAV ${operation} failed: ETag precondition failed (412). The contact changed on the server; re-read before updating.`,
     });
   }

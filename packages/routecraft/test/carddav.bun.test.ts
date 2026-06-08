@@ -609,7 +609,7 @@ describe("CardDAV destination (write)", () => {
   /**
    * @case A stale etag is rejected by the server precondition (lost-update guard)
    * @preconditions The server card is at etag "2"; the body carries the stale "1"
-   * @expectedResult The 412 surfaces as RC5001 rather than silently overwriting
+   * @expectedResult The 412 surfaces as the non-retryable RC5028 conflict code
    */
   test("update with a stale etag surfaces a conflict", async () => {
     const driver = fakeDriver([
@@ -633,7 +633,9 @@ describe("CardDAV destination (write)", () => {
       .build();
     await t.test();
 
-    expect(t.errors.some((e) => e.rc === "RC5001")).toBe(true);
+    const conflict = t.errors.find((e) => e.rc === "RC5028");
+    expect(conflict).toBeDefined();
+    expect(conflict?.retryable).toBe(false);
   });
 
   /**
@@ -921,6 +923,46 @@ describe("CardDAV codec regression fixes", () => {
     // Param names are emitted lowercased (RFC 6350 case-insensitive; matches
     // Apple's own `type=` form).
     expect(serializeContact(contact)).toContain("TEL;type=work;type=pref:+1");
+  });
+
+  /**
+   * @case A quoted comma in a TYPE value is a literal, not a value separator
+   * @preconditions A phone with `TYPE="a,b"` (quoted, so the comma is literal)
+   * @expectedResult The single value `a,b` survives as one param, not split into two
+   */
+  test("does not split a quoted comma TYPE value", () => {
+    const vcard = [
+      "BEGIN:VCARD",
+      "VERSION:3.0",
+      "FN:Quoted",
+      'TEL;TYPE="a,b":+1',
+      "END:VCARD",
+    ].join("\r\n");
+    const phone = parseVCard(vcard).phones?.[0];
+    expect(phone?.params).toEqual([{ name: "type", value: "a,b" }]);
+  });
+
+  /**
+   * @case Editing an IMPP service with a mixed-case stored param replaces, not duplicates
+   * @preconditions A hand-built IMPP whose param name is `X-SERVICE-TYPE` (uppercase)
+   * @expectedResult The serialized IMPP has a single x-service-type with the new value
+   */
+  test("setParam matches a param name case-insensitively", () => {
+    const out = serializeContact({
+      fullName: "IM",
+      instantMessages: [
+        {
+          handle: "bob",
+          scheme: "skype",
+          service: "WhatsApp",
+          params: [{ name: "X-SERVICE-TYPE", value: "Skype" }],
+        },
+      ],
+    });
+    const impp = out.split("\r\n").find((l) => l.startsWith("IMPP"));
+    expect(impp?.match(/x-service-type=/gi)?.length).toBe(1);
+    expect(impp).toContain("WhatsApp");
+    expect(impp).not.toContain("Skype");
   });
 
   /**
