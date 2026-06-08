@@ -2,6 +2,7 @@ import type { Source } from "../../operations/from.ts";
 import type { Destination } from "../../operations/to.ts";
 import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
 import { CardDAVAdapter } from "./adapter.ts";
+import { VCard } from "./vcard.ts";
 import type {
   CardDAVDeleteOptions,
   CardDAVDeleteResult,
@@ -9,7 +10,6 @@ import type {
   CardDAVReadOptions,
   CardDAVWriteOptions,
   CardDAVWriteResult,
-  Contact,
 } from "./types.ts";
 
 /**
@@ -18,29 +18,33 @@ import type {
  * `carddav` config (named accounts). The `action` flag selects the role, the
  * same way the mail adapter does.
  *
- * **Read (`.from()` / `.enrich()`):** call with no `action`. `.from(carddav())`
- * emits one {@link Contact} per address-book entry; `.enrich(carddav())` returns
- * all contacts as a `Contact[]`.
+ * The body is a {@link VCard} document (an ordered list of properties), not a
+ * typed contact: you read and write properties directly and bring your own
+ * typed shape in a `.transform()` if you want one, exactly like working with
+ * parsed JSON from an HTTP endpoint. Reading is lossless and a write replaces
+ * the card with the document you hand back.
  *
- * **Write (`.to()`):** `action: 'save'` upserts (writes to the contact's `url`,
- * else creates), `'create'` always inserts, `'update'` writes to the contact's
- * `url` (else `RC5014`). A write serializes the whole {@link Contact} and
- * replaces the card. Reading is lossless, so a read-modify-write keeps fields
- * you did not touch; dropping a field removes it.
+ * **Read (`.from()` / `.enrich()`):** call with no `action`. `.from(carddav())`
+ * emits one {@link VCard} per address-book entry; `.enrich(carddav())` returns
+ * all cards as a `VCard[]`.
+ *
+ * **Write (`.to()`):** `action: 'save'` upserts (writes to the card's `url`,
+ * else creates), `'create'` always inserts, `'update'` writes to the card's
+ * `url` (else `RC5014`).
  *
  * **Delete (`.to()`):** `action: 'delete'` removes the contact resolved from the
- * body (`uid`/`url`), the read headers, or a custom `target` extractor.
+ * body (`url`/`uid`), the read headers, or a custom `target` extractor.
  *
  * @example
  * ```typescript
  * // Read all contacts (source).
- * craft().from(carddav()).to(processContact());
+ * craft().from(carddav()).to(processCard());
  *
- * // Fetch all contacts on a schedule (enrich).
- * craft().from(cron("0 2 * * *")).enrich(carddav()).to(writeCsv("out.csv"));
- *
- * // Upsert a contact (e.g. set a birthday and photo).
- * craft().from(direct()).to(carddav({ action: "save" }));
+ * // Read, edit one property, write back (everything else is preserved).
+ * craft()
+ *   .from(carddav())
+ *   .transform((card) => card.set("NOTE", "synced from CRM"))
+ *   .to(carddav({ action: "update" }));
  *
  * // Delete stale contacts.
  * craft().from(carddav()).filter(isStale).to(carddav({ action: "delete" }));
@@ -50,18 +54,18 @@ import type {
  */
 export function carddav(
   options?: CardDAVReadOptions,
-): Source<Contact> & Destination<unknown, Contact[]>;
+): Source<VCard> & Destination<unknown, VCard[]>;
 export function carddav(
   options: CardDAVWriteOptions,
-): Destination<Contact, CardDAVWriteResult>;
+): Destination<VCard, CardDAVWriteResult>;
 export function carddav(
   options: CardDAVDeleteOptions,
 ): Destination<unknown, CardDAVDeleteResult>;
 export function carddav(
   options?: CardDAVOptions,
 ):
-  | (Source<Contact> & Destination<unknown, Contact[]>)
-  | Destination<Contact, CardDAVWriteResult>
+  | (Source<VCard> & Destination<unknown, VCard[]>)
+  | Destination<VCard, CardDAVWriteResult>
   | Destination<unknown, CardDAVDeleteResult> {
   const adapter = tagAdapter(
     new CardDAVAdapter(options),
@@ -73,10 +77,9 @@ export function carddav(
     return adapter as unknown as Destination<unknown, CardDAVDeleteResult>;
   }
   if (action) {
-    return adapter as unknown as Destination<Contact, CardDAVWriteResult>;
+    return adapter as unknown as Destination<VCard, CardDAVWriteResult>;
   }
-  return adapter as unknown as Source<Contact> &
-    Destination<unknown, Contact[]>;
+  return adapter as unknown as Source<VCard> & Destination<unknown, VCard[]>;
 }
 
 export { CardDAVAdapter } from "./adapter.ts";
@@ -95,11 +98,9 @@ export type {
   DAVAddressBookLike,
   DAVVCardLike,
 } from "./shared.ts";
-export {
-  parseVCard,
-  serializeContact,
-  DEFAULT_VCARD_VERSION,
-} from "./vcard-codec.ts";
+export { VCard, VCardProperty, parseVCard } from "./vcard.ts";
+export type { VCardPropertyOptions } from "./vcard.ts";
+export type { VCardParam } from "./vcard-raw.ts";
 export type {
   CardDAVOptions,
   CardDAVReadOptions,
@@ -111,15 +112,4 @@ export type {
   CardDAVTargetExtractor,
   CardDAVWriteResult,
   CardDAVDeleteResult,
-  Contact,
-  ContactPhone,
-  ContactEmail,
-  ContactAddress,
-  ContactPhoto,
-  ContactDate,
-  ContactField,
-  ContactInstantMessage,
-  ContactSocialProfile,
-  ContactRelatedName,
-  VCardParam,
 } from "./types.ts";

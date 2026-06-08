@@ -5,12 +5,14 @@ title: carddav
 [← All adapters](/docs/reference/adapters) {% .lead %}
 
 ```ts
-carddav(options?: CardDAVReadOptions): Source<Contact> & Destination<unknown, Contact[]>
-carddav(options: CardDAVWriteOptions): Destination<Contact, CardDAVWriteResult>
+carddav(options?: CardDAVReadOptions): Source<VCard> & Destination<unknown, VCard[]>
+carddav(options: CardDAVWriteOptions): Destination<VCard, CardDAVWriteResult>
 carddav(options: CardDAVDeleteOptions): Destination<unknown, CardDAVDeleteResult>
 ```
 
 Read and write contacts over CardDAV. Defaults to Apple iCloud Contacts (`https://contacts.icloud.com`) but works with any CardDAV server (Fastmail, Nextcloud, Google). The role is chosen by an `action` flag, the same way the mail adapter selects its mode: no `action` reads, `action` writes or deletes.
+
+The body is a [`VCard`](#the-vcard-document) document, not a typed contact object. You read and write vCard properties directly and bring your own typed shape in a `.transform()` if you want one, exactly like working with parsed JSON from an HTTP endpoint. The document is the lossless source of truth, so a read-modify-write keeps everything you did not change.
 
 Requires the optional peer `tsdav` (DAV client): `bun add tsdav`. A missing peer raises `RC5017` with an install hint.
 
@@ -39,12 +41,13 @@ export default defineConfig({
 })
 ```
 
-**Read (`.from()`):** no `action`. Emits one `Contact` per address-book entry. This is a one-shot fetch-all; pair it with a scheduler for periodic reads.
+**Read (`.from()`):** no `action`. Emits one `VCard` per address-book entry. This is a one-shot fetch-all; pair it with a scheduler for periodic reads.
 
 ```ts
 craft()
   .id('contacts-export')
   .from(carddav())
+  .transform((card) => ({ name: card.text('FN'), email: card.text('EMAIL') }))
   .to(log())
 
 craft().from(carddav({ account: 'work', addressBook: 'Colleagues', limit: 500 })).to(...)
@@ -59,14 +62,15 @@ craft()
   .to(writeCsv('contacts.csv'))
 ```
 
-**Write (`.to()`):** a write serializes the whole `Contact` and replaces the card; it does not merge. Because reading is lossless (see below), a read-modify-write keeps every field you did not touch, and dropping a field from the contact removes it, exactly like an `UPDATE` of a database row. `action: 'save'` upserts: it writes to the contact's `url` when present, otherwise creates. `'create'` always inserts (generating a `uid` if absent). `'update'` writes to the contact's `url` and raises `RC5014` if none is resolvable, so read the contact first (it then carries its `url`/`etag`). Update and delete send the read-time `etag` as an `If-Match` precondition, so a concurrent change on the server surfaces as a conflict (`RC5001`) instead of silently overwriting.
+**Write (`.to()`):** a write serializes the whole `VCard` and replaces the card; it does not merge. Because reading is lossless, a read-modify-write keeps every property you did not touch, and removing a property removes it from the card, exactly like an `UPDATE` of a database row. `action: 'save'` upserts: it writes to the card's `url` when present, otherwise creates. `'create'` always inserts (injecting a `UID` if absent). `'update'` writes to the card's `url` and raises `RC5014` if none is resolvable, so read the card first (it then carries its `url`/`etag`). Update and delete send the read-time `etag` as an `If-Match` precondition, so a concurrent change on the server surfaces as a non-retryable conflict (`RC5028`) instead of silently overwriting.
 
 ```ts
-// Set a birthday on an existing contact without touching other fields.
+// Read a card, edit one property, write it back. Everything else is preserved.
 craft()
   .id('add-birthday')
-  .from(direct())
-  .to(carddav({ action: 'save' }))
+  .from(carddav())
+  .transform((card) => card.set('BDAY', '1990-05-21'))
+  .to(carddav({ action: 'update' }))
 ```
 
 **Delete (`.to()`):** `action: 'delete'` removes the contact resolved from the body (`uid`/`url`), the read headers (`routecraft.carddav.*`), or a custom `target` extractor. Returns `CardDAVDeleteResult`. No match raises `RC5014`.
@@ -93,21 +97,55 @@ craft()
 | `description` | `string?` | Human-readable description for route discovery |
 | `keywords` | `string[]?` | Keywords for route discovery |
 
-**`Contact` (mapped fields):** `uid`, `url`, `etag`, `fullName`, `firstName`, `lastName`, `middleName`, `prefix`, `suffix`, `nickname`, `organization`, `department` (ORG 2nd component), `title`, `categories[]`, `phones[]`, `emails[]` (each `{ value, type?, label?, params? }`), `addresses[]` (with `extended` for the apartment/suite component), `urls[]`, `instantMessages[]` (`IMPP`, with optional `scheme`), `socialProfiles[]` (`X-SOCIALPROFILE`), `relatedNames[]` (`X-ABRELATEDNAMES`, `{ label, name }`), `birthday`, `dates[]` (labeled dates / anniversaries, `{ label, date }`), `note`, `photo` (`{ data, mediaType }`, base64), `custom[]` (anything else), and `raw` (the original vCard text). On read, `url`/`etag` round-trip the DAV object so updates target the right resource.
+## The `VCard` document
 
-**Labeled dates:** beyond `birthday`, iCloud stores anniversaries and custom dates as grouped `X-ABDATE` + `X-ABLabel`. These read into and write from `dates: { label, date }[]`.
+The body is a `VCard`: the faithful, lossless representation of a vCard as an ordered list of properties. There is no typed `Contact` projection. Because the document *is* the protocol, a read never silently drops data, and a write persists exactly the document you hand back. Line order, parameter-name casing, and escaping in the output are canonical, not byte-identical to the input, but nothing is lost.
 
 ```ts
-.transform((c) => ({ uid: c.uid, dates: [{ label: 'Anniversary', date: '2010-06-01' }] }))
-.to(carddav({ action: 'save' }))
+import { VCard } from '@routecraft/routecraft'
+
+const card = VCard.parse(rawVCardString)   // also: carddav source emits these
+
+card.text('FN')                 // "Jane Q Doe"  (decoded value of the first FN)
+card.uid                        // "ABC-123"     (= text('UID'))
+card.get('TEL')                 // every TEL property
+card.first('EMAIL')?.param('type')          // first TYPE param value
+card.first('N')?.components()   // ['Doe','Jane','Q','','']  (structured value split)
+
+card.set('NOTE', 'synced from CRM')         // replace all NOTE with one
+card.add('TEL', '+15551234567', { params: [{ name: 'type', value: 'work' }] })
+card.remove('X-CUSTOM-FIELD')   // drop a property entirely
+card.toString()                 // serialize back to wire form
 ```
 
-**Custom fields:** properties outside the mapped set (e.g. arbitrary `X-*` extension properties, plus standard-but-unmodeled ones such as `PRODID` and `REV`) read into `custom: { key, value, type?, group?, params? }[]` and write back from it verbatim. Because a write is a full replace, dropping an entry from `custom` removes that property from the card. (Mapped iCloud properties such as `IMPP`, `NICKNAME`, `CATEGORIES`, and `X-SOCIALPROFILE` surface on their own typed fields and are excluded from `custom[]`.)
+**`VCard`**
 
-**Data integrity (lossless read, full replace).** The contract is simple: a read never silently drops data, and a write persists exactly the contact you give it. Reading captures every wire parameter on each item verbatim (`params`), the extended-address ADR component (`extended`), Apple custom labels (`label`, the `X-ABLabel` sibling), and any unmodeled property (`custom`), so a parse-then-serialize round-trip preserves the card. Writing serializes the whole contact and replaces the card. There is no per-record diff engine and no hidden back-refs: to change a field you edit it on the contact (`phone.type = 'work'`); to remove one you drop it before saving. Line order and escaping in the output are canonical, not byte-identical to the input, but no data is lost.
+| Member | Type | Description |
+|--------|------|-------------|
+| `properties` | `VCardProperty[]` | The ordered property list |
+| `version` | `string` | vCard version (default `"3.0"`) |
+| `url`, `etag` | `string?` | DAV identity, set on read; `etag` is sent as `If-Match` |
+| `uid` | `string?` (get/set) | Shortcut for `UID` |
+| `get(name)` / `first(name)` | `VCardProperty[]` / `VCardProperty?` | Lookup by name (case-insensitive) |
+| `text(name)` / `values(name)` | `string?` / `string[]` | Decoded value(s) of a property |
+| `set` / `add` / `remove` | `this` | Replace-all / append / delete by name |
+| `clone()` | `VCard` | Deep copy |
+| `VCard.parse(raw)` / `parseVCard(raw)` | `VCard` | Parse a single card (throws on a collection) |
+| `toString()` | `string` | Serialize |
 
-`params` is authoritative on write, with the ergonomic `type` applied over the primary `TYPE` when both are set, so editing `type` works without touching `params`. To change other parameters, edit `params` directly.
+**`VCardProperty`** `{ name, group?, params, value, raw, components(sep?), setComponents(parts, sep?), param(name) }` — `value` is the decoded text (escapes resolved); `raw` is the escaped wire form kept internally so round-trips stay lossless; `components()` splits a structured value (`N`, `ADR`, `ORG`) on unescaped separators. `params` is `{ name, value }[]`, preserved verbatim.
+
+**Bring your own type.** If you want a typed shape, derive it in a `.transform()` and validate with your schema of choice, the same way you would with JSON from an HTTP endpoint:
+
+```ts
+.from(carddav())
+.transform((card) => ({
+  uid: card.uid,
+  name: card.text('FN'),
+  emails: card.get('EMAIL').map((p) => p.value),
+}))
+```
 
 **Exchange headers** on read: `routecraft.carddav.url`, `routecraft.carddav.uid`, `routecraft.carddav.etag`, `routecraft.carddav.account`.
 
-**Exported types:** `CardDAVOptions`, `CardDAVReadOptions`, `CardDAVWriteOptions`, `CardDAVDeleteOptions`, `CardDAVContextConfig`, `CardDAVAccountConfig`, `CardDAVAction`, `CardDAVTargetExtractor`, `CardDAVWriteResult`, `CardDAVDeleteResult`, `Contact`, `ContactPhone`, `ContactEmail`, `ContactAddress`, `ContactPhoto`, `ContactDate`, `ContactField`, `ContactInstantMessage`, `ContactSocialProfile`, `ContactRelatedName`, `VCardParam`, `CardDAVClientManager`, `CARDDAV_CLIENT_MANAGER`. Helpers: `parseVCard`, `serializeContact`.
+**Exports:** `VCard`, `VCardProperty`, `parseVCard` (values); `CardDAVOptions`, `CardDAVReadOptions`, `CardDAVWriteOptions`, `CardDAVDeleteOptions`, `CardDAVContextConfig`, `CardDAVAccountConfig`, `CardDAVAction`, `CardDAVTargetExtractor`, `CardDAVWriteResult`, `CardDAVDeleteResult`, `VCardParam`, `VCardPropertyOptions`, `CardDAVClientManager`, `CARDDAV_CLIENT_MANAGER` (types).

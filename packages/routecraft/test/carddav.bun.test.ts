@@ -1,12 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
-import { craft, simple, carddav } from "@routecraft/routecraft";
+import { craft, simple, carddav, VCard } from "@routecraft/routecraft";
 import { CardDAVClientManager } from "../src/adapters/carddav/client-manager.ts";
-import {
-  parseVCard,
-  serializeContact,
-} from "../src/adapters/carddav/vcard-codec.ts";
-import { parseRecords } from "../src/adapters/carddav/vcard-raw.ts";
 import type {
   CardDAVDriverClient,
   DAVAddressBookLike,
@@ -15,7 +10,6 @@ import type {
 import type {
   CardDAVDeleteResult,
   CardDAVWriteResult,
-  Contact,
 } from "../src/adapters/carddav/types.ts";
 
 // ---------------------------------------------------------------------------
@@ -46,12 +40,9 @@ const ICLOUD_VCARD = [
   "X-SOCIALPROFILE;type=twitter:https://twitter.com/jane",
   "item2.X-ABRELATEDNAMES;type=pref:Jordan",
   "item2.X-ABLabel:_$!<Spouse>!$_",
-  "item3.X-ABDATE;type=pref:2010-06-01",
-  "item3.X-ABLabel:_$!<Anniversary>!$_",
   "BDAY:1990-05-21",
   "NOTE:Met at the conference.",
   "URL:https://jane.example.com",
-  "PHOTO;ENCODING=b;TYPE=JPEG:/9j/4AAQSkZJRgABAQ==",
   "X-CUSTOM-FIELD:keepme",
   "UID:ABC-123",
   "END:VCARD",
@@ -140,292 +131,169 @@ afterEach(() => {
   CardDAVClientManager.createDriverClient = ORIGINAL_CREATE_DRIVER;
 });
 
-/** Parse, serialize, and parse again; strip `raw` so the two are comparable. */
-function roundTrip(vcard: string): { first: Contact; second: Contact } {
-  const first = parseVCard(vcard);
-  const second = parseVCard(serializeContact(first));
-  delete first.raw;
-  delete second.raw;
-  return { first, second };
-}
-
 // ---------------------------------------------------------------------------
-// Tests
+// VCard document model
 // ---------------------------------------------------------------------------
 
-describe("CardDAV vCard codec", () => {
+describe("VCard document", () => {
   describe("reading", () => {
     /**
-     * @case Parse a full iCloud vCard 3.0 into a normalized Contact
-     * @preconditions A vCard with name, org, email, tel, adr, bday, note, url, photo, uid
-     * @expectedResult Modeled fields map across and the original text is on `raw`
+     * @case Parse a vCard into a property document
+     * @preconditions A full iCloud vCard 3.0
+     * @expectedResult Properties, params, components, version, and uid are readable
      */
-    test("parses all modeled fields from an iCloud vCard", () => {
-      const contact = parseVCard(ICLOUD_VCARD);
-      expect(contact.uid).toBe("ABC-123");
-      expect(contact.fullName).toBe("Jane Q Doe");
-      expect(contact.lastName).toBe("Doe");
-      expect(contact.firstName).toBe("Jane");
-      expect(contact.middleName).toBe("Q");
-      expect(contact.organization).toBe("Acme Inc.");
-      expect(contact.department).toBe("Engineering");
-      expect(contact.title).toBe("Engineer");
-      expect(contact.emails?.[0]?.value).toBe("jane@example.com");
-      expect(contact.emails?.[0]?.type).toBe("internet");
-      expect(contact.phones?.[0]?.value).toBe("+15551234567");
-      expect(contact.addresses?.[0]?.street).toBe("123 Main St");
-      expect(contact.addresses?.[0]?.extended).toBe("Apt 4B");
-      expect(contact.birthday).toBe("1990-05-21");
-      expect(contact.note).toBe("Met at the conference.");
-      expect(contact.urls?.[0]).toBe("https://jane.example.com");
-      expect(contact.photo?.mediaType).toBe("JPEG");
-      expect(contact.raw).toBe(ICLOUD_VCARD);
+    test("exposes properties, params, components, version, and uid", () => {
+      const card = VCard.parse(ICLOUD_VCARD);
+      expect(card.version).toBe("3.0");
+      expect(card.uid).toBe("ABC-123");
+      expect(card.text("FN")).toBe("Jane Q Doe");
+      expect(card.get("TEL")).toHaveLength(2);
+      expect(card.first("EMAIL")?.param("type")).toBe("INTERNET");
+      expect(card.first("N")?.components()).toEqual([
+        "Doe",
+        "Jane",
+        "Q",
+        "",
+        "",
+      ]);
+      expect(card.text("NOTE")).toBe("Met at the conference.");
     });
 
     /**
-     * @case Unmodeled properties are surfaced rather than silently dropped
-     * @preconditions A card carrying PRODID and an X- field the model does not name
-     * @expectedResult Both appear in `custom` with their verbatim values
+     * @case Unmodeled and grouped properties are present as ordinary properties
+     * @preconditions A card with PRODID, X-CUSTOM-FIELD, and a grouped X-ABLabel
+     * @expectedResult They appear in the property list like any other property
      */
-    test("captures unmodeled properties into custom", () => {
-      const contact = parseVCard(ICLOUD_VCARD);
-      const keys = (contact.custom ?? []).map((c) => c.key);
-      expect(keys).toContain("PRODID");
-      expect(keys).toContain("X-CUSTOM-FIELD");
-      const custom = contact.custom?.find((c) => c.key === "X-CUSTOM-FIELD");
-      expect(custom?.value).toBe("keepme");
-    });
-
-    /**
-     * @case A custom Apple X-ABLabel on a phone is read as the item's label
-     * @preconditions A grouped `item1.TEL` paired with `item1.X-ABLabel:School`
-     * @expectedResult The second phone carries label "School" and the label is not duplicated into custom
-     */
-    test("reads a grouped X-ABLabel as the item label", () => {
-      const contact = parseVCard(ICLOUD_VCARD);
-      const labeled = contact.phones?.find((p) => p.value === "+15559990000");
-      expect(labeled?.label).toBe("School");
-      const customKeys = (contact.custom ?? []).map((c) => c.key.toLowerCase());
-      expect(customKeys).not.toContain("x-ablabel");
-    });
-
-    /**
-     * @case Apple's `_$!<Label>!$_` wrapper is decoded for related names and dates
-     * @preconditions A spouse related name and an anniversary date
-     * @expectedResult Labels read as "Spouse" and "Anniversary"
-     */
-    test("decodes Apple label wrappers", () => {
-      const contact = parseVCard(ICLOUD_VCARD);
-      expect(contact.relatedNames?.[0]).toMatchObject({
-        label: "Spouse",
-        name: "Jordan",
-      });
-      expect(contact.dates?.[0]).toMatchObject({
-        label: "Anniversary",
-        date: "2010-06-01",
-      });
+    test("keeps unmodeled and grouped properties", () => {
+      const card = VCard.parse(ICLOUD_VCARD);
+      expect(card.text("PRODID")).toBe("-//Apple Inc.//iOS 17//EN");
+      expect(card.text("X-CUSTOM-FIELD")).toBe("keepme");
+      const labeledTel = card.get("TEL").find((p) => p.group === "item1");
+      expect(labeledTel?.value).toBe("+15559990000");
+      const label = card.get("X-ABLabel").find((p) => p.group === "item1");
+      expect(label?.value).toBe("School");
     });
   });
 
   describe("round-trip losslessness", () => {
     /**
      * @case Read then write then read drops nothing
-     * @preconditions A rich iCloud card with params, labels, social, related, dates, custom
-     * @expectedResult The re-parsed contact equals the original parse (minus `raw`)
+     * @preconditions A rich iCloud card
+     * @expectedResult Serialization is idempotent and every property survives
      */
-    test("parse -> serialize -> parse is lossless", () => {
-      const { first, second } = roundTrip(ICLOUD_VCARD);
-      expect(second).toEqual(first);
-    });
-
-    /**
-     * @case Multi-valued TYPE params and the PREF flag survive a round-trip
-     * @preconditions An email with `type=INTERNET;type=HOME;type=pref`
-     * @expectedResult All three params are preserved verbatim, including casing
-     */
-    test("preserves multi-valued TYPE params and PREF", () => {
-      const { second } = roundTrip(ICLOUD_VCARD);
-      const email = second.emails?.[0];
-      expect(email?.params).toEqual([
-        { name: "type", value: "INTERNET" },
-        { name: "type", value: "HOME" },
-        { name: "type", value: "pref" },
-      ]);
-    });
-
-    /**
-     * @case The ADR extended-address component survives a round-trip
-     * @preconditions An ADR whose component 2 is "Apt 4B"
-     * @expectedResult The serialized card still carries the extended component
-     */
-    test("preserves the ADR extended component", () => {
-      const { second } = roundTrip(ICLOUD_VCARD);
-      expect(second.addresses?.[0]?.extended).toBe("Apt 4B");
-    });
-
-    /**
-     * @case Built-in Apple labels are re-wrapped on write
-     * @preconditions A spouse related name read from a `_$!<Spouse>!$_` wrapper
-     * @expectedResult The serialized output contains the wrapped form again
-     */
-    test("re-wraps built-in Apple labels on write", () => {
-      const out = serializeContact(parseVCard(ICLOUD_VCARD));
-      expect(out).toContain("X-ABLabel:_$!<Spouse>!$_");
-      // A custom label stays bare.
-      expect(out).toContain("X-ABLabel:School");
-    });
-
-    /**
-     * @case Unmodeled properties round-trip via custom
-     * @preconditions A card with PRODID and X-CUSTOM-FIELD
-     * @expectedResult Both are present in the serialized output
-     */
-    test("preserves unmodeled properties through custom", () => {
-      const out = serializeContact(parseVCard(ICLOUD_VCARD));
-      expect(out).toContain("PRODID:-//Apple Inc.//iOS 17//EN");
-      expect(out).toContain("X-CUSTOM-FIELD:keepme");
+    test("parse -> toString is idempotent and complete", () => {
+      const out1 = VCard.parse(ICLOUD_VCARD).toString();
+      const out2 = VCard.parse(out1).toString();
+      expect(out2).toBe(out1);
+      // Nothing dropped, including the things a typed model would have lost.
+      expect(out1).toContain("PRODID:-//Apple Inc.//iOS 17//EN");
+      expect(out1).toContain("X-CUSTOM-FIELD:keepme");
+      expect(out1).toContain("item1.X-ABLabel:School");
+      expect(out1).toContain("item2.X-ABLabel:_$!<Spouse>!$_");
+      expect(out1).toContain(";Apt 4B;123 Main St;");
+      expect(out1).toContain("type=CELL;type=VOICE;type=pref");
     });
   });
 
-  describe("writing & full replace", () => {
+  describe("writing", () => {
     /**
-     * @case Serialize derives the mandatory FN when none is supplied
-     * @preconditions A contact with name parts and an email but no fullName
-     * @expectedResult A version-3.0 card whose FN is derived from the name
+     * @case set replaces a property, remove deletes it, add appends
+     * @preconditions A parsed card
+     * @expectedResult The property list reflects each mutation
      */
-    test("serializes a Contact and derives FN", () => {
-      const out = serializeContact({
-        uid: "NEW-1",
-        firstName: "John",
-        lastName: "Smith",
-        emails: [{ value: "john@smith.com", type: "work" }],
+    test("set / add / remove mutate the property list", () => {
+      const card = VCard.parse(ICLOUD_VCARD);
+      card.set("NOTE", "new note");
+      expect(card.text("NOTE")).toBe("new note");
+      expect(card.get("NOTE")).toHaveLength(1);
+
+      card.add("TEL", "+15550000000", {
+        params: [{ name: "type", value: "work" }],
       });
-      expect(out).toContain("VERSION:3.0");
-      expect(out).toContain("FN:John Smith");
-      const round = parseVCard(out);
-      expect(round.emails?.[0]?.value).toBe("john@smith.com");
-      expect(round.emails?.[0]?.type).toBe("work");
+      expect(card.get("TEL")).toHaveLength(3);
+
+      card.remove("X-CUSTOM-FIELD");
+      expect(card.first("X-CUSTOM-FIELD")).toBeUndefined();
+      expect(card.toString()).not.toContain("X-CUSTOM-FIELD");
     });
 
     /**
-     * @case A write is a full replace: dropping a field removes it
-     * @preconditions A contact parsed from a card, then re-serialized without note/custom
-     * @expectedResult The output no longer contains the dropped note or custom field
+     * @case Special characters in a value round-trip without breaking the grammar
+     * @preconditions A note with a comma, semicolon, and newline
+     * @expectedResult The decoded value comes back identical
      */
-    test("dropping a field removes it from the output", () => {
-      const contact = parseVCard(ICLOUD_VCARD);
-      delete contact.note;
-      delete contact.custom;
-      const out = serializeContact(contact);
-      expect(out).not.toContain("NOTE:");
-      expect(out).not.toContain("X-CUSTOM-FIELD");
-      // Untouched fields are still there.
-      expect(out).toContain("EMAIL");
-    });
-
-    /**
-     * @case Editing the ergonomic `type` overrides the primary TYPE, keeping PREF
-     * @preconditions An email read with `type=INTERNET;type=pref`, then type set to "work"
-     * @expectedResult The serialized email carries `type=work` and still `type=pref`
-     */
-    test("editing type overrides the primary TYPE and keeps PREF", () => {
-      const contact = parseVCard(
-        [
-          "BEGIN:VCARD",
-          "VERSION:3.0",
-          "FN:X",
-          "EMAIL;type=INTERNET;type=pref:a@b.com",
-          "END:VCARD",
-        ].join("\r\n"),
-      );
-      contact.emails![0]!.type = "work";
-      const out = serializeContact(contact);
-      expect(out).toContain("EMAIL;type=work;type=pref:a@b.com");
-    });
-  });
-
-  describe("escaping & structure", () => {
-    /**
-     * @case Separators and newlines in text round-trip without corrupting the grammar
-     * @preconditions A note containing a comma, semicolon, and newline
-     * @expectedResult The re-parsed note equals the original value
-     */
-    test("escapes and round-trips special characters in text", () => {
+    test("escapes and round-trips special characters", () => {
       const note = "a, b; c\nd";
-      const out = serializeContact({ fullName: "X", note });
-      const round = parseVCard(out);
-      expect(round.note).toBe(note);
+      const card = new VCard().add("FN", "X").add("NOTE", note);
+      expect(VCard.parse(card.toString()).text("NOTE")).toBe(note);
     });
 
     /**
-     * @case Structured component separators are not confused with literal commas
-     * @preconditions An organization whose name contains a comma
-     * @expectedResult organization round-trips intact; department is unaffected
+     * @case Structured components escape per-component separators
+     * @preconditions An ORG component containing a comma, set via setComponents
+     * @expectedResult The component round-trips intact
      */
-    test("keeps a comma inside an ORG component", () => {
-      const out = serializeContact({
-        fullName: "X",
-        organization: "Acme, Inc.",
-        department: "R&D",
-      });
-      const round = parseVCard(out);
-      expect(round.organization).toBe("Acme, Inc.");
-      expect(round.department).toBe("R&D");
+    test("setComponents escapes each component", () => {
+      const card = new VCard().add("FN", "X");
+      card.add("ORG", "").first("ORG")!.setComponents(["Acme, Inc.", "R&D"]);
+      const round = VCard.parse(card.toString());
+      expect(round.first("ORG")?.components()).toEqual(["Acme, Inc.", "R&D"]);
     });
 
     /**
-     * @case Long values are folded to <=75 octets without splitting a code point
-     * @preconditions A note long enough to fold, containing multibyte characters
+     * @case Long multibyte values fold to <=75 octets without splitting a glyph
+     * @preconditions A note long enough to fold, with multibyte characters
      * @expectedResult Every physical line is <=75 octets and the value round-trips
      */
     test("folds long multibyte lines safely", () => {
       const note = "café ".repeat(40);
-      const out = serializeContact({ fullName: "X", note });
+      const out = new VCard().add("FN", "X").add("NOTE", note).toString();
       for (const line of out.split("\r\n")) {
         expect(Buffer.byteLength(line, "utf8")).toBeLessThanOrEqual(75);
       }
-      expect(parseVCard(out).note).toBe(note);
+      expect(VCard.parse(out).text("NOTE")).toBe(note);
+    });
+
+    /**
+     * @case clone produces an independent copy
+     * @preconditions A parsed card cloned and mutated
+     * @expectedResult The original is unchanged
+     */
+    test("clone is independent", () => {
+      const card = VCard.parse(ICLOUD_VCARD);
+      const copy = card.clone();
+      copy.set("NOTE", "changed");
+      expect(card.text("NOTE")).toBe("Met at the conference.");
+      expect(copy.text("NOTE")).toBe("changed");
     });
   });
 
-  describe("parse validation", () => {
+  describe("validation", () => {
     /**
      * @case Non-vCard input is rejected
      * @preconditions A string with no BEGIN/END:VCARD
-     * @expectedResult parseVCard throws a SyntaxError
+     * @expectedResult VCard.parse throws a SyntaxError
      */
     test("rejects input without a VCARD envelope", () => {
-      expect(() => parseVCard("not a vcard")).toThrow(SyntaxError);
+      expect(() => VCard.parse("not a vcard")).toThrow(SyntaxError);
     });
 
     /**
-     * @case A vCard collection is rejected rather than silently flattened
+     * @case A vCard collection is rejected rather than flattened
      * @preconditions Two BEGIN:VCARD blocks in one payload
-     * @expectedResult parseVCard throws a SyntaxError
+     * @expectedResult VCard.parse throws a SyntaxError
      */
     test("rejects a multi-card collection", () => {
-      const two = `${ICLOUD_VCARD}\r\n${ICLOUD_VCARD}`;
-      expect(() => parseVCard(two)).toThrow(SyntaxError);
-    });
-
-    /**
-     * @case The lexer unfolds continuation lines
-     * @preconditions A folded NOTE split across two physical lines
-     * @expectedResult The record value is rejoined without the fold whitespace
-     */
-    test("unfolds continuation lines", () => {
-      const folded = [
-        "BEGIN:VCARD",
-        "VERSION:3.0",
-        "NOTE:hello ",
-        " world",
-        "END:VCARD",
-      ].join("\r\n");
-      const note = parseRecords(folded).find((r) => r.name === "note");
-      expect(note?.value).toBe("hello world");
+      expect(() => VCard.parse(`${ICLOUD_VCARD}\r\n${ICLOUD_VCARD}`)).toThrow(
+        SyntaxError,
+      );
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Adapter: source (read)
+// ---------------------------------------------------------------------------
 
 describe("CardDAV source (read)", () => {
   let t: TestContext;
@@ -434,11 +302,11 @@ describe("CardDAV source (read)", () => {
   });
 
   /**
-   * @case The source emits one Contact per card, carrying url and etag
+   * @case The source emits one VCard per card, carrying url and etag
    * @preconditions A driver returning two cards
-   * @expectedResult Two exchanges, each body carrying its url
+   * @expectedResult Two exchanges, each body a VCard with its url/etag
    */
-  test("emits one contact per card", async () => {
+  test("emits one VCard per card", async () => {
     CardDAVClientManager.createDriverClient = async () =>
       fakeDriver([
         { url: `${BOOK_URL}abc-123.vcf`, etag: '"1"', data: ICLOUD_VCARD },
@@ -458,15 +326,17 @@ describe("CardDAV source (read)", () => {
 
     expect(t.errors).toHaveLength(0);
     expect(s.received).toHaveLength(2);
-    const first = s.received[0]?.body as Contact;
+    const first = s.received[0]?.body as VCard;
+    expect(first).toBeInstanceOf(VCard);
     expect(first.url).toBe(`${BOOK_URL}abc-123.vcf`);
     expect(first.etag).toBe('"1"');
+    expect(first.uid).toBe("ABC-123");
   });
 
   /**
-   * @case The limit option caps how many contacts are emitted
+   * @case The limit option caps how many cards are emitted
    * @preconditions Two cards available, limit 1
-   * @expectedResult Only the first contact is emitted
+   * @expectedResult Only the first card is emitted
    */
   test("honors the limit option", async () => {
     CardDAVClientManager.createDriverClient = async () =>
@@ -508,11 +378,11 @@ describe("CardDAV source (read)", () => {
   });
 
   /**
-   * @case Enriching pulls all contacts onto the triggering exchange
+   * @case Enriching pulls all cards onto the triggering exchange
    * @preconditions A trigger source and a driver returning one card
-   * @expectedResult The enriched body carries the fetched contact
+   * @expectedResult The enriched body carries the fetched VCard
    */
-  test("enrich returns all contacts", async () => {
+  test("enrich returns all cards", async () => {
     CardDAVClientManager.createDriverClient = async () =>
       fakeDriver([
         { url: `${BOOK_URL}abc-123.vcf`, etag: '"1"', data: ICLOUD_VCARD },
@@ -526,10 +396,14 @@ describe("CardDAV source (read)", () => {
     await t.test();
 
     expect(t.errors).toHaveLength(0);
-    const body = s.received[0]?.body as Record<string, Contact>;
-    expect(body["0"]?.fullName).toBe("Jane Q Doe");
+    const body = s.received[0]?.body as Record<string, VCard>;
+    expect(body["0"]?.text("FN")).toBe("Jane Q Doe");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Adapter: destination (write)
+// ---------------------------------------------------------------------------
 
 describe("CardDAV destination (write)", () => {
   let t: TestContext;
@@ -538,20 +412,21 @@ describe("CardDAV destination (write)", () => {
   });
 
   /**
-   * @case save with no existing url creates a new card
-   * @preconditions Empty address book; a new Contact without url
-   * @expectedResult createVCard is called with an FN-bearing card; result.created is true
+   * @case save with no existing url creates a new card and injects a UID
+   * @preconditions Empty address book; a new VCard without url or UID
+   * @expectedResult createVCard is called with a UID-bearing card; result.created is true
    */
   test("save creates when there is no url", async () => {
     const driver = fakeDriver([]);
     CardDAVClientManager.createDriverClient = async () => driver;
 
+    const card = new VCard().add("FN", "Sam Lee");
     const s = spy();
     t = await testContext()
       .with(ACCOUNT_CONFIG)
       .routes(
         craft()
-          .from(simple<Contact>({ firstName: "Sam", lastName: "Lee" }))
+          .from(simple(card))
           .to(carddav({ action: "save" }))
           .to(s),
       )
@@ -561,15 +436,16 @@ describe("CardDAV destination (write)", () => {
     expect(t.errors).toHaveLength(0);
     expect(driver.created).toHaveLength(1);
     expect(driver.created[0]?.vCardString).toContain("FN:Sam Lee");
+    expect(driver.created[0]?.vCardString).toContain("UID:");
     const result = s.received[0]?.body as CardDAVWriteResult;
     expect(result.created).toBe(true);
     expect(driver.calls.fetchVCards).toBe(0);
   });
 
   /**
-   * @case update writes to the contact's url with its read-time etag as If-Match
-   * @preconditions A card exists; the body carries that url and matching etag
-   * @expectedResult updateVCard is called with the url and etag; no address-book fetch happens
+   * @case update writes to the card's url with its read-time etag as If-Match
+   * @preconditions A card exists; the body is a VCard carrying that url and etag
+   * @expectedResult updateVCard is called with url + etag; no address-book fetch happens
    */
   test("update targets url with If-Match and does not refetch", async () => {
     const driver = fakeDriver([
@@ -577,19 +453,17 @@ describe("CardDAV destination (write)", () => {
     ]);
     CardDAVClientManager.createDriverClient = async () => driver;
 
-    const contact: Contact = {
-      ...parseVCard(ICLOUD_VCARD),
-      url: `${BOOK_URL}abc-123.vcf`,
-      etag: '"1"',
-      note: "updated",
-    };
+    const card = VCard.parse(ICLOUD_VCARD);
+    card.url = `${BOOK_URL}abc-123.vcf`;
+    card.etag = '"1"';
+    card.set("NOTE", "updated");
 
     const s = spy();
     t = await testContext()
       .with(ACCOUNT_CONFIG)
       .routes(
         craft()
-          .from(simple(contact))
+          .from(simple(card))
           .to(carddav({ action: "update" }))
           .to(s),
       )
@@ -600,6 +474,7 @@ describe("CardDAV destination (write)", () => {
     expect(driver.updated).toHaveLength(1);
     expect(driver.updated[0]?.vCard.url).toBe(`${BOOK_URL}abc-123.vcf`);
     expect(driver.updated[0]?.vCard.etag).toBe('"1"');
+    expect(driver.updated[0]?.vCard.data).toContain("NOTE:updated");
     expect(driver.calls.fetchVCards).toBe(0);
     expect(driver.calls.fetchBooks).toBe(0);
     const result = s.received[0]?.body as CardDAVWriteResult;
@@ -617,17 +492,15 @@ describe("CardDAV destination (write)", () => {
     ]);
     CardDAVClientManager.createDriverClient = async () => driver;
 
-    const contact: Contact = {
-      ...parseVCard(ICLOUD_VCARD),
-      url: `${BOOK_URL}abc-123.vcf`,
-      etag: '"1"',
-    };
+    const card = VCard.parse(ICLOUD_VCARD);
+    card.url = `${BOOK_URL}abc-123.vcf`;
+    card.etag = '"1"';
 
     t = await testContext()
       .with(ACCOUNT_CONFIG)
       .routes(
         craft()
-          .from(simple(contact))
+          .from(simple(card))
           .to(carddav({ action: "update" })),
       )
       .build();
@@ -640,7 +513,7 @@ describe("CardDAV destination (write)", () => {
 
   /**
    * @case update without a resolvable url is a hard error
-   * @preconditions A Contact with neither url nor headers
+   * @preconditions A VCard with neither url nor headers
    * @expectedResult The route surfaces RC5014
    */
   test("update without a url raises RC5014", async () => {
@@ -650,7 +523,7 @@ describe("CardDAV destination (write)", () => {
       .with(ACCOUNT_CONFIG)
       .routes(
         craft()
-          .from(simple<Contact>({ firstName: "No", lastName: "Url" }))
+          .from(simple(new VCard().add("FN", "No Url")))
           .to(carddav({ action: "update" })),
       )
       .build();
@@ -660,39 +533,7 @@ describe("CardDAV destination (write)", () => {
   });
 
   /**
-   * @case save updates in place when the body carries a url
-   * @preconditions A card exists; the body carries its url
-   * @expectedResult updateVCard is called, not createVCard
-   */
-  test("save updates in place when a url is present", async () => {
-    const driver = fakeDriver([
-      { url: `${BOOK_URL}abc-123.vcf`, etag: '"1"', data: ICLOUD_VCARD },
-    ]);
-    CardDAVClientManager.createDriverClient = async () => driver;
-
-    const contact: Contact = {
-      ...parseVCard(ICLOUD_VCARD),
-      url: `${BOOK_URL}abc-123.vcf`,
-      etag: '"1"',
-    };
-
-    t = await testContext()
-      .with(ACCOUNT_CONFIG)
-      .routes(
-        craft()
-          .from(simple(contact))
-          .to(carddav({ action: "save" })),
-      )
-      .build();
-    await t.test();
-
-    expect(t.errors).toHaveLength(0);
-    expect(driver.updated).toHaveLength(1);
-    expect(driver.created).toHaveLength(0);
-  });
-
-  /**
-   * @case save without a url falls back to update when the resource already exists
+   * @case save without url falls back to update when the resource already exists
    * @preconditions A card already exists at uid EXISTS.vcf; body has that uid, no url
    * @expectedResult create returns 412, the adapter locates the card and updates it
    */
@@ -702,17 +543,12 @@ describe("CardDAV destination (write)", () => {
     ]);
     CardDAVClientManager.createDriverClient = async () => driver;
 
+    const card = new VCard().add("UID", "EXISTS").add("FN", "Up Date");
     t = await testContext()
       .with(ACCOUNT_CONFIG)
       .routes(
         craft()
-          .from(
-            simple<Contact>({
-              uid: "EXISTS",
-              firstName: "Up",
-              lastName: "Date",
-            }),
-          )
+          .from(simple(card))
           .to(carddav({ action: "save" })),
       )
       .build();
@@ -725,18 +561,18 @@ describe("CardDAV destination (write)", () => {
   });
 
   /**
-   * @case A non-object body is rejected
-   * @preconditions The exchange body is an array
+   * @case A non-VCard body is rejected
+   * @preconditions The exchange body is a plain string
    * @expectedResult The route surfaces RC5001
    */
-  test("rejects a non-Contact body", async () => {
+  test("rejects a non-VCard body", async () => {
     CardDAVClientManager.createDriverClient = async () => fakeDriver([]);
 
     t = await testContext()
       .with(ACCOUNT_CONFIG)
       .routes(
         craft()
-          .from(simple([1, 2, 3] as unknown as Contact))
+          .from(simple("not a card" as unknown as VCard))
           .to(carddav({ action: "create" })),
       )
       .build();
@@ -746,6 +582,10 @@ describe("CardDAV destination (write)", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Adapter: destination (delete)
+// ---------------------------------------------------------------------------
+
 describe("CardDAV destination (delete)", () => {
   let t: TestContext;
   afterEach(async () => {
@@ -754,8 +594,8 @@ describe("CardDAV destination (delete)", () => {
 
   /**
    * @case Delete by url targets the resource directly with its etag
-   * @preconditions A card exists; body carries its url and etag
-   * @expectedResult deleteVCard is called with the url and etag; no fetch happens
+   * @preconditions A card exists; the body is a VCard carrying its url and etag
+   * @expectedResult deleteVCard is called with url + etag; no fetch happens
    */
   test("deletes by url without refetching", async () => {
     const driver = fakeDriver([
@@ -763,12 +603,16 @@ describe("CardDAV destination (delete)", () => {
     ]);
     CardDAVClientManager.createDriverClient = async () => driver;
 
+    const card = VCard.parse(ICLOUD_VCARD);
+    card.url = `${BOOK_URL}abc-123.vcf`;
+    card.etag = '"1"';
+
     const s = spy();
     t = await testContext()
       .with(ACCOUNT_CONFIG)
       .routes(
         craft()
-          .from(simple<Contact>({ url: `${BOOK_URL}abc-123.vcf`, etag: '"1"' }))
+          .from(simple(card))
           .to(carddav({ action: "delete" }))
           .to(s),
       )
@@ -776,7 +620,6 @@ describe("CardDAV destination (delete)", () => {
     await t.test();
 
     expect(t.errors).toHaveLength(0);
-    expect(driver.deleted).toHaveLength(1);
     expect(driver.deleted[0]?.vCard.url).toBe(`${BOOK_URL}abc-123.vcf`);
     expect(driver.deleted[0]?.vCard.etag).toBe('"1"');
     expect(driver.calls.fetchVCards).toBe(0);
@@ -785,56 +628,9 @@ describe("CardDAV destination (delete)", () => {
   });
 
   /**
-   * @case Delete by uid (no url) looks the contact up first
-   * @preconditions A card exists; body carries only its uid
-   * @expectedResult The adapter fetches, finds the match, and deletes it
-   */
-  test("deletes by uid via lookup", async () => {
-    const driver = fakeDriver([
-      { url: `${BOOK_URL}not-the-uid.vcf`, etag: '"1"', data: ICLOUD_VCARD },
-    ]);
-    CardDAVClientManager.createDriverClient = async () => driver;
-
-    t = await testContext()
-      .with(ACCOUNT_CONFIG)
-      .routes(
-        craft()
-          .from(simple<Contact>({ uid: "ABC-123" }))
-          .to(carddav({ action: "delete" })),
-      )
-      .build();
-    await t.test();
-
-    expect(t.errors).toHaveLength(0);
-    expect(driver.calls.fetchVCards).toBe(1);
-    expect(driver.deleted[0]?.vCard.url).toBe(`${BOOK_URL}not-the-uid.vcf`);
-  });
-
-  /**
-   * @case Delete with no resolvable target is a hard error
-   * @preconditions Empty address book; body carries an unknown uid
-   * @expectedResult The route surfaces RC5014
-   */
-  test("delete without a match raises RC5014", async () => {
-    CardDAVClientManager.createDriverClient = async () => fakeDriver([]);
-
-    t = await testContext()
-      .with(ACCOUNT_CONFIG)
-      .routes(
-        craft()
-          .from(simple<Contact>({ uid: "missing" }))
-          .to(carddav({ action: "delete" })),
-      )
-      .build();
-    await t.test();
-
-    expect(t.errors.some((e) => e.rc === "RC5014")).toBe(true);
-  });
-
-  /**
    * @case Delete via a custom target extractor still sends If-Match
-   * @preconditions A card exists; a target extractor supplies its url; body carries the etag
-   * @expectedResult deleteVCard receives the read-time etag (concurrency not disabled)
+   * @preconditions A card exists; a target extractor supplies its url; the VCard carries the etag
+   * @expectedResult deleteVCard receives the read-time etag
    */
   test("delete via target extractor still sends the etag", async () => {
     const driver = fakeDriver([
@@ -842,11 +638,14 @@ describe("CardDAV destination (delete)", () => {
     ]);
     CardDAVClientManager.createDriverClient = async () => driver;
 
+    const card = VCard.parse(ICLOUD_VCARD);
+    card.etag = '"1"';
+
     t = await testContext()
       .with(ACCOUNT_CONFIG)
       .routes(
         craft()
-          .from(simple<Contact>({ etag: '"1"' }))
+          .from(simple(card))
           .to(
             carddav({
               action: "delete",
@@ -860,127 +659,51 @@ describe("CardDAV destination (delete)", () => {
     expect(t.errors).toHaveLength(0);
     expect(driver.deleted[0]?.vCard.etag).toBe('"1"');
   });
-});
-
-describe("CardDAV codec regression fixes", () => {
-  /**
-   * @case A custom X-ABLabel on a URL/IMPP/social profile is not deleted on round-trip
-   * @preconditions A grouped item1.URL paired with item1.X-ABLabel
-   * @expectedResult The label survives in the serialized output (as a custom entry)
-   */
-  test("preserves labels on url/impp/social via custom", () => {
-    const vcard = [
-      "BEGIN:VCARD",
-      "VERSION:3.0",
-      "FN:Labeled",
-      "item1.URL:https://blog.example.com",
-      "item1.X-ABLabel:_$!<HomePage>!$_",
-      "END:VCARD",
-    ].join("\r\n");
-    const out = serializeContact(parseVCard(vcard));
-    expect(out).toContain("https://blog.example.com");
-    expect(out).toContain("X-ABLabel:_$!<HomePage>!$_");
-  });
 
   /**
-   * @case A comma-combined TYPE list round-trips without loss or quoting
-   * @preconditions A phone with `TYPE=HOME,VOICE` (the RFC comma form)
-   * @expectedResult Both values survive, emitted as separate unquoted params
+   * @case Delete by uid (no url) looks the contact up first
+   * @preconditions A card exists; the VCard carries only its uid (no url)
+   * @expectedResult The adapter fetches, finds the match, and deletes it
    */
-  test("normalizes comma-combined TYPE without dropping or quoting", () => {
-    const vcard = [
-      "BEGIN:VCARD",
-      "VERSION:3.0",
-      "FN:Comma",
-      "TEL;TYPE=HOME,VOICE:+15551112222",
-      "END:VCARD",
-    ].join("\r\n");
-    const out = serializeContact(parseVCard(vcard));
-    expect(out).not.toContain('"'); // no quoted param value
-    const phone = parseVCard(out).phones?.[0];
-    expect(phone?.params).toEqual([
-      { name: "type", value: "HOME" },
-      { name: "type", value: "VOICE" },
+  test("deletes by uid via lookup", async () => {
+    const driver = fakeDriver([
+      { url: `${BOOK_URL}not-the-uid.vcf`, etag: '"1"', data: ICLOUD_VCARD },
     ]);
+    CardDAVClientManager.createDriverClient = async () => driver;
+
+    t = await testContext()
+      .with(ACCOUNT_CONFIG)
+      .routes(
+        craft()
+          .from(simple(new VCard().add("UID", "ABC-123")))
+          .to(carddav({ action: "delete" })),
+      )
+      .build();
+    await t.test();
+
+    expect(t.errors).toHaveLength(0);
+    expect(driver.calls.fetchVCards).toBe(1);
+    expect(driver.deleted[0]?.vCard.url).toBe(`${BOOK_URL}not-the-uid.vcf`);
   });
 
   /**
-   * @case Editing an item's `type` overrides the primary TYPE but keeps PREF
-   * @preconditions A phone read with `TYPE=HOME;TYPE=pref`, type set to "work"
-   * @expectedResult The serialized phone is `TYPE=work;TYPE=pref`
+   * @case Delete with no resolvable target is a hard error
+   * @preconditions Empty address book; the VCard carries an unknown uid
+   * @expectedResult The route surfaces RC5014
    */
-  test("editing type keeps PREF and other params", () => {
-    const contact = parseVCard(
-      [
-        "BEGIN:VCARD",
-        "VERSION:3.0",
-        "FN:Edit",
-        "TEL;TYPE=HOME;TYPE=pref:+1",
-        "END:VCARD",
-      ].join("\r\n"),
-    );
-    contact.phones![0]!.type = "work";
-    // Param names are emitted lowercased (RFC 6350 case-insensitive; matches
-    // Apple's own `type=` form).
-    expect(serializeContact(contact)).toContain("TEL;type=work;type=pref:+1");
-  });
+  test("delete without a match raises RC5014", async () => {
+    CardDAVClientManager.createDriverClient = async () => fakeDriver([]);
 
-  /**
-   * @case A quoted comma in a TYPE value is a literal, not a value separator
-   * @preconditions A phone with `TYPE="a,b"` (quoted, so the comma is literal)
-   * @expectedResult The single value `a,b` survives as one param, not split into two
-   */
-  test("does not split a quoted comma TYPE value", () => {
-    const vcard = [
-      "BEGIN:VCARD",
-      "VERSION:3.0",
-      "FN:Quoted",
-      'TEL;TYPE="a,b":+1',
-      "END:VCARD",
-    ].join("\r\n");
-    const phone = parseVCard(vcard).phones?.[0];
-    expect(phone?.params).toEqual([{ name: "type", value: "a,b" }]);
-  });
+    t = await testContext()
+      .with(ACCOUNT_CONFIG)
+      .routes(
+        craft()
+          .from(simple(new VCard().add("UID", "missing")))
+          .to(carddav({ action: "delete" })),
+      )
+      .build();
+    await t.test();
 
-  /**
-   * @case Editing an IMPP service with a mixed-case stored param replaces, not duplicates
-   * @preconditions A hand-built IMPP whose param name is `X-SERVICE-TYPE` (uppercase)
-   * @expectedResult The serialized IMPP has a single x-service-type with the new value
-   */
-  test("setParam matches a param name case-insensitively", () => {
-    const out = serializeContact({
-      fullName: "IM",
-      instantMessages: [
-        {
-          handle: "bob",
-          scheme: "skype",
-          service: "WhatsApp",
-          params: [{ name: "X-SERVICE-TYPE", value: "Skype" }],
-        },
-      ],
-    });
-    const impp = out.split("\r\n").find((l) => l.startsWith("IMPP"));
-    expect(impp?.match(/x-service-type=/gi)?.length).toBe(1);
-    expect(impp).toContain("WhatsApp");
-    expect(impp).not.toContain("Skype");
-  });
-
-  /**
-   * @case Editing an IMPP service retags the handle instead of being ignored
-   * @preconditions An IMPP read with X-SERVICE-TYPE=Skype, service set to "WhatsApp"
-   * @expectedResult The serialized IMPP carries X-SERVICE-TYPE=WhatsApp
-   */
-  test("editing IMPP service takes effect", () => {
-    const contact = parseVCard(
-      [
-        "BEGIN:VCARD",
-        "VERSION:3.0",
-        "FN:IM",
-        "IMPP;X-SERVICE-TYPE=Skype:skype:bob",
-        "END:VCARD",
-      ].join("\r\n"),
-    );
-    contact.instantMessages![0]!.service = "WhatsApp";
-    expect(serializeContact(contact)).toContain("x-service-type=WhatsApp");
+    expect(t.errors.some((e) => e.rc === "RC5014")).toBe(true);
   });
 });

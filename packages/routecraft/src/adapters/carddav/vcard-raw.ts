@@ -1,20 +1,11 @@
 /**
  * Low-level vCard lexer and emitter primitives.
  *
- * This module does two things and nothing else:
- *
- *  - parse raw vCard text into a flat list of {@link RawRecord}s (one per
- *    logical line), preserving every parameter verbatim so the codec can read
- *    a contact losslessly; and
- *  - emit a single property line back to RFC 6350 wire form (escaping, folding,
- *    parameter quoting).
- *
- * There is deliberately no diff/merge/patch machinery here. The codec reads a
- * card into a complete {@link Contact} (anything it does not model lands in
- * `custom`), and writes by serializing the whole contact. A write replaces the
- * card; it does not surgically edit it. That is what keeps this small and what
- * makes "read then save loses nothing" a property of the parser alone, not of a
- * reconstruction engine.
+ * Parses raw vCard text into a flat list of {@link RawRecord}s (one per logical
+ * line, folding undone, every parameter captured verbatim) and emits a single
+ * property line back to RFC 6350 wire form (escaping, folding, parameter
+ * quoting). The {@link VCard} document model in `vcard.ts` is built on top of
+ * these; there is no typed projection here and nothing Apple-specific.
  *
  * @experimental
  */
@@ -138,31 +129,8 @@ function toRecord(lines: string[]): RawRecord {
     if (segment === "") continue;
     const eq = segment.indexOf("=");
     const name = (eq >= 0 ? segment.slice(0, eq) : segment).toLowerCase();
-    const rawParamValue = eq >= 0 ? segment.slice(eq + 1) : "";
-    const wasQuoted =
-      rawParamValue.length >= 2 &&
-      rawParamValue.startsWith('"') &&
-      rawParamValue.endsWith('"');
-    const paramValue = dequoteParam(rawParamValue);
-    // An UNQUOTED comma-combined TYPE list (`TYPE=HOME,VOICE`, the RFC 6350 form
-    // some non-Apple clients emit) is normalized to one entry per value. This
-    // keeps each value comma-free so it round-trips as the unquoted,
-    // separate-param form Apple uses (`TYPE=HOME;TYPE=VOICE`) instead of being
-    // re-quoted into one literal value, and lets the primary TYPE be edited in
-    // place. A QUOTED value (`TYPE="a,b"`) is a single literal whose comma is
-    // not a separator, so it is left intact.
-    const parts =
-      name === "type" && !wasQuoted && paramValue.includes(",")
-        ? paramValue
-            .split(",")
-            .map((p) => p.trim())
-            .filter((p) => p.length > 0)
-        : [];
-    if (parts.length > 0) {
-      for (const value of parts) params.push({ name, value });
-    } else {
-      params.push({ name, value: paramValue });
-    }
+    const paramValue = dequoteParam(eq >= 0 ? segment.slice(eq + 1) : "");
+    params.push({ name, value: paramValue });
   }
 
   return {
@@ -176,24 +144,13 @@ function toRecord(lines: string[]): RawRecord {
   };
 }
 
-/** First value of the named parameter, if present. */
+/** First value of the named parameter (case-insensitive), if present. */
 export function firstParam(
-  record: RawRecord,
+  params: VCardParam[],
   name: string,
 ): string | undefined {
-  return record.params.find((p) => p.name === name)?.value;
-}
-
-/** The ergonomic primary TYPE: first `type` value that is not `pref`. */
-export function primaryType(record: RawRecord): string | undefined {
-  for (const param of record.params) {
-    if (param.name !== "type") continue;
-    for (const candidate of param.value.split(",")) {
-      const lowered = candidate.trim().toLowerCase();
-      if (lowered && lowered !== "pref") return lowered;
-    }
-  }
-  return undefined;
+  const lower = name.toLowerCase();
+  return params.find((p) => p.name.toLowerCase() === lower)?.value;
 }
 
 /**
@@ -225,64 +182,15 @@ export function splitOnUnescaped(
 }
 
 // ---------------------------------------------------------------------------
-// Apple X-ABLabel wrappers
-// ---------------------------------------------------------------------------
-
-/**
- * Apple wraps its built-in labels in `_$!<Label>!$_`. The set below is keyed by
- * lowercase label so {@link encodeLabel} can re-wrap a decoded built-in label
- * on write (a custom label like "Best friend" is emitted bare). Keeping the
- * canonical casing here is what makes a built-in label round-trip.
- */
-const APPLE_STANDARD_LABELS = new Map<string, string>(
-  [
-    "Work",
-    "Home",
-    "Other",
-    "Mobile",
-    "Main",
-    "HomeFax",
-    "WorkFax",
-    "OtherFax",
-    "Pager",
-    "HomePage",
-    "Anniversary",
-    "Spouse",
-    "Child",
-    "Parent",
-    "Mother",
-    "Father",
-    "Brother",
-    "Sister",
-    "Friend",
-    "Partner",
-    "Assistant",
-    "Manager",
-  ].map((label) => [label.toLowerCase(), label]),
-);
-
-/** Decode Apple's `_$!<Label>!$_` wrapper to a plain label. */
-export function decodeLabel(label: string): string {
-  const match = /^_\$!<(.+)>!\$_$/.exec(label);
-  return match ? (match[1] as string) : label;
-}
-
-/** Re-wrap a built-in Apple label; emit a custom label unchanged. */
-export function encodeLabel(label: string): string {
-  const canonical = APPLE_STANDARD_LABELS.get(label.toLowerCase());
-  return canonical ? `_$!<${canonical}>!$_` : label;
-}
-
-// ---------------------------------------------------------------------------
-// Emit / escape primitives
+// Escape / emit primitives
 // ---------------------------------------------------------------------------
 
 /**
  * Escape a value per RFC 6350 (backslash, comma, semicolon, newline). Used for
- * free-text values and for individual components of structured values (`N`,
- * `ADR`), where the literal `;` separators are added by the caller afterwards.
- * `\r`, `\r\n` and `\n` all collapse to the `\n` escape so a stray line ending
- * in user-supplied text cannot break the on-wire grammar.
+ * free-text values and for individual components of structured values, where the
+ * literal `;`/`,` separators are added by the caller afterwards. `\r`, `\r\n`
+ * and `\n` all collapse to the `\n` escape so a stray line ending in
+ * user-supplied text cannot break the on-wire grammar.
  */
 export function escapeText(value: string): string {
   return value
@@ -292,7 +200,8 @@ export function escapeText(value: string): string {
     .replace(/;/g, "\\;");
 }
 
-function unescapeText(value: string): string {
+/** Decode RFC 6350 text escapes (`\\`, `\,`, `\;`, `\n`). */
+export function unescapeText(value: string): string {
   return value.replace(/\\([\\,;nN])/g, (_m, ch: string) =>
     ch === "n" || ch === "N" ? "\n" : ch,
   );
@@ -354,24 +263,4 @@ export function emitProperty(spec: PropertySpec): string {
     header += `;${param.name}=${escapeParamValue(param.value)}`;
   }
   return foldLine(`${header}:${spec.value}`);
-}
-
-// ---------------------------------------------------------------------------
-// Group allocation
-// ---------------------------------------------------------------------------
-
-/**
- * Allocate fresh `itemN` group prefixes that do not collide with any group
- * already present (passed in so preserved `custom` groups are respected).
- */
-export function makeGroupAllocator(
-  existingGroups: Iterable<string | null | undefined>,
-): () => string {
-  let max = 0;
-  for (const group of existingGroups) {
-    const match = group ? /^item(\d+)$/.exec(group) : null;
-    if (match) max = Math.max(max, Number(match[1]));
-  }
-  let next = max;
-  return () => `item${++next}`;
 }
