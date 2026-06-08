@@ -15,13 +15,15 @@ export type HtmlAdapter<T = unknown, R = HtmlResult> = Transformer<T, R> &
 
 /**
  * Read-mode HTML adapter. As a destination its `send` reads the file, extracts
- * via the selector, and returns the result, so it works mid-route via
- * `.enrich()` / `.to()` (like an HTTP GET). With a static path it also remains
- * usable as a `.from()` source.
+ * via the selector, and returns the raw extracted result, so it works mid-route
+ * via `.enrich()` / `.to()` (like an HTTP GET). With a static path it also
+ * remains usable as a `.from()` source. Read mode returns `HtmlResult` directly;
+ * the transformer-mode `to` mapping is not applied (mirroring how json/csv/jsonl
+ * read modes return the raw parsed value and leave placement to `.enrich()`).
  */
 export type HtmlReadAdapter<T = unknown, R = HtmlResult> = Transformer<T, R> &
   Source<HtmlResult> &
-  Destination<unknown, R> & { readonly adapterId: string };
+  Destination<unknown, HtmlResult> & { readonly adapterId: string };
 
 /**
  * Create an HTML adapter that extracts data from HTML using CSS selectors (cheerio).
