@@ -24,6 +24,18 @@ import {
 const CRLF = "\r\n";
 const DEFAULT_VERSION = "3.0";
 
+/** Valid characters for a vCard property name, group, or parameter name. */
+const NAME_PATTERN = /^[A-Za-z0-9-]+$/;
+
+/** Throw on a name/group/param that could break the header grammar on emit. */
+function assertValidName(value: string, kind = "property name"): void {
+  if (!NAME_PATTERN.test(value)) {
+    throw new SyntaxError(
+      `Invalid vCard ${kind} ${JSON.stringify(value)}: only letters, digits, and hyphens are allowed.`,
+    );
+  }
+}
+
 /** Options when constructing or adding a property. */
 export interface VCardPropertyOptions {
   /** Group prefix (e.g. `"item1"`) for label-grouped properties. */
@@ -57,6 +69,16 @@ export class VCardProperty {
     value: string,
     options: VCardPropertyOptions & { raw?: boolean } = {},
   ) {
+    // Caller-supplied names/groups/params are validated so they cannot inject a
+    // colon, semicolon, or newline into the header and forge or split a
+    // property on write. The parser (`raw: true`) trusts the lexer's output.
+    if (!options.raw) {
+      assertValidName(name);
+      if (options.group !== undefined) assertValidName(options.group, "group");
+      for (const param of options.params ?? []) {
+        assertValidName(param.name, "parameter name");
+      }
+    }
     this.name = name;
     this.group = options.group;
     this.params = options.params ?? [];
@@ -74,9 +96,6 @@ export class VCardProperty {
   /** The escaped wire value, exactly as it appears after the colon. */
   get raw(): string {
     return this.#raw;
-  }
-  set raw(v: string) {
-    this.#raw = v;
   }
 
   /** Decoded components of a structured value, split on unescaped `separator`. */
@@ -141,11 +160,19 @@ export class VCard {
     const properties: VCardProperty[] = [];
 
     for (const record of records) {
-      if (record.name === "begin" && record.value.toUpperCase() === "VCARD") {
+      if (
+        record.name === "begin" &&
+        !record.group &&
+        record.value.toUpperCase() === "VCARD"
+      ) {
         beginCount++;
         continue;
       }
-      if (record.name === "end" && record.value.toUpperCase() === "VCARD") {
+      if (
+        record.name === "end" &&
+        !record.group &&
+        record.value.toUpperCase() === "VCARD"
+      ) {
         hasEnd = true;
         continue;
       }
@@ -227,15 +254,12 @@ export class VCard {
 
   // -- writes ----------------------------------------------------------------
 
-  /** Append a property. */
+  /**
+   * Append a property. To append an already-built {@link VCardProperty} (e.g. a
+   * clone), push it onto {@link VCard.properties} directly.
+   */
   add(name: string, value: string, options?: VCardPropertyOptions): this {
     this.properties.push(new VCardProperty(name, value, options ?? {}));
-    return this;
-  }
-
-  /** Append an already-built property. */
-  addProperty(property: VCardProperty): this {
-    this.properties.push(property);
     return this;
   }
 

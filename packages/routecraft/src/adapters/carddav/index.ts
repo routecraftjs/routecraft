@@ -25,8 +25,9 @@ import type {
  * the card with the document you hand back.
  *
  * **Read (`.from()` / `.enrich()`):** call with no `action`. `.from(carddav())`
- * emits one {@link VCard} per address-book entry; `.enrich(carddav())` returns
- * all cards as a `VCard[]`.
+ * emits one {@link VCard} per address-book entry; `.enrich(carddav())` fetches
+ * all cards (merged onto the exchange under numeric keys by default; pass
+ * `replace()` as the aggregator to get a `VCard[]` body).
  *
  * **Write (`.to()`):** `action: 'save'` upserts (writes to the card's `url`,
  * else creates), `'create'` always inserts, `'update'` writes to the card's

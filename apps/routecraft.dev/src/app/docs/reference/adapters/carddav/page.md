@@ -62,7 +62,7 @@ craft()
   .to(writeCsv('contacts.csv'))
 ```
 
-**Write (`.to()`):** a write serializes the whole `VCard` and replaces the card; it does not merge. Because reading is lossless, a read-modify-write keeps every property you did not touch, and removing a property removes it from the card, exactly like an `UPDATE` of a database row. `action: 'save'` upserts: it writes to the card's `url` when present, otherwise creates. `'create'` always inserts (injecting a `UID` if absent). `'update'` writes to the card's `url` and raises `RC5014` if none is resolvable, so read the card first (it then carries its `url`/`etag`). Update and delete send the read-time `etag` as an `If-Match` precondition, so a concurrent change on the server surfaces as a non-retryable conflict (`RC5028`) instead of silently overwriting.
+**Write (`.to()`):** a write serializes the whole `VCard` and replaces the card; it does not merge. Because reading is lossless, a read-modify-write keeps every property you did not touch, and removing a property removes it from the card, exactly like an `UPDATE` of a database row. `action: 'save'` upserts: it writes to the card's `url` when present, otherwise creates. `'create'` always inserts (injecting a `UID` if absent). `'update'` writes to the card's `url` and raises `RC5014` if none is resolvable, so read the card first (it then carries its `url`/`etag`). Update and delete send the read-time `etag` as an `If-Match` precondition, so a concurrent change on the server surfaces as a non-retryable conflict (`RC5030`) instead of silently overwriting.
 
 ```ts
 // Read a card, edit one property, write it back. Everything else is preserved.

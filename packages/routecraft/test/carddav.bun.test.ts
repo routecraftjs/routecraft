@@ -310,6 +310,39 @@ describe("VCard document", () => {
         SyntaxError,
       );
     });
+
+    /**
+     * @case A grouped property named begin/end is not mistaken for the envelope
+     * @preconditions A valid single card containing `item1.BEGIN:VCARD`
+     * @expectedResult The card parses and keeps the grouped property as content
+     */
+    test("does not treat a grouped begin/end as the envelope", () => {
+      const card = VCard.parse(
+        [
+          "BEGIN:VCARD",
+          "VERSION:3.0",
+          "item1.BEGIN:VCARD",
+          "FN:x",
+          "END:VCARD",
+        ].join("\r\n"),
+      );
+      expect(card.text("FN")).toBe("x");
+      const grouped = card.get("BEGIN").find((p) => p.group === "item1");
+      expect(grouped?.value).toBe("VCARD");
+    });
+
+    /**
+     * @case A property name/group that could break the header grammar is rejected
+     * @preconditions add() with a name containing CRLF, or a group containing a dot
+     * @expectedResult A SyntaxError is thrown instead of emitting a forged property
+     */
+    test("rejects an injectable property name or group", () => {
+      expect(() => new VCard().add("FN:x\r\nEVIL", "y")).toThrow(SyntaxError);
+      expect(() => new VCard().add("OK", "y", { group: "a.b" })).toThrow(
+        SyntaxError,
+      );
+      expect(() => new VCard().add("", "y")).toThrow(SyntaxError);
+    });
   });
 });
 
@@ -462,6 +495,30 @@ describe("CardDAV destination (write)", () => {
     const result = s.received[0]?.body as CardDAVWriteResult;
     expect(result.created).toBe(true);
     expect(driver.calls.fetchVCards).toBe(0);
+  });
+
+  /**
+   * @case A UID with URL-unsafe characters is escaped into a single filename segment
+   * @preconditions A new VCard whose UID contains a slash
+   * @expectedResult The create filename is percent-encoded (one path segment)
+   */
+  test("url-escapes a UID with unsafe characters in the filename", async () => {
+    const driver = fakeDriver([]);
+    CardDAVClientManager.createDriverClient = async () => driver;
+
+    const card = new VCard().add("UID", "foo/bar").add("FN", "Slash");
+    t = await testContext()
+      .with(ACCOUNT_CONFIG)
+      .routes(
+        craft()
+          .from(simple(card))
+          .to(carddav({ action: "create" })),
+      )
+      .build();
+    await t.test();
+
+    expect(t.errors).toHaveLength(0);
+    expect(driver.created[0]?.filename).toBe("foo%2Fbar.vcf");
   });
 
   /**

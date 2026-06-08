@@ -6,7 +6,9 @@
  * `action` flag on the options:
  *
  * - no action (read): `.from(carddav())` emits one {@link VCard} per
- *   address-book entry; `.enrich(carddav())` returns all cards as a `VCard[]`.
+ *   address-book entry; `.enrich(carddav())` fetches all cards (the default
+ *   aggregator merges them onto the exchange under numeric keys; use
+ *   `.enrich(carddav(), replace())` to get a `VCard[]` body).
  * - `action: 'save' | 'create' | 'update'`: `.to(carddav(...))` serializes the
  *   exchange body (a `VCard`) and writes it. A write replaces the card; it does
  *   not merge. Reading is lossless, so a read-modify-write keeps properties you
@@ -76,8 +78,18 @@ interface NormalizedOptions {
 function uidFromUrl(url: string): string | undefined {
   const last = url.split("/").pop();
   if (!last) return undefined;
-  const uid = last.replace(/\.vcf$/i, "");
-  return uid.length > 0 ? uid : undefined;
+  const encoded = last.replace(/\.vcf$/i, "");
+  if (encoded.length === 0) return undefined;
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    return encoded;
+  }
+}
+
+/** Build the resource filename for a UID, URL-escaping it into one path segment. */
+function vcfFilename(uid: string): string {
+  return `${encodeURIComponent(uid)}.vcf`;
 }
 
 /**
@@ -278,7 +290,7 @@ export class CardDAVAdapter
     }
     const book = await this.resolveBook(client, manager, account);
     const uid = card.uid ?? target.uid ?? randomUUID();
-    const filename = `${uid}.vcf`;
+    const filename = vcfFilename(uid);
     let response: Response;
     try {
       response = await client.createVCard({
@@ -333,7 +345,7 @@ export class CardDAVAdapter
     card: VCard,
   ): Promise<CardDAVWriteResult> {
     const uid = card.uid ?? randomUUID();
-    const filename = `${uid}.vcf`;
+    const filename = vcfFilename(uid);
     let response: Response;
     try {
       response = await client.createVCard({
