@@ -506,7 +506,7 @@ describe("CardDAV destination (write)", () => {
   /**
    * @case A stale etag is rejected by the server precondition (lost-update guard)
    * @preconditions The server card is at etag "2"; the body carries the stale "1"
-   * @expectedResult The 412 surfaces as the non-retryable RC5028 conflict code
+   * @expectedResult The 412 surfaces as the non-retryable RC5030 conflict code
    */
   test("update with a stale etag surfaces a conflict", async () => {
     const driver = fakeDriver([
@@ -528,7 +528,7 @@ describe("CardDAV destination (write)", () => {
       .build();
     await t.test();
 
-    const conflict = t.errors.find((e) => e.rc === "RC5028");
+    const conflict = t.errors.find((e) => e.rc === "RC5030");
     expect(conflict).toBeDefined();
     expect(conflict?.retryable).toBe(false);
   });

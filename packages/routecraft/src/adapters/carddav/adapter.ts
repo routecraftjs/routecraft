@@ -16,7 +16,7 @@
  *
  * Update and delete target the card's `url` and send its read-time `etag` as an
  * `If-Match` precondition, so a concurrent change on the server surfaces as a
- * conflict (RC5028) instead of being silently overwritten. They do not re-fetch
+ * conflict (RC5030) instead of being silently overwritten. They do not re-fetch
  * the address book; only an upsert without a known `url` (or a delete by `uid`
  * alone) pays a lookup.
  *
