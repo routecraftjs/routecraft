@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
-import { craft, simple, carddav, VCard } from "@routecraft/routecraft";
+import {
+  craft,
+  simple,
+  carddav,
+  VCard,
+  VCARD,
+  VPARAM,
+} from "@routecraft/routecraft";
 import { CardDAVClientManager } from "../src/adapters/carddav/client-manager.ts";
 import type {
   CardDAVDriverClient,
@@ -265,6 +272,21 @@ describe("VCard document", () => {
       copy.set("NOTE", "changed");
       expect(card.text("NOTE")).toBe("Met at the conference.");
       expect(copy.text("NOTE")).toBe("changed");
+    });
+  });
+
+  describe("constants", () => {
+    /**
+     * @case The name constants resolve property and parameter lookups
+     * @preconditions A parsed card read via VCARD / VPARAM constants
+     * @expectedResult Reading by constant matches reading by string literal
+     */
+    test("VCARD / VPARAM drive lookups and carry the wire names", () => {
+      const card = VCard.parse(ICLOUD_VCARD);
+      expect(card.text(VCARD.FN)).toBe("Jane Q Doe");
+      expect(card.first(VCARD.EMAIL)?.param(VPARAM.TYPE)).toBe("INTERNET");
+      expect(VCARD.X_ABLABEL).toBe("X-ABLabel");
+      expect(VCARD.X_SOCIALPROFILE).toBe("X-SOCIALPROFILE");
     });
   });
 

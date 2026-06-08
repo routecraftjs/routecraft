@@ -101,6 +101,8 @@ export type {
 export { VCard, VCardProperty, parseVCard } from "./vcard.ts";
 export type { VCardPropertyOptions } from "./vcard.ts";
 export type { VCardParam } from "./vcard-raw.ts";
+export { VCARD, VPARAM } from "./constants.ts";
+export type { KnownProperty, KnownParam } from "./constants.ts";
 export type {
   CardDAVOptions,
   CardDAVReadOptions,

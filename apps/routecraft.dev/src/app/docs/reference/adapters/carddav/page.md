@@ -148,4 +148,6 @@ card.toString()                 // serialize back to wire form
 
 **Exchange headers** on read: `routecraft.carddav.url`, `routecraft.carddav.uid`, `routecraft.carddav.etag`, `routecraft.carddav.account`.
 
-**Exports:** `VCard`, `VCardProperty`, `parseVCard` (values); `CardDAVOptions`, `CardDAVReadOptions`, `CardDAVWriteOptions`, `CardDAVDeleteOptions`, `CardDAVContextConfig`, `CardDAVAccountConfig`, `CardDAVAction`, `CardDAVTargetExtractor`, `CardDAVWriteResult`, `CardDAVDeleteResult`, `VCardParam`, `VCardPropertyOptions`, `CardDAVClientManager`, `CARDDAV_CLIENT_MANAGER` (types).
+**Known names:** `VCARD` and `VPARAM` are convenience constants for the standard vCard property and parameter names (e.g. `card.text(VCARD.FN)`), with `KnownProperty` / `KnownParam` union types. They are values for autocomplete and typo-safety, not a constraint: every method still accepts an arbitrary `string`, so any property works.
+
+**Exports:** `VCard`, `VCardProperty`, `parseVCard`, `VCARD`, `VPARAM` (values); `CardDAVOptions`, `CardDAVReadOptions`, `CardDAVWriteOptions`, `CardDAVDeleteOptions`, `CardDAVContextConfig`, `CardDAVAccountConfig`, `CardDAVAction`, `CardDAVTargetExtractor`, `CardDAVWriteResult`, `CardDAVDeleteResult`, `VCardParam`, `VCardPropertyOptions`, `KnownProperty`, `KnownParam`, `CardDAVClientManager`, `CARDDAV_CLIENT_MANAGER` (types).
