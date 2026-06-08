@@ -56,10 +56,15 @@ export interface JsonlDestinationOptions {
 
   /**
    * File operation mode.
+   * - 'read': Read + parse the JSONL file and return the array, so the adapter
+   *   works mid-route via `.enrich()` / `.to()` (like an HTTP GET). Parse
+   *   failures throw; the route boundary surfaces them as `exchange:failed`.
    * - 'write': Overwrite the file
    * - 'append': Append to the file (default)
+   * - 'delete': Delete the file (destination mode). Idempotent: an already-
+   *   absent path is a no-op. The body is unchanged. Supports dynamic paths.
    */
-  mode?: "write" | "append";
+  mode?: "read" | "write" | "append" | "delete";
 
   /**
    * Create parent directories if they don't exist.
@@ -75,6 +80,34 @@ export interface JsonlDestinationOptions {
     | ((key: string, value: unknown) => unknown)
     | Array<string | number>
     | null;
+
+  /**
+   * Optional reviver passed to JSON.parse (read mode only).
+   */
+  reviver?: (key: string, value: unknown) => unknown;
+}
+
+/**
+ * Transformer-mode options (no `path`): parse a JSONL string already in the
+ * body into an array.
+ */
+export interface JsonlTransformerOptions<T = unknown, R = unknown> {
+  /**
+   * Pluck the JSONL string from the body. If omitted: body is used when it's a
+   * string, or body.body when body is an object (e.g. after http()).
+   */
+  from?: (body: T) => string;
+
+  /**
+   * Where to put the parsed array. If omitted, the result replaces the entire
+   * body. Use e.g. (body, rows) => ({ ...body, rows }) to write to a sub-field.
+   */
+  to?: (body: T, result: unknown[]) => R;
+
+  /**
+   * Optional reviver passed to JSON.parse.
+   */
+  reviver?: (key: string, value: unknown) => unknown;
 }
 
 /**
@@ -86,4 +119,5 @@ export type JsonlCombinedOptions = JsonlSourceOptions &
 export type JsonlOptions =
   | JsonlSourceOptions
   | JsonlDestinationOptions
-  | JsonlCombinedOptions;
+  | JsonlCombinedOptions
+  | JsonlTransformerOptions;

@@ -5,7 +5,7 @@ title: json
 [← All adapters](/docs/reference/adapters) {% .lead %}
 
 ```ts
-json(options?: JsonOptions): JsonAdapter | JsonFileAdapter
+json(options?: JsonOptions): Transformer | JsonFileAdapterType | JsonReadAdapter
 ```
 
 Parse and format JSON data, or read/write JSON files.
@@ -45,6 +45,19 @@ Parse and format JSON data, or read/write JSON files.
 }))
 ```
 
+**Read mid-route** (read + parse a JSON file partway through a route): In `read` mode the adapter is also a destination whose `send` reads and parses the file and returns the parsed value, so `.enrich()` / `.to()` can pull it in, the same way an HTTP `GET` returns a body. Pass the type parameter for a typed merge. Read-as-destination accepts dynamic (function) paths. Parse failures throw and surface through the pipeline (the `onParseError` lifecycle controls apply to source mode only).
+
+```ts
+// Enrich the body with a parsed catalogue, keeping the existing fields
+.enrich(
+  json<Product[]>({ path: './products.json', mode: 'read' }),
+  only((catalogue) => catalogue, 'catalogue'),
+)
+
+// Replace the body with the parsed file
+.to(json({ path: './data.json', mode: 'read' }))
+```
+
 **Destination mode** (write JSON files):
 ```ts
 // Write with formatting
@@ -67,6 +80,9 @@ Parse and format JSON data, or read/write JSON files.
     return value;
   }
 }))
+
+// Delete a JSON file (idempotent: an already-absent path is a no-op)
+.to(json({ path: (ex) => ex.body.processedPath, mode: 'delete' }))
 ```
 
 **Transformer Options** (when no `path` provided):
@@ -83,7 +99,7 @@ Parse and format JSON data, or read/write JSON files.
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `path` | `string \| (exchange) => string` | Required | File path (static or dynamic) |
-| `mode` | `'read' \| 'write' \| 'append'` | `'read'` for source, `'write'` for destination | File operation mode |
+| `mode` | `'read' \| 'write' \| 'append' \| 'delete'` | `'read'` for source, `'write'` for destination | File operation mode (`delete` removes the file, idempotently) |
 | `encoding` | `BufferEncoding` | `'utf-8'` | Text encoding |
 | `createDirs` | `boolean` | `false` | Create parent directories (destination only) |
 | `indent` / `space` | `number` | `0` | JSON formatting spaces (destination only) |
@@ -91,4 +107,4 @@ Parse and format JSON data, or read/write JSON files.
 | `replacer` | `(key, value) => unknown` | -- | JSON.stringify replacer (destination only) |
 | `onParseError` | `'fail' \| 'abort' \| 'drop'` | `'fail'` | How to handle a parse failure (source only). See [parse error handling](/docs/reference/adapters#parse-error-handling). |
 
-**Exported types:** `JsonAdapter`, `JsonFileAdapter`, `JsonOptions`, `JsonTransformerOptions`, `JsonFileOptions`
+**Exported types:** `JsonFileAdapterType`, `JsonReadAdapter`, `JsonOptions`, `JsonTransformerOptions`, `JsonFileOptions`

@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
-import { craft, simple, html, type HtmlResult } from "@routecraft/routecraft";
+import {
+  craft,
+  simple,
+  html,
+  only,
+  type HtmlResult,
+} from "@routecraft/routecraft";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -679,6 +685,212 @@ describe("HTML Adapter", () => {
       expect(failed.length).toBe(1);
       expect((failed[0].error as { rc?: string }).rc).toBe("RC5016");
       expect(ctxErrs.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe("read mode as destination (mid-route read)", () => {
+    let tempDir: string;
+    let testFile: string;
+
+    afterEach(async () => {
+      if (tempDir) {
+        try {
+          await fs.rm(tempDir, { recursive: true, force: true });
+        } catch {
+          // Ignore cleanup errors
+        }
+      }
+    });
+
+    /**
+     * @case html({mode:'read'}) used with .enrich() reads the file, extracts via
+     *   the selector, and merges the result onto the body
+     * @preconditions File holds HTML with a matching element
+     * @expectedResult The extracted text is placed on the chosen field
+     */
+    test("enrich merges the extracted value onto the body", async () => {
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "html-read-test-"));
+      testFile = path.join(tempDir, "page.html");
+      await fs.writeFile(
+        testFile,
+        "<html><body><h1>Title Here</h1></body></html>",
+      );
+
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("html-read-enrich")
+            .from(simple<{ keep: boolean }>({ keep: true }))
+            .enrich(
+              html({ path: testFile, selector: "h1", mode: "read" }),
+              only((title: HtmlResult) => title, "title"),
+            )
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(s.received).toHaveLength(1);
+      expect(s.received[0].body).toEqual({ keep: true, title: "Title Here" });
+    });
+
+    /**
+     * @case Read-as-destination resolves a dynamic (function) path from the body
+     * @preconditions Body carries the file name; path is a function of the body
+     * @expectedResult The file selected by the body is read and extracted
+     */
+    test("supports a dynamic (function) path", async () => {
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "html-read-test-"));
+      testFile = path.join(tempDir, "page.html");
+      await fs.writeFile(testFile, "<html><body><p>Picked</p></body></html>");
+
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("html-read-dynamic")
+            .from(simple<{ file: string }>({ file: testFile }))
+            .to(
+              html({
+                path: (ex) => (ex.body as { file: string }).file,
+                selector: "p",
+                mode: "read",
+              }),
+            )
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(s.received).toHaveLength(1);
+      expect(s.received[0].body).toBe("Picked");
+    });
+  });
+
+  describe("delete mode", () => {
+    let tempDir: string;
+    let testFile: string;
+
+    afterEach(async () => {
+      if (tempDir) {
+        try {
+          await fs.rm(tempDir, { recursive: true, force: true });
+        } catch {
+          // Ignore cleanup errors
+        }
+      }
+    });
+
+    /**
+     * @case html({mode:'delete'}) removes the file and passes the body through
+     * @preconditions File exists
+     * @expectedResult The file is gone and the body is unchanged
+     */
+    test("deletes the file and passes the body through", async () => {
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "html-delete-test-"));
+      testFile = path.join(tempDir, "page.html");
+      await fs.writeFile(testFile, "<html></html>");
+
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("html-delete")
+            .from(simple({ keep: true }))
+            .to(html({ path: testFile, mode: "delete" }))
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      await expect(fs.access(testFile)).rejects.toThrow();
+      expect(s.received).toHaveLength(1);
+      expect(s.received[0].body).toEqual({ keep: true });
+    });
+
+    /**
+     * @case Deleting via a dynamic (function) path works mid-route
+     * @preconditions Body carries the path to delete; file exists
+     * @expectedResult The file selected by the body is removed
+     */
+    test("supports a dynamic (function) path", async () => {
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "html-delete-test-"));
+      testFile = path.join(tempDir, "page.html");
+      await fs.writeFile(testFile, "<html></html>");
+
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("html-delete-dynamic")
+            .from(simple<{ file: string }>({ file: testFile }))
+            .to(
+              html({
+                path: (ex) => (ex.body as { file: string }).file,
+                mode: "delete",
+              }),
+            )
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      await expect(fs.access(testFile)).rejects.toThrow();
+      expect(s.received).toHaveLength(1);
+    });
+  });
+
+  describe("dynamic (function) path destination", () => {
+    let tempDir: string;
+
+    afterEach(async () => {
+      if (tempDir) {
+        try {
+          await fs.rm(tempDir, { recursive: true, force: true });
+        } catch {
+          // Ignore cleanup errors
+        }
+      }
+    });
+
+    /**
+     * @case A function path writes the HTML body to the resolved file
+     * @preconditions Body carries the target file name
+     * @expectedResult The file is written at the path derived from the body
+     */
+    test("writes to a path derived from the body", async () => {
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "html-dyn-test-"));
+      const target = path.join(tempDir, "out.html");
+      const htmlContent = "<html><body><p>Dynamic</p></body></html>";
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("html-dest-dynamic")
+            .from(
+              simple<{ file: string; html: string }>({
+                file: target,
+                html: htmlContent,
+              }),
+            )
+            .transform((b) => b.html)
+            .to(html({ path: () => target, mode: "write" })),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      const fileContent = await fs.readFile(target, "utf-8");
+      expect(fileContent).toBe(htmlContent);
     });
   });
 });

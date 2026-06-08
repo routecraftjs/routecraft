@@ -273,19 +273,40 @@ export {
   type CronExpression,
   type CronOptions,
 } from "./adapters/cron/index.ts";
-export { type FileOptions } from "./adapters/file/index.ts";
-export { type HtmlOptions, type HtmlResult } from "./adapters/html/index.ts";
+export {
+  type FileOptions,
+  type FileAdapter,
+  type FileReadAdapter,
+} from "./adapters/file/index.ts";
+export {
+  type HtmlOptions,
+  type HtmlResult,
+  type HtmlAdapter,
+  type HtmlReadAdapter,
+} from "./adapters/html/index.ts";
 export {
   type JsonOptions,
   type JsonTransformerOptions,
   type JsonFileOptions,
+  type JsonFileAdapterType,
+  type JsonReadAdapter,
 } from "./adapters/json/index.ts";
-export { type CsvOptions, type CsvRow } from "./adapters/csv/index.ts";
+export {
+  type CsvOptions,
+  type CsvTransformerOptions,
+  type CsvFileOptions,
+  type CsvRow,
+  type CsvData,
+  type CsvAdapter,
+  type CsvReadAdapter,
+} from "./adapters/csv/index.ts";
 export {
   type JsonlOptions,
   type JsonlSourceOptions,
   type JsonlDestinationOptions,
   type JsonlCombinedOptions,
+  type JsonlTransformerOptions,
+  type JsonlReadAdapter,
 } from "./adapters/jsonl/index.ts";
 export { type GroupOptions } from "./adapters/group/index.ts";
 export {

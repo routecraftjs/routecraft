@@ -10,6 +10,15 @@ export type FileAdapter = Source<string> &
   Destination<unknown, void> & { readonly adapterId: string };
 
 /**
+ * Read-mode file adapter. As a destination its `send` returns the file content
+ * (string), so it works mid-route with `.enrich()` / `.to()`, like an HTTP GET
+ * is a destination that returns the fetched body. It remains usable as a
+ * `.from()` source too.
+ */
+export type FileReadAdapter = Source<string> &
+  Destination<unknown, string> & { readonly adapterId: string };
+
+/**
  * Creates a file adapter in chunked source mode.
  * Emits one exchange per line with FILE_LINE and FILE_PATH headers.
  *
@@ -19,6 +28,21 @@ export type FileAdapter = Source<string> &
 export function file(
   options: FileOptions & { chunked: true },
 ): Source<string> & { readonly adapterId: string };
+/**
+ * Creates a file adapter in read mode. Usable as a `.from()` source and,
+ * because read mode returns the file content, mid-route via `.enrich()` /
+ * `.to()`. Supports dynamic (function) paths when used as a destination.
+ *
+ * @param options - File options with mode: 'read'
+ * @returns A combined Source and content-returning Destination adapter
+ *
+ * @example
+ * ```typescript
+ * // Pull a file into the body mid-route, alongside the existing data
+ * .enrich(file({ path: './config.txt', mode: 'read' }), only((s: string) => s, 'config'))
+ * ```
+ */
+export function file(options: FileOptions & { mode: "read" }): FileReadAdapter;
 /**
  * Creates a file adapter for reading or writing plain text files.
  *
@@ -53,7 +77,9 @@ export function file(
  * ```
  */
 export function file(options: FileOptions): FileAdapter;
-export function file(options: FileOptions): Source<string> | FileAdapter {
+export function file(
+  options: FileOptions,
+): Source<string> | FileAdapter | FileReadAdapter {
   const args = factoryArgs(options);
   const source = new FileSourceAdapter(options);
   if (options.chunked) {
@@ -67,7 +93,7 @@ export function file(options: FileOptions): Source<string> | FileAdapter {
     );
   }
   const destination = new FileDestinationAdapter(options);
-  return tagAdapter(
+  const adapter = tagAdapter(
     {
       adapterId: "routecraft.adapter.file",
       subscribe: source.subscribe,
@@ -76,6 +102,15 @@ export function file(options: FileOptions): Source<string> | FileAdapter {
     file,
     args,
   );
+  // The single `send` resolves to the file content (string) in read mode and
+  // to nothing (void) when writing/appending. Narrow the public type per mode
+  // so callers infer the right body: a string in read mode, an unchanged body
+  // otherwise. The runtime object is identical; only its declared `send` return
+  // differs.
+  if (options.mode === "read") {
+    return adapter as unknown as FileReadAdapter;
+  }
+  return adapter as unknown as FileAdapter;
 }
 
 // Re-export types for public API

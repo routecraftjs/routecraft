@@ -1,18 +1,48 @@
 import * as fsp from "node:fs/promises";
 import type { Destination, CallableDestination } from "../../operations/to.ts";
-import type { CsvOptions } from "./types.ts";
+import type { CsvFileOptions, CsvData } from "./types.ts";
 import { file } from "../file/index.ts";
-import { ensurePapaparse } from "./shared.ts";
+import { ensurePapaparse, parseCsv } from "./shared.ts";
 
 /**
- * CsvDestinationAdapter writes arrays of objects to CSV files.
+ * CsvDestinationAdapter handles CSV file I/O as a destination.
+ *
+ * - `write` / `append` (default): format the exchange body (object or array of
+ *   objects) as CSV and write it.
+ * - `read`: read the file, parse it, and return the parsed rows, so the adapter
+ *   works mid-route via `.enrich()` / `.to()` (like an HTTP GET). Parse failures
+ *   throw; the route boundary surfaces them as `exchange:failed`. The
+ *   `onParseError` lifecycle controls (`'abort'` / `'drop'`) remain source-only.
+ * - `delete`: delete the file and pass the body through unchanged. Idempotent.
  */
-export class CsvDestinationAdapter implements Destination<unknown, void> {
+export class CsvDestinationAdapter implements Destination<unknown, unknown> {
   readonly adapterId = "routecraft.adapter.csv";
 
-  constructor(private readonly options: CsvOptions) {}
+  constructor(private readonly options: CsvFileOptions) {}
 
-  send: CallableDestination<unknown, void> = async (exchange) => {
+  send: CallableDestination<unknown, unknown> = async (exchange) => {
+    const resolvedPath =
+      typeof this.options.path === "function"
+        ? this.options.path(exchange)
+        : this.options.path;
+
+    // Read mode: read the file via the file adapter, then parse and return.
+    if (this.options.mode === "read") {
+      const readAdapter = file({
+        path: resolvedPath,
+        mode: "read",
+        encoding: this.options.encoding || "utf-8",
+      });
+      const content = await readAdapter.send(exchange);
+      return parseCsv(content, this.options) as CsvData;
+    }
+
+    // Delete mode: delegate to the file adapter (no format). Idempotent.
+    if (this.options.mode === "delete") {
+      const deleteAdapter = file({ path: resolvedPath, mode: "delete" });
+      return deleteAdapter.send(exchange);
+    }
+
     const Papa = ensurePapaparse();
     const {
       header = true,
@@ -32,12 +62,6 @@ export class CsvDestinationAdapter implements Destination<unknown, void> {
         "csv adapter: destination mode requires exchange body to be an object or array of objects",
       );
     }
-
-    // Resolve the file path
-    const resolvedPath =
-      typeof this.options.path === "function"
-        ? this.options.path(exchange)
-        : this.options.path;
 
     // Check if file exists (for append mode header handling)
     let fileExists = false;
