@@ -273,6 +273,18 @@ describe("VCard document", () => {
       expect(card.text("NOTE")).toBe("Met at the conference.");
       expect(copy.text("NOTE")).toBe("changed");
     });
+
+    /**
+     * @case JSON.stringify exposes property values (private field surfaced via toJSON)
+     * @preconditions A parsed card serialized with JSON.stringify
+     * @expectedResult The JSON carries each property's value, not an empty property
+     */
+    test("JSON.stringify exposes property values", () => {
+      const json = JSON.parse(JSON.stringify(VCard.parse(ICLOUD_VCARD)));
+      expect(json.version).toBe("3.0");
+      const fn = json.properties.find((p: { name: string }) => p.name === "FN");
+      expect(fn.value).toBe("Jane Q Doe");
+    });
   });
 
   describe("constants", () => {
@@ -495,6 +507,32 @@ describe("CardDAV destination (write)", () => {
     const result = s.received[0]?.body as CardDAVWriteResult;
     expect(result.created).toBe(true);
     expect(driver.calls.fetchVCards).toBe(0);
+  });
+
+  /**
+   * @case A VCard tapped to a carddav write survives tap's snapshot clone
+   * @preconditions A VCard body tapped into carddav({ action: 'save' })
+   * @expectedResult The tapped write runs (the VCard keeps its prototype through tap's clone)
+   */
+  test("a VCard survives tap's snapshot clone", async () => {
+    const driver = fakeDriver([]);
+    CardDAVClientManager.createDriverClient = async () => driver;
+
+    const card = new VCard().add("FN", "Tapped");
+    t = await testContext()
+      .with(ACCOUNT_CONFIG)
+      .routes(
+        craft()
+          .from(simple(card))
+          .tap(carddav({ action: "save" }))
+          .to(spy()),
+      )
+      .build();
+    await t.test();
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    expect(driver.created).toHaveLength(1);
+    expect(driver.created[0]?.vCardString).toContain("FN:Tapped");
   });
 
   /**

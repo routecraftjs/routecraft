@@ -122,6 +122,25 @@ export class VCardProperty {
       params: this.params.map((p) => ({ ...p })),
     });
   }
+
+  /**
+   * Plain representation for `JSON.stringify` / logging. The value lives in a
+   * private field, so without this a logged property would show no value; the
+   * decoded value is exposed here for readability.
+   */
+  toJSON(): {
+    name: string;
+    group?: string;
+    params: VCardParam[];
+    value: string;
+  } {
+    return {
+      name: this.name,
+      ...(this.group !== undefined ? { group: this.group } : {}),
+      params: this.params,
+      value: this.value,
+    };
+  }
 }
 
 /**
@@ -287,6 +306,21 @@ export class VCard {
     copy.url = this.url;
     copy.etag = this.etag;
     return copy;
+  }
+
+  /** Plain representation for `JSON.stringify` / logging. */
+  toJSON(): {
+    version: string;
+    url?: string;
+    etag?: string;
+    properties: VCardProperty[];
+  } {
+    return {
+      version: this.version,
+      ...(this.url !== undefined ? { url: this.url } : {}),
+      ...(this.etag !== undefined ? { etag: this.etag } : {}),
+      properties: this.properties,
+    };
   }
 }
 

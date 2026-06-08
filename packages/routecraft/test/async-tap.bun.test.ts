@@ -98,6 +98,42 @@ describe("Async Tap Execution", () => {
   });
 
   /**
+   * @case A body with a clone() method is snapshotted via it, preserving its prototype
+   * @preconditions A class-instance body exposing clone() and an instance method
+   * @expectedResult The tapped operation receives an instance of the class, methods intact
+   */
+  test("clones a class-instance body via its clone() method", async () => {
+    class Box {
+      constructor(public value: string) {}
+      clone(): Box {
+        return new Box(this.value);
+      }
+      shout(): string {
+        return this.value.toUpperCase();
+      }
+    }
+    let received: unknown;
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("test-tap-clone-proto")
+          .from(simple(new Box("hi")))
+          .tap((ex) => {
+            received = ex.body;
+          })
+          .to(() => {}),
+      )
+      .build();
+
+    await t.ctx.start();
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    expect(received).toBeInstanceOf(Box);
+    expect((received as Box).shout()).toBe("HI");
+  });
+
+  /**
    * @case Verify tap errors don't affect main route
    * @preconditions Tap that throws an error
    * @expectedResult Route completes successfully despite tap error
