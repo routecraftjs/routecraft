@@ -994,19 +994,108 @@ describe(".cache() route scope: dual-mode wrapper", () => {
   });
 
   /**
-   * @case Routes containing .split() are rejected at build time
-   * @preconditions craft().cache().from().split().to() at build time
-   * @expectedResult RC5003 thrown synchronously with a clear pointer to step-scope cache
+   * @case Unbalanced .split() (no matching .aggregate()) is rejected at build()
+   * @preconditions craft().cache().from().split().to() with no aggregate
+   * @expectedResult RC5003 thrown at .build() pointing to the missing aggregate
    */
-  test("routes containing .split() reject route-scope cache at build time", () => {
+  test("unbalanced .split() rejects route-scope cache at build time", () => {
     expect(() => {
       craft()
-        .id("route-cache-split")
+        .id("route-cache-split-unbalanced")
         .cache({ ttl: 1000 })
         .from<number[]>(simple([1, 2, 3]))
         .split()
-        .to(noop());
-    }).toThrow(/does not support routes containing \.split\(\)/);
+        .to(noop())
+        .build();
+    }).toThrow(/unbalanced \.split\(\)/);
+  });
+
+  /**
+   * @case Balanced .split() + .aggregate() is allowed at build time
+   * @preconditions craft().cache().from().split()...aggregate()...to()
+   * @expectedResult Build succeeds; the route definition is returned
+   */
+  test("balanced .split() + .aggregate() is accepted at build time", () => {
+    expect(() => {
+      craft()
+        .id("route-cache-split-balanced")
+        .cache({ ttl: 1000 })
+        .from<number[]>(simple([1, 2, 3]))
+        .split()
+        .transform((n: number) => n * 2)
+        .aggregate()
+        .to(noop())
+        .build();
+    }).not.toThrow();
+  });
+
+  /**
+   * @case Nested balanced split/aggregate is allowed
+   * @preconditions Two nested split/aggregate pairs around the cache
+   * @expectedResult Build succeeds; nesting collapses depth back to zero
+   */
+  test("nested balanced split/aggregate is accepted at build time", () => {
+    expect(() => {
+      craft()
+        .id("route-cache-split-nested")
+        .cache({ ttl: 1000 })
+        .from<number[][]>(
+          simple([
+            [1, 2],
+            [3, 4],
+          ]),
+        )
+        .split()
+        .split()
+        .transform((n: number) => n + 1)
+        .aggregate()
+        .aggregate()
+        .to(noop())
+        .build();
+    }).not.toThrow();
+  });
+
+  /**
+   * @case Balanced split+aggregate produces one cache write per source body
+   * @preconditions Route with cache, split, transform, aggregate; same input twice
+   * @expectedResult First call computes and caches the aggregated body;
+   *                 second call hits the cache and skips the pipeline.
+   */
+  test("balanced split+aggregate caches the aggregated body", async () => {
+    const provider = new MemoryCacheProvider();
+    let transformRuns = 0;
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("route-cache-split-balanced-runtime")
+          .cache({ provider, key: (e) => JSON.stringify(e.body) })
+          .from(direct())
+          .split()
+          .transform((n: number) => {
+            transformRuns++;
+            return n * 2;
+          })
+          .aggregate()
+          .to(noop()),
+      )
+      .build();
+
+    await t.startAndWaitReady();
+
+    const first = await t.client.send(
+      "route-cache-split-balanced-runtime",
+      [1, 2, 3],
+    );
+    const second = await t.client.send(
+      "route-cache-split-balanced-runtime",
+      [1, 2, 3],
+    );
+
+    expect(transformRuns).toBe(3);
+    expect(first).toEqual([2, 4, 6]);
+    expect(second).toEqual([2, 4, 6]);
+    expect(provider.size).toBe(1);
   });
 
   /**

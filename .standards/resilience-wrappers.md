@@ -230,9 +230,10 @@ accordingly.
   filter at chain position #9) and `RouteDefinition.postFromFilters`
   (the `cache-store` filter at position #10); see
   [Pre-from Filter Chain](./pre-from-filter-chain.md) for the full
-  composition contract. Routes containing `.split()` reject
-  route-scope cache at build time (`RC5003`) until split-then-aggregate
-  semantics are decided.
+  composition contract. Routes with an unbalanced `.split()` (no
+  matching `.aggregate()`) reject route-scope cache at build time
+  (`RC5003`); balanced `split + aggregate` is supported and caches
+  the aggregated terminal body.
 - [Pre-from Filter Chain](./pre-from-filter-chain.md): the
   route-scope counterpart of this contract. Documents the fixed
   ordered chain (`error` -> `authorize` -> `parse` -> `input` ->

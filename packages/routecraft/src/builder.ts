@@ -349,6 +349,53 @@ export type RouteOptions = Partial<Pick<RouteDefinition, "consumer">> & {
  *   .to(log())
  * ```
  */
+
+/**
+ * @internal
+ *
+ * Verifies a finalised route honours the route-scope `.cache()` contract.
+ *
+ * Route-scope `.cache()` caches a single terminal body per source message.
+ * A bare `.split()` produces N terminal exchanges with no fold-back, so
+ * there is no single value to cache. A `.split()` that is balanced by a
+ * matching `.aggregate()` collapses the children back into one terminal
+ * body, which is cacheable.
+ *
+ * The check counts nesting depth across the step list: every `split`
+ * increments, every `aggregate` decrements. A non-zero depth at the end
+ * of the route means at least one `split` was not aggregated, so the
+ * route is rejected with `RC5003`.
+ *
+ * Step-scope `.cache()` is unaffected; it wraps a single inner step and
+ * never participates in this check.
+ */
+function assertRouteScopeCacheCompatibility(route: RouteDefinition): void {
+  const hasRouteScopeCache = route.postParseFilters.some(
+    (f) => f.label === "cache-check",
+  );
+  if (!hasRouteScopeCache) return;
+
+  let depth = 0;
+  for (const step of route.steps) {
+    if (step.operation === OperationType.SPLIT) {
+      depth++;
+    } else if (step.operation === OperationType.AGGREGATE && depth > 0) {
+      depth--;
+    }
+  }
+
+  if (depth > 0) {
+    throw rcError("RC5003", undefined, {
+      message:
+        `Route "${route.id}" has route-scope .cache() and an unbalanced .split() ` +
+        `(no matching .aggregate()). A fire-and-forget split produces multiple ` +
+        `terminal exchanges, so there is no single body to cache. ` +
+        `Add an .aggregate() to fold the children back into one terminal ` +
+        `value, or use step-scope .cache() to wrap the expensive operation.`,
+    });
+  }
+}
+
 export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
   protected currentRoute?: RouteDefinition;
   protected routes: RouteDefinition[] = [];
@@ -858,23 +905,15 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
   protected override pushStep<T extends Adapter>(step: Step<T>): void {
     const route = this.requireSource();
     const wrapped = this.applyPendingWrappers(step);
-    // Route-scope `.cache()` skips the entire pipeline on a hit and
-    // caches a single terminal body on a miss. `split` produces N
-    // terminal exchanges (with no aggregate to fold them back), which
-    // breaks the "one cached value per source message" contract.
-    // Reject loud rather than silently mis-cache. Step-scope `.cache()`
-    // is still usable around the expensive step inside such a route.
-    const hasRouteScopeCache = route.postParseFilters.some(
-      (f) => f.label === "cache-check",
-    );
-    if (hasRouteScopeCache && wrapped.operation === OperationType.SPLIT) {
-      throw rcError("RC5003", undefined, {
-        message:
-          `Route-scope .cache() does not support routes containing .split(). ` +
-          `The pipeline produces multiple terminal exchanges, so there is no single body to cache. ` +
-          `Use step-scope .cache() to wrap the expensive operation, or remove the route-scope .cache().`,
-      });
-    }
+    // Route-scope `.cache()` + `.split()` compatibility is checked at
+    // build time: a balanced `split + aggregate` route is cacheable
+    // (the aggregated body is the single terminal value), but a
+    // fire-and-forget split has no single result to cache. See
+    // {@link assertRouteScopeCacheCompatibility} -- it walks each
+    // finalised route in `build()` and throws `RC5003` for unbalanced
+    // shapes. Per-step rejection at push time would refuse the
+    // balanced case before the user gets a chance to add the matching
+    // aggregate.
     logger.trace(
       { operation: wrapped.operation, route: route.id },
       "Adding step to route",
@@ -1051,6 +1090,9 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
       });
     }
     this.assertNoPendingWrappers("build");
+    for (const route of this.routes) {
+      assertRouteScopeCacheCompatibility(route);
+    }
     logger.trace({ routeCount: this.routes.length }, "Building routes");
     return this.routes;
   }

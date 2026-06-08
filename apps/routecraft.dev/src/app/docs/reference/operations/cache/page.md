@@ -89,7 +89,7 @@ On a hit, **the whole pipeline is skipped** (no `.enrich`, no `.transform`, no `
 
 **Side effects do not replay on a hit.** This is a much larger surface than step-scope: every `.to()`, `.tap()`, and `.header()` in the route is bypassed. If the route has destinations whose side effects must run on every input, use step-scope `.cache()` to wrap the expensive step instead.
 
-**Routes containing `.split()` are rejected at build time** with `RC5003`. The pipeline produces multiple terminal exchanges when split is unbalanced by aggregate, which has no single "result" to cache. Use step-scope `.cache()` to wrap the expensive step inside such a route. Split-followed-by-aggregate routes will be revisited in a follow-up.
+**Routes with an unbalanced `.split()` are rejected at build time** with `RC5003`. A bare split produces multiple terminal exchanges with no single "result" to cache. A `.split()` balanced by a matching `.aggregate()` folds the children back into one terminal body and is fully supported: the aggregated value is what gets cached. Use step-scope `.cache()` to wrap the expensive step when you do want a fire-and-forget split.
 
 **`.cache()` slots into the framework's pre-from filter chain at a fixed position.** Auth runs first (unauthenticated callers never see cached responses); parse and `.input()` validation run before the cache check (so stale-schema entries can't slip through); the cache hit-check sits just above the user pipeline; the cache write sits just below. See [Filter Chain](/docs/advanced/filter-chain) for the full chain, including reserved slots for `.throttle()`, `.circuitBreaker()`, `.retry()`, `.timeout()`.
 
