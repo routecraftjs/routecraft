@@ -56,6 +56,19 @@ Extract data from HTML using CSS selectors (powered by cheerio), or read/write H
 // Emits array: ['https://example.com', '/about', ...]
 ```
 
+**Read mid-route** (extract from an HTML file partway through a route): In `read` mode the adapter is also a destination whose `send` reads the file, extracts via the selector, and returns the result, so `.enrich()` / `.to()` can pull it in, the same way an HTTP `GET` returns a body. Read-as-destination accepts dynamic (function) paths. Extraction failures throw and surface through the pipeline (the `onParseError` lifecycle controls apply to source mode only).
+
+```ts
+// Enrich the body with a value extracted from a file, keeping existing fields
+.enrich(
+  html({ path: './page.html', selector: 'h1', mode: 'read' }),
+  only((title) => title, 'title'),
+)
+
+// Replace the body with the extracted value
+.to(html({ path: './page.html', selector: 'title', mode: 'read' }))
+```
+
 **Destination mode** (write HTML files):
 ```ts
 // Write HTML string to file
@@ -72,6 +85,9 @@ Extract data from HTML using CSS selectors (powered by cheerio), or read/write H
   path: './log.html',
   mode: 'append'
 }))
+
+// Delete an HTML file (idempotent: an already-absent path is a no-op)
+.to(html({ path: (ex) => ex.body.processedPath, mode: 'delete' }))
 ```
 
 **Transformer Options** (when no `path` provided):
@@ -91,7 +107,7 @@ All transformer options above, plus:
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `path` | `string \| (exchange) => string` | Required | File path (static or dynamic) |
-| `mode` | `'read' \| 'write' \| 'append'` | `'read'` for source, `'write'` for destination | File operation mode |
+| `mode` | `'read' \| 'write' \| 'append' \| 'delete'` | `'read'` for source, `'write'` for destination | File operation mode (`read` extracts mid-route; `delete` removes the file, idempotently) |
 | `encoding` | `BufferEncoding` | `'utf-8'` | Text encoding |
 | `createDirs` | `boolean` | `false` | Create parent directories (destination only) |
 | `onParseError` | `'fail' \| 'abort' \| 'drop'` | `'fail'` | How to handle an extraction failure (source only). See [parse error handling](/docs/reference/adapters#parse-error-handling). |
@@ -109,4 +125,4 @@ All transformer options above, plus:
 - **Source mode**: Reads HTML file and extracts data using selector
 - **Destination mode**: Writes HTML string (from `exchange.body` or `exchange.body.body`) to file
 
-**Exported types:** `HtmlAdapter`, `HtmlOptions`, `HtmlResult`
+**Exported types:** `HtmlAdapter`, `HtmlReadAdapter`, `HtmlOptions`, `HtmlResult`

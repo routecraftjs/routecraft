@@ -320,6 +320,7 @@ The OAuth-proxy mode's SDK-owned endpoints (`/register`, `/token`, `/revoke`, th
 - **Guardrails** -- use `.filter()` to reject exchanges that fail a business rule, and `.transform()` to sanitize or normalise values before they reach downstream systems
 - **Authorize per route** -- gate sensitive capabilities with [`authorize()`](/docs/reference/operations/authorize) against the verified principal's roles or scopes
 - **Principle of least privilege** -- only expose capabilities the AI actually needs
+- **Govern agent tool access** -- hand an agent a wrapped `Direct(...)` route instead of a raw `MCP(...)` tool when it needs authorization, caching, or timeouts; see [Calling an MCP](/docs/advanced/call-an-mcp#guardrails-raw-guarded-or-wrapped)
 - **Audit trail** -- add `.tap(log())` to record every invocation; subscribe to `plugin:mcp:tool:**` events for MCP-specific tracing
 - **Never hardcode credentials** -- use `process.env` and `.env` files
 

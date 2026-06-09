@@ -86,7 +86,11 @@ export interface RouteSchemas {
  * downstream filtering (e.g. an agent that only whitelists `"read-only"`
  * tools).
  */
-export type KnownTag = "read-only" | "destructive" | "idempotent";
+export type KnownTag =
+  | "read-only"
+  | "destructive"
+  | "idempotent"
+  | "open-world";
 
 /**
  * Tag value: one of the framework's well-known tags or any user string.
@@ -260,6 +264,224 @@ function buildParseStep(
 }
 
 /**
+ * Synthetic adapter carriers for the route-scope cache filter steps.
+ * Distinct adapter ids per filter so telemetry / event subscribers
+ * correlating by `adapter` can tell read failures (`cache.check`) from
+ * write failures (`cache.store`) without parsing the step label.
+ * Neither carrier has behaviour; the steps' `execute` does the work.
+ */
+const CACHE_CHECK_STEP_ADAPTER: Adapter = {
+  adapterId: "routecraft.cache.check",
+};
+const CACHE_STORE_STEP_ADAPTER: Adapter = {
+  adapterId: "routecraft.cache.store",
+};
+
+/**
+ * Build the route-scope cache HIT-CHECK synthetic step. Inserted into
+ * `initialSteps` AFTER `buildParseStep` (so parse + `applyValidation`
+ * have already run) and BEFORE the user steps. Derives the cache key
+ * from the parsed/validated exchange, looks it up in the provider, and
+ * on a hit pushes a rewrapped exchange with `steps: []` to short-circuit
+ * the rest of the pipeline (including the matching cache-store step).
+ * On a miss pushes the exchange with the unchanged `remainingSteps` so
+ * the user pipeline runs.
+ *
+ * Manages its own observability: emits `cache:hit` / `cache:miss` /
+ * `cache:failed` plus `exchange:restored` on a hit. `skipStepEvents:
+ * true` keeps `runSteps` from emitting generic `step:started` /
+ * `step:completed` for this internal step.
+ *
+ * @internal Exported only so `RouteBuilder.from()` can assemble it into
+ * `RouteDefinition.postParseFilters`. Not part of the public API; the
+ * signature may change without notice.
+ */
+export function buildCacheCheckStep(
+  cacheConfig: import("./operations/cache-wrapper.ts").ResolvedCacheOptions,
+): Step<Adapter> {
+  return {
+    operation: OperationType.PROCESS,
+    label: "cache-check",
+    adapter: CACHE_CHECK_STEP_ADAPTER,
+    skipStepEvents: true,
+    async execute(exchange, remainingSteps, queue) {
+      const internals = EXCHANGE_INTERNALS.get(exchange);
+      const context = internals?.context;
+      const route = internals?.route;
+      const routeId =
+        route?.definition.id ??
+        (exchange.headers[HeadersKeys.ROUTE_ID] as string);
+      const correlationId = exchange.headers[
+        HeadersKeys.CORRELATION_ID
+      ] as string;
+
+      let key: string;
+      try {
+        key = cacheConfig.key(exchange);
+      } catch (err) {
+        context?.emit(`route:${routeId}:cache:failed` as EventName, {
+          routeId,
+          exchangeId: exchange.id,
+          correlationId,
+          stepLabel: "route",
+          scope: "route",
+          phase: "key",
+          error: err instanceof Error ? err.message : String(err),
+        });
+        throw isRoutecraftError(err)
+          ? err
+          : rcError("RC5029", err, {
+              message: `Route-scope .cache({ key }) for "${routeId}" threw while deriving the cache key`,
+            });
+      }
+      // Hand the key off to the matching cache-store filter via
+      // exchange internals. Internals is the framework's per-exchange
+      // state bag set at construction time; absence here means the
+      // caller built an exchange outside `DefaultExchange.rewrap`,
+      // which violates the contract. Fail loudly rather than silently
+      // skip the cache write at the tail of the pipeline.
+      if (!internals) {
+        throw rcError("RC5028", undefined, {
+          message: `Route-scope .cache() for "${routeId}" ran on an exchange without framework internals; cache key cannot be propagated to the store step. This indicates an adapter or step constructed an Exchange outside DefaultExchange.rewrap.`,
+        });
+      }
+      internals.cacheKey = key;
+
+      let cached: unknown;
+      try {
+        cached = await cacheConfig.provider.get(key);
+      } catch (err) {
+        context?.emit(`route:${routeId}:cache:failed` as EventName, {
+          routeId,
+          exchangeId: exchange.id,
+          correlationId,
+          stepLabel: "route",
+          scope: "route",
+          phase: "get",
+          key,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        throw isRoutecraftError(err)
+          ? err
+          : rcError("RC5028", err, {
+              message: `Route-scope .cache() provider read failed for "${routeId}"`,
+            });
+      }
+
+      if (cached !== undefined) {
+        // HIT: short-circuit the pipeline by pushing the rewrapped
+        // exchange with no remaining steps. The matching cache-store
+        // step (tail of initialSteps) is therefore skipped too.
+        context?.emit(`route:${routeId}:cache:hit` as EventName, {
+          routeId,
+          exchangeId: exchange.id,
+          correlationId,
+          stepLabel: "route",
+          scope: "route",
+          key,
+        });
+        context?.emit(`route:${routeId}:exchange:restored` as EventName, {
+          routeId,
+          exchangeId: exchange.id,
+          correlationId,
+          source: "cache",
+        });
+        queue.push({
+          exchange: DefaultExchange.rewrap(exchange, { body: cached }),
+          steps: [],
+        });
+        return;
+      }
+
+      // MISS: continue the pipeline.
+      context?.emit(`route:${routeId}:cache:miss` as EventName, {
+        routeId,
+        exchangeId: exchange.id,
+        correlationId,
+        stepLabel: "route",
+        scope: "route",
+        key,
+      });
+      queue.push({ exchange, steps: remainingSteps });
+    },
+  };
+}
+
+/**
+ * Build the route-scope cache STORE synthetic step. Inserted as the
+ * tail of `initialSteps` after the user steps. Reached only on the
+ * miss path (the cache-check step pushes `steps: []` on a hit to skip
+ * everything including this step). Writes the terminal body using the
+ * key captured by the matching check step.
+ *
+ * Provider write failures emit `cache:failed phase:"set"` for
+ * observability but do NOT fail the exchange: the result was already
+ * computed by the user pipeline. This diverges from step-scope, where
+ * a write failure throws RC5028; the divergence is intentional and
+ * documented on the operation reference page.
+ *
+ * `skipStepEvents: true` keeps `runSteps` from emitting generic
+ * lifecycle events for this internal step.
+ *
+ * @internal Exported only so `RouteBuilder.from()` can assemble it into
+ * `RouteDefinition.postFromFilters`. Not part of the public API; the
+ * signature may change without notice.
+ */
+export function buildCacheStoreStep(
+  cacheConfig: import("./operations/cache-wrapper.ts").ResolvedCacheOptions,
+): Step<Adapter> {
+  return {
+    operation: OperationType.PROCESS,
+    label: "cache-store",
+    adapter: CACHE_STORE_STEP_ADAPTER,
+    skipStepEvents: true,
+    async execute(exchange, remainingSteps, queue) {
+      const internals = EXCHANGE_INTERNALS.get(exchange);
+      const context = internals?.context;
+      const route = internals?.route;
+      const routeId =
+        route?.definition.id ??
+        (exchange.headers[HeadersKeys.ROUTE_ID] as string);
+      const correlationId = exchange.headers[
+        HeadersKeys.CORRELATION_ID
+      ] as string;
+      const key = internals?.cacheKey;
+
+      // Only cache successful runs whose terminal body is not
+      // `undefined`. `null` is cached (envelope handles it). Dropped
+      // exchanges never reach this step because the queue loop stops
+      // pushing on a drop.
+      if (key !== undefined && exchange.body !== undefined) {
+        try {
+          await cacheConfig.provider.set(key, exchange.body, cacheConfig.ttl);
+          context?.emit(`route:${routeId}:cache:stored` as EventName, {
+            routeId,
+            exchangeId: exchange.id,
+            correlationId,
+            stepLabel: "route",
+            scope: "route",
+            key,
+            ...(cacheConfig.ttl !== undefined ? { ttl: cacheConfig.ttl } : {}),
+          });
+        } catch (err) {
+          context?.emit(`route:${routeId}:cache:failed` as EventName, {
+            routeId,
+            exchangeId: exchange.id,
+            correlationId,
+            stepLabel: "route",
+            scope: "route",
+            phase: "set",
+            key,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+      queue.push({ exchange, steps: remainingSteps });
+    },
+  };
+}
+
+/**
  * Configuration for a route: source, steps, and consumer.
  *
  * Describes how data flows from a source through processing steps to destinations.
@@ -272,7 +494,7 @@ function buildParseStep(
  * ```typescript
  * const def: RouteDefinition<string> = {
  *   id: 'my-route',
- *   source: simple('hello'),
+ *   sources: [simple('hello')],
  *   steps: [...],
  *   consumer: { type: SimpleConsumer, options: undefined }
  * };
@@ -282,8 +504,16 @@ export type RouteDefinition<T = unknown> = {
   /** Unique identifier for the route */
   readonly id: string;
 
-  /** The source that provides data to the route */
-  readonly source: Source<T>;
+  /**
+   * The sources that feed data into the route. A route may expose multiple
+   * ingresses (e.g. `direct` for internal callers, `mcp` for agents, `http`
+   * for integrations) that all drive the same downstream pipeline. The route
+   * stays a single logical entity: one id, one set of lifecycle events, and
+   * (where the registries derive a public name from the route id) one name
+   * across ingresses. Every entry must be non-empty; the builder normalizes a
+   * single `.from(x)` to `[x]`.
+   */
+  readonly sources: readonly Source<T>[];
 
   /** Processing steps that transform, filter, or direct the data */
   readonly steps: Step<Adapter>[];
@@ -303,6 +533,38 @@ export type RouteDefinition<T = unknown> = {
    * If not defined, the error is logged and emitted via the error event (current behavior).
    */
   readonly errorHandler?: ErrorHandler;
+
+  /**
+   * Framework-managed filters that run BEFORE the source-attached
+   * parse step (and therefore before everything else). Today: the
+   * `.authorize()` ValidateSteps in declaration order. This is chain
+   * position #2 in `.standards/pre-from-filter-chain.md`.
+   *
+   * @internal
+   */
+  readonly preParseFilters: Step<Adapter>[];
+
+  /**
+   * Framework-managed filters that run AFTER the source-attached parse
+   * step but BEFORE the user pipeline. Today: the route-scope
+   * `cache-check` filter (chain position #9). Future resilience
+   * wrappers (`throttle`, `circuitBreaker`, `retry`, `timeout` at
+   * positions #5-#8) slot in between input and cacheCheck once they
+   * land.
+   *
+   * @internal
+   */
+  readonly postParseFilters: Step<Adapter>[];
+
+  /**
+   * Framework-managed filters that run AFTER the user pipeline.
+   * Today: the route-scope `cache-store` filter (chain position #10)
+   * when `.cache()` is configured. Reached only on miss-success; the
+   * cache-check filter pushes `steps: []` on a hit to short-circuit.
+   *
+   * @internal
+   */
+  readonly postFromFilters: Step<Adapter>[];
 
   /**
    * Optional route-level discovery bundle: title, description, and input /
@@ -338,19 +600,19 @@ export interface Route<T = unknown> {
   logger: ReturnType<typeof logger.child>;
 
   /**
-   * Start processing: subscribe to the source and begin delivering messages through the steps.
-   * @returns Promise that resolves when the source has been subscribed and the consumer is ready
+   * Start processing: subscribe to every source and begin delivering messages through the steps.
+   * @returns Promise that resolves when all sources have been subscribed and the consumers are ready
    */
   start(): Promise<void>;
 
   /**
-   * Stop the route: abort the source subscription and clear the internal queue.
+   * Stop the route: abort all source subscriptions and clear the internal queues.
    */
   stop(): void;
 
   /**
    * Wait until all in-flight message handlers and tracked tasks (e.g. tap) have completed.
-   * Does not stop the route; use stop() to abort the source.
+   * Does not stop the route; use stop() to abort the sources.
    */
   drain(): Promise<void>;
 
@@ -387,11 +649,11 @@ export class DefaultRoute implements Route {
   /** Logger for this route (pino child logger) */
   public readonly logger: ReturnType<typeof logger.child>;
 
-  /** Internal queue for passing messages between the source and consumer */
-  private messageChannel: ProcessingQueue<Message>;
+  /** Internal queues, one per source, for passing messages to the consumers */
+  private messageChannels: ProcessingQueue<Message>[];
 
-  /** Processes messages from the message channel */
-  private consumer: Consumer;
+  /** Processes messages from the message channels, one consumer per source */
+  private consumers: Consumer[];
 
   /** All in-flight work (handler and task promises) for drain */
   private inFlight = new Set<Promise<unknown>>();
@@ -412,12 +674,22 @@ export class DefaultRoute implements Route {
     this.assertNotAborted();
     this.abortController = abortController ?? new AbortController();
     this.logger = logger.child(childBindings(this));
-    this.messageChannel = new InMemoryProcessingQueue<Message>();
-    this.consumer = new this.definition.consumer.type(
-      this.context,
-      this.definition,
-      this.messageChannel,
-      this.definition.consumer.options,
+    // One (channel, consumer) pair per source so each ingress gets its own
+    // delivery queue and, for batch routes, its own batch window. All
+    // consumers drive the same shared step pipeline via the handler
+    // registered in start(); the route stays a single logical entity (one id,
+    // one lifecycle event stream) regardless of how many ingresses it exposes.
+    this.messageChannels = this.definition.sources.map(
+      () => new InMemoryProcessingQueue<Message>(),
+    );
+    this.consumers = this.messageChannels.map(
+      (channel) =>
+        new this.definition.consumer.type(
+          this.context,
+          this.definition,
+          channel,
+          this.definition.consumer.options,
+        ),
     );
 
     // Emit routeStopping/routeStopped when the controller is aborted externally
@@ -777,8 +1049,8 @@ export class DefaultRoute implements Route {
    * Start processing data on this route.
    *
    * This method:
-   * 1. Registers the consumer to process messages
-   * 2. Subscribes to the source to receive data
+   * 1. Registers each per-source consumer to process messages
+   * 2. Subscribes to every source to receive data
    *
    * @returns A promise that resolves when the route has started
    * @throws {RoutecraftError} If the route has been aborted
@@ -787,101 +1059,199 @@ export class DefaultRoute implements Route {
     this.assertNotAborted();
     // Lifecycle log is emitted only by context (one log per event).
 
-    // Start consuming messages from the internal processing queue.
+    // Register the shared pipeline handler on every per-source consumer.
     // Framework-level input validation runs here, before the step pipeline,
     // so any source adapter with an `.input()` schema on the route inherits
     // validation without per-adapter wiring. On failure the engine emits
     // `exchange:dropped` for telemetry and re-throws so the source's own
     // caller (e.g. a direct channel's `send`) sees the validation error.
-    this.consumer.register(
-      async (message, headers, parse, parseFailureMode) => {
-        const initialExchange = this.buildExchange(message, headers);
-        const inputSchemas = this.definition.discovery?.input;
-        const hasInputSchema = !!inputSchemas?.body || !!inputSchemas?.headers;
+    const consumerHandler = this.buildConsumerHandler();
+    for (const consumer of this.consumers) {
+      consumer.register(consumerHandler);
+    }
 
-        let exchange: Exchange = initialExchange;
-        if (parse) {
-          // Stash the source-supplied parser on exchange internals so
-          // `runSteps` can apply it as a synthetic first pipeline step.
-          // This is what makes parse errors surface as normal pipeline
-          // events the route can observe (`.error()` for `'fail'`,
-          // `exchange:dropped` for `'drop'`). See #187.
-          const internals = EXCHANGE_INTERNALS.get(exchange);
-          if (internals) {
-            internals.parse = parse;
-            internals.parseFailureMode = parseFailureMode ?? "fail";
-            // Validation must run AFTER parse so `.input()` schemas
-            // validate the parsed body, not the raw bytes. The synthetic
-            // parse step calls this hook once parse succeeds. Use the
-            // non-emitting variant so a validation failure inside the parse
-            // step throws RC5002 cleanly into the step loop's catch path
-            // (which emits `step:failed` and then `exchange:failed`),
-            // without firing duplicate `exchange:started` /
-            // `exchange:dropped` events (see #187).
-            if (hasInputSchema) {
-              internals.applyValidation = (ex: Exchange) =>
-                this.validateInputOrThrow(ex, inputSchemas);
-            }
-          }
-        } else if (hasInputSchema) {
-          // No parse: run validation eagerly. The validated exchange
-          // replaces the initial one; with frozen headers/body the
-          // validator returns a new instance via `rewrap`.
-          exchange = await this.applyInputValidation(exchange, inputSchemas);
-        }
-
-        return this.handler(exchange);
-      },
-    );
-
-    let emitted = false;
-    const onReady = () => {
-      if (!emitted) {
-        emitted = true;
+    // Emit `route:started` once ALL sources have signalled readiness. The
+    // route is a single logical entity, so its lifecycle events fire once no
+    // matter how many ingresses it exposes. Every built-in source calls
+    // `onReady`; the enqueue callback also marks readiness as a fallback for
+    // callable sources that produce a message without calling it.
+    const total = this.definition.sources.length;
+    const readyIndices = new Set<number>();
+    let startedEmitted = false;
+    const markReady = (index: number): void => {
+      readyIndices.add(index);
+      if (!startedEmitted && readyIndices.size === total) {
+        startedEmitted = true;
         this.context.emit(`route:${this.definition.id}:started` as EventName, {
           route: this,
         });
       }
     };
 
-    // If a test-time override is registered for this source adapter, route the
-    // subscribe call through the mock's source behaviour instead of invoking
-    // the real adapter. Falls through unchanged when no override matches.
-    const sourceOverride = resolveAdapterOverride(
-      this.definition.source,
-      this.context,
-    );
-    const activeSource =
-      sourceOverride && sourceOverride.source
-        ? wrapSourceWithOverride(this.definition.source, sourceOverride)
-        : this.definition.source;
-
-    // Subscribe to the source and enqueue messages to the internal processing queue
     const meta = {
       routeId: this.definition.id,
       ...(this.definition.discovery
         ? { discovery: this.definition.discovery }
         : {}),
     };
-    return activeSource.subscribe(
-      this.context,
-      (message, headers, parse, parseFailureMode) => {
-        onReady(); // fallback: fire before first message if adapter never called it
-        return this.messageChannel.enqueue({
-          message,
-          headers: headers ?? {},
-          ...(parse
-            ? {
-                parse: parse as (raw: unknown) => unknown | Promise<unknown>,
-                parseFailureMode: parseFailureMode ?? "fail",
-              }
-            : {}),
-        });
-      },
-      this.abortController,
-      onReady,
-      meta,
-    );
+
+    // Subscribe every source, each into its own channel. A test-time override
+    // is resolved per source so individual ingresses can be mocked. start()
+    // resolves only when ALL subscriptions resolve: server ingresses (direct,
+    // http, mcp) hold open until abort, so a multi-ingress route with any
+    // server ingress keeps the context alive, while a route whose sources are
+    // all finite completes and lets the context auto-stop.
+    // Build AND await every subscription inside the try so both a synchronous
+    // throw while wiring a source (override resolution, a sync callable source)
+    // and an async subscribe rejection hit the same cleanup path. On failure,
+    // abort the route so any sibling ingresses that already subscribed are torn
+    // down (registry entries cleared, pending subscribes resolved) instead of
+    // leaking, then surface the error. `context.start()` already aborts on a
+    // failed route.start(); this makes start() self-cleaning for direct callers
+    // too. Harmless for the single-source case (no siblings).
+    try {
+      const subscriptions = this.definition.sources.map(
+        (definitionSource, index) => {
+          const channel = this.messageChannels[index];
+          const sourceOverride = resolveAdapterOverride(
+            definitionSource,
+            this.context,
+          );
+          const activeSource =
+            sourceOverride && sourceOverride.source
+              ? wrapSourceWithOverride(definitionSource, sourceOverride)
+              : definitionSource;
+          // A single-source route hands the source the route's own controller
+          // so a finite source completing (such sources call abort() when done)
+          // stops the route exactly as before. A multi-ingress route gives each
+          // source a child controller linked to the route's: the route aborts
+          // every child, but one finite ingress completing only aborts its own
+          // child and never tears down a sibling ingress (e.g. a long-lived
+          // http/mcp server holding the route open).
+          const sourceController =
+            total === 1 ? this.abortController : this.linkedChildController();
+          // Coerce to a promise so a void return and an async rejection are
+          // handled uniformly by Promise.all; a synchronous throw is caught by
+          // the surrounding try because the map runs inside it.
+          return Promise.resolve(
+            activeSource.subscribe(
+              this.context,
+              (message, headers, parse, parseFailureMode) => {
+                markReady(index); // fallback: fire before first message if adapter never called onReady
+                return channel.enqueue({
+                  message,
+                  headers: headers ?? {},
+                  ...(parse
+                    ? {
+                        parse: parse as (
+                          raw: unknown,
+                        ) => unknown | Promise<unknown>,
+                        parseFailureMode: parseFailureMode ?? "fail",
+                      }
+                    : {}),
+                });
+              },
+              sourceController,
+              () => markReady(index),
+              meta,
+            ),
+          );
+        },
+      );
+      await Promise.all(subscriptions);
+    } catch (err) {
+      if (!this.abortController.signal.aborted) {
+        this.abortController.abort(err);
+      }
+      throw err;
+    }
+
+    // Every ingress's subscription resolved. For a multi-ingress route whose
+    // sources are all finite this means every ingress has completed: mirror the
+    // single-source contract (where a finite source aborts the route's own
+    // controller on completion) by aborting here so the route's terminal
+    // lifecycle events fire even when an indefinite sibling route keeps the
+    // context alive. A route holding any server ingress never reaches this with
+    // an un-aborted controller (a server's subscribe only resolves once the
+    // controller is aborted), so the guard makes this a no-op there. The
+    // single-source path is left exactly as before: its source drives
+    // completion.
+    if (total > 1 && !this.abortController.signal.aborted) {
+      this.abortController.abort("All ingresses completed");
+    }
+  }
+
+  /**
+   * Create an AbortController that aborts when the route's controller aborts,
+   * but whose own abort does not propagate back to the route. Used to give
+   * each ingress of a multi-source route an independent lifetime so a finite
+   * source completing does not tear down its sibling ingresses.
+   */
+  private linkedChildController(): AbortController {
+    const child = new AbortController();
+    if (this.abortController.signal.aborted) {
+      child.abort(this.abortController.signal.reason);
+    } else {
+      this.abortController.signal.addEventListener(
+        "abort",
+        () => child.abort(this.abortController.signal.reason),
+        { once: true },
+      );
+    }
+    return child;
+  }
+
+  /**
+   * Build the handler registered on every per-source consumer. The handler is
+   * shared across all of a route's ingresses so they drive one pipeline; it
+   * applies framework-level `.input()` validation (eagerly, or deferred to the
+   * synthetic parse step when the source supplies a parser) before running the
+   * route's steps.
+   */
+  private buildConsumerHandler(): (
+    message: unknown,
+    headers?: ExchangeHeaders,
+    parse?: (raw: unknown) => unknown | Promise<unknown>,
+    parseFailureMode?: OnParseError,
+  ) => Promise<Exchange> {
+    return async (message, headers, parse, parseFailureMode) => {
+      const initialExchange = this.buildExchange(message, headers);
+      const inputSchemas = this.definition.discovery?.input;
+      const hasInputSchema = !!inputSchemas?.body || !!inputSchemas?.headers;
+
+      let exchange: Exchange = initialExchange;
+      if (parse) {
+        // Stash the source-supplied parser on exchange internals so
+        // `runSteps` can apply it as a synthetic first pipeline step.
+        // This is what makes parse errors surface as normal pipeline
+        // events the route can observe (`.error()` for `'fail'`,
+        // `exchange:dropped` for `'drop'`). See #187.
+        const internals = EXCHANGE_INTERNALS.get(exchange);
+        if (internals) {
+          internals.parse = parse;
+          internals.parseFailureMode = parseFailureMode ?? "fail";
+          // Validation must run AFTER parse so `.input()` schemas
+          // validate the parsed body, not the raw bytes. The synthetic
+          // parse step calls this hook once parse succeeds. Use the
+          // non-emitting variant so a validation failure inside the parse
+          // step throws RC5002 cleanly into the step loop's catch path
+          // (which emits `step:failed` and then `exchange:failed`),
+          // without firing duplicate `exchange:started` /
+          // `exchange:dropped` events (see #187).
+          if (hasInputSchema && inputSchemas) {
+            internals.applyValidation = (ex: Exchange) =>
+              this.validateInputOrThrow(ex, inputSchemas);
+          }
+        }
+      } else if (hasInputSchema && inputSchemas) {
+        // No parse: run validation eagerly. The validated exchange
+        // replaces the initial one; with frozen headers/body the
+        // validator returns a new instance via `rewrap`.
+        exchange = await this.applyInputValidation(exchange, inputSchemas);
+      }
+
+      return this.handler(exchange);
+    };
   }
 
   /**
@@ -893,7 +1263,9 @@ export class DefaultRoute implements Route {
    */
   stop(): void {
     // Lifecycle log is emitted only by context (one log per event).
-    this.messageChannel.clear();
+    for (const channel of this.messageChannels) {
+      channel.clear();
+    }
     this.abortController.abort("Route stop() called");
   }
 
@@ -1018,13 +1390,37 @@ export class DefaultRoute implements Route {
       delete internals.applyValidation;
     }
 
-    const userSteps = [...this.definition.steps];
-    const initialSteps: Step<Adapter>[] = sourceParse
-      ? [
-          buildParseStep(sourceParse, sourceFailureMode, sourceValidate),
-          ...userSteps,
-        ]
-      : userSteps;
+    // The route's pre-from filter chain (assembled at builder time in
+    // the framework-fixed order documented at
+    // `.standards/pre-from-filter-chain.md`). Parse is dynamic per
+    // exchange (source-attached) and is interleaved between the two
+    // pre-from arrays:
+    //
+    //   preParseFilters    -> .authorize()
+    //   (parse if present) -> source-attached
+    //   postParseFilters   -> .cache() check, future
+    //                         .throttle() / .circuitBreaker() / .retry() /
+    //                         .timeout() (positions 5-8 in the chain doc)
+    //   userSteps          -> declaration order, unchanged
+    //   postFromFilters    -> .cache() store
+    //
+    // The route's `.error()` handler wraps the queue loop (filter
+    // position #1 in the chain doc); it is implemented as a try/catch
+    // around the user pipeline, not a step that calls `next()`.
+    //
+    // The cache key flows from cache-check to cache-store via
+    // `internals.cacheKey` on the exchange -- per-invocation, no
+    // shared closure -- so the filter steps can be constructed once
+    // at builder time.
+    const initialSteps: Step<Adapter>[] = [
+      ...this.definition.preParseFilters,
+      ...(sourceParse
+        ? [buildParseStep(sourceParse, sourceFailureMode, sourceValidate)]
+        : []),
+      ...this.definition.postParseFilters,
+      ...this.definition.steps,
+      ...this.definition.postFromFilters,
+    ];
 
     const queue: { exchange: Exchange; steps: Step<Adapter>[] }[] = [
       { exchange: exchange, steps: initialSteps },
@@ -1374,6 +1770,10 @@ export class DefaultRoute implements Route {
     if (isDropped(exchange)) {
       dropped = true;
     }
+
+    // Route-scope cache writes (`cacheConfig`) are handled inline by
+    // the `cache-store` synthetic step appended to `initialSteps` at
+    // the top of this function. Nothing to do here.
 
     return {
       exchange: lastProcessedExchange,

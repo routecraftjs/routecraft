@@ -50,27 +50,10 @@ export const PROVIDER_DEFAULTS = {
   ollama: {
     baseURL: "http://localhost:11434/api",
   },
+  lmstudio: {
+    baseURL: "http://localhost:1234/v1",
+  },
 } as const;
-
-export function throwProviderInstallError(
-  pkg: string,
-  provider: string,
-): never {
-  throw new Error(
-    `The ${provider} LLM provider requires the "${pkg}" package. Install it with: bun add ${pkg}`,
-  );
-}
-
-export function isModuleNotFoundFor(error: unknown, pkg: string): boolean {
-  if (!(error instanceof Error)) return false;
-  const msg = error.message ?? "";
-  return (
-    (msg.includes("ERR_MODULE_NOT_FOUND") ||
-      msg.includes("Cannot find module") ||
-      msg.includes("Cannot find package")) &&
-    msg.includes(pkg)
-  );
-}
 
 export function assertLanguageModelShape(
   model: unknown,

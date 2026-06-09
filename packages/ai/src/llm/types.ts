@@ -2,6 +2,18 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Exchange } from "@routecraft/routecraft";
 
 /**
+ * A model object the active LLM engine can drive (today an AI SDK
+ * `LanguageModel`), or anything else a future engine accepts. Deliberately
+ * `unknown` so no engine-specific type reaches the public surface: every other
+ * provider is addressed by a `"provider:model"` string and the framework's own
+ * `LlmOptions`/`LlmResult` types, so swapping the underlying SDK does not break
+ * consumers. The `custom` provider is the one engine-bound escape hatch, and we
+ * keep that binding a runtime contract (validated by `assertLanguageModelShape`)
+ * rather than a compile-time coupling.
+ */
+export type CustomLanguageModel = unknown;
+
+/**
  * Store key for plugin-registered providers (provider id -> LlmModelConfig).
  * @internal
  */
@@ -27,7 +39,9 @@ export type LlmProviderType =
   | "anthropic"
   | "openrouter"
   | "ollama"
-  | "gemini";
+  | "gemini"
+  | "lmstudio"
+  | "custom";
 
 export interface LlmModelConfigOpenAI {
   provider: "openai";
@@ -66,12 +80,50 @@ export interface LlmModelConfigGemini {
   apiKey: string;
 }
 
+export interface LlmModelConfigLmStudio {
+  provider: "lmstudio";
+  /**
+   * LM Studio server URL. Optional: defaults to http://localhost:1234/v1.
+   * Only set when LM Studio runs on a non-default host or port.
+   */
+  baseURL?: string;
+  /**
+   * API key sent to LM Studio. Optional: LM Studio ignores authentication,
+   * so this defaults to a placeholder. Set it only if you front LM Studio
+   * with a proxy that enforces a key.
+   */
+  apiKey?: string;
+  /**
+   * Override model name sent to LM Studio. Optional: defaults to the model
+   * from the llm("lmstudio:model") call (the part after the colon).
+   */
+  modelId?: string;
+}
+
+export interface LlmModelConfigCustom {
+  provider: "custom";
+  /**
+   * A pre-built AI SDK language model, or a factory that builds one from the
+   * model name (the part after the colon in llm("custom:name")). This is the
+   * escape hatch for running an agent or llm() step against an in-process or
+   * otherwise unsupported model with no API key and no network.
+   */
+  model: CustomLanguageModel | ((modelId: string) => CustomLanguageModel);
+  /**
+   * Optional model name. Only needed when using an inline config object with
+   * a factory; the string form llm("custom:name") supplies it directly.
+   */
+  modelId?: string;
+}
+
 export type LlmModelConfig =
   | LlmModelConfigOpenAI
   | LlmModelConfigAnthropic
   | LlmModelConfigOpenRouter
   | LlmModelConfigOllama
-  | LlmModelConfigGemini;
+  | LlmModelConfigGemini
+  | LlmModelConfigLmStudio
+  | LlmModelConfigCustom;
 
 /**
  * Provider options for llmPlugin({ providers }). Key is the provider; no need to repeat provider in the value.
@@ -94,6 +146,15 @@ export interface LlmOpenRouterProviderOptions {
 export interface LlmGeminiProviderOptions {
   apiKey: string;
 }
+export interface LlmLmStudioProviderOptions {
+  baseURL?: string;
+  apiKey?: string;
+  modelId?: string;
+}
+export interface LlmCustomProviderOptions {
+  model: CustomLanguageModel | ((modelId: string) => CustomLanguageModel);
+  modelId?: string;
+}
 
 export interface LlmPluginProviders {
   ollama?: LlmOllamaProviderOptions;
@@ -101,6 +162,8 @@ export interface LlmPluginProviders {
   anthropic?: LlmAnthropicProviderOptions;
   openrouter?: LlmOpenRouterProviderOptions;
   gemini?: LlmGeminiProviderOptions;
+  lmstudio?: LlmLmStudioProviderOptions;
+  custom?: LlmCustomProviderOptions;
 }
 
 /** Map provider id → provider-specific options (for type-safe toModelConfig). */
@@ -258,6 +321,11 @@ export type LlmModelId =
   | "ollama:gemma2"
   | "ollama:deepseek-r1"
   | "ollama:lfm2.5-thinking"
+  // LM Studio (local; ids are whatever model you have loaded)
+  | "lmstudio:qwen2.5-7b-instruct"
+  | "lmstudio:llama-3.2-3b-instruct"
+  | "lmstudio:phi-4"
+  | "lmstudio:mistral-nemo-instruct-2407"
   // OpenRouter (top open-weight / frontier: GLM, Kimi, Qwen, DeepSeek)
   | "openrouter:z-ai/glm-5"
   | "openrouter:z-ai/glm-4.7"

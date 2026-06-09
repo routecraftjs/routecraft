@@ -37,6 +37,7 @@ export const navigation = [
         href: '/docs/advanced/composing-capabilities',
       },
       { title: 'Error Handling', href: '/docs/advanced/error-handling' },
+      { title: 'Filter Chain', href: '/docs/advanced/filter-chain' },
       { title: 'Merged Options', href: '/docs/advanced/merged-options' },
       { title: 'Creating adapters', href: '/docs/advanced/custom-adapters' },
       {

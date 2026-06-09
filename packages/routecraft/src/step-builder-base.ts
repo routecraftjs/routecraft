@@ -23,6 +23,10 @@ import {
 } from "./operations/enrich.ts";
 import { ErrorWrapperStep } from "./operations/error-wrapper.ts";
 import {
+  CacheWrapperStep,
+  type CacheOptions,
+} from "./operations/cache-wrapper.ts";
+import {
   type Processor,
   type CallableProcessor,
   ProcessStep,
@@ -185,6 +189,43 @@ export abstract class StepBuilderBase<Current = unknown> {
   }
 
   /**
+   * Cache the result of the next step. When a cached value exists for
+   * the derived key, the wrapped step is skipped and the cached body
+   * replaces `exchange.body`. On a miss, the step runs and its output
+   * body is written to the cache for future calls.
+   *
+   * Only successful executions are cached: if the wrapped step throws,
+   * the error propagates and the cache is left untouched. Dropped
+   * exchanges (filter / halt) are not cached.
+   *
+   * Concurrent exchanges with the same key share one computation via
+   * the provider's `getOrCompute`, so a slow underlying operation
+   * runs at most once per key per TTL window.
+   *
+   * On `RouteBuilder`, this method is dual-mode. The route-scope
+   * variant (called BEFORE `.from()`) is not yet implemented and
+   * throws RC2001; for now use the step-scope form chained after
+   * `.from()`. On `BranchBuilder`, it is always step-scope.
+   *
+   * Stacks left-to-right with other wrappers: `.error(h).cache().to(d)`
+   * produces `error(cache(d))` -- the cache runs inside the error
+   * handler's recovery scope.
+   *
+   * @param options Optional `{ key, ttl, provider }`. Defaults: key
+   *   derived from a SHA-256 of `JSON.stringify(body)`, no TTL,
+   *   process-wide in-memory provider.
+   *
+   * @experimental Step-scope behaviour ships with the dual-mode
+   * wrapper pattern (see `.standards/resilience-wrappers.md`).
+   */
+  cache(options: CacheOptions<Current> = {}): this {
+    this.pendingStepWrappers.push(
+      (inner) => new CacheWrapperStep(inner, options as CacheOptions),
+    );
+    return this;
+  }
+
+  /**
    * Return `this` re-typed to the concrete subclass at a new body type.
    *
    * The single cast point used by every pipeline method that changes
@@ -327,11 +368,15 @@ export abstract class StepBuilderBase<Current = unknown> {
    * craft()
    *   .from(mail("INBOX"))
    *   .filter(verifiedSenders)
-   *   .authenticate((ex) => ({
-   *     scheme: "email",
-   *     subject: ex.body.sender.address,
-   *     roles: ex.body.sender.address.endsWith("@acme.com") ? ["internal"] : [],
-   *   }))
+   *   .authenticate((ex) => {
+   *     // The mail source attaches the computed sender to a header.
+   *     const sender = ex.headers["routecraft.mail.sender"];
+   *     return {
+   *       scheme: "email",
+   *       subject: sender.address,
+   *       roles: sender.address.endsWith("@acme.com") ? ["internal"] : [],
+   *     };
+   *   })
    *   .authorize({ roles: ["internal"] })
    *   .to(dest)
    * ```

@@ -43,12 +43,15 @@ export interface HtmlOptions<T = unknown, R = unknown> {
   path?: string | ((exchange: Exchange) => string);
   /**
    * File operation mode (only when path is provided).
-   * - 'read': Read file (source mode)
+   * - 'read': Read file. Works as a source (`.from`) and, because read mode
+   *   returns the extracted result, mid-route via `.enrich()` / `.to()`.
    * - 'write': Write/overwrite file (destination mode)
    * - 'append': Append to file (destination mode)
+   * - 'delete': Delete the file (destination mode). Idempotent: an already-
+   *   absent path is a no-op. The body is unchanged. Supports dynamic paths.
    * Default: 'read' for source, 'write' for destination
    */
-  mode?: "read" | "write" | "append";
+  mode?: "read" | "write" | "append" | "delete";
   /**
    * Text encoding (only when path is provided). Default: 'utf-8'
    */

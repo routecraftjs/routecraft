@@ -5,9 +5,16 @@ import type { FileOptions } from "../file/types.ts";
 import { file, type FileAdapter } from "../file/index.ts";
 
 /**
- * JsonDestinationAdapter stringifies and writes JSON to files.
+ * JsonDestinationAdapter handles JSON file I/O as a destination.
+ *
+ * - `write` / `append` (default): stringify the exchange body and write it.
+ * - `read`: read the file, `JSON.parse` it, and return the parsed value, so the
+ *   adapter works mid-route via `.enrich()` / `.to()` (like an HTTP GET). Parse
+ *   failures throw; the route boundary surfaces them as `exchange:failed`,
+ *   which `.error()` can recover. The `onParseError` lifecycle controls
+ *   (`'abort'` / `'drop'`) remain source-mode only.
  */
-export class JsonDestinationAdapter implements Destination<unknown, void> {
+export class JsonDestinationAdapter implements Destination<unknown, unknown> {
   readonly adapterId = "routecraft.adapter.json.file";
   private readonly fileAdapter: FileAdapter | null;
 
@@ -20,14 +27,52 @@ export class JsonDestinationAdapter implements Destination<unknown, void> {
         fileOptions.encoding = options.encoding;
       if (options.createDirs !== undefined)
         fileOptions.createDirs = options.createDirs;
-      this.fileAdapter = file(fileOptions);
+      this.fileAdapter = file(fileOptions) as FileAdapter;
     } else {
       this.fileAdapter = null;
     }
   }
 
-  send: CallableDestination<unknown, void> = async (exchange) => {
+  send: CallableDestination<unknown, unknown> = async (exchange) => {
     const { space, indent, replacer, path: filePath } = this.options;
+
+    // Read mode: read the file via the file adapter, then parse and return.
+    if (this.options.mode === "read") {
+      const resolvedReadPath =
+        typeof filePath === "function" ? filePath(exchange) : filePath;
+      let readAdapter = this.fileAdapter;
+      if (!readAdapter) {
+        const fileOptions: FileOptions = {
+          path: resolvedReadPath,
+          mode: "read",
+        };
+        if (this.options.encoding !== undefined)
+          fileOptions.encoding = this.options.encoding;
+        readAdapter = file(fileOptions) as FileAdapter;
+      }
+      // The file adapter's `send` is typed `void` on FileAdapter, but in read
+      // mode it resolves to the file content. Narrow through `unknown`.
+      const content = (await readAdapter.send(exchange)) as unknown as string;
+      try {
+        return JSON.parse(content, this.options.reviver as never) as unknown;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        throw new Error(
+          `json adapter: failed to parse JSON from ${resolvedReadPath}: ${message}`,
+        );
+      }
+    }
+
+    // Delete mode: delegate to the file adapter (no stringify). Idempotent.
+    if (this.options.mode === "delete") {
+      const resolvedDeletePath =
+        typeof filePath === "function" ? filePath(exchange) : filePath;
+      const deleteAdapter =
+        this.fileAdapter ??
+        (file({ path: resolvedDeletePath, mode: "delete" }) as FileAdapter);
+      return deleteAdapter.send(exchange);
+    }
+
     const formatting = indent ?? space ?? 0;
 
     const resolvedPath =

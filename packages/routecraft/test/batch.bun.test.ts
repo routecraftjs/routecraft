@@ -10,8 +10,11 @@ import type { EventName, Message } from "../src/types.ts";
 function createRouteDefinition(id: string): RouteDefinition {
   return {
     id,
-    source: { subscribe: async () => {} },
+    sources: [{ subscribe: async () => {} }],
     steps: [],
+    preParseFilters: [],
+    postParseFilters: [],
+    postFromFilters: [],
     consumer: { type: BatchConsumer as never, options: {} },
   } as RouteDefinition;
 }

@@ -48,16 +48,70 @@ export interface AdapterSourceCall {
 }
 
 /**
+ * Brand marking a source fixture that carries explicit headers alongside its
+ * body. Lets a source-role mock reproduce the body/headers split that real
+ * envelope-carrying sources (http, mail) perform, so a route that reads
+ * `routecraft.<adapter>.*` headers can be exercised through `mockAdapter`.
+ *
+ * Use the `sourceMessage()` helper from `@routecraft/testing` to construct
+ * these rather than building the branded object by hand.
+ * @internal
+ */
+export const SOURCE_FIXTURE: unique symbol = Symbol.for(
+  "routecraft.testing.source-fixture",
+);
+
+/**
+ * A source fixture pairing a message body with the headers a real source would
+ * have attached. Recognised by {@link wrapSourceWithOverride}.
+ * @internal
+ */
+export interface SourceFixture<M = unknown> {
+  readonly [SOURCE_FIXTURE]: true;
+  /** The body the source would deliver on the exchange. */
+  readonly body: M;
+  /** Headers the source would attach (e.g. `routecraft.mail.*`). */
+  readonly headers?: ExchangeHeaders;
+}
+
+/**
+ * Type guard for {@link SourceFixture}. A plain message is delivered as the
+ * body with no headers; a branded fixture is unwrapped into `(body, headers)`.
+ * @internal
+ */
+export function isSourceFixture(value: unknown): value is SourceFixture {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as { [SOURCE_FIXTURE]?: unknown })[SOURCE_FIXTURE] === true
+  );
+}
+
+/**
+ * A source-role fixture: either a plain message (delivered as the body with no
+ * headers) or a {@link SourceFixture} carrying body + headers.
+ * @internal
+ */
+export type SourceMessage<M = unknown> = M | SourceFixture<M>;
+
+/**
  * Handler shape for a source-role mock. May be a plain array of fixtures,
  * an async iterable, or a callable that returns either (receiving the
- * construction args so it can vary by call site).
+ * construction args so it can vary by call site). Each fixture may be a plain
+ * message or a {@link SourceFixture} (via `sourceMessage()`) to also attach
+ * headers.
  * @internal
  */
 export type SourceOverrideBehavior<M = unknown> =
-  | readonly M[]
-  | AsyncIterable<M>
-  | Iterable<M>
-  | ((args: unknown[]) => readonly M[] | Iterable<M> | AsyncIterable<M>);
+  | readonly SourceMessage<M>[]
+  | AsyncIterable<SourceMessage<M>>
+  | Iterable<SourceMessage<M>>
+  | ((
+      args: unknown[],
+    ) =>
+      | readonly SourceMessage<M>[]
+      | Iterable<SourceMessage<M>>
+      | AsyncIterable<SourceMessage<M>>);
 
 /**
  * Handler shape for a destination-role mock. Receives the exchange (as
@@ -184,8 +238,12 @@ export function wrapSourceWithOverride<M = unknown>(
     const pending: Promise<void>[] = [];
     const dispatch = (message: unknown): void => {
       if (abortController.signal.aborted) return;
+      // A branded fixture carries its own headers (mirroring an
+      // envelope-carrying source); a plain fixture is delivered as the body.
+      const body = (isSourceFixture(message) ? message.body : message) as M;
+      const headers = isSourceFixture(message) ? message.headers : undefined;
       pending.push(
-        handler(message as M).then(() => {
+        handler(body, headers).then(() => {
           record.yielded++;
         }),
       );

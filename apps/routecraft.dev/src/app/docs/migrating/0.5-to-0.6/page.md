@@ -4,11 +4,12 @@ title: Migrating from 0.5.x to 0.6.0
 
 What changed between Routecraft 0.5.0 and 0.6.0, and how to update. {% .lead %}
 
-Three consumer-visible changes:
+Four consumer-visible changes:
 
 1. **`skills` is replaced by a unified `blocks` record.** Skills, memory, identity, instructions, and any future system-prompt contribution are now one primitive.
 2. **Tag selectors on `tools()` are removed.** Programmatic `tools((catalog) => [...])` is the new escape hatch for "give me all read-only tools" style selection.
 3. **The `http()` destination option type is renamed.** `HttpOptions<T>` becomes `HttpClientOptions<T>` now that `http()` is a two-sided adapter (the new HTTP source uses `HttpServerOptions`). Type-only change; runtime behaviour and the `http({...})` call sites are unchanged.
+4. **The mail source moves the envelope from `body` to `routecraft.mail.*` headers.** `.from(mail(...))` now delivers the message content on `exchange.body` and the envelope (from, subject, recipients, ...) on headers, matching the HTTP source.
 
 Every other consumer-visible part of the public API is unchanged.
 
@@ -351,7 +352,89 @@ If you never imported `HttpOptions` by name (the common case, since `http({...})
 
 ---
 
-## 4. What is new in 0.6.0
+## 4. Mail: envelope moves from `body` to `routecraft.mail.*` headers {% #mail-envelope-headers %}
+
+The mail **source** (`.from(mail(folder, options))`) used to deliver one fat object on `exchange.body` that mixed the message content (`body.text`, `body.html`, `attachments`) with the envelope (`from`, `to`, `subject`, `date`, `cc`, `bcc`, `replyTo`, `messageId`, `flags`, `sender`, `rawHeaders`). It now follows the same payload-on-`body`, envelope-on-`headers` convention as the HTTP source:
+
+- **`exchange.body`** is a `MailBody`: just `{ text?, html?, attachments? }`. Attachments are message content, so they stay on the body.
+- **`exchange.headers`** carries the envelope under the `routecraft.mail.*` namespace. The keys are declaration-merged into `RoutecraftHeaders` for autocomplete and exported as named constants (`HEADER_MAIL_FROM`, `HEADER_MAIL_SUBJECT`, ...).
+
+Two things this unlocks: `.input({ body })` on a mail route now validates against the message content alone (no need to model envelope fields), and `mail -> transform -> http` collapses to one mental model.
+
+Only the streaming **source** changes. The fetch destination (`.enrich(mail(...))`) still returns `MailMessage[]` with the whole envelope on each element, because a batch fetch cannot split N envelopes across single-valued headers. The send destination input (`MailSendPayload`) is unchanged.
+
+### 4.1 Reading the envelope
+
+**Before (0.5.x):**
+
+```ts
+craft()
+  .from(mail("INBOX", { unseen: true }))
+  .transform((msg) => ({
+    to: "team@example.com",
+    subject: `Fwd: ${msg.subject}`,
+    text: msg.body.text ?? "",
+  }))
+  .to(mail());
+```
+
+**After (0.6.0):**
+
+```ts
+craft()
+  .from(mail("INBOX", { unseen: true }))
+  // The transformer's second argument is the exchange; read the envelope
+  // off its headers. The first argument (the body) is now the MailBody.
+  .transform((body, ex) => ({
+    to: "team@example.com",
+    subject: `Fwd: ${ex.headers["routecraft.mail.subject"]}`,
+    text: body.text ?? "",
+  }))
+  .to(mail());
+```
+
+The field-to-header mapping:
+
+| Before (`ex.body.*`) | After (`ex.headers[...]`)        |
+| -------------------- | -------------------------------- |
+| `body.from`          | `routecraft.mail.from`           |
+| `body.to`            | `routecraft.mail.to` (array)     |
+| `body.cc`            | `routecraft.mail.cc` (array)     |
+| `body.bcc`           | `routecraft.mail.bcc` (array)    |
+| `body.subject`       | `routecraft.mail.subject`        |
+| `body.date`          | `routecraft.mail.date`           |
+| `body.messageId`     | `routecraft.mail.messageId`      |
+| `body.replyTo`       | `routecraft.mail.replyTo`        |
+| `body.flags`         | `routecraft.mail.flags`          |
+| `body.sender`        | `routecraft.mail.sender`         |
+| `body.rawHeaders`    | `routecraft.mail.rawHeaders`     |
+| `body.uid`           | `routecraft.mail.uid` (already)  |
+| `body.folder`        | `routecraft.mail.folder` (already) |
+| `body.text`          | `body.text` (unchanged)          |
+| `body.html`          | `body.html` (unchanged)          |
+| `body.attachments`   | `body.attachments` (unchanged)   |
+
+### 4.2 Filtering on the effective sender
+
+**Before (0.5.x):**
+
+```ts
+.filter((ex) => ex.body.sender?.trust === "verified")
+```
+
+**After (0.6.0):**
+
+```ts
+.filter((ex) => ex.headers["routecraft.mail.sender"]?.trust === "verified")
+```
+
+### 4.3 Downstream IMAP operations are unaffected
+
+`.to(mail({ action: "move", ... }))` and the other IMAP operations already resolved their target from the `routecraft.mail.uid` / `routecraft.mail.folder` headers (or a custom `target` extractor), so chains like `mail source -> filter -> mail move` keep working without change.
+
+---
+
+## 5. What is new in 0.6.0
 
 For context, no migration required:
 

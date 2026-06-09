@@ -121,6 +121,15 @@ export {
 
 export { WrapperStep } from "./operations/wrapper.ts";
 export { ErrorWrapperStep } from "./operations/error-wrapper.ts";
+export {
+  CacheWrapperStep,
+  type CacheOptions,
+} from "./operations/cache-wrapper.ts";
+export {
+  type CacheProvider,
+  MemoryCacheProvider,
+  type MemoryCacheProviderOptions,
+} from "./operations/cache-provider.ts";
 
 export {
   ContextBuilder,
@@ -183,11 +192,15 @@ export { shutdownHandler } from "./shutdown.ts";
 
 export {
   RC_ADAPTER_OVERRIDES,
+  SOURCE_FIXTURE,
+  isSourceFixture,
   type AdapterOverride,
   type AdapterSendCall,
   type AdapterSourceCall,
   type SendOverrideHandler,
   type SourceOverrideBehavior,
+  type SourceFixture,
+  type SourceMessage,
 } from "./testing-hooks.ts";
 
 export { tagAdapter, factoryArgs } from "./adapters/shared/factory-tag.ts";
@@ -260,19 +273,40 @@ export {
   type CronExpression,
   type CronOptions,
 } from "./adapters/cron/index.ts";
-export { type FileOptions } from "./adapters/file/index.ts";
-export { type HtmlOptions, type HtmlResult } from "./adapters/html/index.ts";
+export {
+  type FileOptions,
+  type FileAdapter,
+  type FileReadAdapter,
+} from "./adapters/file/index.ts";
+export {
+  type HtmlOptions,
+  type HtmlResult,
+  type HtmlAdapter,
+  type HtmlReadAdapter,
+} from "./adapters/html/index.ts";
 export {
   type JsonOptions,
   type JsonTransformerOptions,
   type JsonFileOptions,
+  type JsonFileAdapterType,
+  type JsonReadAdapter,
 } from "./adapters/json/index.ts";
-export { type CsvOptions, type CsvRow } from "./adapters/csv/index.ts";
+export {
+  type CsvOptions,
+  type CsvTransformerOptions,
+  type CsvFileOptions,
+  type CsvRow,
+  type CsvData,
+  type CsvAdapter,
+  type CsvReadAdapter,
+} from "./adapters/csv/index.ts";
 export {
   type JsonlOptions,
   type JsonlSourceOptions,
   type JsonlDestinationOptions,
   type JsonlCombinedOptions,
+  type JsonlTransformerOptions,
+  type JsonlReadAdapter,
 } from "./adapters/jsonl/index.ts";
 export { type GroupOptions } from "./adapters/group/index.ts";
 export {
@@ -303,6 +337,7 @@ export {
   type MailServerOptions,
   type MailClientOptions,
   type MailOptions,
+  type MailBody,
   type MailMessage,
   type MailAttachment,
   type MailSendPayload,
@@ -329,4 +364,17 @@ export {
   parseAuthResults,
   ANALYSIS_HEADER_NAMES,
   MailClientManager,
+  HEADER_MAIL_UID,
+  HEADER_MAIL_FOLDER,
+  HEADER_MAIL_MESSAGE_ID,
+  HEADER_MAIL_FROM,
+  HEADER_MAIL_TO,
+  HEADER_MAIL_CC,
+  HEADER_MAIL_BCC,
+  HEADER_MAIL_SUBJECT,
+  HEADER_MAIL_DATE,
+  HEADER_MAIL_REPLY_TO,
+  HEADER_MAIL_FLAGS,
+  HEADER_MAIL_SENDER,
+  HEADER_MAIL_RAW_HEADERS,
 } from "./adapters/mail/index.ts";

@@ -1,9 +1,9 @@
 import { createReadStream } from "node:fs";
 import type { Source, CallableSource } from "../../operations/from.ts";
-import type { CsvOptions, CsvData, CsvRow } from "./types.ts";
+import type { CsvFileOptions, CsvData, CsvRow } from "./types.ts";
 import { HeadersKeys, type ExchangeHeaders } from "../../exchange.ts";
 import { file } from "../file/index.ts";
-import { ensurePapaparse } from "./shared.ts";
+import { ensurePapaparse, parseCsv } from "./shared.ts";
 import { throwFileError } from "../shared/line-reader.ts";
 import {
   DEFAULT_ON_PARSE_ERROR,
@@ -33,7 +33,7 @@ import type { CraftContext } from "../../context.ts";
 export class CsvSourceAdapter implements Source<CsvData | CsvRow> {
   readonly adapterId = "routecraft.adapter.csv";
 
-  constructor(private readonly options: CsvOptions) {}
+  constructor(private readonly options: CsvFileOptions) {}
 
   subscribe: CallableSource<CsvData | CsvRow> = async (
     context,
@@ -92,21 +92,13 @@ export class CsvSourceAdapter implements Source<CsvData | CsvRow> {
           parseFailureMode?: OnParseError,
         ) => Promise<import("../../exchange.ts").Exchange>;
 
-        const parseFn = (raw: unknown): CsvData => {
-          const result = Papa.parse(raw as string, {
+        const parseFn = (raw: unknown): CsvData =>
+          parseCsv(raw as string, {
             header,
             delimiter,
             quoteChar,
             skipEmptyLines,
           });
-          if (result.errors.length > 0) {
-            const firstError = result.errors[0];
-            throw new Error(
-              `csv adapter: parse error at row ${firstError.row}: ${firstError.message}`,
-            );
-          }
-          return result.data as CsvData;
-        };
 
         const promise = rowHandler(
           csvContent as unknown as CsvData,

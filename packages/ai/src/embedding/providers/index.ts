@@ -1,3 +1,4 @@
+import { loadOptionalPeer } from "@routecraft/routecraft";
 import type { EmbeddingModelConfig } from "../types.ts";
 
 export interface CallEmbeddingParams {
@@ -50,40 +51,25 @@ function resolveHuggingFaceModel(modelName: string): string {
   return `Xenova/${modelName}`;
 }
 
-const HUGGINGFACE_INSTALL =
-  'The Hugging Face embedding provider requires "@huggingface/transformers". Install it with: bun add @huggingface/transformers';
-
-function isModuleNotFoundFor(error: unknown, pkg: string): boolean {
-  if (!(error instanceof Error)) return false;
-  const msg = error.message ?? "";
-  return (
-    (msg.includes("ERR_MODULE_NOT_FOUND") ||
-      msg.includes("Cannot find module") ||
-      msg.includes("Cannot find package")) &&
-    msg.includes(pkg)
-  );
-}
-
 async function getHuggingFacePipeline(modelName: string): Promise<PipelineFn> {
   const resolved = resolveHuggingFaceModel(modelName);
   const cached = pipelineCache.get(resolved);
   if (cached) return cached.run;
 
-  let pipelineFn: (
-    task: string,
-    model: string,
-    opts?: { dtype?: string },
-  ) => Promise<unknown>;
-  try {
-    const mod = await import("@huggingface/transformers");
-    pipelineFn = mod.pipeline as typeof pipelineFn;
-  } catch (error) {
-    if (isModuleNotFoundFor(error, "@huggingface/transformers")) {
-      throw new Error(HUGGINGFACE_INSTALL);
-    }
-    throw error;
-  }
-  const pipe = (await pipelineFn("feature-extraction", resolved, {
+  const mod = (await loadOptionalPeer(
+    () => import("@huggingface/transformers"),
+    {
+      adapterName: "Hugging Face embedding",
+      packageName: "@huggingface/transformers",
+    },
+  )) as {
+    pipeline: (
+      task: string,
+      model: string,
+      opts?: { dtype?: string },
+    ) => Promise<unknown>;
+  };
+  const pipe = (await mod.pipeline("feature-extraction", resolved, {
     dtype: "fp32",
   })) as {
     (

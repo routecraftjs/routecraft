@@ -356,6 +356,8 @@ Resolution rules:
 
 MCP tools are NOT exposed via a builder. Use the `MCP(server:tool)` / `MCP(server)` grammar (or the raw `mcp__server__tool` form) inside `tools([...])` instead; the registry populated by `defineConfig.mcp` is the source of truth.
 
+When to hand an agent a raw `MCP(...)` tool versus a wrapped `Direct(...)` route -- and why a guard cannot stand in for the wrap -- is covered in [Calling an MCP](/docs/advanced/call-an-mcp#guardrails-raw-guarded-or-wrapped).
+
 #### Tags
 
 Apply with `.tag(value | values[])` on routes and `tags?: Tag[]` on `FnOptions`. Empty strings are rejected; surrounding whitespace is trimmed at storage so exact comparisons match.

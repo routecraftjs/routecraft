@@ -34,12 +34,18 @@ export interface JsonFileOptions {
 
   /**
    * File operation mode.
-   * - 'read': Read JSON file (source mode)
+   * - 'read': Read + parse the JSON file. Works as a source (`.from`) and,
+   *   because read mode returns the parsed value, mid-route via `.enrich()` /
+   *   `.to()`. As a destination, parse failures throw (the route boundary
+   *   surfaces them as `exchange:failed`); the `onParseError` lifecycle controls
+   *   apply to source mode only.
    * - 'write': Write/overwrite JSON file (destination mode)
    * - 'append': Append to JSON file (destination mode)
+   * - 'delete': Delete the JSON file (destination mode). Idempotent: an already-
+   *   absent path is a no-op. The body is unchanged. Supports dynamic paths.
    * Default: 'read' for source, 'write' for destination
    */
-  mode?: "read" | "write" | "append";
+  mode?: "read" | "write" | "append" | "delete";
 
   /**
    * Text encoding. Default: 'utf-8'

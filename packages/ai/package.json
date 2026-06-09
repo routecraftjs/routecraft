@@ -33,6 +33,7 @@
     "@ai-sdk/anthropic": "^3.0.74",
     "@ai-sdk/google": "^3.0.67",
     "@ai-sdk/openai": "^3.0.58",
+    "@ai-sdk/openai-compatible": "^1.0.0",
     "@huggingface/transformers": "^3.8.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@openrouter/ai-sdk-provider": "^2.9.0",
@@ -47,6 +48,7 @@
     "@ai-sdk/anthropic": "^3.0.50",
     "@ai-sdk/google": "^3.0.34",
     "@ai-sdk/openai": "^3.0.37",
+    "@ai-sdk/openai-compatible": "^1.0.0",
     "@huggingface/transformers": "^3.8.1",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@openrouter/ai-sdk-provider": "^2.2.3",
@@ -78,6 +80,9 @@
       "optional": true
     },
     "@ai-sdk/openai": {
+      "optional": true
+    },
+    "@ai-sdk/openai-compatible": {
       "optional": true
     },
     "@huggingface/transformers": {

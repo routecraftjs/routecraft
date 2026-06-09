@@ -712,7 +712,13 @@ export class CraftContext {
 
     // 5) Register each definition now that there's no duplication
     for (const definition of definitions) {
-      if (!definition.source || !definition.source.subscribe) {
+      if (
+        !Array.isArray(definition.sources) ||
+        definition.sources.length === 0 ||
+        definition.sources.some(
+          (source) => !source || typeof source.subscribe !== "function",
+        )
+      ) {
         throw rcError("RC1001", undefined, {
           message: `${RC["RC1001"].message}: ${definition.id}`,
         });

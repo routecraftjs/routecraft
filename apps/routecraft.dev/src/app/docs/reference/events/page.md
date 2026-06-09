@@ -116,6 +116,27 @@ After a split, each child exchange emits its own `exchange:started`. When aggreg
 
 `scope` is `"route"` for the catch-all set via `.error()` BEFORE `.from()`, and `"step"` for a wrapper attached AFTER `.from()`. `stepLabel` is the label of the wrapped step when `scope === "step"`. Wildcard subscribers (`route:*:error-handler:*`) keep matching.
 
+### Cache wrapper operations
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `route:{routeId}:cache:hit` | A cached value was reused; the wrapped step (or whole pipeline, at route scope) was skipped | `{ routeId, exchangeId, correlationId, stepLabel, scope: "route" \| "step", key }` |
+| `route:{routeId}:cache:miss` | No cached value; the wrapped step ran (or was dropped) | Same plus `dropped?: true` when the wrapped step dropped the exchange |
+| `route:{routeId}:cache:stored` | A fresh value was written to the cache | Same plus `ttl?: number` when a per-call TTL was set |
+| `route:{routeId}:cache:failed` | Key derivation, a provider read/write, or the wrapped step threw | `{ ..., stepLabel, scope: "route" \| "step", phase: "key" \| "get" \| "inner" \| "set", error, key? }` |
+
+Failure phases:
+- `phase: "key"` - key derivation threw (no `key` field, since none was produced). Raised as `RC5029` (not retryable).
+- `phase: "get"` - the provider read threw before the wrapped step ran. Non-RoutecraftError provider failures are raised as `RC5028` (retryable).
+- `phase: "inner"` - the wrapped step itself threw. The original error is rethrown unchanged so outer wrappers / route-level handlers cascade as usual. This event fires **alongside** the wrapped step's own `step:failed` event for the same exchange; they describe one failure, so do not double-count them.
+- `phase: "set"` - the wrapped step succeeded but the provider write threw. The bundled in-memory provider never fails on write, so this only applies to custom providers. Step-scope rethrows as `RC5028` (retryable); **route-scope does NOT fail the exchange** (the result was already computed and returned to the source), it just emits the event for observability.
+
+At route scope, `cache:hit` is accompanied by an `exchange:restored` event with `source: "cache"` (per the exchange lifecycle).
+
+Concurrent exchanges that share one computation (stampede dedupe) currently emit `cache:hit` for the waiters at step scope, which can inflate hit-rate metrics. A distinct dedupe signal is planned and needs a provider-interface change. Route scope does not dedupe concurrent same-key callers at all in this release: each runs the pipeline once.
+
+### Reserved operation-error events
+
 | Event | When it fires | Details |
 | --- | --- | --- |
 | `route:{routeId}:operation:error:invoked` | Reserved for the planned `.onError()` operation | `{ routeId, exchangeId, correlationId }` |

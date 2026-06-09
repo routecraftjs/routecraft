@@ -45,15 +45,22 @@ craft().from(timer()).id('orders');
 Invalid operation type
 
 **Why it happens**  
-The step received unsupported input.
+Either a step received unsupported input (e.g. `split()` on a non-array), or `from()` was called with no sources, or with multiple sources but without a preceding `input({ body })`. Multi-ingress routes share one pipeline, so they need one shared input schema to validate and normalize every channel to the same body type.
 
 **Suggestion**  
-Use a supported operator and verify the step name.
+Use a supported operator and verify the step name. For a multi-ingress route, declare `input({ body })` before `from()`, or expose each channel as its own single-source route.
 
 **Example**
 ```ts
 // split requires an array
 craft().from(simple(['a','b'])).split()
+
+// multi-ingress requires a shared input schema
+craft()
+  .id('my-route')
+  .input(MyBodySchema) // required with multiple sources
+  .from(direct(), mcp())
+  .to(handler)
 ```
 
 ## RC2002
@@ -355,6 +362,30 @@ A block's shape is invalid at construction:
 - Inject-mode blocks: `{ mode: "inject", value: <string | function> }`.
 - Progressive-mode blocks: `{ mode: "progressive", description: "...", value: <string | function> }`.
 - Use the `BlockMode` and `BlockLifetime` types exported from `@routecraft/ai` to catch typos at the type level.
+
+## RC5028
+Cache provider failed
+
+**Why it happens**  
+The `.cache()` wrapper's provider threw while reading a value or while a custom provider executed its backend operations. Typical cause: a remote cache backend (Redis, etc.) is unreachable. Also raised by `MemoryCacheProvider.set` if called with `undefined` (the cache-miss sentinel), which is a contract violation.
+
+**Suggestion**  
+Inspect the underlying backend. Transient connectivity errors are retryable; consider wrapping the step with `.retry()` once that wrapper ships. If you hit the `undefined` set error, use `null` for an intentional empty value.
+
+## RC5029
+Cache key derivation failed
+
+**Why it happens**  
+The default `.cache()` key hashes `JSON.stringify(body)`, which fails on bodies containing functions, symbols, circular references, or `BigInt`. Also raised when a custom `key` function throws.
+
+**Suggestion**  
+Supply an explicit `key` function that returns a stable string identifier:
+
+```ts
+.cache({ key: (e) => String(e.body.id) })
+```
+
+This error is not retryable: the same body fails key derivation the same way every time.
 
 ## RC9901
 Unknown error

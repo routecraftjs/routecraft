@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { z } from "zod";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
-import { craft, simple, jsonl, HeadersKeys } from "@routecraft/routecraft";
+import {
+  craft,
+  simple,
+  jsonl,
+  only,
+  HeadersKeys,
+} from "@routecraft/routecraft";
 import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -753,6 +759,212 @@ describe("JSONL Adapter", () => {
           new AbortController(),
         ),
       ).rejects.toThrow(/file not found/);
+    });
+
+    /**
+     * @case A dynamic (function) path read adapter rejects clearly when used as
+     *   a source, rather than throwing an undefined-property TypeError
+     * @preconditions jsonl({ path: fn, mode: 'read' }) used via .subscribe
+     * @expectedResult subscribe rejects with the "static string path" message
+     */
+    test("dynamic-path read adapter throws a clear error when used as a source", async () => {
+      const adapter = jsonl({ path: () => "x.jsonl", mode: "read" });
+
+      await expect(
+        adapter.subscribe(
+          {} as any,
+          async () => ({}) as any,
+          new AbortController(),
+        ),
+      ).rejects.toThrow(/static string path/);
+    });
+  });
+
+  describe("transformer mode (decode)", () => {
+    /**
+     * @case jsonl() with no path parses a JSONL string already in the body
+     * @preconditions Body is a JSONL string (one JSON value per line)
+     * @expectedResult Body becomes the parsed array, empty lines skipped
+     */
+    test("parses a JSONL string in the body", async () => {
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("jsonl-decode")
+            .from(simple('{"a":1}\n\n{"a":2}\n'))
+            .transform(jsonl())
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(s.received).toHaveLength(1);
+      expect(s.received[0].body).toEqual([{ a: 1 }, { a: 2 }]);
+    });
+
+    /**
+     * @case from() plucks the JSONL string and to() writes the array to a field
+     * @preconditions Body is an object carrying the JSONL under `raw`
+     * @expectedResult Parsed array is placed on the chosen field, body preserved
+     */
+    test("honours from() and to()", async () => {
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("jsonl-decode-from-to")
+            .from(simple({ raw: '{"x":1}\n{"x":2}' }))
+            .transform(
+              jsonl<{ raw: string }, { raw: string; rows: unknown[] }>({
+                from: (b) => b.raw,
+                to: (b, rows) => ({ ...b, rows }),
+              }),
+            )
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(s.received).toHaveLength(1);
+      expect(s.received[0].body).toEqual({
+        raw: '{"x":1}\n{"x":2}',
+        rows: [{ x: 1 }, { x: 2 }],
+      });
+    });
+  });
+
+  describe("read mode as destination (mid-route read)", () => {
+    /**
+     * @case jsonl({mode:'read'}) used with .enrich() reads + parses the file and
+     *   merges the array onto the body, preserving the incoming fields
+     * @preconditions File holds JSONL lines
+     * @expectedResult The matching record is found from the merged array
+     */
+    test("enrich merges the parsed array onto the body", async () => {
+      const filePath = path.join(tmpDir, "catalogue.jsonl");
+      await fsp.writeFile(
+        filePath,
+        '{"id":"a","n":1}\n{"id":"b","n":2}\n',
+        "utf-8",
+      );
+
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("jsonl-read-enrich")
+            .from(simple<{ id: string }>({ id: "b" }))
+            .enrich(
+              jsonl<{ id: string; n: number }>({
+                path: filePath,
+                mode: "read",
+              }),
+              only((rows) => rows, "rows"),
+            )
+            .transform(
+              (body) => body.rows.find((r) => r.id === body.id) ?? null,
+            )
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(s.received).toHaveLength(1);
+      expect(s.received[0].body).toEqual({ id: "b", n: 2 });
+    });
+
+    /**
+     * @case Read-as-destination resolves a dynamic (function) path from the body
+     * @preconditions Body carries the file name; path is a function of the body
+     * @expectedResult The file selected by the body is read and parsed
+     */
+    test("supports a dynamic (function) path", async () => {
+      const filePath = path.join(tmpDir, "picked.jsonl");
+      await fsp.writeFile(filePath, '{"picked":true}\n', "utf-8");
+
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("jsonl-read-dynamic")
+            .from(simple<{ file: string }>({ file: filePath }))
+            .to(
+              jsonl({
+                path: (ex) => (ex.body as { file: string }).file,
+                mode: "read",
+              }),
+            )
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(s.received).toHaveLength(1);
+      expect(s.received[0].body).toEqual([{ picked: true }]);
+    });
+  });
+
+  describe("delete mode", () => {
+    /**
+     * @case jsonl({mode:'delete'}) removes the file without stringifying the body
+     * @preconditions File exists
+     * @expectedResult The file is gone and the body passes through unchanged
+     */
+    test("deletes the file and passes the body through", async () => {
+      const filePath = path.join(tmpDir, "to-delete.jsonl");
+      await fsp.writeFile(filePath, '{"a":1}\n', "utf-8");
+
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("jsonl-delete")
+            .from(simple({ keep: true }))
+            .to(jsonl({ path: filePath, mode: "delete" }))
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      await expect(fsp.access(filePath)).rejects.toThrow();
+      expect(s.received).toHaveLength(1);
+      expect(s.received[0].body).toEqual({ keep: true });
+    });
+
+    /**
+     * @case Deleting an already-absent JSONL file is a no-op (idempotent)
+     * @preconditions File does not exist
+     * @expectedResult No error; the exchange flows through
+     */
+    test("is idempotent when the file is already absent", async () => {
+      const missing = path.join(tmpDir, "missing-delete.jsonl");
+
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("jsonl-delete-missing")
+            .from(simple("x"))
+            .to(jsonl({ path: missing, mode: "delete" }))
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(s.received).toHaveLength(1);
     });
   });
 });

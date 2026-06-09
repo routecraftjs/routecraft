@@ -8,6 +8,8 @@ import {
   type RouteDiscovery,
   type RouteSchemas,
   type Tag,
+  buildCacheCheckStep,
+  buildCacheStoreStep,
 } from "./route.ts";
 import {
   CraftContext,
@@ -31,6 +33,7 @@ import {
   type Exchange,
   DefaultExchange,
   getExchangeContext,
+  OperationType,
 } from "./exchange.ts";
 import {
   type Splitter,
@@ -47,6 +50,11 @@ import { COLLECT_STEPS } from "./dsl-symbol.ts";
 import { ChoiceStep, ChoiceSubBuilder } from "./operations/choice.ts";
 import { ValidateStep } from "./operations/validate.ts";
 import { authorize, type AuthorizeOptions } from "./auth/authorize.ts";
+import {
+  type CacheOptions,
+  resolveCacheOptions,
+  type ResolvedCacheOptions,
+} from "./operations/cache-wrapper.ts";
 
 /**
  * Builder for creating a Routecraft context with routes and configuration.
@@ -341,6 +349,53 @@ export type RouteOptions = Partial<Pick<RouteDefinition, "consumer">> & {
  *   .to(log())
  * ```
  */
+
+/**
+ * @internal
+ *
+ * Verifies a finalised route honours the route-scope `.cache()` contract.
+ *
+ * Route-scope `.cache()` caches a single terminal body per source message.
+ * A bare `.split()` produces N terminal exchanges with no fold-back, so
+ * there is no single value to cache. A `.split()` that is balanced by a
+ * matching `.aggregate()` collapses the children back into one terminal
+ * body, which is cacheable.
+ *
+ * The check counts nesting depth across the step list: every `split`
+ * increments, every `aggregate` decrements. A non-zero depth at the end
+ * of the route means at least one `split` was not aggregated, so the
+ * route is rejected with `RC5003`.
+ *
+ * Step-scope `.cache()` is unaffected; it wraps a single inner step and
+ * never participates in this check.
+ */
+function assertRouteScopeCacheCompatibility(route: RouteDefinition): void {
+  const hasRouteScopeCache = route.postParseFilters.some(
+    (f) => f.label === "cache-check",
+  );
+  if (!hasRouteScopeCache) return;
+
+  let depth = 0;
+  for (const step of route.steps) {
+    if (step.operation === OperationType.SPLIT) {
+      depth++;
+    } else if (step.operation === OperationType.AGGREGATE && depth > 0) {
+      depth--;
+    }
+  }
+
+  if (depth > 0) {
+    throw rcError("RC5003", undefined, {
+      message:
+        `Route "${route.id}" has route-scope .cache() and an unbalanced .split() ` +
+        `(no matching .aggregate()). A fire-and-forget split produces multiple ` +
+        `terminal exchanges, so there is no single body to cache. ` +
+        `Add an .aggregate() to fold the children back into one terminal ` +
+        `value, or use step-scope .cache() to wrap the expensive operation.`,
+    });
+  }
+}
+
 export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
   protected currentRoute?: RouteDefinition;
   protected routes: RouteDefinition[] = [];
@@ -354,6 +409,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
           options?: unknown;
         };
         errorHandler?: ErrorHandler;
+        cacheConfig?: ResolvedCacheOptions;
         discovery?: RouteDiscovery;
         authorizers?: AuthorizeOptions[];
       }
@@ -436,8 +492,11 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    *
    * Tags drive selectors like `tools({ tagged: "read-only" })` in
    * `@routecraft/ai`; use the `KnownTag` literals (`"read-only"`,
-   * `"destructive"`, `"idempotent"`) where they fit, and any string
-   * otherwise.
+   * `"destructive"`, `"idempotent"`, `"open-world"`) where they fit, and any
+   * string otherwise. On a route exposed via `.from(mcp())`, these four tags
+   * also derive the MCP tool annotation hints (`readOnlyHint`,
+   * `destructiveHint`, `idempotentHint`, `openWorldHint`), so the same fact is
+   * declared once; explicit `annotations` on `mcp()` still override per-key.
    */
   tag(value: Tag | Tag[]): this {
     const incoming = (Array.isArray(value) ? value : [value]).map((t) => {
@@ -576,6 +635,42 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
   }
 
   /**
+   * Cache. Dual-mode:
+   *
+   * - **Before `.from()` (route scope):** the route looks up its
+   *   provider before any pipeline step runs. On a hit, the entire
+   *   pipeline is skipped and the cached body is returned to the
+   *   source as the route's final exchange body. On a miss, the
+   *   pipeline runs normally and the terminal body is stored for
+   *   future hits. Side effects (e.g. `.to(destination)` calls) do
+   *   NOT replay on a hit; the whole pipeline is bypassed.
+   *
+   * - **After `.from()` (step scope):** wraps the immediately-next
+   *   step; see {@link StepBuilderBase.cache} for the step-scope
+   *   contract.
+   *
+   * Routes with `.split()` are not supported at route scope (the
+   * pipeline produces N terminals rather than one) and throw
+   * `RC5003` at build time. Use step-scope `.cache()` to wrap the
+   * expensive step inside such a route.
+   *
+   * @experimental
+   */
+  override cache(options: CacheOptions<Current> = {}): this {
+    if (this.currentRoute === undefined || this.pendingOptions !== undefined) {
+      // Route scope: stage the resolved config onto pendingOptions so
+      // the next `.from()` writes it into the new RouteDefinition.
+      this.pendingOptions = {
+        ...(this.pendingOptions ?? {}),
+        cacheConfig: resolveCacheOptions(options as CacheOptions),
+      };
+      logger.trace("Staging route-scope cache config for next route");
+      return this;
+    }
+    return super.cache(options);
+  }
+
+  /**
    * Declare an authorization requirement on the next route. **Route-only**:
    * stages the authorizer onto the next-route options and runs at route
    * entry, before any pipeline step. Same staging convention as `.id`,
@@ -659,33 +754,105 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    * // After `.input({ body: schema })`, pass the inferred body type to
    * // flow it through the chain:
    * // .input({ body: MySchema }).from<z.infer<typeof MySchema>>(direct())
+   *
+   * // Expose one capability on several ingresses (internal + agents +
+   * // integrations) that all feed the same pipeline. Multi-ingress requires
+   * // `.input()` so every channel validates and normalizes to one body type:
+   * // .input(QuerySchema).from(direct(), mcp(), http({ path: '/q', method: 'POST' }))
+   *
+   * The multiple-source `.input()` requirement is a deliberate build-time
+   * precondition, enforced at `.from()` with RC2001 rather than in the type
+   * system: the variadic overload is statically reachable and `T` defaults to
+   * `unknown` unless you pass it explicitly (`.from<Query>(...)`). A type-level
+   * flag threaded through the builder could make it compile-time, but that is a
+   * larger change deferred for the v0 unstable surface.
    */
   from<T>(source: Source<T> | CallableSource<T>): RouteBuilder<T>;
   from<T>(source: Source<unknown> | CallableSource<unknown>): RouteBuilder<T>;
-  from<T>(source: Source<T> | CallableSource<T>): RouteBuilder<T> {
+  from<T>(
+    ...sources: [
+      Source<unknown> | CallableSource<unknown>,
+      Source<unknown> | CallableSource<unknown>,
+      ...Array<Source<unknown> | CallableSource<unknown>>,
+    ]
+  ): RouteBuilder<T>;
+  from<T>(...sources: Array<Source<T> | CallableSource<T>>): RouteBuilder<T> {
     this.assertNoPendingWrappers("from");
+    if (sources.length === 0) {
+      throw rcError("RC2001", undefined, {
+        message: `Route .from() requires at least one source.`,
+      });
+    }
     const id = this.pendingOptions?.id ?? randomUUID();
     const consumer = this.pendingOptions?.consumer ?? {
       type: SimpleConsumer as unknown as ConsumerType<Consumer>,
       options: undefined,
     };
     const errorHandler = this.pendingOptions?.errorHandler;
+    const cacheConfig = this.pendingOptions?.cacheConfig;
     const discovery = this.pendingOptions?.discovery;
     const authorizers = this.pendingOptions?.authorizers ?? [];
 
-    logger.trace({ route: id }, "Creating route definition");
+    // Multi-ingress routes feed one shared pipeline, so they need one shared
+    // input contract. Require `.input()` (with a body schema) so every
+    // ingress validates and normalizes its heterogeneous raw body (direct
+    // `unknown`, mcp `McpMessage`, http `HttpRequestBody`) to the same type
+    // before the pipeline runs. Without it the pipeline body would be an
+    // unsound union of the raw source types. A single source keeps the
+    // existing behaviour (type flows from `.from<T>()` or the source).
+    if (sources.length > 1 && !discovery?.input?.body) {
+      throw rcError("RC2001", undefined, {
+        message: `Route "${id}": .from() with multiple sources requires .input({ body }) so every ingress validates to one shared body type. Declare .input() before .from(), or expose each channel as its own single-source route.`,
+      });
+    }
 
-    // Staged `.authorize()` calls become the route's first steps so they
-    // run before any pipeline operation. Multiple authorizers stack in
-    // declaration order; the first failure short-circuits the rest.
+    logger.trace(
+      { route: id, sourceCount: sources.length },
+      "Creating route definition",
+    );
+
+    // Assemble the route's pre-from filter chain. Order is fixed by
+    // `.standards/pre-from-filter-chain.md`:
+    //
+    //   preParseFilters   -> .authorize() (#2)
+    //   parse              (#3; dynamic, source-attached, inserted at runtime)
+    //   .input()           (#4; CURRENTLY EAGER -- runs in `Route.buildConsumerHandler()`
+    //                       outside the chain, not in postParseFilters. See
+    //                       `.standards/pre-from-filter-chain.md` for the
+    //                       scoping note: folding it in changes cross-route
+    //                       context:error semantics and is tracked separately.)
+    //   postParseFilters  -> .cache() check (#9); reserved slots for future
+    //                        .throttle() / .circuitBreaker() / .retry() /
+    //                        .timeout() (positions 5-8)
+    //   userSteps         -> declaration order, unchanged
+    //   postFromFilters   -> .cache() store (#10)
+    //
+    // The user does NOT control this order: `.authorize().cache()`
+    // and `.cache().authorize()` produce identical chains.
     const authorizerSteps = authorizers.map(
       (opts) => new ValidateStep(authorize(opts)),
+    );
+    const preParseFilters: Step<Adapter>[] = authorizerSteps;
+
+    const postParseFilters: Step<Adapter>[] = cacheConfig
+      ? [buildCacheCheckStep(cacheConfig)]
+      : [];
+
+    const postFromFilters: Step<Adapter>[] = cacheConfig
+      ? [buildCacheStoreStep(cacheConfig)]
+      : [];
+
+    const normalizedSources: Source<T>[] = sources.map((source) =>
+      typeof source === "function" ? { subscribe: source } : source,
     );
 
     this.currentRoute = {
       id,
-      source: typeof source === "function" ? { subscribe: source } : source,
-      steps: authorizerSteps,
+      sources: normalizedSources,
+      steps: [],
+      preParseFilters,
+      postParseFilters,
+      postFromFilters,
       consumer: {
         type: consumer.type,
         options: consumer.options ?? undefined,
@@ -738,6 +905,15 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
   protected override pushStep<T extends Adapter>(step: Step<T>): void {
     const route = this.requireSource();
     const wrapped = this.applyPendingWrappers(step);
+    // Route-scope `.cache()` + `.split()` compatibility is checked at
+    // build time: a balanced `split + aggregate` route is cacheable
+    // (the aggregated body is the single terminal value), but a
+    // fire-and-forget split has no single result to cache. See
+    // {@link assertRouteScopeCacheCompatibility} -- it walks each
+    // finalised route in `build()` and throws `RC5003` for unbalanced
+    // shapes. Per-step rejection at push time would refuse the
+    // balanced case before the user gets a chance to add the matching
+    // aggregate.
     logger.trace(
       { operation: wrapped.operation, route: route.id },
       "Adding step to route",
@@ -914,6 +1090,9 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
       });
     }
     this.assertNoPendingWrappers("build");
+    for (const route of this.routes) {
+      assertRouteScopeCacheCompatibility(route);
+    }
     logger.trace({ routeCount: this.routes.length }, "Building routes");
     return this.routes;
   }

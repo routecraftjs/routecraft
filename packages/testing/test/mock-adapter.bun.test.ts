@@ -18,6 +18,7 @@ import {
 } from "@routecraft/routecraft";
 import {
   mockAdapter,
+  sourceMessage,
   testContext,
   spy,
   type AdapterMock,
@@ -290,6 +291,42 @@ describe("mockAdapter", () => {
       }
       const { received } = await runWithSource<string>(gen());
       expect(received).toEqual(["a", "b"]);
+    });
+
+    /**
+     * @case sourceMessage fixtures deliver headers alongside the body
+     * @preconditions Source mixes a sourceMessage(body, headers) fixture with a plain fixture
+     * @expectedResult The wrapped fixture's body and headers both reach the route; the plain fixture arrives as the body with no extra headers
+     */
+    test("sourceMessage attaches headers to a fixture", async () => {
+      const received: Array<{ body: unknown; headers: ExchangeHeaders }> = [];
+      const mock = mockAdapter<typeof PlainSource, { text: string }>(
+        PlainSource,
+        {
+          source: [
+            sourceMessage(
+              { text: "wrapped" },
+              { "routecraft.mail.from": "a@b.test" },
+            ),
+            { text: "plain" },
+          ],
+        },
+      );
+      const route = craft()
+        .from(plainSource<{ text: string }>("src"))
+        .to(async (ex: Exchange<{ text: string }>) => {
+          received.push({ body: ex.body, headers: ex.headers });
+        });
+      t = await testContext().override(mock).routes(route).build();
+      await t.test();
+
+      expect(received).toHaveLength(2);
+      expect(received[0].body).toEqual({ text: "wrapped" });
+      expect(received[0].headers["routecraft.mail.from"]).toBe("a@b.test");
+      // The plain fixture arrives as the body and carries no envelope header.
+      expect(received[1].body).toEqual({ text: "plain" });
+      expect(received[1].headers["routecraft.mail.from"]).toBeUndefined();
+      expect(mock.calls.source[0].yielded).toBe(2);
     });
   });
 

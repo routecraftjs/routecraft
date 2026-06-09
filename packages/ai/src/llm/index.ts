@@ -4,11 +4,16 @@ export { llmPlugin } from "./plugin.ts";
 export { validateLlmPluginOptions } from "./validate-options.ts";
 export { ADAPTER_LLM_OPTIONS, ADAPTER_LLM_PROVIDERS } from "./types.ts";
 export type {
+  CustomLanguageModel,
   LlmAnthropicProviderOptions,
+  LlmCustomProviderOptions,
   LlmGeminiProviderOptions,
+  LlmLmStudioProviderOptions,
   LlmModelConfig,
   LlmModelConfigAnthropic,
+  LlmModelConfigCustom,
   LlmModelConfigGemini,
+  LlmModelConfigLmStudio,
   LlmModelConfigOllama,
   LlmModelConfigOpenAI,
   LlmModelConfigOpenRouter,

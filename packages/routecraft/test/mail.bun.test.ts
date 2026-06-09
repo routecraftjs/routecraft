@@ -1051,7 +1051,13 @@ describe("Mail Adapter", () => {
 
       expect(mockMailboxOpen).toHaveBeenCalledWith("INBOX");
       expect(s.received.length).toBeGreaterThanOrEqual(1);
-      expect((s.received[0].body as any).subject).toBe("Poll message");
+      // The source puts the envelope on `routecraft.mail.*` headers and the
+      // payload on `body`; subject is now a header.
+      expect(
+        (s.received[0].headers as Record<string, unknown>)[
+          "routecraft.mail.subject"
+        ],
+      ).toBe("Poll message");
     });
 
     /**
@@ -1119,6 +1125,100 @@ describe("Mail Adapter", () => {
       const headers = s.received[0].headers as Record<string, unknown>;
       expect(headers["routecraft.mail.uid"]).toBe(42);
       expect(headers["routecraft.mail.folder"]).toBe("INBOX");
+    });
+
+    /**
+     * @case Source splits the message into payload-on-body and envelope-on-headers
+     * @preconditions Source delivers one message with a full envelope and a text body via poll mode
+     * @expectedResult `body` holds only the parsed payload (`text`); the envelope (from, to, cc, subject, date, messageId, replyTo) lives on `routecraft.mail.*` headers
+     */
+    test("puts payload on body and envelope on headers", async () => {
+      let callCount = 0;
+      mockFetch.mockImplementation(() => ({
+        async *[Symbol.asyncIterator]() {
+          if (callCount === 0) {
+            callCount++;
+            yield {
+              uid: 7,
+              flags: new Set(["\\Seen"]),
+              envelope: {
+                messageId: "<split@test.com>",
+                from: [{ address: "sender@acme.test" }],
+                to: [{ address: "a@dest.test" }, { address: "b@dest.test" }],
+                cc: [{ address: "c@dest.test" }],
+                replyTo: [{ address: "reply@acme.test" }],
+                subject: "Split me",
+                date: new Date("2026-05-01T09:00:00Z"),
+              },
+              source: Buffer.from("raw mime"),
+            };
+          }
+        },
+      }));
+
+      const s = spy();
+
+      t = await testContext()
+        .with({
+          mail: {
+            accounts: {
+              default: {
+                imap: {
+                  host: "imap.test.com",
+                  auth: { user: "u", pass: "p" },
+                },
+              },
+            },
+          },
+        })
+        .routes(
+          craft()
+            .id("test-source-split")
+            .from(
+              mail("INBOX", {
+                markSeen: false,
+                unseen: true,
+                pollIntervalMs: 5,
+                verify: "off",
+              }),
+            )
+            .to(s),
+        )
+        .build();
+
+      const startPromise = t.ctx.start();
+      await new Promise((r) => setTimeout(r, 20));
+      await t.ctx.stop();
+      await startPromise.catch(() => {});
+
+      expect(s.received.length).toBeGreaterThanOrEqual(1);
+      const exchange = s.received[0];
+
+      // Payload on body: only the parsed content (from the mocked parser),
+      // no envelope fields.
+      const body = exchange.body as Record<string, unknown>;
+      expect(body["text"]).toBe("Hello world");
+      expect(body["html"]).toBe("<p>Hello world</p>");
+      expect(body["from"]).toBeUndefined();
+      expect(body["subject"]).toBeUndefined();
+
+      // Envelope on headers.
+      const headers = exchange.headers as Record<string, unknown>;
+      expect(headers["routecraft.mail.uid"]).toBe(7);
+      expect(headers["routecraft.mail.folder"]).toBe("INBOX");
+      expect(headers["routecraft.mail.messageId"]).toBe("<split@test.com>");
+      expect(headers["routecraft.mail.from"]).toBe("sender@acme.test");
+      expect(headers["routecraft.mail.to"]).toEqual([
+        "a@dest.test",
+        "b@dest.test",
+      ]);
+      expect(headers["routecraft.mail.cc"]).toEqual(["c@dest.test"]);
+      expect(headers["routecraft.mail.replyTo"]).toBe("reply@acme.test");
+      expect(headers["routecraft.mail.subject"]).toBe("Split me");
+      expect(headers["routecraft.mail.date"]).toEqual(
+        new Date("2026-05-01T09:00:00Z"),
+      );
+      expect(headers["routecraft.mail.flags"]).toEqual(new Set(["\\Seen"]));
     });
 
     /**

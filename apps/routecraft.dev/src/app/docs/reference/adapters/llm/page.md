@@ -46,7 +46,7 @@ craft()
 
 Model ID format: `"provider:model-name"` (e.g., `"ollama:llama3.2"`, `"anthropic:claude-sonnet-4-6"`).
 
-**Supported providers:** `openai`, `anthropic`, `ollama`, `openrouter`, `gemini`
+**Supported providers:** `openai`, `anthropic`, `ollama`, `openrouter`, `gemini`, `lmstudio`, `custom`
 
 **Options:**
 
