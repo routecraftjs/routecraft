@@ -120,10 +120,13 @@ function fakeDriver(initial: DAVVCardLike[] = []): FakeDriver {
       if (p.vCard.etag && existing.etag && p.vCard.etag !== existing.etag) {
         return new Response(null, { status: 412 });
       }
+      // Conditional spread: DAVVCardLike.data is optional and
+      // exactOptionalPropertyTypes forbids assigning an explicit undefined.
+      const data = p.vCard.data ?? existing.data;
       cards.set(p.vCard.url, {
         url: p.vCard.url,
         etag: '"upd-etag"',
-        data: p.vCard.data ?? existing.data,
+        ...(data !== undefined ? { data } : {}),
       });
       return new Response(null, {
         status: 200,
@@ -596,6 +599,9 @@ describe("CardDAV destination (write)", () => {
       .routes(
         craft()
           .from(simple("not a card"))
+          // @ts-expect-error the destination is typed Destination<VCardBody>,
+          // so a plain string body is rejected at the type level; this test
+          // asserts the runtime RC5001 guard that protects plain-JS callers.
           .to(carddav({ action: "create" })),
       )
       .build();
