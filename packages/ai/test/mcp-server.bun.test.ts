@@ -794,6 +794,74 @@ describe("McpServer", () => {
     });
 
     /**
+     * @case tools/call returns structuredContent when the route declares .output()
+     * @preconditions HTTP server with a route declaring .output(); initialize then tools/call
+     * @expectedResult Result carries structuredContent equal to the body, with a mirrored text content block, so spec-compliant clients that require structuredContent for tools advertising an outputSchema accept the response
+     */
+    test("tools/call returns structuredContent for a route with .output()", async () => {
+      const { post, initSession } = await startHttpServer([
+        craft()
+          .id("structured-echo")
+          .description("Echoes the value back with a declared output schema")
+          .input({ body: z.object({ value: z.string() }) })
+          .output({ body: z.object({ value: z.string() }) })
+          .from(mcp())
+          .transform((body) => ({ value: body.value })),
+      ]);
+
+      const sessionId = await initSession();
+      const callBody = JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "structured-echo", arguments: { value: "hi" } },
+      });
+      const callRes = await post(callBody, sessionId);
+      expect(callRes.statusCode).toBe(200);
+      const callParsed = JSON.parse(callRes.body);
+      if (callParsed.error) {
+        throw new Error(
+          `tools/call failed: ${JSON.stringify(callParsed.error)}`,
+        );
+      }
+      const result = callParsed.result as Record<string, unknown>;
+      expect(result.structuredContent).toEqual({ value: "hi" });
+      const content = result.content as Array<{ type: string; text: string }>;
+      expect(JSON.parse(content[0].text)).toEqual({ value: "hi" });
+    });
+
+    /**
+     * @case tools/call omits structuredContent when the route declares no .output()
+     * @preconditions HTTP server with a route without .output(); initialize then tools/call
+     * @expectedResult Result has only the text content block; structuredContent is absent because no outputSchema is advertised
+     */
+    test("tools/call omits structuredContent without .output()", async () => {
+      const { post, initSession } = await startHttpServer([
+        craft()
+          .id("plain-echo")
+          .description("Echoes the value back without an output schema")
+          .input({ body: z.object({ value: z.string() }) })
+          .from(mcp())
+          .transform((body) => ({ value: body.value })),
+      ]);
+
+      const sessionId = await initSession();
+      const callBody = JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "plain-echo", arguments: { value: "hi" } },
+      });
+      const callRes = await post(callBody, sessionId);
+      expect(callRes.statusCode).toBe(200);
+      const callParsed = JSON.parse(callRes.body);
+      const result = callParsed.result as Record<string, unknown>;
+      expect(result.structuredContent).toBeUndefined();
+      const content = result.content as Array<{ type: string; text: string }>;
+      expect(JSON.parse(content[0].text)).toEqual({ value: "hi" });
+    });
+
+    /**
      * @case tools/call passes string and object args with correct types
      * @preconditions HTTP server with echo-args route; initialize then tools/call with str and obj
      * @expectedResult Route receives str as string and obj as object (not stringified)

@@ -1488,6 +1488,7 @@ export class McpServer {
     args: Record<string, unknown>,
   ): Promise<{
     content: Array<{ type: "text"; text: string }>;
+    structuredContent?: Record<string, unknown>;
     isError?: boolean;
   }> {
     try {
@@ -1567,9 +1568,31 @@ export class McpServer {
         tool: toolName,
       });
 
-      return {
+      // A tool that advertises an outputSchema (the route declares .output())
+      // MUST return structuredContent per the MCP spec; spec-compliant clients
+      // reject the response otherwise. The text block stays alongside it for
+      // non-structured clients, as the spec recommends. Only a plain object
+      // body qualifies: the spec requires outputSchema (and therefore the
+      // structured result) to be an object, so a primitive or array body from
+      // a mismatched .output() declaration falls back to text-only.
+      const result: {
+        content: Array<{ type: "text"; text: string }>;
+        structuredContent?: Record<string, unknown>;
+      } = {
         content: [{ type: "text", text: resultText }],
       };
+      if (
+        entry.output?.body !== undefined &&
+        typeof resultExchange.body === "object" &&
+        resultExchange.body !== null &&
+        !Array.isArray(resultExchange.body)
+      ) {
+        result.structuredContent = resultExchange.body as Record<
+          string,
+          unknown
+        >;
+      }
+      return result;
     } catch (error) {
       const logMsg = isRoutecraftError(error)
         ? (error as unknown as { meta: { message: string } }).meta.message
