@@ -17,11 +17,46 @@ import {
 } from "../testing-hooks.ts";
 
 /**
- * Creates a snapshot of an exchange for async tap execution. Body is
- * deep-cloned so tap-side mutations (which the framework cannot prevent
- * for arbitrary user payloads) do not race with the main pipeline. A body that
- * defines a `clone()` method is cloned through it so class-instance bodies keep
- * their prototype and methods (see {@link cloneBody}).
+ * Clone an exchange body for an isolated tap snapshot.
+ *
+ * A class-instance body (a non-plain object) that exposes its own `clone()`
+ * method is cloned through it, so the tapped operation keeps the prototype and
+ * methods that `structuredClone` would otherwise strip; the body is trusted to
+ * return an independent copy. Plain object/array payloads are excluded from the
+ * `clone()` path so an application field that merely happens to be a function
+ * named `clone` is never invoked. Anything else (and any body whose `clone()`
+ * throws) falls back to `structuredClone`, and values `structuredClone` cannot
+ * handle are shared by reference rather than crashing the snapshot.
+ */
+function cloneBody<T>(body: T): T {
+  if (body !== null && typeof body === "object") {
+    const proto = Object.getPrototypeOf(body);
+    const cloneFn = (body as { clone?: unknown }).clone;
+    if (
+      proto !== null &&
+      proto !== Object.prototype &&
+      typeof cloneFn === "function"
+    ) {
+      try {
+        return (cloneFn as () => T).call(body);
+      } catch {
+        // A broken clone() must not escape into the main pipeline (the snapshot
+        // is built outside the tap's own try/catch); fall back to a deep clone.
+      }
+    }
+  }
+  try {
+    return structuredClone(body);
+  } catch {
+    return body;
+  }
+}
+
+/**
+ * Creates a snapshot of an exchange for async tap execution. The body is cloned
+ * (via {@link cloneBody}) so tap-side mutations do not race the main pipeline; a
+ * body with its own `clone()` method is cloned through it. A body that cannot be
+ * cloned at all is shared by reference, so taps must observe, not mutate.
  * Headers are framework-immutable (shallow-frozen) and safe to share
  * between snapshot and main pipeline by reference; structured header
  * values like `Principal` are shallow-frozen by the constructor so direct
@@ -35,30 +70,6 @@ import {
  *
  * @internal
  */
-/**
- * Clone an exchange body for an isolated tap snapshot.
- *
- * Honors a body that knows how to clone itself: if the body exposes a `clone()`
- * method (e.g. a class instance whose prototype and methods `structuredClone`
- * would otherwise strip), that is used so the tapped operation receives a
- * fully-typed copy. Plain payloads fall back to `structuredClone`, and values
- * `structuredClone` cannot handle (functions, etc.) are shared by reference
- * rather than throwing.
- */
-function cloneBody<T>(body: T): T {
-  if (body !== null && typeof body === "object") {
-    const cloneFn = (body as { clone?: unknown }).clone;
-    if (typeof cloneFn === "function") {
-      return (cloneFn as () => T).call(body);
-    }
-  }
-  try {
-    return structuredClone(body);
-  } catch {
-    return body;
-  }
-}
-
 function snapshotExchange<T>(
   exchange: Exchange<T>,
   context: CraftContext,

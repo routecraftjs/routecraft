@@ -134,6 +134,69 @@ describe("Async Tap Execution", () => {
   });
 
   /**
+   * @case A body whose clone() throws falls back instead of crashing the route
+   * @preconditions A class-instance body whose clone() throws
+   * @expectedResult The snapshot falls back to structuredClone; the main route completes
+   */
+  test("a throwing clone() does not crash the main route", async () => {
+    class Bad {
+      value = "x";
+      clone(): Bad {
+        throw new Error("boom");
+      }
+    }
+    const reached = mock();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("test-tap-clone-throws")
+          .from(simple(new Bad()))
+          .tap(() => {})
+          .to(() => {
+            reached();
+          }),
+      )
+      .build();
+
+    await t.ctx.start();
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    expect(reached).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * @case A plain-object body with a `clone` function field is not invoked
+   * @preconditions A plain data body that happens to carry a function named clone
+   * @expectedResult The clone() is not called (the protocol only applies to class instances)
+   */
+  test("does not invoke a clone function on a plain-object body", async () => {
+    const cloneSpy = mock();
+    const body = {
+      value: "x",
+      clone: () => {
+        cloneSpy();
+        return { value: "y" };
+      },
+    };
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("test-tap-plain-clone")
+          .from(simple(body))
+          .tap(() => {})
+          .to(() => {}),
+      )
+      .build();
+
+    await t.ctx.start();
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    expect(cloneSpy).not.toHaveBeenCalled();
+  });
+
+  /**
    * @case Verify tap errors don't affect main route
    * @preconditions Tap that throws an error
    * @expectedResult Route completes successfully despite tap error
