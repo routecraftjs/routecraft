@@ -123,8 +123,9 @@ export interface AgentRunInfo {
 
 /**
  * A single tool invocation, correlating the invoked/result/error events
- * for one `toolCallId`. `input`/`output` are only populated when telemetry
- * snapshot capture was enabled.
+ * for one `toolCallId`. `input`/`output`/`error` are only populated when
+ * telemetry snapshot capture was enabled; `errorName` is the always
+ * persisted, non-sensitive error class.
  */
 export interface ToolCallRow {
   toolCallId: string;
@@ -140,4 +141,5 @@ export interface ToolCallRow {
   input: string | null;
   output: string | null;
   error: string | null;
+  errorName: string | null;
 }

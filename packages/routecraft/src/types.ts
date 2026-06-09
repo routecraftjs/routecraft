@@ -293,6 +293,7 @@ export type StepEventName =
  * - `route:<routeId>:error-handler:failed` - Error handler also failed
  *
  * **Agent events** (emitted by `agent()` destinations):
+ * - `route:<routeId>:agent:started` - Agent dispatch began, before the first model call
  * - `route:<routeId>:agent:tool:invoked` - Agent decided to call a tool
  * - `route:<routeId>:agent:tool:result` - Tool handler returned a value
  * - `route:<routeId>:agent:tool:error` - Tool handler / guard / input validation threw
@@ -328,6 +329,7 @@ export type SpecialEventName =
   | `route:${string}:cache:failed`
   | `route:${string}:operation:choice:matched`
   | `route:${string}:operation:choice:unmatched`
+  | `route:${string}:agent:started`
   | `route:${string}:agent:tool:invoked`
   | `route:${string}:agent:tool:result`
   | `route:${string}:agent:tool:error`
@@ -335,6 +337,20 @@ export type SpecialEventName =
   | `route:${string}:agent:block:error`
   | `route:${string}:agent:finished`
   | `route:${string}:agent:error`;
+
+/**
+ * Agent and tool registration events.
+ *
+ * Emitted once per registered agent / fn on `context:started` by
+ * `agentPlugin` (`@routecraft/ai`) so observability consumers (the
+ * telemetry plugin, the TUI) can list agents and tools before any of
+ * them runs:
+ * - `agent:registered` - A by-name agent was registered via `agentPlugin({ agents })`
+ * - `agent:tool:registered` - A fn was registered via `agentPlugin({ functions })`
+ */
+export type AgentRegistryEventName =
+  | "agent:registered"
+  | "agent:tool:registered";
 
 /**
  * Authentication events.
@@ -381,6 +397,7 @@ export type EventName =
   | StepEventName
   | PluginEventName
   | SpecialEventName
+  | AgentRegistryEventName
   | AuthEventName;
 
 // Static event details mapping (non-hierarchical events)
@@ -393,6 +410,20 @@ export type StaticEventDetails = {
     error: unknown;
     route?: Route;
     exchange?: Exchange<unknown>;
+  };
+
+  // Agent / tool registration (emitted by agentPlugin in @routecraft/ai)
+  "agent:registered": {
+    agentId: string;
+    description?: string;
+    model?: string;
+    source: "registered";
+  };
+  "agent:tool:registered": {
+    toolName: string;
+    description?: string;
+    tags?: string[];
+    source: "registered";
   };
 
   // Auth
@@ -646,121 +677,156 @@ type RouteEventDetails<S extends string> =
                                                     exchangeId: string;
                                                     correlationId: string;
                                                   }
-                                                : // Agent events
-                                                  S extends "agent:tool:invoked"
+                                                : // Agent events.
+                                                  // Sensitive payloads (tool
+                                                  // input/output, thrown
+                                                  // errors that may echo
+                                                  // them) ride in the
+                                                  // `_snapshot` envelope: the
+                                                  // bus always carries them,
+                                                  // but the telemetry sink
+                                                  // persists them only when
+                                                  // snapshot capture is on.
+                                                  S extends "agent:started"
                                                   ? {
                                                       routeId: string;
                                                       exchangeId: string;
                                                       correlationId: string;
-                                                      toolCallId: string;
-                                                      toolName: string;
-                                                      input: unknown;
+                                                      agentName?: string;
+                                                      model: string;
+                                                      toolNames: string[];
+                                                      maxTurns: number;
                                                     }
-                                                  : S extends "agent:tool:result"
+                                                  : S extends "agent:tool:invoked"
                                                     ? {
                                                         routeId: string;
                                                         exchangeId: string;
                                                         correlationId: string;
                                                         toolCallId: string;
                                                         toolName: string;
-                                                        output: unknown;
-                                                        duration: number;
+                                                        _snapshot: {
+                                                          input: unknown;
+                                                        };
                                                       }
-                                                    : S extends "agent:tool:error"
+                                                    : S extends "agent:tool:result"
                                                       ? {
                                                           routeId: string;
                                                           exchangeId: string;
                                                           correlationId: string;
                                                           toolCallId: string;
                                                           toolName: string;
-                                                          error: unknown;
+                                                          _snapshot: {
+                                                            output: unknown;
+                                                          };
                                                           duration: number;
                                                         }
-                                                      : S extends "agent:block:loaded"
+                                                      : S extends "agent:tool:error"
                                                         ? {
                                                             routeId: string;
                                                             exchangeId: string;
                                                             correlationId: string;
                                                             toolCallId: string;
-                                                            blockName: string;
-                                                            output: unknown;
+                                                            toolName: string;
+                                                            errorName: string;
+                                                            _snapshot: {
+                                                              error: unknown;
+                                                            };
                                                             duration: number;
                                                           }
-                                                        : S extends "agent:block:error"
+                                                        : S extends "agent:block:loaded"
                                                           ? {
                                                               routeId: string;
                                                               exchangeId: string;
                                                               correlationId: string;
                                                               toolCallId: string;
                                                               blockName: string;
-                                                              error: unknown;
+                                                              _snapshot: {
+                                                                output: unknown;
+                                                              };
                                                               duration: number;
                                                             }
-                                                          : S extends "agent:finished"
+                                                          : S extends "agent:block:error"
                                                             ? {
                                                                 routeId: string;
                                                                 exchangeId: string;
                                                                 correlationId: string;
-                                                                finishReason: string;
-                                                                inputTokens?: number;
-                                                                outputTokens?: number;
-                                                                totalTokens?: number;
+                                                                toolCallId: string;
+                                                                blockName: string;
+                                                                errorName: string;
+                                                                _snapshot: {
+                                                                  error: unknown;
+                                                                };
+                                                                duration: number;
                                                               }
-                                                            : S extends "agent:error"
+                                                            : S extends "agent:finished"
                                                               ? {
                                                                   routeId: string;
                                                                   exchangeId: string;
                                                                   correlationId: string;
-                                                                  error: unknown;
+                                                                  agentName?: string;
+                                                                  model: string;
+                                                                  finishReason: string;
+                                                                  inputTokens?: number;
+                                                                  outputTokens?: number;
+                                                                  totalTokens?: number;
                                                                 }
-                                                              : // Step errors (multi-segment suffix)
-                                                                S extends `step:${string}:error:caught`
+                                                              : S extends "agent:error"
                                                                 ? {
+                                                                    routeId: string;
+                                                                    exchangeId: string;
+                                                                    correlationId: string;
+                                                                    agentName?: string;
+                                                                    model: string;
                                                                     error: unknown;
-                                                                    route?: Route;
-                                                                    exchange?: Exchange<unknown>;
-                                                                    operation: string;
                                                                   }
-                                                                : S extends `step:${string}:error`
+                                                                : // Step errors (multi-segment suffix)
+                                                                  S extends `step:${string}:error:caught`
                                                                   ? {
                                                                       error: unknown;
                                                                       route?: Route;
                                                                       exchange?: Exchange<unknown>;
                                                                       operation: string;
                                                                     }
-                                                                  : // Route errors
-                                                                    S extends "error:caught"
+                                                                  : S extends `step:${string}:error`
                                                                     ? {
                                                                         error: unknown;
                                                                         route?: Route;
                                                                         exchange?: Exchange<unknown>;
+                                                                        operation: string;
                                                                       }
-                                                                    : S extends "error"
+                                                                    : // Route errors
+                                                                      S extends "error:caught"
                                                                       ? {
                                                                           error: unknown;
                                                                           route?: Route;
                                                                           exchange?: Exchange<unknown>;
                                                                         }
-                                                                      : // Route lifecycle (must be last to avoid matching multi-segment suffixes)
-                                                                        S extends
-                                                                            | "registered"
-                                                                            | "starting"
-                                                                            | "started"
+                                                                      : S extends "error"
                                                                         ? {
-                                                                            route: Route;
+                                                                            error: unknown;
+                                                                            route?: Route;
+                                                                            exchange?: Exchange<unknown>;
                                                                           }
-                                                                        : S extends "stopping"
+                                                                        : // Route lifecycle (must be last to avoid matching multi-segment suffixes)
+                                                                          S extends
+                                                                              | "registered"
+                                                                              | "starting"
+                                                                              | "started"
                                                                           ? {
                                                                               route: Route;
-                                                                              reason?: unknown;
-                                                                              exchange?: Exchange<unknown>;
                                                                             }
-                                                                          : S extends "stopped"
+                                                                          : S extends "stopping"
                                                                             ? {
                                                                                 route: Route;
+                                                                                reason?: unknown;
                                                                                 exchange?: Exchange<unknown>;
                                                                               }
-                                                                            : never;
+                                                                            : S extends "stopped"
+                                                                              ? {
+                                                                                  route: Route;
+                                                                                  exchange?: Exchange<unknown>;
+                                                                                }
+                                                                              : never;
 
 /** Detail types for `plugin:<pluginId>:<suffix>` events. */
 type PluginEventDetails<S extends string> = S extends

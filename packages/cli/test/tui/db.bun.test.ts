@@ -137,6 +137,54 @@ function seed(dbPath: string): void {
     "ex2",
   );
 
+  // A second inline run with tool errors: one persisted with snapshot
+  // capture OFF (errorName only, no _snapshot), and one in the legacy
+  // pre-envelope shape (top-level error).
+  emit(
+    "2026-06-05T10:03:00.000Z",
+    "route:r3:agent:started",
+    {
+      routeId: "r3",
+      exchangeId: "ex3",
+      model: "anthropic:claude-haiku-4-5",
+      toolNames: ["fetch"],
+      maxTurns: 20,
+    },
+    "ex3",
+  );
+  emit(
+    "2026-06-05T10:03:01.000Z",
+    "route:r3:agent:tool:invoked",
+    { routeId: "r3", exchangeId: "ex3", toolCallId: "c2", toolName: "fetch" },
+    "ex3",
+  );
+  emit(
+    "2026-06-05T10:03:02.000Z",
+    "route:r3:agent:tool:error",
+    {
+      routeId: "r3",
+      exchangeId: "ex3",
+      toolCallId: "c2",
+      toolName: "fetch",
+      errorName: "TypeError",
+      duration: 3,
+    },
+    "ex3",
+  );
+  emit(
+    "2026-06-05T10:03:03.000Z",
+    "route:r3:agent:tool:error",
+    {
+      routeId: "r3",
+      exchangeId: "ex3",
+      toolCallId: "c3",
+      toolName: "legacy",
+      error: { name: "Error", message: "boom" },
+      duration: 1,
+    },
+    "ex3",
+  );
+
   const ex = db.prepare(
     "INSERT INTO exchanges (id, route_id, context_id, correlation_id, status, started_at, completed_at, duration_ms, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
   );
@@ -275,13 +323,114 @@ describe("TelemetryDb agents/tools derivation", () => {
 
   /**
    * @case getToolCalls returns per-tool invocation history
-   * @preconditions search invoked once in ex1
-   * @expectedResult One call row with result status and exchange ex1
+   * @preconditions search invoked once in ex1; other tools invoked in ex3
+   * @expectedResult One call row with result status and exchange ex1, with
+   *   the SQL-side toolName filter excluding the other tools' events
    */
   test("getToolCalls returns invocation history for a tool", () => {
     const calls = db.getToolCalls("search");
     expect(calls).toHaveLength(1);
     expect(calls[0]!.exchangeId).toBe("ex1");
     expect(calls[0]!.status).toBe("result");
+  });
+
+  /**
+   * @case Tool error persisted with snapshot capture off carries errorName only
+   * @preconditions fetch errored in ex3 with errorName but no _snapshot envelope
+   * @expectedResult Call has error status, errorName TypeError, and null error payload
+   */
+  test("tool error without snapshots surfaces errorName and no payload", () => {
+    const calls = db.getToolCalls("fetch");
+    expect(calls).toHaveLength(1);
+    const call = calls[0]!;
+    expect(call.status).toBe("error");
+    expect(call.errorName).toBe("TypeError");
+    expect(call.error).toBeNull();
+    expect(call.durationMs).toBe(3);
+  });
+
+  /**
+   * @case Legacy pre-envelope tool error events still surface their payload
+   * @preconditions legacy errored in ex3 with a top-level error field
+   * @expectedResult Call has error status and the serialized legacy error payload
+   */
+  test("legacy top-level tool error payload is preserved", () => {
+    const calls = db.getToolCalls("legacy");
+    expect(calls).toHaveLength(1);
+    const call = calls[0]!;
+    expect(call.status).toBe("error");
+    expect(call.error).toContain("boom");
+  });
+
+  /**
+   * @case getAgents incremental aggregation picks up events after the first call
+   * @preconditions getAgents called once, then a new agent:started event is written
+   * @expectedResult Second getAgents call reflects the new run without rescanning
+   */
+  test("getAgents aggregates incrementally across polls", () => {
+    const before = db.getAgents();
+    const researcherBefore = before.find((a) => a.key === "researcher");
+    expect(researcherBefore!.runCount).toBe(1);
+
+    const writer = new Database(dbPath);
+    writer
+      .prepare(
+        "INSERT INTO events (timestamp, context_id, event_name, details, exchange_id, correlation_id) VALUES (?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        "2026-06-05T10:04:00.000Z",
+        "ctx",
+        "route:r1:agent:started",
+        JSON.stringify({
+          routeId: "r1",
+          exchangeId: "ex9",
+          agentName: "researcher",
+          model: "anthropic:claude-opus-4-7",
+          toolNames: [],
+          maxTurns: 20,
+        }),
+        "ex9",
+        "ex9",
+      );
+    writer.close();
+
+    const after = db.getAgents();
+    const researcherAfter = after.find((a) => a.key === "researcher");
+    expect(researcherAfter!.runCount).toBe(2);
+  });
+
+  /**
+   * @case getTools incremental aggregation picks up new invocations
+   * @preconditions getTools called once, then a new tool:invoked event is written
+   * @expectedResult Second getTools call shows the increased call count
+   */
+  test("getTools aggregates incrementally across polls", () => {
+    const before = db.getTools();
+    const searchBefore = before.find((t) => t.name === "search");
+    expect(searchBefore!.callCount).toBe(1);
+
+    const writer = new Database(dbPath);
+    writer
+      .prepare(
+        "INSERT INTO events (timestamp, context_id, event_name, details, exchange_id, correlation_id) VALUES (?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        "2026-06-05T10:04:01.000Z",
+        "ctx",
+        "route:r1:agent:tool:invoked",
+        JSON.stringify({
+          routeId: "r1",
+          exchangeId: "ex9",
+          toolCallId: "c9",
+          toolName: "search",
+        }),
+        "ex9",
+        "ex9",
+      );
+    writer.close();
+
+    const after = db.getTools();
+    const searchAfter = after.find((t) => t.name === "search");
+    expect(searchAfter!.callCount).toBe(2);
   });
 });

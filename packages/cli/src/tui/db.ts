@@ -50,7 +50,7 @@ function asNumber(v: unknown): number | undefined {
 /** Read the sensitive `_snapshot` envelope from a tool event's details. */
 function snapshotField(
   d: Record<string, unknown>,
-  field: "input" | "output",
+  field: "input" | "output" | "error",
 ): { present: boolean; json: string | null } {
   const snap = d["_snapshot"];
   if (snap && typeof snap === "object" && field in (snap as object)) {
@@ -87,6 +87,7 @@ function correlateToolCalls(rows: EventRow[]): ToolCallRow[] {
         input: null,
         output: null,
         error: null,
+        errorName: null,
       };
       byCall.set(toolCallId, call);
       order.push(toolCallId);
@@ -106,10 +107,45 @@ function correlateToolCalls(rows: EventRow[]): ToolCallRow[] {
     } else if (suffix === "error") {
       call.status = "error";
       call.durationMs = asNumber(d["duration"]) ?? call.durationMs;
-      call.error = JSON.stringify(d["error"] ?? null);
+      call.errorName = asString(d["errorName"]) ?? call.errorName;
+      // The full error rides in `_snapshot` (it can echo tool input) and
+      // is only persisted when snapshot capture was on. Fall back to the
+      // legacy top-level `error` field for events written before the
+      // envelope move.
+      const snap = snapshotField(d, "error");
+      if (snap.present) {
+        call.error = snap.json;
+      } else if ("error" in d) {
+        call.error = JSON.stringify(d["error"] ?? null);
+      }
     }
   }
   return order.map((id) => byCall.get(id)!);
+}
+
+/**
+ * Incremental aggregation state for one agent (Agents tab). Aggregates
+ * survive across polls so each refresh only parses events newer than
+ * `AgentAggState.lastId` instead of rescanning the whole events table.
+ */
+interface AgentAcc {
+  key: string;
+  source: "registered" | "inline";
+  model: string | null;
+  description: string | null;
+  runs: Set<string>;
+  errorCount: number;
+  totalTokens: number;
+  lastRunAt: string | null;
+}
+
+/** Incremental aggregation state for one tool (Tools tab). */
+interface ToolAcc {
+  name: string;
+  source: "registered" | "observed";
+  callCount: number;
+  errorCount: number;
+  lastCalledAt: string | null;
 }
 
 /**
@@ -148,6 +184,10 @@ function escapeLike(s: string): string {
 export class TelemetryDb {
   private db: Database;
   private stmtCache = new Map<string, Statement>();
+  /** Incremental Agents-tab aggregation: only events with id > lastId are parsed per poll. */
+  private agentAgg = { lastId: 0, agents: new Map<string, AgentAcc>() };
+  /** Incremental Tools-tab aggregation: only events with id > lastId are parsed per poll. */
+  private toolAgg = { lastId: 0, tools: new Map<string, ToolAcc>() };
 
   private constructor(db: Database) {
     this.db = db;
@@ -677,31 +717,26 @@ export class TelemetryDb {
    * lifecycle (`route:*:agent:started|finished|error`) events. By-name
    * agents are keyed by their registered id; inline agents by their
    * dispatching route id.
+   *
+   * Aggregation is incremental: each call only reads and parses events
+   * newer than the previous call's high-water mark, so the 2s TUI poll
+   * stays cheap regardless of how large the events table has grown.
    */
   getAgents(): AgentSummary[] {
     const rows = this.stmt(
       "agentLifecycle",
       `SELECT id, timestamp, event_name AS eventName, details, exchange_id AS exchangeId
        FROM events
-       WHERE event_name = 'agent:registered'
+       WHERE id > ?
+         AND (event_name = 'agent:registered'
           OR event_name LIKE 'route:%:agent:started'
           OR event_name LIKE 'route:%:agent:finished'
-          OR event_name LIKE 'route:%:agent:error'
+          OR event_name LIKE 'route:%:agent:error')
        ORDER BY id ASC`,
-    ).all() as EventRow[];
+    ).all(this.agentAgg.lastId) as EventRow[];
 
-    interface Acc {
-      key: string;
-      source: "registered" | "inline";
-      model: string | null;
-      description: string | null;
-      runs: Set<string>;
-      errorCount: number;
-      totalTokens: number;
-      lastRunAt: string | null;
-    }
-    const map = new Map<string, Acc>();
-    const ensure = (key: string, source: "registered" | "inline"): Acc => {
+    const map = this.agentAgg.agents;
+    const ensure = (key: string, source: "registered" | "inline"): AgentAcc => {
       let acc = map.get(key);
       if (!acc) {
         acc = {
@@ -720,6 +755,7 @@ export class TelemetryDb {
     };
 
     for (const row of rows) {
+      if (row.id > this.agentAgg.lastId) this.agentAgg.lastId = row.id;
       const d = parseDetails(row.details);
       if (row.eventName === "agent:registered") {
         const key = asString(d["agentId"]);
@@ -778,13 +814,34 @@ export class TelemetryDb {
     source: "registered" | "inline",
     limit = 50,
   ): TelemetryExchange[] {
-    const rows = this.stmt(
-      "agentStarted",
-      `SELECT id, timestamp, event_name AS eventName, details, exchange_id AS exchangeId
-       FROM events
-       WHERE event_name LIKE 'route:%:agent:started'
-       ORDER BY id DESC`,
-    ).all() as EventRow[];
+    // The agent filter runs in SQL (json_extract) so only the selected
+    // agent's started events are transferred and parsed. ORDER BY id DESC
+    // walks the primary key from the newest row and stops at the LIMIT,
+    // so cost tracks recent activity rather than table size. The LIMIT
+    // is doubled to absorb duplicate started events for one exchange
+    // (deduped below) while still returning `limit` distinct runs.
+    const rows = (
+      source === "registered"
+        ? this.stmt(
+            "agentStartedByName",
+            `SELECT id, timestamp, event_name AS eventName, details, exchange_id AS exchangeId
+             FROM events
+             WHERE event_name LIKE 'route:%:agent:started'
+               AND json_extract(details, '$.agentName') = ?
+             ORDER BY id DESC
+             LIMIT ?`,
+          )
+        : this.stmt(
+            "agentStartedInline",
+            `SELECT id, timestamp, event_name AS eventName, details, exchange_id AS exchangeId
+             FROM events
+             WHERE event_name LIKE 'route:%:agent:started'
+               AND json_extract(details, '$.agentName') IS NULL
+               AND json_extract(details, '$.routeId') = ?
+             ORDER BY id DESC
+             LIMIT ?`,
+          )
+    ).all(agentKey, limit * 2) as EventRow[];
 
     const seen = new Set<string>();
     const meta: Array<{
@@ -795,11 +852,7 @@ export class TelemetryDb {
     }> = [];
     for (const row of rows) {
       const d = parseDetails(row.details);
-      const agentName = asString(d["agentName"]);
       const routeId = asString(d["routeId"]) ?? "";
-      const key = agentName ?? routeId;
-      const rowSource = agentName ? "registered" : "inline";
-      if (key !== agentKey || rowSource !== source) continue;
       const exId = row.exchangeId ?? asString(d["exchangeId"]);
       if (!exId || seen.has(exId)) continue;
       seen.add(exId);
@@ -899,27 +952,27 @@ export class TelemetryDb {
   /**
    * List tools derived from registration (`agent:tool:registered`) and
    * invocation (`route:*:agent:tool:invoked|error`) events.
+   *
+   * Aggregation is incremental (see {@link getAgents}): each call only
+   * parses events newer than the previous call's high-water mark.
    */
   getTools(): ToolSummary[] {
     const rows = this.stmt(
       "toolLifecycle",
       `SELECT id, timestamp, event_name AS eventName, details, exchange_id AS exchangeId
        FROM events
-       WHERE event_name = 'agent:tool:registered'
+       WHERE id > ?
+         AND (event_name = 'agent:tool:registered'
           OR event_name LIKE 'route:%:agent:tool:invoked'
-          OR event_name LIKE 'route:%:agent:tool:error'
+          OR event_name LIKE 'route:%:agent:tool:error')
        ORDER BY id ASC`,
-    ).all() as EventRow[];
+    ).all(this.toolAgg.lastId) as EventRow[];
 
-    interface Acc {
-      name: string;
-      source: "registered" | "observed";
-      callCount: number;
-      errorCount: number;
-      lastCalledAt: string | null;
-    }
-    const map = new Map<string, Acc>();
-    const ensure = (name: string, source: "registered" | "observed"): Acc => {
+    const map = this.toolAgg.tools;
+    const ensure = (
+      name: string,
+      source: "registered" | "observed",
+    ): ToolAcc => {
       let acc = map.get(name);
       if (!acc) {
         acc = { name, source, callCount: 0, errorCount: 0, lastCalledAt: null };
@@ -929,6 +982,7 @@ export class TelemetryDb {
     };
 
     for (const row of rows) {
+      if (row.id > this.toolAgg.lastId) this.toolAgg.lastId = row.id;
       const d = parseDetails(row.details);
       if (row.eventName === "agent:tool:registered") {
         const name = asString(d["toolName"]);
@@ -958,19 +1012,29 @@ export class TelemetryDb {
     return result;
   }
 
-  /** Invocation history for a single tool, most recent call first. */
+  /**
+   * Invocation history for a single tool, most recent call first.
+   *
+   * The tool filter runs in SQL (json_extract) and the scan walks the
+   * primary key from the newest row, stopping at the LIMIT, so cost
+   * tracks the tool's recent activity rather than table size. The LIMIT
+   * is tripled because each call spans up to three events (invoked,
+   * result, error) that the correlation step merges into one row.
+   */
   getToolCalls(toolName: string, limit = 100): ToolCallRow[] {
     const rows = this.stmt(
       "toolCalls",
       `SELECT id, timestamp, event_name AS eventName, details, exchange_id AS exchangeId
        FROM events
        WHERE event_name LIKE 'route:%:agent:tool:%'
-       ORDER BY id ASC`,
-    ).all() as EventRow[];
-    const relevant = rows.filter(
-      (r) => asString(parseDetails(r.details)["toolName"]) === toolName,
-    );
-    const calls = correlateToolCalls(relevant);
+         AND json_extract(details, '$.toolName') = ?
+       ORDER BY id DESC
+       LIMIT ?`,
+    ).all(toolName, limit * 3) as EventRow[];
+    // Correlation expects chronological order; the query returned newest
+    // first so the LIMIT keeps the most recent events.
+    rows.reverse();
+    const calls = correlateToolCalls(rows);
     calls.reverse();
     return calls.slice(0, limit);
   }

@@ -159,7 +159,11 @@ export async function buildVercelTools(
                   correlationId: dispatchIdentity.correlationId,
                   toolCallId,
                   blockName,
-                  error: err,
+                  errorName: errorName(err),
+                  // Sensitive payload: error messages can echo the
+                  // rejected input, so the full error is gated by
+                  // snapshot capture like input/output.
+                  _snapshot: { error: err },
                   duration: Date.now() - start,
                 },
               );
@@ -172,7 +176,11 @@ export async function buildVercelTools(
                   correlationId: dispatchIdentity.correlationId,
                   toolCallId,
                   toolName: r.name,
-                  error: err,
+                  errorName: errorName(err),
+                  // Sensitive payload: error messages can echo the
+                  // rejected input, so the full error is gated by
+                  // snapshot capture like input/output.
+                  _snapshot: { error: err },
                   duration: Date.now() - start,
                 },
               );
@@ -184,6 +192,20 @@ export async function buildVercelTools(
     });
   }
   return out;
+}
+
+/**
+ * Non-sensitive error classifier for tool/block error events. The error
+ * message and stack may echo the rejected tool input, so they stay inside
+ * the `_snapshot` envelope; the name alone (e.g. `TypeError`, `CraftError`)
+ * is safe to persist unconditionally and is enough for dashboards to
+ * distinguish failure classes.
+ *
+ * @internal
+ */
+function errorName(err: unknown): string {
+  if (err instanceof Error) return err.name || "Error";
+  return typeof err;
 }
 
 /**

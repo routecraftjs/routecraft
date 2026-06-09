@@ -153,7 +153,9 @@ describe("agent context-bus events", () => {
   /**
    * @case agent:tool:error fires when a tool handler throws
    * @preconditions Agent with one tool whose handler throws; mocked SDK drives a call
-   * @expectedResult Subscriber receives invoked + error events; result NOT emitted
+   * @expectedResult Subscriber receives invoked + error events with the thrown
+   *   error inside `_snapshot` (errorName at top level, no top-level `error`
+   *   field that would bypass the telemetry snapshot gate); result NOT emitted
    */
   test("tool:error emitted on context bus when handler throws", async () => {
     t = await testContext()
@@ -188,19 +190,32 @@ describe("agent context-bus events", () => {
       .build();
 
     const events: string[] = [];
+    let errorDetails: Record<string, unknown> | undefined;
     t.ctx.on("route:with-throwing-tool:agent:tool:invoked" as never, () => {
       events.push("invoked");
     });
     t.ctx.on("route:with-throwing-tool:agent:tool:result" as never, () => {
       events.push("result");
     });
-    t.ctx.on("route:with-throwing-tool:agent:tool:error" as never, () => {
-      events.push("error");
-    });
+    t.ctx.on(
+      "route:with-throwing-tool:agent:tool:error" as never,
+      ({ details }: { details: unknown }) => {
+        events.push("error");
+        errorDetails = details as Record<string, unknown>;
+      },
+    );
 
     await t.test();
 
     expect(events).toEqual(["invoked", "error"]);
+    // The thrown error may echo tool input, so the full object rides in
+    // `_snapshot` (dropped from persisted telemetry unless captureSnapshots
+    // is on); only the non-sensitive class name is a top-level field.
+    expect(errorDetails!["errorName"]).toBe("Error");
+    expect(errorDetails!["error"]).toBeUndefined();
+    const snap = errorDetails!["_snapshot"] as Record<string, unknown>;
+    expect(snap).toBeDefined();
+    expect((snap["error"] as Error).message).toBe("tool-boom");
   });
 
   /**

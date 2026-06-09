@@ -40,7 +40,19 @@ function buildLines(call: ToolCallRow, maxWidth: number): string[] {
   } else {
     lines.push("[Not captured - enable snapshots]");
   }
-  if (call.error !== null) {
+  if (call.status === "error") {
+    lines.push("");
+    lines.push("ERROR");
+    if (call.error !== null) {
+      lines.push(...formatJson(call.error, maxWidth));
+    } else {
+      // Only the non-sensitive error class is persisted when snapshot
+      // capture is off (the message can echo the tool input).
+      lines.push(
+        `[${call.errorName ?? "Error"} - enable snapshots for details]`,
+      );
+    }
+  } else if (call.error !== null) {
     lines.push("");
     lines.push("ERROR");
     lines.push(...formatJson(call.error, maxWidth));
