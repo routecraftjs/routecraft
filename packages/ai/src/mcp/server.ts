@@ -813,7 +813,17 @@ export class McpServer {
         principal = await verifyAccessToken(token);
       } catch (err) {
         const expired = isExpiredTokenError(err);
-        const reason = err instanceof Error ? err.message : "invalid_token";
+        const infrastructure =
+          isRoutecraftError(err) || isInfrastructureError(err);
+        // `reason` is a bounded vocabulary, never the raw error message: a
+        // custom verifier controls that message and could embed the bearer
+        // token, leaking a secret into an aggregator-indexed event field.
+        // The full error stays operator-only via the `{ err }` log binding.
+        const reason = expired
+          ? "expired"
+          : infrastructure
+            ? "infrastructure"
+            : "invalid_token";
         const detail = {
           reason,
           scheme: "bearer",
@@ -838,7 +848,7 @@ export class McpServer {
         // client must retry later, not discard a token that may be valid. Every
         // other throw is the verifier rejecting the token, so surface it as
         // InvalidTokenError for 401 invalid_token (which drives the refresh).
-        if (isRoutecraftError(err) || isInfrastructureError(err)) throw err;
+        if (infrastructure) throw err;
         throw new InvalidTokenError(
           expired ? "Token has expired" : "Invalid token",
         );
@@ -1220,7 +1230,16 @@ export class McpServer {
       this.context.emit("auth:success", successDetail);
       return result;
     } catch (err) {
-      const reason = err instanceof Error ? err.message : "invalid_token";
+      const expired = isExpiredTokenError(err);
+      // `reason` is a bounded vocabulary, never the raw error message: a
+      // custom validator controls that message and could embed the bearer
+      // token, leaking a secret into an aggregator-indexed event field.
+      // The full error stays operator-only via the `{ err }` log binding.
+      const reason = expired
+        ? "expired"
+        : isRoutecraftError(err) || isInfrastructureError(err)
+          ? "infrastructure"
+          : "invalid_token";
       const detail = {
         reason,
         scheme: "bearer",
@@ -1229,7 +1248,7 @@ export class McpServer {
       // An expired token is routine (the client refreshes and retries), so it
       // logs at `debug`; any other validation failure stays at `warn` as an
       // operator signal. The `auth:rejected` event fires for both.
-      if (isExpiredTokenError(err)) {
+      if (expired) {
         this.context.logger.debug(
           { err, ...detail },
           "Auth rejected: token expired",

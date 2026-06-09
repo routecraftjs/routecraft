@@ -1142,7 +1142,7 @@ describe("McpServer", () => {
           );
           expect(debugCall).toBeDefined();
           expect(debugCall?.[0]).toMatchObject({
-            reason: '"exp" claim timestamp check failed',
+            reason: "expired",
             scheme: "bearer",
             source: "mcp",
           });
@@ -1178,7 +1178,7 @@ describe("McpServer", () => {
           );
           expect(warnCall).toBeDefined();
           expect(warnCall?.[0]).toMatchObject({
-            reason: "invalid signature",
+            reason: "invalid_token",
             scheme: "bearer",
             source: "mcp",
           });
@@ -2796,7 +2796,7 @@ describe("McpServer", () => {
           );
           expect(debugCall).toBeDefined();
           expect(debugCall?.[0]).toMatchObject({
-            reason: '"exp" claim timestamp check failed',
+            reason: "expired",
             path: "oauth",
           });
           expect(
@@ -2838,7 +2838,7 @@ describe("McpServer", () => {
           );
           expect(warnCall).toBeDefined();
           expect(warnCall?.[0]).toMatchObject({
-            reason: "invalid signature",
+            reason: "invalid_token",
             path: "oauth",
           });
           expect(
@@ -2887,6 +2887,7 @@ describe("McpServer", () => {
             ),
           ).toBe(true);
           expect(rejections.length).toBeGreaterThanOrEqual(1);
+          expect(rejections[0]?.reason).toBe("infrastructure");
         });
 
         /**
@@ -3570,10 +3571,77 @@ describe("McpServer", () => {
 
       expect(rejections).toHaveLength(1);
       expect(rejections[0]).toMatchObject({
-        reason: "invalid token",
+        reason: "invalid_token",
         scheme: "bearer",
         source: "mcp",
       });
+    });
+
+    /**
+     * @case A validator error message containing the bearer never leaks into auth:rejected
+     * @preconditions McpServer with a custom auth validator that throws an Error embedding the raw token in its message; request sent with a bearer token
+     * @expectedResult auth:rejected payload reason is the bounded literal "invalid_token"; the token does not appear anywhere in the payload
+     */
+    test("does not leak the bearer from a validator error message into auth:rejected", async () => {
+      const token = "super-secret-bearer-token";
+      t = await testContext().store(MCP_STORE_KEY, true).build();
+      server = new McpServer(t.ctx, {
+        transport: "http",
+        port: 0,
+        host: "127.0.0.1",
+        auth: {
+          validator: (tok: string) => {
+            throw new Error(`token ${tok} rejected`);
+          },
+        },
+      });
+
+      const rejections: Array<Record<string, unknown>> = [];
+      t.ctx.on("auth:rejected", (payload) => {
+        rejections.push(payload.details as Record<string, unknown>);
+      });
+
+      void t.ctx.start();
+      await server.start();
+      const port = server.getHttpPort()!;
+
+      await new Promise<void>((resolve, reject) => {
+        const req = http.request(
+          {
+            host: "127.0.0.1",
+            port,
+            path: "/mcp",
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json, text/event-stream",
+              Authorization: `Bearer ${token}`,
+            },
+          },
+          (res) => {
+            res.on("data", () => {});
+            res.on("end", () => resolve());
+          },
+        );
+        req.on("error", reject);
+        req.write(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: INIT_PARAMS,
+          }),
+        );
+        req.end();
+      });
+
+      expect(rejections).toHaveLength(1);
+      expect(rejections[0]).toMatchObject({
+        reason: "invalid_token",
+        scheme: "bearer",
+        source: "mcp",
+      });
+      expect(JSON.stringify(rejections[0])).not.toContain(token);
     });
   });
 
