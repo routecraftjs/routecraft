@@ -85,6 +85,20 @@ describe("TelemetryDb agents/tools derivation", () => {
   });
 
   /**
+   * @case getAgentRunInfos batches per-run info for a set of exchanges
+   * @preconditions ex1 finished with tokens; ex2 errored
+   * @expectedResult One map entry per run with model, tokens and status
+   */
+  test("getAgentRunInfos returns per-run info keyed by exchange", () => {
+    const infos = db.getAgentRunInfos(["ex1", "ex2"]);
+    expect(infos.get("ex1")!.model).toBe("anthropic:claude-opus-4-7");
+    expect(infos.get("ex1")!.totalTokens).toBe(30);
+    expect(infos.get("ex1")!.status).toBe("finished");
+    expect(infos.get("ex2")!.status).toBe("error");
+    expect(db.getAgentRunInfos([]).size).toBe(0);
+  });
+
+  /**
    * @case getAgentRunToolCalls correlates invoked + result into one call
    * @preconditions ex1 has one invoked + result for toolCallId c1
    * @expectedResult One tool call with captured input/output and result status

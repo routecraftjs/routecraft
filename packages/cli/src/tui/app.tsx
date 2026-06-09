@@ -27,6 +27,7 @@ import { EventsView } from "./components/events-view.js";
 import { EventDetail } from "./components/event-detail.js";
 import { ExchangeDeepView } from "./components/exchange-deep-view.js";
 import { NavList } from "./components/nav-list.js";
+import { AgentRunList } from "./components/agent-run-list.js";
 import { AgentRunDetail } from "./components/agent-run-detail.js";
 import { ToolCallList } from "./components/tool-call-list.js";
 import { ToolCallDetail } from "./components/tool-call-detail.js";
@@ -178,8 +179,16 @@ export function App({ db }: { db: TelemetryDb }) {
     undefined,
   );
   const [agentRunInfo, setAgentRunInfo] = useState<AgentRunInfo | null>(null);
+  const [agentRunInfos, setAgentRunInfos] = useState<Map<string, AgentRunInfo>>(
+    new Map(),
+  );
   const [agentRunToolCalls, setAgentRunToolCalls] = useState<ToolCallRow[]>([]);
   const agentRunScroll = useScrollList();
+
+  // List filter (`/` in a browse list) and follow mode (`f`)
+  const [filter, setFilter] = useState("");
+  const [filterTyping, setFilterTyping] = useState(false);
+  const [follow, setFollow] = useState(false);
 
   // Tools tab state
   const [tools, setTools] = useState<ToolSummary[]>([]);
@@ -216,6 +225,27 @@ export function App({ db }: { db: TelemetryDb }) {
   // is left can hold braille graph rows (4 levels per row, 1..5 rows).
   const metricsGraphLevels = Math.max(Math.min(bodyHeight - 19, 5), 1) * 4;
 
+  /**
+   * Load an agent's runs plus the per-run info (model, tokens) the runs
+   * list renders as columns.
+   */
+  const loadAgentRuns = useCallback(
+    (agent: AgentSummary | undefined, limit?: number) => {
+      if (!agent) {
+        setExchanges([]);
+        setAgentRunInfos(new Map());
+        return;
+      }
+      const runs =
+        limit !== undefined
+          ? db.getAgentRuns(agent.key, agent.source, limit)
+          : db.getAgentRuns(agent.key, agent.source);
+      setExchanges(runs);
+      setAgentRunInfos(db.getAgentRunInfos(runs.map((r) => r.id)));
+    },
+    [db],
+  );
+
   const refresh = useCallback(() => {
     try {
       // Always refresh: routes, metrics, graphs
@@ -246,8 +276,12 @@ export function App({ db }: { db: TelemetryDb }) {
         setTools(toolsList);
       }
 
-      // Skip list refresh while the user is browsing or in a detail view
-      if (stack.length > 0) return;
+      // While the user is browsing or in a detail view the lists stay
+      // frozen, unless follow mode keeps the active browse list tailing.
+      if (stack.length > 0) {
+        const following = follow && stack.at(-1) === "browse";
+        if (!following) return;
+      }
 
       if (activeNav === "capabilities") {
         const route = routeSummary[routeScroll.selectedIndex];
@@ -255,10 +289,7 @@ export function App({ db }: { db: TelemetryDb }) {
           setExchanges(db.getExchangesByRoute(route.id, PAGE_SIZE));
         }
       } else if (activeNav === "agents") {
-        const agent = agentsList[agentScroll.selectedIndex];
-        if (agent) {
-          setExchanges(db.getAgentRuns(agent.key, agent.source, PAGE_SIZE));
-        }
+        loadAgentRuns(agentsList[agentScroll.selectedIndex], PAGE_SIZE);
       } else if (activeNav === "tools") {
         const tool = toolsList[toolScroll.selectedIndex];
         if (tool) {
@@ -282,7 +313,9 @@ export function App({ db }: { db: TelemetryDb }) {
     toolScroll.selectedIndex,
     rightWidth,
     centerWidth,
-    stack.length,
+    stack,
+    follow,
+    loadAgentRuns,
   ]);
 
   useEffect(() => {
@@ -309,12 +342,9 @@ export function App({ db }: { db: TelemetryDb }) {
     (index: number) => {
       agentScroll.moveTo(index, agents.length, navListHeight);
       exchangeScroll.reset();
-      const agent = agents[index];
-      if (agent) {
-        setExchanges(db.getAgentRuns(agent.key, agent.source, PAGE_SIZE));
-      }
+      loadAgentRuns(agents[index], PAGE_SIZE);
     },
-    [db, agents, agentScroll, exchangeScroll, navListHeight],
+    [agents, agentScroll, exchangeScroll, navListHeight, loadAgentRuns],
   );
 
   const selectTool = useCallback(
@@ -334,17 +364,15 @@ export function App({ db }: { db: TelemetryDb }) {
       setActiveNav(nav);
       setStack([]);
       setJsonScroll(0);
+      setFilter("");
+      setFilterTyping(false);
+      setFollow(false);
       exchangeScroll.reset();
       if (nav === "agents") {
         agentScroll.reset();
         const list = db.getAgents();
         setAgents(list);
-        const agent = list[0];
-        if (agent) {
-          setExchanges(db.getAgentRuns(agent.key, agent.source, PAGE_SIZE));
-        } else {
-          setExchanges([]);
-        }
+        loadAgentRuns(list[0], PAGE_SIZE);
       } else if (nav === "tools") {
         toolScroll.reset();
         toolCallScroll.reset();
@@ -361,8 +389,42 @@ export function App({ db }: { db: TelemetryDb }) {
         setEvents(db.getRecentEvents({ limit: 200 }));
       }
     },
-    [db, exchangeScroll, eventScroll, agentScroll, toolScroll, toolCallScroll],
+    [
+      db,
+      exchangeScroll,
+      eventScroll,
+      agentScroll,
+      toolScroll,
+      toolCallScroll,
+      loadAgentRuns,
+    ],
   );
+
+  // Client-side `/` filter over the active browse list. The lists are
+  // frozen while browsing (unless follow mode reloads them), so the
+  // filter only has to run over what is already in memory.
+  const filterQuery = filter.trim().toLowerCase();
+  const filterMatch = (...fields: Array<string | null>): boolean =>
+    filterQuery === "" ||
+    fields.some((f) => f !== null && f.toLowerCase().includes(filterQuery));
+  const visibleExchanges = filterQuery
+    ? exchanges.filter((ex) => filterMatch(ex.id, ex.routeId, ex.status))
+    : exchanges;
+  const visibleToolCalls = filterQuery
+    ? toolCalls.filter((c) =>
+        filterMatch(c.toolName, c.routeId, c.exchangeId, c.status),
+      )
+    : toolCalls;
+  const visibleEvents = filterQuery
+    ? events.filter((ev) => filterMatch(ev.eventName, ev.details))
+    : events;
+
+  /** Reset browse-list cursors after the filter narrows the data. */
+  const resetBrowseScrolls = useCallback(() => {
+    exchangeScroll.reset();
+    toolCallScroll.reset();
+    eventScroll.reset();
+  }, [exchangeScroll, toolCallScroll, eventScroll]);
 
   const selectedRoute = routes[routeScroll.selectedIndex];
   const selectedAgent = agents[agentScroll.selectedIndex];
@@ -394,6 +456,24 @@ export function App({ db }: { db: TelemetryDb }) {
   );
 
   useInput((input, key) => {
+    // Filter typing mode captures all printable input
+    if (filterTyping) {
+      if (key.return) {
+        setFilterTyping(false);
+      } else if (key.escape) {
+        setFilterTyping(false);
+        setFilter("");
+        resetBrowseScrolls();
+      } else if (key.backspace || key.delete) {
+        setFilter((f) => f.slice(0, -1));
+        resetBrowseScrolls();
+      } else if (input && !key.ctrl && !key.meta) {
+        setFilter((f) => f + input);
+        resetBrowseScrolls();
+      }
+      return;
+    }
+
     if (input === "q") {
       db.close();
       exit();
@@ -411,6 +491,27 @@ export function App({ db }: { db: TelemetryDb }) {
     const down = input === "j" || key.downArrow;
     const up = input === "k" || key.upArrow;
     const back = key.escape || key.backspace || key.delete;
+
+    // Browse-list chrome shared by every tab: filter, follow, leave
+    if (current === "browse") {
+      if (input === "/") {
+        setFilterTyping(true);
+        return;
+      }
+      if (input === "f") {
+        setFollow((v) => !v);
+        return;
+      }
+      // Moving the cursor freezes the list again
+      if ((down || up) && follow) setFollow(false);
+      if (back) {
+        pop();
+        setFilter("");
+        setFollow(false);
+        resetBrowseScrolls();
+        return;
+      }
+    }
 
     // JSON document views: scroll, Esc pops
     if (current !== "root" && JSON_VIEWS.has(current)) {
@@ -519,18 +620,15 @@ export function App({ db }: { db: TelemetryDb }) {
         return;
       }
       if (down) {
-        eventScroll.moveBy(step, events.length, eventsTableRows);
+        eventScroll.moveBy(step, visibleEvents.length, eventsTableRows);
       } else if (up) {
-        eventScroll.moveBy(-step, events.length, eventsTableRows);
+        eventScroll.moveBy(-step, visibleEvents.length, eventsTableRows);
       } else if (key.return) {
-        const ev = events[eventScroll.selectedIndex];
+        const ev = visibleEvents[eventScroll.selectedIndex];
         if (ev) {
           setSelectedEvent(ev);
           push("event");
         }
-      } else if (back) {
-        pop();
-        eventScroll.reset();
       }
       return;
     }
@@ -545,20 +643,17 @@ export function App({ db }: { db: TelemetryDb }) {
           selectAgent(Math.max(agentScroll.selectedIndex - 1, 0));
         } else if (key.return) {
           push("browse");
-          const agent = agents[agentScroll.selectedIndex];
-          if (agent) {
-            setExchanges(db.getAgentRuns(agent.key, agent.source));
-          }
+          loadAgentRuns(agents[agentScroll.selectedIndex]);
         }
         return;
       }
       // Browse the agent's runs
       if (down) {
-        exchangeScroll.moveBy(step, exchanges.length, plainTableRows);
+        exchangeScroll.moveBy(step, visibleExchanges.length, plainTableRows);
       } else if (up) {
-        exchangeScroll.moveBy(-step, exchanges.length, plainTableRows);
+        exchangeScroll.moveBy(-step, visibleExchanges.length, plainTableRows);
       } else if (key.return) {
-        const ex = exchanges[exchangeScroll.selectedIndex];
+        const ex = visibleExchanges[exchangeScroll.selectedIndex];
         if (ex) {
           setSelectedRun(ex);
           setAgentRunInfo(db.getAgentRunInfo(ex.id));
@@ -566,9 +661,6 @@ export function App({ db }: { db: TelemetryDb }) {
           agentRunScroll.reset();
           push("agent-run");
         }
-      } else if (back) {
-        pop();
-        exchangeScroll.reset();
       }
       return;
     }
@@ -590,18 +682,15 @@ export function App({ db }: { db: TelemetryDb }) {
       }
       // Browse the selected tool's calls
       if (down) {
-        toolCallScroll.moveBy(step, toolCalls.length, plainTableRows);
+        toolCallScroll.moveBy(step, visibleToolCalls.length, plainTableRows);
       } else if (up) {
-        toolCallScroll.moveBy(-step, toolCalls.length, plainTableRows);
+        toolCallScroll.moveBy(-step, visibleToolCalls.length, plainTableRows);
       } else if (key.return) {
-        const call = toolCalls[toolCallScroll.selectedIndex];
+        const call = visibleToolCalls[toolCallScroll.selectedIndex];
         if (call) {
           setSelectedToolCall(call);
           push("tool-call");
         }
-      } else if (back) {
-        pop();
-        toolCallScroll.reset();
       }
       return;
     }
@@ -636,15 +725,12 @@ export function App({ db }: { db: TelemetryDb }) {
     }
     // Browse the exchange list
     if (down) {
-      exchangeScroll.moveBy(step, exchanges.length, exchangeTableRows);
+      exchangeScroll.moveBy(step, visibleExchanges.length, exchangeTableRows);
     } else if (up) {
-      exchangeScroll.moveBy(-step, exchanges.length, exchangeTableRows);
+      exchangeScroll.moveBy(-step, visibleExchanges.length, exchangeTableRows);
     } else if (key.return) {
-      const ex = exchanges[exchangeScroll.selectedIndex];
+      const ex = visibleExchanges[exchangeScroll.selectedIndex];
       if (ex) openExchange(ex);
-    } else if (back) {
-      pop();
-      exchangeScroll.reset();
     }
   });
 
@@ -675,6 +761,8 @@ export function App({ db }: { db: TelemetryDb }) {
     keymapItems.push({ key: "j/k", action: "Navigate" });
     keymapItems.push({ key: "C-j/k", action: "Jump" });
     keymapItems.push({ key: "Enter", action: "Detail" });
+    keymapItems.push({ key: "/", action: "Filter" });
+    keymapItems.push({ key: "f", action: "Follow" });
     keymapItems.push({ key: "Esc", action: "Back" });
   } else {
     keymapItems.push({ key: "j/k", action: "Navigate" });
@@ -779,7 +867,7 @@ export function App({ db }: { db: TelemetryDb }) {
   } else if (activeNav === "events") {
     center = (
       <EventsView
-        events={events}
+        events={visibleEvents}
         selectedIndex={browsing ? eventScroll.selectedIndex : -1}
         scrollOffset={browsing ? eventScroll.scrollOffset : 0}
         width={centerWidth}
@@ -789,10 +877,10 @@ export function App({ db }: { db: TelemetryDb }) {
     );
   } else if (activeNav === "agents") {
     center = (
-      <CenterExchangeList
-        capabilityId={selectedAgent?.key ?? ""}
-        title={`RUNS: ${selectedAgent?.key ?? "(no agent)"}`}
-        exchanges={exchanges}
+      <AgentRunList
+        agentKey={selectedAgent?.key ?? ""}
+        runs={visibleExchanges}
+        infos={agentRunInfos}
         selectedIndex={browsing ? exchangeScroll.selectedIndex : -1}
         scrollOffset={browsing ? exchangeScroll.scrollOffset : 0}
         width={centerWidth}
@@ -804,7 +892,7 @@ export function App({ db }: { db: TelemetryDb }) {
     center = (
       <ToolCallList
         toolName={selectedTool?.name ?? ""}
-        calls={toolCalls}
+        calls={visibleToolCalls}
         selectedIndex={browsing ? toolCallScroll.selectedIndex : -1}
         scrollOffset={browsing ? toolCallScroll.scrollOffset : 0}
         width={centerWidth}
@@ -828,7 +916,7 @@ export function App({ db }: { db: TelemetryDb }) {
         activity={
           activeNav === "capabilities" ? selectedRouteActivity : undefined
         }
-        exchanges={exchanges}
+        exchanges={visibleExchanges}
         selectedIndex={browsing ? exchangeScroll.selectedIndex : -1}
         scrollOffset={browsing ? exchangeScroll.scrollOffset : 0}
         width={centerWidth}
@@ -1016,9 +1104,17 @@ export function App({ db }: { db: TelemetryDb }) {
         </Box>
       </Box>
 
-      {/* Footer: contextual key hints */}
+      {/* Footer: filter/follow state + contextual key hints */}
       <Box paddingX={1} width={width}>
         <Text wrap="truncate">
+          {(filterTyping || filter !== "") && (
+            <Text color={theme.accent}>
+              /{filter}
+              {filterTyping ? "▏" : ""}
+              {"  "}
+            </Text>
+          )}
+          {follow && <Text color={theme.success}>● follow{"  "}</Text>}
           {keymapItems.map((item, i) => (
             <Text key={item.key}>
               {i > 0 && <Text> </Text>}

@@ -137,6 +137,75 @@ describe("TUI App navigation", () => {
   });
 
   /**
+   * @case Agent runs list surfaces model and tokens at list level
+   * @preconditions researcher's run ex1 finished with model and 30 tokens
+   * @expectedResult Runs list shows Model and Tokens columns with values
+   */
+  test("agent runs list shows model and token columns", async () => {
+    instance.stdin.write("2");
+    await flush();
+    instance.stdin.write("j");
+    await flush();
+    instance.stdin.write("j");
+    await flush();
+    instance.stdin.write(ENTER);
+    await flush();
+    const frame = instance.lastFrame()!;
+    expect(frame).toContain("Model");
+    expect(frame).toContain("Tokens");
+    expect(frame).toContain("anthropic");
+    expect(frame).toContain("30");
+  });
+
+  /**
+   * @case Slash filter narrows the browsed list to matching rows
+   * @preconditions Exchanges tab browsed with ex1 (completed) and ex2 (failed)
+   * @expectedResult Typing /ex2 hides ex1; Esc in typing mode clears the filter
+   */
+  test("slash filter narrows the exchange list", async () => {
+    instance.stdin.write("4"); // Exchanges tab
+    await flush();
+    instance.stdin.write(ENTER); // browse
+    await flush();
+    expect(instance.lastFrame()!).toContain("ex1");
+
+    instance.stdin.write("/");
+    await flush();
+    for (const ch of "ex2") {
+      instance.stdin.write(ch);
+      await flush();
+    }
+    let frame = instance.lastFrame()!;
+    expect(frame).toContain("/ex2");
+    expect(frame).toContain("ex2");
+    expect(frame).not.toContain("ex1");
+
+    instance.stdin.write(ESC); // cancel the filter
+    await flush();
+    frame = instance.lastFrame()!;
+    expect(frame).toContain("ex1");
+  });
+
+  /**
+   * @case Follow mode toggles with f and disengages on cursor movement
+   * @preconditions Exchanges tab in browse mode
+   * @expectedResult Footer shows the follow indicator after f and hides it after j
+   */
+  test("follow mode toggles in browse lists", async () => {
+    instance.stdin.write("4");
+    await flush();
+    instance.stdin.write(ENTER);
+    await flush();
+    instance.stdin.write("f");
+    await flush();
+    expect(instance.lastFrame()!).toContain("follow");
+
+    instance.stdin.write("j");
+    await flush();
+    expect(instance.lastFrame()!).not.toContain("follow");
+  });
+
+  /**
    * @case Breadcrumb tracks the drill-down path
    * @preconditions Drilled from Agents into a run's tool call
    * @expectedResult Header breadcrumb shows tab, agent, run and tool name

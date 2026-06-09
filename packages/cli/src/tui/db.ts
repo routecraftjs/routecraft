@@ -895,6 +895,60 @@ export class TelemetryDb {
     });
   }
 
+  /**
+   * Batch variant of {@link getAgentRunInfo}: per-run model, finish reason
+   * and token usage for a set of run exchanges in one query, keyed by
+   * exchange id. Used by the agent runs list to render model/token
+   * columns without one query per visible row.
+   */
+  getAgentRunInfos(exchangeIds: string[]): Map<string, AgentRunInfo> {
+    const result = new Map<string, AgentRunInfo>();
+    if (exchangeIds.length === 0) return result;
+    const placeholders = exchangeIds.map(() => "?").join(",");
+    const rows = this.db
+      .prepare(
+        `SELECT id, timestamp, event_name AS eventName, details, exchange_id AS exchangeId
+         FROM events
+         WHERE exchange_id IN (${placeholders})
+           AND (event_name LIKE 'route:%:agent:started'
+             OR event_name LIKE 'route:%:agent:finished'
+             OR event_name LIKE 'route:%:agent:error')
+         ORDER BY id ASC`,
+      )
+      .all(...exchangeIds) as EventRow[];
+
+    for (const row of rows) {
+      const exId = row.exchangeId;
+      if (!exId) continue;
+      let info = result.get(exId);
+      if (!info) {
+        info = {
+          exchangeId: exId,
+          model: null,
+          finishReason: null,
+          inputTokens: null,
+          outputTokens: null,
+          totalTokens: null,
+          status: "running",
+        };
+        result.set(exId, info);
+      }
+      const d = parseDetails(row.details);
+      const suffix = row.eventName.split(":").pop();
+      info.model = asString(d["model"]) ?? info.model;
+      if (suffix === "finished") {
+        info.status = info.status === "error" ? "error" : "finished";
+        info.finishReason = asString(d["finishReason"]) ?? info.finishReason;
+        info.inputTokens = asNumber(d["inputTokens"]) ?? info.inputTokens;
+        info.outputTokens = asNumber(d["outputTokens"]) ?? info.outputTokens;
+        info.totalTokens = asNumber(d["totalTokens"]) ?? info.totalTokens;
+      } else if (suffix === "error") {
+        info.status = "error";
+      }
+    }
+    return result;
+  }
+
   /** Per-run agent detail (model, finish reason, tokens) for an exchange. */
   getAgentRunInfo(exchangeId: string): AgentRunInfo | null {
     const rows = this.stmt(
