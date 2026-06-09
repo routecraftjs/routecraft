@@ -5,7 +5,11 @@ import { usePathname } from 'next/navigation'
 import { Menu, MenuButton, MenuItem, MenuItems } from '@headlessui/react'
 import clsx from 'clsx'
 
-import { getPageMarkdown, getAllDocsRawUrl } from '@/markdoc/docs-markdown.mjs'
+import {
+  getPageMarkdown,
+  getPageRawUrl,
+  getAllDocsRawUrl,
+} from '@/markdoc/docs-markdown.mjs'
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || ''
 
@@ -76,7 +80,7 @@ function OpenAIIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
   )
 }
 
-type CopiedState = null | 'page' | 'allDocsUrl'
+type CopiedState = null | 'page' | 'pageUrl' | 'allDocsUrl'
 
 export function CopyDocsButton() {
   const pathname = usePathname()
@@ -105,6 +109,11 @@ export function CopyDocsButton() {
     return `${window.location.origin}${rawUrl}`
   }
 
+  function getPageFullUrl() {
+    const rawUrl = getPageRawUrl(pathname, basePath)
+    return `${window.location.origin}${rawUrl}`
+  }
+
   function handleOpenInClaude() {
     const docsUrl = getAllDocsFullUrl()
     const prompt = `I'd like to discuss the content from ${docsUrl}`
@@ -128,6 +137,10 @@ export function CopyDocsButton() {
   function handleCopyPage() {
     const md = getPageMarkdown(pathname)
     if (md) copyToClipboard(md, 'page')
+  }
+
+  function handleCopyPageUrl() {
+    copyToClipboard(getPageFullUrl(), 'pageUrl')
   }
 
   function handleCopyAllDocsUrl() {
@@ -205,6 +218,22 @@ export function CopyDocsButton() {
             >
               <CopyIcon className="h-3.5 w-3.5 shrink-0 text-ink/55" />
               <span>{copied === 'page' ? 'Copied' : 'Copy page'}</span>
+            </button>
+          )}
+        </MenuItem>
+
+        <MenuItem>
+          {({ focus }) => (
+            <button
+              type="button"
+              onClick={handleCopyPageUrl}
+              className={clsx(
+                'flex w-full items-center gap-3 px-3 py-2 font-mono text-[0.7rem] tracking-[0.18em] uppercase transition',
+                focus ? 'bg-paper-deep text-ink' : 'text-ink/70',
+              )}
+            >
+              <LinkIcon className="h-3.5 w-3.5 shrink-0 text-ink/55" />
+              <span>{copied === 'pageUrl' ? 'Copied' : 'Copy page URL'}</span>
             </button>
           )}
         </MenuItem>
