@@ -1,4 +1,3 @@
-import { vi } from "vitest";
 import type {
   CraftContext,
   CraftConfig,
@@ -18,8 +17,12 @@ import {
   logger,
   RC_ADAPTER_OVERRIDES,
 } from "@routecraft/routecraft";
-import type { SpyLogger } from "./spy-logger";
-import { createSpyLogger, createNoopSpyLogger } from "./spy-logger";
+import type { SpyFactory, SpyLogger } from "./spy-logger";
+import {
+  createSpyFn,
+  createSpyLogger,
+  createNoopSpyLogger,
+} from "./spy-logger";
 import { isAdapterMock, type AdapterMock } from "./mock-adapter";
 
 const DEFAULT_ROUTES_READY_TIMEOUT_MS = 200;
@@ -38,6 +41,13 @@ function describeOverrideTarget(target: unknown): string {
 export interface TestContextOptions {
   /** Timeout in ms for waiting for all routes to emit routeStarted. Default 200. */
   routesReadyTimeoutMs?: number;
+  /**
+   * Mock factory used to build the spy logger. Defaults to the built-in
+   * runner-agnostic spy. Pass your runner's factory (`vi.fn` from Vitest, or
+   * `mock` from bun:test) to get native mocks that work with the runner's
+   * `expect` matchers, e.g. `testContext({ fn: vi.fn })`.
+   */
+  fn?: SpyFactory;
 }
 
 /**
@@ -55,13 +65,13 @@ export interface TestOptions {
 /**
  * Test-friendly wrapper around CraftContext. Runs the real context but manages
  * lifecycle (start, wait routes ready, drain, stop) and collects errors.
- * t.logger is a spy logger (vi.fn() methods) for asserting on log calls.
+ * t.logger is a spy logger for asserting on log calls.
  */
 export class TestContext {
   readonly ctx: CraftContext;
   /** Client for dispatching messages to direct endpoints in tests. */
   readonly client: CraftClient;
-  /** Spy logger; e.g. expect(t.logger.info).toHaveBeenCalledWith(...) */
+  /** Spy logger; e.g. t.logger.info.mock.calls, or expect(t.logger.info).toHaveBeenCalledWith(...) with an injected runner mock factory */
   readonly logger: SpyLogger;
   readonly errors: RoutecraftError[] = [];
   private readonly routesReadyTimeoutMs: number;
@@ -236,6 +246,12 @@ export class TestContextBuilder {
   private builder = new ContextBuilder();
   private routesReadyTimeoutMs: number | undefined;
   private adapterOverrides: AdapterOverride[] = [];
+  private readonly spyFactory: SpyFactory;
+
+  constructor(options?: TestContextOptions) {
+    this.spyFactory = options?.fn ?? createSpyFn;
+    this.routesReadyTimeoutMs = options?.routesReadyTimeoutMs;
+  }
 
   /** Override timeout for waiting for routes to start (ms). Used by tests that assert timeout behavior. */
   routesReadyTimeout(ms: number): this {
@@ -300,11 +316,13 @@ export class TestContextBuilder {
   }
 
   async build(): Promise<TestContext> {
-    const spyLogger = createSpyLogger();
+    const spyLogger = createSpyLogger(this.spyFactory);
     const originalChild = logger.child.bind(logger);
-    logger.child = vi.fn(
+    const childSpy = this.spyFactory();
+    childSpy.mockImplementation(
       () => spyLogger as unknown as ReturnType<typeof logger.child>,
-    ) as typeof logger.child;
+    );
+    logger.child = childSpy as unknown as typeof logger.child;
     const { context: ctx, client } = await this.builder.build();
 
     // Install registered adapter overrides onto the context store so that
@@ -336,11 +354,20 @@ export class TestContextBuilder {
 /**
  * Create a test context builder. Use .routes(...).build(), await the result, then await t.test().
  *
+ * Runner-agnostic by default: the spy logger uses a built-in spy that records
+ * calls in the jest-compatible `mock.calls` shape. Pass `{ fn }` with your
+ * runner's mock factory (`vi.fn` from Vitest, `mock` from bun:test) when you
+ * want `expect(t.logger.info).toHaveBeenCalledWith(...)` matcher support.
+ *
  * @example
  * const builder = testContext();
  * const t = await builder.routes(myRoutes).build();
  * await t.test();
+ *
+ * @example
+ * // Vitest, with native matcher support:
+ * const t = await testContext({ fn: vi.fn }).routes(myRoutes).build();
  */
-export function testContext(): TestContextBuilder {
-  return new TestContextBuilder();
+export function testContext(options?: TestContextOptions): TestContextBuilder {
+  return new TestContextBuilder(options);
 }

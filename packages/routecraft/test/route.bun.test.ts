@@ -135,7 +135,7 @@ describe("Route Behavior", () => {
   test("handles processor errors gracefully", async () => {
     const s = spy();
 
-    t = await testContext()
+    t = await testContext({ fn: mock })
       .routes(
         craft()
           .id("error-route")
@@ -272,7 +272,7 @@ describe("Route Behavior", () => {
     const s = spy();
     let processedCount = 0;
 
-    t = await testContext()
+    t = await testContext({ fn: mock })
       .routes(
         craft()
           .id("fail-continue-route")
@@ -837,7 +837,7 @@ describe("Route Behavior", () => {
   test("aggregation handles failed split processing gracefully", async () => {
     const s = spy();
 
-    t = await testContext()
+    t = await testContext({ fn: mock })
       .routes(
         craft()
           .id("split-error-aggregate")
