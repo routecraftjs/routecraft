@@ -38,11 +38,15 @@ The TUI polls the database every 2 seconds. Because SQLite runs in WAL mode, rea
 
 ## Layout
 
-The TUI uses a three-column layout:
+The TUI uses a three-column layout framed by a one-line header and footer:
 
-- **Left** -- Navigation panel (view switcher + capability / agent / tool list) and keymap
+- **Header** -- Wordmark, version, and a breadcrumb showing where you are in the drill-down (e.g. `Agents › planner › run 789003e7 › web_search`)
+- **Left** -- Navigation panel (view switcher + capability / agent / tool list); the Errors item shows a red count when there are failed exchanges
 - **Center** -- Main content (exchange lists, agent runs, tool calls, detail views, or event stream)
-- **Right** -- Metrics panel with throughput stats, latency percentiles (p90/p95/p99), and a live traffic sparkline
+- **Right** -- Metrics panel with throughput stats, latency percentiles (p90/p95/p99), and a live traffic graph
+- **Footer** -- Contextual keyboard hints for the focused view
+
+Navigation is a stack: `Enter` drills into the selected item and `Esc` goes back one level, consistently across every view.
 
 ## Views
 

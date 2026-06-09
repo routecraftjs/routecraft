@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import type { ReactNode } from "react";
 import { render, Box, Text, useInput, useApp, useStdout } from "ink";
 import { TelemetryDb } from "./db.js";
 import type {
@@ -54,21 +55,86 @@ function toolDot(tool: ToolSummary): string {
 }
 
 /**
- * Focus tracks which panel owns the cursor.
- * - "nav": left panel (route list / nav items)
- * - "center": center panel (exchange list, events, detail)
+ * Full 20-level threshold ladder for the metrics traffic graph: green for
+ * low volume, yellow for mid, red for high.
  */
-type Focus = "nav" | "center";
+const METRIC_LADDER: { max: number; color: string }[] = [
+  ...Array.from({ length: 7 }, (_, i) => ({
+    max: (i + 1) * 5,
+    color: "green",
+  })),
+  ...Array.from({ length: 7 }, (_, i) => ({
+    max: 35 + (i + 1) * 10,
+    color: "yellow",
+  })),
+  ...Array.from({ length: 6 }, (_, i) => ({
+    max: 105 + (i + 1) * 25,
+    color: "red",
+  })),
+];
 
-function App({ db }: { db: TelemetryDb }) {
+/**
+ * Sample `levels` thresholds evenly from the ladder so the graph can
+ * shrink to the rows the metrics panel has available (4 levels = 1
+ * terminal row of braille).
+ */
+function metricSteps(levels: number): { max: number; color: string }[] {
+  const picked = Array.from({ length: levels }, (_, i) => {
+    const idx = Math.min(
+      Math.ceil(((i + 1) * METRIC_LADDER.length) / levels) - 1,
+      METRIC_LADDER.length - 1,
+    );
+    return METRIC_LADDER[idx]!;
+  });
+  return [{ max: 0, color: "gray" }, ...picked];
+}
+
+/**
+ * One level of drill-down above the tab root.
+ *
+ * The TUI's navigation is an explicit stack: the tab root (empty stack)
+ * means the left nav owns the cursor; "browse" means the center list owns
+ * it; the detail views push on top of that. Enter pushes, Esc pops, and
+ * the top of the stack alone decides both key handling and what the
+ * center pane renders, so a view can never be in two states at once.
+ *
+ * - "browse": center list (exchanges, runs, tool calls, events)
+ * - "exchange": one exchange with its related events
+ * - "event": scrollable JSON of one event
+ * - "snapshot": scrollable JSON of an exchange's headers/body snapshot
+ * - "agent-run": one agent run (model, tokens, tool-call timeline)
+ * - "tool-call": scrollable JSON of one tool call's input/output
+ */
+type ViewKind =
+  | "browse"
+  | "exchange"
+  | "event"
+  | "snapshot"
+  | "agent-run"
+  | "tool-call";
+
+/** Views whose body is a scrollable JSON document. */
+const JSON_VIEWS: ReadonlySet<ViewKind> = new Set([
+  "event",
+  "snapshot",
+  "tool-call",
+]);
+
+/**
+ * Root TUI component. Exported for tests; not part of the public CLI
+ * surface.
+ *
+ * @internal
+ */
+export function App({ db }: { db: TelemetryDb }) {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const width = stdout?.columns ?? 80;
   const height = stdout?.rows ?? 24;
 
   const [activeNav, setActiveNav] = useState<NavItem>("capabilities");
-  const [focus, setFocus] = useState<Focus>("nav");
-  const [showDetail, setShowDetail] = useState(false);
+  const [stack, setStack] = useState<ViewKind[]>([]);
+  const current: ViewKind | "root" = stack.at(-1) ?? "root";
 
   const [routes, setRoutes] = useState<RouteSummary[]>([]);
   const [metrics, setMetrics] = useState<Metrics>({
@@ -100,10 +166,8 @@ function App({ db }: { db: TelemetryDb }) {
   const [selectedEvent, setSelectedEvent] = useState<EventRecord | undefined>(
     undefined,
   );
-  const [showEventDetail, setShowEventDetail] = useState(false);
-  const [eventDetailScroll, setEventDetailScroll] = useState(0);
-  const [showDeepView, setShowDeepView] = useState(false);
-  const [deepViewScroll, setDeepViewScroll] = useState(0);
+  /** Shared scroll offset for the JSON views (only one is open at a time). */
+  const [jsonScroll, setJsonScroll] = useState(0);
   const [exchangeSnapshot, setExchangeSnapshot] =
     useState<ExchangeSnapshot | null>(null);
 
@@ -113,7 +177,6 @@ function App({ db }: { db: TelemetryDb }) {
   const [selectedRun, setSelectedRun] = useState<ExchangeRecord | undefined>(
     undefined,
   );
-  const [showAgentRun, setShowAgentRun] = useState(false);
   const [agentRunInfo, setAgentRunInfo] = useState<AgentRunInfo | null>(null);
   const [agentRunToolCalls, setAgentRunToolCalls] = useState<ToolCallRow[]>([]);
   const agentRunScroll = useScrollList();
@@ -126,21 +189,32 @@ function App({ db }: { db: TelemetryDb }) {
   const [selectedToolCall, setSelectedToolCall] = useState<
     ToolCallRow | undefined
   >(undefined);
-  const [showToolCallDetail, setShowToolCallDetail] = useState(false);
-  const [toolCallDetailScroll, setToolCallDetailScroll] = useState(0);
 
   const PAGE_SIZE = 50;
   const JUMP = NAV_JUMP;
+
+  const push = useCallback((view: ViewKind) => {
+    setStack((s) => [...s, view]);
+    setJsonScroll(0);
+  }, []);
+
+  const pop = useCallback(() => {
+    setStack((s) => s.slice(0, -1));
+    setJsonScroll(0);
+  }, []);
 
   // Layout dimensions (needed by both refresh and render)
   const leftWidth = Math.max(Math.min(Math.floor(width * 0.18), 26), 16);
   const rightWidth = Math.max(Math.min(Math.floor(width * 0.22), 30), 20);
   const centerWidth = Math.max(width - leftWidth - rightWidth, 30);
-  // 1 header line + 2 rows of slack (matches the previous 3-row title
-  // bar + 2 slack arithmetic).
-  const bodyHeight = Math.max(height - 3, 10);
+  // 1 header line + 1 footer line + 2 rows of slack.
+  const bodyHeight = Math.max(height - 4, 10);
   const navHeaderRows = 10;
   const navListHeight = Math.max(bodyHeight - navHeaderRows, 3);
+  // Metrics panel fixed rows: 2 border + 2 title/sep + 1 graph label +
+  // 2 blanks + 1 THROUGHPUT + 6 rows + 1 LATENCY + 4 rows = 19. Whatever
+  // is left can hold braille graph rows (4 levels per row, 1..5 rows).
+  const metricsGraphLevels = Math.max(Math.min(bodyHeight - 19, 5), 1) * 4;
 
   const refresh = useCallback(() => {
     try {
@@ -172,8 +246,8 @@ function App({ db }: { db: TelemetryDb }) {
         setTools(toolsList);
       }
 
-      // Skip list refresh when cursor is active (user is browsing)
-      if (focus === "center") return;
+      // Skip list refresh while the user is browsing or in a detail view
+      if (stack.length > 0) return;
 
       if (activeNav === "capabilities") {
         const route = routeSummary[routeScroll.selectedIndex];
@@ -208,7 +282,7 @@ function App({ db }: { db: TelemetryDb }) {
     toolScroll.selectedIndex,
     rightWidth,
     centerWidth,
-    focus,
+    stack.length,
   ]);
 
   useEffect(() => {
@@ -258,12 +332,8 @@ function App({ db }: { db: TelemetryDb }) {
   const switchNav = useCallback(
     (nav: NavItem) => {
       setActiveNav(nav);
-      setShowDetail(false);
-      setShowEventDetail(false);
-      setShowDeepView(false);
-      setShowAgentRun(false);
-      setShowToolCallDetail(false);
-      setFocus("nav");
+      setStack([]);
+      setJsonScroll(0);
       exchangeScroll.reset();
       if (nav === "agents") {
         agentScroll.reset();
@@ -312,6 +382,17 @@ function App({ db }: { db: TelemetryDb }) {
   // Tool-call timeline inside the agent-run detail (header is 6 rows).
   const runToolRows = Math.max(bodyHeight - 6 - PANEL_TABLE_CHROME, 3);
 
+  /** Open the exchange detail for the given exchange. */
+  const openExchange = useCallback(
+    (ex: ExchangeRecord) => {
+      setSelectedExchange(ex);
+      setExchangeEvents(db.getEventsByExchange(ex.id, ex.correlationId));
+      detailScroll.reset();
+      push("exchange");
+    },
+    [db, detailScroll, push],
+  );
+
   useInput((input, key) => {
     if (input === "q") {
       db.close();
@@ -326,172 +407,44 @@ function App({ db }: { db: TelemetryDb }) {
       return;
     }
 
-    // Events view: overview -> browse -> detail
-    if (activeNav === "events") {
-      if (showEventDetail) {
-        // Detail view: scroll JSON, Esc to go back to list
-        const step = key.ctrl ? JUMP : 1;
-        if (input === "j" || key.downArrow) {
-          setEventDetailScroll((i) => i + step);
-        } else if (input === "k" || key.upArrow) {
-          setEventDetailScroll((i) => Math.max(i - step, 0));
-        } else if (key.escape || key.backspace || key.delete) {
-          setShowEventDetail(false);
-          setEventDetailScroll(0);
-        }
-        return;
-      }
-      if (focus === "nav") {
-        if (key.return) {
-          setFocus("center");
-        }
-      } else {
-        const step = key.ctrl ? JUMP : 1;
-        if (input === "j" || key.downArrow) {
-          eventScroll.moveBy(step, events.length, eventsTableRows);
-        } else if (input === "k" || key.upArrow) {
-          eventScroll.moveBy(-step, events.length, eventsTableRows);
-        } else if (key.return) {
-          const ev = events[eventScroll.selectedIndex];
-          if (ev) {
-            setSelectedEvent(ev);
-            setEventDetailScroll(0);
-            setShowEventDetail(true);
-          }
-        } else if (key.escape || key.backspace || key.delete) {
-          setFocus("nav");
-          eventScroll.reset();
-        }
+    const step = key.ctrl ? JUMP : 1;
+    const down = input === "j" || key.downArrow;
+    const up = input === "k" || key.upArrow;
+    const back = key.escape || key.backspace || key.delete;
+
+    // JSON document views: scroll, Esc pops
+    if (current !== "root" && JSON_VIEWS.has(current)) {
+      if (down) {
+        setJsonScroll((i) => i + step);
+      } else if (up) {
+        setJsonScroll((i) => Math.max(i - step, 0));
+      } else if (back) {
+        pop();
       }
       return;
     }
 
-    // Tool-call detail (from an agent run or the Tools tab): scroll JSON
-    if (showToolCallDetail) {
-      const step = key.ctrl ? JUMP : 1;
-      if (input === "j" || key.downArrow) {
-        setToolCallDetailScroll((i) => i + step);
-      } else if (input === "k" || key.upArrow) {
-        setToolCallDetailScroll((i) => Math.max(i - step, 0));
-      } else if (key.escape || key.backspace || key.delete) {
-        setShowToolCallDetail(false);
-        setToolCallDetailScroll(0);
-      }
-      return;
-    }
-
-    // Agents tab
-    if (activeNav === "agents") {
-      // Agent-run detail: browse the tool-call timeline
-      if (showAgentRun) {
-        const step = key.ctrl ? JUMP : 1;
-        if (input === "j" || key.downArrow) {
-          agentRunScroll.moveBy(step, agentRunToolCalls.length, runToolRows);
-        } else if (input === "k" || key.upArrow) {
-          agentRunScroll.moveBy(-step, agentRunToolCalls.length, runToolRows);
-        } else if (key.return) {
-          const call = agentRunToolCalls[agentRunScroll.selectedIndex];
-          if (call) {
-            setSelectedToolCall(call);
-            setToolCallDetailScroll(0);
-            setShowToolCallDetail(true);
-          }
-        } else if (key.escape || key.backspace || key.delete) {
-          setShowAgentRun(false);
-          agentRunScroll.reset();
-        }
-        return;
-      }
-      if (focus === "nav") {
-        if (input === "j" || key.downArrow) {
-          selectAgent(
-            Math.min(agentScroll.selectedIndex + 1, agents.length - 1),
-          );
-        } else if (input === "k" || key.upArrow) {
-          selectAgent(Math.max(agentScroll.selectedIndex - 1, 0));
-        } else if (key.return) {
-          setFocus("center");
-          const agent = agents[agentScroll.selectedIndex];
-          if (agent) {
-            setExchanges(db.getAgentRuns(agent.key, agent.source));
-          }
-        }
-        return;
-      }
-      // Center focus: browse the agent's runs
-      const step = key.ctrl ? JUMP : 1;
-      if (input === "j" || key.downArrow) {
-        exchangeScroll.moveBy(step, exchanges.length, plainTableRows);
-      } else if (input === "k" || key.upArrow) {
-        exchangeScroll.moveBy(-step, exchanges.length, plainTableRows);
+    // Agent-run detail: browse the tool-call timeline
+    if (current === "agent-run") {
+      if (down) {
+        agentRunScroll.moveBy(step, agentRunToolCalls.length, runToolRows);
+      } else if (up) {
+        agentRunScroll.moveBy(-step, agentRunToolCalls.length, runToolRows);
       } else if (key.return) {
-        const ex = exchanges[exchangeScroll.selectedIndex];
-        if (ex) {
-          setSelectedRun(ex);
-          setAgentRunInfo(db.getAgentRunInfo(ex.id));
-          setAgentRunToolCalls(db.getAgentRunToolCalls(ex.id));
-          agentRunScroll.reset();
-          setShowAgentRun(true);
-        }
-      } else if (key.escape || key.backspace || key.delete) {
-        setFocus("nav");
-        exchangeScroll.reset();
-      }
-      return;
-    }
-
-    // Tools tab
-    if (activeNav === "tools") {
-      if (focus === "nav") {
-        if (input === "j" || key.downArrow) {
-          selectTool(Math.min(toolScroll.selectedIndex + 1, tools.length - 1));
-        } else if (input === "k" || key.upArrow) {
-          selectTool(Math.max(toolScroll.selectedIndex - 1, 0));
-        } else if (key.return) {
-          setFocus("center");
-          const tool = tools[toolScroll.selectedIndex];
-          if (tool) {
-            setToolCalls(db.getToolCalls(tool.name));
-          }
-        }
-        return;
-      }
-      // Center focus: browse the selected tool's calls
-      const step = key.ctrl ? JUMP : 1;
-      if (input === "j" || key.downArrow) {
-        toolCallScroll.moveBy(step, toolCalls.length, plainTableRows);
-      } else if (input === "k" || key.upArrow) {
-        toolCallScroll.moveBy(-step, toolCalls.length, plainTableRows);
-      } else if (key.return) {
-        const call = toolCalls[toolCallScroll.selectedIndex];
+        const call = agentRunToolCalls[agentRunScroll.selectedIndex];
         if (call) {
           setSelectedToolCall(call);
-          setToolCallDetailScroll(0);
-          setShowToolCallDetail(true);
+          push("tool-call");
         }
-      } else if (key.escape || key.backspace || key.delete) {
-        setFocus("nav");
-        toolCallScroll.reset();
+      } else if (back) {
+        pop();
+        agentRunScroll.reset();
       }
       return;
     }
 
-    // Exchange deep view: scrollable JSON of headers + body
-    if (showDeepView) {
-      const step = key.ctrl ? JUMP : 1;
-      if (input === "j" || key.downArrow) {
-        setDeepViewScroll((i) => i + step);
-      } else if (input === "k" || key.upArrow) {
-        setDeepViewScroll((i) => Math.max(i - step, 0));
-      } else if (key.escape || key.backspace || key.delete) {
-        setShowDeepView(false);
-        setDeepViewScroll(0);
-      }
-      return;
-    }
-
-    // Exchange detail (any nav)
-    if (showDetail && !showEventDetail) {
+    // Exchange detail: browse related events, open one, or the snapshot
+    if (current === "exchange") {
       const hasExtra = selectedExchange?.error ? 2 : 0;
       const detailEventRows = Math.max(
         bodyHeight - DETAIL_INFO_CHROME - hasExtra,
@@ -511,10 +464,9 @@ function App({ db }: { db: TelemetryDb }) {
       const groupCount = Math.max(uniqueExchangeIds.size, 1);
       const headerRows = groupCount > 1 ? groupCount : 0;
       const totalDisplayRows = exchangeEvents.length + headerRows;
-      const step = key.ctrl ? JUMP : 1;
-      if (input === "j" || key.downArrow) {
+      if (down) {
         detailScroll.moveBy(step, totalDisplayRows, detailEventRows);
-      } else if (input === "k" || key.upArrow) {
+      } else if (up) {
         detailScroll.moveBy(-step, totalDisplayRows, detailEventRows);
       } else if (key.return) {
         // Resolve the selected display row to an EventRecord (skip headers)
@@ -547,181 +499,376 @@ function App({ db }: { db: TelemetryDb }) {
         }
         if (targetEvent) {
           setSelectedEvent(targetEvent);
-          setEventDetailScroll(0);
-          setShowEventDetail(true);
+          push("event");
         }
       } else if (input === "e" && selectedExchange) {
         const snapshot = db.getExchangeSnapshot(selectedExchange.id);
         setExchangeSnapshot(snapshot);
-        setDeepViewScroll(0);
-        setShowDeepView(true);
-      } else if (key.escape || key.backspace || key.delete) {
+        push("snapshot");
+      } else if (back) {
         detailScroll.reset();
-        setShowDetail(false);
+        pop();
       }
       return;
     }
 
-    // Event detail from exchange detail: Esc goes back to exchange detail
-    if (showDetail && showEventDetail) {
-      const step = key.ctrl ? JUMP : 1;
-      if (input === "j" || key.downArrow) {
-        setEventDetailScroll((i) => i + step);
-      } else if (input === "k" || key.upArrow) {
-        setEventDetailScroll((i) => Math.max(i - step, 0));
-      } else if (key.escape || key.backspace || key.delete) {
-        setShowEventDetail(false);
-        setEventDetailScroll(0);
+    // Tab roots and browse lists
+    if (activeNav === "events") {
+      if (current === "root") {
+        if (key.return) push("browse");
+        return;
       }
-      return;
-    }
-
-    // Capabilities: nav focus (left panel)
-    if (activeNav === "capabilities" && focus === "nav") {
-      if (input === "j" || key.downArrow) {
-        selectRoute(Math.min(routeScroll.selectedIndex + 1, routes.length - 1));
-      } else if (input === "k" || key.upArrow) {
-        selectRoute(Math.max(routeScroll.selectedIndex - 1, 0));
+      if (down) {
+        eventScroll.moveBy(step, events.length, eventsTableRows);
+      } else if (up) {
+        eventScroll.moveBy(-step, events.length, eventsTableRows);
       } else if (key.return) {
-        setFocus("center");
-        // Load all exchanges for browsing (auto-refresh uses PAGE_SIZE)
-        const route = routes[routeScroll.selectedIndex];
-        if (route) {
-          setExchanges(db.getExchangesByRoute(route.id));
+        const ev = events[eventScroll.selectedIndex];
+        if (ev) {
+          setSelectedEvent(ev);
+          push("event");
         }
+      } else if (back) {
+        pop();
+        eventScroll.reset();
       }
       return;
     }
 
-    // Capabilities: center focus (exchange list)
-    if (activeNav === "capabilities" && focus === "center") {
-      const step = key.ctrl ? JUMP : 1;
-      if (input === "j" || key.downArrow) {
-        exchangeScroll.moveBy(step, exchanges.length, exchangeTableRows);
-      } else if (input === "k" || key.upArrow) {
-        exchangeScroll.moveBy(-step, exchanges.length, exchangeTableRows);
+    if (activeNav === "agents") {
+      if (current === "root") {
+        if (down) {
+          selectAgent(
+            Math.min(agentScroll.selectedIndex + 1, agents.length - 1),
+          );
+        } else if (up) {
+          selectAgent(Math.max(agentScroll.selectedIndex - 1, 0));
+        } else if (key.return) {
+          push("browse");
+          const agent = agents[agentScroll.selectedIndex];
+          if (agent) {
+            setExchanges(db.getAgentRuns(agent.key, agent.source));
+          }
+        }
+        return;
+      }
+      // Browse the agent's runs
+      if (down) {
+        exchangeScroll.moveBy(step, exchanges.length, plainTableRows);
+      } else if (up) {
+        exchangeScroll.moveBy(-step, exchanges.length, plainTableRows);
       } else if (key.return) {
         const ex = exchanges[exchangeScroll.selectedIndex];
         if (ex) {
-          setSelectedExchange(ex);
-          setExchangeEvents(db.getEventsByExchange(ex.id, ex.correlationId));
-          detailScroll.reset();
-          setShowEventDetail(false);
-          setShowDetail(true);
+          setSelectedRun(ex);
+          setAgentRunInfo(db.getAgentRunInfo(ex.id));
+          setAgentRunToolCalls(db.getAgentRunToolCalls(ex.id));
+          agentRunScroll.reset();
+          push("agent-run");
         }
-      } else if (key.escape || key.backspace || key.delete) {
-        setFocus("nav");
+      } else if (back) {
+        pop();
         exchangeScroll.reset();
       }
       return;
     }
 
-    // Exchanges / Errors: overview (nav focus) or browsing (center focus)
-    if (activeNav === "exchanges" || activeNav === "errors") {
-      if (focus === "nav") {
-        // Overview mode: Enter to freeze and browse
-        if (key.return) {
-          setFocus("center");
-          // Load full data set for browsing
-          if (activeNav === "exchanges") {
-            setExchanges(db.getAllExchanges());
-          } else {
-            setExchanges(db.getFailedExchanges());
+    if (activeNav === "tools") {
+      if (current === "root") {
+        if (down) {
+          selectTool(Math.min(toolScroll.selectedIndex + 1, tools.length - 1));
+        } else if (up) {
+          selectTool(Math.max(toolScroll.selectedIndex - 1, 0));
+        } else if (key.return) {
+          push("browse");
+          const tool = tools[toolScroll.selectedIndex];
+          if (tool) {
+            setToolCalls(db.getToolCalls(tool.name));
           }
         }
-      } else {
-        // Browsing mode: navigate with pointer
-        const step = key.ctrl ? JUMP : 1;
-        if (input === "j" || key.downArrow) {
-          exchangeScroll.moveBy(step, exchanges.length, exchangeTableRows);
-        } else if (input === "k" || key.upArrow) {
-          exchangeScroll.moveBy(-step, exchanges.length, exchangeTableRows);
+        return;
+      }
+      // Browse the selected tool's calls
+      if (down) {
+        toolCallScroll.moveBy(step, toolCalls.length, plainTableRows);
+      } else if (up) {
+        toolCallScroll.moveBy(-step, toolCalls.length, plainTableRows);
+      } else if (key.return) {
+        const call = toolCalls[toolCallScroll.selectedIndex];
+        if (call) {
+          setSelectedToolCall(call);
+          push("tool-call");
+        }
+      } else if (back) {
+        pop();
+        toolCallScroll.reset();
+      }
+      return;
+    }
+
+    // Capabilities / Exchanges / Errors: exchange lists
+    if (current === "root") {
+      if (activeNav === "capabilities") {
+        if (down) {
+          selectRoute(
+            Math.min(routeScroll.selectedIndex + 1, routes.length - 1),
+          );
+        } else if (up) {
+          selectRoute(Math.max(routeScroll.selectedIndex - 1, 0));
         } else if (key.return) {
-          const ex = exchanges[exchangeScroll.selectedIndex];
-          if (ex) {
-            setSelectedExchange(ex);
-            setExchangeEvents(db.getEventsByExchange(ex.id, ex.correlationId));
-            detailScroll.reset();
-            setShowEventDetail(false);
-            setShowDetail(true);
+          push("browse");
+          // Load all exchanges for browsing (auto-refresh uses PAGE_SIZE)
+          const route = routes[routeScroll.selectedIndex];
+          if (route) {
+            setExchanges(db.getExchangesByRoute(route.id));
           }
-        } else if (key.escape || key.backspace || key.delete) {
-          setFocus("nav");
-          exchangeScroll.reset();
+        }
+      } else if (key.return) {
+        push("browse");
+        // Load full data set for browsing
+        if (activeNav === "exchanges") {
+          setExchanges(db.getAllExchanges());
+        } else {
+          setExchanges(db.getFailedExchanges());
         }
       }
       return;
     }
+    // Browse the exchange list
+    if (down) {
+      exchangeScroll.moveBy(step, exchanges.length, exchangeTableRows);
+    } else if (up) {
+      exchangeScroll.moveBy(-step, exchanges.length, exchangeTableRows);
+    } else if (key.return) {
+      const ex = exchanges[exchangeScroll.selectedIndex];
+      if (ex) openExchange(ex);
+    } else if (back) {
+      pop();
+      exchangeScroll.reset();
+    }
   });
 
-  // Determine which panel is active for border highlighting
+  // Left panel owns the cursor when a tab with a nav list is at its root
   const navActive =
     (activeNav === "capabilities" ||
       activeNav === "agents" ||
       activeNav === "tools") &&
-    focus === "nav" &&
-    !showDetail &&
-    !showAgentRun &&
-    !showToolCallDetail;
-  const centerActive = !navActive;
+    current === "root";
+  const browsing = current === "browse";
 
-  // Keymap items based on context
+  // Contextual key hints for the footer
   const keymapItems: { key: string; action: string }[] = [];
-  const inJsonScroll = showDeepView || showToolCallDetail;
-  if (inJsonScroll) {
+  if (current !== "root" && JSON_VIEWS.has(current)) {
     keymapItems.push({ key: "j/k", action: "Scroll" });
-    keymapItems.push({ key: "Ctrl+j/k", action: "Jump 10" });
+    keymapItems.push({ key: "C-j/k", action: "Jump" });
     keymapItems.push({ key: "Esc", action: "Back" });
-  } else if (showAgentRun) {
+  } else if (current === "agent-run") {
     keymapItems.push({ key: "j/k", action: "Navigate" });
     keymapItems.push({ key: "Enter", action: "Tool I/O" });
     keymapItems.push({ key: "Esc", action: "Back" });
-  } else if (focus === "center") {
+  } else if (current === "exchange") {
     keymapItems.push({ key: "j/k", action: "Navigate" });
-    keymapItems.push({ key: "Ctrl+j/k", action: "Jump 10" });
-  }
-  if (!inJsonScroll && !showAgentRun) {
-    if (focus === "nav") {
-      if (activeNav === "capabilities") {
-        keymapItems.push({ key: "j/k", action: "Navigate" });
-        keymapItems.push({ key: "Enter", action: "Exchanges" });
-      } else if (activeNav === "agents") {
-        keymapItems.push({ key: "j/k", action: "Navigate" });
-        keymapItems.push({ key: "Enter", action: "Runs" });
-      } else if (activeNav === "tools") {
-        keymapItems.push({ key: "j/k", action: "Navigate" });
-        keymapItems.push({ key: "Enter", action: "Calls" });
-      } else {
-        keymapItems.push({ key: "Enter", action: "Browse" });
-      }
-    } else if (!showDetail && !showEventDetail) {
-      keymapItems.push({ key: "Enter", action: "Detail" });
-      keymapItems.push({ key: "Esc", action: "Back" });
-    } else if (showDetail && !showEventDetail) {
-      keymapItems.push({ key: "Enter", action: "Event detail" });
-      keymapItems.push({ key: "e", action: "Snapshot" });
-      keymapItems.push({ key: "Esc", action: "Back" });
+    keymapItems.push({ key: "Enter", action: "Event" });
+    keymapItems.push({ key: "e", action: "Snapshot" });
+    keymapItems.push({ key: "Esc", action: "Back" });
+  } else if (browsing) {
+    keymapItems.push({ key: "j/k", action: "Navigate" });
+    keymapItems.push({ key: "C-j/k", action: "Jump" });
+    keymapItems.push({ key: "Enter", action: "Detail" });
+    keymapItems.push({ key: "Esc", action: "Back" });
+  } else {
+    keymapItems.push({ key: "j/k", action: "Navigate" });
+    if (activeNav === "capabilities") {
+      keymapItems.push({ key: "Enter", action: "Exchanges" });
+    } else if (activeNav === "agents") {
+      keymapItems.push({ key: "Enter", action: "Runs" });
+    } else if (activeNav === "tools") {
+      keymapItems.push({ key: "Enter", action: "Calls" });
     } else {
-      keymapItems.push({ key: "Esc", action: "Back" });
+      keymapItems.push({ key: "Enter", action: "Browse" });
     }
   }
-  keymapItems.push({ key: "1..6", action: "Switch view" });
+  keymapItems.push({ key: "1-6", action: "View" });
   keymapItems.push({ key: "q", action: "Quit" });
+
+  // Breadcrumb: where am I in the drill-down?
+  const crumbs: string[] = [];
+  {
+    const tabLabel =
+      ALL_NAV_ITEMS.find((n) => n.key === activeNav)?.label ?? activeNav;
+    crumbs.push(tabLabel);
+    if (stack.length > 0) {
+      if (activeNav === "capabilities" && selectedRoute) {
+        crumbs.push(selectedRoute.id);
+      } else if (activeNav === "agents" && selectedAgent) {
+        crumbs.push(selectedAgent.key);
+      } else if (activeNav === "tools" && selectedTool) {
+        crumbs.push(selectedTool.name);
+      }
+    }
+    for (const view of stack) {
+      if (view === "exchange" && selectedExchange) {
+        crumbs.push(selectedExchange.id.slice(0, 8));
+      } else if (view === "agent-run" && selectedRun) {
+        crumbs.push(`run ${selectedRun.id.slice(0, 8)}`);
+      } else if (view === "tool-call" && selectedToolCall) {
+        crumbs.push(selectedToolCall.toolName);
+      } else if (view === "event" && selectedEvent) {
+        crumbs.push(selectedEvent.eventName);
+      } else if (view === "snapshot") {
+        crumbs.push("snapshot");
+      }
+    }
+  }
+
+  // Center pane: the top of the stack decides, independent of the tab
+  let center: ReactNode;
+  if (current === "event" && selectedEvent) {
+    center = (
+      <EventDetail
+        event={selectedEvent}
+        width={centerWidth}
+        height={bodyHeight}
+        scrollOffset={jsonScroll}
+      />
+    );
+  } else if (current === "snapshot" && selectedExchange) {
+    center = (
+      <ExchangeDeepView
+        exchange={selectedExchange}
+        snapshot={exchangeSnapshot}
+        width={centerWidth}
+        height={bodyHeight}
+        scrollOffset={jsonScroll}
+      />
+    );
+  } else if (current === "tool-call" && selectedToolCall) {
+    center = (
+      <ToolCallDetail
+        call={selectedToolCall}
+        width={centerWidth}
+        height={bodyHeight}
+        scrollOffset={jsonScroll}
+      />
+    );
+  } else if (current === "agent-run" && selectedRun) {
+    center = (
+      <AgentRunDetail
+        agentKey={selectedAgent?.key ?? ""}
+        run={selectedRun}
+        info={agentRunInfo}
+        toolCalls={agentRunToolCalls}
+        selectedIndex={agentRunScroll.selectedIndex}
+        scrollOffset={agentRunScroll.scrollOffset}
+        width={centerWidth}
+        height={bodyHeight}
+      />
+    );
+  } else if (current === "exchange" && selectedExchange) {
+    center = (
+      <CenterExchangeDetail
+        exchange={selectedExchange}
+        events={exchangeEvents}
+        width={centerWidth}
+        height={bodyHeight}
+        selectedIndex={detailScroll.selectedIndex}
+        scrollOffset={detailScroll.scrollOffset}
+        color={theme.accent}
+      />
+    );
+  } else if (activeNav === "events") {
+    center = (
+      <EventsView
+        events={events}
+        selectedIndex={browsing ? eventScroll.selectedIndex : -1}
+        scrollOffset={browsing ? eventScroll.scrollOffset : 0}
+        width={centerWidth}
+        height={bodyHeight}
+        color={browsing ? theme.accent : theme.muted}
+      />
+    );
+  } else if (activeNav === "agents") {
+    center = (
+      <CenterExchangeList
+        capabilityId={selectedAgent?.key ?? ""}
+        title={`RUNS: ${selectedAgent?.key ?? "(no agent)"}`}
+        exchanges={exchanges}
+        selectedIndex={browsing ? exchangeScroll.selectedIndex : -1}
+        scrollOffset={browsing ? exchangeScroll.scrollOffset : 0}
+        width={centerWidth}
+        height={bodyHeight}
+        color={browsing ? theme.accent : theme.muted}
+      />
+    );
+  } else if (activeNav === "tools") {
+    center = (
+      <ToolCallList
+        toolName={selectedTool?.name ?? ""}
+        calls={toolCalls}
+        selectedIndex={browsing ? toolCallScroll.selectedIndex : -1}
+        scrollOffset={browsing ? toolCallScroll.scrollOffset : 0}
+        width={centerWidth}
+        height={bodyHeight}
+        color={browsing ? theme.accent : theme.muted}
+      />
+    );
+  } else {
+    center = (
+      <CenterExchangeList
+        capabilityId={
+          activeNav === "capabilities"
+            ? (selectedRoute?.id ?? "")
+            : activeNav === "exchanges"
+              ? "All Capabilities"
+              : "Failed Exchanges"
+        }
+        {...(activeNav === "capabilities" && selectedRoute
+          ? { route: selectedRoute }
+          : {})}
+        activity={
+          activeNav === "capabilities" ? selectedRouteActivity : undefined
+        }
+        exchanges={exchanges}
+        selectedIndex={browsing ? exchangeScroll.selectedIndex : -1}
+        scrollOffset={browsing ? exchangeScroll.scrollOffset : 0}
+        width={centerWidth}
+        height={bodyHeight}
+        color={browsing ? theme.accent : theme.muted}
+      />
+    );
+  }
 
   return (
     <Box flexDirection="column" width={width} height={height}>
-      {/* Header: wordmark + product term, single line (brand: the wordmark
-          is never all-capped; cobalt stays reserved for active states). */}
+      {/* Header: wordmark + product term + breadcrumb, single line (brand:
+          the wordmark is never all-capped; cobalt stays reserved for
+          active states). */}
       <Box paddingX={1} width={width}>
         <Text bold>Routecraft</Text>
         <Text dimColor>
           {"  "}craft tui{"  "}v{version}
         </Text>
+        <Box flexGrow={1} justifyContent="flex-end">
+          <Text wrap="truncate">
+            {crumbs.map((crumb, i) => (
+              <Text key={`${crumb}-${i}`}>
+                {i > 0 && <Text dimColor> › </Text>}
+                <Text
+                  {...(i === crumbs.length - 1 && crumbs.length > 1
+                    ? { color: theme.accent }
+                    : { dimColor: true })}
+                >
+                  {crumb}
+                </Text>
+              </Text>
+            ))}
+          </Text>
+        </Box>
       </Box>
 
       {/* 3-column body */}
       <Box flexDirection="row" width={width} flexGrow={1}>
-        {/* Left column: Navigation (top) + Keymap (bottom) */}
+        {/* Left: navigation */}
         <Box flexDirection="column" width={leftWidth}>
           <Panel
             title="NAVIGATION"
@@ -744,6 +891,12 @@ function App({ db }: { db: TelemetryDb }) {
                       {item.label}
                     </Text>
                     <Text dimColor> ({item.shortcut})</Text>
+                    {item.key === "errors" && metrics.failedExchanges > 0 && (
+                      <Text color={theme.error}>
+                        {" "}
+                        {fmtNum(metrics.failedExchanges)}
+                      </Text>
+                    )}
                   </Text>
                 ))}
               </Box>
@@ -792,267 +945,15 @@ function App({ db }: { db: TelemetryDb }) {
         </Box>
 
         {/* Center */}
-        {activeNav === "capabilities" && !showDetail && (
-          <CenterExchangeList
-            capabilityId={selectedRoute?.id ?? ""}
-            route={selectedRoute}
-            exchanges={exchanges}
-            selectedIndex={
-              focus === "center" ? exchangeScroll.selectedIndex : -1
-            }
-            scrollOffset={focus === "center" ? exchangeScroll.scrollOffset : 0}
-            width={centerWidth}
-            height={bodyHeight}
-            color={centerActive ? theme.accent : theme.muted}
-            activity={selectedRouteActivity}
-          />
-        )}
-        {activeNav === "capabilities" && showDeepView && selectedExchange && (
-          <ExchangeDeepView
-            exchange={selectedExchange}
-            snapshot={exchangeSnapshot}
-            width={centerWidth}
-            height={bodyHeight}
-            scrollOffset={deepViewScroll}
-            color={theme.accent}
-          />
-        )}
-        {activeNav === "capabilities" &&
-          showDetail &&
-          selectedExchange &&
-          !showEventDetail &&
-          !showDeepView && (
-            <CenterExchangeDetail
-              exchange={selectedExchange}
-              events={exchangeEvents}
-              width={centerWidth}
-              height={bodyHeight}
-              selectedIndex={detailScroll.selectedIndex}
-              scrollOffset={detailScroll.scrollOffset}
-              color={theme.accent}
-            />
-          )}
-        {activeNav === "capabilities" &&
-          showDetail &&
-          showEventDetail &&
-          !showDeepView &&
-          selectedEvent && (
-            <EventDetail
-              event={selectedEvent}
-              width={centerWidth}
-              height={bodyHeight}
-              scrollOffset={eventDetailScroll}
-              color={theme.accent}
-            />
-          )}
-        {/* Agents tab */}
-        {activeNav === "agents" && !showAgentRun && !showToolCallDetail && (
-          <CenterExchangeList
-            capabilityId={selectedAgent?.key ?? ""}
-            title={`RUNS: ${selectedAgent?.key ?? "(no agent)"}`}
-            exchanges={exchanges}
-            selectedIndex={
-              focus === "center" ? exchangeScroll.selectedIndex : -1
-            }
-            scrollOffset={focus === "center" ? exchangeScroll.scrollOffset : 0}
-            width={centerWidth}
-            height={bodyHeight}
-            color={focus === "center" ? theme.accent : theme.muted}
-          />
-        )}
-        {activeNav === "agents" &&
-          showAgentRun &&
-          !showToolCallDetail &&
-          selectedRun && (
-            <AgentRunDetail
-              agentKey={selectedAgent?.key ?? ""}
-              run={selectedRun}
-              info={agentRunInfo}
-              toolCalls={agentRunToolCalls}
-              selectedIndex={agentRunScroll.selectedIndex}
-              scrollOffset={agentRunScroll.scrollOffset}
-              width={centerWidth}
-              height={bodyHeight}
-              color={theme.accent}
-            />
-          )}
-        {activeNav === "agents" && showToolCallDetail && selectedToolCall && (
-          <ToolCallDetail
-            call={selectedToolCall}
-            width={centerWidth}
-            height={bodyHeight}
-            scrollOffset={toolCallDetailScroll}
-            color={theme.accent}
-          />
-        )}
+        {center}
 
-        {/* Tools tab */}
-        {activeNav === "tools" && !showToolCallDetail && (
-          <ToolCallList
-            toolName={selectedTool?.name ?? ""}
-            calls={toolCalls}
-            selectedIndex={
-              focus === "center" ? toolCallScroll.selectedIndex : -1
-            }
-            scrollOffset={focus === "center" ? toolCallScroll.scrollOffset : 0}
-            width={centerWidth}
-            height={bodyHeight}
-            color={focus === "center" ? theme.accent : theme.muted}
-          />
-        )}
-        {activeNav === "tools" && showToolCallDetail && selectedToolCall && (
-          <ToolCallDetail
-            call={selectedToolCall}
-            width={centerWidth}
-            height={bodyHeight}
-            scrollOffset={toolCallDetailScroll}
-            color={theme.accent}
-          />
-        )}
-
-        {activeNav === "exchanges" && !showDetail && (
-          <CenterExchangeList
-            capabilityId="All Capabilities"
-            exchanges={exchanges}
-            selectedIndex={
-              focus === "center" ? exchangeScroll.selectedIndex : -1
-            }
-            scrollOffset={focus === "center" ? exchangeScroll.scrollOffset : 0}
-            width={centerWidth}
-            height={bodyHeight}
-            color={focus === "center" ? theme.accent : theme.muted}
-          />
-        )}
-        {activeNav === "exchanges" && showDeepView && selectedExchange && (
-          <ExchangeDeepView
-            exchange={selectedExchange}
-            snapshot={exchangeSnapshot}
-            width={centerWidth}
-            height={bodyHeight}
-            scrollOffset={deepViewScroll}
-            color={theme.accent}
-          />
-        )}
-        {activeNav === "exchanges" &&
-          showDetail &&
-          selectedExchange &&
-          !showEventDetail &&
-          !showDeepView && (
-            <CenterExchangeDetail
-              exchange={selectedExchange}
-              events={exchangeEvents}
-              width={centerWidth}
-              height={bodyHeight}
-              selectedIndex={detailScroll.selectedIndex}
-              scrollOffset={detailScroll.scrollOffset}
-              color={theme.accent}
-            />
-          )}
-        {activeNav === "exchanges" &&
-          showDetail &&
-          showEventDetail &&
-          !showDeepView &&
-          selectedEvent && (
-            <EventDetail
-              event={selectedEvent}
-              width={centerWidth}
-              height={bodyHeight}
-              scrollOffset={eventDetailScroll}
-              color={theme.accent}
-            />
-          )}
-        {activeNav === "errors" && !showDetail && (
-          <CenterExchangeList
-            capabilityId="Failed Exchanges"
-            exchanges={exchanges}
-            selectedIndex={
-              focus === "center" ? exchangeScroll.selectedIndex : -1
-            }
-            scrollOffset={focus === "center" ? exchangeScroll.scrollOffset : 0}
-            width={centerWidth}
-            height={bodyHeight}
-            color={focus === "center" ? theme.accent : theme.muted}
-          />
-        )}
-        {activeNav === "errors" && showDeepView && selectedExchange && (
-          <ExchangeDeepView
-            exchange={selectedExchange}
-            snapshot={exchangeSnapshot}
-            width={centerWidth}
-            height={bodyHeight}
-            scrollOffset={deepViewScroll}
-            color={theme.accent}
-          />
-        )}
-        {activeNav === "errors" &&
-          showDetail &&
-          selectedExchange &&
-          !showEventDetail &&
-          !showDeepView && (
-            <CenterExchangeDetail
-              exchange={selectedExchange}
-              events={exchangeEvents}
-              width={centerWidth}
-              height={bodyHeight}
-              selectedIndex={detailScroll.selectedIndex}
-              scrollOffset={detailScroll.scrollOffset}
-              color={theme.accent}
-            />
-          )}
-        {activeNav === "errors" &&
-          showDetail &&
-          showEventDetail &&
-          !showDeepView &&
-          selectedEvent && (
-            <EventDetail
-              event={selectedEvent}
-              width={centerWidth}
-              height={bodyHeight}
-              scrollOffset={eventDetailScroll}
-              color={theme.accent}
-            />
-          )}
-        {activeNav === "events" && !showEventDetail && (
-          <EventsView
-            events={events}
-            selectedIndex={focus === "center" ? eventScroll.selectedIndex : -1}
-            scrollOffset={focus === "center" ? eventScroll.scrollOffset : 0}
-            width={centerWidth}
-            height={bodyHeight}
-            color={focus === "center" ? theme.accent : theme.muted}
-          />
-        )}
-        {activeNav === "events" && showEventDetail && selectedEvent && (
-          <EventDetail
-            event={selectedEvent}
-            width={centerWidth}
-            height={bodyHeight}
-            scrollOffset={eventDetailScroll}
-            color={theme.accent}
-          />
-        )}
-
-        {/* Right: Metrics + Keymap */}
+        {/* Right: metrics */}
         <Box flexDirection="column" width={rightWidth}>
           <Panel title="METRICS" width={rightWidth} flexGrow={1}>
             <DotGraph
               values={liveTraffic}
               columns={rightWidth - 4}
-              steps={[
-                { max: 0, color: "gray" },
-                ...(Array.from({ length: 7 }, (_, i) => ({
-                  max: (i + 1) * 5,
-                  color: "green",
-                })) as { max: number; color: string }[]),
-                ...(Array.from({ length: 7 }, (_, i) => ({
-                  max: 35 + (i + 1) * 10,
-                  color: "yellow",
-                })) as { max: number; color: string }[]),
-                ...(Array.from({ length: 6 }, (_, i) => ({
-                  max: 105 + (i + 1) * 25,
-                  color: "red",
-                })) as { max: number; color: string }[]),
-              ]}
+              steps={metricSteps(metricsGraphLevels)}
               label="Exchanges per 5s bucket"
             />
             <Text> </Text>
@@ -1082,12 +983,12 @@ function App({ db }: { db: TelemetryDb }) {
               ] as [string, string, string][]
             ).map(([label, value, color]) => (
               <Box key={label}>
-                <Text>{label}:</Text>
-                <Box flexGrow={1} justifyContent="flex-end">
-                  <Text bold {...(color ? { color } : {})}>
-                    {value}
-                  </Text>
+                <Box flexGrow={1}>
+                  <Text wrap="truncate">{label}:</Text>
                 </Box>
+                <Text bold {...(color ? { color } : {})}>
+                  {value}
+                </Text>
               </Box>
             ))}
             <Text> </Text>
@@ -1103,27 +1004,29 @@ function App({ db }: { db: TelemetryDb }) {
               ] as [string, string, string][]
             ).map(([label, value, color]) => (
               <Box key={label}>
-                <Text>{label}:</Text>
-                <Box flexGrow={1} justifyContent="flex-end">
-                  <Text bold {...(color ? { color } : {})}>
-                    {value}
-                  </Text>
+                <Box flexGrow={1}>
+                  <Text wrap="truncate">{label}:</Text>
                 </Box>
-              </Box>
-            ))}
-          </Panel>
-
-          <Panel title="KEYMAP" width={rightWidth}>
-            {keymapItems.map((item) => (
-              <Box key={item.key}>
-                <Text>{item.action}</Text>
-                <Box flexGrow={1} justifyContent="flex-end">
-                  <Text color={theme.accentSoft}>[{item.key}]</Text>
-                </Box>
+                <Text bold {...(color ? { color } : {})}>
+                  {value}
+                </Text>
               </Box>
             ))}
           </Panel>
         </Box>
+      </Box>
+
+      {/* Footer: contextual key hints */}
+      <Box paddingX={1} width={width}>
+        <Text wrap="truncate">
+          {keymapItems.map((item, i) => (
+            <Text key={item.key}>
+              {i > 0 && <Text> </Text>}
+              <Text color={theme.accentSoft}>{item.key}</Text>
+              <Text dimColor> {item.action}</Text>
+            </Text>
+          ))}
+        </Text>
       </Box>
     </Box>
   );
