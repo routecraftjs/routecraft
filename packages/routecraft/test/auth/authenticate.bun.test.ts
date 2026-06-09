@@ -323,7 +323,10 @@ describe(".authenticate() operation and authorize() authenticity gate", () => {
               ...ex,
               headers: {
                 ...ex.headers,
-                "routecraft.auth.principal": forged,
+                // Type-level masquerade only: the forged object is cast to
+                // Principal exactly like an attacker bypassing the types;
+                // authenticity is WeakSet membership, which it cannot fake.
+                "routecraft.auth.principal": forged as unknown as Principal,
               },
             };
           })

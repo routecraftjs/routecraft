@@ -805,7 +805,7 @@ describe("McpServer", () => {
           .description("Echoes the value back with a declared output schema")
           .input({ body: z.object({ value: z.string() }) })
           .output({ body: z.object({ value: z.string() }) })
-          .from(mcp())
+          .from<{ value: string }>(mcp())
           .transform((body) => ({ value: body.value })),
       ]);
 
@@ -825,8 +825,11 @@ describe("McpServer", () => {
         );
       }
       const result = callParsed.result as Record<string, unknown>;
-      expect(result.structuredContent).toEqual({ value: "hi" });
-      const content = result.content as Array<{ type: string; text: string }>;
+      expect(result["structuredContent"]).toEqual({ value: "hi" });
+      const content = result["content"] as Array<{
+        type: string;
+        text: string;
+      }>;
       expect(JSON.parse(content[0].text)).toEqual({ value: "hi" });
     });
 
@@ -841,7 +844,7 @@ describe("McpServer", () => {
           .id("plain-echo")
           .description("Echoes the value back without an output schema")
           .input({ body: z.object({ value: z.string() }) })
-          .from(mcp())
+          .from<{ value: string }>(mcp())
           .transform((body) => ({ value: body.value })),
       ]);
 
@@ -856,8 +859,11 @@ describe("McpServer", () => {
       expect(callRes.statusCode).toBe(200);
       const callParsed = JSON.parse(callRes.body);
       const result = callParsed.result as Record<string, unknown>;
-      expect(result.structuredContent).toBeUndefined();
-      const content = result.content as Array<{ type: string; text: string }>;
+      expect(result["structuredContent"]).toBeUndefined();
+      const content = result["content"] as Array<{
+        type: string;
+        text: string;
+      }>;
       expect(JSON.parse(content[0].text)).toEqual({ value: "hi" });
     });
 
@@ -877,7 +883,7 @@ describe("McpServer", () => {
               obj: z.record(z.string(), z.any()),
             }),
           })
-          .from(mcp())
+          .from<{ str: string; obj: Record<string, unknown> }>(mcp())
           .transform((body) => ({
             strType: typeof body.str,
             objType: typeof body.obj,
@@ -904,7 +910,10 @@ describe("McpServer", () => {
         );
       }
       const result = callParsed.result as Record<string, unknown>;
-      const content = result?.content as Array<{ type: string; text: string }>;
+      const content = result?.["content"] as Array<{
+        type: string;
+        text: string;
+      }>;
       expect(Array.isArray(content) && content[0]?.text).toBeTruthy();
       const resultText = content[0].text;
       if (resultText.startsWith("Error:")) {
@@ -1150,7 +1159,7 @@ describe("McpServer", () => {
           expect(t.logger.warn.mock.calls.some((c) => c[1] === msg)).toBe(
             false,
           );
-          expect(rejections.some((r) => r.reason === "missing_header")).toBe(
+          expect(rejections.some((r) => r["reason"] === "missing_header")).toBe(
             true,
           );
         });
@@ -1379,7 +1388,7 @@ describe("McpServer", () => {
         });
         const res = await get("/.well-known/oauth-protected-resource");
         const doc = JSON.parse(res.body) as Record<string, unknown>;
-        expect(doc.authorization_servers).toBeUndefined();
+        expect(doc["authorization_servers"]).toBeUndefined();
       });
 
       /**
@@ -2955,7 +2964,7 @@ describe("McpServer", () => {
             ),
           ).toBe(true);
           expect(rejections.length).toBeGreaterThanOrEqual(1);
-          expect(rejections[0]?.reason).toBe("infrastructure");
+          expect(rejections[0]?.["reason"]).toBe("infrastructure");
         });
 
         /**
@@ -3016,8 +3025,8 @@ describe("McpServer", () => {
         host: "127.0.0.1",
         path: "/mcp",
       });
-      expect(events[0]!.port).toBeTypeOf("number");
-      expect((events[0]!.port as number) > 0).toBe(true);
+      expect(events[0]!["port"]).toBeTypeOf("number");
+      expect((events[0]!["port"] as number) > 0).toBe(true);
     });
 
     /**
@@ -3155,14 +3164,8 @@ describe("McpServer", () => {
           craft()
             .id("call-evt")
             .description("test")
-            .from(
-              mcp({
-                inputSchema: {
-                  type: "object",
-                  properties: { x: { type: "number" } },
-                },
-              }),
-            )
+            .input({ body: z.object({ x: z.number().optional() }) })
+            .from(mcp())
             .to(noop()),
         ])
         .store(MCP_STORE_KEY, true)
@@ -3387,8 +3390,8 @@ describe("McpServer", () => {
       });
 
       expect(failed).toHaveLength(1);
-      expect(failed[0]!.tool).toBe("no-such-tool");
-      expect(failed[0]!.error).toBeTypeOf("string");
+      expect(failed[0]!["tool"]).toBe("no-such-tool");
+      expect(failed[0]!["error"]).toBeTypeOf("string");
     });
 
     /**
@@ -3402,7 +3405,8 @@ describe("McpServer", () => {
           craft()
             .id("wc-tool")
             .description("test")
-            .from(mcp({ inputSchema: { type: "object", properties: {} } }))
+            .input({ body: z.object({}) })
+            .from(mcp())
             .to(noop()),
         ])
         .store(MCP_STORE_KEY, true)

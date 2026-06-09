@@ -18,7 +18,22 @@ import {
   getExchangeContext,
 } from "@routecraft/routecraft";
 import { defaultAggregate } from "../src/operations/aggregate.ts";
-import type { Exchange } from "@routecraft/routecraft";
+import type { Exchange, Source } from "@routecraft/routecraft";
+
+/**
+ * Emits each item in `list` as its own exchange, strictly typed. Simpler
+ * than `simple([...])` which splits arrays at runtime but types the source
+ * as Source<T[]>.
+ */
+function items<T>(list: T[]): Source<T> {
+  return {
+    subscribe: async (_ctx, handler) => {
+      for (const item of list) {
+        await handler(item);
+      }
+    },
+  };
+}
 
 describe("Route Behavior", () => {
   let t: TestContext;
@@ -574,7 +589,7 @@ describe("Route Behavior", () => {
   test("aggregates split exchanges correctly", async () => {
     const s = spy();
     const split = {
-      split: (exchange) => {
+      split: (exchange: Exchange<string>) => {
         const ctx = getExchangeContext(exchange)!;
         return exchange.body.split("-").map(
           (b) =>
@@ -588,7 +603,7 @@ describe("Route Behavior", () => {
     const splitSpy = spyOn(split, "split");
     const processorSpy = mock((exchange) => exchange);
     const agg = {
-      aggregate: (exchanges) => {
+      aggregate: (exchanges: Exchange<string>[]) => {
         const aggregatedBody = exchanges.map((e) => e.body).join(",");
         return { ...exchanges[0], body: aggregatedBody };
       },
@@ -750,12 +765,12 @@ describe("Route Behavior", () => {
       .routes(
         craft()
           .id("split-headers-test")
-          .from({
+          .from<string>({
             subscribe: async (_, handler) => {
               await handler("one-two", { "custom.header": "test-value" });
             },
           })
-          .split<string, string>((exchange) => {
+          .split<string>((exchange) => {
             const ctx = getExchangeContext(exchange)!;
             return exchange.body.split("-").map(
               (b) =>
@@ -794,7 +809,7 @@ describe("Route Behavior", () => {
         craft()
           .id("split-process-aggregate")
           .from(simple("1-2-3"))
-          .split<string, number>((exchange) => {
+          .split<number>((exchange) => {
             const ctx = getExchangeContext(exchange)!;
             return exchange.body
               .split("-")
@@ -842,7 +857,7 @@ describe("Route Behavior", () => {
         craft()
           .id("split-error-aggregate")
           .from(simple("success1-error-success2"))
-          .split<string, string>((exchange) => {
+          .split<string>((exchange) => {
             const ctx = getExchangeContext(exchange)!;
             return exchange.body.split("-").map(
               (b) =>
@@ -892,7 +907,7 @@ describe("Route Behavior", () => {
     const processorSpy3 = mock((exchange) => exchange);
     const processorSpy4 = mock((exchange) => exchange);
     const agg = {
-      aggregate: (exchanges) => {
+      aggregate: (exchanges: Exchange<string>[]) => {
         return {
           ...exchanges[0],
           body: exchanges.map((e) => e.body).join(","),
@@ -901,7 +916,7 @@ describe("Route Behavior", () => {
     };
     const aggSpy = spyOn(agg, "aggregate");
     const agg2 = {
-      aggregate: (exchanges) => {
+      aggregate: (exchanges: Exchange<string>[]) => {
         return {
           ...exchanges[0],
           body: exchanges.map((e) => e.body).join(","),
@@ -915,7 +930,7 @@ describe("Route Behavior", () => {
         craft()
           .id("nested-split-test")
           .from(simple("A:1-2|B:3-4"))
-          .split<string, string>((exchange) => {
+          .split<string>((exchange) => {
             const ctx = getExchangeContext(exchange)!;
             return exchange.body.split("|").map(
               (b) =>
@@ -926,7 +941,7 @@ describe("Route Behavior", () => {
             );
           })
           .process(processorSpy)
-          .split<string, string>((exchange) => {
+          .split<string>((exchange) => {
             const ctx = getExchangeContext(exchange)!;
             return exchange.body.split(":").map(
               (b) =>
@@ -937,7 +952,7 @@ describe("Route Behavior", () => {
             );
           })
           .process(processorSpy2)
-          .split<string, string>((exchange) => {
+          .split<string>((exchange) => {
             const ctx = getExchangeContext(exchange)!;
             return exchange.body.split("-").map(
               (b) =>
@@ -1001,8 +1016,8 @@ describe("Route Behavior", () => {
       .routes(
         craft()
           .id("filter-test")
-          .from(simple(numbers))
-          .filter<number>((exchange) => exchange.body % 2 === 0) // Only allow even numbers
+          .from(items(numbers))
+          .filter((exchange) => exchange.body % 2 === 0) // Only allow even numbers
           .tap(tapSpy)
           .to(destSpy),
       )

@@ -18,7 +18,10 @@ import type { LlmResult, LlmToolCallSummary } from "../src/llm/types.ts";
 // Captures what the provider layer received and simulates the model
 // invoking every synthetic loader tool present, so a test can assert
 // both the flattened loader-tool names and the resulting blocksLoaded.
-let captured: { system?: string; tools?: Record<string, unknown> } = {};
+let captured: {
+  system?: string | undefined;
+  tools?: Record<string, unknown> | undefined;
+} = {};
 
 mock.module("../src/llm/providers/index.ts", () => ({
   callLlm: mock(
@@ -387,10 +390,10 @@ describe("agent blocks: nested named groups", () => {
    */
   test("reports a forgotten mode precisely instead of treating the leaf as a group", () => {
     expect(() =>
+      // @ts-expect-error -- runtime guard against a leaf missing `mode`; the overloaded agent() reports the bad blocks shape on the call itself
       agent({
         system: "x",
         model: "anthropic:claude-opus-4-7",
-        // @ts-expect-error -- runtime guard against a leaf missing `mode`
         blocks: { tone: { value: "Be terse." } },
       }),
     ).toThrow(/Agent block "tone": "mode" must be "inject" or "progressive"/);

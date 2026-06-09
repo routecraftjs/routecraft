@@ -7,18 +7,22 @@ import type {
 import {
   craft,
   simple,
-  timer,
+  noop,
   log,
+  DefaultExchange,
+  getExchangeContext,
   type RouteBuilder,
 } from "@routecraft/routecraft";
 import type { Exchange } from "@routecraft/routecraft";
 
-// Option/result types for type-level and runtime tests
-interface McpOpts {
+// Option/result types for type-level and runtime tests.
+// McpOpts is a type alias (not an interface) so it satisfies the
+// Record<string, unknown> constraint of pseudo<Opts>().
+type McpOpts = {
   server: string;
   tool: string;
   args?: Record<string, unknown>;
-}
+};
 interface UserData {
   id: string;
   name: string;
@@ -41,7 +45,9 @@ function mockExchange<T = unknown>(body: T): Exchange<T> {
       error: mock(),
       fatal: mock(),
     },
-  } as Exchange<T>;
+    // Cast via unknown: a minimal literal stands in for a full Exchange
+    // (missing the derived principal accessor and pino logger internals).
+  } as unknown as Exchange<T>;
 }
 
 describe("Pseudo adapter", () => {
@@ -58,16 +64,16 @@ describe("Pseudo adapter", () => {
     });
 
     /**
-     * @case Pseudo in .enrich() is accepted and RouteBuilder type is R
+     * @case Pseudo in .enrich() is accepted and the body type merges Current & R
      * @preconditions pseudo factory and options
-     * @expectedResult RouteBuilder<EnrichedData>
+     * @expectedResult RouteBuilder<string & EnrichedData> (enrich merges, it does not replace)
      */
-    test("enrich() with pseudo sets RouteBuilder<R>", () => {
+    test("enrich() with pseudo merges RouteBuilder<Current & R>", () => {
       const mcp = pseudo<McpOpts>("mcp");
       const route = craft()
         .from(simple("hello"))
         .enrich(mcp<EnrichedData>({ server: "x", tool: "y" }));
-      expectTypeOf(route).toEqualTypeOf<RouteBuilder<EnrichedData>>();
+      expectTypeOf(route).toEqualTypeOf<RouteBuilder<string & EnrichedData>>();
     });
 
     /**
@@ -111,16 +117,25 @@ describe("Pseudo adapter", () => {
 
     /**
      * @case Chained pseudo enrich then split then to composes types
-     * @preconditions mcp and db pseudo factories
+     * @preconditions src, mcp, and db pseudo factories; a typed pseudo source so the enrich merge has an object body
      * @expectedResult RouteBuilder<{ id: string }>
      */
     test("chained pseudo adapters compose types correctly", () => {
+      const src = pseudo<{ poll: number }>("src");
       const mcp = pseudo<McpOpts>("mcp");
       const db = pseudo<{ table: string }>("db");
       const route = craft()
-        .from(timer({ intervalMs: 1000 }))
+        .from(src<{ account: string }>({ poll: 1000 }))
         .enrich(mcp<{ messages: string[] }>({ server: "gmail", tool: "list" }))
-        .split<string>((r) => r.messages)
+        .split<string>((ex) =>
+          ex.body.messages.map(
+            (body) =>
+              new DefaultExchange(getExchangeContext(ex)!, {
+                body,
+                headers: ex.headers,
+              }),
+          ),
+        )
         .to(db<{ id: string }>({ table: "emails" }));
       expectTypeOf(route).toEqualTypeOf<RouteBuilder<{ id: string }>>();
     });
@@ -195,14 +210,14 @@ describe("Pseudo adapter", () => {
       const route = craft()
         .id("noop-source")
         .from(src<{ id: string }>({ poll: 1000 }))
-        .to(simple());
+        .to(noop());
       const started = mock();
       const t = await testContext()
         .on("route:*:started" as const, started)
         .routes(route)
         .build();
       await t.ctx.start();
-      expect(started).toHaveBeenCalledOnce();
+      expect(started).toHaveBeenCalledTimes(1);
       await t.stop();
     });
 
@@ -274,16 +289,25 @@ describe("Pseudo adapter", () => {
   describe("integration with route builder", () => {
     /**
      * @case Route with enrich, split, tap builds one definition with three steps
-     * @preconditions craft().from(timer).enrich(mcp).split().tap(log())
+     * @preconditions craft().from(pseudo src).enrich(mcp).split().tap(log())
      * @expectedResult One route, id and steps length match
      */
     test("pseudo adapter in enrich+split route builds valid definition", () => {
+      const src = pseudo<{ poll: number }>("src");
       const mcp = pseudo<McpOpts>("mcp");
       const route = craft()
         .id("pseudo-integration")
-        .from(timer({ intervalMs: 1000, repeatCount: 1 }))
+        .from(src<{ account: string }>({ poll: 1000 }))
         .enrich(mcp<{ messages: string[] }>({ server: "gmail", tool: "list" }))
-        .split<string>((r) => r.messages)
+        .split<string>((ex) =>
+          ex.body.messages.map(
+            (body) =>
+              new DefaultExchange(getExchangeContext(ex)!, {
+                body,
+                headers: ex.headers,
+              }),
+          ),
+        )
         .tap(log())
         .build();
 

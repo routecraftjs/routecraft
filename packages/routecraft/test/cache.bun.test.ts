@@ -109,7 +109,7 @@ describe(".cache() step scope: dual-mode wrapper", () => {
       .routes(
         craft()
           .id("cache-hit")
-          .from(direct())
+          .from<string>(direct())
           .cache({ provider })
           .transform(compute)
           .to(sink),
@@ -140,7 +140,7 @@ describe(".cache() step scope: dual-mode wrapper", () => {
       .routes(
         craft()
           .id("cache-by-id")
-          .from(direct())
+          .from<{ id: number }>(direct())
           .cache({
             key: (e) => String((e.body as { id: number }).id),
             provider,
@@ -355,7 +355,7 @@ describe(".cache() step scope: dual-mode wrapper", () => {
       .routes(
         craft()
           .id("cache-events")
-          .from(direct())
+          .from<string>(direct())
           .cache({ provider })
           .transform((b: string) => `out:${b}`)
           .to(sink),
@@ -625,7 +625,7 @@ describe(".cache() step scope: dual-mode wrapper", () => {
       .routes(
         craft()
           .id("cache-types")
-          .from(direct())
+          .from<string>(direct())
           .transform((b: string) => b.length)
           .cache({ provider })
           // If .cache() dropped the type, `n: number` would not type-check.
@@ -767,7 +767,7 @@ describe(".cache() step scope: dual-mode wrapper", () => {
       .routes(
         craft()
           .id("cache-provider-read-fail")
-          .from(direct())
+          .from<string>(direct())
           .cache({ provider: failing })
           .transform((b: string) => {
             innerRuns++;
@@ -812,7 +812,7 @@ describe(".cache() step scope: dual-mode wrapper", () => {
       .routes(
         craft()
           .id("cache-provider-write-fail")
-          .from(direct())
+          .from<string>(direct())
           .cache({ provider: failing })
           .transform((b: string) => {
             innerRuns++;
@@ -853,7 +853,7 @@ describe(".cache() route scope: dual-mode wrapper", () => {
         craft()
           .id("route-cache-miss")
           .cache({ provider })
-          .from(direct())
+          .from<string>(direct())
           .transform(compute)
           .to(noop()),
       )
@@ -881,7 +881,7 @@ describe(".cache() route scope: dual-mode wrapper", () => {
         craft()
           .id("route-cache-hit")
           .cache({ provider })
-          .from(direct())
+          .from<string>(direct())
           .transform(compute)
           .to(sink),
       )
@@ -915,7 +915,7 @@ describe(".cache() route scope: dual-mode wrapper", () => {
         craft()
           .id("route-cache-sideeffect")
           .cache({ provider })
-          .from(direct())
+          .from<string>(direct())
           .transform((b: string) => {
             sideEffects++;
             return `out:${b}`;
@@ -953,9 +953,15 @@ describe(".cache() route scope: dual-mode wrapper", () => {
       .build();
 
     await t.startAndWaitReady();
-    const a = await t.client.send("route-cache-ttl", "x");
+    const a = await t.client.send<string, { counter: number }>(
+      "route-cache-ttl",
+      "x",
+    );
     await new Promise((r) => setTimeout(r, 30));
-    const b = await t.client.send("route-cache-ttl", "x");
+    const b = await t.client.send<string, { counter: number }>(
+      "route-cache-ttl",
+      "x",
+    );
 
     expect(counter).toBe(2);
     expect(a).toEqual({ counter: 1 });
@@ -979,7 +985,7 @@ describe(".cache() route scope: dual-mode wrapper", () => {
             provider,
             key: (e) => String((e.body as { id: number }).id),
           })
-          .from(direct())
+          .from<{ id: number }>(direct())
           .transform(compute)
           .to(noop()),
       )
@@ -1070,7 +1076,7 @@ describe(".cache() route scope: dual-mode wrapper", () => {
         craft()
           .id("route-cache-split-balanced-runtime")
           .cache({ provider, key: (e) => JSON.stringify(e.body) })
-          .from(direct())
+          .from<number[]>(direct())
           .split()
           .transform((n: number) => {
             transformRuns++;
@@ -1105,14 +1111,18 @@ describe(".cache() route scope: dual-mode wrapper", () => {
    */
   test("emits scope: 'route' lifecycle events", async () => {
     const provider = new MemoryCacheProvider();
-    const events: { name: string; scope?: string; stepLabel?: string }[] = [];
+    const events: {
+      name: string;
+      scope: string | undefined;
+      stepLabel: string | undefined;
+    }[] = [];
 
     t = await testContext()
       .routes(
         craft()
           .id("route-cache-events")
           .cache({ provider })
-          .from(direct())
+          .from<string>(direct())
           .transform((b: string) => `out:${b}`)
           .to(noop()),
       )
@@ -1154,14 +1164,14 @@ describe(".cache() route scope: dual-mode wrapper", () => {
    */
   test("cache hit emits exchange:restored", async () => {
     const provider = new MemoryCacheProvider();
-    const restored: { source?: string }[] = [];
+    const restored: { source: string | undefined }[] = [];
 
     t = await testContext()
       .routes(
         craft()
           .id("route-cache-restored")
           .cache({ provider })
-          .from(direct())
+          .from<string>(direct())
           .transform((b: string) => `out:${b}`)
           .to(noop()),
       )
@@ -1243,10 +1253,7 @@ describe(".cache() route scope: dual-mode wrapper", () => {
    * @expectedResult Admin's call caches; non-admin's call fails with RC5015 even though the cache has an entry for the body; cache provider was never read for the rejected call
    */
   test(".authorize() runs BEFORE the cache check (no unauthorized cache hits)", async () => {
-    function principalSource(
-      body: unknown,
-      principal?: Principal,
-    ): Source<unknown> {
+    function principalSource<T>(body: T, principal?: Principal): Source<T> {
       return {
         subscribe: async (_ctx, handler) => {
           const headers = principal

@@ -420,6 +420,9 @@ describe("agent principal: ## Caller injection at dispatch", () => {
       )
       .build();
     await t.test();
-    expect(capturedSystem).toBe("You are an analyst.");
+    // Explicit generic: control flow narrowed the module-level binding to
+    // `undefined` after the reset above, and TS does not track the mocked
+    // provider's assignment inside the awaited route run.
+    expect<string | undefined>(capturedSystem).toBe("You are an analyst.");
   });
 });

@@ -380,7 +380,9 @@ describe("tool builders - directTool dispatch", () => {
         },
       },
     );
-    expect(downstreamAuthentic).toBe(false);
+    // Explicit generic: control flow narrowed the binding to `undefined`
+    // after the reset above, and TS does not track the handler's assignment.
+    expect<boolean | undefined>(downstreamAuthentic).toBe(false);
   });
 
   /**

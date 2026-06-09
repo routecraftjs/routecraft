@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { group, cosine } from "../src/index.ts";
+import type { Exchange } from "../src/index.ts";
+
+// group()'s transformer derives everything from the body; the exchange
+// argument of CallableTransformer is unused by the adapter, so a
+// placeholder satisfies the two-argument signature for direct unit calls.
+const noExchange = undefined as unknown as Exchange<unknown>;
+
+type Item = { id: string; embedding: number[] };
 
 describe("group()", () => {
   /**
@@ -8,15 +16,15 @@ describe("group()", () => {
    * @expectedResult Two groups: two similar items together, one orthogonal item alone
    */
   test("groups items by comparator (cosine)", () => {
-    const items = [
+    const items: Item[] = [
       { id: "a", embedding: [1, 0, 0, 0] },
       { id: "b", embedding: [1, 0, 0, 0] },
       { id: "c", embedding: [0, 1, 0, 0] },
     ];
-    const adapter = group({
+    const adapter = group<Item>({
       comparator: cosine({ field: "embedding", threshold: 0.9 }),
     });
-    const result = adapter.transform(items) as (typeof items)[][];
+    const result = adapter.transform(items, noExchange) as Item[][];
     expect(result).toHaveLength(2);
     expect(result[0]).toHaveLength(2);
     expect(result[1]).toHaveLength(1);
@@ -30,15 +38,15 @@ describe("group()", () => {
    * @expectedResult Single group with count 2 and first id "a"
    */
   test("map option shapes each cluster", () => {
-    const items = [
+    const items: Item[] = [
       { id: "a", embedding: [1, 0] },
       { id: "b", embedding: [1, 0] },
     ];
-    const adapter = group({
+    const adapter = group<Item, { count: number; first: string }>({
       comparator: cosine({ field: "embedding", threshold: 0.9 }),
       map: (cluster) => ({ count: cluster.length, first: cluster[0].id }),
     });
-    const result = adapter.transform(items) as {
+    const result = adapter.transform(items, noExchange) as {
       count: number;
       first: string;
     }[];
@@ -64,7 +72,7 @@ describe("group()", () => {
       from: (b) => (b as { items: { id: number; v: number[] }[] }).items,
       to: (b, result) => ({ ...(b as object), groups: result }),
     });
-    const result = adapter.transform(body) as {
+    const result = adapter.transform(body, noExchange) as {
       items: unknown[];
       groups: unknown[];
     };
@@ -81,9 +89,10 @@ describe("group()", () => {
     const adapter = group({
       comparator: cosine({ field: "embedding", threshold: 0.82 }),
     });
-    const result = adapter.transform([
-      { id: "only", embedding: [1, 0, 0] },
-    ]) as { id: string; embedding: number[] }[][];
+    const result = adapter.transform(
+      [{ id: "only", embedding: [1, 0, 0] }],
+      noExchange,
+    ) as { id: string; embedding: number[] }[][];
     expect(result).toHaveLength(1);
     expect(result[0]).toHaveLength(1);
     expect(result[0][0].id).toBe("only");

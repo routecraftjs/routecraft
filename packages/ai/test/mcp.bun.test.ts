@@ -7,6 +7,7 @@ import {
   type McpLocalToolEntry,
 } from "../src/index.ts";
 import { MCP_PLUGIN_REGISTERED } from "../src/mcp/types.ts";
+import { McpDestinationAdapter } from "../src/mcp/adapters/mcp/destination.ts";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
   craft,
@@ -416,7 +417,10 @@ describe("mcp() DSL function", () => {
       tool: "my-remote-tool",
     });
     expect(adapter).toBeDefined();
-    expect(adapter.adapterId).toBe("routecraft.adapter.mcp");
+    expect(adapter).toBeInstanceOf(McpDestinationAdapter);
+    expect((adapter as McpDestinationAdapter).adapterId).toBe(
+      "routecraft.adapter.mcp",
+    );
     expect(typeof adapter.send).toBe("function");
   });
 
@@ -426,9 +430,10 @@ describe("mcp() DSL function", () => {
    * @expectedResult Throws with message about using direct() for in-process
    */
   test("mcp(endpoint) with no options throws", () => {
-    expect(() => mcp("my-tool")).toThrow(
-      /is not a valid call|direct\(.*endpoint.*\) for in-process/,
-    );
+    expect(() =>
+      // @ts-expect-error -- a bare string without ":" is rejected at the type level too; this asserts the runtime guard for untyped (plain JS) callers
+      mcp("my-tool"),
+    ).toThrow(/is not a valid call|direct\(.*endpoint.*\) for in-process/);
   });
 
   /**
@@ -511,7 +516,10 @@ describe("dispatchMcpCall: RC5003 error wrapping", () => {
                   throw original;
                 },
               });
-              ctx.setStore(MCP_STDIO_MANAGERS, managers);
+              ctx.setStore(
+                MCP_STDIO_MANAGERS as keyof import("@routecraft/routecraft").StoreRegistry,
+                managers,
+              );
             },
           },
         ],
@@ -564,7 +572,10 @@ describe("dispatchMcpCall: RC5003 error wrapping", () => {
                   throw original;
                 },
               });
-              ctx.setStore(MCP_STDIO_MANAGERS, managers);
+              ctx.setStore(
+                MCP_STDIO_MANAGERS as keyof import("@routecraft/routecraft").StoreRegistry,
+                managers,
+              );
             },
           },
         ],
@@ -602,7 +613,10 @@ describe("dispatchMcpCall: RC5003 error wrapping", () => {
                 { url: string; auth?: undefined }
               >();
               servers.set("bad", { url: "not a url" });
-              ctx.setStore(ADAPTER_MCP_CLIENT_SERVERS, servers);
+              ctx.setStore(
+                ADAPTER_MCP_CLIENT_SERVERS as keyof import("@routecraft/routecraft").StoreRegistry,
+                servers,
+              );
             },
           },
         ],

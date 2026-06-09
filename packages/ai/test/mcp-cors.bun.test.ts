@@ -305,7 +305,7 @@ describe("MCP CORS helper", () => {
      */
     function fakeRes(initial: Record<string, string | string[]> = {}) {
       const single: Record<string, string> = {};
-      const lists: Record<string, string[]> = { ...initial };
+      const lists: Record<string, string[]> = {};
       for (const [k, v] of Object.entries(initial)) {
         if (typeof v === "string") {
           lists[k.toLowerCase()] = [v];
