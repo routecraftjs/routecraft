@@ -1,0 +1,124 @@
+import type { Source } from "../../operations/from.ts";
+import type { Destination } from "../../operations/to.ts";
+import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
+import { CardDAVAdapter } from "./adapter.ts";
+import type { VCardBody } from "./vcard.ts";
+import type {
+  CardDAVDeleteOptions,
+  CardDAVDeleteResult,
+  CardDAVOptions,
+  CardDAVReadOptions,
+  CardDAVWriteOptions,
+  CardDAVWriteResult,
+} from "./types.ts";
+
+/**
+ * Create a CardDAV adapter for reading and writing contacts. Defaults to Apple
+ * iCloud Contacts; works with any CardDAV server. Credentials come from context
+ * `carddav` config (named accounts). The `action` flag selects the role, the
+ * same way the mail adapter does.
+ *
+ * The body is a plain {@link VCardBody} (a `version` plus a property list), not
+ * a typed contact. Wrap it in a {@link VCard} (`VCard.wrap(body)`,
+ * `VCard.create()`, `VCard.parse(string)`) for ergonomic reads and edits, then
+ * read `.data` to put the plain body back. Identity (`url`/`uid`/`etag`) lives
+ * on the exchange headers. Reading is lossless and a write replaces the card
+ * with the document you hand back.
+ *
+ * **Read (`.from()` / `.enrich()`):** call with no `action`. `.from(carddav())`
+ * emits one {@link VCardBody} per address-book entry; `.enrich(carddav())`
+ * fetches all cards (merged onto the exchange under numeric keys by default;
+ * pass `replace()` as the aggregator to get a `VCardBody[]` body).
+ *
+ * **Write (`.to()`):** `action: 'save'` upserts (writes to the card's `url`,
+ * else creates), `'create'` always inserts, `'update'` writes to the card's
+ * `url` (else `RC5014`).
+ *
+ * **Delete (`.to()`):** `action: 'delete'` removes the contact resolved from the
+ * body (`url`/`uid`), the read headers, or a custom `target` extractor.
+ *
+ * @example
+ * ```typescript
+ * // Read all contacts (source).
+ * craft().from(carddav()).to(processCard());
+ *
+ * // Read, edit one property, write back (everything else is preserved).
+ * craft()
+ *   .from(carddav())
+ *   .transform((card) => card.set("NOTE", "synced from CRM"))
+ *   .to(carddav({ action: "update" }));
+ *
+ * // Delete stale contacts.
+ * craft().from(carddav()).filter(isStale).to(carddav({ action: "delete" }));
+ * ```
+ *
+ * @experimental
+ */
+export function carddav(
+  options?: CardDAVReadOptions,
+): Source<VCardBody> & Destination<unknown, VCardBody[]>;
+export function carddav(
+  options: CardDAVWriteOptions,
+): Destination<VCardBody, CardDAVWriteResult>;
+export function carddav(
+  options: CardDAVDeleteOptions,
+): Destination<unknown, CardDAVDeleteResult>;
+export function carddav(
+  options?: CardDAVOptions,
+):
+  | (Source<VCardBody> & Destination<unknown, VCardBody[]>)
+  | Destination<VCardBody, CardDAVWriteResult>
+  | Destination<unknown, CardDAVDeleteResult> {
+  const adapter = tagAdapter(
+    new CardDAVAdapter(options),
+    carddav,
+    factoryArgs(options),
+  );
+  const action = options?.action;
+  if (action === "delete") {
+    return adapter as unknown as Destination<unknown, CardDAVDeleteResult>;
+  }
+  if (action) {
+    return adapter as unknown as Destination<VCardBody, CardDAVWriteResult>;
+  }
+  return adapter as unknown as Source<VCardBody> &
+    Destination<unknown, VCardBody[]>;
+}
+
+export { CardDAVAdapter } from "./adapter.ts";
+export { CardDAVClientManager } from "./client-manager.ts";
+export type { ResolvedCardDAVConnection } from "./client-manager.ts";
+export {
+  CARDDAV_CLIENT_MANAGER,
+  DEFAULT_CARDDAV_SERVER_URL,
+  HEADER_CARDDAV_UID,
+  HEADER_CARDDAV_URL,
+  HEADER_CARDDAV_ETAG,
+  HEADER_CARDDAV_ACCOUNT,
+} from "./shared.ts";
+export type {
+  CardDAVDriverClient,
+  DAVAddressBookLike,
+  DAVVCardLike,
+} from "./shared.ts";
+export { VCard, VCardProperty, parseVCard } from "./vcard.ts";
+export type {
+  VCardBody,
+  VCardPropertyData,
+  VCardPropertyOptions,
+} from "./vcard.ts";
+export type { VCardParam } from "./vcard-raw.ts";
+export { VCARD, VPARAM } from "./constants.ts";
+export type { KnownProperty, KnownParam } from "./constants.ts";
+export type {
+  CardDAVOptions,
+  CardDAVReadOptions,
+  CardDAVWriteOptions,
+  CardDAVDeleteOptions,
+  CardDAVContextConfig,
+  CardDAVAccountConfig,
+  CardDAVAction,
+  CardDAVTargetExtractor,
+  CardDAVWriteResult,
+  CardDAVDeleteResult,
+} from "./types.ts";
