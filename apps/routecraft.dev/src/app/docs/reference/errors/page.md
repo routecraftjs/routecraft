@@ -387,6 +387,15 @@ Supply an explicit `key` function that returns a stable string identifier:
 
 This error is not retryable: the same body fails key derivation the same way every time.
 
+## RC5030
+Resource changed (precondition failed)
+
+**Why it happens**  
+A conditional write failed because the resource changed on the server since it was read (HTTP 412 / ETag mismatch, a mid-air collision). For example, two writers read the same CardDAV contact, the first commits, and the second's `update`/`save` is rejected because its `If-Match` ETag is now stale. This is **not retryable**: a blind retry sends the same stale precondition and fails again.
+
+**Suggestion**  
+Re-read the resource to pick up the current state and ETag, re-apply your change, and write again.
+
 ## RC9901
 Unknown error
 

@@ -121,6 +121,15 @@ const adapters: Adapter[] = [
     description: 'Receive email via IMAP or send via SMTP.',
   },
 
+  // Contacts
+  {
+    name: 'carddav',
+    category: 'Contacts',
+    roles: ['Source', 'Destination'],
+    description:
+      'Read and write contacts over CardDAV. Defaults to Apple iCloud Contacts; works with any CardDAV server.',
+  },
+
   // Browser
   {
     name: 'agentBrowser',
@@ -175,6 +184,7 @@ const categories = [
   'Test',
   'File',
   'Messaging',
+  'Contacts',
   'Browser',
   'AI',
   'Clustering',

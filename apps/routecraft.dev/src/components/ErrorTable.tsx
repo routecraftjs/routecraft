@@ -151,6 +151,42 @@ const errors: ErrorRow[] = [
     retryable: false,
   },
   {
+    code: 'RC5025',
+    category: 'Adapter',
+    message: 'Agent block resolution failed',
+    retryable: false,
+  },
+  {
+    code: 'RC5026',
+    category: 'Adapter',
+    message: 'Agent block name collision',
+    retryable: false,
+  },
+  {
+    code: 'RC5027',
+    category: 'Adapter',
+    message: 'Agent block misconfigured',
+    retryable: false,
+  },
+  {
+    code: 'RC5028',
+    category: 'Adapter',
+    message: 'Cache provider failed',
+    retryable: true,
+  },
+  {
+    code: 'RC5029',
+    category: 'Adapter',
+    message: 'Cache key derivation failed',
+    retryable: false,
+  },
+  {
+    code: 'RC5030',
+    category: 'Adapter',
+    message: 'Resource changed (precondition failed)',
+    retryable: false,
+  },
+  {
     code: 'RC9901',
     category: 'Runtime',
     message: 'Unknown error',
