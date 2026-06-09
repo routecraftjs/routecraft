@@ -2,25 +2,29 @@
  * CardDAV adapter: reads vCard documents as a source, fetches them for
  * `.enrich()`, and creates / updates / deletes them as a destination.
  *
+ * The body is a plain {@link VCardBody} (a `version` plus a property list). Wrap
+ * it in a {@link VCard} for ergonomic reads/edits. DAV identity (`url`, `uid`,
+ * `etag`) lives on the exchange headers (`routecraft.carddav.*`), not the body,
+ * the same way the mail adapter carries its envelope metadata.
+ *
  * The role is selected the same way the mail adapter selects its mode, via an
  * `action` flag on the options:
  *
- * - no action (read): `.from(carddav())` emits one {@link VCard} per
- *   address-book entry; `.enrich(carddav())` fetches all cards (the default
- *   aggregator merges them onto the exchange under numeric keys; use
- *   `.enrich(carddav(), replace())` to get a `VCard[]` body).
+ * - no action (read): `.from(carddav())` emits one `VCardBody` per address-book
+ *   entry; `.enrich(carddav())` fetches all cards (merged onto the exchange under
+ *   numeric keys by default; pass `replace()` for a `VCardBody[]` body).
  * - `action: 'save' | 'create' | 'update'`: `.to(carddav(...))` serializes the
- *   exchange body (a `VCard`) and writes it. A write replaces the card; it does
- *   not merge. Reading is lossless, so a read-modify-write keeps properties you
- *   did not touch; removing a property removes it.
- * - `action: 'delete'`: `.to(carddav(...))` deletes the contact resolved from
- *   the body, the read headers, or a custom `target` extractor.
+ *   exchange body and writes it. A write replaces the card; it does not merge.
+ *   Reading is lossless, so a read-modify-write keeps properties you did not
+ *   touch; removing a property removes it.
+ * - `action: 'delete'`: deletes the contact resolved from the headers, the body,
+ *   or a custom `target` extractor.
  *
- * Update and delete target the card's `url` and send its read-time `etag` as an
- * `If-Match` precondition, so a concurrent change on the server surfaces as a
- * conflict (RC5030) instead of being silently overwritten. They do not re-fetch
- * the address book; only an upsert without a known `url` (or a delete by `uid`
- * alone) pays a lookup.
+ * Update and delete target the `routecraft.carddav.url` header and send the
+ * read-time `routecraft.carddav.etag` as an `If-Match` precondition, so a
+ * concurrent change surfaces as a conflict (RC5030) instead of being silently
+ * overwritten. They do not re-fetch the address book; only an upsert without a
+ * known url (or a delete by uid alone) pays a lookup.
  *
  * @experimental
  */
@@ -34,7 +38,7 @@ import type { Source } from "../../operations/from.ts";
 import type { Destination } from "../../operations/to.ts";
 import type { OnParseError } from "../shared/parse.ts";
 import type { CardDAVClientManager } from "./client-manager.ts";
-import { VCard } from "./vcard.ts";
+import { VCard, type VCardBody } from "./vcard.ts";
 import {
   assertResponseOk,
   requireClientManager,
@@ -57,7 +61,7 @@ import type {
 } from "./types.ts";
 
 /** Result body produced by `send`, depending on the configured action. */
-type CardDAVSendResult = VCard[] | CardDAVWriteResult | CardDAVDeleteResult;
+type CardDAVSendResult = VCardBody[] | CardDAVWriteResult | CardDAVDeleteResult;
 
 /** Identifies a contact resource for update/delete. */
 interface ContactTarget {
@@ -106,6 +110,28 @@ function uidFromVCardData(data: unknown): string | undefined {
   }
 }
 
+/** Coerce an exchange body to a plain {@link VCardBody} (or undefined). */
+function coerceBody(body: unknown): VCardBody | undefined {
+  if (body instanceof VCard) return body.data;
+  if (
+    body !== null &&
+    typeof body === "object" &&
+    Array.isArray((body as VCardBody).properties)
+  ) {
+    return body as VCardBody;
+  }
+  return undefined;
+}
+
+/** Serialize a body, ensuring it carries `uid` (without mutating the input). */
+function serializeWithUid(body: VCardBody, uid: string): string {
+  const card = VCard.wrap(body);
+  if (card.uid) return card.toString();
+  const copy = card.clone();
+  copy.uid = uid;
+  return copy.toString();
+}
+
 function joinUrl(base: string, filename: string): string {
   return base.endsWith("/") ? `${base}${filename}` : `${base}/${filename}`;
 }
@@ -116,7 +142,7 @@ function joinUrl(base: string, filename: string): string {
  * @experimental
  */
 export class CardDAVAdapter
-  implements Source<VCard>, Destination<unknown, CardDAVSendResult>
+  implements Source<VCardBody>, Destination<unknown, CardDAVSendResult>
 {
   readonly adapterId = "routecraft.adapter.carddav";
   private readonly options: NormalizedOptions;
@@ -132,7 +158,7 @@ export class CardDAVAdapter
   async subscribe(
     context: CraftContext,
     handler: (
-      message: VCard,
+      message: VCardBody,
       headers?: ExchangeHeaders,
       parse?: (raw: unknown) => unknown | Promise<unknown>,
       parseFailureMode?: OnParseError,
@@ -167,7 +193,7 @@ export class CardDAVAdapter
         // via the synthetic parse step, so the route's `.error()` handler can
         // recover it instead of tearing down the read.
         await handler(
-          raw as unknown as VCard,
+          raw as unknown as VCardBody,
           this.buildHeaders(dav, account, uidFromUrl(dav.url)),
           () => {
             throw error;
@@ -178,10 +204,8 @@ export class CardDAVAdapter
         continue;
       }
 
-      card.url = dav.url;
-      if (dav.etag) card.etag = dav.etag;
       await handler(
-        card,
+        card.data,
         this.buildHeaders(dav, account, card.uid ?? uidFromUrl(dav.url)),
       );
       emitted++;
@@ -220,7 +244,9 @@ export class CardDAVAdapter
   // -------------------------------------------------------------------------
 
   /** Fetch all contacts as an array (best-effort: malformed cards are skipped). */
-  private async fetchAll(context: CraftContext | undefined): Promise<VCard[]> {
+  private async fetchAll(
+    context: CraftContext | undefined,
+  ): Promise<VCardBody[]> {
     const { client, book } = await this.openRead(context);
     let cards: DAVVCardLike[];
     try {
@@ -229,16 +255,13 @@ export class CardDAVAdapter
       throwCardDAVError(error, "fetch contacts");
     }
     const limit = this.options.limit;
-    const out: VCard[] = [];
+    const out: VCardBody[] = [];
     for (const dav of cards) {
       if (typeof limit === "number" && out.length >= limit) break;
       const raw = typeof dav.data === "string" ? dav.data : "";
       if (!raw) continue;
       try {
-        const card = VCard.parse(raw);
-        card.url = dav.url;
-        if (dav.etag) card.etag = dav.etag;
-        out.push(card);
+        out.push(VCard.parse(raw).data);
       } catch {
         // Skip malformed cards during a bulk fetch; one bad card must not fail
         // the whole enrichment.
@@ -255,13 +278,12 @@ export class CardDAVAdapter
     exchange: Exchange<unknown>,
     action: "save" | "create" | "update",
   ): Promise<CardDAVWriteResult> {
-    const body = exchange.body;
-    if (!(body instanceof VCard)) {
+    const body = coerceBody(exchange.body);
+    if (!body) {
       throw rcError("RC5001", undefined, {
-        message: `CardDAV ${action} requires the exchange body to be a VCard; received ${body === null ? "null" : typeof body}. Build one with VCard.parse() or new VCard().`,
+        message: `CardDAV ${action} requires the exchange body to be a VCard document (a VCardBody or a VCard). Build one with VCard.parse(), VCard.create(), or VCard.wrap().`,
       });
     }
-    const card = body;
     const target = this.resolveTarget(exchange);
     const { client, manager, account } = await this.connect(
       getExchangeContext(exchange),
@@ -272,58 +294,58 @@ export class CardDAVAdapter
       if (!url) {
         throw rcError("RC5014", undefined, {
           message:
-            "CardDAV update needs a contact url. Read the contact first (so it carries url/etag), or use action: 'save'.",
+            "CardDAV update needs a contact url (the routecraft.carddav.url header). Read the contact first, or use action: 'save'.",
         });
       }
-      return this.put(client, url, card, target);
+      return this.put(client, url, body, target);
     }
 
     if (action === "create") {
       const book = await this.resolveBook(client, manager, account);
-      return this.create(client, book, card);
+      return this.create(client, book, body);
     }
 
     // save (upsert): update in place when we know the url, else create and only
     // fall back to a lookup if the resource already exists.
     if (target.url) {
-      return this.put(client, target.url, card, target);
+      return this.put(client, target.url, body, target);
     }
     const book = await this.resolveBook(client, manager, account);
-    const uid = card.uid ?? target.uid ?? randomUUID();
+    const uid = VCard.wrap(body).uid ?? target.uid ?? randomUUID();
     const filename = vcfFilename(uid);
     let response: Response;
     try {
       response = await client.createVCard({
         addressBook: book,
-        vCardString: this.serializeWithUid(card, uid),
+        vCardString: serializeWithUid(body, uid),
         filename,
       });
     } catch (error) {
       throwCardDAVError(error, "save contact");
     }
     if (response.status === 412) {
-      // A card already exists at this UID; locate it and overwrite.
       const existing = await this.findByUid(client, book, uid);
       if (existing) {
         const conflictTarget: ContactTarget = { uid };
         if (existing.etag) conflictTarget.etag = existing.etag;
-        return this.put(client, existing.url, card, conflictTarget);
+        return this.put(client, existing.url, body, conflictTarget);
       }
     }
     assertResponseOk(response, "save contact");
     return this.createResult(uid, joinUrl(book.url, filename), response);
   }
 
-  /** PUT a full serialization of `card` to `url`, with `If-Match` when known. */
+  /** PUT a full serialization of `body` to `url`, with `If-Match` when known. */
   private async put(
     client: CardDAVDriverClient,
     url: string,
-    card: VCard,
+    body: VCardBody,
     target: ContactTarget,
   ): Promise<CardDAVWriteResult> {
-    const uid = card.uid ?? target.uid ?? uidFromUrl(url) ?? randomUUID();
-    const vCard: DAVVCardLike = { url, data: card.toString() };
-    const etag = card.etag ?? target.etag;
+    const uid =
+      VCard.wrap(body).uid ?? target.uid ?? uidFromUrl(url) ?? randomUUID();
+    const vCard: DAVVCardLike = { url, data: serializeWithUid(body, uid) };
+    const etag = target.etag;
     if (etag) vCard.etag = etag;
     let response: Response;
     try {
@@ -342,15 +364,15 @@ export class CardDAVAdapter
   private async create(
     client: CardDAVDriverClient,
     book: DAVAddressBookLike,
-    card: VCard,
+    body: VCardBody,
   ): Promise<CardDAVWriteResult> {
-    const uid = card.uid ?? randomUUID();
+    const uid = VCard.wrap(body).uid ?? randomUUID();
     const filename = vcfFilename(uid);
     let response: Response;
     try {
       response = await client.createVCard({
         addressBook: book,
-        vCardString: this.serializeWithUid(card, uid),
+        vCardString: serializeWithUid(body, uid),
         filename,
       });
     } catch (error) {
@@ -358,14 +380,6 @@ export class CardDAVAdapter
     }
     assertResponseOk(response, "create contact");
     return this.createResult(uid, joinUrl(book.url, filename), response);
-  }
-
-  /** Serialize `card`, ensuring it carries `uid` (without mutating the body). */
-  private serializeWithUid(card: VCard, uid: string): string {
-    if (card.uid) return card.toString();
-    const copy = card.clone();
-    copy.uid = uid;
-    return copy.toString();
   }
 
   private createResult(
@@ -398,7 +412,7 @@ export class CardDAVAdapter
       if (!uid) {
         throw rcError("RC5014", undefined, {
           message:
-            "CardDAV delete found no target. Provide a VCard with url/uid, read headers, or a target extractor.",
+            "CardDAV delete found no target. Provide the routecraft.carddav.url/uid headers, a VCard body with a UID, or a target extractor.",
         });
       }
       const book = await this.resolveBook(client, manager, account);
@@ -487,29 +501,24 @@ export class CardDAVAdapter
       );
   }
 
-  /** Resolve the target contact from a custom extractor, the body, or headers. */
+  /** Resolve the target contact from a custom extractor, the headers, or the body. */
   private resolveTarget(exchange: Exchange<unknown>): ContactTarget {
-    const card = exchange.body instanceof VCard ? exchange.body : undefined;
+    const body = coerceBody(exchange.body);
+    const cardUid = body ? VCard.wrap(body).uid : undefined;
     const headerEtag = exchange.headers[HEADER_CARDDAV_ETAG];
-    // The ETag (for If-Match) always comes from the read-time card/headers, even
-    // when a custom `target` extractor supplies the url/uid, so optimistic
-    // concurrency is not silently disabled on the extractor path.
-    const etag =
-      card?.etag ?? (typeof headerEtag === "string" ? headerEtag : undefined);
+    const etag = typeof headerEtag === "string" ? headerEtag : undefined;
 
     let url: string | undefined;
     let uid: string | undefined;
     if (this.options.target) {
       const extracted = this.options.target(exchange);
       url = extracted.url;
-      uid = extracted.uid;
+      uid = extracted.uid ?? cardUid;
     } else {
       const headerUrl = exchange.headers[HEADER_CARDDAV_URL];
       const headerUid = exchange.headers[HEADER_CARDDAV_UID];
-      url =
-        card?.url ?? (typeof headerUrl === "string" ? headerUrl : undefined);
-      uid =
-        card?.uid ?? (typeof headerUid === "string" ? headerUid : undefined);
+      url = typeof headerUrl === "string" ? headerUrl : undefined;
+      uid = cardUid ?? (typeof headerUid === "string" ? headerUid : undefined);
     }
 
     const target: ContactTarget = {};

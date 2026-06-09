@@ -17,46 +17,9 @@ import {
 } from "../testing-hooks.ts";
 
 /**
- * Clone an exchange body for an isolated tap snapshot.
- *
- * A class-instance body (a non-plain object) that exposes its own `clone()`
- * method is cloned through it, so the tapped operation keeps the prototype and
- * methods that `structuredClone` would otherwise strip; the body is trusted to
- * return an independent copy. Plain object/array payloads are excluded from the
- * `clone()` path so an application field that merely happens to be a function
- * named `clone` is never invoked. Anything else (and any body whose `clone()`
- * throws) falls back to `structuredClone`, and values `structuredClone` cannot
- * handle are shared by reference rather than crashing the snapshot.
- */
-function cloneBody<T>(body: T): T {
-  if (body !== null && typeof body === "object") {
-    const proto = Object.getPrototypeOf(body);
-    const cloneFn = (body as { clone?: unknown }).clone;
-    if (
-      proto !== null &&
-      proto !== Object.prototype &&
-      typeof cloneFn === "function"
-    ) {
-      try {
-        return (cloneFn as () => T).call(body);
-      } catch {
-        // A broken clone() must not escape into the main pipeline (the snapshot
-        // is built outside the tap's own try/catch); fall back to a deep clone.
-      }
-    }
-  }
-  try {
-    return structuredClone(body);
-  } catch {
-    return body;
-  }
-}
-
-/**
- * Creates a snapshot of an exchange for async tap execution. The body is cloned
- * (via {@link cloneBody}) so tap-side mutations do not race the main pipeline; a
- * body with its own `clone()` method is cloned through it. A body that cannot be
- * cloned at all is shared by reference, so taps must observe, not mutate.
+ * Creates a snapshot of an exchange for async tap execution. Body is
+ * deep-cloned so tap-side mutations (which the framework cannot prevent
+ * for arbitrary user payloads) do not race with the main pipeline.
  * Headers are framework-immutable (shallow-frozen) and safe to share
  * between snapshot and main pipeline by reference; structured header
  * values like `Principal` are shallow-frozen by the constructor so direct
@@ -75,7 +38,7 @@ function snapshotExchange<T>(
   context: CraftContext,
 ): Exchange<T> {
   return new DefaultExchange<T>(context, {
-    body: cloneBody(exchange.body),
+    body: structuredClone(exchange.body),
     headers: {
       ...exchange.headers,
       [HeadersKeys.ID]: randomUUID(),

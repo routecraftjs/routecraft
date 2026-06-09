@@ -2,7 +2,7 @@ import type { Source } from "../../operations/from.ts";
 import type { Destination } from "../../operations/to.ts";
 import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
 import { CardDAVAdapter } from "./adapter.ts";
-import { VCard } from "./vcard.ts";
+import type { VCardBody } from "./vcard.ts";
 import type {
   CardDAVDeleteOptions,
   CardDAVDeleteResult,
@@ -18,16 +18,17 @@ import type {
  * `carddav` config (named accounts). The `action` flag selects the role, the
  * same way the mail adapter does.
  *
- * The body is a {@link VCard} document (an ordered list of properties), not a
- * typed contact: you read and write properties directly and bring your own
- * typed shape in a `.transform()` if you want one, exactly like working with
- * parsed JSON from an HTTP endpoint. Reading is lossless and a write replaces
- * the card with the document you hand back.
+ * The body is a plain {@link VCardBody} (a `version` plus a property list), not
+ * a typed contact. Wrap it in a {@link VCard} (`VCard.wrap(body)`,
+ * `VCard.create()`, `VCard.parse(string)`) for ergonomic reads and edits, then
+ * read `.data` to put the plain body back. Identity (`url`/`uid`/`etag`) lives
+ * on the exchange headers. Reading is lossless and a write replaces the card
+ * with the document you hand back.
  *
  * **Read (`.from()` / `.enrich()`):** call with no `action`. `.from(carddav())`
- * emits one {@link VCard} per address-book entry; `.enrich(carddav())` fetches
- * all cards (merged onto the exchange under numeric keys by default; pass
- * `replace()` as the aggregator to get a `VCard[]` body).
+ * emits one {@link VCardBody} per address-book entry; `.enrich(carddav())`
+ * fetches all cards (merged onto the exchange under numeric keys by default;
+ * pass `replace()` as the aggregator to get a `VCardBody[]` body).
  *
  * **Write (`.to()`):** `action: 'save'` upserts (writes to the card's `url`,
  * else creates), `'create'` always inserts, `'update'` writes to the card's
@@ -55,18 +56,18 @@ import type {
  */
 export function carddav(
   options?: CardDAVReadOptions,
-): Source<VCard> & Destination<unknown, VCard[]>;
+): Source<VCardBody> & Destination<unknown, VCardBody[]>;
 export function carddav(
   options: CardDAVWriteOptions,
-): Destination<VCard, CardDAVWriteResult>;
+): Destination<VCardBody, CardDAVWriteResult>;
 export function carddav(
   options: CardDAVDeleteOptions,
 ): Destination<unknown, CardDAVDeleteResult>;
 export function carddav(
   options?: CardDAVOptions,
 ):
-  | (Source<VCard> & Destination<unknown, VCard[]>)
-  | Destination<VCard, CardDAVWriteResult>
+  | (Source<VCardBody> & Destination<unknown, VCardBody[]>)
+  | Destination<VCardBody, CardDAVWriteResult>
   | Destination<unknown, CardDAVDeleteResult> {
   const adapter = tagAdapter(
     new CardDAVAdapter(options),
@@ -78,9 +79,10 @@ export function carddav(
     return adapter as unknown as Destination<unknown, CardDAVDeleteResult>;
   }
   if (action) {
-    return adapter as unknown as Destination<VCard, CardDAVWriteResult>;
+    return adapter as unknown as Destination<VCardBody, CardDAVWriteResult>;
   }
-  return adapter as unknown as Source<VCard> & Destination<unknown, VCard[]>;
+  return adapter as unknown as Source<VCardBody> &
+    Destination<unknown, VCardBody[]>;
 }
 
 export { CardDAVAdapter } from "./adapter.ts";
@@ -100,7 +102,11 @@ export type {
   DAVVCardLike,
 } from "./shared.ts";
 export { VCard, VCardProperty, parseVCard } from "./vcard.ts";
-export type { VCardPropertyOptions } from "./vcard.ts";
+export type {
+  VCardBody,
+  VCardPropertyData,
+  VCardPropertyOptions,
+} from "./vcard.ts";
 export type { VCardParam } from "./vcard-raw.ts";
 export { VCARD, VPARAM } from "./constants.ts";
 export type { KnownProperty, KnownParam } from "./constants.ts";

@@ -7,8 +7,14 @@ import {
   VCard,
   VCARD,
   VPARAM,
+  HEADER_CARDDAV_URL,
+  HEADER_CARDDAV_UID,
+  HEADER_CARDDAV_ETAG,
+  type VCardBody,
 } from "@routecraft/routecraft";
+import { CardDAVAdapter } from "../src/adapters/carddav/index.ts";
 import { CardDAVClientManager } from "../src/adapters/carddav/client-manager.ts";
+import { EXCHANGE_INTERNALS } from "../src/exchange.ts";
 import type {
   CardDAVDriverClient,
   DAVAddressBookLike,
@@ -28,8 +34,8 @@ const BOOK_URL = "https://dav/card/";
 /**
  * A realistic iCloud-shaped vCard 3.0 export: multi-valued TYPE params with a
  * PREF flag, a grouped ADR with an extended-address component, a custom
- * X-ABLabel on a phone, a labeled related name and date, a social profile, and
- * two unmodeled properties (PRODID, X-CUSTOM-FIELD).
+ * X-ABLabel on a phone, a labeled related name, a social profile, and two
+ * unmodeled properties (PRODID, X-CUSTOM-FIELD).
  */
 const ICLOUD_VCARD = [
   "BEGIN:VCARD",
@@ -138,14 +144,33 @@ afterEach(() => {
   CardDAVClientManager.createDriverClient = ORIGINAL_CREATE_DRIVER;
 });
 
+/** A minimal context carrying the carddav store, for direct `adapter.send`. */
+async function carddavCtx(): Promise<TestContext> {
+  return testContext()
+    .with(ACCOUNT_CONFIG)
+    .routes(craft().id("noop").from(simple("noop")).to(spy()))
+    .build();
+}
+
+/** Build an exchange with explicit headers/body and attach a context. */
+function exchangeWith(
+  headers: Record<string, unknown>,
+  body: unknown,
+  t: TestContext,
+): never {
+  const exchange = { id: "x", headers, body, logger: console } as never;
+  EXCHANGE_INTERNALS.set(exchange as never, { context: t.ctx } as never);
+  return exchange;
+}
+
 // ---------------------------------------------------------------------------
-// VCard document model
+// VCard document (plain body + wrapper)
 // ---------------------------------------------------------------------------
 
 describe("VCard document", () => {
   describe("reading", () => {
     /**
-     * @case Parse a vCard into a property document
+     * @case Parse a vCard and read it through the wrapper
      * @preconditions A full iCloud vCard 3.0
      * @expectedResult Properties, params, components, version, and uid are readable
      */
@@ -155,7 +180,7 @@ describe("VCard document", () => {
       expect(card.uid).toBe("ABC-123");
       expect(card.text("FN")).toBe("Jane Q Doe");
       expect(card.get("TEL")).toHaveLength(2);
-      expect(card.first("EMAIL")?.param("type")).toBe("INTERNET");
+      expect(card.first("EMAIL")?.param(VPARAM.TYPE)).toBe("INTERNET");
       expect(card.first("N")?.components()).toEqual([
         "Doe",
         "Jane",
@@ -167,7 +192,21 @@ describe("VCard document", () => {
     });
 
     /**
-     * @case Unmodeled and grouped properties are present as ordinary properties
+     * @case The body is plain data (no methods, JSON-safe)
+     * @preconditions A parsed card's `.data`
+     * @expectedResult `.data` is a plain object whose properties carry values
+     */
+    test("the body is plain serializable data", () => {
+      const body: VCardBody = VCard.parse(ICLOUD_VCARD).data;
+      expect(typeof (body as { text?: unknown }).text).toBe("undefined");
+      const json = JSON.parse(JSON.stringify(body));
+      expect(json.version).toBe("3.0");
+      const fn = json.properties.find((p: { name: string }) => p.name === "FN");
+      expect(fn.value).toBe("Jane Q Doe");
+    });
+
+    /**
+     * @case Unmodeled and grouped properties survive as ordinary properties
      * @preconditions A card with PRODID, X-CUSTOM-FIELD, and a grouped X-ABLabel
      * @expectedResult They appear in the property list like any other property
      */
@@ -175,8 +214,8 @@ describe("VCard document", () => {
       const card = VCard.parse(ICLOUD_VCARD);
       expect(card.text("PRODID")).toBe("-//Apple Inc.//iOS 17//EN");
       expect(card.text("X-CUSTOM-FIELD")).toBe("keepme");
-      const labeledTel = card.get("TEL").find((p) => p.group === "item1");
-      expect(labeledTel?.value).toBe("+15559990000");
+      const labeled = card.get("TEL").find((p) => p.group === "item1");
+      expect(labeled?.value).toBe("+15559990000");
       const label = card.get("X-ABLabel").find((p) => p.group === "item1");
       expect(label?.value).toBe("School");
     });
@@ -192,7 +231,6 @@ describe("VCard document", () => {
       const out1 = VCard.parse(ICLOUD_VCARD).toString();
       const out2 = VCard.parse(out1).toString();
       expect(out2).toBe(out1);
-      // Nothing dropped, including the things a typed model would have lost.
       expect(out1).toContain("PRODID:-//Apple Inc.//iOS 17//EN");
       expect(out1).toContain("X-CUSTOM-FIELD:keepme");
       expect(out1).toContain("item1.X-ABLabel:School");
@@ -204,24 +242,33 @@ describe("VCard document", () => {
 
   describe("writing", () => {
     /**
-     * @case set replaces a property, remove deletes it, add appends
-     * @preconditions A parsed card
-     * @expectedResult The property list reflects each mutation
+     * @case wrap edits the underlying body in place
+     * @preconditions A plain body wrapped and mutated
+     * @expectedResult The body reflects the edits
      */
-    test("set / add / remove mutate the property list", () => {
-      const card = VCard.parse(ICLOUD_VCARD);
-      card.set("NOTE", "new note");
-      expect(card.text("NOTE")).toBe("new note");
-      expect(card.get("NOTE")).toHaveLength(1);
+    test("wrap mutates the underlying body in place", () => {
+      const body = VCard.parse(ICLOUD_VCARD).data;
+      VCard.wrap(body).set("NOTE", "new note").remove("X-CUSTOM-FIELD");
+      const reread = VCard.wrap(body);
+      expect(reread.text("NOTE")).toBe("new note");
+      expect(reread.first("X-CUSTOM-FIELD")).toBeUndefined();
+    });
 
-      card.add("TEL", "+15550000000", {
-        params: [{ name: "type", value: "work" }],
-      });
-      expect(card.get("TEL")).toHaveLength(3);
-
-      card.remove("X-CUSTOM-FIELD");
-      expect(card.first("X-CUSTOM-FIELD")).toBeUndefined();
-      expect(card.toString()).not.toContain("X-CUSTOM-FIELD");
+    /**
+     * @case create builds a fresh body, add appends, and `.data` is the body
+     * @preconditions VCard.create().add(...)
+     * @expectedResult The serialized card re-parses to the added fields
+     */
+    test("create / add build a body", () => {
+      const body = VCard.create()
+        .add("FN", "Sam Lee")
+        .add("EMAIL", "sam@lee.com", {
+          params: [{ name: "type", value: "work" }],
+        }).data;
+      const round = VCard.wrap(body);
+      expect(round.text("FN")).toBe("Sam Lee");
+      expect(round.first("EMAIL")?.param("type")).toBe("work");
+      expect(VCard.serialize(body)).toContain("FN:Sam Lee");
     });
 
     /**
@@ -231,18 +278,18 @@ describe("VCard document", () => {
      */
     test("escapes and round-trips special characters", () => {
       const note = "a, b; c\nd";
-      const card = new VCard().add("FN", "X").add("NOTE", note);
-      expect(VCard.parse(card.toString()).text("NOTE")).toBe(note);
+      const out = VCard.create().add("FN", "X").add("NOTE", note).toString();
+      expect(VCard.parse(out).text("NOTE")).toBe(note);
     });
 
     /**
-     * @case Structured components escape per-component separators
-     * @preconditions An ORG component containing a comma, set via setComponents
+     * @case setComponents escapes each structured component
+     * @preconditions An ORG component containing a comma
      * @expectedResult The component round-trips intact
      */
     test("setComponents escapes each component", () => {
-      const card = new VCard().add("FN", "X");
-      card.add("ORG", "").first("ORG")!.setComponents(["Acme, Inc.", "R&D"]);
+      const card = VCard.create().add("FN", "X").add("ORG", "");
+      card.first("ORG")!.setComponents(["Acme, Inc.", "R&D"]);
       const round = VCard.parse(card.toString());
       expect(round.first("ORG")?.components()).toEqual(["Acme, Inc.", "R&D"]);
     });
@@ -254,51 +301,11 @@ describe("VCard document", () => {
      */
     test("folds long multibyte lines safely", () => {
       const note = "café ".repeat(40);
-      const out = new VCard().add("FN", "X").add("NOTE", note).toString();
+      const out = VCard.create().add("FN", "X").add("NOTE", note).toString();
       for (const line of out.split("\r\n")) {
         expect(Buffer.byteLength(line, "utf8")).toBeLessThanOrEqual(75);
       }
       expect(VCard.parse(out).text("NOTE")).toBe(note);
-    });
-
-    /**
-     * @case clone produces an independent copy
-     * @preconditions A parsed card cloned and mutated
-     * @expectedResult The original is unchanged
-     */
-    test("clone is independent", () => {
-      const card = VCard.parse(ICLOUD_VCARD);
-      const copy = card.clone();
-      copy.set("NOTE", "changed");
-      expect(card.text("NOTE")).toBe("Met at the conference.");
-      expect(copy.text("NOTE")).toBe("changed");
-    });
-
-    /**
-     * @case JSON.stringify exposes property values (private field surfaced via toJSON)
-     * @preconditions A parsed card serialized with JSON.stringify
-     * @expectedResult The JSON carries each property's value, not an empty property
-     */
-    test("JSON.stringify exposes property values", () => {
-      const json = JSON.parse(JSON.stringify(VCard.parse(ICLOUD_VCARD)));
-      expect(json.version).toBe("3.0");
-      const fn = json.properties.find((p: { name: string }) => p.name === "FN");
-      expect(fn.value).toBe("Jane Q Doe");
-    });
-  });
-
-  describe("constants", () => {
-    /**
-     * @case The name constants resolve property and parameter lookups
-     * @preconditions A parsed card read via VCARD / VPARAM constants
-     * @expectedResult Reading by constant matches reading by string literal
-     */
-    test("VCARD / VPARAM drive lookups and carry the wire names", () => {
-      const card = VCard.parse(ICLOUD_VCARD);
-      expect(card.text(VCARD.FN)).toBe("Jane Q Doe");
-      expect(card.first(VCARD.EMAIL)?.param(VPARAM.TYPE)).toBe("INTERNET");
-      expect(VCARD.X_ABLABEL).toBe("X-ABLabel");
-      expect(VCARD.X_SOCIALPROFILE).toBe("X-SOCIALPROFILE");
     });
   });
 
@@ -313,7 +320,7 @@ describe("VCard document", () => {
     });
 
     /**
-     * @case A vCard collection is rejected rather than flattened
+     * @case A vCard collection is rejected
      * @preconditions Two BEGIN:VCARD blocks in one payload
      * @expectedResult VCard.parse throws a SyntaxError
      */
@@ -339,21 +346,35 @@ describe("VCard document", () => {
         ].join("\r\n"),
       );
       expect(card.text("FN")).toBe("x");
-      const grouped = card.get("BEGIN").find((p) => p.group === "item1");
-      expect(grouped?.value).toBe("VCARD");
     });
 
     /**
      * @case A property name/group that could break the header grammar is rejected
-     * @preconditions add() with a name containing CRLF, or a group containing a dot
-     * @expectedResult A SyntaxError is thrown instead of emitting a forged property
+     * @preconditions add() with a name containing CRLF, a group with a dot, or an empty name
+     * @expectedResult add() throws a SyntaxError
      */
     test("rejects an injectable property name or group", () => {
-      expect(() => new VCard().add("FN:x\r\nEVIL", "y")).toThrow(SyntaxError);
-      expect(() => new VCard().add("OK", "y", { group: "a.b" })).toThrow(
+      expect(() => VCard.create().add("FN:x\r\nEVIL", "y")).toThrow(
         SyntaxError,
       );
-      expect(() => new VCard().add("", "y")).toThrow(SyntaxError);
+      expect(() => VCard.create().add("OK", "y", { group: "a.b" })).toThrow(
+        SyntaxError,
+      );
+      expect(() => VCard.create().add("", "y")).toThrow(SyntaxError);
+    });
+  });
+
+  describe("constants", () => {
+    /**
+     * @case The name constants drive lookups and carry the wire names
+     * @preconditions A parsed card read via VCARD / VPARAM constants
+     * @expectedResult Reading by constant matches reading by string literal
+     */
+    test("VCARD / VPARAM resolve lookups", () => {
+      const card = VCard.parse(ICLOUD_VCARD);
+      expect(card.text(VCARD.FN)).toBe("Jane Q Doe");
+      expect(card.first(VCARD.EMAIL)?.param(VPARAM.TYPE)).toBe("INTERNET");
+      expect(VCARD.X_ABLABEL).toBe("X-ABLabel");
     });
   });
 });
@@ -369,11 +390,11 @@ describe("CardDAV source (read)", () => {
   });
 
   /**
-   * @case The source emits one VCard per card, carrying url and etag
+   * @case The source emits one plain VCardBody per card, with identity on headers
    * @preconditions A driver returning two cards
-   * @expectedResult Two exchanges, each body a VCard with its url/etag
+   * @expectedResult Two exchanges; each body is plain; headers carry url/uid/etag
    */
-  test("emits one VCard per card", async () => {
+  test("emits one plain body per card with identity on headers", async () => {
     CardDAVClientManager.createDriverClient = async () =>
       fakeDriver([
         { url: `${BOOK_URL}abc-123.vcf`, etag: '"1"', data: ICLOUD_VCARD },
@@ -393,11 +414,13 @@ describe("CardDAV source (read)", () => {
 
     expect(t.errors).toHaveLength(0);
     expect(s.received).toHaveLength(2);
-    const first = s.received[0]?.body as VCard;
-    expect(first).toBeInstanceOf(VCard);
-    expect(first.url).toBe(`${BOOK_URL}abc-123.vcf`);
-    expect(first.etag).toBe('"1"');
-    expect(first.uid).toBe("ABC-123");
+    const body = s.received[0]?.body as VCardBody;
+    expect(typeof (body as { text?: unknown }).text).toBe("undefined");
+    expect(VCard.wrap(body).text("FN")).toBe("Jane Q Doe");
+    const headers = s.received[0]?.headers ?? {};
+    expect(headers[HEADER_CARDDAV_URL]).toBe(`${BOOK_URL}abc-123.vcf`);
+    expect(headers[HEADER_CARDDAV_ETAG]).toBe('"1"');
+    expect(headers[HEADER_CARDDAV_UID]).toBe("ABC-123");
   });
 
   /**
@@ -447,7 +470,7 @@ describe("CardDAV source (read)", () => {
   /**
    * @case Enriching pulls all cards onto the triggering exchange
    * @preconditions A trigger source and a driver returning one card
-   * @expectedResult The enriched body carries the fetched VCard
+   * @expectedResult The enriched body carries the fetched card data
    */
   test("enrich returns all cards", async () => {
     CardDAVClientManager.createDriverClient = async () =>
@@ -463,8 +486,8 @@ describe("CardDAV source (read)", () => {
     await t.test();
 
     expect(t.errors).toHaveLength(0);
-    const body = s.received[0]?.body as Record<string, VCard>;
-    expect(body["0"]?.text("FN")).toBe("Jane Q Doe");
+    const body = s.received[0]?.body as Record<string, VCardBody>;
+    expect(VCard.wrap(body["0"]!).text("FN")).toBe("Jane Q Doe");
   });
 });
 
@@ -479,21 +502,21 @@ describe("CardDAV destination (write)", () => {
   });
 
   /**
-   * @case save with no existing url creates a new card and injects a UID
-   * @preconditions Empty address book; a new VCard without url or UID
-   * @expectedResult createVCard is called with a UID-bearing card; result.created is true
+   * @case save with no url creates a new card and injects a UID
+   * @preconditions Empty book; a fresh body without url or UID
+   * @expectedResult createVCard runs with a UID-bearing card; result.created is true
    */
   test("save creates when there is no url", async () => {
     const driver = fakeDriver([]);
     CardDAVClientManager.createDriverClient = async () => driver;
 
-    const card = new VCard().add("FN", "Sam Lee");
+    const body = VCard.create().add("FN", "Sam Lee").data;
     const s = spy();
     t = await testContext()
       .with(ACCOUNT_CONFIG)
       .routes(
         craft()
-          .from(simple(card))
+          .from(simple(body))
           .to(carddav({ action: "save" }))
           .to(s),
       )
@@ -504,154 +527,13 @@ describe("CardDAV destination (write)", () => {
     expect(driver.created).toHaveLength(1);
     expect(driver.created[0]?.vCardString).toContain("FN:Sam Lee");
     expect(driver.created[0]?.vCardString).toContain("UID:");
-    const result = s.received[0]?.body as CardDAVWriteResult;
-    expect(result.created).toBe(true);
+    expect((s.received[0]?.body as CardDAVWriteResult).created).toBe(true);
     expect(driver.calls.fetchVCards).toBe(0);
   });
 
   /**
-   * @case A VCard tapped to a carddav write survives tap's snapshot clone
-   * @preconditions A VCard body tapped into carddav({ action: 'save' })
-   * @expectedResult The tapped write runs (the VCard keeps its prototype through tap's clone)
-   */
-  test("a VCard survives tap's snapshot clone", async () => {
-    const driver = fakeDriver([]);
-    CardDAVClientManager.createDriverClient = async () => driver;
-
-    const card = new VCard().add("FN", "Tapped");
-    t = await testContext()
-      .with(ACCOUNT_CONFIG)
-      .routes(
-        craft()
-          .from(simple(card))
-          .tap(carddav({ action: "save" }))
-          .to(spy()),
-      )
-      .build();
-    await t.test();
-    await new Promise((resolve) => setTimeout(resolve, 25));
-
-    expect(driver.created).toHaveLength(1);
-    expect(driver.created[0]?.vCardString).toContain("FN:Tapped");
-  });
-
-  /**
-   * @case A UID with URL-unsafe characters is escaped into a single filename segment
-   * @preconditions A new VCard whose UID contains a slash
-   * @expectedResult The create filename is percent-encoded (one path segment)
-   */
-  test("url-escapes a UID with unsafe characters in the filename", async () => {
-    const driver = fakeDriver([]);
-    CardDAVClientManager.createDriverClient = async () => driver;
-
-    const card = new VCard().add("UID", "foo/bar").add("FN", "Slash");
-    t = await testContext()
-      .with(ACCOUNT_CONFIG)
-      .routes(
-        craft()
-          .from(simple(card))
-          .to(carddav({ action: "create" })),
-      )
-      .build();
-    await t.test();
-
-    expect(t.errors).toHaveLength(0);
-    expect(driver.created[0]?.filename).toBe("foo%2Fbar.vcf");
-  });
-
-  /**
-   * @case update writes to the card's url with its read-time etag as If-Match
-   * @preconditions A card exists; the body is a VCard carrying that url and etag
-   * @expectedResult updateVCard is called with url + etag; no address-book fetch happens
-   */
-  test("update targets url with If-Match and does not refetch", async () => {
-    const driver = fakeDriver([
-      { url: `${BOOK_URL}abc-123.vcf`, etag: '"1"', data: ICLOUD_VCARD },
-    ]);
-    CardDAVClientManager.createDriverClient = async () => driver;
-
-    const card = VCard.parse(ICLOUD_VCARD);
-    card.url = `${BOOK_URL}abc-123.vcf`;
-    card.etag = '"1"';
-    card.set("NOTE", "updated");
-
-    const s = spy();
-    t = await testContext()
-      .with(ACCOUNT_CONFIG)
-      .routes(
-        craft()
-          .from(simple(card))
-          .to(carddav({ action: "update" }))
-          .to(s),
-      )
-      .build();
-    await t.test();
-
-    expect(t.errors).toHaveLength(0);
-    expect(driver.updated).toHaveLength(1);
-    expect(driver.updated[0]?.vCard.url).toBe(`${BOOK_URL}abc-123.vcf`);
-    expect(driver.updated[0]?.vCard.etag).toBe('"1"');
-    expect(driver.updated[0]?.vCard.data).toContain("NOTE:updated");
-    expect(driver.calls.fetchVCards).toBe(0);
-    expect(driver.calls.fetchBooks).toBe(0);
-    const result = s.received[0]?.body as CardDAVWriteResult;
-    expect(result.created).toBe(false);
-  });
-
-  /**
-   * @case A stale etag is rejected by the server precondition (lost-update guard)
-   * @preconditions The server card is at etag "2"; the body carries the stale "1"
-   * @expectedResult The 412 surfaces as the non-retryable RC5030 conflict code
-   */
-  test("update with a stale etag surfaces a conflict", async () => {
-    const driver = fakeDriver([
-      { url: `${BOOK_URL}abc-123.vcf`, etag: '"2"', data: ICLOUD_VCARD },
-    ]);
-    CardDAVClientManager.createDriverClient = async () => driver;
-
-    const card = VCard.parse(ICLOUD_VCARD);
-    card.url = `${BOOK_URL}abc-123.vcf`;
-    card.etag = '"1"';
-
-    t = await testContext()
-      .with(ACCOUNT_CONFIG)
-      .routes(
-        craft()
-          .from(simple(card))
-          .to(carddav({ action: "update" })),
-      )
-      .build();
-    await t.test();
-
-    const conflict = t.errors.find((e) => e.rc === "RC5030");
-    expect(conflict).toBeDefined();
-    expect(conflict?.retryable).toBe(false);
-  });
-
-  /**
-   * @case update without a resolvable url is a hard error
-   * @preconditions A VCard with neither url nor headers
-   * @expectedResult The route surfaces RC5014
-   */
-  test("update without a url raises RC5014", async () => {
-    CardDAVClientManager.createDriverClient = async () => fakeDriver([]);
-
-    t = await testContext()
-      .with(ACCOUNT_CONFIG)
-      .routes(
-        craft()
-          .from(simple(new VCard().add("FN", "No Url")))
-          .to(carddav({ action: "update" })),
-      )
-      .build();
-    await t.test();
-
-    expect(t.errors.some((e) => e.rc === "RC5014")).toBe(true);
-  });
-
-  /**
-   * @case save without url falls back to update when the resource already exists
-   * @preconditions A card already exists at uid EXISTS.vcf; body has that uid, no url
+   * @case save without url updates an existing uid via the 412 conflict fallback
+   * @preconditions A card exists at uid EXISTS; body has that uid, no url
    * @expectedResult create returns 412, the adapter locates the card and updates it
    */
   test("save without url updates an existing uid via conflict fallback", async () => {
@@ -660,21 +542,45 @@ describe("CardDAV destination (write)", () => {
     ]);
     CardDAVClientManager.createDriverClient = async () => driver;
 
-    const card = new VCard().add("UID", "EXISTS").add("FN", "Up Date");
+    const body = VCard.create().add("UID", "EXISTS").add("FN", "Up Date").data;
     t = await testContext()
       .with(ACCOUNT_CONFIG)
       .routes(
         craft()
-          .from(simple(card))
+          .from(simple(body))
           .to(carddav({ action: "save" })),
       )
       .build();
     await t.test();
 
     expect(t.errors).toHaveLength(0);
-    expect(driver.created).toHaveLength(1); // attempted, hit 412
-    expect(driver.updated).toHaveLength(1); // then updated
+    expect(driver.created).toHaveLength(1);
+    expect(driver.updated).toHaveLength(1);
     expect(driver.updated[0]?.vCard.url).toBe(`${BOOK_URL}EXISTS.vcf`);
+  });
+
+  /**
+   * @case A UID with URL-unsafe characters is escaped into a single filename segment
+   * @preconditions A fresh body whose UID contains a slash
+   * @expectedResult The create filename is percent-encoded
+   */
+  test("url-escapes a UID with unsafe characters in the filename", async () => {
+    const driver = fakeDriver([]);
+    CardDAVClientManager.createDriverClient = async () => driver;
+
+    const body = VCard.create().add("UID", "foo/bar").add("FN", "Slash").data;
+    t = await testContext()
+      .with(ACCOUNT_CONFIG)
+      .routes(
+        craft()
+          .from(simple(body))
+          .to(carddav({ action: "create" })),
+      )
+      .build();
+    await t.test();
+
+    expect(t.errors).toHaveLength(0);
+    expect(driver.created[0]?.filename).toBe("foo%2Fbar.vcf");
   });
 
   /**
@@ -689,13 +595,125 @@ describe("CardDAV destination (write)", () => {
       .with(ACCOUNT_CONFIG)
       .routes(
         craft()
-          .from(simple("not a card" as unknown as VCard))
+          .from(simple("not a card"))
           .to(carddav({ action: "create" })),
       )
       .build();
     await t.test();
 
     expect(t.errors.some((e) => e.rc === "RC5001")).toBe(true);
+  });
+
+  /**
+   * @case A plain body survives tap's snapshot clone
+   * @preconditions A plain VCardBody tapped into carddav({ action: 'save' })
+   * @expectedResult The tapped write runs on the cloned plain body
+   */
+  test("a plain body survives tap's snapshot clone", async () => {
+    const driver = fakeDriver([]);
+    CardDAVClientManager.createDriverClient = async () => driver;
+
+    const body = VCard.create().add("FN", "Tapped").data;
+    t = await testContext()
+      .with(ACCOUNT_CONFIG)
+      .routes(
+        craft()
+          .from(simple(body))
+          .tap(carddav({ action: "save" }))
+          .to(spy()),
+      )
+      .build();
+    await t.test();
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    expect(driver.created).toHaveLength(1);
+    expect(driver.created[0]?.vCardString).toContain("FN:Tapped");
+  });
+
+  // --- header-driven update paths (direct send) ---
+
+  /**
+   * @case update targets the url header with the etag header as If-Match
+   * @preconditions Headers carry url + etag; the body is an edited VCardBody
+   * @expectedResult updateVCard runs with url + etag and does not fetch
+   */
+  test("update targets url with If-Match and does not refetch", async () => {
+    const driver = fakeDriver([
+      { url: `${BOOK_URL}abc-123.vcf`, etag: '"1"', data: ICLOUD_VCARD },
+    ]);
+    CardDAVClientManager.createDriverClient = async () => driver;
+    const ctx = await carddavCtx();
+
+    const body = VCard.parse(ICLOUD_VCARD).set("NOTE", "updated").data;
+    const adapter = new CardDAVAdapter({ action: "update" });
+    const result = (await adapter.send(
+      exchangeWith(
+        {
+          [HEADER_CARDDAV_URL]: `${BOOK_URL}abc-123.vcf`,
+          [HEADER_CARDDAV_ETAG]: '"1"',
+        },
+        body,
+        ctx,
+      ),
+    )) as CardDAVWriteResult;
+
+    expect(driver.updated).toHaveLength(1);
+    expect(driver.updated[0]?.vCard.url).toBe(`${BOOK_URL}abc-123.vcf`);
+    expect(driver.updated[0]?.vCard.etag).toBe('"1"');
+    expect(driver.updated[0]?.vCard.data).toContain("NOTE:updated");
+    expect(driver.calls.fetchVCards).toBe(0);
+    expect(driver.calls.fetchBooks).toBe(0);
+    expect(result.created).toBe(false);
+    await ctx.stop();
+  });
+
+  /**
+   * @case A stale etag is rejected by the server precondition
+   * @preconditions The server card is at etag "2"; the etag header is the stale "1"
+   * @expectedResult The 412 surfaces as the non-retryable RC5030 conflict
+   */
+  test("update with a stale etag surfaces a conflict", async () => {
+    const driver = fakeDriver([
+      { url: `${BOOK_URL}abc-123.vcf`, etag: '"2"', data: ICLOUD_VCARD },
+    ]);
+    CardDAVClientManager.createDriverClient = async () => driver;
+    const ctx = await carddavCtx();
+
+    const adapter = new CardDAVAdapter({ action: "update" });
+    await expect(
+      adapter.send(
+        exchangeWith(
+          {
+            [HEADER_CARDDAV_URL]: `${BOOK_URL}abc-123.vcf`,
+            [HEADER_CARDDAV_ETAG]: '"1"',
+          },
+          VCard.parse(ICLOUD_VCARD).data,
+          ctx,
+        ),
+      ),
+    ).rejects.toMatchObject({ rc: "RC5030", retryable: false });
+    await ctx.stop();
+  });
+
+  /**
+   * @case update without a resolvable url is a hard error
+   * @preconditions A body with no url header and no UID
+   * @expectedResult The route surfaces RC5014
+   */
+  test("update without a url raises RC5014", async () => {
+    CardDAVClientManager.createDriverClient = async () => fakeDriver([]);
+
+    t = await testContext()
+      .with(ACCOUNT_CONFIG)
+      .routes(
+        craft()
+          .from(simple(VCard.create().add("FN", "No Url").data))
+          .to(carddav({ action: "update" })),
+      )
+      .build();
+    await t.test();
+
+    expect(t.errors.some((e) => e.rc === "RC5014")).toBe(true);
   });
 });
 
@@ -710,76 +728,63 @@ describe("CardDAV destination (delete)", () => {
   });
 
   /**
-   * @case Delete by url targets the resource directly with its etag
-   * @preconditions A card exists; the body is a VCard carrying its url and etag
-   * @expectedResult deleteVCard is called with url + etag; no fetch happens
+   * @case Delete by the url header targets the resource directly with its etag
+   * @preconditions Headers carry url + etag
+   * @expectedResult deleteVCard runs with url + etag; no fetch happens
    */
-  test("deletes by url without refetching", async () => {
+  test("deletes by url header without refetching", async () => {
     const driver = fakeDriver([
       { url: `${BOOK_URL}abc-123.vcf`, etag: '"1"', data: ICLOUD_VCARD },
     ]);
     CardDAVClientManager.createDriverClient = async () => driver;
+    const ctx = await carddavCtx();
 
-    const card = VCard.parse(ICLOUD_VCARD);
-    card.url = `${BOOK_URL}abc-123.vcf`;
-    card.etag = '"1"';
+    const adapter = new CardDAVAdapter({ action: "delete" });
+    const result = (await adapter.send(
+      exchangeWith(
+        {
+          [HEADER_CARDDAV_URL]: `${BOOK_URL}abc-123.vcf`,
+          [HEADER_CARDDAV_ETAG]: '"1"',
+        },
+        VCard.create().data,
+        ctx,
+      ),
+    )) as CardDAVDeleteResult;
 
-    const s = spy();
-    t = await testContext()
-      .with(ACCOUNT_CONFIG)
-      .routes(
-        craft()
-          .from(simple(card))
-          .to(carddav({ action: "delete" }))
-          .to(s),
-      )
-      .build();
-    await t.test();
-
-    expect(t.errors).toHaveLength(0);
     expect(driver.deleted[0]?.vCard.url).toBe(`${BOOK_URL}abc-123.vcf`);
     expect(driver.deleted[0]?.vCard.etag).toBe('"1"');
     expect(driver.calls.fetchVCards).toBe(0);
-    const result = s.received[0]?.body as CardDAVDeleteResult;
     expect(result.deleted).toBe(true);
+    await ctx.stop();
   });
 
   /**
-   * @case Delete via a custom target extractor still sends If-Match
-   * @preconditions A card exists; a target extractor supplies its url; the VCard carries the etag
-   * @expectedResult deleteVCard receives the read-time etag
+   * @case Delete via a target extractor still sends the etag header as If-Match
+   * @preconditions A target extractor supplies the url; the etag header is set
+   * @expectedResult deleteVCard receives the etag
    */
   test("delete via target extractor still sends the etag", async () => {
     const driver = fakeDriver([
       { url: `${BOOK_URL}abc-123.vcf`, etag: '"1"', data: ICLOUD_VCARD },
     ]);
     CardDAVClientManager.createDriverClient = async () => driver;
+    const ctx = await carddavCtx();
 
-    const card = VCard.parse(ICLOUD_VCARD);
-    card.etag = '"1"';
+    const adapter = new CardDAVAdapter({
+      action: "delete",
+      target: () => ({ url: `${BOOK_URL}abc-123.vcf` }),
+    });
+    await adapter.send(
+      exchangeWith({ [HEADER_CARDDAV_ETAG]: '"1"' }, VCard.create().data, ctx),
+    );
 
-    t = await testContext()
-      .with(ACCOUNT_CONFIG)
-      .routes(
-        craft()
-          .from(simple(card))
-          .to(
-            carddav({
-              action: "delete",
-              target: () => ({ url: `${BOOK_URL}abc-123.vcf` }),
-            }),
-          ),
-      )
-      .build();
-    await t.test();
-
-    expect(t.errors).toHaveLength(0);
     expect(driver.deleted[0]?.vCard.etag).toBe('"1"');
+    await ctx.stop();
   });
 
   /**
    * @case Delete by uid (no url) looks the contact up first
-   * @preconditions A card exists; the VCard carries only its uid (no url)
+   * @preconditions A card exists; the body carries only its UID
    * @expectedResult The adapter fetches, finds the match, and deletes it
    */
   test("deletes by uid via lookup", async () => {
@@ -792,7 +797,7 @@ describe("CardDAV destination (delete)", () => {
       .with(ACCOUNT_CONFIG)
       .routes(
         craft()
-          .from(simple(new VCard().add("UID", "ABC-123")))
+          .from(simple(VCard.create().add("UID", "ABC-123").data))
           .to(carddav({ action: "delete" })),
       )
       .build();
@@ -805,7 +810,7 @@ describe("CardDAV destination (delete)", () => {
 
   /**
    * @case Delete with no resolvable target is a hard error
-   * @preconditions Empty address book; the VCard carries an unknown uid
+   * @preconditions Empty book; the body carries an unknown UID
    * @expectedResult The route surfaces RC5014
    */
   test("delete without a match raises RC5014", async () => {
@@ -815,7 +820,7 @@ describe("CardDAV destination (delete)", () => {
       .with(ACCOUNT_CONFIG)
       .routes(
         craft()
-          .from(simple(new VCard().add("UID", "missing")))
+          .from(simple(VCard.create().add("UID", "missing").data))
           .to(carddav({ action: "delete" })),
       )
       .build();

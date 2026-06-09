@@ -1,12 +1,15 @@
 /**
- * vCard document model.
+ * vCard document: a plain-data body plus an optional {@link VCard} wrapper.
  *
- * A {@link VCard} is the faithful, lossless representation of a vCard: an ordered
- * list of {@link VCardProperty} entries. There is no typed `Contact` projection.
- * You read and write the properties directly (like working with parsed JSON from
- * an HTTP endpoint), and bring your own typed shape in a `.transform()` if you
- * want one. Because the document IS the protocol, a read-then-write loses
- * nothing it was not explicitly told to change.
+ * The exchange body is plain, serialization-safe data ({@link VCardBody}): a
+ * version string and an ordered list of {@link VCardPropertyData}. It survives
+ * `structuredClone`, `JSON.stringify`, queues, and `tap` with nothing lost,
+ * because it is just data.
+ *
+ * For ergonomics, wrap a body in a {@link VCard} (`VCard.wrap(body)`,
+ * `VCard.create()`, `VCard.parse(string)`). The wrapper reads and edits the
+ * underlying data in place and exposes `.data` to get the plain body back. The
+ * wrapper is a transient view, never the body itself, so the body stays plain.
  *
  * @experimental
  */
@@ -18,6 +21,7 @@ import {
   parseRecords,
   splitOnUnescaped,
   unescapeText,
+  type PropertySpec,
   type VCardParam,
 } from "./vcard-raw.ts";
 
@@ -36,7 +40,31 @@ function assertValidName(value: string, kind = "property name"): void {
   }
 }
 
-/** Options when constructing or adding a property. */
+/**
+ * A single vCard property as plain data. `value` is the escaped wire value (the
+ * lossless source of truth); use {@link VCardProperty.value} on a wrapper for
+ * the decoded text, or {@link VCardProperty.components} for structured values.
+ */
+export interface VCardPropertyData {
+  /** Property name as written (e.g. `"TEL"`, `"X-SOCIALPROFILE"`). */
+  name: string;
+  /** Group prefix (e.g. `"item1"`), if any. */
+  group?: string;
+  /** Parameters, in order, captured verbatim. */
+  params: VCardParam[];
+  /** Escaped wire value (post-unfold), exactly as it appears after the colon. */
+  value: string;
+}
+
+/** A vCard document as plain data. This is the exchange body. */
+export interface VCardBody {
+  /** vCard version (default `"3.0"`). */
+  version: string;
+  /** The ordered property list. */
+  properties: VCardPropertyData[];
+}
+
+/** Options when adding a property. */
 export interface VCardPropertyOptions {
   /** Group prefix (e.g. `"item1"`) for label-grouped properties. */
   group?: string;
@@ -45,129 +73,80 @@ export interface VCardPropertyOptions {
 }
 
 /**
- * One vCard property (e.g. `TEL;TYPE=home:+1...`). The decoded text is exposed
- * via {@link VCardProperty.value}; the escaped wire form is kept internally so a
- * round-trip is byte-faithful for anything you do not change. For structured
- * properties (`N`, `ADR`, `ORG`) use {@link VCardProperty.components}.
+ * A transient view over one {@link VCardPropertyData}. Reads and writes go
+ * straight through to the underlying plain object, so edits are reflected in the
+ * body. `value` is decoded text; `raw` is the escaped wire form.
  */
 export class VCardProperty {
-  /** Property name as written (e.g. `"TEL"`, `"X-SOCIALPROFILE"`). */
-  name: string;
-  /** Group prefix (e.g. `"item1"`), or undefined. */
-  group: string | undefined;
-  /** Parameters, in order. */
-  params: VCardParam[];
-  /** Escaped value bytes (post-unfold), the lossless source of truth. */
-  #raw: string;
+  constructor(private readonly data: VCardPropertyData) {}
 
-  /**
-   * @param value By default a decoded value that is escaped on the way in. Pass
-   *   `options.raw = true` (used by the parser) to supply already-escaped bytes.
-   */
-  constructor(
-    name: string,
-    value: string,
-    options: VCardPropertyOptions & { raw?: boolean } = {},
-  ) {
-    // Caller-supplied names/groups/params are validated so they cannot inject a
-    // colon, semicolon, or newline into the header and forge or split a
-    // property on write. The parser (`raw: true`) trusts the lexer's output.
-    if (!options.raw) {
-      assertValidName(name);
-      if (options.group !== undefined) assertValidName(options.group, "group");
-      for (const param of options.params ?? []) {
-        assertValidName(param.name, "parameter name");
-      }
-    }
-    this.name = name;
-    this.group = options.group;
-    this.params = options.params ?? [];
-    this.#raw = options.raw ? value : escapeText(value);
+  /** Property name as written. */
+  get name(): string {
+    return this.data.name;
   }
-
+  /** Group prefix, or undefined. */
+  get group(): string | undefined {
+    return this.data.group;
+  }
+  /** Parameters, in order. */
+  get params(): VCardParam[] {
+    return this.data.params;
+  }
   /** Decoded text value (RFC 6350 escapes resolved). */
   get value(): string {
-    return unescapeText(this.#raw);
+    return unescapeText(this.data.value);
   }
   set value(v: string) {
-    this.#raw = escapeText(v);
+    this.data.value = escapeText(v);
   }
-
   /** The escaped wire value, exactly as it appears after the colon. */
   get raw(): string {
-    return this.#raw;
+    return this.data.value;
   }
 
   /** Decoded components of a structured value, split on unescaped `separator`. */
   components(separator = ";"): string[] {
-    return splitOnUnescaped(this.#raw, separator);
+    return splitOnUnescaped(this.data.value, separator);
   }
 
   /** Set a structured value from decoded components (each escaped, then joined). */
   setComponents(parts: string[], separator = ";"): this {
-    this.#raw = parts.map(escapeText).join(separator);
+    this.data.value = parts.map(escapeText).join(separator);
     return this;
   }
 
   /** First value of the named parameter (case-insensitive), if present. */
   param(name: string): string | undefined {
-    return firstParam(this.params, name);
-  }
-
-  /** A deep copy of this property. */
-  clone(): VCardProperty {
-    return new VCardProperty(this.name, this.#raw, {
-      raw: true,
-      ...(this.group !== undefined ? { group: this.group } : {}),
-      params: this.params.map((p) => ({ ...p })),
-    });
-  }
-
-  /**
-   * Plain representation for `JSON.stringify` / logging. The value lives in a
-   * private field, so without this a logged property would show no value; the
-   * decoded value is exposed here for readability.
-   */
-  toJSON(): {
-    name: string;
-    group?: string;
-    params: VCardParam[];
-    value: string;
-  } {
-    return {
-      name: this.name,
-      ...(this.group !== undefined ? { group: this.group } : {}),
-      params: this.params,
-      value: this.value,
-    };
+    return firstParam(this.data.params, name);
   }
 }
 
 /**
- * A vCard document: the property list plus DAV identity (`url`/`etag`) carried
- * alongside it on read. `BEGIN`/`END`/`VERSION` are managed by the document and
- * are not part of {@link VCard.properties}.
+ * An ergonomic wrapper around a {@link VCardBody}. Construct one with
+ * {@link VCard.wrap}, {@link VCard.create}, or {@link VCard.parse}; read it with
+ * `get`/`first`/`text`; edit it with `set`/`add`/`remove`; and read `.data` to
+ * get the plain body to put back on the exchange.
  */
 export class VCard {
-  /** vCard version emitted by {@link VCard.toString} (default `"3.0"`). */
-  version: string;
-  /** DAV object URL (set on read; used to target updates/deletes). */
-  url: string | undefined;
-  /** DAV ETag (set on read; sent as `If-Match` on update/delete). */
-  etag: string | undefined;
-  /** The content properties, in order. */
-  properties: VCardProperty[];
+  /** The underlying plain-data body. */
+  readonly data: VCardBody;
 
-  constructor(
-    properties: VCardProperty[] = [],
-    version: string = DEFAULT_VERSION,
-  ) {
-    this.properties = properties;
-    this.version = version;
+  private constructor(data: VCardBody) {
+    this.data = data;
+  }
+
+  /** Wrap an existing plain body (edits write through to it). */
+  static wrap(body: VCardBody): VCard {
+    return new VCard(body);
+  }
+
+  /** Create a wrapper over a fresh, empty body. */
+  static create(version: string = DEFAULT_VERSION): VCard {
+    return new VCard({ version, properties: [] });
   }
 
   /**
-   * Parse a single vCard string into a {@link VCard}.
+   * Parse a single vCard string into a wrapper. `.data` is the plain body.
    *
    * @throws If the input is not a single `BEGIN:VCARD ... END:VCARD` block.
    */
@@ -176,7 +155,7 @@ export class VCard {
     let beginCount = 0;
     let hasEnd = false;
     let version = DEFAULT_VERSION;
-    const properties: VCardProperty[] = [];
+    const properties: VCardPropertyData[] = [];
 
     for (const record of records) {
       if (
@@ -199,13 +178,12 @@ export class VCard {
         version = record.value;
         continue;
       }
-      properties.push(
-        new VCardProperty(record.rawName, record.rawValue, {
-          raw: true,
-          ...(record.rawGroup !== null ? { group: record.rawGroup } : {}),
-          params: record.params,
-        }),
-      );
+      properties.push({
+        name: record.rawName,
+        ...(record.rawGroup !== null ? { group: record.rawGroup } : {}),
+        params: record.params,
+        value: record.rawValue,
+      });
     }
 
     if (beginCount === 0 || !hasEnd) {
@@ -218,21 +196,20 @@ export class VCard {
         "vCard payload contains a vCard collection; VCard.parse accepts a single card",
       );
     }
-    return new VCard(properties, version);
+    return new VCard({ version, properties });
   }
 
-  /** Serialize back to wire form (`BEGIN:VCARD` ... `END:VCARD`). */
-  toString(): string {
-    const lines = ["BEGIN:VCARD", `VERSION:${this.version}`];
-    for (const p of this.properties) {
-      lines.push(
-        emitProperty({
-          name: p.name,
-          group: p.group ?? null,
-          params: p.params,
-          value: p.raw,
-        }),
-      );
+  /** Serialize a plain body to wire form (`BEGIN:VCARD` ... `END:VCARD`). */
+  static serialize(body: VCardBody): string {
+    const lines = ["BEGIN:VCARD", `VERSION:${body.version}`];
+    for (const p of body.properties) {
+      const spec: PropertySpec = {
+        name: p.name,
+        params: p.params,
+        value: p.value,
+      };
+      if (p.group !== undefined) spec.group = p.group;
+      lines.push(emitProperty(spec));
     }
     lines.push("END:VCARD");
     return lines.join(CRLF);
@@ -240,16 +217,34 @@ export class VCard {
 
   // -- reads -----------------------------------------------------------------
 
+  /** vCard version. */
+  get version(): string {
+    return this.data.version;
+  }
+  set version(v: string) {
+    this.data.version = v;
+  }
+
+  /** Property views, in order. */
+  get properties(): VCardProperty[] {
+    return this.data.properties.map((p) => new VCardProperty(p));
+  }
+
   /** All properties with the given name (case-insensitive). */
   get(name: string): VCardProperty[] {
     const lower = name.toLowerCase();
-    return this.properties.filter((p) => p.name.toLowerCase() === lower);
+    return this.data.properties
+      .filter((p) => p.name.toLowerCase() === lower)
+      .map((p) => new VCardProperty(p));
   }
 
   /** The first property with the given name (case-insensitive), if any. */
   first(name: string): VCardProperty | undefined {
     const lower = name.toLowerCase();
-    return this.properties.find((p) => p.name.toLowerCase() === lower);
+    const data = this.data.properties.find(
+      (p) => p.name.toLowerCase() === lower,
+    );
+    return data ? new VCardProperty(data) : undefined;
   }
 
   /** Decoded value of the first property with the given name. */
@@ -273,12 +268,19 @@ export class VCard {
 
   // -- writes ----------------------------------------------------------------
 
-  /**
-   * Append a property. To append an already-built {@link VCardProperty} (e.g. a
-   * clone), push it onto {@link VCard.properties} directly.
-   */
-  add(name: string, value: string, options?: VCardPropertyOptions): this {
-    this.properties.push(new VCardProperty(name, value, options ?? {}));
+  /** Append a property (a decoded value, escaped on the way in). */
+  add(name: string, value: string, options: VCardPropertyOptions = {}): this {
+    assertValidName(name);
+    if (options.group !== undefined) assertValidName(options.group, "group");
+    for (const param of options.params ?? []) {
+      assertValidName(param.name, "parameter name");
+    }
+    this.data.properties.push({
+      name,
+      ...(options.group !== undefined ? { group: options.group } : {}),
+      params: options.params ?? [],
+      value: escapeText(value),
+    });
     return this;
   }
 
@@ -291,40 +293,29 @@ export class VCard {
   /** Remove every property with the given name (case-insensitive). */
   remove(name: string): this {
     const lower = name.toLowerCase();
-    this.properties = this.properties.filter(
+    this.data.properties = this.data.properties.filter(
       (p) => p.name.toLowerCase() !== lower,
     );
     return this;
   }
 
-  /** A deep copy, including url/etag/version. */
-  clone(): VCard {
-    const copy = new VCard(
-      this.properties.map((p) => p.clone()),
-      this.version,
-    );
-    copy.url = this.url;
-    copy.etag = this.etag;
-    return copy;
+  /** Serialize this card's data to wire form. */
+  toString(): string {
+    return VCard.serialize(this.data);
   }
 
-  /** Plain representation for `JSON.stringify` / logging. */
-  toJSON(): {
-    version: string;
-    url?: string;
-    etag?: string;
-    properties: VCardProperty[];
-  } {
-    return {
-      version: this.version,
-      ...(this.url !== undefined ? { url: this.url } : {}),
-      ...(this.etag !== undefined ? { etag: this.etag } : {}),
-      properties: this.properties,
-    };
+  /** A deep, independent copy (wrapper over cloned data). */
+  clone(): VCard {
+    return new VCard(structuredClone(this.data));
+  }
+
+  /** Plain representation for `JSON.stringify` / logging (the body). */
+  toJSON(): VCardBody {
+    return this.data;
   }
 }
 
-/** Parse a vCard string into a {@link VCard} document. */
+/** Parse a vCard string into a {@link VCard} wrapper. */
 export function parseVCard(raw: string): VCard {
   return VCard.parse(raw);
 }

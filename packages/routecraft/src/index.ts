@@ -409,6 +409,8 @@ export {
   type DAVAddressBookLike,
   type DAVVCardLike,
   type ResolvedCardDAVConnection,
+  type VCardBody,
+  type VCardPropertyData,
   type VCardPropertyOptions,
   type VCardParam,
 } from "./adapters/carddav/index.ts";
