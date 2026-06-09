@@ -323,7 +323,18 @@ export class TestContextBuilder {
       () => spyLogger as unknown as ReturnType<typeof logger.child>,
     );
     logger.child = childSpy as unknown as typeof logger.child;
-    const { context: ctx, client } = await this.builder.build();
+    // Restore the patched child on build failure: the restore hook is only
+    // handed to TestContext after a successful build, so without this a
+    // rejected build (e.g. an invalid route) would leak the stub into every
+    // later test in the process.
+    let built: Awaited<ReturnType<ContextBuilder["build"]>>;
+    try {
+      built = await this.builder.build();
+    } catch (error) {
+      logger.child = originalChild;
+      throw error;
+    }
+    const { context: ctx, client } = built;
 
     // Install registered adapter overrides onto the context store so that
     // ToStep / EnrichStep / Route source can resolve them at execution time.

@@ -5,7 +5,7 @@ import {
   testContext,
   type TestContext,
 } from "@routecraft/testing";
-import { craft, simple, noop } from "@routecraft/routecraft";
+import { craft, simple, noop, logger } from "@routecraft/routecraft";
 
 describe("createSpyFn", () => {
   /**
@@ -71,6 +71,23 @@ describe("spy logger runner-agnostic default", () => {
 
     const messages = t.logger.info.mock.calls.map((c) => c[0]);
     expect(messages).toContain("tapped");
+  });
+
+  /**
+   * @case A rejected build restores the patched logger.child instead of leaking it
+   * @preconditions testContext() with an invalid route (no .from()) so builder.build() rejects
+   * @expectedResult build() rethrows and logger.child is the original framework implementation afterwards
+   */
+  test("restores logger.child when build rejects", async () => {
+    const original = logger.child;
+    let threw = false;
+    try {
+      await testContext().routes(craft().id("invalid-no-source")).build();
+    } catch {
+      threw = true;
+    }
+    expect(threw).toBe(true);
+    expect(logger.child).toBe(original);
   });
 
   /**
